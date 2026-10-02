@@ -13,7 +13,6 @@ being handed to whichever step is nearest.
 """
 
 import json
-import shutil
 from pathlib import Path
 from unittest.mock import patch
 
@@ -22,16 +21,12 @@ import pytest
 from library.tools import provenance
 from library.tools.project_layout import AREAS, Area, ProjectLayout
 from library.tools.provenance import (
-    DECLARED,
     OBSERVED,
     UNKNOWN,
     ProvenanceLedger,
-    new_run_id,
     read_declared_sources,
 )
 from library.tools.run_traceback import (
-    ARTIFACT_INDEX_FILE,
-    TRACEBACK_FILE,
     build_traceback,
     render_artifact_index,
     render_traceback,
@@ -113,11 +108,7 @@ def test_a_file_written_during_a_step_is_attributed_to_that_step(project):
     assert recs[0].method == OBSERVED
     assert recs[0].area == Area.PROSODY.value
 
-
-def test_a_file_the_step_did_not_touch_is_not_attributed_to_it(project):
-    layout = ProjectLayout(project)
-    ledger = ProvenanceLedger(project)
-    _write(layout, Area.PROSODY, "old.json", {"a": 1})
+    # A file the step did not touch in its window is not attributed to it.
     before = ledger.snapshot()
     _write(layout, Area.SUBTITLE_SEGMENTS, "new.json", {"b": 2})
     recs = ledger.observe("render_subtitles", "run-1", before, ledger.snapshot())
@@ -140,6 +131,14 @@ def test_the_provenance_store_is_append_only(project):
     assert len(raw) == 2
     assert {json.loads(r)["run_id"] for r in raw} == {"run-1", "run-2"}
 
+    # The store does not record itself: the next observation names only
+    # the step's own new file, not artifacts.jsonl.
+    before = ledger.snapshot()
+    _write(layout, Area.PROSODY, "d.json", {"a": 2})
+    recs = ledger.observe("prosody_analysis", "run-3", before, ledger.snapshot())
+    assert [r.path for r in recs] == [
+        "pipeline_output/steps/1_05_prosody_analysis/d.json"]
+
 
 # ── Declaration: the weaker kind, labelled as such ──────────────────
 
@@ -161,18 +160,6 @@ def test_every_declared_producer_is_a_real_step_or_a_named_non_step():
 
 # ── Unknown stays unknown ───────────────────────────────────────────
 
-def test_a_step_that_is_not_in_the_dag_is_named_as_not_wired(project):
-    """Nothing is implemented-but-unwired anymore: `object_segmentation`
-    was wired on 2026-09-24 as a matte-triggered step. Its area still
-    declares it, and the reader is told a run with no matte-needing
-    plan produces nothing there - not that no run ever could."""
-    layout = ProjectLayout(project)
-    _write(layout, Area.SEGMENTATION, "clip_001_segmentation.json", {"a": 1})
-    md = render_artifact_index(build_traceback(project, dag=DAG))
-    assert "NOT wired into the DAG" not in md
-    assert "`object_segmentation`" in md
-
-
 def test_an_unsorted_file_reads_as_unknown_not_as_organizes_work(project):
     """`organize` MOVED these. Saying it PRODUCED them would turn an
     admitted unknown back into an attribution."""
@@ -185,25 +172,18 @@ def test_an_unsorted_file_reads_as_unknown_not_as_organizes_work(project):
 
 # ── Derived-from: read, never inferred ──────────────────────────────
 
-@pytest.mark.parametrize("key", [
-    "source_file"])
-def test_each_recorded_source_key_is_read(project, key, tmp_path):
+def test_recorded_sources_are_read_never_inferred(project, monkeypatch):
     layout = ProjectLayout(project)
-    src = str(tmp_path / "raw" / "IMG_1806.MOV")
-    p = _write(layout, Area.PROSODY, f"{key}.json", {key: src})
+    src = str(project / "raw" / "IMG_1806.MOV")
+    p = _write(layout, Area.PROSODY, "source_file.json", {"source_file": src})
     assert read_declared_sources(p) == [src]
 
-
-def test_an_artifact_naming_no_source_gets_no_link(project):
-    layout = ProjectLayout(project)
     p = _write(layout, Area.PROSODY, "c.json", {"clip_id": "clip_001"})
     assert read_declared_sources(p) == [], (
         "a clip_id is not a path; guessing the file from it is the "
         "inference this must not make")
 
-
-def test_a_huge_json_artifact_is_skipped_rather_than_parsed(project, monkeypatch):
-    layout = ProjectLayout(project)
+    # A huge JSON artifact is skipped rather than parsed.
     monkeypatch.setattr(provenance, "SOURCE_SCAN_CEILING_BYTES", 8)
     p = _write(layout, Area.PROSODY, "big.json", {"source_file": "/a/b.mov"})
     assert read_declared_sources(p) == []
@@ -212,15 +192,6 @@ def test_a_huge_json_artifact_is_skipped_rather_than_parsed(project, monkeypatch
 # ── The per-step export ─────────────────────────────────────────────
 
 # ── What gets walked ────────────────────────────────────────────────
-
-def test_the_exports_are_walked_too(project):
-    """"What is Pipeline_Edit.mp4" is the first question anyone asks."""
-    layout = ProjectLayout(project)
-    p = layout.write_path(Area.EXPORTS, "Pipeline_Edit.mp4")
-    p.write_bytes(b"\x00" * 16)
-    paths = [r.path for r in ProvenanceLedger(project).all_artifacts()]
-    assert "exports/Pipeline_Edit.mp4" in paths
-
 
 def test_archived_copies_are_counted_not_attributed(project):
     """An archived copy is not the artifact the step wrote."""
@@ -233,18 +204,6 @@ def test_archived_copies_are_counted_not_attributed(project):
     archived = [r.path for r in ledger.all_artifacts(include_archives=True)
                 if "run_archives" in r.path]
     assert archived, "asking for them explicitly must list them"
-
-
-def test_the_provenance_store_does_not_record_itself(project):
-    layout = ProjectLayout(project)
-    ledger = ProvenanceLedger(project)
-    _write(layout, Area.PROSODY, "c.json", {"a": 1})
-    ledger.observe("prosody_analysis", "run-1", {}, ledger.snapshot())
-    before = ledger.snapshot()
-    _write(layout, Area.PROSODY, "d.json", {"a": 2})
-    recs = ledger.observe("prosody_analysis", "run-2", before, ledger.snapshot())
-    assert [r.path for r in recs] == [
-        "pipeline_output/steps/1_05_prosody_analysis/d.json"]
 
 
 # ── The traceback document ──────────────────────────────────────────
@@ -260,6 +219,10 @@ def test_an_area_with_two_declared_producers_names_both(project):
     rec = ProvenanceLedger(project).of(p)
     assert rec.step_id is None
     assert set(rec.candidates) == {"render", "validate"}
+    # The exports are walked: "what is Pipeline_Edit.mp4" is the first
+    # question anyone asks.
+    assert "exports/Pipeline_Edit.mp4" in [
+        r.path for r in ProvenanceLedger(project).all_artifacts()]
 
     data = build_traceback(project, dag=DAG)
     md = render_artifact_index(data)

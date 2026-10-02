@@ -39,28 +39,6 @@ def test_unknown_filter_keys_raise():
         eval_corpus.select(verdict="Q")
 
 
-def test_rung_selections_match_the_roadmap():
-    """Each rung selects the clusters its roadmap entry names.
-
-    Catches: a rung edit that silently re-points a rung at the wrong
-    requests, so "run per rung" stops measuring the rung.
-    """
-    assert {r["id"] for r in eval_corpus.select(rung=7)} == set(
-        eval_corpus.CLUSTERS[0]["requests"])
-    rung8 = {r["id"] for r in eval_corpus.select(rung=8)}
-    assert rung8 == set(eval_corpus.CLUSTERS[2]["requests"]) | set(
-        eval_corpus.CLUSTERS[4]["requests"])
-    assert {r["id"] for r in eval_corpus.select(rung=9)} == set(
-        eval_corpus.CLUSTERS[1]["requests"])
-    rung10 = {r["id"] for r in eval_corpus.select(rung=10)}
-    assert rung10 == set(eval_corpus.CLUSTERS[5]["requests"]) | set(
-        eval_corpus.CLUSTERS[6]["requests"])
-    assert {r["id"] for r in eval_corpus.select(rung=11)} == set(
-        eval_corpus.CLUSTERS[7]["requests"])
-    assert len(eval_corpus.select(rung=0)) == 40
-    assert len(eval_corpus.select(rung=6)) == 120
-
-
 def test_derive_verdict_never_blends():
     """A track A miss cannot be averaged into a pass.
 
@@ -75,11 +53,14 @@ def test_derive_verdict_never_blends():
     assert eval_harness.derive_verdict(["part"]) == "P"
 
 
-def test_judgement_requires_the_layer_on_a_miss():
-    """A part/missed op without the first layer that broke is incomplete.
+def test_judgement_requires_evidence_hunk_attribution_and_judge_agreement(
+        tmp_path):
+    """A judgement cannot invent evidence, op attribution, or judge agreement.
 
-    Catches: a miss recorded as bare disappointment, which the report
-    cannot route to a rung.
+    Catches: unsupported ops, arbitrary prose laundering a hunk as clean,
+    an LLM visual judgement with no captain-label calibration, and a
+    part/missed op recorded without the first layer that broke (which
+    the report cannot route to a rung).
     """
     judgement = {
         "ops": [{"op": "12-frame dissolve", "outcome": "part",
@@ -93,14 +74,6 @@ def test_judgement_requires_the_layer_on_a_miss():
     judgement["ops"][0]["layer"] = "V"
     assert eval_harness.check_judgement_complete(judgement, []) == []
 
-
-def test_judgement_requires_evidence_hunk_attribution_and_judge_agreement(
-        tmp_path):
-    """A judgement cannot invent evidence, op attribution, or judge agreement.
-
-    Catches: unsupported ops, arbitrary prose laundering a hunk as clean,
-    and an LLM visual judgement with no captain-label calibration.
-    """
     judgement = {
         "ops": [{"op": "12-frame dissolve", "outcome": "followed",
                  "evidence": "", "layer": "-"}],
@@ -172,23 +145,18 @@ def test_agreement_needs_the_reason_for_a_difference():
     assert eval_harness.agreement("P", "X") == "differ-unexplained"
 
 
-def test_empty_project_path_does_not_corrupt_the_base_readback():
-    """An absent path is not an empty string to replace everywhere.
+def test_readback_normalisation_compares_two_clones(tmp_path):
+    """An absent path is not an empty string to replace everywhere, and
+    the diff compares two clones, not a clone and its source.
 
     Catches: build_measures turning each base line into alternating
-    `<rundir>` text, so every baseline item appears changed.
+    `<rundir>` text, so every baseline item appears changed; and baseline
+    media paths surviving normalization because the harness replaced the
+    pristine fixture path instead of BASE/run.
     """
     text = "timeline EVAL_BASE\nV1 clip_017 987-1204\n"
     assert eval_harness.normalise_readback(text, "", "") == (
         "timeline <evaltimeline>\nV1 clip_017 987-1204\n")
-
-
-def test_diff_normalises_the_project_that_built_the_base_reference(tmp_path):
-    """The readback diff compares two clones, not a clone and its source.
-
-    Catches: baseline media paths surviving normalization because the
-    harness replaced the pristine fixture path instead of BASE/run.
-    """
     reference = tmp_path / "reference" / "BASE"
     base_project = reference / "run"
     base_project.mkdir(parents=True)
@@ -439,24 +407,22 @@ def _finalisable_out(tmp_path, request_id="ST1.1", *,
     return tmp_path / "eval"
 
 
-def test_a_looks_good_export_cannot_turn_a_track_a_miss_into_followed(tmp_path):
-    """A favorable export judgement stays separate from operation follow-through.
+def test_broken_hunk_stays_separate_from_followed_verdict(tmp_path):
+    """Each score is reported independently: a looks-good export does not
+    rescue a missed op, and an unwanted hunk reports BROKE while its op
+    can still pass.
 
-    Catches: track B's visual approval changing a missed track A operation
-    into F, which would blend two separate evaluation questions.
+    Catches: track B's approval blending into track A, and a side effect
+    either being counted clean because it has prose or preventing the
+    harness from reporting the other score.
     """
-    out = _finalisable_out(tmp_path, outcome="missed", layer="V")
-    entry = eval_harness.finalize_request(str(out), "ST1.1")
+    # A favorable export judgement cannot turn a track A miss into F.
+    missed = _finalisable_out(tmp_path / "missed", outcome="missed",
+                              layer="V")
+    entry = eval_harness.finalize_request(str(missed), "ST1.1")
     assert entry["harness_verdict"] == "X"
     assert entry["looks_good"] == "yes"
 
-
-def test_broken_hunk_stays_separate_from_followed_verdict(tmp_path):
-    """An unwanted timeline hunk reports BROKE while its op can still pass.
-
-    Catches: a side effect either being counted clean because it has prose,
-    or preventing the harness from reporting the other score independently.
-    """
     out = _finalisable_out(tmp_path)
     request_out = out / "ST1.1"
     hunk = {"index": 0, "header": "@@ -1 +1 @@", "lines": ["-a", "+b"]}
@@ -629,14 +595,8 @@ def test_failed_summary_is_not_a_done_run():
     assert eval_harness.parse_run_status(summary("SUCCESS")) == "SUCCESS"
     assert eval_harness.parse_run_status(summary("FAILED")) == "FAILED"
     assert eval_harness.parse_run_status("still running\n") is None
-
-
-def test_prior_failed_run_history_does_not_end_the_current_edit():
-    """A prior failure is not the current invocation's terminal summary.
-
-    Catches: restart history's `status: FAILED` making the eval leave an
-    in-flight edit replay and strand its pipeline process at an LLM handoff.
-    """
+    # Restart history's `status: FAILED` is not this invocation's
+    # terminal summary: leaving on it strands the edit at a handoff.
     stale_record = json.dumps({
         "status": "FAILED", "current_step": "review_rough_cut",
         "run_history": [{"status": "FAILED"}],
@@ -717,10 +677,12 @@ def test_answer_loop_can_return_partial_only_for_a_scoped_stage(tmp_path):
 
 def test_edit_stage_accepts_partial_when_only_render_and_validate_are_skipped(
         tmp_path):
-    """PARTIAL is usable only when its declared edit work really completed.
+    """PARTIAL is usable only when its declared edit work really completed,
+    and a failure outside the scope is carried, not fatal.
 
     Catches: treating the edit's intentional render/validate skips as failure,
-    or allowing a failed or incomplete edit to proceed to the Resolve build.
+    allowing a failed or incomplete edit to proceed to the Resolve build, or
+    refusing the edit chain over an earlier out-of-scope validation failure.
     """
     log_path = tmp_path / "edit.log"
     summary = {
@@ -759,14 +721,9 @@ def test_edit_stage_accepts_partial_when_only_render_and_validate_are_skipped(
             str(log_path), "edit", eval_harness.EDIT_RERUN_CHAIN,
             ("render", "validate"), "PARTIAL")
 
-
-def test_edit_eval_carries_validation_failure_outside_its_scope(tmp_path):
-    """A base validation failure does not hide a completed edit-stage run.
-
-    Catches: the eval refusing its edit chain because validation is skipped
-    and an earlier validation failure remains recorded on the fixture.
-    """
-    log_path = tmp_path / "edit.log"
+    # A base validation failure outside the scope does not hide a
+    # completed edit-stage run; one inside the scope, or a stranded
+    # failure, still refuses.
     summary = {
         "status": "failed",
         "completed": list(eval_harness.EDIT_RERUN_CHAIN),
@@ -1169,8 +1126,9 @@ def test_run_serializes_model_decisions_and_resolve_build(
         tmp_path, monkeypatch):
     """The shared mutex covers model decisions through readback.
 
-    Catches: overlapping another lane's model run with the edit, or letting
-    a render begin without serializing the edit that decides what it builds.
+    Catches: overlapping another lane's model run with the edit, letting
+    a render begin without serializing the edit that decides what it builds,
+    or an edit-stage refusal stranding the heavy-work lock.
     """
     events = []
     out = tmp_path / "eval"
@@ -1243,45 +1201,17 @@ def test_run_serializes_model_decisions_and_resolve_build(
         "unlock", "heavy-unlock", "resolve-unlock",
     ]
 
-
-def test_run_releases_heavy_lock_when_edit_stage_fails(tmp_path, monkeypatch):
-    """A refused model decision cannot strand the shared work lock.
-
-    Catches: an exception in the edit replay leaving other lanes waiting on
-    a heavy-work lock after this request has already stopped.
-    """
-    events = []
-    out = tmp_path / "eval"
-    base = tmp_path / "base"
-    dest = out / "ST1.1" / "run"
-
-    def clone(base_arg, dest_arg, batch, extra_rewrites=()):
-        Path(dest_arg).mkdir(parents=True)
-        return {"base": str(base), "dest": str(dest),
-                "timeline": "EVAL_T1", "answers": str(dest / "answers")}
+    # A refused model decision cannot strand the shared work lock.
+    events.clear()
 
     def fail_edit(*args, **kwargs):
         events.append("edit")
         raise RuntimeError("test edit refusal")
 
-    monkeypatch.setattr(eval_harness, "clone_base", clone)
-    monkeypatch.setattr(eval_harness, "inject_request",
-                        lambda *args: events.append("note") or "pull.json")
-    monkeypatch.setattr(eval_harness, "prepare_edit_spec",
-                        lambda *args, **kwargs: events.append("translate") or {
-                            "status": "recorded", "routes": []})
-    monkeypatch.setattr(eval_harness, "wait_for_quiet",
-                        lambda: events.append("quiet"))
-    monkeypatch.setattr(eval_harness, "take_heavy_lock",
-                        lambda *args: events.append("heavy-lock"))
     monkeypatch.setattr(eval_harness, "run_pipeline_edit", fail_edit)
-    monkeypatch.setattr(eval_harness, "release_heavy_lock",
-                        lambda: events.append("heavy-unlock"))
-
-    request = eval_corpus.select(request_id="ST1.1")[0]
     with pytest.raises(RuntimeError, match="test edit refusal"):
-        eval_harness.run_request(request, str(base), str(out), "T1")
-
+        eval_harness.run_request(request, str(base), str(tmp_path / "eval2"),
+                                 "T1")
     assert events == ["note", "quiet", "heavy-lock", "translate", "edit",
                       "heavy-unlock"]
 

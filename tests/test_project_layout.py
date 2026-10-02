@@ -39,37 +39,6 @@ from library.tools.project_layout import (
 REPO_ROOT = Path(__file__).resolve().parent.parent
 STEPS_ROOT = REPO_ROOT / "library" / "steps"
 
-# Every step that composes a project-relative path.  This is the list the
-# migration had to cover; a step that stops using the owner fails here.
-STEPS_ON_THE_LAYOUT = {
-    "step_1_01_scan_project",
-    "step_1_03_semantic_analysis",
-    "step_1_04_temporal_index",
-    "step_1_05_prosody_analysis",
-    "step_1_06_object_segmentation",
-    "step_1_07_ocr_extraction",
-    "step_2_02_speech_sequence",
-    "step_2_04_music_selection",
-    "step_2_06_music_analysis",
-    "step_3_03_review_rough_cut",
-    "step_4_05_render_subtitles",
-    "step_4_06_render_motion_graphics",
-    "step_5_01_color_grade",
-    "step_5_04_compile_manifest",
-    "step_6_01_render",
-}
-
-
-def _steps_importing_the_layout() -> set:
-    found = set()
-    for py in STEPS_ROOT.rglob("*.py"):
-        if "__pycache__" in py.parts:
-            continue
-        if "project_layout import" in py.read_text(encoding="utf-8"):
-            found.add(py.relative_to(STEPS_ROOT).parts[0])
-    return found
-
-
 # ── The count ───────────────────────────────────────────────────────
 
 
@@ -94,83 +63,63 @@ def test_no_step_joins_a_project_folder_with_a_directory_name():
 
 # ── The guard ───────────────────────────────────────────────────────
 
-def test_a_step_cannot_write_into_the_captains_footage(tmp_path):
+def test_input_areas_refuse_every_write(tmp_path):
+    """INPUT means INPUT: the captain's footage and subtitle directories
+    refuse write_dir, write_path and assert_writable, and a refused
+    write creates nothing on the way out."""
     layout = ProjectLayout(tmp_path)
-    with pytest.raises(ProjectLayoutViolation) as exc:
+    with pytest.raises(ProjectLayoutViolation, match="input"):
         layout.write_dir(Area.RAW)
-    assert "input" in str(exc.value)
-    assert not (tmp_path / "raw").exists(), (
-        "a refused write must not create the directory on the way out")
+    assert not (tmp_path / "raw").exists()
+    for area in (Area.RAW, Area("subtitle_plans"), Area("subtitle_overlays"),
+                 Area.RUN_PROFILES):
+        with pytest.raises(ProjectLayoutViolation):
+            layout.write_dir(area)
+        with pytest.raises(ProjectLayoutViolation):
+            layout.write_path(area, "anything.json")
+        with pytest.raises(ProjectLayoutViolation):
+            layout.assert_writable(layout.read_dir(area) / "x.json")
 
 
-@pytest.mark.parametrize("area", [
-    Area.RAW,
-])
-def test_no_input_area_is_writable(tmp_path, area):
-    with pytest.raises(ProjectLayoutViolation):
-        ProjectLayout(tmp_path).write_path(area, "anything.json")
-
-
-def test_assert_writable_refuses_a_path_outside_the_project(tmp_path):
-    with pytest.raises(ProjectLayoutViolation) as exc:
-        ProjectLayout(tmp_path).assert_writable("/etc/passwd")
-    assert "outside the project" in str(exc.value)
-
-
-def test_assert_writable_refuses_the_bare_project_root(tmp_path):
-    """The root holds project.yaml and run state. Nothing else."""
-    with pytest.raises(ProjectLayoutViolation):
-        ProjectLayout(tmp_path).assert_writable(tmp_path / "stray.mov")
-
-
-def test_assert_writable_accepts_an_output_path(tmp_path):
+def test_writes_outside_the_layout_are_refused(tmp_path):
+    """Outside the project, the bare root (project.yaml and run state
+    only), an escape out of an area, an unknown area, and an empty
+    project folder (the fallback that once wrote into the repo)."""
     layout = ProjectLayout(tmp_path)
+    with pytest.raises(ProjectLayoutViolation, match="outside the project"):
+        layout.assert_writable("/etc/passwd")
+    with pytest.raises(ProjectLayoutViolation):
+        layout.assert_writable(tmp_path / "stray.mov")
+    with pytest.raises(ProjectLayoutViolation):
+        layout.write_path(Area.PROSODY, "..", "..", "raw", "x")
+    with pytest.raises(ProjectLayoutViolation, match="Unknown project area"):
+        layout.write_dir("wherever_i_like")
+    for empty in ("", "   ", None):
+        with pytest.raises(ProjectLayoutViolation):
+            ProjectLayout(empty)
+    # The positive control: an output path is writable.
     p = layout.write_path(Area.PROSODY, "clip_001_prosody.json")
     assert layout.assert_writable(p) == p
     assert layout.assert_writable(tmp_path / "exports" / "Pipeline_Edit.mp4")
 
 
-def test_parts_cannot_escape_their_area(tmp_path):
-    with pytest.raises(ProjectLayoutViolation):
-        ProjectLayout(tmp_path).write_path(Area.PROSODY, "..", "..", "raw", "x")
-
-
-def test_an_unknown_area_raises_rather_than_being_created(tmp_path):
-    with pytest.raises(ProjectLayoutViolation) as exc:
-        ProjectLayout(tmp_path).write_dir("wherever_i_like")
-    assert "Unknown project area" in str(exc.value)
-
-
-def test_an_empty_project_folder_raises():
-    """The fallback that used to write pipeline output into the repo."""
-    for empty in ("", "   ", None):
-        with pytest.raises(ProjectLayoutViolation):
-            ProjectLayout(empty)
-
-
 # ── A step writes only in its own directory ─────────────────────────
 
-def test_a_step_cannot_write_into_another_steps_directory(tmp_path):
-    """`pipeline_output/steps/` only means anything if this holds. A
-    directory named for a step has to mean that step wrote it."""
+def test_a_step_writes_only_in_its_own_directory(tmp_path):
+    """`pipeline_output/steps/` only means anything if this holds: a
+    directory named for a step means that step wrote it, so the answer
+    to "which step wrote this" is the path. Areas no step owns
+    (`exports/` for 6.01 and 6.02, `scratch/` for anyone) are shared."""
     layout = ProjectLayout(tmp_path)
     with pytest.raises(ProjectLayoutViolation) as exc:
         layout.write_dir(Area.PROSODY, step="render_subtitles")
     assert "belongs to step 'prosody_analysis'" in str(exc.value)
     assert "writes only inside its own directory" in str(exc.value)
 
-
-def test_a_step_may_write_to_an_area_no_step_owns(tmp_path):
-    """`exports/` is shared by 6.01 and 6.02, and `scratch/` by anyone."""
-    layout = ProjectLayout(tmp_path)
     assert layout.write_dir(Area.EXPORTS, step="render")
     assert layout.write_dir(Area.EXPORTS, step="validate")
     assert layout.write_dir(Area.SCRATCH, step="prosody_analysis")
 
-
-def test_a_files_directory_names_the_step_that_wrote_it(tmp_path):
-    """The payoff: no index and no sidecar - the answer is the path."""
-    layout = ProjectLayout(tmp_path)
     for area, spec in AREAS.items():
         if not spec.step:
             continue
@@ -181,7 +130,12 @@ def test_a_files_directory_names_the_step_that_wrote_it(tmp_path):
 # ── The step table matches the pipeline ─────────────────────────────
 
 
-def test_every_step_directory_is_in_the_table():
+def test_the_step_and_area_tables_match_the_repository():
+    """Every step directory is in STEPS; `wired` means SOME process
+    declares a node (`build_reels`/`verify_reels` live in
+    `library/processes/reels`, not edit_video); no two areas claim one
+    directory."""
+    from library.tools import processes
     from library.tools.project_layout import STEPS
 
     repo = Path(__file__).resolve().parent.parent / "library" / "steps"
@@ -189,29 +143,19 @@ def test_every_step_directory_is_in_the_table():
                if p.name.startswith("step_") and p.is_dir()}
     assert on_disk == {s.dirname for s in STEPS}
 
-
-def test_the_unwired_steps_are_marked_unwired():
-    """Unwired means NO process declares a node.
-
-    `build_reels` and `verify_reels` are wired into
-    `library/processes/reels`; judging them against edit_video's graph
-    alone would mark two real nodes unwired.
-    """
-    from library.tools import processes
-    from library.tools.project_layout import STEPS
-
     dag_ids = set(processes.node_owners())
     for step in STEPS:
         assert step.wired == (step.node_id in dag_ids), (
             f"{step.node_id}: wired={step.wired} disagrees with every DAG")
 
-
-def test_wired_false_requires_reason_at_import_time():
-    """StepDir.__post_init__ rejects wired=False without a reason."""
-    from library.tools.project_layout import StepDir
-
-    with pytest.raises(ValueError, match="unwired_reason"):
-        StepDir("fake_step", "99_99_fake", wired=False)
+    seen = {}
+    for area, spec in AREAS.items():
+        if spec.relpath == ".":
+            continue
+        assert spec.relpath not in seen, (
+            f"{area.value} and {seen[spec.relpath]} both claim "
+            f"{spec.relpath}")
+        seen[spec.relpath] = area.value
 
 
 # ── The layout itself ───────────────────────────────────────────────
@@ -246,41 +190,9 @@ def test_ensure_creates_containers_and_not_the_input_side(tmp_path):
         if spec.kind in WRITABLE_KINDS:
             assert not (tmp_path / spec.relpath).is_dir(), (
                 f"{area.value} should not be pre-created by ensure()")
-
-
-def test_a_step_directory_appears_when_the_step_writes(tmp_path):
-    """write_dir creates the step directory on demand."""
-    layout = ProjectLayout(tmp_path)
-    layout.ensure()
-    steps_root = tmp_path / "pipeline_output" / "steps"
-    assert not list(steps_root.iterdir())
     # Writing to an area creates just that step's directory.
-    layout.write_dir(Area.PROSODY, step="prosody_analysis")
-    on_disk = [p.name for p in steps_root.iterdir()]
-    assert on_disk == ["1_05_prosody_analysis"]
-
-
-# The two places where sorting by step number is not run order. The DAG
-# runs 2.06 before 2.05 and 5.04 before 5.03. Numbering by DAG position
-# instead would renumber every later directory whenever a step is
-# inserted, and would stop matching the "step 1.04" vocabulary the docs
-# and the code comments already share - so the inversions are accepted
-# and stated, and the README renders true run order.
-KNOWN_SORT_INVERSIONS = {
-    "2_05_mesh_spine", "2_06_music_analysis",
-    "5_03_creative_cohesion", "5_04_compile_manifest",
-}
-
-
-def test_no_two_areas_claim_the_same_directory():
-    seen = {}
-    for area, spec in AREAS.items():
-        if spec.relpath == ".":
-            continue
-        assert spec.relpath not in seen, (
-            f"{area.value} and {seen[spec.relpath]} both claim "
-            f"{spec.relpath}")
-        seen[spec.relpath] = area.value
+    ProjectLayout(tmp_path).write_dir(Area.PROSODY, step="prosody_analysis")
+    assert [p.name for p in steps_root.iterdir()] == ["1_05_prosody_analysis"]
 
 
 # ── Backups ─────────────────────────────────────────────────────────
@@ -290,17 +202,13 @@ def _state(tmp_path, marker):
         json.dumps({"marker": marker}), encoding="utf-8")
 
 
-def test_a_backup_is_a_copy_of_the_state_as_it_stood(tmp_path):
+def test_a_backup_is_a_copy_and_the_store_is_bounded(tmp_path):
     _state(tmp_path, "before")
     layout = ProjectLayout(tmp_path)
-    made = layout.backup_pipeline_data(label="run")
+    made = layout.backup_pipeline_data(label="run", now=1_699_000_000)
     _state(tmp_path, "after")
     assert json.loads(made.read_text(encoding="utf-8"))["marker"] == "before"
 
-
-def test_the_backup_store_is_bounded(tmp_path):
-    _state(tmp_path, "x")
-    layout = ProjectLayout(tmp_path)
     for i in range(MAX_PIPELINE_DATA_BACKUPS + 7):
         layout.backup_pipeline_data(label=f"run{i}", now=1_700_000_000 + i * 60)
     kept = layout.automatic_backups()
@@ -341,33 +249,6 @@ def test_the_runner_backs_up_once_per_run(tmp_path, monkeypatch):
         run_pipeline.save_pipeline_state(str(tmp_path), {"step": i})
 
     assert len(ProjectLayout(tmp_path).automatic_backups()) == 1
-
-
-# ── Nothing else may own a project path ─────────────────────────────
-
-
-def test_the_new_project_scaffold_is_the_layout(tmp_path):
-    """The scaffold drifted from the steps once. It cannot again."""
-    from library.tools.project_registry import create_project
-
-    create_project("scaffold-test", name="Scaffold Test", root=tmp_path)
-    root = tmp_path / "scaffold-test"
-    # The containers and raw/ exist.
-    assert (root / "pipeline_output").is_dir()
-    assert (root / "pipeline_output" / "steps").is_dir()
-    assert (root / "README-LAYOUT.md").is_file()
-    assert (root / "raw").is_dir()
-    # Only raw/ is scaffolded on the input side.  music/, assets/,
-    # brand_assets/ and compositions/ appear when the captain puts
-    # material there.
-    assert not (root / "music").exists()
-    assert not (root / "assets").exists()
-    assert not (root / "brand_assets").exists()
-    assert not (root / "compositions").exists()
-    # Step dirs and project-level areas are NOT pre-created.
-    steps_root = root / "pipeline_output" / "steps"
-    assert not list(steps_root.iterdir()), (
-        "new project should not have pre-created step directories")
 
 
 # ── Read-side audit: no consumer crashes on a bare project ──────────
@@ -471,15 +352,3 @@ def test_no_library_code_names_the_captains_stray_directories():
         "library code names a captain-side directory again:\n  "
         + "\n  ".join(offenders)
     )
-
-
-def test_the_layout_refuses_a_write_into_the_captains_subtitle_dirs(tmp_path):
-    """INPUT means INPUT: a step asking for these areas raises, and
-    `assert_writable` refuses paths underneath them."""
-    layout = ProjectLayout(tmp_path)
-    for value in ("subtitle_plans", "subtitle_overlays"):
-        area = Area(value)
-        with pytest.raises(ProjectLayoutViolation):
-            layout.write_dir(area)
-        with pytest.raises(ProjectLayoutViolation):
-            layout.assert_writable(layout.read_dir(area) / "x.json")

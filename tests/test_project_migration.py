@@ -20,7 +20,6 @@ from library.tools.project_layout import Area, ProjectLayout
 from library.tools.project_migration import (
     organize_project,
     plan_organization,
-    render_manifest_markdown,
     revert_from_manifest,
 )
 
@@ -89,11 +88,8 @@ def test_every_file_that_was_there_is_still_there_afterwards(messy):
     # It only ever grows, and only by what it wrote: the copies out of
     # raw/, plus README-LAYOUT.md, the bucket READMEs and the manifest.
     assert m["totals"]["after_bytes"] >= m["totals"]["before_bytes"]
-
-
-def test_no_action_is_a_delete(messy):
-    m = organize_project(messy, apply=True)
-    assert {a["action"] for a in m["actions"]} <= {"move", "copy", "remove_empty_dir"}
+    assert {a["action"] for a in m["actions"]} <= {
+        "move", "copy", "remove_empty_dir"}
 
 
 def test_a_name_collision_never_overwrites(messy):
@@ -107,16 +103,17 @@ def test_a_name_collision_never_overwrites(messy):
 
 # ── Input directories are not modified ──────────────────────────────
 
-def test_raw_is_left_exactly_as_it_was_found(messy):
-    before = sorted(p.name for p in (messy / "raw").rglob("*"))
-    organize_project(messy, apply=True)
-    assert sorted(p.name for p in (messy / "raw").rglob("*")) == before
-
-
-def test_music_is_left_exactly_as_it_was_found(messy):
-    before = sorted(p.name for p in (messy / "music").rglob("*"))
-    organize_project(messy, apply=True)
-    assert sorted(p.name for p in (messy / "music").rglob("*")) == before
+def test_input_directories_are_left_exactly_as_they_were_found(messy):
+    """Untouched, and no action names a destination inside one."""
+    before = {d: sorted(p.name for p in (messy / d).rglob("*"))
+              for d in ("raw", "music")}
+    m = organize_project(messy, apply=True)
+    for d, names in before.items():
+        assert sorted(p.name for p in (messy / d).rglob("*")) == names, d
+    layout = ProjectLayout(messy)
+    for a in m["actions"]:
+        if a["action"] != "remove_empty_dir":
+            layout.assert_writable(a["dest"])
 
 
 def test_a_vision_cache_inside_raw_is_copied_out_not_moved(messy):
@@ -129,42 +126,29 @@ def test_a_vision_cache_inside_raw_is_copied_out_not_moved(messy):
         Area.VISION_ANALYSIS, "clip_profile_IMG_1806_v3.json")).exists()
 
 
-def test_no_destination_is_inside_an_input_directory(messy):
-    layout = ProjectLayout(messy)
-    for a in organize_project(messy, apply=True)["actions"]:
-        if a["action"] == "remove_empty_dir":
-            continue  # no destination to check
-        layout.assert_writable(a["dest"])
-
-
 # ── Where things go ─────────────────────────────────────────────────
 
-def test_hand_made_backups_go_to_the_legacy_store_by_name(messy):
-    organize_project(messy, apply=True)
-    legacy = ProjectLayout(messy).legacy_backup_dir()
-    assert sorted(p.name for p in legacy.iterdir()) == [
+def test_each_kind_of_stray_lands_in_its_labelled_bucket(messy):
+    """Hand-made backups go to the legacy store by name; unattributed
+    media is admitted (with a reason) rather than guessed at; loose
+    scripts, status files and mock data are kept and labelled."""
+    m = organize_project(messy, apply=True)
+    layout = ProjectLayout(messy)
+    assert sorted(p.name for p in layout.legacy_backup_dir().iterdir()) == [
         "pipeline_data.json.bak",
         "pipeline_data.json.bak2",
         "pipeline_data.json.bak_phase1_landscape",
     ]
     assert not list(messy.glob("*.bak*")), "none left at the root"
 
-
-def test_unattributed_media_is_admitted_rather_than_guessed_at(messy):
-    m = organize_project(messy, apply=True)
     names = {u["path"] for u in m["unidentified"]}
-    assert "001.mov" in names
-    assert "fully loaded demo v0.mov" in names
+    assert {"001.mov", "fully loaded demo v0.mov"} <= names
     for u in m["unidentified"]:
         assert u["why_unknown"], f"{u['path']} was moved with no stated reason"
-    dest = ProjectLayout(messy).read_dir(Area.UNSORTED) / "media"
-    assert (dest / "001.mov").exists()
-    assert (dest / "README.md").is_file(), "a bucket must say what it is"
-
-
-def test_loose_scripts_and_status_files_are_kept_and_labelled(messy):
-    organize_project(messy, apply=True)
-    unsorted = ProjectLayout(messy).read_dir(Area.UNSORTED)
+    unsorted = layout.read_dir(Area.UNSORTED)
+    assert (unsorted / "media" / "001.mov").exists()
+    assert (unsorted / "media" / "README.md").is_file(), (
+        "a bucket must say what it is")
     assert (unsorted / "loose_scripts" / "parse_broll.py").exists()
     assert (unsorted / "status_files" / "e2e-v4.status").exists()
     assert (unsorted / "status_files" / "state" / "live-test.status").exists()
@@ -210,6 +194,12 @@ def test_organizing_twice_is_a_no_op_the_second_time(messy):
     assert not second["actions"], f"the layout is not stable: {second['actions']}"
 
 
+def test_an_already_tidy_project_needs_nothing(tmp_path):
+    ProjectLayout(tmp_path).ensure()
+    (tmp_path / "project.yaml").write_text("slug: x\n", encoding="utf-8")
+    assert not plan_organization(tmp_path).actions
+
+
 # ── Moving a by-kind project onto the by-step layout ────────────────
 
 @pytest.fixture
@@ -241,22 +231,10 @@ def test_a_by_kind_tree_moves_under_its_producing_step(by_kind):
     ) == "prosody_analysis"
     assert not (by_kind / "pipeline_output" / "prosody"
                 / "clip_001_prosody.json").exists()
-
-
-def _contents(root):
-    """Every file's bytes. Matching on content, not name, because the
-    per-step exports are deliberately RENAMED to output.json."""
-    from collections import Counter
-    return Counter(p.read_bytes() for p in root.rglob("*") if p.is_file())
-
-
-def test_the_emptied_by_kind_husks_are_removed_in_the_same_run(by_kind):
-    """`ls pipeline_output/` is what this change exists to make legible.
-    A husk left standing defeats it."""
-    organize_project(by_kind, apply=True)
-    out = by_kind / "pipeline_output"
+    # The emptied by-kind husks go in the same run: `ls pipeline_output/`
+    # is what this change exists to make legible.
     for husk in ("prosody", "temporal_index", "audio_cache"):
-        assert not (out / husk).exists(), f"{husk}/ is still standing"
+        assert not (by_kind / "pipeline_output" / husk).exists(), husk
 
 
 def test_a_legacy_directory_holding_anything_is_not_removed(by_kind):
@@ -287,12 +265,6 @@ def test_a_directory_the_layout_does_not_name_is_never_removed(by_kind):
     assert stray.is_dir(), "an unrecognised empty directory is not ours to remove"
     planned = _plan_legacy_dir_cleanup(ProjectLayout(by_kind))
     assert all(Path(a.src).name in LEGACY_AREA_DIRS for a in planned)
-
-
-def test_an_already_tidy_project_needs_nothing(tmp_path):
-    ProjectLayout(tmp_path).ensure()
-    (tmp_path / "project.yaml").write_text("slug: x\n", encoding="utf-8")
-    assert not plan_organization(tmp_path).actions
 
 
 # ── Cleaning up empty pre-created directories ───────────────────────
@@ -330,17 +302,12 @@ def test_empty_scaffold_step_dirs_are_removed(scaffolded):
     from library.tools.project_layout import STEPS, _STEPS
 
     m = organize_project(scaffolded, apply=True)
-    # The step that has output stays.
-    assert (scaffolded / _STEPS / "1_04_temporal_index").is_dir()
+    # The step that has output stays, output and all.
+    assert (scaffolded / _STEPS / "1_04_temporal_index"
+            / "output.json").is_file()
     # Empty step directories are gone.
     removed = [a for a in m["actions"]
                if a["action"] == "remove_empty_dir"
                and "step directory" in a["reason"]]
     # 28 steps, one has content, so 27 should be removed.
     assert len(removed) == len(STEPS) - 1
-
-
-def test_a_nonempty_step_dir_is_never_removed_by_scaffold_cleanup(scaffolded):
-    organize_project(scaffolded, apply=True)
-    assert (scaffolded / "pipeline_output" / "steps"
-            / "1_04_temporal_index" / "output.json").is_file()

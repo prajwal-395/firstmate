@@ -34,21 +34,12 @@ def test_a_step_id_and_an_operation_address_both_work(project):
         "render", "subtitles.render@45.0-72.0"}
 
 
-@pytest.mark.parametrize("attempt", [
-    "../../../outside",
-])
-def test_an_id_that_is_a_path_is_refused(project, attempt):
+def test_an_id_that_is_a_path_is_refused_for_writes_and_reads(project):
     """Measured before this check existed: '../../../outside' wrote
-    `outside/snapshot.json` OUTSIDE the project directory entirely."""
+    `outside/snapshot.json` OUTSIDE the project directory entirely. A read
+    that built the path would leave the project too."""
     with pytest.raises(review_gate.UnsafeGateId):
-        review_gate.save_gate_snapshot(str(project), attempt, "x", {})
-
-
-
-
-def test_reads_are_guarded_too(project):
-    """A read that built the path would still leave the project - and
-    `get_gate_status` is what `/api/gates/{step_id}` calls."""
+        review_gate.save_gate_snapshot(str(project), "../../../outside", "x", {})
     for call in (review_gate.get_gate_status,
                  review_gate.load_gate_snapshot,
                  review_gate.load_gate_feedback):

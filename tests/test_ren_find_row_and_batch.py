@@ -84,93 +84,61 @@ def _media(tmp_path):
 
 def test_search_finds_the_named_clip_off_the_default_row():
     """The defect: 27 dry runs refused because Ren looked only on V7
-    while the logo sat on V6 - the search itself crosses the rows."""
+    while the logo sat on V6 - the search itself crosses the rows. And
+    `--row` as a narrowing keeps working: it stops being a requirement,
+    not a capability."""
     tracks = _tracks(
         ("V1", [_clip("interview_a.mp4", 0, 1440)]),
         ("V6", [_clip("logo_bulb_23976.mov", 1440, 72)]),
         ("V7", [_clip("caption_overlay.mov", 1440, 72)]),
     )
-    spec = D.build_change_spec(
-        tracks,
-        reel=26,
-        old_clip="logo_bulb_23976.mov",
-        new_media="/lab/new.mov",
-    )
-    assert spec["edits"][0]["row"] == "V6"
-    assert spec["edits"][0]["item"] == 0
-
-
-def test_narrowed_row_still_addresses_that_row():
-    """The defect's other half: `--row` as a narrowing keeps working -
-    it stops being a requirement, not a capability."""
-    tracks = _tracks(
-        ("V6", [_clip("logo_bulb_23976.mov", 1440, 72)]),
-    )
-    spec = D.build_change_spec(
-        tracks,
-        reel=26,
-        row="V6",
-        old_clip="logo_bulb_23976.mov",
-        new_media="/lab/new.mov",
-    )
-    assert spec["edits"][0]["row"] == "V6"
+    for row in (None, "V6"):
+        spec = D.build_change_spec(
+            tracks, reel=26, row=row,
+            old_clip="logo_bulb_23976.mov", new_media="/lab/new.mov")
+        assert spec["edits"][0]["row"] == "V6"
+        assert spec["edits"][0]["item"] == 0
 
 
 # ── Finding 3: the refusal names rows, not the name ─────────────────
 
 
-def test_wrong_row_refusal_names_the_row_it_looked_in():
-    """The defect: the refusal said 're-read the reel and state the
-    clip by its current name' when the name was right and the row was
-    wrong - the model re-checked the name in circles."""
+def test_a_refusal_names_the_rows_not_the_name():
+    """The defect: the refusal said 're-read the reel and state the clip
+    by its current name' when the name was right and the row was wrong,
+    so the model re-checked the name in circles. Each refusal says where
+    it looked: the row it searched and the row holding the name; the
+    rows searched for an absent clip; both positions of a clip on two
+    rows (one spec meaning two items)."""
     tracks = _tracks(
         ("V1", [_clip("interview_a.mp4", 0, 1440)]),
         ("V6", [_clip("logo_bulb_23976.mov", 1440, 72)]),
     )
     with pytest.raises(D.DryRunRefused) as caught:
-        D.build_change_spec(
-            tracks,
-            reel=26,
-            row="V7",
-            old_clip="logo_bulb_23976.mov",
-            new_media="/lab/new.mov",
-        )
+        D.build_change_spec(tracks, reel=26, row="V7",
+                            old_clip="logo_bulb_23976.mov",
+                            new_media="/lab/new.mov")
     message = str(caught.value)
-    assert "V7" in message  # the row it looked in
-    assert "V6" in message  # the row it did not search but holds the name
+    assert "V7" in message and "V6" in message
     assert "state the clip by its current name" not in message
 
-
-def test_absent_clip_refusal_lists_the_rows_searched():
-    """The defect: a bare 'nothing to swap' that never said where it
-    looked - the refusal carries the searched rows."""
-    tracks = _tracks(
+    absent = _tracks(
         ("V1", [_clip("interview_a.mp4", 0, 1440)]),
         ("V6", [_clip("something_else.mov", 1440, 72)]),
     )
     with pytest.raises(D.DryRunRefused, match="no item named"):
-        D.build_change_spec(
-            tracks,
-            reel=26,
-            old_clip="logo_bulb_23976.mov",
-            new_media="/lab/new.mov",
-        )
+        D.build_change_spec(absent, reel=26,
+                            old_clip="logo_bulb_23976.mov",
+                            new_media="/lab/new.mov")
 
-
-def test_clip_on_two_rows_refuses_naming_both_positions():
-    """The defect: one spec meaning two items on different rows -
-    qualifying one while addressing whichever the position lands on."""
-    tracks = _tracks(
+    doubled = _tracks(
         ("V6", [_clip("logo_bulb_23976.mov", 1440, 72)]),
         ("V7", [_clip("logo_bulb_23976.mov", 0, 72)]),
     )
     with pytest.raises(D.DryRunRefused, match="2 times") as caught:
-        D.build_change_spec(
-            tracks,
-            reel=26,
-            old_clip="logo_bulb_23976.mov",
-            new_media="/lab/new.mov",
-        )
+        D.build_change_spec(doubled, reel=26,
+                            old_clip="logo_bulb_23976.mov",
+                            new_media="/lab/new.mov")
     assert "V6" in str(caught.value) and "V7" in str(caught.value)
 
 
@@ -208,24 +176,12 @@ def test_batch_dry_run_reports_each_reel_and_never_stops(tmp_path):
     assert "no item named" in by_reel[27]["refused"]
     assert summary["go"] is False
 
-
-def test_batch_dry_run_marks_a_reel_with_no_offline_tracks(tmp_path):
-    """The defect's batch half: a reel the tracks directory never
-    described must be REPORTED refused, never live-read, and never
-    stop the reels that were described."""
-    project = _project_with_reels(tmp_path, 26, 27)
+    # A reel the tracks directory never described is REPORTED refused,
+    # never live-read, and never stops the reels that were described.
     summary = D.dry_run_all_reels(
-        project_folder=project,
-        project_label="demo",
-        old_clip="logo_bulb_23976.mov",
-        new_media=_media(tmp_path),
-        tracks_by_reel={
-            26: _tracks(
-                ("V6", [_clip("logo_bulb_23976.mov", 1440, 72)]),
-            ),
-        },
-        offline=True,
-    )
+        project_folder=project, project_label="demo",
+        old_clip="logo_bulb_23976.mov", new_media=_media(tmp_path),
+        tracks_by_reel={26: tracks_by_reel[26]}, offline=True)
     by_reel = {entry["reel"]: entry for entry in summary["reels"]}
     assert by_reel[26]["ok"] is True
     assert by_reel[27]["ok"] is False

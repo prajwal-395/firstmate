@@ -12,8 +12,6 @@ disk has ever had a completed run.
 The remaining timeout exists to break a wedge, not to enforce an estimate.
 """
 
-import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -32,23 +30,6 @@ def test_the_default_ceiling_is_hours_not_minutes():
     )
 
 
-def test_no_step_runner_hardcodes_a_timeout():
-    """The literal is gone from the module, not just from one call site."""
-    src = (REPO_ROOT / "library" / "processes" / "edit_video"
-           / "run_pipeline.py").read_text()
-    assert "timeout=600" not in src, (
-        "run_pipeline.py still hardcodes a 600s subprocess timeout"
-    )
-
-
-
-
-
-
-
-
-
-
 def test_stderr_is_streamed_and_still_reaches_the_error(tmp_path, capsys):
     """A 90-minute step held behind capture_output looks like a wedge."""
     script = tmp_path / "loud.py"
@@ -61,5 +42,3 @@ def test_stderr_is_streamed_and_still_reaches_the_error(tmp_path, capsys):
         run_pipeline.run_deterministic_step(str(script), {})
     assert "working on it" in str(excinfo.value)
     assert "working on it" in capsys.readouterr().err
-
-

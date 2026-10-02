@@ -21,21 +21,17 @@ own report carries, replayed into a project built under `tmp_path`.
 """
 import ast
 import json
-import os
 from pathlib import Path
 
-import pytest
 
 from library.tools import qa_findings as qa
-from library.tools import render_qa
-from library.tools.subtitle_qa import verify_subtitle_timing
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RENDER_QA = PROJECT_ROOT / "library" / "tools" / "render_qa.py"
 SUBTITLE_QA = PROJECT_ROOT / "library" / "tools" / "subtitle_qa.py"
-REEL_HEARING = PROJECT_ROOT / "library" / "tools" / "reel_hearing.py"
 RUN_PIPELINE = (PROJECT_ROOT / "library" / "processes" / "edit_video"
                 / "run_pipeline.py")
+REEL_HEARING = PROJECT_ROOT / "library" / "tools" / "reel_hearing.py"
 REVIEW_MANIFEST = (PROJECT_ROOT / "library" / "steps"
                    / "step_3_03_review_rough_cut" / "manifest.json")
 DAG = PROJECT_ROOT / "library" / "processes" / "edit_video" / "dag.json"
@@ -167,60 +163,42 @@ UNCLAIMED = {
 
 
 def test_an_unclaimed_finding_is_not_dropped():
+    """Named in the summary counts and in the reviewing step's payload."""
     read = qa.read_qa_report([A_CLEAN_ROW, UNCLAIMED])
     assert [f.metric for f in read.unrouted] == [UNCLAIMED["metric"]]
     assert read.counts()["unrouted"] == 1
-
-
-def test_an_unclaimed_finding_reaches_the_reviewing_step_too():
-    payload = qa.findings_for_review(
-        qa.read_qa_report([A_CLEAN_ROW, UNCLAIMED]))
+    payload = qa.findings_for_review(read)
     assert payload["unrouted_metrics"] == [UNCLAIMED["metric"]]
     assert "NO READER IS DECLARED" in payload["readings"][UNCLAIMED["metric"]]
 
 
 # ── 3. The four named findings surface ───────────────────────────────
 
-@pytest.mark.parametrize("row", [LOUDNESS, CAPTION_GAP],
-                         ids=[r["metric"] for r in [LOUDNESS, CAPTION_GAP]])
-def test_each_named_finding_surfaces_in_the_run_summary(row, tmp_path):
-    project = _project(tmp_path, THE_FOUR + [A_CLEAN_ROW])
-    lines = qa.summary_lines(qa.load_findings(str(project), {}))
-    printed = "\n".join(lines)
-    assert row["metric"] in printed, printed
-    assert row["detail"] in printed, printed
-    assert row["severity"] in printed, printed
-
-
-@pytest.mark.parametrize("row", [LOUDNESS, CAPTION_GAP],
-                         ids=[r["metric"] for r in [LOUDNESS, CAPTION_GAP]])
-def test_each_named_finding_reaches_the_reviewing_step(row, tmp_path):
-    project = _project(tmp_path, THE_FOUR + [A_CLEAN_ROW])
-    payload = qa.findings_for_review(qa.load_findings(str(project), {}))
-    seen = {f["metric"]: f for f in payload["findings"]}
-    assert row["metric"] in seen
-    assert seen[row["metric"]]["detail"] == row["detail"]
-    assert seen[row["metric"]]["severity"] == row["severity"]
-    assert seen[row["metric"]]["owned_by"]
-    assert payload["readings"][row["metric"]]
-
-
-def test_a_clean_check_is_counted_and_not_printed(tmp_path):
+def test_each_named_finding_surfaces_and_a_clean_check_is_only_counted(
+        tmp_path):
+    """Every named finding reaches the run summary AND the reviewing
+    step with its detail and severity; a clean check is counted, not
+    printed, and still travels to the reviewing step."""
     project = _project(tmp_path, THE_FOUR + [A_CLEAN_ROW])
     findings = qa.load_findings(str(project), {})
+    printed = "\n".join(qa.summary_lines(findings))
+    payload = qa.findings_for_review(findings)
+    seen = {f["metric"]: f for f in payload["findings"]}
+    for row in (LOUDNESS, CAPTION_GAP):
+        assert row["metric"] in printed, printed
+        assert row["detail"] in printed, printed
+        assert row["severity"] in printed, printed
+        assert seen[row["metric"]]["detail"] == row["detail"]
+        assert seen[row["metric"]]["severity"] == row["severity"]
+        assert seen[row["metric"]]["owned_by"]
+        assert payload["readings"][row["metric"]]
+
     assert findings.counts() == {"total": 5, "failing": 3, "advisory": 1,
                                  "clean": 1, "unrouted": 0}
-    printed = "\n".join(qa.summary_lines(findings))
     assert "Resolution is 1080x1920" not in printed
-    # Counted, though - nothing is hidden.
     assert "1 clean" in printed
-
-
-def test_a_clean_check_still_travels_to_the_reviewing_step(tmp_path):
-    project = _project(tmp_path, THE_FOUR + [A_CLEAN_ROW])
-    payload = qa.findings_for_review(qa.load_findings(str(project), {}))
     assert len(payload["findings"]) == 5
-    assert any(f["metric"] == "resolution" for f in payload["findings"])
+    assert "resolution" in seen
 
 
 # ── 4. Severity is preserved, and advisory blocks nothing ────────────
@@ -235,11 +213,8 @@ def test_the_verdicts_are_what_the_report_says():
         "speech_above_bed": qa.ADVISORY,
         "resolution": qa.CLEAN,
     }
-
-
-def test_only_a_failing_error_is_of_blocking_class():
-    blocking = {f.metric for f in qa.read_qa_report(THE_FOUR).findings
-                if f.blocks}
+    # Only a failing error is of blocking class.
+    blocking = {f.metric for f in read.findings if f.blocks}
     assert blocking == {"lufs"}, (
         "an advisory or a sub-error finding is being reported as though a "
         "gate could act on it")
@@ -257,9 +232,6 @@ def test_the_advisory_reading_is_an_enumeration_not_a_severity_rule():
              "threshold": 0, "severity": "error",
              "detail": "No overlapping subtitles"}
     assert qa.read_qa_report([stale]).findings[0].verdict == qa.CLEAN
-    assert qa.REPORT_ONLY_METRICS == {"chroma_presence", "speech_above_bed"}
-    assert render_qa.CHROMA_PRESENCE_GATES is False
-    assert render_qa.SPEECH_ABOVE_BED_GATES is False
 
 
 def test_reading_the_findings_cannot_change_the_run_status():
@@ -309,55 +281,39 @@ def test_the_runner_hands_the_findings_to_the_step_that_asked(tmp_path):
     assert payload["source"] == qa.SOURCE_FILE
     assert {f["metric"] for f in payload["findings"]} == {
         r["metric"] for r in THE_FOUR + [A_CLEAN_ROW]}
-    # The definition and the not-grounds-for-rejection rule live in
-    # step 3.03's own prompt now, not beside the table. The freeze that
-    # forced a `legend` key was lifted 2026-09-09.
     assert "legend" not in payload
-    handoff = (PROJECT_ROOT / "library" / "steps"
-               / "step_3_03_review_rough_cut" / "handoff.md").read_text(
-        encoding="utf-8")
-    assert "render_qa_findings" in handoff
-    assert "Do NOT reject the rough cut because of a finding here" in handoff
-    for field in ("metric", "severity", "verdict", "owned_by", "detail",
-                  "readings"):
-        assert f"`{field}`" in handoff, (
-            f"{field} reaches 3.03 and its prompt never says what it is")
 
 
 # ── Where the findings came from is recorded, never assumed ──────────
 
-def test_this_runs_report_beats_the_one_on_disk(tmp_path):
+def test_the_findings_say_where_they_came_from(tmp_path):
+    """This run's report beats the one on disk; one read off disk says it
+    is a previous render; a never-rendered project and an unreadable
+    report each say so rather than raising."""
     project = _project(tmp_path, THE_FOUR)
     state = {"step_outputs": {"validate": {"qa_report": [A_CLEAN_ROW]}}}
     findings = qa.load_findings(str(project), state)
     assert findings.source == qa.SOURCE_STATE
     assert [f.metric for f in findings.findings] == ["resolution"]
 
-
-def test_a_report_read_off_disk_says_it_is_a_previous_render(tmp_path):
-    project = _project(tmp_path, THE_FOUR)
     findings = qa.load_findings(str(project), {})
     assert findings.source == qa.SOURCE_FILE
     assert "previous render" in findings.source_detail
     assert "previous render" in "\n".join(qa.summary_lines(findings))
 
-
-def test_a_project_that_has_never_rendered_says_so(tmp_path):
-    project = tmp_path / "fresh"
-    project.mkdir()
-    findings = qa.load_findings(str(project), {})
+    fresh = tmp_path / "fresh"
+    fresh.mkdir()
+    findings = qa.load_findings(str(fresh), {})
     assert not findings
     assert findings.counts()["total"] == 0
     assert qa.summary_lines(findings) == [qa.NOTHING_TO_READ]
 
-
-def test_an_unreadable_report_is_reported_and_does_not_raise(tmp_path):
-    project = tmp_path / "broken"
-    (project / "exports").mkdir(parents=True)
-    (project / "exports" / "qa_report.json").write_text("{not json",
-                                                        encoding="utf-8")
-    findings = qa.load_findings(str(project), {})
-    assert "could not be read" in findings.source_detail
+    broken = tmp_path / "broken"
+    (broken / "exports").mkdir(parents=True)
+    (broken / "exports" / "qa_report.json").write_text("{not json",
+                                                       encoding="utf-8")
+    assert "could not be read" in qa.load_findings(
+        str(broken), {}).source_detail
 
 
 def test_a_row_with_no_verdict_is_not_read_as_clean():

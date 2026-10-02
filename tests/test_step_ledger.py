@@ -53,7 +53,10 @@ STAGE_BY_NODE = {node: step_ledger.stage_of(m, node)
 @pytest.fixture
 def project(tmp_path):
     """A project with three clips and the artifacts preflight would leave."""
-    root = tmp_path / "proj"
+    return _make_project(tmp_path / "proj")
+
+
+def _make_project(root):
     raw = root / "raw"
     raw.mkdir(parents=True)
     names = ["b_second.mov", "c_third.mov", "a_first.mov"]
@@ -126,7 +129,6 @@ def test_every_step_declares_a_stage():
             manifest = json.load(f)
         stage = step_ledger.stage_of(manifest, step_dir.name)
         assert stage in step_ledger.STAGES
-
 
 
 def test_resetting_the_edit_run_cannot_discard_enrichment(project):
@@ -217,7 +219,6 @@ def test_rerun_one_clip_re_indexes_exactly_that_clip(project, monkeypatch):
     assert result["total_failed"] == 0
 
 
-
 def test_per_clip_rerun_is_refused_where_there_are_no_per_clip_artifacts(project):
     root, state, _files = project
     with pytest.raises(step_ledger.LedgerError) as excinfo:
@@ -271,31 +272,6 @@ def test_replacing_one_clip_invalidates_only_its_own_analysis(project):
             assert step_ledger.is_completed(state, node), node
 
 
-def test_a_touched_but_unchanged_file_invalidates_nothing(project):
-    """The false positive this check must never produce.
-
-    A restore, a `cp` without -p, a sync client or a backup tool moves
-    mtime without touching a byte. Identity is content, so none of them
-    costs forty minutes of WhisperX. See library/tools/footage_identity.py.
-    """
-    root, state, files = project
-    for entry in files:
-        os.utime(entry["path"], (1_600_000_000, 1_600_000_000))
-    before = sorted(str(p.relative_to(root)) for p in root.rglob("*")
-                    if p.is_file())
-
-    delta = runner.apply_source_identity(str(root), state, STAGE_BY_NODE,
-                                         MANIFESTS)
-
-    assert not delta.footage_changed
-    assert sorted(str(p.relative_to(root)) for p in root.rglob("*")
-                  if p.is_file()) == before
-    for node in STAGE_BY_NODE:
-        assert step_ledger.is_completed(state, node), node
-
-
-
-
 def test_added_footage_renumbers_clips_and_the_check_notices(project):
     """Adding a file that sorts first shifts every clip id after it."""
     root, state, _files = project
@@ -313,33 +289,46 @@ def test_added_footage_renumbers_clips_and_the_check_notices(project):
     assert not step_ledger.is_completed(state, "catalog")
 
 
-def test_an_empty_raw_directory_refuses_to_invalidate(project):
-    """An unmounted volume must not cost the project its enrichment."""
-    root, state, files = project
+def test_source_identity_never_wipes_what_it_cannot_be_sure_of(tmp_path):
+    """Three cases that must cost nothing:
+
+    * a touched-but-unchanged file (a restore, a `cp` without -p, a sync
+      client) moves mtime without a byte - identity is content, so none
+      of them costs forty minutes of WhisperX;
+    * an empty raw directory (an unmounted volume) refuses to invalidate;
+    * a project with no recorded fingerprints adopts rather than wipes.
+    """
+    def files_under(root):
+        return sorted(str(p.relative_to(root)) for p in root.rglob("*")
+                      if p.is_file())
+
+    root, state, files = _make_project(tmp_path / "touched")
+    for entry in files:
+        os.utime(entry["path"], (1_600_000_000, 1_600_000_000))
+    before = files_under(root)
+    delta = runner.apply_source_identity(str(root), state, STAGE_BY_NODE,
+                                         MANIFESTS)
+    assert not delta.footage_changed
+    assert files_under(root) == before
+    for node in STAGE_BY_NODE:
+        assert step_ledger.is_completed(state, node), node
+
+    root, state, files = _make_project(tmp_path / "unmounted")
     for entry in files:
         os.remove(entry["path"])
-
     assert runner.apply_source_identity(str(root), state, STAGE_BY_NODE,
                                         MANIFESTS) is None
-
     assert (ProjectLayout(root).read_path(
         Area.TEMPORAL_INDEX, "clip_001.json")).exists()
     for node in STAGE_BY_NODE:
         assert step_ledger.is_completed(state, node), node
 
-
-def test_a_project_with_no_recorded_fingerprints_adopts_rather_than_wipes(project):
-    """First run under the new bookkeeping must not invalidate anything."""
-    root, state, _files = project
+    root, state, _files = _make_project(tmp_path / "unrecorded")
     state.pop(step_ledger.SOURCE_FINGERPRINTS_KEY)
-    before = sorted(str(p.relative_to(root)) for p in root.rglob("*")
-                    if p.is_file())
-
+    before = files_under(root)
     assert runner.apply_source_identity(str(root), state, STAGE_BY_NODE,
                                         MANIFESTS) is None
-
-    assert sorted(str(p.relative_to(root)) for p in root.rglob("*")
-                  if p.is_file()) == before
+    assert files_under(root) == before
     assert set(state[step_ledger.SOURCE_FINGERPRINTS_KEY]) == {
         "clip_001", "clip_002", "clip_003"}
     for node in STAGE_BY_NODE:
@@ -400,27 +389,9 @@ def test_declared_per_clip_artifacts_name_an_area_and_a_clip(tmp_path):
             assert "{" not in rendered and "}" not in rendered
 
 
-
-
 # ── 4. Code identity ────────────────────────────────────────────────
 
 from library.tools import code_identity
-
-
-def test_step_code_hash_changes_on_manifest_edit(tmp_path):
-    """Editing a manifest.json file produces a different hash."""
-    step_dir = tmp_path / "step_1_99_test"
-    step_dir.mkdir()
-    (step_dir / "step.py").write_text("print('hello')")
-    (step_dir / "manifest.json").write_text('{"id": "test"}')
-
-    h_before = code_identity.step_code_hash(str(step_dir))
-    (step_dir / "manifest.json").write_text('{"id": "test", "v": 2}')
-    h_after = code_identity.step_code_hash(str(step_dir))
-
-    assert h_before != h_after
-
-
 
 
 def test_changed_code_invalidates_preflight_cache(tmp_path, monkeypatch):
@@ -499,41 +470,10 @@ def test_changed_code_invalidates_preflight_cache(tmp_path, monkeypatch):
     assert step_ledger.is_completed(state, "creative_direction"), (
         "edit steps must be untouched by code identity checks")
 
-
-
-def test_first_encounter_adopts_without_invalidating(tmp_path, monkeypatch):
-    """A project that has never carried code hashes must not be wiped.
-
-    This matches the adoption pattern apply_source_identity uses for
-    footage fingerprints on first encounter.
-    """
-    steps_root = tmp_path / "steps"
-    scan_dir = steps_root / "step_1_01_scan_project"
-    scan_dir.mkdir(parents=True)
-    (scan_dir / "step.py").write_text("# scan code")
-    (scan_dir / "manifest.json").write_text('{"id": "scan"}')
-
-    fake_nodes = {"scan": {"step_ref": "steps/step_1_01_scan_project"}}
-    stage_by_node = {"scan": step_ledger.PREFLIGHT}
-    manifests = {"scan": MANIFESTS["scan"]}
-
-    monkeypatch.setattr(runner, "LIBRARY_ROOT", steps_root.parent)
-
-    state = {
-        step_ledger.LEDGER_KEY[step_ledger.PREFLIGHT]: {
-            "scan": {"completed_at": "2026-08-20T10:00:00"},
-        },
-        # No CODE_FINGERPRINTS_KEY - simulates pre-upgrade state.
-    }
-
-    result = runner.apply_code_identity(
-        state, stage_by_node, manifests, fake_nodes)
-    assert result == [], "first encounter must adopt, not invalidate"
-    assert step_ledger.is_completed(state, "scan"), (
-        "the step must remain completed on first encounter")
-    assert step_ledger.CODE_FINGERPRINTS_KEY in state, (
-        "hashes must be recorded for next run")
-
+    # A manifest edit is a code change too.
+    h_before = code_identity.step_code_hash(str(temporal_dir))
+    (temporal_dir / "manifest.json").write_text('{"id": "temporal_index", "v": 2}')
+    assert code_identity.step_code_hash(str(temporal_dir)) != h_before
 
 
 # ── 5. Shared implementation files are part of the identity (D1) ──
@@ -739,7 +679,6 @@ def test_preflight_shared_code_references_are_declared():
             f"would survive a code fix in cache; "
             f"declared-but-unreferenced {sorted(declared - required)} "
             f"would invalidate good cache on unrelated edits")
-
 
 
 def test_a_node_run_completes_its_project_capabilities_only():

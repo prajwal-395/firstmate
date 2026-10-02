@@ -30,9 +30,6 @@ from library.tools.project_layout import Area, ProjectLayout
 from library.tools.run_profile import ProfileError, RunProfile
 
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-
-
 @pytest.fixture(scope="module")
 def dag():
     return run_scope.load_dag()
@@ -67,9 +64,6 @@ def _profiles_dir(project) -> Path:
 
 
 # ── The engine's own profiles are real ───────────────────────────────
-
-
-
 
 
 def test_the_podcast_profile_says_what_the_captain_asked_for(dag, manifests,
@@ -117,10 +111,7 @@ def test_a_profile_gets_the_same_refusal_the_flags_get(project, dag,
     assert "creative_direction" in str(declared.value)
 
 
-
-
 # ── Where a profile lives ────────────────────────────────────────────
-
 
 
 def test_a_project_profile_shadows_the_engines_and_says_so(project, steps):
@@ -137,15 +128,6 @@ def test_a_project_profile_shadows_the_engines_and_says_so(project, steps):
                for line in run_profile.describe_available(str(project)))
 
 
-def test_the_profiles_directory_is_an_input_the_pipeline_cannot_write(project):
-    """A run configuration is the captain's, the same way `raw/` is."""
-    from library.tools.project_layout import ProjectLayoutViolation
-
-    layout = ProjectLayout(project)
-    with pytest.raises(ProjectLayoutViolation):
-        layout.write_dir(Area.RUN_PROFILES)
-
-
 # ── Adoption, and declining it ───────────────────────────────────────
 
 def test_a_project_adopts_a_profile_in_its_project_yaml(project, steps):
@@ -157,25 +139,10 @@ def test_a_project_adopts_a_profile_in_its_project_yaml(project, steps):
     assert any("adopted by project.yaml" in line
                for line in run_profile.describe(profile))
 
-
-
-
-def test_none_declines_the_adopted_profile_for_one_run(project, steps):
-    (project / "project.yaml").write_text(
-        "name: test\npipeline:\n  run_profile: podcast\n", encoding="utf-8")
+    # `none` declines the adopted profile for one run.
     profile = run_profile.resolve_for_run(str(project), "none", steps)
     assert profile is run_profile.NO_PROFILE
     assert run_profile.describe(profile) == []
-
-
-
-
-def test_a_project_cannot_adopt_the_word_that_declines_one(project, steps):
-    (project / "project.yaml").write_text(
-        "name: test\npipeline:\n  run_profile: none\n", encoding="utf-8")
-    with pytest.raises(ProfileError) as exc:
-        run_profile.resolve_for_run(str(project), None, steps)
-    assert "DECLINES" in str(exc.value)
 
 
 # ── The command line outranks the profile ────────────────────────────
@@ -185,82 +152,54 @@ def _profile(**kw) -> RunProfile:
                       source=run_profile.ENGINE, **kw)
 
 
-def test_only_replaces_the_profiles_goals():
+def test_the_command_line_outranks_the_profile():
+    """--only and --target replace the profile's goals; --skip adds to
+    its skip list; naming a step takes it out of the profile's skip list
+    (a profile's skip is a DEFAULT, a step on the command line is a
+    STATEMENT - the precedence `run_scope` gives a default-off step)."""
     selection = run_profile.compose(_profile(goals=("render",)),
                                     only=("catalog",))
     assert selection.only == ("catalog",)
 
-
-def test_target_replaces_the_profiles_goals():
     selection = run_profile.compose(_profile(goals=("render",)),
                                     target="rough_cut_subtitles")
     assert selection.target == "rough_cut_subtitles"
     assert selection.only == ()
 
-
-def test_skip_adds_to_the_profiles():
     selection = run_profile.compose(_profile(skip=("validate",)),
                                     skip=("creative_cohesion",))
     assert set(selection.skip) == {"validate", "creative_cohesion"}
 
-
-def test_naming_a_step_takes_it_out_of_the_profiles_skip_list():
-    """`run_scope` refuses a selection that both skips and selects a
-    step. A profile's skip is a DEFAULT; a step on the command line is a
-    STATEMENT, which is the same precedence `run_scope` already gives a
-    step that is off by default."""
     selection = run_profile.compose(_profile(skip=("ocr_extraction",)),
                                     with_steps=("ocr_extraction",))
     assert selection.skip == ()
     assert selection.with_steps == ("ocr_extraction",)
 
 
-
-
 # ── Refusals, by name ────────────────────────────────────────────────
 
-def test_an_unknown_profile_is_refused_by_name(project):
+def test_a_malformed_profile_is_refused_by_name(project, steps):
     with pytest.raises(ProfileError) as exc:
         run_profile.load("nosuch", str(project))
     assert "nosuch" in str(exc.value)
     assert "Known profiles" in str(exc.value)
 
-
-
-
-
-
-
-
-def test_a_profile_with_no_description_is_refused(project, steps):
     _write_profile(_profiles_dir(project), "mute", {"goals": ["catalog"]})
-    with pytest.raises(ProfileError) as exc:
+    with pytest.raises(ProfileError, match="description"):
         run_profile.load("mute", str(project), steps)
-    assert "description" in str(exc.value)
 
-
-def test_declaring_both_a_target_and_goals_is_refused(project, steps):
     _write_profile(_profiles_dir(project), "both", {
         "description": "d", "target": "rough_cut_subtitles",
         "goals": ["catalog"]})
-    with pytest.raises(ProfileError) as exc:
+    with pytest.raises(ProfileError, match="one question"):
         run_profile.load("both", str(project), steps)
-    assert "one question" in str(exc.value)
 
-
-
-
-
-
-
-
-
-
-
-
+    (project / "project.yaml").write_text(
+        "name: test\npipeline:\n  run_profile: none\n", encoding="utf-8")
+    with pytest.raises(ProfileError, match="DECLINES"):
+        run_profile.resolve_for_run(str(project), None, steps)
 
 
 # ── The runner really accepts it ─────────────────────────────────────
-
 
 

@@ -10,19 +10,16 @@ step failed outright.  These tests pin the join.
 import json
 import os
 
-import pytest
 
 from library.tools.semantic_index import (
     build_semantic_lookup,
     clip_observations,
-    clip_tags,
     describe_clip,
 )
 from library.tools.vision_schema_adapter import (
     UNMEASURED_SUMMARY,
     adapt_semantic_document,
     adapt_semantic_documents,
-    is_v3_profile,
     stability_summary,
     usable_ranges_summary,
 )
@@ -100,19 +97,9 @@ LEGACY_PROFILE = {
 }
 
 
-
-
 def test_legacy_documents_pass_through_untouched():
     """A project whose stored state predates v3 must keep working."""
     assert adapt_semantic_document(LEGACY_PROFILE) == LEGACY_PROFILE
-
-
-
-
-
-
-
-
 
 
 def test_adapter_does_not_invent_fields_v3_never_measured():
@@ -123,14 +110,13 @@ def test_adapter_does_not_invent_fields_v3_never_measured():
     assert "mood" not in adapt_semantic_document(V3_PROFILE)["analysis"]
 
 
+def test_usable_portions_tell_excluded_unmeasured_and_legacy_apart():
+    """`usable_ranges: []` is a verdict, an absent measurement is said in
+    words, and a document predating the method field keeps its own prose.
 
-
-def test_a_fully_excluded_clip_says_so_rather_than_rendering_blank():
-    """`usable_ranges: []` is a verdict, and a blank cell does not carry it.
-
-    An empty string is what an unmeasured clip renders as, so a consumer
-    reading one cannot tell "no bound was measured" from "no footage here
-    is usable" - the strongest signal the measurement can give.
+    A blank cell is what "no bound" looks like, and the B-roll selector
+    reads this cell to decide which seconds of a clip it may cut: it has
+    to tell "excluded" from "nobody looked" from "you may cut anywhere".
     """
     excluded = dict(V3_PROFILE)
     excluded["assessment"] = dict(
@@ -147,14 +133,6 @@ def test_a_fully_excluded_clip_says_so_rather_than_rendering_blank():
         "none - whole clip excluded (sustained_high_motion, subject_absent)")
     assert clip_observations(excluded)["usable_ranges"] == portions
 
-
-def test_an_unmeasured_clip_says_it_was_never_measured():
-    """An absent measurement is said in words, not left blank.
-
-    Blank is what "no bound" looks like, and the B-roll selector reads
-    this cell to decide which seconds of a clip it may cut.  It has to be
-    able to tell "you may cut anywhere" from "nobody looked".
-    """
     unmeasured = dict(V3_PROFILE)
     unmeasured["assessment"] = dict(
         V3_PROFILE["assessment"],
@@ -169,14 +147,6 @@ def test_an_unmeasured_clip_says_it_was_never_measured():
     assert clip_observations(unmeasured)["usable_ranges"] == UNMEASURED_SUMMARY
     assert "0.0-45.9s" not in clip_observations(unmeasured)["usable_ranges"]
 
-
-def test_a_legacy_document_without_the_method_field_still_renders_blank():
-    """A document that predates the field is not an unmeasured verdict.
-
-    `semantic_index` falls back to the document's own `usable_portions`
-    prose when the summary is empty, and that fallback has to stay
-    reachable.
-    """
     legacy = dict(V3_PROFILE)
     legacy["assessment"] = {
         k: v for k, v in V3_PROFILE["assessment"].items()
@@ -187,19 +157,11 @@ def test_a_legacy_document_without_the_method_field_still_renders_blank():
     assert clip_observations(legacy)["usable_ranges"] == "0.0-12.0s"
 
 
-
-
 def test_describe_clip_handles_a_raw_v3_profile():
     """This is the failure that broke step 3.02: "" for every clip."""
     described = describe_clip(V3_PROFILE)
     assert described
     assert "Outdoor parking lot" in described
-
-
-
-
-
-
 
 
 def test_lookup_join_survives_adaptation():
@@ -209,8 +171,6 @@ def test_lookup_join_survives_adaptation():
         docs, [{"clip_id": "clip_009", "path": "/footage/IMG_1814.MOV"}])
     assert "clip_009" in lookup
     assert describe_clip(lookup["clip_009"])
-
-
 
 
 # ─── The measured values must survive all the way into a prompt ───
@@ -352,19 +312,17 @@ USABLE_RANGE_STATES = [
 ]
 
 
-@pytest.mark.parametrize("assessment,expected", USABLE_RANGE_STATES)
-def test_the_three_usable_range_states_reach_the_broll_prompt(
-        assessment, expected, tmp_path):
-    doc = json.loads(json.dumps(V3_PROFILE))
-    doc["assessment"] = dict(doc["assessment"], **assessment)
-    context = _assembled_context(
-        "step_3_02_select_broll", adapt_semantic_documents([doc]), tmp_path)
-    assert expected in context
+def test_the_three_usable_range_states_reach_the_broll_prompt(tmp_path):
+    for assessment, expected in USABLE_RANGE_STATES:
+        doc = json.loads(json.dumps(V3_PROFILE))
+        doc["assessment"] = dict(doc["assessment"], **assessment)
+        context = _assembled_context(
+            "step_3_02_select_broll", adapt_semantic_documents([doc]),
+            tmp_path)
+        assert expected in context, expected
 
 
-@pytest.mark.parametrize("step_id", CONSUMERS)
-def test_every_semantic_consumer_projects_all_three_document_shapes(
-        step_id, tmp_path):
+def test_every_semantic_consumer_projects_all_three_document_shapes(tmp_path):
     """Adapted v3, raw v3 and retired-schema documents must all survive.
 
     `project_fields` raises when a non-empty list projects to nothing but
@@ -373,9 +331,9 @@ def test_every_semantic_consumer_projects_all_three_document_shapes(
     on the value rather than on the string being non-empty - `"{}"` is
     non-empty, which is how this could have gone quiet.
     """
-    for docs in (adapt_semantic_documents([V3_PROFILE]),
-                 [V3_PROFILE],
-                 [LEGACY_PROFILE]):
+    for step_id, docs in [(step_id, docs) for step_id in CONSUMERS
+                          for docs in (adapt_semantic_documents([V3_PROFILE]),
+                                       [V3_PROFILE], [LEGACY_PROFILE])]:
         if step_id in PRE_BRIDGE_ROUTE:
             context = _assembled_context(step_id, docs, tmp_path)
             assert "clip_009" in context, (
@@ -383,7 +341,7 @@ def test_every_semantic_consumer_projects_all_three_document_shapes(
                 f"these documents")
             continue
         context = _semantic_context(step_id, docs)
-        assert context.strip() and context.strip() != "{}", context
+        assert context.strip() and context.strip() != "{}", (step_id, context)
 
 
 def test_clip_observations_excludes_legacy_chain_of_thought_objects():
@@ -401,12 +359,12 @@ def test_clip_observations_excludes_legacy_chain_of_thought_objects():
     assert observed["subjects"] == ""
 
 
-def test_stability_summary_unknown_falls_through_to_camera_segments():
-    """The literal "unknown" in assessment.camera_stability is treated as
+def test_stability_summary_prefers_a_real_verdict_and_reads_past_unknown():
+    """A real assessment verdict wins; the literal "unknown" is treated as
     absent, so the summary reads the per-segment values the vision pass
-    actually measured.  This is reading a measurement, not filling in the
-    assessment field (AGENTS.md 10.3).
+    measured (reading a measurement, not filling a field - AGENTS.md 10.3).
     """
+    assert stability_summary(V3_PROFILE) == "unstable"
     doc = {
         "scene": [{"start": 0, "end": 20, "type": "outdoor"}],
         "camera": [
@@ -417,12 +375,3 @@ def test_stability_summary_unknown_falls_through_to_camera_segments():
         "analysis_metadata": {"pipeline_version": "v3"},
     }
     assert stability_summary(doc) == "stable"
-
-
-def test_stability_summary_real_assessment_still_wins():
-    """When the assessment carries a real verdict (not "unknown"), it is
-    still preferred over the per-segment values."""
-    assert stability_summary(V3_PROFILE) == "unstable"
-
-
-

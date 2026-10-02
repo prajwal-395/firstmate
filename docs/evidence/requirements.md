@@ -138,3 +138,93 @@ the layer cannot be vacuously strict either.
 `tests/test_every_requirement_can_refuse.py`,
 `tests/test_no_requirement_refuses_correct_input.py`.
 ```
+
+
+## Test-module history (moved 2026-10-02)
+
+Module docstrings of the two requirement test files, moved verbatim when the tests kept only their invariant.
+
+### `tests/test_every_requirement_can_refuse.py`
+
+```text
+Every requirement must be able to say no, and say what to run.
+
+Why this test exists
+--------------------
+A gate that cannot fail is worse than no gate, because it reads as
+coverage (AGENTS.md 10.4).  This repository has already paid for that
+lesson twice, and there is a third live instance:
+`reel_conformance_verifier.py:1519` guards its caption check with
+`if plan.captions and timeline.caption_items:`, `plan.captions` defaults
+to `()` at `:177`, and `:1597` reports `captions_expected=0` - so an
+empty expected side silently DISABLES the check and 762 real captions
+pass verified by nothing.
+
+Replacing 126 prose strings with executable requirements is exactly the
+kind of change that could produce a fourth instance: a registry of
+checks that all return SATISFIED because nobody ever fed them a state
+they should refuse.
+
+So this walks the WHOLE registry - never a curated list - and asserts of
+each requirement that:
+
+* there is a context in which it returns UNSATISFIED,
+* that refusal carries a non-empty reason,
+* that refusal names what would produce the missing thing, or is an
+  environment requirement, where the remedy is in the reason instead,
+* and there is a context in which it returns SATISFIED with a declared
+  `source`.
+
+The witnesses live on the `Requirement`, not here
+--------------------------------------------------
+`refuting_context` and `satisfying_context` are constructor arguments
+with no defaults, so a requirement cannot be REGISTERED without them.
+That is deliberate: a test that built witnesses centrally would be
+silently outgrown by a new requirement nobody wrote one for, and would
+still pass on the ones it knew.  The registration is the gate; this test
+only reads it.
+
+A requirement that genuinely cannot refuse is DELETED, not exempted.
+There is no skip list in this file and there must not be one.
+```
+
+### `tests/test_no_requirement_refuses_correct_input.py`
+
+```text
+The mirror: the layer must not be vacuously STRICT either.
+
+Why this test exists
+--------------------
+A gate that FAILS correct output is no more coverage than one that
+cannot fail (AGENTS.md 10.4).  Converting 126 prose strings into
+executable requirements is a change with a specific, predictable failure
+mode: the prose was never executed, so nobody ever found out which of it
+was WRONG.  Four of the deleted preconditions would each have refused a
+CORRECT run:
+
+* `semantic_analysis: 'clip_catalog' exists in state` - 1.03 declares
+  only `raw_footage_files` and no edge routes a catalog to it.
+* `color_grade: 'brand_template' exists in state` - `gather_step_inputs`
+  deliberately does not broadcast it; the resolved template arrives as
+  `brand_style`/`brand_effect`, so the raw key is never in state.
+* `review_rough_cut` / `color_grade: 'b_roll_interjections' exists in
+  state` - both steps declare it OPTIONAL, and a cut with no cutaways is
+  a legitimate run.
+* `object_segmentation`'s two - written when the step was UNWIRED and
+  never ran; wired matte-triggered on 2026-09-24, and the prose pair
+  stays deleted while the DAG edges derive real ones.
+
+Each is recorded in `requirements.DELETED` with the reason, rather than
+silently dropped: a deleted requirement with no reason reads as an
+oversight.  This file is what would have caught them had they been
+converted, and what catches the next one.
+
+Two halves, because there are two ways to be vacuously strict
+-------------------------------------------------------------
+1. A requirement that refuses a state which is genuinely fine.
+2. A requirement whose expected side is derived from the same value as
+   its actual side, which is tautological - it can never disagree with
+   itself, so it passes whatever happens.  That is a structural defect
+   and is invisible behaviourally: the check passes, and passing is what
+   it looks like when it is broken.
+```

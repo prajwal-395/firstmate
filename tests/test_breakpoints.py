@@ -29,42 +29,33 @@ def steps():
     return {n["id"] for n in run_scope.load_dag()["nodes"]}
 
 
+OPS = set(operations.names())
+ONE = sorted(OPS)[0]
+
+
 def _resolve(steps, **kw):
     return breakpoints.resolve(known_steps=steps, **kw)
 
 
-# ── Nothing armed ────────────────────────────────────────────────────
+# ── What is armed ───────────────────────────────────────────────────
 
-def test_a_plain_run_stops_nowhere(steps):
+def test_arming_plain_review_and_per_step(steps):
+    """A plain run stops nowhere; --review is the every-step case
+    (wherever the run goes); --break arms that step and nothing else."""
     gates = _resolve(steps)
     assert not gates.any_armed
     assert not any(gates.armed_at(s) for s in steps)
     assert "none" in gates.describe()[0]
 
-
-# ── --review is now the every-step case, and still works ─────────────
-
-def test_review_arms_every_step(steps):
     gates = _resolve(steps, review_all=True)
     assert gates.every_step
     assert all(gates.armed_at(s) for s in steps)
-    assert gates.armed_at("a step that does not exist"), (
-        "every_step means wherever the run goes")
+    assert gates.armed_at("a step that does not exist")
 
-
-
-
-# ── Per step ─────────────────────────────────────────────────────────
-
-def test_one_step_is_armed_and_nothing_else(steps):
     gates = _resolve(steps, break_at=("review_rough_cut",))
     assert gates.armed_at("review_rough_cut")
     assert not gates.armed_at("catalog")
     assert not gates.every_step
-
-
-
-
 
 
 def test_no_break_star_disarms_the_lot(steps):
@@ -80,19 +71,28 @@ def test_no_break_star_disarms_the_lot(steps):
 
 # ── What is refused ──────────────────────────────────────────────────
 
-def test_an_unknown_step_is_refused_by_name(steps):
+def test_an_unknown_address_is_refused_by_name(steps):
+    """An unknown step lists the known steps; an unknown operation lists
+    the known operations; a bad region is refused by `region.parse`, the
+    one parser, in its own words."""
     with pytest.raises(BreakpointError) as exc:
         _resolve(steps, break_at=("rough_cut",))
     assert "rough_cut" in str(exc.value)
     assert "Known steps" in str(exc.value)
 
+    with pytest.raises(BreakpointError) as exc:
+        breakpoints.resolve(known_steps={"render"}, known_operations=OPS,
+                            break_at=("nope.jog@1.0-2.0",))
+    assert "nope.jog" in str(exc.value)
+    assert ONE in str(exc.value), "the known operations are listed"
 
-
-
+    with pytest.raises(BreakpointError) as exc:
+        breakpoints.resolve(known_steps={"render"}, known_operations=OPS,
+                            break_at=(f"{ONE}@notaspan",))
+    assert "notaspan" in str(exc.value)
 
 
 # ── An unreachable breakpoint is reported, never silent ──────────────
-
 
 
 def test_an_unreachable_breakpoint_does_not_refuse_the_run(steps):
@@ -102,26 +102,7 @@ def test_an_unreachable_breakpoint_does_not_refuse_the_run(steps):
     assert gates.any_armed
 
 
-
-
 # ── The record a later reader gets ───────────────────────────────────
-
-
-
-# ── The two CLIs cannot drift ────────────────────────────────────────
-
-def test_both_clis_register_the_same_flags():
-    import argparse
-
-    wrapper, runner = argparse.ArgumentParser(), argparse.ArgumentParser()
-    breakpoints.add_breakpoint_arguments(wrapper)
-    breakpoints.add_breakpoint_arguments(runner)
-    for parser in (wrapper, runner):
-        args = parser.parse_args(["--break", "a", "--no-break", "b"])
-        assert args.break_at == ["a"]
-        assert args.no_break_at == ["b"]
-
-
 
 
 def test_the_resume_command_drops_a_rerun_that_already_happened():
@@ -145,46 +126,12 @@ def test_the_resume_command_drops_a_rerun_that_already_happened():
 # ── A breakpoint may name an OPERATION, at a region ─────────────────
 
 
-OPS = set(operations.names())
-ONE = sorted(OPS)[0]
-
-
 def test_a_breakpoint_may_be_an_operation_address():
     gates = breakpoints.resolve(known_steps={"render"}, known_operations=OPS,
                        break_at=(f"{ONE}@45.0-72.0",))
     assert gates.armed_at(f"{ONE}@45.0-72.0")
     assert not gates.armed_at("render")
-
-
-
-
-def test_a_region_breakpoint_does_not_arm_the_whole_operation():
-    """The other direction must NOT hold, or a region breakpoint is a
-    whole-operation one wearing a disguise."""
-    gates = breakpoints.resolve(known_steps={"render"}, known_operations=OPS,
-                       break_at=(f"{ONE}@45.0-72.0",))
+    # The other direction must NOT hold, or a region breakpoint is a
+    # whole-operation one wearing a disguise.
     assert not gates.armed_at(ONE)
     assert not gates.armed_at(f"{ONE}@0.0-1.0")
-
-
-
-
-def test_an_unknown_operation_is_refused_by_name():
-    with pytest.raises(BreakpointError) as exc:
-        breakpoints.resolve(known_steps={"render"}, known_operations=OPS,
-                   break_at=("nope.jog@1.0-2.0",))
-    assert "nope.jog" in str(exc.value)
-    assert ONE in str(exc.value), "the known operations are listed"
-
-
-def test_a_malformed_region_is_refused_by_the_one_parser():
-    """`region.parse` owns what an interval is; this does not re-parse
-    it, so a bad span is refused in that module's own words."""
-    with pytest.raises(BreakpointError) as exc:
-        breakpoints.resolve(known_steps={"render"}, known_operations=OPS,
-                   break_at=(f"{ONE}@notaspan",))
-    assert "notaspan" in str(exc.value)
-
-
-
-

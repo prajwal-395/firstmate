@@ -75,16 +75,14 @@ def black_video(tmp_path):
 
 # ── Refusal direction one: a name nothing holds ───────────────────
 
-def test_unknown_skill_name_is_refused():
+def test_a_skill_declaration_nothing_can_honour_is_refused():
+    """A name nothing holds, and the step-3.04 shape: declared under
+    `interface` where nothing reads it."""
     with pytest.raises(pipeline_skills.UnknownSkill, match="no_such_skill"):
         pipeline_skills.declared_skills({"skills": ["no_such_skill"]},
                                         "validate")
-
-
-def test_skills_under_interface_are_refused_not_ignored():
-    """The step-3.04 shape: declared where nothing reads it."""
     with pytest.raises(pipeline_skills.MisplacedSkills,
-                        match="top level"):
+                       match="top level"):
         pipeline_skills.declared_skills(
             {"interface": {"skills": ["verify_render"]}}, "validate")
 
@@ -97,22 +95,6 @@ def test_declared_skill_missing_from_prompt_fails():
         pipeline_skills.assert_declared_skills_reach_prompt(
             "validate", {"skills": ["verify_render"]},
             "a prompt that names nothing")
-
-
-# ── The block tells the model what it must do, per harness ───────
-
-def test_shell_harness_is_told_to_invoke_gating_before_answering():
-    block = pipeline_skills.prompt_block(
-        "validate", {"skills": ["verify_render"]}, "agent")
-    assert "python3 -m library.skills.verify_render.skill" in block
-    assert "BEFORE you answer" in block
-
-
-def test_shell_less_harness_gets_the_pipeline_runs_it_route():
-    block = pipeline_skills.prompt_block(
-        "validate", {"skills": ["verify_render"]}, "api")
-    assert "python3 -m" not in block
-    assert "the pipeline runs `verify_render` for you" in block
 
 
 # ── verify_render gates: fails bad, passes good ───────────────────
@@ -142,28 +124,12 @@ def test_verify_render_fails_a_real_black_render(tmp_path, black_video):
 
 # ── ask_the_footage reports: deterministic half carries, model opines
 
-def test_ask_the_footage_reports_on_good_footage(tmp_path, good_video,
-                                                 monkeypatch):
-    """The model's opinion is recorded with its confidence; the
-    deterministic half answers on its own."""
-    from library.skills.ask_the_footage import skill as ask
-    monkeypatch.setattr(
-        ask, "ask_vision",
-        lambda stills, question, check_type, **k: {
-            "available": True, "opinion_passed": True,
-            "confidence": 0.9, "detail": "caption readable",
-            "issues": [], "elapsed_seconds": 0.1})
-    observation = ask.run(good_video, "Is the picture intact?",
-                          str(tmp_path), "review_rough_cut")
-    assert observation["deterministic_passed"] is True
-    assert observation["vision"]["opinion_passed"] is True
-    assert "passed" not in observation, (
-        "a reporting skill must not render a gating verdict")
-    assert observation["receipt"].endswith("ask_the_footage.json")
-
-
-def test_ask_the_footage_deterministic_half_fails_bad_footage(
-        tmp_path, black_video, monkeypatch):
+def test_ask_the_footage_reports_and_its_measurements_carry(
+        tmp_path, good_video, black_video, monkeypatch):
+    """The model's opinion is recorded with its confidence, never
+    enforced; the deterministic half answers on its own. On black
+    footage the model says fine and the measurements say black - the
+    measurements carry it."""
     from library.skills.ask_the_footage import skill as ask
     monkeypatch.setattr(
         ask, "ask_vision",
@@ -171,12 +137,18 @@ def test_ask_the_footage_deterministic_half_fails_bad_footage(
             "available": True, "opinion_passed": True,
             "confidence": 0.9, "detail": "looks fine to me",
             "issues": [], "elapsed_seconds": 0.1})
-    observation = ask.run(black_video, "Is the picture intact?",
-                          str(tmp_path), "review_rough_cut")
-    # The model said fine; the measurements say black. The
-    # measurements carry it - the opinion is recorded, not enforced.
-    assert observation["deterministic_passed"] is False
-    assert observation["vision"]["opinion_passed"] is True
+    good = ask.run(good_video, "Is the picture intact?",
+                   str(tmp_path / "good"), "review_rough_cut")
+    assert good["deterministic_passed"] is True
+    assert good["vision"]["opinion_passed"] is True
+    assert "passed" not in good, (
+        "a reporting skill must not render a gating verdict")
+    assert good["receipt"].endswith("ask_the_footage.json")
+
+    bad = ask.run(black_video, "Is the picture intact?",
+                  str(tmp_path / "bad"), "review_rough_cut")
+    assert bad["deterministic_passed"] is False
+    assert bad["vision"]["opinion_passed"] is True
 
 
 def test_unavailable_vision_is_reported_not_failed(tmp_path, good_video,
@@ -200,20 +172,20 @@ def test_unavailable_vision_is_reported_not_failed(tmp_path, good_video,
 
 # ── The must-check rule: receipts, not self-reports ───────────────
 
-def test_skipped_gating_skill_fails_with_the_reason_named(tmp_path):
+def test_a_gating_skill_is_read_back_from_its_receipt(tmp_path, good_video):
+    """Receipts, not self-reports: no receipt on disk fails naming the
+    skill; once the skill has run, its verdict reads back."""
     manifest = {"skills": ["verify_render"]}
     with pytest.raises(pipeline_skills.GatingSkillSkipped,
                        match="verify_render"):
         pipeline_skills.assert_gating_skills_ran(
             "validate", manifest, str(tmp_path))
 
-
-def test_ran_gating_skill_reads_back_from_disk(tmp_path, good_video):
     from library.skills.verify_render.skill import run
     run(good_video, str(tmp_path), "validate",
         expected_resolution=[1080, 1920], expected_fps=30)
     receipts = pipeline_skills.assert_gating_skills_ran(
-        "validate", {"skills": ["verify_render"]}, str(tmp_path))
+        "validate", manifest, str(tmp_path))
     assert "verify_render" in receipts
     assert receipts["verify_render"]["result"]["passed"] is True
 

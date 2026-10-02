@@ -165,26 +165,10 @@ def test_an_empty_plan_still_compiles_and_still_says_why(recorded_run):
     assert len(manifest["tracks"]["V1"]["clips"]) == 2
 
 
-def test_an_unbuildable_plan_compiles_too_and_is_told_apart(recorded_run):
-    """The plan the pipeline could not build still reaches the manifest
-    as an empty one - the change is that the output now says so."""
-    _, _, outputs, _ = recorded_run
-    block = outputs["mesh_spine"]["audio_spine"]["structure"][0]["position"]
-    spec, _ = _plan_through_the_post_bridge(outputs, [{
-        "target_block_position": block,
-        "effect_type": "glitch", "params": {"zoom_start": 1.0, "zoom_end": 1.03},
-        "rationale": "an effect the toolkit has not got",
-    }])
-    assert spec["visual_effects"] == []
-    assert spec["planning_basis"]["basis"] == "every_entry_dropped"
-
-    manifest = _compile_with(recorded_run, spec)
-    assert manifest["vfx"] == []
-
-
 def test_compile_manifest_reads_the_basis_and_names_the_casualties(
         recorded_run, caplog):
-    """The record has a reader outside the step that writes it.
+    """An unbuildable plan still compiles, as an empty one, and the
+    record has a reader outside the step that writes it.
 
     `compile_manifest` is where an empty VFX plan becomes an absence in
     the picture, so it is where an unbuildable one is said out loud.
@@ -201,6 +185,8 @@ def test_compile_manifest_reads_the_basis_and_names_the_casualties(
         "effect_type": "glitch", "params": {"zoom_start": 1.0, "zoom_end": 1.03},
         "rationale": "an effect the toolkit has not got",
     }])
+    assert spec["visual_effects"] == []
+    assert spec["planning_basis"]["basis"] == "every_entry_dropped"
 
     with caplog.at_level(logging.INFO):
         manifest = _compile_with(recorded_run, spec)

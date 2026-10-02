@@ -25,8 +25,9 @@ from library.tools.master_loudness import (
 from library.tools.project_layout import Area, ProjectLayout
 
 
-def test_unknown_audio_operation_key_refuses_instead_of_becoming_inaudible():
-    """The plan schema catches effect controls the renderer never reads."""
+def test_an_audio_ops_request_the_renderer_cannot_honour_refuses():
+    """The plan schema catches effect controls the renderer never reads,
+    and an empty operation list refuses instead of claiming delivery."""
     request = {
         "source": "speaker.wav",
         "tool": "audio_ops",
@@ -37,23 +38,15 @@ def test_unknown_audio_operation_key_refuses_instead_of_becoming_inaudible():
         }],
         "why": "measured room floor and voice spectrum",
     }
-
     with pytest.raises(dialogue_cleanup.DialogueCleanupRefused) as raised:
         dialogue_cleanup.validate_cleanup_request(request)
-
     assert "unread keys" in raised.value.why
     assert "unread_control" in raised.value.why
 
-
-def test_empty_audio_operation_list_refuses_instead_of_claiming_delivery():
-    request = {
-        "source": "speaker.wav", "tool": "audio_ops",
-        "operations": [], "why": "clean up the room",
-    }
-
     with pytest.raises(dialogue_cleanup.DialogueCleanupRefused,
                        match="operations.*empty"):
-        dialogue_cleanup.validate_cleanup_request(request)
+        dialogue_cleanup.validate_cleanup_request(
+            dict(request, operations=[], why="clean up the room"))
 
 
 def test_block_boundary_ramp_does_not_pull_down_a_recovered_gap():
@@ -305,21 +298,18 @@ def test_word_gap_recovery_is_held_until_the_next_word():
     assert level_at(40) == -30.0
 
 
-def test_numeric_word_gap_values_are_preserved_exactly():
-    """MX3.1's 10 dB and 300 ms are not rounded into engine defaults."""
+def test_numeric_mix_values_the_request_states_are_preserved_exactly():
+    """MX3.1's 10 dB / 300 ms duck and -16 LUFS / -1 dBTP delivery are
+    not rounded into engine defaults by planning."""
     plan = resolve_music_ducking_plan({
         "music_ducking_plan": {
             "enabled": True, "duck_db": 10, "release_ms": 300,
             "why": "request states 10 dB and 300 ms",
         },
     })
-
     assert plan["duck_db"] == 10.0
     assert plan["release_ms"] == 300.0
 
-
-def test_explicit_dialogue_loudness_and_peak_targets_are_preserved():
-    """MX3.1's -16 LUFS / -1 dBTP delivery request survives planning."""
     plan = resolve_audio_delivery_plan({
         "audio_delivery_plan": {
             "dialogue_target_lufs": -16,
@@ -327,7 +317,6 @@ def test_explicit_dialogue_loudness_and_peak_targets_are_preserved():
             "why": "request states both delivery targets",
         },
     })
-
     assert plan["dialogue_target_lufs"] == -16.0
     assert plan["true_peak_ceiling_dbtp"] == -1.0
 

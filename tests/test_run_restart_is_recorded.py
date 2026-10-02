@@ -18,17 +18,20 @@ decorated function's signature instead of reading kwargs only, so a
 attribution cannot silently regress the way it silently broke.
 """
 import json
-from pathlib import Path
 
 import pytest
 
 from library.tools import pipeline_logger, run_control, run_restart
-from library.tools.provenance import ProvenanceLedger, RunRecord
+from library.tools.provenance import RunRecord
 
 
 # ── How the previous run ended ──────────────────────────────────────
 
-def test_a_failed_run_is_classified_with_its_cause():
+def test_every_ending_has_its_own_basis():
+    """A failure carries its step and cause; a run that wrote no ending
+    was killed, so it is INTERRUPTED and never claimed as a failure (an
+    attribution the pipeline does not have); every other ending maps to
+    its own basis."""
     restart = run_restart.classify(
         {"status": "failed", "mode": "full run", "started_at": "12:30:00",
          "finished_at": "12:32:35"},
@@ -42,30 +45,21 @@ def test_a_failed_run_is_classified_with_its_cause():
     assert "52.1s" in restart.cause
     assert restart.previous_finished_at == "12:32:35"
 
-
-def test_a_run_that_wrote_no_ending_is_interrupted_not_failed():
-    """A killed process never reported a failure, and saying it did would
-    be an attribution the pipeline does not have."""
     restart = run_restart.classify(
         {"status": "running", "current_step": "render", "finished_at": None},
         {})
     assert restart.basis == run_restart.INTERRUPTED
-    assert restart.basis != run_restart.AFTER_FAILURE
     assert "render" in restart.cause
 
-
-@pytest.mark.parametrize("previous,expected", [
-    ({"status": "success", "finished_at": "12:00"}, run_restart.CLEAN),
-    ({"status": "held", "held_before_step": "render", "finished_at": "12:00"},
-     run_restart.AFTER_HOLD),
-    ({"status": "gate_pending", "paused_at_gate": "review_rough_cut",
-      "finished_at": "12:00"}, run_restart.AFTER_GATE),
-    ({}, run_restart.UNKNOWN),
-])
-def test_every_ending_has_its_own_basis(previous, expected):
-    assert run_restart.classify(previous, {}).basis == expected
-
-
+    for previous, expected in [
+        ({"status": "success", "finished_at": "12:00"}, run_restart.CLEAN),
+        ({"status": "held", "held_before_step": "render",
+          "finished_at": "12:00"}, run_restart.AFTER_HOLD),
+        ({"status": "gate_pending", "paused_at_gate": "review_rough_cut",
+          "finished_at": "12:00"}, run_restart.AFTER_GATE),
+        ({}, run_restart.UNKNOWN),
+    ]:
+        assert run_restart.classify(previous, {}).basis == expected, previous
 
 
 # ── The status file keeps what it used to overwrite ─────────────────
@@ -96,8 +90,6 @@ def test_the_previous_account_survives_the_next_run(tmp_path):
     assert on_disk["restart"]["stopped_at_step"] == "mesh_spine"
 
 
-
-
 # ── It reaches the outputs, not only a log ──────────────────────────
 
 def test_the_state_file_carries_the_restart():
@@ -108,12 +100,6 @@ def test_the_state_file_carries_the_restart():
          "step_errors": {"mesh_spine": "Post-bridge failed"}})
     run_restart.append_to_state(state, restart)
     assert state[run_restart.STATE_KEY][0]["basis"] == run_restart.AFTER_FAILURE
-
-
-
-
-
-
 
 
 # ── What can be recovered for runs already on disk ──────────────────
@@ -133,8 +119,6 @@ def test_past_restarts_are_reconstructed_without_inventing_a_cause():
     assert rows[0]["basis"] == run_restart.AFTER_FAILURE
     assert rows[0]["cause"] == "", "a reconstructed cause would be invented"
     assert rows[0]["reconstructed"] is True
-
-
 
 
 # ── PR #409's half: step ids on the events ──────────────────────────

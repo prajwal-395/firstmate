@@ -85,11 +85,12 @@ class TestTheLadder:
         assert decision.why == "the bed is hot and busy"
         assert decision.answer == 9.0
 
-    def test_an_answer_with_no_why_is_not_a_decision(self):
+    def test_an_answer_with_no_why_or_no_number_is_not_a_decision(self):
         """5.01's rule: a value nobody can review is what the constant
-        this replaces was."""
-        decision = _decide(model_answer={"value": 9.0, "why": "   "})
-        assert decision.basis == dv.FALLBACK
+        this replaces was; a value that is not a number is not solved."""
+        for answer in ({"value": 9.0, "why": "   "},
+                       {"value": "quite a lot", "why": "x"}):
+            assert _decide(model_answer=answer).basis == dv.FALLBACK, answer
 
     def test_the_fallback_is_reached_last_and_says_it_is_one(self):
         decision = _decide()
@@ -135,34 +136,29 @@ class TestTheSolver:
         decision = _decide(model_answer={"value": 9.0, "why": "hot bed"})
         # (speech - separation) - bed
         assert decision.value == pytest.approx((-22.4 - 9.0) - -13.9)
-
-    @pytest.mark.parametrize("missing", ["bed_integrated_lufs", "speech_lufs"])
-    def test_an_unmeasured_term_produces_no_value_rather_than_a_stand_in(
-            self, missing):
-        measurements = dict(MEASURED)
-        measurements[missing] = None
-        decision = _decide(
-            measurements=measurements,
-            model_answer={"value": 9.0, "why": "hot bed"})
-        assert decision.basis == dv.FALLBACK, (
-            "reasoning over a measurement nobody took is the defect this "
-            "module exists to remove, one level up")
-        reasoned = next(r for r in decision.rungs_skipped
-                        if r["basis"] == dv.REASONED)
-        assert "not measured" in reasoned["why"]
-
-    def test_nothing_is_clamped_in_either_direction(self):
-        """The captain: "it could very well be possible that we need to
-        use values outside of these bounds"."""
+        # Nothing is clamped in either direction - the captain: "it could
+        # very well be possible that we need to use values outside of
+        # these bounds".
         for separation in (-40.0, 0.0, 120.0):
             decision = _decide(
                 model_answer={"value": separation, "why": "this piece"})
             assert decision.value == pytest.approx(
                 (-22.4 - separation) - -13.9)
 
-    def test_an_answer_that_is_not_a_number_is_not_solved(self):
-        decision = _decide(model_answer={"value": "quite a lot", "why": "x"})
-        assert decision.basis == dv.FALLBACK
+    def test_an_unmeasured_term_produces_no_value_rather_than_a_stand_in(
+            self):
+        for missing in ("bed_integrated_lufs", "speech_lufs"):
+            measurements = dict(MEASURED)
+            measurements[missing] = None
+            decision = _decide(
+                measurements=measurements,
+                model_answer={"value": 9.0, "why": "hot bed"})
+            assert decision.basis == dv.FALLBACK, (
+                f"{missing}: reasoning over a measurement nobody took is the "
+                "defect this module exists to remove, one level up")
+            reasoned = next(r for r in decision.rungs_skipped
+                            if r["basis"] == dv.REASONED)
+            assert "not measured" in reasoned["why"]
 
 
 # ─── The route to the model ───────────────────────────────────────────
@@ -178,17 +174,12 @@ class TestTheAsk:
         assert remaining == {"audio_mix_spec": {"x": 1}}
         assert taken[(SLOT, "background")]["value"] == 9.0
 
-    def test_an_entry_for_a_slot_this_step_does_not_decide_is_dropped(self):
-        answer = {dv.FIELD: [{"slot": "mix.something_else", "value": 1,
-                              "why": "because"}]}
-        _, taken = dv.take("audio_mix", answer)
-        assert taken == {}
-
-    def test_an_entry_with_no_why_is_dropped_at_the_door(self):
-        answer = {dv.FIELD: [{"slot": SLOT, "scope": "background",
-                              "value": 9.0}]}
-        _, taken = dv.take("audio_mix", answer)
-        assert taken == {}
+    def test_a_foreign_slot_or_an_entry_with_no_why_is_dropped(self):
+        for entry in ({"slot": "mix.something_else", "value": 1,
+                       "why": "because"},
+                      {"slot": SLOT, "scope": "background", "value": 9.0}):
+            _, taken = dv.take("audio_mix", {dv.FIELD: [entry]})
+            assert taken == {}, entry
 
     def test_the_answer_reaches_a_post_bridge_through_one_key(self):
         """A post-bridge is a subprocess and cannot read the collector."""
@@ -207,11 +198,9 @@ class TestTheAsk:
 
 class TestTheTrace:
 
-    def test_a_value_with_no_record_behind_it_is_refused(self):
+    def test_a_value_is_refused_without_a_record_and_passes_with_one(self):
         with pytest.raises(dv.UndecidedValue):
             dv.assert_decided(SLOT, -18, [], scope="background")
-
-    def test_a_value_with_a_record_passes(self):
         record = _decide().as_record()
         dv.assert_decided(SLOT, record["value"], [record], scope="background")
 

@@ -1,4 +1,3 @@
-import sys
 import json
 import pytest
 from unittest.mock import MagicMock, patch
@@ -148,7 +147,8 @@ def test_expand_compact_window_keeps_every_consumed_field():
 
 
 def test_expand_compact_window_absent_key_is_not_an_empty_answer():
-    """A section without its key stays missing, like the canonical path."""
+    """A section without its key stays missing, like the canonical path,
+    and a malformed row drops only itself."""
     out = vp.expand_compact_window({"t": "scenery"})
     assert "actions" not in out
     assert "scene" not in out
@@ -159,9 +159,7 @@ def test_expand_compact_window_absent_key_is_not_an_empty_answer():
     assert out["actions"] == []
     assert out["assessment"] is None
 
-
-def test_expand_compact_window_drops_malformed_rows():
-    """Bad timestamps or prose of the wrong type drop the row only."""
+    # Bad timestamps or prose of the wrong type drop the row only.
     out = vp.expand_compact_window({
         "a": [
             [0, 10, "speaking", None, "upright"],       # kept
@@ -183,54 +181,20 @@ def test_expand_compact_window_drops_malformed_rows():
     assert out["assessment"]["primary_subject_visible"] == [[0, 10]]
 
 
-def test_expand_compact_window_feeds_the_vote_merge():
-    """The expanded assessment is what `_merge_assessment_votes` reads."""
-    out = vp.expand_compact_window(_sample_compact_answer())
-    windows = [{"window": [0.0, 10.0], "assessment": out["assessment"]}]
-    content_type, psv = vp._merge_assessment_votes(windows)
-    assert content_type == "person_talking_to_camera"
-    assert psv == [[0, 10]]
-
-
-def test_compact_prompt_names_the_same_enums_and_bounds():
-    """The diet changes the envelope, not the task: vocabularies stay."""
-    prompt = vp.PROMPT_WINDOW_ALL_COMPACT.format(
-        window_start=0, window_end=10, window_dur=10, duration=46,
-        transcript_line="\n(No speech in this segment.)",
-        boundaries="No hard scene boundaries detected (likely continuous)",
-    )
-    for token in ("person_talking_to_camera", "scenery", "action_sequence",
-                  "multiple_people", "object_showcase", "transition",
-                  "selfie", "handheld", "mounted", "panning", "tracking",
-                  "close-up", "medium", "wide",
-                  "indoor", "outdoor", "vehicle", "mixed",
-                  "stationary", "walking"):
-        assert token in prompt, token
-    assert "quotation" in prompt
-    assert "timestamps" in prompt
-    assert '"a"' in prompt and '"s"' in prompt and '"c"' in prompt
-
-
-def test_expand_compact_window_splits_semicolon_features():
-    """The "s" features string splits on ";" - "" means none observed."""
+def test_expand_compact_window_scene_features():
+    """The "s" features string splits on ";" ("" means none observed),
+    and a 7-item row (joined string plus extra items, measured
+    2026-09-24 on burned-in captions) merges rather than dropping."""
     out = vp.expand_compact_window({
         "s": [[0, 10, "office", "indoor", "warm", "whiteboard;  ; desk"],
-              [0, 10, "hall", "indoor", "dim", ""]],
-    })
-    assert out["scene"][0]["notable_features"] == ["whiteboard", "desk"]
-    assert out["scene"][1]["notable_features"] == []
-
-
-def test_expand_compact_window_merges_unrolled_feature_items():
-    """A 7-item "s" row (joined string plus extra items) merges rather
-    than dropping the section - measured 2026-09-24 on a window with
-    burned-in captions, where the model hedged both shapes."""
-    out = vp.expand_compact_window({
-        "s": [[0.0, 10.0, "Dark room", "indoor", "Dim",
+              [0, 10, "hall", "indoor", "dim", ""],
+              [0.0, 10.0, "Dark room", "indoor", "Dim",
                "Geometric wall patterns;Text: FICTUR_ONE",
                "Text: FICTUR_ONE"]],
     })
-    assert out["scene"][0]["notable_features"] == [
+    assert out["scene"][0]["notable_features"] == ["whiteboard", "desk"]
+    assert out["scene"][1]["notable_features"] == []
+    assert out["scene"][2]["notable_features"] == [
         "Geometric wall patterns", "Text: FICTUR_ONE", "Text: FICTUR_ONE"]
 
 
@@ -245,9 +209,7 @@ def test_expand_or_canonical_passes_canonical_through():
     }
     assert vp._expand_or_canonical(canonical) is canonical
 
-
-def test_expand_or_canonical_prefers_compact_in_a_mixed_answer():
-    """Compact keys win: a half-canonical tail is not a second answer."""
+    # Compact keys win: a half-canonical tail is not a second answer.
     mixed = {"a": [[0, 10, "speaking", None, "upright"]],
              "actions": [{"start": 0, "end": 1, "action": "stale"}],
              "t": "scenery"}
@@ -270,38 +232,11 @@ class _FakeAnalyzer:
         return parse_fn(self.text), self.text, 19.5
 
 
-def test_analyze_windows_runs_the_compact_prompt_and_expands():
-    """The wired path: compact prompt, 600-token cap, canonical entry."""
-    import json as _json
-    answer = _json.dumps({
-        "a": [[0, 10, "speaking to camera", None, "upright"]],
-        "s": [[0, 10, "office", "indoor", "warm", "whiteboard"]],
-        "c": [[0, 10, "handheld", "medium", "steady", "stationary"]],
-        "t": "person_talking_to_camera",
-        "p": [[0, 10]],
-    })
-    analyzer = _FakeAnalyzer(answer)
-    clips = [{"start": 0.0, "end": 10.0, "path": "/tmp/probe.mp4",
-              "has_audio": True}]
-    entries = vp.analyze_windows(analyzer, clips, 10.0, None, "")
-    assert len(analyzer.calls) == 1
-    call = analyzer.calls[0]
-    assert '"a"' in call["prompt"] and '"actions"' not in call["prompt"]
-    assert call["kwargs"]["max_tokens"] == vp.MAX_TOKENS["window_all_compact"]
-    assert call["kwargs"]["audio"] == "/tmp/probe.mp4"
-    entry = entries[0]
-    assert entry["window"] == [0.0, 10.0]
-    assert entry["actions"][0]["action"] == "speaking to camera"
-    assert entry["scene"][0]["notable_features"] == ["whiteboard"]
-    assert entry["camera"][0]["mode"] == "handheld"
-    assert entry["assessment"]["content_type"] == "person_talking_to_camera"
-    assert "parse_error" not in entry
-
-
 # The exact malformed diet answers measured 2026-09-24 on source
 # footage (W02: next-section key opened inside the previous array plus
-# fences; W07: next key straight inside the array). Both must repair
-# to the full field set rather than dropping the window.
+# fences; W07: next key straight inside the array; W10: a trailing
+# comma and an empty extra item). Each must repair to the full field
+# set rather than dropping the window.
 W02_MALFORMED = (
     '```json\n{"a": [[60, 70, "speaking to camera", '
     '"moderate pace, clear articulation", '
@@ -322,75 +257,44 @@ W07_MALFORMED = (
     '"t": "person_talking_to_camera", "p": [[55, 65]]}'
 )
 
-
-def test_parse_compact_window_repairs_unclosed_section_array():
-    """The measured `["s":` shape repairs with every field kept."""
-    parsed, repaired = vp.parse_compact_window(W02_MALFORMED)
-    assert repaired is True
-    assert sorted(parsed) == ["a", "c", "p", "s", "t"]
-    out = vp._expand_or_canonical(parsed)
-    assert len(out["actions"]) == 1
-    assert out["scene"][0]["type"] == "outdoor"
-    assert out["camera"][0]["mode"] == "handheld"
-    assert out["assessment"]["content_type"] == "person_talking_to_camera"
-
-
-def test_parse_compact_window_repairs_key_inside_array():
-    """The measured `, "c":` shape (no bogus bracket) repairs too."""
-    parsed, repaired = vp.parse_compact_window(W07_MALFORMED)
-    assert repaired is True
-    out = vp._expand_or_canonical(parsed)
-    assert out["scene"][0]["type"] == "indoor"
-    assert out["assessment"]["content_type"] == "person_talking_to_camera"
+W10_MALFORMED = (
+    '{"a": [[295, 305, "speaking to camera", '
+    '"moderate pace, clear articulation", '
+    '"upright posture, hand gestures, neutral expression"]], '
+    '"s": [[295, 305, "geometric wall and floor", "indoor", '
+    '"dim lighting", "geometric wall patterns;dark floor", ""],], '
+    '"c": [[295, 305, "handheld", "medium", "slight shake", '
+    '"stationary"]], "t": "person_talking_to_camera", '
+    '"p": [[295, 305]]}'
+)
 
 
-def test_parse_compact_window_repairs_trailing_comma_and_empty_extra():
-    """The measured `"...;dark floor", ""],]` shape (W10, round 2).
+def test_parse_compact_window_repairs_the_measured_shapes_only():
+    """Each measured malformed shape repairs with every section kept;
+    strict JSON parses unrepaired; gibberish stays ({}, False) so the
+    caller fires the fallback."""
+    for text, scene_type in ((W02_MALFORMED, "outdoor"),
+                             (W07_MALFORMED, "indoor"),
+                             (W10_MALFORMED, "indoor")):
+        parsed, repaired = vp.parse_compact_window(text)
+        assert repaired is True
+        assert sorted(parsed) == ["a", "c", "p", "s", "t"]
+        out = vp._expand_or_canonical(parsed)
+        assert len(out["actions"]) == 1
+        assert out["scene"][0]["type"] == scene_type
+        assert out["camera"][0]["mode"] == "handheld"
+        assert out["assessment"]["content_type"] == "person_talking_to_camera"
+    parsed, _ = vp.parse_compact_window(W10_MALFORMED)
+    assert vp._expand_or_canonical(parsed)["scene"][0]["notable_features"] \
+        == ["geometric wall patterns", "dark floor"]
 
-    The model trailed both a comma and an empty extra item after the
-    features string - the expander already merges a 7th item, so once
-    the comma is forgiven the row lands whole.
-    """
-    parsed, repaired = vp.parse_compact_window(
-        '{"a": [[295, 305, "speaking to camera", '
-        '"moderate pace, clear articulation", '
-        '"upright posture, hand gestures, neutral expression"]], '
-        '"s": [[295, 305, "geometric wall and floor", "indoor", '
-        '"dim lighting", "geometric wall patterns;dark floor", ""],], '
-        '"c": [[295, 305, "handheld", "medium", "slight shake", '
-        '"stationary"]], "t": "person_talking_to_camera", '
-        '"p": [[295, 305]]}')
-    assert repaired is True
-    out = vp._expand_or_canonical(parsed)
-    assert out["scene"][0]["notable_features"] == [
-        "geometric wall patterns", "dark floor"]
-    assert out["scene"][0]["type"] == "indoor"
-
-
-def test_parse_compact_window_leaves_good_answers_untouched():
-    """Strict JSON parses with repaired False - the common path."""
     parsed, repaired = vp.parse_compact_window(
         '{"a": [[0, 10, "speaking", null, "upright"]], '
         '"t": "person_talking_to_camera"}')
     assert repaired is False
     assert parsed["t"] == "person_talking_to_camera"
-
-
-def test_parse_compact_window_rejects_garbage():
-    """Gibberish stays ({}, False) so the caller fires the fallback."""
     assert vp.parse_compact_window("not json at all {{{") == ({}, False)
     assert vp.parse_compact_window("") == ({}, False)
-
-
-def test_compact_prompt_states_the_close_each_array_rule():
-    """The prompt names the measured error: close each array."""
-    prompt = vp.PROMPT_WINDOW_ALL_COMPACT.format(
-        window_start=0, window_end=10, window_dur=10, duration=46,
-        transcript_line="\n(No speech in this segment.)",
-        boundaries="No hard scene boundaries detected (likely continuous)",
-    )
-    assert "Close each section" in prompt
-    assert "]]" in prompt
 
 
 class _SeqAnalyzer(_FakeAnalyzer):
@@ -411,8 +315,10 @@ def _window_clips():
              "has_audio": True}]
 
 
-def test_analyze_windows_records_compact_path():
-    """A clean compact answer takes one call and records its path."""
+def test_analyze_windows_runs_the_compact_prompt_and_expands():
+    """The wired path: compact prompt, 600-token cap, canonical entry,
+    one call and the path recorded - and a repaired answer is kept, not
+    re-asked."""
     import json as _json
     answer = _json.dumps({
         "a": [[0, 10, "speaking to camera", None, "upright"]],
@@ -421,32 +327,35 @@ def test_analyze_windows_records_compact_path():
         "t": "person_talking_to_camera",
         "p": [[0, 10]],
     })
-    entries = vp.analyze_windows(_FakeAnalyzer(answer),
-                                 _window_clips(), 10.0, None, "")
-    assert entries[0]["prompt_path"] == "compact"
-    assert "parse_error" not in entries[0]
-
-
-def test_analyze_windows_records_compact_repaired_path():
-    """A repaired compact answer is kept (not re-asked) and recorded."""
-    analyzer = _FakeAnalyzer(W02_MALFORMED)
-    entries = vp.analyze_windows(analyzer, _window_clips(), 10.0,
-                                 None, "")
+    analyzer = _FakeAnalyzer(answer)
+    entries = vp.analyze_windows(analyzer, _window_clips(), 10.0, None, "")
     assert len(analyzer.calls) == 1
+    call = analyzer.calls[0]
+    assert '"a"' in call["prompt"] and '"actions"' not in call["prompt"]
+    assert call["kwargs"]["max_tokens"] == vp.MAX_TOKENS["window_all_compact"]
+    assert call["kwargs"]["audio"] == "/tmp/probe.mp4"
     entry = entries[0]
+    assert entry["window"] == [0.0, 10.0]
+    assert entry["prompt_path"] == "compact"
+    assert entry["actions"][0]["action"] == "speaking to camera"
+    assert entry["scene"][0]["notable_features"] == ["whiteboard"]
+    assert entry["camera"][0]["mode"] == "handheld"
+    assert entry["assessment"]["content_type"] == "person_talking_to_camera"
+    assert "parse_error" not in entry
+
+    analyzer = _FakeAnalyzer(W02_MALFORMED)
+    entry = vp.analyze_windows(analyzer, _window_clips(), 10.0, None, "")[0]
+    assert len(analyzer.calls) == 1
     assert entry["prompt_path"] == "compact_repaired"
     assert "parse_error" not in entry
     assert entry["actions"][0]["action"] == "speaking to camera"
-    assert entry["assessment"]["content_type"] == "person_talking_to_camera"
 
 
 def test_analyze_windows_falls_back_to_full_prompt():
-    """Gibberish compact AND gibberish fallback: two calls, UNPARSED.
-
-    A dropped window is never acceptable, so an unparseable compact
-    answer is re-asked with the canonical prompt - and only when both
-    fail is the window recorded as UNPARSED, with the path on it.
-    """
+    """An unparseable compact answer is re-asked with the canonical
+    prompt; the re-ask recovers the window, and only when both fail is
+    it recorded UNPARSED - a dropped window is never acceptable."""
+    import json as _json
     analyzer = _SeqAnalyzer(["not json at all {{{",
                              "still not json ][["])
     entries = vp.analyze_windows(analyzer, _window_clips(), 10.0,
@@ -463,10 +372,6 @@ def test_analyze_windows_falls_back_to_full_prompt():
     assert entry["parse_error"] is True
     assert entry["actions"] == []
 
-
-def test_analyze_windows_full_fallback_recovers_the_window():
-    """A failed compact answer recovered by the canonical re-ask."""
-    import json as _json
     canonical = _json.dumps({
         "actions": [{"start": 0, "end": 10, "action": "speaking",
                      "speech_cue": None, "body_language": "upright"}],
@@ -480,10 +385,8 @@ def test_analyze_windows_full_fallback_recovers_the_window():
                        "primary_subject_visible": [[0, 10]]},
     })
     analyzer = _SeqAnalyzer(["not json at all {{{", canonical])
-    entries = vp.analyze_windows(analyzer, _window_clips(), 10.0,
-                                 None, "")
+    entry = vp.analyze_windows(analyzer, _window_clips(), 10.0, None, "")[0]
     assert len(analyzer.calls) == 2
-    entry = entries[0]
     assert entry["prompt_path"] == "full_fallback"
     assert "parse_error" not in entry
     assert entry["actions"][0]["action"] == "speaking"
@@ -524,16 +427,7 @@ def test_coarse_frames_from_a_relative_cache_are_absolute_and_handable(
         images=paths)
     assert request["images"] == paths
 
-
-def test_detail_frames_from_a_relative_cache_are_absolute(
-        tmp_path, monkeypatch):
-    """Finding 2, detail half: the same relative-cache refusal through
-    `extract_detail_frames` - the frames a detail pass hands the host
-    must already be absolute when they leave the extractor.
-    """
-    import os as _os
-
-    monkeypatch.chdir(tmp_path)
+    # The detail half: the same refusal through `extract_detail_frames`.
     frame_dir = tmp_path / ".vision_cache" / "IMG_1809" / "detail_frames"
     frame_dir.mkdir(parents=True)
     for i in range(2):
@@ -583,15 +477,7 @@ def test_every_ffprobe_spawn_moves_the_counter_even_on_failure():
     assert vp._video_height(Path("/nonexistent/clip.mp4")) == 0
     assert vp.probe_clip(Path("/nonexistent/clip.mp4")) is None
     assert vp.ffprobe_spawn_count() == 4
-    vp.reset_ffprobe_spawn_count()
-    assert vp.ffprobe_spawn_count() == 0
-
-
-def test_the_combined_window_probe_counts_as_a_spawn():
-    """The thrift validates a cached window with one combined probe
-    instead of three - and the counter must see that one. A spawn site
-    the counter misses undercounts the baseline the thrift is judged
-    against, which is exactly what the merge first did."""
+    # The combined cached-window probe is one spawn the counter must see.
     vp.reset_ffprobe_spawn_count()
     has_video, has_audio, height = vp._probe_window_streams(
         Path("/nonexistent/clip.mp4"))

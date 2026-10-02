@@ -32,16 +32,16 @@ def test_claude_code_reads_the_same_directory_not_a_copy():
     assert link.resolve() == SOURCE.resolve()
 
 
-def test_every_catalogued_skill_has_its_text_in_the_source():
+def test_every_skill_text_is_in_the_source_under_its_own_name():
+    """The prompt tells the model to read each catalogued skill's
+    SKILL.md, and a harness loads a skill by its frontmatter name - so
+    every catalogued skill is there, and every skill there names its own
+    directory."""
     for name in pipeline_skills.SKILLS:
         skill_md = SOURCE / name / "SKILL.md"
         assert skill_md.is_file(), (
             f"the prompt tells the model to read {skill_md} for "
             f"{name}'s flags, and it is not there")
-        assert _frontmatter_name(skill_md) == name
-
-
-def test_every_skill_in_the_source_names_its_own_directory():
     for skill_md in sorted(SOURCE.glob("*/SKILL.md")):
         assert _frontmatter_name(skill_md) == skill_md.parent.name, (
             f"{skill_md}: a harness loads a skill by its frontmatter "

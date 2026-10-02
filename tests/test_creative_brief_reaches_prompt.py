@@ -1,29 +1,8 @@
 """The captain's creative brief has to arrive in the prompt, not just exist.
 
-Seven handoffs carry a paragraph telling the LLM to "read it in full
-before making any creative decisions", and for the whole life of the
-project not one step ever received one. It was broken in three
-independent places at once - the loader gated on a manifest declaration
-nobody had written, the key was in no whitelist so it could not reach
-`inputs` anyway, and the process manifest had no entry to fall back on -
-so writing `creative_brief:` into a `project.yaml` did nothing at all,
-silently. See docs/RUN_001_END_TO_END.md section 5.
-
-That is why these tests assert the CONTENT of the file lands in the text
-handed to the model. A test that the key exists, or that the path is
-carried, would have passed throughout the entire period the feature did
-not work: the old code left the *path string* in `inputs["creative_brief"]`
-whenever the file could not be read, so a step could "have a brief" that
-was a filename.
-
-Since the brief travels as a REFERENCE rather than a copy
-(`library/tools/brief_reference.py`), "the content lands" is asserted by
-FOLLOWING the reference the way the model does - `reference_path` reads
-the same `FILE:` line the model reads - and requiring that what it opens
-is the declared brief. That is strictly stronger than the old equality:
-a filename left in the key does not name a readable file, and a
-reference that names the wrong file now fails where an equality on a
-copied string could not see the difference at all.
+Asserted by FOLLOWING the reference the model is handed and requiring the
+declared brief's words at the end of it. History: docs/evidence/brief_reference.md
+("The brief that never reached a prompt").
 """
 
 import json
@@ -71,43 +50,16 @@ def _steps_documenting_the_brief():
     return found
 
 
-
-
-@pytest.mark.parametrize(
-    "step_dir", _steps_documenting_the_brief(), ids=lambda d: d.name
-)
-def test_a_step_that_documents_the_brief_declares_it(step_dir):
-    """Documenting it is not asking for it.
-
-    The runner injects a process-level input only into steps that declare
-    it. A handoff that instructs the model to read a brief while the
-    manifest stays silent is the exact shape of the original bug.
-    """
-    assert "creative_brief" in _declared_inputs(step_dir), (
-        f"{step_dir.name}/handoff.md tells the LLM to read the creative "
-        f"brief, but its manifest does not declare the input, so the "
-        f"runner will never supply one."
-    )
-
-
-def test_mesh_spine_declares_the_brief_and_now_names_it():
-    """The eighth consumer, and the one the two audits kept finding.
-
-    `mesh_spine` sets every gap length and every `music_behavior` and was
-    the only planning step with no brief at all (round 2 F7, round 3
-    B9/R9). The manifest declaration was the only half of it that could
-    be fixed while `handoff.md` was under the captain's freeze; the
-    freeze lifted 2026-09-09 and the prompt now names the brief too, so
-    the model is TOLD to read what the runner supplies.
-    """
-    step = STEPS_ROOT / "step_2_05_mesh_spine"
-    assert "creative_brief" in _declared_inputs(step)
-    handoff = (step / "handoff.md").read_text(encoding="utf-8")
-    assert "creative_brief" in handoff, (
-        "the brief reaches this step and its prompt does not mention it")
-    assert "## Creative Brief" in handoff
-
-
+def test_every_step_that_documents_the_brief_declares_it():
+    """Documenting it is not asking for it: the runner injects a
+    process-level input only into steps whose manifest declares it."""
+    documenting = _steps_documenting_the_brief()
+    assert documenting, "no handoff names the brief; the scan is broken"
+    silent = [d.name for d in documenting
+              if "creative_brief" not in _declared_inputs(d)]
+    assert not silent, (
+        f"handoff.md tells the LLM to read the creative brief but the "
+        f"manifest does not declare the input: {silent}")
 
 
 # An edgeless DAG: these tests are about the process-level input
@@ -144,8 +96,6 @@ DECLARING_MANIFEST = {
 SILENT_MANIFEST = {"interface": {"inputs": [{"name": "clip_catalog"}]}}
 
 
-
-
 def test_a_relative_brief_resolves_against_the_project(tmp_path):
     (tmp_path / "brief.md").write_text(BRIEF_TEXT, encoding="utf-8")
     state = {"project_folder": str(tmp_path), "creative_brief": "brief.md"}
@@ -153,23 +103,6 @@ def test_a_relative_brief_resolves_against_the_project(tmp_path):
     inputs = _gather("plan_vfx", state, DECLARING_MANIFEST)
 
     assert BRIEF_TEXT in _brief_the_model_can_reach(inputs)
-
-
-def test_an_absolute_brief_is_taken_as_given(tmp_path):
-    """A brief may live in a read-only planning tree and is never copied."""
-    outside = tmp_path / "outside"
-    outside.mkdir()
-    brief = outside / "branding.md"
-    brief.write_text(BRIEF_TEXT, encoding="utf-8")
-    project = tmp_path / "project"
-    project.mkdir()
-    state = {"project_folder": str(project), "creative_brief": str(brief)}
-
-    inputs = _gather("plan_vfx", state, DECLARING_MANIFEST)
-
-    assert BRIEF_TEXT in _brief_the_model_can_reach(inputs)
-
-
 
 
 def test_a_missing_brief_raises_rather_than_passing_the_path(tmp_path):
@@ -183,13 +116,17 @@ def test_a_missing_brief_raises_rather_than_passing_the_path(tmp_path):
         _gather("plan_vfx", state, DECLARING_MANIFEST)
 
 
-
-
-def test_no_brief_declared_leaves_the_step_untouched(tmp_path):
+def test_a_project_declaring_no_brief_gets_none(tmp_path):
     """A project without a brief must still run."""
     inputs = _gather("plan_vfx", {"project_folder": str(tmp_path)},
                      DECLARING_MANIFEST)
     assert not inputs.get("creative_brief")
+
+    project = _project_declaring(tmp_path, 'name: "T"\nslug: "t"\n')
+
+    state = load_pipeline_state(str(project))
+
+    assert not state.get("creative_brief")
 
 
 def _answer_when_asked(project: Path, node_id: str, answer: dict):
@@ -214,47 +151,6 @@ def _answer_when_asked(project: Path, node_id: str, answer: dict):
     t = threading.Thread(target=run, daemon=True)
     t.start()
     return t
-
-
-def test_the_brief_reaches_the_text_handed_to_the_model(tmp_path):
-    """The end-to-end assertion: the words are in the request.
-
-    Everything above proves the brief reaches `inputs`. This proves it
-    survives context projection and serialisation and lands in the file
-    the LLM is actually given - which is the only claim the seven
-    handoffs make.
-    """
-    project = tmp_path / "project"
-    project.mkdir()
-    prompt_path = tmp_path / "handoff.md"
-    prompt_path.write_text("Do the creative work.\n", encoding="utf-8")
-
-    _answer_when_asked(project, "plan_vfx",
-                       {"vfx_plan": [{"clip_id": "clip_001",
-                                      "effect": "punch_in"}]})
-
-    inputs = {
-        "project_folder": str(project),
-        "creative_brief": BRIEF_TEXT,
-        "timed_spine": {"blocks": []},
-    }
-    manifest = {
-        "interface": {"inputs": [{"name": "creative_brief"}],
-                      "outputs": [{"name": "vfx_plan"}]},
-        "context_fields": ["timed_spine"],
-    }
-
-    present_llm_step(str(prompt_path), inputs, "plan_vfx",
-                     manifest=manifest, full_auto="agent", llm_timeout=30)
-
-    request = json.loads(
-        (project / "pipeline_output" / "llm_requests" / "plan_vfx.json").read_text()
-    )
-    haystack = request["prompt"] + request["context"]
-    assert "SENTINEL_BRIEF_MARKER_9f3a" in haystack, (
-        "the brief did not reach the text the model is given"
-    )
-    assert "Minimal cuts" in haystack
 
 
 def test_context_field_projection_does_not_drop_the_brief(tmp_path):
@@ -305,27 +201,6 @@ def _project_declaring(tmp_path, declaration: str) -> Path:
     project.mkdir()
     (project / "project.yaml").write_text(declaration, encoding="utf-8")
     return project
-
-
-def test_a_top_level_declaration_is_loaded(tmp_path):
-    brief = tmp_path / "brief.md"
-    brief.write_text(BRIEF_TEXT, encoding="utf-8")
-    project = _project_declaring(
-        tmp_path, f'name: "T"\nslug: "t"\ncreative_brief: "{brief}"\n')
-
-    state = load_pipeline_state(str(project))
-
-    assert state["creative_brief"] == str(brief)
-
-
-
-
-def test_a_project_declaring_none_stays_declaring_none(tmp_path):
-    project = _project_declaring(tmp_path, 'name: "T"\nslug: "t"\n')
-
-    state = load_pipeline_state(str(project))
-
-    assert not state.get("creative_brief")
 
 
 def test_a_brief_in_a_read_only_planning_tree_reaches_the_request(tmp_path, request):

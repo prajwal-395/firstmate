@@ -21,14 +21,12 @@ moved the failure rather than removed it, so
 from __future__ import annotations
 
 import json
-from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
 from library.tools import external_inputs, run_scope
 from library.tools.external_inputs import ExternalStateError
-from library.tools.project_layout import Area, ProjectLayout
+from library.tools.project_layout import ProjectLayout
 
 
 def _project(tmp_path):
@@ -66,120 +64,119 @@ def _a_roll(clip):
     ]
 
 
-# ── The check accepts a claim that is true ──────────────────────────
+# ── A claim that is not true is refused by name, before the run ─────
 
-
-# ── The check refuses claims that are not true ──────────────────────
-
-def test_a_claim_naming_a_file_that_is_not_there_is_refused(tmp_path):
-    project = _project(tmp_path)
-    assignments = _a_roll(_clip(tmp_path))
-    assignments[1]["source_file"] = str(tmp_path / "media" / "never_shot.mov")
-    _supply(project, "a_roll_assignments", assignments)
-
-    with pytest.raises(ExternalStateError) as exc:
-        external_inputs.load(str(project))
-    assert "never_shot.mov" in str(exc.value)
-    assert "not a file" in str(exc.value)
-
-
-def test_a_claim_that_overruns_the_measured_clip_is_refused(tmp_path):
-    """The strongest check available without opening the media: the
-    pipeline already measured this clip, and the supplied cut plays past
-    the end of it."""
-    project = _project(tmp_path)
+def test_every_untrue_claim_is_refused_by_name(tmp_path):
+    """Each row is one claim the checks must refuse, and the words that
+    say which one. Folded from nineteen one-row tests; every row still
+    runs on its own project."""
     clip = _clip(tmp_path)
-    assignments = _a_roll(clip)
-    assignments[1]["video_out"] = 41.5
-    _supply(project, "a_roll_assignments", assignments)
-    state = {"step_outputs": {"catalog": {"clip_catalog": [
+    vo = _clip(tmp_path, "vo.wav")
+
+    def missing_file():
+        rows = _a_roll(clip)
+        rows[1]["source_file"] = str(tmp_path / "media" / "never_shot.mov")
+        return rows
+
+    def backwards():
+        rows = _a_roll(clip)
+        rows[0]["video_out"] = 0.1
+        return rows
+
+    def overrun():
+        rows = _a_roll(clip)
+        rows[1]["video_out"] = 41.5
+        return rows
+
+    def broken_chain():
+        value = _sequence(tmp_path)
+        value["segments"][1]["next_segment_id"] = "uid-99"
+        return value
+
+    def repeated_order():
+        value = _sequence(tmp_path)
+        value["segments"][2]["order"] = 1
+        return value
+
+    def vo_without_file():
+        entry = _voiceover(vo, 1.0, 2.5)
+        del entry["audio_id"]
+        return [entry]
+
+    measured = {"step_outputs": {"catalog": {"clip_catalog": [
         {"clip_id": "clip_1", "path": clip, "duration_seconds": 20.0}]}}}
-
-    with pytest.raises(ExternalStateError) as exc:
-        external_inputs.load(str(project), state)
-    assert "41.5" in str(exc.value)
-    assert "20.0" in str(exc.value)
-
-
-def test_a_backwards_range_is_refused(tmp_path):
-    project = _project(tmp_path)
-    assignments = _a_roll(_clip(tmp_path))
-    assignments[0]["video_out"] = 0.1
-    _supply(project, "a_roll_assignments", assignments)
-    with pytest.raises(ExternalStateError, match="not a range"):
-        external_inputs.load(str(project))
-
-
-def test_an_empty_value_is_refused(tmp_path):
-    """"Trust me, it exists" with nothing in it is the exact claim this
-    module exists to refuse."""
-    project = _project(tmp_path)
-    _supply(project, "a_roll_assignments", [])
-    with pytest.raises(ExternalStateError, match="empty list"):
-        external_inputs.load(str(project))
-
-
-# ── What cannot be asserted is refused by name ──────────────────────
-
-def test_a_key_with_no_check_cannot_be_supplied(tmp_path):
-    """The honest outcome for state nothing can verify: it is refused,
-    not taken on faith."""
-    project = _project(tmp_path)
-    _supply(project, "creative_direction", {"target_mood": "warm"})
-    with pytest.raises(ExternalStateError) as exc:
-        external_inputs.load(str(project))
-    message = str(exc.value)
-    assert "cannot be supplied from outside" in message
-    assert "not a check that passes" in message
-    assert "a_roll_assignments" in message, (
-        "the refusal must say what CAN be supplied")
-
-
-def test_the_CLOSED_timeline_is_recorded_as_unassertable():
-    """NARROWED 2026-09-04, and the narrowing is the point.
-
-    This entry used to rule out any hand-built timeline. It conflated
-    two things: a CLOSED project really is a database that has to be
-    copied before it is opened and really does lack a typed mapping,
-    while a LIVE one answers every field the checks demand through its
-    scripting API. The closed half stays withdrawn and still names the
-    artifacts to supply instead."""
-    reason = external_inputs.WITHDRAWN["a Resolve timeline in a CLOSED project"]
-    assert "audio_spine" in reason and "assembly_manifest" in reason
-    assert "SQLite" in reason
-    assert "a Resolve timeline in a CLOSED project" not in external_inputs.CHECKS
-    # The old, wider claim is gone rather than sitting alongside it.
-    assert "a Resolve timeline built by hand" not in external_inputs.WITHDRAWN
+    rows = [
+        ("a_roll_assignments", missing_file(), None,
+         ("never_shot.mov", "not a file")),
+        # The strongest check without opening the media: the pipeline
+        # already measured this clip and the cut plays past its end.
+        ("a_roll_assignments", overrun(), measured, ("41.5", "20.0")),
+        ("a_roll_assignments", backwards(), None, ("not a range",)),
+        # "Trust me, it exists" with nothing in it.
+        ("a_roll_assignments", [], None, ("empty list",)),
+        ("b_roll_assignments", [], None,
+         ("Nothing is not a value", "b_roll_interjections")),
+        # State nothing can verify is refused, not taken on faith, and
+        # the refusal says what CAN be supplied.
+        ("creative_direction", {"target_mood": "warm"}, None,
+         ("cannot be supplied from outside", "not a check that passes",
+          "a_roll_assignments")),
+        # A model emits positions, not a self-consistent linked chain.
+        ("speech_sequence", broken_chain(), None, ("disagree",)),
+        ("speech_sequence", repeated_order(), None, ("permutation",)),
+        # V2 shows one clip at a time; overlap resolution would delete
+        # one without saying which.
+        ("b_roll_assignments",
+         [_placement(clip, 1.0, 3.0), _placement(clip, 2.0, 4.0)], None,
+         ("one clip at a time",)),
+        ("voiceover_assignments",
+         [_voiceover(vo, 1.0, 2.5), _voiceover(vo, 2.0, 3.0)], None,
+         ("one voice at a time",)),
+        ("voiceover_assignments", vo_without_file(), None, ("audio_id",)),
+        ("timed_spine", {"structure": [{"position": 0}]}, None,
+         ("spine contract",)),
+        ("music_selection", {"title": "a vibe"}, None, ("names no track",)),
+    ]
+    for i, (key, value, state, words) in enumerate(rows):
+        project = tmp_path / f"row{i}"
+        project.mkdir()
+        ProjectLayout(str(project)).ensure()
+        _supply(project, key, value)
+        with pytest.raises(ExternalStateError) as exc:
+            external_inputs.load(str(project), state)
+        for word in words:
+            assert word in str(exc.value), (i, key, word, str(exc.value))
 
 
-def test_speech_sequence_left_the_taste_withdrawal_and_is_checkable():
-    """The captain ruled that a sequence they cut by hand is a fact to
-    be read, not taste to be invented. Taste is still withdrawn."""
-    assert "speech_sequence" in external_inputs.CHECKS
-    taste = external_inputs.WITHDRAWN[
-        "creative_direction / the planning outputs, as TASTE"]
-    assert "speech_sequence" in taste, "the narrowing must say what left"
-    assert "MODEL proposes is still taste" in taste
-
-
-# ── The spine and the manifest are checked with the repo's own contracts
-
-
-def test_a_spine_that_passes_the_contract_is_accepted(tmp_path):
-    project = _project(tmp_path)
-    _supply(project, "audio_spine", {"structure": [
-        {"block_type": "speech", "position": 1, "clip_id": "clip_1",
-         "source_start": 0.132, "source_end": 2.417,
-         "timeline_start": 0.0, "timeline_end": 2.285,
-         "alignment_method": "whisperx",
-         "word_timestamps": [{"word": "hello", "source_start": 0.132,
-                              "source_end": 0.5}],
-         "content": {"clip_id": "clip_1"}}], "frame_rate": 30.0})
-    supplied = external_inputs.load(str(project))
-    assert "validate_spine_blocks" in supplied["audio_spine"].checked
-
-
-# ── The layout owns where it goes ───────────────────────────────────
+def test_every_true_claim_is_accepted_and_says_what_it_checked(tmp_path):
+    """The mirror: a measurement passes, and `checked` names the check.
+    `[]` for b_roll_interjections / voiceover_assignments is a DECISION
+    (no standalone cutaways, no narration), not an empty claim."""
+    clip = _clip(tmp_path)
+    vo = _clip(tmp_path, "vo.wav")
+    rows = [
+        ("audio_spine", _spine(), "validate_spine_blocks"),
+        # `timed_spine` IS `audio_spine` under a second name; supplying
+        # one does not supply the other, so both are checkable.
+        ("timed_spine", _spine(), "spine_contract"),
+        ("speech_sequence", _sequence(tmp_path), "3 segments"),
+        ("b_roll_assignments",
+         [_placement(clip, 1.0, 2.5), _placement(clip, 4.0, 5.0)],
+         "none overlapping on V2"),
+        ("b_roll_interjections", [], "0 placements"),
+        ("voiceover_assignments", [_voiceover(vo, 1.0, 2.5)],
+         "none overlapping on A1"),
+        ("voiceover_assignments", [], None),
+    ]
+    for i, (key, value, checked) in enumerate(rows):
+        project = tmp_path / f"row{i}"
+        project.mkdir()
+        ProjectLayout(str(project)).ensure()
+        _supply(project, key, value)
+        entry = external_inputs.load(str(project))[key]
+        assert entry.value == value, key
+        if checked:
+            assert checked in entry.checked, (key, entry.checked)
 
 
 # ── The resolver counts it, and the step receives it ────────────────
@@ -304,37 +301,6 @@ def _sequence(tmp_path, count=3, **overrides):
     return value
 
 
-def test_a_measured_speech_sequence_is_accepted(tmp_path):
-    project = _project(tmp_path)
-    _supply(project, "speech_sequence", _sequence(tmp_path),
-            source="read off the live timeline")
-    supplied = external_inputs.load(str(project))
-    assert "3 segments" in supplied["speech_sequence"].checked
-
-
-def test_a_speech_sequence_with_a_broken_chain_is_refused(tmp_path):
-    """The link and the order disagreeing is what a well-shaped
-    invention fails: a model emits positions, not a self-consistent
-    doubly-linked chain over stable ids."""
-    project = _project(tmp_path)
-    value = _sequence(tmp_path)
-    value["segments"][1]["next_segment_id"] = "uid-99"
-    _supply(project, "speech_sequence", value)
-    with pytest.raises(ExternalStateError) as exc:
-        external_inputs.load(str(project))
-    assert "disagree" in str(exc.value)
-
-
-def test_a_speech_sequence_with_a_repeated_order_is_refused(tmp_path):
-    project = _project(tmp_path)
-    value = _sequence(tmp_path)
-    value["segments"][2]["order"] = 1
-    _supply(project, "speech_sequence", value)
-    with pytest.raises(ExternalStateError) as exc:
-        external_inputs.load(str(project))
-    assert "permutation" in str(exc.value)
-
-
 # ── The three entry points the pipeline had no way in for ────────────
 #
 # The captain, 2026-09-06: "account for more of the various ways that
@@ -377,94 +343,55 @@ def _selection(tmp_path, **overrides):
 def test_a_music_spine_chosen_by_hand_is_accepted(tmp_path):
     """Entry point two. The track is a file on disk with audio in it, and
     that is the whole of what is asserted - WHY it suits the piece is
-    taste and is carried through unexamined."""
+    taste and is carried through unexamined. A named section inside the
+    track is accepted too."""
     project = _project(tmp_path)
     _supply(project, "music_selection",
             _selection(tmp_path,
-                       direction_justification={"why_it_fits": "it does"}),
+                       direction_justification={"why_it_fits": "it does"},
+                       section={"source_in": 30.0, "why": "vibes"}),
             source="chosen and placed by hand on A2")
     entry = external_inputs.load(str(project))["music_selection"]
     assert "bed.wav" in entry.checked
     assert "audio" in entry.checked
+    assert "1 named span(s) inside it" in entry.checked
     assert entry.value["direction_justification"] == {"why_it_fits": "it does"}
 
 
-def test_a_music_selection_naming_no_track_is_refused(tmp_path):
-    project = _project(tmp_path)
-    _supply(project, "music_selection", {"title": "a vibe"})
-    with pytest.raises(ExternalStateError) as exc:
-        external_inputs.load(str(project))
-    assert "names no track" in str(exc.value)
-
-
-def test_a_music_selection_naming_a_missing_file_is_refused(tmp_path):
-    project = _project(tmp_path)
-    _supply(project, "music_selection",
-            {"title": "a vibe", "audio_path": str(tmp_path / "gone.wav")})
-    with pytest.raises(ExternalStateError) as exc:
-        external_inputs.load(str(project))
-    assert "does not exist" in str(exc.value) or "not a file" in str(exc.value)
-
-
-def test_a_music_selection_whose_file_carries_no_audio_is_refused(tmp_path):
-    """A path that exists is not a bed. The one check here that is not
-    about JSON."""
-    project = _project(tmp_path)
+def test_a_music_selection_that_cannot_play_is_refused(tmp_path):
+    """Each row is a bed that would play nothing or the wrong thing. A
+    section past the end is the silent one: downstream steps would carry
+    on as though there were music. The bed is a SEQUENCE, so every track
+    it may splice from must be a file this run can open."""
     silent = tmp_path / "media" / "no_audio.mov"
     silent.parent.mkdir(exist_ok=True)
     _render_a_real_video(silent)
-    _supply(project, "music_selection", {"title": "x",
-                                         "audio_path": str(silent)})
-    with pytest.raises(ExternalStateError) as exc:
-        external_inputs.load(str(project))
-    assert "no audio stream" in str(exc.value)
-
-
-def test_a_section_past_the_end_of_the_track_is_refused(tmp_path):
-    """The silent failure this check exists for: the bed would start
-    past the end of the file and play nothing, and every step downstream
-    would carry on as though there were music."""
-    project = _project(tmp_path)
-    _supply(project, "music_selection",
-            _selection(tmp_path, section={"source_in": 400.0, "why": "vibes"}))
-    with pytest.raises(ExternalStateError) as exc:
-        external_inputs.load(str(project))
-    assert "past the end of the track" in str(exc.value)
-
-
-def test_a_section_inside_the_track_is_accepted(tmp_path):
-    project = _project(tmp_path)
-    _supply(project, "music_selection",
-            _selection(tmp_path, section={"source_in": 30.0, "why": "vibes"}))
-    entry = external_inputs.load(str(project))["music_selection"]
-    assert "1 named span(s) inside it" in entry.checked
-
-
-def test_a_splice_past_the_end_of_the_track_is_refused(tmp_path):
-    project = _project(tmp_path)
-    _supply(project, "music_selection",
-            _selection(tmp_path, splices=[{"source_in": 10.0,
-                                           "source_out": 900.0}]))
-    with pytest.raises(ExternalStateError) as exc:
-        external_inputs.load(str(project))
-    assert "900.0" in str(exc.value)
-
-
-def test_a_further_bed_track_that_is_not_on_disk_is_refused(tmp_path):
-    """The bed is a SEQUENCE, so every track it may splice from has to
-    be a file this run can open."""
-    project = _project(tmp_path)
-    _supply(project, "music_selection",
-            _selection(tmp_path, tracks=[{"title": "second",
-                                          "audio_path": str(tmp_path / "no.wav")}]))
-    with pytest.raises(ExternalStateError) as exc:
-        external_inputs.load(str(project))
-    assert "tracks[0]" in str(exc.value)
+    rows = [
+        ({"title": "a vibe", "audio_path": str(tmp_path / "gone.wav")},
+         ("does not exist", "not a file"), any),
+        # A path that exists is not a bed.
+        ({"title": "x", "audio_path": str(silent)}, ("no audio stream",), all),
+        (_selection(tmp_path, section={"source_in": 400.0, "why": "vibes"}),
+         ("past the end of the track",), all),
+        (_selection(tmp_path, splices=[{"source_in": 10.0,
+                                        "source_out": 900.0}]),
+         ("900.0",), all),
+        (_selection(tmp_path, tracks=[{"title": "second",
+                                       "audio_path": str(tmp_path / "no.wav")}]),
+         ("tracks[0]",), all),
+    ]
+    for i, (value, words, quantifier) in enumerate(rows):
+        project = tmp_path / f"row{i}"
+        project.mkdir()
+        ProjectLayout(str(project)).ensure()
+        _supply(project, "music_selection", value)
+        with pytest.raises(ExternalStateError) as exc:
+            external_inputs.load(str(project))
+        assert quantifier(w in str(exc.value) for w in words), (i, str(exc.value))
 
 
 def _spine():
-    """The same block `test_a_spine_that_passes_the_contract_is_accepted`
-    supplies, as a helper the entry-point tests can reuse."""
+    """A spine block that passes the spine contract."""
     return {"structure": [
         {"block_type": "speech", "position": 1, "clip_id": "clip_1",
          "source_start": 0.132, "source_end": 2.417,
@@ -482,112 +409,12 @@ def _placement(clip, timeline_start, timeline_end, video_in=5.0):
             "timeline_start": timeline_start, "timeline_end": timeline_end}
 
 
-def test_cutaways_supplied_from_outside_are_accepted(tmp_path):
-    project = _project(tmp_path)
-    clip = _clip(tmp_path)
-    _supply(project, "b_roll_assignments",
-            [_placement(clip, 1.0, 2.5), _placement(clip, 4.0, 5.0)])
-    entry = external_inputs.load(str(project))["b_roll_assignments"]
-    assert "none overlapping on V2" in entry.checked
-
-
-def test_two_cutaways_over_the_same_seconds_are_refused(tmp_path):
-    """V2 shows one clip at a time. Two overlapping placements are two
-    descriptions of the same seconds, and compile_manifest's overlap
-    resolution would delete one of them without saying which."""
-    project = _project(tmp_path)
-    clip = _clip(tmp_path)
-    _supply(project, "b_roll_assignments",
-            [_placement(clip, 1.0, 3.0), _placement(clip, 2.0, 4.0)])
-    with pytest.raises(ExternalStateError) as exc:
-        external_inputs.load(str(project))
-    assert "one clip at a time" in str(exc.value)
-
-
-def test_a_cut_with_no_standalone_cutaways_can_say_so(tmp_path):
-    """`[]` for b_roll_interjections is a DECISION, and it is the only
-    way a hand cut with no standalone cutaways can stop select_broll
-    inventing some. Every other key still refuses an empty value."""
-    project = _project(tmp_path)
-    _supply(project, "b_roll_interjections", [])
-    entry = external_inputs.load(str(project))["b_roll_interjections"]
-    assert entry.value == []
-    assert "0 placements" in entry.checked
-
-
-def test_an_empty_value_is_still_refused_for_every_other_key(tmp_path):
-    project = _project(tmp_path)
-    _supply(project, "b_roll_assignments", [])
-    with pytest.raises(ExternalStateError) as exc:
-        external_inputs.load(str(project))
-    assert "Nothing is not a value" in str(exc.value)
-    assert "b_roll_interjections" in str(exc.value)
-
-
 def _voiceover(clip, timeline_start, timeline_end, audio_in=0.0):
     return {"spine_block_position": 1, "block_type": "speech",
             "audio_id": "audio_001", "source_file": clip,
             "audio_in": audio_in,
             "audio_out": audio_in + (timeline_end - timeline_start),
             "timeline_start": timeline_start, "timeline_end": timeline_end}
-
-
-def test_voiceover_supplied_from_outside_is_accepted(tmp_path):
-    """A hand cut may carry its narration: the file, the span, one voice."""
-    project = _project(tmp_path)
-    clip = _clip(tmp_path, "vo.wav")
-    _supply(project, "voiceover_assignments",
-            [_voiceover(clip, 1.0, 2.5)])
-    entry = external_inputs.load(str(project))["voiceover_assignments"]
-    assert "none overlapping on A1" in entry.checked
-
-
-def test_an_empty_voiceover_supply_is_a_decision(tmp_path):
-    """`[]` voiceover_assignments says no narration, like `[]`
-    b_roll_interjections says no standalone cutaways - so a hand cut
-    without voiceover keeps assign_aroll from re-running to invent it."""
-    project = _project(tmp_path)
-    _supply(project, "voiceover_assignments", [])
-    entry = external_inputs.load(str(project))["voiceover_assignments"]
-    assert entry.value == []
-
-
-def test_two_voices_over_the_same_seconds_are_refused(tmp_path):
-    """A1 speaks one voice at a time."""
-    project = _project(tmp_path)
-    clip = _clip(tmp_path, "vo.wav")
-    _supply(project, "voiceover_assignments",
-            [_voiceover(clip, 1.0, 2.5), _voiceover(clip, 2.0, 3.0)])
-    with pytest.raises(ExternalStateError) as exc:
-        external_inputs.load(str(project))
-    assert "one voice at a time" in str(exc.value)
-
-
-def test_voiceover_without_its_file_is_refused(tmp_path):
-    """A placement without audio_id is uncheckable."""
-    project = _project(tmp_path)
-    clip = _clip(tmp_path, "vo.wav")
-    entry = _voiceover(clip, 1.0, 2.5)
-    del entry["audio_id"]
-    _supply(project, "voiceover_assignments", [entry])
-    with pytest.raises(ExternalStateError) as exc:
-        external_inputs.load(str(project))
-    assert "audio_id" in str(exc.value)
-
-
-def test_the_second_name_the_spine_is_recorded_under_is_checkable(tmp_path):
-    """`timed_spine` IS `audio_spine` (mesh_spine's post_bridge sets them
-    equal), and four steps read one while three read the other. Supplying
-    one does not supply the other, so both are checkable."""
-    project = _project(tmp_path)
-    _supply(project, "timed_spine", _spine())
-    assert "spine_contract" in \
-        external_inputs.load(str(project))["timed_spine"].checked
-
-    _supply(project, "timed_spine", {"structure": [{"position": 0}]})
-    with pytest.raises(ExternalStateError) as exc:
-        external_inputs.load(str(project))
-    assert "spine contract" in str(exc.value)
 
 
 # ── The resolver really stops the step that would have redone it ─────
@@ -629,17 +456,9 @@ def test_a_supplied_rough_cut_is_not_cut_again_on_a_plain_full_run(tmp_path):
             f"{node} is still counted as never-completed, which holds an "
             f"otherwise finished run at PARTIAL for ever")
     assert scope.supplied["mesh_spine"] == ("audio_spine", "timed_spine")
-
-
-def test_the_steps_that_still_have_work_still_run(tmp_path):
-    """The other direction. Supplying the cut does not switch the
-    pipeline off: everything downstream of it, and everything the cut
-    does not answer, still runs."""
-    project = _project(tmp_path)
-    external = _rough_cut(project, tmp_path)
-
-    scope = run_scope.resolve(run_scope.Selection(), state={},
-                              external=external)
+    # The other direction: supplying the cut does not switch the pipeline
+    # off - everything downstream of it, and everything it does not
+    # answer, still runs.
     for node in ("plan_subtitles", "plan_transitions", "compile_manifest",
                  "render", "catalog", "temporal_index"):
         assert node in scope.steps_to_run, f"{node} was dropped and should not be"
@@ -735,25 +554,16 @@ def test_a_declaration_is_checked_by_its_owner_and_not_supplied(tmp_path):
     # decision about the project is not a step's output.
     assert external_inputs.load(root, {}) == {}
 
+    # 2026-09-25, one owner later: the post-header lane's file, which no
+    # row named, refused every build-reels the same way.
+    from library.tools import reel_post_header
 
-def test_the_post_header_hooks_do_not_refuse_the_build(tmp_path):
-    """Measured 2026-09-25 on `lucie/geo-podcast`: the post-header lane
-    wrote `external/reel_post_header.json`, which no row here named, and
-    every `build-reels` on that project refused at input gathering with
-    "declares key None" - the 2026-09-11 defect again, one owner later."""
-    import json as _json
-
-    from library.tools import external_inputs, reel_post_header
-
-    external = tmp_path / "project" / "external"
-    external.mkdir(parents=True)
     (external / reel_post_header.HOOKS_FILE).write_text(_json.dumps({
         "format": "reel_post_header/1",
         "hooks": {"3": {"hook": "People stopped searching.",
                         "basis": "Akshita, verbatim"}}}), encoding="utf-8")
-    root = tmp_path / "project"
     assert external_inputs.checked_declarations(root) == {
-        "reel_post_header": "1 entry"}
+        "reel_ending": "1 entry", "reel_post_header": "1 entry"}
     assert external_inputs.load(root, {}) == {}
 
 

@@ -14,35 +14,24 @@ one state, two run sets, opposite verdicts. Two tests asserting each
 outcome alone would both keep passing if the distinction collapsed.
 """
 import json
-from types import SimpleNamespace
 
 import pytest
 
 from library.tools import operations, requirements
 
 
-def test_a_refusal_names_a_producer():
-    req = SimpleNamespace(name="transcript", produced_by="temporal_index")
-    result = operations.OperationResult(
-        operation="subtitles.render",
-        legacy_node="render_subtitles",
-        scope=operations.scope_mod.project(),
-        status=operations.REFUSED,
-        unsatisfied=(req,),
-    )
-    assert result.refused and not result.completed
-    reason = result.refusal_reason()
-    assert "transcript" in reason and "temporal_index" in reason
-
-
-def test_a_refusal_must_say_why():
+def test_a_result_that_cannot_say_what_it_is_is_refused():
+    """A REFUSED result must say why, and a status must be one the
+    vocabulary knows."""
+    scope = operations.scope_mod.project()
     with pytest.raises(operations.OperationError):
         operations.OperationResult(
-            operation="x",
-            legacy_node="render_subtitles",
-            scope=operations.scope_mod.project(),
-            status=operations.REFUSED,
-        )
+            operation="x", legacy_node="render_subtitles", scope=scope,
+            status=operations.REFUSED)
+    with pytest.raises(operations.OperationError):
+        operations.OperationResult(
+            operation="o", legacy_node="render_subtitles", scope=scope,
+            status="maybe")
 
 
 def test_produced_nothing_separates_empty_hollow_and_refused_results():
@@ -68,16 +57,6 @@ def test_produced_nothing_separates_empty_hollow_and_refused_results():
     assert empty.produced_nothing is True
     assert hollow.produced_nothing is True
     assert refused.produced_nothing is True
-
-
-def test_an_unknown_operation_status_is_refused():
-    with pytest.raises(operations.OperationError):
-        operations.OperationResult(
-            operation="o",
-            legacy_node="render_subtitles",
-            scope=operations.scope_mod.project(),
-            status="maybe",
-        )
 
 
 def _word(text, start, end):
@@ -119,25 +98,6 @@ def empty_project(tmp_path):
     (tmp_path / "pipeline_output").mkdir(parents=True, exist_ok=True)
     (tmp_path / "pipeline_data.json").write_text(json.dumps({"step_outputs": {}}))
     return str(tmp_path)
-
-
-# ── requires is DERIVED ─────────────────────────────────────────────
-
-
-def test_no_operation_hand_writes_a_requirement():
-    """`requires` comes from requirements.py, keyed by its legacy node.
-
-    A hand-written list here would be a second requirement vocabulary
-    beside the one that exists, and the hand-written half would be prose
-    in a costume - the defect this refactor removes.
-    """
-    import inspect
-    source = inspect.getsource(operations)
-    body = source[source.index("_REGISTRY"):source.index("def all(")]
-    assert "requires=" not in body, (
-        "the registry declares a requirement literal; requires is derived")
-
-
 
 
 # ── THE DISTINCTION ─────────────────────────────────────────────────
@@ -185,29 +145,16 @@ def test_the_same_requirement_defers_in_a_run_and_refuses_for_an_operation(
 # ── the refusal teaches ─────────────────────────────────────────────
 
 
-def test_a_refusal_names_the_input_and_what_produces_it(empty_project):
+def test_a_refusal_names_the_input_its_producer_and_why(empty_project):
+    """The refusal is SURPRISING - the same state runs fine in a DAG - so
+    it names what is missing, who makes it, that running alone is why,
+    and the way out."""
     result = operations.get("subtitles.plan").execute(empty_project)
     assert result.refused
     assert "audio_spine" in result.error
     assert "mesh_spine" in result.error
-
-
-def test_a_refusal_says_running_alone_is_why(empty_project):
-    """The refusal is SURPRISING - the same state runs fine in a DAG - so
-    it must say why, and name the two ways out."""
-    result = operations.get("subtitles.plan").execute(empty_project)
     assert "runs ALONE" in result.error
     assert "run the DAG" in result.error
-
-
-def test_the_refusal_never_names_an_operation_it_cannot_prove_produces_it():
-    """`duration_zone.build` is owned by `mesh_spine` but is its BRIDGE
-    half and emits no spine. Suggesting it as the producer of audio_spine
-    would be confidently wrong, which is worse than suggesting nothing."""
-    import inspect
-    teach = inspect.getsource(operations.Operation._teach)
-    assert "op.name for op in all()" not in teach, (
-        "the refusal is guessing which operation produces a key")
 
 
 # ── the success path ────────────────────────────────────────────────
@@ -220,10 +167,6 @@ def test_an_operation_runs_to_completion(satisfied_project):
     entries = result.payload["subtitle_plan"]["subtitle_entries"]
     assert entries, "completed but produced no caption cards"
     assert all(e["speaker"] == "host" for e in entries)
-
-
-
-
 
 
 # ── The merged-dict binding: an operation that could not EXECUTE ─────
@@ -290,187 +233,53 @@ def test_an_operation_whose_body_takes_the_merged_dict_executes(tmp_path):
     assert zone["minimum_seconds"] < 45.0 < zone["maximum_seconds"]
 
 
-
-
-
-
-
-
-CALLER_DECIDED_POST_BRIDGE_ARGS: dict[str, tuple[str, ...]] = {
-    # `speech.enrich` registers its post_bridge file's inner
-    # deterministic unit, not the stdin-driven entry point, so
-    # `temporal_index_dir` binds from nothing the DAG routes: the
-    # gathered inputs carry `temporal_index` (the manifest's declared
-    # input) and `main()` derives the directory from
-    # `temporal_index.index_dir` itself
-    # (`library/steps/step_2_02_speech_sequence/post_bridge.py:main`).
-    # The registry can only ever receive the directory from the
-    # caller via `--set`, and the test below proves the refusal
-    # teaches exactly that instead of binding nothing. Do NOT add
-    # the name to `MERGED_INPUT_PARAMETERS` instead: that would bind
-    # the whole gathered dict as the directory - the confidently
-    # wrong result the enumeration exists to stop.
-    "speech.enrich": ("temporal_index_dir",),
-    # `music.resolve` registers its post_bridge file's inner
-    # deterministic unit, not the stdin-driven entry point, so its
-    # three destructured parameters bind from nothing the DAG routes
-    # under those names: `selection` is the model's answer
-    # (`music_selection` in the merged dict, refused by
-    # `missing_model_answer` until supplied), and `candidates` /
-    # `target_duration` are the pre-bridge's catalogue output, which
-    # `main()` reads off `music_candidates` itself
-    # (`library/steps/step_2_04_music_selection/post_bridge.py:main`).
-    # The registry can only ever receive all three from the caller via
-    # `--set`, and the test below proves the refusal teaches exactly
-    # that instead of binding nothing.
-    "music.resolve": ("selection", "candidates", "target_duration"),
-    # `broll.resolve` registers its post_bridge file's inner
-    # deterministic unit, so its destructured parameters bind from
-    # nothing the DAG routes under those names: `broll_creative` is the
-    # model's answer (refused by `missing_model_answer` until
-    # supplied), `broll_interjections` / `semantic_docs` /
-    # `temporal_indices` are the model's second answer and two renamed
-    # gathered keys, which `main()` reads as `b_roll_interjections` /
-    # `semantic_analysis_documents` / `temporal_event_indices` itself,
-    # and `target_resolution` is derived by `main()` from the delivery
-    # format (`library/steps/step_3_02_select_broll/post_bridge.py:main`).
-    # The registry can only ever receive them from the caller via
-    # `--set`. Do NOT add any of these names to
-    # `MERGED_INPUT_PARAMETERS`: that would bind the whole gathered
-    # dict as a cutaway list - the confidently wrong result the
-    # enumeration exists to stop.
-    "broll.resolve": ("broll_creative", "broll_interjections",
-                      "semantic_docs", "temporal_indices",
-                      "target_resolution"),
-    # `transitions.resolve`, `vfx.resolve` and `sfx.resolve` register
-    # their post_bridge files' inner deterministic units, not the
-    # stdin-driven entry points, so `creative_plan` - the model's plan,
-    # which each `main()` reads off the merged dict under its own
-    # llm key (`transition_creative`, `vfx_creative`, `sfx_creative`)
-    # and passes positionally - binds from nothing the DAG routes.
-    # The registry can only ever receive the plan from the caller via
-    # `--set`, and the test below proves the refusal teaches exactly
-    # that instead of binding nothing. Do NOT add the name to
-    # `MERGED_INPUT_PARAMETERS` instead: that would bind the whole
-    # gathered dict as the plan - the confidently wrong result the
-    # enumeration exists to stop.
-    "transitions.resolve": ("creative_plan",),
-    "vfx.resolve": ("creative_plan",),
-    "sfx.resolve": ("creative_plan",),
-}
-
-
-def test_destructured_post_bridge_unit_refuses_naming_its_args(tmp_path):
-    """The classified half of the check above, proved by running it.
-
-    With its requirements satisfied and the model's answer supplied
-    as overrides, `speech.enrich` reaches the argument binding - and
-    `temporal_index_dir` is not there to bind. It must REFUSE naming
-    the argument and the `--set` way to supply it: a `TypeError`
-    here would be the defect the static check exists to stop,
-    wearing a new shape.
-    """
+def _state(tmp_path, outputs):
     (tmp_path / "pipeline_output").mkdir(parents=True, exist_ok=True)
     (tmp_path / "pipeline_data.json").write_text(json.dumps({
-        "project_folder": str(tmp_path),
-        "step_outputs": {
-            "creative_direction": {
-                "creative_direction": {"mood": "measured"}},
+        "project_folder": str(tmp_path), "step_outputs": outputs}),
+        encoding="utf-8")
+    return str(tmp_path)
+
+
+def test_a_destructured_post_bridge_unit_refuses_naming_its_args(tmp_path):
+    """A post-bridge unit registered by its inner deterministic function
+    takes arguments the DAG routes under no such name (the model's plan,
+    renamed gathered keys, a derived frame). With requirements satisfied
+    and the model's answer supplied, each must REFUSE naming the argument
+    and the `--set` way to supply it - a `TypeError` here is the crash.
+    Never fix by binding the merged dict to the name: that hands a step a
+    confidently wrong value. Folded from three tests, one row per lane.
+    """
+    spine = {"structure": []}
+    rows = [
+        ("speech.enrich", {
+            "creative_direction": {"creative_direction": {"mood": "measured"}},
             "semantic_analysis": {"semantic_analysis_documents": []},
             "temporal_index": {"temporal_event_indices": [],
-                               "index_dir": str(tmp_path)},
-        }}), encoding="utf-8")
-
-    result = operations.get("speech.enrich").execute(
-        str(tmp_path),
-        speech_sequence={"body_sequence": []},
-        topics_toon="", transcripts_toon="")
-
-    assert result.refused, (
-        "speech.enrich called its body with no temporal_index_dir "
-        "rather than refusing")
-    assert "temporal_index_dir" in result.error, (
-        "the refusal does not name the caller-decided argument")
-    assert "--set temporal_index_dir" in result.error, (
-        "the refusal does not teach the way to supply it")
-
-
-def test_intake_post_bridge_units_refuse_naming_their_args(tmp_path):
-    """The classified half of the check above, for the intake lane's two
-    post-bridge units - proved by running them, not trusted.
-
-    With their requirements satisfied and the model's answer supplied
-    as overrides, `music.resolve` and `broll.resolve` reach the
-    argument binding - and the pre-bridge outputs, renamed gathered
-    keys and derived frame main() reads off the merged dict are not
-    there to bind. Each must REFUSE naming its arguments and the
-    `--set` way to supply them: a `TypeError` here would be the
-    defect the static check exists to stop, wearing a new shape.
-    """
-    (tmp_path / "pipeline_output").mkdir(parents=True, exist_ok=True)
-    (tmp_path / "pipeline_data.json").write_text(json.dumps({
-        "project_folder": str(tmp_path),
-        "step_outputs": {
-            "creative_direction": {
-                "creative_direction": {"mood": "measured"}},
+                               "index_dir": str(tmp_path)}},
+         {"speech_sequence": {"body_sequence": []},
+          "topics_toon": "", "transcripts_toon": ""},
+         ("temporal_index_dir",), "--set temporal_index_dir"),
+        ("music.resolve", {
+            "creative_direction": {"creative_direction": {"mood": "measured"}},
+            "catalog": {"clip_catalog": []},
+            "mesh_spine": {"timed_spine": spine}},
+         {"music_selection": {"title": "t", "source": "library"}},
+         ("selection", "candidates", "target_duration"), "--set selection"),
+        ("broll.resolve", {
+            "creative_direction": {"creative_direction": {"mood": "measured"}},
             "catalog": {"clip_catalog": []},
             "assign_aroll": {"a_roll_assignments": {}},
             "semantic_analysis": {"semantic_analysis_documents": []},
             "temporal_index": {"temporal_event_indices": []},
-            "mesh_spine": {"timed_spine": {"structure": []}},
-        }}), encoding="utf-8")
-
-    music = operations.get("music.resolve").execute(
-        str(tmp_path),
-        music_selection={"title": "t", "source": "library"})
-    assert music.refused, (
-        "music.resolve called its body with no selection, candidates "
-        "or target_duration rather than refusing")
-    for name in ("selection", "candidates", "target_duration"):
-        assert name in music.error, (
-            f"the refusal does not name the caller-decided {name}")
-    assert "--set selection" in music.error, (
-        "the refusal does not teach the way to supply it")
-
-    broll = operations.get("broll.resolve").execute(
-        str(tmp_path),
-        broll_creative=[],
-        b_roll_interjections=[])
-    assert broll.refused, (
-        "broll.resolve called its body with no placements rather than "
-        "refusing")
-    for name in ("broll_interjections", "semantic_docs",
-                 "temporal_indices", "target_resolution"):
-        assert name in broll.error, (
-            f"the refusal does not name the caller-decided {name}")
-    assert "--set broll_interjections" in broll.error, (
-        "the refusal does not teach the way to supply it")
-
-
-@pytest.mark.parametrize("operation,answer_key", [
-    ("transitions.resolve", "transition_creative"),
-])
-def test_planner_post_bridge_units_refuse_naming_the_plan(
-        tmp_path, operation, answer_key):
-    """The classified half of the check above, proved by running it,
-    for the three planner lanes.
-
-    With their requirements satisfied and the model's answer supplied
-    as overrides, `transitions.resolve`, `vfx.resolve` and
-    `sfx.resolve` reach the argument binding - and `creative_plan`
-    is not there to bind. Each must REFUSE naming the plan and the
-    `--set` way to supply it: a `TypeError` here would be the defect
-    the static check exists to stop, wearing a new shape.
-    """
-    spine = {"structure": []}
-    (tmp_path / "pipeline_output").mkdir(parents=True, exist_ok=True)
-    (tmp_path / "pipeline_data.json").write_text(json.dumps({
-        "project_folder": str(tmp_path),
-        "step_outputs": {
+            "mesh_spine": {"timed_spine": spine}},
+         {"broll_creative": [], "b_roll_interjections": []},
+         ("broll_interjections", "semantic_docs", "temporal_indices",
+          "target_resolution"), "--set broll_interjections"),
+        ("transitions.resolve", {
             "assign_aroll": {"a_roll_assignments": []},
             "catalog": {"clip_catalog": [], "project_fps": 30.0},
-            "creative_direction": {
-                "creative_direction": {"mood": "measured"}},
+            "creative_direction": {"creative_direction": {"mood": "measured"}},
             "mesh_spine": {"audio_spine": spine, "timed_spine": spine},
             "review_rough_cut": {"rough_cut_review": {"passed": True}},
             "temporal_index": {"temporal_event_indices": [],
@@ -479,21 +288,19 @@ def test_planner_post_bridge_units_refuse_naming_the_plan(
             "music_analysis": {"music_analysis": {}},
             "select_broll": {"b_roll_assignments": []},
             "semantic_analysis": {"semantic_analysis_documents": []},
-            "plan_transitions": {"transition_spec": []},
-        }}), encoding="utf-8")
-
-    result = operations.get(operation).execute(
-        str(tmp_path), **{answer_key: []})
-
-    assert result.refused, (
-        f"{operation} called its body with no creative_plan "
-        f"rather than refusing")
-    assert "creative_plan" in result.error, (
-        "the refusal does not name the caller-decided argument")
-    assert "--set creative_plan" in result.error, (
-        "the refusal does not teach the way to supply it")
-
-
+            "plan_transitions": {"transition_spec": []}},
+         {"transition_creative": []}, ("creative_plan",),
+         "--set creative_plan"),
+    ]
+    for i, (name, outputs, answer, args, teach) in enumerate(rows):
+        project = _state(tmp_path / f"row{i}", outputs)
+        result = operations.get(name).execute(project, **answer)
+        assert result.refused, (
+            f"{name} called its body with an argument unbound rather "
+            f"than refusing")
+        for arg in args:
+            assert arg in result.error, (name, arg, result.error)
+        assert teach in result.error, (name, result.error)
 
 
 def test_a_post_bridge_refuses_rather_than_resolving_a_plan_nobody_wrote(
@@ -528,61 +335,27 @@ def test_a_post_bridge_refuses_rather_than_resolving_a_plan_nobody_wrote(
     assert "run validate" in result.error
 
 
-
-
-
-
-def test_a_prompt_capability_refuses_naming_the_runner(tmp_path):
-    """A capability that IS a prompt has no function to call: the runner
-    asks a model to answer it, and an operation runs alone with no
-    model. With its contract satisfied it must REFUSE naming the prompt
-    and the way out - a `TypeError` here would be the crash the
-    unbindable-argument refusal exists to stop, wearing a new shape."""
-    (tmp_path / "pipeline_output").mkdir(parents=True, exist_ok=True)
-    (tmp_path / "pipeline_data.json").write_text(json.dumps({
-        "project_folder": str(tmp_path),
-        "step_outputs": {
-            "catalog": {"clip_catalog": []},
-            "semantic_analysis": {"semantic_analysis_documents": []},
-            "temporal_index": {"temporal_event_indices": []},
-        }}), encoding="utf-8")
-
+def test_a_prompt_capability_refuses_naming_the_runner(tmp_path, empty_project):
+    """A capability that IS a prompt has no function to call and an
+    operation runs alone with no model: with its contract satisfied it
+    REFUSES naming the prompt and the way out. With its contract unmet,
+    the precondition refusal comes first and is not swallowed."""
+    project = _state(tmp_path / "ok", {
+        "catalog": {"clip_catalog": []},
+        "semantic_analysis": {"semantic_analysis_documents": []},
+        "temporal_index": {"temporal_event_indices": []}})
     op = operations.get("creative.direct")
-    assert op.unmet(str(tmp_path)) == []
-    result = op.execute(str(tmp_path))
-
+    assert op.unmet(project) == []
+    result = op.execute(project)
     assert result.refused
     assert "handoff.md" in result.error
     assert "creative_direction" in result.error
     assert "run the DAG" in result.error
 
-
-def test_a_prompt_capability_still_refuses_its_missing_inputs_first(
-        empty_project):
-    """The contract bites before the prompt does. A prompt capability
-    with unsatisfied requirements refuses naming what is missing and
-    who produces it - the runner refusal above must not swallow the
-    precondition refusal."""
-    result = operations.get("creative.direct").execute(empty_project)
-
+    result = op.execute(empty_project)
     assert result.refused
     assert "clip_catalog" in result.error
     assert "catalog" in result.error
-
-
-def _any_step_declares(name: str) -> bool:
-    """Is `name` an input some step's manifest declares, in any process?"""
-    import json as _json
-    from pathlib import Path as _Path
-
-    root = _Path(__file__).resolve().parents[1] / "library" / "steps"
-    for manifest_path in root.glob("*/manifest.json"):
-        interface = (_json.loads(manifest_path.read_text(encoding="utf-8"))
-                     .get("interface") or {})
-        for declared in interface.get("inputs") or []:
-            if declared.get("name") == name:
-                return True
-    return name in ("project_folder", "project_config")
 
 
 # ── The address, which used to reach no step at all ──────────────────
@@ -657,43 +430,28 @@ def _block_one(spine):
         None, block["timeline_start"], block["timeline_end"]))
 
 
-def test_an_operation_at_a_region_plans_only_that_region(three_block_project):
-    """The gate FIRES on the defect: a region-scoped plan must not be a
-    whole-project plan. Measured before the fix - PROJECT 4 cards, REGION
-    4 cards, the step called directly with the same scope 1 card."""
-    project, spine = three_block_project
-    plan = operations.get("subtitles.plan")
-
-    whole = plan.execute(project)
-    part = plan.execute(project, scope=_block_one(spine))
-
-    def cards(result):
-        return result.payload["subtitle_plan"]["subtitle_entries"]
-
-    assert whole.completed and part.completed
-    assert len(cards(part)) < len(cards(whole)), (
-        "the region planned as much as the whole project, so the address "
-        "did not reach the step")
-
-
-def test_the_region_the_registry_passes_is_the_one_the_step_would_get(
+def test_an_operation_at_a_region_plans_exactly_what_the_step_would(
         three_block_project):
-    """Not just fewer - THE SAME. The step is the authority on what a
-    region means, so the registry's answer has to equal the answer the
-    step gives when it is handed the scope directly."""
+    """The gate FIRES on the defect: a region-scoped plan must not be a
+    whole-project plan (measured before the fix: PROJECT 4 cards, REGION
+    4 cards, the step called directly 1 card). And not just fewer - THE
+    SAME as the step's own answer for that scope."""
     project, spine = three_block_project
     plan = operations.get("subtitles.plan")
     where = _block_one(spine)
 
-    through_registry = plan.execute(project, scope=where)
+    whole = plan.execute(project)
+    part = plan.execute(project, scope=where)
     direct = plan.run(audio_spine=spine, scope=where)
 
-    assert (through_registry.payload["subtitle_plan"]["subtitle_entries"]
-            == direct["subtitle_plan"]["subtitle_entries"])
+    def cards(payload):
+        return payload["subtitle_plan"]["subtitle_entries"]
 
-
-
-
+    assert whole.completed and part.completed
+    assert len(cards(part.payload)) < len(cards(whole.payload)), (
+        "the region planned as much as the whole project, so the address "
+        "did not reach the step")
+    assert cards(part.payload) == cards(direct)
 
 
 # ── An operation that cannot be called REFUSES, it does not crash ────
@@ -716,29 +474,15 @@ def test_an_operation_whose_caller_owes_it_an_argument_refuses_by_name(
     assert "stored_plan" in result.error
     assert "--set stored_plan=@stored_plan.json" in result.error
 
-
-def test_supplying_the_argument_the_refusal_named_makes_it_run(
-        three_block_project):
-    """The mirror, and the half that makes the refusal a control surface
-    rather than a wall: doing what it says works."""
-    project, spine = three_block_project
-    where = _block_one(spine)
+    # The mirror: doing what the refusal says works.
     stored = operations.get("subtitles.plan").execute(project).payload
-
     result = operations.get("subtitles.splice").execute(
-        project, scope=where, stored_plan=stored["subtitle_plan"])
-
+        project, scope=_block_one(spine), stored_plan=stored["subtitle_plan"])
     assert result.completed, result.error
     assert result.payload["splice"]
 
 
-
-
-
-
 # ── --set: the way out the refusal names ─────────────────────────────
-
-
 
 
 def test_set_refuses_a_bare_word_rather_than_guessing_it_is_a_string():

@@ -20,8 +20,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
 REPO = Path(__file__).resolve().parents[1]
 VFX = REPO / "library" / "steps" / "step_4_03_plan_vfx"
 
@@ -164,39 +162,17 @@ def _payload() -> dict:
 class TestVfxBridgeOriginatesNoCreativeValue:
     """Regression: the colour wash cannot come back."""
 
-    def test_no_enhancement_spec_in_output(self):
+    def test_no_enhancement_spec_and_no_effect_value_in_output(self):
+        """The post-bridge writes `enhancement_spec` after the model
+        answers; the pre-bridge names no effect, intensity or wash."""
         proc = _run_bridge(_payload())
         assert proc.returncode == 0, proc.stderr
         output = json.loads(proc.stdout)
-        assert "enhancement_spec" not in output, (
-            "enhancement_spec should not be emitted by the pre-bridge; "
-            "the post-bridge writes it after the model answers."
-        )
-
-    def test_no_effect_type_in_output(self):
-        proc = _run_bridge(_payload())
-        assert proc.returncode == 0, proc.stderr
-        output = json.loads(proc.stdout)
+        assert "enhancement_spec" not in output
         stdout_text = proc.stdout.lower()
         assert "color_wash" not in stdout_text
         assert "effect_type" not in stdout_text
         assert "\"intensity\": 0.5" not in proc.stdout
-
-    def test_vfx_suggested_is_not_hardcoded_no(self):
-        proc = _run_bridge(_payload())
-        assert proc.returncode == 0, proc.stderr
-        output = json.loads(proc.stdout)
-        toon = output["vfx_candidates_toon"]
-        # Parse rows from the toon table.
-        lines = [l for l in toon.strip().split("\n") if l and not l.startswith("[")]
-        for line in lines:
-            fields = line.split("\t")
-            # vfx_suggested is the third column
-            assert len(fields) >= 3
-            vfx_suggested = fields[2]
-            assert vfx_suggested != "No", (
-                f"vfx_suggested is still the hardcoded 'No': {line}"
-            )
 
     def test_text_column_is_populated(self):
         proc = _run_bridge(_payload())
@@ -223,6 +199,8 @@ class TestVfxBridgeOriginatesNoCreativeValue:
         output = json.loads(proc.stdout)
         toon = output["vfx_candidates_toon"]
         lines = [l for l in toon.strip().split("\n") if l and not l.startswith("[")]
+        # Never the old hardcoded verdict, on any row.
+        assert all(line.split("\t")[2] != "No" for line in lines), lines
         # First block: stationary + steady camera on clip_001
         fields = lines[0].split("\t")
         vfx_suggested = fields[2]
@@ -283,9 +261,3 @@ class TestVfxBridgeEmptyInput:
         toon = output["vfx_candidates_toon"]
         assert toon.startswith("[0]")
         assert "enhancement_spec" not in output
-
-
-
-class TestVfxBridgeNoStubComment:
-    """The bridge no longer admits it is a stub."""
-

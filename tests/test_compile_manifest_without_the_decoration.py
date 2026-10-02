@@ -1,20 +1,8 @@
 """What `compile_manifest` can be compiled without, measured by running it.
 
-Issue #260.  The step declared `transition_spec`, `enhancement_spec`,
-`sfx_spec` and `color_grade_spec` REQUIRED while its own code called
-three of them "optional enhancement specs" and read them with defaults.
-Because `required` is what `run_pipeline.gather_step_inputs` raises on
-and what `run_scope` derives its refusal from, the stricter of the two
-won and the `rough_cut_subtitles` target could not skip four planners
-that cost 446.5s on 001's last run.
-
-`library/tools/input_contract.py` surveys the whole pipeline for who
-REFUSES when an input is absent.  That is enforcement, and enforcement
-is not warrant: `compile_manifest`'s four were enforced perfectly and
-still wrong.  Warrant is established by running the step without the
-input and looking at what comes out, which is what this file does - for
-every declared input of the one step that reads state directly rather
-than taking the runner's word for it.
+Every declared input of `compile_manifest` is measured by RUNNING the
+step without it: enforcement (`input_contract`'s survey) is not warrant.
+History (issue #260): docs/evidence/input_contract.md#compile_manifest-measured-by-running-it
 
 The assertions, and why they are asymmetric
 -------------------------------------------
@@ -246,15 +234,6 @@ def test_a_resolved_selection_with_no_sidecar_refuses_the_compile(project):
         _compile(project)
 
 
-
-
-
-
-
-
-
-
-
 def test_a_manifest_compiles_with_none_of_the_four(project):
     """The rough cut the captain asked for: hard cuts, no effects, no
     sound design, ungraded - and everything else intact."""
@@ -299,10 +278,16 @@ def _measure_all(project, compile_inputs):
     return verdicts
 
 
-def test_every_optional_input_really_compiles_when_absent(
+def test_every_declared_input_agrees_with_running_without_it(
         project, compile_inputs):
-    """No exemptions here. An input declared optional that the step
-    cannot run without is a run that dies for obeying the declaration."""
+    """Checked both ways, off one measurement.
+
+    An input declared OPTIONAL must really compile when absent, with no
+    exemptions: a lie there kills a run that obeyed the declaration.
+    A REQUIRED input the step compiles without must be recorded in
+    `input_contract.REQUIRED_THOUGH_THE_STEP_RUNS_WITHOUT_IT` (the
+    declaration/code disagreement of #260), and a recorded entry whose
+    input really refuses is stale."""
     manifests = run_scope.load_manifests(run_scope.load_dag())
     optional = run_scope.optional_inputs(manifests["compile_manifest"])
     verdicts = _measure_all(project, compile_inputs)
@@ -312,23 +297,10 @@ def test_every_optional_input_really_compiles_when_absent(
         f"compile_manifest declares {broken} optional and cannot compile "
         f"without them")
 
-
-def test_a_required_input_the_step_runs_without_is_recorded(
-        project, compile_inputs):
-    """The declaration/code disagreement of #260, checked both ways.
-
-    Unrecorded and the step compiles: the requirement is unwarranted and
-    costs a scoped run the producer's whole runtime. Recorded and the
-    step refuses: the record is stale and claims a cost that is not
-    there."""
-    manifests = run_scope.load_manifests(run_scope.load_dag())
-    optional = run_scope.optional_inputs(manifests["compile_manifest"])
-    verdicts = _measure_all(project, compile_inputs)
     recorded = {
         name for (node_id, name)
         in input_contract.REQUIRED_THOUGH_THE_STEP_RUNS_WITHOUT_IT
         if node_id == "compile_manifest"}
-
     unrecorded = sorted(
         name for name, compiled in verdicts.items()
         if compiled and name not in optional and name not in recorded)
@@ -343,8 +315,6 @@ def test_a_required_input_the_step_runs_without_is_recorded(
     assert not stale, (
         f"{stale} are recorded as 'required though the step runs without "
         f"it', but the step refuses without them. Delete the entry.")
-
-
 
 
 # ── A drawn transition with no hold is a hard cut, never 15 frames ────
@@ -398,9 +368,7 @@ def test_a_drawn_transition_with_no_hold_ships_a_hard_cut_and_says_so(
     # The cut boundary itself survives: both A-roll clips still play.
     assert len(manifest["tracks"]["V1"]["clips"]) == 2
 
-
-def test_a_drawn_transition_with_zero_frames_is_not_given_fifteen(project):
-    """An explicit zero is undecided too: nothing completes it to 15."""
+    # An explicit zero is undecided too: nothing completes it to 15.
     manifest = _compile_with_transitions(project, [
         {"transition_id": "trans_001", "transition_type": "crash_zoom",
          "cut_point_timeline": 2.285, "duration_frames": 0}])
@@ -440,13 +408,7 @@ def test_validation_refuses_a_durationless_drawn_transition():
     assert "trans_001" in message
     assert "--rerun plan_transitions" in message
 
-
-def test_validation_leaves_cuts_and_held_transitions_alone():
-    """Cuts are zero-length by definition; stated holds are carried."""
-    from library.steps.step_5_04_compile_manifest.step import (
-        _apply_manifest_qa_checks,
-    )
-
+    # Cuts are zero-length by definition; stated holds are carried.
     manifest = {"transitions": [
         {"transition_id": "trans_001", "transition_type": "hard_cut"},
         {"transition_id": "trans_002", "transition_type": "crash_zoom",

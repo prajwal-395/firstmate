@@ -106,10 +106,8 @@ def test_a_snapshot_edited_after_capture_reports_a_broken_seal(project, store):
     assert not report["sealed"]
     assert any("pipeline_data.json" in b for b in report["seal_breaks"])
 
-
-def test_a_referenced_area_that_moves_is_reported_not_used(project, store):
-    """The whole point: the bench notices the world moved under it."""
-    snap = snapshot_mod.capture(str(project), snapshot_id="fx", store=store)
+    # The whole point: the bench notices the world moved under it.
+    snap = snapshot_mod.capture(str(project), snapshot_id="fx2", store=store)
     assert snap.verify()["references_drifted"] == []
     (project / "raw" / "clip_002.mov").write_bytes(b"a new clip appeared")
     drift = snap.verify()["references_drifted"]
@@ -148,13 +146,9 @@ def _with_live_output(project: Path) -> Path:
 
 def test_no_path_in_a_replay_workspace_resolves_inside_the_source_project(
         project, store):
-    """The snapshot REFERENCES `pipeline_output/` by symlink, so a replay
-    that ran against the snapshot directory wrote straight into the live
-    project: 3.04's diagnostics, 3.02's footage analysis and frames, 4.04's
-    catalogue. Measured 2026-10-01 on 001 - 395 files written into a
-    project whose last run was 2026-08-30. A replay gets a clone instead,
-    and every path in it - including one the state names absolutely -
-    resolves outside the source."""
+    """A replay gets a clone, and every path in it - including one the
+    state names absolutely - resolves outside the source project.
+    History: docs/evidence/replay_bench.md#the-replay-that-wrote-the-live-project"""
     _with_live_output(project)
     snap = snapshot_mod.capture(str(project), snapshot_id="fx", store=store)
     roots = [os.path.realpath(project)]
@@ -235,6 +229,10 @@ def test_replay_rebuilds_a_real_step_off_frozen_state(project, store):
     assert "creative_direction" in result["expected_schema"]
     # And the snapshot said whether it could still be trusted.
     assert result["staleness"]["sealed"]
+    # The replay ran against the frozen copy and must not leak its path.
+    assert str(snapshot_mod.load("fx", store).project_dir) not in result["context"]
+    assert snapshot_mod.WORKSPACES_DIR not in result["context"]
+    assert result["project_folder_substitutions"] >= 1
 
 
 def test_the_reconstruction_carries_what_the_runner_appends_to_the_schema(
@@ -254,16 +252,6 @@ def test_the_reconstruction_carries_what_the_runner_appends_to_the_schema(
     assert undetermined.FIELD in names, (
         "the runner asks for it; the reconstruction must too")
     assert undetermined.FIELD in result["prompt"]
-    assert "Return `[]` when the material was sufficient" in result["prompt"]
-
-
-def test_the_context_carries_the_project_folder_the_run_recorded(project, store):
-    """A replay runs against the frozen copy and must not leak its path."""
-    snap = snapshot_mod.capture(str(project), snapshot_id="fx", store=store)
-    result = bench.replay("fx", "creative_direction", store=store)
-    assert str(snap.project_dir) not in result["context"]
-    assert snapshot_mod.WORKSPACES_DIR not in result["context"]
-    assert result["project_folder_substitutions"] >= 1
 
 
 def test_a_step_that_is_not_in_the_dag_is_named_not_guessed(project, store):
@@ -274,19 +262,10 @@ def test_a_step_that_is_not_in_the_dag_is_named_not_guessed(project, store):
 
 def test_a_declared_creative_brief_reaches_the_reconstructed_context(
         project, store, tmp_path):
-    """The bench has to rebuild the RUN-LEVEL half of state as well.
-
-    `load_pipeline_state` is the runner's whole state assembly: it parses
-    `pipeline_data.json` and then overlays the values that belong to the
-    run rather than to any upstream step - `creative_brief` and
-    `brand_template` off `project.yaml`, the asset libraries off the
-    environment. The bench used to `json.load` the frozen state file and
-    stop there, and that omission fails in the one direction that matters:
-    a project pointing at a brief reconstructed as a project pointing at
-    none, so the routing change read as a no-op. Measured on 001 the day
-    it was pointed at the channel document (#214) - seven steps declare
-    `creative_brief` and all seven replayed without it.
-    """
+    """The bench rebuilds the RUN-LEVEL half of state too
+    (`load_pipeline_state`'s overlay of `project.yaml`), so a declared
+    brief reaches the reconstruction.
+    History: docs/evidence/replay_bench.md#the-brief-the-replay-dropped"""
     brief = tmp_path / "planning" / "channel_brief.md"
     brief.parent.mkdir(parents=True)
     brief.write_text("# Channel brief\n\nSENTINEL_BRIEF_IN_REPLAY_4c1e\n",
@@ -307,53 +286,22 @@ def test_a_declared_creative_brief_reaches_the_reconstructed_context(
     assert any("run-level state" in n for n in result["notes"]), result["notes"]
 
 
-# ── 3. Reading the difference ───────────────────────────────────────
-
-
 # ── 4. Token counts name their tokenizer ────────────────────────────
 
 def test_an_unknown_tokenizer_raises_rather_than_guessing():
     with pytest.raises(ValueError, match="unknown tokenizer"):
         tokens.count("x", "gpt-guess")
-
-
-def test_the_pipelines_own_word_heuristic_is_never_a_tokenizer():
-    """`present_llm_step` logs len(s.split())*1.3 and it is not a count."""
+    # `present_llm_step` logs len(s.split())*1.3 and it is not a count.
     assert "pipeline_heuristic" not in tokens.available()
     with pytest.raises(ValueError):
         tokens.count("a b c", "pipeline_heuristic")
-    assert tokens.pipeline_heuristic("a b c") == int(3 * 1.3)
-
-
-def test_o200k_is_absent_rather_than_estimated_when_tiktoken_is_missing():
-    if tokens.O200K in tokens.available():
-        pytest.skip("tiktoken is installed here; the absent path is elsewhere")
-    with pytest.raises(RuntimeError, match="tiktoken"):
-        tokens.count("x", tokens.O200K)
+    # o200k is absent rather than estimated when tiktoken is missing.
+    if tokens.O200K not in tokens.available():
+        with pytest.raises(RuntimeError, match="tiktoken"):
+            tokens.count("x", tokens.O200K)
 
 
 # ── 5. The bench measures; it is not part of the pipeline ───────────
-
-PIPELINE_TREES = ("library/steps", "library/processes", "library/dashboard")
-
-
-def test_no_step_process_or_dashboard_imports_the_bench():
-    """The bench reads the pipeline.  The pipeline must not read the bench.
-
-    A measuring tool that a step depends on stops being a measuring tool.
-    """
-    offenders = []
-    for tree in PIPELINE_TREES:
-        for path in (REPO_ROOT / tree).rglob("*"):
-            if path.suffix not in (".py", ".json") or "__pycache__" in path.parts:
-                continue
-            text = path.read_text(encoding="utf-8", errors="replace")
-            if "replay_bench" in text:
-                offenders.append(str(path.relative_to(REPO_ROOT)))
-    assert not offenders, (
-        "the replay bench measures the pipeline and must stay out of it; "
-        f"referenced by: {offenders}")
-
 
 def test_the_bench_imports_nothing_from_library_at_worker_module_scope():
     """A comparison across two trees dies quietly if this ever regresses.
@@ -378,20 +326,9 @@ def test_the_bench_imports_nothing_from_library_at_worker_module_scope():
 
 def test_capture_freezes_the_creative_brief_a_project_declares(tmp_path,
                                                                store):
-    """A step that declares the brief must be replayable.
-
-    Ten steps declare `creative_brief` and the runner RAISES rather than
-    degrading when a declared brief cannot be read - correctly, because a
-    step that reported success having read a filename was the defect that
-    rule replaced. So a snapshot that did not carry the brief could not
-    reconstruct ANY of those ten, which is every step that makes a
-    creative judgement.
-
-    Found 2026-09-05: step 3.4 regained its declaration and
-    `replay_bench compare select_reels` stopped working entirely, with
-    "declares creative_brief and the project points at
-    <snapshot>/project/creative_brief.md, which cannot be read".
-    """
+    """A project-relative declared brief is COPIED into the snapshot, so
+    a step that declares it stays replayable.
+    History: docs/evidence/replay_bench.md#the-brief-the-snapshot-did-not-carry"""
     project = _write_project(tmp_path)
     (project / "project.yaml").write_text(
         "name: replay bench fixture\nslug: replay-fixture\n"

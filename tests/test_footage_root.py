@@ -21,7 +21,6 @@ from __future__ import annotations
 import pytest
 
 from library.tools.footage_identity import (
-    SUPPORTED_VIDEO_EXTENSIONS,
     enumerate_footage,
     footage_root,
 )
@@ -43,19 +42,17 @@ def _media(tmp_path, *names):
     return media
 
 
-def test_the_default_root_is_still_raw(tmp_path):
+def test_the_root_is_raw_unless_declared(tmp_path):
     project = _project(tmp_path)
     assert footage_root(str(project)) == str(project / "raw")
-
-
-def test_a_declared_root_is_used(tmp_path):
     media = _media(tmp_path, "LC4930.MXF")
-    project = _project(tmp_path, f"name: T\nslug: t\nsource:\n"
-                                 f"  footage_root: {media}\n")
+    (project / "project.yaml").write_text(
+        f"name: T\nslug: t\nsource:\n  footage_root: {media}\n")
     assert footage_root(str(project)) == str(media)
 
 
 def test_footage_under_a_declared_root_is_enumerated_and_numbered(tmp_path):
+    """Including .MXF in capitals - cameras write .MXF, not .mxf."""
     media = _media(tmp_path, "LCATL0011.MXF", "LC4930.MXF")
     project = _project(tmp_path, f"name: T\nslug: t\nsource:\n"
                                  f"  footage_root: {media}\n")
@@ -67,35 +64,20 @@ def test_footage_under_a_declared_root_is_enumerated_and_numbered(tmp_path):
 
 # ── The refusals ─────────────────────────────────────────────────────
 
-def test_a_relative_root_is_refused(tmp_path):
-    project = _project(tmp_path, "name: T\nslug: t\nsource:\n"
-                                 "  footage_root: ../media\n")
-    with pytest.raises(FileNotFoundError) as excinfo:
-        footage_root(str(project))
-    assert "relative" in str(excinfo.value)
-
-
-def test_a_root_that_does_not_exist_is_refused_not_defaulted(tmp_path):
+def test_a_bad_declared_root_is_refused_never_defaulted(tmp_path):
     """Falling back to raw would turn a typo into 'no footage'."""
     project = _project(tmp_path, "name: T\nslug: t\nsource:\n"
-                                 "  footage_root: /nowhere/at/all\n")
+                                 "  footage_root: ../media\n")
+    with pytest.raises(FileNotFoundError, match="relative"):
+        footage_root(str(project))
+
+    (project / "project.yaml").write_text(
+        "name: T\nslug: t\nsource:\n  footage_root: /nowhere/at/all\n")
     with pytest.raises(FileNotFoundError) as excinfo:
         footage_root(str(project))
     message = str(excinfo.value)
     assert "/nowhere/at/all" in message
     assert "raw" in message, "the refusal must say what it declined to do"
-
-
-# ── MXF, which is what the field test is shot on ─────────────────────
-
-
-def test_an_uppercase_extension_is_still_footage(tmp_path):
-    """Cameras write .MXF, not .mxf."""
-    media = _media(tmp_path, "LC4930.MXF")
-    project = _project(tmp_path, f"name: T\nslug: t\nsource:\n"
-                                 f"  footage_root: {media}\n")
-    files, _ = enumerate_footage(str(project))
-    assert len(files) == 1
 
 
 # ── The frame rate a project declares ────────────────────────────────

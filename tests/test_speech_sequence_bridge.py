@@ -112,39 +112,23 @@ def _payload(project: Path) -> dict:
 
 # ── The transcript table ──────────────────────────────────────────────
 
-def test_the_transcript_is_read_off_the_per_clip_index_files(tmp_path):
+def test_the_transcript_table_is_read_off_the_index_files_ordered_and_flat(
+        tmp_path):
+    """Off the per-clip index FILES (the routed value is hollow); columns
+    `clip_id,start,end,text` in that order (alphabetising put `end` before
+    `start`); rows sorted by clip then start (`os.listdir` order is the
+    filesystem's); and a newline in a region does not break its row."""
     proc = run_bridge(_payload(_project(tmp_path)))
     assert proc.returncode == 0, proc.stdout + proc.stderr
-    _, rows = parse_table(json.loads(proc.stdout)["transcripts_toon"])
-    assert len(rows) == 3
-    assert {r["clip_id"] for r in rows} == {"clip_001", "clip_002"}
-
-
-def test_the_columns_are_clip_start_end_text_in_that_order(tmp_path):
-    """Alphabetising these put `end` before `start` in two prompts."""
-    proc = run_bridge(_payload(_project(tmp_path)))
-    fields, _ = parse_table(json.loads(proc.stdout)["transcripts_toon"])
+    table = json.loads(proc.stdout)["transcripts_toon"]
+    fields, rows = parse_table(table)
     assert fields == ["clip_id", "start", "end", "text"]
-
-
-def test_rows_are_sorted_by_clip_then_start(tmp_path):
-    """`os.listdir` order is the filesystem's, so it may not be trusted."""
-    proc = run_bridge(_payload(_project(tmp_path)))
-    _, rows = parse_table(json.loads(proc.stdout)["transcripts_toon"])
     assert [(r["clip_id"], r["start"]) for r in rows] == [
         ("clip_001", "1.00"), ("clip_001", "12.00"), ("clip_002", "0.50"),
     ]
-
-
-def test_a_newline_in_a_region_does_not_break_the_row(tmp_path):
-    """A row IS a line, so the cell may not contain one."""
-    proc = run_bridge(_payload(_project(tmp_path)))
-    table = json.loads(proc.stdout)["transcripts_toon"]
-    _, rows = parse_table(table)
-    by_start = {r["start"]: r for r in rows}
-    assert by_start["1.00"]["text"] == "first thing I said"
+    assert rows[0]["text"] == "first thing I said"
     # One header line plus one line per region, and no more.
-    assert len([l for l in table.splitlines() if l.strip()]) == 4
+    assert len([line for line in table.splitlines() if line.strip()]) == 4
 
 
 def test_the_index_dir_is_found_without_a_recorded_index_dir(tmp_path):
@@ -158,7 +142,11 @@ def test_the_index_dir_is_found_without_a_recorded_index_dir(tmp_path):
 
 # ── The topics table ──────────────────────────────────────────────────
 
-def test_topics_come_from_the_assessment_keywords(tmp_path):
+def test_the_bridge_emits_only_its_two_context_tables(tmp_path):
+    """Topics come from the assessment keywords, and the output is CONTEXT
+    ONLY: a `speech_sequence` built from every region was the raw
+    transcript wearing the output's name, and `--auto` took it as the
+    step's answer."""
     proc = run_bridge(_payload(_project(tmp_path)))
     _, rows = parse_table(json.loads(proc.stdout)["topics_toon"])
     assert {r["clip_id"]: r["topics"] for r in rows} == {
@@ -166,17 +154,6 @@ def test_topics_come_from_the_assessment_keywords(tmp_path):
         "clip_002": "street",
     }
 
-
-# ── What the bridge must NOT do ───────────────────────────────────────
-
-def test_the_bridge_emits_context_only(tmp_path):
-    """It used to emit a `speech_sequence` built from every region.
-
-    That is the raw transcript wearing the output's name, and with
-    `--auto` the runner takes the pre-bridge output as the step's answer -
-    so the edit became "play the whole transcript".
-    """
-    proc = run_bridge(_payload(_project(tmp_path)))
     assert set(json.loads(proc.stdout)) == {"transcripts_toon", "topics_toon"}
 
 

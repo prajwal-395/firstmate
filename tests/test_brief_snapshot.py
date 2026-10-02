@@ -1,27 +1,14 @@
-"""The creative brief has a versioned home now (AGENTS.md 3, 10.1).
+"""The creative brief has a versioned home (AGENTS.md 3, 10.1).
 
-The hole, executable: a `project.yaml`-declared brief path may sit
-outside the project folder, where the generated allow-list cannot name
-it.  Before this change, nothing versioned recorded WHAT the build
-read - only WHERE `project.yaml` said it was.  `read_snapshot`
-returning None on such a project IS that hole; returning the verbatim
-bytes after `record_brief_for_run` is the fix.  Both halves are pinned
-below, so the test fails on the old shape (no snapshot written, lookup
-answers nothing) and passes on the new one.
-
-The snapshot lands under `pipeline_output/provenance/`, which the
-allow-list already versions - so the coverage assertion derives its
-paths from `brief_snapshot.snapshot_relpaths()` (the PR 1051 pattern:
-inputs from the writing module, never from the allow-list) and fails
-naming the store if a future narrowing drops it.
+A brief declared outside the project is snapshotted verbatim under
+`pipeline_output/provenance/`, so "what brief did this build read" has a
+versioned answer (`read_snapshot`); a run that reads none clears it.
 """
 
 import hashlib
 import json
-import subprocess
 
 from library.tools import brief_snapshot
-from library.tools.versions import store as bvc
 
 BRIEF_TEXT = """# Channel brief
 
@@ -35,14 +22,6 @@ Warm highlights, honest shadows.
 """
 
 
-def _git(project, *args):
-    proc = subprocess.run(
-        ["git", *args], cwd=str(project), capture_output=True, text=True,
-        encoding="utf-8", timeout=60, check=False)
-    assert proc.returncode == 0, proc.stderr
-    return proc.stdout
-
-
 def _outside_brief(tmp_path, text=BRIEF_TEXT):
     """A brief that lives OUTSIDE the project, like the captain's own."""
     planning = tmp_path / "planning-tree"
@@ -50,23 +29,6 @@ def _outside_brief(tmp_path, text=BRIEF_TEXT):
     src = planning / "creative_brief.md"
     src.write_text(text, encoding="utf-8")
     return src
-
-
-def test_no_snapshot_means_no_versioned_answer(tmp_path):
-    """The hole, pinned: an outside brief with no snapshot explains nothing.
-
-    `read_snapshot` is the versioned answer to "what brief did this
-    build read".  On the old shape - the brief declared, read by the
-    steps, snapshotted nowhere - it answers None.  This assertion held
-    before the fix and still holds for a project the fixed runner never
-    ran; it is the "fails on the old shape" half beside
-    `test_snapshot_records_what_the_build_read` below.
-    """
-    bare = tmp_path / "bare-project"
-    bare.mkdir()
-
-    assert brief_snapshot.read_snapshot(str(bare)) is None
-    assert list(bare.glob("pipeline_output/provenance/*")) == []
 
 
 def test_snapshot_records_what_the_build_read(tmp_path):
@@ -113,10 +75,6 @@ def test_relative_declaration_resolves_against_the_project(tmp_path):
     assert found["content"] == BRIEF_TEXT
 
 
-
-
-
-
 def test_edited_brief_supersedes_and_stays_distinct(tmp_path):
     """A later edit to the outside file lands as a new snapshot version."""
     src = _outside_brief(tmp_path)
@@ -154,7 +112,3 @@ def test_no_brief_clears_a_stale_snapshot(tmp_path):
     md_rel, json_rel = brief_snapshot.snapshot_relpaths()
     assert not (project / md_rel).exists()
     assert not (project / json_rel).exists()
-
-
-
-

@@ -101,26 +101,14 @@ def test_failing_qa_triggers_retry(mock_template_loader, mock_validate,
     assert "QA Feedback from previous attempt" in seen[1]["context"]
     assert "Missing required key" in seen[1]["context"]
 
-
-@patch("library.tools.model_task.validate_declared_output")
-@patch("library.tools.template_loader.TemplateLoader")
-def test_retry_budget_respected(mock_template_loader, mock_validate,
-                                mock_manifest, tmp_path):
-    mock_template_loader.return_value.get_brand_constraints.return_value = ""
-
-    # Always fail
-    project = tmp_path / "project"
-    project.mkdir()
-    req = (project / "pipeline_output" / "llm_requests" / "test_node.json")
-    res = (project / "pipeline_output" / "llm_responses" / "test_node.json")
-    seen = []
-    stop_answerer = _answerer(
-        req, res, [{"result": "fail"}] * 5, seen)
+    # The retry budget is respected: always failing, it stops after the
+    # initial attempt plus two retries and returns the best attempt.
+    for stale in (req, res):
+        stale.unlink(missing_ok=True)
+    seen.clear()
+    mock_validate.reset_mock()
     mock_validate.side_effect = RuntimeError("Always fails")
-
-    prompt_file = tmp_path / "prompt.txt"
-    prompt_file.write_text("Test prompt")
-
+    stop_answerer = _answerer(req, res, [{"result": "fail"}] * 5, seen)
     with patch("library.tools.model_task._agent_sleep",
                side_effect=lambda seconds: time.sleep(0.01)):
         try:
@@ -131,9 +119,6 @@ def test_retry_budget_respected(mock_template_loader, mock_validate,
                 llm_timeout=30)
         finally:
             stop_answerer()
-
-    # Returns best attempt (the last parsed output)
     assert result == {"result": "fail"}
-    # Max retries is 2, so 3 attempts total (initial + 2 retries)
     assert len(seen) == 3
     assert mock_validate.call_count == 3

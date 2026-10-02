@@ -1,33 +1,10 @@
-"""Two gates in `creative_cohesion`, one that could not fire and one
-that measured the wrong quantity.
+"""The cohesion review's gates can fire, measure the timeline, and judge nothing.
 
-**The engagement check could not fire.** It tested
-`isinstance(hook["engagement"], (int, float))`, and `speech_sequence`
-wrote `engagement` as a DICT - `{hook, flow, value, composite,
-rationale}`. So `hook_eng` was permanently 0 and `eng_values` permanently
-`[]` on every real project. A gate that cannot fail reads as coverage;
-this one now compares composites where they exist.
-
-The scorer that produced those composites is itself withdrawn (#236): it
-gave nine of project 001's eleven passages an identical 49, and the
-composite it fed went the same way on the captain's ruling of 2026-09-02
-- only the rank ordering was ever consumed. What writes a judgement now
-is step 2.02's own model, asked in the handoff to place the passages it
-selected in ONE ordering, and the gate compares nothing else: two
-orderings the model itself wrote, the order the passages PLAY in against
-the order it RANKED them in. Where a sequence carries no judgement at all
-the gate still STATES that it has no basis; see
-tests/test_passage_engagement.py.
-
-**The duration check measured the wrong quantity.** It used
-`body_sequence[-1]["end_time"]`, a SOURCE timestamp - where the last
-passage ends inside its own clip - as the timeline length. For project
-001 it reported "actual duration (40.1s) is below the minimum target zone
-(54.0s)" about a 54.77 s timeline that `review_rough_cut` had already
-measured as inside the zone, one step earlier, from the spine. Both now
-call `library/tools/timeline_duration.measure_timeline_duration`.
+The duration gate measures the spine against the project's own declaration;
+the engagement gate compares the play order with the model's own ranking;
+the pacing thresholds and the score are gone (AGENTS.md 10.5). History:
+docs/evidence/creative_cohesion.md.
 """
-import json
 import sys
 from pathlib import Path
 
@@ -43,9 +20,6 @@ from library.steps.step_5_03_creative_cohesion.step import (
 from library.tools.timeline_duration import (
     measure_timeline_duration,
 )
-
-
-STEP_DIR = REPO / "library" / "steps" / "step_5_03_creative_cohesion"
 
 
 def _engagement(rank):
@@ -89,9 +63,6 @@ class TestMeasureTimelineDuration:
             ]}) == pytest.approx(54.77)
 
 
-
-
-
 def _inputs(**kw):
     base = {
         "creative_direction": {"target_energy": "moderate"},
@@ -126,17 +97,15 @@ def test_with_no_declared_target_the_gate_says_so_rather_than_firing():
     assert not any("target zone" in w for w in review["warnings"])
 
 
-def test_the_001_timeline_is_inside_the_zone():
-    """The concrete false warning: 40.1s reported about a 54.77s cut."""
+def test_the_duration_gate_passes_001_and_still_fires_on_a_short_cut():
+    """The concrete false warning (40.1s reported about a 54.77s cut) is
+    gone, and the gate must still be able to fire."""
     review = review_creative_cohesion(_inputs())
     assert review["timeline_duration_seconds"] == pytest.approx(54.77)
     assert not any("Duration warning" in w for w in review["warnings"]), (
         f"a timeline inside the 54-66s zone was flagged: "
         f"{review['warnings']}")
 
-
-def test_a_genuinely_short_timeline_is_still_flagged():
-    """The gate must still be able to fire."""
     short = {"structure": [{"block_type": "speech", "position": 0,
                             "timeline_start": 0.0, "timeline_end": 30.0}]}
     review = review_creative_cohesion(_inputs(audio_spine=short))
@@ -145,22 +114,9 @@ def test_a_genuinely_short_timeline_is_still_flagged():
     assert "30.0s" in " ".join(review["warnings"])
 
 
-
-
-def test_the_step_declares_the_inputs_it_now_measures():
-    """Without the declaration the runner injects nothing and the gate is
-    back to measuring whatever it can reach."""
-    manifest = json.loads(
-        (STEP_DIR / "manifest.json").read_text(encoding="utf-8"))
-    names = {i["name"] for i in manifest["interface"]["inputs"]}
-    assert {"audio_spine", "a_roll_assignments"} <= names
-
-
-
-
 # ── The engagement gate can fire ──────────────────────────────────────
 
-def test_a_buried_peak_is_detected():
+def test_a_buried_peak_is_detected_and_an_opening_peak_is_not():
     """The gate's whole purpose: the strongest passage is not the opener.
 
     It reads TWO ORDERINGS and nothing else - where the passage sits in
@@ -200,9 +156,6 @@ def test_a_buried_peak_is_detected():
     # invented about an ordering it never computed.
     assert "suggested_value" not in ordering[0]
 
-
-def test_an_edit_that_opens_on_its_strongest_passage_is_not_flagged():
-    """It must not fire on a correct edit either."""
     speech = {"body_sequence": [
         _passage("clip_016", 48.065, rank=1),
         _passage("clip_007", 20.0, rank=3),
@@ -212,4 +165,92 @@ def test_an_edit_that_opens_on_its_strongest_passage_is_not_flagged():
     assert not any("ranked strongest" in w for w in review["warnings"])
 
 
+# ── The review reports counts and judges none of them ────────────────
 
+# The timeline the duration gate measures. It used to read
+# `body_sequence[-1]["end_time"]` - a SOURCE timestamp - so these fixtures
+# expressed the length as a speech passage ending at 60s. The spine is the
+# timeline; see library/tools/timeline_duration.py.
+SPINE_60S_HOOKED = {
+    "structure": [
+        {"block_type": "hook", "position": 0,
+         "timeline_start": 0.0, "timeline_end": 3.0},
+        {"block_type": "speech", "position": 1,
+         "timeline_start": 3.0, "timeline_end": 60.0},
+    ]
+}
+
+
+def test_counts_are_reported_and_nothing_is_judged():
+    """The four thresholds are gone; the counts are what is reported.
+
+    This used to assert "High energy but found slow transition (1000.0ms)"
+    and an adjustment rewriting `duration_frames` to 10.  Both the 500 ms
+    line and the 10 frames were numbers this step picked, and
+    `duration_frames` is the ONE field `compile_manifest` rewrites, so the
+    picked number reached the picture.
+    """
+    inputs = {
+        "creative_direction": {"target_energy": "high"},
+        "transition_spec": [
+            {"transition_type": "defocus", "duration_frames": 30}
+        ],
+        "sfx_spec": [],  # sparse
+        "project_config": {"target_duration_seconds": 60},
+        "speech_sequence": {"body_sequence": [{"start_time": 0, "end_time": 60}]},
+        "audio_spine": SPINE_60S_HOOKED,
+    }
+
+    review = review_creative_cohesion(inputs)
+
+    assert not any("High energy" in w for w in review["warnings"])
+    assert review["adjustments"] == []
+    assert review["observations"] == []
+
+    assert review["measurements"] == {
+        "declared_target_energy": "high",
+        "transitions_planned": 1,
+        "transitions_drawn": 1,
+        "sfx_events": 0,
+        "sfx_per_minute": 0.0,
+    }
+
+    transitions = [dict(t) for t in TRANSITIONS_001]
+    review = review_creative_cohesion({
+        "creative_direction": {"target_energy": "high"},
+        "transition_spec": transitions,
+        "sfx_spec": [],
+        "project_config": {"target_duration_seconds": 60},
+        "audio_spine": SPINE_60S_HOOKED,
+    })
+
+    assert review["adjustments"] == []
+    assert review["measurements"]["transitions_planned"] == 15
+    assert review["measurements"]["transitions_drawn"] == 2
+    assert [t["duration_frames"] for t in transitions
+            if t["transition_id"] in ("trans_008", "trans_013")] == [15, 15]
+
+
+# Project 001's REAL `transition_spec`, as step 4.02 emitted it on the
+# 2026-08-26 run: fifteen entries, eleven `hard_cut` and two `jump_cut` at
+# zero frames, and two `defocus` at 15 frames - 500 ms exactly, which is
+# the high-energy trigger. The rows are the real ones, keys and all, so
+# this covers the one actionable finding against the shape the planner
+# really produces rather than against `{"type": "cross_dissolve"}`, which
+# is a withdrawn type under a key alias and is what the removed test used.
+#
+# 001 itself declares `target_energy: "building"`, which reads as
+# `moderate` (AGENTS.md 10.1), so the check is inert on 001 as it stands.
+# The energy is the ONE value this fixture supplies.
+TRANSITIONS_001 = (
+    [{"transition_id": f"trans_{i:03d}", "transition_type": "hard_cut",
+      "duration_frames": 0, "cut_point_timeline": 2.398 + i} for i in range(1, 8)]
+    + [{"transition_id": "trans_008", "transition_type": "defocus",
+        "duration_frames": 15, "cut_point_timeline": 34.394}]
+    + [{"transition_id": f"trans_{i:03d}", "transition_type": "hard_cut",
+        "duration_frames": 0, "cut_point_timeline": 2.398 + i} for i in range(9, 13)]
+    + [{"transition_id": "trans_013", "transition_type": "defocus",
+        "duration_frames": 15, "cut_point_timeline": 46.147}]
+    + [{"transition_id": f"trans_{i:03d}", "transition_type": "jump_cut",
+        "duration_frames": 0, "cut_point_timeline": 2.398 + i} for i in (14, 15)]
+)

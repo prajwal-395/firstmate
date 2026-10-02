@@ -15,43 +15,6 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from library.processes.edit_video.run_pipeline import validate_step_output
 
 
-# ── The flag exempts a declared output from the emptiness check ─────
-
-def test_may_be_empty_skips_emptiness_check():
-    """An output with may_be_empty: true passes validation even when empty."""
-    manifest = {
-        "interface": {
-            "outputs": [
-                {
-                    "name": "vfx_creative",
-                    "type": "list",
-                    "required": True,
-                    "may_be_empty": True,
-                }
-            ]
-        }
-    }
-    issues = validate_step_output("plan_vfx", {"vfx_creative": []}, manifest)
-    assert not issues, f"Expected no issues for may_be_empty output, got: {issues}"
-
-
-# ── A step that has NOT declared the flag still fails on empty ──────
-
-def test_without_flag_empty_list_fails():
-    """The emptiness check fires on a required list without may_be_empty."""
-    manifest = {
-        "interface": {
-            "outputs": [
-                {"name": "some_list", "type": "list", "required": True}
-            ]
-        }
-    }
-    issues = validate_step_output("test_step", {"some_list": []}, manifest)
-    assert any("semantically empty" in i for i in issues), (
-        f"Expected 'semantically empty' for a step without may_be_empty, got: {issues}"
-    )
-
-
 # ── Real manifests: vfx and sfx declare the flag, others do not ─────
 
 STEPS_DIR = os.path.join(

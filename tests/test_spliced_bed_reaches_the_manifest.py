@@ -153,11 +153,7 @@ def test_the_manifest_carries_a_multi_track_spliced_bed(manifest):
     # Disjoint sections of ONE track, in one bed: 12s and 180s of one.wav.
     assert clips[0]["source_file"] == clips[2]["source_file"]
     assert clips[0]["source_in"] != clips[2]["source_in"]
-
-
-def test_every_declared_crossfade_is_a_real_overlap(manifest):
-    built, _, _ = manifest
-    clips = built["tracks"]["A2"]["clips"]
+    # Every declared crossfade is a real overlap.
     for outgoing, incoming in zip(clips, clips[1:]):
         assert incoming["crossfade_in_seconds"] > 0
         assert outgoing["timeline_out"] > incoming["timeline_in"], (

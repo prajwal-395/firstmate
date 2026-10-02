@@ -36,36 +36,55 @@ def _config(**source_kwargs) -> ProjectConfig:
                          source=SourceConfig(**source_kwargs))
 
 
-# ── language ─────────────────────────────────────────────────────
+# ── validation and round trip ────────────────────────────────────
 
-def test_language_defaults_to_english():
+def test_defaults_and_known_shapes_validate():
     assert SourceConfig().language == "en"
+    assert SourceConfig().speakers is None
+    for shape in ("speech", "music", "both", "picture-led", ""):
+        assert _config(shape=shape).validate() == [], shape
     assert _config().validate() == []
 
 
-def test_declared_language_is_normalised():
+MALFORMED = [
+    ("language", "e", "source.language"),
+    ("language", "english!", "source.language"),
+    ("language", "", "source.language"),
+    ("language", 5, "source.language"),
+    ("language", ["en"], "source.language"),
+    ("shape", "podcast", "source.shape"),
+    ("speakers", "Craig", "source.speakers must be a list"),
+    ("speakers", [{"title": "host"}], "names no speaker"),
+    ("speakers", [{"name": "  "}], "names no speaker"),
+    ("speakers", [{"name": "Craig", "role": 5}], "must be a string"),
+    ("speakers", [{"name": "Craig", "agent": "x"}], "which nothing reads"),
+]
+
+
+def test_malformed_source_declarations_are_refused_by_name():
+    for field, bad, fragment in MALFORMED:
+        errors = _config(**{field: bad}).validate()
+        assert any(f"source.{field}" in e and fragment in e
+                   for e in errors), (field, bad, errors)
+
+
+def test_declared_source_round_trips():
+    """Non-default values round-trip; the default language is not
+    written (`language: en` everywhere would read as a decision nobody
+    made); a declared language is normalised."""
     assert _dict_to_project_config(
         {"source": {"language": "ES"}}).source.language == "es"
-
-
-@pytest.mark.parametrize("bad", ["e", "english!", "", 5, ["en"]])
-def test_malformed_language_is_refused_by_name(bad):
-    errors = _config(language=bad).validate()
-    assert any("source.language" in e for e in errors), errors
-
-
-def test_language_round_trips_when_non_default():
-    config = _config(language="es")
-    assert (project_config_to_dict(config)["source"]["language"]
-            == "es")
-    assert (_dict_to_project_config(
-        project_config_to_dict(config)).source.language == "es")
-
-
-def test_default_language_is_not_written():
-    """`language: en` in every project.yaml would read as a decision
-    nobody made, and behaves identically to absent."""
     assert "language" not in project_config_to_dict(_config())["source"]
+    roster = [{"name": "Craig", "role": "host"}, {"name": "Akshita"}]
+    config = _config(language="es", shape="both", speakers=roster)
+    assert config.validate() == []
+    as_dict = project_config_to_dict(config)
+    assert as_dict["source"]["language"] == "es"
+    assert as_dict["source"]["shape"] == "both"
+    assert as_dict["source"]["speakers"] == roster
+    reread = _dict_to_project_config(as_dict).source
+    assert (reread.language, reread.shape, reread.speakers) == (
+        "es", "both", roster)
 
 
 def test_declared_language_reads_off_the_project_folder(tmp_path):
@@ -78,31 +97,7 @@ def test_declared_language_reads_off_the_project_folder(tmp_path):
     assert fi.declared_language(str(project)) == "en"
 
 
-# ── shape ────────────────────────────────────────────────────────
-
-@pytest.mark.parametrize("shape", ["speech", "music", "both",
-                                   "picture-led", ""])
-def test_known_shapes_validate(shape):
-    assert _config(shape=shape).validate() == []
-
-
-def test_unknown_shape_is_refused_by_name():
-    errors = _config(shape="podcast").validate()
-    assert any("source.shape" in e for e in errors), errors
-
-
-def test_shape_round_trips():
-    config = _config(shape="both")
-    assert (project_config_to_dict(config)["source"]["shape"]
-            == "both")
-
-
 # ── speakers ─────────────────────────────────────────────────────
-
-def test_speakers_default_to_undeclared():
-    assert SourceConfig().speakers is None
-    assert _config().validate() == []
-
 
 def test_declared_zero_and_undeclared_stay_distinct():
     """The load-bearing distinction: `[]` is a music/montage project,
@@ -116,31 +111,11 @@ def test_declared_zero_and_undeclared_stay_distinct():
             project_config_to_dict(missing)["source"])
 
 
-def test_speaker_names_and_roles_round_trip():
-    roster = [{"name": "Craig", "role": "host"}, {"name": "Akshita"}]
-    config = _config(speakers=roster)
-    assert config.validate() == []
-    assert (project_config_to_dict(config)["source"]["speakers"]
-            == roster)
-
-
-@pytest.mark.parametrize("bad, fragment", [
-    ("Craig", "source.speakers must be a list"),
-    ([{"title": "host"}], "names no speaker"),
-    ([{"name": "  "}], "names no speaker"),
-    ([{"name": "Craig", "role": 5}], "must be a string"),
-    ([{"name": "Craig", "agent": "x"}], "which nothing reads"),
-])
-def test_malformed_speakers_are_refused_by_name(bad, fragment):
-    errors = _config(speakers=bad).validate()
-    assert any("source.speakers" in e and fragment in e
-               for e in errors), errors
-
-
 def test_declared_speakers_read_off_the_project_folder(tmp_path):
     project = tmp_path / "p"
     project.mkdir()
     assert fi.declared_speakers(str(project)) is None
+    assert fi.expected_speaker_count(str(project)) is None
     (project / "project.yaml").write_text("source:\n  speakers: []\n")
     assert fi.declared_speakers(str(project)) == []
     (project / "project.yaml").write_text(
@@ -149,16 +124,9 @@ def test_declared_speakers_read_off_the_project_folder(tmp_path):
     assert fi.declared_speakers(str(project)) == [
         {"name": "Craig", "role": "host"}]
     assert fi.expected_speaker_count(str(project)) == 1
-
-
-def test_expected_count_defaults_to_none_when_undeclared(tmp_path):
-    project = tmp_path / "p"
-    project.mkdir()
-    assert fi.expected_speaker_count(str(project)) is None
     assert fi.expected_speaker_count(declaration=None) is None
     assert fi.expected_speaker_count(declaration=[]) == 0
-    assert fi.expected_speaker_count(
-        declaration=[{"name": "Jo"}]) == 1
+    assert fi.expected_speaker_count(declaration=[{"name": "Jo"}]) == 1
 
 
 # ── scaffolding ──────────────────────────────────────────────────
@@ -170,7 +138,7 @@ def test_new_scaffolds_what_intake_collects(tmp_path):
     from library.tools.brand_registry import resolve_project_template
     from library.tools.video_prefs import load_video_preferences
 
-    config = create_project(
+    create_project(
         "intake", name="Intake", root=tmp_path, language="es",
         shape="both", speakers=[{"name": "Craig", "role": "host"}],
         brief_title="The test brief", brand_series="intake-series")
@@ -202,6 +170,17 @@ def test_new_with_no_answers_scaffolds_undecided(tmp_path):
     brief = (tmp_path / "blank" / "brief.md").read_text(
         encoding="utf-8")
     assert "Undecided" in brief
+
+    # The scaffold is the layout (it drifted from the steps once): the
+    # containers, README-LAYOUT.md and raw/ only on the input side, and
+    # no step directory pre-created.
+    root = tmp_path / "blank"
+    assert (root / "pipeline_output" / "steps").is_dir()
+    assert (root / "README-LAYOUT.md").is_file()
+    assert (root / "raw").is_dir()
+    for absent in ("music", "assets", "brand_assets", "compositions"):
+        assert not (root / absent).exists(), absent
+    assert not list((root / "pipeline_output" / "steps").iterdir())
 
 
 def test_new_refuses_a_malformed_declaration_before_touching_disk(

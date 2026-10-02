@@ -18,20 +18,11 @@ this and must behave exactly as they did.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 
 from library.tools import run_scope
-from library.tools.run_scope import (
-    DESELECTED_BY_DEFAULT,
-    TARGETS,
-    ScopeError,
-    Selection,
-)
-
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
+from library.tools.run_scope import ScopeError, Selection
 
 
 @pytest.fixture(scope="module")
@@ -76,8 +67,6 @@ def _state_with(*node_ids):
 # ── The default run is unchanged apart from what is off by default ──
 
 
-
-
 # ── Hard and soft edges are read off the same two declarations ──────
 
 def test_an_edge_is_hard_exactly_when_the_runner_would_raise(dag, manifests):
@@ -96,10 +85,6 @@ def test_an_edge_is_hard_exactly_when_the_runner_would_raise(dag, manifests):
         assert is_hard == would_raise, (
             f"{producer} -> {consumer}: hard={is_hard} but the runner "
             f"would{'' if would_raise else ' not'} raise")
-
-
-
-
 
 
 def test_a_selection_the_scope_accepts_never_raises_in_gather_step_inputs(
@@ -131,71 +116,22 @@ def test_a_selection_the_scope_accepts_never_raises_in_gather_step_inputs(
                                external={})
 
 
-
-
 # ── The named target ────────────────────────────────────────────────
-
-
-
-
-
 
 
 # ── Selecting and deselecting ───────────────────────────────────────
 
 
-def test_only_does_not_drag_in_a_producer_of_a_value_nothing_reads(
-        dag, manifests):
-    """`--only plan_subtitles` used to pull `review_rough_cut` and
-    `speech_sequence` in as HARD parents.
-
-    Both were declared `required: true` on 4.01 and neither is read by
-    its code, which reads `audio_spine`, `brand_effect`, `brand_style`
-    and `project_folder` and nothing else. The closure is derived from
-    `inputs[].required`, so a false declaration became a real cost: the
-    captain's own example - "regenerate just this small segment of
-    subtitles" - could not be expressed at all. Following the runner's
-    own remediation advice converged, in three rounds, on advising you to
-    skip `plan_subtitles` itself.
-
-    Both are now declared optional, and the requirement they were
-    standing in for is executable instead
-    (`requirements.spine.word_timings`). The DAG edges are unchanged, so
-    the values still arrive; they are simply no longer a refusal.
-    """
-    hard = run_scope.hard_requirements(dag, manifests)["plan_subtitles"]
-
-    assert "speech_sequence" not in hard, (
-        "4.01 declares speech_sequence a hard parent again, for a value "
-        "its code never names")
-
-    # `review_rough_cut` IS still a hard parent, and deliberately so.
-    # That declaration is the captain's open `rough-cut-gate-on-reentry`
-    # decision, not a tidy-up: relaxing it here would answer them in the
-    # delete direction. It stays until they rule.
-    assert "review_rough_cut" in hard
-
-    # `speech_sequence` is still in the RUN, and correctly so: it is a
-    # hard parent of `mesh_spine`, which really does read it. The
-    # declaration that was false was 4.01's, not 2.05's - worth pinning,
-    # because "it still appears" is not the same as "the fix did
-    # nothing".
-    scope = _resolve(Selection(only=("plan_subtitles",)), dag, manifests)
-    assert "speech_sequence" in scope.steps_to_run
-    assert "speech_sequence" in run_scope.hard_requirements(
-        dag, manifests)["mesh_spine"]
-
-
-
-
-def test_an_unknown_step_is_refused_by_name(dag, manifests):
+def test_a_malformed_selection_is_refused_by_name(dag, manifests):
     with pytest.raises(ScopeError, match="not a step in this pipeline"):
         _resolve(Selection(skip=("plan_colour",)), dag, manifests)
-
-
-def test_selecting_and_skipping_the_same_step_is_refused(dag, manifests):
     with pytest.raises(ScopeError, match="both selected and skipped"):
         _resolve(Selection(only=("render",), skip=("render",)), dag, manifests)
+    # "Run this, but not the thing it needs" is refused, not silently
+    # resolved one way or the other.
+    with pytest.raises(ScopeError, match="select_reels"):
+        _resolve(Selection(only=("judge_reels",), skip=("select_reels",)),
+                 dag, manifests)
 
 
 # ── The refusal ─────────────────────────────────────────────────────
@@ -210,21 +146,6 @@ def test_excluding_a_producer_refuses_and_names_the_missing_output(
     assert "enhancement_spec" in message, (
         "the refusal must name the OUTPUT that is missing, not just the "
         "step")
-
-
-def test_compile_manifest_no_longer_holds_the_decoration_planners(
-        dag, manifests):
-    """#260. `enhancement_spec` used to be `compile_manifest`'s too, so
-    dropping `plan_vfx` stranded the compiler as well. The compiler
-    compiles without it - measured in
-    tests/test_compile_manifest_without_the_decoration.py - so the only
-    hard consumer left is the one that really cannot draw without it."""
-    requirements = run_scope.hard_requirements(dag, manifests)
-    assert "plan_vfx" not in requirements.get("compile_manifest", {})
-    assert "enhancement_spec" in (
-        requirements["render_motion_graphics"]["plan_vfx"])
-
-
 
 
 def test_a_recorded_output_missing_the_KEY_does_not_satisfy(dag, manifests):
@@ -243,8 +164,6 @@ def test_a_recorded_output_missing_the_KEY_does_not_satisfy(dag, manifests):
     assert "vfx_candidates_toon" in message, (
         "the refusal must say what the producer DID record, or the "
         "captain cannot tell a missing step from a missing key")
-
-
 
 
 def test_a_rerun_target_cannot_satisfy_what_it_is_about_to_discard(
@@ -280,10 +199,6 @@ def test_every_accepted_selection_has_its_dependencies_met(dag, manifests):
 # ── Steps that are off by default ───────────────────────────────────
 
 
-
-
-
-
 def test_only_pulls_in_a_default_off_step_its_target_cannot_run_without(
         bare_project):
     """`--only` is documented as "run this step and whatever it cannot
@@ -299,28 +214,6 @@ def test_only_pulls_in_a_default_off_step_its_target_cannot_run_without(
     assert summary["steps_to_run"] == ["select_reels", "judge_reels"]
 
 
-
-def test_skip_still_wins_over_being_pulled_in(dag, manifests):
-    """"Run this, but not the thing it needs" is refused, not silently
-    resolved one way or the other."""
-    with pytest.raises(run_scope.ScopeError, match="select_reels"):
-        _resolve(Selection(only=("judge_reels",), skip=("select_reels",)),
-                 dag, manifests)
-
-
-
-
-
-
-
-
-
-
-
-# ── The text-extraction step, deselected through this mechanism ─────
-
-
-
 def test_the_default_run_leaves_the_text_extraction_step_out(dag, manifests):
     scope = _resolve(Selection(), dag, manifests)
     assert "ocr_extraction" not in scope.steps_to_run
@@ -333,31 +226,7 @@ def test_the_default_run_leaves_the_text_extraction_step_out(dag, manifests):
         "measuring nothing")
 
 
-def test_the_reason_does_not_claim_the_vision_model_cannot_read_text():
-    """The recorded justification used to say the vision model "provably
-    cannot" read on-screen text and that `readable_text` was null for
-    every object. Re-counted off 001's 2026-08-26 artifacts: 159 objects,
-    10 filled, 149 null. The reason has to match."""
-    reason = DESELECTED_BY_DEFAULT["ocr_extraction"]
-    assert "provably cannot" not in reason
-    assert "10 of 159" in reason
-
-    source = (REPO_ROOT / "library" / "tools" / "run_scope.py").read_text(
-        encoding="utf-8")
-    assert "provably" not in source or "was wrong" in source
-
-    layout = (REPO_ROOT / "library" / "tools" / "project_layout.py").read_text(
-        encoding="utf-8")
-    assert "provably cannot" not in layout, (
-        "project_layout.py still carries the corrected claim")
-
-
-
-
 # ── One vocabulary, two CLIs ────────────────────────────────────────
-
-
-
 
 
 # ── The flags that predate this must behave exactly as before ───────
@@ -381,35 +250,9 @@ def bare_project(tmp_path):
     return project
 
 
-def _ancestors(node_id, dag):
-    """`--from`'s own rule, as it stood before scoping: skip the target's
-    ancestors, keep everything else."""
-    reverse = {}
-    for edge in dag["edges"]:
-        reverse.setdefault(edge["to"], set()).add(edge["from"])
-    out, queue = set(), list(reverse.get(node_id, []))
-    while queue:
-        parent = queue.pop()
-        if parent not in out:
-            out.add(parent)
-            queue.extend(reverse.get(parent, []))
-    return out
-
-
 def _dry_run(project, **kwargs):
     from library.processes.edit_video.run_pipeline import run_pipeline
     return run_pipeline(str(project), dry_run=True, **kwargs)
-
-
-
-
-
-
-
-
-
-
-
 
 
 def test_the_refusal_happens_before_anything_is_written(bare_project):

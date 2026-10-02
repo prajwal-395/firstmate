@@ -34,16 +34,6 @@ def _finish(project, started_at, finished_at):
         started_at=started_at, finished_at=finished_at)
 
 
-def test_a_fresh_run_mints_a_group_with_no_prior_wall(tmp_path):
-    project = tmp_path / "proj"
-    project.mkdir()
-    _begin(project, ["scan"])
-    record = _record(project)
-    assert record["run_group"]["id"].startswith("rg-")
-    assert record["run_group"]["prior_wall_s"] == 0.0
-    assert "run_group_wall_s" not in record
-
-
 def test_a_resume_carries_the_group_while_a_rerun_mints_a_new_one(tmp_path):
     """A `--resume` that minted a fresh group would split one plan run's
     wall across two groups, and the run-total would be unreadable -

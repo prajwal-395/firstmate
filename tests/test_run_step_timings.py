@@ -28,8 +28,6 @@ def _record(project):
     return run_control.read_run_status(str(project))
 
 
-
-
 def test_completed_run_carries_a_duration_for_each_step_that_ran(tmp_path):
     project = tmp_path / "proj"
     project.mkdir()
@@ -46,18 +44,10 @@ def test_completed_run_carries_a_duration_for_each_step_that_ran(tmp_path):
     # The reused step says so, and carries no invented duration.
     assert record["step_timings"]["temporal_index"] == {"reused": True}
 
-
-
-
-
-
-def test_rerun_overwrites_the_step_previous_entry(tmp_path):
-    project = tmp_path / "proj"
-    project.mkdir()
-    _begin(project, ["scan"])
-    run_control.record_step_timing(str(project), "scan", reused=True)
-    run_control.record_step_timing(str(project), "scan", duration_s=5.0)
-    assert _record(project)["step_timings"]["scan"] == {
+    # A rerun overwrites the step's previous entry.
+    run_control.record_step_timing(str(project), "temporal_index",
+                                   duration_s=5.0)
+    assert _record(project)["step_timings"]["temporal_index"] == {
         "duration_s": 5.0, "reused": False}
 
 

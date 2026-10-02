@@ -1,34 +1,9 @@
 """A project declares a creative task the pipeline invokes, instead of adding a step.
 
-Raised by the captain 2026-09-04 on seeing select_reels land as step 3.4:
-a reel picker is project-shaped work - a single-video edit has no reels -
-and step-hood was firstmate's over-correction of the real complaint, which
-was that the judgement circumvented the pipeline (no model was ever
-reached). Step-hood is currently what forces an actual invocation with a
-recorded prompt, and what makes the three guards reach it - craft_role's
-role plumbing, creative_floors' declaration check, and
-direction_contradiction's coverage. A brief that nothing invokes is a
-document, and a document a worker reads and then acts on in-turn is
-exactly the failure diagnosed in findings section 15.
-
-So a project may declare a named creative task carrying a role and a
-handoff in `pipeline.creative_tasks`, and the pipeline invokes it through
-the SAME forcing function steps go through - `present_llm_step` itself,
-not a second mechanism. The three guards reconcile against the declared
-task rather than a step id:
-
-* the role is PREPENDED to the handoff by the shared renderer;
-* the runtime floors gate reads the task's prompt (and a task whose role or
-  handoff demands a count is refused at declaration);
-* a task that takes the direction with declared evidence gets the
-  contradiction field; every invoked task gets the undetermined field.
-
-Acceptance, stated up front in the record: a project-declared creative
-task must reach a model with its role attached, and the floors gate must
-read its prompt.
-
-Everything here builds its project under tmp_path. No test reaches a
-real project.
+Acceptance: a project-declared creative task reaches a model through
+`present_llm_step` with its role prepended, the floors gate reads its
+prompt, and a declaration that would break a guard is refused. History:
+docs/evidence/creative_tasks.md. Every project is built under tmp_path.
 """
 import json
 import sys
@@ -160,31 +135,22 @@ def test_a_declared_task_reaches_a_model_with_its_role_attached(
 
 # ── The declaration is refused when it would break a guard ─────────────
 
-def test_a_task_whose_handoff_demands_a_count_is_refused(tmp_path):
-    project = _write_project(
-        tmp_path, [_task_entry()],
-        handoff_text="# Pick reels\n\nYou must plan at least 3 reels.\n")
-    with pytest.raises(creative_tasks.CreativeTaskError, match="floor"):
-        creative_tasks.tasks_for_project(str(project))
-
-
-def test_a_task_shadowing_a_step_id_is_refused(tmp_path):
-    project = _write_project(tmp_path, [_task_entry(name="select_broll")])
-    with pytest.raises(creative_tasks.CreativeTaskError, match="step"):
-        creative_tasks.tasks_for_project(str(project))
-
-
-def test_a_task_with_nothing_to_ask_is_refused(tmp_path):
-    project = _write_project(tmp_path, [_task_entry(outputs=[])])
-    with pytest.raises(creative_tasks.CreativeTaskError, match="nothing to ask"):
-        creative_tasks.tasks_for_project(str(project))
-
-
-def test_a_task_naming_a_missing_handoff_is_refused(tmp_path):
-    project = _write_project(
-        tmp_path, [_task_entry(handoff="not_there.md")])
-    with pytest.raises(creative_tasks.CreativeTaskError, match="handoff"):
-        creative_tasks.tasks_for_project(str(project))
+def test_a_declaration_that_would_break_a_guard_is_refused_by_name(tmp_path):
+    """A handoff demanding a count (floor), a name shadowing a step id, a
+    task with nothing to ask, and a missing handoff each refuse."""
+    rows = [
+        ("floor", dict(handoff_text=(
+            "# Pick reels\n\nYou must plan at least 3 reels.\n")), {}),
+        ("step", {}, dict(name="select_broll")),
+        ("nothing to ask", {}, dict(outputs=[])),
+        ("handoff", {}, dict(handoff="not_there.md")),
+    ]
+    for i, (match, project_kw, entry_kw) in enumerate(rows):
+        case = tmp_path / f"case{i}"
+        case.mkdir()
+        project = _write_project(case, [_task_entry(**entry_kw)], **project_kw)
+        with pytest.raises(creative_tasks.CreativeTaskError, match=match):
+            creative_tasks.tasks_for_project(str(project))
 
 
 # ── The third guard reconciles against the declaration ─────────────────
@@ -207,9 +173,3 @@ def test_a_task_with_direction_and_evidence_gets_the_flag_field(
     schema_names = [o["name"] for o in json.loads(request["expected_schema"])]
     from library.tools.direction_contradiction import FIELD
     assert FIELD in schema_names
-
-
-# ── The bench mirrors the task's prompt contributions ──────────────────
-
-
-# ── The declaration round-trips through the project config ─────────────

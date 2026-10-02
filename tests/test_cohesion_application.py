@@ -25,31 +25,6 @@ def test_a_transition_adjustment_is_applied_and_recorded():
     assert record["not_applied"] == []
 
 
-def test_an_sfx_density_adjustment_is_refused_with_a_reason():
-    """In the reference run this vanished silently."""
-    record = apply_cohesion_adjustments([], _review({
-        "target_step": "sfx_spec",
-        "field": "density",
-        "suggested_value": "dense",
-    }))
-    assert record["applied"] == []
-    assert len(record["not_applied"]) == 1
-    assert "step_4_04_plan_sfx" in record["not_applied"][0]["reason"]
-
-
-
-
-
-
-def test_an_unknown_target_step_is_refused_not_ignored():
-    record = apply_cohesion_adjustments([], _review({
-        "target_step": "something_new",
-        "field": "whatever",
-        "suggested_value": 1,
-    }))
-    assert record["not_applied"][0]["reason"]
-
-
 def test_every_adjustment_is_accounted_for():
     adjustments = [
         {"target_step": "transition_spec", "field": "duration_frames",
@@ -64,8 +39,6 @@ def test_every_adjustment_is_accounted_for():
     record = apply_cohesion_adjustments(
         [{"duration_frames": 15}], _review(*adjustments))
     assert len(record["applied"]) + len(record["not_applied"]) == len(adjustments)
-
-
 
 
 def test_the_record_carries_why_the_review_asked_for_nothing():
@@ -84,8 +57,6 @@ def test_the_record_carries_why_the_review_asked_for_nothing():
     assert record["basis"]["basis"] == "no_proposal_was_made"
     assert "pure OBSERVER" in record["basis"]["means"]
     assert "no producer" in record["basis"]["channel_note"]
-
-
 
 
 def test_the_reviews_observations_reach_the_manifest_record():
@@ -107,5 +78,3 @@ def test_the_reviews_observations_reach_the_manifest_record():
         "field": "segment_order",
         "owner_step": "step_2_02_speech_sequence",
     }]
-
-

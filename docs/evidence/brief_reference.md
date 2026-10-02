@@ -124,3 +124,43 @@ A path that cannot be read or is empty RAISES. **A run that attaches none INTERV
 - **`HARNESS_READS_FILES` is a complete enumeration and an unknown harness raises.** `agent` and `mock` reach a file; `api` does not, so under `api` the document is carried whole - a route the model cannot follow is a loss, not a saving. `present_llm_step` does that restore.
 - `tests/test_brief_reference.py` FOLLOWS the reference rather than asserting its shape: it parses the path and the range out of the string the model reads and requires that what comes back was not in the prompt.
 ```
+
+## The brief that never reached a prompt
+
+Moved from the module docstring of `tests/test_creative_brief_reaches_prompt.py`.
+
+Seven handoffs carried a paragraph telling the LLM to "read it in full
+before making any creative decisions", and for the whole life of the
+project not one step ever received one. It was broken in three
+independent places at once - the loader gated on a manifest declaration
+nobody had written, the key was in no whitelist so it could not reach
+`inputs` anyway, and the process manifest had no entry to fall back on -
+so writing `creative_brief:` into a `project.yaml` did nothing at all,
+silently. See docs/RUN_001_END_TO_END.md section 5.
+
+That is why those tests assert the CONTENT of the file lands in the text
+handed to the model. A test that the key exists, or that the path is
+carried, would have passed throughout the entire period the feature did
+not work: the old code left the *path string* in `inputs["creative_brief"]`
+whenever the file could not be read, so a step could "have a brief" that
+was a filename. Since the brief travels as a REFERENCE, "the content lands"
+is asserted by FOLLOWING the reference (`reference_path`) and requiring that
+what it opens is the declared brief.
+
+`mesh_spine` was the eighth consumer the two audits kept finding (round 2
+F7, round 3 B9/R9): it sets every gap length and every `music_behavior`
+and was the only planning step with no brief. Its manifest declared the
+input while its `handoff.md` was frozen; the freeze lifted 2026-09-09 and
+the prompt now names the brief too.
+
+## Why the brief travels as a reference (test module history)
+
+Moved from the module docstring of `tests/test_brief_reference.py`.
+`#256` wired the captain's 47,903-byte channel brief into seven prompts
+and it became 37.0%-84.3% of each of them - 46.9% of every byte the
+pipeline's replayable steps send, with 41.9% of the document in sections
+no LLM planning step can act on. The load-bearing property of the
+replacement is REACHABILITY: a step that can no longer find the brief is a
+regression, not a saving, so those tests FOLLOW the map (path and line
+range parsed out of the reference, the printed command actually run)
+rather than asserting its shape.

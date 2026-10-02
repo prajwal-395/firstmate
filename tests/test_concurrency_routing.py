@@ -5,16 +5,9 @@ it wrong twice today"*. So the table has to answer the dispatch
 question on its own, and these are the answers a supervisor reads.
 """
 
-import pytest
 
-from library.tools import concurrency_routing as routing
 from library.tools.concurrency_routing import (
-    CLASSES,
-    DECLARATION,
     FREE,
-    OPERATIONS,
-    RESOLVE_CURSOR,
-    RESOLVE_READ,
     may_run_together,
     route,
 )
@@ -27,21 +20,13 @@ RECORD = "library.tools.captain_edits.record_edit"
 ANALYSE = "library.steps.step_1_03_semantic_analysis"
 
 
-
-
-
-
-
-
 # ── The rule itself ─────────────────────────────────────────────────
 
-def test_two_cursor_operations_never_run_together():
+def test_a_cursor_operation_runs_beside_no_other_cursor_operation_or_read():
+    """Either order. A read's handle survives a promotion only by luck:
+    the promotion deletes timelines."""
     assert not may_run_together(PROMOTE, RENDER_EDIT)
     assert not may_run_together(RENDER_EDIT, PROMOTE)
-
-
-def test_a_read_never_runs_beside_a_cursor_operation():
-    """A handle survives a promotion only by luck: it deletes timelines."""
     assert not may_run_together(PROMOTE, READ)
     assert not may_run_together(READ, PROMOTE)
 
@@ -63,10 +48,6 @@ def test_a_build_runs_beside_reads_and_other_builds():
     assert may_run_together(PROMOTE, BUILD)
 
 
-
-
-
-
 def test_declaration_writes_are_dispatched_together():
     """They contend per KEY, in `declaration_keys`, not per dispatch.
 
@@ -86,16 +67,14 @@ def test_an_unlisted_entry_point_reads_as_free_and_says_why():
 
 # ── The classes mean what the table says they mean ──────────────────
 
-@pytest.mark.parametrize("entry,exclusive,lease", [
-    (BUILD, False, False),
-    (PROMOTE, True, True),
-    (READ, False, True),
-    (RECORD, False, False),
-    (ANALYSE, False, False),
-])
-def test_each_class_costs_what_it_declares(entry, exclusive, lease):
-    op = route(entry)
-    assert op.is_exclusive() is exclusive
-    assert op.takes_lease() is lease
-
-
+def test_each_class_costs_what_it_declares():
+    for entry, exclusive, lease in (
+        (BUILD, False, False),
+        (PROMOTE, True, True),
+        (READ, False, True),
+        (RECORD, False, False),
+        (ANALYSE, False, False),
+    ):
+        op = route(entry)
+        assert op.is_exclusive() is exclusive, entry
+        assert op.takes_lease() is lease, entry

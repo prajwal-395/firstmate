@@ -122,3 +122,24 @@ and points here.
 - **Hybrid**: a `bridge.py` that pre-computes context plus a `handoff.md` prompt for an LLM.
 - **LLM-only**: only a `handoff.md`, generating the output from upstream context.
 ```
+
+## compile_manifest, measured by running it
+
+Moved from the module docstring of `tests/test_compile_manifest_without_the_decoration.py`
+(test-suite halving, 2026-10-02).
+
+Issue #260.  The step declared `transition_spec`, `enhancement_spec`,
+`sfx_spec` and `color_grade_spec` REQUIRED while its own code called
+three of them "optional enhancement specs" and read them with defaults.
+Because `required` is what `run_pipeline.gather_step_inputs` raises on
+and what `run_scope` derives its refusal from, the stricter of the two
+won and the `rough_cut_subtitles` target could not skip four planners
+that cost 446.5s on 001's last run.
+
+`library/tools/input_contract.py` surveys the whole pipeline for who
+REFUSES when an input is absent.  That is enforcement, and enforcement
+is not warrant: `compile_manifest`'s four were enforced perfectly and
+still wrong.  Warrant is established by running the step without the
+input and looking at what comes out, which is what this file does - for
+every declared input of the one step that reads state directly rather
+than taking the runner's word for it.

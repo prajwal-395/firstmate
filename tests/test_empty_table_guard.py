@@ -10,15 +10,8 @@ and a gate that fires on correct output is not coverage (AGENTS.md
 10.4).
 """
 import json
-from pathlib import Path
 
-from library.tools.empty_table_guard import (
-    EmptyTable,
-    find_empty_tables,
-    format_report,
-    report_step_context,
-    scan_archived_requests,
-)
+from library.tools.empty_table_guard import find_empty_tables
 from library.tools.toon_serializer import json_to_toon
 
 
@@ -55,25 +48,6 @@ def test_an_empty_list_input_is_caught_too():
     assert [(t.key, t.form) for t in found] == [("b_roll_assignments", "[]")]
     assert found[0].columns == ()
     assert found[0].named_in_prompt is True
-
-
-# ── What it deliberately does not catch ───────────────────────────────
-
-
-# ── The report ────────────────────────────────────────────────────────
-
-
-# ── The same reader, over an archived run ─────────────────────────────
-
-
-def _write_request(project: Path, step_id: str, prompt: str, context: str):
-    requests = project / "pipeline_output" / "llm_requests"
-    requests.mkdir(parents=True, exist_ok=True)
-    (requests / f"{step_id}.json").write_text(
-        json.dumps({"step_id": step_id, "prompt": prompt,
-                    "context": context}),
-        encoding="utf-8",
-    )
 
 
 # ── The runner really calls it ────────────────────────────────────────

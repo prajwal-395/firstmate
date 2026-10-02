@@ -5,10 +5,6 @@ demonstrated across real processes rather than argued.
 """
 
 import json
-import os
-import subprocess
-import sys
-import textwrap
 from pathlib import Path
 
 import pytest
@@ -19,7 +15,6 @@ from library.tools.declaration_keys import (
     DeclarationKeyError,
     edit_declaration,
     entry_key,
-    merge,
     read_entries,
     write_entries,
 )
@@ -42,10 +37,6 @@ def ending(reel, phrase):
 
 
 # ── The key scheme names what each owner already reasons in ─────────
-
-
-def test_a_reel_ending_is_keyed_by_its_reel():
-    assert entry_key("reel_ending", ending("Reel 03", "x")) == "Reel 03"
 
 
 def test_a_captain_edit_is_keyed_by_the_owners_own_identity():
@@ -178,31 +169,3 @@ def test_record_edit_still_supersedes_the_same_decision(project, monkeypatch):
     stored = json.loads(
         (project / "external" / "captain_edits.json").read_text("utf-8"))
     assert [e["reason"] for e in stored["value"]] == ["second ruling"]
-
-
-# ── Real contention, across processes ───────────────────────────────
-
-_WRITER = textwrap.dedent("""
-    import sys, json
-    sys.path.insert(0, {repo!r})
-    from library.tools.declaration_keys import (
-        read_entries, write_entries, DeclarationConflict)
-    project, reel, words = {project!r}, {reel!r}, {words!r}
-    base, _ = read_entries(project, "reel_ending")
-    entry = {{"reel": reel, "ends_on": {{"anchor_phrase": words}},
-              "tail_element": "none", "reason": "subprocess"}}
-    mine = dict(base); mine[reel] = entry
-    try:
-        write_entries(project, "reel_ending", mine, base)
-        print("WROTE", flush=True)
-    except DeclarationConflict as clash:
-        print("CONFLICT", str(clash).replace(chr(10), " | "), flush=True)
-""")
-
-
-def _write_in_subprocess(project, reel, words):
-    return subprocess.run(
-        [sys.executable, "-c", _WRITER.format(
-            repo=REPO_ROOT, project=str(project), reel=reel, words=words)],
-        capture_output=True, text=True, encoding="utf-8", timeout=60,
-        env=dict(os.environ), check=False)

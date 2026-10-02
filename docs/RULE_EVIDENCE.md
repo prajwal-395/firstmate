@@ -3282,7 +3282,7 @@ same objection applies to the values that were already there, so they went inste
 
 `test_the_actionable_finding_fires_on_001s_real_transition_spec` was deleted with its subject - it
 supplied `target_energy: "high"` as its one non-real value precisely to reach a check that no real
-001 input could. What replaced it is `test_001s_real_transition_spec_is_counted_and_left_alone`,
+001 input could. What replaced it is `tests/test_cohesion_gates_fire.py::test_counts_are_reported_and_nothing_is_judged`,
 against the same fifteen real entries, plus `test_the_step_is_a_pure_observer`, which reads the
 step's own source with the AST and fails if any proposal targets an ACTIONABLE pair again. That
 turns "no producer" from a comment into a checked fact, and makes re-opening #272 a test failure
@@ -3441,7 +3441,7 @@ better shape: the pre-bridge reduces `transition_spec` to a 491-byte `transition
 spine block the cut leads INTO, which is the same identifier `sfx_creative` names, so pairing a
 sound with a transition needs no join and the plan's 8 KB of per-cut rationale prose stays out. This
 branch carried a duplicate edge routing the raw 11,273-byte spec; it is dropped in favour of #294's,
-and `tests/test_sfx_choice_from_the_catalogue.py` holds the result in place from the sound side.
+and `tests/test_pacing_and_sfx_are_not_remembered.py` holds the table's behaviour from the sound side.
 
 The other two the frozen handoff's State Interaction table names are **not** routed, and #294 gives
 the same reasons independently:

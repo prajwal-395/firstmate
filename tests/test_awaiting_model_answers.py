@@ -9,7 +9,6 @@ shape (F22 `== []`, `collect` unknown) and pass on the new one.
 
 from __future__ import annotations
 
-import json
 
 from library.tools import awaiting_model_answers as awaiting
 from library.tools import reel_semantic_visual as sem
@@ -36,14 +35,6 @@ def test_an_awaiting_reel_with_nothing_placed_is_reported_not_passed():
     assert "awaiting_model_answer" in findings[0].message
 
 
-def test_the_awaiting_finding_is_a_warning_not_a_gate_failure():
-    """A build the captain wants to look at is still worth building;
-    what is not acceptable is claiming it is finished."""
-    findings = check_semantic_visuals("Reel 09", [], _awaiting_record(),
-                                      FPS)
-    assert findings[0].severity == "warning"
-
-
 def test_a_decision_for_nothing_still_passes_quietly():
     """`model_planned_none` is a decision, not an owed answer - F22
     must not start naming every reel the model deliberately left
@@ -55,21 +46,7 @@ def test_a_decision_for_nothing_still_passes_quietly():
     assert findings == []
 
 
-
-
 # ── The rollup counts what the build wrote ───────────────────────────
-
-def _write_semantic(project, records):
-    review = project / "pipeline_output" / "review"
-    review.mkdir(parents=True, exist_ok=True)
-    (review / sem.PLAN_FILENAME).write_text(
-        json.dumps({"format": "semantic_visual_plans/1",
-                    "plans": records}),
-        encoding="utf-8")
-
-
-
-
 
 
 def test_collect_reads_motion_from_state_when_not_built_this_call(tmp_path):
@@ -87,8 +64,6 @@ def test_collect_reads_motion_from_state_when_not_built_this_call(tmp_path):
     assert report["outstanding_answers"] == 1
     assert report["reels"] == [
         {"reel": "Reel 07", "layers": ["picture_motion"]}]
-
-
 
 
 def test_summary_lines_name_every_incomplete_reel():

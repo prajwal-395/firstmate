@@ -5,7 +5,6 @@ import unittest
 # collection order.
 from library.tools.neural_engine import (  # noqa: E402
     apply_super_scale,
-    apply_stabilization,
 )
 
 
@@ -55,10 +54,10 @@ class TestNeuralEngine(unittest.TestCase):
         self.assertEqual(clip.media_pool_item.properties["Super Scale"], 2)
         self.assertNotIn("Super Scale", clip.properties)
 
-    def test_apply_super_scale_uses_the_real_property_names(self):
+        # The real property names: "SuperScale Sharpness", not
+        # "Super Scale Sharpness".
         clip = MockClip()
         apply_super_scale(clip, 2, sharpness="Medium", noise_reduction="Medium")
-        # "SuperScale Sharpness", not "Super Scale Sharpness".
         self.assertIn("SuperScale Sharpness", clip.media_pool_item.properties)
         self.assertIn("SuperScale Noise Reduction", clip.media_pool_item.properties)
 

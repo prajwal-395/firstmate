@@ -5,10 +5,7 @@ used to supply the agent.
 `agy` stays working as a deprecated alias: scripts, briefs, saved commands
 and muscle memory all pass it today.
 """
-import io
-import json
 import sys
-from contextlib import redirect_stderr
 from pathlib import Path
 from unittest.mock import patch
 
@@ -18,20 +15,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from library.processes.edit_video.run_pipeline import (
     build_parser,
-    normalize_full_auto,
     present_llm_step,
     LLMError,
 )
-from library.tools.brief_reference import HARNESS_READS_FILES
-from library.tools.window_frames import HARNESS_SHOWS_FRAMES
-
-
-def test_normalize_full_auto_agy_is_a_deprecated_alias(capsys):
-    assert normalize_full_auto("agy") == "agent"
-    err = capsys.readouterr().err
-    assert "deprecated" in err
-    assert "agy" in err
-    assert "agent" in err
 
 
 def test_runner_help_hides_compatibility_spellings_but_still_parses_them():
@@ -45,13 +31,6 @@ def test_runner_help_hides_compatibility_spellings_but_still_parses_them():
     api = parser.parse_args(["--project", "/tmp/project", "--full-auto", "api"])
     assert agy.full_auto == "agy"
     assert api.full_auto == "api"
-
-
-def test_harness_enumerations_name_agent_not_agy():
-    assert HARNESS_READS_FILES["agent"] is True
-    assert HARNESS_SHOWS_FRAMES["agent"] is True
-    assert "agy" not in HARNESS_READS_FILES
-    assert "agy" not in HARNESS_SHOWS_FRAMES
 
 
 def _write_handoff(project_dir: Path) -> str:
@@ -79,3 +58,20 @@ def test_full_auto_agy_alias_still_writes_request(tmp_path, capsys):
     err = capsys.readouterr().err
     assert "deprecated" in err
     assert "agent" in err
+
+
+def test_full_auto_api_is_refused_with_a_fix(tmp_path):
+    """`--full-auto api` is gone: provider API calls are out of scope.
+    Passing the removed backend refuses in the refusal shape - naming
+    the fix - rather than calling anything."""
+    from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
+
+    project_dir = tmp_path / "test_project"
+    project_dir.mkdir()
+    inputs = {"project_folder": str(project_dir), "some_data": 123}
+    manifest = {"interface": {"outputs": [{"name": "test_out"}]}}
+    with pytest.raises(RenRefusal) as refused:
+        present_llm_step(_write_handoff(project_dir), inputs, "test_step",
+                         manifest, full_auto="api")
+    assert refused.value.fix == "re-run with --full-auto agent"
+    assert REFUSAL_EXIT_CODE == 4

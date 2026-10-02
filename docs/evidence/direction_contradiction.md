@@ -157,3 +157,16 @@ One enumeration, `library/tools/direction_contradiction.py`. On 001's 29 Aug run
 - **`Flag` and `Declaration` are constructed POSITIONALLY, so a new field goes LAST.** Added above `entries`, it takes the entries and the real entries land in the field after it - no error, just wrong rows, until something compares them.
 - `tests/test_direction_contradiction.py`, `tests/test_undetermined_declaration.py`.
 ```
+
+## The run that inherited one reading (test module history)
+
+Moved from the module docstring of `tests/test_direction_contradiction.py`.
+On the 29 Aug 2026 run of 001, "emotion" and "energy" appear ZERO times
+in the semantic documents and FOUR times each in the `creative_direction`
+block at station 2 and station 3. Step 2.01 read the footage once and
+every creative step after it inherited that reading whole, with no way to
+say "what I measured disagrees with what I was told". The two properties
+the tests pin are that the flag NEVER reaches the step's output (compliance
+structural rather than promised) and that the FOUR readings stay four: an
+unevidenced disagreement is not a contradiction, an empty answer is not an
+absent one, and none of them is a failure.

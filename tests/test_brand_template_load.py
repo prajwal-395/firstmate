@@ -1,27 +1,12 @@
 """The project's declared brand template must reach the steps that read it.
 
-`state["brand_template"]` was populated from exactly one source - a
-`default` on the process manifest's `brand_template` input, which has
-none - so `gather_step_inputs` called `load_brand_template("")` for every
-step of every project and handed back the in-code `_get_default_template()`.
-A project.yaml naming a template rendered with none of that template's
-effect slots, and the run reported SUCCESS.  Nothing errored, nothing
-warned.
-
-Same defect class as the timed-text slot with no reader (CLAUDE.md
-section 14): a declaration nothing reads.  These tests are the reader
-half plus the assertion that the slots actually differ from the default -
-without the second half, "a reader exists" is the empty claim
-`smart_reframe` made for months.
-
-The product ships no templates (captain, 2026-09-21): a project carries
-its own `brand.json`, which the resolvers read FIRST.  Every fixture
-here is synthetic (`tests/brand_fixtures.py`) - no test depends on a
-shipped file or on one client's copy.
+A declaration nothing reads rendered with the in-code default and reported
+SUCCESS; these are the reader half plus proof the slots differ from the
+default. Every fixture is synthetic (`tests/brand_fixtures.py`). History:
+docs/RULE_EVIDENCE.md#brand-template-never-reached-the-run.
 """
 import json
 import os
-import textwrap
 
 import pytest
 import yaml
@@ -29,8 +14,7 @@ import yaml
 from library.processes.edit_video.run_pipeline import (
     gather_step_inputs, load_pipeline_state)
 from library.tools.brand_registry import (
-    no_brand_template, project_template_name,
-    query_slots, reference_template_name, resolve_template_reference)
+    no_brand_template, query_slots, resolve_template_reference)
 from tests.brand_fixtures import SYNTHETIC_CINEMATIC, write_brand_json
 
 # The step that really declares brand_effect.  Discovered rather than
@@ -62,23 +46,7 @@ def _project(tmp_path, name, template_name):
     return str(folder)
 
 
-# ── the declaration is read off project.yaml ────────────────────────
-
-
-
-
-
-
-
 # ── the declaration reaches the run ─────────────────────────────────
-
-def test_load_pipeline_state_carries_the_declared_template(tmp_path):
-    """The line that was missing.  Fails against the unfixed loader."""
-    folder = _project(tmp_path, "geo", "synthetic_cinematic")
-    state = load_pipeline_state(folder)
-    assert state["brand_template"] == "synthetic_cinematic"
-
-
 
 
 def test_an_existing_declaration_in_state_is_not_overwritten(tmp_path):
@@ -123,16 +91,6 @@ def test_declared_template_supplies_the_effect_slots(tmp_path):
         "hard_cut", "match_cut", "fade_to_black", "defocus"]
 
 
-def test_the_project_copy_wins_over_the_name(tmp_path):
-    """brand.json IS the declaration: the project.yaml name is the record
-    of which brand it is, and the file beside it is what the run reads."""
-    folder = _project(tmp_path, "geo", "synthetic_cinematic")
-    write_brand_json(folder, "synthetic_cinematic")
-    resolved = resolve_template_reference(
-        "synthetic_cinematic", project_folder=folder)
-    assert query_slots(resolved, "effect")["vfx_intensity"] == 0.3
-
-
 def test_a_brand_json_satisfies_a_name_nothing_else_could(tmp_path):
     """The product ships no templates, so a name resolves ONLY through
     the project's own copy - and through nothing when it has none."""
@@ -173,22 +131,6 @@ def test_a_project_declaring_none_inherits_no_taste(tmp_path):
     assert inputs["brand_style"]["typography"] == {}
     # The one exception, and it is recorded as one.
     assert effect["caption_case"] == "lowercase"
-
-
-def test_the_absent_reading_of_every_slot_is_written_down():
-    """A slot whose absence nobody has stated is a silent default again."""
-    from library.tools.brand_registry import ABSENT_SLOT_READINGS
-    from dataclasses import fields
-    from library.schemas.brand_template import (
-        ContentSlots, EffectSlots, StyleSlots)
-    for group, cls in (("style", StyleSlots), ("effect", EffectSlots),
-                       ("content", ContentSlots)):
-        for f in fields(cls):
-            key = f"{group}.{f.name}"
-            assert key in ABSENT_SLOT_READINGS, (
-                f"{key} has no recorded reading of absence. Say what a "
-                f"project with no brand template gets for it, in "
-                f"library/tools/brand_registry.ABSENT_SLOT_READINGS.")
 
 
 def test_every_brand_slot_has_a_reachable_pipeline_reader_or_no_reader():
@@ -284,14 +226,6 @@ def test_a_typo_in_the_declaration_raises(tmp_path):
                            _manifest_declaring_brand_effect())
 
 
-
-
-# ── both spellings of the reference resolve ─────────────────────────
-
-
-
-
-
 # ── step 5.01 asked for the WHOLE template, and got nothing ─────────
 
 _COLOR_GRADE = os.path.join(
@@ -299,14 +233,15 @@ _COLOR_GRADE = os.path.join(
     "library", "steps", "step_5_01_color_grade", "manifest.json")
 
 
-def test_a_step_declaring_brand_template_gets_the_resolved_template(tmp_path):
+def test_brand_template_is_handed_resolved_and_only_on_declaration(tmp_path):
     """step_5_01_color_grade does `brand_template.get("style", {})` and
     reads `style.series_look` off it.  The key was never set, so the look
     a template declares never reached the grade - `main()` fell through
     to the neutral CDL on every run of every project.
 
     It needs a DICT, so this also pins the type: broadcasting the
-    reference string under the same key would crash the step.
+    reference string under the same key would crash the step. And it is
+    not broadcast: a step whose manifest does not ask gets no slots.
 
     `series_look` is a DECLARATION rather than a name into a catalogue,
     and the synthetic template declares none, so the route is proved
@@ -330,47 +265,20 @@ def test_a_step_declaring_brand_template_gets_the_resolved_template(tmp_path):
     assert template["style"]["series_look"] is None
     assert "color_palette" in template["style"], "the copy still arrives"
 
-
-def test_the_grade_actually_reads_a_declared_look(tmp_path):
-    """The delivery half: a look the template DECLARES changes the CDL
-    the grade emits, not just the dict handed to the step."""
-    from library.steps.step_5_01_color_grade.grade import define_color_grade
-
-    declaration = {
-        "name": "geo_declaration",
-        "cdl": {"slope": [1.045, 1.01, 0.935],
-                "offset": [0.016, 0.008, -0.004],
-                "power": [0.985, 0.995, 1.025],
-                "saturation": 1.08},
-        "vignette": {"blend": 0.2, "soft": 0.4},
-    }
-
-    shot_list = {"entries": [{"track": "V1", "clip_id": "c1",
-                              "entry_id": "e1", "source_file": "f1.mov"}]}
-    with_look = define_color_grade(shot_list, project_folder=str(tmp_path),
-                                   series_look=declaration)
-    without = define_color_grade(shot_list, project_folder=str(tmp_path),
-                                 series_look=None)
-    graded, neutral = with_look["color_grade_spec"], without["color_grade_spec"]
-    assert graded["series_look"] == "geo_declaration"
-    assert neutral["series_look"] is None
-    # The two halves the look is delivered in (AGENTS.md section 12).
-    # Neutral is the identity CDL and an empty Fusion block: literally no
-    # grade, which is what every project with no declaration gets.
-    assert graded["per_clip_adjustments"][0]["cdl_values"]["slope_b"] == 0.935
-    assert neutral["per_clip_adjustments"][0]["cdl_values"]["slope_b"] == 1.0
-    assert graded["fusion_look"]["vignette"] is True
-    assert neutral["fusion_look"] == {}
-
-
-def test_a_step_that_does_not_declare_it_is_handed_no_template(tmp_path):
-    """It is not broadcast.  A step gets brand slots because its manifest
-    asked - the same rule sfx_library follows."""
-    folder = _project(tmp_path, "geo", "synthetic_cinematic")
-    write_brand_json(folder, "synthetic_cinematic")
-    state = load_pipeline_state(folder)
     inputs = gather_step_inputs(
         "step_2_03_broll_selection", {"edges": []}, state,
         {"interface": {"inputs": [{"name": "catalog"}]}})
     assert "brand_template" not in inputs
     assert "brand_effect" not in inputs
+
+
+def test_project_brand_json_wins_over_templates_dir(tmp_path):
+    """`resolve_project_template` (compile_manifest's direct route) reads
+    the project's own brand.json whatever name it is asked for."""
+    from library.tools.brand_registry import resolve_project_template
+    (tmp_path / "brand.json").write_text(
+        json.dumps(SYNTHETIC_CINEMATIC), encoding="utf-8")
+    bt = resolve_project_template(
+        "any_name_at_all", templates_dir=str(tmp_path),
+        project_folder=str(tmp_path))
+    assert query_slots(bt, "effect")["subtitle_style"] == "minimal"

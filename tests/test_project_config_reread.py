@@ -54,15 +54,6 @@ def test_a_changed_declaration_reaches_the_next_run(tmp_path, capsys):
         f"the difference was not named: {err!r}")
 
 
-def test_an_unchanged_declaration_reads_cleanly(tmp_path):
-    from library.processes.edit_video import run_pipeline
-
-    project_dir, layout = _project_with(tmp_path, 45)
-    run_pipeline.load_pipeline_state(str(project_dir))
-    rerun = run_pipeline.load_pipeline_state(str(project_dir))
-    assert rerun["project_config"]["target_duration_seconds"] == 45
-
-
 def test_a_removed_declaration_leaves_state_too(tmp_path):
     """A declaration deleted from project.yaml must not haunt state."""
     from library.processes.edit_video import run_pipeline

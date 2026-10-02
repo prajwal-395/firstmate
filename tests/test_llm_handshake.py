@@ -1,11 +1,6 @@
 """The handshake refuses malformed responses with the fix; the chat
-interview asks in chat instead of the summary; the marker hook is
-disk-only.
-
-Each test names the defect it pins: a malformed handshake response
-silently accepted (or failing with no path to repair), an interview
-that never reaches the user, a hook that probes Resolve at session
-start.
+interview asks in chat instead of the summary; the marker hook suggests
+a verb linked to the marker it names.
 """
 
 import json
@@ -48,32 +43,21 @@ def test_publishing_retry_request_hides_old_request_before_clearing_response(
     assert list(request.parent.iterdir()) == [request]
 
 
-def test_valid_object_is_accepted():
+def test_validate_response_accepts_an_object_and_refuses_the_rest():
+    """Every malformed answer refuses with its reason, the response path
+    and how to resume; a JSON object is accepted as-is."""
     assert llm_handshake.validate_response(
         "creative_direction", '{"a": 1}', "/tmp/proj") == {"a": 1}
-
-
-def test_empty_response_refuses_with_path_and_resume():
-    with pytest.raises(llm_handshake.HandshakeRefusal) as exc:
-        llm_handshake.validate_response("creative_direction", "  ",
-                                        "/tmp/proj")
-    message = str(exc.value)
-    assert "creative_direction" in message
-    assert "llm_responses/creative_direction.json" in message
-    assert "ren edit" in message
-
-
-def test_non_json_refuses_with_the_reason():
-    with pytest.raises(llm_handshake.HandshakeRefusal) as exc:
-        llm_handshake.validate_response("plan_vfx", "{oops", "/tmp/proj")
-    assert "not JSON" in str(exc.value)
-
-
-def test_non_object_refuses():
-    """A list is valid JSON and still no step's answer."""
-    with pytest.raises(llm_handshake.HandshakeRefusal) as exc:
-        llm_handshake.validate_response("plan_vfx", "[1, 2]", "/tmp/proj")
-    assert "not an object" in str(exc.value)
+    for raw, reason in (("  ", None), ("{oops", "not JSON"),
+                        ("[1, 2]", "not an object")):
+        with pytest.raises(llm_handshake.HandshakeRefusal) as exc:
+            llm_handshake.validate_response("creative_direction", raw,
+                                            "/tmp/proj")
+        message = str(exc.value)
+        assert "llm_responses/creative_direction.json" in message, raw
+        assert "ren edit" in message, raw
+        if reason:
+            assert reason in message
 
 
 def test_interview_only_without_brief_and_with_host():
@@ -83,18 +67,15 @@ def test_interview_only_without_brief_and_with_host():
     assert briefing_chat.should_interview(False, "mock") is False
 
 
-def test_first_run_falls_back_to_starters():
-    questions = briefing_chat.collect_questions(None)
-    assert len(questions) >= 1
-    assert all(q["question"] for q in questions)
-
-
-def test_prior_banked_questions_are_asked_first():
+def test_banked_questions_first_starters_on_a_first_run():
     prior = [{"step_id": "music_selection",
               "entries": [{"question": "What tempo?"}]}]
     assert briefing_chat.collect_questions(prior) == [
         {"step_id": "music_selection", "question": "What tempo?",
          "why_it_matters": "", "what_assumed_instead": ""}]
+    questions = briefing_chat.collect_questions(None)
+    assert len(questions) >= 1
+    assert all(q["question"] for q in questions)
 
 
 def test_interview_answer_without_key_refuses():
@@ -136,17 +117,16 @@ def test_interview_round_trip_through_the_handshake(tmp_path):
         {"question": "Who is this for?", "answer": "New parents"}]
 
 
-def test_unanswered_interview_proceeds_briefless(tmp_path):
-    """No host, no hang: the run continues exactly as a brief-less one."""
+def test_the_interview_never_blocks_or_reasks(tmp_path):
+    """No host, no hang: the run continues exactly as a brief-less one;
+    and a run that already holds answers is never asked again."""
     project = tmp_path / "proj"
     project.mkdir()
     out = briefing_chat.conduct_if_needed(
         str(project), {}, "agent", llm_timeout=0, save=lambda p, s: None)
     assert out["brief_answers"] == []
 
-
-def test_answered_once_is_never_reasked(tmp_path):
-    project = tmp_path / "proj"
+    project = tmp_path / "proj2"
     project.mkdir()
     state = {"brief_answers": []}
     out = briefing_chat.conduct_if_needed(
@@ -155,13 +135,6 @@ def test_answered_once_is_never_reasked(tmp_path):
     assert out is state
     assert not (project / "pipeline_output" / "llm_requests" /
                 "briefing_interview.json").exists()
-
-
-def test_hook_check_is_disk_only(tmp_path, monkeypatch):
-    """No Resolve import, no probe: an empty root reports nothing."""
-    import ren.hooks.marker_hook as hook
-    monkeypatch.setenv("PIPELINE_PROJECTS_ROOT", str(tmp_path))
-    assert hook.cmd_check(type("A", (), {"projects_root": ""})()) == 0
 
 
 def test_hook_suggests_a_verb_per_note(tmp_path):

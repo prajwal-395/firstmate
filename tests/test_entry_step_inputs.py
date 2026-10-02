@@ -89,19 +89,7 @@ def test_entry_steps_declare_the_process_inputs_their_code_reads():
         )
 
 
-def test_gather_step_inputs_supplies_a_declared_process_input():
-    state = {
-        "project_folder": "/tmp/project",
-        "sfx_library": "/tmp/sfx",
-        "music_library": "/tmp/music",
-        "step_outputs": {},
-    }
-    manifest = {"interface": {"inputs": [{"name": "sfx_library"}]}}
-    inputs = gather_step_inputs("validate_sfx_library", DAG, state, manifest)
-    assert inputs["sfx_library"] == "/tmp/sfx"
-
-
-def test_gather_step_inputs_does_not_broadcast_undeclared_process_inputs():
+def test_gather_step_inputs_supplies_only_the_declared_process_inputs():
     """Declaring is asking. A step that did not ask does not receive."""
     state = {
         "project_folder": "/tmp/project",
@@ -111,4 +99,5 @@ def test_gather_step_inputs_does_not_broadcast_undeclared_process_inputs():
     }
     manifest = {"interface": {"inputs": [{"name": "sfx_library"}]}}
     inputs = gather_step_inputs("validate_sfx_library", DAG, state, manifest)
+    assert inputs["sfx_library"] == "/tmp/sfx"
     assert "music_library" not in inputs

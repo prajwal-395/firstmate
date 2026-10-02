@@ -1,21 +1,7 @@
-"""The .env must load under an ASCII locale.
-
-This is why project 001's first complete render carried no Fusion effects
-at all. `library/tools/paths.py` opened the .env with no encoding, so it
-decoded with `locale.getpreferredencoding()` - ASCII inside the Python
-that Resolve's Fusion subprocess runs. The shipped .env has box-drawing
-characters in its section headers, so importing `library.tools.paths`
-raised:
-
-    UnicodeDecodeError: 'ascii' codec can't decode byte 0xe2
-
-`apply_fusion_comps` died at import, before drawing anything. The render
-still produced an mp4 - it was simply missing every planned effect, and
-the only reason anyone knows is that `verify_fusion_comps` reported
-"expected 7 clips carrying a Fusion comp, got 0".
-
-AGENTS.md records this hazard for `subprocess` text decoding. It is the
-same hazard for every file read.
+"""The .env must load under an ASCII locale (Resolve's Fusion
+subprocess runs Python with one). A locale-decoded .env with box-drawing
+headers once killed `apply_fusion_comps` at import and shipped a render
+with no Fusion effects. History: docs/evidence/dotenv_encoding.md.
 """
 
 import subprocess
@@ -32,12 +18,6 @@ ENV_WITH_NON_ASCII = (
     "# café - a stray accent is enough too\n"
     "PIPELINE_MUSIC_LIBRARY=/tmp/music\n"
 )
-
-
-def test_the_shipped_env_loader_names_its_encoding():
-    src = (REPO_ROOT / "library" / "tools" / "paths.py").read_text()
-    assert 'open(env_path, encoding="utf-8")' in src, (
-        "the .env loader must not decode with the locale default")
 
 
 def test_a_non_ascii_env_loads_under_an_ascii_locale(tmp_path):

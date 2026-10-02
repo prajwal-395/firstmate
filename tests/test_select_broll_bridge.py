@@ -19,7 +19,7 @@ from library.steps.step_3_02_select_broll.post_bridge import (
     find_best_segment,
     resolve_broll,
 )
-from tests.test_vision_schema_adapter import LEGACY_PROFILE, V3_PROFILE
+from tests.test_vision_schema_adapter import V3_PROFILE
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BRIDGE = os.path.join(
@@ -86,7 +86,8 @@ def parse_table(toon: str):
 
 
 def test_v3_documents_produce_a_candidate_table(tmp_path):
-    """This exact input used to exit 1 with "no usable description"."""
+    """This exact input used to exit 1 with "no usable description"; and
+    it is one row per clip - two slots used to mean two copies."""
     proc = run_bridge({
         "clip_catalog": CATALOG,
         "a_roll_assignments": A_ROLL,
@@ -95,18 +96,7 @@ def test_v3_documents_produce_a_candidate_table(tmp_path):
     assert proc.returncode == 0, proc.stdout + proc.stderr
     _, rows = parse_table(json.loads(proc.stdout)["broll_candidates_toon"])
     assert {r["clip_id"] for r in rows} == {"clip_001", "clip_009"}
-
-
-def test_one_row_per_clip_not_one_row_per_slot(tmp_path):
-    """Two slots used to mean two identical copies of the same list."""
-    proc = run_bridge({
-        "clip_catalog": CATALOG,
-        "a_roll_assignments": A_ROLL,
-        "semantic_analysis_documents": [V3_PROFILE, _second_clip_doc()],
-    }, tmp_path)
-    _, rows = parse_table(json.loads(proc.stdout)["broll_candidates_toon"])
     assert len(rows) == len(CATALOG)
-    assert len(rows) == len({r["clip_id"] for r in rows})
 
 
 def test_no_describable_clip_still_fails_the_step(tmp_path):
@@ -129,11 +119,6 @@ V3_BLOCKS = [
     {"label": "kitchen", "visual": "slicing bread", "start": 8.0, "end": 12.0},
 ]
 
-# Retired-schema blocks: an ordered list with no time bounds at all.
-LEGACY_BLOCKS = [
-    {"label": "kitchen", "visual": "pouring coffee"},
-    {"label": "kitchen", "visual": "slicing bread"},
-]
 
 
 def test_scene_segment_is_scored_against_the_block_covering_it():
@@ -190,22 +175,6 @@ def test_broll_audio_is_never_linked():
     assert out["b_roll_assignments"][0]["video_only"] is True
 
 
-def test_a_cutaway_never_claims_more_timeline_than_its_source_can_fill():
-    """clip_001 is 3.567s of footage under a 4.0s block.
-
-    Claiming the whole block would leave V2 showing a frozen or absent
-    frame for the remainder - a hole `_assert_timeline_fully_covered`
-    fails the build on.
-    """
-    out = _resolve([{"clip_id": "clip_001", "spine_block_position": 1}])
-    entry = out["b_roll_assignments"][0]
-    played = round(entry["video_out"] - entry["video_in"], 3)
-    claimed = round(entry["timeline_end"] - entry["timeline_start"], 3)
-    assert claimed <= played + 0.001, (
-        f"claimed {claimed}s of timeline from {played}s of source")
-    assert claimed < 4.0
-
-
 def test_a_short_cutaway_over_speech_is_shortened_and_declared():
     """A-roll plays underneath a speech block, so returning to it early
     is safe - but the plan must SAY so. The shortening used to be
@@ -214,7 +183,11 @@ def test_a_short_cutaway_over_speech_is_shortened_and_declared():
     noticed. `coverage_shortfall_seconds` carries it in the plan."""
     out = _resolve([{"clip_id": "clip_001", "spine_block_position": 1}])
     entry = out["b_roll_assignments"][0]
+    played = round(entry["video_out"] - entry["video_in"], 3)
     claimed = round(entry["timeline_end"] - entry["timeline_start"], 3)
+    # clip_001 is 3.567s of source: claiming more leaves V2 a hole.
+    assert claimed <= played + 0.001, (
+        f"claimed {claimed}s of timeline from {played}s of source")
     assert claimed < 4.0
     assert entry["coverage_shortfall_seconds"] > 0
     assert entry["coverage_shortfall_seconds"] == pytest.approx(

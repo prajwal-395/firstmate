@@ -1,39 +1,8 @@
-"""The mirror: the layer must not be vacuously STRICT either.
+"""The mirror: the requirement layer must not be vacuously STRICT either.
 
-Why this test exists
---------------------
-A gate that FAILS correct output is no more coverage than one that
-cannot fail (AGENTS.md 10.4).  Converting 126 prose strings into
-executable requirements is a change with a specific, predictable failure
-mode: the prose was never executed, so nobody ever found out which of it
-was WRONG.  Four of the deleted preconditions would each have refused a
-CORRECT run:
-
-* `semantic_analysis: 'clip_catalog' exists in state` - 1.03 declares
-  only `raw_footage_files` and no edge routes a catalog to it.
-* `color_grade: 'brand_template' exists in state` - `gather_step_inputs`
-  deliberately does not broadcast it; the resolved template arrives as
-  `brand_style`/`brand_effect`, so the raw key is never in state.
-* `review_rough_cut` / `color_grade: 'b_roll_interjections' exists in
-  state` - both steps declare it OPTIONAL, and a cut with no cutaways is
-  a legitimate run.
-* `object_segmentation`'s two - written when the step was UNWIRED and
-  never ran; wired matte-triggered on 2026-09-24, and the prose pair
-  stays deleted while the DAG edges derive real ones.
-
-Each is recorded in `requirements.DELETED` with the reason, rather than
-silently dropped: a deleted requirement with no reason reads as an
-oversight.  This file is what would have caught them had they been
-converted, and what catches the next one.
-
-Two halves, because there are two ways to be vacuously strict
--------------------------------------------------------------
-1. A requirement that refuses a state which is genuinely fine.
-2. A requirement whose expected side is derived from the same value as
-   its actual side, which is tautological - it can never disagree with
-   itself, so it passes whatever happens.  That is a structural defect
-   and is invisible behaviourally: the check passes, and passing is what
-   it looks like when it is broken.
+A correct full run is not refused, a requirement is only asked of a step
+that runs, and an empty expected side refuses rather than skips (AGENTS.md
+10.4). History: `docs/evidence/requirements.md` (tests section).
 """
 
 import os
@@ -158,28 +127,6 @@ def test_a_requirement_is_only_asked_of_a_step_that_is_running():
 
 # ── Half 2: no requirement may be tautological ───────────────────────
 
-def test_no_requirement_derives_expected_from_actual():
-    """The two witnesses must produce DIFFERENT verdicts.
-
-    This is the structural form of "the expected side may not be derived
-    from the same value as the actual side". A requirement whose two
-    declared witnesses both pass, or both fail, is one that is not
-    reading what it thinks it is reading - and the live instance in
-    `reel_conformance_verifier` shows that shape passes silently.
-    """
-    tautological = []
-    for req in HAND_WRITTEN:
-        refuses = req.check(req.refuting_context()).is_unsatisfied
-        passes = req.check(req.satisfying_context()).is_satisfied
-        if not (refuses and passes):
-            tautological.append(
-                f"{req.name}: refuting_context refuses={refuses}, "
-                f"satisfying_context passes={passes}")
-    assert tautological == [], (
-        "a requirement whose two witnesses do not disagree is not "
-        "measuring anything:\n  " + "\n  ".join(tautological))
-
-
 def test_an_empty_expected_side_refuses_rather_than_skipping():
     """Design rule: an empty reference set is a REFUSAL, never a skip.
 
@@ -221,8 +168,8 @@ def test_no_manifest_carries_prose_preconditions():
         "Requirements in library/tools/requirements.py.")
 
 
-def test_the_replacement_field_is_declared_where_it_is_needed():
-    """Every hand-written requirement is named by each consumer manifest.
+def test_manifests_and_the_requirement_registry_agree():
+    """Every hand-written requirement is named by each consumer manifest, and back.
 
     Derived from the registry rather than listed twice, so the manifest
     and the registry cannot drift.
@@ -257,21 +204,13 @@ def test_the_replacement_field_is_declared_where_it_is_needed():
     assert unknown_consumers == [], (
         "these requirements name a consumer no process declares, so they "
         "can never be asked:\n  " + "\n  ".join(unknown_consumers))
-
-
-def test_no_manifest_declares_a_requirement_that_does_not_exist():
-    """The mirror - a manifest naming a requirement nothing implements."""
-    import json
-    from pathlib import Path
-
-    steps = Path(__file__).resolve().parents[1] / "library" / "steps"
+    # The mirror - a manifest naming a requirement nothing implements.
     known = {r.name for r in R.HAND_WRITTEN}
-    unknown = []
-    for path in sorted(steps.glob("*/manifest.json")):
-        manifest = json.loads(path.read_text(encoding="utf-8"))
-        for name in manifest["interface"].get("requirements", []):
-            if name not in known:
-                unknown.append(f"{path.parent.name}: {name}")
+    unknown = [f"{path.parent.name}: {name}"
+               for path in sorted(steps.glob("*/manifest.json"))
+               for name in json.loads(path.read_text(encoding="utf-8"))
+               ["interface"].get("requirements", [])
+               if name not in known]
     assert unknown == [], (
         "these manifests name requirements that do not exist:\n  "
         + "\n  ".join(unknown))

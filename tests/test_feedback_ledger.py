@@ -16,7 +16,6 @@ import json
 import sys
 from pathlib import Path
 
-import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -63,53 +62,31 @@ def test_the_same_words_at_a_different_frame_are_ONE_note():
     assert entry.last_seen == "2026-09-11T18:00:00Z"
 
 
-def test_a_staging_container_is_the_same_reel():
-    """Staged, backed up and promoted are three names for one reel."""
+def test_only_the_engines_own_reel_suffixes_fold_into_one_reel():
+    """Staged, backed up, promoted and archived (`reel_retirement`'s
+    `(archived round NNN[.M])`) are names for one reel. Hand-made
+    parentheses the project has carried keep their own identity - a
+    regex over any parenthesis would collide two reels. And
+    normalisation never merges different words or different reels: a
+    ledger that answered note B with note A's resolution is worse than
+    one that files the same words twice."""
     from library.tools.resolve_bin_layout import STAGING_TIMELINE_SUFFIX
 
-    assert fl.durable_identity(f"{REEL}{STAGING_TIMELINE_SUFFIX}", ASK) \
-        == fl.durable_identity(REEL, ASK)
-    assert fl.durable_identity(f"{REEL} (pre-rebuild backup)", ASK) \
-        == fl.durable_identity(REEL, ASK)
-
-
-def test_an_archived_generation_is_the_same_reel():
-    """A rebuild retires every reel it touches into
-    `... (archived round NNN[.M])`; those are names for one reel, so
-    the identity folds them - the shape `reel_retirement` builds, read
-    back through its own `parse_archived`."""
-    assert fl.durable_identity(f"{REEL} (archived round 001)", ASK) \
-        == fl.durable_identity(REEL, ASK)
-    assert fl.durable_identity(f"{REEL} (archived round 001.2)", ASK) \
-        == fl.durable_identity(REEL, ASK)
+    same = fl.durable_identity(REEL, ASK)
+    for alias in (f"{REEL}{STAGING_TIMELINE_SUFFIX}",
+                  f"{REEL} (pre-rebuild backup)",
+                  f"{REEL} (archived round 001)",
+                  f"{REEL} (archived round 001.2)"):
+        assert fl.durable_identity(alias, ASK) == same, alias
     assert fl.base_reel_name(f"{REEL} (archived round 001)") == REEL
 
-
-def test_a_hand_made_parens_name_is_its_own_reel():
-    """Copies the project has actually carried - `(batch-1050)`,
-    `(final)`, `(MFA timings)`, `(all three fixes)`,
-    `(baseline scratch)` - carry captain or firstmate intent no
-    pattern can recover. Only the engine's own machine-shaped
-    suffixes strip; a regex over any parenthesis would collide a reel
-    legitimately named with one against a different reel."""
     for suffix in ("(batch-1050)", "(final)", "(MFA timings)",
                    "(all three fixes)", "(baseline scratch)"):
         name = f"{REEL} {suffix}"
         assert fl.base_reel_name(name) == name
-        assert fl.durable_identity(name, ASK) \
-            != fl.durable_identity(REEL, ASK)
+        assert fl.durable_identity(name, ASK) != same
 
-
-def test_different_words_are_different_notes():
-    """Normalisation must not merge two questions into one.
-
-    A ledger that answered note B with note A's resolution is worse
-    than one that files the same words twice.
-    """
-    assert fl.durable_identity(REEL, ASK) != fl.durable_identity(REEL, ASK + "!")
-
-
-def test_the_same_words_on_two_reels_are_two_notes():
+    assert fl.durable_identity(REEL, ASK + "!") != same
     assert fl.durable_identity("Reel 01 - a", ASK) \
         != fl.durable_identity("Reel 23 - b", ASK)
 
@@ -158,8 +135,7 @@ def test_a_note_seen_AFTER_being_recorded_resolved_is_RE_ASKED():
     assert document["entries"][0]["reasked"] is True
     assert len(document["reasked"]) == 1
 
-
-def test_a_note_resolved_AFTER_its_last_pull_is_not_a_re_ask():
+    # Resolved AFTER its last pull: not a re-ask.
     document = fl.build(
         None, [pull(REEL, "2026-09-11T04:00:00Z", note(ASK))],
         resolutions=[resolution(mr.STATUS_RESOLVED_VERIFIED,
@@ -167,13 +143,8 @@ def test_a_note_resolved_AFTER_its_last_pull_is_not_a_re_ask():
     assert document["entries"][0]["reasked"] is False
     assert document["reasked"] == []
 
-
-def test_a_declined_note_seen_again_is_not_a_re_ask():
-    """Only a VERIFIED resolution can be contradicted by a re-ask.
-
-    A decline never claimed the thing was fixed, so the marker still
-    being there is the documented outcome, not a failure.
-    """
+    # Only a VERIFIED resolution can be contradicted: a decline never
+    # claimed the thing was fixed.
     document = fl.build(
         None,
         [pull(REEL, "2026-09-11T04:00:00Z", note(ASK)),
@@ -205,16 +176,8 @@ def test_a_reply_of_ours_is_identified_by_its_own_record():
     assert kinds[identity] == fl.KIND_ASK
     assert fl.KIND_REPLY in kinds.values()
     assert document["open"] == [identity]
-
-
-def test_a_reply_links_back_to_the_question_it_answers():
-    """A blue marker became a green reply and the question was gone."""
-    identity = fl.identity_of(note(ASK), REEL)
-    document = fl.build(
-        None,
-        [pull(REEL, "2026-09-11T04:00:00Z",
-              note(ASK, frame=1902), reply_note(identity))],
-        resolutions=[])
+    # ...and links back to the question it answers (a blue marker
+    # became a green reply and the question was gone).
     asked = next(e for e in document["entries"]
                  if e["identity"] == identity)
     assert len(asked["answered_by"]) == 1
@@ -235,6 +198,15 @@ def test_an_unmarked_note_defaults_to_the_CAPTAINS():
         [pull(REEL, "2026-09-11T04:00:00Z",
               {"name": "feedback", "note": "x",
                "text": "feedback\n\nx", "frame": 5, "color": "Green"})],
+        resolutions=[])
+    assert document["entries"][0]["kind"] == fl.KIND_ASK
+
+    # Only a FIRST line starting with `reply:` is the writer's stamp; a
+    # captain note quoting the word deeper in is still theirs.
+    document = fl.build(
+        None,
+        [pull(REEL, "2026-09-11T04:00:00Z",
+              note("please reply to this note", frame=5))],
         resolutions=[])
     assert document["entries"][0]["kind"] == fl.KIND_ASK
 
@@ -261,20 +233,6 @@ def test_a_green_reply_shape_with_no_record_is_ours():
     assert list(kinds.values()).count(fl.KIND_REPLY) == 1
     assert kinds[fl.identity_of(note(ASK), REEL)] == fl.KIND_ASK
     assert "1 reply of ours" in fl.render(document)
-
-
-def test_a_captain_sentence_mentioning_reply_stays_an_ask():
-    """Only a FIRST line starting with `reply:` is the writer's stamp.
-
-    A captain note quoting the word back deeper in the body is still
-    theirs - the prefix rule must not reach past the first line.
-    """
-    document = fl.build(
-        None,
-        [pull(REEL, "2026-09-11T04:00:00Z",
-              note("please reply to this note", frame=5))],
-        resolutions=[])
-    assert document["entries"][0]["kind"] == fl.KIND_ASK
 
 
 def test_one_instruction_on_four_reels_is_reported_as_ONE(tmp_path):

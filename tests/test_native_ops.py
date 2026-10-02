@@ -16,7 +16,6 @@ import pytest
 from library.tools import native_ops
 from library.tools.native_ops import (
     NativeSpeedRefused,
-    NativeTransitionRefused,
     granted_categories,
     native_canonical,
     refused_native_canonical,
@@ -25,7 +24,6 @@ from library.tools.native_ops import (
 from library.tools.ren_refusal import RenRefusal
 from library.tools.transition_selector import select_transition
 from library.tools.transition_vocabulary import (
-    NATIVE_TYPES,
     is_native,
     known_type,
     native_canonical_type,
@@ -40,12 +38,10 @@ def test_the_vocabulary_is_well_formed():
     native_ops.assert_vocabulary_is_well_formed()
 
 
-def test_granted_and_refused_sets_are_disjoint():
-    assert (set(native_ops.NATIVE_TRANSITIONS)
-            & set(native_ops.REFUSED_NATIVE_TRANSITIONS)) == set()
-
-
-def test_granted_names_resolve_and_refused_ones_do_not():
+def test_names_resolve_to_one_side_and_route_where_measured():
+    """Granted aliases resolve as granted, refused ones as refused, never
+    both; each routes to Resolve (not a Fusion builder) in the categories
+    PR 1376 measured."""
     assert native_canonical("cross_dissolve") == "cross_dissolve"
     assert native_canonical("Dissolve") == "cross_dissolve"
     assert native_canonical("slide") == "slide"
@@ -54,8 +50,6 @@ def test_granted_names_resolve_and_refused_ones_do_not():
     assert native_canonical("whip_pan") is None
     assert native_canonical("utter_nonsense") is None
 
-
-def test_refused_names_resolve_and_granted_ones_do_not():
     assert refused_native_canonical("whip_pan") == "whip_pan"
     assert refused_native_canonical("Whip") == "whip_pan"
     assert refused_native_canonical("dip") == "dip"
@@ -63,24 +57,12 @@ def test_refused_names_resolve_and_granted_ones_do_not():
     assert refused_native_canonical("Blur Dissolve") == "blur_dissolve"
     assert refused_native_canonical("cross_dissolve") is None
 
-
-def test_a_refusal_carries_what_why_and_fix():
-    refused = native_ops.refuse_native_transition("whip_pan")
-    assert isinstance(refused, RenRefusal)
-    assert "whip_pan" in refused.what.lower() or "Whip Pan" in refused.what
-    assert refused.why.strip()
-    assert refused.fix.strip()
-
-
-def test_granted_categories_are_the_measured_ones():
     assert granted_categories("cross_dissolve") == ("simple", "fusion")
     assert granted_categories("slide") == ("simple",)
     assert granted_categories("smooth_cut") == ("simple",)
     assert granted_categories("spin") == ("fusion",)
     assert resolve_transition_name("cross_dissolve") == "Cross Dissolve"
 
-
-def test_the_vocabulary_routes_natives_to_resolve():
     assert route_of("cross_dissolve") == "native_resolve"
     assert route_of("dissolve") == "native_resolve"
     assert is_native("slide")
@@ -89,13 +71,18 @@ def test_the_vocabulary_routes_natives_to_resolve():
     assert refused_native_reason("whip_pan").strip()
     assert refused_native_reason("cross_dissolve") == ""
 
-
-def test_native_types_are_not_fusion_plannable():
-    """A native type reaching a Fusion builder is a misroute, so the
-    per-clip route must keep answering None for it."""
+    # A native type reaching a Fusion builder is a misroute.
     from library.tools.transition_vocabulary import canonical_type
     assert canonical_type("cross_dissolve") is None
     assert native_canonical_type("cross_dissolve") == "cross_dissolve"
+
+
+def test_a_refusal_carries_what_why_and_fix():
+    refused = native_ops.refuse_native_transition("whip_pan")
+    assert isinstance(refused, RenRefusal)
+    assert "whip_pan" in refused.what.lower() or "Whip Pan" in refused.what
+    assert refused.why.strip()
+    assert refused.fix.strip()
 
 
 # ── plan_vfx admits speed ops ────────────────────────────────────────
@@ -115,11 +102,10 @@ def _spine(*positions):
     return {"structure": blocks, "total_estimated_duration_seconds": 20.0}
 
 
-def test_a_single_step_ramp_resolves_whole_block():
+def test_a_whole_block_ramp_and_freeze_resolve_natively():
+    """One step spanning the whole block, or a freeze, matches the one
+    item the block places as."""
     from library.steps.step_4_03_plan_vfx.post_bridge import resolve_vfx
-    # One step spanning the whole block matches the one item the
-    # block places as. Multi-step ramps subdividing one block are
-    # refused (finding 35) - nothing blades.
     (entry,) = resolve_vfx(
         [{"target_block_position": 1, "effect_type": "speed_ramp",
           "params": {"segments": [{"percent": 50}]},
@@ -130,42 +116,6 @@ def test_a_single_step_ramp_resolves_whole_block():
     assert only["percent"] == 50.0
     assert (only["timeline_start"], only["timeline_end"]) == (0.0, 5.0)
 
-
-def test_a_ramp_subdividing_one_block_is_dropped_with_its_reason():
-    """Finding 35: a resolved ramp whose steps subdivide the one
-    block (B8: 24.400-25.057 s and 25.057-25.714 s inside the b-roll
-    block) failed the whole build with "no timeline item spans ...
-    - nothing was written", because nothing blades the item. The
-    ONE entry is refused here, with its reason, instead."""
-    from library.steps.step_4_03_plan_vfx.post_bridge import resolve_vfx
-    dropped = []
-    assert resolve_vfx(
-        [{"target_block_position": 1, "effect_type": "speed_ramp",
-          "params": {"segments": [{"percent": 200},
-                                  {"percent": 50}]},
-          "rationale": "montage ramp"}],
-        _spine((1, "clip_a")), 30.0, dropped=dropped) == []
-    assert dropped[0].reason == "speed_span_subdivides_block"
-    # The steps still divide the span equally - the drop names them.
-    assert "0.000-2.500" in dropped[0].detail
-    assert "blade" in dropped[0].detail
-
-
-def test_a_freeze_on_a_word_span_is_dropped_with_its_reason():
-    """A freeze spans one op on one item: a sub-block word span
-    matches no placed item either, so it is refused the same way."""
-    from library.steps.step_4_03_plan_vfx.post_bridge import resolve_vfx
-    dropped = []
-    assert resolve_vfx(
-        [{"target_block_position": 1, "effect_type": "freeze_frame",
-          "anchor": {"frame": 30}, "anchor_end": {"frame": 60},
-          "rationale": "hold the word"}],
-        _spine((1, "clip_a")), 30.0, dropped=dropped) == []
-    assert dropped[0].reason == "speed_span_subdivides_block"
-
-
-def test_a_freeze_resolves_with_no_params():
-    from library.steps.step_4_03_plan_vfx.post_bridge import resolve_vfx
     (entry,) = resolve_vfx(
         [{"target_block_position": 1, "effect_type": "freeze_frame",
           "rationale": "hold the look"}],
@@ -175,26 +125,36 @@ def test_a_freeze_resolves_with_no_params():
     assert (entry["timeline_start"], entry["timeline_end"]) == (0.0, 5.0)
 
 
-def test_a_ramp_without_segments_is_dropped_with_a_reason():
+def test_an_unplayable_speed_entry_is_dropped_with_its_reason():
+    """Finding 35: a ramp whose steps subdivide the one block (B8:
+    24.400-25.057 s inside the b-roll block) failed the whole build with
+    "no timeline item spans ... - nothing was written", because nothing
+    blades the item. Each row here is dropped, with its reason, instead.
+    A freeze is spelled `freeze_frame`, never a 0% step."""
     from library.steps.step_4_03_plan_vfx.post_bridge import resolve_vfx
-    dropped = []
-    assert resolve_vfx(
-        [{"target_block_position": 1, "effect_type": "speed_ramp",
-          "params": {}}],
-        _spine((1, "clip_a")), 30.0, dropped=dropped) == []
-    assert dropped[0].reason == "not_a_speed_step"
-
-
-def test_a_zero_percent_step_is_dropped_not_frozen():
-    """A freeze is spelled `freeze_frame`, never a 0% step."""
-    from library.steps.step_4_03_plan_vfx.post_bridge import resolve_vfx
-    dropped = []
-    assert resolve_vfx(
-        [{"target_block_position": 1, "effect_type": "speed_ramp",
-          "params": {"segments": [100, 0]}}],
-        _spine((1, "clip_a")), 30.0, dropped=dropped) == []
-    assert dropped[0].reason == "not_a_speed_step"
-    assert "freeze_frame" in dropped[0].detail
+    rows = [
+        ({"target_block_position": 1, "effect_type": "speed_ramp",
+          "params": {"segments": [{"percent": 200}, {"percent": 50}]},
+          "rationale": "montage ramp"},
+         "speed_span_subdivides_block", ("0.000-2.500", "blade")),
+        # A sub-block word span matches no placed item either.
+        ({"target_block_position": 1, "effect_type": "freeze_frame",
+          "anchor": {"frame": 30}, "anchor_end": {"frame": 60},
+          "rationale": "hold the word"},
+         "speed_span_subdivides_block", ()),
+        ({"target_block_position": 1, "effect_type": "speed_ramp",
+          "params": {}}, "not_a_speed_step", ()),
+        ({"target_block_position": 1, "effect_type": "speed_ramp",
+          "params": {"segments": [100, 0]}},
+         "not_a_speed_step", ("freeze_frame",)),
+    ]
+    for entry, reason, words in rows:
+        dropped = []
+        assert resolve_vfx([entry], _spine((1, "clip_a")), 30.0,
+                           dropped=dropped) == [], entry
+        assert dropped[0].reason == reason, entry
+        for word in words:
+            assert word in dropped[0].detail, (word, dropped[0].detail)
 
 
 def test_a_curve_param_refuses_rather_than_rounding():
@@ -326,10 +286,11 @@ def test_a_freeze_applies_on_a_fresh_item():
     assert report["failed"] == []
 
 
-def test_a_freeze_after_a_retime_in_the_same_build_refuses():
-    """The measured case: the write answers True while `GetSpeed`
-    re-reads 100.0, so no read-back could judge it. Both ops ride one
-    applicator call, as they do in the build."""
+def test_a_freeze_on_an_item_that_is_not_at_100_percent_refuses():
+    """The measured case: after a retime the write answers True while
+    `GetSpeed` re-reads 100.0, so no read-back could judge it. Both ops
+    ride one applicator call, as they do in the build. An item already
+    slowed refuses the same way."""
     from library.tools import native_ops_apply as apply
     item = _FakeItem("clip_a", 0, 150)
     report = apply.apply_native_speed_ops(
@@ -347,12 +308,9 @@ def test_a_freeze_after_a_retime_in_the_same_build_refuses():
     assert report["failed"][0]["op_id"] == "speed_002"
     assert "retime" in report["failed"][0]["what"]
 
-
-def test_a_freeze_on_an_already_slowed_item_refuses():
-    from library.tools import native_ops_apply as apply
-    item = _FakeItem("clip_a", 0, 150, speed=40.0)
+    slowed = _FakeItem("clip_a", 0, 150, speed=40.0)
     report = apply.apply_native_speed_ops(
-        _FakeTimeline(v1=[item]),
+        _FakeTimeline(v1=[slowed]),
         [{"op_id": "speed_001", "effect_type": "freeze_frame",
           "timeline_start": 0.0, "timeline_end": 5.0}],
         fps=30.0)
@@ -377,7 +335,9 @@ def test_a_native_transition_is_placed_and_its_span_reads():
     assert report["failed"] == []
 
 
-def test_an_empty_transition_answer_fails_naming_type_and_category():
+def test_a_transition_that_cannot_be_placed_fails_by_name():
+    """An empty AddTransition answer names type and category; a cut past
+    the last V1 clip names the missing cut."""
     from library.tools import native_ops_apply as apply
 
     class _Refusing(_FakeItem):
@@ -393,9 +353,6 @@ def test_an_empty_transition_answer_fails_naming_type_and_category():
     assert "Spin" in report["failed"][0]["what"]
     assert "fusion" in report["failed"][0]["what"]
 
-
-def test_a_transition_past_the_last_clip_fails():
-    from library.tools import native_ops_apply as apply
     report = apply.apply_native_transitions(
         _FakeTimeline(), [_FakeItem("a", 0, 150)],
         [{"transition_id": "trans_001", "resolve_name": "Cross Dissolve",

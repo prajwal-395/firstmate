@@ -19,7 +19,6 @@ import urllib.request
 
 import pytest
 
-from library.tools import gemma_shim
 from library.tools.gemma_shim import GemmaShim, ShimConfig, server_scope
 
 FAKE_BACKEND = textwrap.dedent(
@@ -104,7 +103,8 @@ def _get(url, timeout=10):
 
 
 def test_cold_request_starts_backend_and_is_proxied(ports, fake_backend_script):
-    """A request arriving with no backend running is ANSWERED, not failed."""
+    """A request arriving with no backend running is ANSWERED, not
+    failed - and a health probe before it starts nothing."""
     shim_port, _ = ports
     cfg = ShimConfig(
         shim_host="127.0.0.1",
@@ -120,6 +120,10 @@ def test_cold_request_starts_backend_and_is_proxied(ports, fake_backend_script):
     shim = GemmaShim(cfg)
     shim.start()
     try:
+        # GET /health on a cold shim answers WITHOUT loading the model.
+        status, body = _get(f"http://127.0.0.1:{shim_port}/health")
+        assert status == 200
+        assert body["backend"] == "stopped"
         assert shim.backend_state() == "stopped"
         status, body = _post(
             f"http://127.0.0.1:{shim_port}/v1/chat/completions",
@@ -132,43 +136,9 @@ def test_cold_request_starts_backend_and_is_proxied(ports, fake_backend_script):
         shim.stop()
 
 
-def test_idle_teardown_stops_backend_process(ports, fake_backend_script):
-    """After the idle window with no work, the backend process is GONE."""
-    shim_port, backend_port = ports
-    cfg = ShimConfig(
-        shim_host="127.0.0.1",
-        shim_port=shim_port,
-        backend_host="127.0.0.1",
-        backend_port=backend_port,
-        model="fake-model",
-        idle_timeout_s=1.0,
-        startup_timeout_s=30.0,
-        reap_interval_s=0.2,
-        backend_cmd=[sys.executable, fake_backend_script, str(backend_port)],
-    )
-    shim = GemmaShim(cfg)
-    shim.start()
-    try:
-        _post(
-            f"http://127.0.0.1:{shim_port}/v1/chat/completions",
-            {"hello": "warm"},
-        )
-        proc = shim.backend_proc()
-        assert proc is not None and proc.poll() is None
-        deadline = time.time() + 15
-        while proc.poll() is None and time.time() < deadline:
-            time.sleep(0.2)
-        assert proc.poll() is not None, "backend survived past the idle timeout"
-        # The shim itself still answers on the fixed URL.
-        status, body = _get(f"http://127.0.0.1:{shim_port}/_shim/status")
-        assert status == 200
-        assert body["backend"] == "stopped"
-    finally:
-        shim.stop()
-
-
 def test_in_flight_request_blocks_teardown(ports, fake_backend_script):
-    """Idle means no in-flight work AND no requests for the window."""
+    """Idle means no in-flight work, no held scope, AND no requests for
+    the window - and once idle again, the backend is reaped."""
     shim_port, backend_port = ports
     cfg = ShimConfig(
         shim_host="127.0.0.1",
@@ -213,6 +183,19 @@ def test_in_flight_request_blocks_teardown(ports, fake_backend_script):
         while proc.poll() is None and time.time() < deadline:
             time.sleep(0.2)
         assert proc.poll() is not None
+
+        # A pipeline burst holds the backend across gaps; the scope
+        # releases it.
+        base = f"http://127.0.0.1:{shim_port}"
+        with server_scope(base, timeout=10):
+            _post(f"{base}/v1/chat/completions", {"warm": 1})
+            proc = shim.backend_proc()
+            time.sleep(2.0)  # past idle timeout, but held
+            assert proc.poll() is None, "held backend was reaped"
+        deadline = time.time() + 15
+        while proc.poll() is None and time.time() < deadline:
+            time.sleep(0.2)
+        assert proc.poll() is not None, "released backend was never reaped"
     finally:
         shim.stop()
 
@@ -246,62 +229,6 @@ def test_backend_failure_is_a_clear_503_not_a_hang(ports):
         body = json.loads(excinfo.value.read().decode())
         assert "message" in body.get("error", {})
         assert elapsed < 20, f"failure took too long to surface: {elapsed:.1f}s"
-    finally:
-        shim.stop()
-
-
-def test_hold_blocks_teardown_and_scope_releases(ports, fake_backend_script):
-    """A pipeline burst holds the backend across gaps; scope releases it."""
-    shim_port, backend_port = ports
-    cfg = ShimConfig(
-        shim_host="127.0.0.1",
-        shim_port=shim_port,
-        backend_host="127.0.0.1",
-        backend_port=backend_port,
-        model="fake-model",
-        idle_timeout_s=1.0,
-        startup_timeout_s=30.0,
-        reap_interval_s=0.2,
-        backend_cmd=[sys.executable, fake_backend_script, str(backend_port)],
-    )
-    shim = GemmaShim(cfg)
-    shim.start()
-    try:
-        base = f"http://127.0.0.1:{shim_port}"
-        with server_scope(base, timeout=10):
-            _post(f"{base}/v1/chat/completions", {"warm": 1})
-            proc = shim.backend_proc()
-            time.sleep(2.0)  # past idle timeout, but held
-            assert proc.poll() is None, "held backend was reaped"
-        deadline = time.time() + 15
-        while proc.poll() is None and time.time() < deadline:
-            time.sleep(0.2)
-        assert proc.poll() is not None, "released backend was never reaped"
-    finally:
-        shim.stop()
-
-
-def test_health_reports_idle_without_starting_backend(ports, fake_backend_script):
-    """GET /health on a cold shim answers WITHOUT loading the model."""
-    shim_port, backend_port = ports
-    cfg = ShimConfig(
-        shim_host="127.0.0.1",
-        shim_port=shim_port,
-        backend_host="127.0.0.1",
-        backend_port=backend_port,
-        model="fake-model",
-        idle_timeout_s=3600.0,
-        startup_timeout_s=30.0,
-        reap_interval_s=0.2,
-        backend_cmd=[sys.executable, fake_backend_script, str(backend_port)],
-    )
-    shim = GemmaShim(cfg)
-    shim.start()
-    try:
-        status, body = _get(f"http://127.0.0.1:{shim_port}/health")
-        assert status == 200
-        assert body["backend"] == "stopped"
-        assert shim.backend_state() == "stopped"
     finally:
         shim.stop()
 

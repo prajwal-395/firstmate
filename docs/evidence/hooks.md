@@ -167,3 +167,21 @@ one thing most likely to go wrong here:
   fields these do not match, so the reconciliation cannot be skipped
   silently.
 ```
+
+## The operation conditions against the real result type
+
+Moved from `tests/test_hooks.py::test_the_operation_conditions_match_the_real_result_type`.
+
+The test fired on batch 1 and was right to: `requirement_unsatisfied`
+declared an identity field `requirement` that is not on `OperationResult`,
+and `output_empty` declared `step`/`output`, which are not on it either.
+The FIX was the vocabulary's - no field was added to `OperationResult` and
+nothing is computed in the hook layer. What it checks is the real
+relationship: a one-to-one condition's identity is all result fields; a
+one-to-many condition names the COLLECTION it fires once per, which must be
+a result field, and splits its identity into the part from the result and
+the part from the element. The element's own contract (`.name`,
+`.produced_by`) belongs to `requirements.Requirement`, never to
+`OperationResult`, whose annotation is `Tuple[Any, ...]` and which
+deliberately does not validate it. It is deliberately not a skip: a skip
+conditioned on whether a file exists in this repository is an always-skip.

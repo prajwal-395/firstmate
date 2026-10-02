@@ -96,40 +96,36 @@ def _run_hook(name="record_it", **over):
 
 # ── A run action may only name a script that is already here ────────
 
-def test_a_script_outside_the_allow_list_is_refused(project):
-    with pytest.raises(hooks.HookError) as exc:
-        _declare(project, [_run_hook(
-            action={"kind": "run", "script": "not_a_real_hook.py"})])
-    assert "not_a_real_hook.py" in str(exc.value)
-    assert "record_payload.py" in str(exc.value), "the allow-list is listed"
-
-
-@pytest.mark.parametrize("attempt", [
+SHELL_ATTEMPTS = [
     "../../../bin/sh",
     "record_payload.py; rm -rf /",
     "/bin/sh",
     "record_payload.py && echo pwned",
     "$(whoami).py",
     "scripts/hooks/record_payload.py",
-])
-def test_a_run_action_can_never_be_a_shell_string(project, attempt):
-    """A name that needs sanitising is not a name.
+]
 
-    The MESSAGE is asserted, not just the refusal. The allow-list would
-    reject every one of these too - they are all "not a file in
-    scripts/hooks/" - so asserting only that it raised would pass with
-    this check deleted, which is how a redundant guard stops being
-    observed at all (AGENTS.md 10.4). What this check earns is telling
-    the operator the right thing: that a script is NAMED, and that a
-    declaration never carries a path, an argument or a shell string.
-    """
+
+def test_a_run_action_names_only_an_allow_listed_bare_script(project):
+    """A name outside the allow-list is refused and the allow-list is
+    listed. A path or shell string is refused with its own MESSAGE - the
+    allow-list would reject those too, so asserting only that it raised
+    would pass with that check deleted (AGENTS.md 10.4)."""
     with pytest.raises(hooks.HookError) as exc:
         _declare(project, [_run_hook(
-            action={"kind": "run", "script": attempt})])
-    message = str(exc.value)
-    assert attempt in message
-    assert "is not a bare filename" in message, message
-    assert "never carries a path, an argument or a shell string" in message
+            action={"kind": "run", "script": "not_a_real_hook.py"})])
+    assert "not_a_real_hook.py" in str(exc.value)
+    assert "record_payload.py" in str(exc.value), "the allow-list is listed"
+
+    for attempt in SHELL_ATTEMPTS:
+        with pytest.raises(hooks.HookError) as exc:
+            _declare(project, [_run_hook(
+                action={"kind": "run", "script": attempt})])
+        message = str(exc.value)
+        assert attempt in message
+        assert "is not a bare filename" in message, message
+        assert ("never carries a path, an argument or a shell string"
+                in message)
 
 
 # ── Where a declaration comes from ──────────────────────────────────
@@ -158,39 +154,33 @@ def test_a_run_action_really_runs_and_gets_the_payload_on_stdin(project):
 # ── Firing: the steer action, into the captain's own feed ───────────
 
 def test_a_steer_lands_in_the_review_channel_tagged_as_machine(project):
+    """Same feed as the captain, tagged as machine-originated, and only
+    its own note is sent: sending the whole queue would post the
+    captain's half-written drafts along with it."""
+    review_channel.queue_note(
+        str(project), "my own half-written thought",
+        {"selector": "#something", "tag": "div"})
     declaration = _declare(project, [_steer_hook()])
     fired = hooks.dispatch(str(project), "qa_finding_raised", QA_PAYLOAD,
                            "run-1", declaration)
     assert [f.outcome for f in fired] == [hooks.FIRED], fired
 
     notes = review_channel.list_notes(str(project))
-    assert len(notes) == 1
-    note = notes[0]
+    captain = [n for n in notes
+               if n["origin"] == review_channel.ORIGIN_CAPTAIN]
+    assert [n["status"] for n in captain] == ["queued"], (
+        "the captain's draft was sent")
+    machine = [n for n in notes
+               if n["origin"] == review_channel.ORIGIN_HOOK]
+    assert len(machine) == 1
+    note = machine[0]
+    assert note["status"] == "sent"
     # THE rule: same feed, tagged as machine-originated.
     assert note["origin"] == review_channel.ORIGIN_HOOK
     assert "The QA measured something." in note["text"]
     # It says which hook and which instance, so the captain can tell what
     # produced it without opening a log.
     assert "qa_finding_raised:subtitle_gaps" in note["text"]
-
-
-def test_a_steer_sends_only_its_own_note(project):
-    """Sending the whole queue would post the captain's half-written
-    drafts along with the machine's note."""
-    review_channel.queue_note(
-        str(project), "my own half-written thought",
-        {"selector": "#something", "tag": "div"})
-    declaration = _declare(project, [_steer_hook()])
-    hooks.dispatch(str(project), "qa_finding_raised", QA_PAYLOAD, "run-1",
-                   declaration)
-
-    notes = review_channel.list_notes(str(project))
-    captain = [n for n in notes
-               if n["origin"] == review_channel.ORIGIN_CAPTAIN][0]
-    assert captain["status"] == "queued", "the captain's draft was sent"
-    machine = [n for n in notes
-               if n["origin"] == review_channel.ORIGIN_HOOK][0]
-    assert machine["status"] == "sent"
 
 
 def test_a_steer_with_nowhere_to_pin_reports_rather_than_guessing(project):
@@ -286,12 +276,12 @@ def test_match_narrows_a_hook_to_the_instances_it_wants(project):
                          "run-1", declaration)
     assert [f.outcome for f in hit] == [hooks.FIRED]
 
-
-def test_match_accepts_a_list_meaning_any_of(project):
-    declaration = _declare(
-        project, [_run_hook(match={"metric": ["chroma", "subtitle_gaps"]})])
+    # A list means any of.
+    any_of = _declare(
+        project, [_run_hook(name="any_of",
+                            match={"metric": ["chroma", "subtitle_gaps"]})])
     fired = hooks.dispatch(str(project), "qa_finding_raised", QA_PAYLOAD,
-                           "run-1", declaration)
+                           "run-1", any_of)
     assert [f.outcome for f in fired] == [hooks.FIRED]
 
 
@@ -305,34 +295,9 @@ def test_dispatching_an_unknown_condition_raises(project):
 # ── The seam with increment 4 ───────────────────────────────────────
 
 def test_the_operation_conditions_match_the_real_result_type():
-    """Holds the seam with increment 4 open, and RUNS in both worlds.
-
-    This fired on batch 1 and was right to: `requirement_unsatisfied`
-    declared an identity field `requirement` that is not on
-    `OperationResult`, and `output_empty` declared `step`/`output` which
-    are not on it either. The FIX was the vocabulary's, not theirs - no
-    field was added to `OperationResult` and nothing is computed here.
-
-    What it checks now is the real relationship rather than assuming
-    every identity field is a field on the result:
-
-    * a one-to-one condition's identity is all result fields;
-    * a one-to-many condition names the COLLECTION it fires once per,
-      which must be a result field, and splits its identity into the
-      part from the result and the part from the element.
-
-    The element's own contract (`.name`, `.produced_by`) belongs to
-    increment 3's `Requirement`, NOT to `OperationResult` - whose
-    annotation is `Tuple[Any, ...]` and which deliberately does not
-    validate it, because that would be a second implementation of
-    `requirements.py`'s own invariant. So it is asserted against
-    `requirements.Requirement` where that exists, and never against
-    `OperationResult`.
-
-    Deliberately not a skip: a skip conditioned on whether a file exists
-    in THIS repository is an always-skip, which `tests/skip_audit.py`
-    exists to catch.
-    """
+    """The hook vocabulary's identity fields agree with the real
+    `OperationResult`; a one-to-many condition names the collection it
+    fires once per. History: docs/evidence/hooks.md."""
     try:
         from library.tools import operations
     except ImportError:
@@ -441,24 +406,12 @@ def test_a_refusal_that_does_name_requirements_fires_once_for_each(project):
         "requirement_unsatisfied:subtitles.plan:rough_cut_review",
     ], "each requirement needs its own fingerprint or only the first fires"
 
-
-def test_two_operations_refusing_on_one_requirement_are_different_instances(project):
-    """Why the payload is the PAIR and not the requirement alone.
-
-    A Requirement carries `name` and `produced_by` and does NOT carry
-    operation context. Two operations can refuse on the same
-    requirement, and they are two things to act on.
-    """
-    declaration = _declare(project, [
-        _run_hook(name="on_requirement", when="requirement_unsatisfied")])
-    first = hooks.dispatch(str(project), "requirement_unsatisfied",
-                           {"operation": "subtitles.plan",
+    # The identity is the PAIR: a Requirement carries no operation
+    # context, and two operations refusing on one requirement are two
+    # things to act on.
+    other = hooks.dispatch(str(project), "requirement_unsatisfied",
+                           {"operation": "subtitles.render",
                             "name": "audio_spine"}, "run-1", declaration)
-    second = hooks.dispatch(str(project), "requirement_unsatisfied",
-                            {"operation": "subtitles.render",
-                             "name": "audio_spine"}, "run-1", declaration)
-    assert [f.outcome for f in first] == [hooks.FIRED]
-    assert [f.outcome for f in second] == [hooks.FIRED], (
+    assert [f.outcome for f in other] == [hooks.FIRED], (
         "the same requirement under a different operation was swallowed "
-        "as already-fired: the identity is the PAIR"
-    )
+        "as already-fired")

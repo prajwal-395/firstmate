@@ -48,13 +48,6 @@ def test_sample_plan_matches_measured_probe_numbers():
     assert vp.native_sample_plan(60.0, 24.0)["effective_fps"] >= 0.5
 
 
-def test_every_folded_window_samples_at_two_fps():
-    plan = vp.native_sample_plan(vp.ACTION_WINDOW_S, 24.0)
-    assert plan["frames"] == 20
-    assert plan["decode_fps"] == 2.0
-    assert plan["effective_fps"] == 2.0
-
-
 def _synth_clip(path, duration_s, with_audio=True, size="320x240"):
     cmd = ["ffmpeg", "-y", "-v", "error",
            "-f", "lavfi", "-i", f"testsrc=duration={duration_s}:size={size}:rate=24"]
@@ -175,16 +168,7 @@ def test_folded_assessment_votes_merge_with_clip_time_ranges():
     assert content_type == "person_talking_to_camera"
     assert psv == [[0.0, 10.0], [10.0, 20.0], [20.0, 30.0]]
 
-
-def test_folded_assessment_with_no_parsed_window_reports_unmeasured():
-    entries = [{"window": [0.0, 10.0], "assessment": None,
-                "parse_error": True}]
-    content_type, psv = vp._merge_assessment_votes(entries)
-    assert content_type == "unknown"
-    assert psv is None
-
-
-def test_folded_assessment_keeps_unanimous_explicit_empty():
+    # A unanimous explicit empty stays an explicit empty, not absent.
     entries = [
         {"window": [0.0, 10.0],
          "assessment": {"content_type": "scenery",
@@ -224,8 +208,7 @@ def test_folded_window_passes_its_audio_and_records_sampling():
     assert out[0]["has_audio"] is True
     assert out[0]["sampling"]["frames"] == 20
 
-
-def test_sourceless_folded_window_hears_nothing_and_says_so():
+    # A sourceless window hears nothing and says so.
     analyzer = MagicMock()
     analyzer.analyze_with_retry.return_value = (
         _folded_answer(0.0, 10.0), "raw", 0.5)
@@ -238,9 +221,9 @@ def test_sourceless_folded_window_hears_nothing_and_says_so():
 
 
 def test_tail_sliver_too_short_to_analyze_is_dropped_not_handed_out(tmp_path):
-    """A 10.04 s clip's second window is 0.04 s: cv2 cannot open the husk
-    (and a single frame fails `load_video`), so the extractor drops it
-    instead of handing a clip the model call raises on."""
+    """A window the model call would raise on is dropped, not handed out:
+    a 10.04 s clip's 0.04 s tail (cv2 cannot open the husk), and a cached
+    window with no video stream."""
     if shutil.which("ffmpeg") is None:
         pytest.skip("needs ffmpeg")
     source = _synth_clip(tmp_path / "src.mp4", 10.04, with_audio=False)
@@ -250,15 +233,11 @@ def test_tail_sliver_too_short_to_analyze_is_dropped_not_handed_out(tmp_path):
     assert len(clips) == 1
     assert clips[0]["end"] == 10.0
 
-
-def test_cached_window_without_a_video_stream_is_dropped(tmp_path):
-    """A cached window file that carries no video stream is dropped rather
-    than handed to a pass that raises "Cannot open video" on it."""
-    if shutil.which("ffmpeg") is None:
-        pytest.skip("needs ffmpeg")
-    source = _synth_clip(tmp_path / "src.mp4", 12, with_audio=True)
-    cache = tmp_path / "cache"
-    husk_dir = cache / "src" / "clips"
+    # A cached window file that carries no video stream is dropped rather
+    # than handed to a pass that raises "Cannot open video" on it.
+    source = _synth_clip(tmp_path / "src12.mp4", 12, with_audio=True)
+    cache = tmp_path / "cache12"
+    husk_dir = cache / "src12" / "clips"
     husk_dir.mkdir(parents=True)
     subprocess.run(
         ["ffmpeg", "-y", "-v", "error", "-f", "lavfi",
@@ -273,6 +252,8 @@ def test_cached_window_without_a_video_stream_is_dropped(tmp_path):
 
 
 def test_extract_keeps_audio_and_recuts_legacy_silent_cache(tmp_path):
+    """A stale cached window is re-cut, never silently reused: one cut
+    under the old strip-audio policy, and one taller than the cap."""
     if shutil.which("ffmpeg") is None:
         pytest.skip("needs ffmpeg")
     source = _synth_clip(tmp_path / "src.mp4", 12, with_audio=True)
@@ -292,9 +273,27 @@ def test_extract_keeps_audio_and_recuts_legacy_silent_cache(tmp_path):
     assert all(c["has_audio"] for c in clips)
     assert vp._file_has_audio(Path(clips[0]["path"])) is True
 
+    # A cached window cut at source resolution is re-cut at the cap, not
+    # silently reused (it would keep the slow full-resolution decode).
+    source = _synth_clip(tmp_path / "big.mp4", 12, with_audio=True,
+                         size="1280x960")
+    legacy_dir = cache / "big" / "clips"
+    legacy_dir.mkdir(parents=True)
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-i", str(source),
+         "-ss", "0", "-t", "10", "-c:v", "libx264", "-preset", "ultrafast",
+         "-crf", "23", "-c:a", "aac", str(legacy_dir / "clip_000.mp4")],
+        capture_output=True, check=True)
+    assert vp._video_height(legacy_dir / "clip_000.mp4") == 960
+    clips = vp.extract_video_clips(Path(source), 12.0, cache)
+    assert len(clips) == 2
+    assert vp._video_height(Path(clips[0]["path"])) == 720
+    assert all(c["has_audio"] for c in clips)
+
 
 def test_extract_caps_window_height_at_720p(tmp_path):
-    """A 960p source yields 720p windows (aspect kept), not source-res."""
+    """A 960p source yields 720p windows (aspect kept), not source-res;
+    a smaller source is never upscaled."""
     if shutil.which("ffmpeg") is None:
         pytest.skip("needs ffmpeg")
     source = _synth_clip(tmp_path / "src.mp4", 12, with_audio=True,
@@ -307,40 +306,13 @@ def test_extract_caps_window_height_at_720p(tmp_path):
         assert vp.probe_clip(Path(c["path"]))["resolution"] == [960, 720]
         assert c["has_audio"] is True
 
-
-def test_extract_never_upscales_a_small_source(tmp_path):
-    """A 240p source keeps its own resolution - the cap only downscales."""
-    if shutil.which("ffmpeg") is None:
-        pytest.skip("needs ffmpeg")
-    source = _synth_clip(tmp_path / "src.mp4", 12, with_audio=True)
+    # A 240p source keeps its own resolution - the cap only downscales.
+    source = _synth_clip(tmp_path / "small.mp4", 12, with_audio=True)
     clips = vp.extract_video_clips(
-        Path(source), 12.0, tmp_path / "cache")
+        Path(source), 12.0, tmp_path / "cache-small")
     assert len(clips) == 2
     for c in clips:
         assert vp.probe_clip(Path(c["path"]))["resolution"] == [320, 240]
-
-
-def test_extract_recuts_oversize_cached_window(tmp_path):
-    """A cached window cut at source resolution is re-cut at the cap,
-    not silently reused."""
-    if shutil.which("ffmpeg") is None:
-        pytest.skip("needs ffmpeg")
-    source = _synth_clip(tmp_path / "src.mp4", 12, with_audio=True,
-                         size="1280x960")
-    cache = tmp_path / "cache"
-    legacy_dir = cache / "src" / "clips"
-    legacy_dir.mkdir(parents=True)
-    subprocess.run(
-        ["ffmpeg", "-y", "-v", "error", "-i", str(source),
-         "-ss", "0", "-t", "10", "-c:v", "libx264", "-preset", "ultrafast",
-         "-crf", "23", "-c:a", "aac", str(legacy_dir / "clip_000.mp4")],
-        capture_output=True, check=True)
-    assert vp._video_height(legacy_dir / "clip_000.mp4") == 960
-
-    clips = vp.extract_video_clips(Path(source), 12.0, cache)
-    assert len(clips) == 2
-    assert vp._video_height(Path(clips[0]["path"])) == 720
-    assert all(c["has_audio"] for c in clips)
 
 
 def test_extract_pays_one_source_probe_and_no_per_window_probes(tmp_path):

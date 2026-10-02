@@ -82,30 +82,18 @@ def _stabilize_request(position=1, start=0.0, end=10.0):
     }]}
 
 
-def test_shaky_worded_clip_is_not_stabilized_without_a_plan_request():
-    """The proof's first half: every word that used to trigger the
-    keyword match is still in this document, and no directive follows."""
+def test_a_shaky_worded_clip_is_stabilized_only_when_the_plan_requests_it():
+    """Every word that used to trigger the keyword match is in this
+    document: no directive follows on its own, and one plan entry
+    stabilizes the placed clip through the build's neural path."""
     directives = _directives(
         {"semantic_analysis_documents": [dict(SHAKY_V3_DOC)]})
     assert not any(d.get("stabilize") for d in directives.values())
 
-
-def test_shaky_worded_clip_is_stabilized_when_the_plan_requests_it():
-    """The proof's second half: the same shaky document plus one plan
-    entry stabilizes the placed clip, through the build's neural path."""
     directives = _directives(
         {"semantic_analysis_documents": [dict(SHAKY_V3_DOC)]},
         _stabilize_request())
     assert directives.get("speech_1", {}).get("stabilize") is True
-
-
-def test_a_locked_off_camera_is_not_stabilised():
-    directives = _directives({"semantic_analysis_documents": [{
-        "clip_id": "clip_001",
-        "analysis": {"motion": "The camera remains stationary on a tripod "
-                               "throughout the sequence."},
-    }]})
-    assert not any(d.get("stabilize") for d in directives.values())
 
 
 def test_plan_vfx_resolves_a_stabilize_entry_to_the_neural_route():

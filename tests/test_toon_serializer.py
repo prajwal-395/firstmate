@@ -2,12 +2,6 @@ import pytest
 from library.tools.toon_serializer import json_to_toon, toon_to_json
 
 
-
-
-
-
-
-
 # ── What the model reads ──────────────────────────────────────────────
 #
 # The serializer is the last thing that touches a value before it becomes
@@ -23,7 +17,9 @@ from library.tools.toon_serializer import json_to_toon, toon_to_json
 CONTRACTION = "okay, we're here, we're here."
 
 
-def test_an_apostrophe_is_not_doubled():
+def test_neither_quote_character_is_escaped():
+    """Apostrophes are not doubled and a JSON cell's double quotes are not
+    escaped - swapping the quote character would only move the corruption."""
     data = [{"text": CONTRACTION}, {"text": "plain"}]
     toon = json_to_toon(data)
     assert CONTRACTION in toon, (
@@ -32,14 +28,6 @@ def test_an_apostrophe_is_not_doubled():
     assert "''" not in toon
     assert toon_to_json(toon) == data
 
-
-def test_an_embedded_json_document_is_not_escaped_either():
-    """The other content class these cells carry.
-
-    A dict or list in a table cell falls back to `json.dumps`, so the cell
-    is full of double quotes.  Swapping one quote character for the other
-    would have moved the corruption rather than removed it.
-    """
     boundaries = [{"time": 0.0, "score": 1.0, "type": "start"}]
     data = [{"scene_boundaries": boundaries, "id": 1},
             {"scene_boundaries": [], "id": 2}]
@@ -101,18 +89,10 @@ def test_a_multi_line_value_under_a_key_is_a_block():
     assert toon_to_json(toon) == data
 
 
-
-
 def test_a_value_that_is_the_block_marker_round_trips():
     """`k: |` has to mean one thing, so a value of `|` takes the block route."""
     data = {"a": "|", "b": 2}
     assert toon_to_json(json_to_toon(data)) == data
-
-
-
-
-
-
 
 
 # ── The order the columns come out in ─────────────────────────────────
@@ -127,14 +107,9 @@ def test_a_value_that_is_the_block_marker_round_trips():
 # dialogue - in column four.
 
 def test_the_columns_are_the_order_the_data_declares():
+    """Declared order, never alphabetical; a key a later row introduces
+    lands where it first appears."""
     data = [{"type": "chorus", "start": 1.0, "end": 5.0, "energy": 0.8}]
     assert "[1]{type,start,end,energy}" in json_to_toon(data)
-
-
-
-
-def test_a_key_a_later_row_introduces_lands_where_it_first_appears():
     data = [{"a": 1, "b": 2}, {"a": 3, "b": 4, "c": 5}]
     assert "[2]{a,b,c}" in json_to_toon(data)
-
-

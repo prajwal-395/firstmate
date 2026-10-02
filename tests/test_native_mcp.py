@@ -93,14 +93,12 @@ def test_call_names_silence_instead_of_hanging(monkeypatch):
         call("get_resolve_status", {}, timeout=2)
 
 
-def test_missing_bundle_is_a_sentence_not_a_traceback(monkeypatch):
+def test_a_missing_bundle_or_node_is_a_sentence_not_a_traceback(monkeypatch):
     monkeypatch.setattr(native_mcp, "BUNDLE_PATH",
                         "/nonexistent/DaVinciResolve.mcpb")
     with pytest.raises(NativeMcpError, match="no native MCP bundle"):
         call("get_resolve_status", {})
 
-
-def test_missing_node_is_a_sentence(monkeypatch):
     monkeypatch.setattr(native_mcp, "wrapper_path",
                         lambda: "/fake/server/index.js")
     monkeypatch.setattr(native_mcp.shutil, "which", lambda _name: None)

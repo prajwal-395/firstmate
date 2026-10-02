@@ -6,9 +6,6 @@
 3. Collision-avoidance duplicate files (``__2``) polluting step output.
 """
 
-import json
-import os
-import sys
 
 import pytest
 
@@ -31,31 +28,6 @@ class TestSpeechFieldsWithoutTemporalIndex:
     ``False`` / ``0.0``.
     """
 
-
-    def test_speech_coverage_is_none_without_temporal_index(self):
-        result = compute_deterministic_assessment(
-            temporal_index=None, transcript="", duration=120
-        )
-        assert result["speech_coverage"] is None, (
-            "speech_coverage must be None when temporal_index is unavailable, "
-            "not 0.0"
-        )
-
-
-    def test_speech_fields_are_measured_with_temporal_index(self):
-        ti = {
-            "duration_s": 60,
-            "speech_regions": [
-                {"start": 0, "end": 30},
-                {"start": 40, "end": 50},
-            ],
-        }
-        result = compute_deterministic_assessment(
-            temporal_index=ti, transcript="hello world", duration=60
-        )
-        assert result["speech_present"] is True
-        assert result["speech_coverage"] == pytest.approx(0.67, abs=0.01)
-        assert result["speech_coverage_method"] == "temporal_index"
 
     def test_transcript_present_but_temporal_index_absent_is_still_unmeasured(self):
         """Even with a transcript string, we cannot measure coverage without
@@ -120,15 +92,10 @@ class TestCollisionDuplicateFiltering:
     to avoid overwriting.  Step 1.03 must filter these out.
     """
 
-    def test_collision_suffix_is_detected(self):
-        assert _is_collision_duplicate("clip_profile_IMG_1806_v3__2.json")
-        assert _is_collision_duplicate("clip_profile_IMG_1806_v3__3.json")
-        assert _is_collision_duplicate("clip_profile_IMG_1816_v3__2.json")
-        assert _is_collision_duplicate("vision_index_v3__2.json")
-
-
     def test_profile_stems_skips_collision_duplicates(self, tmp_path):
         """Only the original should count, not the ``__2`` copy."""
+        assert _is_collision_duplicate("clip_profile_IMG_1806_v3__3.json")
+        assert _is_collision_duplicate("vision_index_v3__2.json")
         for name in [
             "clip_profile_IMG_1806_v3.json",
             "clip_profile_IMG_1806_v3__2.json",

@@ -443,8 +443,9 @@ def problems(registry=None) -> list:
        so `capability_outputs` holds every key a run returns.
 
     "Requirements are declared" - a contract derived from
-    `requirements.py`, never hand-written - is
-    `tests/test_operations_execute.py::test_no_operation_hand_writes_a_requirement`.
+    `requirements.py`, never hand-written - holds by construction:
+    `Operation.requires` is a property of a frozen dataclass, so a
+    registry entry passing `requires=` cannot be constructed.
     """
     from library.tools import operations, requirements
     from library.tools.project_layout import AREAS

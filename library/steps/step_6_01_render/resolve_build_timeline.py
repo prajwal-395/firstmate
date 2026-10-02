@@ -3964,7 +3964,8 @@ def build_timeline(
     #
     # verification_passed reflects whether QA stations passed.
     # success is deliberately NOT gated on QA stations - that is step two
-    # of the captain's ruling (see test_qa_failures_are_not_fatal_yet).
+    # of the captain's ruling (see tests/test_resolve_build_timeline.py::
+    # test_loud_banner_prints_on_qa_failure_but_not_fatal).
     verification_passed = derive_verification_verdict(qa_reports)
 
     results["success"] = not results["errors"]

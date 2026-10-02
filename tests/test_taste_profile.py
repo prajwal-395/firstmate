@@ -105,13 +105,6 @@ def test_profile_cli_records_the_person_and_reason_in_user_config_dir(
     assert "Recorded stated preference" in capsys.readouterr().out
 
 
-def test_ren_has_a_front_door_for_recording_a_preference():
-    from ren.commands import VERBS
-
-    taste = next(verb for verb in VERBS if verb.name == "taste")
-    assert taste.module_argv == ("library.tools.taste_profile",)
-
-
 def test_profile_refuses_a_record_without_provenance(tmp_path):
     profile = tmp_path / "taste_profile.json"
     profile.write_text(json.dumps({

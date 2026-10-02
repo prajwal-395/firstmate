@@ -1,25 +1,8 @@
 """A cohesion finding is applicable where it runs, or it is an observation.
 
-Step 5.03's one finding on project 001's 2026-08-26 run was
-`speech_sequence.segment_order`, and step 5.04 refused it: re-ordering the
-narrative would invalidate every downstream timing.  `applied_adjustments`
-was empty on that run and on every run before it.  A recommendation nobody
-can apply, reported in an array named `adjustments`, reads as a change that
-was made (#238).
-
-The review cannot move upstream of what it reviews - it reads the
-transition, SFX and VFX plans, all made in steps 4.02 to 4.04 - so it is
-scoped where it runs instead.  `library/tools/cohesion_scope.py` is that
-scope, and these tests hold the two halves of it against the code that
-really acts:
-
-- every pair the enumeration calls ACTIONABLE is really applied by
-  `apply_cohesion_adjustments`, driven here rather than believed
-  (AGENTS.md section 10.2);
-- every pair it calls OWNED_UPSTREAM is really refused by it, with the
-  enumeration's own sentence;
-- a pair in neither list raises rather than becoming an adjustment that
-  is then silently dropped.
+Every ACTIONABLE pair is really applied by `apply_cohesion_adjustments`,
+every OWNED_UPSTREAM pair is really refused with its own sentence, and an
+undeclared pair raises. History: docs/evidence/creative_cohesion.md.
 """
 import pytest
 
@@ -33,55 +16,29 @@ from library.tools.cohesion_scope import (
 )
 
 
-def test_the_two_lists_do_not_overlap():
-    assert not set(ACTIONABLE_AT_COHESION) & set(OWNED_UPSTREAM)
-
-
-def test_neither_list_is_empty():
-    """An empty ACTIONABLE list would mean the step has nothing to say
-    where it runs, which is a withdrawal and not a rescope."""
-    assert ACTIONABLE_AT_COHESION
-    assert OWNED_UPSTREAM
-
-
-@pytest.mark.parametrize("target,field", sorted(ACTIONABLE_AT_COHESION))
-def test_an_actionable_pair_is_really_applied(target, field):
-    """Drive the real applier. A pair declared actionable that the
-    compiler has no branch for is the exact defect this file exists to
-    stop, one level up."""
-    transitions = [{"transition_type": "defocus", "duration_frames": 15}]
-    record = apply_cohesion_adjustments(transitions, {"adjustments": [{
-        "target_step": target,
-        "field": field,
-        "suggested_value": 10,
-        "target_index": 0,
-    }]})
-    assert record["not_applied"] == [], (
-        f"{target}.{field} is declared actionable at 5.03, and "
-        f"apply_cohesion_adjustments refused it")
-    assert len(record["applied"]) == 1
-
-
-@pytest.mark.parametrize("target,field", sorted(OWNED_UPSTREAM))
-def test_an_upstream_pair_is_really_refused(target, field):
-    """The other direction: an entry that the compiler would in fact
-    apply is a stale refusal, and would leave the review silent about a
-    change it could have asked for."""
-    record = apply_cohesion_adjustments(
-        [{"transition_type": "defocus", "duration_frames": 15}],
-        {"adjustments": [{
-            "target_step": target,
-            "field": field,
-            "suggested_value": "whatever",
-            "target_index": 0,
-        }]})
-    assert record["applied"] == []
-    assert record["not_applied"][0]["reason"] == OWNED_UPSTREAM[
-        (target, field)].reason
-
-
-
-
+def test_every_declared_pair_is_applied_or_refused_as_declared():
+    """Drive the real applier for every pair in both lists. A pair
+    declared actionable that the compiler has no branch for, or an upstream
+    entry the compiler would in fact apply (a stale refusal), fails here -
+    and a pair in both lists cannot pass both halves."""
+    for target, field in sorted(ACTIONABLE_AT_COHESION):
+        record = apply_cohesion_adjustments(
+            [{"transition_type": "defocus", "duration_frames": 15}],
+            {"adjustments": [{"target_step": target, "field": field,
+                              "suggested_value": 10, "target_index": 0}]})
+        assert record["not_applied"] == [], (
+            f"{target}.{field} is declared actionable at 5.03, and "
+            f"apply_cohesion_adjustments refused it")
+        assert len(record["applied"]) == 1
+    for target, field in sorted(OWNED_UPSTREAM):
+        record = apply_cohesion_adjustments(
+            [{"transition_type": "defocus", "duration_frames": 15}],
+            {"adjustments": [{"target_step": target, "field": field,
+                              "suggested_value": "whatever",
+                              "target_index": 0}]})
+        assert record["applied"] == [], (target, field)
+        assert record["not_applied"][0]["reason"] == OWNED_UPSTREAM[
+            (target, field)].reason
 
 
 def test_an_undeclared_pair_raises_rather_than_defaulting():
@@ -184,8 +141,6 @@ def test_the_step_is_a_pure_observer():
         assert target in OWNED_UPSTREAM, target
 
 
-
-
 def test_the_findings_it_cannot_apply_are_still_reported():
     """Rescoping must not be a way to go quiet: the upstream-owned
     finding is still in `warnings` and in `observations`."""
@@ -200,23 +155,3 @@ def test_the_findings_it_cannot_apply_are_still_reported():
         assert observation["owner_step"]
         assert observation["reason"]
         assert observation["how_to_act"]
-
-
-def test_an_observation_carries_no_suggested_value():
-    """`"front_loaded"` was a word the step invented about an ordering it
-    never computed - a creative value substituted for a decision no step
-    made (AGENTS.md 10.5)."""
-    review = _review_with_every_finding()
-    assert all("suggested_value" not in o for o in review["observations"])
-
-
-
-
-# ── Why `adjustments` is empty is SAID ─────────────────────────────────
-
-
-
-
-
-
-

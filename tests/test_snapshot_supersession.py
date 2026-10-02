@@ -17,10 +17,8 @@ import json
 from pathlib import Path
 
 from library.tools.plan_provenance import (
-    PROVENANCE_FILENAME,
     SNAPSHOT_PROVENANCE_KEY,
     built_from_snapshot,
-    drop_reel_entries,
     is_snapshot_superseded,
     read_provenance,
     record_snapshot_supersession,
@@ -92,17 +90,16 @@ def _g6_review(tmp_path: Path):
 
 class TestG6Disagreement:
     def test_live_timeline_names_its_snapshot(self, tmp_path):
-        review, _base, _batch, final = _g6_review(tmp_path)
-        record_snapshot_supersession(str(review), {REEL_09: str(final)})
+        """The live reel names the file it was built from, and the stale
+        snapshots beside it read as superseded by that file."""
+        review, base, batch, final = _g6_review(tmp_path)
+        report = record_snapshot_supersession(
+            str(review), {REEL_09: str(final)})
         entry, reason = built_from_snapshot(str(review), REEL_09)
         assert entry is not None, reason
         assert entry["snapshot"] == final.name
         assert "built from" in reason
 
-    def test_stale_snapshots_read_as_superseded(self, tmp_path):
-        review, base, batch, final = _g6_review(tmp_path)
-        report = record_snapshot_supersession(
-            str(review), {REEL_09: str(final)})
         assert sorted(report[REEL_09]["superseded_now"]) == sorted(
             [base.name, batch.name])
         for stale in (base, batch):
@@ -153,17 +150,14 @@ class TestSupersessionOverTime:
 # ── Refusals, never silent passes ────────────────────────────────────
 
 class TestRefusals:
-    def test_changed_bytes_are_not_current(self, tmp_path):
+    def test_changed_or_missing_bytes_are_not_current(self, tmp_path):
         review, _base, _batch, final = _g6_review(tmp_path)
         record_snapshot_supersession(str(review), {REEL_09: str(final)})
         _write_snapshot(review, final.name, REEL_09, 36490)
         entry, reason = built_from_snapshot(str(review), REEL_09)
         assert entry is None, reason
         assert "changed" in reason
-
-    def test_missing_file_refuses(self, tmp_path):
-        review, _base, _batch, final = _g6_review(tmp_path)
-        record_snapshot_supersession(str(review), {REEL_09: str(final)})
+        # ...and a file no longer on disk refuses too.
         final.unlink()
         entry, reason = built_from_snapshot(str(review), REEL_09)
         assert entry is None, reason

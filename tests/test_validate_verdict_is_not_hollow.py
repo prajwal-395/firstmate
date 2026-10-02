@@ -1,17 +1,8 @@
 """D10 regression: a considered `fail` verdict is not hollow output.
 
-The end-to-end audit of project 001 reported::
-
-    FAILED (HollowOutput): Step 'validate' reported success but produced
-    no usable output:
-      - Validation outcome was not successful: fail - 2 issue(s) found
-
-The FAILED status was correct; the classification and the wording were
-not.  `validate` produced a complete, useful verdict - the opposite of
-emitting nothing - so it must fail the run under its own classification
-(`ValidationFailed`) rather than borrowing `HollowOutput`'s "produced no
-usable output" wording, which makes a real hollow output harder to
-recognise.
+`validate` fails the run under its own classification
+(`ValidationFailed`), never borrowing `HollowOutput`'s "produced no usable
+output" wording. History: docs/evidence/validate_verdict.md.
 """
 
 import sys
@@ -46,23 +37,14 @@ def _expected_detail(output):
     return f"Validation outcome was not successful: {v['status']} - {v['summary']}"
 
 
-def test_fail_verdict_is_not_hollow():
-    """The hollow-output gate must stay silent on a complete verdict."""
-    assert check_output_is_real("validate", _validate_output("fail", 2)) == []
-
-
-def test_fail_verdict_is_still_a_failure():
-    """...while the verdict gate still fails the run, under its own name."""
-    output = _validate_output("fail", 2)
-    assert check_validation_verdict("validate", output) == [_expected_detail(output)]
-
-
-def test_undetermined_verdict_is_not_hollow_but_still_a_failure():
-    output = _validate_output("undetermined", 1)
-    assert check_output_is_real("validate", output) == []
-    assert check_validation_verdict("validate", output) == [_expected_detail(output)]
-
-
+def test_a_considered_verdict_is_not_hollow_but_still_fails():
+    """The hollow-output gate stays silent on a complete verdict, while
+    the verdict gate still fails the run, under its own name."""
+    for status, n_issues in (("fail", 2), ("undetermined", 1)):
+        output = _validate_output(status, n_issues)
+        assert check_output_is_real("validate", output) == []
+        assert check_validation_verdict("validate", output) == [
+            _expected_detail(output)]
 
 
 def test_verdict_gate_only_reads_validate():

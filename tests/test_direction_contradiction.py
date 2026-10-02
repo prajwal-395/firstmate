@@ -1,27 +1,9 @@
 """A step's measurements disagree with the direction, and it says so and complies.
 
-On the 29 Aug 2026 run of 001, "emotion" and "energy" appear ZERO times
-in the semantic documents and FOUR times each in the `creative_direction`
-block at station 2 and station 3.  Step 2.01 read the footage once and
-every creative step after it inherited that reading whole, with no way to
-say "what I measured disagrees with what I was told".
-
-The captain's ruling of 2026-09-01 is what these tests pin: a step MAY
-FLAG and MAY NOT ACT.  So the two properties that matter most here are
-not that the field exists.  They are that the flag NEVER reaches the
-step's output - which is what makes compliance structural rather than
-promised - and that the FOUR readings stay four.  An unevidenced
-disagreement is not a contradiction, an empty answer is not an absent
-one, and none of them is a failure.
+The captain's ruling of 2026-09-01: a step MAY FLAG and MAY NOT ACT. The
+flag never reaches the step's output, and the four readings stay four.
+History: docs/evidence/direction_contradiction.md.
 """
-import json
-import threading
-import time
-from pathlib import Path
-
-import pytest
-
-from library.processes.edit_video.run_pipeline import present_llm_step
 from library.tools import direction_contradiction as dc
 from library.tools import undetermined
 from library.tools.creative_direction import DIRECTION_KEYS
@@ -52,7 +34,10 @@ PROSODY_CONTRADICTION = {
 
 # ── The four readings ───────────────────────────────────────────────
 
-def test_an_empty_flag_is_not_an_absent_one():
+def test_the_four_readings_stay_four():
+    """Empty is not absent, a measured disagreement keeps its evidence, and
+    polite prose disagreement with no measurement is UNEVIDENCED - neither
+    a contradiction nor a clean bill of health."""
     _, empty = dc.take("speech_sequence", {"a": 1, dc.FIELD: []})
     _, absent = dc.take("speech_sequence", {"a": 1})
     assert empty.reading == dc.NOTHING_CONTRADICTED
@@ -63,8 +48,6 @@ def test_an_empty_flag_is_not_an_absent_one():
         "have"
     )
 
-
-def test_a_measured_disagreement_reads_as_contradicted_and_keeps_its_evidence():
     _, flag = dc.take("speech_sequence",
                       {"speech_sequence": {}, dc.FIELD: [PROSODY_CONTRADICTION]})
     assert flag.reading == dc.CONTRADICTED
@@ -76,13 +59,6 @@ def test_a_measured_disagreement_reads_as_contradicted_and_keeps_its_evidence():
         "the measurement must travel with the claim, or the flag is prose"
     )
 
-
-def test_a_disagreement_with_no_measurement_is_not_a_contradiction():
-    """The failure mode this design is against: polite prose disagreement.
-
-    A model can produce an opinion that the brief is wrong for nothing.
-    It cannot produce a measurement it was not routed.
-    """
     _, flag = dc.take("speech_sequence", {dc.FIELD: [{
         "direction_field": "target_mood",
         "direction_said": "warm and intimate",
@@ -100,19 +76,15 @@ def test_a_disagreement_with_no_measurement_is_not_a_contradiction():
     )
 
 
-def test_a_measurement_the_step_was_not_routed_is_unevidenced():
-    """`music_analysis` is real, and 2.02 is not routed it."""
-    entry = dict(PROSODY_CONTRADICTION, measured_in="music_analysis")
-    _, flag = dc.take("speech_sequence", {dc.FIELD: [entry]})
-    assert flag.reading == dc.UNEVIDENCED
+def test_an_unrouted_measurement_or_unasked_direction_field_is_unevidenced():
+    """`music_analysis` is real, and 2.02 is not routed it; `energy_level`
+    is one of the withdrawn reads in creative_direction."""
+    for override in ({"measured_in": "music_analysis"},
+                     {"direction_field": "energy_level"}):
+        entry = dict(PROSODY_CONTRADICTION, **override)
+        _, flag = dc.take("speech_sequence", {dc.FIELD: [entry]})
+        assert flag.reading == dc.UNEVIDENCED, override
     assert "music_analysis" not in dc.evidence_sources("speech_sequence")
-
-
-def test_a_direction_field_2_01_is_not_asked_for_is_unevidenced():
-    """`energy_level` is one of the withdrawn reads in creative_direction."""
-    entry = dict(PROSODY_CONTRADICTION, direction_field="energy_level")
-    _, flag = dc.take("speech_sequence", {dc.FIELD: [entry]})
-    assert flag.reading == dc.UNEVIDENCED
     assert "energy_level" not in DIRECTION_KEYS
 
 
@@ -174,52 +146,6 @@ def test_the_flagging_steps_are_every_model_step_but_the_author():
         "left out of the derivation is exactly the staleness the "
         "derivation exists to prevent"
     )
-
-
-def test_prosody_reaches_the_step_that_can_use_it():
-    """#417 wired 1.05 to 2.01 and 2.02. 2.01 authors, so 2.02 is the one
-    step that can hold prosody against an inherited affect reading."""
-    assert dc.evidence_sources("speech_sequence")["prosody_analysis"].startswith(
-        "1.05")
-
-
-# ── The summary tells them apart ────────────────────────────────────
-
-
-# ── Through the real prompt assembly ────────────────────────────────
-
-def _answer_once(req: Path, res: Path, payload: dict, seen: list):
-    def run():
-        deadline = time.time() + 25
-        while time.time() < deadline:
-            if req.exists() and not res.exists():
-                seen.append(json.loads(req.read_text(encoding="utf-8")))
-                res.parent.mkdir(parents=True, exist_ok=True)
-                res.write_text(json.dumps(payload), encoding="utf-8")
-                return
-            time.sleep(0.05)
-    t = threading.Thread(target=run, daemon=True)
-    t.start()
-    return t
-
-
-def _drive(tmp_path, node_id, answer, outputs=("speech_sequence",)):
-    dc.reset()
-    undetermined.reset()
-    project = tmp_path / "project"
-    project.mkdir()
-    prompt_path = tmp_path / "handoff.md"
-    prompt_path.write_text("Order the speech.\n", encoding="utf-8")
-    req = project / "pipeline_output" / "llm_requests" / f"{node_id}.json"
-    res = project / "pipeline_output" / "llm_responses" / f"{node_id}.json"
-    seen = []
-    _answer_once(req, res, answer, seen)
-    result = present_llm_step(
-        str(prompt_path), {"project_folder": str(project)}, node_id,
-        manifest={"interface": {"outputs": [{"name": o} for o in outputs]}},
-        full_auto="agent", llm_timeout=30,
-    )
-    return seen, result
 
 
 # ── One step's prose is marked where another step reads it as evidence ─

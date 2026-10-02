@@ -1,8 +1,10 @@
-"""The capability registry owns creative quantity; bridges preserve answers.
+"""Bridges preserve sparse creative answers rather than completing a quota.
 
-The registry is the machine-readable policy source. These two examples
+The registry's `creative_policy` declarations are audited by
+`capabilities.problems()` (contract_audit section 1); these two examples
 exercise sparse answers through real bridge entry points so the policy is
-not only metadata.
+not only metadata. The ruling and the quotas it removed:
+`docs/evidence/creative_policy.md`.
 """
 
 import json
@@ -13,7 +15,6 @@ from pathlib import Path
 
 import pytest
 
-from library.tools import capabilities
 
 REPO = Path(__file__).resolve().parents[1]
 STEPS = REPO / "library" / "steps"
@@ -60,17 +61,6 @@ def sfx_library(tmp_path_factory):
         encoding="utf-8",
     )
     return {"PIPELINE_SFX_LIBRARY": str(lib)}
-
-
-def test_creative_quantity_policy_is_a_capability_property():
-    exposed = {
-        spec.id: spec.creative_policy
-        for spec in capabilities.all()
-        if spec.creative_policy is not None
-    }
-    assert exposed == capabilities.CREATIVE_POLICIES
-    assert set(exposed.values()) == {capabilities.MODEL_DECIDES_QUANTITY}
-    assert {"broll.resolve", "sfx.resolve", "vfx.resolve"} <= set(exposed)
 
 
 def test_select_broll_accepts_a_single_cutaway():

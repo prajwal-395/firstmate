@@ -21,11 +21,9 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
 from library.steps.step_4_03_plan_vfx.post_bridge import (
-    KEN_BURNS,
     _derive_ken_burns_direction,
     resolve_vfx,
 )
-from library.tools.vfx_plan_basis import DROP_REASONS, PlanBasis
 
 
 def _spine(*positions):
@@ -69,7 +67,8 @@ def test_push_in_resolves_as_the_drift_effect():
 
 
 def test_directionless_params_get_no_motion():
-    """Equal zooms name neither way: dropped, never defaulted."""
+    """Equal zooms name neither way, and an unstated reason is no reason:
+    both dropped by name, never defaulted."""
     dropped = []
     resolved = resolve_vfx(
         [_ken_burns(params={"zoom_start": 1.02, "zoom_end": 1.02})],
@@ -77,11 +76,8 @@ def test_directionless_params_get_no_motion():
     assert resolved == []
     assert [d.reason for d in dropped] == ["ken_burns_without_direction"]
 
-
-def test_ken_burns_without_a_reason_gets_no_motion():
-    """The same bar as PR 777: emphasis is the reason, and it must be
-    stated.  A move that arrives because every shot gets one is what
-    the captain already rejected."""
+    # The same bar as PR 777: emphasis is the reason, and it must be
+    # stated - a move every shot gets is what the captain rejected.
     entry = _ken_burns()
     del entry["rationale"]
     dropped = []

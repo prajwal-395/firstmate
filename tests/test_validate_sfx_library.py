@@ -52,7 +52,11 @@ def _library(tmp_path: Path, *, with_audio: bool) -> Path:
 
 
 def test_a_library_whose_files_exist_is_valid(tmp_path):
-    code, body = _run({"sfx_library": str(_library(tmp_path, with_audio=True))})
+    """The regression proper: no `profiles/library_*.json` (metadata the
+    reader skips), entries that load, files on disk - valid."""
+    lib = _library(tmp_path, with_audio=True)
+    assert not (lib / "profiles").exists()
+    code, body = _run({"sfx_library": str(lib)})
     assert code == 0, body
     assert body["valid"] is True
     assert body["playable_entries"] == 1
@@ -70,20 +74,6 @@ def test_profiles_without_audio_fail(tmp_path):
     assert body["valid"] is False
     assert body["playable_entries"] == 0
     assert "silent" in body["error"]
-
-
-def test_missing_index_files_do_not_fail_a_usable_library(tmp_path):
-    """The regression proper.
-
-    `library_analysis.json` / `library_semantic.json` are metadata the
-    reader skips. Their absence must not fail a library whose entries load
-    and whose files are on disk.
-    """
-    lib = _library(tmp_path, with_audio=True)
-    assert not (lib / "profiles").exists()
-    code, body = _run({"sfx_library": str(lib)})
-    assert code == 0, body
-    assert body["valid"] is True
 
 
 def test_no_path_supplied_is_a_failure_with_a_fix(tmp_path):

@@ -250,6 +250,9 @@ def test_grade_row_replays_lut_on_each_picture_span():
     assert len(report["applied"]) == 2
     assert all(item.GetNodeGraph().GetLUT(1) ==
                "Film Looks/Kodak 2383" for item in items)
+    # Resolve's accepted write is not proof that pixels changed.
+    assert all(applied["pixel_verification"] == edit_ledger.PIXELS_UNMEASURED
+               for applied in report["applied"])
 
 
 def test_power_grade_ledger_row_requires_authorisation(tmp_path):
@@ -273,19 +276,15 @@ def test_power_grade_ledger_row_requires_authorisation(tmp_path):
     assert edit_ledger.load_rows(str(project))[0]["params"]["drx"] \
         == str(path)
 
-
-def test_power_grade_ledger_row_refuses_missing_asset_before_build(tmp_path):
-    """An authorized path that is gone must stop before Resolve creates
-    a reel with the declared look missing."""
-    project = _project(tmp_path)
-    row = {"op": "grade", "anchor": {"kind": "reel"},
-           "params": {"drx": "gone.drx",
-                      "provenance": dict(_GRADE_PROVENANCE)},
-           "stated_by": "requester", "reason": "podcast look"}
-
+    # An authorised path that is gone stops before Resolve creates a
+    # reel with the declared look missing.
+    gone = {"op": "grade", "anchor": {"kind": "reel"},
+            "params": {"drx": "gone.drx",
+                       "provenance": dict(_GRADE_PROVENANCE)},
+            "stated_by": "requester", "reason": "other look"}
     with pytest.raises(EditLedgerError, match="not on disk"):
-        edit_ledger.record_row(str(project), row)
-    assert edit_ledger.load_rows(str(project)) == []
+        edit_ledger.record_row(str(project), gone)
+    assert len(edit_ledger.load_rows(str(project))) == 1
 
 
 def test_power_grade_row_requires_node_graph_readback():
@@ -307,21 +306,6 @@ def test_power_grade_row_requires_node_graph_readback():
     assert all(row["pixel_verification"] == edit_ledger.PIXELS_UNMEASURED
                for row in report["applied"])
     assert item.GetNodeGraph().drx == "/looks/Podcast.drx"
-
-
-def test_grade_rows_cannot_claim_pixel_verification_from_api_readback():
-    """Resolve's accepted write and node list are not proof that pixels
-    changed; the build record must say its pixels are unmeasured."""
-    row = {"op": "grade", "anchor": {"kind": "reel"},
-           "params": {"lut": "Film Looks/Kodak 2383"},
-           "stated_by": "requester", "reason": "print grade"}
-    report = edit_ledger.replay_on_timeline(
-        "Reel 09", [row], _spans(), _speech(), _Timeline(),
-        item_for_span=lambda _index: _Item(), reel_name="Reel 09")
-
-    assert len(report["applied"]) == 2
-    assert all(row["pixel_verification"] == edit_ledger.PIXELS_UNMEASURED
-               for row in report["applied"])
 
 
 def test_grade_row_refuses_a_parameter_the_replayer_ignores():
@@ -380,6 +364,14 @@ def test_unreplayable_rows_are_reported_by_name(tmp_path, capsys):
     assert "retime" not in names
     out = capsys.readouterr().err
     assert out.count("UNREPLAYABLE LEDGER ROW") == 3
+
+    # A clip with no node graph cannot hold a LUT - named, not claimed.
+    report = edit_ledger.replay_on_timeline(
+        "Reel 09", [_lut(reel="Reel 09")], _spans(), _speech(), _Timeline(),
+        item_for_span=lambda _i: _Item(graph=None),
+        reel_name="Reel 09")
+    assert len(report["unreplayable"]) == 1
+    assert "node graph" in report["unreplayable"][0]["reason"]
 
 
 def _retime(phrase, percent, reel="Reel 09 - hook", **params):
@@ -462,15 +454,3 @@ def test_anchor_typo_fails_at_record_not_next_build(tmp_path):
     with pytest.raises(Exception, match="spoken nowhere"):
         edit_ledger.record_row(str(project), row)
     assert edit_ledger.load_rows(str(project)) == []
-
-
-def test_lut_without_node_graph_is_unreplayable_not_silent():
-    """A clip with no node graph cannot hold a LUT - reported by name
-    rather than claimed."""
-    timeline = _Timeline()
-    report = edit_ledger.replay_on_timeline(
-        "Reel 09", [_lut(reel="Reel 09")], _spans(), _speech(), timeline,
-        item_for_span=lambda _i: _Item(graph=None),
-        reel_name="Reel 09")
-    assert len(report["unreplayable"]) == 1
-    assert "node graph" in report["unreplayable"][0]["reason"]

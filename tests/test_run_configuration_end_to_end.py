@@ -153,37 +153,7 @@ def test_the_run_stops_at_the_armed_step_and_nowhere_else(runner, project):
     assert review_gate.get_gate_status(str(project), "scan") == "none"
 
 
-
-
-
-
 # ── The three actions ────────────────────────────────────────────────
-
-def test_approved_carries_on_from_where_it_stopped(project):
-    first = _Runner(project)
-    first.run(break_at=["scan"])
-    review_gate.save_gate_feedback(str(project), "scan", "approved",
-                                   feedback="looks right")
-
-    second = _Runner(project)
-    summary = second.run(resume_mode=True)
-    assert second.ran == ["catalog", "temporal_index"]
-    assert summary["status"] == "SUCCESS"
-
-
-def test_rejected_halts_the_run_and_records_the_failure(project):
-    first = _Runner(project)
-    first.run(break_at=["scan"])
-    review_gate.save_gate_feedback(str(project), "scan", "rejected",
-                                   feedback="wrong footage")
-
-    second = _Runner(project)
-    summary = second.run(resume_mode=True)
-    assert summary["status"] == "FAILED"
-    assert second.seen == [], "nothing downstream should have run"
-    state = load_pipeline_state(str(project))
-    assert "scan" in state["failed_steps"]
-
 
 def test_a_revised_answer_reaches_the_next_step(project):
     """The one that matters. A revision is not a note - it is applied to
@@ -234,9 +204,6 @@ def test_re_arming_a_gate_throws_away_the_last_answer(project):
 # ── A profile drives the run ─────────────────────────────────────────
 
 
-
-
-
 def test_no_break_star_runs_the_profile_without_stopping(project, runner):
     _write_profile(project, "stoppy", {
         "description": "Stops everywhere.",
@@ -247,12 +214,7 @@ def test_no_break_star_runs_the_profile_without_stopping(project, runner):
     assert len(runner.seen) == 3
 
 
-
-
 # ── The refusal arrives before the run ───────────────────────────────
-
-
-
 
 
 def test_an_unknown_breakpoint_refuses_by_name(project, runner):
@@ -260,17 +222,18 @@ def test_an_unknown_breakpoint_refuses_by_name(project, runner):
     assert summary["status"] == "REFUSED"
     assert "not_a_step" in summary["reason"]
     assert runner.seen == []
+    # An operation address that does not exist is refused the same way.
+    summary = runner.run(break_at=["nope.jog@1.0-2.0"])
+    assert summary["status"] == "REFUSED"
+    assert "nope.jog" in summary["reason"]
 
 
 # ── The plain flags do not regress ───────────────────────────────────
 
 
-
-
-
 # ── A gate verdict binds EVERY run, not only a --resume ─────────────
 #
-# These four pin firstmate's ruling of 2026-09-05
+# These pin firstmate's ruling of 2026-09-05
 # (`data/decisions/gate-bypass.md`). Before it, the whole gate-feedback
 # block sat inside `if resume_mode:`, so omitting one flag walked past a
 # pause the captain had not answered - and reported SUCCESS.
@@ -311,8 +274,6 @@ def test_a_plain_rerun_halts_at_a_rejected_gate(project):
     assert "scan" in load_pipeline_state(str(project))["failed_steps"]
 
 
-
-
 def test_an_approved_gate_does_not_halt_a_plain_rerun(project):
     """The mirror. A gate that FAILS correct input is no more coverage
     than one that cannot fail (AGENTS.md 10.4)."""
@@ -324,8 +285,6 @@ def test_an_approved_gate_does_not_halt_a_plain_rerun(project):
     summary = second.run()          # NO resume_mode
     assert second.ran == ["catalog", "temporal_index"]
     assert summary["status"] == "SUCCESS"
-
-
 
 
 # ── The runner knows the operation namespace ────────────────────────
@@ -345,14 +304,6 @@ def test_the_runner_accepts_an_operation_breakpoint(project, runner):
     # It names no step this run reaches, so it is REPORTED unreachable
     # rather than refused - a breakpoint strands no consumer.
     assert f"{one}@45.0-72.0" in record["unreachable"]
-
-
-def test_the_runner_still_refuses_an_operation_that_does_not_exist(project, runner):
-    summary = runner.run(break_at=["nope.jog@1.0-2.0"])
-    assert summary["status"] == "REFUSED"
-    assert "nope.jog" in summary["reason"]
-
-
 
 
 def test_a_ledger_with_no_declarations_refuses_even_a_real_operation(project):

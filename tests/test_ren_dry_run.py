@@ -156,78 +156,29 @@ def test_no_execute_write_or_lease_lives_in_this_module():
 # ── The change, stated structurally ────────────────────────────────
 
 
-def test_dry_run_without_a_stated_clip_refuses_rather_than_defaulting(
-    tmp_path,
-):
-    """The defect: an unstated --old-clip falling back to a baked-in clip
-    filename, so one project's asset ships as every project's default."""
+def test_the_dry_run_refuses_what_it_cannot_honestly_report(tmp_path):
+    """Each defect refuses before a report: an unstated --old-clip
+    falling back to a baked-in filename (one project's asset as every
+    project's default); a replacement not on disk (the execute would
+    refuse before staging); a reel number the plan never described (the
+    plan's own refusal surfaces, uncaught)."""
+    from library.tools import reel_touchup as touchup_mod
+
+    project = _project_with_reel_26(tmp_path)
     with pytest.raises(D.DryRunRefused, match="--old-clip"):
-        D.dry_run(
-            project_folder=_project_with_reel_26(tmp_path),
-            project_label="demo",
-            reel=26,
-            new_media="/lab/new.mov",
-            tracks=_reel_26_tracks(),
-        )
-
-
-def test_build_change_spec_refuses_an_absent_clip_by_name():
-    """The defect: a swap spec for an item the timeline does not have,
-    sailing through to a delete addressed by blind position."""
-    with pytest.raises(D.DryRunRefused, match="no item named"):
-        D.build_change_spec(
-            _reel_26_tracks(),
-            reel=26,
-            row="V7",
-            old_clip="something_else.mov",
-            new_media="/lab/new.mov",
-        )
-
-
-def test_build_change_spec_refuses_an_ambiguous_clip():
-    """The defect: one spec meaning several items - qualifying one and
-    addressing whichever the position happens to land on."""
-    tracks = _tracks(
-        (
-            "V7",
-            [
-                _clip("logo_bulb_23976.mov", 0, 36),
-                _clip("logo_bulb_23976.mov", 100, 36),
-            ],
-        )
-    )
-    with pytest.raises(D.DryRunRefused, match="2 times"):
-        D.build_change_spec(
-            tracks,
-            reel=26,
-            row="V7",
-            old_clip="logo_bulb_23976.mov",
-            new_media="/lab/new.mov",
-        )
-
-
-# ── The composition reaches the selector ───────────────────────────
-
-
-def test_compose_for_report_routes_on_runtime_context_not_default():
-    """The defect this join exists to remove: the change and the track
-    read never reaching the selector, so the static default (the
-    rebuild) stands and the report prints one path while meaning
-    another. Pinned as decided-by, not as names - the vocabulary is
-    the rebuild's to change."""
-    spec = D.build_change_spec(
-        _reel_26_tracks(),
-        reel=26,
-        row="V7",
-        old_clip="logo_bulb_23976.mov",
-        new_media="/lab/new.mov",
-    )
-    composed = D.compose_for_report(spec, _reel_26_tracks())
-    assert composed["plan"].completed
-    assert composed["selected"].completed
-    (selection,) = composed["selected"].selection
-    assert selection.decided_by == "selector"
-    assert selection.gate_class == "composed"
+        D.dry_run(project_folder=project, project_label="demo", reel=26,
+                  new_media="/lab/new.mov", tracks=_reel_26_tracks())
+    with pytest.raises(D.DryRunRefused, match="not on disk"):
+        D.dry_run(project_folder=project, project_label="demo", reel=26,
+                  old_clip="logo_bulb_23976.mov",
+                  new_media=str(tmp_path / "missing.mov"),
+                  tracks=_reel_26_tracks(), expected_rows={},
+                  expected_basis="test")
+    with pytest.raises(touchup_mod.TouchupRefused, match="no reel"):
+        D.dry_run(project_folder=project, project_label="demo", reel=27,
+                  old_clip="logo_bulb_23976.mov",
+                  new_media=_media(tmp_path), tracks=_reel_26_tracks(),
+                  expected_rows={}, expected_basis="test")
 
 
 # ── The full dry run, off disk ─────────────────────────────────────
@@ -296,41 +247,6 @@ def test_dry_run_wires_plan_selection_gate_and_preconditions(tmp_path):
         op.name for op in ops_mod.all()
         if op.caller_supplied and op.name in reels
     }
-
-
-def test_dry_run_refuses_a_missing_replacement_file(tmp_path):
-    """The defect: the dry run blessing a swap whose media is not on
-    disk - the execute would refuse before staging, so the dry run
-    refuses before reporting."""
-    with pytest.raises(D.DryRunRefused, match="not on disk"):
-        D.dry_run(
-            project_folder=_project_with_reel_26(tmp_path),
-            project_label="demo",
-            reel=26,
-            old_clip="logo_bulb_23976.mov",
-            new_media=str(tmp_path / "missing.mov"),
-            tracks=_reel_26_tracks(),
-            expected_rows={},
-            expected_basis="test",
-        )
-
-
-def test_dry_run_refuses_a_reel_the_plan_does_not_name(tmp_path):
-    """The defect: the join inventing a timeline for a reel number the
-    plan never described - the plan's refusal surfaces, uncaught."""
-    from library.tools import reel_touchup as touchup_mod
-
-    with pytest.raises(touchup_mod.TouchupRefused, match="no reel"):
-        D.dry_run(
-            project_folder=_project_with_reel_26(tmp_path),
-            project_label="demo",
-            reel=27,
-            old_clip="logo_bulb_23976.mov",
-            new_media=_media(tmp_path),
-            tracks=_reel_26_tracks(),
-            expected_rows={},
-            expected_basis="test",
-        )
 
 
 def test_dry_run_carries_a_refused_gate_instead_of_crashing(tmp_path):

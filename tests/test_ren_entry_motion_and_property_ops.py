@@ -1,47 +1,10 @@
-"""Ren in the 1326/1327 shape: entry-motion and property-set operations.
-
-The absorbed row (`vep-build-the-entry-motion-and-property-op`) asked
-which half of the system owns small changes - the reel half
-(touch-reel) or the main-edit half (region operations).  The rebuild
-answers it by mechanism rather than by picking a half: an operation
-declared in the effect vocabulary is reachable through compose
-regardless of which half implements it.  Both operations below are
-owned by `build_reels` and route through the touchup's own
-stage-conform-write-verify-promote path - no new bespoke path, no
-command-line verb, no composer branch.
-
-What each one is:
-
-- `reel.entry_motion` animates a placed overlay element in (and out)
-  with an authored Fusion fade (`fusion.comp_builder` over the
-  `fade_in_frames`/`fade_out_frames` keys, the dispatch the comp pass
-  reads), imported onto the staged item and conformed by the pass's
-  own `comp_media_window.conform_item` - without rebuilding the reel
-  that carries it.
-- `reel.set_properties` writes a property mapping onto an
-  already-placed clip with `composed_edit.set_properties`, judged by
-  read-back - without deleting and re-placing it.
-
-The 1327 pattern, and nothing else: each declares its `Operation`
-under the owning step, its effect DERIVES from the requirement
-vocabulary (owning node `build_reels`, so the same effect its
-siblings `reel.build` and `reel.touchup` carry), each has a real step
-body, the SKILL.md is regenerated from the registry, and the tests
-assert registration, vocabulary membership and reachability through
-compose.
-
-The finding this shape produces rather than bends around: both
-operations land on an effect that already has a route
-(`state.verify_reels.reel_build`, whose representative stays
-`reel.build`).  Their declarations are NOT bent to steer which route
-compose picks - selection between equivalent routes is the open
-problem `vep-ren-two-routes-one-goal-no-basis-to-choose` owns, and
-`test_the_representative_stays_the_rebuild` pins that this lane does
-not pre-empt it.
+"""Ren's entry-motion and property-set operations (`reel.entry_motion`,
+`reel.set_properties`): owned by `build_reels`, routed through the
+touchup's stage-conform-write-verify-promote path, written in place and
+judged by re-read. Design history: `docs/evidence/reel_touchup.md`.
 """
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
@@ -54,8 +17,6 @@ if str(REPO) not in sys.path:
 from library.tools import composer as C  # noqa: E402
 from library.tools import reel_read  # noqa: E402
 from library.tools import reel_touchup as tu  # noqa: E402
-from library.tools import requirements as R  # noqa: E402
-from library.tools.timeline_transcript import transcript_path  # noqa: E402
 from tests.composed_edit_harness import (  # noqa: E402
     FakeComp, FakeTool, build_reel, covering_window, duplicate,
     media_pool,
@@ -93,9 +54,11 @@ def test_the_representative_stays_the_rebuild():
 # ── The step bodies refuse what is malformed ──────────────────────────
 
 
-def test_step_bodies_refuse_malformed_specs():
-    """The same contract `touch_reel` keeps: no project folder, no
-    mapping, or nothing to do all raise before Resolve is touched."""
+def test_step_bodies_refuse_malformed_specs_and_each_others_edits():
+    """The contract `touch_reel` keeps: no project folder, no mapping, or
+    nothing to do raise before Resolve is touched. And one body, one
+    kind - `reel.touchup` runs mixed kinds, so nothing servable is
+    refused."""
     from library.steps.step_7_01_build_reels.step import (
         animate_entry, set_clip_properties)
 
@@ -108,14 +71,6 @@ def test_step_bodies_refuse_malformed_specs():
             body("/project", ["not", "a", "mapping"])
         with pytest.raises(ValueError, match="at least one edit"):
             body("/project", {"reel": 1, "edits": []})
-
-
-def test_step_bodies_refuse_each_others_edits():
-    """One body, one kind.  A spec naming another kind through this
-    body is addressed to the wrong operation - `reel.touchup` runs
-    mixed kinds together, so nothing servable is refused."""
-    from library.steps.step_7_01_build_reels.step import (
-        animate_entry, set_clip_properties)
 
     motion = {"reel": 1, "edits": [
         {"op": "entry_motion", "row": "V4", "item": 0,
@@ -136,101 +91,62 @@ def _tracks(timeline):
     return reel_read.read_tracks(timeline)
 
 
-def test_set_properties_qualifies_composed(tmp_path):
+def test_in_place_kinds_qualify_composed_with_no_delete_or_place(tmp_path):
+    """Both in-place kinds qualify COMPOSED and the composition plan is
+    empty: no change, insertion or removal."""
     timeline, _pool, _media = build_reel(tmp_path)
     qualification = tu.qualify(_tracks(timeline), {"reel": 1, "edits": [
         {"op": "set_properties", "row": "V4", "item": 0,
          "properties": {"ZoomX": 1.5, "Opacity": 80.0}}]})
     assert qualification.gate_class == tu.COMPOSED
-    assert len(qualification.in_place) == 1
-    entry = qualification.in_place[0]
+    (entry,) = qualification.in_place
     assert entry["kind"] == "set_properties"
     assert (entry["row"], entry["item_index"]) == ("V4", 0)
     assert entry["properties"] == {"ZoomX": 1.5, "Opacity": 80.0}
-    # No delete, no place: the composition plan is empty.
-    assert qualification.changes == []
-    assert qualification.insertions == []
-    assert qualification.removals == []
+    assert (qualification.changes, qualification.insertions,
+            qualification.removals) == ([], [], [])
 
-
-@pytest.mark.parametrize("properties,match", [
-    ({}, "names no properties"),
-    ("ZoomX", "a `properties` mapping"),
-])
-def test_set_properties_refuses_what_it_cannot_write(tmp_path, properties,
-                                                     match):
-    """A key `set_properties` would silently skip - read-only, None, a
-    placeholder - refuses loudly instead, before anything is staged."""
-    timeline, _pool, _media = build_reel(tmp_path)
-    with pytest.raises(tu.TouchupRefused, match=match):
-        tu.qualify(_tracks(timeline), {"reel": 1, "edits": [
-            {"op": "set_properties", "row": "V4", "item": 0,
-             "properties": properties}]})
-    with pytest.raises(tu.TouchupRefused):
-        tu.qualify(_tracks(timeline), {"reel": 1, "edits": [
-            {"op": "set_properties", "row": "V4", "item": 9,
-             "properties": {"ZoomX": 1.5}}]})
-
-
-def test_entry_motion_qualifies_composed(tmp_path):
-    timeline, _pool, _media = build_reel(tmp_path)
     qualification = tu.qualify(_tracks(timeline), {"reel": 1, "edits": [
         {"op": "entry_motion", "row": "V4", "item": 0,
          "fade_in_frames": 6, "fade_out_frames": 6}]})
     assert qualification.gate_class == tu.COMPOSED
-    assert len(qualification.in_place) == 1
-    entry = qualification.in_place[0]
+    (entry,) = qualification.in_place
     assert entry["kind"] == "entry_motion"
     assert (entry["fade_in_frames"], entry["fade_out_frames"]) == (6, 6)
     assert entry["duration"] == 40
-    assert qualification.changes == []
-    assert qualification.insertions == []
-    assert qualification.removals == []
+    assert (qualification.changes, qualification.insertions,
+            qualification.removals) == ([], [], [])
 
 
-def test_entry_motion_refuses_an_animation_that_is_nothing(tmp_path):
+def test_an_in_place_edit_it_cannot_write_refuses_before_staging(tmp_path):
+    """Each row refuses loudly, before anything is staged, rather than
+    being skipped: a property mapping that is empty or not a mapping, an
+    item that is not there, an animation that is nothing or negative, a
+    ramp with no neutral frame (it would hold across the clip,
+    `fusion.played_window`), and the comp-bearing or audio rows - V1/V2
+    treatments belong to the comp pass, and a second treatment the
+    recorded manifest does not know is dropped by the next
+    re-derivation."""
     timeline, _pool, _media = build_reel(tmp_path)
-    with pytest.raises(tu.TouchupRefused, match="animates nothing"):
-        tu.qualify(_tracks(timeline), {"reel": 1, "edits": [
-            {"op": "entry_motion", "row": "V4", "item": 0,
-             "fade_in_frames": 0, "fade_out_frames": 0}]})
-    with pytest.raises(tu.TouchupRefused, match="negative"):
-        tu.qualify(_tracks(timeline), {"reel": 1, "edits": [
-            {"op": "entry_motion", "row": "V4", "item": 0,
-             "fade_in_frames": -4}]})
-
-
-def test_entry_motion_refuses_a_ramp_longer_than_its_clip(tmp_path):
-    """A ramp that never reaches neutral would hold across the whole
-    clip (`fusion.played_window`) - refused with the numbers, not
-    drawn."""
-    timeline, _pool, _media = build_reel(tmp_path)
-    with pytest.raises(tu.TouchupRefused, match="one frame more"):
-        tu.qualify(_tracks(timeline), {"reel": 1, "edits": [
-            {"op": "entry_motion", "row": "V4", "item": 0,
-             "fade_in_frames": 20, "fade_out_frames": 20}]})
-    # Exactly filling the clip still leaves no neutral frame.
-    with pytest.raises(tu.TouchupRefused):
-        tu.qualify(_tracks(timeline), {"reel": 1, "edits": [
-            {"op": "entry_motion", "row": "V4", "item": 0,
-             "fade_in_frames": 40}]})
-
-
-@pytest.mark.parametrize("row", ["V1"])
-def test_entry_motion_refuses_the_comp_bearing_rows(tmp_path, row):
-    """V1/V2 treatments belong to the comp pass, which plans them
-    whole at build time - the same boundary `add_overlay` keeps.  A
-    second treatment the recorded manifest does not know would be
-    dropped silently by the next re-derivation."""
-    timeline, _pool, _media = build_reel(tmp_path)
-    with pytest.raises(tu.TouchupRefused, match="comp-bearing row"):
-        tu.qualify(_tracks(timeline), {"reel": 1, "edits": [
-            {"op": "entry_motion", "row": row, "item": 0,
-             "fade_in_frames": 6}]})
-    with pytest.raises(tu.TouchupRefused, match="audio"):
-        tu.qualify(_tracks(timeline), {"reel": 1, "edits": [
-            {"op": "entry_motion", "row": "A1", "item": 0,
-             "fade_in_frames": 6}]})
+    props = {"op": "set_properties", "row": "V4", "item": 0}
+    motion = {"op": "entry_motion", "row": "V4", "item": 0}
+    rows = [
+        (dict(props, properties={}), "names no properties"),
+        (dict(props, properties="ZoomX"), "a `properties` mapping"),
+        (dict(props, item=9, properties={"ZoomX": 1.5}), None),
+        (dict(motion, fade_in_frames=0, fade_out_frames=0),
+         "animates nothing"),
+        (dict(motion, fade_in_frames=-4), "negative"),
+        (dict(motion, fade_in_frames=20, fade_out_frames=20),
+         "one frame more"),
+        # Exactly filling the clip still leaves no neutral frame.
+        (dict(motion, fade_in_frames=40), None),
+        (dict(motion, row="V1", fade_in_frames=6), "comp-bearing row"),
+        (dict(motion, row="A1", fade_in_frames=6), "audio"),
+    ]
+    for edit, match in rows:
+        with pytest.raises(tu.TouchupRefused, match=match):
+            tu.qualify(_tracks(timeline), {"reel": 1, "edits": [edit]})
 
 
 def test_entry_motion_refuses_an_item_that_already_carries_a_comp(
@@ -372,38 +288,3 @@ def test_entry_motion_imports_a_drawing_comp_with_a_covering_window(
     reg_ids = sorted(t.GetAttrs("TOOLS_RegID") for t in tools.values())
     assert "Merge" in reg_ids
     assert reel_read.comp_draws_something({"tools": reg_ids}) is True
-
-
-# ── Executing through the registry refuses without the caller's spec ──
-
-
-def _satisfying_project(tmp_path) -> str:
-    """Every requirement `build_reels` declares, satisfied - so the
-    only thing left to refuse on is the caller-supplied argument."""
-    (tmp_path / "pipeline_output").mkdir(parents=True, exist_ok=True)
-    state = {"project_folder": str(tmp_path), "step_outputs": {}}
-    state[R._FORCE] = {
-        "resolve_scripting": True,
-        "face_detector": True,
-        "reel_build_libraries": True,
-    }
-    (tmp_path / "pipeline_data.json").write_text(
-        json.dumps(state), encoding="utf-8")
-    path = transcript_path(tmp_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({
-        "segments": [], "segment_count": 0,
-        "derived_from": {"duration_seconds": 0.0}}), encoding="utf-8")
-    from library.tools.reel_proposal import (
-        Approval, ReelMoment, proposal_path, write_proposal)
-    write_proposal(
-        proposal_path(tmp_path),
-        [ReelMoment(number=1, slug="a-witness", reason="a moment",
-                    timeline_start=10.0, timeline_end=40.0,
-                    approval=Approval.APPROVED)],
-        {"derived_from": {"duration_seconds": 60.0}})
-    (tmp_path / "project.yaml").write_text(
-        "name: fixture\nresolve:\n"
-        "  project_name: Fixture Project\n"
-        "  timeline_name: Fixture Timeline\n", encoding="utf-8")
-    return str(tmp_path)

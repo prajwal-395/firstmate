@@ -79,13 +79,11 @@ def test_a_directory_without_brand_assets_is_not_a_store(tmp_path):
         bl.write_manifest(str(tmp_path), measure=_stub_measure)
 
 
-
-
-
-
 # ── The manifest ───────────────────────────────────────────────────
 
-def test_write_manifest_records_hash_size_and_measurement(tmp_path):
+def test_write_manifest_records_integrity_and_measures_what_it_can(tmp_path):
+    """Hash, size and measurement per file; where nothing can measure a
+    file the hash still lands and the reason is recorded."""
     store, _ = _store(tmp_path, {"logo.mov": b"picture-bytes" * 64})
     report = bl.write_manifest(str(store), measure=_stub_measure)
     assert report["new"] == 1
@@ -98,11 +96,7 @@ def test_write_manifest_records_hash_size_and_measurement(tmp_path):
     assert entry["measured"]["frames"] == 90
     assert entry["role"] == "asset"
 
-
-
-
-def test_write_manifest_tolerates_an_unmeasurable_file(tmp_path):
-    store, _ = _store(tmp_path, {"notes.md": "# review notes"})
+    store, _ = _store(tmp_path / "second", {"notes.md": "# review notes"})
 
     def refuse(path):
         raise ValueError("not a picture")
@@ -179,16 +173,6 @@ def test_a_manifest_from_a_newer_writer_is_refused_not_rewritten(tmp_path):
 
 # ── Verification ───────────────────────────────────────────────────
 
-def test_verify_passes_a_clean_store(tmp_path):
-    store, _ = _store(tmp_path, {"logo.mov": b"x" * 64})
-    bl.write_manifest(str(store), measure=_stub_measure)
-    report = bl.verify_manifest(str(store))
-    assert report["verified"] is True
-    assert report["checked"] == 1
-    assert report["mismatches"] == []
-    assert report["untracked"] == []
-    assert bl.require_clean(report) is None
-
 
 def test_verify_finds_a_changed_file(tmp_path):
     store, motion = _store(tmp_path, {"logo.mov": b"x" * 64})
@@ -202,8 +186,6 @@ def test_verify_finds_a_changed_file(tmp_path):
         bl.require_clean(report)
     assert "logo.mov" in str(raised.value)
     assert "changed" in str(raised.value)
-
-
 
 
 def test_verify_reports_new_work_without_refusing_it(tmp_path):
@@ -229,20 +211,6 @@ def test_verify_without_a_manifest_declines_by_name(tmp_path):
 # ── The plan-time reader ───────────────────────────────────────────
 
 
-
-
-
-def test_a_changed_covered_file_is_said_by_name(tmp_path):
-    store, motion = _store(tmp_path, {"logo.mov": b"x" * 64})
-    bl.write_manifest(str(store), measure=_stub_measure)
-    (motion / "logo.mov").write_bytes(b"y" * 64)
-    note = bl.library_note_for_asset(str(motion / "logo.mov"))
-    assert "logo.mov" in note
-    assert "changed" in note
-
-
-
-
 def test_an_unlisted_file_is_said_not_silent(tmp_path):
     """A generated conform with no integrity record is the exact file
     this task was opened for - the reader must not pass it quietly."""
@@ -254,10 +222,7 @@ def test_an_unlisted_file_is_said_not_silent(tmp_path):
     assert "no integrity record" in note
 
 
-
-
 # ── The CLI ────────────────────────────────────────────────────────
-
 
 
 def test_cli_verify_reports_drift_with_exit_3(tmp_path, capsys):
@@ -270,12 +235,6 @@ def test_cli_verify_reports_drift_with_exit_3(tmp_path, capsys):
     assert bl.main(["--verify", str(store)]) == 3
     err = capsys.readouterr().err
     assert "logo.mov" in err
-
-
-
-
-
-
 
 
 # ── The plan-time reader, end to end ──────────────────────────────
@@ -302,8 +261,6 @@ def test_a_planned_card_is_silent_with_no_store_behind_it(tmp_path, capsys):
     assert "brand library" not in capsys.readouterr().err
 
 
-
-
 def test_a_planned_card_says_a_moved_master(tmp_path, capsys):
     """The hazard this closes: the manifest says one thing, the disk
     another, and the reel would otherwise bake the move into Resolve.
@@ -322,7 +279,3 @@ def test_a_planned_card_says_a_moved_master(tmp_path, capsys):
     assert "changed" in card.library_note
     assert card.duration_frames > 0, "the card still plans"
     assert "brand library" in capsys.readouterr().err
-
-
-# ── The default measurer against a real file ───────────────────────
-

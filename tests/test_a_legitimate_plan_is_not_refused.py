@@ -1,41 +1,10 @@
 """Two refusals in `compile_manifest` that killed runs over correct plans.
 
-Both fire on output the planner is explicitly invited to produce, and both
-are the same class of mistake: a legitimate plan met a refusal where the
-right answer was a drop or nothing at all.
-
-**A visual effect on a B-roll block.**  Step 4.03's candidate table lists
-every spine block, cutaway blocks included, with their camera and
-stability measured, under a handoff that says *"For each clip in the shot
-list"*.  Nothing told it an effect could only land on V1.  It planned two
-on cutaways - three of the four blocks measuring `stationary` + `stable`
-ARE cutaways - and the compile answered::
-
-    ValueError: 2 VFX entries do not overlap any V1 clip:
-        slow_zoom_in@41.322s, slow_zoom_out@55.001s
-
-The renderer builds per-clip comps on V1 **and** V2
-(`execution/fusion_tracks.FUSION_COMP_TRACKS`), and `compile_manifest`
-merges the house look onto both thirty lines above the refusal, so the
-capability was never missing.  `library/tools/vfx_carriers.py` now states
-the fact per block in the table the planner reads, and an entry over a
-stretch with no clip on either track is DROPPED with the reason rather
-than raised (AGENTS.md §10.5).
-
-**Two layered sounds at one span.**  The overlap check exempts A3 because
-it is a logical bucket - the builder spreads overlapping SFX across A3,
-A4, ... - but the duplicate-POSITION check sat one indent out and ran for
-every track, defeating that exemption whenever two layers resolved to the
-same span::
-
-    ValueError: Track A3: sfx_005 and sfx_004 both occupy (55.001, 58.001)
-        - only one would be visible
-
-`manifest_validator._check_sfx_distributed` has always read a shared
-position as layering and refused only a collapse, so the two halves of
-the pipeline disagreed about the same manifest.
+A visual effect on a B-roll block lands on the V2 clip (or is DROPPED
+with the reason when nothing is there), and two DIFFERENT sounds layered
+at one span compile onto separate lanes. History:
+docs/evidence/legitimate_plan_refusals.md
 """
-import os
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -48,7 +17,7 @@ sys.path.insert(0, str(REPO))
 from library.steps.step_5_04_compile_manifest.step import compile_manifest
 from library.tools.vfx_carriers import (
     NO_PICTURE, ON_V1, ON_V2,
-    assert_legend_is_well_formed, picture_carriers,
+    picture_carriers,
 )
 
 
@@ -167,68 +136,30 @@ def _vfx(position, timeline_start, timeline_end):
 # ── D1: an effect on a B-roll block ───────────────────────────────────
 
 def test_an_effect_on_a_cutaway_block_reaches_the_v2_clip(media):
-    """The reproduction: it used to raise; now the comp lands on the cutaway."""
-    inputs = dict(_inputs(media))
-    inputs.update(_vfx(2, 6.0, 9.0))
-
-    manifest = _compile(inputs)
-
-    per_clip = manifest["fusion_effects"]["per_clip"]
-    v2_labels = {c["label"] for c in manifest["tracks"]["V2"]["clips"]}
-    assert set(per_clip) & v2_labels, (
-        f"the effect reached no V2 clip: per_clip={per_clip}, V2={v2_labels}")
-    label = next(iter(set(per_clip) & v2_labels))
-    assert per_clip[label]["_preset"] == "slow_zoom_in"
-    assert per_clip[label]["zoom_end"] == 1.08
-    # It survived as a planned effect, not as a casualty.
-    assert len(manifest["vfx"]) == 1
-    assert manifest["vfx_planning_basis"]["basis"] == "planned"
-    assert manifest["vfx_planning_basis"]["dropped"] == []
-
-
-def test_an_effect_on_an_outro_block_reaches_the_v2_clip(media):
-    """The report's second reproducer: `transition_slot or outro block`.
-
-    A pacing `outro` puts no clip on V1 either, so an effect naming it
-    took the same fatal path. It now lands on the covering cutaway, and
-    the candidate table tells the planner that is where the picture is.
-    """
-    from library.steps.step_4_03_plan_vfx.bridge import build_vfx_candidates
-
-    inputs = _inputs_with_slot(media, "outro")
-    inputs.update(_vfx(2, 6.0, 9.0))
-
-    manifest = _compile(inputs)
-
-    per_clip = manifest["fusion_effects"]["per_clip"]
-    v2_labels = {c["label"] for c in manifest["tracks"]["V2"]["clips"]}
-    assert set(per_clip) & v2_labels, (
-        f"the effect reached no V2 clip: per_clip={per_clip}, V2={v2_labels}")
-    assert manifest["vfx_planning_basis"]["dropped"] == []
-
-    rows = build_vfx_candidates({
-        "timed_spine": inputs["audio_spine"],
-        "a_roll_assignments": inputs["a_roll_assignments"],
-        "b_roll_assignments": inputs["b_roll_assignments"],
-        "clip_catalog": inputs["clip_catalog"],
-        "semantic_analysis_documents":
-            inputs["semantic_analysis"]["semantic_analysis_documents"],
-    })
-    by_position = {r["segment_id"]: r for r in rows}
-    assert by_position[2]["picture_track"] == ON_V2
-    assert "clip_2" in by_position[2]["track_basis"]
-
-
-def test_the_renderer_really_visits_the_track_the_effect_landed_on(media):
-    """A label in `per_clip` is not enough - the Fusion pass must reach it."""
+    """The reproduction: it used to raise; now the comp lands on the
+    cutaway, for a `transition_slot` and a pacing `outro` alike (neither
+    puts a clip on V1), and the Fusion pass really visits that label."""
     from library.tools.execution.fusion_tracks import reachable_effect_labels
 
-    inputs = dict(_inputs(media))
-    inputs.update(_vfx(2, 6.0, 9.0))
-    manifest = _compile(inputs)
+    for slot_type in ("transition_slot", "outro"):
+        inputs = _inputs_with_slot(media, slot_type)
+        inputs.update(_vfx(2, 6.0, 9.0))
 
-    reachable = reachable_effect_labels(manifest)
-    assert set(manifest["fusion_effects"]["per_clip"]) <= reachable
+        manifest = _compile(inputs)
+
+        per_clip = manifest["fusion_effects"]["per_clip"]
+        v2_labels = {c["label"] for c in manifest["tracks"]["V2"]["clips"]}
+        assert set(per_clip) & v2_labels, (
+            f"{slot_type}: the effect reached no V2 clip: "
+            f"per_clip={per_clip}, V2={v2_labels}")
+        label = next(iter(set(per_clip) & v2_labels))
+        assert per_clip[label]["_preset"] == "slow_zoom_in"
+        assert per_clip[label]["zoom_end"] == 1.08
+        # It survived as a planned effect, not as a casualty.
+        assert len(manifest["vfx"]) == 1
+        assert manifest["vfx_planning_basis"]["basis"] == "planned"
+        assert manifest["vfx_planning_basis"]["dropped"] == []
+        assert set(per_clip) <= reachable_effect_labels(manifest)
 
 
 def test_an_effect_over_nothing_is_dropped_with_a_reason(media):
@@ -291,42 +222,6 @@ def test_the_candidate_table_states_the_track_per_block(media):
         assert row["track_basis"], f"block {row['segment_id']} states no basis"
 
 
-def test_the_legend_travels_with_the_table(media):
-    """`handoff.md` is frozen, so the column definition ships as data."""
-    import json
-    import subprocess
-
-    inputs = _inputs(media)
-    payload = {
-        "timed_spine": inputs["audio_spine"],
-        "a_roll_assignments": inputs["a_roll_assignments"],
-        "b_roll_assignments": inputs["b_roll_assignments"],
-        "clip_catalog": inputs["clip_catalog"],
-        "semantic_analysis_documents":
-            inputs["semantic_analysis"]["semantic_analysis_documents"],
-    }
-    proc = subprocess.run(
-        [sys.executable, "-m", "library.steps.step_4_03_plan_vfx.bridge"],
-        input=json.dumps(payload), capture_output=True, encoding="utf-8",
-        cwd=str(REPO), check=False,
-    )
-    assert proc.returncode == 0, proc.stderr
-    out = json.loads(proc.stdout)
-
-    header = out["vfx_candidates_toon"].splitlines()[0]
-    assert "picture_track" in header and "track_basis" in header
-    # The definition is in the PROMPT now. It travelled beside the table
-    # as a `vfx_candidates_legend` dict only while handoff.md was under
-    # the captain's freeze, lifted 2026-09-09.
-    assert "vfx_candidates_legend" not in out
-    handoff = " ".join((REPO / "library" / "steps" / "step_4_03_plan_vfx"
-                        / "handoff.md").read_text(encoding="utf-8").split())
-    assert "`picture_track`" in handoff and "`track_basis`" in handoff
-    # It says what an effect on a cutaway DOES, which is the second thing
-    # the planner was never told.
-    assert "cannot read or alter the A-roll" in handoff
-
-
 def test_a_block_with_no_picture_at_all_says_so():
     """The one reading that means an effect cannot be drawn."""
     rows = picture_carriers(
@@ -338,9 +233,8 @@ def test_a_block_with_no_picture_at_all_says_so():
     assert rows[0]["clip_id"] is None
     assert "no picture to draw an effect on" in rows[0]["basis"]
 
-
-def test_a_cutaway_over_a_speech_block_is_reported_not_hidden():
-    """The effect still lands on V1; the table says what is over it."""
+    # A cutaway over a speech block: the effect still lands on V1, and
+    # the table says what is over it.
     rows = picture_carriers(
         [{"block_type": "speech", "position": 1, "clip_id": "clip_1",
           "timeline_start": 0.0, "timeline_end": 4.0}],

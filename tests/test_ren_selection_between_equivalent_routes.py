@@ -147,43 +147,27 @@ def test_length_changing_spec_stays_composed_with_the_receipt(tmp_path):
 # ── Four routes, not two ───────────────────────────────────────────
 
 
-@pytest.mark.parametrize("edits,expected", [
-    ([{"op": "set_properties", "row": "V4", "item": 0,
-       "properties": {"ZoomX": 1.5}}], "reel.set_properties"),
-    ([{"op": "entry_motion", "row": "V4", "item": 0,
-       "fade_in_frames": 6}], "reel.entry_motion"),
-])
-def test_single_kind_specs_route_to_the_narrowest_operation(
-        tmp_path, edits, expected):
+def test_single_kind_specs_route_to_the_narrowest_operation(tmp_path):
     """One-kind in-place specs take the operation that owns the kind;
-    anything mixed (or composed at all) rides the touchup, which runs
-    mixed kinds together. All four are chosen, never inherited."""
-    comp = C.compose_with_change(REEL_GOAL, {"reel": 1, "edits": edits},
-                                 _tracks(tmp_path))
-    assert comp.completed
-    assert comp.operations == (expected,)
-    (selection,) = comp.selection
-    assert selection.decided_by == C.SELECTOR
-    assert selection.gate_class == tu.COMPOSED
-
-
-def test_unmeasured_classes_borrow_no_measured_basis(tmp_path):
-    """Risk 5: the 2.37s-vs-208s basis was taken on an ending swap.
-    It testifies about that class and no other - property setting
-    and entry motion route cheap without citing it."""
-    for edits in (
-        [{"op": "set_properties", "row": "V4", "item": 0,
-          "properties": {"ZoomX": 1.5}}],
-        [{"op": "entry_motion", "row": "V4", "item": 0,
-          "fade_in_frames": 6}],
+    anything mixed (or composed at all) rides the touchup. All four are
+    chosen, never inherited. Risk 5: the 2.37s-vs-208s basis was taken
+    on an ending swap and testifies about that class only - these route
+    cheap without citing it, naming it only to decline it."""
+    for edits, expected in (
+        ([{"op": "set_properties", "row": "V4", "item": 0,
+           "properties": {"ZoomX": 1.5}}], "reel.set_properties"),
+        ([{"op": "entry_motion", "row": "V4", "item": 0,
+           "fade_in_frames": 6}], "reel.entry_motion"),
     ):
         comp = C.compose_with_change(
-            REEL_GOAL, {"reel": 1, "edits": edits}, _tracks(tmp_path))
+            REEL_GOAL, {"reel": 1, "edits": edits},
+            _tracks(tmp_path / expected))
+        assert comp.completed
+        assert comp.operations == (expected,)
         (selection,) = comp.selection
+        assert selection.decided_by == C.SELECTOR
+        assert selection.gate_class == tu.COMPOSED
         assert selection.measured_basis_cited is False
-        # The figure may be NAMED only to decline it: the record
-        # says what it was measured on and that it testifies about
-        # nothing else - never as justification for this class.
         assert "testifies about nothing else" in selection.reason
 
 
@@ -227,17 +211,15 @@ def _routable_multi_operation_nodes():
 
 def test_every_routable_node_has_a_selector():
     """Dropped in the suite halving (#1351) with its helper left behind,
-    and the hole was live: `aroll.splice`, `broll.splice`,
-    `transitions.splice`, `vfx.splice` and `sfx.splice` each gave their
+    and the hole was live: the `*.splice` operations each gave their
     node a second route with no selector, so `compose_with_change`
-    raised for every plan through `assign_aroll` - measured
-    2026-10-02 on `optional.compile_manifest.cohesion_review`."""
+    raised for every plan through `assign_aroll` - measured 2026-10-02
+    on `optional.compile_manifest.cohesion_review`. That plan now
+    selects its routes."""
     missing = sorted(set(_routable_multi_operation_nodes())
                      - set(C.selector_coverage()))
     assert not missing, f"routable nodes with no selector: {missing}"
 
-
-def test_a_plan_through_the_splice_nodes_selects_its_routes():
     comp = C.compose_with_change("optional.compile_manifest.cohesion_review")
     assert comp.completed
     assert "aroll.assign" in comp.operations

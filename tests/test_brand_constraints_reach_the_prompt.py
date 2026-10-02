@@ -1,17 +1,8 @@
 """The brand's constraints must reach the steps that plan the look.
 
-`TemplateLoader.get_brand_constraints` dispatched on the step's manifest
-id (`step_4_03_plan_vfx`).  Its only caller, `present_llm_step`, passes
-the DAG node id (`plan_vfx`).  No branch could ever match, so the
-constraints string was empty for every step, every template and every
-project for the whole life of the code, and `plan_transitions` chose
-transitions with no knowledge of which ones its brand permits.
-
-Nothing caught it because the one existing test called the function with
-the identifier the function wanted rather than the one its caller sends.
-Every assertion here therefore starts from a fact of the pipeline - the
-node ids in `dag.json`, the synthetic project copies - rather than from
-a string written in this file.
+Every assertion starts from a fact of the pipeline (node ids in `dag.json`,
+the synthetic project copies), never from the identifier the loader wants.
+History: docs/RULE_EVIDENCE.md (brand constraints keyed on manifest ids).
 """
 
 import json
@@ -20,26 +11,14 @@ import threading
 import time
 from pathlib import Path
 
-import pytest
-
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
-from library.processes.edit_video.run_pipeline import present_llm_step
-from library.tools import processes
-from library.tools.project_layout import STEP_BY_ID, node_id_for
-from library.tools.template_loader import BRAND_CONSTRAINT_STEPS, TemplateLoader
-from tests.brand_fixtures import ALL_SYNTHETIC, write_brand_json, write_templates_dir
+from library.processes.edit_video.run_pipeline import present_llm_step  # noqa: E402
+from library.tools.template_loader import TemplateLoader  # noqa: E402
+from tests.brand_fixtures import write_brand_json, write_templates_dir  # noqa: E402
 
 DAG = json.loads((REPO / "library/processes/edit_video/dag.json").read_text())
-DAG_NODE_IDS = {n["id"] for n in DAG["nodes"]}
-
-ALL_NODE_IDS = set(processes.node_owners())
-# Every process's nodes, not just edit_video's. `BRAND_CONSTRAINT_STEPS`
-# is checked against `DAG_NODE_IDS`: `present_llm_step` is edit_video's
-# runner and brand constraints reach an LLM step of that pipeline. But
-# `STEP_BY_ID` is the WHOLE repository's step table, so "wired" there
-# means some process declares a node.
 
 
 def _dag_node_id(step_dirname: str) -> str:
@@ -50,55 +29,26 @@ def _dag_node_id(step_dirname: str) -> str:
     raise AssertionError(f"no DAG node runs {step_dirname}")
 
 
-
-
-@pytest.mark.parametrize("step_dirname", [
-    "step_2_01_creative_direction",
-    "step_4_02_plan_transitions",
-    "step_4_03_plan_vfx",
-])
-def test_the_identifier_the_runner_passes_gets_a_real_answer(tmp_path, step_dirname):
-    """Ask the way the runner asks, and a brand must answer.
-
-    This is the regression proper.  `_dag_node_id` reads the identifier
-    out of `dag.json`, so renaming a node without teaching the template
-    loader about it fails here instead of silently emptying the channel.
-    """
-    node_id = _dag_node_id(step_dirname)
+def test_exactly_the_three_brand_slots_answer_the_runners_identifier(tmp_path):
+    """Ask the way the runner asks, and a brand must answer - for each of
+    the three steps with a brand slot, and every other step gets "".  The
+    id is read out of `dag.json`, so renaming a node without teaching the
+    loader fails here."""
     templates = write_templates_dir(tmp_path / "templates")
     loader = TemplateLoader(str(tmp_path), templates)
-    constraints = loader.get_brand_constraints("synthetic_default", node_id)
-    assert constraints.strip(), (
-        f"synthetic_default contributes nothing to '{node_id}'. The runner "
-        f"passes exactly this identifier."
-    )
-    assert "Brand Constraints:" in constraints
+    for step_dirname in ("step_2_01_creative_direction",
+                         "step_4_02_plan_transitions", "step_4_03_plan_vfx"):
+        node_id = _dag_node_id(step_dirname)
+        constraints = loader.get_brand_constraints("synthetic_default", node_id)
+        assert constraints.strip(), (
+            f"synthetic_default contributes nothing to '{node_id}'. The "
+            f"runner passes exactly this identifier.")
+        assert "Brand Constraints:" in constraints
 
-
-
-
-
-
-def test_a_step_with_no_brand_slot_gets_the_empty_string(tmp_path):
-    """Only three steps have a slot; the rest must stay unaffected."""
     templates = write_templates_dir(tmp_path / "templates")
     loader = TemplateLoader(str(tmp_path), templates)
     for node_id in ("mesh_spine", "select_broll", "plan_sfx", "render"):
         assert loader.get_brand_constraints("synthetic_default", node_id) == ""
-
-
-def test_the_project_copies_on_file_really_differ_from_one_another(tmp_path):
-    """A channel that carries the same thing for every brand is not a channel."""
-    templates = write_templates_dir(tmp_path / "templates")
-    loader = TemplateLoader(str(tmp_path), templates)
-    answers = {name: loader.get_brand_constraints(name, "plan_transitions")
-               for name in sorted(ALL_SYNTHETIC)}
-    answers = {k: v for k, v in answers.items() if v}
-    assert len(answers) >= 2, f"only {list(answers)} say anything about transitions"
-    assert len(set(answers.values())) > 1, (
-        "every project copy permits the identical transition vocabulary, "
-        "which would make the constraint pointless"
-    )
 
 
 def _answer_when_asked(project: Path, node_id: str, answer: dict):

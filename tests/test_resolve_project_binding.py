@@ -96,13 +96,7 @@ def test_sync_qa_reads_captions_off_the_builds_own_row():
     """
     assert _caption_track_index(_plan_with_caption_row(2)) == 2
     assert _caption_track_index(_plan_with_caption_row(3)) == 3
-
-
-def test_sync_qa_without_a_plan_stays_on_v3():
-    """An older build result with no track plan still checks V3.
-
-    Defect prevented, the other direction: a fallback that refuses
-    instead of reading what every recorded build used.
-    """
+    # The other direction: an older build result with no track plan
+    # still checks V3, rather than refusing.
     assert _caption_track_index(None) == 3
     assert _caption_track_index({}) == 3

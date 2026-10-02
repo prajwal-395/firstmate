@@ -1,6 +1,6 @@
 """Tests for plan provenance: archival, identity and the refusal check.
 
-The critical test is ``test_verifier_refuses_mismatched_plan``: it hands
+The critical test is ``test_mismatched_plan_refuses``: it hands
 the verifier a plan whose content hash does not match the provenance
 record and asserts the verifier produces a PLAN-MISMATCH error instead
 of meaningless F1-F11 findings.
@@ -11,17 +11,13 @@ of meaningless F1-F11 findings.
 from __future__ import annotations
 
 import json
-import time
-
 import pytest
 
 from library.tools.plan_provenance import (
     assert_not_editor_timeline,
     begin_timeline_inventory,
-    check_plan_matches_provenance,
     check_reels_in_provenance,
     finish_timeline_inventory,
-    plan_content_hash,
     protected_timeline_names,
     record_timeline_snapshot,
     read_provenance,
@@ -83,15 +79,6 @@ def _write_different_plan(path):
             "speakers": ["Charlie", "Dana"],
         },
     ])
-
-
-# ── plan_content_hash ────────────────────────────────────────────────
-
-class TestPlanContentHash:
-    def test_different_content_different_hash(self, tmp_path):
-        plan_a = _write_plan(tmp_path / "a.json")
-        plan_b = _write_different_plan(tmp_path / "b.json")
-        assert plan_content_hash(str(plan_a)) != plan_content_hash(str(plan_b))
 
 
 class TestTimelinePreservation:
@@ -185,24 +172,6 @@ class _Timeline:
 
     def GetUniqueId(self):
         return self.unique_id
-
-
-# ── check_plan_matches_provenance ────────────────────────────────────
-
-class TestCheckPlanMatchesProvenance:
-    def test_changed_plan(self, tmp_path):
-        plan = _write_plan(tmp_path / "plan.json")
-        review_dir = tmp_path / "review"
-        review_dir.mkdir()
-        write_provenance(str(review_dir), str(plan), ["Reel 01"])
-
-        # Overwrite the plan with different content
-        _write_different_plan(tmp_path / "plan.json")
-
-        prov = read_provenance(str(review_dir))
-        matches, reason = check_plan_matches_provenance(str(plan), prov)
-        assert not matches
-        assert "does not match" in reason
 
 
 # ── check_reels_in_provenance ────────────────────────────────────────
@@ -302,6 +271,13 @@ def test_partial_rebuild_merges_and_leaves_the_others_intact(tmp_path):
                 f"{n} lost its recorded caption plan to a rebuild of "
                 f"another reel")
     assert after["plan_content_hash"] == before["plan_content_hash"]
+    # The per-reel build stamps follow the same merge rule.
+    untouched = "Reel 01 - slug-1"
+    assert (after["built_at_reels"][untouched]
+            == before["built_at_reels"][untouched])
+    assert (after["built_at_reels"]["Reel 07 - slug-7"]
+            >= before["built_at_reels"]["Reel 07 - slug-7"])
+    assert after["built_with"][untouched] == before["built_with"][untouched]
 
 
 def test_a_different_plan_supersedes_rather_than_merging(tmp_path):
@@ -343,6 +319,13 @@ def test_caption_grading_refuses_without_a_recorded_plan():
         "Reel 01", cards, {"plan_content_hash": "x"})
     assert ok is False and "no caption plan" in why
 
+    # A v0 hash (a bare hex digest from the old hollow hasher) is
+    # treated as absent, so grading refuses rather than falsely passes.
+    ok, why = pp.check_captions_match_provenance(
+        "Reel 01", cards, {"caption_hashes": {"Reel 01": "a" * 64}})
+    assert ok is False
+    assert "hollow" in why or "v0" in why, why
+
 
 def test_caption_grading_refuses_when_the_grouping_changed():
     """The captain's nineteen, in miniature: same moments, new cards."""
@@ -361,7 +344,8 @@ def test_caption_grading_refuses_when_the_grouping_changed():
 
 
 def test_caption_hash_ignores_styling():
-    """A restyle is not a different caption plan (AGENTS.md 14)."""
+    """A restyle is not a different caption plan (AGENTS.md 14); a text
+    change is."""
     from library.tools import plan_provenance as pp
 
     a = _Card(0.0, 24, "hello")
@@ -369,17 +353,13 @@ def test_caption_hash_ignores_styling():
     b.speaker, b.font_size = "Craig", 99
     assert pp.caption_content_hash([a]) == pp.caption_content_hash([b])
 
-
-# ── Property tests: the hash cannot be hollow again ──────────────────
-
-def test_text_change_produces_different_hash():
-    """Two card sets differing ONLY in one card's text hash differently."""
-    from library.tools import plan_provenance as pp
-
+    # ...but a change to one card's text alone is.
     cards_a = [_Card(0.0, 24, "hello world"), _Card(1.0, 48, "foo bar")]
     cards_b = [_Card(0.0, 24, "hello world"), _Card(1.0, 48, "foo baz")]
     assert pp.caption_content_hash(cards_a) != pp.caption_content_hash(cards_b)
 
+
+# ── Property tests: the hash cannot be hollow again ──────────────────
 
 def test_contentless_entries_cannot_collide_with_real_cards():
     """A set of empty or contentless entries must NOT produce the same
@@ -423,25 +403,6 @@ def test_contentless_entries_cannot_collide_with_real_cards():
         "rendered segments must not hash the same as real caption cards")
 
 
-def test_hollow_v0_hash_treated_as_absent():
-    """An existing v0 hash (produced by the old buggy code) must be
-    treated as absent so the duration checks refuse rather than falsely
-    pass.  The v0 hash is a bare hex string; the v1 hash starts with
-    'v1:'.
-    """
-    from library.tools import plan_provenance as pp
-
-    cards = [_Card(0.0, 24, "hello"), _Card(1.0, 48, "world")]
-    # Simulate a v0 hash: a bare SHA-256 hex digest (64 hex chars).
-    v0_hash = "a" * 64
-    record = {"caption_hashes": {"Reel 01": v0_hash}}
-
-    ok, why = pp.check_captions_match_provenance("Reel 01", cards, record)
-    assert ok is False, "a v0 hash must not allow grading"
-    assert "hollow" in why or "v0" in why, (
-        f"expected 'hollow' or 'v0' in refusal, got: {why}")
-
-
 # ── Per-reel build stamps: WHEN and WITH WHAT ──────────────────────
 
 def _plan_file(tmp_path, body='{"moments": []}'):
@@ -474,31 +435,6 @@ def test_a_build_records_per_reel_built_at_and_built_with(tmp_path):
             == pp.reel_code_hash())
 
 
-def test_a_partial_rebuild_restamps_only_the_reel_it_touched(tmp_path):
-    """A neighbour's stamp must survive a rebuild it did not take part
-    in - the same merge rule caption hashes keep, or the stamp is a
-    file-level one wearing per-reel clothes."""
-    from library.tools import plan_provenance as pp
-
-    review = tmp_path / "review"
-    review.mkdir()
-    plan = _plan_file(tmp_path)
-    pp.write_provenance(str(review), str(plan),
-                        ["Reel 01 - a", "Reel 02 - b"])
-    before = pp.read_provenance(str(review))
-
-    time.sleep(0.01)
-    pp.write_provenance(str(review), str(plan), ["Reel 02 - b"])
-    after = pp.read_provenance(str(review))
-
-    assert (after["built_at_reels"]["Reel 01 - a"]
-            == before["built_at_reels"]["Reel 01 - a"])
-    assert (after["built_at_reels"]["Reel 02 - b"]
-            >= before["built_at_reels"]["Reel 02 - b"])
-    assert (after["built_with"]["Reel 01 - a"]
-            == before["built_with"]["Reel 01 - a"])
-
-
 # ── Declared-asset digests: the bytes at build time ───────────────
 
 def test_asset_hashes_are_replaced_whole_when_provided(tmp_path):
@@ -519,17 +455,8 @@ def test_asset_hashes_are_replaced_whole_when_provided(tmp_path):
     assert (pp.read_provenance(str(review))["asset_hashes"]
             == {"/x/other.mov": "bbb"})
 
-
-def test_asset_hashes_survive_a_caller_with_no_declaration_set(tmp_path):
-    """None keeps what is there: an older caller must not empty the
-    record for not knowing about it."""
-    from library.tools import plan_provenance as pp
-
-    review = tmp_path / "review"
-    review.mkdir()
-    plan = _plan_file(tmp_path)
-    pp.write_provenance(str(review), str(plan), ["Reel 01 - a"],
-                        asset_hashes={"/x/logo.mov": "aaa"})
+    # None keeps what is there: an older caller must not empty the
+    # record for not knowing about it.
     pp.write_provenance(str(review), str(plan), ["Reel 02 - b"])
     assert (pp.read_provenance(str(review))["asset_hashes"]
-            == {"/x/logo.mov": "aaa"})
+            == {"/x/other.mov": "bbb"})

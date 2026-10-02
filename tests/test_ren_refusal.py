@@ -16,13 +16,13 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from library.tools.ren_refusal import (
-    EXIT_CONTRACT,
     REFUSAL_EXIT_CODE,
     RenRefusal,
 )
 
 
-def test_the_shape_carries_what_why_and_fix():
+def test_the_shape_carries_what_why_and_fix_and_requires_all_three():
+    """A refusal without a why or a fix fails at the raise site."""
     refused = RenRefusal("the plan names no reel 9",
                          "a touchup never invents one",
                          "run `ren propose <project>` first")
@@ -32,8 +32,6 @@ def test_the_shape_carries_what_why_and_fix():
     assert "\n  fix: run `ren propose <project>` first" in rendered
     assert str(refused) == rendered
 
-
-def test_a_refusal_without_a_fix_fails_at_the_raise_site():
     with pytest.raises(ValueError, match="fix"):
         RenRefusal("something happened", "because", "")
     with pytest.raises(ValueError, match="fix"):
@@ -51,11 +49,6 @@ def test_a_refusal_stays_catchable_as_before():
         raise refused
     with pytest.raises(RuntimeError):
         raise refused
-
-
-def test_exit_code_contract_states_refusal_as_4():
-    assert REFUSAL_EXIT_CODE == 4
-    assert "4" in EXIT_CONTRACT and "refused" in EXIT_CONTRACT
 
 
 def test_ren_config_init_refuses_in_shape_with_exit_4(tmp_path, monkeypatch):

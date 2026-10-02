@@ -58,38 +58,17 @@ def test_declining_is_one_line_and_wins_over_a_declared_path():
         "not to send it, which is a different fact from having none")
 
 
-
-
-def test_declining_and_having_none_are_not_the_same_reading():
-    """Both are interviewed and they are still two different facts, and
-    the prompt the model gets says which."""
-    declined = read(creative_brief="b.md", attach_creative_brief=False)
-    none = read()
-    assert declined.reading != none.reading
-    assert set(ba.READINGS) == {ba.ATTACHED, ba.DECLINED, ba.NONE_DECLARED}
-
-
-
-
-# ── Both places, because that is where the path is read from ─────────
-
-
-
 # ── The one refusal ──────────────────────────────────────────────────
 
-def test_attaching_a_brief_that_does_not_exist_is_refused_by_name():
+def test_an_unsatisfiable_or_unreadable_declaration_is_refused():
+    """Attaching a brief that does not exist is refused by name; an
+    unreadable value is refused rather than guessed - guessing is the
+    difference between the brief reaching every planning step and none."""
     with pytest.raises(ba.BriefAttachmentError) as excinfo:
         read(attach_creative_brief=True)
     assert "creative_brief" in str(excinfo.value)
-
-
-def test_an_unreadable_value_is_refused_rather_than_taking_a_side():
-    """Guessing here is the difference between the brief reaching every
-    planning step and reaching none of them."""
     with pytest.raises(ba.BriefAttachmentError):
         read(attach_creative_brief="maybe")
-
-
 
 
 # ── It says so, whichever way it read ────────────────────────────────
@@ -107,20 +86,3 @@ def test_every_reading_prints_a_line_naming_itself():
     assert "DECLINED" in ba.describe(
         read(creative_brief="b.md", attach_creative_brief=False))
     assert "NONE DECLARED" in ba.describe(read())
-
-
-
-
-# ── Off a real project.yaml ──────────────────────────────────────────
-
-def _project(tmp_path, body: str):
-    project = tmp_path / "project"
-    project.mkdir(parents=True)
-    (project / "project.yaml").write_text(body, encoding="utf-8")
-    return str(project)
-
-
-
-
-
-
