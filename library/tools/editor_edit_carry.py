@@ -24,14 +24,27 @@ and keeps every source frame.
   delete does the same - which in Resolve removes that TIME from every
   row (`_ripple_collateral`), so a rippled cut that another row's item
   overlaps refuses rather than trimming that item.
+- `trim`: a passage the editor shortened at its head, its tail or both;
+  staging plays only the kept source range. Rippled or lifted, as the
+  editor did it. Carried through `composed_edit` - the delete and
+  re-place Resolve allows - with the comp pass re-run over a manifest
+  whose trimmed specs name the kept range (`_apply_trims`).
+- `move`: an item that kept its source but sits somewhere else, beyond
+  what the editor's ripples explain. Its place is stated as the PICTURE
+  it now sits over - the source frame playing on V1 at its new start -
+  so a rebuild that moves V1 moves the target with it (`_apply_moves`).
+  Moving an item ON V1 is a reorder of the picture and is not carried.
 - `enabled`: an item switched off or on.
 - `transform`: one Edit-page transform property (Pan, Tilt, Zoom...)
   the editor set on an item.
 
-A trim (an item's source range shortened) and a record move of an item
-that kept its source are recognised and NOT YET carried: they stay
-step one's refusal, named as what they are. So does anything else
-(an added item, a grade, a marker the marker carry cannot place).
+Ripples are read off the record's own before and after reads
+(`_shift_model`): an item that kept its source moved by exactly the
+lengths of the rippled cuts and trims before it, and an edit is
+rippled when the items after it say so. A shift nothing explains is a
+move. Anything else (an added item, a grade, an extension past the
+original passage, a marker the marker carry cannot place) stays step
+one's refusal, named as what it is.
 
 Every carried edit records the human wording, where it came from (the
 editor-change record id), its before/after values and the plan version
@@ -45,16 +58,17 @@ Apply, then verify by re-reading
 --------------------------------
 `carry_editor_edits` plans every edit against a full read of staging
 before it writes anything; an edit that cannot be mapped (two staged
-items play the same passage, or a staged item plays PART of a cut
-passage) refuses by name with the source ranges, nothing written.
-`verify_carried_edits` judges the result on a fresh read of staging, in
-source ranges, never in row counts: a cut passage still playing, an
-item not holding its enabled state or transform, refuses the
-promotion. A write's return value is never the verdict.
+items play the same passage, a staged item plays PART of a cut passage,
+a ripple that would change another row's item) refuses by name with
+the source ranges, nothing written. It then writes in four phases,
+each re-planned off a fresh read because a re-placed item is a new
+object: trims, cuts, moves, then the in-place enabled and transform
+writes. `verify_carried_edits` judges the result on a fresh read of
+staging, in source ranges, never in row counts. A write's return value
+is never the verdict.
 
 `tests/test_editor_edit_carry.py`.
 """
-
 from __future__ import annotations
 
 import os
@@ -153,69 +167,121 @@ def _base(final: str, kind: str, item: dict, *, field: str, record: dict,
     }
 
 
-def _rippled(removed: dict, changes: list[dict]) -> bool:
-    """Did the editor close the gap the removed item left?
+def _stable(item: dict) -> tuple:
+    return (_row(item), item.get("source_identity"),
+            item.get("source_in_frame"), item.get("source_out_frame"))
 
-    Read off the same record: an item that kept its source and sat at
-    or after the cut moved EARLIER. Nothing moved earlier is a lift.
+
+def _picture_anchor(snapshot: dict, frame) -> dict | None:
+    """The source frame V1 plays at record `frame`, or None."""
+    for item in snapshot.get("items") or ():
+        if (item.get("track_type") == "video"
+                and item.get("track_index") == 1
+                and isinstance(item.get("record_in"), int)
+                and isinstance(item.get("source_in_frame"), int)
+                and item["record_in"] <= frame < item["record_out"]):
+            return {"anchor_row": _row(item),
+                    "anchor_source_identity": item.get("source_identity"),
+                    "anchor_source_frame":
+                        item["source_in_frame"] + frame - item["record_in"]}
+    return None
+
+
+def _shift_model(events: list[dict], pairs: list[tuple]) -> None:
+    """Decide each event's `ripple` from what the items after it did.
+
+    `events` are cuts and trims in the BEFORE read, each with `start`,
+    `end` and `amount` (frames it removes); `pairs` are `(before,
+    after)` reads of items that kept their source. An item's shift is
+    explained by the rippled events that end at or before its start; an
+    event ripples when the items between it and the next one moved by
+    that much more. Sets `ripple` on every event, in place.
     """
-    end = removed.get("record_out")
-    if not isinstance(end, int):
-        return False
-    for change in changes:
-        if change["kind"] != "item_changed":
-            continue
-        moved = change["changed"].get("record_in")
-        if not moved:
-            continue
-        before, after = moved["before"], moved["after"]
-        if (isinstance(before, int) and isinstance(after, int)
-                and before >= end and after < before):
-            return True
-    return False
+    ordered = sorted(events, key=lambda event: (event["end"], event["start"]))
+    prior = 0
+    for position, event in enumerate(ordered):
+        following = ordered[position + 1:]
+        limit = following[0]["start"] if following else None
+        window = [after["record_in"] - before["record_in"]
+                  for before, after in pairs
+                  if before["record_in"] >= event["end"]
+                  and (limit is None or before["record_in"] < limit)]
+        if not window:
+            window = [after["record_in"] - before["record_in"]
+                      for before, after in pairs
+                      if before["record_in"] >= event["end"]]
+            event["ripple"] = any(shift <= -(prior + event["amount"])
+                                  for shift in window)
+        else:
+            event["ripple"] = -(prior + event["amount"]) in window
+        if event["ripple"]:
+            prior += event["amount"]
+
+
+def _explained(events: list[dict], frame: int) -> int:
+    return -sum(event["amount"] for event in events
+                if event["ripple"] and event["end"] <= frame)
+
+
+def _pairs(record: dict) -> list[tuple]:
+    """Items that kept their source, as `(before, after)` reads."""
+    before = record.get("before_snapshot") or {}
+    after = record.get("after_snapshot") or {}
+    if before.get("items") is not None and after.get("items") is not None:
+        olds, news = {}, {}
+        for item in before["items"]:
+            olds.setdefault(_stable(item), []).append(item)
+        for item in after["items"]:
+            news.setdefault(_stable(item), []).append(item)
+        return [(old, new) for key in olds
+                for old, new in zip(olds[key], news.get(key, ()))
+                if isinstance(old.get("record_in"), int)
+                and isinstance(new.get("record_in"), int)]
+    return [(change["before"], change["after"])
+            for change in record.get("changes") or ()
+            if change["kind"] == "item_changed"
+            and isinstance(change["before"].get("record_in"), int)
+            and isinstance(change["after"].get("record_in"), int)]
 
 
 def derive_edits(record: dict, *, plan_version=None) -> tuple[list, list]:
     """One editor-change record as carried edits, plus what is not carried.
 
     Pure. Returns `(edits, uncarried)`, where each `uncarried` entry is
-    `{"change", "why"}` - a trim, a move, an addition or a field this
-    module does not carry, said as what it is.
+    `{"change", "why"}` - an addition, an extension, a picture reorder
+    or a field this module does not carry, said as what it is.
     """
     final = str(record.get("timeline"))
     changes = list(record.get("changes") or ())
     removed = [change for change in changes
                if change["kind"] == "item_removed"]
     added = [change for change in changes if change["kind"] == "item_added"]
-    edits, uncarried = [], []
+    edits, uncarried, events = [], [], []
 
-    def trimmed_into(change):
-        old = change["before"]
+    def partners_of(old):
+        passage = {"row": _row(old),
+                   "source_identity": old.get("source_identity"),
+                   "source_in_frame": old.get("source_in_frame"),
+                   "source_out_frame": old.get("source_out_frame")}
         return [other for other in added
-                if _row(other["after"]) == _row(old)
-                and other["after"].get("source_identity")
-                == old.get("source_identity")
-                and _overlaps({"row": _row(old),
-                               "source_identity": old.get("source_identity"),
-                               "source_in_frame": old.get("source_in_frame"),
-                               "source_out_frame": old.get(
-                                   "source_out_frame")}, other["after"])]
+                if _overlaps(passage, other["after"])]
 
-    trimmed_added = set()
+    def event_for(old, amount, edit):
+        start, end = old.get("record_in"), old.get("record_out")
+        if not isinstance(start, int) or not isinstance(end, int):
+            return
+        for event in events:
+            # One passage cut from picture and sound is ONE event.
+            if (event["start"], event["end"], event["amount"]) == (
+                    start, end, amount):
+                event["edits"].append(edit)
+                return
+        events.append({"start": start, "end": end, "amount": amount,
+                       "edits": [edit]})
+
+    used_added = set()
     for change in removed:
         old = change["before"]
-        partners = trimmed_into(change)
-        if partners:
-            for other in partners:
-                trimmed_added.add(id(other))
-            uncarried.append({
-                "change": change,
-                "why": (f"a trim of {_row(old)} {old.get('name')!r} "
-                        f"(source {_span(*_source(old))} now plays as "
-                        + ", ".join(_span(*_source(other["after"]))
-                                    for other in partners)
-                        + ") - trims are not carried yet")})
-            continue
         if not isinstance(old.get("source_in_frame"), int) or \
                 not isinstance(old.get("source_out_frame"), int):
             uncarried.append({
@@ -224,18 +290,105 @@ def derive_edits(record: dict, *, plan_version=None) -> tuple[list, list]:
                         f"readable source range, so its removal cannot "
                         f"be stated as a passage")})
             continue
-        ripple = _rippled(old, changes)
-        edits.append(_base(
+        partners = partners_of(old)
+        for other in partners:
+            used_added.add(id(other))
+        if len(partners) > 1:
+            uncarried.append({
+                "change": change,
+                "why": (f"{_row(old)} {old.get('name')!r} source "
+                        f"{_span(*_source(old))} now plays as "
+                        + ", ".join(_span(*_source(other["after"]))
+                                    for other in partners)
+                        + " - a split passage is not carried")})
+            continue
+        if partners:
+            kept_in, kept_out = _source(partners[0]["after"])
+            if not (isinstance(kept_in, int) and isinstance(kept_out, int)
+                    and old["source_in_frame"] <= kept_in < kept_out
+                    <= old["source_out_frame"]):
+                uncarried.append({
+                    "change": change,
+                    "why": (f"{_row(old)} {old.get('name')!r} source "
+                            f"{_span(*_source(old))} now plays "
+                            f"{_span(kept_in, kept_out)} - an extension "
+                            f"past the passage is not carried")})
+                continue
+            head = kept_in - old["source_in_frame"]
+            tail = old["source_out_frame"] - kept_out
+            edit = _base(
+                final, "trim", old, field="", record=record,
+                plan_version=plan_version, wording="",
+                before={"source_in_frame": old["source_in_frame"],
+                        "source_out_frame": old["source_out_frame"],
+                        "record_in": old.get("record_in")},
+                after={"source_in_frame": kept_in,
+                       "source_out_frame": kept_out,
+                       "head": head, "tail": tail,
+                       "record_in": partners[0]["after"].get("record_in")})
+            edits.append(edit)
+            event_for(old, head + tail, edit)
+            continue
+        edit = _base(
             final, "cut", old, field="", record=record,
-            plan_version=plan_version,
-            wording=(f"Cut {old.get('name')!r} source "
-                     f"{_span(*_source(old))} from {_row(old)}"
-                     f"{' and close the gap' if ripple else ''}"),
+            plan_version=plan_version, wording="",
             before={"record_in": old.get("record_in"),
                     "record_out": old.get("record_out"), "present": True},
-            after={"present": False}) | {"ripple": ripple})
+            after={"present": False})
+        edits.append(edit)
+        event_for(old, old["source_out_frame"] - old["source_in_frame"], edit)
+
+    pairs = _pairs(record)
+    _shift_model(events, pairs)
+    for event in events:
+        for edit in event["edits"]:
+            edit["ripple"] = event["ripple"]
+            passage = _span(edit["source_in_frame"], edit["source_out_frame"])
+            gap = " and close the gap" if event["ripple"] else ""
+            if edit["kind"] == "cut":
+                edit["wording"] = (f"Cut {edit['name']!r} source {passage} "
+                                   f"from {edit['row']}{gap}")
+            else:
+                kept = _span(edit["after"]["source_in_frame"],
+                             edit["after"]["source_out_frame"])
+                edit["wording"] = (f"Trim {edit['name']!r} source {passage} "
+                                   f"on {edit['row']} to {kept}{gap}")
+
+    after_snapshot = record.get("after_snapshot") or {}
+    for before, after in pairs:
+        shift = after["record_in"] - before["record_in"]
+        if shift == _explained(events, before["record_in"]):
+            continue
+        what = (f"{_row(after)} {after.get('name')!r} source "
+                f"{_span(*_source(after))}")
+        if after.get("track_type") == "video" and \
+                after.get("track_index") == 1:
+            uncarried.append({
+                "change": {"kind": "item_changed", "before": before,
+                           "after": after, "changed": {}},
+                "why": (f"{what} moved {shift:+d} on the picture row - a "
+                        f"reorder of the picture is not carried")})
+            continue
+        anchor = _picture_anchor(after_snapshot, after["record_in"])
+        if anchor is None:
+            uncarried.append({
+                "change": {"kind": "item_changed", "before": before,
+                           "after": after, "changed": {}},
+                "why": (f"{what} moved to record {after['record_in']}, "
+                        f"where no picture plays to anchor it")})
+            continue
+        edits.append(_base(
+            final, "move", after, field="record_in", record=record,
+            plan_version=plan_version,
+            wording=(f"Move {after.get('name')!r} source "
+                     f"{_span(*_source(after))} on {_row(after)} over "
+                     f"source frame {anchor['anchor_source_frame']:,} of "
+                     f"the picture"),
+            before={"record_in": before["record_in"]},
+            after={**anchor, "record_in": after["record_in"]}))
+
     for change in added:
-        if id(change) in trimmed_added:
+        if id(change) in used_added:
             continue
         item = change["after"]
         uncarried.append({
@@ -283,8 +436,8 @@ def derive_edits(record: dict, *, plan_version=None) -> tuple[list, list]:
                                  f"{_span(*_source(new))} on {_row(new)}"),
                         before=old_t.get(key), after=new_t[key]))
             elif field in RECORD_FIELDS or field in ("duration", "composite"):
-                # A record move is checked by the guard's own re-read;
-                # `composite` mirrors transform keys already carried.
+                # A record shift is the shift model's (above); `composite`
+                # mirrors transform keys already carried.
                 continue
             else:
                 uncarried.append({
@@ -334,42 +487,76 @@ def edits_in_force(project_folder: str, final: str,
     return list(by_id.values()), superseded
 
 
+def _kept(edit: dict) -> dict:
+    """A trim edit's identity, moved onto the source range it keeps."""
+    return {**edit, "source_in_frame": edit["after"]["source_in_frame"],
+            "source_out_frame": edit["after"]["source_out_frame"]}
+
+
+def _refuse(final: str, problems: list[str]) -> None:
+    raise EditorEditCarryRefused(
+        f"REFUSING to replace {final!r}: the editor's carried edits "
+        f"cannot be mapped onto the staged timeline. Nothing was "
+        f"renamed; the live timeline is still in the project.\n"
+        + "\n".join(problems)
+        + f"\nTo accept this loss deliberately, pass "
+          f"--accept-editor-changes {final!r}.")
+
+
 def plan_application(edits: list[dict], staged: dict, final: str) -> dict:
     """What each edit does to `staged` (a full snapshot). Pure; may refuse."""
     items = list(staged.get("items") or ())
-    plan = {"delete": [], "set_enabled": [], "set_transform": [],
-            "already_held": []}
+    plan = {"delete": [], "trim": [], "move": [], "set_enabled": [],
+            "set_transform": [], "already_held": []}
     problems = []
     for edit in edits:
+        passage = _span(edit["source_in_frame"], edit["source_out_frame"])
         exact = [item for item in items if _governs(edit, item)]
-        if edit["kind"] == "cut":
+        if edit["kind"] in ("cut", "trim"):
+            held = (edit["kind"] == "trim"
+                    and [item for item in items
+                         if _governs(_kept(edit), item)])
             partial = [item for item in items
-                       if _overlaps(edit, item) and item not in exact]
+                       if _overlaps(edit, item) and item not in exact
+                       and item not in (held or ())]
             if partial:
                 problems.append(
-                    f"  cut {edit['row']} {edit['name']!r} source "
-                    f"{_span(edit['source_in_frame'], edit['source_out_frame'])}: "
-                    f"staging plays part of it as "
+                    f"  {edit['kind']} {edit['row']} {edit['name']!r} "
+                    f"source {passage}: staging plays part of it as "
                     + ", ".join(f"source {_span(*_source(item))} at record "
                                 f"{_span(item.get('record_in'), item.get('record_out'))}"
                                 for item in partial)
-                    + " - cutting a part is a trim, not carried yet")
+                    + " - the passage no longer maps onto one item")
                 continue
-            if not exact:
+            if held and not exact:
                 plan["already_held"].append(edit["id"])
                 continue
-            plan["delete"].extend({"edit": edit, "item": item}
-                                  for item in exact)
+            if not exact:
+                if edit["kind"] == "cut":
+                    plan["already_held"].append(edit["id"])
+                else:
+                    problems.append(
+                        f"  trim {edit['row']} {edit['name']!r} source "
+                        f"{passage}: staging does not play that passage")
+                continue
+            if edit["kind"] == "trim" and len(exact) != 1:
+                problems.append(
+                    f"  trim {edit['row']} {edit['name']!r} source "
+                    f"{passage}: staging plays it {len(exact)} times")
+                continue
+            plan["delete" if edit["kind"] == "cut" else "trim"].extend(
+                {"edit": edit, "item": item} for item in exact)
             continue
         if len(exact) != 1:
             problems.append(
                 f"  {edit['kind']} {edit['row']} {edit['name']!r} source "
-                f"{_span(edit['source_in_frame'], edit['source_out_frame'])}: "
-                f"staging plays that passage {len(exact)} time(s), so the "
-                f"edit has no single item to land on")
+                f"{passage}: staging plays that passage {len(exact)} "
+                f"time(s), so the edit has no single item to land on")
             continue
         item = exact[0]
-        if edit["kind"] == "enabled":
+        if edit["kind"] == "move":
+            plan["move"].append({"edit": edit, "item": item})
+        elif edit["kind"] == "enabled":
             if item.get("enabled") is edit["after"]:
                 plan["already_held"].append(edit["id"])
             else:
@@ -382,14 +569,9 @@ def plan_application(edits: list[dict], staged: dict, final: str) -> dict:
                 plan["set_transform"].append({"edit": edit, "item": item,
                                               "key": key})
     problems.extend(_ripple_collateral(plan["delete"], items))
+    problems.extend(_trim_collateral(plan["trim"], items))
     if problems:
-        raise EditorEditCarryRefused(
-            f"REFUSING to replace {final!r}: the editor's carried edits "
-            f"cannot be mapped onto the staged timeline. Nothing was "
-            f"renamed; the live timeline is still in the project.\n"
-            + "\n".join(problems)
-            + f"\nTo accept this loss deliberately, pass "
-              f"--accept-editor-changes {final!r}.")
+        _refuse(final, problems)
     return plan
 
 
@@ -426,6 +608,49 @@ def _ripple_collateral(deletes: list, items: list) -> list[str]:
     return problems
 
 
+def _trim_amount(edit: dict) -> int:
+    return int(edit["after"]["head"]) + int(edit["after"]["tail"])
+
+
+def _trim_collateral(trims: list, items: list) -> list[str]:
+    """What a rippled trim would shorten that it does not name.
+
+    `composed_edit.plan_ripple` shortens every item whose span holds
+    the trim's end (`record_in < end <= record_out`) and shifts every
+    one after it. An item it would shorten that is not itself trimmed
+    by the same amount at the same frame - a music bed, a caption
+    ending with the line - refuses, named.
+    """
+    groups: dict = {}
+    for step in trims:
+        if step["edit"].get("ripple"):
+            key = (step["item"]["record_out"], _trim_amount(step["edit"]))
+            groups.setdefault(key, set()).add(id(step["item"]))
+    problems = []
+    for (end, amount), members in sorted(groups.items()):
+        for item in items:
+            if id(item) in members:
+                continue
+            if item.get("record_in") < end <= item.get("record_out"):
+                problems.append(
+                    f"  a trim ending at record {end:,} closes its "
+                    f"{amount}-frame gap across every row, and that would "
+                    f"shorten {_row(item)} {item.get('name')!r} at record "
+                    f"{_span(item.get('record_in'), item.get('record_out'))}"
+                    f" - a rippled trim under another row's item is not "
+                    f"carried")
+    for step in trims:
+        clashing = [(end, amount) for end, amount in groups
+                    if end == step["item"]["record_out"]
+                    and amount != _trim_amount(step["edit"])]
+        if clashing:
+            problems.append(
+                f"  trims ending at record {step['item']['record_out']:,} "
+                f"remove different lengths ({sorted(a for _e, a in clashing)})"
+                f" - one ripple cannot close both")
+    return problems
+
+
 def _handle(rows: list, item: dict):
     """The live handle `item` (a snapshot entry) was read from."""
     wanted_id = str(item.get("unique_id") or "")
@@ -452,7 +677,7 @@ def _handle(rows: list, item: dict):
 
 
 def apply_plan(staged_timeline, project, plan: dict, final: str) -> list:
-    """Write `plan` onto the staging timeline. Returns what was written."""
+    """Write a plan's cuts and in-place edits. Returns what was written."""
     from library.tools import composed_edit, reel_read
     from library.tools.resolve_lock import cursor_excursion
 
@@ -496,6 +721,343 @@ def apply_plan(staged_timeline, project, plan: dict, final: str) -> list:
     return written
 
 
+# ── The composed phases: trims and moves ────────────────────────────
+
+
+class _CompFreeRederiver:
+    """The comp generator's seat for trims of items that carry no comp.
+
+    `composed_edit` asks for a rederiver whenever a played length
+    changes. Where no trimmed item carries a comp there is nothing to
+    re-derive; a trimmed item that DOES carry one refuses here, so the
+    real comp pass is the only route for it.
+    """
+
+    def reachable_reason(self, changes) -> str | None:
+        with_comps = [f"{c.row}[{c.item_index}]" for c in changes
+                      if c.played_length_changes and c.comp_count]
+        if with_comps:
+            return (f"{with_comps} carry a comp and this carry has no "
+                    f"recorded fusion manifest to re-derive it from")
+        return None
+
+    def rederive(self, changes) -> dict:
+        return {"ran": True, "ok": True, "comp_pass": "skipped",
+                "why": "no trimmed item carries a comp"}
+
+    def expects_comp(self, row: str, record_frame: int):
+        return False
+
+
+def _locate(tracks: list, edit: dict, source=None):
+    """`(track, index, clip)` on staging playing `source` (default: the
+    edit's own passage), or None."""
+    from library.tools import composed_edit as _ce
+
+    wanted = source or (edit["source_in_frame"], edit["source_out_frame"])
+    hits = []
+    for track in tracks:
+        row = _guard.row_key(track["type"], track["name"])
+        if row != edit["row"]:
+            continue
+        for index, clip in enumerate(track.get("clips") or ()):
+            if (_guard.item_source_identity(
+                    {**clip, "track_name": track["name"]})
+                    == edit["source_identity"]
+                    and (clip.get("source_in_frame"),
+                         clip.get("source_out_frame")) == tuple(wanted)):
+                hits.append((track, index, clip))
+    if len(hits) != 1:
+        return None
+    track, index, clip = hits[0]
+    return {"row": _ce.row_label(track["type"], int(track["index"])),
+            "track": track, "index": index, "clip": clip}
+
+
+def _work_dir(project_folder: str, timeline_name: str, phase: str) -> str:
+    from library.tools.project_layout import Area, ProjectLayout
+
+    slug = "".join(ch if ch.isalnum() else "_" for ch in timeline_name)
+    path = os.path.join(
+        str(ProjectLayout(project_folder).read_dir(Area.SCRATCH)),
+        "editor_carry", slug, phase)
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _composed(project_folder: str, project, staged, tracks: list,
+              changes: list, rederiver, phase: str, final: str) -> dict:
+    """Run one composed edit on staging, grades carried from a reference.
+
+    A re-placed item comes back with one colour node, enabled, and no
+    clip colour, so each is put back from the read taken before the
+    edit: the grade from a reference duplicate of staging (deleted
+    after), the enabled state and clip colour off `tracks`.
+    """
+    from library.tools import composed_edit as _ce
+    from library.tools import reel_retirement
+    from library.tools.reel_build import BACKUP_SUFFIX
+    from library.tools.resolve_lock import assert_current_timeline
+
+    pool = project.GetMediaPool()
+    reference_name = f"{staged.GetName()}{BACKUP_SUFFIX}"
+    reference = staged.DuplicateTimeline(reference_name)
+    if reference is None or reference.GetName() != reference_name:
+        raise EditorEditCarryRefused(
+            f"REFUSING to replace {final!r}: Resolve would not duplicate "
+            f"the staging as {reference_name!r} to carry grades from. "
+            f"Nothing was renamed.")
+    try:
+        assert_current_timeline(project, staged)
+        by_frame = {}
+        for row, handles in _ce._rows_of(reference).items():
+            for handle in handles:
+                by_frame[(row, _ce._read(handle, "GetStart", None))] = handle
+        grade_sources = {
+            (change.row, change.item_index):
+                by_frame[(change.row, change.previous_record)]
+            for change in changes
+            if (change.row, change.previous_record) in by_frame}
+        work = _work_dir(project_folder, staged.GetName(), phase)
+        receipt = _ce.apply_composed_edit(
+            timeline=staged, media_pool=pool, changes=changes,
+            comp_dir=os.path.join(work, "comps"),
+            withheld_dir=os.path.join(work, "withheld"),
+            rederiver=rederiver, grade_sources=grade_sources,
+            link_rows={}, picture_row="V1")
+    finally:
+        reel_retirement.delete_backups(project, pool,
+                                       {reference_name: reference})
+    before = {(_ce.row_label(track["type"], int(track["index"])), index): clip
+              for track in tracks
+              for index, clip in enumerate(track.get("clips") or ())}
+    rows = _ce._rows_of(staged)
+    for change in changes:
+        clip = before[(change.row, change.item_index)]
+        landed = [handle for handle in rows.get(change.row) or ()
+                  if _ce._read(handle, "GetStart", None)
+                  == change.record_frame]
+        if len(landed) != 1:
+            continue
+        if clip.get("enabled") is False:
+            landed[0].SetClipEnabled(False)
+        if clip.get("clip_color"):
+            landed[0].SetClipColor(clip["clip_color"])
+    return {"plan": receipt.plan, "verified": receipt.verified,
+            "rederived": receipt.rederived}
+
+
+def _post_trim_manifest(manifest: dict, tracks: list, trims: list) -> dict:
+    """The recorded manifest with each trimmed spec naming its kept range.
+
+    The comp pass keys keyframes to the spec's `source_in`/`source_out`
+    (seconds); a trimmed clip's spec moves by the frames the trim took,
+    at the rate the spec's own span implies.
+    """
+    import copy
+
+    out = copy.deepcopy(manifest)
+    rows = out.get("tracks") or {}
+    for step in trims:
+        row = step["row"]
+        if not row.startswith("V"):
+            continue
+        clips = (rows.get(row) or {}).get("clips") or []
+        if step["index"] >= len(clips):
+            continue
+        spec = clips[step["index"]]
+        start, end = spec.get("source_in"), spec.get("source_out")
+        # The played duration, not the source-end getter, which a
+        # frame of rounding separates from it.
+        frames = int(step["clip"].get("duration") or 0)
+        if not (isinstance(start, (int, float)) and isinstance(
+                end, (int, float)) and end > start and frames > 0):
+            continue
+        rate = frames / (end - start)
+        spec["source_in"] = start + step["edit"]["after"]["head"] / rate
+        spec["source_out"] = end - step["edit"]["after"]["tail"] / rate
+    return out
+
+
+def _apply_trims(project_folder: str, project, staged, edits: list,
+                 final: str) -> list:
+    """Trim each staged passage to the range the editor kept."""
+    import copy
+
+    from library.tools import composed_edit as _ce
+    from library.tools import reel_read, reel_touchup
+
+    tracks = reel_read.read_tracks(staged)
+    steps = []
+    for edit in edits:
+        found = _locate(tracks, edit)
+        if found is None:
+            if _locate(tracks, edit, (edit["after"]["source_in_frame"],
+                                      edit["after"]["source_out_frame"])):
+                continue
+            _refuse(final, [f"  trim {edit['row']} {edit['name']!r}: the "
+                            f"staged passage moved before it was trimmed"])
+        steps.append({**found, "edit": edit})
+    if not steps:
+        return []
+    virtual = copy.deepcopy(tracks)
+
+    def clip_of(step):
+        for track in virtual:
+            if _ce.row_label(track["type"], int(track["index"])) == \
+                    step["row"]:
+                return track["clips"][step["index"]]
+        raise KeyError(step["row"])
+
+    groups: dict = {}
+    for step in steps:
+        if step["edit"].get("ripple"):
+            key = (int(step["clip"]["record_out"]),
+                   _trim_amount(step["edit"]))
+            groups.setdefault(key, []).append(step)
+    try:
+        for (end, amount), members in sorted(groups.items(), reverse=True):
+            cut = int(clip_of(members[0])["record_out"])
+            for change in _ce.plan_ripple(virtual, cut, -amount):
+                clip = clip_of({"row": change.row,
+                                "index": change.item_index})
+                clip["record_in"] = change.record_frame
+                clip["duration"] = change.duration
+                clip["record_out"] = change.record_frame + change.duration
+    except _ce.ComposedEditError as unplannable:
+        _refuse(final, [f"  the trims could not be planned: {unplannable}"])
+    for step in steps:
+        clip = clip_of(step)
+        head = int(step["edit"]["after"]["head"])
+        if not step["edit"].get("ripple"):
+            clip["record_in"] = int(clip["record_in"]) + head
+            clip["duration"] = int(clip["duration"]) - _trim_amount(
+                step["edit"])
+            clip["record_out"] = clip["record_in"] + clip["duration"]
+        if clip.get("left_offset") is None:
+            _refuse(final, [f"  trim {step['edit']['row']} "
+                            f"{step['edit']['name']!r}: its source trim "
+                            f"(left offset) is unreadable"])
+        clip["left_offset"] = int(clip["left_offset"]) + head
+    changes = []
+    for track, moved in zip(tracks, virtual):
+        for index, (old, new) in enumerate(zip(track.get("clips") or (),
+                                               moved.get("clips") or ())):
+            if (old["record_in"], old["duration"], old.get("left_offset")) \
+                    == (new["record_in"], new["duration"],
+                        new.get("left_offset")):
+                continue
+            changes.append(_ce.ItemChange(
+                track_type=track["type"], track_index=int(track["index"]),
+                item_index=index, record_frame=int(new["record_in"]),
+                duration=int(new["duration"]),
+                left_offset=int(new.get("left_offset") or 0),
+                previous_record=int(old["record_in"]),
+                previous_duration=int(old["duration"]),
+                how=(_ce.EXTEND if new["duration"] != old["duration"]
+                     else _ce.SHIFT),
+                comp_count=_ce.treatment_comps(old),
+                right_offset=old.get("right_offset"),
+                name=old.get("name", "")))
+    trimmed = [change for change in changes
+               if change.played_length_changes and change.comp_count]
+    if trimmed:
+        manifest = reel_touchup.recorded_fusion_manifest(
+            project_folder, staged.GetName())
+        if manifest is None:
+            _refuse(final, [f"  {[f'{c.row}[{c.item_index}]' for c in trimmed]}"
+                            f" carry a Fusion comp and staging has no "
+                            f"recorded fusion manifest to re-derive it "
+                            f"from"])
+        try:
+            reel_touchup.check_manifest_matches(manifest, tracks)
+        except reel_touchup.TouchupRefused as stale:
+            _refuse(final, [f"  {stale}"])
+        rederiver = _ce.ReelLookRederiver(
+            _post_trim_manifest(manifest, tracks, steps), project_folder,
+            project.GetName(), staged.GetName())
+        rederiver.expected_row_counts = {
+            _ce.row_label(track["type"], int(track["index"])):
+                len(track.get("clips") or ()) for track in tracks}
+    else:
+        rederiver = _CompFreeRederiver()
+    _composed(project_folder, project, staged, tracks, changes, rederiver,
+              "trims", final)
+    return [step["edit"]["id"] for step in steps]
+
+
+def _apply_moves(project_folder: str, project, staged, edits: list,
+                 final: str) -> list:
+    """Put each moved item back over the picture the editor put it over."""
+    from library.tools import composed_edit as _ce
+    from library.tools import reel_read
+
+    tracks = reel_read.read_tracks(staged)
+    picture = next((track for track in tracks
+                    if track["type"] == "video" and int(track["index"]) == 1),
+                   {"clips": []})
+    changes, written, problems = [], [], []
+    for edit in edits:
+        found = _locate(tracks, edit)
+        if found is None:
+            problems.append(f"  move {edit['row']} {edit['name']!r}: "
+                            f"staging no longer plays that passage once")
+            continue
+        target = _anchor_frame(picture["clips"], edit["after"])
+        if target is None:
+            problems.append(
+                f"  move {edit['row']} {edit['name']!r}: the picture it "
+                f"sat over (source frame "
+                f"{edit['after']['anchor_source_frame']:,}) does not play "
+                f"on staging's V1")
+            continue
+        clip = found["clip"]
+        if int(clip["record_in"]) == target:
+            continue
+        duration = int(clip["duration"])
+        for index, other in enumerate(found["track"].get("clips") or ()):
+            if index != found["index"] and \
+                    int(other["record_in"]) < target + duration and \
+                    target < int(other["record_out"]):
+                problems.append(
+                    f"  move {edit['row']} {edit['name']!r} to record "
+                    f"{target:,}: {other.get('name')!r} already sits at "
+                    f"{_span(other['record_in'], other['record_out'])}")
+        changes.append(_ce.ItemChange(
+            track_type=found["track"]["type"],
+            track_index=int(found["track"]["index"]),
+            item_index=found["index"], record_frame=target,
+            duration=duration, left_offset=int(clip.get("left_offset") or 0),
+            previous_record=int(clip["record_in"]),
+            previous_duration=duration, how=_ce.SHIFT,
+            comp_count=_ce.treatment_comps(clip),
+            right_offset=clip.get("right_offset"),
+            name=clip.get("name", "")))
+        written.append(edit["id"])
+    if problems:
+        _refuse(final, problems)
+    if changes:
+        _composed(project_folder, project, staged, tracks, changes, None,
+                  "moves", final)
+    return written
+
+
+def _anchor_frame(picture_clips: list, anchor: dict):
+    """The record frame where V1 plays the anchor's source frame."""
+    frame = anchor["anchor_source_frame"]
+    for clip in picture_clips:
+        identity = clip.get("source_identity") or \
+            _guard.item_source_identity(
+                {**clip, "track_name": clip.get("track_name", "")})
+        if identity != anchor["anchor_source_identity"]:
+            continue
+        start, end = clip.get("source_in_frame"), clip.get("source_out_frame")
+        if isinstance(start, int) and isinstance(end, int) and \
+                start <= frame < end:
+            return int(clip["record_in"]) + frame - start
+    return None
+
+
 def carry_editor_edits(project_folder: str, final: str, project,
                        staged_timeline, read_staged,
                        detection: dict, *, accept: bool = False) -> dict:
@@ -504,11 +1066,13 @@ def carry_editor_edits(project_folder: str, final: str, project,
     `detection` is `reel_replace_guard.detect_editor_changes` over the
     live and staged reads; `read_staged()` returns a full snapshot of
     staging as it stands now, and is called only when an edit is in
-    force. Returns the carry report the promotion keeps
-    and hands to `verify_carried_edits` and `record_after_promotion`.
-    With `accept`, an edit that cannot be mapped is dropped from this
-    carry (and later superseded) rather than refusing.
+    force. Returns the carry report the promotion keeps and hands to
+    `verify_carried_edits` and `record_after_promotion`. With `accept`,
+    an edit that cannot be mapped is dropped from this carry (and later
+    superseded) rather than refusing.
     """
+    from library.tools.resolve_lock import cursor_excursion
+
     edits, superseded = edits_in_force(
         project_folder, final, detection.get("pending") or [])
     if not edits:
@@ -530,9 +1094,29 @@ def carry_editor_edits(project_folder: str, final: str, project,
                     f"--accept-editor-changes {final}: could not be mapped")
         edits, superseded = mappable, {**superseded, **dropped}
         plan = plan_application(edits, staged_snapshot, final)
-    written = apply_plan(staged_timeline, project, plan, final) if (
-        plan["delete"] or plan["set_enabled"] or plan["set_transform"]) \
-        else []
+    written = []
+    # Each phase re-plans off a fresh read: a re-placed item is a new
+    # object, and a cut moves everything after it.
+    with cursor_excursion(project, staged_timeline,
+                          f"carry editor edits onto {final}"):
+        if plan["trim"]:
+            written += _apply_trims(
+                project_folder, project, staged_timeline,
+                [step["edit"] for step in plan["trim"]], final)
+        cuts = [edit for edit in edits if edit["kind"] == "cut"]
+        if cuts:
+            cut_plan = plan_application(cuts, read_staged(), final)
+            written += apply_plan(staged_timeline, project, cut_plan, final)
+        if plan["move"]:
+            written += _apply_moves(
+                project_folder, project, staged_timeline,
+                [step["edit"] for step in plan["move"]], final)
+        in_place = [edit for edit in edits
+                    if edit["kind"] in ("enabled", "transform")]
+        if in_place:
+            in_place_plan = plan_application(in_place, read_staged(), final)
+            written += apply_plan(staged_timeline, project, in_place_plan,
+                                  final)
     return {"edits": edits, "superseded": superseded,
             "written": written, "already_held": plan["already_held"]}
 
@@ -553,11 +1137,37 @@ def verify_carried_edits(report: dict, staged_after: dict,
                         _span(item.get("record_in"), item.get("record_out"))
                         for item in still))
             continue
+        if edit["kind"] == "trim":
+            kept = _kept(edit)
+            exact = [item for item in items if _governs(kept, item)]
+            beyond = [item for item in items
+                      if _overlaps(edit, item) and item not in exact]
+            if len(exact) != 1 or beyond:
+                missed.append(
+                    f"  trim {edit['row']} {edit['name']!r} source "
+                    f"{passage} to {_span(kept['source_in_frame'], kept['source_out_frame'])}: "
+                    f"staging plays "
+                    + (", ".join(_span(*_source(item))
+                                 for item in exact + beyond) or "none of it"))
+            continue
         exact = [item for item in items if _governs(edit, item)]
         if len(exact) != 1:
             missed.append(
                 f"  {edit['kind']} {edit['row']} {edit['name']!r} source "
                 f"{passage}: staging now plays it {len(exact)} time(s)")
+            continue
+        if edit["kind"] == "move":
+            picture = [item for item in items
+                       if item.get("track_type") == "video"
+                       and item.get("track_index") == 1]
+            target = _anchor_frame(picture, edit["after"])
+            if target != exact[0].get("record_in"):
+                missed.append(
+                    f"  move {edit['row']} {edit['name']!r} source "
+                    f"{passage}: wanted over picture source frame "
+                    f"{edit['after']['anchor_source_frame']:,} (record "
+                    f"{target}), staging has it at record "
+                    f"{exact[0].get('record_in')}")
             continue
         if edit["kind"] == "enabled":
             got = exact[0].get("enabled")

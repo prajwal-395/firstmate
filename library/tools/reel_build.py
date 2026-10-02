@@ -9840,6 +9840,23 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
                 originals[final], final, side="retiring")
             staged_before_carry = _guard.snapshot_timeline(
                 staged_found[staging], staging, side="staged")
+            # The editor's carried edits (cuts, trims, moves, enabled
+            # state, transforms) land on staging first: a trim or move
+            # re-places items, which would drop the markers and disabled
+            # state the carries below put on them. They are judged on
+            # the after read in source ranges
+            # (`library/tools/editor_edit_carry.py`).
+            accept_editor = _guard.accepts_editor_changes(
+                final, accept_editor_changes)
+            detection = _guard.detect_editor_changes(
+                project_folder, final, live_snapshot,
+                staged_initial_snapshot)
+            carry_report = _editor_carry.carry_editor_edits(
+                project_folder, final, project, staged_found[staging],
+                lambda timeline=staged_found[staging]:
+                    _guard.full_timeline_snapshot(
+                        timeline, project, project_folder),
+                detection, accept=accept_editor)
             disabled_preview = _disabled.carry_disabled_state(
                 project_folder, final, staging,
                 originals[final], staged_found[staging], apply=False)
@@ -9885,21 +9902,6 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
                 marker_entry["clip_declined"] = (
                     _markers.place_clip_markers(
                         staged_found[staging], clip_keep))
-            # The editor's carried edits (cuts, enabled state,
-            # transforms) land on staging before the after read, and
-            # are judged on that read in source ranges
-            # (`library/tools/editor_edit_carry.py`).
-            accept_editor = _guard.accepts_editor_changes(
-                final, accept_editor_changes)
-            detection = _guard.detect_editor_changes(
-                project_folder, final, live_snapshot,
-                staged_initial_snapshot)
-            carry_report = _editor_carry.carry_editor_edits(
-                project_folder, final, project, staged_found[staging],
-                lambda timeline=staged_found[staging]:
-                    _guard.full_timeline_snapshot(
-                        timeline, project, project_folder),
-                detection, accept=accept_editor)
             staged_after_snapshot = _guard.full_timeline_snapshot(
                 staged_found[staging], project, project_folder)
             _editor_carry.verify_carried_edits(

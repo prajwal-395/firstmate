@@ -11,7 +11,7 @@ source ranges - and the promoted timeline matches the edited one on
 those passages. The next rebuild carries the same edits again from the
 ledger with no fresh editor change on record.
 
-A trim is not carried yet, and still refuses with a readable diff.
+Trims and moves are carried in `tests/test_editor_edit_carry_composed.py`.
 """
 import json
 from contextlib import ExitStack, nullcontext
@@ -289,10 +289,11 @@ def test_the_next_rebuild_carries_the_ledger_with_no_new_change(
     assert [record["status"] for record in changes] == ["carried"]
 
 
-def test_a_trim_is_not_carried_and_refuses_with_the_source_ranges(
+def test_a_rippled_trim_under_a_graphic_refuses_with_the_source_ranges(
         project_dir):
     live, staging = edited_reel_7(), rebuilt_reel_7()
-    # The editor also shortened the first Akshita passage by 16 frames.
+    # The editor also shortened the first Akshita passage by 16 frames
+    # and closed the gap - under the Semantic card at 47..143.
     for _row, clips in live._rows["video"][:1] + live._rows["audio"]:
         clips[0].source_out = 22_332
         for later in clips[1:]:
@@ -304,11 +305,12 @@ def test_a_trim_is_not_carried_and_refuses_with_the_source_ranges(
         promote(resolve, project_dir, STAGING)
 
     message = str(refused.value)
-    assert "unattributed editor changes" in message
-    assert "22,232..22,348" in message
+    assert "a rippled trim under another row's item is not carried" in message
+    assert "'semantic-card' at record 47..143" in message
     assert "--accept-editor-changes" in message
     assert sorted(resolve.names()) == sorted([MASTER, FINAL, STAGING])
     assert resolve.deleted == []
+    assert getattr(staging, "deletes", 0) == 0
 
 
 def test_a_cut_staging_plays_only_part_of_refuses_by_name(project_dir):

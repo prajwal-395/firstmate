@@ -625,3 +625,22 @@ def test_a_loss_that_gains_frames_still_refuses(project_dir):
     assert sorted(resolve.names()) == sorted(
         [MASTER, FINAL, staging.GetName()])
     assert resolve.deleted == []
+
+
+def test_a_float_read_of_an_int_is_the_same_value_not_a_change():
+    """Resolve reads `AudioPitchSemiTones` back as 0.0 on a re-placed
+    item where it read 0 before (live, 2026-10-02): not an edit."""
+    item = {"track_type": "audio", "track_name": "Dialogue",
+            "source_identity": "file:/media/a.mov", "source_in_frame": 0,
+            "source_out_frame": 40, "record_in": 0, "record_out": 40,
+            "transform": {"AudioPitchSemiTones": 0, "AudioVolume": 0.0}}
+    reread = {**item, "transform": {"AudioPitchSemiTones": 0.0,
+                                    "AudioVolume": 0.0}}
+
+    assert guard.snapshot_diff({"items": [item]}, {"items": [reread]}) == []
+    added = {"kind": "item_added", "identity": guard._stable_item_key(item),
+             "before": None, "after": item, "changed": {}}
+    assert guard._change_is_carried(added, {"items": [reread]})
+    moved = {**reread, "transform": {"AudioPitchSemiTones": 1.0,
+                                     "AudioVolume": 0.0}}
+    assert not guard._change_is_carried(added, {"items": [moved]})

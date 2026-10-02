@@ -227,6 +227,21 @@ def assert_target_inventory_unchanged(before: list[dict],
                 f"editor timeline remains untouched.")
 
 
+def item_source_identity(detail: dict) -> str:
+    """What a `reel_read` item plays, as the snapshot names it."""
+    source_file = str(detail["source_file"] or "")
+    media_id = str(detail["media_pool_item_id"] or "")
+    item_id = str(detail.get("unique_id") or "")
+    if media_id:
+        return f"media:{media_id}"
+    if source_file:
+        return "file:" + os.path.normcase(os.path.realpath(source_file))
+    if item_id:
+        return f"generator-item:{item_id}"
+    return (f"generator:{detail['track_type']}:"
+            f"{detail['track_name']}:{detail['name']}")
+
+
 def full_timeline_snapshot(timeline, project, project_folder=None) -> dict:
     """Capture editable state through the shared reel reader."""
     from library.tools import marker_feedback, reel_read
@@ -280,20 +295,7 @@ def full_timeline_snapshot(timeline, project, project_folder=None) -> dict:
                     if not isinstance(detail["enabled"], bool):
                         raise ValueError(
                             f"enabled state for {detail['name']!r} is unreadable")
-                    source_file = str(detail["source_file"] or "")
-                    media_id = str(detail["media_pool_item_id"] or "")
-                    item_id = str(detail.get("unique_id") or "")
-                    if media_id:
-                        source_identity = f"media:{media_id}"
-                    elif source_file:
-                        source_identity = "file:" + os.path.normcase(
-                            os.path.realpath(source_file))
-                    elif item_id:
-                        source_identity = f"generator-item:{item_id}"
-                    else:
-                        source_identity = (
-                            f"generator:{detail['track_type']}:"
-                            f"{detail['track_name']}:{detail['name']}")
+                    source_identity = item_source_identity(detail)
                     item = {key: detail.get(key) for key in
                             PRESERVATION_FIELDS if key in detail}
                     item["source_identity"] = source_identity
@@ -326,6 +328,28 @@ def full_timeline_snapshot(timeline, project, project_folder=None) -> dict:
 def _canonical(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"),
                       default=str)
+
+
+#: How far two numeric reads may differ and still be one value. Resolve
+#: hands some properties back as a float where they were read as an int
+#: (`AudioPitchSemiTones` 0 -> 0.0 on a re-placed item, measured
+#: 2026-10-02) and some one ulp off (`composed_edit.READBACK_TOLERANCE`).
+VALUE_TOLERANCE = 1e-6
+
+
+def _same_value(a, b) -> bool:
+    """One value, read twice: numbers by magnitude, containers by member."""
+    numbers = (int, float)
+    if (isinstance(a, numbers) and isinstance(b, numbers)
+            and not isinstance(a, bool) and not isinstance(b, bool)):
+        return abs(float(a) - float(b)) <= VALUE_TOLERANCE
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(
+            _same_value(a[key], b[key]) for key in a)
+    if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
+        return len(a) == len(b) and all(
+            _same_value(x, y) for x, y in zip(a, b))
+    return _canonical(a) == _canonical(b)
 
 
 def _stable_item_key(item: dict) -> tuple:
@@ -361,7 +385,7 @@ def snapshot_diff(before: dict, after: dict) -> list[dict]:
             changed = {
                 field: {"before": old.get(field), "after": new.get(field)}
                 for field in PRESERVATION_FIELDS
-                if _canonical(old.get(field)) != _canonical(new.get(field))
+                if not _same_value(old.get(field), new.get(field))
             }
             if changed:
                 changes.append({"kind": "item_changed", "identity": key,
@@ -418,13 +442,11 @@ def _change_is_carried(change: dict, staged: dict) -> bool:
             return False
         if kind == "item_added":
             wanted = change["after"]
-            return any(all(_canonical(item.get(field)) ==
-                           _canonical(wanted.get(field))
+            return any(all(_same_value(item.get(field), wanted.get(field))
                            for field in PRESERVATION_FIELDS)
                        for item in candidates)
         wanted = change["changed"]
-        return any(all(_canonical(item.get(field)) ==
-                       _canonical(values["after"])
+        return any(all(_same_value(item.get(field), values["after"])
                        for field, values in wanted.items())
                    for item in candidates)
     if kind.startswith("marker_"):
