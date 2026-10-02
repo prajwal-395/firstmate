@@ -34,7 +34,7 @@ Five words - `prominent`, `background`, `fade_in`, `fade_out`, `silent` - and `s
 `mesh_spine` declares it, `spine_contract` rejects a word outside it, `audio_mix` DECIDES the dB for the two words that carry one, `compile_manifest` CARRIES it onto `_spine_blocks` rather than recomputing it, and `render_qa` judges the render against it.
 **The five dB are GONE (captain, 2026-09-16) and a word no longer carries a number.** `DECIDED_BEHAVIORS` is the two whose level step 5.02 decides per run over what the bed and the speech measure; `silent` is the absence of music and `fade_in`/`fade_out` are a MOVE that takes the level of the block it moves to (`level_for_block`). `WITHDRAWN_LEVELS_DB` records each old number and where it went. [why](docs/CREATIVE_VALUE_DECISION.md)
 Resolve a block that declares none through `resolve_music_behavior`, never with a local default: `WITHDRAWN_BEHAVIORS` records why the two-word `full`/`ducked` form is out. [why](docs/RULE_EVIDENCE.md#silence-lost-in-the-two-word-vocabulary)
-`tests/test_music_behavior_vocabulary.py`.
+`tests/unit/audio/test_music_behavior_vocabulary.py`.
 **The timeline's length comes from the spine, never from a passage's `end_time`.**
 `library/tools/timeline_duration.measure_timeline_duration`: max `timeline_end` over the spine, falling back to `a_roll_assignments`.
 
@@ -104,7 +104,7 @@ FADE_BEHAVIORS = ("fade_in", "fade_out")
 
 # The bottom of the fader.  `otio_mix.MIN_VOLUME_DB` is the delivery
 # floor this has to sit at or above, and the two are asserted equal-or-
-# above in tests/test_audio_mix_delivery.py.
+# above in tests/scenarios/test_audio_mix_delivery.py.
 SILENT_LEVEL_DB = -96
 
 # What the five words used to carry, and where each number went.  Kept

@@ -7,7 +7,7 @@
 // ruling of 2026-08-25 forbade.
 //
 // Regenerate with: python3 scripts/generate_safe_area_defaults.py
-// tests/test_caption_safe_area.py fails if this drifts.
+// tests/unit/captions/test_caption_safe_area.py fails if this drifts.
 
 export const DELIVERY_FORMAT = "vertical_1080x1920";
 

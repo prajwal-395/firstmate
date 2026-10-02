@@ -53,7 +53,7 @@ of the recorded one, or the build refuses. The captain accepted
 "longer"; they did not accept an unbounded number, and word timings
 drift between runs.
 
-`tests/test_tail_extend_authorization.py`.
+`tests/unit/reels/test_tail_extend_authorization.py`.
 """
 
 from __future__ import annotations

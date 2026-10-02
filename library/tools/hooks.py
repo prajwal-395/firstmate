@@ -66,7 +66,7 @@ summary-side conditions (`qa_finding_raised`, `gate_verdict`,
 `output_empty`) have a payload in the run summary's reporter blocks, but
 those run after `status` is decided and "reading is not gating" - whether
 a `run` action may ACT there is a decision for the captain, not an
-implication of wiring a site.  `tests/test_hooks.py` drives every path
+implication of wiring a site.  `tests/unit/context/test_hooks.py` drives every path
 through the public API.
 
 The operation conditions and `OperationResult`
@@ -83,12 +83,12 @@ whoever wires those sites:
   hook.**  An environment refusal (`error=...`, `unsatisfied=()`) fires
   `requirement_unsatisfied` ZERO times, so the site MUST dispatch
   `operation_refused` unconditionally for every refusal.
-  `tests/test_hooks.py::test_a_refusal_with_no_requirements_still_reaches_a_hook`
+  `tests/unit/context/test_hooks.py::test_a_refusal_with_no_requirements_still_reaches_a_hook`
   pins it.
 * The `identity` fields for those conditions were PROVISIONAL until
   `library.tools.operations` existed; they are now reconciled against the
   real `OperationResult` by
-  `tests/test_hooks.py::test_the_operation_conditions_match_the_real_result_type`,
+  `tests/unit/context/test_hooks.py::test_the_operation_conditions_match_the_real_result_type`,
   which fails on any identity field the type does not carry.  Reconcile
   `CONDITIONS`; never add a field to `OperationResult` to suit it.
 
@@ -129,7 +129,7 @@ class Condition:
     The remaining three say where a firing site GETS that payload, and
     they exist because four of the six read one type and one of those
     four is one-to-many. Declaring the shape is what lets
-    `tests/test_hooks.py` check this vocabulary against the real
+    `tests/unit/context/test_hooks.py` check this vocabulary against the real
     `operations.OperationResult` instead of assuming every identity field
     is a field on it - which is the assumption that made the tripwire
     fire.

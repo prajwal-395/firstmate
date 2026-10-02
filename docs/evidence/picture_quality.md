@@ -1,6 +1,6 @@
 # Picture quality: usable ranges are measured
 
-Tests: `tests/test_picture_quality.py`.
+Tests: `tests/unit/picture/test_picture_quality.py`.
 
 Two things are under test here.
 

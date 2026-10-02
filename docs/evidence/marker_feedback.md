@@ -123,7 +123,7 @@ keeps the headline and points here.
 The captain reviews a built timeline **inside DaVinci Resolve** and drops markers on it carrying
 natural language - what looks wrong, what to change, what to go and find out.
 One enumeration, `library/tools/marker_feedback.py`, which reads them and writes them to disk.
-It is proved against a real running Resolve by `tests/test_marker_feedback_against_resolve.py`;
+It is proved against a real running Resolve by `tests/qualification/test_marker_feedback_against_resolve.py`;
 its recorded per-call findings are in the module docstring, in the shape `neural_engine.py` uses.
 - **A MARKER CARRIES TWO PIECES OF TYPED TEXT AND BOTH ARE READ.** `GetMarkers()` returns `name`
   (the Add Marker dialog's **Name** field, where the cursor lands) and `note` (its **Notes**

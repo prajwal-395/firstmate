@@ -19,7 +19,7 @@ this lane's brief: shell out to `da` the way we already shell out to
 ffmpeg, behind ONE function, so ripping it out is a one-file change.
 
 So: replacing the transcriber means rewriting `transcribe` to return the
-same `HeardSpeech` and changing nothing else. `tests/test_heard_speech.py`
+same `HeardSpeech` and changing nothing else. `tests/contracts/test_heard_speech.py`
 pins that containment by asserting no other module in the repository
 names the binary.
 

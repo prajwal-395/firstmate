@@ -51,7 +51,7 @@ captain ruled on).  Applying a recorded pin to an approved moment is
 obedience, not re-decision.  The added seconds are checked like a new
 span - real speech inside, whole segments at both edges, no overlap with
 the reel's own body - and anything failing that is reported LOUDLY and
-that reel keeps its span.  `tests/test_closer_redraw.py`.
+that reel keeps its span.  `tests/unit/reels/test_closer_redraw.py`.
 
 A hand move in the Inspector
 ----------------------------
@@ -71,7 +71,7 @@ Where a scoped and an unscoped override meet on one span, the scoped one
 wins that span.  The build applies overrides AFTER aiming the punch-in
 and re-proves coverage (`reel_build.assert_punch_took`): an override that
 uncovered an edge raises rather than shipping black.  An override
-matching no placed span reports STALE.  `tests/test_transform_override.py`.
+matching no placed span reports STALE.  `tests/unit/picture/test_transform_override.py`.
 
 A hand trim
 -----------
@@ -82,7 +82,7 @@ reports HELD, and a match on nothing reports STALE.  The write stamps
 where the anchor resolves now (`recorded_edge`), and
 `check_span_retime_freshness` reports, pre-build and in FRAMES, a trim
 whose words now resolve elsewhere as DRIFTED (`report_drifted`) rather
-than following them silently.  `tests/test_retime_drift.py`.
+than following them silently.  `tests/unit/resolve/test_retime_drift.py`.
 
 Recording a decision: the one route
 ------------------------------------
@@ -111,7 +111,7 @@ Every record refuses before writing (`record_edit`, raising
 measured transcript where one is on file (`check_anchor_spoken`).  A
 re-ruling of the same decision SUPERSEDES it; an exact duplicate is
 refused as already in force.  There is no second store beside this one.
-`tests/test_captain_edits.py`.
+`tests/unit/resolve/test_captain_edits.py`.
 
 The rulings and incidents behind these rules (the 2026-09-09 ask, the
 2026-09-10 closer pin and Reel 09 hand move, the Reel 13 and Reel 17
@@ -1593,7 +1593,7 @@ def transcript_path(project_folder) -> Path:
     build.  DELEGATED rather than composed: `timeline_transcript` owns
     where its own output lands, and a second spelling here is a second
     answer to "where does the transcript live"
-    (`tests/test_operations.py`)."""
+    (`tests/unit/context/test_operations.py`)."""
     from library.tools.timeline_transcript import (
         transcript_path as _owner_path)
 

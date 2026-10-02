@@ -22,7 +22,7 @@ What lives here, by section
    FakeResolve stand-in beside it.
 3. `syspath` - no test module puts a non-root directory on `sys.path`
    at import time, and no test module binds a bare repo-local name
-   (the planted cases live in `tests/test_static_check.py`).
+   (the planted cases live in `tests/tooling/test_static_check.py`).
 4. `operation_resolution` - every operation's `run` resolves to its
    owning step's own directory, or to a `library/tools/` module that
    step already imports (Ruling 1, documented in
@@ -68,9 +68,7 @@ STEPS_ROOT = REPO_ROOT / "library" / "steps"
 TOOLS_ROOT = REPO_ROOT / "library" / "tools"
 TESTS_ROOT = REPO_ROOT / "tests"
 
-#: The one module allowed to call `.scriptapp(` for real, plus the test
-#: colony under `library/tools/fusion/tests/` which never touches
-#: Resolve (it parses `.comp` text and needs no connection).
+#: The one module allowed to call `.scriptapp(` for real.
 RESOLVE_LOCALE = TOOLS_ROOT / "resolve_locale.py"
 
 
@@ -156,7 +154,8 @@ def project_root_reads(files=None) -> list:
     check remains the stronger proof that collection cannot reach real
     project files.
     """
-    exempt = (TESTS_ROOT / "test_tests_never_reach_real_projects.py").resolve()
+    exempt = (TESTS_ROOT / "tooling"
+              / "test_tests_never_reach_real_projects.py").resolve()
     candidates = _test_files() if files is None else files
     out = []
     for path in candidates:
@@ -227,7 +226,7 @@ _LOCAL_TREES = (
     "library/processes/*/*.py",
     "library/tools/*.py",
     "library/tools/*/*.py",
-    "tests/*.py",
+    "tests/**/*.py",
 )
 
 
@@ -240,7 +239,7 @@ def _shadowable_names() -> set:
 
 
 def _test_files(root=None) -> list:
-    return sorted((TESTS_ROOT if root is None else root).glob("test_*.py"))
+    return sorted((TESTS_ROOT if root is None else root).rglob("test_*.py"))
 
 
 def _bare_import_violations(files=None) -> list:

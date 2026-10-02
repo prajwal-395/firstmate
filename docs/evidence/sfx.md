@@ -4,7 +4,7 @@ Moved out of the test module docstrings when the SFX tests were
 consolidated (2026-10-02). The tests keep the invariant; this keeps the
 story. Where the two disagree, the code and the tests win.
 
-## The level that made a sound silent (`tests/test_sfx_level.py`)
+## The level that made a sound silent (`tests/unit/audio/test_sfx_level.py`)
 
 Captain, station 9: *"a single sfx that i dont even think played the right
 part of the sfx and instead it was just silent"*.
@@ -21,7 +21,7 @@ The case the captain named was `camera soft click.wav`: 0.459 s, peak
 decaying to -36.6 dB by 0.37 s), placed at source_in 0.0 for the full
 duration - the right part played.
 
-## Layering, and the library "built for a different kind of edit" (`tests/test_sfx_layering_and_build.py`)
+## Layering, and the library "built for a different kind of edit" (`tests/unit/audio/test_sfx_layering_and_build.py`)
 
 Project 001 shipped two camera shutters - 0.46 s and 0.34 s - at two
 blocks, layering nothing. The planner's own `could_not_determine`
@@ -71,7 +71,7 @@ as 0.46 - past the measured length - so a model copying the advertised
 number was refused by `resolve_played_seconds`. The catalogue now
 truncates.
 
-## The empty candidate table (#223) (`tests/test_plan_sfx_candidate_table.py`)
+## The empty candidate table (#223) (`tests/unit/audio/test_plan_sfx_candidate_table.py`)
 
 Observed on the clean run of project 001 on 2026-08-26: the table the
 `plan_sfx` handoff describes column by column arrived as
@@ -92,7 +92,7 @@ in the same prompt. The bridge also used to emit its own empty output
 (`{"sfx_list": [], "fairlight_preset": "default"}`) back as input, which
 read as a plan that had already decided to place no sounds.
 
-## Pacing and SFX decided from memory (`tests/test_pacing_and_sfx_are_not_remembered.py`)
+## Pacing and SFX decided from memory (`tests/unit/audio/test_pacing_and_sfx_are_not_remembered.py`)
 
 Both recorded in the creative-decision degradation report of 2026-08-28
 (F7 and F13), invisible on the run of record because one agent answered
@@ -111,7 +111,7 @@ every step:
 The deliberate boundary: `key_moments` and `rationale` (4,744 of the
 direction's 6,854 bytes on project 001) do not reach the spine.
 
-## Nothing predicted whether a sound would be heard (`tests/test_sfx_hears_the_bed.py`)
+## Nothing predicted whether a sound would be heard (`tests/unit/audio/test_sfx_hears_the_bed.py`)
 
 The one SFX project 001 shipped plays at -14 dB at 2.398 s, the exact
 frame the bed goes `prominent` (-6 dB, the loudest music in the video).

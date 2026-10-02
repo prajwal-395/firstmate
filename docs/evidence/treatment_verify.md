@@ -1,6 +1,6 @@
 # `library.tools.treatment_verify` - the PowerCrop diagnosis
 
-Moved from the module docstring of `tests/test_treatment_verify.py` (2026-10-02).
+Moved from the module docstring of `tests/unit/reels/test_treatment_verify.py` (2026-10-02).
 
 Proven on PowerCrop (the tv_power Crop): the captain found by eye that the
 powercrop nodes mis-frame the a-roll and that removing them makes things look
@@ -33,7 +33,7 @@ tests without Resolve - the comp builder is Resolve-free by design):
 
 ## Finding 5: 4.03's gate could not verify anything 4.03 plans
 
-Moved from the module docstring of `tests/test_verify_treatment_knows_drift.py` (2026-10-02).
+Moved from the module docstring of `tests/unit/reels/test_verify_treatment_knows_drift.py` (2026-10-02).
 
 On the scout's B1 run (FR3.3) every plan_vfx answer - even an empty plan -
 failed with "declared gating skill(s) verify_treatment never ran", and the

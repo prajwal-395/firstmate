@@ -154,7 +154,7 @@ built those deliberately.
 Nothing here deletes
 --------------------
 There is no delete call in this module or in the executor that drives it,
-and `tests/test_resolve_organization.py` asserts that of both files.  A
+and `tests/unit/resolve/test_resolve_organization.py` asserts that of both files.  A
 reel the live plan no longer names is MOVED and RELABELLED, never
 removed: the captain's ruling of 2026-09-06 is *"a refusal is cheap and a
 deleted timeline is not"*, and the same reasoning makes an accumulated
@@ -171,5 +171,5 @@ is testable without the application running.
 `library/tools/execution/organise_media_pool.py` is the half that talks
 to Resolve.
 
-`tests/test_resolve_organization.py`.
+`tests/unit/resolve/test_resolve_organization.py`.
 ```

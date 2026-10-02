@@ -1,6 +1,6 @@
 # Perceptual QA (Q8)
 
-Tests: `tests/test_perceptual_qa.py`.
+Tests: `tests/unit/picture/test_perceptual_qa.py`.
 
 ## Observation only
 

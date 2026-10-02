@@ -21,7 +21,7 @@ the transcript times speech to the word. An unmeasured clip is an
 empty reading: callers that PLACE refuse (the anchor), callers that
 SHOW state the absence in one line (the view).
 
-`tests/test_sound_events.py`.
+`tests/unit/audio/test_sound_events.py`.
 """
 
 from __future__ import annotations

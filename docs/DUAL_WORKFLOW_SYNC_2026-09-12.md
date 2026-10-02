@@ -26,7 +26,7 @@ prose read as though both were:
 > "CLOSED" note below for the mechanism, and `library/tools/resolve_lock.py`
 > for the whole of it.
 
-`tests/test_resolve_lock.py` never touched the lock either: it imported
+`tests/unit/resolve/test_resolve_lock.py` never touched the lock either: it imported
 `assert_current_timeline` and `ResolveRaceError` and tested those. So
 the lock had no caller and no test, which is the shape AGENTS.md 10.4
 names - a guard that reads as coverage.
@@ -169,7 +169,7 @@ Three corrections to what is written above, and nothing else changes:
 The count that made the original lock removable has been repaired
 rather than argued with: it had 0 call sites, and the lease that
 replaces it has 12 across `library/`, checked by
-`tests/test_resolve_guard_wiring.py` against the routing table row by
+`tests/contracts/test_resolve_guard_wiring.py` against the routing table row by
 row.
 
 `library/tools/reel_read.py` refuses while `run_control.hold_requested`

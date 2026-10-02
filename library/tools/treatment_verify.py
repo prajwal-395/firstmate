@@ -141,7 +141,7 @@ def remove_treatment(effects: dict, key: str) -> Dict[str, Any]:
 
     Returns a new dict; the input is untouched. Rebuilding from the
     result yields the exact untreated bytes - proven by string equality
-    in `tests/test_treatment_verify.py`, not asserted.
+    in `tests/unit/reels/test_treatment_verify.py`, not asserted.
     """
     return {k: v for k, v in (effects or {}).items()
             if k != key and k != f"{key}_timing"}
@@ -203,7 +203,7 @@ def build_alone(key: str, effects: dict, clip_dur: int,
     comp is built by the same builder and sizes the same canvas.
 
     The treatment builders are self-contained blocks (their internal
-    wiring is asserted in `tests/test_tv_power.py`), so the treatment's
+    wiring is asserted in `tests/unit/resolve/test_tv_power.py`), so the treatment's
     drawn effect is its own splines' deviation from neutral. Building it
     alone attributes every evaluated curve to the key under check -
     no node-name matching, which collides when one clip carries both
@@ -503,7 +503,7 @@ def remove_drift(effects: dict) -> Dict[str, Any]:
     Returns a new dict; the input is untouched. A drift that drew
     nothing built an empty zoom block, so rebuilding from the result
     yields the exact undrifted bytes - proven by string equality in
-    `tests/test_drift_draws.py`, not asserted.
+    `tests/unit/picture/test_drift_draws.py`, not asserted.
     """
     return {k: v for k, v in (effects or {}).items()
             if k not in DRIFT_KEYS + DRIFT_CURVE_KEYS}

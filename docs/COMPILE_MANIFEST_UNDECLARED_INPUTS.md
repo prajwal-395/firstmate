@@ -90,7 +90,7 @@ requirement names compile_manifest as consumer:
 Compile_manifest's own inputs for all three are OPTIONAL, which
 `prerequisites` deliberately excludes. Flipping them to required would
 bend the contract: decoration absence is legitimate
-(`tests/test_compile_manifest_without_the_decoration.py`). Extending the
+(`tests/scenarios/test_compile_manifest_without_the_decoration.py`). Extending the
 layer to model optional edges is outside a declaration. STOP.
 
 ### 3c. color_grade / render_motion_graphics / creative_cohesion - zero derived effects

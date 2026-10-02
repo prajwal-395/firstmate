@@ -70,7 +70,7 @@ Rules relocated from AGENTS.md 15
 probe.** `read_reel(timeline, ...)` answers the whole truth about one
 reel in one call: clips, markers at every level, Fusion elements, bin,
 and overlay ink. `GetMarkers` / `GetItemListInTrack` outside the reader
-modules listed in `tests/test_reel_read.py` is a new probe by another
+modules listed in `tests/unit/reels/test_reel_read.py` is a new probe by another
 name. Where a caller needs a slice, it takes a slice of the one reader.
 """
 

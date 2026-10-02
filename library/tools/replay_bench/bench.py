@@ -19,7 +19,7 @@ is findable by its own words, and AGENTS.md 10.1 keeps the headline
 and points here.
 
 **A step's decision must be SOURCED from its own context.**
-Judge routing by the assembled context, never by whether the run came out right. Check with `library/tools/replay_bench`. [why](docs/RULE_EVIDENCE.md#the-decision-that-was-remembered-not-sourced) `tests/test_pacing_and_sfx_are_not_remembered.py`.
+Judge routing by the assembled context, never by whether the run came out right. Check with `library/tools/replay_bench`. [why](docs/RULE_EVIDENCE.md#the-decision-that-was-remembered-not-sourced) `tests/unit/audio/test_pacing_and_sfx_are_not_remembered.py`.
 
 
 Rules relocated from AGENTS.md 8

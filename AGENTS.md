@@ -27,13 +27,13 @@ An agent: goal -> inspect state -> search footage/read Resolve -> pick a capabil
 - `library/presets/`: Fusion macros, DaVinci's built-in effect settings, platform safe-zone guides (`platform_safe_zones.py`). Whatever reaches a timeline is found by direct path; there is no preset index.
 - `remotion-subtitles/`: Node.js React app that renders subtitle overlays.
 - `scripts/`: bash helpers for environment setup and maintenance.
-- `tests/`: unit and integration tests for the engine.
+- `tests/`: a directory per LAYER - what a test establishes - `unit/<subsystem>/`, `contracts/`, `scenarios/`, `qualification/`, `tooling/`: `tests/layers.py`.
 - `ren/`: the installed `ren` CLI, the ONE front door - `ren --help` lists its verbs, `ren doctor` checks the machine. One registry, `ren/commands.py`, feeds `manage_project.py`. Machine paths: `~/.config/ren/config.env` (`library/tools/paths.py`). `ren undo`: touch in place, rebuild by version (`library/tools/undo_journal.py`).
 - `requirements.txt`: Python dependencies.
 
 **Footage search is a capability, not a pipeline stage: agents query it.**
 `ren search` / `ren search-index` reach `library/tools/analysis/footage_query.py` ("where in all my footage
-does X happen"); it imports nothing from steps or processes (`tests/test_footage_query.py`).
+does X happen"); it imports nothing from steps or processes (`tests/unit/picture/test_footage_query.py`).
 [`docs/FOOTAGE_INDEX_PROTOTYPE.md`](docs/FOOTAGE_INDEX_PROTOTYPE.md) has what it measured, the
 measured score floor that lets it answer "not in this footage", and the 66x reduction of
 `temporal_index` that is worth doing without it.
@@ -48,7 +48,7 @@ One enumeration, `library/tools/processes.py`. [why](docs/REEL_BUILD_HAS_NO_OWNI
 **A capability's id is its identity; its DAG node is legacy, reached only through `library/tools/dag_adapter.py`.** `library/tools/capabilities.py`.
 
 
-- Call the analysis stage **preflight**, never "phase 1", even though its step ids read `step_1_0X_*`. `object_segmentation` (1.06) runs after the planning steps and segments ONLY the clips a subject grade or `behind_subject` plan names - the trigger is stated in `step_1_06_object_segmentation/step.py` ([`docs/SUBJECT_MASKING_MEASURED.md`](docs/SUBJECT_MASKING_MEASURED.md)). A step directory no capability or node reaches fails `tests/test_capabilities.py` unless `project_layout.STEPS` documents its `unwired_reason`. `prosody_analysis` (1.05) was re-wired on 2026-09-01 and routes to 2.01 and 2.02 via `view:prosody`. [the measurement that unwired it, now overruled](docs/PROSODY_MEASURED.md)
+- Call the analysis stage **preflight**, never "phase 1", even though its step ids read `step_1_0X_*`. `object_segmentation` (1.06) runs after the planning steps and segments ONLY the clips a subject grade or `behind_subject` plan names - the trigger is stated in `step_1_06_object_segmentation/step.py` ([`docs/SUBJECT_MASKING_MEASURED.md`](docs/SUBJECT_MASKING_MEASURED.md)). A step directory no capability or node reaches fails `tests/contracts/test_capabilities.py` unless `project_layout.STEPS` documents its `unwired_reason`. `prosody_analysis` (1.05) was re-wired on 2026-09-01 and routes to 2.01 and 2.02 via `view:prosody`. [the measurement that unwired it, now overruled](docs/PROSODY_MEASURED.md)
 - **UNWIRED and DESELECTED are different things, and only one is a property of the pipeline.** Unwired means no DAG node exists.  The two lists are `project_layout.STEPS` and `run_scope.DESELECTED_BY_DEFAULT`; a step is in one or the other, never both.
 - `objects[].readable_text` in semantic analysis output is the VLM's field - step 1.03 prompts for it directly. The local model (`gemma-4-12b-it-4bit`) reads on-screen text **sparsely, not never**; a recorded claim that it "provably cannot" read text was wrong.
 - Step 1.07 `ocr_extraction` is WIRED and DESELECTED BY DEFAULT: `--with ocr_extraction` turns it on.
@@ -333,12 +333,12 @@ Detail: `library/tools/replay_bench/bench.py`.
 ### No test reaches a real project
 
 **A test builds its project under `tmp_path`, or it skips. It never falls back to a real one.**
-Detail: `tests/test_tests_never_reach_real_projects.py`.
+Detail: `tests/tooling/test_tests_never_reach_real_projects.py`.
 
 ## 9. Environment and dependencies
 
-- **`run` is NOT the only command needing the dedicated `.venv`: `build-reels` does too, and `ML_DEPENDENT_COMMANDS` does not list it.** The preflight is NEVER at import time and checks that list, so `reel_look` refuses the punch-in inside the build, when cv2 has no Haar cascade (>=4.8,<5). A build also needs those variables set and the manager PARKED in the project's `resolve.folder` - it reads the CURRENT folder (`library/tools/timeline_ingest.py`). `tests/test_cli_ml_preflight.py`. [why](docs/RULE_EVIDENCE.md#the-dashboard-could-not-be-opened)
-- Set `HF_TOKEN` for HuggingFace models and `PIPELINE_SFX_LIBRARY`/`PIPELINE_MUSIC_LIBRARY`/`PIPELINE_PROJECTS_ROOT` to absolute paths. Never hand-export the Resolve preamble or re-type the venv path: `.opencode/plugins/vep-env.js` injects `RESOLVE_SCRIPT_API`/`RESOLVE_SCRIPT_LIB`/`PIPELINE_PYTHON` into every shell, and `bin/vep <py-args>` runs the ladder-resolved interpreter. `tests/test_vep_env.py`.
+- **`run` is NOT the only command needing the dedicated `.venv`: `build-reels` does too, and `ML_DEPENDENT_COMMANDS` does not list it.** The preflight is NEVER at import time and checks that list, so `reel_look` refuses the punch-in inside the build, when cv2 has no Haar cascade (>=4.8,<5). A build also needs those variables set and the manager PARKED in the project's `resolve.folder` - it reads the CURRENT folder (`library/tools/timeline_ingest.py`). `tests/unit/context/test_cli_ml_preflight.py`. [why](docs/RULE_EVIDENCE.md#the-dashboard-could-not-be-opened)
+- Set `HF_TOKEN` for HuggingFace models and `PIPELINE_SFX_LIBRARY`/`PIPELINE_MUSIC_LIBRARY`/`PIPELINE_PROJECTS_ROOT` to absolute paths. Never hand-export the Resolve preamble or re-type the venv path: `.opencode/plugins/vep-env.js` injects `RESOLVE_SCRIPT_API`/`RESOLVE_SCRIPT_LIB`/`PIPELINE_PYTHON` into every shell, and `bin/vep <py-args>` runs the ladder-resolved interpreter. `tests/tooling/test_vep_env.py`.
 - **`requirements.txt` is POLICY, `requirements/lock/` what was MEASURED (`scripts/lock_python_env.sh`)**; groups: `library/tools/dependency_groups.py`. No `librosa` fails `music_analysis`.
 - External tools: `ffmpeg`/`ffprobe`, Node.js for Remotion, and GPU for Gemma 4, SAM 2, WhisperX and EasyOCR.
 - **A shared dependency lives ONCE PER MACHINE, outside every checkout; a checkout FINDS it, and absence REFUSES rather than skipping or falling back.** `library/tools/shared_environment.py` locates the Node store and the ML interpreter: `docs/SHARED_ENVIRONMENT.md`. The venv build is `docs/ML_ENVIRONMENT.md`.
@@ -355,7 +355,7 @@ Detail: `tests/test_tests_never_reach_real_projects.py`.
 - **A deferral is per FILE with its count, and that is weaker than it reads**: a listed file is wholly exempt, so a NEW violation in one still passes. Fixing a file means DELETING its line - a line no longer needed is a lie about what is still owed.
 - **The runner installs ffmpeg**, because 27 library files shell out to it and every audio/video measurement path skipped without it. The suite skipped HONESTLY, which is what made it invisible.
 - **pytest runs with `-rs`.** `131 skipped` names nothing; a build that declines to measure something must say what.
-- `tests/test_gate_smoke.py` checks the workflow and proves a false gate PASS is refused.
+- `tests/tooling/test_gate_smoke.py` checks the workflow and proves a false gate PASS is refused.
 
 **CI is THREE LAYERS, and only the last is on GitHub.**
 Detail: `docs/CI_LAYERS.md`. No push/dispatch/PR fires anything: one
@@ -365,17 +365,15 @@ manifests. The full-suite gate is LOCAL, free - firstmate runs
 
 - **Run the tests of everything that depends on your change, in both directions** - the modules it uses AND every module that uses it - and expect no CI verdict on your PR.
   Captain's rule, 2026-09-03: *"is there a reason why we run all these test locally
-  and fry the CPU?"* - so compute the selection with `scripts/select_dependent_tests.py <changed-file>` instead of judging it.
+  and fry the CPU?"* - so compute the selection with `scripts/select_dependent_tests.py <changed-file>` instead of judging it;
+  `--loop` gives the changed subsystem's `unit/` plus `contracts/`.
 - **Wide fan-out is the one exception: NAME it.** `compile_manifest` is a fair claim; a renderer, a docs move or an
 AGENTS.md restructure is not.
 
 ### This file is an INDEX, and two gates keep it one
 
 **A rule lives with the code it governs; AGENTS.md keeps the headline and points at it.**
-Measured 2026-09-03: the file regrew 34,848 characters in the two working days after the
-2026-09-01 condensation - twelve commits, mean +2,913 each, `###` subsections 39 -> 47 with
-none removed - because the working convention was "land a module, add a section describing
-it". A condensation buys two days; only moving the detail out changes the slope.
+A condensation buys two days; only moving the detail out changes the slope. [why](docs/RULE_EVIDENCE.md#the-index-that-regrew)
 
 - **`scripts/check_agents_md_size.py` gates the size, globally and PER SECTION**, and runs in
   CI. Both ratchets may ONLY EVER MOVE DOWN. `SECTION_BUDGETS` must SUM to no more than
@@ -391,7 +389,7 @@ it". A condensation buys two days; only moving the detail out changes the slope.
   Naming a destination that received nothing is refused.
 - **Headings never move**: section numbers are cross-referenced from
   code (`AGENTS.md 10.1`, `§10.5`).
-- `tests/test_agents_md_gates.py` pins that both gates can FAIL - AGENTS.md 10.4's rule
+- `tests/tooling/test_agents_md_gates.py` pins that both gates can FAIL - AGENTS.md 10.4's rule
   applied to the gates on this file.
 
 ## 10. Cross-cutting rules
@@ -522,10 +520,10 @@ Detail: `library/steps/step_1_03_semantic_analysis/step.py`. [why](docs/RULE_EVI
 Detail: `library/tools/analysis/picture_quality.py`. [why](docs/RULE_EVIDENCE.md#usable-ranges-were-the-whole-clip)
 
 **Camera steadiness has ONE reading, and it says which signal answered.**
-Detail: `library/tools/camera_stability.py`. [why](docs/RULE_EVIDENCE.md#the-residual-nobody-read)
+`library/tools/camera_stability.py`. [why](docs/RULE_EVIDENCE.md#the-residual-nobody-read)
 
 **No assessment field reports a default as though it were measured. That is the whole rule, and it holds for every field.**
-Detail: `tests/test_assessment_reports_no_default_as_measured.py`. [why](docs/RULE_EVIDENCE.md#no-assessment-field-reports-a-default)
+`tests/unit/picture/test_assessment_reports_no_default_as_measured.py`. [why](docs/RULE_EVIDENCE.md#no-assessment-field-reports-a-default)
 
 ### 10.4 Gates, and what counts as evidence
 
@@ -539,7 +537,7 @@ Detail: `tests/test_assessment_reports_no_default_as_measured.py`. [why](docs/RU
 
 **TWO versions of a reel may be alive at once, and CHOOSING one is an ACT: `manage_project.py variant new|build|list|diff|choose|merge`.** A variant differs in a SEAM or a per-project DECLARATION and in nothing else; the archive holds ONE unchosen variant per REEL. `library/tools/versions/variants.py`.
 
-**Passage engagement is a JUDGEMENT the model writes, it is an ORDERING, and there is NO SCORE.** `library/tools/passage_engagement.py`, `tests/test_passage_engagement.py`. [why](docs/RULE_EVIDENCE.md#every-line-scored-the-same)
+**Passage engagement is a JUDGEMENT the model writes, it is an ORDERING, and there is NO SCORE.** `library/tools/passage_engagement.py`, `tests/unit/picture/test_passage_engagement.py`. [why](docs/RULE_EVIDENCE.md#every-line-scored-the-same)
 
 **A recommendation is APPLICABLE where it is made, or it is an OBSERVATION that names who owns it.** `library/tools/cohesion_scope.py`. [why](docs/RULE_EVIDENCE.md#the-review-recommended-what-it-could-not-do)
 
@@ -614,13 +612,13 @@ Detail: `library/tools/music_measurement.py`. [why](docs/RULE_EVIDENCE.md#what-s
 **Anything added to `library/presets/` from an outside source needs its licence recorded here before it lands.**
 
 **A PowerGrade lands only with its provenance recorded here.**
-Captain's ruling 2026-09-10: `The Grade Free_1.13.1.drx` (captain-supplied, Zay's free grade) is authorised; no file ships in this repo. `library/tools/color_page_grade.py`; `tests/test_color_page_grade.py`. [why](docs/RULE_EVIDENCE.md#the-unlicensed-powergrade)
+Captain's ruling 2026-09-10: `The Grade Free_1.13.1.drx` (captain-supplied, Zay's free grade) is authorised; no file ships in this repo. `library/tools/color_page_grade.py`; `tests/unit/picture/test_color_page_grade.py`. [why](docs/RULE_EVIDENCE.md#the-unlicensed-powergrade)
 
 **Two third-party assets ship, with their licences.**
 Montserrat, as `remotion-subtitles/public/fonts/Montserrat-Variable.ttf` (variable 100-900), under **SIL Open Font License 1.1** (`public/fonts/OFL-Montserrat.txt`). GSAP, as `hyperframes/vendor/gsap.min.js` (3.14.2, pinned), under the **GSAP Standard License** (free; header in the file).
 
 - **Bundle fonts; never import one over HTTP.** [why](docs/RULE_EVIDENCE.md#the-webfont-race)
-- `tests/test_bundled_fonts.py` fails if the font or licence goes missing, a font arrives over HTTP, or a template names one neither bundled nor accepted as system.
+- `tests/contracts/test_bundled_fonts.py` fails if the font or licence goes missing, a font arrives over HTTP, or a template names one neither bundled nor accepted as system.
 
 **A declared typeface must be one that really draws the glyphs.**
 One enumeration, `library/tools/render_fonts.py` - bundled, accepted as a system font, or carried by the project as a `font_file`.
@@ -706,17 +704,16 @@ One enumeration, `library/tools/marker_payload.py`.
 
 ## 16. Motion graphics
 
-**The motion-graphics elements this pipeline may plan are one enumeration, `library/tools/motion_graphics_vocabulary.py`, and it defines AXES rather than values.** [why](docs/RULE_EVIDENCE.md#the-roster-nobody-wrote-down)
+**The motion-graphics elements this pipeline may plan are one enumeration, `library/tools/motion_graphics_vocabulary.py`, and it defines AXES rather than values.** `tests/contracts/test_motion_graphics_vocabulary.py`. [why](docs/RULE_EVIDENCE.md#the-roster-nobody-wrote-down)
 
 - **An entry names a dimension; the magnitude belongs to whoever declares it.** `AXES` is the vocabulary of dimensions and no axis has a default or a bound. `colour_role` is a role of the declaring palette, never a colour; `type_role` is a weight, never a size.
 - **Reachability is REPORTED per entry, never a filter on membership.** Read the counts off the roster; one written around today's renderer would keep its defect after the repair.
 - **`never` is not optional.** An entry that only says what a thing is teaches a model to reach for it everywhere, so every entry records refusals and `assert_roster_is_well_formed` raises without them.
 - **The boundary is the whole point.** `OUT_OF_VOCABULARY` names the module that owns each near miss. An element is in this roster when it is an ADDITIVE OVERLAY carrying meaning the picture and the captions do not already carry; one that REPLACES it is `library/tools/full_frame_element.py` ([why](docs/FULL_FRAME_ELEMENTS.md)).
-- **Nothing here is keyed to one identity**, because the engine serves a daily channel and client work (§14). `channel_bug` draws a project-supplied asset; the engine ships no artwork and states none.
+- **Nothing here is keyed to one identity**, as the engine serves a daily channel and client work (§14). `channel_bug` draws a project-supplied asset; the engine ships no artwork and states none.
 - **Two neighbouring decisions are the captain's and this file must not take either**: what produces the COPY a graphic shows, and whether the model authors a component or fills a props schema. An entry declares only WHETHER it needs a text payload. `COPY_SOURCE_IS_UNSET` records both; a change that would force one is a stop, not an implication.
-- `roster_rows()` and `ROSTER_LEGEND` are the prompt-side route - a definition beside the table, not in 4.06's prose. The whole roster ships - nothing is shortlisted, because whatever selects a shortlist becomes the chooser (§10.5). **Step 4.06's bridge is the consumer**, and `motion_graphics_plan.DRAWABLE` is DERIVED from the `reachable` column rather than listed twice (§10.2).
+- `roster_rows()` and `ROSTER_LEGEND` are the prompt-side route - a definition beside the table, not in 4.06's prose. The whole roster ships - nothing is shortlisted, because whatever selects a shortlist becomes the chooser (§10.5). **Step 4.06's bridge is the consumer**, and `motion_graphics_plan.DRAWABLE` is DERIVED from the `reachable` column, not listed twice (§10.2).
 - **An ANIMATED EXPLAINER is a staged plan over this roster, timed to the WORDS that say each stage.** `library/tools/explainer_plan.py`. [why](docs/ANIMATED_EXPLAINER.md)
-- `tests/test_motion_graphics_vocabulary.py`.
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.

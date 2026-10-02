@@ -13,7 +13,7 @@ and whose word-timed decisions - captions, karaoke highlights, take
 boundaries - disagree, in a file that has already shipped.
 
 Reel 26 of the captain's `geo-podcast` is the known-answer case and it
-is pinned in `tests/test_reel_hearing.py`. One WhisperX row carried
+is pinned in `tests/unit/reels/test_reel_hearing.py`. One WhisperX row carried
 twelve words in 920 milliseconds with `words: []`, and the delivered mp4
 therefore contains six words with no caption at all, a caption card a
 full second late and a karaoke highlight on the wrong word. Every one of
@@ -46,7 +46,7 @@ No build reads this record, no step declares it, and `passed: false` on
 a row here fails nothing. That is deliberate and it is the conservative
 direction: a new gate that blocks builds is the hard-to-reverse move,
 and the right order is to prove this on real episodes and then ask the
-captain to promote it. `tests/test_reel_hearing.py` pins that no gate
+captain to promote it. `tests/unit/reels/test_reel_hearing.py` pins that no gate
 reads the record.
 
 `passed` is still the check's own honest verdict rather than a constant

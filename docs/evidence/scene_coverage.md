@@ -1,6 +1,6 @@
 # scene coverage
 
-Test: `tests/test_scene_coverage.py`.
+Test: `tests/unit/picture/test_scene_coverage.py`.
 
 `scene[]` describes 46.4% of 001's footage, and no reader could see the gap.
 

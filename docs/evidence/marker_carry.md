@@ -108,5 +108,5 @@ Stated plainly, the limits:
   re-pair in this pass - `audit_replies` says which ones those are
   rather than pretending otherwise.
 
-`tests/test_marker_carry.py`.
+`tests/unit/resolve/test_marker_carry.py`.
 ```

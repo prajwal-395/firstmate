@@ -76,7 +76,7 @@ Reachability
     python -m library.tools.resolve_lock captain-status
     python -m library.tools.resolve_lock captain-release
 
-`tests/test_resolve_lock.py`, `tests/test_resolve_guard_wiring.py` (the
+`tests/unit/resolve/test_resolve_lock.py`, `tests/contracts/test_resolve_guard_wiring.py` (the
 entry points hold the lease, and the refusal cannot be turned off from
 inside `library/`).
 
@@ -484,7 +484,7 @@ def assume_sole_writer(reason: str):
     Production code must never call this - `library/` is not asking the
     question, it is answering it, and a module that declares itself the
     sole writer has simply turned the guard off.
-    `tests/test_resolve_guard_wiring.py` fails if any file under
+    `tests/contracts/test_resolve_guard_wiring.py` fails if any file under
     `library/` calls it.
     """
     global _sole_writer_reason

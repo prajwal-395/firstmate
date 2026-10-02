@@ -147,17 +147,22 @@ CEILING = 52936
 # MOVED 2026-10-01: 100 of `## 15`'s unused budget to `## 8`, for the one
 # index row naming `library/tools/perf_ledger.py` (the run's time ledger).
 # The sum is unchanged.
+# MOVED 2026-10-02: 64 of `## 9` to `## 2`. The tests moved into layers
+# (`tests/layers.py`), so `## 2`'s `tests/` row names them, and every test
+# path in the file grew by its layer. `## 9` paid by moving the 2026-09-03
+# regrowth measurement to docs/RULE_EVIDENCE.md#the-index-that-regrew,
+# leaving its rule and a [why]. The sum is unchanged.
 SECTION_BUDGETS = {
     "## How to read this file": 268,
     "## 1. Identity and purpose": 234,
-    "## 2. Repo layout": 2124,
+    "## 2. Repo layout": 2188,
     "## 3. Pipeline execution": 5337,
     "## 4. Dashboard": 3118,
     "## 5. DaVinci Resolve integration - CRITICAL RULES": 4044,
     "## 6. The spine contract": 1282,
     "## 7. Data flow": 826,
     "## 8. Project management": 1801,
-    "## 9. Environment and dependencies": 5948,
+    "## 9. Environment and dependencies": 5884,
     "## 10. Cross-cutting rules": 16882,
     "## 11. Third-Party Asset Licenses": 1273,
     "## 12. The look": 558,

@@ -1,6 +1,6 @@
 # `library.tools.reel_prebuild_census` - why it measures before the build
 
-Moved from the module docstring of `tests/test_reel_prebuild_census.py` (2026-10-02).
+Moved from the module docstring of `tests/unit/reels/test_reel_prebuild_census.py` (2026-10-02).
 
 The 2026-09-11 round decided the caption row from a census that existed only
 after a four-reel build, a refusal and a discard: four reels at tilt

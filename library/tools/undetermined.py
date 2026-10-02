@@ -59,7 +59,7 @@ One enumeration, `library/tools/undetermined.py`. Across all nine model response
 - **`library/tools/replay_bench/reconstruct.py` mirrors ALL THREE appends**, asking each module's own predicate, or `verify` - a gate - reports every declaring, flagging or interviewed step as a difference it cannot account for. A tree lacking a module NOTES it rather than reconstructing quietly. `bench._llm_authored_from_archive` excludes the fields: they are split out of the answer and are never in the recorded state it subtracts from.
 - **One declaration per model ATTEMPT, numbered, and `final_by_step` is the per-STEP reading.** A step whose answer fails QA is asked again; dedupe would have thrown away the evidence that it failed the same way three times running, which is what `post_bridge_retry` accumulates. The summary prints the last attempt and SAYS how many there were.
 - **`state["undetermined_declarations"]` is MERGED, never replaced** (`undetermined.merge_records`). A step this run answered replaces its own rows; a step it did not reach keeps them, marked `from_a_previous_run` so a carried row is never read as fresh.
-- `tests/test_undetermined_declaration.py`, `tests/test_replay_bench.py`.
+- `tests/test_undetermined_declaration.py`, `tests/unit/context/test_replay_bench.py`.
 """
 
 from __future__ import annotations

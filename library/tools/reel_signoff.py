@@ -70,7 +70,7 @@ one reel never holds back a sibling that passed - the structure the
 2026-09-11 round established when one refusal discarded three buildable
 reels.
 
-`tests/test_reel_signoff.py`.
+`tests/unit/reels/test_reel_signoff.py`.
 """
 
 from __future__ import annotations

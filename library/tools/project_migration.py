@@ -44,7 +44,7 @@ keeps the headline and points here.
 - **It never deletes.** Unidentifiable files go to `pipeline_output/unsorted/` with a stated reason.
 - **It never modifies an input directory.** Pipeline output found inside one is COPIED out.
 - Every run writes a manifest to `pipeline_output/migrations/`.
-- `tests/test_project_migration.py`.
+- `tests/unit/context/test_project_migration.py`.
 """
 
 from __future__ import annotations

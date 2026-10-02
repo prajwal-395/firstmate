@@ -1,6 +1,6 @@
 # An empty VFX plan says WHY it is empty
 
-Tests: `tests/test_vfx_plan_basis.py` (moved from its module docstring, 2026-10-02).
+Tests: `tests/unit/picture/test_vfx_plan_basis.py` (moved from its module docstring, 2026-10-02).
 
 An empty VFX plan says WHY it is empty.
 

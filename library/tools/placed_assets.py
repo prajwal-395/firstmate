@@ -35,7 +35,7 @@ arithmetic, at manifest level); a tail card appends at the end and
 extends the project duration. The compile that cannot read this file
 refuses rather than building silently past it.
 
-`tests/test_orphan_owners.py`.
+`tests/unit/resolve/test_orphan_owners.py`.
 """
 
 from __future__ import annotations

@@ -47,7 +47,7 @@ markers (`unit`, `scenario`, `resolve_live`, and `real_model` in
 
 The DAG is reached ONLY through `library/tools/dag_adapter.py`.  The
 invariants a registry must hold are `problems()`, pinned by
-`tests/test_capabilities.py`.
+`tests/contracts/test_capabilities.py`.
 
     python3 -m library.tools.capabilities --list
 """

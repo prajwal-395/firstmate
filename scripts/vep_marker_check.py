@@ -43,7 +43,7 @@ Two things this check deliberately does NOT do:
   the timeline plane, while 17 of the fleet's notes are clip-anchored.
   The clip half here exists for exactly that hole.
 
-`compare()` is pure and unit-tested (`tests/test_vep_marker_check.py`);
+`compare()` is pure and unit-tested (`tests/unit/resolve/test_vep_marker_check.py`);
 only the readers shell out to Resolve.
 """
 

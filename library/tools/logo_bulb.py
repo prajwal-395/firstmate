@@ -87,7 +87,7 @@ closing frames of a real reel, then this animation where it will sit.
     python3 -m library.tools.logo_bulb --source <in.mov> \\
         --in-reel <reel.mp4> <out.mp4> --keep 40.5 43.42
 
-``tests/test_logo_bulb_text_motion.py`` (the render-dependent suite was
+``tests/unit/captions/test_logo_bulb_text_motion.py`` (the render-dependent suite was
 deleted 2026-09-23, #1330).  The captain's words for each ruling
 (2026-09-17, -21, -24, -26) and what each one superseded:
 docs/evidence/logo_bulb.md.

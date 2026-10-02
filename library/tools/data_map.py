@@ -1450,7 +1450,7 @@ def write_observed(projects: Sequence[Path], destination: Path = None) -> dict:
     """Merge the shapes of one or more real runs into the snapshot.
 
     Committed, because the map has to be checkable without reaching a
-    real project - `tests/test_tests_never_reach_real_projects.py` says
+    real project - `tests/tooling/test_tests_never_reach_real_projects.py` says
     a test builds its project under `tmp_path` or it skips.  A structure
     snapshot is the way both can be true: the shape is committed, the
     project is not read at test time, and `--observe` regenerates it.

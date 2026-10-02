@@ -62,7 +62,7 @@ Two places, and they are the same measurement at two moments:
   it removes - which is the only way reel 02's two-word opening is
   visible at all, because the words that made it read as a hook are cut.
 
-`tests/test_reel_opening.py`.
+`tests/unit/reels/test_reel_opening.py`.
 """
 
 from __future__ import annotations

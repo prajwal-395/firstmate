@@ -42,7 +42,7 @@ is `comparable: False`, and disagreement needs both sides known. An
 unreadable file is not a stale item, and saying which is not this
 module's job.
 
-`tests/test_pool_stream_meta_refresh.py`.
+`tests/unit/resolve/test_pool_stream_meta_refresh.py`.
 """
 
 from __future__ import annotations

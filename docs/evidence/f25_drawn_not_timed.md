@@ -1,6 +1,6 @@
 # F25 forgives played words no honest caption can draw or time
 
-Tests: `tests/test_f25_drawn_not_timed.py` (moved from its module docstring, 2026-10-02).
+Tests: `tests/unit/picture/test_f25_drawn_not_timed.py` (moved from its module docstring, 2026-10-02).
 
 F25 forgives played words no honest caption can draw or time.
 

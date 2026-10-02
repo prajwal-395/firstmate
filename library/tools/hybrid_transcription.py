@@ -401,7 +401,7 @@ TRIGGERS = (
 )
 """Every condition that routes this audio to the fallback, enumerated.
 
-A trigger not in this tuple does not exist: `tests/test_hybrid_transcription.py`
+A trigger not in this tuple does not exist: `tests/unit/audio/test_hybrid_transcription.py`
 asserts each one can actually fire, because a trigger that cannot is
 worse than no trigger (AGENTS.md 10.4)."""
 

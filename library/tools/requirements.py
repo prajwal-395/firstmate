@@ -69,17 +69,17 @@ A gate that cannot fail is worse than no gate, because it reads as
 coverage (AGENTS.md 10.4).  Every `Requirement` must carry BOTH
 witnesses - `refuting_context()` and `satisfying_context()` - with no
 defaults, so a requirement **cannot be registered without them**.  The
-registration is the gate; `tests/test_every_requirement_can_refuse.py`
+registration is the gate; `tests/contracts/test_every_requirement_can_refuse.py`
 only reads it.  A requirement that genuinely cannot refuse is DELETED,
-never exempted.  `tests/test_no_requirement_refuses_correct_input.py` is
+never exempted.  `tests/contracts/test_no_requirement_refuses_correct_input.py` is
 the mirror, so the layer cannot be vacuously strict either.
 
     python3 -m library.tools.requirements          # the registry
     python3 -m library.tools.requirements --kinds  # counts by kind
 
 `tests/test_requirements.py`,
-`tests/test_every_requirement_can_refuse.py`,
-`tests/test_no_requirement_refuses_correct_input.py`.
+`tests/contracts/test_every_requirement_can_refuse.py`,
+`tests/contracts/test_no_requirement_refuses_correct_input.py`.
 
 The prose contracts nothing evaluated, the measured cases that passed
 them, and the rulings that added verdicts and optionals:
@@ -510,14 +510,14 @@ def _state_key_requirement(need) -> Requirement:
 # step in the pipeline that cannot run without a file no step writes.
 # The runner raised for it mid-run instead, which is exactly the crash
 # this module exists to move to before the run starts.
-# `tests/test_operations.py` re-measures the enumeration, so a third
+# `tests/unit/context/test_operations.py` re-measures the enumeration, so a third
 # input of this shape cannot appear unnoticed.
 
 TIMELINE_TRANSCRIPT_INPUT = "timeline_transcript"
 """The input name, which must agree with
 `run_pipeline.TIMELINE_TRANSCRIPT_INPUT` - the runner is what injects it,
 and two spellings would give a requirement about a key nothing supplies.
-`tests/test_operations.py` pins the agreement."""
+`tests/unit/context/test_operations.py` pins the agreement."""
 
 
 _TRANSCRIPT_WITNESS: List[str] = []
@@ -1610,7 +1610,7 @@ firmly as enforcing it."""
 # Six of the prose preconditions named a key the DAG never routes.
 # Converting them verbatim would have refused a CORRECT run, which is a
 # vacuously STRICT gate - no more coverage than one that cannot fail.
-# `tests/test_no_requirement_refuses_correct_input.py` is what catches
+# `tests/contracts/test_no_requirement_refuses_correct_input.py` is what catches
 # that class, and it is why each of these is recorded here rather than
 # silently dropped: a deleted requirement with no reason reads as an
 # oversight.

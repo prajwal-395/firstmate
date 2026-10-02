@@ -50,7 +50,7 @@ strings, empty files and unparseable JSON are malformed and REFUSE with
 the fix (paths, what was wrong, the resume command) - never silently
 accepted, never retried without the model being told.
 
-`tests/test_llm_handshake.py` pins the refusal.
+`tests/unit/context/test_llm_handshake.py` pins the refusal.
 """
 
 from __future__ import annotations

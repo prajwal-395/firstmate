@@ -1616,7 +1616,7 @@ def compute_optical_flow_direction(
         positive = expansion (a zoom or dolly in). The MEASURED
         answer to the always-1.0 `zoom_factor` this step used to
         report: that constant is gone (see `decompose_camera_motion`
-        and `tests/test_no_constant_zoom_factor.py`), and this is
+        and `tests/unit/picture/test_no_constant_zoom_factor.py`), and this is
         what replaced it - a number with a floor and a ratio, not a
         factor that could never move.
       - `method` - `farneback`, `block_match`, or `unmeasured`.

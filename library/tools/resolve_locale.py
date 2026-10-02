@@ -34,7 +34,7 @@ AGENTS.md 9, which keeps the rule and points at it. Every in-repository
 Resolve scripting handshake goes through this wrapper. It also refuses
 to connect unless the caller already holds `resolve_lease`, so the
 bounded wait happens before Resolve sees a second client. The AST gate
-in `tests/test_resolve_guard_wiring.py` pins the single raw call site.
+in `tests/contracts/test_resolve_guard_wiring.py` pins the single raw call site.
 """
 
 from __future__ import annotations

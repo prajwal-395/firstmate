@@ -58,7 +58,7 @@ lands. The numbered scheme survives because it is bound to
 the retired scheme's per-timeline filing survives as sub-bins UNDER
 it (`LEGACY_SUCCESSORS`).
 
-`tests/test_resolve_bin_layout.py`, `tests/test_bins_one_owner.py`.
+`tests/unit/resolve/test_resolve_bin_layout.py`, `tests/unit/resolve/test_bins_one_owner.py`.
 """
 from __future__ import annotations
 
@@ -388,7 +388,7 @@ taking the subtitle fallback above. Measured 2026-09-18 on the
 captain's project: a TV frame placed on all eight reels and two
 freezes placed on three each sat loose at the top of `06 - Subtitle
 renders`, which is neither their category nor any one reel's folder.
-`tests/test_shared_production_assets.py`."""
+`tests/unit/picture/test_shared_production_assets.py`."""
 
 
 def is_render_file(file_path: str, project_root: str) -> bool:

@@ -90,7 +90,7 @@ The twelve classes, and where each lives
     python3 -m library.tools.edit_depth list
     python3 -m library.tools.edit_depth route <class> <layer>
 
-`tests/test_edit_depth.py`.
+`tests/unit/resolve/test_edit_depth.py`.
 
 The incidents behind the classes (the Reel 13 trims and ending):
 docs/evidence/edit_depth.md.

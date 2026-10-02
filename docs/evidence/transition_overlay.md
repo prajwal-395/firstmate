@@ -54,7 +54,7 @@ machine:
 - **Choosing between those rows is taste with no producer here.**  A key
   colour, a similarity and a blend are three numbers nobody in this
   pipeline is asked for, and ``if similarity < 0.x`` is precisely the
-  invented threshold AGENTS.md 10.5 and ``tests/test_no_creative_floors.py``
+  invented threshold AGENTS.md 10.5 and ``tests/contracts/test_no_creative_floors.py``
   exist to keep out.  An authored alpha needs none of them: the softness
   is drawn, not derived.
 
@@ -107,7 +107,7 @@ were available and two of them cost something the captain measures:
    element hides the jump - which is what the gesture is for.
 
 Three is what an editor does with a bumper, and it is the only one of the
-three that costs nothing.  ``tests/test_transition_overlay.py`` asserts
+three that costs nothing.  ``tests/unit/captions/test_transition_overlay.py`` asserts
 the binding hash is byte-identical either side of adding overlays, so the
 claim is checked rather than asserted.
 
@@ -177,12 +177,12 @@ spent a week removing, so nothing here claims it.
 
     python3 -m library.tools.transition_overlay --measure <element.mov>
 
-``tests/test_transition_overlay.py``.
+``tests/unit/captions/test_transition_overlay.py``.
 ```
 
 ## The tests
 
-Moved from the module docstring of `tests/test_transition_overlay.py`.
+Moved from the module docstring of `tests/unit/captions/test_transition_overlay.py`.
 Every gate there is proved in BOTH directions. A gate that cannot fail is
 worse than no gate because it reads as coverage (AGENTS.md 10.4), and this
 area has a documented history of exactly that: project 001 rendered 53.8 MB of

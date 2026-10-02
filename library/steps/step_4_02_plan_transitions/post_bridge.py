@@ -1251,7 +1251,7 @@ def main():
     # This is where the third creative floor lived, and it outlived the
     # captain's ruling of 2026-08-20 for the same reason
     # `inject_default_ken_burns` did (#192): it was written in CODE, and
-    # `tests/test_no_creative_floors.py` only read prompts. It did all
+    # `tests/contracts/test_no_creative_floors.py` only read prompts. It did all
     # three of the things the ruling forbids at once:
     #
     #   * `min_trans = max(1, total_cuts // 3)` - a floor of one drawn

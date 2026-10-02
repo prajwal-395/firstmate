@@ -3,6 +3,14 @@
 See [AGENTS.md 10.4](../AGENTS.md) for the test-authoring rule. The guidance below expands on
 that rule.
 
+A test file goes where what it ESTABLISHES puts it (`tests/layers.py`): `tests/unit/<subsystem>/`
+for one module's behaviour, `tests/contracts/` for an invariant over the whole engine,
+`tests/scenarios/` for a multi-component workflow, `tests/qualification/` for real Resolve or real
+models, `tests/tooling/` for the CI and test machinery. Add to the subsystem's existing file for that
+behaviour before starting a new one. The per-change loop is
+`scripts/select_dependent_tests.py --loop <changed-file>`: the reached subsystems' `unit/` plus
+`contracts/`.
+
 Never write a test whose failure mode is a correct edit.
 A test that asserts a count, a registry size, a file tally, or a snapshot of structure fires on every
 legitimate change and teaches everyone to update the number instead of reading the failure.

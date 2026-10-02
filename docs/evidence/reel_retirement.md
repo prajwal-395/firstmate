@@ -1,6 +1,6 @@
 # `library.tools.reel_retirement` - the history behind its tests
 
-Moved verbatim from the module docstring of `tests/test_reel_retirement.py` on
+Moved verbatim from the module docstring of `tests/unit/reels/test_reel_retirement.py` on
 2026-10-02, when the test kept only its invariant. The archive bin is
 `resolve_bin_layout.REELS_ARCHIVE_BIN`, declared since the 2026-09-09 reset.
 

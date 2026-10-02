@@ -1,6 +1,6 @@
 # Standalone scripts beside the footage
 
-Moved from `tests/test_project_scripts.py`.
+Moved from `tests/unit/context/test_project_scripts.py`.
 
 The gap, recorded 2026-09-06: three standalone scripts lived in the captain's
 project folder (`place_subtitles.py`, `generate_podcast_subtitles.py`,

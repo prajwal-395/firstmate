@@ -40,7 +40,7 @@ Readers: anything that once reached for
 `read_audit_trail(project_folder)` instead. A sweep at the time of
 the move found no such code reader - only prompts carried the
 nested copy, as dead weight - so there was nothing to repoint;
-`tests/test_music_audit_trail.py` pins both halves.
+`tests/unit/audio/test_music_audit_trail.py` pins both halves.
 """
 
 from __future__ import annotations

@@ -51,7 +51,7 @@ read - so none of `bold_large` (192), `clean_standard` (144), `minimal`
 (120) or the legacy 160 moves.
 
 Adding a style means adding it here and naming it from a template;
-`tests/test_subtitle_style.py` fails on an orphan in either direction, the
+`tests/unit/captions/test_subtitle_style.py` fails on an orphan in either direction, the
 same contract `transition_vocabulary` and `series_look` hold.
 
 
@@ -67,7 +67,7 @@ and points here.
 - It overrides the template's typography **KEY BY KEY**. That is the one place this precedence differs from `delivery_format_name`'s and `timed_text_overlay`'s, deliberately.
 - `TYPOGRAPHY_KEYS` is the whole of what may be declared and a fourth key is refused by name, because `SubtitleStyle.resolve` reads exactly three.
 - **A number that governs one video does not go in a preset four other videos read.** `bold_large` (192), `clean_standard` (144), `minimal` (120) and `LEGACY_FONT_SIZE` (160) are untouched.
-- `tests/test_subtitle_style.py`.
+- `tests/unit/captions/test_subtitle_style.py`.
 """
 
 from dataclasses import dataclass

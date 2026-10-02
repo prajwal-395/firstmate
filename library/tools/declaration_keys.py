@@ -64,7 +64,7 @@ cooperating writers do not interleave. It does NOT depend on
 cooperation for correctness: the base-revision check catches a hand
 edit made in a text editor, which takes no lock and never will.
 
-`tests/test_declaration_keys.py`.
+`tests/unit/context/test_declaration_keys.py`.
 """
 
 from __future__ import annotations

@@ -23,7 +23,7 @@ This module is the second answer, for three reasons:
    (`/pipeline_output/provenance/**`), whose stated purpose is "what
    [an] artifact names as its source", and which the runner already
    writes (`hooks.ledger_path`).  No allow-list change was needed - and
-   `tests/test_brief_snapshot.py` pins that the snapshot is tracked, so
+   `tests/unit/context/test_brief_snapshot.py` pins that the snapshot is tracked, so
    a future narrowing of that wildcard breaks loudly.
 3. The precedent is already in the tree: the replay bench COPIES the
    brief rather than referencing it, "because a later edit does not
@@ -55,7 +55,7 @@ raises: a record that breaks the build is worse than no record.  Every
 failure is returned as `{"snapshotted": False, "reason": ...}` for the
 caller to print.
 
-`tests/test_brief_snapshot.py`.
+`tests/unit/context/test_brief_snapshot.py`.
 """
 
 from __future__ import annotations

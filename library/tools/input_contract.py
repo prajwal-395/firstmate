@@ -25,7 +25,7 @@ Warrant is a different question from enforcement
 ------------------------------------------------
 That a requirement is ENFORCED does not make it TRUE.  Establishing the
 truth of a requirement means running the step without the input, which
-this module does not do - `tests/test_compile_manifest_without_the_decoration.py`
+this module does not do - `tests/scenarios/test_compile_manifest_without_the_decoration.py`
 does it for `compile_manifest`.  What this module adds is whether
 anything CONSUMES the input at all (`unconsumed`): an input that reaches
 neither the step's code nor its prompt is a requirement with no consumer.
@@ -69,7 +69,7 @@ and points here.
 
 **No step may declare an input required that nothing refuses on, or optional that its own code refuses without.**
 `library/tools/input_contract.py` surveys all 144 declared inputs of the DAG's 26 steps and says, for each, WHO refuses when it is absent - the runner (edge-routed and required), the step (with a file and a line), or nobody.
-- **Enforcement is not warrant.** Establishing warrant means RUNNING the step without the input; `tests/test_compile_manifest_without_the_decoration.py` does that for every input of the one step that reads state directly instead of taking `gather_step_inputs`' word for it.
+- **Enforcement is not warrant.** Establishing warrant means RUNNING the step without the input; `tests/scenarios/test_compile_manifest_without_the_decoration.py` does that for every input of the one step that reads state directly instead of taking `gather_step_inputs`' word for it.
 - A required input the step nonetheless runs without is recorded in `REQUIRED_THOUGH_THE_STEP_RUNS_WITHOUT_IT` with what would go silently missing - and the test checks the record BOTH ways, so an entry for an input that really refuses is stale and fails.
 - The line is AGENTS.md section 10.5's: `[]` for transitions is the absence of decoration and is optional; `{}` for the audio mix is the spine's declared `music_behavior` going missing and is not.
 - `UNCONSUMED_DECLARATIONS` records an input read by neither the step's code nor its prompt, still declared because unrouting it would leave a `handoff.md` documenting a read that no longer happens. `UNROUTED_THOUGH_THE_HANDOFF_DOCUMENTS_IT` is its MIRROR - the declaration has gone and the handoff line has stayed. It is EMPTY: its one entry, `creative_direction.prosody_analysis`, closed on 2026-09-01 when the captain re-wired step 1.05 and the handoff line agreed again. It fails from BOTH sides: an entry whose input is declared again is stale, and so is one whose handoff no longer names the key.
@@ -169,7 +169,7 @@ UNROUTED_THOUGH_THE_HANDOFF_DOCUMENTS_IT = {
 # MEASUREMENT somebody took is different: the run would ship without it
 # and nothing would say so.
 #
-# `tests/test_compile_manifest_without_the_decoration.py` runs the step
+# `tests/scenarios/test_compile_manifest_without_the_decoration.py` runs the step
 # with each input absent and checks this table in BOTH directions - an
 # unrecorded input the step compiles without fails, and a recorded input
 # the step refuses without is stale and fails too.

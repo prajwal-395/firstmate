@@ -168,7 +168,7 @@ def _is_transient_error(e: Exception) -> bool:
 # ImportError: pass` and the shared asset libraries were never injected -
 # PIPELINE_SFX_LIBRARY and PIPELINE_MUSIC_LIBRARY reached no run, and step
 # 0.01 failed any project whose state did not already carry a path.
-# tests/test_runner_library_paths.py asserts both imports work.
+# tests/unit/context/test_runner_library_paths.py asserts both imports work.
 _LIBRARY_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_LIBRARY_DIR / "tools"))
 sys.path.insert(0, str(_LIBRARY_DIR))

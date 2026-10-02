@@ -124,7 +124,7 @@ A variant is a BUILT reel, so it can be signed off;
 - a signed-off variant that LOSES keeps its sign-off and is never
   collected.
 
-`tests/test_version_variants.py`, `tests/test_version_variant_choice.py`.
+`tests/unit/reels/test_version_variants.py`, `tests/unit/reels/test_version_variant_choice.py`.
 
 The measurements and rulings behind these rules (the version-control
 report's merge ruling, issue #925, the captain's 2026-09-12 answer, the
@@ -173,7 +173,7 @@ def declarable() -> tuple:
     variant-expressible with no second edit, and one removed stops
     being expressible at the same moment.
 
-    `tests/test_version_variants.py::
+    `tests/unit/reels/test_version_variants.py::
     test_the_declarable_set_is_derived_not_listed_again` pins the
     derivation.
     """

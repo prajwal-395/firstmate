@@ -85,7 +85,7 @@ this side only reads.
 
     python3 -m library.tools.timeline_ingest <project_folder> --write
 
-`tests/test_timeline_ingest.py`.
+`tests/unit/resolve/test_timeline_ingest.py`.
 """
 
 

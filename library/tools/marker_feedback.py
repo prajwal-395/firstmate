@@ -11,7 +11,7 @@ vocabulary of marker colours - the typed text is the signal.
 ── What Resolve does, per call ─────────────────────────────────────────
 
 Established against a real running Resolve and pinned by
-`tests/test_marker_feedback_against_resolve.py`.  `hasattr` is useless on
+`tests/qualification/test_marker_feedback_against_resolve.py`.  `hasattr` is useless on
 Resolve's scripting proxies (every attribute lookup succeeds), so nothing
 here guards on it; every call is judged by what it returns.
 
@@ -76,8 +76,8 @@ The build path REFUSES to delete a timeline carrying uncollected notes:
     python3 -m library.tools.marker_feedback show [--project <p>]
     python3 -m library.tools.marker_feedback check --project <p>
 
-`tests/test_marker_feedback_against_resolve.py`,
-`tests/test_marker_feedback_records.py`.
+`tests/qualification/test_marker_feedback_against_resolve.py`,
+`tests/unit/resolve/test_marker_feedback_records.py`.
 
 The probe these findings were measured on, and the assumptions it
 overturned: docs/evidence/marker_feedback.md.
@@ -93,7 +93,7 @@ keeps the headline and points here.
 The captain reviews a built timeline **inside DaVinci Resolve** and drops markers on it carrying
 natural language - what looks wrong, what to change, what to go and find out.
 One enumeration, `library/tools/marker_feedback.py`, which reads them and writes them to disk.
-It is proved against a real running Resolve by `tests/test_marker_feedback_against_resolve.py`;
+It is proved against a real running Resolve by `tests/qualification/test_marker_feedback_against_resolve.py`;
 its recorded per-call findings are in the module docstring, in the shape `neural_engine.py` uses.
 - **A MARKER CARRIES TWO PIECES OF TYPED TEXT AND BOTH ARE READ.** `GetMarkers()` returns `name`
   (the Add Marker dialog's **Name** field, where the cursor lands) and `note` (its **Notes**

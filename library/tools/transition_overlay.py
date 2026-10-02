@@ -41,7 +41,7 @@ on exactly the frame it was on: duration, ``keep_ranges``, every
 caption's timing and ``plan_provenance.footage_binding_hash`` are
 unchanged.  Consuming frames from either shot would re-time every later
 caption; extending the reel would desynchronise picture and sound.
-``tests/test_transition_overlay.py`` asserts the binding hash is
+``tests/unit/captions/test_transition_overlay.py`` asserts the binding hash is
 byte-identical either side of adding overlays.
 
 What it DOES cost is stated: an element over the cut draws over captions.
@@ -102,7 +102,7 @@ drawable, and that is derived rather than declared -
 
     python3 -m library.tools.transition_overlay --measure <element.mov>
 
-``tests/test_transition_overlay.py``.
+``tests/unit/captions/test_transition_overlay.py``.
 
 The measurements and rulings behind these rules (the 2026-09-07 asset
 census and keying table, the three timing options weighed, the ``on:``
@@ -401,7 +401,7 @@ def measure_alpha(path: str, timeout: int = 300, *,
     ``alphaextract`` fails outright when the input has no alpha plane -
     ffmpeg exits non-zero having written no frames - so ABSENT and EMPTY
     are two different results here and not one. The validation that says
-    so is in ``tests/test_transition_overlay.py``, against a
+    so is in ``tests/unit/captions/test_transition_overlay.py``, against a
     known-opaque, a known-empty and a known-partial control, because an
     instrument that reports zero has to be shown reporting non-zero on
     something known first.

@@ -91,7 +91,7 @@ composited over, wherever the overlay's own alpha is zero, and raises
 when they disagree.  That is the defect itself rather than a proxy for
 it - a build that sets the attribute and still darkens the picture
 fails this, and one that reaches the same picture by another route
-passes.  `tests/test_overlay_carriage.py` drives it with the real
+passes.  `tests/unit/captions/test_overlay_carriage.py` drives it with the real
 exported frames from the measurement above.
 """
 

@@ -133,7 +133,7 @@ change defensively, and its `rederive` returns a receipt that says
 comp-expecting insertion off the live timeline, and with none present
 there is nothing whose comp could be stale.  The four structural
 refusals in `composed_edit` are untouched -
-`tests/test_composed_edit_refusal.py` attempts the bypass eight ways
+`tests/unit/resolve/test_composed_edit_refusal.py` attempts the bypass eight ways
 and must keep passing.
 
 "Staged", not "in place on the captain's timeline"
@@ -189,7 +189,7 @@ delete" and never a ratio against a rebuild quoted from the old
 spike figure.
 ```
 
-## What `tests/test_reel_touchup.py` pins
+## What `tests/unit/reels/test_reel_touchup.py` pins
 
 Moved from the test module's docstring (2026-10-02).
 
@@ -210,7 +210,7 @@ Moved from the test module's docstring (2026-10-02).
   rederiver and verifies by re-reading the track.
 
 
-## `tests/test_ren_entry_motion_and_property_ops.py` - design history (moved 2026-10-02)
+## `tests/unit/context/test_ren_entry_motion_and_property_ops.py` - design history (moved 2026-10-02)
 
 ```text
 Ren in the 1326/1327 shape: entry-motion and property-set operations.

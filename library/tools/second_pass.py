@@ -65,7 +65,7 @@ context.  Nothing is re-measured that pass one already measured: the
 per-second RMS windows of a file are read once and every section's
 envelope is bucketed out of them.
 
-``tests/test_second_pass.py``.
+``tests/unit/picture/test_second_pass.py``.
 
 
 Rules relocated from AGENTS.md 10.5
@@ -80,7 +80,7 @@ One enumeration, `library/tools/second_pass.py`. Captain's choice: *"Two-pass: s
 - Pass one offers `track_sections`' scalars; the answer's `section_shortlist` names the sections it is weighing - **SEVERAL of them, across several tracks, because the bed is a sequence**; `music_measurement.section_envelopes` measures those and only those, one decode per FILE; pass two chooses with them in front of it and that answer stands.
 - **A post-bridge ASKS by returning `REQUEST_KEY`**, which is SPLIT OUT of the answer before anything validates it. The runner carries it the way `post_bridge_retry` carries a violation - **extend that path; do not build a third one** - and tells the post-bridge which pass it is on via `PASS_KEY`.
 - **Bounded at one extra pass, and at the bound the request is IGNORED and the answer STANDS.** Unlike a contract rejection, an unanswered second pass leaves a valid output.
-- `tests/test_second_pass.py`.
+- `tests/unit/picture/test_second_pass.py`.
 """
 
 from __future__ import annotations

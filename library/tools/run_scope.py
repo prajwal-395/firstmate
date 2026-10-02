@@ -84,7 +84,7 @@ Steps that are off by default
 `DESELECTED_BY_DEFAULT` is the one place a step is declared wired but not
 run.  The step IS in the DAG, runs whenever it is named, and turning it on
 is `--with <id>`.  A step may only be here if nothing hard-depends on it,
-or every default run would refuse; `tests/test_run_scope.py` checks that.
+or every default run would refuse; `tests/unit/context/test_run_scope.py` checks that.
 
 `describe` is the one list of lines a run prints about its scope, shared
 by the runner, `--dry-run` and the tests; `estimated_seconds` is the DAG's
@@ -107,7 +107,7 @@ One enumeration, `library/tools/run_scope.py`, and both CLIs register its flags 
 - **A recorded output does not remove a step from the run; a SUPPLIED one does.** History is not a request. The captain putting a value under `external/` is saying "do not make this", so the closure stops at that producer.
 - **A target names its GOAL steps and nothing else.** The step list is walked off the DAG every run, so inserting a step upstream keeps the target right without anybody editing it. `rough_cut_subtitles` is the one target; add another only on evidence.
 - **A step that is off by default is reported on every run**, including a plain full one, and is not counted as never-completed - a step that exists and silently never runs is the trap this file's step-directory check exists to stop.
-- `tests/test_run_scope.py`.
+- `tests/unit/context/test_run_scope.py`.
 
 The measurements and rulings behind these rules (#250, #260, the
 measured shadowing of a supplied value): docs/evidence/run_scope.md.

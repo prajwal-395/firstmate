@@ -1,6 +1,6 @@
 # Legitimate plans that `compile_manifest` refused - history
 
-Moved verbatim from the module docstring of `tests/test_a_legitimate_plan_is_not_refused.py`
+Moved verbatim from the module docstring of `tests/scenarios/test_a_legitimate_plan_is_not_refused.py`
 (test-suite halving, 2026-10-02). The tests keep the invariants; this keeps the incident.
 
 ```text

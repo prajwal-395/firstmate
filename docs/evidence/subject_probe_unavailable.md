@@ -1,6 +1,6 @@
 # A subject probe with no detector
 
-Tests: `tests/test_subject_probe_unavailable.py`.
+Tests: `tests/unit/picture/test_subject_probe_unavailable.py`.
 
 Reel 09, 2026-09-09: a full `build-reels --only-reel 9` failed the reel
 gate on 6x F12, every item delivering the IDENTICAL rect

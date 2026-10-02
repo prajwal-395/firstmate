@@ -1,6 +1,6 @@
 # The look reaches B-roll
 
-Tests: `tests/test_series_look_reaches_broll.py`. Moved from that module's docstring in the 2026-10 suite halving.
+Tests: `tests/unit/picture/test_series_look_reaches_broll.py`. Moved from that module's docstring in the 2026-10 suite halving.
 
 ```textThe house look reaches B-roll, not only A-roll.
 

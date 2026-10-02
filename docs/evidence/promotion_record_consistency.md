@@ -1,7 +1,7 @@
 # Promotion records and interruption
 
 The post-promotion refusal matrix is in
-`tests/test_build_refuses_when_the_record_would_lie.py`.
+`tests/unit/reels/test_build_refuses_when_the_record_would_lie.py`.
 `library/tools/reel_build.py::promote_staged_reels` owns the sequence;
 the test proves a record failure is raised after the staged reel lands.
 
@@ -28,7 +28,7 @@ renamed the approved and staged timelines, then raised while renaming
 provenance. That left later promotion records unfinished. The final's
 old provenance described the build just replaced, so the fix drops that
 entry when the incoming staging has no build record and completes the
-promotion. `tests/test_promote_replace_guard.py::test_a_staging_no_build_recorded_drops_the_replaced_provenance`
+promotion. `tests/unit/reels/test_promote_replace_guard.py::test_a_staging_no_build_recorded_drops_the_replaced_provenance`
 pins that case.
 
 Media-pool filing refusal remains reportable on the promotion result;

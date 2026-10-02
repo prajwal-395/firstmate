@@ -1,0 +1,354 @@
+"""One module owns where a project's output lands, and every step uses it.
+
+Before this existed, `library/tools/paths.py` owned the repo side and
+NOTHING owned the project side.  Fifteen steps joined `project_folder`
+with a directory name of their own choosing, so:
+
+  * the scaffold in `project_registry` created `pipeline_output/subtitles`
+    and `pipeline_output/motion_graphics` while the steps that render
+    those wrote `subtitle_segments` and `motion_graphics_segments` - two
+    empty directories nobody opened, and two the scaffold never made;
+  * step 1.03 and step 1.07 wrote their analysis into `raw/`, the
+    captain's own footage directory;
+  * steps 4.05 and 4.06 fell back to `<repo>/pipeline_output/` when they
+    were handed no project, which in a disposable worktree means the
+    render is gone the moment the worktree is;
+  * `pipeline_data.json` was protected by nine hand-made `.bak*` files at
+    the project root with no policy and no way to tell which mattered.
+
+These tests hold the three properties that make that unrepeatable: the
+count of steps on the owner, the guard that refuses a write outside the
+layout, and the bounded backup store.
+"""
+
+import json
+import re
+from pathlib import Path
+
+import pytest
+
+from library.tools.project_layout import (
+    AREAS,
+    MAX_PIPELINE_DATA_BACKUPS,
+    WRITABLE_KINDS,
+    Area,
+    ProjectLayout,
+    ProjectLayoutViolation,
+)
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+STEPS_ROOT = REPO_ROOT / "library" / "steps"
+
+# ── The count ───────────────────────────────────────────────────────
+
+
+def test_no_step_joins_a_project_folder_with_a_directory_name():
+    """The pattern the owner exists to replace, banned at the source."""
+    offenders = []
+    pattern = re.compile(
+        r"""(os\.path\.join\(\s*(project_folder|project_dir)\s*,\s*["']"""
+        r"""|Path\(\s*(project_folder|project_dir)\s*\)\s*/\s*["'])"""
+    )
+    for py in STEPS_ROOT.rglob("*.py"):
+        if "__pycache__" in py.parts:
+            continue
+        for n, line in enumerate(py.read_text(encoding="utf-8").splitlines(), 1):
+            if pattern.search(line):
+                offenders.append(f"{py.relative_to(REPO_ROOT)}:{n}: {line.strip()}")
+    assert not offenders, (
+        "a step is composing a project path inline again:\n  "
+        + "\n  ".join(offenders)
+    )
+
+
+# ── The guard ───────────────────────────────────────────────────────
+
+def test_input_areas_refuse_every_write(tmp_path):
+    """INPUT means INPUT: the captain's footage and subtitle directories
+    refuse write_dir, write_path and assert_writable, and a refused
+    write creates nothing on the way out."""
+    layout = ProjectLayout(tmp_path)
+    with pytest.raises(ProjectLayoutViolation, match="input"):
+        layout.write_dir(Area.RAW)
+    assert not (tmp_path / "raw").exists()
+    for area in (Area.RAW, Area("subtitle_plans"), Area("subtitle_overlays"),
+                 Area.RUN_PROFILES):
+        with pytest.raises(ProjectLayoutViolation):
+            layout.write_dir(area)
+        with pytest.raises(ProjectLayoutViolation):
+            layout.write_path(area, "anything.json")
+        with pytest.raises(ProjectLayoutViolation):
+            layout.assert_writable(layout.read_dir(area) / "x.json")
+
+
+def test_writes_outside_the_layout_are_refused(tmp_path):
+    """Outside the project, the bare root (project.yaml and run state
+    only), an escape out of an area, an unknown area, and an empty
+    project folder (the fallback that once wrote into the repo)."""
+    layout = ProjectLayout(tmp_path)
+    with pytest.raises(ProjectLayoutViolation, match="outside the project"):
+        layout.assert_writable("/etc/passwd")
+    with pytest.raises(ProjectLayoutViolation):
+        layout.assert_writable(tmp_path / "stray.mov")
+    with pytest.raises(ProjectLayoutViolation):
+        layout.write_path(Area.PROSODY, "..", "..", "raw", "x")
+    with pytest.raises(ProjectLayoutViolation, match="Unknown project area"):
+        layout.write_dir("wherever_i_like")
+    for empty in ("", "   ", None):
+        with pytest.raises(ProjectLayoutViolation):
+            ProjectLayout(empty)
+    # The positive control: an output path is writable.
+    p = layout.write_path(Area.PROSODY, "clip_001_prosody.json")
+    assert layout.assert_writable(p) == p
+    assert layout.assert_writable(tmp_path / "exports" / "Pipeline_Edit.mp4")
+
+
+# ── A step writes only in its own directory ─────────────────────────
+
+def test_a_step_writes_only_in_its_own_directory(tmp_path):
+    """`pipeline_output/steps/` only means anything if this holds: a
+    directory named for a step means that step wrote it, so the answer
+    to "which step wrote this" is the path. Areas no step owns
+    (`exports/` for 6.01 and 6.02, `scratch/` for anyone) are shared."""
+    layout = ProjectLayout(tmp_path)
+    with pytest.raises(ProjectLayoutViolation) as exc:
+        layout.write_dir(Area.PROSODY, step="render_subtitles")
+    assert "belongs to step 'prosody_analysis'" in str(exc.value)
+    assert "writes only inside its own directory" in str(exc.value)
+
+    assert layout.write_dir(Area.EXPORTS, step="render")
+    assert layout.write_dir(Area.EXPORTS, step="validate")
+    assert layout.write_dir(Area.SCRATCH, step="prosody_analysis")
+
+    for area, spec in AREAS.items():
+        if not spec.step:
+            continue
+        p = layout.write_path(area, "f.json", step=spec.step)
+        assert layout.step_of(p) == spec.step, f"{area.value} is misfiled"
+
+
+# ── The step table matches the pipeline ─────────────────────────────
+
+
+def test_the_step_and_area_tables_match_the_repository():
+    """Every step directory is in STEPS; `wired` means SOME process
+    declares a node (`build_reels`/`verify_reels` live in
+    `library/processes/reels`, not edit_video); no two areas claim one
+    directory."""
+    from library.tools import processes
+    from library.tools.project_layout import STEPS
+
+    repo = Path(__file__).resolve().parents[3] / "library" / "steps"
+    on_disk = {p.name[len("step_"):] for p in repo.iterdir()
+               if p.name.startswith("step_") and p.is_dir()}
+    assert on_disk == {s.dirname for s in STEPS}
+
+    dag_ids = set(processes.node_owners())
+    for step in STEPS:
+        assert step.wired == (step.node_id in dag_ids), (
+            f"{step.node_id}: wired={step.wired} disagrees with every DAG")
+
+    seen = {}
+    for area, spec in AREAS.items():
+        if spec.relpath == ".":
+            continue
+        assert spec.relpath not in seen, (
+            f"{area.value} and {seen[spec.relpath]} both claim "
+            f"{spec.relpath}")
+        seen[spec.relpath] = area.value
+
+
+# ── The layout itself ───────────────────────────────────────────────
+
+def test_ensure_creates_containers_and_not_the_input_side(tmp_path):
+    """ensure() creates the two structural containers and the README.
+
+    Individual step directories and project-level areas appear when
+    something writes to them, not when the scaffold guesses.  An empty
+    directory that was pre-created carries no information."""
+    ProjectLayout(tmp_path).ensure()
+    # The containers must exist.
+    assert (tmp_path / "pipeline_output").is_dir()
+    assert (tmp_path / "pipeline_output" / "steps").is_dir()
+    # Input areas must NOT be created.
+    for area, spec in AREAS.items():
+        if spec.relpath == ".":
+            continue
+        if spec.kind not in WRITABLE_KINDS:
+            assert not (tmp_path / spec.relpath).is_dir(), (
+                f"{area.value} is {spec.kind.value}; creating it is the "
+                f"first half of writing to it")
+    # Step directories must NOT be pre-created.
+    steps_root = tmp_path / "pipeline_output" / "steps"
+    assert not list(steps_root.iterdir()), (
+        "no step directory should exist before the step writes to it")
+    # Project-level areas (gates/, annotations/ etc.) must NOT be pre-created.
+    for area, spec in AREAS.items():
+        if spec.step or spec.relpath in (".", "pipeline_output",
+                                         "pipeline_output/steps"):
+            continue
+        if spec.kind in WRITABLE_KINDS:
+            assert not (tmp_path / spec.relpath).is_dir(), (
+                f"{area.value} should not be pre-created by ensure()")
+    # Writing to an area creates just that step's directory.
+    ProjectLayout(tmp_path).write_dir(Area.PROSODY, step="prosody_analysis")
+    assert [p.name for p in steps_root.iterdir()] == ["1_05_prosody_analysis"]
+
+
+# ── Backups ─────────────────────────────────────────────────────────
+
+def _state(tmp_path, marker):
+    ProjectLayout(tmp_path).pipeline_data_path.write_text(
+        json.dumps({"marker": marker}), encoding="utf-8")
+
+
+def test_a_backup_is_a_copy_and_the_store_is_bounded(tmp_path):
+    _state(tmp_path, "before")
+    layout = ProjectLayout(tmp_path)
+    made = layout.backup_pipeline_data(label="run", now=1_699_000_000)
+    _state(tmp_path, "after")
+    assert json.loads(made.read_text(encoding="utf-8"))["marker"] == "before"
+
+    for i in range(MAX_PIPELINE_DATA_BACKUPS + 7):
+        layout.backup_pipeline_data(label=f"run{i}", now=1_700_000_000 + i * 60)
+    kept = layout.automatic_backups()
+    assert len(kept) == MAX_PIPELINE_DATA_BACKUPS, (
+        "nine hand-made backups is what an unbounded store looks like")
+    assert kept[-1].name.endswith(
+        f"run{MAX_PIPELINE_DATA_BACKUPS + 6}.json"), "the newest must survive"
+
+
+def test_hand_made_backups_are_never_pruned(tmp_path):
+    """The pruner only touches files it could have written itself."""
+    _state(tmp_path, "x")
+    layout = ProjectLayout(tmp_path)
+    legacy = layout.legacy_backup_dir() / "pipeline_data.json.bak_phase1_landscape"
+    legacy.write_text("{}", encoding="utf-8")
+    beside = layout.backup_dir() / "pipeline_data.json.bak3"
+    beside.write_text("{}", encoding="utf-8")
+
+    for i in range(MAX_PIPELINE_DATA_BACKUPS * 2):
+        layout.backup_pipeline_data(now=1_700_000_000 + i * 60)
+
+    assert legacy.exists(), "a legacy backup must survive every prune"
+    assert beside.exists(), (
+        "a file the naming policy did not write is not the pruner's to "
+        "delete, wherever it sits")
+
+
+# ── The runner takes one backup per run, not per save ───────────────
+
+def test_the_runner_backs_up_once_per_run(tmp_path, monkeypatch):
+    """save_pipeline_state runs after every step; 26 backups a run would
+    spend the whole retention window inside one run."""
+    from library.processes.edit_video import run_pipeline
+
+    _state(tmp_path, "before")
+    monkeypatch.setattr(run_pipeline, "_BACKED_UP_THIS_PROCESS", set())
+    for i in range(5):
+        run_pipeline.save_pipeline_state(str(tmp_path), {"step": i})
+
+    assert len(ProjectLayout(tmp_path).automatic_backups()) == 1
+
+
+# ── Read-side audit: no consumer crashes on a bare project ──────────
+
+def test_read_paths_survive_a_project_with_no_directories(tmp_path):
+    """The lazy ensure() creates only containers.  Every consumer that
+    calls read_dir() must handle the case where the returned path does
+    not exist.  This test exercises those code paths against a project
+    whose directories have never been created - the case that could not
+    previously occur and no existing test covered.
+    """
+    # A project with ONLY project.yaml and pipeline_data.json - nothing
+    # else exists.  No ensure(), no input dirs, no output dirs.
+    (tmp_path / "project.yaml").write_text(
+        "name: bare\nslug: bare\n", encoding="utf-8")
+    (tmp_path / "pipeline_data.json").write_text(
+        '{"step_outputs": {}, "preflight_completed": {}, '
+        '"edit_completed": {}, "failed_steps": []}',
+        encoding="utf-8")
+
+    layout = ProjectLayout(tmp_path)
+
+    # 1. review_gate: every read function returns a safe default.
+    from library.tools.review_gate import (
+        get_all_gate_statuses,
+        get_gate_status,
+        load_gate_feedback,
+        load_gate_snapshot,
+    )
+    assert get_all_gate_statuses(str(tmp_path)) == {}
+    assert get_gate_status(str(tmp_path), "scan") == "none"
+    assert load_gate_snapshot(str(tmp_path), "scan") is None
+    assert load_gate_feedback(str(tmp_path), "scan") is None
+
+    # 2. provenance: snapshot returns empty, no crash on missing dirs.
+    from library.tools.provenance import ProvenanceLedger
+    prov = ProvenanceLedger(tmp_path)
+    assert prov.snapshot() == {}
+
+    # 3. music_selection_contract: sources include paths but no crash.
+    from library.tools.music_selection_contract import catalogue_sources
+    sources = catalogue_sources(str(tmp_path))
+    for dirs in sources.values():
+        for d in dirs:
+            # The path may not exist, but the caller is expected to
+            # check os.path.isdir() before listing.
+            import os
+            if os.path.isdir(d):
+                os.listdir(d)  # would crash if wrongly assumed to exist
+
+    # 4. paths.py: returns a path without I/O.
+    from library.tools.paths import project_output_dir
+    p = project_output_dir(str(tmp_path))
+    assert isinstance(p, Path)
+    # p may not exist - that is fine, it is just a path.
+
+    # 5. project_config: properties return paths without I/O.
+    from library.schemas.project_config import ProjectConfig
+    cfg = ProjectConfig(name="bare", slug="bare")
+    object.__setattr__(cfg, "_project_root", Path(tmp_path))
+    assert isinstance(cfg.raw_dir, Path)
+    assert isinstance(cfg.pipeline_output_dir, Path)
+    assert isinstance(cfg.exports_dir, Path)
+
+    # 6. read_dir on every area returns a path without crashing.
+    for area in Area:
+        p = layout.read_dir(area)
+        assert isinstance(p, Path)
+        # None of these should exist, and that is the point.
+
+
+# ── The captain's own working directories (geo-podcast, 2026-09-09) ────
+
+
+def test_no_library_code_names_the_captains_stray_directories():
+    """The three reconciled directories are captain-side names. Nothing
+    under `library/` may compose them: the subtitle directories are
+    written by the captain's own scripts via `SCRIPT_DIR`, and the vox
+    test renders are hand exports off Resolve. A path-composing reference
+    here would be a second writer the layout does not reconcile.
+
+    Delimited so `render_subtitle_overlays` (the step 4.05 function) does
+    not match: only a quoted or path-joined directory name counts. The
+    owner itself is excluded: naming the row IS the reconciliation."""
+    pattern = re.compile(
+        r"""['"/]subtitle_plans['"/]|['"/]subtitle_overlays['"/]|"""
+        r"""['"/]vox_test_renders['"/]"""
+    )
+    offenders = []
+    for py in (REPO_ROOT / "library").rglob("*.py"):
+        if "__pycache__" in py.parts:
+            continue
+        if py.name == "project_layout.py":
+            continue  # the owner names every row; that is the fix
+        for n, line in enumerate(
+                py.read_text(encoding="utf-8").splitlines(), 1):
+            if pattern.search(line):
+                offenders.append(
+                    f"{py.relative_to(REPO_ROOT)}:{n}: {line.strip()}")
+    assert not offenders, (
+        "library code names a captain-side directory again:\n  "
+        + "\n  ".join(offenders)
+    )

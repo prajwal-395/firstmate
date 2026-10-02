@@ -58,7 +58,7 @@ verdict about quality.
 This module compares.  It does not rank, and it does not prefer lossless
 to lossy: which encode to use is the captain's, and both are on the table.
 
-``tests/test_music_duplicates.py``.
+``tests/unit/audio/test_music_duplicates.py``.
 
 
 Rules relocated from AGENTS.md 10.5
@@ -73,7 +73,7 @@ and points here.
 - The tolerance is measured, not picked: 1.0 dB.
 - `true_peak_dbtp` is NOT compared, and `DECLINED_SIGNALS` says why: lossy coding moves it most and it says least.
 - **A duplicate is MARKED, not dropped.**
-- `tests/test_music_duplicates.py`.
+- `tests/unit/audio/test_music_duplicates.py`.
 """
 
 from __future__ import annotations

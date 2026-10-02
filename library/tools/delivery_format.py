@@ -25,7 +25,7 @@ quietly dead:
 
 So the source resolution is now reported as what it honestly is -
 ``source_resolution`` on the catalog, a DESCRIPTION of the footage - and
-the render target comes from here.  ``tests/test_delivery_format.py``
+the render target comes from here.  ``tests/unit/picture/test_delivery_format.py``
 fails if the retired ``project_resolution`` key reappears anywhere.
 
 One enumeration

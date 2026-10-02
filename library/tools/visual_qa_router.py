@@ -792,7 +792,7 @@ def format_qa_plan_for_llm(plan: QAPassPlan) -> dict:
 # render must not silently pay 40 seconds and several gigabytes for an
 # observation nobody asked for, and it must not do so inside a unit test
 # either: wiring this to run unconditionally inside `build_timeline` hung
-# the whole suite, because `tests/test_resolve_build_timeline.py` drives
+# the whole suite, because `tests/unit/resolve/test_resolve_build_timeline.py` drives
 # `build_timeline` with a mocked Resolve and reached the model load. A
 # module or a function that costs gigabytes to CALL poisons every
 # consumer, exactly as one that costs gigabytes to IMPORT would.

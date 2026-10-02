@@ -88,7 +88,7 @@ BACKDROP_BLUR_SIZE = 24.0
 
 #: The transition types `transition_tail`/`transition_head` can draw.
 #: `library/tools/transition_vocabulary.FUSION_TYPES` must equal this, and
-#: `tests/test_transition_vocabulary.py` asserts it - the whole defect was
+#: `tests/contracts/test_transition_vocabulary.py` asserts it - the whole defect was
 #: four vocabularies drifting apart with nothing comparing them.
 DRAWABLE_TRANSITIONS = ("fade_to_black", "zoom_blur", "defocus", "flash")
 
@@ -235,7 +235,7 @@ def _tv_power(clip_dur: int, *, direction: str,
     off animation goes to fully black"*.  Two separately tuned builders
     could satisfy that sentence on the day and drift apart on the next
     re-timing, so there is ONE builder and the direction is a
-    parameter.  ``tests/test_tv_power.py`` proves the switch-on's
+    parameter.  ``tests/unit/resolve/test_tv_power.py`` proves the switch-on's
     keyframes are the switch-off's, mirrored in time.
 
     The nodes and their names come from the switch-off, the half the

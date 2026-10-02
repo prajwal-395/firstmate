@@ -20,7 +20,7 @@ gains a skill needs no change in the runner. Adding a skill costs one
 text at `.agents/skills/<name>/SKILL.md` - the one skill source every
 agent harness reads (`SKILL_TEXT_ROOT`); the runner,
 the prompt site, the receipt paths and the gating check all read the
-registry, so none of them changes. `tests/test_pipeline_skills.py`
+registry, so none of them changes. `tests/unit/context/test_pipeline_skills.py`
 pins that by registering a synthetic further skill against the
 registry without touching runner code.
 

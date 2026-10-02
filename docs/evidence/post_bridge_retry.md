@@ -1,6 +1,6 @@
 # Post-bridge rejection reaches the model - test history
 
-Moved from `tests/test_post_bridge_rejection_reaches_the_model.py` when the suite was halved (2026-10-02).
+Moved from `tests/scenarios/test_post_bridge_rejection_reaches_the_model.py` when the suite was halved (2026-10-02).
 
 ## The byte-identical retry (module docstring)
 

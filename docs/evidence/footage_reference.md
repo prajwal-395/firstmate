@@ -120,7 +120,7 @@ The summary rule below says it for a rendered pair; this is the same rule when t
 - **Establish what each view uniquely carries before deleting one**, and move the STRUCTURE rather than a rendering: the largest view is usually the one holding the per-segment bounds, the object labels and the assessment fields no table has a column for.
 - The structure goes BY REFERENCE (`library/tools/footage_reference.footage_document`); nothing is filtered away and every byte is at the path.
 - **Shape a referenced document for the MAP.** Nothing below a `##` may be a heading (`parse_sections` lifts deeper headings into the map), and the section's opening line carries no underscore or backtick (`_lede` strips markdown emphasis).
-- `tests/test_broll_context_share.py` guards the RATIO of what the prompt spends on readings to what the structure costs inline, because that number does not depend on a fixture.
+- `tests/unit/context/test_broll_context_share.py` guards the RATIO of what the prompt spends on readings to what the structure costs inline, because that number does not depend on a fixture.
 - **Measure a value where the model READS it** - the whole assembled prompt, pre-bridge included - not on the one route it used to arrive by.
 - **Collapsing a structure into a summary makes the summary's blank cells load-bearing.** All three states - measured and usable, measured and unusable, never measured - must be legible in the cell itself.
 ```

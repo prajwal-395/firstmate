@@ -96,7 +96,7 @@ PYTHON="${PYTHON:-python3}"
 # The lane-routing, merge, triage and counts helpers are stdlib-only, so
 # they run under the resolving `python3`, never under the gate
 # interpreter: that interpreter may be a shim speaking only the pytest
-# argv protocol (tests/test_gate_smoke.py), which refuses runs the
+# argv protocol (tests/tooling/test_gate_smoke.py), which refuses runs the
 # lanes would have handled.  Only pytest itself runs under ${PYTHON}.
 HELPER_PYTHON="python3"
 
@@ -111,9 +111,9 @@ fi
 # so they skip there and excluding them costs no coverage - but a local
 # gate has to remember it, every time.  Named in the verdict.
 RESOLVE_DRIVING=(
-  tests/test_marker_capture_against_resolve.py
-  tests/test_marker_feedback_against_resolve.py
-  tests/test_resolve_qualification.py
+  tests/qualification/test_marker_capture_against_resolve.py
+  tests/qualification/test_marker_feedback_against_resolve.py
+  tests/qualification/test_resolve_qualification.py
 )
 
 RUN_REAL_MODEL=1

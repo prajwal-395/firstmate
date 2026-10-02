@@ -35,7 +35,7 @@ Three parts:
    returns nothing, which reads exactly like a project with nothing on
    any timeline and would mark every file deletable. That failure
    direction deletes the captain's work, so it is stated here and
-   tested in `tests/test_caption_asset_gc.py`.
+   tested in `tests/unit/captions/test_caption_asset_gc.py`.
 3. The retention half lives in step 4.05 itself: when a card is
    re-rendered, the superseded generation is named on the new entry at
    once (`render_one_segment`), so it becomes an orphan candidate

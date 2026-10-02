@@ -1,6 +1,6 @@
 # `step_6_01_render/build_verification` - the two verification defects
 
-Moved from the module docstring of `tests/test_verification_verdict.py` (2026-10-02).
+Moved from the module docstring of `tests/unit/reels/test_verification_verdict.py` (2026-10-02).
 
 Defect 1: `verification_passed` was hardcoded True and never derived from QA
 station outcomes. A failing station printed "Station fusion_comps: Failed" but

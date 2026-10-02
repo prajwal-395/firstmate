@@ -57,7 +57,7 @@ narrow to be this answer and is not reused; widening it would change what
 a stamp already in the captain's version record means.
 :func:`engine_code_digest` is this module's own reading.
 
-`tests/test_reel_rebuild_need.py`.
+`tests/unit/reels/test_reel_rebuild_need.py`.
 
 The measured cost of a Resolve pass, the end-to-end build timings and the
 entry-timeline control: docs/evidence/reel_rebuild_need.md.

@@ -6,7 +6,7 @@ plus the 41 scored runs) produced `report.md`. `scout_verdict` /
 `scout_layer` / `scout_gap` / `scout_mode` below ARE that board data,
 verbatim - predictions lost in the reboot are NOT carried (`pred` is
 dropped on purpose; the report says the classification is not a
-calibration). `tests/test_eval_harness.py` pins the counts the report
+calibration). `tests/unit/context/test_eval_harness.py` pins the counts the report
 prints (F 31 / P 58 / X 31, 26 executed, 14 probed) so a transcription
 slip fails loudly.
 

@@ -130,7 +130,7 @@
         "name": "transition_spec",
         "type": "array",
         "required": false,
-        "description": "State input: transition_spec, from step 4.02. OPTIONAL: a cut the plan did not decorate is a hard cut (AGENTS.md section 5), so an absent transition plan compiles to `transitions: []` and the edit cuts. Measured in tests/test_compile_manifest_without_the_decoration.py."
+        "description": "State input: transition_spec, from step 4.02. OPTIONAL: a cut the plan did not decorate is a hard cut (AGENTS.md section 5), so an absent transition plan compiles to `transitions: []` and the edit cuts. Measured in tests/scenarios/test_compile_manifest_without_the_decoration.py."
       }
     ],
     "outputs": [

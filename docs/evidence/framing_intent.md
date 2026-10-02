@@ -107,18 +107,18 @@ and points here.
 **The frame FILLS by default, and there is no heuristic.**
 One enumeration, `library/tools/framing_intent.py`: 0.0 letterboxes, 1.0 fills.
 The number comes from the spine block > the project's `pipeline.framing_intent` > the template's `style.framing_intent` > `DEFAULT_FRAMING_INTENT` (1.0).
-`tests/test_framing_intent.py`.
+`tests/unit/picture/test_framing_intent.py`.
 Source: spine block > project > template > `DEFAULT_FRAMING_INTENT` (1.0). [why](docs/RULE_EVIDENCE.md#the-letterbox-default)
 **A framing DECLARATION is not a framing DELIVERED, and the manifest records both.**
 `_conform_fields` writes `framing_intent` and `framing_delivered` on every clip. [why](docs/RULE_EVIDENCE.md#a-declaration-a-clip-cannot-honour)
 - **A source whose display aspect already covers the delivery frame has no bars to give**, so it fills at every intent, `0.0` included. `framing_intent.source_covers_frame` is that predicate and `delivered_framing_intent` is the reading. Do not put the coverage arithmetic anywhere else.
 - **Which clips letterbox is therefore a MEASUREMENT, not a second creative choice.** A step that chose a framing per clip would be inventing taste where the arithmetic already answers (section 10.5). **Whether the picture is inset at all is the captain's PREFERENCE and belongs in the project's own declaration.**
-- **The spine-block level of the chain is reachable and unwritten.** `compile_manifest` really reads `block["framing_intent"]` (`tests/test_compile_manifest.py`), but no handoff asks for one and `spine_contract` does not list the key. On the B-roll side the hook is the PLACEMENT's own key, not the block it covers: a cutaway is different footage.
+- **The spine-block level of the chain is reachable and unwritten.** `compile_manifest` really reads `block["framing_intent"]` (`tests/scenarios/test_compile_manifest.py`), but no handoff asks for one and `spine_contract` does not list the key. On the B-roll side the hook is the PLACEMENT's own key, not the block it covers: a cutaway is different footage.
 - **A source that already covers the delivery frame fills at every intent.** `source_covers_frame` is the predicate.
 - **Which clips letterbox is a MEASUREMENT, not a second creative choice** (section 10.5).
 ```
 
-## `tests/test_reel_framing.py` module docstring (moved 2026-10-02)
+## `tests/unit/reels/test_reel_framing.py` module docstring (moved 2026-10-02)
 
 ```text
 The picture a built reel puts on the frame, and the gate that reads it.

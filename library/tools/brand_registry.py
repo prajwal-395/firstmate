@@ -23,7 +23,7 @@ The key is spelled three ways and they are not interchangeable:
 - An absent slot reads as the ABSENCE OF DECORATION, never as a substitute
   taste: no grade (§12), no exposure normalisation, the whole drawable
   vocabulary permitted, nothing bounded. Add a slot, add its row.
-  `tests/test_brand_template_load.py` checks every schema slot has a reading
+  `tests/unit/context/test_brand_template_load.py` checks every schema slot has a reading
   and either a pipeline reader route or an explicit `NO READER` note.
 - `BRAND_SLOT_READERS` is the positive half of that inventory: each reader
   names a real pipeline node and the route that delivers the slot to it. A
@@ -44,7 +44,7 @@ Only what the project DECLARES is in there; an undeclared key is absent, never f
 `library/tools/template_loader.BRAND_CONSTRAINT_STEPS` is that enumeration, checked against the step table at import.
 - **The DAG knows `plan_vfx`; the step's manifest and directory know `step_4_03_plan_vfx`, and no rule connects them.** `library/tools/project_layout.node_id_for` is the ONLY translator. [why](docs/RULE_EVIDENCE.md#the-brand-reached-no-planning-step)
 - The `agent` request file records `constraints` and concatenates it into `prompt`, because in that mode the file IS the prompt.
-- `tests/test_brand_constraints_reach_the_prompt.py`.
+- `tests/contracts/test_brand_constraints_reach_the_prompt.py`.
 """
 
 import os

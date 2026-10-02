@@ -137,7 +137,7 @@ fragmentation - the caution from the round-3 audit, kept.
 ### First slice shipped in this PR
 
 - `resolve-axi run` (implementation + 14 tests, AST invariant holds).
-- `tests/test_cursor_discipline.py`: every `SetCurrentTimeline` site
+- `tests/contracts/test_cursor_discipline.py`: every `SetCurrentTimeline` site
   in shipped code registered with owner and migration state (1 shared
   + 2 probe + 11 grandfathered across 10 files); a new setter fails
   with routing instructions, a stale count fails as a lie about what

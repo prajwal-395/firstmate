@@ -38,7 +38,7 @@ regenerates it.
 and `exports/`. Those are not in `SWEPT_AREAS`, which is the whole
 enumeration of what this module may touch.
 
-`tests/test_build_sweep.py`.
+`tests/unit/resolve/test_build_sweep.py`.
 """
 from __future__ import annotations
 

@@ -24,7 +24,7 @@ Declare one by putting `view:<name>` in `context_fields`.  A view whose
 source input is not routed to the step contributes nothing, exactly as a
 dot path that resolves to nothing does; the contract that a step
 declaring a view also declares its source input is asserted on the
-manifests, in `tests/test_transcript_view.py`.
+manifests, in `tests/unit/audio/test_transcript_view.py`.
 
 
 Rules relocated from AGENTS.md 10.1
@@ -37,7 +37,7 @@ and points here.
 **Every LLM step declares `context_fields`, and the deterministic half loses nothing by it.**
 Projection happens inside `present_llm_step`, so a hybrid's post-bridge and a `deterministic_with_llm` step's `step.py` keep receiving the unprojected inputs - only the prompt narrows. A step declaring none is handed every byte it was routed. [why](docs/RULE_EVIDENCE.md#two-steps-had-no-projection)
 - A path prefixed with `-` DROPS what the paths above it selected. Prefer it to enumerating what to keep. `"timed_spine"` then `"-timed_spine.structure.*.word_timestamps"`.
-- `render` (6.01) and `validate` (6.02) are the only unprojected LLM steps (captain decision). `tests/test_llm_context_routing.py` holds that exemption list.
+- `render` (6.01) and `validate` (6.02) are the only unprojected LLM steps (captain decision). `tests/contracts/test_llm_context_routing.py` holds that exemption list.
 - **A pre-bridge's own table is never projected away, and you do not have to list it.** `project_step_context` restores any `bridge_supplied` key the allow-list dropped. Listing it is the only way to NARROW it. [why](docs/RULE_EVIDENCE.md#the-bridge-table-that-was-projected-away)
 
 **A table the prompt names, arriving with zero rows, is reported on the run that sends it.**
@@ -52,7 +52,7 @@ It never fails a run and catches zero-row tables only. [why](docs/RULE_EVIDENCE.
 - `view:picture` is what a step reads to see a clip past its opening, and **every step that decides from what a shot looks like declares it** - 2.01, 2.02, 3.02, 4.02, 4.03 and 4.04. [why](docs/RULE_EVIDENCE.md#the-director-saw-the-first-nineteen-seconds)
   - **It is NOT a substitute for `scene[]` and must not be swapped in for it.** The view goes BESIDE `analysis.scene` (different axes).
   - **Its rows are keyed by the CATALOG clip id wherever a routed input makes that join possible.** It joins against `clip_catalog`, `a_roll_assignments` and `b_roll_assignments`; unjoinable documents are reported in `not_in_the_clip_list`.
-  - **Raw `blocks` in a `context_fields` allow-list is the wrong route**, several times the view's size once `json.dumps`'d into a cell. `tests/test_picture_view.py` fails if one comes back.
+  - **Raw `blocks` in a `context_fields` allow-list is the wrong route**, several times the view's size once `json.dumps`'d into a cell. `tests/unit/picture/test_picture_view.py` fails if one comes back.
 - `view:stability` is the two camera-steadiness signals SIDE BY SIDE - declared by `select_broll`, `plan_transitions` and `plan_vfx`. **It resolves nothing**: whatever picked a winner would become the measurement (section 10.5). The VLM's per-window `camera[].stability` and the deterministic per-clip `assessment.camera_stability` measure different things and on 001 they disagreed on 9 of 17 clips while three tables in one run carried two different answers about the same clip.
 - `view:alignment` is what step 2.02's `alignment_report` measured about each passage's INSIDES - declared by `review_rough_cut`. It ORDERS and REPORTS; no threshold fires on any of it. The run summary is its second reader (`library/tools/alignment_findings.py`).
 - `view:prosody` is what steps 2.01 and 2.02 read instead of `prosody_analysis.profiles`. An allow-list selects by NAME and cannot tell a measurement from a record of its absence, so this selects by `library/tools/prosody_profile.profile_defect` - the same predicate step 1.05 refuses to write a hollow profile with. Real profiles pass through (minus the contour and per-word lists, which never reach a prompt); the rest become ONE line saying how many measured nothing and why. **State the absence, never hide it.** [why](docs/RULE_EVIDENCE.md#seventeen-copies-of-an-error-are-not-a-measurement)
@@ -64,7 +64,7 @@ It never fails a run and catches zero-row tables only. [why](docs/RULE_EVIDENCE.
 - **A view is not routing.** The step still has to declare the input the view reads.
 - **The code that cuts on the timings still gets every word**, because none of it reads the prompt: every post-bridge and `step.py` receives the UNPROJECTED inputs.
 - **A declaration of NOTHING BUT `-` paths means "everything, minus these".**
-- `tests/test_transcript_view.py`, `tests/test_prosody_view.py`, `tests/test_spoken_lines_view.py`.
+- `tests/unit/audio/test_transcript_view.py`, `tests/unit/audio/test_prosody_view.py`, `tests/unit/audio/test_spoken_lines_view.py`.
 """
 
 VIEW_PREFIX = "view:"

@@ -52,7 +52,7 @@ from model_lifecycle import managed_model
 
 # Step 1.03 runs this file as a SCRIPT, so sys.path[0] is this directory
 # and the repo root has to be put on the path by hand.  `parents[3]` is
-# <repo>, above `library/`; tests/test_picture_quality.py asserts the
+# <repo>, above `library/`; tests/unit/picture/test_picture_quality.py asserts the
 # index, because an off-by-one here still imports cleanly under pytest
 # (conftest already has the root on sys.path) and fails only in a run.
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -811,7 +811,7 @@ def extract_frames(clip_path, duration, cache_dir, interval_s=COARSE_FRAME_INTER
     and `llm_handshake._checked_images` refuses a relative one (`not an
     absolute path`). The default cache (`.vision_cache`) is relative to
     wherever the pipeline was launched, which is nowhere the host can
-    open. See tests/test_vision_pipeline.py (finding 2).
+    open. See tests/unit/context/test_vision_pipeline.py (finding 2).
     """
     cache_dir = Path(cache_dir).resolve()
     frame_dir = cache_dir / clip_path.stem / "frames"
@@ -930,7 +930,7 @@ def native_sample_plan(duration_s, fps):
     fps=2.0/min_frames=4/max_frames=32/frame_factor=2, then
     `Gemma4UnifiedVideoProcessor._sample_frames` keeping at most 32):
     `n = duration * 2.0` clamped into `[ceil(4), floor(min(32, total))]`,
-    floored to a multiple of 2. `tests/test_native_video_sampling.py`
+    floored to a multiple of 2. `tests/unit/context/test_native_video_sampling.py`
     asserts this mirror against the real `load_video` on synthetic clips.
 
     Returns {"frames", "decode_fps", "effective_fps"} - the record each

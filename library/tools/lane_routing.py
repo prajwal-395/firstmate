@@ -39,7 +39,7 @@ serial (costs wall clock, never correctness).
 Measured basis: data/vep-parallelise-the-test-gate/report.md - 3 files
 serial out of 600, all already handled (two Resolve drivers, one
 real_model tier), so the serial lane of the sharded selection is empty
-today.  ``tests/test_parallel_lane_routing.py`` pins every file to
+today.  ``tests/tooling/test_parallel_lane_routing.py`` pins every file to
 exactly one lane, the known-unsafe shapes to serial, and the known-safe
 shapes (ephemeral ports, stubbed transports, fake modules, docstring
 examples) to parallel.
@@ -320,7 +320,7 @@ def classify_file(path: Path) -> LaneRoute:
 
 def test_roots(root: Path = REPO_ROOT) -> list[Path]:
     """Every directory the suite collects test files from."""
-    return [root / "tests", root / "library" / "tools" / "fusion" / "tests"]
+    return [root / "tests"]
 
 
 def iter_test_files(root: Path = REPO_ROOT) -> list[Path]:

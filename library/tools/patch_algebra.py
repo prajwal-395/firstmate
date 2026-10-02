@@ -43,7 +43,7 @@ Today no operation ripples and none is `ordered`, so `serialize` and
 verdicts exist so the operation that needs one does not have to invent
 its own.
 
-`tests/test_edit_patch.py`.
+`tests/unit/resolve/test_edit_patch.py`.
 """
 
 from __future__ import annotations

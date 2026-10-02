@@ -38,7 +38,7 @@ One enumeration, `library/tools/run_restart.py`. `begin_run_status` used to repl
 - **The status file records THAT a run failed; `pipeline_data.json` records WHAT it failed on.** The cause is read out of `step_errors`, never inferred from the status.
 - It lands three places - `pipeline_run.json` (`restart` plus a bounded `run_history`), the provenance run record, and `state["run_restarts"]` - because the complaint was that the outputs did not carry it.
 - **A restart already on disk can be RECONSTRUCTED, but its cause cannot.** `reconstruct_from_ledger` reads consecutive provenance run records; every row carries `cause: ""`, because the state file that held the words was overwritten by the run that followed.
-- `step_error`/`step_end` carry real step ids: `step_timer` binds the decorated signature, so a positional `node_id` resolves. Fixed by #409, pinned by `tests/test_run_restart_is_recorded.py`.
+- `step_error`/`step_end` carry real step ids: `step_timer` binds the decorated signature, so a positional `node_id` resolves. Fixed by #409, pinned by `tests/unit/context/test_run_restart_is_recorded.py`.
 """
 
 from __future__ import annotations

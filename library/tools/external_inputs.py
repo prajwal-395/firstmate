@@ -59,7 +59,7 @@ step.  The verdict comes from the check, not from the sentence.
 
     python3 -m library.tools.external_inputs <project_folder>
 
-`tests/test_external_inputs.py`.
+`tests/unit/context/test_external_inputs.py`.
 
 
 Rules relocated from AGENTS.md 3
@@ -76,7 +76,7 @@ One enumeration, `library/tools/external_inputs.py`.
 - **`CHECKS` is the whole of what can be supplied. A key that is not in it is refused by name**, because a check that does not exist is not a check that passes.
 - **A SUPPLIED value is a request; a recorded one is history.** A step every one of whose routed outputs is supplied does not run, on any run shape - `run_scope.supplied_producers` derives which, and naming such a step on the command line is REFUSED rather than silently overwriting what was handed in.
 - **An empty value is refused unless the key is in `EMPTY_IS_A_STATEMENT`**, which is `b_roll_interjections` and `voiceover_assignments`: leaving a file out and supplying nothing are different requests, and only the second can stop `select_broll` inventing cutaways - or stop `assign_aroll` re-running to produce voiceover placements a hand cut never had.  **A Resolve timeline in a CLOSED project is not one of them**: it is not refusable at resolve time, so supply the artifact that describes it instead.  A LIVE one IS readable - `library/tools/timeline_ingest.py` is the producer, and what it writes is verified here like anything else.  It is not skipped.
-- `tests/test_external_inputs.py`.
+- `tests/unit/context/test_external_inputs.py`.
 """
 
 from __future__ import annotations

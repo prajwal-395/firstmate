@@ -185,7 +185,7 @@ evidence, and you should say so rather than storing it", implemented:
 that would hand the judge the criteria - coherent, value, quality, good,
 pass, fail, atomic, hook, call to action, 45, 90 - may not appear in what
 the judge is sent, and `assert_ask_is_uncontaminated` raises if one does.
-`tests/test_reel_quality_bar.py` runs it over the real handoff, so the
+`tests/unit/reels/test_reel_quality_bar.py` runs it over the real handoff, so the
 guarantee does not depend on anyone remembering it.
 
 The judge is also given the reel's WORDS AND NOTHING ELSE.  Not its
@@ -217,10 +217,10 @@ Reachability
     python3 -m library.tools.reel_quality_bar --project <project_folder>
     python3 -m library.tools.reel_quality_bar --project <p> --json
 
-`tests/test_reel_quality_bar.py`.
+`tests/unit/reels/test_reel_quality_bar.py`.
 ```
 
-## `tests/test_quality_bar_thesis_ending.py` module docstring (moved 2026-10-02)
+## `tests/unit/reels/test_quality_bar_thesis_ending.py` module docstring (moved 2026-10-02)
 
 ```text
 A closer-less reel a project declares ends on its own thesis passes.

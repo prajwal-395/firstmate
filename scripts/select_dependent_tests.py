@@ -4,10 +4,17 @@
 AGENTS.md 9 says to run the tests of what a change touches, in both
 directions: BACKWARD (what the changed module uses) and FORWARD (what
 uses the changed module, plus one hop through re-exporters).
-`tests/test_select_dependent_tests.py` pins the incident edges.
+`tests/tooling/test_select_dependent_tests.py` pins the incident edges.
 
 Usage: `python3 scripts/select_dependent_tests.py <changed-file> ...`
 prints test paths relative to the repo root, one per line.
+
+`--loop` prints the per-change loop instead: the `tests/unit/<subsystem>/`
+directory of every subsystem the change reaches, plus `tests/contracts/`,
+the global contract suite (`tests/layers.py`). A subsystem is reached when
+the change is one of its test files, or when the dependent selection
+above picks one of its unit tests. Directories, not files, so a new test
+in a reached subsystem runs without anyone listing it.
 
 The procedure errs WIDE, never narrow. A wider selection costs
 seconds; a narrower one costs a red main.
@@ -20,21 +27,26 @@ import os
 import sys
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
+
+from tests import layers
+
 LIBRARY = os.path.join(REPO_ROOT, "library")
 TESTS = os.path.join(REPO_ROOT, "tests")
 
 # A shared resolver earns a named contract set: the test files that
 # feed entries through it. Any change to the resolver runs the whole
-# set. Pinned by `tests/test_select_dependent_tests.py`.
+# set. Pinned by `tests/tooling/test_select_dependent_tests.py`.
 CONTRACT_SETS = {
     "motion_graphics_plan": [
-        "tests/test_caption_band.py",
-        "tests/test_explainer_plan.py",
-        "tests/test_motion_graphics_data_slot.py",
-        "tests/test_motion_graphics_plan.py",
-        "tests/test_reel_semantic_visual.py",
-        "tests/test_semantic_visual.py",
-        "tests/test_speaker_identity.py",
+        "tests/unit/captions/test_caption_band.py",
+        "tests/unit/captions/test_explainer_plan.py",
+        "tests/unit/captions/test_motion_graphics_data_slot.py",
+        "tests/unit/captions/test_motion_graphics_plan.py",
+        "tests/unit/reels/test_reel_semantic_visual.py",
+        "tests/unit/picture/test_semantic_visual.py",
+        "tests/unit/audio/test_speaker_identity.py",
     ],
 }
 
@@ -124,7 +136,9 @@ def select(changed):
     for dotted, abs_path in test_modules:
         tree = _parse(abs_path)
         test_imports[abs_path] = _imported_stems(tree) if tree is not None else set()
-    test_files = set(os.listdir(TESTS))
+    test_files = {os.path.basename(abs_path): abs_path
+                  for _dotted, abs_path in test_modules
+                  if os.path.basename(abs_path).startswith("test_")}
     selected = set()
     for path in changed:
         abs_path = (path if os.path.isabs(path)
@@ -144,8 +158,7 @@ def select(changed):
                 resolvers.add(used)
             same = "test_" + used + ".py"
             if same in test_files:
-                selected.add(os.path.relpath(os.path.join(TESTS, same),
-                                             REPO_ROOT))
+                selected.add(os.path.relpath(test_files[same], REPO_ROOT))
 
         # FORWARD: what uses the changed module. Only RE-EXPORTERS
         # extend the carrier set: a module that re-exports a name is
@@ -182,10 +195,34 @@ def select(changed):
     return sorted(selected)
 
 
+def loop(changed):
+    """The per-change loop: reached `unit/` subsystems plus `contracts/`."""
+    def absolute(path):
+        return os.path.realpath(os.path.join(REPO_ROOT, path))
+
+    # A changed test reaches its own subsystem; a changed module reaches
+    # the subsystems of the unit tests its dependent selection picks.
+    tests_root = layers.TESTS_ROOT.as_posix() + "/"
+    modules = [p for p in changed
+               if not absolute(p).startswith(tests_root)]
+    subsystems = set()
+    for path in [*changed, *(select(modules) if modules else [])]:
+        subsystem = layers.subsystem_of(absolute(path))
+        if subsystem is not None:
+            subsystems.add(subsystem)
+    dirs = [layers.unit_dir(name) for name in sorted(subsystems)]
+    dirs.append(layers.layer_dir("contracts"))
+    return [os.path.relpath(d, REPO_ROOT) + os.sep for d in dirs]
+
+
 def main(argv):
     if not argv or argv[0] in ("-h", "--help"):
         print(__doc__.strip().splitlines()[0])
-        print("usage: select_dependent_tests.py <changed-file> ...")
+        print("usage: select_dependent_tests.py [--loop] <changed-file> ...")
+        return 0
+    if argv[0] == "--loop":
+        for path in loop(argv[1:]):
+            print(path)
         return 0
     for path in select(argv):
         print(path)

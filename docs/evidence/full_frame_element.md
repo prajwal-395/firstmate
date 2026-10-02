@@ -138,5 +138,5 @@ How a declaration reaches the picture, in order
    is: inside F1, counted by F4, and exempt from F12 for a stated reason
    rather than by omission.
 
-``tests/test_full_frame_element.py``.
+``tests/unit/captions/test_full_frame_element.py``.
 ```

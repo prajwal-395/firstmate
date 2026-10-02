@@ -56,7 +56,7 @@ This capability therefore inherits that constraint exactly:
   test_render_watch.py` asserts this module imports no render path.
 
 Nothing here is a DAG node.  `library/processes/reels/dag.json` stays
-two nodes and `tests/test_reel_deliver_is_explicit.py` holds it there.
+two nodes and `tests/contracts/test_reel_deliver_is_explicit.py` holds it there.
 
 What it costs
 -------------

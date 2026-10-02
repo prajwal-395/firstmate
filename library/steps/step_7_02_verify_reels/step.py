@@ -244,7 +244,7 @@ def verify_reels(data: dict) -> dict:
             plan_path=plan_path,
             draw_gain=run_gain,
             # ONE spelling of where the transcript lives, owned by the
-            # module that writes it (tests/test_operations.py pins that
+            # module that writes it (tests/unit/context/test_operations.py pins that
             # it is not composed by hand outside reel_build.py).
             transcript_path=str(transcript_path(project_folder)),
             only_reels=timelines_built)

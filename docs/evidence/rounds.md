@@ -130,5 +130,5 @@ substitution that keeps every item name and span is invisible to a
 span-based diff. That is the limit of what a row snapshot can see, not a
 new hole.
 
-`tests/test_version_rounds.py`.
+`tests/unit/reels/test_version_rounds.py`.
 ```

@@ -1,6 +1,6 @@
 # `transform_override` - the incidents behind the contract
 
-This is the narrative moved out of `tests/test_transform_override.py`
+This is the narrative moved out of `tests/unit/picture/test_transform_override.py`
 (plan item 7: incident archaeology belongs here, not in executable
 tests). The contract lives in `library/tools/captain_edits.py`
 (`validate_edits`, `match_transform_overrides`, `record_edit`) and the

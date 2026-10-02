@@ -11,7 +11,7 @@ A test that only exercises one size proves nothing about his point, so this one 
 
 ## The 1px lift
 
-Moved from `tests/test_subtitle_style.py`. Measured 2026-09-11: all 20 Reel 13
+Moved from `tests/unit/captions/test_subtitle_style.py`. Measured 2026-09-11: all 20 Reel 13
 tight captions corrected uniformly from computed Tilt -850.0 to -870.0 - 20
 units on the 480-floor canvases, exactly 10px as drawn under the measured 2x
 gain - with an exported still correlation-scanning the corrected canvases onto
@@ -31,4 +31,4 @@ is 10px and a canvas centred at full-frame y 1395 reads Tilt -1740.0 while the
 Reel 13 and Reel 09 actually store, read off the live timelines. Pinned as
 history at explicit gain 1.0 (HISTORY_GAIN in `test_tight_box.py`); under
 today's gain the same rows store half these Tilts
-(`tests/test_draw_gain_measured.py`).
+(`tests/unit/resolve/test_draw_gain_measured.py`).

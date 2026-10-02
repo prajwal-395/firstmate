@@ -35,7 +35,7 @@ not the gain).
 
 There is NO "draw gain". `MEASURED_OVERLAY_CASES` and
 `MEASURED_PICTURE_CASES` below are the evidence, and
-`tests/test_resolve_transform.py` re-derives the law from them rather
+`tests/unit/resolve/test_resolve_transform.py` re-derives the law from them rather
 than restating it: 16 synthetic plates rendered to 16-bit TIFF and
 measured as drawn rectangles, over canvas heights 200/480/960/1920 and
 widths 200..1080, across two independent builds and four separate

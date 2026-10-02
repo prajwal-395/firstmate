@@ -191,7 +191,7 @@ pipeline got into this state, so the absence of a trace is the failure, not a ga
 
 ## 5. How a FUTURE constant gets caught
 
-The guard is `tests/test_no_creative_floors.py`, which WP3b rebound on 2026-09-14 from
+The guard is `tests/contracts/test_no_creative_floors.py`, which WP3b rebound on 2026-09-14 from
 the incidents to the principle: shape 1 sweeps every creative `.get()` fallback under
 `library/tools` + `library/steps` keyed by the KEY rather than the literal, with a
 fail-closed `CREATIVE_GET_EXEMPTIONS` registry where each entry names a category; shape 2
@@ -367,7 +367,7 @@ project preference) -> `look.match_bounds` (bounds removal, after the identity-C
 - **The reader that had nothing to read.** `render_qa.measure_speech_above_bed` has always
   looked for `music_automation[].separation_target_db` and always found None, so it judged
   against the clip gain and said so. The decided separation is what lands there now.
-- **The guard sees it.** `tests/test_no_creative_floors.py` gained shape 4: four checks
+- **The guard sees it.** `tests/contracts/test_no_creative_floors.py` gained shape 4: four checks
   derived from `SLOTS` (model-reaching decider, manifest declaration, reader plus a
   measurement whose producer really exists, fallback with a named owner), each with the
   removed line that proves it fires, plus `audio_mix`'s two sparse drivers - one for the

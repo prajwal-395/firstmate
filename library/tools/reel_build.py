@@ -53,7 +53,7 @@ runs the same bars with no window and reports what only distance kept:
 same speaker, over both bars, durations within DURATION_RATIO, gap past
 CUT_WINDOW_SECONDS.  No new number: the window is the existing one,
 read as the classifier rather than moved as the gate.
-`tests/test_reel_distant_repeats.py`.
+`tests/unit/reels/test_reel_distant_repeats.py`.
 
 A TAKE IS REMOVED WHOLE OR NOT AT ALL
 -------------------------------------
@@ -124,7 +124,7 @@ leaving a repetition in a clip somebody chose deliberately.  Placed
  this echo report and carried on the build record. `closer_repeats`
  measures echo-of-body/self and never fit.
 
-`tests/test_reel_build.py`.
+`tests/scenarios/test_reel_build.py`.
 """
 from __future__ import annotations
 
@@ -9326,7 +9326,7 @@ def assert_deletion_scope(timelines, target_names) -> None:
     quietly widening the blast radius, which is exactly how the loop it
     replaces came to take nineteen timelines to build one.
 
-    `tests/test_reel_build_touches_only_its_own_timelines.py` calls this
+    `tests/unit/reels/test_reel_build_touches_only_its_own_timelines.py` calls this
     directly with both a permitted and a refused list, and drives a
     build with an over-collecting selection to prove it fires where it
     is actually wired.
@@ -11453,7 +11453,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # decision below is made from AND the digest the rebuild-need
     # signature carries (`library/tools/reel_rebuild_need.py`).
     # Digesting the file a second time would be a second spelling of
-    # this path (`tests/test_operations.py`) and a second chance for
+    # this path (`tests/unit/context/test_operations.py`) and a second chance for
     # the two reads to disagree.
     with open(os.path.join(project_folder, "pipeline_output/scratch/timeline_transcript/transcript.json"), "rb") as f:
         transcript_bytes = f.read()
@@ -15038,7 +15038,7 @@ def sweep_all_reels_informational(project_folder: str,
     single-reel builds on findings from timelines they never touched -
     94 of 121 errors in `data/vep-rebuild-verify/report.md`, 3.5 - and
     cost a re-grade per reel per build (PR #658,
-    `tests/test_verify_scopes_to_built_reels.py`). Reverting that
+    `tests/unit/reels/test_verify_scopes_to_built_reels.py`). Reverting that
     would reintroduce both. So the gate refuses on what was placed,
     and this sweep REPORTS on everything else.
 
@@ -15155,7 +15155,7 @@ def verify_built_reels(project_folder: str, resolve_project_name: str, master_ti
     conformance report before it returns 0, and a write failure
     raises rather than returning - so there is no pass-without-record
     path to refuse on here, by construction rather than by check
-    (`tests/test_build_refuses_when_the_record_would_lie.py` pins
+    (`tests/unit/reels/test_build_refuses_when_the_record_would_lie.py` pins
     the write side). An empty scope is refused above, never passed.
     """
     if only_reels is not None and not list(only_reels):

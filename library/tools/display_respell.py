@@ -53,7 +53,7 @@ rebuild; moments the captain already ruled on keep their text (the
 proposal writer refuses to overwrite ruled moments), which is
 "approved text stands" rather than a divergence to fix.
 
-`tests/test_display_respell.py`.
+`tests/unit/captions/test_display_respell.py`.
 """
 
 from __future__ import annotations

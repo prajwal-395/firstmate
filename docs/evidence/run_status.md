@@ -2,7 +2,7 @@
 
 History moved out of test module docstrings; the tests keep the invariant.
 
-## `tests/test_a_stranded_failure_does_not_decide_the_status.py` (moved from its module docstring, 2026-10-02)
+## `tests/unit/reels/test_a_stranded_failure_does_not_decide_the_status.py` (moved from its module docstring, 2026-10-02)
 
 A recorded failure of a step the pipeline no longer runs.
 

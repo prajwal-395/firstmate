@@ -1,6 +1,6 @@
 # view:picture sees the whole clip
 
-Tests: `tests/test_picture_view.py`.
+Tests: `tests/unit/picture/test_picture_view.py`.
 
 `analysis.scene` is `scene[]` rendered as prose, and on project 001
 `scene[]` describes 374.2 s of 807.0 s - 46.4%.  `IMG_1816_v3` is 188.6

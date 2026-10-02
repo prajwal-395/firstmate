@@ -51,7 +51,7 @@ captain decision (`vep-resolve-statefulness-hazards`), and it is what
 makes cooperation the only available route rather than one option
 among several.
 
-`tests/test_concurrency_routing.py`.
+`tests/unit/context/test_concurrency_routing.py`.
 """
 
 from __future__ import annotations
@@ -109,7 +109,7 @@ class Operation:
 #:
 #: An operation NOT in this table is `FREE` by omission and that is
 #: deliberate: the table names what constrains, so adding a Resolve
-#: caller means adding a row, and `tests/test_resolve_guard_wiring.py`
+#: caller means adding a row, and `tests/contracts/test_resolve_guard_wiring.py`
 #: fails when a module connects to Resolve without one.
 OPERATIONS: Tuple[Operation, ...] = (
     Operation(
@@ -277,7 +277,7 @@ def route(entry_point: str) -> Operation:
     An unknown entry point is `FREE`, and the caller is told so by the
     returned row rather than by a guess: a supervisor that dispatches
     an unlisted Resolve caller in parallel is the failure this table
-    prevents, and `tests/test_resolve_guard_wiring.py` is what stops an
+    prevents, and `tests/contracts/test_resolve_guard_wiring.py` is what stops an
     unlisted Resolve caller existing in the first place.
     """
     found = BY_ENTRY_POINT.get(entry_point)

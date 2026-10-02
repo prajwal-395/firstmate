@@ -53,7 +53,7 @@ Present: `mfa_align.align` (`library/tools/mfa_align.py:147-180`) collects
 chunk indices with no TextGrid, re-runs exactly those in a retry corpus, and
 declines the whole run to wav2vec2 only if chunks are still empty after the
 retry. Covered by
-`tests/test_mfa_align.py::test_a_transiently_empty_chunk_is_retried` (flaky-first-run
+`tests/unit/audio/test_mfa_align.py::test_a_transiently_empty_chunk_is_retried` (flaky-first-run
 recovery). From the record: 8,590 words, 0 untimed, so no window was lost -
 consistent with retry working OR with no transient failure occurring. No
 retry accounting surfaces in the document (the return is

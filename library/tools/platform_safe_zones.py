@@ -44,7 +44,7 @@ How a box is made DEVICE-AGNOSTIC:
    phone.
 
 The model reproduces the captain's screenshots exactly on the iPhone 17
-(``tests/test_platform_safe_zones.py``). The other iPhones are Apple's
+(``tests/unit/captions/test_platform_safe_zones.py``). The other iPhones are Apple's
 published point sizes and insets; the Android rows are an ESTIMATE of
 their dp sizes and insets, and assume the apps' Android UI has the iOS
 geometry. A screen WIDER than 9:16 (an iPhone SE, a tablet) is not
@@ -52,7 +52,7 @@ modelled: no source says how the apps scale there.
 
 The overlays live at ``library/presets/safe-zones/`` and are GENERATED
 from this table (``python3 -m library.tools.platform_safe_zones --write``);
-``tests/test_platform_safe_zones.py`` fails when a PNG no longer draws
+``tests/unit/captions/test_platform_safe_zones.py`` fails when a PNG no longer draws
 the table.
 """
 

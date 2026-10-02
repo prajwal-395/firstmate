@@ -2,7 +2,7 @@
 
 History moved out of test module docstrings; the tests keep the invariant.
 
-## `tests/test_jcut_lead.py` (moved from its module docstring, 2026-10-02)
+## `tests/unit/reels/test_jcut_lead.py` (moved from its module docstring, 2026-10-02)
 
 Sound may LEAD picture: a J-cut lead is declarable and bounded.
 

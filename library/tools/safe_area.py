@@ -83,7 +83,7 @@ Four consumers read it: `subtitle_style.SubtitleStyle.resolve` (the `safeArea`/`
 - **The split is BALANCED, not greedy.** A greedy fill leaves the remainder as a runt card, and a card is on screen only until the NEXT card's first word, so nothing downstream can lengthen one. `split_into_groups` solves per block for the partition with the fewest cards under the floor. Model the REAL display duration if you touch it.
 - A card with one over-wide word carries `fit_scale` and the render draws THAT CARD smaller; the style's font size is untouched.
 - The Remotion studio's `defaultProps` get the insets from `src/safeArea.generated.ts`, projected out of the enumeration by `scripts/generate_safe_area_defaults.py`.
-- `tests/test_caption_safe_area.py`.
+- `tests/unit/captions/test_caption_safe_area.py`.
 """
 
 from dataclasses import dataclass

@@ -34,7 +34,7 @@ rather than hashed, so touching it does not cost a 69-minute vision
 re-run.  What IS hashed beyond the step directory is declared below in
 ``STEP_IMPLEMENTATION_DEPS``: the shared implementation files a step
 executes as measurement code.  An undeclared shared import is a gap in
-that declaration, and ``tests/test_step_ledger.py`` refuses it - it
+that declaration, and ``tests/unit/context/test_step_ledger.py`` refuses it - it
 scans every DAG-preflight step for the reference and fails until the
 map covers it.
 

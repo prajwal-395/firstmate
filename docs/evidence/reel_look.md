@@ -1,10 +1,10 @@
 # `library.tools.reel_look` - the PowerGrade route, measured
 
-Moved verbatim on 2026-10-02 from `tests/test_reel_power_grade.py` when the
+Moved verbatim on 2026-10-02 from `tests/unit/reels/test_reel_power_grade.py` when the
 test file kept only its invariant. Where this and the code disagree, the
 code and its docstring win.
 
-## Module docstring of `tests/test_reel_power_grade.py`
+## Module docstring of `tests/unit/reels/test_reel_power_grade.py`
 
 ```text
 The declared PowerGrade is THE grade on a reel, and the CDL rides inside it.
@@ -59,7 +59,7 @@ checkable, and stays the captain's call.
 # grade this route claims to have applied".
 ```
 
-## Module docstring of `tests/test_reel_motion_reaches_every_row.py`
+## Module docstring of `tests/unit/reels/test_reel_motion_reaches_every_row.py`
 
 ```text
 A treatment planned for a clip on ANY picture row must reach that clip.

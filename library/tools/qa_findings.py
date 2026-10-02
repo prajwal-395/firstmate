@@ -27,7 +27,7 @@ else is CLEAN and counted rather than printed.
 
 **Nothing here blocks a run.**  Reading is not gating.  Step 6.02 already
 decides what fails; promoting a report-only check is one boolean in
-`render_qa` and stays there.  `tests/test_qa_findings_reach_a_reader.py`
+`render_qa` and stays there.  `tests/contracts/test_qa_findings_reach_a_reader.py`
 pins the run summary's status against the findings it prints.
 
 **A finding that reaches no reader is itself reported.**  `FINDING_READERS`
@@ -53,7 +53,7 @@ and points here.
 
 The occupancy gate needs to know what the picture was SUPPOSED to look like, so `compile_manifest._conform_fields` records the resolved `framing_intent` on every clip.
 A declared letterbox is exempt from the fill floor and never from the consistency half.
-`tests/test_baseline_craft_properties.py`.
+`tests/unit/picture/test_baseline_craft_properties.py`.
 **Every QA finding has a reader, and one that has none is reported.**
 One enumeration, `library/tools/qa_findings.py`. [why](docs/RULE_EVIDENCE.md#the-qa-report-had-no-reader)
 - **Two readers, one module.** The run summary prints them at the end of every run, and step 3.03 `review_rough_cut` is handed them as `render_qa_findings`. Both go through `read_qa_report`, so neither can develop a private opinion about which findings matter.
@@ -61,7 +61,7 @@ One enumeration, `library/tools/qa_findings.py`. [why](docs/RULE_EVIDENCE.md#the
 - **`passed` is the verdict; `severity` is how loud it is.** A check that did not pass is FAILING at its declared severity. One that passed while carrying a non-`info` severity is ADVISORY **if and only if** its metric is in `REPORT_ONLY_METRICS`, the two whose gate boolean is False. Advisory is read off that enumeration and never off severity alone, and a check's severity moves with its verdict.
 - **A metric with no row in `FINDING_READERS` is named first and loudest** - in the summary and in what 3.03 receives - and fails the test, which harvests the metric names out of every producer and checks BOTH directions.
 - **No DAG edge carries the findings to 3.03 and none can**: `validate` is the final node and 3.03 is in phase 3, so an edge would be a back edge. They travel by name in `gather_step_inputs`, only to a step whose manifest DECLARES them, and they describe the LAST render - `load_findings` asks state first and the file second and RECORDS which answered. **Step 3.03's own `handoff.md` defines every field and states plainly that a finding is not grounds to reject a rough cut** - the prose carries it since the freeze lifted 2026-09-09, so nothing ships a legend beside the table.
-- `tests/test_qa_findings_reach_a_reader.py`.
+- `tests/contracts/test_qa_findings_reach_a_reader.py`.
 """
 
 from __future__ import annotations
@@ -107,7 +107,7 @@ stamp its failing severity on a PASSING result, so 001's own report
 carries `subtitle_overlap` at `error` next to the words "No overlapping
 subtitles".  Reading advisory off severity alone would turn every one of
 those into a finding, which is the loud-and-wrong half of the defect this
-module exists to avoid.  `tests/test_qa_findings_reach_a_reader.py` holds
+module exists to avoid.  `tests/contracts/test_qa_findings_reach_a_reader.py` holds
 this set against render_qa's two booleans.
 """
 

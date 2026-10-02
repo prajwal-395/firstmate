@@ -332,7 +332,7 @@ def _row_items_by_start(timeline, track_index: int) -> Optional[dict]:
 
     The row comes from `reel_read.live_track_items` - this sweep takes
     that slice rather than opening its own `GetItemListInTrack` probe
-    (tests/test_reel_read.py: no direct Resolve reads outside the
+    (tests/unit/reels/test_reel_read.py: no direct Resolve reads outside the
     reader modules). Listed ONCE per row, not once per overlay: a
     reel's captions share one row, and re-listing it for each of them
     held the instance for rows x items reads where one listing serves.

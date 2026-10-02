@@ -1,13 +1,12 @@
 [tool.pytest.ini_options]
-# Every test root in the repository. `pytest` (no args) collects from
-# all of them; passing `tests/` explicitly would see only the first.
+# The one test root. Below it, a directory per LAYER - what a test
+# establishes - and `unit/` a directory per subsystem (tests/layers.py).
 # CI uses `python -m pytest` so it honours this list.
 #
-# tests/test_no_orphan_test_files.py fails when a test_*.py exists
-# outside these roots, so a new directory cannot slip in unnoticed.
+# tests/tooling/test_no_orphan_test_files.py fails when a test_*.py exists
+# outside it, so a new directory cannot slip in unnoticed.
 testpaths = [
     "tests",
-    "library/tools/fusion/tests",
 ]
 markers = [
     "unit: marks the default unit-test category (assigned to tests without another semantic marker)",

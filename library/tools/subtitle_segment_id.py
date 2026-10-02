@@ -56,7 +56,7 @@ supply one of them passes `None` and the record says so (`nospeaker`,
 `noclip`) rather than omitting the field, because a record that
 silently drops a component collides with one that never had it.
 
-`tests/test_subtitle_segment_id.py`.
+`tests/unit/captions/test_subtitle_segment_id.py`.
 """
 
 from __future__ import annotations

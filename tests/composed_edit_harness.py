@@ -15,7 +15,7 @@ lives in `tests/resolve_double.py`, where every offline test meets it:
 
 This module only BUILDS the spike's reel shape out of those classes.
 Nothing here reaches a real project or a real Resolve
-(`tests/test_tests_never_reach_real_projects.py`).
+(`tests/tooling/test_tests_never_reach_real_projects.py`).
 """
 
 from __future__ import annotations

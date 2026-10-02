@@ -230,15 +230,15 @@ What it MEANS is decided here:
   chosen belongs, and the approval stays on it because the captain gave
   it.
 
-`tests/test_version_variants.py`, `tests/test_version_variant_choice.py`.
+`tests/unit/reels/test_version_variants.py`, `tests/unit/reels/test_version_variant_choice.py`.
 ```
 
 ## Test history moved out of the suite (2026-10-02)
 
 - `tests/test_variant_spec_vocabulary.py` and `tests/test_variants_are_routine.py`
-  were folded into `tests/test_version_variants.py` (spec vocabulary, declared
+  were folded into `tests/unit/reels/test_version_variants.py` (spec vocabulary, declared
   variants, sweep exclusion, branch requirement, `--why`) and
-  `tests/test_reel_variants_carry_recorded_obedience.py` (the AST obedience
+  `tests/unit/reels/test_reel_variants_carry_recorded_obedience.py` (the AST obedience
   and declaration checks).
 - Measured before the widened spec landed: `build_reel_variants` read NONE of
   the per-reel declaration readers (`load_intent`, `load_pins`,

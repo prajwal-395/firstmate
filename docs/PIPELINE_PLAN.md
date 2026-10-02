@@ -88,8 +88,8 @@ projects render identically.~~ That heuristic is DELETED (P1.4);
 enumeration, `library/tools/framing_intent.py`: spine block > project.yaml
 `pipeline.framing_intent` > brand template `style.framing_intent` > fill.
 An explicit per-clip pan still outranks the measurement. Tests:
-`tests/test_framing_intent.py`, `tests/test_framing_parameter.py`,
-`tests/test_subject_framing.py`.
+`tests/unit/picture/test_framing_intent.py`, `tests/unit/picture/test_framing_parameter.py`,
+`tests/unit/picture/test_subject_framing.py`.
 
 **Per-clip SFX levels do not reach the mix.** This table listed 4.04 under
 Rendered on the strength of `resolve_build_timeline.py:1087-1096` calling
@@ -156,7 +156,7 @@ are built at `compile_manifest/step.py:880,897,914` as
 `f"{block['block_type']}_{block['position']}"`, and `block_type` is
 lowercase (`spine_contract.py:55`). `"hook_1" in {"HOOK", ...}` is never
 true. ~~`SEGMENT_RECIPES` and `CompEngine.from_preset` are reachable only from
-`library/tools/fusion/tests/test_effects.py`.~~ Those two were deleted in
+`tests/unit/resolve/test_fusion_effects.py`.~~ Those two were deleted in
 #103; `SEGMENT_PRESETS` itself remains, still unselectable, and is P3.4.
 
 **3. The preset index.** ~~`library/tools/preset_indexer.py`~~ **REMOVED**
@@ -214,7 +214,7 @@ timed from the spine, which is what `docs/ASSET_LIBRARY_PLAN.md`
 (ratified 2026-08-20) section 5 requires.
 
 `NO_READER` is deleted, and the guard that held the slot empty is
-replaced by `tests/test_timed_text_overlay.py::test_a_pipeline_step_reads_the_slot`
+replaced by `tests/unit/captions/test_timed_text_overlay.py::test_a_pipeline_step_reads_the_slot`
 plus `tests/test_timed_text_delivery.py`, which renders a fixture segment
 through the real path and asserts the declared colours are in the
 declared rows at the declared frames and absent outside them. That last
@@ -451,7 +451,7 @@ only piece of the five left standing.
   `framing_intent` (0.0-1.0) and `framing_pan_x` (-1.0-1.0). The renderer
   applies `ZoomX`/`ZoomY` and `PanX`. Brand templates can bias via
   `style.framing_intent`. Spine blocks can override per clip.
-  Tests: `tests/test_framing_parameter.py` (21 tests).
+  Tests: `tests/unit/picture/test_framing_parameter.py` (21 tests).
 - **P1.2 Subject-aware pan offset.** ~~Use the vision pass's subject bounding
   box to compute an intelligent `framing_pan_x` default rather than
   dead-centre. The Pan infrastructure exists; the policy to drive it from
@@ -480,7 +480,7 @@ only piece of the five left standing.
   one site. Silence is a real answer - no detections, too few, a subject
   already near centre, or an OpenCV without Haar all yield None, which
   means the framing a project gets today. Tests:
-  `tests/test_subject_framing.py`, `tests/test_face_presence_position.py`.
+  `tests/unit/picture/test_subject_framing.py`, `tests/unit/picture/test_face_presence_position.py`.
 
   **Q1 (2026-08-16):** the captain ruled letterbox stays the default and
   the tracking gets built regardless, so a clip a template or spine block
@@ -577,7 +577,7 @@ The remaining items (P2.1 Real music level, P2.3 Music fades, P2.4 Master limite
   with no usable accent colour raises `MissingAccentColor` rather than
   silently drawing the withdrawn cyan. An unrecognised flag value keeps
   the default rather than reading as false, so a typo cannot quietly
-  change the look. Tests: `tests/test_motion_graphics_template.py`.
+  change the look. Tests: `tests/unit/captions/test_motion_graphics_template.py`.
 - **P3.2 Subtitle style from the brand template.** ~~Wire
   `style.typography` and `effect.subtitle_style` through 4.01 into the
   Remotion props, and delete the hardcoded default at
@@ -591,7 +591,7 @@ The remaining items (P2.1 Real music level, P2.3 Music fades, P2.4 Master limite
   that key is absent rather than substituting a house look, because the
   substitute was the bug. `fontWeight` gained a reader in
   `SubtitleOverlay/index.tsx`, where it had been hardcoded to 800 while
-  templates declared a weight. Tests: `tests/test_subtitle_style.py`.
+  templates declared a weight. Tests: `tests/unit/captions/test_subtitle_style.py`.
 
   Two things found by rendering it. An emphasised word was sized with
   `transform: scale()`, which reserves no layout width, so it overflowed
@@ -614,7 +614,7 @@ The remaining items (P2.1 Real music level, P2.3 Music fades, P2.4 Master limite
   rather than falling back to Chromium's default sans, which was invisible
   in the output. Licence: SIL OFL 1.1, shipped beside the font and recorded
   in AGENTS.md section 11. The `Inter` import went too - nothing in `src/`
-  ever asked for Inter. Tests: `tests/test_bundled_fonts.py`.
+  ever asked for Inter. Tests: `tests/contracts/test_bundled_fonts.py`.
 
   Verified two ways: removing the bundled file makes the render fail with
   `Failed to load bundled font Montserrat`, proving the render really
@@ -743,7 +743,7 @@ four templates should ship at all.
   honest consumer of the real grid - was always `[]`, and **the SFX beat
   snapping never ran either**. Both consumers now go through
   `library/tools/beat_grid.py`, which is the single place that knows the
-  producer's shape, and `tests/test_beat_grid.py` asserts the two ends
+  producer's shape, and `tests/unit/audio/test_beat_grid.py` asserts the two ends
   agree by reading the producer's own AST rather than a fixture.
 
   Also fixed: step 2.06's completion log read `analysis['bpm']`, which is
@@ -776,7 +776,7 @@ four templates should ship at all.
      no edge back to the planning steps.
 
   Removed: the check, `extract_cuts_per_minute`, `StyleSlots.pacing`, and
-  the pacing block in all four templates. `tests/test_beat_grid.py` fails
+  the pacing block in all four templates. `tests/unit/audio/test_beat_grid.py` fails
   if any of it returns. Pacing control remains possible, but it is a
   re-cut loop and therefore a design job, not a config key.
 - **P4.2 Close the pacing loop.** `creative_cohesion` scores cuts per minute
@@ -1008,7 +1008,7 @@ decision on the captain's behalf.
 **Already implemented**, in #102, before the question was put:
 `effect.caption_case` is in the schema with an enum, all four templates
 declare `lowercase` explicitly, `step_4_01` honours it, an unknown value
-falls back to lowercase, and `tests/test_caption_case.py` covers it. The
+falls back to lowercase, and `tests/unit/captions/test_caption_case.py` covers it. The
 only thing added under this ruling is a guard that all four keep declaring
 it, so the decision stays durable rather than drifting back to the default.
 
@@ -1076,7 +1076,7 @@ minutes 17 seconds of wall clock for 2.75 seconds of CPU**, at 0.0%, with
 four sleeping threads, **no network connections at all**, stdin on
 `/dev/null`, and three pipe file descriptors pointing at one endpoint.
 Verbose output stopped at
-`tests/test_resolve_build_timeline.py::test_media_import_logic`.
+`tests/unit/resolve/test_resolve_build_timeline.py::test_media_import_logic`.
 
 ### The cause
 
@@ -1090,7 +1090,7 @@ build_timeline
 ```
 
 `render_segment` polls `project.IsRenderingInProgress()` and sleeps 0.5s
-between polls. Under `tests/test_resolve_build_timeline.py` the project is
+between polls. Under `tests/unit/resolve/test_resolve_build_timeline.py` the project is
 a `MagicMock`, which answers **truthy forever**, so the loop slept out its
 entire timeout — **once per frame grab**. Not a deadlock: a long poll.
 That is why CPU was near zero and why threads and pipes were present.

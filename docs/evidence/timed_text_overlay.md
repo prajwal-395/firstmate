@@ -1,6 +1,6 @@
 # Timed text overlay: the tests' history
 
-Moved from the module docstring of `tests/test_timed_text_overlay.py`.
+Moved from the module docstring of `tests/unit/captions/test_timed_text_overlay.py`.
 
 The component and its prop generator survive: the captain confirmed on
 2026-08-20 that N timed text moments with per-item colour, size, start frame

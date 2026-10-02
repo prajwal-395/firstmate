@@ -109,7 +109,7 @@ placements already have rulings:
 ## 5. What was built, and what remains the captain's
 
 Built without a taste call (`library/tools/brand_motion.py`,
-`BrandMotion` in `remotion-subtitles/`, `tests/test_brand_motion.py`):
+`BrandMotion` in `remotion-subtitles/`, `tests/unit/captions/test_brand_motion.py`):
 measure the file, stage a same-rate mezzanine the renderer can read,
 verify the mezzanine kept every frame and its alpha, refuse ProRes
 staged raw / undeclared conform / unstated sound / mismatched geometry.

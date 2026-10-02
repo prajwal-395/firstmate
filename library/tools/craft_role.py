@@ -40,7 +40,7 @@ judgement should come out. That is the line AGENTS.md 10.5 draws, and
 this module is on the same side of it as every other one: it hands over
 capability and authority, never taste. Quantity ownership is declared
 per capability in `library/tools/capabilities.py`; role delivery is
-exercised by `tests/test_craft_role.py`.
+exercised by `tests/contracts/test_craft_role.py`.
 
 How it reaches the model
 ------------------------
@@ -79,7 +79,7 @@ level up.  Six of the fifteen are there today; each row says what the
 step is addressed as now, so the next worker adding one knows what they
 are replacing.
 
-`tests/test_craft_role.py`.
+`tests/contracts/test_craft_role.py`.
 
 
 Rules relocated from AGENTS.md 3
@@ -91,11 +91,11 @@ and points here.
 
 One enumeration, `library/tools/craft_role.py`. [why - the measurement, and the two defects it explains](docs/RULE_EVIDENCE.md#twelve-handoffs-no-role) A measurement on 2026-08-25 claimed not one of the twelve handoffs told the model what job it was doing (it missed the System Context section). Captain: *"there are like skill files and agent.md files where the LLM doesn't know how to operate and its just a generic agent in the system rather than an actual proffesional video editor/director/etc all in one."*
 - **A role is THREE things and no fourth**: a DISCIPLINE named and addressed in the second person; what that discipline READS THE MEASUREMENTS WITH (craft knowledge a number does not carry - a colourist knows a dark shot can be dark on purpose); and what is this step's to DECIDE and what is not. An authority statement with no boundary reads as licence.
-- **A role states NO preference about the answer.** Not how many of anything, not how strong, not which way a judgement comes out. **A floor in a role block is a floor**: `tests/test_no_creative_floors.py` reads the RENDERED role text of every declared role, because the file-based half cannot see text that lives in a Python module.
+- **A role states NO preference about the answer.** Not how many of anything, not how strong, not which way a judgement comes out. **A floor in a role block is a floor**: `tests/contracts/test_no_creative_floors.py` reads the RENDERED role text of every declared role, because the file-based half cannot see text that lives in a Python module.
 - **It is PREPENDED to the handoff by `present_llm_step`**, which is the one thing it does differently from `undetermined` and its siblings - those ask for a FIELD and belong beside the schema, and a role is the frame the rest of the document is read in. **`replay_bench/reconstruct.py` mirrors it**, or `verify` reports every role-carrying step as an unaccounted difference.
 - **It goes in the prompt**, and a role may carry a `corrects` line naming a withdrawn instruction still in a handoff - but ONLY where that line is the captain's to edit. Since the freeze lifted 2026-09-09 there is one: 4.04's SFX toolkit table, which still offers `foley`, `ambient` and `reverse_cymbal` (AGENTS.md 10.5).
 - **`ROLES` and `WITHOUT_A_DECLARED_ROLE` must TOGETHER account for every step that reaches a model**, and an unaccounted one raises at import. The model-reaching half is borrowed from `undetermined.DECLARING_STEPS`. **A row in the second table is a gap made VISIBLE, not closed** - writing a role for a discipline nobody has studied is this module inventing an expertise. Nine are declared; six are not, each with what it is addressed as today.
-- `tests/test_craft_role.py`.
+- `tests/contracts/test_craft_role.py`.
 """
 
 from __future__ import annotations
@@ -175,7 +175,7 @@ ROLES: Dict[str, CraftRole] = {
     # goes through `reel_quality_bar.assert_ask_is_uncontaminated` along
     # with the handoff it is prepended to - and a role naming the four
     # things the answer is read for would defeat the step rather than
-    # frame it.  See tests/test_reel_quality_bar.py.
+    # frame it.  See tests/unit/reels/test_reel_quality_bar.py.
     "judge_reels": CraftRole(
         step_id="judge_reels",
         discipline="first listener",

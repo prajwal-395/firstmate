@@ -1077,8 +1077,8 @@ def main():
     # downgraded to a warning, with the accepted consequence that a thin
     # sound design is no longer caught mechanically. Do not reintroduce an
     # equivalent check. Sparse-plan behavior is covered by
-    # tests/test_no_creative_floors.py; distribution-collapse behavior is
-    # covered by tests/test_sfx_layering_and_build.py.
+    # tests/contracts/test_no_creative_floors.py; distribution-collapse behavior is
+    # covered by tests/unit/audio/test_sfx_layering_and_build.py.
     # `_assert_sfx_distributed` stays: it catches a COLLAPSE (several
     # planned moments on one frame), which is a broken plan, not a sparse
     # one. A single moment carrying several sounds is a layer and passes.

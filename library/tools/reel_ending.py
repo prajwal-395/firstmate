@@ -79,7 +79,7 @@ moves the end OUT into the CTA's trailing silence, because an aligner's
 word boundary is not where the word stops being heard.  It is bounded by
 the ending shot's own end and by the next spoken word, so it can admit
 neither the next shot nor the next word.  A declaration stays
-truncate-only.  `tests/test_reel_ending_cta_default.py` fails the moment
+truncate-only.  `tests/unit/reels/test_reel_ending_cta_default.py` fails the moment
 a newly planned reel stops inheriting the freeze.
 
 What this module deliberately cannot say
@@ -89,7 +89,7 @@ frames exist but nothing in the pipeline has judged them.  The freeze
 uses only a frame the reel already plays.  A tail that does not fit
 inside the shot and declares no freeze is a refusal here.
 
-`tests/test_reel_ending.py`, `tests/test_orphan_wiring.py`.
+`tests/unit/reels/test_reel_ending.py`, `tests/unit/resolve/test_orphan_wiring.py`.
 
 The incidents and rulings behind these rules (Reel 13's extended keep
 range and lost switch-off, the freeze ruling, the four CTA reels and the

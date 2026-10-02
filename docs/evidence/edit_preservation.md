@@ -1,6 +1,6 @@
 # Edit preservation scenarios
 
-`tests/test_first_contact_journaled_baseline.py` holds the compact
+`tests/unit/resolve/test_first_contact_journaled_baseline.py` holds the compact
 first-contact scenario table. `library/tools/reel_replace_guard.py`
 owns the baseline choice and comparison; `library/tools/editor_edit_carry.py`
 owns carrying accepted edits onto staging.

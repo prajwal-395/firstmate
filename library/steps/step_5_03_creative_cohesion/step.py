@@ -76,7 +76,7 @@ def review_creative_cohesion(inputs: dict) -> dict:
     #     AGENTS.md 10.5 - "the creative direction decides how many
     #     cutaways and how many sounds a piece gets".  They survived the
     #     ruling that deleted `scale_sfx_density` and step 4.02's
-    #     `min_trans` only because `tests/test_no_creative_floors.py`
+    #     `min_trans` only because `tests/contracts/test_no_creative_floors.py`
     #     reads the planning steps and 5.03 is not one.
     #   * 1 and 2 reached the PICTURE.  `duration_frames` is the one field
     #     `cohesion_scope.ACTIONABLE_AT_COHESION` lets the compiler

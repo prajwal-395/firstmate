@@ -99,7 +99,7 @@ sequences above read INCOHERENT (04 via point+ending, 10 via
 point+ending, 13 via ending+foreign, 14 via point+ending, 27 via
 ending), and the five fixed sequences from the same report (each
 reel ending on its own thesis) read COHERENT.
-`tests/test_reel_thesis.py` pins that separation on fixtures built
+`tests/unit/reels/test_reel_thesis.py` pins that separation on fixtures built
 from the report's verbatim quotes. If a future batch shows this
 reading constant across approved and rejected alike, DEMOTE it to a
 report exactly the way the coherence warning was removed - do not
@@ -120,13 +120,13 @@ Where it runs
   inputs all REPORT and promote: an instrument must never fail the
   build it instruments.
 
-`tests/test_reel_thesis.py`.
+`tests/unit/reels/test_reel_thesis.py`.
 ```
 
 
 ## The acceptance tests
 
-Module docstring of `tests/test_reel_thesis.py`, moved verbatim on
+Module docstring of `tests/unit/reels/test_reel_thesis.py`, moved verbatim on
 2026-10-02 when the test file kept only its invariant.
 
 ```text

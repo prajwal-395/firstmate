@@ -3096,7 +3096,7 @@ def build_timeline(
         # problem: a real render would hang with no diagnostic and no way to
         # tell it from a slow Fusion pass. It hung the whole test suite three
         # times, at ~58%, with 2.75s of CPU over ten minutes of wall clock,
-        # because tests/test_resolve_build_timeline.py drives build_timeline
+        # because tests/unit/resolve/test_resolve_build_timeline.py drives build_timeline
         # with a mocked Resolve and a blanket os.path.exists patch, which
         # let this launch for real against the live application.
         #
@@ -3964,7 +3964,7 @@ def build_timeline(
     #
     # verification_passed reflects whether QA stations passed.
     # success is deliberately NOT gated on QA stations - that is step two
-    # of the captain's ruling (see tests/test_resolve_build_timeline.py::
+    # of the captain's ruling (see tests/unit/resolve/test_resolve_build_timeline.py::
     # test_loud_banner_prints_on_qa_failure_but_not_fatal).
     verification_passed = derive_verification_verdict(qa_reports)
 

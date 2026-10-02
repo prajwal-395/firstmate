@@ -47,7 +47,7 @@ counts in run state, so filed findings can never be scanned again.
 prints every divergence and exits 2 while any owned-layer
 divergence stands, 0 when the layers agree.
 
-`tests/test_layer_coherence.py`.
+`tests/unit/context/test_layer_coherence.py`.
 """
 
 from __future__ import annotations
@@ -223,7 +223,7 @@ def check_wording(project_folder: str, corrections: list) -> list:
     # Captain-side subtitle directories are named by their owner, never
     # spelled here: they are INPUT the layout reconciles, and a second
     # spelling is a second writer the day either is renamed
-    # (tests/test_project_layout.py).
+    # (tests/unit/context/test_project_layout.py).
     for sub in SCAN_SUBDIRS:
         candidate = os.path.join(str(project_folder), sub)
         if os.path.isdir(candidate):

@@ -121,12 +121,12 @@ then MEASURES the drawn ink back off the rendered file and refuses a
 segment whose ink left the box, so the placement is checked against
 pixels rather than asserted.
 
-``tests/test_speaker_identity.py``.
+``tests/unit/audio/test_speaker_identity.py``.
 ```
 
 ## The staging record that was never renamed
 
-Moved from `tests/test_speaker_identity.py::test_promotion_renames_the_staging_record_to_the_final_name`
+Moved from `tests/unit/audio/test_speaker_identity.py::test_promotion_renames_the_staging_record_to_the_final_name`
 (2026-10-02). Measured 2026-09-12 on the first beside build of Reel 01 in the
 captain's project: two lower thirds placed on V7, F24 ERROR "2 item(s) on the
 lower-third row (V7) and this reel has no recorded speaker lower-third plan at

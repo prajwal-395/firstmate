@@ -69,7 +69,7 @@ registry and `decide` is the only ladder.
   (`library/tools/output_contract.py`).
 - **The trace is MERGED, never replaced**, and a row from an earlier run
   is marked so it is never read as fresh.
-- `tests/test_decided_value.py`.
+- `tests/unit/context/test_decided_value.py`.
 
 The rulings behind the precedence, and the per-module basis enumerations
 and constants it replaces: docs/evidence/decided_value.md.
@@ -128,7 +128,7 @@ class Measurement:
 
     `produced_by` is a real dotted path - `module::function` - because a
     slot claiming a measurement nothing produces is the shape this
-    module exists to refuse.  `tests/test_decided_value.py` resolves
+    module exists to refuse.  `tests/unit/context/test_decided_value.py` resolves
     every one.
     """
     name: str

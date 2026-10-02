@@ -1,7 +1,7 @@
 # `verify_timeline` - the skill, and why it gates step 6.02
 
 Moved from the docstring of `tests/test_verify_timeline_gate_on_validate.py`
-(merged into `tests/test_verify_timeline_skill.py` on 2026-10-02).
+(merged into `tests/unit/reels/test_verify_timeline_skill.py` on 2026-10-02).
 
 PR 1168 wrapped the timeline-SOP verifier as a gating skill and proved the
 SKILL both ways (eleven tests on fake Resolve) - but no step manifest declared

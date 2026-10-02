@@ -1,6 +1,6 @@
 # Reel conformance verifier
 
-Incident history moved verbatim out of `tests/test_reel_conformance_verifier.py`.
+Incident history moved verbatim out of `tests/unit/reels/test_reel_conformance_verifier.py`.
 The tests keep the invariant; this file keeps how each was found.
 
 

@@ -67,7 +67,7 @@ writes. `verify_carried_edits` judges the result on a fresh read of
 staging, in source ranges, never in row counts. A write's return value
 is never the verdict.
 
-`tests/test_editor_edit_carry.py`.
+`tests/unit/resolve/test_editor_edit_carry.py`.
 """
 from __future__ import annotations
 

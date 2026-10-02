@@ -52,7 +52,7 @@ never re-derived. Filing never fails a build: like the phase log,
 a write that cannot land is said on stderr and the build
 continues (AGENTS.md 10.4).
 
-`tests/test_reel_out_of_window.py`.
+`tests/unit/reels/test_reel_out_of_window.py`.
 """
 
 from __future__ import annotations

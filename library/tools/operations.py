@@ -61,7 +61,7 @@ optional edges from `requirements.OPTIONALS` (captain, 2026-09-23).  A
 composer working backwards from requirements alone can never select an
 empty-effect operation, and declaring an effect a capability does not
 have would be the defect this module removes.  The graph-wide proof is
-`tests/test_contract_audit.py::test_the_graph_is_sound`.
+`tests/contracts/test_contract_audit.py::test_the_graph_is_sound`.
 
 Executing
 ---------
@@ -70,7 +70,7 @@ Executing
 either runs the step's own function or REFUSES naming what is missing
 and which step produces it.  A scope the operation does not support
 raises `ScopeNotSupported`; an unknown name raises `UnknownOperation`.
-`tests/test_operations.py`, `tests/test_operations_execute.py`.
+`tests/unit/context/test_operations.py`, `tests/unit/context/test_operations_execute.py`.
 
 Reachability
 ------------
@@ -176,7 +176,7 @@ An ENUMERATION rather than inference, for the reason the finding gave:
 binding the merged dict to a parameter that wanted something else would
 produce a confidently wrong result, which is worse than a `TypeError`.
 So a fourth spelling must be added here deliberately, and
-`tests/test_operations_execute.py::test_no_operation_takes_a_merged_dict_
+`tests/unit/context/test_operations_execute.py::test_no_operation_takes_a_merged_dict_
 under_a_name_this_module_does_not_know` fails the moment one appears
 without being."""
 
@@ -392,7 +392,7 @@ class Operation:
         the prompt file as its `body` and leaves `attr` empty.
 
         Syntactic here (`body` names a `.md` file), truthful by gate:
-        `tests/test_static_check.py`
+        `tests/tooling/test_static_check.py`
         refuses a prompt entry unless the owning step's own manifest
         declares exactly that runtime and entry point - so the registry
         cannot relabel a Python step as a prompt to dodge `run`.
@@ -468,7 +468,7 @@ class Operation:
         Do NOT turn `run` back into a plain field holding a callable.
         The moment it is one, a wrapper defined in this module type-checks
         and the registry starts owning logic.
-        `tests/test_static_check.py` still
+        `tests/tooling/test_static_check.py` still
         plants all three shapes, because a future edit here would make
         them reachable again.
 
@@ -530,7 +530,7 @@ class Operation:
         here would defer on a promise nobody made, which looks like
         tolerance and behaves like blindness.
 
-        `tests/test_operations_execute.py` pins the distinction with one
+        `tests/unit/context/test_operations_execute.py` pins the distinction with one
         requirement and one state checked under both run sets, and that
         test fails if this argument grows.
         """
@@ -849,7 +849,7 @@ class Operation:
         catalogue entries: registered, listed, `--emit-skill`-ed, and
         unable to run. An operation that cannot execute is exactly what
         this refactor set out to stop being.
-        `tests/test_operations_execute.py` now EXECUTES one of them.
+        `tests/unit/context/test_operations_execute.py` now EXECUTES one of them.
 
         THE SCOPE, which used to reach no step at all. `scope` is not a
         gathered key - it is the address the operation was called at - so

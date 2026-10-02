@@ -2,7 +2,7 @@
 
 History moved out of test module docstrings; the tests keep the invariant.
 
-## `tests/test_transition_cut_placement.py` (moved from its module docstring, 2026-10-02)
+## `tests/unit/reels/test_transition_cut_placement.py` (moved from its module docstring, 2026-10-02)
 
 A beat snap may adjust a cut. It may not move it somewhere else.
 

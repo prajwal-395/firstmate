@@ -72,7 +72,7 @@ Wiring: `reel_build.promote_staged_reels` runs this in phase 4 beside
 the reel retirement, never fatally and always reported.  A refusal
 leaves the promoted reels promoted and the comparisons standing.
 
-`tests/test_comparison_retirement.py`.
+`tests/unit/reels/test_comparison_retirement.py`.
 
 The accumulation this closes and the reasoning behind the retention
 number: docs/evidence/comparison_retirement.md.

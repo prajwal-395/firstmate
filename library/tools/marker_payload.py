@@ -99,7 +99,7 @@ self-describing records, with the reasoning for that shape in the module docstri
 - `pull` and `show` surface attachments, and a note with one prints differently from one without.
   **A path the captain TYPED into a note is surfaced too**, told apart by `origin`, matched
   conservatively (absolute POSIX path or `file://`) and never rewritten out of the text.
-- `tests/test_marker_payload.py`, `tests/test_marker_capture_against_resolve.py`.
+- `tests/unit/resolve/test_marker_payload.py`, `tests/qualification/test_marker_capture_against_resolve.py`.
 """
 
 from __future__ import annotations

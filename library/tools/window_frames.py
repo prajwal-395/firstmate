@@ -96,7 +96,7 @@ One enumeration, `library/tools/window_frames.py`.
 - **A picture has no smaller textual form, so this is NOT a second `brief_reference`.** `HARNESS_SHOWS_FRAMES` is its own complete enumeration and an unknown harness raises. A harness that cannot be shown one is handed a line SAYING the frames were drawn and withheld, and the prose path stands. Never put base64 in the context (`WITHDRAWN_DELIVERIES`).
 - `HARNESS_SHOWS_FRAMES` is a complete enumeration and an unknown harness raises. A harness that cannot show frames is handed a withholding notice. Never put base64 in the context (`WITHDRAWN_DELIVERIES`).
 - A strip already drawn is reused. [why](docs/RULE_EVIDENCE.md#no-step-that-chose-a-picture-had-seen-one)
-- `tests/test_window_frames.py` FOLLOWS the reference: it parses the directory and filenames out of the string the model reads, opens what comes back and probes its dimensions.
+- `tests/unit/picture/test_window_frames.py` FOLLOWS the reference: it parses the directory and filenames out of the string the model reads, opens what comes back and probes its dimensions.
 """
 
 from __future__ import annotations

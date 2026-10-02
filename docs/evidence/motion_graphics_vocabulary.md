@@ -54,7 +54,7 @@ is declared on.  An axis with enumerated positions names the positions
 characters, not a chosen one).  An axis without them is continuous and
 its magnitude belongs to whoever declares it.
 :func:`assert_no_settled_values` is the runnable statement of that rule
-and ``tests/test_motion_graphics_vocabulary.py`` parses this file's own
+and ``tests/contracts/test_motion_graphics_vocabulary.py`` parses this file's own
 source to enforce it.
 
 Series-neutral, because the purpose is two purposes
@@ -117,7 +117,7 @@ nineteen entries fit, and whatever selects a shortlist becomes the chooser
 
 ## The tests
 
-Moved from `tests/test_motion_graphics_vocabulary.py`. The roster answers an
+Moved from `tests/contracts/test_motion_graphics_vocabulary.py`. The roster answers an
 open captain decision delegated on 2026-08-29: *"which motion-graphics elements
 belong in our vocabulary"*. The failure it closes is the one the round-2
 creative audit counted nine times in twenty-eight decisions - a decision the

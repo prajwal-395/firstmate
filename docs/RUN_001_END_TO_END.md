@@ -52,7 +52,7 @@ waited out the LLM, then discarded the answer and returned project 001's
 stale narrative from a backup file that exists on one machine. No correct
 run of any project was possible while it was there.
 
-Guard: `tests/test_runner_no_fixture_shortcuts.py` fails on the removed
+Guard: `tests/contracts/test_runner_no_fixture_shortcuts.py` fails on the removed
 code two independent ways - an absolute path into a home directory, and an
 `if node_id == "..."` branch inside `present_llm_step`. Both verified
 against the parent revision.
@@ -82,7 +82,7 @@ survived; a genuinely fresh project cannot start.
 `interface.inputs: []`. Unrunnable by construction on any fresh project.
 
 `gather_step_inputs` now supplies a process-level input to a step that
-**declares** it, and only to that step. `tests/test_entry_step_inputs.py`
+**declares** it, and only to that step. `tests/contracts/test_entry_step_inputs.py`
 reads `step.py`'s own AST for the keys it pulls off the stdin payload and
 asserts the manifest declares them.
 
@@ -539,7 +539,7 @@ for the look, calm energy, 30-60s duration, sparse SFX, restrained
 transitions, and the caption colours the series names. This is a design
 job, not a config change, and it has one hard dependency: the series
 specifies **Nanum Pen Script**, which is not bundled, and
-`tests/test_bundled_fonts.py` fails a template naming a font that is
+`tests/contracts/test_bundled_fonts.py` fails a template naming a font that is
 neither bundled nor an accepted system font. Nanum Pen Script is licensed
 OFL 1.1, the same licence as the Montserrat already shipped under section
 11 of `AGENTS.md`, so bundling it is permitted - but it is a separate
@@ -1067,7 +1067,7 @@ style of `series_look` and `transition_vocabulary`: four named formats, an
 unknown name RAISES, and adding one means adding a row. A brand template
 declares `delivery_format`; a project overrides with
 `pipeline.delivery_format`; every shipped template now states its frame
-explicitly, and `tests/test_delivery_format.py` fails on one that does
+explicitly, and `tests/unit/picture/test_delivery_format.py` fails on one that does
 not.
 
 The catalog's measurement survives as `source_resolution`. The old key is
@@ -1369,7 +1369,7 @@ non-speech blocks - which is what the creative direction asks for: "the
 B-roll is incidental documentary texture, not illustration, and should
 stay sparse; the piece is a person talking."
 
-Guard: `tests/test_no_creative_floors.py`, verified failing against the
+Guard: `tests/contracts/test_no_creative_floors.py`, verified failing against the
 parent revision on both halves - the bridge checks and the prompts.
 
 ### 19.3 Music - the hybrid the captain actually asked for
@@ -1530,6 +1530,6 @@ drawn must sit inside the frame with a margin and in the lower half.
 inventing, deterministically. The model's typography opinion is recorded
 in the step output for a human and blocks nothing.
 
-Guard: `tests/test_subtitle_qa_sampling.py`, which builds real overlays
+Guard: `tests/unit/captions/test_subtitle_qa_sampling.py`, which builds real overlays
 with ffmpeg and asserts both directions - a gap is not sampled, and an
 overlay that draws nothing anywhere still fails hard.

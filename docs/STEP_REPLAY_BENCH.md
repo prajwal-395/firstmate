@@ -100,7 +100,7 @@ copy-on-write clone of the snapshot project under `<store>/_workspaces/`
 and no disk for a 28 GB project; the state's absolute source paths are
 re-rooted at the clone; and a clone in which any path still resolves into
 the source REFUSES. A filesystem that cannot clone gets a real copy only
-below `COPY_FALLBACK_LIMIT_BYTES`. `tests/test_replay_bench.py` pins it.
+below `COPY_FALLBACK_LIMIT_BYTES`. `tests/unit/context/test_replay_bench.py` pins it.
 
 Default store: `~/.video_editing_pilot/replay_snapshots`, overridable with
 `PIPELINE_REPLAY_SNAPSHOTS` or `--store`.
@@ -273,7 +273,7 @@ structural diff to score them with.
 
 It measures the pipeline; the pipeline must not read it. Nothing under
 `library/steps/`, `library/processes/` or `library/dashboard/` may import
-it, and `tests/test_replay_bench.py` fails if one does.
+it, and `tests/unit/context/test_replay_bench.py` fails if one does.
 
 `reconstruct.py` imports nothing from `library` at module scope, and a
 test enforces that too: it runs as a subprocess with the TARGET tree first

@@ -126,5 +126,5 @@ One enumeration, `library/tools/marker_resolution.py`.
 - **The Resolve removal call is judged by what it actually returns**,
   confirmed by re-reading `GetMarkers`. Nothing here guards on
   `hasattr`.
-- `tests/test_marker_resolution.py`.
+- `tests/unit/resolve/test_marker_resolution.py`.
 ```

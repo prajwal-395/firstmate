@@ -12,7 +12,7 @@ It is an unwiring, not a deletion. **The capability stays on disk in full:**
     library/tools/analysis/speech_advanced_pipeline.py the parselmouth pass, unchanged
     library/tools/prosody_profile.py                   profile_defect, unchanged
     library/tools/context_views.py                     view:prosody, unchanged
-    tests/test_prosody_view.py, tests/test_prosody_failure_is_loud.py
+    tests/unit/audio/test_prosody_view.py, tests/unit/audio/test_prosody_failure_is_loud.py
 
 What changed is that no DAG node runs it and no step declares its output, and its
 recorded `unwired_reason` in `library/tools/project_layout.STEPS` now states what was
@@ -27,7 +27,7 @@ The full scout report this is drawn from is
 ## 1. It had never measured anything, anywhere
 
     grep -rl '"method": "parselmouth' /Users/prajwal/Documents/content_stuff/
-    → only speech_advanced_pipeline.py and tests/test_prosody_failure_is_loud.py
+    → only speech_advanced_pipeline.py and tests/unit/audio/test_prosody_failure_is_loud.py
 
 Not one profile on this machine has ever carried a measurement. On 001 the step ran and
 reported `available: false` - *"Prosody measured nothing on any of 17 clip(s)"* - which

@@ -1,6 +1,6 @@
 # select_broll: scene prose inline, scene structure at a path
 
-Test: `tests/test_select_broll_scene_prose_not_structure.py`.
+Test: `tests/unit/picture/test_select_broll_scene_prose_not_structure.py`.
 
 Issue #679: "select_broll still reads the scene prose and the scene
 structure". Written against the pre-#339 prompt, where BOTH travelled
@@ -21,6 +21,6 @@ pre-bridge table, on a step whose handoff tells the model to match
 content against it.
 
 The test pins that end state on the assembled prompt, the shape
-`tests/test_broll_context_share.py` uses. Run it at 11498a6^ and it fails -
+`tests/unit/context/test_broll_context_share.py` uses. Run it at 11498a6^ and it fails -
 the bridge emits no reference, and the raw documents arrive inline carrying
 every structure marker.

@@ -60,7 +60,7 @@ other exactly as two old lanes did, and no two full-suite gates can run
 at once across the switch. The bridge goes once no lane runs pre-
 scheduler code.
 
-`tests/test_heavy_work_lock.py`.
+`tests/unit/context/test_heavy_work_lock.py`.
 """
 
 from __future__ import annotations

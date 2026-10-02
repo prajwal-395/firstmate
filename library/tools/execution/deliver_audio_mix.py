@@ -12,7 +12,7 @@ time.**  Fusion comps and CDL grades do not survive an OTIO import
 transitions do.  The renderer already placed every clip before it drew a
 comp or set a grade, so calling this straight after the last audio clip
 is placed costs nothing - but it is now a load-bearing order, not an
-accident, and `tests/test_audio_mix_delivery.py` holds it.
+accident, and `tests/scenarios/test_audio_mix_delivery.py` holds it.
 
 **Everything here is judged by what Resolve returns**, per AGENTS.md
 section 5.  `ImportTimelineFromFile` answers None or a timeline, with

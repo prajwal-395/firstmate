@@ -69,10 +69,20 @@ def pytest_configure(config):
 
 
 def pytest_collection_modifyitems(items):
-    """Give otherwise-unmarked tests their semantic default category."""
+    """Give otherwise-unmarked tests their semantic default category.
+
+    A test under `tests/scenarios/` is a `scenario` by where it sits
+    (`tests/layers.py`); every other unmarked test is `unit`.
+    """
+    from tests import layers
+
     categories = ("unit", "scenario", "resolve_live", "real_model")
     for item in items:
-        if not any(item.get_closest_marker(name) for name in categories):
+        if any(item.get_closest_marker(name) for name in categories):
+            continue
+        if layers.layer_of(item.path) == "scenarios":
+            item.add_marker(pytest.mark.scenario)
+        else:
             item.add_marker(pytest.mark.unit)
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -138,7 +148,7 @@ for _entry in _NON_ROOT_ENTRIES:
 # This is a sandbox, not a fixture: it stays EMPTY.  A test that needs
 # a project builds one under tmp_path.
 #
-# tests/test_tests_never_reach_real_projects.py asserts the guarantee,
+# tests/tooling/test_tests_never_reach_real_projects.py asserts the guarantee,
 # and is the only thing that sets the escape hatch below - which it
 # points at a decoy, never at the real root.
 REAL_PROJECTS_ROOT_ENV = "PIPELINE_PROJECTS_ROOT"

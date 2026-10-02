@@ -85,7 +85,7 @@ class EnvironmentCondition:
 # a skip conditioned on the repository's own contents is exactly the
 # defect, and is deliberately absent so that it fails.
 #
-# `tests/test_no_unfailable_tests.py` asserts both directions - that the
+# `tests/tooling/test_no_unfailable_tests.py` asserts both directions - that the
 # suite's real skips are covered, and that an undeclared one fails.
 ENVIRONMENT_CONDITIONS = (
     # ── Complementary pairs: one side always fires, so neither narrows ──
@@ -643,8 +643,8 @@ def _enclosing(tree, target) -> str:
 def test_sources(root: Path = REPO_ROOT):
     """Every test module in the tree, wherever it lives.
 
-    `library/tools/fusion/tests/` is collected by the suite too, and it
-    is where nine always-skipping tests were hiding.
+    Not only `tests/`: nine always-skipping tests once hid in a second
+    test root, `library/tools/fusion/tests/`.
     """
     seen = set()
     for path in sorted(root.rglob("test_*.py")):

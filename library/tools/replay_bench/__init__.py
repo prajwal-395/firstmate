@@ -9,7 +9,7 @@ question in minutes, per step, while other workers hold the project.
 It MEASURES.  It changes nothing about what a step computes or receives,
 it never runs the pipeline, it never touches Resolve, and it never writes
 to a project.  Nothing under `library/steps/` or `library/processes/` may
-import it - `tests/test_replay_bench.py` fails if one does.
+import it - `tests/unit/context/test_replay_bench.py` fails if one does.
 
 See docs/STEP_REPLAY_BENCH.md.
 """

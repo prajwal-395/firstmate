@@ -1,6 +1,6 @@
 # Variant motion follows the picture shot
 
-`tests/test_reel_look.py` keeps the motion remap scenarios in one small
+`tests/unit/reels/test_reel_look.py` keeps the motion remap scenarios in one small
 table. `library/tools/reel_look.py::remap_motion_positions` maps motion
 answers from base picture positions onto the cutaway-offset picture.
 

@@ -6,7 +6,7 @@ the renderer could draw four - and no two of those sets shared a token, so
 nothing the editor asked for ever reached the picture.
 
 This module is the single enumeration all four are now checked against
-(`tests/test_transition_vocabulary.py`). A type belongs here only if some
+(`tests/contracts/test_transition_vocabulary.py`). A type belongs here only if some
 mechanism can actually draw it, and `ROUTES` says WHICH mechanism, per
 type. `WITHDRAWN` records the types that were advertised and are not
 deliverable, each with the reason - a capability the renderer cannot

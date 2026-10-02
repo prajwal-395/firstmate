@@ -92,7 +92,7 @@ How a declaration reaches the picture, in order
 
     python3 -m library.tools.full_frame_element [--check]
 
-``tests/test_full_frame_element.py``.
+``tests/unit/captions/test_full_frame_element.py``.
 
 The measurements that settled replace-over-overlay and Remotion-over-Fusion:
 docs/evidence/full_frame_element.md.
@@ -368,7 +368,7 @@ def assert_roster_is_well_formed() -> None:
     """Every entry declares its refusals, its reachability and its axes.
 
     The runnable statement of the rule, and it can fail: see
-    ``tests/test_full_frame_element.py``.
+    ``tests/unit/captions/test_full_frame_element.py``.
     """
     seen = set()
     for element in ROSTER:

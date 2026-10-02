@@ -40,7 +40,7 @@ What it calls, and what it never does
 
 What it NEVER calls: `reel_touchup.apply_touchup` (the execute), any pool
 import, any cursor move, any exclusive lease. A grep test pins that
-(`tests/test_ren_dry_run.py`): a second implementation of any of the
+(`tests/scenarios/test_ren_dry_run.py`): a second implementation of any of the
 three pieces is the failure mode this task exists to avoid, and an
 execute hiding in the dry run is worse.
 

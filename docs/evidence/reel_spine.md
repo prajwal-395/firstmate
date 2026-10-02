@@ -112,10 +112,10 @@ speech that was already cut.  Every block here is `speech`, and a step
 that needs more than speech gets an honest absence rather than a
 fabricated block (AGENTS.md 10.5).
 
-`tests/test_reel_spine.py`.
+`tests/unit/reels/test_reel_spine.py`.
 ```
 
-## `tests/test_reel_fragment_blocks.py` module docstring (moved 2026-10-02)
+## `tests/unit/reels/test_reel_fragment_blocks.py` module docstring (moved 2026-10-02)
 
 ```text
 A mid-sentence transcript row is given back to its sentence.

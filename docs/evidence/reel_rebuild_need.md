@@ -129,12 +129,12 @@ already in the captain's version record means, and that is not this
 module's call.  :func:`engine_code_digest` is this module's own reading
 and it covers the trees.
 
-`tests/test_reel_rebuild_need.py`.
+`tests/unit/reels/test_reel_rebuild_need.py`.
 ```
 
 ## The test suite's account
 
-Moved from the module docstring of `tests/test_reel_rebuild_need.py` (2026-10-02).
+Moved from the module docstring of `tests/unit/reels/test_reel_rebuild_need.py` (2026-10-02).
 
 `library/tools/reel_rebuild_need.py` is what stops a build paying a full
 Resolve pass per reel per build. The measured stake, from the composed-edit

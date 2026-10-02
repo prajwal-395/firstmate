@@ -186,7 +186,7 @@ REPORTED_NOT_CONSUMED = {
         "vertical overlays banded down the middle. It is kept "
         "because it is a true measurement of the material "
         "(`direction_contradiction.MEASURED_OUTPUTS`) and because "
-        "`tests/test_delivery_format.py` reads it as the proof that the "
+        "`tests/unit/picture/test_delivery_format.py` reads it as the proof that the "
         "render target is NOT the source. The false comment that sent "
         "the last reader looking - `step_5_04_compile_manifest/step.py`, "
         "\"used for conform decisions only\" - is deleted.",

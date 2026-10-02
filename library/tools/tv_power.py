@@ -38,7 +38,7 @@ the half the captain named as the reference.
 The phase LENGTHS, the crop depth, the dot size and every gain are
 therefore stated once and read by both halves.  ``switch_on_frames()``
 and ``switch_off_frames()`` are the same call, and
-``tests/test_tv_power.py`` proves the drawn keyframes of one are the
+``tests/unit/resolve/test_tv_power.py`` proves the drawn keyframes of one are the
 time-reverse of the other - so a re-timing cannot move one without
 moving the other.
 

@@ -96,7 +96,7 @@ edges (the end never moves), and no overlap with the reel's own body,
 which would play those seconds twice. Anything failing that is
 reported LOUDLY and that reel keeps its span.
 
-`tests/test_closer_redraw.py`.
+`tests/unit/reels/test_closer_redraw.py`.
 
 A hand move in the Inspector
 ----------------------------
@@ -129,7 +129,7 @@ The build applies overrides AFTER aiming the punch-in, so the held
 value is the captain's, and re-proves coverage (`assert_punch_took`):
 an override that uncovered an edge raises rather than shipping black.
 An override matching no placed span reports STALE like every other
-kind. `tests/test_transform_override.py`.
+kind. `tests/unit/picture/test_transform_override.py`.
 
 Recording a decision: the one route
 ------------------------------------

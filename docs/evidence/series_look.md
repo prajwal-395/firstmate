@@ -50,7 +50,7 @@ project NAMED writes down, and this module reads that declaration:
   `library/tools/fusion/comp_builder.build_effect_comp` dispatches on.
   Emitting a name that module does not read produces a comp without that
   effect in it and no warning, which is how three VFX types and four
-  grade nodes were silently lost before; `tests/test_series_look.py`
+  grade nodes were silently lost before; `tests/unit/picture/test_series_look.py`
   asserts the nodes get drawn.
 
 Three rules make a declaration incapable of smuggling a value back in:
@@ -102,7 +102,7 @@ here: `library/tools/house_look.py` IS this file;
 `house_look.effective_house_look` are `resolve_look`,
 `project_series_look` and `effective_series_look`; `style.house_look` is
 `style.series_look` in a brand template and in a `project.yaml`; and
-`tests/test_house_look.py` is `tests/test_series_look.py`.
+`tests/test_house_look.py` is `tests/unit/picture/test_series_look.py`.
 
 
 Rules relocated from AGENTS.md 12
@@ -124,10 +124,10 @@ A look is delivered in two halves, because that is what the mechanisms can expre
 - **A project declaring no look gets NOTHING** - not a reduced look and not exposure normalisation. `NEUTRAL_CDL` is identity and `fusion_look` is `{}`, so no clip gets a comp for the look's sake at all. This is the shape #297 established for every other brand slot (§10.1).
 - **A vignette is drawn only where one was asked for.** `build_effect_comp` used to default `vignette` to True, drawing one at blend 0.25 on every clip carrying a zoom.
 - **Exposure is MEASURED, and normalised only onto a reference the declaration carries.** A clip nothing measured carries `null` and a reason, never `0.0`. `exposure_reference` is the declared target. [why](docs/RULE_EVIDENCE.md#the-exposure-probe-measured-nothing)
-- `tests/test_series_look.py`, `tests/test_color_grade_delivery.py`.
+- `tests/unit/picture/test_series_look.py`, `tests/unit/picture/test_color_grade_delivery.py`.
 ```
 
-## `tests/test_reel_grade_cdl.py` module docstring (moved 2026-10-02)
+## `tests/unit/reels/test_reel_grade_cdl.py` module docstring (moved 2026-10-02)
 
 ```text
 The declared CDL reaches reel picture clips, CDL-first.
@@ -160,7 +160,7 @@ Three things have to be true for the split to reach the picture:
    node order") - not assumed.
 ```
 
-## `tests/test_reel_grade_through_fusion.py` (moved from its module docstring, 2026-10-02)
+## `tests/unit/reels/test_reel_grade_through_fusion.py` (moved from its module docstring, 2026-10-02)
 
 A declared look through Fusion on the reels path, at declared values.
 

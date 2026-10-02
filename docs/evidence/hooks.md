@@ -126,7 +126,7 @@ that is deliberate rather than unfinished:
   property, and which side of it a `run` action belongs on is a decision
   for the captain rather than an implication of landing this module.
 
-`tests/test_hooks.py` drives every path through the public API, so
+`tests/unit/context/test_hooks.py` drives every path through the public API, so
 nothing here is unexercised while the sites are pending.
 
 Where the operation conditions get their payload, when they are wired
@@ -155,14 +155,14 @@ one thing most likely to go wrong here:
   empty.  So the site MUST dispatch `operation_refused` unconditionally
   for every refusal, or that whole class reaches no hook at all - which
   is the silent gap this layer exists to remove.
-  `tests/test_hooks.py::test_a_refusal_with_no_requirements_still_reaches_a_hook`
+  `tests/unit/context/test_hooks.py::test_a_refusal_with_no_requirements_still_reaches_a_hook`
   pins it.
 * The `identity` fields below for those four are PROVISIONAL.
   `operations.py` was not yet pushed to any branch when this landed
   (`git ls-remote` plus a search of every remote branch: `operations.py`
   is absent, though `SubtitleRenderRefused` is on
   `fm/vep-audit-decomposition`), so they could not be reconciled by
-  reading the real type.  `tests/test_hooks.py` carries a tripwire that
+  reading the real type.  `tests/unit/context/test_hooks.py` carries a tripwire that
   FAILS the moment `library.tools.operations` becomes importable with
   fields these do not match, so the reconciliation cannot be skipped
   silently.
@@ -170,7 +170,7 @@ one thing most likely to go wrong here:
 
 ## The operation conditions against the real result type
 
-Moved from `tests/test_hooks.py::test_the_operation_conditions_match_the_real_result_type`.
+Moved from `tests/unit/context/test_hooks.py::test_the_operation_conditions_match_the_real_result_type`.
 
 The test fired on batch 1 and was right to: `requirement_unsatisfied`
 declared an identity field `requirement` that is not on `OperationResult`,

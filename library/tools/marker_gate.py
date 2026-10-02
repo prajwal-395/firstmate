@@ -79,7 +79,7 @@ What fails, and what only reports
   propagates): a promotion that cannot see the words it just moved
   must not proceed to delete the generation that still holds them.
 
-`tests/test_marker_gate.py`.
+`tests/unit/resolve/test_marker_gate.py`.
 """
 
 from __future__ import annotations
@@ -427,7 +427,7 @@ def fleet_snapshot(project) -> dict:
     The counts come through `marker_carry`'s own readers, never a new
     direct `GetMarkers` here: the independence this gate adds is the
     COMPARISON against the pre-operation capture, not a second probe
-    (`tests/test_reel_read.py` refuses new probes outside its reader
+    (`tests/unit/reels/test_reel_read.py` refuses new probes outside its reader
     list, and rightly so).
     """
     from library.tools import marker_carry as _markers

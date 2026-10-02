@@ -44,7 +44,7 @@ are read from where they are already stated:
   ``step_4_01_plan_subtitles`` emits cards for blocks whose ``block_type``
   is ``hook`` or ``speech`` and for no others, so those blocks' spans are
   when a caption card exists.  :data:`CAPTIONED_BLOCK_TYPES` is that
-  enumeration and ``tests/test_caption_band.py`` reads 4.01's source to
+  enumeration and ``tests/unit/captions/test_caption_band.py`` reads 4.01's source to
   prove the two still agree.
 
 **What is refused, and what is not.**  Only an element that draws COPY.
@@ -66,7 +66,7 @@ not need.  That run's drop record names this rule, so the operator can
 see which rule cost them the element rather than finding a graphic
 missing with no account of why.
 
-``tests/test_caption_band.py``.
+``tests/unit/captions/test_caption_band.py``.
 """
 
 from __future__ import annotations
@@ -85,7 +85,7 @@ from library.tools.subtitle_style import (
 #: continue`, so these two spans are when a caption card is on screen and
 #: every other block type is when one is not.  Stated here rather than
 #: imported because importing a step body pulls its whole dependency
-#: tree; `tests/test_caption_band.py` reads 4.01's source and fails if
+#: tree; `tests/unit/captions/test_caption_band.py` reads 4.01's source and fails if
 #: the two ever say different things.
 CAPTIONED_BLOCK_TYPES: Tuple[str, ...] = ("hook", "speech")
 

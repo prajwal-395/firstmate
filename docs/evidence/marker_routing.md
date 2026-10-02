@@ -142,7 +142,7 @@ step, rather than being assembled into a context that does not carry it.
     python3 -m library.tools.marker_routing write  --project <dir>
     python3 -m library.tools.marker_routing steps
 
-`tests/test_marker_routing.py`.
+`tests/unit/resolve/test_marker_routing.py`.
 
 
 Rules relocated from AGENTS.md 15
@@ -182,5 +182,5 @@ One enumeration, `library/tools/marker_routing.py`.
   files: a delivery is a thing that happened, and a later run delivering the same note does
   not unmake the record of the first. `ROUTED-NOTES.md` is generated from the pull files and
   never hand-edited.
-- `tests/test_marker_routing.py`, whose note fixtures are the three the captain really typed.
+- `tests/unit/resolve/test_marker_routing.py`, whose note fixtures are the three the captain really typed.
 ```

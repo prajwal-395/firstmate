@@ -1,6 +1,6 @@
 # Remotion batch renderer: test history
 
-Moved from `tests/test_remotion_batch.py`.
+Moved from `tests/unit/captions/test_remotion_batch.py`.
 
 ## The node-store binding fixture (2026-09-15)
 

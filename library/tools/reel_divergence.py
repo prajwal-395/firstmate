@@ -93,7 +93,7 @@ not have:
   row.  No captain note asks for it, and the rebuild restored the
   engine's own framing.
 
-``tests/test_reel_divergence.py``.
+``tests/unit/reels/test_reel_divergence.py``.
 """
 
 from __future__ import annotations

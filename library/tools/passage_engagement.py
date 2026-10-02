@@ -58,7 +58,7 @@ One enumeration, `library/tools/passage_engagement.py` - `engagement_rank`, `eng
 - **A passage the model declined to judge reads as UNJUDGED, never as a low score**, and its reason is stated. `engagement_rank` returns **None**; never coerce it to 0 or to last. `WITHDRAWN_SCORERS` records why each of the three arithmetic scorers that came before was not a measurement.
 - **Step 2.02 names no roles and no opener.** The closed `opening|development|climax|resolution` vocabulary, the separately mandated `hook_segment` and its 1-3 second target all went on the same ruling: the model proposes the structure the footage wants. What survived is one ORDERED `body_sequence`, and every consumer works from that ordering - `mesh_spine` addresses a passage by its `position` (never by a role name), and 5.03's engagement observation compares the play order against the rank order.
 
-`tests/test_passage_engagement.py`.
+`tests/unit/picture/test_passage_engagement.py`.
 """
 
 # Why each scorer is withdrawn, in the terms of what it actually read.

@@ -61,7 +61,7 @@ the run.  If they differ, it reports a FATAL error and exits 2.
 This tool is the independent check on the fixer's work (PR #507) and
 does not coordinate with it.
 
-``tests/test_reel_conformance_verifier.py``.
+``tests/unit/reels/test_reel_conformance_verifier.py``.
 """
 
 from __future__ import annotations
@@ -1750,7 +1750,7 @@ def rewrite_f5_against_live_final(staging_name: str,
 
     Pure: the caller grades both timelines and compares here, so this
     decision is testable without Resolve
-    (`tests/test_f5_refuses_new_violations_not_all.py`).
+    (`tests/unit/reels/test_f5_refuses_new_violations_not_all.py`).
     """
     if staging_checker_version is None or \
             final_checker_version is None or \
@@ -1913,7 +1913,7 @@ def rewrite_f25_against_live_final(staging_name: str,
 
     Pure, like its F5 sibling, for the same reason: the decision is
     testable without Resolve
-    (`tests/test_f25_refuses_new_word_mismatch_not_all.py`).
+    (`tests/unit/reels/test_f25_refuses_new_word_mismatch_not_all.py`).
     """
     if staging_checker_version is None or \
             final_checker_version is None or \

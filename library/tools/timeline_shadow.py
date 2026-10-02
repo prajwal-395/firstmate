@@ -53,7 +53,7 @@ hash.
     python3 -m library.tools.timeline_shadow markers --project P --timeline T [--generation N]
     python3 -m library.tools.timeline_shadow diff    --project P --timeline T --since N [--to M]
 
-None of these touch Resolve. `tests/test_timeline_shadow.py`.
+None of these touch Resolve. `tests/unit/resolve/test_timeline_shadow.py`.
 """
 
 from __future__ import annotations

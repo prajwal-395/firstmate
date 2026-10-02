@@ -48,7 +48,7 @@ derived from its step directory, and a derived requirement is NAMED
 `state.<consumer>.<key>` - so two processes sharing a node id would give
 two different steps one ledger entry, one node view of their recorded
 output and one requirement.  `assert_node_ids_are_unique` refuses that, and
-`tests/test_processes.py` pins it can fail.
+`tests/contracts/test_processes.py` pins it can fail.
 
 A process is a DIRECTORY, never a list
 --------------------------------------

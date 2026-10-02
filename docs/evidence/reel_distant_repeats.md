@@ -2,7 +2,7 @@
 
 Narrative moved verbatim out of test module docstrings; the tests keep the invariant.
 
-## `tests/test_reel_distant_repeats.py` module docstring (moved 2026-10-02)
+## `tests/unit/reels/test_reel_distant_repeats.py` module docstring (moved 2026-10-02)
 
 ```text
 Distant repeats are reported, never cut - and the CTA is scanned at all.

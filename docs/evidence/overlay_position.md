@@ -6,7 +6,7 @@ THE ROOT CAUSE, as arithmetic. Resolve's per-clip Pan/Tilt move a clip by a frac
 
 ## Overlay intent pins
 
-Moved from `tests/test_overlay_intent.py`. The Reel 09 numbers are the
+Moved from `tests/unit/captions/test_overlay_intent.py`. The Reel 09 numbers are the
 fixtures: 22 captions the captain pinned to one place, four motion graphics
 pinned by segment id. What is asserted is the MECHANISM - segment beats kind
 beats computed, and anything malformed refuses - with his values as the data, so
@@ -20,7 +20,7 @@ the project's own v1 pins verbatim would have moved Reel 13's approved captions
 
 ## One positioning rule
 
-Moved from the module docstring of `tests/test_overlay_positioning_rule.py`.
+Moved from the module docstring of `tests/unit/captions/test_overlay_positioning_rule.py`.
 
 ```text
 One positioning rule, and a stored value judged against INTENT.

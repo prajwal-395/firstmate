@@ -82,7 +82,7 @@ Measured on 21.0.0b.28, on a THROWAWAY project
   measurement the captain asked for: a marker is annotation stored beside
   the edit, not a change to it.
 
-`tests/test_master_markers.py`.
+`tests/unit/resolve/test_master_markers.py`.
 """
 from __future__ import annotations
 

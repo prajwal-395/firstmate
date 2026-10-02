@@ -123,7 +123,7 @@ test file and no edit to the renderer**. `node_modules/` is already in
 
 `store_root()` reads `PIPELINE_NODE_STORE`, else `$XDG_DATA_HOME/vep/node`,
 else `~/.local/share/vep/node` - derived from the running user, on any
-machine. `tests/test_shared_environment.py` fails if an absolute home
+machine. `tests/tooling/test_shared_environment.py` fails if an absolute home
 directory appears in the module's code.
 
 ## The Python half: which interpreter, and where
@@ -267,7 +267,7 @@ scripts/install_node_deps.sh --check            # NODE DEPS: PRESENT
 readlink remotion-subtitles/node_modules
 
 # 3. the resolution itself, and the loud failure
-python3 -m pytest tests/test_shared_environment.py -q
+python3 -m pytest tests/tooling/test_shared_environment.py -q
 ```
 
 Then the real proof, which is the only one that distinguishes a *usable*
@@ -287,7 +287,7 @@ Remotion renders - bundle, headless browser, frames on disk - through a
 `library/tools/shared_environment.py` is the one module that answers where
 the renderer and its dependencies are. Nothing else may recompute it -
 `paths.py`, `remotion_batch.py` and `requirements.py` all read it, and
-`tests/test_shared_environment.py` fails if one of them spells the
+`tests/tooling/test_shared_environment.py` fails if one of them spells the
 directory itself again.
 
 Absence does not skip and does not reach `node`, where it used to come

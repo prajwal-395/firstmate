@@ -143,7 +143,7 @@ value at placement time - this module computes, Resolve disposes.
 
 ## Feasibility (2026-09-08)
 
-Moved from the module docstring of `tests/test_tight_box.py`.
+Moved from the module docstring of `tests/unit/captions/test_tight_box.py`.
 
 ```text
 A caption card is mostly transparent canvas. Render only the ink.

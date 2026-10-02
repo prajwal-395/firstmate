@@ -199,7 +199,7 @@ been removed from the prompt (the handoff now says "an empty list is a legitimat
 for a piece that wants stillness"), removed from the post-bridge (whose comment says "An
 empty plan is a legitimate answer - the handoff says so in as many words - and this is where
 the code used to disagree with it"), and there is a test asserting it
-(`tests/test_no_creative_floors.py::test_plan_vfx_accepts_an_empty_plan`). It survives in
+(`tests/contracts/test_no_creative_floors.py::test_plan_vfx_accepts_an_empty_plan`). It survives in
 the **generic step-output validator**, `validate_step_output` in
 `library/processes/edit_video/run_pipeline.py:1467`, which flags any required list of length
 zero as "semantically empty". `plan_vfx`'s manifest declares

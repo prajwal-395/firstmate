@@ -24,7 +24,7 @@ is declared on.  An axis with enumerated positions names the positions
 characters, not a chosen one).  An axis without them is continuous and
 its magnitude belongs to whoever declares it.
 :func:`assert_no_settled_values` is the runnable statement of that rule
-and ``tests/test_motion_graphics_vocabulary.py`` parses this file's own
+and ``tests/contracts/test_motion_graphics_vocabulary.py`` parses this file's own
 source to enforce it.  :func:`assert_roster_is_well_formed` raises
 :class:`MotionVocabularyError` on a malformed entry - an unknown
 function, axis or reachability, or an entry recording no refusals
@@ -1287,7 +1287,7 @@ def assert_no_settled_values() -> None:
     grown one. The textual half - that no colour, duration, size or
     intensity literal appears in the table's prose either - is enforced
     against this file's own source in
-    `tests/test_motion_graphics_vocabulary.py`, because that is the
+    `tests/contracts/test_motion_graphics_vocabulary.py`, because that is the
     place a value would actually reappear.
     """
     forbidden = {"default", "minimum", "maximum", "bound", "range",

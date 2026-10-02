@@ -1,6 +1,6 @@
 # `library.tools.provenance` - operations recorded as truthfully as steps
 
-Moved verbatim from `tests/test_provenance_operations.py` (test-suite
+Moved verbatim from `tests/unit/context/test_provenance_operations.py` (test-suite
 halving, 2026-10-02). The tests keep the invariants; this keeps the history.
 
 ## Module docstring

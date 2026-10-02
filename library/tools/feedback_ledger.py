@@ -72,7 +72,7 @@ Neither refuses anything.  Both are reported, because what to do about a
 re-ask is a judgement, and a ledger that blocked a build would be a
 record holding work hostage.
 
-``tests/test_feedback_ledger.py``.
+``tests/unit/context/test_feedback_ledger.py``.
 """
 
 from __future__ import annotations

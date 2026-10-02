@@ -73,7 +73,7 @@ beside the contract they read - `source_to_timeline` and its inverse
 carries both domains and is therefore the only place either is
 computable.
 
-`tests/test_region.py`.
+`tests/unit/resolve/test_region.py`.
 """
 
 from __future__ import annotations
@@ -294,7 +294,7 @@ class Region:
         that goes into a command a reader is meant to copy. A refusal
         that prints a command which then refuses is a worse control
         surface than no command at all.
-        `tests/test_region.py::test_an_address_parses_back_to_the_region`
+        `tests/unit/resolve/test_region.py::test_an_address_parses_back_to_the_region`
         pins the round trip.
         """
         span = f"{self.start:g}-{self.end:g}"

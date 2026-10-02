@@ -72,7 +72,7 @@ The captain's format, verbatim: `Reel 01 - <short topic slug>`.
 `reel_timeline_name` is the only place it is spelled, so a rename is one
 edit rather than a search.
 
-`tests/test_reel_proposal.py`.
+`tests/unit/reels/test_reel_proposal.py`.
 """
 
 from __future__ import annotations

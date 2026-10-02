@@ -60,7 +60,7 @@ exactly:
   that would deliver it named in the refusal.
 
 `library/processes/reels/dag.json` stays two nodes.
-`tests/test_reel_deliver_is_explicit.py` holds it there and
+`tests/contracts/test_reel_deliver_is_explicit.py` holds it there and
 `tests/test_render_watch.py` asserts the watch path imports no render
 path.
 

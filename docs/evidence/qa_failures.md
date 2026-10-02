@@ -4,7 +4,7 @@ Moved verbatim from the module docstring of the deleted
 `tests/test_qa_failure_visibility.py` (test-suite halving, 2026-10-02). Its
 four tests scanned `resolve_build_timeline.py` / `step_6_01_render/step.py`
 source text; the behaviour is pinned by
-`tests/test_resolve_build_timeline.py::test_loud_banner_prints_on_qa_failure_but_not_fatal`
+`tests/unit/resolve/test_resolve_build_timeline.py::test_loud_banner_prints_on_qa_failure_but_not_fatal`
 (`qa_failures` carries the failure, the banner prints, `success` is unchanged).
 
 ```text

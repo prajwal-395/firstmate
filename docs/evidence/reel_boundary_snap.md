@@ -2,7 +2,7 @@
 
 History moved out of test module docstrings; the tests keep the invariant.
 
-## `tests/test_stranded_tail.py` (moved from its module docstring, 2026-10-02)
+## `tests/unit/reels/test_stranded_tail.py` (moved from its module docstring, 2026-10-02)
 
 A kept range that stops before its thought finishes.
 
@@ -38,7 +38,7 @@ Field-test numbers below are copied verbatim from
 approved reel spans. No test here reads that project (AGENTS.md 8):
 the measurement travels as data so the case runs anywhere.
 
-## `tests/test_reel_proposal_build_time_snap.py` (moved from its module docstring, 2026-10-02)
+## `tests/unit/reels/test_reel_proposal_build_time_snap.py` (moved from its module docstring, 2026-10-02)
 
 Stored proposals predate the boundary snap; the build repairs them.
 
@@ -57,7 +57,7 @@ moves.  The build (`rebuild_reels_in_project`) and the gate
 (`run_verification`) both consume the repaired moments, so a reel
 cannot be built to one span and graded against another.
 
-## `tests/test_snap_preview.py` (moved from its module docstring, 2026-10-02)
+## `tests/unit/reels/test_snap_preview.py` (moved from its module docstring, 2026-10-02)
 
 The snap preview: cascades become a line of output beforehand.
 

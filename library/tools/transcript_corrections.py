@@ -121,8 +121,8 @@ same retirement, honest `said_by` - a model guess wearing the
 captain's name would be the misattribution the store exists to
 prevent.  `correct()` promotes a confirmed proposal to a correction.
 
-`tests/test_transcript_corrections.py`,
-`tests/test_keep_insistence.py`.
+`tests/unit/audio/test_transcript_corrections.py`,
+`tests/unit/reels/test_keep_insistence.py`.
 """
 
 from __future__ import annotations

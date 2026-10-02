@@ -71,7 +71,7 @@ REMOVED normative statements (each must be accounted for):
 
   L 186 [Two ledgers, two lifetimes] - Do not build a caching framework or a content-addressed artifact store. The mechanism is one declared field, one split ledger, one re-run flag, one identity check.
 
-  L 196 [Run status] - **A recorded failure of a step this DAG no longer contains is REPORTED and does not decide the status.** An entry is cleared when that step SUCCEEDS, so a step with no node can never clear one - unwiring `prosody_analysis` left exactly that on 001. The runner partitions `failed_steps` against the DAG's nodes and names the stranded half first, saying no run can clear it. Never drop one: going quiet about a recorded failure is what `failed_steps` exists to prevent. `tests/test_a_stranded_failure_does_not_decide_the_status.py`.
+  L 196 [Run status] - **A recorded failure of a step this DAG no longer contains is REPORTED and does not decide the status.** An entry is cleared when that step SUCCEEDS, so a step with no node can never clear one - unwiring `prosody_analysis` left exactly that on 001. The runner partitions `failed_steps` against the DAG's nodes and names the stranded half first, saying no run can clear it. Never drop one: going quiet about a recorded failure is what `failed_steps` exists to prevent. `tests/unit/reels/test_a_stranded_failure_does_not_decide_the_status.py`.
 
   L 254 [Run control] - Start uses `--full-auto agy` and does NOT pass `--review`; gates are an opt-in tick box. Step is `--step <id>`, with the id resolved server-side to the first topologically-unrun step. [why](docs/RULE_EVIDENCE.md#runs-are-driven-from-the-page)
 
@@ -109,7 +109,7 @@ REMOVED normative statements (each must be accounted for):
 
   L 357 [Frame mapping] - **A ramp longer than the frames its clip plays is REFUSED by name** (`TransitionLongerThanTheClip`), never drawn: it never reaches neutral, so it covers the whole clip.
 
-  L 358 [Frame mapping] - **Count DRAWN frames, not planned ones.** `library/tools/fusion/transition_frames.py` reads the comp the renderer writes and evaluates its splines; `tests/test_transition_ramp_draws.py` is the gate. 001's plan was correct on every run it ever made, which is exactly what kept this invisible - a test that asserts a plan exists cannot see it.
+  L 358 [Frame mapping] - **Count DRAWN frames, not planned ones.** `library/tools/fusion/transition_frames.py` reads the comp the renderer writes and evaluates its splines; `tests/unit/picture/test_transition_ramp_draws.py` is the gate. 001's plan was correct on every run it ever made, which is exactly what kept this invisible - a test that asserts a plan exists cannot see it.
 
   L 373 [Tracks] - `compile_manifest` merges a declared look onto both. Any pass that draws it must read both. [why](docs/RULE_EVIDENCE.md#house-look-missed-the-broll)
 
@@ -127,7 +127,7 @@ REMOVED normative statements (each must be accounted for):
 
   L 450 [6. The spine contract] - **A passage is anchored by SEARCH, never by the occurrence nearest the hint.** 2.02's `_align_words_to_text` tries every occurrence of the passage's first word, both from the occurrence and from `ANCHOR_BACKUP_SECONDS` before it, and ranks the alignments: most passage words aligned, then SHORTEST SPAN, then smallest leading gap, then hint proximity. The hint is the last tie-break because 001's correct anchor was *further* from the hint than the wrong one. [why - the 6.901s of unintended audio it shipped](docs/RULE_EVIDENCE.md#the-passage-opened-on-the-wrong-i)
 
-  L 451 [6. The spine contract] - **There is no gap threshold and no voiced-fraction band.** A silence survives exactly when no equally complete anchor removes it, so a real dramatic pause is kept and a mis-anchor is not. Both outcomes are SAID: `alignment_report` on the step's own output records the leading gap, the largest gap, the voiced fraction and the anchors considered for every passage, and the `reanchored`/`held` cases also print to stderr. Never correct silently, and never add a fitted band - `tests/test_aligner_leading_gap.py` fails on one.
+  L 451 [6. The spine contract] - **There is no gap threshold and no voiced-fraction band.** A silence survives exactly when no equally complete anchor removes it, so a real dramatic pause is kept and a mis-anchor is not. Both outcomes are SAID: `alignment_report` on the step's own output records the leading gap, the largest gap, the voiced fraction and the anchors considered for every passage, and the `reanchored`/`held` cases also print to stderr. Never correct silently, and never add a fitted band - `tests/unit/audio/test_aligner_leading_gap.py` fails on one.
 
   L 470 [8. Project management] - A project outside `PIPELINE_PROJECTS_ROOT` is addressed by passing its absolute path in place of the slug to `run`, `status`, `info` and `dashboard`. It is referenced in place, never copied.
 
@@ -165,11 +165,11 @@ REMOVED normative statements (each must be accounted for):
 
   L 570 [9. Environment and dependencies] - **Reach Resolve through `library/tools/resolve_locale.scriptapp_preserving_locale`, never `dvr.scriptapp` directly.** The call resets `LC_CTYPE` to `C` down in Blackmagic's library, so `locale.getpreferredencoding()` becomes US-ASCII and every later `open()`, `Path.read_text()` or `text=True` subprocess without an explicit encoding raises `UnicodeDecodeError` on this repository's own UTF-8 sources. The same defect class as the rule above, arriving from the other side: there the caller chose the wrong codec, here the codec changed underneath a caller who chose none. Only `LC_CTYPE` is restored - `LC_NUMERIC` is untouched, because handing fusionscript a decimal comma would corrupt every number crossing the boundary. Measured on 21.0.0b.28: the import is harmless, `scriptapp` is what does it. **Two call sites use the wrapper (`marker_feedback`, step 6.01); eight others still call `scriptapp` directly and are unmigrated** - `resolve_relinker`, `timeline_serializer`, `resolve_health`, `resolve_project_sync`, `qa/timeline_sync_qa`, `execution/resolve_render`, `execution/apply_fusion_comps` and `probe_resolve_capabilities`.
 
-  L 613 [10.1 Contracts between steps] - An absent slot reads as the ABSENCE OF DECORATION, never as a substitute taste: an undeclared look is no grade at all and no exposure normalisation either (§12), an empty transition allow-list permits the whole drawable vocabulary, an absent `transition_duration_ms` bounds nothing, an absent `delivery_format` gets the product enumeration's own default. Add a slot, add its row - `tests/test_brand_template_load.py` fails on a slot with no recorded reading.
+  L 613 [10.1 Contracts between steps] - An absent slot reads as the ABSENCE OF DECORATION, never as a substitute taste: an undeclared look is no grade at all and no exposure normalisation either (§12), an empty transition allow-list permits the whole drawable vocabulary, an absent `transition_duration_ms` bounds nothing, an absent `delivery_format` gets the product enumeration's own default. Add a slot, add its row - `tests/unit/context/test_brand_template_load.py` fails on a slot with no recorded reading.
 
   L 627 [10.1 Contracts between steps] - **The DAG knows `plan_vfx`; the step's manifest and directory know `step_4_03_plan_vfx`, and no rule connects them** - `scan` is not a prefix of `scan_project`. `library/tools/project_layout.node_id_for` is the ONLY translator, and the node id is what `pipeline_data.json`, both ledgers and the runner key everything by. Code holding one vocabulary while its caller holds the other goes through that function or it silently answers nothing. [why](docs/RULE_EVIDENCE.md#the-brand-reached-no-planning-step)
 
-  L 636 [10.1 Contracts between steps] - Seven of them - `creative_direction`, `speech_sequence`, `music_selection`, `select_broll`, `plan_transitions`, `plan_vfx` and `plan_sfx` - are the ones whose handoffs tell the model to read one. `tests/test_creative_brief_reaches_prompt.py` fails if a handoff documents a brief its manifest does not declare.
+  L 636 [10.1 Contracts between steps] - Seven of them - `creative_direction`, `speech_sequence`, `music_selection`, `select_broll`, `plan_transitions`, `plan_vfx` and `plan_sfx` - are the ones whose handoffs tell the model to read one. `tests/contracts/test_creative_brief_reaches_prompt.py` fails if a handoff documents a brief its manifest does not declare.
 
   L 646 [10.1 Contracts between steps] - **Which sections are about THIS video is not the engine's judgement.** A project pins sections inline with `pipeline.creative_brief_inline` in its `project.yaml`, and there is no default list.
 
@@ -199,7 +199,7 @@ REMOVED normative statements (each must be accounted for):
 
   L 727 [10.1 Contracts between steps] - **It can only see what a manifest DECLARES**, and `expected_schema` is one level deep, so a field asked for inside a list-item shape (4.02's `duration_feel`, 3.03's `cut_decisions`) is invisible to it. Closing that needs nested `expected_schema`, not a new format.
 
-  L 770 [10.2 Reaching the picture and the sound] - **The step is not broken and the vocabulary is not missing.** `tests/test_vfx_reaches_the_manifest.py` runs a named toolkit effect end to end to a drawn node.
+  L 770 [10.2 Reaching the picture and the sound] - **The step is not broken and the vocabulary is not missing.** `tests/scenarios/test_vfx_reaches_the_manifest.py` runs a named toolkit effect end to end to a drawn node.
 
   L 805 [10.2 Reaching the picture and the sound] - **The split is BALANCED, not greedy.** A greedy fill leaves the remainder as a runt card, and a card is on screen only until the NEXT card's first word, so nothing downstream can lengthen one. `split_into_groups` solves per block for the partition with the fewest cards under the floor. Model the REAL display duration if you touch it.
 
@@ -215,7 +215,7 @@ REMOVED normative statements (each must be accounted for):
 
   L 852 [10.3 Measuring the footage] - **A source whose display aspect already covers the delivery frame has no bars to give**, so it fills at every intent, `0.0` included. `framing_intent.source_covers_frame` is that predicate and `delivered_framing_intent` is the reading. Do not put the coverage arithmetic anywhere else.
 
-  L 854 [10.3 Measuring the footage] - **The spine-block level of the chain is reachable and unwritten.** `compile_manifest` really reads `block["framing_intent"]` (`tests/test_compile_manifest.py`), but no handoff asks for one and `spine_contract` does not list the key. On the B-roll side the hook is the PLACEMENT's own key, not the block it covers: a cutaway is different footage.
+  L 854 [10.3 Measuring the footage] - **The spine-block level of the chain is reachable and unwritten.** `compile_manifest` really reads `block["framing_intent"]` (`tests/scenarios/test_compile_manifest.py`), but no handoff asks for one and `spine_contract` does not list the key. On the B-roll side the hook is the PLACEMENT's own key, not the block it covers: a cutaway is different footage.
 
   L 867 [10.3 Measuring the footage] - The signals that measured it are named in `usable_ranges_signals`. `library/tools/analysis/picture_quality.py` is the one that needs only the video file, so it is the one that works on a first run - 1.03 runs BEFORE 1.04, so the temporal-index rules have nothing to read until a re-run.
 
@@ -239,7 +239,7 @@ REMOVED normative statements (each must be accounted for):
 
   L 908 [10.4 Gates, and what counts as evidence] - `OWNED_UPSTREAM` reaches `observations` instead, each naming the owning STEP, why the compiler refuses it, and the re-run that would act on it. It carries **no `suggested_value`** (§10.5).
 
-  L 910 [10.4 Gates, and what counts as evidence] - **The rescope is not a way to go quiet.** Every finding stays in `warnings`, every observation reaches `assembly_manifest.cohesion_adjustments` under `observed`, and `tests/test_cohesion_scope.py` drives the real applier against both lists.
+  L 910 [10.4 Gates, and what counts as evidence] - **The rescope is not a way to go quiet.** Every finding stays in `warnings`, every observation reaches `assembly_manifest.cohesion_adjustments` under `observed`, and `tests/unit/context/test_cohesion_scope.py` drives the real applier against both lists.
 
   L 917 [10.4 Gates, and what counts as evidence] - `ENVIRONMENT_CONDITIONS` is measuring instruments and external applications only - ffmpeg, cv2, parselmouth, npx, Resolve's own templates. **A condition that reads THIS REPOSITORY'S contents is not an environment.** [why - the five tests that skipped everywhere for months, and the nine behind a fixture that has never been committed](docs/RULE_EVIDENCE.md#five-tests-skipped-in-every-environment)
 
@@ -259,11 +259,11 @@ REMOVED normative statements (each must be accounted for):
 
   L1061 [10.5 Creative latitude] - An alias may RENAME a capability and may not CHOOSE one. `push_in` -> `zoom_emphasis` is a fact; `slow_zoom` -> `slow_zoom_in` answered "which way?" for the planner and is withdrawn.
 
-  L1070 [10.5 Creative latitude] - **`tests/test_no_creative_floors.py` reads CODE as well as prompts.** It drives the real bridges of every step in `CREATIVE_PLANNING_STEPS` and asserts on their output. Reading only prompts, or listing only the steps a ruling named, is how three floors survived.
+  L1070 [10.5 Creative latitude] - **`tests/contracts/test_no_creative_floors.py` reads CODE as well as prompts.** It drives the real bridges of every step in `CREATIVE_PLANNING_STEPS` and asserts on their output. Reading only prompts, or listing only the steps a ruling named, is how three floors survived.
 
   L1071 [10.5 Creative latitude] - A COVERAGE requirement is not a floor: "every non-speech block MUST have B-roll" stays, because an uncovered block fails `_assert_timeline_fully_covered`.
 
-  L1073 [10.5 Creative latitude] - **A floor in a REVIEW step is still a floor.** `creative_cohesion` (5.03) reports the counts under `cohesion_review.measurements` and judges none of them; a pace check there needs a pace the creative direction DECLARED, which no step emits. **The step is therefore a pure OBSERVER**: every proposal it can still make routes to `OWNED_UPSTREAM`, so `adjustments` is empty for every input at every energy (#272). `ACTIONABLE_AT_COHESION` has an applier and no producer, which `library/tools/cohesion_scope.py` states and `tests/test_cohesion_scope.py::test_the_step_is_a_pure_observer` pins off the step's own source. **Do not read an empty `adjustments` as a clean bill of health.**
+  L1073 [10.5 Creative latitude] - **A floor in a REVIEW step is still a floor.** `creative_cohesion` (5.03) reports the counts under `cohesion_review.measurements` and judges none of them; a pace check there needs a pace the creative direction DECLARED, which no step emits. **The step is therefore a pure OBSERVER**: every proposal it can still make routes to `OWNED_UPSTREAM`, so `adjustments` is empty for every input at every energy (#272). `ACTIONABLE_AT_COHESION` has an applier and no producer, which `library/tools/cohesion_scope.py` states and `tests/unit/context/test_cohesion_scope.py::test_the_step_is_a_pure_observer` pins off the step's own source. **Do not read an empty `adjustments` as a clean bill of health.**
 
   L1074 [10.5 Creative latitude] - **How long a drawn transition holds comes from the PLAN.** The handoff asks for a `duration_feel` on every one; step 4.02's post-bridge renders that word into frames. A brand template's `transition_duration_ms` `{min, max}` is a RANGE, so it BOUNDS that choice and never replaces it; a scalar is a declared length. A drawn transition that neither declares is DROPPED with the reason, not held for a constant.
 
@@ -387,7 +387,7 @@ ADDED normative statements:
 
   L 220 [Two ledgers, two lifetimes] - Do not build a caching framework or a content-addressed artifact store.
 
-  L 232 [Run status] - **A recorded failure of a step this DAG no longer contains is REPORTED and does not decide the status.** (Mentions: Never, `failed_steps`, `prosody_analysis`, `tests/test_a_stranded_failure_does_not_decide_the_status.py`, exactly, never).
+  L 232 [Run status] - **A recorded failure of a step this DAG no longer contains is REPORTED and does not decide the status.** (Mentions: Never, `failed_steps`, `prosody_analysis`, `tests/unit/reels/test_a_stranded_failure_does_not_decide_the_status.py`, exactly, never).
 
   L 292 [Run control] - Start uses `--full-auto agy` and does NOT pass `--review`; gates are an opt-in tick box. (Mentions: `--step <id>`). [why](docs/RULE_EVIDENCE.md#runs-are-driven-from-the-page)
 
@@ -425,7 +425,7 @@ ADDED normative statements:
 
   L 417 [Frame mapping] - **A ramp longer than the frames its clip plays is REFUSED by name** (`TransitionLongerThanTheClip`), never drawn: (Mentions: never).
 
-  L 419 [Frame mapping] - **Count DRAWN frames, not planned ones.** (Mentions: `library/tools/fusion/transition_frames.py`, `tests/test_transition_ramp_draws.py`, cannot, exactly).
+  L 419 [Frame mapping] - **Count DRAWN frames, not planned ones.** (Mentions: `library/tools/fusion/transition_frames.py`, `tests/unit/picture/test_transition_ramp_draws.py`, cannot, exactly).
 
   L 435 [Tracks] - `compile_manifest` merges a declared look onto both. (Mentions: must). [why](docs/RULE_EVIDENCE.md#house-look-missed-the-broll)
 
@@ -443,7 +443,7 @@ ADDED normative statements:
 
   L 520 [6. The spine contract] - **A passage is anchored by SEARCH, never by the occurrence nearest the hint.** (Mentions: `ANCHOR_BACKUP_SECONDS`, `_align_words_to_text`). [why - the 6.901s of unintended audio it shipped](docs/RULE_EVIDENCE.md#the-passage-opened-on-the-wrong-i)
 
-  L 522 [6. The spine contract] - **There is no gap threshold and no voiced-fraction band.** (Mentions: Never, `alignment_report`, `held`, `reanchored`, `tests/test_aligner_leading_gap.py`, exactly, is not, never).
+  L 522 [6. The spine contract] - **There is no gap threshold and no voiced-fraction band.** (Mentions: Never, `alignment_report`, `held`, `reanchored`, `tests/unit/audio/test_aligner_leading_gap.py`, exactly, is not, never).
 
   L 544 [8. Project management] - A project outside `PIPELINE_PROJECTS_ROOT` is addressed by passing its absolute path in place of the slug to `run`, `status`, `info` and `dashboard`. (Mentions: never).
 
@@ -481,11 +481,11 @@ ADDED normative statements:
 
   L 674 [9. Environment and dependencies] - **Reach Resolve through `library/tools/resolve_locale.scriptapp_preserving_locale`, never `dvr.scriptapp` directly.** (Mentions: **Two call sites use the wrapper (`marker_feedback`, step 6.01); eight others still call `scriptapp` directly and are unmigrated**, Only, `C`, `LC_CTYPE`, `LC_NUMERIC`, `Path.read_text()`, `UnicodeDecodeError`, `execution/apply_fusion_comps`, `execution/resolve_render`, `locale.getpreferredencoding()`, `marker_feedback`, `open()`, `probe_resolve_capabilities`, `qa/timeline_sync_qa`, `resolve_health`, `resolve_project_sync`, `resolve_relinker`, `scriptapp`, `text=True`, `timeline_serializer`).
 
-  L 718 [10.1 Contracts between steps] - An absent slot reads as the ABSENCE OF DECORATION, never as a substitute taste: (Mentions: `delivery_format`, `tests/test_brand_template_load.py`, `transition_duration_ms`).
+  L 718 [10.1 Contracts between steps] - An absent slot reads as the ABSENCE OF DECORATION, never as a substitute taste: (Mentions: `delivery_format`, `tests/unit/context/test_brand_template_load.py`, `transition_duration_ms`).
 
   L 735 [10.1 Contracts between steps] - **The DAG knows `plan_vfx`; the step's manifest and directory know `step_4_03_plan_vfx`, and no rule connects them** - `scan` is not a prefix of `scan_project`. (Mentions: ONLY, `library/tools/project_layout.node_id_for`, `pipeline_data.json`). [why](docs/RULE_EVIDENCE.md#the-brand-reached-no-planning-step)
 
-  L 745 [10.1 Contracts between steps] - Seven of them - `creative_direction`, `speech_sequence`, `music_selection`, `select_broll`, `plan_transitions`, `plan_vfx` and `plan_sfx` - are the ones whose handoffs tell the model to read one. (Mentions: `tests/test_creative_brief_reaches_prompt.py`, does not).
+  L 745 [10.1 Contracts between steps] - Seven of them - `creative_direction`, `speech_sequence`, `music_selection`, `select_broll`, `plan_transitions`, `plan_vfx` and `plan_sfx` - are the ones whose handoffs tell the model to read one. (Mentions: `tests/contracts/test_creative_brief_reaches_prompt.py`, does not).
 
   L 760 [10.1 Contracts between steps] - **Which sections are about THIS video is not the engine's judgement.** (Mentions: `pipeline.creative_brief_inline`, `project.yaml`).
 
@@ -515,7 +515,7 @@ ADDED normative statements:
 
   L 870 [10.1 Contracts between steps] - **It can only see what a manifest DECLARES**, and `expected_schema` is one level deep, so a field asked for inside a list-item shape (4.02's `duration_feel`, 3.03's `cut_decisions`) is invisible to it. (Mentions: `expected_schema`).
 
-  L 918 [10.2 Reaching the picture and the sound] - **The step is not broken and the vocabulary is not missing.** (Mentions: `tests/test_vfx_reaches_the_manifest.py`).
+  L 918 [10.2 Reaching the picture and the sound] - **The step is not broken and the vocabulary is not missing.** (Mentions: `tests/scenarios/test_vfx_reaches_the_manifest.py`).
 
   L 955 [10.2 Reaching the picture and the sound] - **The split is BALANCED, not greedy.** (Mentions: `split_into_groups`, only).
 
@@ -531,7 +531,7 @@ ADDED normative statements:
 
   L1011 [10.3 Measuring the footage] - **A source whose display aspect already covers the delivery frame has no bars to give**, so it fills at every intent, `0.0` included. (Mentions: Do not, `delivered_framing_intent`, `framing_intent.source_covers_frame`).
 
-  L1015 [10.3 Measuring the footage] - **The spine-block level of the chain is reachable and unwritten.** (Mentions: `block["framing_intent"]`, `compile_manifest`, `spine_contract`, `tests/test_compile_manifest.py`, does not).
+  L1015 [10.3 Measuring the footage] - **The spine-block level of the chain is reachable and unwritten.** (Mentions: `block["framing_intent"]`, `compile_manifest`, `spine_contract`, `tests/scenarios/test_compile_manifest.py`, does not).
 
   L1030 [10.3 Measuring the footage] - The signals that measured it are named in `usable_ranges_signals`. (Mentions: `library/tools/analysis/picture_quality.py`, only).
 
@@ -555,7 +555,7 @@ ADDED normative statements:
 
   L1084 [10.4 Gates, and what counts as evidence] - `OWNED_UPSTREAM` reaches `observations` instead, each naming the owning STEP, why the compiler refuses it, and the re-run that would act on it. (Mentions: **no `suggested_value`**, `suggested_value`).
 
-  L1087 [10.4 Gates, and what counts as evidence] - **The rescope is not a way to go quiet.** (Mentions: `assembly_manifest.cohesion_adjustments`, `observed`, `tests/test_cohesion_scope.py`, `warnings`).
+  L1087 [10.4 Gates, and what counts as evidence] - **The rescope is not a way to go quiet.** (Mentions: `assembly_manifest.cohesion_adjustments`, `observed`, `tests/unit/context/test_cohesion_scope.py`, `warnings`).
 
   L1096 [10.4 Gates, and what counts as evidence] - `ENVIRONMENT_CONDITIONS` is measuring instruments and external applications only - ffmpeg, cv2, parselmouth, npx, Resolve's own templates. (Mentions: **A condition that reads THIS REPOSITORY'S contents is not an environment.**, is not, never). [why - the five tests that skipped everywhere for months, and the nine behind a fixture that has never been committed](docs/RULE_EVIDENCE.md#five-tests-skipped-in-every-environment)
 
@@ -575,11 +575,11 @@ ADDED normative statements:
 
   L1252 [10.5 Creative latitude] - An alias may RENAME a capability and may not CHOOSE one. (Mentions: `push_in`, `slow_zoom_in`, `slow_zoom`, `zoom_emphasis`).
 
-  L1265 [10.5 Creative latitude] - **`tests/test_no_creative_floors.py` reads CODE as well as prompts.** (Mentions: `CREATIVE_PLANNING_STEPS`, only).
+  L1265 [10.5 Creative latitude] - **`tests/contracts/test_no_creative_floors.py` reads CODE as well as prompts.** (Mentions: `CREATIVE_PLANNING_STEPS`, only).
 
   L1267 [10.5 Creative latitude] - A COVERAGE requirement is not a floor: (Mentions: MUST, `_assert_timeline_fully_covered`).
 
-  L1270 [10.5 Creative latitude] - **A floor in a REVIEW step is still a floor.** (Mentions: **Do not read an empty `adjustments` as a clean bill of health.**, **The step is therefore a pure OBSERVER**, Do not, `ACTIONABLE_AT_COHESION`, `OWNED_UPSTREAM`, `adjustments`, `cohesion_review.measurements`, `creative_cohesion`, `library/tools/cohesion_scope.py`, `tests/test_cohesion_scope.py::test_the_step_is_a_pure_observer`).
+  L1270 [10.5 Creative latitude] - **A floor in a REVIEW step is still a floor.** (Mentions: **Do not read an empty `adjustments` as a clean bill of health.**, **The step is therefore a pure OBSERVER**, Do not, `ACTIONABLE_AT_COHESION`, `OWNED_UPSTREAM`, `adjustments`, `cohesion_review.measurements`, `creative_cohesion`, `library/tools/cohesion_scope.py`, `tests/unit/context/test_cohesion_scope.py::test_the_step_is_a_pure_observer`).
 
   L1272 [10.5 Creative latitude] - **How long a drawn transition holds comes from the PLAN.** (Mentions: `duration_feel`, `transition_duration_ms`, `{min, max}`, never).
 

@@ -42,7 +42,7 @@ first (`commit`, which is `store.commit_build` on the worktree), and the
 project checkout's tracked tree must be clean, so a merge never mixes
 with work nobody committed.
 
-`tests/test_task_worktrees.py`.
+`tests/unit/context/test_task_worktrees.py`.
 """
 
 from __future__ import annotations

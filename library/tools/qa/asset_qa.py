@@ -38,7 +38,7 @@ def verify_alpha_channel(mov_path: str) -> bool:
         # wrote until 2026-09-12 and none of the ones it writes now: a
         # `qtrle`/`argb` overlay has a full alpha plane and read as
         # having none, so QA rejected valid files. See
-        # tests/test_overlay_carriage.py.
+        # tests/unit/captions/test_overlay_carriage.py.
         has_alpha = carries_alpha(codec_name=str(codec_name),
                                   pix_fmt=str(pix_fmt),
                                   profile=str(profile))

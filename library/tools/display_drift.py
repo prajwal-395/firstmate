@@ -46,7 +46,7 @@ a flag cannot run (`picture_position`), is stated per class in
 `edit_depth.REFUSAL_REACHABILITY` - no class is reported as covered
 because it was hard.
 
-`tests/test_display_drift.py`.
+`tests/unit/captions/test_display_drift.py`.
 """
 
 from __future__ import annotations
@@ -75,7 +75,7 @@ LEDGER_VERSION = 2
 #: again here: `timeline_transcript` owns what that file is called and
 #: which scratch subdirectory holds it, and a witness that spells them
 #: itself goes blind the day either is renamed
-#: (`tests/test_operations.py`).
+#: (`tests/unit/context/test_operations.py`).
 _TRANSCRIPT_DISPLAY = (
     f"pipeline_output/scratch/{_TRANSCRIPT_SUBDIR}/{_TRANSCRIPT_FILENAME}")
 
@@ -83,7 +83,7 @@ _TRANSCRIPT_DISPLAY = (
 #: The live proposal only - timestamped copies are history.
 #: Captain-side subtitle directories are named by their owner
 #: (`project_layout.Area`), never spelled here
-#: (tests/test_project_layout.py).
+#: (tests/unit/context/test_project_layout.py).
 DISPLAY_ROOTS = (
     Area.SUBTITLE_PLANS.value,
     Area.SUBTITLE_OVERLAYS.value,

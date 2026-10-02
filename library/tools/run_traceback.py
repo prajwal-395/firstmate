@@ -44,7 +44,7 @@ keeps the headline and points here.
 **Two generated documents, regenerated on every run and by `manage_project.py trace <slug>`.**
 `library/tools/run_traceback.py`. `RUN-TRACEBACK.md` is the steps in order - when, how long, what it consumed and from which step, what it produced. `ARTIFACTS.md` is the other direction: every file, with the step that wrote it and how that was established.
 - Both are generated from `dag.json`, the two ledgers, `step_errors` and the provenance ledger.  `unwired_step_ids` matches by `step_ref`, because the DAG calls `step_1_01_scan_project` simply `scan`.
-- `tests/test_run_traceback.py`.
+- `tests/unit/context/test_run_traceback.py`.
 """
 
 from __future__ import annotations

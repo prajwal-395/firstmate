@@ -233,11 +233,11 @@ Two rules follow, and both are tested:
 
 And the anti-vacuity gate itself, which is the thing that proves the layer has teeth:
 
-- `tests/test_every_requirement_can_refuse.py` iterates the **whole registry** and asserts,
+- `tests/contracts/test_every_requirement_can_refuse.py` iterates the **whole registry** and asserts,
   for each requirement, that there is a context in which it returns `UNSATISFIED`, that the
   refusal names a non-empty `produced_by` (or records why nothing produces it, in the
   `external_inputs.WITHDRAWN` shape), and that `SATISFIED` carries a `source`.
-- `tests/test_no_requirement_refuses_correct_input.py` is the mirror, so the layer cannot be
+- `tests/contracts/test_no_requirement_refuses_correct_input.py` is the mirror, so the layer cannot be
   vacuously strict either (AGENTS.md 10.4: a gate that FAILS correct output is no more
   coverage than one that cannot fail).
 
@@ -501,7 +501,7 @@ gains `interface.requirements`. Exactly one test asserts a substring of the pros
 parallel audit deleted the prose preconditions from all 29 manifests and ran the suite:
 
 ```
-FAILED tests/test_prosody_failure_is_loud.py::test_the_manifest_still_declares_the_precondition
+FAILED tests/unit/audio/test_prosody_failure_is_loud.py::test_the_manifest_still_declares_the_precondition
 1 failed, 1117 passed, 4 skipped, 1 warning in 183.03s
 ```
 

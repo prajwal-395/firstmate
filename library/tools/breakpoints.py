@@ -56,7 +56,7 @@ One enumeration, `library/tools/breakpoints.py`. The gate machinery is unchanged
 - An unknown step id, or a step both `--break` and `--no-break`, IS refused by name.
 - **Arming a gate makes it `pending` and throws away the previous run's answer.** A gate that pauses is by definition unanswered.
 - **The pause prints the command that answers it and the command that carries on**, and the resume command DROPS `--rerun` (`breakpoints._NOT_CARRIED`): carrying it would clear the ledger entry the pause just wrote and stop in the same place forever.
-- `tests/test_run_profile.py`, `tests/test_breakpoints.py`, `tests/test_run_configuration_end_to_end.py`.
+- `tests/unit/context/test_run_profile.py`, `tests/unit/context/test_breakpoints.py`, `tests/scenarios/test_run_configuration_end_to_end.py`.
 """
 
 from __future__ import annotations

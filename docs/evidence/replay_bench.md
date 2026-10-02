@@ -1,6 +1,6 @@
 # `library.tools.replay_bench` - incident history behind its tests
 
-Moved out of `tests/test_replay_bench.py` docstrings (test-suite halving,
+Moved out of `tests/unit/context/test_replay_bench.py` docstrings (test-suite halving,
 2026-10-02). The tests keep the invariant; this keeps how it was found.
 
 ## The replay that wrote the live project

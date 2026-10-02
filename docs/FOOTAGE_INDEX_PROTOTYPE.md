@@ -5,7 +5,7 @@ prototype (this file keeps the name and what that prototype measured).
 
 Agents and people query it through `ren search` / `ren search-index`, which reach `footage_query.py`
 directly; `ren analyze` builds it as part of an analysis-only run. No DAG node runs it, and it imports
-nothing from `library/steps/` or `library/processes/` - `tests/test_footage_query.py::test_search_does_not_import_the_pipeline`
+nothing from `library/steps/` or `library/processes/` - `tests/unit/picture/test_footage_query.py::test_search_does_not_import_the_pipeline`
 holds that, so it answers on any analysed project with no run behind it. The 2026-08-26 dashboard view and
 `footage_query_bridge.py` were retired in P2 (D3/Q11); the dashboard section below is kept for the
 decisions it made.
@@ -13,7 +13,7 @@ decisions it made.
     library/tools/analysis/footage_segments.py   what the unit of retrieval is
     library/tools/analysis/footage_query.py      build, search, filter, CLI, tool defs
     library/tools/analysis/footage_frames.py     frame-level CLIP search (`ren search --visual`)
-    tests/test_footage_query.py                  retrieval, staleness, independence from the pipeline
+    tests/unit/picture/test_footage_query.py                  retrieval, staleness, independence from the pipeline
 
 It answers "where in all my footage does X happen", in the captain's words "to speed up both a person's
 workflow and also help the LLM actually find what it is looking for."

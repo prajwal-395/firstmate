@@ -60,7 +60,7 @@ opened by is printed beside the rows, and joining the two is the reader's
 judgement. The standing limit is the guard's own: a substitution that
 keeps every item name and span is invisible to a span-based diff.
 
-`tests/test_version_rounds.py`.
+`tests/unit/reels/test_version_rounds.py`.
 
 The ruling, the measured rounds of the first project and the scout report
 on the timeline differ that could not do this:

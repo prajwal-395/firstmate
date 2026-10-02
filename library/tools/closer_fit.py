@@ -49,7 +49,7 @@ Where it is read
   answers into the sidecar, and prints the misfit list with its count.
   That list and count are the 2026-09-19 ruling's deliverable.
 
-`tests/test_closer_fit.py`.
+`tests/unit/reels/test_closer_fit.py`.
 """
 
 from __future__ import annotations

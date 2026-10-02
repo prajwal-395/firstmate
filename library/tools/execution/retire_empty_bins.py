@@ -7,7 +7,7 @@ the current scheme's orphaned per-reel leaves (a staging name emptied
 by promotion, a deleted timeline's bin). The split is the same one
 `organise_media_pool.py` uses, and for a
 sharper reason here: organising must never delete
-(`tests/test_resolve_organization.py` asserts that of both organiser
+(`tests/unit/resolve/test_resolve_organization.py` asserts that of both organiser
 files), while THIS module's whole reason to exist is deletion. A
 reader can see which file is which.
 
@@ -46,7 +46,7 @@ Reversibility: an empty shell re-creates exactly.  A dead bin
 re-creates as an empty shell - its removed items do not come back,
 and `revert` says so, naming the files for hand re-import.
 
-`tests/test_retire_empty_shells.py`, `tests/test_dead_render_bins.py`.
+`tests/unit/reels/test_retire_empty_shells.py`, `tests/unit/resolve/test_dead_render_bins.py`.
 """
 from __future__ import annotations
 

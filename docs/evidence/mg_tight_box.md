@@ -131,7 +131,7 @@ middle-only stack centres on the small canvas, which is the placement.
 
 ## The top-anchored 2592
 
-Moved from `tests/test_mg_tight_box.py::test_top_anchored_graphic_places_at_the_measured_value`.
+Moved from `tests/unit/captions/test_mg_tight_box.py::test_top_anchored_graphic_places_at_the_measured_value`.
 Measured 2026-09-11 on the captain's own Reel 26: a 920x480 graphic stored at
 Tilt 2592 is located at frame rows 72..552 in an exported still (MSE 51 against
 ~40 700 five pixels either side). The halved 1296 the test used to demand draws
@@ -140,7 +140,7 @@ off the top - what the captain saw on seventeen graphics. The pipeline must
 compute 2592 itself: no hand correction, no halving at the call site. Pinned as
 history at explicit gain 1.0 (the renderer drew that gain on 2026-09-11); under
 today's measured gain the same graphic stores 1296 for the identical rows
-(`tests/test_draw_gain_measured.py`).
+(`tests/unit/resolve/test_draw_gain_measured.py`).
 
 Since the layout-width floor (captain 2026-09-21) this top-centre graphic ships
 on a 966-wide canvas instead of the union-sized one: the canvas spans the
@@ -151,7 +151,7 @@ origin moves: the canvas edge sits at 57, one pad past the layout edge
 
 ## Layout width
 
-Moved from the module docstring of `tests/test_mg_tight_layout_width.py`.
+Moved from the module docstring of `tests/unit/captions/test_mg_tight_layout_width.py`.
 
 ```text
 The tight motion-graphics render is the SAME DRAWING as full frame.

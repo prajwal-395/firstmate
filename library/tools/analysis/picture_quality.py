@@ -109,7 +109,7 @@ SHARPNESS_RELATIVE_FRACTION = 0.20
 # ...and never counted soft above this absolute value, whatever the
 # clip's own reference says.  Calibrated on project 001 at
 # SAMPLE_SHORT_SIDE_PX: see the calibration table in
-# tests/test_picture_quality.py.
+# tests/unit/picture/test_picture_quality.py.
 SHARPNESS_ABSOLUTE_FLOOR = 80.0
 
 # Consecutive soft time before it is worth fencing off.

@@ -78,7 +78,7 @@ record naming them), never the sweeper's.
 Nothing here deletes
 --------------------
 There is no delete call in this module or in the executor that drives
-it, and `tests/test_resolve_organization.py` asserts that of both files.
+it, and `tests/unit/resolve/test_resolve_organization.py` asserts that of both files.
 A reel the live plan no longer names is MOVED and RELABELLED, never
 removed (captain, 2026-09-06: *"a refusal is cheap and a deleted
 timeline is not"*).
@@ -94,7 +94,7 @@ no Resolve calls and does no I/O, so every rule in it is testable without
 the application running; `library/tools/execution/organise_media_pool.py`
 is the half that talks to Resolve.
 
-`tests/test_resolve_organization.py`.
+`tests/unit/resolve/test_resolve_organization.py`.
 
 The measurements and rulings behind these rules (the field-test
 project's census, the accumulated bin tree, the single-reel build that

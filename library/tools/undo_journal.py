@@ -88,7 +88,7 @@ comp's media-window frames, and clip colour.  Not compared: unique ids
 after the touch must not block its undo), CDL and flags (a touch never
 carries either).
 
-`tests/test_undo_journal.py`.
+`tests/unit/resolve/test_undo_journal.py`.
 
 What a touch-up and a promotion left behind before this module, and the
 ruling that replaced it: docs/evidence/undo_journal.md.

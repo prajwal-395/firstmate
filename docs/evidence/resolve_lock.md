@@ -96,7 +96,7 @@ repaired at its source. Taking it is no longer a rule a caller may
 forget, because `assert_current_timeline` REFUSES without one. Every
 one of those 22 write paths is guarded by the check it already called,
 and the work was placing the lease at eight entry points rather than at
-every write. `tests/test_resolve_guard_wiring.py` pins that the entry
+every write. `tests/contracts/test_resolve_guard_wiring.py` pins that the entry
 points hold it and that the refusal cannot be turned off from inside
 `library/`.
 

@@ -77,7 +77,7 @@ prediction.  No re-layout, so the copy cannot re-wrap.
 rendered file and refuses a segment whose ink left the box
 (:data:`INK_LEFT_THE_BOX`).
 
-``tests/test_speaker_identity.py``.
+``tests/unit/audio/test_speaker_identity.py``.
 
 The captain's note that started this and the measurements behind the
 tight binding: docs/evidence/speaker_identity.md.
@@ -917,7 +917,7 @@ def segment_name(reel_name: str, index: int) -> str:
     `reel_build` passes as `segment_name=` to the renderer: which
     placing the file serves, never the file's identity. Kept equal to
     `reel_build._reel_slug`'s rendering by
-    `tests/test_overlay_intent.py` - two spellings of one name is how
+    `tests/unit/captions/test_overlay_intent.py` - two spellings of one name is how
     a re-key maps a stale digest onto the wrong placing, so the
     equality is pinned rather than trusted.
     """

@@ -27,7 +27,7 @@ Reading `Project.db`
 The copy is opened read-only through a `file:...?mode=ro` URI, so a bug
 here cannot write to the captain's project even by accident.
 
-`tests/test_orphan_removal.py`.
+`tests/unit/resolve/test_orphan_removal.py`.
 """
 from __future__ import annotations
 

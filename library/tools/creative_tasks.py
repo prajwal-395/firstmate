@@ -85,7 +85,7 @@ One enumeration, `library/tools/creative_tasks.py`. [why - the captain's
   ids.** The role is prepended by the shared renderer; the floors gate
   reads the task's prompt and refuses a floored declaration; the
   contradiction field is rendered from the task's own declared evidence.
-- `tests/test_project_declared_creative_tasks.py`.
+- `tests/unit/context/test_project_declared_creative_tasks.py`.
 
 The ruling and the reasoning behind this mechanism:
 docs/evidence/creative_tasks.md.

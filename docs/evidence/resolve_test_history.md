@@ -295,7 +295,7 @@ What this pins, beyond the functions' own contracts:
   the declarations stay narrowed to what each step actually reads;
 * a re-run prints identical / changed / unknown and runs the step either
   way - there is no skip path to test because none was built;
-* `tests/test_step_ledger.py` still passes unchanged (run separately -
+* `tests/unit/context/test_step_ledger.py` still passes unchanged (run separately -
   this file touches neither the preflight ledger nor its gate).
 ```
 
@@ -315,7 +315,7 @@ source ranges - and the promoted timeline matches the edited one on
 those passages. The next rebuild carries the same edits again from the
 ledger with no fresh editor change on record.
 
-Trims and moves are carried in `tests/test_editor_edit_carry_composed.py`.
+Trims and moves are carried in `tests/unit/resolve/test_editor_edit_carry_composed.py`.
 ```
 
 ## test_fusion_bank_reads_this_build
@@ -363,7 +363,7 @@ transitions on project 001 therefore drew none of their 30 planned
 frames and held a full-strength blur across 331 frames instead.
 
 ``library/tools/fusion/played_window.py`` carries the measurement and
-``tests/test_transition_ramp_draws.py`` counts the frames a transition
+``tests/unit/picture/test_transition_ramp_draws.py`` counts the frames a transition
 is drawn on, which is the check this file could not make: a keyframe in
 range is necessary and not sufficient.
 
@@ -424,14 +424,14 @@ deletion contract this module judges: `DeleteMarkerAtFrame` returning
 True for a present frame and False for an absent one, and `GetMarkers`
 reading the markers back. That contract is measured against a real
 Resolve in `marker_feedback`'s docstring and in
-`tests/test_marker_feedback_against_resolve.py` - nothing here re-proves
+`tests/qualification/test_marker_feedback_against_resolve.py` - nothing here re-proves
 what Resolve returns. What is proved here is what THIS module does with
 whatever comes back: a True it re-reads as gone is a removal, anything
 else is not, and a decline or an unverifiable note never reaches the
 call at all (the counting fakes fail the test if it is reached).
 
 Everything on disk runs against real files in `tmp_path`. No test here
-reaches a real project (`tests/test_tests_never_reach_real_projects.py`).
+reaches a real project (`tests/tooling/test_tests_never_reach_real_projects.py`).
 ```
 
 ## test_marker_routing
@@ -455,7 +455,7 @@ under all three notes - had been dropped, which is why the first test
 below said "four clips" over a list of three.
 
 No Resolve, and no fake of one: everything here is the disk half, the
-same line `tests/test_marker_feedback_records.py` draws.  Nothing in this
+same line `tests/unit/resolve/test_marker_feedback_records.py` draws.  Nothing in this
 file reaches a real project - the project is built under `tmp_path`.
 ```
 
@@ -483,7 +483,7 @@ SEPARATE PROCESS, never a count and never an in-script read.
 ```text
 The widened default-as-measured sweep (WP1, principle 3).
 
-`tests/test_assessment_reports_no_default_as_measured.py` sweeps exactly
+`tests/unit/picture/test_assessment_reports_no_default_as_measured.py` sweeps exactly
 one producer - `compute_deterministic_assessment`. The defect family it
 names spans the codebase ("assume another exists until the sweep says
 otherwise"), and the 177-site `audit_p3b.py` pass plus its classification

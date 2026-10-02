@@ -1,6 +1,6 @@
 # One reading of target_energy
 
-Tests: `tests/test_energy_reading.py`.
+Tests: `tests/unit/picture/test_energy_reading.py`.
 
 Project 001's creative direction chose `target_energy: "building"`
 deliberately - its own rationale said cutting the piece as high-energy

@@ -87,7 +87,7 @@ loop had each paid for it in real data (`remove_proof`: nine removals in five fi
 locally, which is why the other four still had the defect two days later.
 
 Now one owner, `library/tools/journal_naming.py`, and one mechanism:
-`tests/test_journal_paths_never_overwrite.py` parameterises over the REAL functions,
+`tests/unit/context/test_journal_paths_never_overwrite.py` parameterises over the REAL functions,
 so a seventh journal writer that hand-rolls a path fails it. `build_sweep`'s
 per-area `mark_*.json` name went through the same helper - it was an eighth copy of
 the same loop.
@@ -105,8 +105,8 @@ manifest or DAG node reached either; their only importer was
 `test_integration_demo.py` (478 lines), a manual Resolve demo that pytest does not
 collect. All three removed, and with them:
 
-- the sole entry in `DELIBERATE_EXCLUSIONS` in `tests/test_no_orphan_test_files.py`;
-- an exemption from `tests/test_reel_read.py`'s "no module outside the readers touches
+- the sole entry in `DELIBERATE_EXCLUSIONS` in `tests/tooling/test_no_orphan_test_files.py`;
+- an exemption from `tests/unit/reels/test_reel_read.py`'s "no module outside the readers touches
   Resolve directly" allowlist, which the dead demo was holding;
 - two documents that pointed future readers at the dead wrapper -
   `.agents/skills/davinci_resolve_pipeline/SKILL.md` and
@@ -117,7 +117,7 @@ concrete `zoom_mid=1.04`, `grade_gain=1.05`, `glow_gain=0.08`, `vignette=True,
 vignette_blend=0.25` in a worked example, and advertised a `SEGMENT_PRESETS` table
 deleted under P3.4 by the captain's ruling of 2026-08-16. `vignette` at blend 0.25 is
 the exact "vignette nobody asked for at a strength nobody chose" AGENTS.md 12 records
-as removed. `tests/test_no_creative_floors.py` reads step `handoff.md`/`manifest.json`
+as removed. `tests/contracts/test_no_creative_floors.py` reads step `handoff.md`/`manifest.json`
 and the role block; it does not read `.agents/skills/`, so those numbers sat in an
 agent-facing document with no guard on them. The section now names
 `plan_vfx.TOOLKIT_PARAMETERS` and states that it carries no value, default or bound.

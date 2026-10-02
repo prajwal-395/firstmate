@@ -158,7 +158,7 @@ larger saving than any prompt drop.  **That cannot be verified here.**
 documents a REAL RUN wrote, so a schema change is invisible to the ratchet
 until a project is re-observed - and re-observing means running the
 pipeline on the captain's projects.  It is left as named work rather than
-done blind, and `tests/test_context_ships_it_once.py` pins both carriers so
+done blind, and `tests/contracts/test_context_ships_it_once.py` pins both carriers so
 a future drop fails with the reason rather than silently orphaning the
 field.
 
@@ -197,7 +197,7 @@ byte-identical on both arms.  Nothing in the removed block names a clip, a
 slot, a framing or a pacing.  Both arms were answered by one agent, which
 is what `--full-auto agent` does in production.
 
-The gates are in `tests/test_context_ships_it_once.py`, and each was shown
+The gates are in `tests/contracts/test_context_ships_it_once.py`, and each was shown
 to FAIL with its drop path removed before being left passing.
 
 ---
@@ -286,7 +286,7 @@ stretch the model chooses. They now travel by reference
 | after | 6,555 | 24,661 | 31,216 (-37.3%) |
 
 All 39 removed items are verbatim at their own candidate's line range
-(`tests/test_reel_diagnostics_by_reference.py` follows the reference the
+(`tests/unit/context/test_reel_diagnostics_by_reference.py` follows the reference the
 same way). Answered: arm A (before) twice and arm B (after) once, each
 by a fresh agent, compared on timeline coverage and on the seconds
 struck in `takes_dropped`:

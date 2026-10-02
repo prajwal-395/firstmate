@@ -9,7 +9,7 @@ application running.
 Why this is not in `resolve_organization`
 ----------------------------------------
 Because organising must never delete, and
-`tests/test_resolve_organization.py::test_no_module_here_can_delete_anything`
+`tests/unit/resolve/test_resolve_organization.py::test_no_module_here_can_delete_anything`
 asserts that of both organiser files.  That rule is right and it stays:
 filing a reel the plan no longer names is housekeeping, and the
 captain's ruling of 2026-09-06 is *"a refusal is cheap and a deleted
@@ -69,7 +69,7 @@ when no placed item anywhere points at it - three facts, each read, none
 weighed.  How many superseded renders are too many was never this
 module's question: the captain answered it.
 
-`tests/test_orphan_removal.py`.
+`tests/unit/resolve/test_orphan_removal.py`.
 """
 from __future__ import annotations
 

@@ -111,5 +111,5 @@ markers (carried, and a note typed after the touch must not block its
 undo), CDL and flags (a touch never carried either, so the journal
 would claim a restore nothing performs).
 
-`tests/test_undo_journal.py`.
+`tests/unit/resolve/test_undo_journal.py`.
 ```

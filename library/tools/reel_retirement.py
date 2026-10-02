@@ -77,7 +77,7 @@ ability to re-open it in Resolve; it never loses the ability to say
 what it contained. That asymmetry is what makes a default that deletes
 acceptable at all - it is now the only thing left.
 
-`tests/test_reel_retirement.py`.
+`tests/unit/reels/test_reel_retirement.py`.
 """
 
 from __future__ import annotations

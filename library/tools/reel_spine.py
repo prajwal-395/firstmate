@@ -66,7 +66,7 @@ speech that was already cut.  Every block here is `speech`, and a step
 that needs more than speech gets an honest absence rather than a
 fabricated block (AGENTS.md 10.5).
 
-`tests/test_reel_spine.py`, `tests/test_reel_spine_straddle_split.py`.
+`tests/unit/reels/test_reel_spine.py`, `tests/unit/reels/test_reel_spine_straddle_split.py`.
 
 The ruling that folded `reel_subtitles.py` into the pipeline and the
 field-test bleed measurements: docs/evidence/reel_spine.md.

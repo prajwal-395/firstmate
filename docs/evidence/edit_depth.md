@@ -110,5 +110,5 @@ The twelve classes, and where each lives
     Beside it rather than inside it, for the reasons that module's
     docstring measures. DISPLAYS: caption timings on the timeline.
 
-`tests/test_edit_depth.py`.
+`tests/unit/resolve/test_edit_depth.py`.
 ```

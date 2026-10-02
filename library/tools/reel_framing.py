@@ -85,7 +85,7 @@ reproduces a measured render to within one pixel row.
 
 The reader is ``reel_conformance_verifier`` (F12).
 
-``tests/test_reel_framing.py``.
+``tests/unit/reels/test_reel_framing.py``.
 """
 
 from __future__ import annotations

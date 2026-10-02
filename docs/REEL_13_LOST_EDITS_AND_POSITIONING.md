@@ -252,7 +252,7 @@ One rule, readable in both directions, and stored values judged against intent.
   REPORTED as unverified rather than skipped, because a verification that quietly
   declines to run is the gate that cannot fail (AGENTS.md 10.4).
 
-`tests/test_overlay_positioning_rule.py` pins all of it against the measured
+`tests/unit/captions/test_overlay_positioning_rule.py` pins all of it against the measured
 numbers, including the case a read-back cannot see.
 
 ---

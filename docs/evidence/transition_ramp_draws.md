@@ -1,6 +1,6 @@
 # A planned transition ramps over its planned frames, and stops
 
-Tests: `tests/test_transition_ramp_draws.py` (moved from its module docstring, 2026-10-02).
+Tests: `tests/unit/picture/test_transition_ramp_draws.py` (moved from its module docstring, 2026-10-02).
 
 A planned transition ramps over its planned frames, and stops.
 

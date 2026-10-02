@@ -2,7 +2,7 @@
 
 Part of the footage-search capability, as `footage_query.py` is: not a
 pipeline stage, importing nothing from steps or processes
-(`tests/test_footage_query.py` pins that).  Agents and people reach it
+(`tests/unit/picture/test_footage_query.py` pins that).  Agents and people reach it
 through `ren search --visual` and `ren search-index`.
 
 Scope (firstmate decision 2026-10-01 on the vep-clip-frame-search eval,

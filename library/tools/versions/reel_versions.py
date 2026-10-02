@@ -42,7 +42,7 @@ Where it lives: `pipeline_output/review/reel_versions.json`, on the
 store's allow-list, written through `store.write_record` like every
 other record here.
 
-`tests/test_undo_journal.py`.
+`tests/unit/resolve/test_undo_journal.py`.
 """
 
 from __future__ import annotations

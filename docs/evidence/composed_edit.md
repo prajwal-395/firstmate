@@ -105,7 +105,7 @@ handles can always call `ImportFusionComp` itself.  That is the same
 boundary AGENTS.md 15 draws around `reel_read` ("do not write a new
 probe"), and it is enforced the same way: by a test that fails when
 library code reaches for the destructive call outside the modules that
-own it (`tests/test_composed_edit_refusal.py`).
+own it (`tests/unit/resolve/test_composed_edit_refusal.py`).
 
 ── What a composed edit cannot carry across ───────────────────────────
 
@@ -120,11 +120,11 @@ own it (`tests/test_composed_edit_refusal.py`).
 
 Resolve is a single instance and other lanes drive it.  This module
 holds no Resolve import: it takes live handles as arguments, so it is
-driven under test by a fake (`tests/test_composed_edit.py`) and under
+driven under test by a fake (`tests/unit/resolve/test_composed_edit.py`) and under
 `AGENTS.md 5`'s process rule by whatever opened the project.
 ```
 
-## `tests/test_cut_in_anchored_window.py` (moved from its module docstring, 2026-10-02)
+## `tests/unit/reels/test_cut_in_anchored_window.py` (moved from its module docstring, 2026-10-02)
 
 Comps key to the anchored span (finding 36).
 

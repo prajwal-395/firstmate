@@ -138,7 +138,7 @@ All five are correct behaviour and were left in place.
 
 ## Tests
 
-`tests/test_full_frame_element.py`: 57 passed (the module this build drove;
+`tests/unit/captions/test_full_frame_element.py`: 57 passed (the module this build drove;
 no library file was changed, so no wider tier was warranted). The full
 suite was not run, per the brief.
 

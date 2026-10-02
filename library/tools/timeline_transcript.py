@@ -83,7 +83,7 @@ model (AGENTS.md 10.5).  See `library/tools/reel_proposal.py`.
 
     python3 -m library.tools.timeline_transcript <project_folder>
 
-`tests/test_timeline_transcript.py`.
+`tests/unit/audio/test_timeline_transcript.py`.
 """
 
 from __future__ import annotations

@@ -22,7 +22,7 @@ This module measures that room, per source, from the footage itself:
 Nothing here invents signal. A source with no measurable speech-free
 stretch refuses (`RoomToneRefused`, the `RenRefusal` shape) instead of
 returning a default level - a default presented as measured is the
-defect `tests/test_assessment_reports_no_default_as_measured.py` holds
+defect `tests/unit/picture/test_assessment_reports_no_default_as_measured.py` holds
 for assessment fields, and it holds for this one too.
 
 Decoding is stdlib `wave` for PCM WAV and ffmpeg otherwise (MXF camera

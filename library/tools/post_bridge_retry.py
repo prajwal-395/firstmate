@@ -49,7 +49,7 @@ One enumeration, `library/tools/post_bridge_retry.py`. `present_llm_step` owns a
 - The violation is carried into the retry context by the QA path's own plumbing - `present_llm_step(retry_feedback=...)` seeds `current_context` - so it reaches the archived request file the same way QA feedback does. **Extend that path; do not build a second one.**
 - **The retry is BOUNDED at `MAX_ATTEMPTS` model calls**, and at the bound the step FAILS carrying the last violation rather than proceeding on a best attempt: a rejected post-bridge means the downstream contract is unsatisfied and there is no partial output to proceed with.
 - Feedback blocks ACCUMULATE, each elided to `MAX_VIOLATION_CHARS` from the middle, so a model that failed twice the same way sees that it did and the context still grows by a fixed, small amount.
-- `tests/test_post_bridge_rejection_reaches_the_model.py`.
+- `tests/scenarios/test_post_bridge_rejection_reaches_the_model.py`.
 """
 
 from __future__ import annotations

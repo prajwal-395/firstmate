@@ -86,7 +86,7 @@ def store_root() -> Path:
     and this module is part of step 1.03's code identity
     (`code_identity.STEP_IMPLEMENTATION_DEPS`), so importing them would
     make every transcription or environment fix recompose the vision
-    profiles. `tests/test_measurement_layers.py` pins the two rules
+    profiles. `tests/unit/picture/test_measurement_layers.py` pins the two rules
     together. The entries sit beside that source's other slots, under
     the same content digest.
     """

@@ -6,7 +6,7 @@ win where this history disagrees.
 
 ## Mix reads the bed
 
-From `tests/test_mix_reads_the_bed.py`.
+From `tests/unit/audio/test_mix_reads_the_bed.py`.
 
 ```text
 The mix declared the bed, received it, and never opened it.
@@ -42,7 +42,7 @@ it judged against.
 
 ## Music audit trail
 
-From `tests/test_music_audit_trail.py`.
+From `tests/unit/audio/test_music_audit_trail.py`.
 
 ```text
 The music audit trail is out of the spines, and kept in its own file.
@@ -67,7 +67,7 @@ Both halves are pinned here:
 
 ## Bed fits each block
 
-From `tests/test_music_bed_fits_each_block.py`.
+From `tests/unit/audio/test_music_bed_fits_each_block.py`.
 
 ```text
 Finding 25: the music bed has one level per behaviour, fitted to one block.
@@ -85,7 +85,7 @@ why they carry no gain at all).
 
 ## Music selection contract
 
-From `tests/test_music_selection_contract.py`.
+From `tests/unit/audio/test_music_selection_contract.py`.
 
 ```text
 Music selection has a real schema, and the library is really consulted.
@@ -111,7 +111,7 @@ recorded reasoning.
 
 ## Music selection resolver
 
-From `tests/test_music_selection_resolver.py`.
+From `tests/unit/audio/test_music_selection_resolver.py`.
 
 ```text
 The main selection resolves title-plus-source to a catalogue path.
@@ -132,7 +132,7 @@ order decide what the viewer hears, which is the defect family AGENTS.md
 
 ## Silence under picture
 
-From `tests/test_silence_under_picture.py`.
+From `tests/unit/audio/test_silence_under_picture.py`.
 
 ```text
 Picture on screen with nothing at all on any track.

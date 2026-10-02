@@ -38,7 +38,7 @@ timeline is already gone on the second of the two removals.
 Why this is not in `resolve_organization`
 -----------------------------------------
 Because organising must never delete, and
-`tests/test_resolve_organization.py::test_no_module_here_can_delete_anything`
+`tests/unit/resolve/test_resolve_organization.py::test_no_module_here_can_delete_anything`
 asserts that of both organiser files.  The dead-bin sweep
 (`plan_dead_render_bins`) only collects bins whose timeline is ALREADY
 gone.  The proof timeline is still there, so removing it is a
@@ -65,7 +65,7 @@ This module holds no Resolve calls and does no I/O - the same split
 `resolve_organization` uses.  `library/tools/execution/remove_proof.py`
 is the half that deletes.
 
-`tests/test_dead_render_bins.py`.
+`tests/unit/resolve/test_dead_render_bins.py`.
 """
 from __future__ import annotations
 

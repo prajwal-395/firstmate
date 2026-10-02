@@ -140,7 +140,7 @@ new ones were not added anywhere: `derive_runner_injected_keys` reads which
 manifests declare the input required, so the reel process inherited the whole
 contract by declaring the input. That is what "derived, never hand-listed" buys.
 
-`tests/test_operations.py::test_the_transcript_is_the_only_required_input_no_edge_carries`
+`tests/unit/context/test_operations.py::test_the_transcript_is_the_only_required_input_no_edge_carries`
 re-measures this ACROSS EVERY PROCESS, so a new one cannot appear unnoticed.
 
 **2. An operation whose step body takes the whole input as `data` cannot
@@ -169,7 +169,7 @@ raising `TypeError`:
 - **A PRE-bridge's `data` IS the step's inputs**, so the gathered dict is
   complete and the call is not merely non-crashing, it is the same call the
   runner makes. `duration_zone.build` now executes;
-  `tests/test_operations_execute.py::test_an_operation_whose_body_takes_the_merged_dict_executes`
+  `tests/unit/context/test_operations_execute.py::test_an_operation_whose_body_takes_the_merged_dict_executes`
   runs it and reads the project's own declared duration back out of the result.
 - **A POST-bridge REFUSES**, naming the keys the model owes it and the two ways
   to supply them. The keys come from `run_pipeline.llm_output_declarations` -
@@ -198,7 +198,7 @@ project, was handed the podcast field test's path. The engine serves a daily
 channel and client work and states no series' own paths (AGENTS.md 14). It now
 derives the path from `project_folder`, and claims nothing when there is no
 project folder to derive it from. Both directions are pinned in
-`tests/test_select_reels_post_bridge_subprocess.py`.
+`tests/unit/reels/test_select_reels_post_bridge_subprocess.py`.
 
 ## What was NOT touched
 
@@ -212,5 +212,5 @@ touch either line, so what remains is an ordinary debt in the build path - the
 one file this change deliberately does not enter, for the same reason the build
 is not registered above. The exemption is asserted by COUNT rather than
 remembered, in
-`tests/test_operations.py::test_the_transcript_path_is_spelled_once_outside_reel_build`,
+`tests/unit/context/test_operations.py::test_the_transcript_path_is_spelled_once_outside_reel_build`,
 so fixing those two fails the test and forces this paragraph to be deleted.

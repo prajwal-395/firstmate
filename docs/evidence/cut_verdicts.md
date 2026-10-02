@@ -156,10 +156,10 @@ One enumeration, `library/tools/cut_verdicts.py`. [why](docs/RULE_EVIDENCE.md#th
   index data, not from the speech_sequence's intended text", so the projection must not delete it.
   **The remaining self-review is not in the DAG - it is that one agent answers 2.02, 2.05, 3.02 and
   then 3.03 under `--full-auto agent` (10.1). Closing that needs a different answerer, not an edge.**
-- `tests/test_cut_decisions_reach_a_reader.py`.
+- `tests/scenarios/test_cut_decisions_reach_a_reader.py`.
 ```
 
-## `tests/test_cut_decisions_reach_a_reader.py` (moved from its module docstring, 2026-10-02)
+## `tests/scenarios/test_cut_decisions_reach_a_reader.py` (moved from its module docstring, 2026-10-02)
 
 The rough-cut review's narrative answer goes somewhere, and it arrives.
 

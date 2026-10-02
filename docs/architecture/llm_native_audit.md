@@ -88,7 +88,7 @@ safer change than the brief assumed.
 `grep -rn precondition --include="*.py"` over the repo returns 10 hits. **None is an
 evaluation.** Eight are prose in docstrings or test names; one is an error message
 (`library/tools/analysis/speech_advanced_pipeline.py:203`); one is
-`tests/test_prosody_failure_is_loud.py:60`, which asserts that the *string*
+`tests/unit/audio/test_prosody_failure_is_loud.py:60`, which asserts that the *string*
 `"parselmouth"` appears in the manifest's precondition list. `postcondition` returns
 **zero** hits in Python anywhere in the repository.
 

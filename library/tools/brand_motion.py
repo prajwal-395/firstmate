@@ -79,7 +79,7 @@ than fitted, because ``contain`` vs ``cover`` is framing taste.
 
     python3 -m library.tools.brand_motion --measure <file.mov>
 
-``tests/test_brand_motion.py``.
+``tests/unit/captions/test_brand_motion.py``.
 
 The Chrome decode measurement and the per-asset frame-drop arithmetic:
 ``docs/BRAND_MOTION_MEASURED.md`` and docs/evidence/brand_motion.md.

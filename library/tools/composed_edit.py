@@ -59,7 +59,7 @@ The refusal is structural, in four places:
 **Where "structural" stops.**  A caller that does not use this module
 can always call `ImportFusionComp` itself.  That boundary is enforced by
 a test that fails when library code reaches for the destructive call
-outside the modules that own it (`tests/test_composed_edit_refusal.py`).
+outside the modules that own it (`tests/unit/resolve/test_composed_edit_refusal.py`).
 
 ── What a composed edit cannot carry across ───────────────────────────
 
@@ -74,7 +74,7 @@ outside the modules that own it (`tests/test_composed_edit_refusal.py`).
 
 Resolve is a single instance and other lanes drive it.  This module
 holds no Resolve import: it takes live handles as arguments, so it is
-driven under test by a fake (`tests/test_composed_edit.py`) and under
+driven under test by a fake (`tests/unit/resolve/test_composed_edit.py`) and under
 `AGENTS.md 5`'s process rule by whatever opened the project.
 
 The spike measurements and costs behind each step:

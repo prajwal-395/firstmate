@@ -109,5 +109,5 @@ behalf. Geometry must match the delivery frame exactly: ``contain`` vs
 
     python3 -m library.tools.brand_motion --measure <file.mov>
 
-``tests/test_brand_motion.py``.
+``tests/unit/captions/test_brand_motion.py``.
 ```

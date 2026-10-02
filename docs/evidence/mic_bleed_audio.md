@@ -1,6 +1,6 @@
 # Mic bleed belongs to the losing audio angle
 
-`tests/test_reel_build_mic_bleed.py` is the scenario table for the
+`tests/unit/reels/test_reel_build_mic_bleed.py` is the scenario table for the
 audio mute contract. `library/tools/reel_build.py` owns
 `suppress_mic_bleed_audio`; `library/tools/timeline_transcript.py` owns
 the measured speaker decisions that feed it.

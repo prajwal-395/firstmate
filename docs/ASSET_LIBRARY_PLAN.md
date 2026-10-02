@@ -251,7 +251,7 @@ repository has already paid for:
    family renders on the machine that added it and substitutes silently
    everywhere else - the webfont race that `AGENTS.md` section 11 exists
    to prevent. The removed overlay named an unbundled Google font and
-   `tests/test_bundled_fonts.py` never saw it, because that guard
+   `tests/contracts/test_bundled_fonts.py` never saw it, because that guard
    inspected `style.typography.font` alone. It now walks the whole
    template.
 2. **It is positioned inside the picture the delivery format produces.**
@@ -315,7 +315,7 @@ Mechanical only, all of it the captain's ruling of 2026-08-17:
   **Superseded 2026-08-20**: the reader was built, `NO_READER` deleted in
   the same commit, and the empty-slot guard replaced by a reader
   assertion plus `tests/test_timed_text_delivery.py`. See section 4.
-- `tests/test_bundled_fonts.py` now walks the whole template for fonts,
+- `tests/contracts/test_bundled_fonts.py` now walks the whole template for fonts,
   so the declaration that slipped past it would not slip past it again.
 - `docs/PIPELINE_PLAN.md` section 5's "CLOSED" claim is corrected.
 

@@ -114,7 +114,7 @@ wrong comparison, the same alpha shifted 7px, which reads 1.033 rather than 0.
 
 A key colour, a similarity and a blend are three numbers nobody in this pipeline
 is asked for. `if similarity < 0.x` is precisely the invented threshold
-AGENTS.md 10.5 and `tests/test_no_creative_floors.py` exist to keep out. An
+AGENTS.md 10.5 and `tests/contracts/test_no_creative_floors.py` exist to keep out. An
 authored alpha needs none of them: the softness is drawn, not derived.
 
 **So the engine requires alpha and does not key.** That answer is executable, not
@@ -165,7 +165,7 @@ told to go and build a second one.
 
 Checked, not asserted. Rendered over a real cut on a real reel, all three
 versions are **96 frames**: no element, the brand bumper, and a fully opaque
-element. `tests/test_transition_overlay.py` asserts the binding hash is
+element. `tests/unit/captions/test_transition_overlay.py` asserts the binding hash is
 byte-identical either side of the overlay pass.
 
 ### What does it do to captions crossing the cut?

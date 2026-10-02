@@ -110,7 +110,7 @@ and points here.
 `project.yaml`'s `creative_brief` - top level or under `pipeline:` - names a markdown file, and `pipeline.attach_creative_brief` is the three-state choice about sending it (§3, "A step with no creative brief ASKS").
 `load_pipeline_state` reads the PATH into state ONLY when the reading is ATTACHED; `gather_step_inputs` reads the FILE and hands the step a REFERENCE to it, and only if the step's own manifest declares the input.
 A path that cannot be read or is empty RAISES. **A run that attaches none INTERVIEWS rather than going quiet.**
-- Seven of them - `creative_direction`, `speech_sequence`, `music_selection`, `select_broll`, `plan_transitions`, `plan_vfx` and `plan_sfx` - are the ones whose handoffs tell the model to read one. `tests/test_creative_brief_reaches_prompt.py` fails if a handoff documents a brief its manifest does not declare.
+- Seven of them - `creative_direction`, `speech_sequence`, `music_selection`, `select_broll`, `plan_transitions`, `plan_vfx` and `plan_sfx` - are the ones whose handoffs tell the model to read one. `tests/contracts/test_creative_brief_reaches_prompt.py` fails if a handoff documents a brief its manifest does not declare.
 - **The eighth is `mesh_spine`, and it is declared without a handoff line.** A step gets the brief because its manifest asked, not because its prompt mentions one. **The ninth is `color_grade`**, added when 5.01 grew a handoff on 2026-09-03 - its new handoff DOES name the brief, so it is in the first group; 001's brief carries a whole "Color System Philosophy" section no colour step had ever seen. [why](docs/RULE_EVIDENCE.md#the-brief-is-paid-seven-times)
 - It is not a `context_fields` entry. Like `brand_template` it is restored around the projection BY NAME, so a step's allow-list neither has to list it nor can drop it.
 - **The cost is per step, not per run.** [why](docs/RULE_EVIDENCE.md#the-brief-is-paid-seven-times)
@@ -122,12 +122,12 @@ A path that cannot be read or is empty RAISES. **A run that attaches none INTERV
 - **Which sections are about THIS video is not the engine's judgement.** A project pins sections inline with `pipeline.creative_brief_inline` in its `project.yaml`, and there is no default list.
 - **The mechanism carries FOUR documents, and a fifth costs a row.** `brief_reference.REFERENCED_INPUTS` is that enumeration - the brief, step 4.04's SFX catalogue, step 3.02's per-clip vision analysis (`library/tools/footage_reference.py`) and step 3.04's per-candidate repeated-take evidence (`library/tools/reel_diagnostics_reference.py`). Do not build a second by-reference mechanism.
 - **`HARNESS_READS_FILES` is a complete enumeration and an unknown harness raises.** `agent` and `mock` reach a file; `api` does not, so under `api` the document is carried whole - a route the model cannot follow is a loss, not a saving. `present_llm_step` does that restore.
-- `tests/test_brief_reference.py` FOLLOWS the reference rather than asserting its shape: it parses the path and the range out of the string the model reads and requires that what comes back was not in the prompt.
+- `tests/unit/context/test_brief_reference.py` FOLLOWS the reference rather than asserting its shape: it parses the path and the range out of the string the model reads and requires that what comes back was not in the prompt.
 ```
 
 ## The brief that never reached a prompt
 
-Moved from the module docstring of `tests/test_creative_brief_reaches_prompt.py`.
+Moved from the module docstring of `tests/contracts/test_creative_brief_reaches_prompt.py`.
 
 Seven handoffs carried a paragraph telling the LLM to "read it in full
 before making any creative decisions", and for the whole life of the
@@ -155,7 +155,7 @@ the prompt now names the brief too.
 
 ## Why the brief travels as a reference (test module history)
 
-Moved from the module docstring of `tests/test_brief_reference.py`.
+Moved from the module docstring of `tests/unit/context/test_brief_reference.py`.
 `#256` wired the captain's 47,903-byte channel brief into seven prompts
 and it became 37.0%-84.3% of each of them - 46.9% of every byte the
 pipeline's replayable steps send, with 41.9% of the document in sections

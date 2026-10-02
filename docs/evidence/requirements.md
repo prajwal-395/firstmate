@@ -124,19 +124,19 @@ empty expected side silently disables a check.
 So every `Requirement` must carry BOTH witnesses -
 `refuting_context()` and `satisfying_context()` - and they have no
 defaults, so a requirement **cannot be registered without them**.  The
-registration is the gate; `tests/test_every_requirement_can_refuse.py`
+registration is the gate; `tests/contracts/test_every_requirement_can_refuse.py`
 only reads it.  A requirement that genuinely cannot refuse is DELETED,
 never exempted.
 
-`tests/test_no_requirement_refuses_correct_input.py` is the mirror, so
+`tests/contracts/test_no_requirement_refuses_correct_input.py` is the mirror, so
 the layer cannot be vacuously strict either.
 
     python3 -m library.tools.requirements          # the registry
     python3 -m library.tools.requirements --kinds  # counts by kind
 
 `tests/test_requirements.py`,
-`tests/test_every_requirement_can_refuse.py`,
-`tests/test_no_requirement_refuses_correct_input.py`.
+`tests/contracts/test_every_requirement_can_refuse.py`,
+`tests/contracts/test_no_requirement_refuses_correct_input.py`.
 ```
 
 
@@ -144,7 +144,7 @@ the layer cannot be vacuously strict either.
 
 Module docstrings of the two requirement test files, moved verbatim when the tests kept only their invariant.
 
-### `tests/test_every_requirement_can_refuse.py`
+### `tests/contracts/test_every_requirement_can_refuse.py`
 
 ```text
 Every requirement must be able to say no, and say what to run.
@@ -188,7 +188,7 @@ A requirement that genuinely cannot refuse is DELETED, not exempted.
 There is no skip list in this file and there must not be one.
 ```
 
-### `tests/test_no_requirement_refuses_correct_input.py`
+### `tests/contracts/test_no_requirement_refuses_correct_input.py`
 
 ```text
 The mirror: the layer must not be vacuously STRICT either.

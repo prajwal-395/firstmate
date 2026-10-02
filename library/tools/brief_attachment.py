@@ -50,7 +50,7 @@ refused by name.  A declaration to attach a document that does not exist
 is not a decision anybody can act on, and the alternative - attaching
 nothing and carrying on - is the silence again.
 
-`tests/test_brief_attachment.py`.
+`tests/unit/context/test_brief_attachment.py`.
 
 
 Rules relocated from AGENTS.md 3
@@ -70,7 +70,7 @@ Captain's ruling, 2026-09-02: *"this should be like an optional attachment we ca
 - **It is `undetermined.py`'s third sibling** - same `take`/`record`/`summary_lines` surface, same collector, same route into the prompt as DATA, same THREE readings (`asked` / `nothing_to_ask` / `not_declared`), one record per model ATTEMPT numbered, and `state["briefing_questions"]` MERGED rather than replaced. Do not build a fourth shape. **It differs in one way: it is CONDITIONAL** - a step handed the captain's own brief and then asked what it wished the captain had said is being invited to manufacture a gap.
 - **Who answers, and on which run: the captain, out of band.** The pipeline is not interactive and a run that stopped to wait would never complete, so the interview is COLLECTED, not conducted. The questions print in the run summary and land on state; the captain answers by writing or extending the brief and attaching it, and the next run reads it. **The brief IS the answer format** - an answers file beside it would be a brief under another name.
 - **The prompt tells the step to decide anyway, in full.** Asking is not licence to hedge.
-- `tests/test_brief_attachment.py`, `tests/test_briefing_interview.py`.
+- `tests/unit/context/test_brief_attachment.py`, `tests/unit/context/test_briefing_interview.py`.
 """
 
 from __future__ import annotations

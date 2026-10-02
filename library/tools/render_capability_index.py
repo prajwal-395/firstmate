@@ -52,7 +52,7 @@ all" and therefore correctly have no switch arm.
 "list_build"`` in the source proves the composition has a node for
 ``list_build``.  It does NOT prove the node puts ink on a frame.  The
 render-backed half of that claim is
-``tests/test_render_capability_index.py::test_every_declared_entrance_is_distinguishable_from_a_fade``,
+``tests/contracts/test_render_capability_index.py::test_every_declared_entrance_is_distinguishable_from_a_fade``,
 which renders each character and compares the ink's own geometry against
 the held frame.  This module carries the cheap half so it can run
 everywhere; that test carries the expensive half and names the

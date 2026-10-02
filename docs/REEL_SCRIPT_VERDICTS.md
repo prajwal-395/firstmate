@@ -567,7 +567,7 @@ even when it returned numbers: a row an interior cut runs through mapped to one
 contiguous reel interval spanning the removed take, so seconds the builder had
 cut out counted as speech needing a caption. `reel_time` remains the sole owner
 of the arithmetic; the clip reads a piece's start inclusively and its end with
-`at_end=True`. `tests/test_reel_conformance_verifier.py::TestF5CaptionCoverage::test_f5_counts_only_the_seconds_the_reel_plays`
+`at_end=True`. `tests/unit/reels/test_reel_conformance_verifier.py::TestF5CaptionCoverage::test_f5_counts_only_the_seconds_the_reel_plays`
 pins the boundary row and the interior cut.
 
 **What is NOT changed is what gets captioned.** Whether caption cards may be
@@ -1006,7 +1006,7 @@ reels rebuilt. The one case that does not merge is a *different* plan - the old
 entries then describe reels built from a plan this one is not, so they are
 dropped and the record says `superseded_plan_hash`.
 
-`tests/test_plan_provenance.py` writes nineteen, rebuilds one, and asserts the
+`tests/unit/context/test_plan_provenance.py` writes nineteen, rebuilds one, and asserts the
 other eighteen survive with their hashes unchanged.
 
 ## Bug 2: nothing recorded the caption plan, so F2 graded against a guess

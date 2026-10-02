@@ -94,7 +94,7 @@ One September failure in three was a **global invariant sweep** - a test whose f
 names a concept rather than the module it constrains, so no name-based scoping selects
 it. **87 of 253 test files (34%)** are that shape. The canonical case: PR #504 added a
 step directory, and what broke was
-`tests/test_run_traceback.py::test_the_unwired_steps_are_exactly_the_ones_agents_md_names`.
+`tests/unit/context/test_run_traceback.py::test_the_unwired_steps_are_exactly_the_ones_agents_md_names`.
 The subset cannot be pre-computed - the natural static rule selects 67 files and captures
 only 5 of the 9 that actually caught something.
 

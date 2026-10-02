@@ -1023,7 +1023,7 @@ clothes. The judgement never becomes a constant in the codebase, so
 nothing that inspects the codebase can see it. What is inspectable is
 the validator built around it, and a good validator makes the whole
 thing read as principled.
-`tests/test_no_creative_floors.py` proves the engine holds no creative
+`tests/contracts/test_no_creative_floors.py` proves the engine holds no creative
 floor. `library/tools/craft_role.py` ensures a step making a craft
 judgement is told what craft it is. Both presuppose that the judgement
 happens inside a declared step. A crewmate that does the choosing in its

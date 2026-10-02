@@ -23,7 +23,7 @@ capabilities a `ren` verb serves outside the operation registry
 (footage search, source analysis, project inspection). The table is
 declared, not derived, for one reason: importing the registry imports
 torch, and doctor must answer before the ML environment exists.
-`tests/test_machine_needs.py` holds the table to the registry - every
+`tests/contracts/test_machine_needs.py` holds the table to the registry - every
 capability id covered, every environment requirement the registry
 derives (`CapabilitySpec.assumes_machine`) mapped to a required need,
 and every capability that needs a model's answer requiring a chat

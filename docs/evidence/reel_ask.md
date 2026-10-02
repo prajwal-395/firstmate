@@ -2,7 +2,7 @@
 
 Narrative moved verbatim out of test module docstrings; the tests keep the invariant.
 
-## `tests/test_reel_ask_matches_pass1.py` module docstring (moved 2026-10-02)
+## `tests/unit/reels/test_reel_ask_matches_pass1.py` module docstring (moved 2026-10-02)
 
 ```text
 `reel.ask` writes what a pass-1 build writes, without the build.

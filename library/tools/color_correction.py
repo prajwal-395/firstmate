@@ -68,8 +68,8 @@ What is refused, what is dropped, and what is recorded
 There are no bounds.  How far a correction may travel is the colourist's,
 the same way `series_look` bounds no declared slope (AGENTS.md 10.5).
 
-`tests/test_color_correction.py`, `tests/test_color_grade_delivery.py`,
-`tests/test_color_grade_is_decided.py`.
+`tests/unit/picture/test_color_correction.py`, `tests/unit/picture/test_color_grade_delivery.py`,
+`tests/unit/picture/test_color_grade_is_decided.py`.
 
 The nine measured clips graded with the identity CDL, and the ruling that
 gave the decision to a colourist: docs/evidence/color_correction.md.
@@ -89,7 +89,7 @@ One enumeration, `library/tools/color_correction.py`. [why - the nine measured c
 - **No bound and no default.** How far a correction may travel is the colourist's, the same way `series_look` bounds no declared slope. A malformed VALUE RAISES so `post_bridge_retry` carries it back to the model; an entry naming no clip, no term or no `why` is DROPPED with the reason (`DROP_REASONS`, refused if outside).
 - **`correction_basis` says which absence an ungraded run is.** FOUR readings, spelled differently on purpose: `corrected`, `judged_no_correction_needed` (a decision), `no_correction_decision` (nobody looked), `every_entry_dropped`. The old output could not tell the second from the third - an identity CDL read the same either way.
 - **`WITHHELD_TERMS` records what a correction may NOT say** and where it lives instead: `temperature` (no CDL term; say it as slope and offset), `contrast` (Fusion's, not the CDL's), `curve` (no reader anywhere).
-- 5.01 is now HYBRID: `bridge.py` measures and builds `clip_exposure` + `cut_adjacency` (the pairs a viewer sees, in stops), `handoff.md` asks a colourist, `post_bridge.py` composes. `tests/test_color_correction.py`, `tests/test_color_grade_is_decided.py`.
+- 5.01 is now HYBRID: `bridge.py` measures and builds `clip_exposure` + `cut_adjacency` (the pairs a viewer sees, in stops), `handoff.md` asks a colourist, `post_bridge.py` composes. `tests/unit/picture/test_color_correction.py`, `tests/unit/picture/test_color_grade_is_decided.py`.
 """
 
 from __future__ import annotations

@@ -37,7 +37,7 @@ than gaps:
   rather than state).  A composer working backwards from requirements
   alone can never select them, because artifact productions are
   invisible as goals.  No plan this module returns ever names one, and
-  `tests/test_composer.py` pins that.  (`reel.gate_stills`, the third
+  `tests/unit/resolve/test_composer.py` pins that.  (`reel.gate_stills`, the third
   artifact, shares `verify_reels`' verdict effect by the node
   granularity `Operation.effect` declares - and is still never
   planned: that test pins it explicitly, and the route-selection
@@ -116,7 +116,7 @@ Reachability
 ```
 
 
-## `tests/test_ren_one_real_edit.py` - how the gap closed (moved 2026-10-02)
+## `tests/scenarios/test_ren_one_real_edit.py` - how the gap closed (moved 2026-10-02)
 
 ```text
 Item 4: one real edit through the composer and the oracle, no rebuild.

@@ -71,7 +71,7 @@ nothing about holds - a held staging with fewer rows is still
 refused by the guard, and the hold is retained, which is the safe
 direction on both halves.
 
-`tests/test_pending_promotion_hold.py`.
+`tests/unit/reels/test_pending_promotion_hold.py`.
 """
 from __future__ import annotations
 

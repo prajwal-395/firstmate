@@ -1,6 +1,6 @@
 # Reels build witnesses - `report_layer_coherence` and the informational sweep
 
-Moved from the module docstring of `tests/test_reels_build_witnesses.py` (2026-10-02).
+Moved from the module docstring of `tests/unit/reels/test_reels_build_witnesses.py` (2026-10-02).
 
 Two wirings, both print-only and neither a gate:
 

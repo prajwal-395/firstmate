@@ -64,7 +64,7 @@ targets and preconditions still hold on the head. An `observed`
 generation in between refuses: its change is unattributed, so nothing
 can say what it meets.
 
-`tests/test_edit_patch.py`.
+`tests/unit/resolve/test_edit_patch.py`.
 """
 
 from __future__ import annotations

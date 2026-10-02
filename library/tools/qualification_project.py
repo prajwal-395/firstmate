@@ -34,7 +34,7 @@ current, and READS BACK both. A restore that does not read back raises
 under the exclusive instance lease; nothing writes the captain's project
 beyond the save.
 
-`tests/test_qualification_project.py`.
+`tests/unit/resolve/test_qualification_project.py`.
 """
 
 from __future__ import annotations

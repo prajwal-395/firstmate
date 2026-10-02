@@ -24,7 +24,7 @@ This module never decides WHAT the visual is. The entry carries `subject`
 as free text - the model's reasoning, "money - paid advertising budgets" -
 and it travels onto the resolved moment as provenance. Nothing here reads
 it: the same phrase with two different subjects resolves identically
-(`tests/test_semantic_visual.py::test_the_subject_is_inert`), which is
+(`tests/unit/picture/test_semantic_visual.py::test_the_subject_is_inert`), which is
 what makes a keyword-to-icon table impossible rather than merely absent.
 An engine-side dict from words to glyphs would be hardcoded taste
 (AGENTS.md 10.5), so its absence is asserted structurally in the same

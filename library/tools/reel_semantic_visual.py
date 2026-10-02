@@ -704,7 +704,7 @@ def drop_record_reels(project_folder: str, names) -> None:
 # hold: a lead is a number at or above zero, and the beat it puts down
 # lands inside its own segment.
 #
-# `tests/test_reel_span_visual.py`.
+# `tests/unit/reels/test_reel_span_visual.py`.
 
 #: What the span answer is called. One spelling, here, the way
 #: `motion_graphics_plan.PLAN_KEY` spells the overlay's.
@@ -1273,7 +1273,7 @@ def resolve_span_plan(plan: Any, *, segment_words: Sequence[Sequence[dict]],
 # guarantees already own. A placer needs its own change carrying those
 # three decisions - half of one here would mis-place silently.
 #
-# `tests/test_reel_span_record.py`.
+# `tests/unit/reels/test_reel_span_record.py`.
 
 SPAN_PLAN_FILENAME = "span_visual_plans.json"
 """Where the build RECORDS each reel's resolved span plan, per project.

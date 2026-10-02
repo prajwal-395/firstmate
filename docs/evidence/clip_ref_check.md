@@ -1,6 +1,6 @@
 # clip ref check
 
-Test: `tests/test_clip_ref_check.py`.
+Test: `tests/unit/picture/test_clip_ref_check.py`.
 
 D7: the clip-reference check fires on a step's own legend text.
 

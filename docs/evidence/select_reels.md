@@ -1,6 +1,6 @@
 # Step 3.04 `select_reels` - why it reaches a model
 
-Moved verbatim on 2026-10-02 from `tests/test_reel_selection_reaches_a_model.py`
+Moved verbatim on 2026-10-02 from `tests/unit/reels/test_reel_selection_reaches_a_model.py`
 when the test file kept only its invariant. The handoff-wording tests that
 pinned the captain's definition of a reel, the measurements-not-scores line
 and judging overlap on meaning (not seconds) were removed as prompt-wording
@@ -26,7 +26,7 @@ are the one that looks the other way - they ask whether a model is
 actually reached, not whether the engine holds a constant.
 
 An earlier version of this file used `xfail` for the unbuilt fix.
-`tests/test_no_unfailable_tests.py` refused it, correctly: an xfail for
+`tests/tooling/test_no_unfailable_tests.py` refused it, correctly: an xfail for
 work nobody has started cannot fail. Section 15 of
 `docs/FIELD_TEST_PODCAST_FINDINGS.md` carries the specification.
 ```

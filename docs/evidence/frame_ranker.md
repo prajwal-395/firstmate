@@ -1,6 +1,6 @@
 # The LAION aesthetic frame ranker
 
-Tests: `tests/test_frame_ranker.py`.
+Tests: `tests/unit/picture/test_frame_ranker.py`.
 
 FIRSTMATE VERDICT 2026-09-18 over the spike's "do not adopt": pairs 1 and
 3 show a clear win in the same direction, and what the ranker replaces is

@@ -6,11 +6,11 @@ rule and no API calls.
 The master is READ-ONLY except for these markers (the captain's ruling
 of 2026-09-07).  This module therefore calls exactly three things on the
 master timeline - `GetItemListInTrack`, `AddMarker` and
-`DeleteMarkerAtFrame` - and `tests/test_master_markers.py` asserts that
+`DeleteMarkerAtFrame` - and `tests/unit/resolve/test_master_markers.py` asserts that
 nothing which would move, rename, recolour, retime or re-render it
 appears in this file at all.
 
-`tests/test_master_markers.py`.
+`tests/unit/resolve/test_master_markers.py`.
 """
 from __future__ import annotations
 

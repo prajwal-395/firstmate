@@ -109,7 +109,7 @@ and points here.
 **Nothing refuses a track on rights, and no rights model may be built.**
 Captain's ruling 2026-08-28: *"just assume for everything that you already have a licence ... so song choices need to be made on creative decisions - not if a license exists or not"*.
 Where a track came from is RECORDED as `provenance` - the query, the URL, the channel, and whatever the platform stated - and read by nothing.
-`tests/test_music_search.py` fails if any code path branches on a licence.
+`tests/unit/audio/test_music_search.py` fails if any code path branches on a licence.
 
 **Search is one enumeration, `library/tools/music_search.py`, and it runs by default.**
 Captain's ruling of 2026-09-02: search should run by default rather than waiting on a flag nobody sets.  When a project declares no `pipeline.music_search`, the query is derived from creative_direction's `target_mood` and `narrative_theme` - the model's own words from step 2.01.  A project that sets `pipeline.music_search: false` declines search explicitly.  When search does not run for any reason, the run says so LOUDLY rather than quietly presenting the on-disk files as the whole menu.
@@ -117,5 +117,5 @@ Captain's ruling of 2026-09-02: search should run by default rather than waiting
 - **A result is judged on duration BEFORE anything is downloaded**, off the metadata the search returns for free.
 - **A fetched candidate is MEASURED before the model sees it**, through the same `measure_candidates` pass a local track takes, and it is fetched through `download_track.download_audio` - the one fetch path.
 - `yt-dlp` is in `requirements.txt` with a measured version floor. [why](docs/RULE_EVIDENCE.md#what-searching-for-music-costs)
-- `tests/test_music_search.py`, and [`docs/MUSIC_SOURCING.md`](docs/MUSIC_SOURCING.md) §5 for the table.
+- `tests/unit/audio/test_music_search.py`, and [`docs/MUSIC_SOURCING.md`](docs/MUSIC_SOURCING.md) §5 for the table.
 ```

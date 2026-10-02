@@ -215,7 +215,7 @@ def request_host_answer(prompt: str, image_paths: list,
     # `PreBridgeError: bridge.py produced invalid JSON`), and a vision
     # child inherits its step's stdout too. The runner streams bridge
     # stderr as the step's log, so the driver watches the marker there.
-    # See tests/test_still_vision.py (finding 1: every agent-mode run
+    # See tests/unit/resolve/test_still_vision.py (finding 1: every agent-mode run
     # failed at colour grading on this line).
     print(f"{_handshake.READY_MARKER}: {req_path}", file=sys.stderr,
           flush=True)

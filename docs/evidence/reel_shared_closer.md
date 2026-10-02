@@ -1,11 +1,11 @@
 # Shared reel closers and the caption-segment identity
 
 Moved verbatim on 2026-10-02 from the module docstring of
-`tests/test_reel_segment_collision.py` when the test file kept only its
+`tests/unit/reels/test_reel_segment_collision.py` when the test file kept only its
 invariant. The narrower tests that file also carried (different words never
 share a filename; one filename behind two content keys is refused; the master
 timeline needs no discriminator) duplicated
-`tests/test_subtitle_segment_id.py` and were removed.
+`tests/unit/captions/test_subtitle_segment_id.py` and were removed.
 
 ```text
 Two reels that share a closer SHARE a file; two that differ must not.
@@ -42,7 +42,7 @@ ranges is not on this machine, and the span's exact numbers are not what
 is under test - that two reels sharing ANY span share the file is.
 ```
 
-## `tests/test_closer_redraw.py` (moved from its module docstring, 2026-10-02)
+## `tests/unit/reels/test_closer_redraw.py` (moved from its module docstring, 2026-10-02)
 
 The shared CTA opens on a sentence start, by a pin that survives rebuilds.
 

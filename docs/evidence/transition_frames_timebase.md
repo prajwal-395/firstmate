@@ -1,6 +1,6 @@
 # Transition `duration_frames` uses the project's measured timebase
 
-Tests: `tests/test_transition_frames_use_the_projects_timebase.py` (moved from its module docstring, 2026-10-02).
+Tests: `tests/unit/picture/test_transition_frames_use_the_projects_timebase.py` (moved from its module docstring, 2026-10-02).
 
 `duration_frames` is computed from the timebase the catalog MEASURED.
 

@@ -22,7 +22,7 @@ cheap structural checks (`verify_reels`, `reel_conformance_verifier`) run
 always; the watch is the expensive check, on request.  No `build-reels`,
 no `run`, no DAG and no operation reaches it;
 `library/processes/reels/dag.json` stays two nodes
-(`tests/test_reel_deliver_is_explicit.py`).  The cost is the model reading
+(`tests/contracts/test_reel_deliver_is_explicit.py`).  The cost is the model reading
 the strips, not the decode (one ffmpeg call per strip).
 
 **Report, not gate.**  The watch does not fail a build or a render: every
@@ -42,7 +42,7 @@ any frame.
 The audit that found no step had seen the picture, the measured strip
 cost, and the accounting of which recorded interventions a watcher would
 have caught: docs/evidence/render_watch.md and
-`docs/WATCHING_THE_BUILT_REEL.md`.  `tests/test_render_watch_in_render.py`.
+`docs/WATCHING_THE_BUILT_REEL.md`.  `tests/unit/resolve/test_render_watch_in_render.py`.
 """
 
 from __future__ import annotations

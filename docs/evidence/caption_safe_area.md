@@ -1,6 +1,6 @@
 # The safe area and the caption fitter that had never run
 
-Moved from `tests/test_caption_safe_area.py`.
+Moved from `tests/unit/captions/test_caption_safe_area.py`.
 
 Two halves of one defect, tested together because they are one number seen
 from two sides. `plan_subtitles.text_fits_on_screen` measured real glyph widths

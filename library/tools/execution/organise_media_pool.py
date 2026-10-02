@@ -84,11 +84,11 @@ above is still the instrument that answers for it.
 Nothing here deletes
 --------------------
 There is no `DeleteFolders`, `DeleteClips` or `DeleteTimelines` call in
-this file, and `tests/test_resolve_organization.py` asserts their
+this file, and `tests/unit/resolve/test_resolve_organization.py` asserts their
 absence.  A revert moves items back and restores metadata; it reports
 the bins it cannot un-create rather than deleting them.
 
-`tests/test_resolve_organization.py`.
+`tests/unit/resolve/test_resolve_organization.py`.
 """
 from __future__ import annotations
 

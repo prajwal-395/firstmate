@@ -1,11 +1,10 @@
 """Session-wide hooks. Test fixtures and the projects-root sandbox live
 in `tests/conftest.py`; this file exists for what has to see the WHOLE
-session, including the test modules under `library/tools/fusion/tests/`
-that a conftest inside `tests/` never reaches.
+session, whatever paths a run is handed.
 
 Right now that is one thing: every skip a run reports must name an
 environment that RUNS the test. See `tests/skip_audit.py` for why, and
-`tests/test_no_unfailable_tests.py` for the check on the check.
+`tests/tooling/test_no_unfailable_tests.py` for the check on the check.
 """
 import os
 import sys
