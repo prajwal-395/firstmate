@@ -7,7 +7,8 @@ exists to protect take seconds per reel. Reel throughput was capped
 at one build at a time however many lanes ran.
 
 The shape pinned here: derivation holds NOTHING, one exclusive hold
-per placed reel covers the carried self-read, the decision, the
+per reel covers the carried self-read and the decision, the placement
+plan is prepared holding nothing, a second exclusive hold covers the
 placement and the Fusion comp pass, and handle-only gate/survey reads
 run under shared holds. Cursor-moving drift and digest reads take
 exclusive holds. A test that only asserts "the build takes
@@ -191,10 +192,15 @@ def _run_build(mock_project_env, patches, events, snapshot):
     from library.tools.reel_build import rebuild_reels_in_project
 
     real_subtitles = rb.reel_subtitle_segments
+    real_prepare = rb.prepare_reel_timeline
 
     def spy_subtitles(*args, **kwargs):
         events.append(("derivation", snapshot()))
         return real_subtitles(*args, **kwargs)
+
+    def spy_prepare(*args, **kwargs):
+        events.append(("prepare-call", snapshot()))
+        return real_prepare(*args, **kwargs)
 
     def spy_place(**kwargs):
         events.append(("place-call", snapshot()))
@@ -210,7 +216,9 @@ def _run_build(mock_project_env, patches, events, snapshot):
 
     patches["verifier"].side_effect = verify_side_effect
     with patch.object(rb, "reel_subtitle_segments",
-                      side_effect=spy_subtitles):
+                      side_effect=spy_subtitles), \
+            patch.object(rb, "prepare_reel_timeline",
+                         side_effect=spy_prepare):
         with patch.object(rb, "build_reel_timeline",
                           side_effect=spy_place):
             return rebuild_reels_in_project(
@@ -274,6 +282,24 @@ def test_placement_holds_one_exclusive_hold(built_with_spies):
     assert len(places) == 1
     assert _holds_open(places[0]) == [
         ("place Reel 01 (rebuild staging)", True)]
+
+
+def test_placement_planning_holds_nothing(built_with_spies):
+    """FREE -> RESOLVE -> FREE: the reel's placement plan - offsets,
+    angle plan, freeze render, post header, track plan, promoted
+    artefacts - is computed between the decision hold and the
+    placement hold, holding neither. It used to run inside
+    `build_reel_timeline`, under the placement's exclusive hold."""
+    events = built_with_spies["events"]
+    prepares = [e for e in events if e[0] == "prepare-call"]
+    assert len(prepares) == 1
+    assert _holds_open(prepares[0]) == []
+    order = [e[1] for e in events if e[0] == "lease-enter"]
+    decide = order.index("decide Reel 01 (rebuild staging)")
+    place = order.index("place Reel 01 (rebuild staging)")
+    assert decide < place
+    assert events.index(prepares[0]) > events.index(
+        ("lease-exit", "decide Reel 01 (rebuild staging)", True))
 
 
 def test_the_gate_reads_under_a_shared_hold(built_with_spies):

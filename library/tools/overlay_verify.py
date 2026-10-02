@@ -327,20 +327,17 @@ ClipInput = Dict[str, object]
 ComputedMap = Dict[Tuple[Optional[str], Optional[str]], Optional[dict]]
 
 
-def _stored_transform(timeline, track_index: int,
-                      record_frame: int,
-                      resolve_project) -> Optional[Dict[str, float]]:
-    """What Resolve holds for one placed overlay clip, or None.
+def _row_items_by_start(timeline, track_index: int) -> Optional[dict]:
+    """One listing of a row: record frame -> the FIRST item starting there.
 
-    Read off a FRESH handle for the item at `(track, record frame)` -
-    never the handle the placer wrote through. The row itself comes
-    from `reel_read.live_track_items` - this sweep takes that slice
-    rather than opening its own `GetItemListInTrack` probe
+    The row comes from `reel_read.live_track_items` - this sweep takes
+    that slice rather than opening its own `GetItemListInTrack` probe
     (tests/test_reel_read.py: no direct Resolve reads outside the
-    reader modules). None is unreadable (no item, no properties),
-    which the sweep SKIPS loudly rather than passing - a clip nothing
-    could read is not a clip that verified.
-    No `hasattr`: always True on Resolve's proxies (AGENTS.md 5).
+    reader modules). Listed ONCE per row, not once per overlay: a
+    reel's captions share one row, and re-listing it for each of them
+    held the instance for rows x items reads where one listing serves.
+    None is an unreadable row. An item whose start will not read (a
+    stale handle) is passed over, as it always was.
     """
     from library.tools import reel_read as _reel_read
 
@@ -348,29 +345,44 @@ def _stored_transform(timeline, track_index: int,
         items = _reel_read.live_track_items(timeline, "video", track_index)
     except Exception:  # noqa: BLE001 - unreadable, skipped below
         return None
+    by_start: dict = {}
     for item in items:
         try:
-            if item.GetStart() != record_frame:
-                continue
+            start = item.GetStart()
         except Exception:  # noqa: BLE001 - a stale handle, keep looking
             continue
-        try:
-            from library.tools.reel_read import (
-                read_transform_timeline_units)
+        by_start.setdefault(start, item)
+    return by_start
 
-            transform = read_transform_timeline_units(
-                item, timeline, resolve_project)
-            if transform is None:
-                return None
-            values = {prop: float(transform[prop])
-                      for prop in ("Scaling", "Pan", "Tilt")}
-        except (TypeError, ValueError):
+
+def _stored_transform(item, timeline,
+                      resolve_project) -> Optional[Dict[str, float]]:
+    """What Resolve holds for one placed overlay clip, or None.
+
+    Read off a FRESH handle for the item at `(track, record frame)` -
+    never the handle the placer wrote through. None is unreadable (no
+    item, no properties), which the sweep SKIPS loudly rather than
+    passing - a clip nothing could read is not a clip that verified.
+    No `hasattr`: always True on Resolve's proxies (AGENTS.md 5).
+    """
+    if item is None:
+        return None
+    try:
+        from library.tools.reel_read import (
+            read_transform_timeline_units)
+
+        transform = read_transform_timeline_units(
+            item, timeline, resolve_project)
+        if transform is None:
             return None
-        except Exception:  # noqa: BLE001 - unreadable, skipped below
-            return None
-        return {"scaling": values["Scaling"], "pan": values["Pan"],
-                "tilt": values["Tilt"]}
-    return None
+        values = {prop: float(transform[prop])
+                  for prop in ("Scaling", "Pan", "Tilt")}
+    except (TypeError, ValueError):
+        return None
+    except Exception:  # noqa: BLE001 - unreadable, skipped below
+        return None
+    return {"scaling": values["Scaling"], "pan": values["Pan"],
+            "tilt": values["Tilt"]}
 
 
 def _asset_still(segment_files: dict) -> Optional[str]:
@@ -426,13 +438,56 @@ def sweep_reel_overlays(timeline, placed: Sequence[dict], *,
     build is worse than the defect it catches (AGENTS.md 10.4), so an
     unreadable timeline reports `{"unavailable": reason}` and the build
     proceeds.
+
+    Two halves, so a caller holding the instance can keep only the
+    first under its hold (FREE -> RESOLVE -> FREE): `read_reel_overlays`
+    is the Resolve read, `judge_reel_overlays` the comparison and the
+    pixel compositing, which touch no Resolve state.
     """
+    return judge_reel_overlays(
+        read_reel_overlays(timeline, placed,
+                           resolve_project=resolve_project),
+        intent=intent, full_wh=full_wh, draw_gain=draw_gain)
+
+
+def read_reel_overlays(timeline, placed: Sequence[dict], *,
+                       resolve_project) -> dict:
+    """The RESOLVE half of the sweep: each placed overlay's stored
+    transform, as plain data `judge_reel_overlays` reads with no handle.
+
+    Never raises; a read that fails is carried as `unavailable` and
+    reported by the judge.
+    """
+    try:
+        rows: dict = {}
+        stored = []
+        for entry in placed or []:
+            track_index = entry.get("track_index")
+            if track_index not in rows:
+                rows[track_index] = _row_items_by_start(timeline,
+                                                        track_index)
+            row = rows[track_index]
+            stored.append(_stored_transform(
+                None if row is None else row.get(entry.get("record_frame")),
+                timeline, resolve_project))
+    except Exception as failed:  # noqa: BLE001 - report, never refuse
+        return {"unavailable": str(failed)}
+    return {"placed": [dict(entry) for entry in placed or []],
+            "stored": stored}
+
+
+def judge_reel_overlays(reads: dict, *,
+                        intent: Optional[dict] = None,
+                        full_wh: Tuple[int, int],
+                        draw_gain: float = FALLBACK_DRAW_GAIN) -> dict:
+    """The FREE half of the sweep: `read_reel_overlays`' reads against
+    intent, values then pixels. Never raises."""
     import sys
 
     try:
-        return _sweep_reel_overlays(timeline, placed, intent=intent,
-                                    resolve_project=resolve_project,
-                                    full_wh=full_wh,
+        if "unavailable" in reads:
+            raise RuntimeError(reads["unavailable"])
+        return _judge_reel_overlays(reads, intent=intent, full_wh=full_wh,
                                     draw_gain=draw_gain)
     except Exception as failed:  # noqa: BLE001 - report, never refuse
         reason = f"overlay sweep unavailable ({failed}); the reel stands."
@@ -441,8 +496,7 @@ def sweep_reel_overlays(timeline, placed: Sequence[dict], *,
                 "values": None, "pixels": None}
 
 
-def _sweep_reel_overlays(timeline, placed: Sequence[dict], *,
-                         resolve_project,
+def _judge_reel_overlays(reads: dict, *,
                          intent: Optional[dict] = None,
                          full_wh: Tuple[int, int],
                          draw_gain: float = FALLBACK_DRAW_GAIN) -> dict:
@@ -451,13 +505,10 @@ def _sweep_reel_overlays(timeline, placed: Sequence[dict], *,
     computed: ComputedMap = {}
     value_clips: List[dict] = []
     pixel_clips: List[dict] = []
-    for entry in placed or []:
+    for entry, stored in zip(reads["placed"], reads["stored"]):
         kind = entry.get("kind")
         segment_id = entry.get("segment_id")
         computed[(kind, segment_id)] = entry.get("placement")
-        stored = _stored_transform(timeline, entry.get("track_index"),
-                                   entry.get("record_frame"),
-                                   resolve_project)
         clip = {"label": entry.get("label", "?"), "kind": kind,
                 "segment_id": segment_id,
                 "placement_label": entry.get("placement_label"),

@@ -419,6 +419,7 @@ def resolve_reel_program_channels(angles: Sequence[dict],
                                   project_folder: str = "",
                                   master_timeline=None,
                                   explicit: Optional[Dict[str, int]] = None,
+                                  live: Optional[Dict[str, int]] = None,
                                   ) -> Dict[str, int]:
     """The program stream per reel angle, or a refusal naming the source.
 
@@ -431,6 +432,10 @@ def resolve_reel_program_channels(angles: Sequence[dict],
     recorded, and an angle whose sources disagree, REFUSE rather than
     default: the mix is declared or measured, never stream 0 dressed
     as the mix.
+
+    `live` is `master_program_channels(master_timeline)` already read -
+    a caller that holds the instance once for the master reads it there
+    and plans every reel FREE; without it the master is read here.
     """
     explicit = dict(explicit or {})
     try:
@@ -440,7 +445,8 @@ def resolve_reel_program_channels(angles: Sequence[dict],
     except Exception:
         declared = None
     catalog, refused = catalog_program_channels(project_folder)
-    live = master_program_channels(master_timeline)
+    if live is None:
+        live = master_program_channels(master_timeline)
 
     by_angle_files: Dict[str, set] = {}
     for clip in master_clips or ():
@@ -7771,99 +7777,58 @@ def _place_transition_element(pool, project, timeline, name: str,
             f"refuses")
 
 
-def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", cards=None, overlay_placements=None, explainer_segments=None, semantic_segments=None, look=None, motion=None, master_timeline=None, program_channels=None, extra_cuts: Sequence[tuple] = (), j_cut: dict = None, cutaway: dict = None, grade_cdl=None, power_grade=None, overlay_intent: dict = None, ranges=None, ending=None, lower_third_segments=None, card_row_role=None, do_not_draw: list = None,
-                      draw_gain: float = FALLBACK_DRAW_GAIN,
-                      edit_ledger_rows=None,
-                      single_reel_scope: bool = False):
-    """Place one reel.  `timeline_name` is what Resolve will CALL it.
+@dataclass
+class ReelPlacementPlan:
+    """Everything one reel's placement needs that touches no Resolve state.
 
-    Defaults to `moment.timeline_name`, which is the plan's own name and
-    what every build did before `built_name` existed.  A caller that
-    passes something else is building the same reel into a different
-    container - see `built_name`.
+    The FREE half of `build_reel_timeline` (FREE -> RESOLVE -> FREE,
+    the single-Resolve plan's item 2): the reel's shape, offsets, angle
+    plan, freeze tail, post header, track plan and the rendered,
+    promoted artefacts the placement imports. `prepare_reel_timeline`
+    makes it with no hold, so a build holds the instance only for
+    the placement itself; `build_reel_timeline(prepared=...)` places
+    it. Computed exactly as the placement used to compute it inline,
+    so the timeline it places is the same.
+    """
 
-    `cards` are the RENDERED full-frame elements this reel contains, each
-    carrying the file it was rendered to
-    (`library/tools/full_frame_element.py`).  They go on the first
-    picture row, which is a picture track and not a layer above one: a
-    full-frame element REPLACES picture for its stretch rather than
-    overlaying it, so it is inside the same hole check, item count and
-    framing check every other picture item is.  A HEAD card pushes all
-    the footage down by `lead_frames`, which is the same number
-    `reel_subtitle_segments` was given, so picture and captions move
-    together or not at all.  A SPAN covers the whole body instead: the
-    footage video is suppressed where it plays and the spine audio
-    stays, so the reel is an animated cut over its own speech.
+    name: str
+    ledger_rows: list
+    suppressions: list
+    suppressed_ids: list
+    placements_list: list
+    subtitle_segments: list
+    offset_links: list
+    freeze_tail: object
+    resolved_channels: dict
+    post_header: object
+    track_plan: object
+    video_row_by_angle: dict
+    speech_row_by_angle: dict
+    build_record: dict
+    cards: list
+    frame_segments: Optional[list]
 
-    `overlay_placements` are transition elements laid OVER the reel's own
-    cuts, from `library/tools/transition_overlay.py`.  They are ADDITIVE:
-    the picture and the captions below are placed identically whether
-    there are none or ten, because an element hides a cut rather than
-    consuming frames from either side of it - see
-    `transition_overlay.TIMING_IS_ADDITIVE`.  None or an empty list
-    places nothing AND adds no track, so a project that declares no
-    element gets no transitions row - which is the same "declare
-    nothing and get nothing" shape every other effect slot has.
 
-    `look` is the project's resolved TV-frame declaration
-    (`library/tools/reel_look.py`) or None.  Under it each angle's
-    picture keeps its own row - one row per speaker, the way the speech
-    rows already are (captain's ruling on Reel 09, 2026-09-09) - and
-    plays at the declared punch-in, the frame asset spans each run of
-    picture on the frame row above them, and the switch animation and
-    any planned drift are applied afterwards as Fusion comps - by the
-    caller, in its own process (AGENTS.md 5).  `motion` is the reel's
-    RESOLVED drift plan, carried here only so the manifest that pass
-    reads can be built from the placements this function really made.
-    None for either is the timeline this function built before they
-    existed.
+def prepare_reel_timeline(moment, master_clips, subtitle_segments, fps,
+                          width, height, project_folder, transcript,
+                          timeline_name: str = "", cards=None,
+                          overlay_placements=None, explainer_segments=None,
+                          semantic_segments=None, look=None,
+                          master_timeline=None, program_channels=None,
+                          extra_cuts: Sequence[tuple] = (),
+                          j_cut: dict = None, cutaway: dict = None,
+                          ranges=None, ending=None,
+                          lower_third_segments=None, card_row_role=None,
+                          do_not_draw: list = None,
+                          draw_gain: float = FALLBACK_DRAW_GAIN,
+                          edit_ledger_rows=None,
+                          live_program_channels: Optional[dict] = None,
+                          ) -> ReelPlacementPlan:
+    """The FREE half of `build_reel_timeline`: no Resolve call, no hold.
 
-    `master_timeline` is the live master this reel is cut from, and is
-    how the builder reaches the recorded program stream on projects
-    whose catalog predates stream recording (or that have no catalog):
-    the master's own speech rows already carry only program audio.
-    `program_channels` ({angle_key: channel}) overrides both routes -
-    what a test passes.  Either way every angle's stream is resolved
-    BEFORE the timeline is created, and an unresolvable one refuses
-    the build rather than placing a default.
-
-    `j_cut` is an optional {"join_seconds", "lead_seconds", "words"}
-    spec (`plan_j_cut`): the audio cut moves earlier than the picture
-    cut at that join, so the ear crosses before the eye. `cutaway` is
-    an optional {"hide_angle", "window_seconds", "cover_words"} spec
-    (`plan_cutaway`): that angle's picture is hidden over the window,
-    revealing the continuous angle beneath, and the audio never moves.
-    Either spec makes the link pass strict - anything still unlinked
-    afterwards refuses the build rather than placing silently - and
-    shifts the caption cards that travel with moved speech. Both are
-    None by default, which builds exactly what this built before.
-
-    `grade_cdl` is the project's declared CDL half as
-    `reel_look.resolve_grade_cdl` renders it (slope/offset/power/
-    saturation in the key names step 6.01 formats), or None/{}. It is
-    applied here, in process, onto every footage picture item - after
-    the picture is placed and before this function returns, while the
-    Fusion pass runs afterwards in its own process. That is the v04
-    still's own order (`data/vep-grade-variants/report.md` section 2:
-    CDL first as SetCDL, then the Fusion chain), held structurally
-    rather than by convention. None means the project declares no
-    look, and then this is the timeline it built before the CDL half
-    existed.
-
-    `power_grade` is the project's declared PowerGrade `.drx` as
-    `reel_look.resolve_power_grade` reads it, or None. Where one is
-    declared it is THE GRADE and `grade_cdl` does not go on separately:
-    `ApplyGradeFromDRX` replaces the whole node graph, so the CDL rides
-    INSIDE it, on the node the declaration names. Measured on Reel 09,
-    2026-09-10: the CDL route on its own returned True and rendered a
-    still byte-identical to no grade at all, while the DRX route read
-    back 8 real Color page nodes and moved 28.9% of the frame.
-    `reel_look.apply_grade` is the one place that choice is made.
-
-    Returns the build record: the track plan as placed, what stream
-    enforcement removed, what the link pass joined, which empty rows
-    were deleted, and which master clips were skipped - so the
-    conformance proof is gradeable without re-deriving any of it.
+    `live_program_channels` is `master_program_channels(master_timeline)`
+    read by the caller under its own hold; without it the master is
+    read here, which the caller must then hold for.
     """
     import sys, os
 
@@ -7901,7 +7866,6 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     # semantic visuals, lower thirds - holds the same deletions, and
     # so the build record can say which rules fired and which matched
     # nothing.
-    from library.tools import do_not_draw as _dnd
     suppressions = list(do_not_draw or [])
     suppressed_ids: list = []
 
@@ -8052,7 +8016,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     # - so there is exactly one thing that decides a track index.
     resolved_channels = resolve_reel_program_channels(
         angles, master_clips, project_folder,
-        master_timeline=master_timeline, explicit=program_channels)
+        master_timeline=master_timeline, explicit=program_channels,
+        live=live_program_channels)
     caption_spans = [
         (int(round(s["timeline_start"] * fps)),
          int(round(s["timeline_end"] * fps)))
@@ -8115,6 +8080,166 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         # on it without re-deriving what this build already rendered.
         "freeze": freeze_tail,
     }
+
+    from library.tools.reel_placed_assets import promote_cards
+    frame_segments = None
+    if look is not None:
+        # The TV frame is a RENDERED overlay drawn over the picture runs;
+        # rendering and promoting it touches no Resolve state, so it
+        # happens here, before any hold, and the placement only imports.
+        from library.tools import reel_look as _look
+        from library.tools.reel_placed_assets import promote_frame_overlays
+        frame_segments = promote_frame_overlays(
+            _look.frame_overlay_segments(
+                look, _look.frame_runs(placements_list, fps), fps, width,
+                height, project_folder),
+            project_folder)
+    return ReelPlacementPlan(
+        name=name, ledger_rows=ledger_rows, suppressions=suppressions,
+        suppressed_ids=suppressed_ids,
+        placements_list=placements_list,
+        subtitle_segments=subtitle_segments, offset_links=offset_links,
+        freeze_tail=freeze_tail, resolved_channels=resolved_channels,
+        post_header=post_header, track_plan=track_plan,
+        video_row_by_angle=video_row_by_angle,
+        speech_row_by_angle=speech_row_by_angle,
+        build_record=build_record,
+        # Rendered into scratch as the renderer's own cache, so promoted
+        # into the durable REEL_CARDS area before anything is imported: a
+        # timeline that points under scratch/ points at files a cleaner
+        # may throw away (library/tools/reel_placed_assets.py).
+        cards=promote_cards(cards, project_folder),
+        frame_segments=frame_segments)
+
+
+def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", cards=None, overlay_placements=None, explainer_segments=None, semantic_segments=None, look=None, motion=None, master_timeline=None, program_channels=None, extra_cuts: Sequence[tuple] = (), j_cut: dict = None, cutaway: dict = None, grade_cdl=None, power_grade=None, overlay_intent: dict = None, ranges=None, ending=None, lower_third_segments=None, card_row_role=None, do_not_draw: list = None,
+                      draw_gain: float = FALLBACK_DRAW_GAIN,
+                      edit_ledger_rows=None,
+                      single_reel_scope: bool = False,
+                      prepared: Optional[ReelPlacementPlan] = None,
+                      defer_overlay_sweep: bool = False):
+    """Place one reel.  `timeline_name` is what Resolve will CALL it.
+
+    Defaults to `moment.timeline_name`, which is the plan's own name and
+    what every build did before `built_name` existed.  A caller that
+    passes something else is building the same reel into a different
+    container - see `built_name`.
+
+    `cards` are the RENDERED full-frame elements this reel contains, each
+    carrying the file it was rendered to
+    (`library/tools/full_frame_element.py`).  They go on the first
+    picture row, which is a picture track and not a layer above one: a
+    full-frame element REPLACES picture for its stretch rather than
+    overlaying it, so it is inside the same hole check, item count and
+    framing check every other picture item is.  A HEAD card pushes all
+    the footage down by `lead_frames`, which is the same number
+    `reel_subtitle_segments` was given, so picture and captions move
+    together or not at all.  A SPAN covers the whole body instead: the
+    footage video is suppressed where it plays and the spine audio
+    stays, so the reel is an animated cut over its own speech.
+
+    `overlay_placements` are transition elements laid OVER the reel's own
+    cuts, from `library/tools/transition_overlay.py`.  They are ADDITIVE:
+    the picture and the captions below are placed identically whether
+    there are none or ten, because an element hides a cut rather than
+    consuming frames from either side of it - see
+    `transition_overlay.TIMING_IS_ADDITIVE`.  None or an empty list
+    places nothing AND adds no track, so a project that declares no
+    element gets no transitions row - which is the same "declare
+    nothing and get nothing" shape every other effect slot has.
+
+    `look` is the project's resolved TV-frame declaration
+    (`library/tools/reel_look.py`) or None.  Under it each angle's
+    picture keeps its own row - one row per speaker, the way the speech
+    rows already are (captain's ruling on Reel 09, 2026-09-09) - and
+    plays at the declared punch-in, the frame asset spans each run of
+    picture on the frame row above them, and the switch animation and
+    any planned drift are applied afterwards as Fusion comps - by the
+    caller, in its own process (AGENTS.md 5).  `motion` is the reel's
+    RESOLVED drift plan, carried here only so the manifest that pass
+    reads can be built from the placements this function really made.
+    None for either is the timeline this function built before they
+    existed.
+
+    `master_timeline` is the live master this reel is cut from, and is
+    how the builder reaches the recorded program stream on projects
+    whose catalog predates stream recording (or that have no catalog):
+    the master's own speech rows already carry only program audio.
+    `program_channels` ({angle_key: channel}) overrides both routes -
+    what a test passes.  Either way every angle's stream is resolved
+    BEFORE the timeline is created, and an unresolvable one refuses
+    the build rather than placing a default.
+
+    `j_cut` is an optional {"join_seconds", "lead_seconds", "words"}
+    spec (`plan_j_cut`): the audio cut moves earlier than the picture
+    cut at that join, so the ear crosses before the eye. `cutaway` is
+    an optional {"hide_angle", "window_seconds", "cover_words"} spec
+    (`plan_cutaway`): that angle's picture is hidden over the window,
+    revealing the continuous angle beneath, and the audio never moves.
+    Either spec makes the link pass strict - anything still unlinked
+    afterwards refuses the build rather than placing silently - and
+    shifts the caption cards that travel with moved speech. Both are
+    None by default, which builds exactly what this built before.
+
+    `grade_cdl` is the project's declared CDL half as
+    `reel_look.resolve_grade_cdl` renders it (slope/offset/power/
+    saturation in the key names step 6.01 formats), or None/{}. It is
+    applied here, in process, onto every footage picture item - after
+    the picture is placed and before this function returns, while the
+    Fusion pass runs afterwards in its own process. That is the v04
+    still's own order (`data/vep-grade-variants/report.md` section 2:
+    CDL first as SetCDL, then the Fusion chain), held structurally
+    rather than by convention. None means the project declares no
+    look, and then this is the timeline it built before the CDL half
+    existed.
+
+    `power_grade` is the project's declared PowerGrade `.drx` as
+    `reel_look.resolve_power_grade` reads it, or None. Where one is
+    declared it is THE GRADE and `grade_cdl` does not go on separately:
+    `ApplyGradeFromDRX` replaces the whole node graph, so the CDL rides
+    INSIDE it, on the node the declaration names. Measured on Reel 09,
+    2026-09-10: the CDL route on its own returned True and rendered a
+    still byte-identical to no grade at all, while the DRX route read
+    back 8 real Color page nodes and moved 28.9% of the frame.
+    `reel_look.apply_grade` is the one place that choice is made.
+
+    Returns the build record: the track plan as placed, what stream
+    enforcement removed, what the link pass joined, which empty rows
+    were deleted, and which master clips were skipped - so the
+    conformance proof is gradeable without re-deriving any of it.
+    """
+    import sys, os
+
+    if prepared is None:
+        prepared = prepare_reel_timeline(
+            moment, master_clips, subtitle_segments, fps, width, height,
+            project_folder, transcript, timeline_name=timeline_name,
+            cards=cards, overlay_placements=overlay_placements,
+            explainer_segments=explainer_segments,
+            semantic_segments=semantic_segments, look=look,
+            master_timeline=master_timeline,
+            program_channels=program_channels, extra_cuts=extra_cuts,
+            j_cut=j_cut, cutaway=cutaway, ranges=ranges, ending=ending,
+            lower_third_segments=lower_third_segments,
+            card_row_role=card_row_role, do_not_draw=do_not_draw,
+            draw_gain=draw_gain, edit_ledger_rows=edit_ledger_rows)
+    from library.tools import do_not_draw as _dnd
+    from library.tools import edit_ledger as _ledger
+    name = prepared.name
+    ledger_rows = prepared.ledger_rows
+    suppressions = prepared.suppressions
+    suppressed_ids = prepared.suppressed_ids
+    placements_list = prepared.placements_list
+    subtitle_segments = prepared.subtitle_segments
+    offset_links = prepared.offset_links
+    freeze_tail = prepared.freeze_tail
+    resolved_channels = prepared.resolved_channels
+    post_header = prepared.post_header
+    track_plan = prepared.track_plan
+    video_row_by_angle = prepared.video_row_by_angle
+    speech_row_by_angle = prepared.speech_row_by_angle
+    build_record = prepared.build_record
+    cards = prepared.cards
 
     pool = project.GetMediaPool()
 
@@ -8243,10 +8368,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     # into the durable REEL_CARDS area before anything is imported: a
     # timeline that points under scratch/ points at files a cleaner may
     # throw away (library/tools/reel_placed_assets.py).
-    from library.tools.reel_placed_assets import (
-        assert_placeable, promote_cards,
-    )
-    cards = promote_cards(cards, project_folder)
+    # Already promoted out of scratch by `prepare_reel_timeline`.
+    from library.tools.reel_placed_assets import assert_placeable
     head_tail_at = 0
     for card in (cards or ()):
         path = getattr(card, "rendered_path", "") or ""
@@ -8513,13 +8636,9 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         # there points at files a cleaner may throw away
         # (library/tools/reel_placed_assets.py). The placer re-proves
         # it through project_folder.
-        from library.tools.reel_placed_assets import promote_frame_overlays
+        # Rendered and promoted by `prepare_reel_timeline`, before the hold.
         suppressed_ids.extend(place_overlay_segments(
-            pool, project, timeline, name, fps,
-            promote_frame_overlays(
-                _look.frame_overlay_segments(look, runs, fps, width, height,
-                                             project_folder),
-                project_folder),
+            pool, project, timeline, name, fps, prepared.frame_segments,
             track_plan.row_for_role(FRAME).index,
             kind="TV frame", check="F4",
             properties=_look.frame_properties(look, width, height,
@@ -8939,16 +9058,28 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     # built, and a sweep that fails a correct build is worse than the
     # defect it catches. Runs here - after the last placement, before
     # the occupancy pass deletes empty rows and moves the indices.
+    # `defer_overlay_sweep` keeps only the READ here: the caller judges
+    # it (`judge_overlay_sweep`) after releasing the instance, because
+    # the comparison and the pixel compositing touch no Resolve state.
     if _sweep_records:
         from library.tools.overlay_verify import (
-            sweep_reel_overlays as _sweep_reel_overlays,
+            judge_reel_overlays as _judge_reel_overlays,
+            read_reel_overlays as _read_reel_overlays,
         )
         print(f"── Overlay sweep ({len(_sweep_records)} tight overlay(s)) ──",
               file=sys.stderr)
-        build_record["overlay_sweep"] = _sweep_reel_overlays(
-            timeline, _sweep_records, resolve_project=project,
-            intent=overlay_intent,
-            full_wh=(width, height), draw_gain=draw_gain)
+        _sweep_reads = _read_reel_overlays(
+            timeline, _sweep_records, resolve_project=project)
+        _sweep_judgement = dict(intent=overlay_intent,
+                                full_wh=(width, height),
+                                draw_gain=draw_gain)
+        if defer_overlay_sweep:
+            build_record["overlay_sweep"] = None
+            build_record["overlay_sweep_reads"] = (_sweep_reads,
+                                                   _sweep_judgement)
+        else:
+            build_record["overlay_sweep"] = _judge_reel_overlays(
+                _sweep_reads, **_sweep_judgement)
     else:
         build_record["overlay_sweep"] = {
             "passed": True, "checked": 0,
@@ -9034,6 +9165,20 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
 
     return build_record
 
+
+
+def judge_overlay_sweep(build_record: dict) -> None:
+    """Judge a sweep `build_reel_timeline(defer_overlay_sweep=True)` read.
+
+    FREE: the reads are plain data, so this runs after the caller has
+    released the instance. Fills `build_record["overlay_sweep"]`.
+    """
+    deferred = build_record.pop("overlay_sweep_reads", None)
+    if deferred is not None:
+        from library.tools.overlay_verify import judge_reel_overlays
+        reads, judgement = deferred
+        build_record["overlay_sweep"] = judge_reel_overlays(reads,
+                                                            **judgement)
 
 
 def _write_reel_record(project_folder: str, writer, *args, **kwargs):
@@ -11535,6 +11680,10 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             raise ValueError(f"Could not find master timeline {master_timeline_name}")
 
         snapshot = snapshot_timeline(timeline, project.GetName())
+        # The master's own program streams, read once here so every
+        # reel's placement is planned with no hold
+        # (`prepare_reel_timeline`).
+        _live_program_channels = master_program_channels(timeline)
     master_clips = snapshot.clips
 
     # `building` was selected before the repair passes, so only the
@@ -12628,41 +12777,31 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             )
             build_signatures[name] = _need.signature_for_record(
                 _derivation)
-            # ── THE HOLD, per reel ──
-            # The carried self-read, the decision, the placement and
-            # the Fusion comp pass hold the instance EXCLUSIVELY, and
-            # nothing else in this loop does. Everything above -
-            # ranges, cards, caption renders, model answers, digests -
-            # derived with no hold, so lanes overlap there and meet
-            # only here, for the measured seconds-to-a-minute a reel's
-            # Resolve pass costs. The Fusion subprocess inherits this
-            # hold, because comps act on the current timeline's items
-            # and must not run while another lane moves the cursor.
-            # A `continue` below exits the hold; the loop's failure
-            # path discards under its own hold.
-            # Keep the global order: Resolve lease first, machine-wide
-            # heavy-work lock second. A Resolve waiter must not reserve
-            # heavy work while it queues behind another lane.
-            with resolve_lease(f"place {name}", exclusive=True) as _lease, \
-                    heavy_work_lock(f"reel placement {name}",
-                                    "resolve_placement"):
-                # Lease-contention measurement: one `wait` line per
-                # placement acquisition, ALWAYS including the
-                # uncontended ones - the fraction that contended is the
-                # whole question behind a future queue, and an absent
-                # record must not read as zero
-                # (`library/tools/reel_phase_log.py`).
-                try:
-                    from library.tools import reel_phase_log as _lease_log
-                    _lease_log.log_lease_wait(
-                        project_folder, moment.number, name,
-                        purpose=f"place {name}",
-                        wait_seconds=getattr(_lease, "wait_seconds",
-                                             0.0) or 0.0,
-                        waited_on=getattr(_lease, "waited_on", "") or "",
-                        exclusive=True)
-                except Exception:
-                    pass
+            # ── THE HOLDS, per reel: FREE -> RESOLVE -> FREE ──
+            # Two short EXCLUSIVE holds, and nothing else in this loop
+            # holds the instance. Everything above - ranges, cards,
+            # caption renders, model answers, digests - derived with no
+            # hold, and so does everything between the holds:
+            #
+            # 1. `decide {name}`: the carried self-read (it moves the
+            #    cursor to the reel) and the rebuild-need decision. A
+            #    reel left alone ends here, as it always has.
+            # 2. FREE: `prepare_reel_timeline` (offsets, angle plan,
+            #    freeze render, post header, track plan, promoted
+            #    artefacts) and the Fusion manifest - the work that used
+            #    to sit inside the placement hold computing, not placing.
+            # 3. `place {name}`: the placement and the Fusion comp pass.
+            #    The Fusion subprocess inherits this hold, because comps
+            #    act on the current timeline's items and must not run
+            #    while another lane moves the cursor.
+            # 4. FREE: the overlay sweep's judgement, on what the
+            #    placement read back.
+            #
+            # A `continue` in the first hold exits it; the loop's failure
+            # path discards under its own hold. Same-project builds never
+            # overlap (THE LEASE, above), so nothing places this reel's
+            # staging between the two holds.
+            with resolve_lease(f"decide {name}", exclusive=True):
                 _decision = _need.decide(
                     final, _derivation,
                     _carried_self_read(final),
@@ -12739,49 +12878,142 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                     left_alone.append(final)
                     current_staging = None
                     continue
-                print(f"  placing {name}: {_decision.reason}", flush=True)
-                # The build starts HERE: everything between the answers
-                # and this line was derivation plus the seconds-long
-                # decision read above, so the seconds since
-                # `answers_arrived` name exactly what an M05-class stall
-                # costs - and "no engine wait recorded between" says the
-                # stall sat upstream of the engine (worker loop, model
-                # turns, another lane's Resolve lease), not inside it.
+            print(f"  placing {name}: {_decision.reason}", flush=True)
+            # The build starts HERE: everything between the answers
+            # and this line was derivation plus the seconds-long
+            # decision read above, so the seconds since
+            # `answers_arrived` name exactly what an M05-class stall
+            # costs - and "no engine wait recorded between" says the
+            # stall sat upstream of the engine (worker loop, model
+            # turns, another lane's Resolve lease), not inside it.
+            try:
+                _waited = _phase_log.seconds_since(_answers_event)
+                _phase_log.log_event(
+                    project_folder, moment.number, name,
+                    _phase_log.BUILD_STARTED,
+                    detail=(f"placing {name}: {_decision.reason}"
+                            + (f"; {_waited}s since answers arrived "
+                               f"(derivation only, no engine wait "
+                               f"recorded between)"
+                               if _waited is not None else "")))
+            except Exception:
+                pass
+            _reel_inputs = dict(
+                moment=moment,
+                master_clips=master_clips,
+                subtitle_segments=subtitle_segments,
+                fps=24000/1001,
+                width=reel_width,
+                height=reel_height,
+                project_folder=project_folder,
+                transcript=transcript,
+                timeline_name=name,
+                cards=cards,
+                overlay_placements=(overlay_plan.placements
+                                    if overlay_plan else None),
+                explainer_segments=explainer_segments,
+                semantic_segments=semantic_segments,
+                lower_third_segments=lower_third_segments,
+                look=reel_look_decl,
+                # The live master is how the program stream resolves
+                # on projects whose catalog predates stream recording.
+                master_timeline=timeline,
+                extra_cuts=moment_cuts,
+                draw_gain=run_gain,
+                # The ranges the captions, overlays and explainers above
+                # were planned from - already trimmed of the captain's
+                # span_retime pins. Recomputing from the moment would
+                # un-trim them.
+                ranges=ranges,
+                # WHERE THIS REEL ENDS, and what draws over its tail -
+                # including a declared freeze, which the build renders
+                # and places as the ending shot's held last frame.
+                ending=_ending_decl,
+                # The declared card row: which NAMED row the closing
+                # card lands on. None where nothing declares one; the
+                # build refuses a card-carrying reel then rather than
+                # guessing V1.
+                card_row_role=card_row_role,
+                # The graphics the captain deleted ([] when they
+                # declared none): a rebuild holds the deletion without
+                # being told again.
+                do_not_draw=suppression_rules,
+                edit_ledger_rows=_ledger_mine,
+            )
+            prepared = prepare_reel_timeline(
+                **_reel_inputs,
+                live_program_channels=_live_program_channels)
+            # The Fusion manifest is planned here, FREE: it reads the
+            # prepared plan, never the placed timeline.
+            manifest = None
+            if reel_look_decl is not None:
+                from library.tools import reel_look as _look
+                # The plan this reel was placed from, so the manifest's
+                # clips ride the same per-angle rows the picture sits on:
+                # a drift planned for a V2 shot must travel on V2, and
+                # the rows come from the layout owner rather than a
+                # hardcoded V1 beside it.
+                manifest = _look.fusion_manifest(
+                    # The TRIMMED ranges, for the reason the motion spine
+                    # above states: a recompute from the moment un-trims
+                    # the captain's pins. Plus the declared FREEZE, which
+                    # is a picture clip on the ending shot's row and the
+                    # last one there - so the tail element is armed on
+                    # the held frames rather than on the live tail.
+                    _with_freeze(
+                        plan_reel_picture(
+                            placements(
+                                ranges, master_clips,
+                                24000/1001,
+                                lead_frames=lead_frames(
+                                    cards, 24000/1001)),
+                            project_folder, name, master_clips,
+                            ranges, transcript, 24000/1001,
+                            lead_in_frames=lead_frames(
+                                cards, 24000/1001),
+                            rows=_ledger_mine),
+                        prepared.freeze_tail, 24000/1001),
+                    reel_look_decl, reel_motion, 24000/1001,
+                    track_plan=prepared.build_record["track_plan"],
+                    angle_key=_angle_key,
+                    grade_look=reel_grade_look,
+                    # The reel's ending owns the tail element, declared
+                    # or inherited from its call to action. Resolved
+                    # with the SAME moment and transcript the ranges
+                    # seam used: two answers to "where does this reel
+                    # end" would arm the element on a clip the build
+                    # did not freeze.
+                    ending=_reel_ending.resolve_ending(
+                        project_folder, name, moment, transcript),
+                    locked_closing_positions=motion_record[
+                        "locked_closing_positions"])
+            # Keep the global order: Resolve lease first, machine-wide
+            # heavy-work lock second. A Resolve waiter must not reserve
+            # heavy work while it queues behind another lane.
+            with resolve_lease(f"place {name}", exclusive=True) as _lease, \
+                    heavy_work_lock(f"reel placement {name}",
+                                    "resolve_placement"):
+                # Lease-contention measurement: one `wait` line per
+                # placement acquisition, ALWAYS including the
+                # uncontended ones - the fraction that contended is the
+                # whole question behind a future queue, and an absent
+                # record must not read as zero
+                # (`library/tools/reel_phase_log.py`).
                 try:
-                    _waited = _phase_log.seconds_since(_answers_event)
-                    _phase_log.log_event(
+                    from library.tools import reel_phase_log as _lease_log
+                    _lease_log.log_lease_wait(
                         project_folder, moment.number, name,
-                        _phase_log.BUILD_STARTED,
-                        detail=(f"placing {name}: {_decision.reason}"
-                                + (f"; {_waited}s since answers arrived "
-                                   f"(derivation only, no engine wait "
-                                   f"recorded between)"
-                                   if _waited is not None else "")))
+                        purpose=f"place {name}",
+                        wait_seconds=getattr(_lease, "wait_seconds",
+                                             0.0) or 0.0,
+                        waited_on=getattr(_lease, "waited_on", "") or "",
+                        exclusive=True)
                 except Exception:
                     pass
                 build_result = build_reel_timeline(
                     project=project,
-                    moment=moment,
-                    master_clips=master_clips,
-                    subtitle_segments=subtitle_segments,
-                    fps=24000/1001,
-                    width=reel_width,
-                    height=reel_height,
-                    project_folder=project_folder,
-                    transcript=transcript,
-                    timeline_name=name,
-                    cards=cards,
-                    overlay_placements=(overlay_plan.placements
-                                        if overlay_plan else None),
-                    explainer_segments=explainer_segments,
-                    semantic_segments=semantic_segments,
-                    lower_third_segments=lower_third_segments,
-                    look=reel_look_decl,
+                    **_reel_inputs,
                     motion=reel_motion,
-                    # The live master is how the program stream resolves
-                    # on projects whose catalog predates stream recording.
-                    master_timeline=timeline,
-                    extra_cuts=moment_cuts,
                     # The look's CDL half, applied inside the build right
                     # after placement - the Fusion pass below runs after
                     # the build returns, which is the still recipe's
@@ -12792,27 +13024,9 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                     # rebuild keeps their corrections.
                     overlay_intent=overlay_intent,
                     power_grade=reel_power_grade,
-                    draw_gain=run_gain,
-                    # The ranges the captions, overlays and explainers above
-                    # were planned from - already trimmed of the captain's
-                    # span_retime pins. Recomputing from the moment would
-                    # un-trim them.
-                    ranges=ranges,
-                    # WHERE THIS REEL ENDS, and what draws over its tail -
-                    # including a declared freeze, which the build renders
-                    # and places as the ending shot's held last frame.
-                    ending=_ending_decl,
-                    # The declared card row: which NAMED row the closing
-                    # card lands on. None where nothing declares one; the
-                    # build refuses a card-carrying reel then rather than
-                    # guessing V1.
-                    card_row_role=card_row_role,
-                    # The graphics the captain deleted ([] when they
-                    # declared none): a rebuild holds the deletion without
-                    # being told again.
-                    do_not_draw=suppression_rules,
-                    edit_ledger_rows=_ledger_mine,
                     single_reel_scope=(wanted is not None),
+                    prepared=prepared,
+                    defer_overlay_sweep=True,
                 )
                 _header_record = build_result.get("post_header")
                 if isinstance(_header_record, dict):
@@ -12862,47 +13076,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 # planned. The subprocess inherits THIS hold, so no other
                 # lane moves the cursor between the placement and the
                 # comp pass that reads it back.
-                if reel_look_decl is not None:
-                    from library.tools import reel_look as _look
-                    # The plan this reel was placed from, so the manifest's
-                    # clips ride the same per-angle rows the picture sits on:
-                    # a drift planned for a V2 shot must travel on V2, and
-                    # the rows come from the layout owner rather than a
-                    # hardcoded V1 beside it.
-                    manifest = _look.fusion_manifest(
-                        # The TRIMMED ranges, for the reason the motion spine
-                        # above states: a recompute from the moment un-trims
-                        # the captain's pins. Plus the declared FREEZE, which
-                        # is a picture clip on the ending shot's row and the
-                        # last one there - so the tail element is armed on
-                        # the held frames rather than on the live tail.
-                        _with_freeze(
-                            plan_reel_picture(
-                                placements(
-                                    ranges, master_clips,
-                                    24000/1001,
-                                    lead_frames=lead_frames(
-                                        cards, 24000/1001)),
-                                project_folder, name, master_clips,
-                                ranges, transcript, 24000/1001,
-                                lead_in_frames=lead_frames(
-                                    cards, 24000/1001),
-                                rows=_ledger_mine),
-                            build_result.get("freeze"), 24000/1001),
-                        reel_look_decl, reel_motion, 24000/1001,
-                        track_plan=build_result["track_plan"],
-                        angle_key=_angle_key,
-                        grade_look=reel_grade_look,
-                        # The reel's ending owns the tail element, declared
-                        # or inherited from its call to action. Resolved
-                        # with the SAME moment and transcript the ranges
-                        # seam used: two answers to "where does this reel
-                        # end" would arm the element on a clip the build
-                        # did not freeze.
-                        ending=_reel_ending.resolve_ending(
-                            project_folder, name, moment, transcript),
-                        locked_closing_positions=motion_record[
-                            "locked_closing_positions"])
+                if manifest is not None:
                     if not _look.apply_comps(manifest, project_folder,
                                              resolve_name, name):
                         raise ReelBuildError(
@@ -12960,6 +13134,12 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                     "has_freeze_tail": (
                         build_result.get("freeze_tail") is not None),
                 })
+            # FREE again: the overlay sweep's judgement, off the hold.
+            judge_overlay_sweep(build_result)
+            summary_facts[name]["overlay_sweep"] = (
+                build_result["overlay_sweep"]
+                if isinstance(build_result.get("overlay_sweep"), dict)
+                else None)
             for card in cards or ():
                 # SAID on the run that placed it, rather than recorded in the
                 # return value: the verifier re-derives the cards from the
