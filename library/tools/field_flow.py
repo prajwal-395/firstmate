@@ -417,8 +417,8 @@ class _FunctionScope:
         `"downbeats"`.  Without this the beat grid - the whole reason
         `music_analysis.tempo` is measured - reads as an unread field.
         The same shape resolves `compile_manifest.load(out_dir,
-        "music_selection.json")`, which indexes `step_outputs` by a stem
-        computed from that argument."""
+        "music_selection.json")`, which indexes the node views of the
+        recorded output by a stem computed from that argument."""
         self.returns: Set[str] = set()
 
     # -- string constants ------------------------------------------------

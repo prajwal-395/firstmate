@@ -217,8 +217,8 @@ def _load_json(path: Path):
 def load_catalog(project_folder: str) -> list:
     """The clip catalog, read off `pipeline_data.json` (the record)."""
     state = _load_json(Path(project_folder) / "pipeline_data.json") or {}
-    catalog = ((state.get("step_outputs") or {}).get("catalog") or {}
-               ).get("clip_catalog")
+    from library.tools import capability_outputs
+    catalog = capability_outputs.value(state, "footage.catalog", "clip_catalog")
     return catalog or []
 
 

@@ -286,7 +286,7 @@ One enumeration: `library/steps/step_6_01_render/resolve_build_timeline.py`.
 
 ## 7. Data flow
 
-Each step reads required upstream outputs based on the DAG's `data_mapping` edges and writes its own output back under `step_outputs.<step_id>`.
+Steps read inputs over `data_mapping` edges; output is recorded by CAPABILITY ID (`library/tools/capability_outputs.py`).
 
 - `catalog`: video metadata, durations, file paths.
 - `semantic_analysis`: the v3 vision observations - scene, camera, actions, objects, assessment - plus the view derived from them. It measures no mood or energy (see §10.1).

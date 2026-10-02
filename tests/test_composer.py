@@ -288,20 +288,17 @@ def test_completed_plan_is_closed():
 
 
 
-def test_validation_verdict_goal_refuses_on_the_compile_manifest_gap():
-    """The kind exists but this goal still cannot close: `validate`
-    needs `state.validate.render_output`, which strands on
-    `state.render.assembly_manifest` produced by `compile_manifest` -
-    the pre-existing gap (no registered operation owns that node), not
-    a failure of the verdict kind.  The day `compile_manifest` owns a
-    capability this refusal turns into a plan, and this test must be
-    updated to say so."""
+def test_validation_verdict_goal_closes_through_the_manifest_compile():
+    """`validate` needs `state.validate.render_output`, which needs
+    `state.render.assembly_manifest`.  That stranded while
+    `compile_manifest` owned no capability; `manifest.compile` closes
+    it, so the verdict goal is a plan through the compile and the
+    render."""
     comp = C.compose("verdict.validate.validation_result")
-    assert comp.refused
-    assert comp.blocker == "state.render.assembly_manifest"
-    assert comp.blocker_producers == ("compile_manifest",)
-    assert comp.chain[0] == "verdict.validate.validation_result"
-    assert comp.chain[-1] == comp.blocker
+    assert comp.completed, comp.refusal_reason()
+    ops = comp.operations
+    assert ops.index("manifest.compile") < ops.index("render.build") \
+        < ops.index("validation.resolve")
 
 
 # ── The blindness, pinned ─────────────────────────────────────────────

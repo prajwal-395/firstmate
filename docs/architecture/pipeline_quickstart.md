@@ -44,7 +44,7 @@ Resume a partial run with `--from <step_id>`, run a single step with
 
 ## Inspect a run
 
-- `pipeline_data.json` at the project root holds all step outputs under `step_outputs`.
+- `pipeline_data.json` at the project root holds every recorded output under `capability_outputs`, keyed by capability id (`library/tools/capability_outputs.py`).
 - `pipeline_output/assembly_manifest.json` is the compiled instruction set the render consumes.
 - `ren status my-video` prints step completion state.
 - `ren info my-video` prints the project configuration and run details.

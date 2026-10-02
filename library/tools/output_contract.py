@@ -129,6 +129,14 @@ CLASSIFIERS = (
 # STALE entry too - one whose output has since found a reader.
 
 REPORTED_NOT_CONSUMED = {
+    ("build_reels", "reel_ask"):
+        "`reel.ask`'s receipt: one row per approved reel naming the three "
+        "request files it wrote under `llm_requests/`. DECISION: it stays "
+        "unread - the host model reads those FILES, never this record. "
+        "Declared (2026-10-02) so a project recorded before the "
+        "capability records migrates it to `reel.ask` rather than to "
+        "`reel.build`, whose record it would otherwise ride in.",
+
     ("validate_sfx_library", "sfx_library_status"):
         "0.01 is an entry node with no outgoing edge. DECISION: it stays "
         "unread. The gate is the step's own exit code - `step.py` calls "
@@ -369,7 +377,7 @@ def _read_literals(path: Path) -> Dict[str, List[int]]:
     as a step id, and the generic checker that names it only to exempt
     it.  Six outputs were credited that way and none of them was read.
 
-    Four shapes count, and they are the shapes a merged input dict or a
+    Five shapes count, and they are the shapes a merged input dict or a
     slice of `pipeline_data.json` is actually opened with:
 
       ``d.get("k")`` / ``d.pop("k")`` / ``d.setdefault("k", ...)``
@@ -378,6 +386,9 @@ def _read_literals(path: Path) -> Dict[str, List[int]]:
       ``f(..., ["k", ...], ...)`` - a key inside a list, tuple or set
         handed to a call, which is how `require_keys(data, [...])`
         refuses on an absent one.
+      ``capability_outputs.value(state, "capability", "k")`` - one key
+        of a capability's recorded output, which is how a reader opens
+        `pipeline_data.json` since the records replaced `step_outputs`.
 
     A dict-literal key, a comparison operand and a bare call argument do
     NOT count.  Widening this beyond a read position is how the survey
@@ -402,6 +413,11 @@ def _read_literals(path: Path) -> Dict[str, List[int]]:
                     and func.attr in ("get", "pop", "setdefault")
                     and node.args and is_str(node.args[0])):
                 note(node.args[0])
+            if (isinstance(func, ast.Attribute) and func.attr == "value"
+                    and isinstance(func.value, ast.Name)
+                    and func.value.id == "capability_outputs"
+                    and len(node.args) >= 3 and is_str(node.args[2])):
+                note(node.args[2])
             # `produces=` declares what a capability WRITES
             # (`operations.Operation.produces`) - the producer's own
             # side, so naming a key there is not reading it.

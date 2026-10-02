@@ -1,4 +1,4 @@
-"""The runner of the `reels` PROCESS: its nodes, in its own DAG's order.
+"""The runner of the `reels` PROCESS: its capabilities, in requirement order.
 
 `edit_video` has had a runner of its own (`run_pipeline.py`) from the
 start; `reels` ran as a loop inside `manage_project.cmd_build_reels`.
@@ -14,12 +14,14 @@ captain's stop condition was that reels be created *"using the pipeline
 and not any standalone scripts"*, and a command that reaches past the
 pipeline into a tool is that gap however thin it is.
 
-So the node ORDER comes off this process's own dag.json rather than
-being spelled here, and each node runs through the operation registry,
-which checks the node's DERIVED requirements first and REFUSES naming
-what is missing. No build path lives here - the operation resolves to
-the step's own body, and the step's body calls `reel_build`. One
-implementation.
+So the run is the process's CAPABILITIES (`capabilities.run_order`):
+each runs after the capabilities producing what it requires, registry
+order breaking ties, and each runs through the operation registry,
+which checks its DERIVED requirements first and REFUSES naming what is
+missing. No build path lives here - the operation resolves to the
+step's own body, and the step's body calls `reel_build`. One
+implementation. Each result is recorded under its capability id
+(`capability_outputs`); nothing here is keyed by a DAG node.
 
 State persistence is borrowed, not copied: `save_pipeline_state` is the
 edit_video runner's own writer because it owns the backup rule
@@ -102,95 +104,90 @@ def add_arguments(parser) -> None:
 
 
 def run(project_folder: str, args) -> int:
-    """Run every node of the reels process. 0, or 4 on a refusal.
+    """Run every capability of the reels process. 0, or 4 on a refusal.
 
     `args` carries the options `add_arguments` registers. A refusal
     stops the run where it happened, names the operation and what it
     refused on, and makes no closing commit: nothing after it ran.
     4 is the refusal code (`library/tools/ren_refusal.py`).
     """
-    from library.tools import operations, processes, provenance
-    from library.tools.project_file_lock import lock_project_file
-    from library.tools.project_layout import ProjectLayout
+    from library.tools import capabilities, operations, processes, provenance
 
-    for node_id in processes.execution_order(processes.REELS):
-        for op in operations.by_node(node_id):
-            if op.caller_supplied:
-                # Caller-supplied operations take arguments only a
-                # caller supplies - the touchup's change spec, the
-                # stills grab's reel label and frames - handed in by
-                # the fix or gate that computed them. This loop is not
-                # such a caller, so it does not drive them: as coded
-                # it walked every owned op, and on a ready project
-                # `reel.build` completed and the loop then REFUSED at
-                # `reel.touchup` (`spec` unbound) before `reel.ask`
-                # ever ran. Skipped, never executed, and nothing is
-                # recorded for one. (The dry run's old-path walk in
-                # `library/tools/ren_dry_run.py` reads the same flag.)
-                print(f"{op.name}: skipped (caller-supplied)",
-                      file=sys.stderr)
-                continue
-            # The execution receipt, keyed by capability id: before this a
-            # reel build wrote its files and provenance recorded nothing.
-            with provenance.observing_operation(project_folder, op.name):
-                result = op.execute(
-                    project_folder,
-                    skip_captions=args.skip_captions,
-                    only_reels=args.only_reel or None,
-                    timeline_name_suffix=args.name_suffix,
-                    allow_drops=args.allow_drop or None,
-                    accept_editor_changes=getattr(
-                        args, "accept_editor_changes", None) or None,
-                    supersede=args.supersede or None,
-                    retain=args.retain or None,
-                    rebuild_all=bool(getattr(args, "rebuild_all", False)))
-            if result.refused:
-                from library.tools.ren_refusal import REFUSAL_EXIT_CODE
-                print(f"REFUSED: {op.name}", file=sys.stderr)
-                print(result.error, file=sys.stderr)
-                return REFUSAL_EXIT_CODE
+    for spec in capabilities.run_order(processes.REELS):
+        op = operations.get(spec.id)
+        if op.caller_supplied:
+            # Caller-supplied operations take arguments only a caller
+            # supplies - the touchup's change spec, the stills grab's
+            # reel label and frames - handed in by the fix or gate that
+            # computed them. This loop is not such a caller, so it does
+            # not drive them: as coded it walked every owned op, and on a
+            # ready project `reel.build` completed and the loop then
+            # REFUSED at `reel.touchup` (`spec` unbound) before
+            # `reel.ask` ever ran. Skipped, never executed, and nothing
+            # is recorded for one. (The dry run's old-path walk in
+            # `library/tools/ren_dry_run.py` reads the same flag.)
+            print(f"{op.name}: skipped (caller-supplied)", file=sys.stderr)
+            continue
+        # The execution receipt, keyed by capability id: before this a
+        # reel build wrote its files and provenance recorded nothing.
+        with provenance.observing_operation(project_folder, op.name):
+            result = op.execute(
+                project_folder,
+                skip_captions=args.skip_captions,
+                only_reels=args.only_reel or None,
+                timeline_name_suffix=args.name_suffix,
+                allow_drops=args.allow_drop or None,
+                accept_editor_changes=getattr(
+                    args, "accept_editor_changes", None) or None,
+                supersede=args.supersede or None,
+                retain=args.retain or None,
+                rebuild_all=bool(getattr(args, "rebuild_all", False)))
+        if result.refused:
+            from library.tools.ren_refusal import REFUSAL_EXIT_CODE
+            print(f"REFUSED: {op.name}", file=sys.stderr)
+            print(result.error, file=sys.stderr)
+            return REFUSAL_EXIT_CODE
 
-            # RECORD the node's output the way a run records one, so the
-            # edge to the next node can carry it and so the build is
-            # readable afterwards by everything that reads
-            # `step_outputs` - the traceback, the dashboard, `status`.
-            path = ProjectLayout(project_folder).pipeline_data_path
-            with lock_project_file(path):
-                state = (json.loads(Path(path).read_text(encoding="utf-8"))
-                         if Path(path).is_file() else {})
-                _merge_project_output(
-                    state, project_folder, node_id, result.payload,
-                    only_reels=args.only_reel or None,
-                    capability_id=op.name)
-                _edit_video_runner().save_pipeline_state(project_folder, state)
-            print(f"{op.name}: {result.status}", file=sys.stderr)
-            report_rebuild_need(result.payload)
-            report_reel_verification(result.payload)
+        # RECORD the capability's result the way a run records one, so
+        # the next capability's gathered inputs can carry it and so the
+        # build is readable afterwards by everything that reads the
+        # records - the traceback, `status`, the deliverer.
+        record_project_output(project_folder, op.name, result.payload,
+                              only_reels=args.only_reel or None)
+        print(f"{op.name}: {result.status}", file=sys.stderr)
+        report_rebuild_need(result.payload)
+        report_reel_verification(result.payload)
 
     # ══════════════════════════════════════════════════════════════
     # THE CLOSING COMMIT (library/tools/versions/store.py)
     # ══════════════════════════════════════════════════════════════
-    # The per-build commit fires INSIDE the promoting node, and this
-    # loop writes that node's own output to pipeline_data.json AFTER
-    # the node returns - so the last node's record could never be in
-    # the commit it belongs to. Measured 2026-09-11 on the captain's
-    # project: HEAD was "reels build: Reel 13" and the working tree
-    # was dirty with exactly `step_outputs.verify_reels.
-    # reel_verification.organised`, the bin organisation the commit
+    # The per-build commit fires INSIDE the promoting capability, and
+    # this loop writes that capability's own output to
+    # pipeline_data.json AFTER it returns - so the last record could
+    # never be in the commit it belongs to. Measured 2026-09-11 on the
+    # captain's project: HEAD was "reels build: Reel 13" and the working
+    # tree was dirty with exactly the verify record's
+    # `reel_verification.organised`, the bin organisation the commit
     # ran too early to see. A store that is dirty after every build
     # teaches a reader to ignore its dirtiness, which is how a hand
     # edit goes missing.
     #
     # So the run closes its own record, here, where the state write
     # it completes lives. `clean` is the ordinary answer once the
-    # node's commit already covered everything.
+    # capability's commit already covered everything.
     commit_run_tail(project_folder)
     return 0
 
 
-def record_project_output(project_folder: str, node_id: str, payload,
-                          only_reels=None, capability_id=None) -> None:
-    """Record one operation while preserving concurrent reel-lane writes."""
+def record_project_output(project_folder: str, capability_id: str, payload,
+                          only_reels=None) -> None:
+    """Record one capability's result, preserving concurrent reel-lane writes.
+
+    Read, merged and written under the project-file lock, so two
+    `--only-reel` lanes finishing together each keep their own reel's
+    entries (`merge_record`).
+    """
+    from library.tools import capability_outputs
     from library.tools.project_file_lock import lock_project_file
     from library.tools.project_layout import ProjectLayout
 
@@ -198,57 +195,33 @@ def record_project_output(project_folder: str, node_id: str, payload,
     with lock_project_file(path):
         state = (json.loads(Path(path).read_text(encoding="utf-8"))
                  if Path(path).is_file() else {})
-        _merge_project_output(
-            state, project_folder, node_id, payload, only_reels=only_reels,
-            capability_id=capability_id)
+        capability_outputs.migrate(state)
+        state["project_folder"] = project_folder
+        merge_record(state.setdefault(capability_outputs.KEY, {}),
+                     capability_id, copy.deepcopy(payload),
+                     only_reels=only_reels)
         _edit_video_runner().save_pipeline_state(project_folder, state)
 
 
-def _merge_project_output(state: dict, project_folder: str, node_id: str,
-                          payload, only_reels=None,
-                          capability_id=None) -> None:
-    """Record under the capability id AND the legacy node slot.
+def merge_record(records: dict, capability_id: str, payload,
+                 only_reels=None) -> None:
+    """Merge one capability's payload into its recorded output.
 
-    The capability record is authoritative (`capability_outputs.read`);
-    the node slot keeps being written until nothing reads it.
+    A whole-project run updates the record key by key; a single-reel
+    run (`only_reels`) replaces only that reel's entries in each
+    per-reel list and map, so concurrent lanes and an earlier
+    whole-project record survive it. Non-dict payloads overwrite.
     """
-    from library.tools import capability_outputs
-    state["project_folder"] = project_folder
-    slot = state.setdefault("step_outputs", {})
-    record_node_output(slot, node_id, payload, only_reels=only_reels)
-    if capability_id:
-        # A COPY: on a first write the node slot holds `payload` itself,
-        # and a later sibling's merge mutates it in place.
-        record_node_output(state.setdefault(capability_outputs.KEY, {}),
-                           capability_id, copy.deepcopy(payload),
-                           only_reels=only_reels)
-
-
-def record_node_output(slot: dict, node_id: str, payload,
-                       only_reels=None) -> None:
-    """Merge one op's payload into its node's recorded output.
-
-    One node may own several ops (`build_reels` owns both `reel.build`
-    and `reel.ask`), and a wholesale write lets the later op destroy
-    the earlier's output. Measured 2026-09-19 on Reel 04: `reel.ask`
-    overwrote `step_outputs.build_reels` with its ask-only payload, the
-    `reel_build` record the build had just placed was lost, and
-    `reel.verify` refused - a staged reel with no path to promotion. A
-    node's record is the union of its ops; non-dict payloads keep the
-    old overwrite behaviour.
-    """
-    prior = slot.get(node_id)
+    prior = records.get(capability_id)
     if isinstance(prior, dict) and isinstance(payload, dict):
         wanted = _requested_reel_numbers(only_reels)
         if wanted is None:
-            # Keep whole-project operation recording's established merge
-            # semantics; only single-reel builds need the deeper merge.
             prior.update(payload)
-            slot[node_id] = prior
         else:
-            slot[node_id] = _merge_node_payload(prior, payload, wanted)
+            records[capability_id] = _merge_payload(
+                prior, payload, wanted)
     else:
-        slot[node_id] = payload
+        records[capability_id] = payload
 
 
 _PER_REEL_LIST_KEYS = {
@@ -325,7 +298,7 @@ def _merge_scoped_map(prior: dict, incoming: dict,
     return merged
 
 
-def _merge_node_payload(prior: dict, incoming: dict,
+def _merge_payload(prior: dict, incoming: dict,
                         wanted: set[int] | None) -> dict:
     """Merge operation records, replacing only selected reel entries."""
     merged = dict(prior)
@@ -343,7 +316,7 @@ def _merge_node_payload(prior: dict, incoming: dict,
               and isinstance(old, dict) and isinstance(value, dict)):
             merged[key] = _merge_scoped_map(old, value, wanted)
         elif isinstance(old, dict) and isinstance(value, dict):
-            merged[key] = _merge_node_payload(old, value, wanted)
+            merged[key] = _merge_payload(old, value, wanted)
         elif (wanted is not None and key in _PER_REEL_LIST_KEYS
               and isinstance(old, list) and isinstance(value, list)):
             merged[key] = _merge_scoped_list(
@@ -400,8 +373,8 @@ def commit_run_tail(project_folder: str) -> None:
         record = store.commit_build(
             project_folder,
             "reels build: closing record\n\n"
-            "The per-build commit runs inside the promoting node, "
-            "before the runner writes that node's own output to "
+            "The per-build commit runs inside the promoting capability, "
+            "before the runner writes that capability's own output to "
             "pipeline_data.json. This is the run closing its own "
             "record so the store is clean when it ends.")
         if record.get("committed"):
@@ -449,7 +422,7 @@ def report_rebuild_need(payload) -> None:
 
 
 def report_reel_verification(payload) -> None:
-    """Say WHICH plan and WHICH timelines the verify node graded.
+    """Say WHICH plan and WHICH timelines `reel.verify` graded.
 
     `verify_reels` returns a terminal record - `reel_verification` - and
     for a while nothing read it: the loop above printed the operation's

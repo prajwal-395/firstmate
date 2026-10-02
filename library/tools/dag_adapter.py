@@ -4,15 +4,18 @@ Why this exists
 ---------------
 A capability's identity is its id (`library/tools/capabilities.py`).  The
 DAG node it used to be addressed by is legacy metadata - but metadata a
-great deal of current state is still KEYED by: `step_outputs`, the two
-step ledgers, `step_errors`, the review gates, `pipeline_output/steps/`,
+great deal of current state is still KEYED by: the two step ledgers, `step_errors`, the review gates, `pipeline_output/steps/`,
 the derived requirements (`state.<consumer>.<key>`), the run status and
 the traceback.  None of those can be dropped yet, so the node is still
-reached - through this module and nowhere else.
+reached - through this module and nowhere else.  Recorded OUTPUT is not
+on that list: it is keyed by capability id (`capability_outputs`), and a
+node's view of it is the union of the records of the capabilities its
+run is (`recording_capabilities`, `run_capability`).
 
 The migration order this serves (punch list items 4 and 5): make the
 capability id authoritative first, keep writing the legacy node fields
-until nothing reads them, then remove the graph.  Every "which node?"
+until nothing reads them, then remove the graph.  Recorded output has
+gone the whole way: `step_outputs` is no longer written.  Every "which node?"
 question a capability-keyed caller asks is answered here, so the day a
 reader stops needing the node is the day one function here goes, rather
 than an audit of every node read in the tree.
@@ -107,13 +110,54 @@ def node_ids() -> frozenset:
     return frozenset(processes.node_owners())
 
 
+def _dir_of(node_id: str) -> str:
+    for dirname, nodes in _nodes_by_dir().items():
+        if node_id in nodes:
+            return dirname
+    return ""
+
+
 def capabilities_at(node_id: str) -> tuple:
     """Every registered capability attributed to one legacy node."""
     from library.tools import operations
-    from library.tools import processes
-    dirname = processes.step_dirnames().get(node_id)
+    dirname = _dir_of(node_id)
+    if not dirname:
+        _nodes_by_dir.cache_clear()
+        dirname = _dir_of(node_id)
     return tuple(op for op in operations.all()
                  if dirname and op.owning_dir == dirname)
+
+
+def recording_capabilities(node_id: str) -> tuple:
+    """The capabilities a RUN of the node is: what its output is recorded under.
+
+    The runner executes a node whole - its pre-bridge, the model, its
+    post-bridge or its step body - so its output is the result of the
+    node's capabilities that take the whole project and gather their own
+    arguments.  A REGION-only splice and a caller-supplied unit are
+    other entry points into the same code; the node's run is not them,
+    and recording it under them would duplicate the run's keys.
+    """
+    from library.tools.scope import PROJECT
+    return tuple(op for op in capabilities_at(node_id)
+                 if not op.caller_supplied and PROJECT in op.scopes)
+
+
+def run_capability(node_id: str):
+    """The capability a node's undeclared output keys are recorded under.
+
+    Each output key goes to the recording capability that declares it in
+    `produces`; a key none declares (a pre-bridge's table for the model,
+    a model answer the step returns beside its own result) belongs to
+    the run as a whole, and the run's result is its LAST body - the
+    post-bridge or the step, never the pre-bridge.  None for a node no
+    capability records.
+    """
+    recording = recording_capabilities(node_id)
+    for op in recording:
+        if op.body != "bridge.py":
+            return op
+    return recording[0] if recording else None
 
 
 def nodes_with_capabilities() -> frozenset:

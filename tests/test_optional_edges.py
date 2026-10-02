@@ -111,18 +111,3 @@ def test_cohesion_composes_through_its_capability():
     comp = C.compose("optional.compile_manifest.cohesion_review")
     assert comp.completed
     assert comp.operations[-1] == "cohesion.review"
-
-
-def test_both_compile_manifest_refusals_survive():
-    """CONFIRMED WITH THE PLANNER, not assumed: optionality was not
-    what blocked these.  Both still strand on
-    `state.render.assembly_manifest`, produced by `compile_manifest`
-    - which owns no registered operation.  That is a capability gap
-    (plus the derived-filesystem-path blocker this lane does not
-    touch), and this test must be updated the day it closes."""
-    for goal in ("state.validate.render_output",
-                 "verdict.validate.validation_result"):
-        comp = C.compose(goal)
-        assert comp.refused
-        assert comp.blocker == "state.render.assembly_manifest"
-        assert comp.blocker_producers == ("compile_manifest",)

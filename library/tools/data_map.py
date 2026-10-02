@@ -143,9 +143,9 @@ DOCUMENTS: Tuple[Document, ...] = (
     # ── run state ────────────────────────────────────────────────────
     Document(
         "pipeline_data", ("pipeline_data.json",),
-        "The run's whole state. `step_outputs` is the declared-output "
-        "half that `output_contract` already covers; the other thirteen "
-        "top-level keys are this map's.",
+        "The run's whole state. `capability_outputs` is the "
+        "declared-output half that `output_contract` already covers; "
+        "the other top-level keys are this map's.",
         "library/processes/edit_video/run_pipeline.save_pipeline_state",
         "state", "project root"),
     Document(
@@ -599,10 +599,13 @@ def observe(project_folder: Path) -> Dict[str, Dict[str, Dict]]:
     state_file = project_folder / "pipeline_data.json"
     if state_file.is_file():
         state = json.loads(state_file.read_text(encoding="utf-8"))
-        for node, output in (state.get("step_outputs") or {}).items():
+        from library.tools import capability_outputs
+        for node, output in capability_outputs.node_outputs(state).items():
             add(f"{field_flow.ROOT_OUTPUT}{node}", output)
         add(f"{field_flow.ROOT_DOC}pipeline_data",
-            {k: v for k, v in state.items() if k != "step_outputs"})
+            {k: v for k, v in state.items()
+             if k not in (capability_outputs.KEY,
+                          capability_outputs.LEGACY_KEY)})
 
     files = sorted(project_folder.rglob("*.json")) + \
         sorted(project_folder.rglob("*.jsonl"))
@@ -826,11 +829,10 @@ def resolve(tag: str, inputs: Dict[str, Dict[str, str]] = None,
             depth: int = 0) -> str:
     """A tag as the MAP names it: an origin plus a field path.
 
-    Four rewrites, and each closes a route the map would otherwise
+    Three rewrites, and each closes a route the map would otherwise
     report as coming from nowhere:
 
       `IN@<step dir>#k...`             a step's input -> its producer
-      `DOC@pipeline_data#step_outputs.n.k`  state -> that node's output
       `CLASS@mod:Cls#attr...`          a dataclass attribute -> the
                                        document field it was built from
       `VIEW@name#k...`                 handled by the caller, which
@@ -852,20 +854,6 @@ def resolve(tag: str, inputs: Dict[str, Dict[str, str]] = None,
         if origin:
             return resolve(_join_path(origin + marker, rest), inputs,
                            sources, depth + 1)
-        return tag
-
-    if root == f"{field_flow.ROOT_DOC}pipeline_data" \
-            and path.startswith("step_outputs."):
-        rest = path[len("step_outputs."):]
-        node, marker, tail = _first_segment(rest)
-        if node in _node_ids():
-            return resolve(
-                _join_path(f"{field_flow.ROOT_OUTPUT}{node}"
-                           f"{field_flow.TAG_SEPARATOR}", tail).replace(
-                               f"{field_flow.TAG_SEPARATOR}.",
-                               field_flow.TAG_SEPARATOR)
-                if tail else f"{field_flow.ROOT_OUTPUT}{node}",
-                inputs, sources, depth + 1)
         return tag
 
     if root.startswith(field_flow.ROOT_CLASS) and path:

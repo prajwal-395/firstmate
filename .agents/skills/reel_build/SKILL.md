@@ -101,10 +101,11 @@ drift-free state - it re-pays the Resolve pass for identical frames.
 
 ## 3. Which writer owns what
 
-- `build_reels` owns the timeline: stage, place, promote. Its record
-  lands in `step_outputs.build_reels` (the `reel_build` record plus the
-  `reel_ask` record - one node, two ops, merged never overwritten) and
-  is what the edge to `verify_reels` carries.
+- `build_reels` owns the timeline: stage, place, promote. Each op's
+  result is recorded under its own capability id in `pipeline_data.json`
+  `capability_outputs` (`reel.build`'s `reel_build`, `reel.ask`'s
+  `reel_ask` - one cannot overwrite the other), and `reel_build` is what
+  `reel.verify` is handed.
 - `verify_reels` owns the verdict: pass record or raise. If the build
   placed nothing because nothing needed placing, there is no staging to
   grade and the gate says so openly rather than passing on nothing

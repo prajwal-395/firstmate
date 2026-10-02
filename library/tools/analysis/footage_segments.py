@@ -111,7 +111,8 @@ def load_catalog(project_folder) -> list:
     a missing one reads as ``{}``.  The state file is the record.
     """
     state = _load_json(Path(project_folder) / "pipeline_data.json") or {}
-    catalog = (state.get("step_outputs", {}).get("catalog") or {}).get("clip_catalog")
+    from library.tools import capability_outputs
+    catalog = capability_outputs.value(state, "footage.catalog", "clip_catalog")
     if catalog:
         return catalog
     exported = _load_json(_steps_root(project_folder) / "1_02_catalog_footage" / "output.json") or {}
@@ -593,7 +594,8 @@ def ingest_fingerprint(project_folder) -> dict:
     state_path = root / STATE_FILE
     if state_path.is_file():
         state = _load_json(state_path) or {}
-        outputs = state.get("step_outputs") or {}
+        from library.tools import capability_outputs
+        outputs = capability_outputs.node_outputs(state)
         subtree = json.dumps({k: outputs.get(k) for k in STATE_INGEST_KEYS},
                              sort_keys=True, default=str).encode("utf-8")
         digest.update(STATE_FILE.encode("utf-8"))

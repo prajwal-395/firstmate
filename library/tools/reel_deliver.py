@@ -290,8 +290,8 @@ def _built_names_for(project_folder: str, number: int,
                      plan_name: str) -> list:
     """What the build actually placed for this reel, if anything.
 
-    Read off the build record (`step_outputs.build_reels.reel_build.
-    timelines_built`), never inferred: the record carries the final
+    Read off the build record (the `reel.build` record's
+    `reel_build.timelines_built`), never inferred: the record carries the final
     names including any `--name-suffix`. A reel never built has no
     entry, which reads as "not built" rather than as the plan's name -
     the plan's name is what the caller falls back to only when the

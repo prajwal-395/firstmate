@@ -20,6 +20,7 @@ from unittest.mock import patch
 import pytest
 import yaml
 
+from library.tools import capability_outputs
 from library.processes.edit_video.run_pipeline import (
     load_pipeline_state,
     run_pipeline,
@@ -58,7 +59,7 @@ def project(tmp_path):
         "preflight_completed": {},
         "edit_completed": {},
         "failed_steps": [],
-        "step_outputs": {},
+        "capability_outputs": {},
     }), encoding="utf-8")
     (folder / "project.yaml").write_text(
         "name: Mock Project\nslug: mock-project\n", encoding="utf-8")
@@ -190,7 +191,8 @@ def test_a_revised_answer_reaches_the_next_step(project):
     step is handed the captain's value and not the pipeline's."""
     first = _Runner(project)
     first.run(break_at=["scan"])
-    original = load_pipeline_state(str(project))["step_outputs"]["scan"]
+    original = capability_outputs.node_output(
+        load_pipeline_state(str(project)), "scan")
 
     review_gate.save_gate_feedback(
         str(project), "scan", "revised",
@@ -208,8 +210,9 @@ def test_a_revised_answer_reaches_the_next_step(project):
     assert original.get("raw_footage_files") != ["a.mov", "b.mov"]
 
     state = load_pipeline_state(str(project))
-    assert state["step_outputs"]["scan"]["__revised"] is True
-    assert state["step_outputs"]["scan"]["__revision_feedback"] == \
+    scan = capability_outputs.node_output(state, "scan")
+    assert scan["__revised"] is True
+    assert scan["__revision_feedback"] == \
         "only these two clips"
 
 

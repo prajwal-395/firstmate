@@ -86,6 +86,11 @@
           "rebuild_need": "list",
           "reels_left_alone": "list"
         }
+      },
+      {
+        "name": "reel_ask",
+        "type": "object",
+        "description": "What was ASKED: `reel.ask`'s record of the visual asks written for each approved reel (`reel_asks`, one row per reel with the request files), without building anything. Recorded under `reel.ask`'s own capability id, so it can never overwrite `reel_build`."
       }
     ],
     "requirements": [

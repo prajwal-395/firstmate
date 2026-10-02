@@ -28,8 +28,8 @@ resolver is the thing the step receives; there is no state of the world
 where the resolver believed something the run then could not use.
 
 That is the same standard the recorded-output path meets, where a ledger
-entry alone is not enough and the `step_outputs` value has to be there
-too.
+entry alone is not enough and the recorded output (`capability_outputs`)
+has to be there too.
 
 What can be asserted, and what cannot
 -------------------------------------
@@ -123,8 +123,8 @@ class Supplied:
     """One verified external value."""
 
     key: str
-    """The state key it supplies - what `step_outputs[producer][key]`
-    would have held."""
+    """The state key it supplies - what the producer's recorded output
+    would have held under it."""
 
     value: object
     source: str

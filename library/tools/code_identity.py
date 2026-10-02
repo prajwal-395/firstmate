@@ -333,6 +333,10 @@ EXEMPT_IMPORTS = {
     "library/tools/paths.py",
     # Stdout claiming plumbing.
     "library/tools/step_stdout.py",
+    # State plumbing: where a recorded output is filed in
+    # pipeline_data.json and how a reader finds it.  A fix here moves no
+    # measured value; a wrong one fails loud as a missing input.
+    "library/tools/capability_outputs.py",
     # Timing plumbing: a span records how long a layer took and passes
     # its block's result through untouched, so no measured value can
     # depend on this module's code.

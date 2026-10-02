@@ -1,38 +1,48 @@
-"""A capability's recorded output, keyed by CAPABILITY ID first.
+"""A run's recorded output, keyed by CAPABILITY ID.
 
 The migration rule (punch list item 5): the capability id is
-authoritative, the legacy node-keyed `step_outputs.<node>` keeps being
-WRITTEN beside it until nothing reads it, and a reader asks for the
-capability first and falls back to the node slot - so a project recorded
-before this key existed still loads.
+authoritative.  Every reader asks here - for one capability's record
+(`read`, `value`) or, where it still thinks in nodes, for the node's
+view (`node_output`, `node_outputs`), which is the union of the records
+of the capabilities the node's run is.  No reader opens
+`state["step_outputs"]` itself.
 
 Why the node slot is not enough
 -------------------------------
 One node owns several capabilities and its slot is their union.
 `reel.ask` once overwrote `step_outputs.build_reels` with its ask-only
 payload and the `reel_build` record the build had just placed was lost
-(`run_reels.record_node_output`, measured 2026-09-19).  The union merge
-fixed that one case; a slot keyed by the capability that wrote it cannot
-have the defect at all, because no other capability writes it.
+(measured 2026-09-19).  A union merge of the slot fixed that one case;
+a record keyed by the capability that wrote it cannot have the defect at
+all, because no other capability writes it.
 
-Writers, and why there is one entry point
------------------------------------------
-A capability record is read BEFORE the node slot, so a path that rewrote
-the node slot and left the capability record behind would serve stale
-state to every capability-first reader.  So every writer of a node's
-output goes through `record` and every eraser through `forget`:
+How a node's run is recorded
+----------------------------
+The edit_video runner executes NODES, so `record` partitions the node's
+output across the capabilities its run IS
+(`dag_adapter.recording_capabilities`): a key goes to the capability
+that declares it in `produces`, and a key none declares - a pre-bridge's
+table, a model answer returned beside the step's result - to the run's
+own capability (`dag_adapter.run_capability`).  Every key lands in
+exactly one record, so the node view loses nothing the slot held.
 
-* the edit_video runner, which runs NODES: `record` partitions the
-  node's output into each capability's slice by what it declares it
-  `produces`, and drops a slice the output no longer carries;
-* a path that ran ONE capability (`footage_intelligence`) passes its
-  `capability_id`, and the record is that capability's whole result;
-* `library/processes/reels/run_reels.py` keeps its own union merge
-  (`record_node_output`, the `only_reels` lanes) and writes both keys.
+A path that ran ONE capability (`footage_intelligence`, the reels
+process) passes its `capability_id`, and the record is that capability's
+whole result.
 
-While the node slot is still written, a capability slice duplicates
-part of it in `pipeline_data.json`; that is the price of the migration
-(item 5) until no reader is left on the node slot.
+`step_outputs` is no longer written.  It was the node-keyed copy of the
+same output, kept beside the records until no reader was left on it.
+
+Old projects
+------------
+A project recorded before `KEY` existed holds only the legacy
+node-keyed `step_outputs`; one recorded during the migration holds both.
+Every read here MIGRATES it on read - the slot is partitioned exactly as
+`record` would have - and a capability's own record wins key by key, so
+a project half-way through the migration reads the same as one wholly on
+it.  `migrate` does the same in place, and every writer runs it
+(`record`, `forget`, `run_pipeline.save_pipeline_state`), so the next
+save carries the records and not the slot.
 """
 from __future__ import annotations
 
@@ -42,69 +52,148 @@ KEY = "capability_outputs"
 LEGACY_KEY = "step_outputs"
 
 
+def _partition(node_id: str, output) -> dict:
+    """`{capability id: its slice}` of one node run's output."""
+    from library.tools import dag_adapter
+    if not isinstance(output, dict):
+        return {}
+    run = dag_adapter.run_capability(node_id)
+    slices: dict = {}
+    claimed: set = set()
+    for op in dag_adapter.recording_capabilities(node_id):
+        own = {k: output[k] for k in op.produces if k in output}
+        claimed.update(op.produces)
+        if own:
+            slices[op.name] = own
+    rest = {k: v for k, v in output.items() if k not in claimed}
+    if rest and run is not None:
+        slices.setdefault(run.name, {}).update(rest)
+    return slices
+
+
 def record(state: dict, node_id: str, output, capability_id: str = "") -> None:
-    """Write `output` as node `node_id`'s, under both keys.
+    """Write `output` as node `node_id`'s.
 
     With `capability_id`, the output is that one capability's result.
-    Without, it is the node's whole output, split by `produces`.
+    Without, it is the node's whole run, partitioned (module docstring).
+    A legacy slot still in `state` is migrated first, so nothing it held
+    can outlive the write in a reader's view.
     """
-    state.setdefault(LEGACY_KEY, {})[node_id] = output
+    from library.tools import dag_adapter
+    migrate(state)
     records = state.setdefault(KEY, {})
     if capability_id:
         records[capability_id] = copy.deepcopy(output)
         return
-    from library.tools import dag_adapter
+    slices = _partition(node_id, output)
+    run = dag_adapter.run_capability(node_id)
     for op in dag_adapter.capabilities_at(node_id):
-        if not op.produces:
-            continue
-        own = ({k: copy.deepcopy(output[k]) for k in op.produces
-                if k in output} if isinstance(output, dict) else {})
-        if own:
-            records[op.name] = own
-        else:
+        if op.name in slices:
+            records[op.name] = copy.deepcopy(slices[op.name])
+        elif op.produces or (run is not None and op.name == run.name):
+            # Its keys are the run's now: a record left behind would
+            # serve the node view a value this run no longer holds.
             records.pop(op.name, None)
 
 
+def state_recording(node_id: str, output) -> dict:
+    """A state that records one node's run and nothing else - the shape a
+    requirement's witness context, or a test's fixture, is built in."""
+    state: dict = {}
+    record(state, node_id, output)
+    return state
+
+
 def forget(state: dict, node_id: str) -> None:
-    """Erase node `node_id`'s output under both keys."""
-    (state.get(LEGACY_KEY) or {}).pop(node_id, None)
+    """Erase node `node_id`'s output: every record its capabilities hold."""
+    migrate(state)
     records = state.get(KEY) or {}
     from library.tools import dag_adapter
     for op in dag_adapter.capabilities_at(node_id):
         records.pop(op.name, None)
 
 
-def value(state: dict, capability_id: str, key: str, default=None):
-    """One state key a capability wrote: its own record first, then its
-    legacy node's slot (a project recorded before `KEY`, or a key the
-    capability does not declare producing)."""
-    own = ((state.get(KEY) or {}).get(capability_id) or {}
-           if isinstance(state, dict) else {})
-    if isinstance(own, dict) and key in own:
-        return own[key]
-    return read_node(state, capability_id).get(key, default)
+def records(state) -> dict:
+    """`{capability id: record}`, with a legacy slot migrated on read.
 
-
-def read_node(state: dict, capability_id: str) -> dict:
-    """The legacy node slot of a capability, or {}."""
-    if not isinstance(state, dict):
-        return {}
-    from library.tools import dag_adapter, operations
-    node = dag_adapter.node_of(operations.get(capability_id))
-    legacy = (state.get(LEGACY_KEY) or {}).get(node)
-    return legacy if isinstance(legacy, dict) else {}
-
-
-def read(state: dict, capability_id: str) -> dict:
-    """The capability's own record, else its legacy node's slot, else {}.
-
-    The fallback is what keeps a project recorded before `KEY` existed
-    loading; once every writer writes `KEY` and no project predates it,
-    the fallback - and then the legacy write - can go.
+    A view: nothing in `state` is changed.  A capability's own record
+    wins over the legacy slot key by key.
     """
     if not isinstance(state, dict):
         return {}
-    own = (state.get(KEY) or {}).get(capability_id)
-    if isinstance(own, dict):
-        return own
-    return read_node(state, capability_id)
+    own = state.get(KEY) or {}
+    legacy = state.get(LEGACY_KEY) or {}
+    if not legacy:
+        return dict(own)
+    from library.tools import dag_adapter
+    out = dict(own)
+    for node_id, output in legacy.items():
+        if not isinstance(output, dict):
+            continue
+        # A key any of the node's own records holds is that record's:
+        # the slot is filled in only where no capability speaks for it.
+        held = set()
+        for op in dag_adapter.capabilities_at(node_id):
+            if isinstance(own.get(op.name), dict):
+                held.update(own[op.name])
+        missing = {k: v for k, v in output.items() if k not in held}
+        for cid, part in _partition(node_id, missing).items():
+            rec = out.get(cid)
+            out[cid] = {**part, **rec} if isinstance(rec, dict) else part
+    return out
+
+
+def migrate(state: dict) -> bool:
+    """Move a legacy `step_outputs` onto the records, in place.
+
+    True when there was one to move.
+    """
+    if not isinstance(state, dict) or LEGACY_KEY not in state:
+        return False
+    state[KEY] = records(state)
+    del state[LEGACY_KEY]
+    return True
+
+
+def read(state, capability_id: str) -> dict:
+    """The capability's record, or {}."""
+    rec = records(state).get(capability_id)
+    return rec if isinstance(rec, dict) else {}
+
+
+def value(state, capability_id: str, key: str, default=None):
+    """One state key a capability's record holds, or `default`."""
+    return read(state, capability_id).get(key, default)
+
+
+def _union(node_id: str, recs: dict) -> dict:
+    from library.tools import dag_adapter
+    out: dict = {}
+    for op in dag_adapter.capabilities_at(node_id):
+        rec = recs.get(op.name)
+        if isinstance(rec, dict):
+            out.update(rec)
+    return out
+
+
+def node_output(state, node_id: str) -> dict:
+    """A node's view: the union of its capabilities' records, or {}.
+
+    For a reader that still thinks in nodes - the edge that carries a
+    key, the traceback, a whole-output splice.  Registry order, so a
+    run's own records (disjoint by construction) read as the slot did.
+    """
+    return _union(node_id, records(state))
+
+
+def node_outputs(state) -> dict:
+    """`{node id: its view}` for every node any record belongs to."""
+    from library.tools import dag_adapter, operations
+    recs = records(state)
+    nodes = []
+    for op in operations.all():
+        if op.name in recs:
+            node = dag_adapter.node_of(op)
+            if node not in nodes:
+                nodes.append(node)
+    return {node: _union(node, recs) for node in nodes}

@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 
-from library.tools import reel_build
+from library.tools import capability_outputs, reel_build
 from library.tools.reel_proposal import (
     Approval,
     ReelMoment,
@@ -30,7 +30,7 @@ def _record_reel_lane(project: str, reel: int, barrier) -> None:
     barrier.wait(timeout=20)
     name = f"Reel {reel:02d} - lane-{reel}"
     record_project_output(
-        project, "build_reels",
+        project, "reel.ask",
         {
             "reel_ask": {
                 "reel_asks": [{"number": reel, "reel": name,
@@ -38,6 +38,12 @@ def _record_reel_lane(project: str, reel: int, barrier) -> None:
                               {"number": 99, "reel": "Reel 99 - foreign",
                                "request": "must be filtered"}],
             },
+        },
+        only_reels=[reel],
+    )
+    record_project_output(
+        project, "reel.build",
+        {
             "reel_build": {
                 "reels_requested": [reel],
                 "timelines_built": [f"{name} (staging)",
@@ -282,10 +288,12 @@ def test_concurrent_runner_records_preserve_each_reels_entries(tmp_path):
     state_path = project / "pipeline_data.json"
     seed = {
         "project_folder": str(project),
-        "step_outputs": {
-            "build_reels": {
+        "capability_outputs": {
+            "reel.ask": {
                 "reel_ask": {"reel_asks": [
                     {"number": 3, "reel": "Reel 03", "request": "old"}]},
+            },
+            "reel.build": {
                 "reel_build": {
                     "reels_requested": [3],
                     "timelines_built": ["Reel 03 (staging)"],
@@ -321,7 +329,7 @@ def test_concurrent_runner_records_preserve_each_reels_entries(tmp_path):
     assert [worker.exitcode for worker in workers] == [0, 0]
 
     stored = json.loads(state_path.read_text(encoding="utf-8"))
-    node = stored["step_outputs"]["build_reels"]
+    node = capability_outputs.node_output(stored, "build_reels")
     assert {row["number"] for row in node["reel_ask"]["reel_asks"]} == {
         3, 21, 25}
     assert 99 not in {

@@ -1575,11 +1575,10 @@ def _separation_inputs(project_dir: str) -> dict:
     path = Path(project_dir) / "pipeline_data.json"
     try:
         state = json.loads(path.read_text(encoding="utf-8"))
-        outputs = state.get("step_outputs", {})
-        compiled = outputs.get("compile_manifest", {}).get(
-            "assembly_manifest", {})
-        mix = compiled.get("audio_mix", {})
         from library.tools import capability_outputs
+        compiled = capability_outputs.value(
+            state, "manifest.compile", "assembly_manifest", {})
+        mix = compiled.get("audio_mix", {})
         selection = capability_outputs.value(
             state, "music.resolve", "music_selection") or {}
     except (OSError, ValueError, TypeError) as exc:

@@ -58,7 +58,7 @@ producer's whole output and names no key, so only that producer can
 stand in for it (`unmappable_producers`).
 
 A recorded output (`recorded_outputs`, `satisfied_steps`) needs both
-halves: a ledger entry AND an output under `step_outputs`.  Staleness is
+halves: a ledger entry AND a recorded output (`capability_outputs`).  Staleness is
 the ledger's business (source fingerprints, `--rerun`), not this module's.
 
 What the captain already has is not made again
@@ -103,7 +103,7 @@ One enumeration, `library/tools/run_scope.py`, and both CLIs register its flags 
 - **A prerequisite is a condition on STATE, not on lineage.** `run_scope.Prerequisite` is one required KEY, and the resolver asks whether that key exists by any of three means: a step in this run makes it, a previous run recorded it, or it was supplied from outside and CHECKED.
 - **An edge is HARD when it carries a key the consumer does not declare optional** - the same condition `gather_step_inputs` raises on. Soft parents are not pulled in by a target.
 - **Excluding a producer REFUSES its consumers; it never drops them silently.** There is no "let downstream cope": a required input has no absent-value code path (section 10.1). Say "I just want the rough cut" by naming a GOAL, not by excluding twelve steps.
-- **A recorded output satisfies an excluded dependency** - ledger entry, a `step_outputs` value, AND the KEY inside it.   A `--rerun` target is about to be discarded, so it satisfies nothing.
+- **A recorded output satisfies an excluded dependency** - ledger entry, a recorded output, AND the KEY inside it.   A `--rerun` target is about to be discarded, so it satisfies nothing.
 - **A recorded output does not remove a step from the run; a SUPPLIED one does.** History is not a request. The captain putting a value under `external/` is saying "do not make this", so the closure stops at that producer.
 - **A target names its GOAL steps and nothing else.** The step list is walked off the DAG every run, so inserting a step upstream keeps the target right without anybody editing it. `rough_cut_subtitles` is the one target; add another only on evidence.
 - **A step that is off by default is reported on every run**, including a plain full one, and is not counted as never-completed - a step that exists and silently never runs is the trap this file's step-directory check exists to stop.
@@ -278,7 +278,7 @@ class Prerequisite:
     consumer: str
     producer: str
     state_key: str
-    """The key under `step_outputs[producer]`.  Empty for an edge with no
+    """The key in the producer's recorded output.  Empty for an edge with no
     `data_mapping`, which merges the producer's whole output: there is no
     key to name, so nothing but the producer can satisfy it."""
 
@@ -429,8 +429,8 @@ def recorded_outputs(state: Optional[Mapping]) -> Dict[str, Mapping]:
     """`{node_id: what it recorded}` for steps a run can still be handed.
 
     BOTH halves are required.  A ledger entry says the step finished; the
-    `step_outputs` entry is the artifact `gather_step_inputs` will
-    actually read.  A ledger entry with no output would let a selection
+    node's recorded output (`capability_outputs.node_output`) is the
+    artifact `gather_step_inputs` will actually read.  A ledger entry with no output would let a selection
     pass here and die in the runner, which is the whole failure this
     module exists to move earlier.
 
@@ -440,12 +440,11 @@ def recorded_outputs(state: Optional[Mapping]) -> Dict[str, Mapping]:
     """
     if not state:
         return {}
-    from library.tools import step_ledger
+    from library.tools import capability_outputs, step_ledger
 
-    outputs = state.get("step_outputs") or {}
+    outputs = capability_outputs.node_outputs(state)
     completed = step_ledger.all_completed(state)
-    return {node_id: (outputs[node_id] if isinstance(outputs[node_id], dict)
-                      else {})
+    return {node_id: outputs[node_id]
             for node_id in completed if node_id in outputs}
 
 
@@ -927,7 +926,7 @@ def _reject_supplied_and_selected(supplied: Mapping[str, Tuple[str, ...]],
     `--with ocr_extraction` outranks `DESELECTED_BY_DEFAULT` because a
     default is what happens when nobody said anything; a file under
     `external/` is somebody saying something.  Letting the flag win would
-    run the step, write `step_outputs[node]`, and shadow the supplied
+    run the step, record the node's output, and shadow the supplied
     value for every later reader - `gather_step_inputs` reads the step's
     own output before it reads `external` - so the captain's hand-made
     work would be silently discarded by a run they asked for.

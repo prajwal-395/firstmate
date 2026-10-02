@@ -23,6 +23,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
 import manage_project  # noqa: E402
+from library.tools import capabilities, capability_outputs  # noqa: E402
 from library.tools import operations  # noqa: E402
 from library.tools import processes as processes_mod  # noqa: E402
 from library.tools import requirements as _R  # noqa: E402
@@ -34,7 +35,7 @@ from library.tools.timeline_transcript import transcript_path  # noqa: E402
 def _ready_project(root: Path) -> str:
     """A project with everything `reel.build` asks for, under tmp only."""
     (root / "pipeline_output").mkdir(parents=True, exist_ok=True)
-    state = {"project_folder": str(root), "step_outputs": {}}
+    state = {"project_folder": str(root)}
     state[_R._FORCE] = {
         "resolve_scripting": True,
         "face_detector": True,
@@ -94,16 +95,17 @@ def test_the_loop_passes_a_ready_project_and_runs_what_follows_touchup(
     assert "reel.ask" in ran
     assert "reel.verify" in ran
     # Nothing caller-supplied was driven: the loop is not their caller.
-    reels_nodes = set(processes_mod.execution_order(processes_mod.REELS))
+    reels = {c.id for c in capabilities.run_order(processes_mod.REELS)}
     caller_supplied = {op.name for op in operations.all()
-                       if op.caller_supplied and op.legacy_node in reels_nodes}
+                       if op.caller_supplied and op.name in reels}
     assert caller_supplied, "the registry names no caller-supplied reel op"
     assert not (set(ran) & caller_supplied)
-    # The run recorded the runner-driven outputs node by node.
+    # The run recorded each runner-driven result under its capability.
     state = json.loads(
         (tmp_path / "pipeline_data.json").read_text(encoding="utf-8"))
-    assert "reel_build" in state["step_outputs"]["build_reels"]
-    assert "reel_verification" in state["step_outputs"]["verify_reels"]
+    assert "reel_build" in capability_outputs.read(state, "reel.build")
+    assert "reel_verification" in capability_outputs.read(
+        state, "reel.verify")
     out = capsys.readouterr().err
     assert "reel.touchup: skipped (caller-supplied)" in out
 

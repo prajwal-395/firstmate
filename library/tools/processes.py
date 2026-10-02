@@ -43,11 +43,11 @@ reduced graph judged against itself.
 Node ids are GLOBALLY unique
 ----------------------------
 Across every process, not merely within one.  Sixteen of the runner's
-eighteen per-step services are keyed by node id, `pipeline_data.json`
-keys `step_outputs` by node id, and a derived requirement is NAMED
+eighteen per-step services are keyed by node id, a capability's node is
+derived from its step directory, and a derived requirement is NAMED
 `state.<consumer>.<key>` - so two processes sharing a node id would give
-two different steps one ledger entry, one output slot and one
-requirement.  `assert_node_ids_are_unique` refuses that, and
+two different steps one ledger entry, one node view of their recorded
+output and one requirement.  `assert_node_ids_are_unique` refuses that, and
 `tests/test_processes.py` pins it can fail.
 
 A process is a DIRECTORY, never a list
@@ -199,9 +199,9 @@ def assert_node_ids_are_unique() -> None:
     """Two processes may not name one node, and this is why.
 
     A node id is the key of the two ledgers, the run status, the review
-    gate, the marker routing, the step export and `step_outputs` in
-    `pipeline_data.json`, and it is what a derived requirement is NAMED
-    after (`state.<consumer>.<key>`).  Sharing one would give two
+    gate, the marker routing, the step export and the node view of
+    `capability_outputs` in `pipeline_data.json`, and it is what a
+    derived requirement is NAMED after (`state.<consumer>.<key>`).  Sharing one would give two
     different steps a single slot in all of them, and the symptom would
     be a step reading another process's output as its own.
     """
@@ -219,7 +219,8 @@ def assert_node_ids_are_unique() -> None:
     if clashes:
         raise ProcessError(
             "node ids must be unique across every process - they key the "
-            "ledgers, the run status and step_outputs:\n  "
+            "ledgers, the run status and the node views of recorded "
+            "output:\n  "
             + "\n  ".join(clashes))
 
 

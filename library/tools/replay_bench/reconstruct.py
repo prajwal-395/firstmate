@@ -194,7 +194,8 @@ def reconstruct(tree: Path, state: dict, node_id: str, project_dir: str,
     bridge_supplied: set = set()
     withheld = []
     if step_type == "deterministic_with_llm":
-        recorded = dict(state.get("step_outputs", {}).get(node_id, {}))
+        from library.tools import capability_outputs
+        recorded = capability_outputs.node_output(state, node_id)
         for key in (llm_authored or []):
             if key in recorded:
                 recorded.pop(key)

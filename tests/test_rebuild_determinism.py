@@ -45,6 +45,7 @@ from unittest.mock import patch
 
 import pytest
 
+from library.tools import capability_outputs
 from library.processes.edit_video.run_pipeline import (
     load_pipeline_state,
     run_pipeline,
@@ -105,7 +106,7 @@ def project(tmp_path):
         "preflight_completed": {},
         "edit_completed": {},
         "failed_steps": [],
-        "step_outputs": {},
+        "capability_outputs": {},
     }), encoding="utf-8")
     (folder / "project.yaml").write_text(
         "name: Rebuild Project\nslug: rebuild-project\n", encoding="utf-8")
@@ -157,7 +158,8 @@ def test_a_plain_second_run_reuses_recorded_answers(project):
     assert summary["status"] == "SUCCESS"
     assert first.seen == ["scan", "catalog", "temporal_index"]
 
-    before = dict(load_pipeline_state(str(project))["step_outputs"])
+    before = capability_outputs.node_outputs(
+        load_pipeline_state(str(project)))
 
     second = _Runner(project)
     summary = second.run()
@@ -166,7 +168,8 @@ def test_a_plain_second_run_reuses_recorded_answers(project):
         f"a plain second run re-executed {second.seen} - recorded "
         f"answers are NOT being reused")
 
-    after = load_pipeline_state(str(project))["step_outputs"]
+    after = capability_outputs.node_outputs(
+        load_pipeline_state(str(project)))
     assert after == before, "recorded step outputs moved under a no-op run"
 
 

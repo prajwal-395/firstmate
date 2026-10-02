@@ -173,6 +173,12 @@ def UNSATISFIED(reason: str, missing: str = "",
 
 # ── What a check may consult ─────────────────────────────────────────
 
+def _recorded(node_id: str, output: dict) -> dict:
+    """A witness state recording one node's run, in the writer's shape."""
+    from library.tools import capability_outputs
+    return capability_outputs.state_recording(node_id, output)
+
+
 @dataclass(frozen=True)
 class Context:
     """Everything a check may read, and nothing it may not.
@@ -195,9 +201,10 @@ class Context:
     `overridable` can appear here at all."""
 
     def step_output(self, node_id: str, key: str, default=None):
-        """`state["step_outputs"][node_id][key]`, or `default`."""
-        outputs = (self.state.get("step_outputs") or {}).get(node_id) or {}
-        return outputs.get(key, default)
+        """One key of a node's recorded output, or `default`."""
+        from library.tools import capability_outputs
+        return capability_outputs.node_output(
+            dict(self.state), node_id).get(key, default)
 
     def value_for(self, node_id: str, key: str, default=None):
         """The value by any of the three routes, producer first.
@@ -205,7 +212,8 @@ class Context:
         Mirrors `gather_step_inputs`' own precedence: a step that really
         ran wins, then a recorded output, then verified external state.
         """
-        outputs = (self.state.get("step_outputs") or {}).get(node_id) or {}
+        from library.tools import capability_outputs
+        outputs = capability_outputs.node_output(dict(self.state), node_id)
         if key in outputs:
             return outputs[key]
         recorded = self.recorded.get(node_id) or {}
@@ -995,8 +1003,8 @@ def _rough_cut_approved(ctx: Context) -> Satisfaction:
 def _review(passed, **extra) -> Context:
     review = {"passed": passed}
     review.update(extra)
-    return Context(state={"step_outputs": {
-        "review_rough_cut": {"rough_cut_review": review}}})
+    return Context(state=_recorded(
+        "review_rough_cut", {"rough_cut_review": review}))
 
 
 PREDICATES: Tuple[Requirement, ...] = (
@@ -1027,12 +1035,12 @@ PREDICATES: Tuple[Requirement, ...] = (
         consumed_key="temporal_event_indices",
         check=_prosody_speech_regions,
         refuting_context=lambda: Context(
-            state={"step_outputs": {"temporal_index": {
-                "temporal_event_indices": {"clip_001": {"speech_regions": []}}}}}),
+            state=_recorded("temporal_index", {
+                "temporal_event_indices": {"clip_001": {"speech_regions": []}}})),
         satisfying_context=lambda: Context(
-            state={"step_outputs": {"temporal_index": {
+            state=_recorded("temporal_index", {
                 "temporal_event_indices": {"clip_001": {
-                    "speech_regions": [{"start": 0.0, "end": 1.0}]}}}}}),
+                    "speech_regions": [{"start": 0.0, "end": 1.0}]}}})),
     ),
     Requirement(
         name="music.track_on_disk", kind=KIND_PREDICATE,
@@ -1042,13 +1050,13 @@ PREDICATES: Tuple[Requirement, ...] = (
         consumed_key="music_selection",
         check=_music_track_path,
         refuting_context=lambda: Context(
-            state={"step_outputs": {"music_selection": {
+            state=_recorded("music_selection", {
                 "music_selection": {"audio_path":
-                                    "/nonexistent/no-such-track.wav"}}}}),
+                                    "/nonexistent/no-such-track.wav"}})),
         satisfying_context=lambda: Context(
-            state={"step_outputs": {"music_selection": {
+            state=_recorded("music_selection", {
                 "music_selection": {"audio_path": str(
-                    Path(__file__).resolve())}}}}),
+                    Path(__file__).resolve())}})),
     ),
 )
 
@@ -1322,11 +1330,11 @@ COVERAGE: Tuple[Requirement, ...] = (
         consumers=("plan_subtitles",),
         check=_spine_word_timings,
         refuting_context=lambda: Context(
-            state={"step_outputs": {"mesh_spine": {
-                "audio_spine": _spine(with_words=False)}}}),
+            state=_recorded("mesh_spine", {
+                "audio_spine": _spine(with_words=False)})),
         satisfying_context=lambda: Context(
-            state={"step_outputs": {"mesh_spine": {
-                "audio_spine": _spine(with_words=True)}}}),
+            state=_recorded("mesh_spine", {
+                "audio_spine": _spine(with_words=True)})),
     ),
 )
 
@@ -1378,8 +1386,7 @@ def _verdict_requirement(node_id: str, key: str,
         return Context()
 
     def satisfying() -> Context:
-        return Context(state={"step_outputs": {
-            node_id: {key: {"_witness": True}}}})
+        return Context(state=_recorded(node_id, {key: {"_witness": True}}))
 
     return Requirement(
         name=f"verdict.{node_id}.{key}", kind=KIND_VERDICT,
@@ -1492,8 +1499,7 @@ def _optional_requirement(consumer: str, producer: str, key: str,
         return Context()
 
     def satisfying() -> Context:
-        return Context(state={"step_outputs": {
-            producer: {key: {"_witness": True}}}})
+        return Context(state=_recorded(producer, {key: {"_witness": True}}))
 
     return Requirement(
         name=f"optional.{consumer}.{key}", kind=KIND_OPTIONAL,

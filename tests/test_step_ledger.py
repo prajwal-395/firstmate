@@ -17,6 +17,7 @@ from pathlib import Path
 
 import pytest
 
+from library.tools import capability_outputs
 from library.processes.edit_video import run_pipeline as runner
 from library.tools import footage_identity, step_ledger
 from library.tools.project_layout import Area, ProjectLayout
@@ -133,7 +134,8 @@ def test_resetting_the_edit_run_cannot_discard_enrichment(project):
     root, state, _files = project
 
     preflight_before = dict(state[step_ledger.LEDGER_KEY[step_ledger.PREFLIGHT]])
-    outputs_before = {n: state["step_outputs"][n] for n, s in STAGE_BY_NODE.items()
+    outputs_before = {n: capability_outputs.node_output(state, n)
+                      for n, s in STAGE_BY_NODE.items()
                       if s == step_ledger.PREFLIGHT}
     artifacts_before = sorted(
         str(p.relative_to(root)) for p in root.rglob("*") if p.is_file())
@@ -145,12 +147,12 @@ def test_resetting_the_edit_run_cannot_discard_enrichment(project):
         n for n, s in STAGE_BY_NODE.items() if s == step_ledger.EDIT)
     assert state[step_ledger.LEDGER_KEY[step_ledger.EDIT]] == {}
     for node in cleared:
-        assert node not in state["step_outputs"]
+        assert node not in capability_outputs.node_outputs(state)
 
     # Every preflight entry, output and artifact is untouched.
     assert state[step_ledger.LEDGER_KEY[step_ledger.PREFLIGHT]] == preflight_before
     for node, output in outputs_before.items():
-        assert state["step_outputs"][node] == output
+        assert capability_outputs.node_output(state, node) == output
     artifacts_after = sorted(
         str(p.relative_to(root)) for p in root.rglob("*") if p.is_file())
     assert artifacts_after == artifacts_before

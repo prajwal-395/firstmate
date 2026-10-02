@@ -139,9 +139,9 @@ def test_the_build_command_holds_no_second_copy_of_the_build_path():
     assert any("run_reels.run" in n for n in command), (
         "cmd_build_reels no longer runs the reels process through its "
         "own runner")
-    assert any("execution_order" in n for n in runner), (
-        "the reels runner no longer takes its node order off the reel "
-        "process's own graph")
+    assert any("run_order" in n for n in runner), (
+        "the reels runner no longer takes its order off the reel "
+        "process's own capabilities")
     assert any("op.execute" in n for n in runner), (
         "the reels runner no longer runs the reel process's nodes "
         "through the operation registry, so nothing checks their "

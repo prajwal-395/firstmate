@@ -425,6 +425,7 @@ def load_pipeline_state(project_dir: str) -> dict:
     if os.path.exists(state_path):
         with open(state_path, encoding="utf-8") as f:
             state = json.load(f)
+        capability_outputs.migrate(state)
     else:
         state = {
             "pipeline_version": "1.0",
@@ -432,7 +433,7 @@ def load_pipeline_state(project_dir: str) -> dict:
             # Two ledgers, two lifetimes. See library/tools/step_ledger.py.
             step_ledger.LEDGER_KEY[step_ledger.PREFLIGHT]: {},
             step_ledger.LEDGER_KEY[step_ledger.EDIT]: {},
-            "step_outputs": {},
+            capability_outputs.KEY: {},
         }
     # Always inject project_folder from CLI
     state["project_folder"] = project_dir
@@ -687,6 +688,9 @@ def save_pipeline_state(project_dir: str, state: dict):
         layout.backup_pipeline_data(label="run")
     state_path = str(layout.pipeline_data_path)
     state["last_updated"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    # A project recorded before the capability records carries the old
+    # node-keyed slot; it is written back as records, never as the slot.
+    capability_outputs.migrate(state)
     with open(state_path, "w", encoding="utf-8") as f:
         # Canonical spelling (library/tools/stable_json.py): the same
         # state is the same bytes, so a build that changes nothing
@@ -1164,7 +1168,7 @@ def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = No
     for edge in dag["edges"]:
         if edge["to"] == node_id:
             source_id = edge["from"]
-            source_outputs = state.get("step_outputs", {}).get(source_id, {})
+            source_outputs = capability_outputs.node_output(state, source_id)
 
             # Apply data_mapping if specified
             mapping = edge.get("data_mapping", {})
@@ -2742,8 +2746,8 @@ def run_pipeline(
             elif verdict == "revised":
                 feedback = load_gate_feedback(project_dir, node_id)
                 if feedback:
-                    step_output = state.get("step_outputs", {}).get(
-                        node_id, {})
+                    step_output = capability_outputs.node_output(
+                        state, node_id)
                     merged = apply_feedback_to_output(step_output, feedback)
                     capability_outputs.record(state, node_id, merged)
                     save_pipeline_state(project_dir, state)
@@ -2900,7 +2904,8 @@ def run_pipeline(
                 # The catalog step writes `clip_catalog`; reading `clips`
                 # made this check see an empty catalog and warn that every
                 # legitimate clip_id was unrecognized.
-                catalog = state.get("step_outputs", {}).get("catalog", {}).get("clip_catalog", [])
+                catalog = capability_outputs.value(
+                    state, "footage.catalog", "clip_catalog", [])
                 catalog_ids = {c.get("clip_id") for c in catalog if c.get("clip_id")}
                 catalog_paths = {
                     c.get(key) for c in catalog
@@ -2986,8 +2991,8 @@ def run_pipeline(
                 project_dir, node_id, impl, inputs, output)
             
             if node_id == "mesh_spine":
-                step_outputs = state.get("step_outputs", {})
-                mesh_output = step_outputs.get('mesh_spine', {})
+                mesh_output = capability_outputs.node_output(
+                    state, "mesh_spine")
                 total_duration = mesh_output.get('total_duration', mesh_output.get('duration_seconds', 0))
                 MIN_DURATION = 30  # seconds, for shortform
                 if total_duration > 0 and total_duration < MIN_DURATION:
@@ -3193,8 +3198,8 @@ def run_pipeline(
     review_findings = []
     try:
         from library.tools import cut_verdicts as _cv
-        _cut_decisions = (state.get("step_outputs", {})
-                          .get("review_rough_cut", {}).get("cut_decisions"))
+        _cut_decisions = capability_outputs.value(
+            state, "rough_cut.review", "cut_decisions")
         for _line in _cv.summary_lines(_cut_decisions):
             print(_line, file=sys.stderr)
         review_findings = _cv.unplaced_findings(_cut_decisions)
@@ -3212,8 +3217,8 @@ def run_pipeline(
     # this block.
     try:
         from library.tools import render_review as _rr
-        _render_review = (state.get("step_outputs", {})
-                          .get("render", {}).get("render_review"))
+        _render_review = capability_outputs.value(
+            state, "render.build", "render_review")
         for _line in _rr.summary_lines(_render_review):
             print(_line, file=sys.stderr)
     except Exception as exc:  # noqa: BLE001 - a report must not fail a run
@@ -3267,9 +3272,9 @@ def run_pipeline(
     alignment_summary = []
     try:
         from library.tools import alignment_findings as _af
-        _report = ((state.get("step_outputs", {})
-                    .get("speech_sequence", {})
-                    .get("speech_sequence") or {}).get("alignment_report"))
+        _report = (capability_outputs.value(
+            state, "speech.enrich", "speech_sequence") or {}).get(
+                "alignment_report")
         for _line in _af.summary_lines(_report):
             print(_line, file=sys.stderr)
         alignment_summary = _af.passage_rows(_report)
@@ -3312,7 +3317,7 @@ def run_pipeline(
     value_decision_records = []
     try:
         for _step_id in {s.deciding_step for s in decided_value.SLOTS.values()}:
-            _out = (state.get("step_outputs", {}) or {}).get(_step_id) or {}
+            _out = capability_outputs.node_output(state, _step_id)
             for _key in _out:
                 value_decision_records.extend(
                     decided_value.records_from(_out.get(_key)))

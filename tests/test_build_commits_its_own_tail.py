@@ -2,13 +2,13 @@
 
 Measured 2026-09-11 on the captain's project: HEAD read `reels build:
 Reel 13 - the-accounting-firm-ai-called-healthcare` and the working
-tree was dirty with exactly one thing - `step_outputs.verify_reels.
-reel_verification.organised`, the bin organisation.
+tree was dirty with exactly one thing - the verify record's
+`reel_verification.organised`, the bin organisation.
 
 The cause is an ORDER, not a missing call.  The per-build commit fires
-inside the promoting node (`reel_build`, `step_7_02_verify_reels`), and
-the reels runner (`library/processes/reels/run_reels.py`) writes that node's own output to
-`pipeline_data.json` AFTER the node returns.  So the last node's record
+inside the promoting capability (`reel_build`, `step_7_02_verify_reels`),
+and the reels runner (`library/processes/reels/run_reels.py`) writes its
+own output to `pipeline_data.json` AFTER it returns.  So the last record
 could never be inside the commit it belongs to, and every build ended
 dirty.
 
@@ -62,7 +62,7 @@ def test_the_build_command_closes_its_own_record():
             "ordering defect it exists to close")
     # And it must come AFTER the state write it completes.
     writes = [n.lineno for n in ast.walk(body) if isinstance(n, ast.Call)
-              and "save_pipeline_state" in ast.unparse(n)]
+              and ast.unparse(n).startswith("record_project_output")]
     assert writes and min(c.lineno for c in calls) > max(writes)
 
 
@@ -81,13 +81,13 @@ def test_the_tail_commit_lands_what_the_final_state_write_left(tmp_path):
 
     bvc.init_project_repo(str(tmp_path))
     (tmp_path / "pipeline_data.json").write_text(
-        '{"step_outputs": {"build_reels": {}}}', encoding="utf-8")
+        '{"capability_outputs": {"reel.build": {}}}', encoding="utf-8")
     first = bvc.commit_build(str(tmp_path), "reels build: Reel 13")
     assert first["committed"] is True
 
     # The runner's final state write, after the node committed.
     (tmp_path / "pipeline_data.json").write_text(
-        '{"step_outputs": {"build_reels": {}, "verify_reels": '
+        '{"capability_outputs": {"reel.build": {}, "reel.verify": '
         '{"reel_verification": {"organised": {"moved": 1}}}}}',
         encoding="utf-8")
     assert _porcelain(tmp_path), "the state write left nothing to commit"

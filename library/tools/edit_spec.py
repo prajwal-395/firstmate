@@ -776,7 +776,8 @@ def _project_context(project_folder: str, request: str, reel: str) -> dict:
         state = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         raise EditSpecError(f"cannot read project state {path}: {exc}") from exc
-    outputs = state.get("step_outputs", {})
+    from library.tools import capability_outputs
+    outputs = capability_outputs.node_outputs(state)
     catalog = outputs.get("catalog", {})
     facts.update({
         "project_facts_available": True,
@@ -831,7 +832,6 @@ def _project_context(project_folder: str, request: str, reel: str) -> dict:
                 and isinstance(moment.get("slug"), str)):
             reel_names.append(reel_timeline_name(
                 moment["number"], moment["slug"]))
-    from library.tools import capability_outputs
     build_record = (capability_outputs.read(state, "reel.build")
                     .get("reel_build") or {})
     reel_names.extend(name for name in

@@ -507,7 +507,8 @@ class Operation:
         path = ProjectLayout(project_folder).pipeline_data_path
         if Path(path).is_file():
             state = json.loads(Path(path).read_text(encoding="utf-8"))
-        recorded = state.get("step_outputs") or {}
+        from library.tools import capability_outputs
+        recorded = capability_outputs.node_outputs(state)
         return requirements.Context(
             project_folder=project_folder, state=state,
             # `run_set` here is NOT what decides deferral - measured, not
@@ -1041,8 +1042,8 @@ EMPTY_EFFECT_REASONS: dict[str, str] = {
         "`reel_build` is `reel.build`'s.",
     "reel.ask":
         "RECEIPT. Writes each approved reel's visual asks and returns "
-        "`reel_ask`, an output `build_reels` does not declare - nothing "
-        "is built, so no `reel_build`.",
+        "`reel_ask`, which no requirement of any `build_reels` "
+        "consumer reads - nothing is built, so no `reel_build`.",
     "reel.gate_stills":
         "ARTIFACT. Caller-supplied: grabs stills off one timeline to "
         "disk and returns where they went; the verdict "
@@ -1055,6 +1056,12 @@ EMPTY_EFFECT_REASONS: dict[str, str] = {
         "ARTIFACT. Caller-supplied: re-renders named segments and swaps "
         "them onto every timeline, returning a report - no state key "
         "`render_subtitles` declares.",
+    "objects.segment":
+        "ARTIFACT. The masks land on disk under the segmentation area "
+        "for `compile_manifest` to place; `object_segmentation` reaches "
+        "it only through an input that manifest declares OPTIONAL, "
+        "which `run_scope.prerequisites` deliberately excludes - so no "
+        "requirement names `object_segmentation` as a producer.",
     # REGION UNIT - one span of one clip, handed back to the caller.
     "transcript.reindex":
         "REGION UNIT. Re-measures the speech of ONE span of one clip and "
@@ -1442,7 +1449,7 @@ _REGISTRY: tuple[Operation, ...] = (
         summary="Write every APPROVED reel's three visual asks without building anything",
         owning_dir="step_7_01_build_reels", body="step.py",
         attr="ask_reels",
-        produces=(),
+        produces=("reel_ask",),
         consumes=("timeline_transcript",),
     ),
     Operation(
@@ -1821,10 +1828,38 @@ _REGISTRY: tuple[Operation, ...] = (
         # The plain step.py case: `review_creative_cohesion(inputs)`
         # takes the whole gathered dict, the render.build shape.
     ),
-    # compile_manifest belongs here in pipeline order and is NOT
-    # registered: step_5_04_compile_manifest/step.py takes `out_dir`,
-    # a path main() derives from project_folder - neither a
-    # merged-dict spelling nor a declared input. See the PR.
+    Operation(
+        name="objects.segment",
+        summary="Segment the subjects of the clips a grade or behind-subject plan names",
+        owning_dir="step_1_06_object_segmentation", body="step.py",
+        attr="segment_triggered_clips",
+        produces=("object_segmentation", "matte_trigger"),
+        consumes=("clip_catalog",),
+        # The plain step.py case: the whole gathered dict under `data`.
+        # Its body was `main()` alone until its output had to be
+        # recorded under a capability id (`capability_outputs`).
+    ),
+    Operation(
+        name="manifest.compile",
+        summary="Compile every plan the run recorded into the assembly manifest",
+        owning_dir="step_5_04_compile_manifest", body="step.py",
+        attr="compile_step",
+        produces=("assembly_manifest",),
+        consumes=(
+            "a_roll_assignments",
+            "audio_mix_spec",
+            "audio_spine",
+            "b_roll_assignments",
+            "clip_catalog",
+            "music_selection",
+            "semantic_analysis_documents",
+            "subtitle_overlay",
+            "subtitle_plan",
+        ),
+        # `compile_step(inputs)` derives the output directory from
+        # `project_folder` (the `out_dir` `compile_manifest` takes) and
+        # compiles from the project's recorded state, AGENTS.md 10.1.
+    ),
     Operation(
         name="render.build",
         summary="Build the final timeline in DaVinci Resolve and export the finished video",

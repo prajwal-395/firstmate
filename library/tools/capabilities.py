@@ -109,8 +109,8 @@ class Executor:
 class LegacyNode:
     """The DAG node a capability is attributed to, kept for compatibility.
 
-    `step_outputs`, the step ledgers, the review gates, the derived
-    requirements and provenance's `step_id` are still keyed by it.
+    The step ledgers, the review gates, the derived requirements and
+    provenance's `step_id` are still keyed by it.
     """
 
     node_id: str
@@ -246,6 +246,33 @@ def consumers_of(requirement_name: str) -> tuple:
     return dag_adapter.requirement_index()[0].get(requirement_name, ())
 
 
+def run_order(process_id: str) -> tuple:
+    """Every capability of one process, in the order a run drives them.
+
+    Each comes after every capability of the process that produces a
+    requirement it refuses without (`producers_of`); registry order
+    breaks ties.  The process is the one its legacy node belongs to.
+    Caller-supplied capabilities are in the order too - a runner is not
+    their caller and skips them by name, so the skip stays visible.
+    """
+    specs = [c for c in all() if c.legacy and c.legacy.process == process_id]
+    ids_in = {c.id for c in specs}
+    after = {c.id: {p for r in c.requires for p in producers_of(r)
+                    if p in ids_in and p != c.id}
+             for c in specs}
+    order: list = []
+    done: set = set()
+    while len(order) < len(specs):
+        ready = [c for c in specs if c.id not in done and after[c.id] <= done]
+        if not ready:
+            raise ValueError(
+                f"the capabilities of {process_id!r} require each other in "
+                f"a cycle: {sorted(ids_in - done)}")
+        order.append(ready[0])
+        done.add(ready[0].id)
+    return tuple(order)
+
+
 def get(capability_id: str) -> CapabilitySpec:
     for c in all():
         if c.id == capability_id:
@@ -350,7 +377,10 @@ def problems(registry=None) -> list:
        manifest declares, and every requirement a node with capabilities is a
        producer of is produced by one of them - so deriving a node's
        effect from its capabilities (`dag_adapter.node_effects`) loses
-       no production.
+       no production;
+    8. every node's run is recorded - each node of each process has a
+       capability its output is filed under (`dag_adapter.run_capability`),
+       so `capability_outputs` holds every key a run returns.
 
     "Requirements are declared" - a contract derived from
     `requirements.py`, never hand-written - is
@@ -460,6 +490,13 @@ def problems(registry=None) -> list:
                            f"{producer!r} at key {r.key_at(producer)!r}, "
                            f"and none of that node's capabilities "
                            f"declares producing it")
+
+    if registry is operations.all():
+        for node in sorted(nodes):
+            if dag_adapter.run_capability(node) is None:
+                out.append(f"node {node!r} has no capability its run is "
+                           f"recorded under, so its output would reach "
+                           f"no record")
 
     for spec in AREAS.values():
         if spec.step and spec.step not in nodes:

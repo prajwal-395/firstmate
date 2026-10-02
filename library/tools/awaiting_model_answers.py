@@ -37,7 +37,8 @@ def collect(project_folder: str,
     anywhere except the build record itself, so it comes from
     `motion_records` when the caller just built (the in-memory list it
     is about to return), else from
-    `state["step_outputs"]["build_reels"]["reel_build"]["picture_motion"]`.
+    the `reel.build` record's `reel_build.picture_motion`
+    (`capability_outputs.read`).
     """
     owing: Dict[str, List[str]] = {}
     wanted = (None if only_reels is None else

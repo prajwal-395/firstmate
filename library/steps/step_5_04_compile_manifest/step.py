@@ -453,7 +453,8 @@ _STATE_OUTPUTS: dict = {}
 
 
 def _load_state_outputs(out_dir: str) -> dict:
-    """Read step_outputs from the project's pipeline_data.json.
+    """Every node's recorded output in the project's pipeline_data.json,
+    keyed by node id (`capability_outputs.node_outputs`).
 
     `out_dir` is the project's output root, so the project is its
     parent and the layout owner names the state file from there.
@@ -464,7 +465,8 @@ def _load_state_outputs(out_dir: str) -> dict:
         return {}
     try:
         with open(state_path) as f:
-            return json.load(f).get("step_outputs", {})
+            from library.tools import capability_outputs
+            return capability_outputs.node_outputs(json.load(f))
     except (json.JSONDecodeError, IOError) as e:
         print(f"  WARNING: could not read {state_path}: {e}", file=sys.stderr)
         return {}
@@ -3362,16 +3364,24 @@ def main():
     else:
         # Orchestrator mode: read from stdin JSON
         inputs = json.loads(sys.stdin.read())
+        json.dump(compile_step(inputs), sys.stdout, indent=2)
 
-        if "project_folder" in inputs:
-            out_dir = str(
-                ProjectLayout(inputs["project_folder"]).write_dir(Area.OUTPUT_ROOT))
-            if os.path.isdir(out_dir):
-                manifest = compile_manifest(out_dir)
-                json.dump({"assembly_manifest": manifest}, sys.stdout, indent=2)
-                return
-        
-        raise RuntimeError("compile_manifest requires project_folder in inputs and a valid pipeline_output dir")
+
+def compile_step(inputs: dict) -> dict:
+    """The node's run: compile the manifest of the project `inputs` names.
+
+    The `manifest.compile` capability (library/tools/operations.py) and
+    the orchestrator's stdin mode both arrive here.  The manifest is
+    compiled from the project's recorded state, which `compile_manifest`
+    reads itself (AGENTS.md 10.1), so the gathered inputs contribute the
+    project folder and nothing else.
+    """
+    if "project_folder" in inputs:
+        out_dir = str(
+            ProjectLayout(inputs["project_folder"]).write_dir(Area.OUTPUT_ROOT))
+        if os.path.isdir(out_dir):
+            return {"assembly_manifest": compile_manifest(out_dir)}
+    raise RuntimeError("compile_manifest requires project_folder in inputs and a valid pipeline_output dir")
 
 if __name__ == "__main__":
     main()

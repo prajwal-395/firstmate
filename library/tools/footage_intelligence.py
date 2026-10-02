@@ -17,10 +17,10 @@ the runner uses, the same refusal when a prerequisite is missing.
 What stays shared with editing, and why
 ---------------------------------------
 Editing CONSUMES what analysis produces, so the result lands where the
-edit reads it: `step_outputs.<legacy node>`, the PREFLIGHT ledger, the
-source and code fingerprints that make "preflight is skipped once done"
-safe, and the step export. Those are state services keyed by the legacy
-node (`library/tools/dag_adapter.py`), borrowed from the runner module
+edit reads it: the capability's record (`capability_outputs`), the
+PREFLIGHT ledger, the source and code fingerprints that make "preflight
+is skipped once done" safe, and the step export. All but the first are
+state services keyed by the legacy node (`library/tools/dag_adapter.py`), borrowed from the runner module
 until they move out of it; no DAG is walked and no edit step can run.
 `ren edit <collection>` therefore continues with preflight already done,
 exactly as before.

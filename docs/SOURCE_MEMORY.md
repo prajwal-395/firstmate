@@ -477,7 +477,7 @@ ren eval-search <project> --out-json F    # the pre-registered set by default
   never the editing runner: `footage.scan`, `footage.catalog`,
   `semantics.analyse`, `temporal.index`, `prosody.analyse`, composed by what
   each requires - never object segmentation, OCR only with `--with
-  ocr.extract`. Results land in `step_outputs` and the preflight ledger, so
+  ocr.extract`. Results land in `capability_outputs` and the preflight ledger, so
   `ren edit` continues with preflight done. Then the lanes in
   `footage_analysis.LANES` fill M0-M3b, M6, M7 and build the text and frame
   indexes. `--memory-only` runs scan and catalog alone.

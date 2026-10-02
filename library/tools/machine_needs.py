@@ -176,6 +176,9 @@ CAPABILITY_NEEDS: dict = {
         {"deepfilter": "a deepfilternet request refuses by name and the "
                        "model re-plans with voice_isolation"}),
     "cohesion.review": CapabilityNeeds(),
+    "objects.segment": CapabilityNeeds(
+        ("ffmpeg", "python.analysis", "python.graphics")),
+    "manifest.compile": CapabilityNeeds(),
     "render.build": CapabilityNeeds(_RESOLVE + ("ffmpeg",)),
     "validation.resolve": CapabilityNeeds(_MODEL),
 

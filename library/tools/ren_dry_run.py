@@ -404,59 +404,58 @@ def preconditions_hold(evaluations) -> tuple[bool, list]:
 
 # ── The old path, as coded ───────────────────────────────────────────
 #
-# Read off the registry and the loop, never hardcoded: the reels
-# process's execution order, every operation each node owns, and - for
-# caller-supplied operations the runner cannot drive - the skip, which
-# is what `manage_project.cmd_build_reels` does with them: the loop
-# is not the caller that supplies their arguments, so it leaves them
-# out and runs the rest (`reel.build`, `reel.ask`, `reel.verify`).
+# Read off the registry and the runner, never hardcoded: the reels
+# process's capabilities in run order (`capabilities.run_order`) and -
+# for caller-supplied operations the runner cannot drive - the skip,
+# which is what `manage_project.cmd_build_reels` does with them: the
+# runner is not the caller that supplies their arguments, so it leaves
+# them out and runs the rest (`reel.build`, `reel.ask`, `reel.verify`).
 # The unbound deduction below names what each skipped op would have
-# refused on had the loop driven it (`spec` unbound for the three
+# refused on had the runner driven it (`spec` unbound for the three
 # touchup siblings, `reel_label`/`timeline_name`/`frames` for the
 # stills grab).
 
 
 def old_path_walk() -> list:
     """What `build-reels` WOULD execute instead, op by op, as coded."""
+    import inspect
+
+    from library.tools import capabilities
     from library.tools import operations as ops_mod
     from library.tools import processes as processes_mod
 
     walk = []
-    for node_id in processes_mod.execution_order(processes_mod.REELS):
-        for op in ops_mod.by_node(node_id):
-            if op.caller_supplied:
-                import inspect
-
-                required = tuple(
-                    name
-                    for name, parameter in inspect.signature(op.run).parameters.items()
-                    if parameter.default is inspect.Parameter.empty
-                    and name != "project_folder"
-                )
-                walk.append(
-                    {
-                        "node": node_id,
-                        "operation": op.name,
-                        "would": "skip",
-                        "why": (
-                            f"caller-supplied: the loop is not the caller "
-                            f"that supplies {', '.join(required)} - it "
-                            f"leaves this op out and runs the rest."
-                        ),
-                    }
-                )
-            else:
-                walk.append(
-                    {
-                        "node": node_id,
-                        "operation": op.name,
-                        "would": "run",
-                        "why": (
-                            "runner-driven: gathered inputs bind it, so "
-                            "the loop runs it whole."
-                        ),
-                    }
-                )
+    for spec in capabilities.run_order(processes_mod.REELS):
+        op = ops_mod.get(spec.id)
+        if op.caller_supplied:
+            required = tuple(
+                name
+                for name, parameter in inspect.signature(op.run).parameters.items()
+                if parameter.default is inspect.Parameter.empty
+                and name != "project_folder"
+            )
+            walk.append(
+                {
+                    "operation": op.name,
+                    "would": "skip",
+                    "why": (
+                        f"caller-supplied: the runner is not the caller "
+                        f"that supplies {', '.join(required)} - it "
+                        f"leaves this op out and runs the rest."
+                    ),
+                }
+            )
+        else:
+            walk.append(
+                {
+                    "operation": op.name,
+                    "would": "run",
+                    "why": (
+                        "runner-driven: gathered inputs bind it, so "
+                        "the runner runs it whole."
+                    ),
+                }
+            )
     return walk
 
 
@@ -874,8 +873,7 @@ def render_report(record: dict) -> str:
     lines.append(f"   {record['old_path']['command']}")
     for entry in record["old_path"]["walk"]:
         lines.append(
-            f"   [{entry['would']}] {entry['node']}/"
-            f"{entry['operation']}: {entry['why']}"
+            f"   [{entry['would']}] {entry['operation']}: {entry['why']}"
         )
     lines.append(
         "   NOTE: the loop leaves the caller-supplied ops out - "

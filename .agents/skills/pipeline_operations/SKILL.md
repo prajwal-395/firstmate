@@ -69,6 +69,8 @@ run at a declared scope. It owns no logic of its own.
 | `color_grade.resolve` | `color_grade` | project | Join the colourist's answer to the measured clips as one CDL each |
 | `audio_mix.resolve` | `audio_mix` | project | Join the mix answer to the bed and speech measurements as per-window clip gain |
 | `cohesion.review` | `creative_cohesion` | project | Review the planned transitions and sound against the declared direction |
+| `objects.segment` | `object_segmentation` | project | Segment the subjects of the clips a grade or behind-subject plan names |
+| `manifest.compile` | `compile_manifest` | project | Compile every plan the run recorded into the assembly manifest |
 | `render.build` | `render` | project | Build the final timeline in DaVinci Resolve and export the finished video |
 | `validation.resolve` | `validate` | project | Combine the deterministic checks and the model's reading into one verdict |
 

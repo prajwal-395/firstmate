@@ -3,8 +3,8 @@
 Why there is exactly one
 ------------------------
 `save_pipeline_state` rewrites the whole state file, and every step gets
-there the same way: run the step, replace `step_outputs.<node_id>`
-entirely, save.  That is correct for a step, which recomputes everything
+there the same way: run the step, replace the node's recorded output
+(`capability_outputs.record`) entirely, save.  That is correct for a step, which recomputes everything
 it owns.  It is wrong for a region operation, which recomputes a slice
 and must leave the rest of a step's output exactly as it was.
 
@@ -16,8 +16,8 @@ write that has to be true is asserted here.
 
 Four rules
 ----------
-**It writes what steps already read.**  A splice lands in
-`step_outputs.<node_id>` in the shape that step's own consumers expect -
+**It writes what steps already read.**  A splice lands in the node's
+recorded output in the shape that step's own consumers expect -
 it is a PRODUCER of ordinary state, not a parallel store.  Nothing
 downstream learns that a region operation exists.
 
@@ -77,7 +77,8 @@ def read_step_output(project_folder: str, node_id: str) -> dict:
     if not path.exists():
         return {}
     state = json.loads(path.read_text(encoding="utf-8"))
-    return (state.get("step_outputs") or {}).get(node_id) or {}
+    from library.tools import capability_outputs
+    return capability_outputs.node_output(state, node_id)
 
 
 def snapshot_path(project_folder: str, label: str) -> Path:
@@ -121,10 +122,11 @@ def splice_step_output(project_folder: str,
     # Re-read immediately before the write.  See "reads, verifies, then
     # writes" above - the caller's view may be minutes old.
     state = json.loads(path.read_text(encoding="utf-8"))
-    outputs = state.get("step_outputs") or {}
+    from library.tools import capability_outputs
+    outputs = capability_outputs.node_outputs(state)
     if node_id not in outputs:
         raise StateSpliceRefused(
-            f"step_outputs has no {node_id!r}, so there is nothing to "
+            f"no recorded output for {node_id!r}, so there is nothing to "
             f"splice into",
             f"the step never wrote its output on this run. Known: "
             f"{', '.join(sorted(outputs)) or '(none)'}",
@@ -146,7 +148,6 @@ def splice_step_output(project_folder: str,
     snapshot = snapshot_path(project_folder, label)
     shutil.copy2(path, snapshot)
 
-    from library.tools import capability_outputs
     capability_outputs.record(state, node_id, after)
 
     record = dict(report or {})

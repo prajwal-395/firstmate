@@ -310,39 +310,49 @@ def main():
         print(json.dumps({"error": "Invalid JSON input", "step": "1.06_object_segmentation"}))
         sys.exit(1)
 
-    clip_catalog = input_data.get("clip_catalog")
-
-    if not clip_catalog:
+    if not input_data.get("clip_catalog"):
         print(json.dumps({
             "error": "Missing required input: clip_catalog",
             "step": "1.06_object_segmentation"
         }))
         sys.exit(1)
+    json.dump(segment_triggered_clips(input_data), sys.stdout, indent=2)
+
+
+def segment_triggered_clips(data: dict) -> dict:
+    """The node's run, from the gathered inputs: `run_step` on the clips
+    the trigger names.  The `objects.segment` capability
+    (library/tools/operations.py) and `main()` both arrive here.
+    """
+    clip_catalog = data.get("clip_catalog")
+    if not clip_catalog:
+        raise ValueError("object_segmentation requires clip_catalog")
 
     # Optional opt-in to explicit face seeding (issue #268): clip_id to
     # normalized first-frame face box. Absent means the boxes are read
     # off temporal_index, which runs upstream of this step.
     face_boxes_by_clip = _box_map_or_none(
-        input_data.get("face_boxes_by_clip"))
+        data.get("face_boxes_by_clip"))
 
     # Where masks land is the layout owner's call, not this step's.
     # See library/tools/project_layout.py.
-    project_folder = input_data.get("project_folder") or os.getcwd()
+    project_folder = data.get("project_folder") or os.getcwd()
     output_dir = str(ProjectLayout(project_folder).write_dir(
         Area.SEGMENTATION, step="object_segmentation"))
 
-    result = run_step(input_data.get("raw_footage_files"),
+    result = run_step(data.get("raw_footage_files"),
                       clip_catalog, output_dir,
                       face_boxes_by_clip=face_boxes_by_clip,
-                      color_grade_spec=input_data.get("color_grade_spec"),
-                      behind_subject_overlays=input_data.get(
+                      color_grade_spec=data.get("color_grade_spec"),
+                      behind_subject_overlays=data.get(
                           "behind_subject_overlays"),
-                      a_roll_assignments=input_data.get("a_roll_assignments"),
-                      b_roll_assignments=input_data.get("b_roll_assignments"),
-                      b_roll_interjections=input_data.get(
+                      a_roll_assignments=data.get("a_roll_assignments"),
+                      b_roll_assignments=data.get("b_roll_assignments"),
+                      b_roll_interjections=data.get(
                           "b_roll_interjections"),
-                      temporal_index=input_data.get("temporal_index"))
-    json.dump(result, sys.stdout, indent=2)
+                      temporal_index=data.get("temporal_index"))
+    return result
+
 
 if __name__ == "__main__":
     main()

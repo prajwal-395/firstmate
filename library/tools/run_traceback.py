@@ -207,7 +207,9 @@ def build_traceback(project_folder, dag=None) -> dict:
                 ambiguous[cand].append(rec)
 
     consumption = _consumption(dag)
-    step_outputs = state.get("step_outputs", {}) or {}
+    from library.tools import capability_outputs, dag_adapter
+    recorded = capability_outputs.records(state)
+    node_views = capability_outputs.node_outputs(state)
 
     steps = []
     for i, node in enumerate(dag.get("nodes", []), 1):
@@ -215,7 +217,7 @@ def build_traceback(project_folder, dag=None) -> dict:
         status = _step_status(state, node_id)
         files = by_step.get(node_id, [])
         area_counts = Counter(r.area for r in files)
-        output = step_outputs.get(node_id)
+        output = node_views.get(node_id)
         steps.append({
             "position": i,
             "id": node_id,
@@ -223,8 +225,9 @@ def build_traceback(project_folder, dag=None) -> dict:
             "step_ref": node.get("step_ref", ""),
             "status": status,
             "consumed": dict(consumption.get(node_id, {})),
-            "produced_keys": sorted(output) if isinstance(output, dict) else [],
-            "has_output": output is not None,
+            "produced_keys": sorted(output or ()),
+            "recorded_by": [op.name for op in dag_adapter.capabilities_at(node_id)
+                            if op.name in recorded],
             "files": files,
             "file_area_counts": dict(area_counts),
             "methods": Counter(r.method for r in files),
@@ -354,13 +357,13 @@ def render_traceback(data: dict) -> str:
 
         if st["produced_keys"]:
             keys = ", ".join(f"`{k}`" for k in st["produced_keys"])
+            under = ", ".join(f"`{c}`" for c in st["recorded_by"])
             L.append(f"- **produced (data)**: {keys} - in "
-                     f"`pipeline_data.json` under `step_outputs.{st['id']}`")
-        elif st["has_output"]:
-            L.append(f"- **produced (data)**: `step_outputs.{st['id']}` "
-                     f"(not an object)")
+                     f"`pipeline_data.json` under `capability_outputs` "
+                     f"({under})")
         else:
-            L.append("- **produced (data)**: nothing recorded in `step_outputs`")
+            L.append("- **produced (data)**: nothing recorded in "
+                     "`capability_outputs`")
 
         if st["files"]:
             counts = ", ".join(

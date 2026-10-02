@@ -48,15 +48,12 @@ the limits of the layer underneath, stated rather than patched around:
   the kind: one whose own preconditions strand still refuses, naming
   what stops it.
 * THE MIDDLE OF THE DAG.  A producer node with no registered operation
-  (`dag_adapter.legacy_only_nodes()`: `compile_manifest` and
-  `object_segmentation`, whose bodies take an output directory `main()`
-  derives rather than a declared input) makes a goal whose chain passes
-  through it unreachable BY CAPABILITIES ALONE.  Adding a
-  capability is not this module's call: it refuses, naming the deepest
-  requirement nothing reaches and which step produces it, so the operator
-  knows the DAG run (or the outside supply) the plan would need first.
-  As operations are registered for those nodes, more goals resolve with
-  nothing changed here.
+  (`dag_adapter.legacy_only_nodes()` - empty since `manifest.compile`
+  and `objects.segment` were registered) makes a goal whose chain passes
+  through it unreachable BY CAPABILITIES ALONE.  Adding a capability is
+  not this module's call: it refuses, naming the deepest requirement
+  nothing reaches and which step produces it, so the operator knows the
+  DAG run (or the outside supply) the plan would need first.
 
 What a precondition without a producer becomes
 ----------------------------------------------

@@ -335,8 +335,8 @@ def main():
 
     # ONE output, and it is the review. A second declared output named
     # `step` carried the constant "5.03_creative_cohesion" - the step's
-    # own id, which the ledger, `project_layout` and the `step_outputs`
-    # key it is filed under already carry. Nothing read it; the survey
+    # own id, which the ledger and `project_layout` already carry, and
+    # its record is filed under its capability id. Nothing read it; the survey
     # credited it because `"step"` is a string literal in half the tree.
     # See library/tools/output_contract.py.
     json.dump({"cohesion_review": review}, sys.stdout, indent=2)
