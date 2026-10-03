@@ -630,8 +630,15 @@ class VisionAnalyzer:
         self.step_id = step_id
         print(f"  Model loaded/bound in {self.load_time:.1f}s")
 
+    @staticmethod
+    def _model_version(model):
+        config = getattr(model, "config", None)
+        revision = (getattr(config, "_commit_hash", None)
+                    or getattr(config, "revision", None))
+        return str(revision or MODEL_ID)
+
     def analyze(self, prompt, images=None, video=None, max_tokens=512,
-                  audio=None):
+                  audio=None, _route=None):
         """Run a single analysis pass. Returns (text, elapsed_seconds).
 
         Args:
@@ -659,8 +666,17 @@ class VisionAnalyzer:
                 hears anything on its own, so audio in the video file
                 alone is NOT heard - it must be passed here.
         """
+        route = _route if _route is not None else {}
         if images:
-            return self._analyze_stills(prompt, images, max_tokens)
+            return self._analyze_stills(prompt, images, max_tokens, route)
+        route.update({
+            "backend": "mlx_vlm",
+            "model": MODEL_ID,
+            "model_version": self._model_version(self.model),
+            "fallback_causes": [],
+            "input_kind": ("video" if video else
+                           "audio" if audio else "text"),
+        })
         if video or audio:
             prompt = f"<|video|>{prompt}"
             formatted = apply_chat_template(
@@ -691,7 +707,7 @@ class VisionAnalyzer:
         text = r.text if hasattr(r, "text") else str(r)
         return text, elapsed
 
-    def _analyze_stills(self, prompt, images, max_tokens):
+    def _analyze_stills(self, prompt, images, max_tokens, route):
         """One still-frame pass: the driver first, gemma fallback.
 
         Routes through `library/tools/still_vision.py` and returns
@@ -703,14 +719,17 @@ class VisionAnalyzer:
         from library.tools.still_vision import inspect_stills
 
         t0 = time.time()
+        route["input_kind"] = "still"
         text = inspect_stills(
             prompt, list(images), harness=self.harness,
             project_folder=self.project_folder, step_id=self.step_id,
-            label="objects", max_tokens=max_tokens)
+            label="objects", max_tokens=max_tokens,
+            route_metadata=route)
         return text, time.time() - t0
 
     def analyze_with_retry(self, prompt, parse_fn, images=None, video=None,
-                           max_tokens=512, label="pass", audio=None):
+                           max_tokens=512, label="pass", audio=None,
+                           request_kind=None, request_id=None):
         """Run analysis with one retry on parse failure.
 
         Args:
@@ -723,18 +742,41 @@ class VisionAnalyzer:
         Returns:
             (parsed_result, raw_text, total_elapsed)
         """
-        text, elapsed = self.analyze(prompt, images=images, video=video,
-                                     max_tokens=max_tokens, audio=audio)
-        result = parse_fn(text.strip())
+        if request_kind is None:
+            request_kind = ("still" if images else
+                            "window" if video or audio else "text")
+        request_id = request_id or label
+
+        def run_attempt(attempt_prompt, attempt_number):
+            route = {}
+            started_at = time.time()
+            started = time.perf_counter()
+            try:
+                text, elapsed = self.analyze(
+                    attempt_prompt, images=images, video=video,
+                    max_tokens=max_tokens, audio=audio, _route=route)
+                result = parse_fn(text.strip())
+            except Exception as exc:
+                elapsed = time.perf_counter() - started
+                self._record_attempt(
+                    request_kind, request_id, attempt_number, "error",
+                    route, elapsed, started_at,
+                    error=f"{type(exc).__name__}: {exc}")
+                raise
+            outcome = "parsed" if result else "empty"
+            self._record_attempt(
+                request_kind, request_id, attempt_number, outcome,
+                route, elapsed, started_at)
+            return result, text, elapsed
+
+        result, text, elapsed = run_attempt(prompt, 1)
 
         # Retry once if parse produced empty result
         if not result:
             retry_suffix = "\n\nIMPORTANT: Respond with ONLY valid JSON. No markdown, no explanation, no text before or after the JSON."
-            text2, elapsed2 = self.analyze(prompt + retry_suffix, images=images,
-                                            video=video, max_tokens=max_tokens,
-                                            audio=audio)
+            result2, text2, elapsed2 = run_attempt(
+                prompt + retry_suffix, 2)
             elapsed += elapsed2
-            result2 = parse_fn(text2.strip())
             if result2:
                 return result2, text2.strip(), elapsed
             else:
@@ -742,6 +784,31 @@ class VisionAnalyzer:
                 return result, text.strip(), elapsed
 
         return result, text.strip(), elapsed
+
+    @staticmethod
+    def _record_attempt(request_kind, request_id, attempt_number,
+                        parser_outcome, route, elapsed, started_at,
+        error=None):
+        backend = route.get("backend", "unknown")
+        if backend == "host":
+            layer = "host_model"
+        elif backend in {"mlx_vlm", "gemma_server"}:
+            layer = "gemma_inference"
+        else:
+            layer = "semantic_inference_attempt"
+        # The performance report unions intervals by backend layer. Keeping
+        # each attempt in its answering backend's bucket preserves the row
+        # without charging the same inference wall twice.
+        perf_ledger.record(
+            layer, elapsed, started_at=started_at,
+            request_kind=request_kind, request_id=request_id,
+            input_kind=route.get("input_kind", "unknown"),
+            attempt_number=attempt_number, parser_outcome=parser_outcome,
+            backend=backend,
+            fallback_cause=route.get("fallback_causes", []),
+            model=route.get("model", "unknown"),
+            model_version=route.get("model_version", "unknown"),
+            error=error, elapsed_s=round(float(elapsed), 3))
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -2314,7 +2381,7 @@ def _expand_or_canonical(parsed):
 
 
 def run_window_call(analyzer, compact_prompt, fallback_prompt, video,
-                    audio, label):
+                    audio, label, request_id=None):
     """One window's model call: compact first, full canonical fallback.
 
     Returns (expanded_result, compact_raw, elapsed_total, prompt_path)
@@ -2335,14 +2402,16 @@ def run_window_call(analyzer, compact_prompt, fallback_prompt, video,
 
     result, raw, elapsed = analyzer.analyze_with_retry(
         compact_prompt, _parse, video=video, audio=audio,
-        max_tokens=MAX_TOKENS["window_all_compact"], label=label)
+        max_tokens=MAX_TOKENS["window_all_compact"], label=label,
+        request_kind="window", request_id=f"{request_id or label}:compact")
     if result:
         path = "compact_repaired" if state.get("repaired") else "compact"
         return _expand_or_canonical(result), raw, elapsed, path
     fb_result, _fb_raw, fb_elapsed = analyzer.analyze_with_retry(
         fallback_prompt, parse_json_object, video=video, audio=audio,
         max_tokens=MAX_TOKENS["window_all"],
-        label=label + " fallback")
+        label=label + " fallback", request_kind="window",
+        request_id=f"{request_id or label}:full_fallback")
     elapsed += fb_elapsed
     if fb_result:
         fb_result = _expand_or_canonical(fb_result)
@@ -2350,7 +2419,7 @@ def run_window_call(analyzer, compact_prompt, fallback_prompt, video,
 
 
 def analyze_windows(analyzer, video_clips, duration, temporal_index, transcript,
-                    fps=None):
+                    fps=None, request_prefix="clip"):
     """Analyze actions, scene, camera and assessment - one model call per 10s window.
 
     The folded call (`PROMPT_WINDOW_ALL_COMPACT`) answers all four
@@ -2426,7 +2495,9 @@ def analyze_windows(analyzer, video_clips, duration, temporal_index, transcript,
         audio = video if clip_info.get("has_audio") else None
         result, _raw, elapsed, prompt_path = run_window_call(
             analyzer, prompt, fallback_prompt, video, audio,
-            f"Window [{w_start:.0f}-{w_end:.0f}s]")
+            f"Window [{w_start:.0f}-{w_end:.0f}s]",
+            request_id=(f"{request_prefix}:window:"
+                        f"{w_start:.3f}-{w_end:.3f}"))
 
         # `parse_compact_window` returns {} on total parse failure.
         # An empty dict is falsy; a dict with empty sections is truthy.
@@ -2546,7 +2617,8 @@ def _window_cache_params(clip_info, duration, temporal_index, transcript,
 
 
 def analyze_windows_cached(analyzer, video_clips, duration, temporal_index,
-                           transcript, fps, layer_cache):
+                           transcript, fps, layer_cache,
+                           request_prefix="clip"):
     """Read or measure each window independently, preserving input order.
 
     Clips are consumed as they arrive so the bounded extractor can stay
@@ -2566,7 +2638,7 @@ def analyze_windows_cached(analyzer, video_clips, duration, temporal_index,
 
         measured = analyze_windows(
             analyzer, [clip_info], duration, temporal_index, transcript,
-            fps=fps)
+            fps=fps, request_prefix=request_prefix)
         if len(measured) != 1:
             raise RuntimeError(
                 "analyze_windows did not return one result for a valid "
@@ -2579,7 +2651,8 @@ def analyze_windows_cached(analyzer, video_clips, duration, temporal_index,
     return results
 
 
-def analyze_objects_coarse(analyzer, frames, duration):
+def analyze_objects_coarse(analyzer, frames, duration,
+                           request_prefix="clip"):
     """Object detection — coarse sweep with batched frames.
 
     Returns (merged_objects_list, total_elapsed).
@@ -2607,7 +2680,10 @@ def analyze_objects_coarse(analyzer, frames, duration):
         result, _raw, elapsed = analyzer.analyze_with_retry(
             prompt, parse_json_array, images=batch_paths,
             max_tokens=MAX_TOKENS["objects_coarse"],
-            label=f"Objects coarse batch {batch_idx+1}/{n_batches}"
+            label=f"Objects coarse batch {batch_idx+1}/{n_batches}",
+            request_kind="object-coarse",
+            request_id=(f"{request_prefix}:object-coarse:"
+                        f"batch:{batch_idx+1}/{n_batches}")
         )
         total_elapsed += elapsed
         all_objects.extend(result)
@@ -2617,7 +2693,8 @@ def analyze_objects_coarse(analyzer, frames, duration):
     return merged, total_elapsed
 
 
-def analyze_objects_detail(analyzer, clip_path, cache_dir, coarse_objects, duration):
+def analyze_objects_detail(analyzer, clip_path, cache_dir, coarse_objects,
+                           duration, request_prefix="clip"):
     """Object detection — targeted detail pass for transient entities.
 
     Returns (refined_objects_list, total_elapsed).
@@ -2667,7 +2744,11 @@ def analyze_objects_detail(analyzer, clip_path, cache_dir, coarse_objects, durat
             result, _raw, elapsed = analyzer.analyze_with_retry(
                 prompt, parse_json_array, images=b_paths,
                 max_tokens=MAX_TOKENS["objects_detail"],
-                label=f"Objects detail [{r_start:.0f}-{r_end:.0f}s]"
+                label=f"Objects detail [{r_start:.0f}-{r_end:.0f}s]",
+                request_kind="object-detail",
+                request_id=(f"{request_prefix}:object-detail:"
+                            f"{r_start:.3f}-{r_end:.3f}:"
+                            f"batch:{batch_start}-{batch_end}")
             )
             total_elapsed += elapsed
             all_detail_objects.extend(result)
@@ -2822,10 +2903,11 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
         if layer_cache:
             windows = analyze_windows_cached(
                 analyzer, video_clips, duration, temporal_index, transcript,
-                fps, layer_cache)
+                fps, layer_cache, request_prefix=clip_id)
         else:
             windows = analyze_windows(analyzer, video_clips, duration,
-                                      temporal_index, transcript, fps=fps)
+                                      temporal_index, transcript, fps=fps,
+                                      request_prefix=clip_id)
         window_inference_wall_s = round(time.time() - _inference_t0, 2)
         n_video_clips = len(video_clips)
         if layer_cache:
@@ -2879,9 +2961,14 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
     # `actions` keeps the per-window shape the retired `analyze_actions`
     # returned: downstream joins each window to the catalog by it.
     actions = [
-        {k: a[k] for k in ("window", "actions", "analysis_time_s",
-                           "has_audio", "sampling", "parse_error",
-                           "speech_quote_stripped") if k in a}
+        {
+            "window": a["window"],
+            "actions": a["actions"],
+            "analysis_time_s": a["analysis_time_s"],
+            "prompt_path": a["prompt_path"],
+            **{k: a[k] for k in ("has_audio", "sampling", "parse_error",
+                                 "speech_quote_stripped") if k in a},
+        }
         for a in windows
     ]
 
@@ -2910,7 +2997,8 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
         # 2. Objects — coarse sweep
         print(f"  [Objects] Coarse sweep ({len(frames)} frames, {n_obj_coarse_calls} batch(es))...",
               end=" ", flush=True)
-        coarse_objects, t = analyze_objects_coarse(analyzer, frames, duration)
+        coarse_objects, t = analyze_objects_coarse(
+            analyzer, frames, duration, request_prefix=clip_id)
         objects_time += t
         objects_calls += n_obj_coarse_calls
         print(f"({t:.1f}s) → {len(coarse_objects)} entities")
@@ -2923,7 +3011,8 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
             n_detail_ranges = len(detail_ranges)
             print(f"  [Objects] Detail pass ({n_detail_ranges} range(s))...", end=" ", flush=True)
             objects, t = analyze_objects_detail(
-                analyzer, clip_path, cache_dir, coarse_objects, duration
+                analyzer, clip_path, cache_dir, coarse_objects, duration,
+                request_prefix=clip_id
             )
             objects_time += t
             detail_calls = max(1, n_detail_ranges)  # Approximate

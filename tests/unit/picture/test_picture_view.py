@@ -410,7 +410,8 @@ class _StubAnalyzer:
     """One canned folded answer per window, no model anywhere near it."""
 
     def analyze_with_retry(self, prompt, parse_fn, images=None, video=None,
-                           max_tokens=512, label="pass", audio=None):
+                           max_tokens=512, label="pass", audio=None,
+                           request_kind=None, request_id=None):
         if label.startswith("Objects"):
             return [], json.dumps([]), 0.1
         result = {

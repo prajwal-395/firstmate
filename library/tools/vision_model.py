@@ -77,13 +77,28 @@ def _server_chat(content_parts: list, max_tokens: int) -> str:
         raise _ServerUnusable(f"unexpected response shape: {payload!r:.200}") from exc
 
 
-def _via_server_or_fallback(content_parts: list, max_tokens: int, what: str):
+def _via_server_or_fallback(content_parts: list, max_tokens: int, what: str,
+                            route_metadata: dict | None = None):
     """Return (text, True) from the server, or (None, False) to run in-process.
 
     Both directions print to stderr, never stdout - a step's stdout is its
     JSON result (see library/tools/step_stdout.py).
     """
+    def _set_route(backend, model, cause=None):
+        if route_metadata is None:
+            return
+        route_metadata.update({
+            "backend": backend,
+            "model": model,
+            "model_version": model,
+        })
+        route_metadata.setdefault("fallback_causes", [])
+        if cause:
+            route_metadata["fallback_causes"].append(
+                {"stage": "gemma_server", "cause": cause})
+
     if not SERVER_URL:
+        _set_route("mlx_vlm", MODEL_ID, "server_disabled")
         print(
             f"GEMMA SERVER path disabled (GEMMA_SERVER_URL is empty); "
             f"using in-process {MODEL_ID}.",
@@ -93,6 +108,7 @@ def _via_server_or_fallback(content_parts: list, max_tokens: int, what: str):
     try:
         text = _server_chat(content_parts, max_tokens)
     except _ServerUnusable as exc:
+        _set_route("mlx_vlm", MODEL_ID, str(exc))
         print(
             f"GEMMA SERVER unreachable at {SERVER_URL} ({exc}); "
             f"falling back to in-process {MODEL_ID} "
@@ -100,6 +116,7 @@ def _via_server_or_fallback(content_parts: list, max_tokens: int, what: str):
             file=sys.stderr,
         )
         return None, False
+    _set_route("gemma_server", SERVER_MODEL)
     print(
         f"GEMMA SERVER answered {what} at {SERVER_URL} (resident, no model load).",
         file=sys.stderr,
@@ -141,13 +158,15 @@ class VisionModel:
             cost["output_tokens"] = getattr(r, "generation_tokens", None)
         return r
 
-    def analyze_image(self, image_path: str, prompt: str, max_tokens: int = 600) -> str:
+    def analyze_image(self, image_path: str, prompt: str, max_tokens: int = 600,
+                      _route_metadata: dict | None = None) -> str:
         """Analyze a single image."""
         parts = [
             {"type": "text", "text": prompt},
             {"type": "image_url", "image_url": {"url": image_path}},
         ]
-        text, via_server = _via_server_or_fallback(parts, max_tokens, "analyze_image")
+        text, via_server = _via_server_or_fallback(
+            parts, max_tokens, "analyze_image", _route_metadata)
         if via_server:
             return text
         self._ensure_loaded()
@@ -165,13 +184,16 @@ class VisionModel:
         )
         return r.text if hasattr(r, "text") else str(r)
 
-    def analyze_images(self, image_paths: List[str], prompt: str, max_tokens: int = 800) -> str:
+    def analyze_images(self, image_paths: List[str], prompt: str,
+                       max_tokens: int = 800,
+                       _route_metadata: dict | None = None) -> str:
         """Analyze multiple images."""
         parts = [{"type": "text", "text": prompt}]
         parts += [
             {"type": "image_url", "image_url": {"url": p}} for p in image_paths
         ]
-        text, via_server = _via_server_or_fallback(parts, max_tokens, "analyze_images")
+        text, via_server = _via_server_or_fallback(
+            parts, max_tokens, "analyze_images", _route_metadata)
         if via_server:
             return text
         self._ensure_loaded()

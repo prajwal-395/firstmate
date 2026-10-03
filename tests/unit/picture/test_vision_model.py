@@ -70,9 +70,14 @@ def test_server_answers_without_model_load(monkeypatch, capsys):
     monkeypatch.setattr(
         vision_model.VisionModel, "_ensure_loaded", lambda self: loaded.append(True)
     )
-    out = vision_model.VisionModel().analyze_image("/tmp/still.png", "What color?")
+    route = {}
+    out = vision_model.VisionModel().analyze_image(
+        "/tmp/still.png", "What color?", _route_metadata=route)
     assert out == "SERVER_SAYS_RED"
     assert loaded == []
+    assert route["backend"] == "gemma_server"
+    assert route["model"] == vision_model.SERVER_MODEL
+    assert route["fallback_causes"] == []
     assert "GEMMA SERVER answered analyze_image" in capsys.readouterr().err
 
 
@@ -85,8 +90,13 @@ def test_unreachable_server_falls_back_loudly(monkeypatch, capsys):
 
     monkeypatch.setattr(vision_model.urllib.request, "urlopen", _boom)
     inst = _stub_in_process(monkeypatch, "IN_PROCESS_ANSWER")
-    out = inst.analyze_image("/tmp/still.png", "What color?")
+    route = {}
+    out = inst.analyze_image("/tmp/still.png", "What color?",
+                             _route_metadata=route)
     assert out == "IN_PROCESS_ANSWER"
+    assert route["backend"] == "mlx_vlm"
+    assert route["fallback_causes"][0]["stage"] == "gemma_server"
+    assert "Connection refused" in route["fallback_causes"][0]["cause"]
     err = capsys.readouterr().err
     assert "GEMMA SERVER unreachable" in err
     assert "falling back to in-process" in err

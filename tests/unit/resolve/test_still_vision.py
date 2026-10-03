@@ -111,11 +111,16 @@ def test_no_host_answers_via_gemma_single_or_multi(tmp_path, monkeypatch):
 
     seen = {}
 
-    def fake_single(self, image_path, prompt, max_tokens=600):
+    def fake_single(self, image_path, prompt, max_tokens=600,
+                    _route_metadata=None):
         seen["single"] = (image_path, prompt)
+        if _route_metadata is not None:
+            _route_metadata.update(backend="gemma_server", model="gemma-test",
+                                   model_version="gemma-test")
         return "single answer"
 
-    def fake_multi(self, image_paths, prompt, max_tokens=800):
+    def fake_multi(self, image_paths, prompt, max_tokens=800,
+                   _route_metadata=None):
         seen["multi"] = list(image_paths)
         return "multi answer"
 
@@ -125,8 +130,13 @@ def test_no_host_answers_via_gemma_single_or_multi(tmp_path, monkeypatch):
                         fake_multi)
     monkeypatch.delenv(still_vision.HARNESS_ENV_VAR, raising=False)
     still = _still(tmp_path)
-    assert inspect_stills("Is it sharp?", [still]) == "single answer"
+    route = {}
+    assert inspect_stills("Is it sharp?", [still],
+                          route_metadata=route) == "single answer"
     assert seen["single"][0] == still
+    assert route["backend"] == "gemma_server"
+    assert route["fallback_causes"] == [
+        {"stage": "still_route", "cause": "no_host_configured"}]
     assert "multi" not in seen, "single still must not take the multi path"
     stills = [_still(tmp_path, f"s{i:02d}.png") for i in range(2)]
     assert inspect_stills("Compare.", stills) == "multi answer"
@@ -248,11 +258,16 @@ def test_analyzer_stills_route_through_host_without_a_model(tmp_path):
         daemon=True)
     thread.start()
     try:
+        route = {}
         text, _ = analyzer.analyze(
-            "List objects.", images=[still], max_tokens=64)
+            "List objects.", images=[still], max_tokens=64,
+            _route=route)
     finally:
         thread.join(timeout=60)
     assert text == '[{"label": "microphone"}]'
+    assert route["backend"] == "host"
+    assert route["model"] == "host:agent"
+    assert route["input_kind"] == "still"
 
 
 # ── Finding 1 (rung 0): the ready marker must never ride bridge stdout ──
@@ -301,15 +316,19 @@ def test_analyzer_gemma_path_files_no_handshake(tmp_path, monkeypatch):
     monkeypatch.delenv(still_vision.HARNESS_ENV_VAR, raising=False)
     monkeypatch.setattr(
         still_vision, "answer_via_gemma",
-        lambda prompt, images, max_tokens=800: "gemma text")
+        lambda prompt, images, max_tokens=800, route_metadata=None: "gemma text")
 
     project = tmp_path / "proj"
     project.mkdir()
     analyzer = vp.VisionAnalyzer(None, None, harness=None,
                                  project_folder=str(project))
+    route = {}
     text, _ = analyzer.analyze(
-        "List objects.", images=[_still(tmp_path)], max_tokens=64)
+        "List objects.", images=[_still(tmp_path)], max_tokens=64,
+        _route=route)
     assert text == "gemma text"
+    assert route["fallback_causes"] == [
+        {"stage": "still_route", "cause": "no_host_configured"}]
     assert not (project / "pipeline_output").exists()
 
 

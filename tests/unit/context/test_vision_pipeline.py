@@ -25,6 +25,7 @@ import textwrap
 import time
 import urllib.error
 import urllib.request
+from types import SimpleNamespace
 from library.tools.gemma_shim import GemmaShim, ShimConfig, server_scope
 
 
@@ -587,7 +588,8 @@ class _StubWindowAnalyzer:
     """One canned folded answer per window, no model anywhere near it."""
 
     def analyze_with_retry(self, prompt, parse_fn, images=None, video=None,
-                           max_tokens=512, label="pass", audio=None):
+                           max_tokens=512, label="pass", audio=None,
+                           request_kind=None, request_id=None):
         if label.startswith("Objects"):
             return [], json.dumps([]), 0.1
         result = {
@@ -620,7 +622,43 @@ def test_analyze_clip_records_the_inference_wall_beside_the_model_sum():
     metadata = profile["analysis_metadata"]
     assert metadata["window_inference_wall_s"] >= 0.0
     assert isinstance(metadata["window_inference_wall_s"], float)
+    assert profile["actions"][0]["prompt_path"] == "compact"
     json.dumps(profile)
+
+
+@pytest.mark.usefixtures("mock_mlx_functions")
+def test_retried_window_writes_one_per_attempt_row(tmp_path, monkeypatch):
+    ledger = tmp_path / "perf_ledger.jsonl"
+    monkeypatch.setenv(vp.perf_ledger.LEDGER_ENV, str(ledger))
+    monkeypatch.setenv(vp.perf_ledger.RUN_ENV, "run-test")
+    monkeypatch.setenv(vp.perf_ledger.CAPABILITY_ENV, "semantic_analysis")
+    answers = iter([SimpleNamespace(text="not json"),
+                    SimpleNamespace(text='{"objects": []}')])
+    monkeypatch.setattr(vp, "generate",
+                        lambda *args, **kwargs: next(answers))
+    monkeypatch.setattr(vp, "apply_chat_template",
+                        lambda *args, **kwargs: "formatted")
+    analyzer = vp.VisionAnalyzer(
+        SimpleNamespace(config=SimpleNamespace(_commit_hash="abc123")),
+        object())
+
+    result, _raw, _elapsed = analyzer.analyze_with_retry(
+        "Describe this window.", vp.parse_json_object,
+        video="/tmp/window.mp4", request_kind="window",
+        request_id="window:0.000-10.000:compact")
+
+    rows = [json.loads(line) for line in ledger.read_text().splitlines()]
+    attempts = [row for row in rows if "attempt_number" in row]
+    assert result == {"objects": []}
+    assert len(attempts) == 2
+    assert [row["attempt_number"] for row in attempts] == [1, 2]
+    assert [row["parser_outcome"] for row in attempts] == ["empty", "parsed"]
+    assert all(row["request_kind"] == "window" for row in attempts)
+    assert all(row["input_kind"] == "video" for row in attempts)
+    assert all(row["backend"] == "mlx_vlm" for row in attempts)
+    assert all(row["model_version"] == "abc123" for row in attempts)
+    assert all(row["elapsed_s"] >= 0 for row in attempts)
+    assert all(row["fallback_cause"] == [] for row in attempts)
 
 
 # --------------------------------------------------------------------------

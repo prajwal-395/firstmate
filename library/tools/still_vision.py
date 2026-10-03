@@ -240,7 +240,8 @@ def request_host_answer(prompt: str, image_paths: list,
 
 
 def answer_via_gemma(prompt: str, image_paths: list,
-                     max_tokens: int = 800) -> str:
+                     max_tokens: int = 800,
+                     route_metadata: dict | None = None) -> str:
     """The fallback: local gemma4, exactly as every site did before.
 
     One image goes through `analyze_image`, several through
@@ -253,11 +254,16 @@ def answer_via_gemma(prompt: str, image_paths: list,
     print(f"  [still-vision] gemma4 fallback answering "
           f"{len(image_paths)} still(s) locally.", file=sys.stderr)
     model = VisionModel()
+    route_kwargs = {}
+    if route_metadata is not None:
+        route_kwargs["_route_metadata"] = route_metadata
     if len(image_paths) == 1:
         return model.analyze_image(
-            image_paths[0], prompt, max_tokens=max_tokens)
+            image_paths[0], prompt, max_tokens=max_tokens,
+            **route_kwargs)
     return model.analyze_images(
-        list(image_paths), prompt, max_tokens=max_tokens)
+        list(image_paths), prompt, max_tokens=max_tokens,
+        **route_kwargs)
 
 
 def inspect_stills(prompt: str, image_paths: list, *,
@@ -266,7 +272,8 @@ def inspect_stills(prompt: str, image_paths: list, *,
                    step_id: str = "stills",
                    label: str = "stills",
                    max_tokens: int = 800,
-                   timeout_seconds: float = 300) -> str:
+                   timeout_seconds: float = 300,
+                   route_metadata: dict | None = None) -> str:
     """Look at stills. Returns the model's answer as raw text.
 
     The driver first when one drives and sees images; gemma4
@@ -282,14 +289,29 @@ def inspect_stills(prompt: str, image_paths: list, *,
     if driving is None:
         print(f"  [still-vision] {label}: no host drives this run - "
               f"gemma4 fallback.", file=sys.stderr)
+        if route_metadata is not None:
+            route_metadata.setdefault("fallback_causes", []).append(
+                {"stage": "still_route", "cause": "no_host_configured"})
         return answer_via_gemma(prompt, list(image_paths),
-                                max_tokens=max_tokens)
+                                max_tokens=max_tokens,
+                                route_metadata=route_metadata)
     if host_sees_images(driving):
+        if route_metadata is not None:
+            route_metadata.update({
+                "backend": "host",
+                "model": f"host:{driving}",
+                "model_version": "unknown",
+                "fallback_causes": [],
+            })
         return request_host_answer(
             prompt, list(image_paths), project_folder or "", step_id,
             label=label, max_tokens=max_tokens,
             timeout_seconds=timeout_seconds)
     print(f"  [still-vision] {label}: host harness {driving!r} "
           f"declares blind - gemma4 fallback.", file=sys.stderr)
+    if route_metadata is not None:
+        route_metadata.setdefault("fallback_causes", []).append(
+            {"stage": "still_route", "cause": f"host_declared_blind:{driving}"})
     return answer_via_gemma(prompt, list(image_paths),
-                            max_tokens=max_tokens)
+                            max_tokens=max_tokens,
+                            route_metadata=route_metadata)
