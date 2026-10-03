@@ -137,6 +137,43 @@ def _semantic_identity(clip: dict, identities_by_segment: dict,
         f"re-enabling it.")
 
 
+def add_semantic_graphic_identities(project_folder: str, reel_name: str,
+                                    items: list[dict]) -> list[dict]:
+    """Attach recorded source-graphic identities to Semantic timeline items.
+
+    The identity comes from the reel's semantic-visual plan (or the
+    render props that older plan records point to), never from the
+    generated media filename or its content digest. Missing identity is
+    left absent so callers can retain exact source matching; a changed
+    render with no recorded source identity then fails to map safely. The
+    plan is read once for the whole snapshot, not once per clip.
+    """
+    try:
+        identities = _saved_semantic_identities(project_folder, reel_name)
+    except Exception:  # noqa: BLE001 - an unavailable record is no identity
+        return items
+    if not identities:
+        return items
+    for item in items:
+        row = str(item.get("track_name") or "")
+        if (item.get("track_type") != "video"
+                or "semantic" not in row.casefold()):
+            continue
+        source_identity = str(item.get("source_identity") or "")
+        source_file = (source_identity[5:]
+                       if source_identity.startswith("file:") else "")
+        clip = {"name": item["name"], "source_file": source_file,
+                "record_in": item.get("record_in")}
+        row_label = f"video:{row} (V{item.get('track_index')} {row!r})"
+        try:
+            identity = _semantic_identity(
+                clip, identities, reel_name, row_label)
+        except DisabledClipCarryRefused:
+            continue
+        item["graphic_identity"] = identity
+    return items
+
+
 def _semantic_copy_details(identity: str):
     """Displayed-copy key and element types for a text-bearing identity."""
     try:

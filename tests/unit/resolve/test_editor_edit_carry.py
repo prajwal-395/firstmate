@@ -58,36 +58,41 @@ def _clip(name, source_in, source_out, record_in, enabled=True, transform=None):
     )
 
 
-def snapshot(timeline):
+def snapshot(timeline, project_folder=None):
     """The full read `reel_replace_guard.full_timeline_snapshot` returns."""
     items = []
     for track_type in ("video", "audio"):
         for index in range(1, timeline.GetTrackCount(track_type) + 1):
             row = timeline.GetTrackName(track_type, index)
             for clip in timeline.GetItemListInTrack(track_type, index):
-                items.append(
-                    {
-                        "track_type": track_type,
-                        "track_index": index,
-                        "track_name": row,
-                        "name": clip.GetName(),
-                        "unique_id": clip.GetUniqueId(),
-                        "source_identity": clip.GetMediaPoolItem().GetClipProperty(
-                            "File Path"
-                        ),
-                        "source_in_frame": clip.GetSourceStartFrame(),
-                        "source_out_frame": clip.GetSourceEndFrame(),
-                        "record_in": clip.GetStart(),
-                        "record_out": clip.GetEnd(),
-                        "duration": clip.GetDuration(),
-                        "enabled": clip.GetClipEnabled(),
-                        "transform": clip.GetProperty(),
-                        "composite": {},
-                        "fusion": {},
-                        "color": {},
-                        "markers": [],
-                    }
-                )
+                captured = {
+                    "track_type": track_type,
+                    "track_index": index,
+                    "track_name": row,
+                    "name": clip.GetName(),
+                    "unique_id": clip.GetUniqueId(),
+                    "source_identity": clip.GetMediaPoolItem().GetClipProperty(
+                        "File Path"
+                    ),
+                    "source_in_frame": clip.GetSourceStartFrame(),
+                    "source_out_frame": clip.GetSourceEndFrame(),
+                    "record_in": clip.GetStart(),
+                    "record_out": clip.GetEnd(),
+                    "duration": clip.GetDuration(),
+                    "enabled": clip.GetClipEnabled(),
+                    "transform": clip.GetProperty(),
+                    "composite": {},
+                    "fusion": {},
+                    "color": {},
+                    "markers": [],
+                }
+                items.append(captured)
+    if project_folder:
+        from library.tools.reel_disabled_clip_carry import (
+            add_semantic_graphic_identities,
+        )
+        add_semantic_graphic_identities(
+            str(project_folder), timeline.GetName(), items)
     return {
         "timeline": {
             "name": timeline.GetName(),
@@ -183,7 +188,8 @@ def promote(project, project_dir, staging):
             patch.object(
                 guard,
                 "full_timeline_snapshot",
-                side_effect=lambda timeline, _project, _folder=None: snapshot(timeline),
+                side_effect=lambda timeline, _project, folder=None: snapshot(
+                    timeline, folder),
             )
         )
         stack.enter_context(
@@ -243,6 +249,101 @@ def seed_provenance(project_dir):
         json.dumps({"built_reels": [STAGING], "plan_content_hash": "plan-v1"}),
         encoding="utf-8",
     )
+
+
+def _semantic_graphic_reel(name, graphic_name, *, enabled=True):
+    graphic = ([] if graphic_name is None else [
+        _clip(graphic_name, 0, 10, 577, enabled=enabled)])
+    return FakeTimeline(
+        name,
+        video=[
+            ("Speakers", [_clip("Akshita", 0, 100, 0)]),
+            ("Captions", []),
+            ("B-roll", []),
+            ("Semantic 2", []),
+            ("Explainer", []),
+            ("Semantic", graphic),
+        ],
+    )
+
+
+def _write_semantic_graphic_records(project_dir, *, stage_has_graphic=True):
+    element = {
+        "element": "title_lockup",
+        "runs": [{"text": "A stable source beat"}],
+        "anchor": "top_centre",
+    }
+    plans = [{
+        "reel": FINAL,
+        "segments": [{
+            "segment_id": "mg_geo-podcast_e1b5df7a",
+            "overlay_path": "/media/mg_geo-podcast_e1b5df7a.mov",
+            "carry_identity": [element],
+        }],
+    }]
+    if stage_has_graphic:
+        plans.append({
+            "reel": STAGING,
+            "segments": [{
+                "segment_id": "mg_c1_8f357b21",
+                "overlay_path": "/media/mg_c1_8f357b21.mov",
+                "carry_identity": [element],
+            }],
+        })
+    path = project_dir / "pipeline_output" / "review" / "semantic_visual_plans.json"
+    path.write_text(json.dumps({"format": "semantic_visual_plans/1",
+                                "plans": plans}), encoding="utf-8")
+
+
+@pytest.mark.usefixtures("mock_dvr")
+def test_hand_disabled_motion_graphic_carries_across_rendered_file_names(
+        project_dir):
+    live = _semantic_graphic_reel(
+        FINAL, "mg_geo-podcast_e1b5df7a", enabled=False)
+    baseline = _semantic_graphic_reel(
+        FINAL, "mg_geo-podcast_e1b5df7a", enabled=True)
+    staging = _semantic_graphic_reel(
+        STAGING, "mg_c1_8f357b21", enabled=True)
+    seed_provenance(project_dir)
+    _write_semantic_graphic_records(project_dir)
+    from library.tools import plan_provenance
+    plan_provenance.record_timeline_snapshot(
+        str(project_dir / "pipeline_output" / "review"), FINAL,
+        snapshot(baseline, project_dir), action="build_promotion")
+    resolve = FakeProject([FakeTimeline(MASTER), live, staging])
+
+    promoted = promote(resolve, project_dir, STAGING)
+
+    assert promoted["promoted"] == [FINAL]
+    (graphic,) = staging.GetItemListInTrack("video", 6)
+    assert graphic.GetClipEnabled() is False
+    [enabled_edit] = [edit for edit in provenance(project_dir)[
+        "carried_editor_edits"][FINAL] if edit["kind"] == "enabled"]
+    assert enabled_edit["graphic_identity"]
+
+
+@pytest.mark.usefixtures("mock_dvr")
+def test_hand_disabled_motion_graphic_still_refuses_when_its_beat_is_gone(
+        project_dir):
+    live = _semantic_graphic_reel(
+        FINAL, "mg_geo-podcast_e1b5df7a", enabled=False)
+    baseline = _semantic_graphic_reel(
+        FINAL, "mg_geo-podcast_e1b5df7a", enabled=True)
+    staging = _semantic_graphic_reel(STAGING, None)
+    seed_provenance(project_dir)
+    _write_semantic_graphic_records(project_dir, stage_has_graphic=False)
+    from library.tools import plan_provenance
+    plan_provenance.record_timeline_snapshot(
+        str(project_dir / "pipeline_output" / "review"), FINAL,
+        snapshot(baseline, project_dir), action="build_promotion")
+    resolve = FakeProject([FakeTimeline(MASTER), live, staging])
+
+    with pytest.raises(ReelBuildError, match="staging plays that passage 0"):
+        promote(resolve, project_dir, STAGING)
+
+    assert live in resolve.timelines
+    assert staging in resolve.timelines
+    assert staging.GetName() == STAGING
 
 
 @pytest.mark.usefixtures("mock_dvr")

@@ -99,7 +99,7 @@ import json
 import os
 from collections import Counter, defaultdict
 from dataclasses import asdict, is_dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from hashlib import sha256
 
 from library.tools.resolve_lock import under_lease
@@ -192,7 +192,7 @@ def timeline_inventory(project) -> list[dict]:
                 "unique_id": str(unique_id) if unique_id else None,
                 "settings": settings,
             })
-    except Exception as unreadable:  # noqa: BLE001
+    except Exception as unreadable:
         raise ReplaceGuardUnreadable(
             f"the project timeline inventory could not be read "
             f"({unreadable}); replacement refuses rather than guess "
@@ -260,7 +260,7 @@ def snapshot_items(tracks) -> list[dict]:
     for track in tracks:
         for detail in track["clips"]:
             if not isinstance(detail["enabled"], bool):
-                raise ValueError(
+                raise TypeError(
                     f"enabled state for {detail['name']!r} is unreadable")
             item = {key: detail.get(key) for key in
                     PRESERVATION_FIELDS if key in detail}
@@ -324,6 +324,12 @@ def full_timeline_snapshot(timeline, project, project_folder=None) -> dict:
             except Exception:  # noqa: BLE001
                 unique_id = None
             items = snapshot_items(tracks)
+            if project_folder:
+                from library.tools.reel_disabled_clip_carry import (
+                    add_semantic_graphic_identities,
+                )
+                add_semantic_graphic_identities(
+                    project_folder, timeline.GetName(), items)
             return {
                 "timeline": {
                     "name": timeline.GetName(),
@@ -335,7 +341,7 @@ def full_timeline_snapshot(timeline, project, project_folder=None) -> dict:
                 "items": items,
                 "markers": markers,
             }
-    except Exception as unreadable:  # noqa: BLE001
+    except Exception as unreadable:
         raise ReplaceGuardUnreadable(
             f"the full state of timeline {timeline.GetName()!r} could not "
             f"be read ({unreadable}); replacement refuses rather than "
@@ -453,6 +459,20 @@ def _change_is_carried(change: dict, staged: dict) -> bool:
     if kind.startswith("item_"):
         candidates = [item for item in staged.get("items", ())
                      if _stable_item_key(item) == tuple(change["identity"])]
+        if not candidates and kind == "item_changed":
+            after = change.get("after") or {}
+            identity = after.get("graphic_identity")
+            changed = change.get("changed") or {}
+            row_name = str(after.get("track_name") or "")
+            if (identity and set(changed) == {"enabled"}
+                    and after.get("track_type") == "video"
+                    and "semantic" in row_name.casefold()):
+                candidates = [
+                    item for item in staged.get("items", ())
+                    if item.get("track_type") == "video"
+                    and item.get("track_name") == row_name
+                    and item.get("graphic_identity") == identity
+                ]
         if kind == "item_removed":
             return not candidates
         if not candidates:
@@ -651,11 +671,11 @@ def detect_editor_changes(project_folder: str, final: str, live: dict,
         before_digest = _snapshot_digest(before_snapshot)
         after_digest = _snapshot_digest(live)
         record_id = sha256(
-            f"{final}\0{before_digest}\0{after_digest}".encode("utf-8")
+            f"{final}\0{before_digest}\0{after_digest}".encode()
         ).hexdigest()[:32]
         detected = [{
             "id": record_id,
-            "recorded_at": datetime.now(timezone.utc).isoformat(
+            "recorded_at": datetime.now(UTC).isoformat(
                 timespec="microseconds"),
             "timeline": final,
             "baseline": baseline,

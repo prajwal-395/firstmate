@@ -15,7 +15,9 @@ What is carried
 An edit names the item it governs by what it PLAYS - row
 (`"<media>:<track name>"`), source identity and source in/out frames -
 never by a record frame, because a rebuild moves every record frame
-and keeps every source frame.
+and keeps every source frame. A Semantic motion graphic instead uses
+the source graphic identity recorded by its plan, because the rendered
+file name and hash can change between builds.
 
 - `cut`: a source passage the editor removed (Reel 7: Craig
   25,263-25,374 and Akshita 60,745-60,979). Staging must play no frame
@@ -120,9 +122,13 @@ def _edit_id(final: str, kind: str, item: dict, field: str = "") -> str:
 
 
 def _governs(edit: dict, item: dict) -> bool:
-    """`item` plays exactly the passage `edit` names."""
-    return (_row(item) == edit["row"]
-            and item.get("source_identity") == edit["source_identity"]
+    """`item` is the source passage or planned graphic `edit` names."""
+    if _row(item) != edit["row"]:
+        return False
+    graphic_identity = edit.get("graphic_identity")
+    if graphic_identity:
+        return item.get("graphic_identity") == graphic_identity
+    return (item.get("source_identity") == edit["source_identity"]
             and _source(item) == (edit["source_in_frame"],
                                   edit["source_out_frame"]))
 
@@ -149,7 +155,7 @@ def _same(got, wanted) -> bool:
 
 def _base(final: str, kind: str, item: dict, *, field: str, record: dict,
           plan_version, wording: str, before, after) -> dict:
-    return {
+    edit = {
         "id": _edit_id(final, kind, item, field),
         "timeline": final,
         "kind": kind,
@@ -172,6 +178,9 @@ def _base(final: str, kind: str, item: dict, *, field: str, record: dict,
         "plan_version": plan_version,
         "status": "active",
     }
+    if item.get("graphic_identity"):
+        edit["graphic_identity"] = item["graphic_identity"]
+    return edit
 
 
 def _stable(item: dict) -> tuple:
