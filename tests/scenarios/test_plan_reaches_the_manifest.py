@@ -772,6 +772,9 @@ def test_the_round_trip_puts_every_planned_level_on_the_new_timeline(tmp_path):
     assert report["delivered"], report["reason"]
     assert report["unmatched"] == []
     assert report["complaints"] == []
+    assert report["picture_fingerprint_before"]
+    assert report["picture_fingerprint_before"] == report["picture_fingerprint_after"]
+    assert report["picture_differences"] == []
     assert len(report["applied"]) == 3
     assert report["timeline"] is not timeline
     assert report["timeline"].GetName() == "Test_Edit"
@@ -781,6 +784,34 @@ def test_the_round_trip_puts_every_planned_level_on_the_new_timeline(tmp_path):
               for entry in _levels(report["timeline"], tmp_path)}
     assert levels["/whoosh.mp3"]["level_db"] == -18.0
     assert levels["/m.wav"]["keyframes"], "the bed carries a curve"
+
+
+@pytest.mark.usefixtures("_sole_writer")
+def test_picture_frame_drift_refuses_import_and_keeps_original_timeline(
+        tmp_path, monkeypatch):
+    from library.tools.execution.deliver_audio_mix import deliver_mix
+
+    resolve, project, pool, timeline = _fake_setup(tmp_path)
+    import_timeline = pool.ImportTimelineFromFile
+
+    def import_with_source_drift(path, options=None):
+        replacement = import_timeline(path, options)
+        picture = replacement.GetItemListInTrack("video", 1)[0]
+        picture._source_end_frame -= 1
+        return replacement
+
+    monkeypatch.setattr(pool, "ImportTimelineFromFile", import_with_source_drift)
+    with patch("library.tools.otio_mix.os.path.exists", return_value=True):
+        report = deliver_mix(resolve, project, pool, timeline, MANIFEST,
+                             fps=FPS, project_folder=str(tmp_path))
+
+    assert not report["delivered"]
+    assert "source_end" in report["reason"]
+    assert len(report["picture_differences"]) == 1
+    assert report["timeline"] is timeline
+    assert timeline.GetName() == "Test_Edit"
+    assert project.GetCurrentTimeline() is timeline
+    assert project.GetTimelineCount() == 1
 
 
 @pytest.mark.usefixtures("_sole_writer")

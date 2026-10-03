@@ -6,6 +6,11 @@ This owns the TRANSACTION: export, write the plan in, import the result
 back as the timeline the rest of the build works on, and put the original
 back if Resolve declines.
 
+Resolve's own OTIO export has moved source ranges by a frame on measured
+clips. The picture rows are therefore fingerprinted before export and
+compared after import. A drifted or unreadable replacement is deleted,
+and the untouched placement timeline is put back.
+
 **The import rebuilds the timeline, so it has to happen at PLACEMENT
 time.**  Fusion comps and CDL grades do not survive an OTIO import
 (AGENTS.md section 5); placement, transform, markers and native
@@ -25,6 +30,7 @@ of the way first.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
@@ -49,6 +55,107 @@ PREMIX_SUFFIX = "__premix"
 EXPORT_OTIO = 15
 
 
+def _picture_structure(timeline) -> dict:
+    """Read the picture rows by values that survive a timeline rebuild.
+
+    Resolve assigns new timeline-item ids on an OTIO import, so ids cannot
+    identify corresponding clips. The media path, row, source frames and
+    record frames are the cut itself and are all read back directly.
+    """
+    track_count = timeline.GetTrackCount("video")
+    if track_count is None:
+        raise RuntimeError("video track count is unreadable")
+    tracks = []
+    for index in range(1, int(track_count) + 1):
+        items = timeline.GetItemListInTrack("video", index) or []
+        clips = []
+        for item in items:
+            pool_item = item.GetMediaPoolItem()
+            if pool_item is None:
+                raise RuntimeError(
+                    f"V{index} item {item.GetName()!r} has no media pool item")
+            media_path = pool_item.GetClipProperty("File Path")
+            if not media_path:
+                raise RuntimeError(
+                    f"V{index} item {item.GetName()!r} has no readable media path")
+            values = {
+                "media_path": str(media_path),
+                "source_start": item.GetSourceStartFrame(),
+                "source_end": item.GetSourceEndFrame(),
+                "record_start": item.GetStart(),
+                "record_end": item.GetEnd(),
+            }
+            if any(value is None for value in values.values()):
+                raise RuntimeError(
+                    f"V{index} item {item.GetName()!r} has an unreadable "
+                    "source or record range")
+            clips.append({
+                key: value if key == "media_path" else int(value)
+                for key, value in values.items()
+            })
+        clips.sort(key=lambda clip: (
+            clip["record_start"], clip["record_end"], clip["media_path"]))
+        tracks.append({"index": index, "clips": clips})
+    return {"video_tracks": tracks}
+
+
+def _picture_fingerprint(structure: dict) -> str:
+    canonical = json.dumps(structure, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _picture_differences(before: dict, after: dict) -> list[str]:
+    differences = []
+    before_tracks = before["video_tracks"]
+    after_tracks = after["video_tracks"]
+    if len(before_tracks) != len(after_tracks):
+        differences.append(
+            f"video track count {len(before_tracks)} -> {len(after_tracks)}")
+    fields = ("media_path", "source_start", "source_end",
+              "record_start", "record_end")
+    for track_index in range(max(len(before_tracks), len(after_tracks))):
+        if track_index >= len(before_tracks):
+            differences.append(f"V{track_index + 1} appeared")
+            continue
+        if track_index >= len(after_tracks):
+            differences.append(f"V{track_index + 1} disappeared")
+            continue
+        left = before_tracks[track_index]["clips"]
+        right = after_tracks[track_index]["clips"]
+        if len(left) != len(right):
+            differences.append(
+                f"V{track_index + 1} clip count {len(left)} -> {len(right)}")
+        for clip_index in range(max(len(left), len(right))):
+            label = f"V{track_index + 1} clip {clip_index + 1}"
+            if clip_index >= len(left):
+                differences.append(f"{label} appeared")
+                continue
+            if clip_index >= len(right):
+                differences.append(f"{label} disappeared")
+                continue
+            for field in fields:
+                if left[clip_index][field] != right[clip_index][field]:
+                    differences.append(
+                        f"{label} {field} "
+                        f"{left[clip_index][field]!r} -> "
+                        f"{right[clip_index][field]!r}")
+    return differences
+
+
+def _refuse_picture_drift(project, media_pool, original, replacement,
+                          original_name: str) -> None:
+    """Delete a drifted replacement and put the untouched timeline back."""
+    if not media_pool.DeleteTimelines([replacement]):
+        raise RuntimeError(
+            "picture drift was detected, but Resolve refused to delete "
+            "the replacement timeline")
+    if original.GetName() != original_name and not original.SetName(original_name):
+        raise RuntimeError(
+            "picture drift was detected, but the original timeline could "
+            "not be renamed back")
+    assert_current_timeline(project, original)
+
+
 def deliver_mix(resolve, project, media_pool, timeline, manifest, *,
                 fps: float, project_folder: str) -> dict:
     """Put the planned levels on the timeline.  Returns what happened.
@@ -62,6 +169,9 @@ def deliver_mix(resolve, project, media_pool, timeline, manifest, *,
         "delivered": False, "reason": "", "timeline": timeline,
         "timeline_name": timeline.GetName(), "applied": [], "unmatched": [],
         "complaints": [], "otio_path": "", "mixed_otio_path": "",
+        "picture_fingerprint_before": "",
+        "picture_fingerprint_after": "",
+        "picture_differences": [],
     }
 
     targets = otio_mix.mix_targets(manifest, fps=fps)
@@ -141,6 +251,16 @@ def deliver_mix(resolve, project, media_pool, timeline, manifest, *,
         Area.TIMELINE_INTERCHANGE, f"{name}.mixed.otio", step="render"))
     report["otio_path"] = export_path
 
+    try:
+        picture_before = _picture_structure(timeline)
+    except Exception as exc:  # noqa: BLE001 - Resolve getters fail independently.
+        report["reason"] = (
+            "could not fingerprint picture before the OTIO export; "
+            f"refusing the round-trip: {exc}")
+        return report
+    report["picture_fingerprint_before"] = _picture_fingerprint(
+        picture_before)
+
     exported = timeline.Export(export_path, getattr(resolve, "EXPORT_OTIO", EXPORT_OTIO))
     if not exported or not os.path.exists(export_path):
         report["reason"] = f"Resolve declined to export OTIO (returned {exported!r})"
@@ -197,6 +317,29 @@ def deliver_mix(resolve, project, media_pool, timeline, manifest, *,
     # timeline is what the rest of the build works on, and a direct
     # set bypasses the lease refusal and the fence's drift record.
     assert_current_timeline(project, imported)
+    try:
+        picture_after = _picture_structure(imported)
+    except Exception as exc:  # noqa: BLE001 - unreadable results must fail closed.
+        _refuse_picture_drift(project, media_pool, timeline, imported, name)
+        report["reason"] = (
+            "could not verify picture after the OTIO import; deleted the "
+            f"replacement and kept the original timeline: {exc}")
+        return report
+    report["picture_fingerprint_after"] = _picture_fingerprint(picture_after)
+    differences = _picture_differences(picture_before, picture_after)
+    report["picture_differences"] = differences
+    if differences:
+        _refuse_picture_drift(project, media_pool, timeline, imported, name)
+        examples = "; ".join(differences[:4])
+        remaining = len(differences) - 4
+        if remaining > 0:
+            examples += f"; and {remaining} more"
+        report["reason"] = (
+            f"picture structure drifted across the OTIO round-trip "
+            f"({len(differences)} difference(s): {examples}); "
+            "refusing the mix and keeping the original timeline")
+        return report
+
     report["timeline"] = imported
     report["timeline_name"] = imported.GetName()
     report["applied"] = written["applied"]
