@@ -63,9 +63,18 @@ Scratch`, at 1080x1920 and 23.976:
   `otio_compile.compile_timeline` (no Resolve call), then one
   `ImportTimelineFromFile`. A restore pass follows: it verifies the timeline
   settings, every row name and every planned transform against the plan,
-  and repairs whatever differs.
+  repairs what differs, moves imported renders to their bins, and applies
+  deferred transforms. Custom resolution is set before the imported timeline
+  becomes current, under a Resolve-call deadline.
 
 B ran first, so it paid the cold-media cost.
+
+**Per-phase KPI rows are append-only.** An OTIO placement writes each
+completed phase as `otio_placement.<phase>` to the project's performance
+ledger as soon as it finishes. This leaves useful timing evidence in
+`ren profile` even if a later phase or post-build check is interrupted.
+The aggregate planning and hold durations remain in the build summary and
+the Resolve hold row; phase rows name the non-overlapping work within them.
 
 ## Hold time
 
@@ -144,6 +153,12 @@ pass shows it costs three `SetSetting` calls. One finding reaches beyond this pa
 moved source frames by one where the compiled file moved none. Step
 6.01's `deliver_audio_mix` re-imports exactly such an export, so it is
 exposed to the same drift. That path itself was not measured here.
+
+**Resolution safety follow-up, 2026-10-02.** Resolve deadlocked when a
+timeline resolution was changed after the imported timeline became current.
+The OTIO restore now applies the three timeline settings before making it
+current, through `resolve_deadline.apply_timeline_resolution`; a timeout or
+failed read-back refuses the build.
 
 ## The laws the compiler rests on
 

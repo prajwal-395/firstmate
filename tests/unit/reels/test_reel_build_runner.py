@@ -1266,9 +1266,24 @@ def test_build_summary_absent_rather_than_estimated():
     assert payload["verify"] is None
     assert payload["drift_end"] is None
     assert payload["retired_to"] is None
+    assert "placement_profile" not in payload
     assert payload["cards"] == []
     assert payload["mic_bleed_audio_suppressions"] == []
     assert payload["answers_owed"] == []
+
+
+def test_placement_profile_round_trips_through_build_summary(tmp_path):
+    project = _project(tmp_path)
+    profile = {"timeline_import_s": 1.2,
+               "exclusive_context_wall_s": 4.5,
+               "counts": {"recorded_items": 24}}
+    payload = phase_log.assemble_summary(
+        outcome=phase_log.OUTCOME_PROMOTED, placement_profile=profile)
+
+    phase_log.file_build_summary(project, 5, "Reel 05", payload)
+    slot = phase_log.summarize(phase_log.read_events(project))["Reel 05"]
+
+    assert slot["build_summary"]["placement_profile"] == profile
 
 
 def test_drops_cap_bounds_a_pathological_line():

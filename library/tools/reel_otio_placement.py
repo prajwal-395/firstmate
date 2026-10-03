@@ -44,6 +44,7 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
@@ -52,6 +53,31 @@ from library.tools import otio_compile
 
 class OtioPlacementRefused(RuntimeError):
     """This reel has something the OTIO placement cannot carry."""
+
+
+def record_duration(profile: dict, name: str, started: float, *,
+                    persist: bool = True) -> None:
+    """Record and persist one wall-clock phase as soon as it completes."""
+    record_elapsed(profile, name, time.perf_counter() - started,
+                   persist=persist)
+
+
+def record_elapsed(profile: dict, name: str, seconds: float, *,
+                   persist: bool = True) -> None:
+    """Keep a phase in the summary and KPI ledger, even if later work stops."""
+    elapsed = round(max(0.0, seconds), 3)
+    profile[name] = elapsed
+    if not persist:
+        return
+    try:
+        from library.tools import perf_ledger
+        perf_ledger.record(
+            f"otio_placement.{name}", elapsed,
+            phase=name,
+            reel=profile.get("timeline_name"),
+            placement="otio")
+    except Exception:  # noqa: BLE001 - timing must never fail a placement
+        pass
 
 
 class _PathItem:
@@ -114,6 +140,7 @@ class PlacementRecorder:
         self.specs: list = []
         self.bins: dict = {}                  # path -> overlay_import_bin
         self._footage: dict = {}
+        self.profile: dict = {}
 
     # The media-pool surface the placers call.
     def AppendToTimeline(self, infos):
@@ -232,21 +259,29 @@ def import_recorded(project, recorder: PlacementRecorder, name: str,
     from library.tools.reel_build import _ensure_bin_path, _timeline_span
     from library.tools.resolve_lock import assert_current_timeline
 
+    started = time.perf_counter()
     document = compile_recorded(recorder, name, track_plan, fps, width,
                                 height)
+    record_duration(recorder.profile, "offline_compile_s", started)
     pool = project.GetMediaPool()
     with tempfile.TemporaryDirectory(prefix="reel_otio_") as scratch:
+        started = time.perf_counter()
         path = otio_compile.write(document, os.path.join(scratch,
                                                         "reel.otio"))
+        record_duration(recorder.profile, "otio_file_write_s", started)
+        started = time.perf_counter()
         dest = _ensure_bin_path(pool, timeline_bin)
         before = pool.GetCurrentFolder()
         try:
             pool.SetCurrentFolder(dest)
+            record_duration(recorder.profile, "import_setup_s", started)
+            started = time.perf_counter()
             timeline = pool.ImportTimelineFromFile(
                 path, {"timelineName": name, "importSourceClips": True})
         finally:
             if before is not None:
                 pool.SetCurrentFolder(before)
+        record_duration(recorder.profile, "timeline_import_s", started)
     if not timeline:
         raise OtioPlacementRefused(
             f"{name}: ImportTimelineFromFile returned None for the "
@@ -259,16 +294,21 @@ def import_recorded(project, recorder: PlacementRecorder, name: str,
     # a hang here refuses the build by name after the deadline
     # (`library/tools/resolve_deadline.py`).
     from library.tools import resolve_deadline as _deadline
+    started = time.perf_counter()
     try:
         _deadline.apply_timeline_resolution(timeline, width, height)
     except (_deadline.ResolveCallTimeout,
             _deadline.ResolutionNotApplied) as exc:
         raise OtioPlacementRefused(f"{name}: {exc}") from exc
+    record_duration(recorder.profile, "resolution_setup_s", started)
 
+    started = time.perf_counter()
     assert_current_timeline(project, timeline)
+    record_duration(recorder.profile, "timeline_cursor_check_s", started)
 
     # Every planned row, under its planned name, and every recorded item
     # where it was recorded - judged by the read-back, never the return.
+    started = time.perf_counter()
     missing = []
     for row in track_plan.video_tracks + track_plan.audio_tracks:
         if timeline.GetTrackName(row.media_type, row.index) != row.name:
@@ -289,10 +329,12 @@ def import_recorded(project, recorder: PlacementRecorder, name: str,
         raise OtioPlacementRefused(
             f"{name}: the imported timeline does not hold what was "
             f"recorded: {missing[:6]}")
+    record_duration(recorder.profile, "placement_restore_readback_s", started)
 
     # The renders: into the bin each belongs in, with their clip
     # attributes. New pool items land in the CURRENT folder, which was
     # the timeline's bin during the import.
+    started = time.perf_counter()
     by_path: dict = {}
     for item in dest.GetClipList() or ():
         by_path.setdefault(item.GetClipProperty("File Path") or "",
@@ -304,6 +346,7 @@ def import_recorded(project, recorder: PlacementRecorder, name: str,
             by_bin.setdefault(bin_path, []).append(item)
     for bin_path, items in by_bin.items():
         _move_into(pool, items, bin_path)
+    record_duration(recorder.profile, "pool_organization_s", started)
     return timeline
 
 
@@ -313,6 +356,7 @@ def verify_channels(timeline, recorder: PlacementRecorder) -> dict:
     Nothing is deleted: the import placed exactly the named channel."""
     from library.tools.reel_build import _placed_channel, _timeline_span
 
+    started = time.perf_counter()
     record = {"checked": 0, "deleted": [], "unverified": []}
     wrong = []
     for spec in recorder.specs:
@@ -335,6 +379,7 @@ def verify_channels(timeline, recorder: PlacementRecorder) -> dict:
     if wrong:
         raise OtioPlacementRefused(
             f"the import placed the wrong program channel: {wrong[:4]}")
+    record_duration(recorder.profile, "channel_checks_s", started)
     return record
 
 
@@ -352,6 +397,7 @@ def run_deferred(timeline, recorder: PlacementRecorder) -> int:
     it, judged by what SetProperty returns."""
     from library.tools.reel_build import _timeline_span
 
+    started = time.perf_counter()
     for spec in recorder.specs:
         if not spec.properties:
             continue
@@ -367,4 +413,5 @@ def run_deferred(timeline, recorder: PlacementRecorder) -> int:
         note = call(timeline)
         if note:
             print(f"  {label}: {note}", file=sys.stderr)
+    record_duration(recorder.profile, "deferred_transform_s", started)
     return len(recorder.timeline.deferred)

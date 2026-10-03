@@ -20,7 +20,9 @@ the moment it happens:
   naming each channel's basis (`planned`, `awaiting_model_answer`, ...).
 - `build_started` / `build_finished`: the Resolve placement began and
   ended. `build_started` carries seconds since `answers_arrived`, so an
-  M05-class stall names itself on the line.
+  M05-class stall names itself on the line. The `build_summary` event
+  carries an OTIO per-stage placement profile, beside the broker receipt's
+  exclusive hold KPI.
 - `verified`: the conformance gate graded the reel's staging and passed.
 - `consolidated`: promotion moved the staging onto the final name.
 - `wait`: a one-line reason for any wait, written by the thing doing the
@@ -738,6 +740,7 @@ def assemble_summary(
         overlay_sweep: Optional[Dict[str, Any]] = None,
         transition_placements: Any = None,
         has_freeze_tail: Any = None,
+        placement_profile: Optional[Dict[str, Any]] = None,
         verify: Optional[Dict[str, Any]] = None,
         retired_to: Optional[str] = None,
         markers: Optional[Dict[str, Any]] = None,
@@ -823,6 +826,8 @@ def assemble_summary(
         "transition_placements": _int_or_none(transition_placements),
         "has_freeze_tail": (None if has_freeze_tail is None
                             else bool(has_freeze_tail)),
+        **({"placement_profile": placement_profile}
+           if isinstance(placement_profile, dict) else {}),
         "verify": verify,
         "retired_to": retired_to,
         "markers": {

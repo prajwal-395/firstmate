@@ -11,11 +11,13 @@ import - which nothing in Resolve would report.
 import json
 import shutil
 import subprocess
+import time
 
 import pytest
 
 from library.tools.reel_build import build_reel_timeline
-from library.tools.reel_otio_placement import OtioPlacementRefused
+from library.tools.reel_otio_placement import (
+    OtioPlacementRefused, record_duration)
 from library.tools.timeline_ingest import TimelineClip
 from tests.resolve_double import FakeTimeline, make_project
 
@@ -153,6 +155,43 @@ def test_the_recorded_build_lands_the_default_builds_timeline(media,
     assert _timeline_state(project) == _timeline_state(default_project)
     assert record["stream_enforcement"]["checked"] == 2
     assert record["stream_enforcement"]["unverified"] == []
+    profile = record["placement_profile"]
+    assert profile["counts"] == {
+        "recorded_items": 6,
+        "deferred_transforms": 2,
+        "recorded_overlay_bins": 2,
+    }
+    assert all(value >= 0 for key, value in profile.items()
+               if key.endswith("_s"))
+    assert profile["timeline_import_s"] >= 0
+    assert profile["resolution_setup_s"] >= 0
+    assert profile["placement_restore_readback_s"] >= 0
+    assert profile["pool_organization_s"] >= 0
+    assert profile["channel_checks_s"] >= 0
+    assert profile["deferred_transform_s"] >= 0
+    assert profile["ledger_retime_s"] >= 0
+    assert profile["grade_s"] >= 0
+    assert profile["linking_s"] >= 0
+
+
+def test_completed_phase_is_written_to_kpi_ledger(monkeypatch):
+    from library.tools import perf_ledger
+
+    rows = []
+    monkeypatch.setattr(
+        perf_ledger, "record",
+        lambda layer, wall_s, **fields: rows.append(
+            (layer, wall_s, fields)))
+    profile = {"timeline_name": "Reel 09 - scratch"}
+
+    record_duration(profile, "timeline_import_s",
+                     time.perf_counter() - 0.02)
+
+    assert profile["timeline_import_s"] >= 0.01
+    assert rows == [(
+        "otio_placement.timeline_import_s", profile["timeline_import_s"],
+        {"phase": "timeline_import_s",
+         "reel": "Reel 09 - scratch", "placement": "otio"})]
 
 
 def test_a_resolution_timeout_refuses_the_otio_import_by_name(media, tmp_path,
