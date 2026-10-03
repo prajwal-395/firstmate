@@ -1276,6 +1276,50 @@ def test_pool_bin_scopes_the_walk(pool_patched, capsys):
     assert "clips: 2" in capsys.readouterr().out
 
 
+def test_submit_returns_receipt_without_waiting(monkeypatch, capsys):
+    from library.tools.resolved import client
+
+    captured = {}
+
+    def submit(kind, params, owner=""):
+        captured.update(kind=kind, params=params, owner=owner)
+        return {"id": "job-123", "coalesced": False}
+
+    monkeypatch.setattr(client, "in_broker", lambda: False)
+    monkeypatch.setattr(client, "submit", submit)
+    monkeypatch.setattr(
+        client, "result",
+        lambda *args, **kwargs: pytest.fail("submit mode must not wait"))
+    monkeypatch.setattr(resolve_axi.os, "getcwd", lambda: "/work/project")
+
+    assert resolve_axi.main(["--submit", "pool", "Day 1"]) == 0
+
+    assert json.loads(capsys.readouterr().out) == {
+        "id": "job-123", "coalesced": False}
+    assert captured["kind"] == "resolve_axi"
+    assert captured["params"] == {
+        "argv": ["pool", "Day 1"], "cwd": "/work/project"}
+    assert captured["owner"]
+
+
+def test_submit_refuses_without_broker_instead_of_connecting(
+        monkeypatch, capsys):
+    from library.tools.resolved import client
+
+    monkeypatch.setattr(client, "in_broker", lambda: False)
+
+    def no_broker(*args, **kwargs):
+        raise ConnectionError("ren-resolved is not serving")
+
+    monkeypatch.setattr(client, "submit", no_broker)
+    monkeypatch.setattr(
+        resolve_axi, "_connect",
+        lambda: pytest.fail("explicit submit must not connect to Resolve"))
+
+    assert resolve_axi.main(["--submit", "pool"]) == 1
+    assert "cannot submit to ren-resolved" in capsys.readouterr().out
+
+
 def test_pool_refuses_unknown_bin(pool_patched, capsys):
     assert cmd_pool(_ns(project="", bin="Day 9")) == 1
     out = capsys.readouterr().out

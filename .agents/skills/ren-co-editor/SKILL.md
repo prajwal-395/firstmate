@@ -100,6 +100,22 @@ it whenever the goal is about what is IN the footage.
   `library/tools/reel_read.py`, never a new probe. Address a Resolve
   project by its EXACT listed name, never a prefix. Judge every Resolve
   call by what it RETURNS, never by `hasattr`.
+- When a Resolve read has a measured queue delay and you have independent
+  file or planning work, submit it without holding the agent on the
+  receipt. Keep this for reads with real waiting; near-zero-wait reads
+  should stay synchronous:
+
+  ```sh
+  bin/resolve-axi --submit pool "Footage/Day 1"
+  ```
+
+  Save the returned `id`, continue only with work that does not depend on
+  that read, then collect it with `ren resolved result <id> --wait 60`.
+  Repeat the result command if its state is still `queued` or `running`.
+  Resume dependent work only after `done`; a `failed` or `rejected` receipt
+  means the read did not produce an answer. This works for any
+  `resolve-axi` command, including the measured `pool` and `captions`
+  reads.
 
 ## 4. Choose a capability
 

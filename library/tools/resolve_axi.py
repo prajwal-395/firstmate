@@ -5796,6 +5796,7 @@ def build_parser() -> Parser:
                     epilog=f"""examples:
   {TOOL}
   {TOOL} timeline list
+  {TOOL} --submit pool "Footage/Day 1"
   {TOOL} timeline get "Reel 13 - moment"
   {TOOL} markers "Reel 29"
   {TOOL} markers --timeline "Reel 13 - moment"
@@ -5822,6 +5823,10 @@ def build_parser() -> Parser:
   {TOOL} render queue --timeline "Reel 29" --preset "H.265 Master"
   {TOOL} run --timeline "Reel 29" --script "result = timeline_names"
   {TOOL} run --timeline "Reel 29" "result = timeline_names\"""")
+    parser.add_argument(
+        "--submit", action="store_true",
+        help="queue this Resolve command and print its receipt id without "
+             "waiting; collect the result with `ren resolved result`")
     subs = parser.add_subparsers(dest="command")
 
     p = subs.add_parser("timeline", help="list timelines or get one by "
@@ -6532,6 +6537,8 @@ def _normalize(argv: list) -> list:
     not a flag and not one of the command's own subcommands. Flags
     (`--timeline`, `--plane`, `--full`) keep working exactly as before.
     """
+    if argv and argv[0] == "--submit":
+        return ["--submit"] + _normalize(argv[1:])
     if (len(argv) >= 2 and argv[0] in _BARE_TIMELINE_COMMANDS
             and not argv[1].startswith("-")
             and argv[1] not in _OWN_SUBCOMMANDS):
@@ -6568,6 +6575,25 @@ def _through_broker(client, argv: list) -> int:
     return job["result"]["exit_code"]
 
 
+def _submit_through_broker(client, argv: list) -> int:
+    """Queue one Resolve command and return its receipt key immediately."""
+    from library.tools.resolve_lock import default_owner
+
+    job_argv = list(argv)
+    if job_argv and job_argv[0] == "--submit":
+        job_argv.pop(0)
+    try:
+        submitted = client.submit(
+            "resolve_axi", {"argv": job_argv, "cwd": os.getcwd()},
+            owner=default_owner())
+    except (ConnectionError, client.BrokerError) as exc:
+        return fail(f"cannot submit to ren-resolved: {exc}",
+                    "start or restore the broker with `ren resolved serve`, "
+                    "then re-run this command")
+    sys.stdout.write(json.dumps(submitted) + "\n")
+    return 0
+
+
 def main(argv=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if len(argv) == 1 and argv[0] in ("-v", "-V", "--version"):
@@ -6583,9 +6609,15 @@ def main(argv=None) -> int:
     if func is None:
         parser.print_help(sys.stdout)
         return 2
+    submit = bool(getattr(args, "submit", False))
+    if submit and getattr(func, "__name__", "") in _LOCAL_COMMANDS:
+        return fail("--submit only applies to commands that reach Resolve",
+                    "remove --submit from this local command")
     from library.tools.resolve_lock import ResolveBusy
     if getattr(func, "__name__", "") not in _LOCAL_COMMANDS:
         from library.tools.resolved import client
+        if submit and not client.in_broker():
+            return _submit_through_broker(client, argv)
         if client.serving():
             return _through_broker(client, argv)
     try:
