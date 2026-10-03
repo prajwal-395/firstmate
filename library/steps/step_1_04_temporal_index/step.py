@@ -98,6 +98,17 @@ from library.steps.step_1_04_temporal_index import vision_measure
 from library.tools.word_boundaries import (
     sanitize_word_boundaries as _sanitize_word_boundaries,
 )
+from library.steps.step_1_04_temporal_index.media_decode import (
+    decode_temporal_media,
+)
+
+
+def _raw_frame_bytes(path: str, np):
+    """Map a shared raw-frame file without copying the decoded samples."""
+    size = os.path.getsize(path)
+    if size == 0:
+        return np.empty(0, dtype=np.uint8)
+    return np.memmap(path, dtype=np.uint8, mode="r")
 
 
 # ── Audio extraction ─────────────────────────────────────────────────
@@ -175,29 +186,33 @@ def clip_audio_16k(video_path: str, output_dir: str,
 
 # ── 1. Scene detection (ffmpeg) ──────────────────────────────────────
 
-def detect_scenes(video_path: str, threshold: float = 0.3) -> list:
+def detect_scenes(video_path: str, threshold: float = 0.3,
+                  captured_stderr: str = None) -> list:
     """
     Use ffmpeg's scene detection filter to find visual cut/change points.
 
     Returns a list of scene boundary dicts:
         [{"time": 0.0, "score": 1.0, "type": "start"}, ...]
     """
-    try:
-        result = subprocess.run(
-            [
-                "ffmpeg", "-i", video_path,
-                "-filter:v",
-                f"select='gt(scene,{threshold})',metadata=print",
-                "-f", "null", "-",
-            ],
-            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
-        )
-    except subprocess.TimeoutExpired:
-        print(
-            f"  WARNING: scene detection timed out for {video_path}",
-            file=sys.stderr,
-        )
-        return [{"time": 0.0, "score": 1.0, "type": "start"}]
+    if captured_stderr is None:
+        try:
+            result = subprocess.run(
+                [
+                    "ffmpeg", "-i", video_path,
+                    "-filter:v",
+                    f"select='gt(scene,{threshold})',metadata=print",
+                    "-f", "null", "-",
+                ],
+                capture_output=True, text=True, encoding="utf-8",
+                errors="replace", timeout=120,
+            )
+            captured_stderr = result.stderr
+        except subprocess.TimeoutExpired:
+            print(
+                f"  WARNING: scene detection timed out for {video_path}",
+                file=sys.stderr,
+            )
+            return [{"time": 0.0, "score": 1.0, "type": "start"}]
 
     scenes = [{"time": 0.0, "score": 1.0, "type": "start"}]
 
@@ -205,7 +220,7 @@ def detect_scenes(video_path: str, threshold: float = 0.3) -> list:
     # Lines look like: lavfi.scene_score=0.452387
     # with pts_time in the preceding showinfo line
     current_time = None
-    for line in result.stderr.split("\n"):
+    for line in captured_stderr.split("\n"):
         # Look for pts_time in frame metadata
         pts_match = re.search(r"pts_time:(\S+)", line)
         if pts_match:
@@ -1098,6 +1113,7 @@ def _consolidate_events(events: list) -> list:
 def compute_motion_energy(
     video_path: str,
     sample_rate_hz: int = 30,
+    decoded_frames_path: str = None,
 ) -> dict:
     """
     Compute visual motion magnitude using frame differencing.
@@ -1126,32 +1142,33 @@ def compute_motion_energy(
         import numpy as np
         from scipy.signal import find_peaks
 
-        # Extract low-res grayscale frames at target FPS
-        # Using ffmpeg to output raw frames — much faster than opencv
-        fps = sample_rate_hz
-        result = subprocess.run(
-            [
-                "ffmpeg", "-i", video_path,
-                "-vf", f"fps={fps},scale=160:90,format=gray",
-                "-f", "rawvideo", "-pix_fmt", "gray",
-                "-v", "quiet",
-                "-",
-            ],
-            capture_output=True, timeout=120,
-        )
+        if decoded_frames_path is not None and sample_rate_hz == 30:
+            raw = _raw_frame_bytes(decoded_frames_path, np)
+        else:
+            # Extract low-res grayscale frames at target FPS. Using ffmpeg
+            # to output raw frames is much faster than opencv.
+            result = subprocess.run(
+                [
+                    "ffmpeg", "-i", video_path,
+                    "-vf", f"fps={sample_rate_hz},scale=160:90,format=gray",
+                    "-f", "rawvideo", "-pix_fmt", "gray",
+                    "-v", "quiet",
+                    "-",
+                ],
+                capture_output=True, timeout=120,
+            )
+            if result.returncode != 0 or not result.stdout:
+                return {
+                    "sample_rate_hz": sample_rate_hz,
+                    "values": [],
+                    "peak_mean_abs_diff": 0.0,
+                    "peak_motion_times": [],
+                    "high_motion_times": [],
+                }
+            raw = np.frombuffer(result.stdout, dtype=np.uint8)
 
-        if result.returncode != 0 or not result.stdout:
-            return {
-                "sample_rate_hz": sample_rate_hz,
-                "values": [],
-                "peak_mean_abs_diff": 0.0,
-                "peak_motion_times": [],
-                "high_motion_times": [],
-            }
-
-        # Parse raw frames (160x90 grayscale = 14400 bytes per frame)
+        # Parse raw frames (160x90 grayscale = 14400 bytes per frame).
         frame_size = 160 * 90
-        raw = np.frombuffer(result.stdout, dtype=np.uint8)
         n_frames = len(raw) // frame_size
 
         if n_frames < 2:
@@ -1362,6 +1379,7 @@ def _direction_of(med_x: float, med_y: float, mean_mag: float) -> str:
 def _extract_gray_proxy(
     video_path: str,
     sample_rate_hz: int,
+    decoded_frames_path: str = None,
 ) -> "object | None":
     """Low-resolution grayscale frames at the sample rate, or None.
 
@@ -1371,21 +1389,24 @@ def _extract_gray_proxy(
     """
     import numpy as np
 
-    result = subprocess.run(
-        [
-            "ffmpeg", "-i", video_path,
-            "-vf", (f"fps={sample_rate_hz},scale="
-                    f"{FLOW_PROXY_W}:{FLOW_PROXY_H},format=gray"),
-            "-f", "rawvideo", "-pix_fmt", "gray",
-            "-v", "quiet",
-            "-",
-        ],
-        capture_output=True, timeout=120,
-    )
-    if result.returncode != 0 or not result.stdout:
-        return None
+    if decoded_frames_path is not None and sample_rate_hz == 5:
+        raw = _raw_frame_bytes(decoded_frames_path, np)
+    else:
+        result = subprocess.run(
+            [
+                "ffmpeg", "-i", video_path,
+                "-vf", (f"fps={sample_rate_hz},scale="
+                        f"{FLOW_PROXY_W}:{FLOW_PROXY_H},format=gray"),
+                "-f", "rawvideo", "-pix_fmt", "gray",
+                "-v", "quiet",
+                "-",
+            ],
+            capture_output=True, timeout=120,
+        )
+        if result.returncode != 0 or not result.stdout:
+            return None
+        raw = np.frombuffer(result.stdout, dtype=np.uint8)
     frame_size = FLOW_PROXY_W * FLOW_PROXY_H
-    raw = np.frombuffer(result.stdout, dtype=np.uint8)
     n_frames = len(raw) // frame_size
     if n_frames == 0:
         return None
@@ -1584,6 +1605,7 @@ def detect_motion_peaks(
 def compute_optical_flow_direction(
     video_path: str,
     sample_rate_hz: int = 5,
+    decoded_frames_path: str = None,
 ) -> dict:
     """Dense motion field at 5 Hz: direction, magnitude, peaks, zoom.
 
@@ -1646,7 +1668,8 @@ def compute_optical_flow_direction(
     try:
         import numpy as np
 
-        frames = _extract_gray_proxy(video_path, sample_rate_hz)
+        frames = _extract_gray_proxy(
+            video_path, sample_rate_hz, decoded_frames_path)
         if frames is None:
             return {
                 "sample_rate_hz": sample_rate_hz,
@@ -2187,6 +2210,8 @@ def face_sample_dimensions(
 def compute_face_presence(
     video_path: str,
     sample_rate_hz: int = 5,
+    decoded_frames_path: str = None,
+    sample_dimensions: tuple = None,
 ) -> dict:
     """Detect face presence at 5Hz using ffmpeg + OpenCV's Haar cascade.
 
@@ -2265,31 +2290,34 @@ def compute_face_presence(
         # cascade is trained on undistorted faces; a squashed frame moves
         # every face out of the shape it can match.
         fps = sample_rate_hz
-        sample_w, sample_h = face_sample_dimensions(video_path)
-        result = subprocess.run(
-            [
-                "ffmpeg", "-i", video_path,
-                "-vf", f"fps={fps},scale={sample_w}:{sample_h}",
-                "-f", "rawvideo", "-pix_fmt", "rgb24",
-                "-v", "quiet",
-                "-",
-            ],
-            capture_output=True, timeout=180,
-        )
-
-        if result.returncode != 0 or not result.stdout:
-            return {
-                "sample_rate_hz": sample_rate_hz,
-                "values": [],
-                "face_center_x": [],
-                "face_width": [],
-                "face_boxes": [],
-                "face_present_times": [],
-                "face_absent_times": [],
-            }
+        sample_w, sample_h = (sample_dimensions or
+                              face_sample_dimensions(video_path))
+        if decoded_frames_path is not None and sample_rate_hz == 5:
+            raw = _raw_frame_bytes(decoded_frames_path, np)
+        else:
+            result = subprocess.run(
+                [
+                    "ffmpeg", "-i", video_path,
+                    "-vf", f"fps={fps},scale={sample_w}:{sample_h}",
+                    "-f", "rawvideo", "-pix_fmt", "rgb24",
+                    "-v", "quiet",
+                    "-",
+                ],
+                capture_output=True, timeout=180,
+            )
+            if result.returncode != 0 or not result.stdout:
+                return {
+                    "sample_rate_hz": sample_rate_hz,
+                    "values": [],
+                    "face_center_x": [],
+                    "face_width": [],
+                    "face_boxes": [],
+                    "face_present_times": [],
+                    "face_absent_times": [],
+                }
+            raw = np.frombuffer(result.stdout, dtype=np.uint8)
 
         frame_size = sample_w * sample_h * 3  # RGB
-        raw = np.frombuffer(result.stdout, dtype=np.uint8)
         n_frames = len(raw) // frame_size
 
         if n_frames == 0:
@@ -2424,6 +2452,7 @@ def compute_face_presence(
 def compute_dominant_hue_curve(
     video_path: str,
     sample_rate_hz: int = 1,
+    decoded_frames_path: str = None,
 ) -> dict:
     """Compute dominant hue and brightness per second.
 
@@ -2446,28 +2475,31 @@ def compute_dominant_hue_curve(
     try:
         import numpy as np
 
-        result = subprocess.run(
-            [
-                "ffmpeg", "-i", video_path,
-                "-vf", f"fps={sample_rate_hz},scale=80:45",
-                "-f", "rawvideo", "-pix_fmt", "rgb24",
-                "-v", "quiet",
-                "-",
-            ],
-            capture_output=True, timeout=120,
-        )
+        if decoded_frames_path is not None and sample_rate_hz == 1:
+            raw = _raw_frame_bytes(decoded_frames_path, np)
+        else:
+            result = subprocess.run(
+                [
+                    "ffmpeg", "-i", video_path,
+                    "-vf", f"fps={sample_rate_hz},scale=80:45",
+                    "-f", "rawvideo", "-pix_fmt", "rgb24",
+                    "-v", "quiet",
+                    "-",
+                ],
+                capture_output=True, timeout=120,
+            )
 
-        if result.returncode != 0 or not result.stdout:
-            return {
-                "sample_rate_hz": sample_rate_hz,
-                "hue_values": [],
-                "saturation_values": [],
-                "brightness_values": [],
-                "temperature_curve": [],
-            }
+            if result.returncode != 0 or not result.stdout:
+                return {
+                    "sample_rate_hz": sample_rate_hz,
+                    "hue_values": [],
+                    "saturation_values": [],
+                    "brightness_values": [],
+                    "temperature_curve": [],
+                }
+            raw = np.frombuffer(result.stdout, dtype=np.uint8)
 
         frame_size = 80 * 45 * 3
-        raw = np.frombuffer(result.stdout, dtype=np.uint8)
         n_frames = len(raw) // frame_size
 
         if n_frames == 0:
@@ -2751,9 +2783,26 @@ def index_clip(
     else:
         audio_path = clip_audio_16k(video_path, audio_dir, clip_id=clip_id)
 
+    # The step's video measurements need different frame rates, sizes, and
+    # pixel formats, but they can branch after one source decode. Keep the
+    # established independent paths as a fallback if ffmpeg cannot produce
+    # the complete frame set.
+    sample_dimensions = None
+    media = None
+    try:
+        sample_dimensions = face_sample_dimensions(video_path)
+        media = decode_temporal_media(
+            video_path, *sample_dimensions, duration=duration)
+    except Exception as e:
+        print(f"  WARNING: shared video decode setup failed ({e}); "
+              "using individual measurements", file=sys.stderr)
+
     # 1. Scene detection
     print("    [1/12] Scene detection...", file=sys.stderr)
-    scenes = detect_scenes(video_path)
+    scenes = detect_scenes(
+        video_path,
+        captured_stderr=(media.scene_stderr if media is not None else None),
+    )
     print(f"           {len(scenes)} boundaries", file=sys.stderr)
 
     # 2. Energy curve (30Hz — frame-aligned)
@@ -2816,7 +2865,10 @@ def index_clip(
 
     # 6. Motion energy (30Hz — frame-aligned)
     print("    [6/12] Motion energy (30Hz)...", file=sys.stderr)
-    motion = compute_motion_energy(video_path)
+    motion = compute_motion_energy(
+        video_path,
+        decoded_frames_path=(media.motion_gray if media is not None else None),
+    )
     print(
         f"           {len(motion['values'])} samples @ {motion['sample_rate_hz']}Hz, "
         f"{len(motion.get('peak_motion_times', []))} peaks, "
@@ -2834,7 +2886,10 @@ def index_clip(
 
     # 8. Optical flow direction (5Hz — camera motion characterization)
     print("    [8/12] Optical flow direction (5Hz)...", file=sys.stderr)
-    flow = compute_optical_flow_direction(video_path)
+    flow = compute_optical_flow_direction(
+        video_path,
+        decoded_frames_path=(media.flow_gray if media is not None else None),
+    )
     print(
         f"           {len(flow['values'])} samples, "
         f"dominant: {flow['dominant_motion']}",
@@ -2852,7 +2907,11 @@ def index_clip(
     # 10. Face presence (5Hz) + Vision measurement (5Hz)
     print("    [10/12] Face presence + Vision faces (5Hz)...",
           file=sys.stderr)
-    face = compute_face_presence(video_path)
+    face = compute_face_presence(
+        video_path,
+        decoded_frames_path=(media.face_rgb if media is not None else None),
+        sample_dimensions=sample_dimensions,
+    )
     face_pct = (
         round(len(face['face_present_times']) / len(face['values']) * 100)
         if face['values'] else 0
@@ -2866,9 +2925,12 @@ def index_clip(
     # anything that fails is a fallback document, never a failed clip -
     # so this guard is only for the geometry read beside it.
     try:
-        sample_w, sample_h = face_sample_dimensions(video_path)
+        sample_w, sample_h = (sample_dimensions or
+                              face_sample_dimensions(video_path))
         vision = vision_measure.measure_clip_vision(
-            video_path, sample_w, sample_h)
+            video_path, sample_w, sample_h,
+            sample_paths=(media.vision_jpegs if media is not None else None),
+        )
     except Exception as e:
         vision = vision_measure.empty_vision_doc(
             f"unavailable: {e}", vision_measure.VISION_SAMPLE_RATE_HZ)
@@ -2883,7 +2945,12 @@ def index_clip(
 
     # 11. Dominant hue + brightness curve (1Hz)
     print("    [11/12] Hue/brightness curve (1Hz)...", file=sys.stderr)
-    color_curves = compute_dominant_hue_curve(video_path)
+    color_curves = compute_dominant_hue_curve(
+        video_path,
+        decoded_frames_path=(media.hue_rgb if media is not None else None),
+    )
+    if media is not None:
+        media.close()
     print(
         f"            {len(color_curves['hue_values'])} samples",
         file=sys.stderr,

@@ -213,6 +213,8 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/platform_safe_zones.py",
         # Face measurement feeding the per-clip index.
         "library/tools/subject_framing.py",
+        # Shared FFmpeg graph that supplies the per-clip visual measurements.
+        "library/steps/step_1_04_temporal_index/media_decode.py",
         # Span extraction feeding region re-measurement.
         "library/tools/timeline_transcript.py",
         # Imported by timeline_transcript: project words bias the

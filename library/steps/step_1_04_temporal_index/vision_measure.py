@@ -258,15 +258,18 @@ def _round_point(point: list) -> list:
 
 
 def measure_clip_vision(video_path: str, sample_w: int, sample_h: int,
-                        sample_rate_hz: int = VISION_SAMPLE_RATE_HZ) -> dict:
+                        sample_rate_hz: int = VISION_SAMPLE_RATE_HZ,
+                        sample_paths: list[str] = None) -> dict:
     """All-faces Vision measurement for one clip. Never raises.
 
     Samples the clip at the given geometry (the caller passes the
     step's own `face_sample_dimensions`, so Vision sees what Haar saw),
     batches one helper process over every frame, pairs landmarks to
     faces by box overlap, filters one-sample phantoms, and returns the
-    six `VISION_KEYS`. Any failure - helper, ffmpeg, parse - returns
-    `empty_vision_doc` with the reason, so the step stays green.
+    six `VISION_KEYS`. When `sample_paths` is supplied, those JPEGs are
+    the existing 5 Hz samples from the temporal index's shared decode.
+    Any failure - helper, ffmpeg, parse - returns `empty_vision_doc` with
+    the reason, so the step stays green.
     """
     try:
         helper, reason = ensure_helper()
@@ -275,32 +278,39 @@ def measure_clip_vision(video_path: str, sample_w: int, sample_h: int,
         with open(SWIFT_SOURCE, "rb") as handle:
             sha = hashlib.sha1(handle.read()).hexdigest()[:12]
 
-        workdir = tempfile.mkdtemp(prefix="ren-vision-frames-")
-        try:
-            result = subprocess.run(
-                [
-                    "ffmpeg", "-i", video_path,
-                    "-vf", f"fps={sample_rate_hz},scale={sample_w}:{sample_h}",
-                    "-f", "image2", "-q:v", "2",
-                    os.path.join(workdir, "f_%05d.jpg"),
-                ],
-                capture_output=True, text=True, encoding="utf-8",
-                errors="replace", timeout=600, check=False,
-            )
-            paths = sorted(
-                os.path.join(workdir, name)
-                for name in os.listdir(workdir)
-                if name.endswith(".jpg")
-            )
-            if result.returncode != 0 or not paths:
+        if sample_paths is not None:
+            paths = list(sample_paths)
+            if not paths:
                 return empty_vision_doc(
-                    "unavailable: frame sampling failed: "
-                    f"{result.stderr.strip()[-200:]}",
-                    sample_rate_hz,
-                )
+                    "unavailable: no sampled frames", sample_rate_hz)
             docs = measure_frames(paths, helper)
-        finally:
-            shutil.rmtree(workdir, ignore_errors=True)
+        else:
+            workdir = tempfile.mkdtemp(prefix="ren-vision-frames-")
+            try:
+                result = subprocess.run(
+                    [
+                        "ffmpeg", "-i", video_path,
+                        "-vf", f"fps={sample_rate_hz},scale={sample_w}:{sample_h}",
+                        "-f", "image2", "-q:v", "2",
+                        os.path.join(workdir, "f_%05d.jpg"),
+                    ],
+                    capture_output=True, text=True, encoding="utf-8",
+                    errors="replace", timeout=600, check=False,
+                )
+                paths = sorted(
+                    os.path.join(workdir, name)
+                    for name in os.listdir(workdir)
+                    if name.endswith(".jpg")
+                )
+                if result.returncode != 0 or not paths:
+                    return empty_vision_doc(
+                        "unavailable: frame sampling failed: "
+                        f"{result.stderr.strip()[-200:]}",
+                        sample_rate_hz,
+                    )
+                docs = measure_frames(paths, helper)
+            finally:
+                shutil.rmtree(workdir, ignore_errors=True)
 
         return _assemble(docs, sample_rate_hz, sha,
                          f"{sample_w}x{sample_h}")
