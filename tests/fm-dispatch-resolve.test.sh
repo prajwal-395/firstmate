@@ -333,7 +333,7 @@ pass "rules snapshots and shell quoting preserve the profile protocol"
 rm -f "$RULES"
 reset_log
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
-expect_code 0 "$code" "absent rules file exits 0"
+expect_code 0 "$code" "absent rules file exits 0: $err"
 assert_contains "$out" '  status: default' "absent rules file uses the static default"
 assert_contains "$out" '  profile: --harness' "absent rules file emits a concrete profile"
 assert_absent "$LOG/argv" "absent rules file never calls curl"
