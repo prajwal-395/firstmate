@@ -139,11 +139,11 @@ def profiles() -> Dict[str, Dict[str, int]]:
             "disk": 2,
         },
     }
-    for capability in capabilities.all():
-        for phase in capability.execution.phases:
+    for capability_id, execution in capabilities.executions():
+        for phase in execution.phases:
             demand = _capability_demand(phase, cap)
             if demand:
-                declared[f"{capability.id}:{phase.name}"] = demand
+                declared[f"{capability_id}:{phase.name}"] = demand
     return declared
 
 

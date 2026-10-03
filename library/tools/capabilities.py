@@ -242,6 +242,18 @@ def ids() -> tuple:
     return tuple(c.id for c in all())
 
 
+def executions() -> tuple:
+    """Every capability's `(id, execution)`, without building its spec.
+
+    `spec_of` derives requirements from every manifest - about a second
+    of file reads - and the resource scheduler asks for execution policy
+    on every heavy-work acquisition, in every child process that
+    re-enters one. Both fields are the registry entry's own.
+    """
+    from library.tools import operations
+    return tuple((op.name, op.execution) for op in operations.all())
+
+
 def producers_of(requirement_name: str) -> tuple:
     """The capability ids that DECLARE producing a requirement.
 
