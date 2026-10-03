@@ -414,18 +414,18 @@ Every claude launch's inline `--settings` JSON also carries `"attribution":{"com
 ## Crew dispatch profiles (config/crew-dispatch.json)
 
 `config/crew-dispatch.json` is an optional local, gitignored file containing natural-language rules that firstmate reads before dispatching a crewmate or scout.
-The shell scripts do not match those rules; firstmate chooses the best matching rule with judgment, resolves its profile object or array under the operating contract in `AGENTS.md` section 4 and `quota-array-dispatch`, and passes only concrete `--harness`, `--model`, and `--effort` flags to `fm-spawn.sh`.
-When the file exists, `fm-spawn.sh` enforces that contract by refusing crewmate and scout spawns that lack an explicit harness (`--harness`, a positional adapter, or a raw launch command).
-Batch spawns satisfy the same requirement with a shared `--harness`.
+On every fresh crewmate or scout spawn with this file present, `fm-spawn.sh` resolves the written brief and canonical project name through `fm-dispatch-resolve.sh`, then enforces the returned profile. Exact project rules are matched in code. Jev is called only for judgment rules; the configured deterministic default is used when Jev is off, unavailable, invalid, or below its confidence floor.
+An explicit harness, model, effort, or ladder that differs from the selected route is refused unless `--dispatch-override-reason` records the current captain instruction authorizing that profile. A matching explicit profile is accepted, and omitted axes inherit the selected route. Secondmate spawns and relaunches keep their existing routing behavior and do not resolve a fresh dispatch profile.
 Secondmate spawns are exempt and still resolve through `config/secondmate-harness` and its optional model and effort tokens.
 This section is the single owner of the canonical schema and its per-field semantics.
-`AGENTS.md` section 4 owns the always-loaded dispatch intake boundary, and `quota-array-dispatch` owns the completion-aware profile-array selection procedure.
+`AGENTS.md` section 4 owns the always-loaded dispatch intake boundary. In a resolved dispatch array, quota evidence can veto a candidate, and the first eligible candidate in declared order is selected; spawn-time ladder gates still own the rung that launches.
 
 ```json
 {
   "rules": [
     {
       "when": "<natural-language condition describing a kind of task>",
+      "match": "judgment",
       "approval": "captain",
       "floor": { "scope": "<quota-axi scope>", "min_percent": 20, "provider": "<quota-axi provider>" },
       "use": [
@@ -437,52 +437,56 @@ This section is the single owner of the canonical schema and its per-field seman
   "default": [
     { "harness": "<adapter>", "model": "<optional model>", "effort": "<optional effort>" }
   ],
-  "agy_ladder": ["<agy display name or kebab id, in rung order>"]
+  "agy_ladder": ["<agy display name or kebab id, in rung order>"],
+  "exhausted_ladder_fallback": {
+    "include_agy_ladder": true,
+    "agy_effort": "high",
+    "use": { "harness": "<verified adapter>", "model": "<optional model>" }
+  }
 }
 ```
 
 Per rule, `when` and `use` are required; the top-level `rules` array itself may be absent or empty for a default-only configuration.
+Each rule may declare exactly one of `projects` or `match`. `projects` is a non-empty array of exact project directory names, and a name may appear in only one rule; those rules are selected by code without a Jev request. `match: "judgment"` marks a rule Jev may choose. For backward compatibility, an older rule with neither field is treated as a judgment rule; any other `match` value, or both fields together, is a configuration error.
 Both `use` and the optional top-level `default` accept either one profile object or a non-empty array of profile objects.
 The single-object form stays fully backward-compatible, and every profile needs `harness`.
 Profile `model` and `effort` fields and rule `why` are optional.
-Rule `approval` and `floor`, and profile `provider` and `floor` are optional declarations that only [typed dispatch resolution](#typed-dispatch-resolution-env-typesafe_api_key-env-ai_gateway_api_key) applies in code; without that opt-in they are inert, and firstmate's own intake reads them as ordinary hints.
-The resolver supplies the fixed neutral Choice option `No listed rule applies to this task.` for work that matches no listed rule.
+Rule `approval` and `floor`, and profile `provider` and `floor` are enforced by the dispatch resolver on every fresh spawn with this file present.
+The resolver supplies the fixed neutral Choice option `No listed rule applies to this task.` for a judgment request that matches no listed judgment rule.
 `approval` accepts only `"captain"` and means a task the rule matches is never dispatched from the tool's answer alone.
 A rule `floor` names the quota-axi `provider` and `scope` whose `effectivePercentRemaining` must be at least `min_percent` for the rule's profiles to apply.
 A known percentage below it makes the tool resolve among `default` instead; an absent or unknown row or unmeasured provider makes the floor unverifiable and escalates without authorizing default routing.
 A profile `provider` optionally names the quota-axi provider family whose rows apply to that profile; when present, profile and rule-floor provider IDs must match the strict whole-string pattern `^[a-z0-9]+(-[a-z0-9]+)*\z`.
-Bootstrap validates resolver-only `approval`, `floor`, and present `provider` values only while typed resolution is active; without the key those inert fields and the pre-existing verified-harness baseline preserve bootstrap behavior.
-Typed resolution additively recognizes `gemini` because AGENTS.md section 4 verifies it for crewmate and scout dispatch.
-The opted-in resolver has authoritative single-provider mappings for `claude`, `codex`, `grok`, `kimi`, `cursor`, `agy`, and `muse`; every other verified harness must declare `provider` explicitly, including multi-provider `pi`, `pi-signed`, `omp`, and `opencode` and unmapped `gemini` and `rovo`.
+Bootstrap validates these route fields whether or not a Jev key is configured, because the resolver still enforces deterministic project and default routes with no key.
+The resolver has authoritative single-provider mappings for `claude`, `codex`, `grok`, `kimi`, `cursor`, `agy`, and `muse`; every other verified harness must declare `provider` explicitly, including multi-provider `pi`, `pi-signed`, `omp`, and `opencode` and unmapped `gemini` and `rovo`.
 Its single-provider table is separate from the frozen legacy mapping used by `fm-quota-choose.sh`, so additions cannot alter no-key routing.
 The resolver returns an actionable configuration error before any request when such a profile omits it.
 A profile `floor` contains only `scope` and `min_percent`, always uses that profile's provider, and makes that one candidate ineligible below `min_percent` on the named scope.
 An absent or unknown named row also makes the candidate unrankable and is reported as an unverifiable floor, not as a known shortfall.
 `ultra` is native-only: the model-aware validation contract and launch mapping are owned by `bin/fm-harness.sh validate-native-effort` and `bin/fm-spawn.sh` respectively.
 An omitted model or effort means the selected harness uses its own default for that axis.
-Every profile array is an implicit quota-aware choice resolved through `quota-array-dispatch`.
-Through typed dispatch resolution below, the same arrays resolve in declared rung order instead, with the spawn-time ladder gates owning the rung.
-If no dispatch rule fits, firstmate resolves `default` through the same object-or-array path before falling back to `config/crew-harness`.
+On a fresh spawn with this file active, the resolver checks quota eligibility and selects the first eligible profile in each array's declared order; it does not rank with `spendPriority`.
+Use `quota-array-dispatch` only for a profile-array decision outside this enforced spawn path.
+If no judgment rule matches, Jev is unavailable, or confidence is low, the resolver uses `default`; if no default is declared it resolves the static crewmate harness from `config/crew-harness`.
 Top-level `agy_ladder` optionally states the agy rung order as display names (or the kebab ids agy accepts), in rung order.
 `bin/fm-agy-ladder-lib.sh` enforces exactly that sequence, with the Opus 4.6 25 percent reserve traveling with the model rather than the rung position.
 `default` then carries only the default dispatch ruling.
 A file without `agy_ladder` whose `default` profiles name agy models keeps resolving through the legacy derivation, and bootstrap names that coupled read as a `CREW_DISPATCH` legacy notice so it is reported rather than silent.
 Except for `ultra`, which refuses unsupported profiles under the native-effort contract above, an effort value the chosen harness does not accept is reported and omitted from task meta and launch flags.
 Bootstrap reports unsupported harness/model/effort combinations as a `CREW_DISPATCH` diagnostic when they are visible in the file.
-See [`docs/examples/crew-dispatch.json`](examples/crew-dispatch.json) for a starting point to copy into local `config/crew-dispatch.json`; its Pi default declares the `claude` provider required for typed resolution of that Anthropic model.
+See [`docs/examples/crew-dispatch.json`](examples/crew-dispatch.json) for a starting point to copy into local `config/crew-dispatch.json`; its Pi default declares the `claude` provider required by dispatch resolution for that Anthropic model.
 When the file exists, bootstrap validates it with `jq`.
 Valid files stay silent by default; with `FM_BOOTSTRAP_VERBOSE_FACTS=1`, bootstrap emits `BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json`, one `BOOTSTRAP_INFO:` fact per rule, and one fact for the optional default profile set.
 Malformed JSON, malformed rules, an empty or malformed profile array, an unverified harness, or an effort value unsupported by that harness is reported as `CREW_DISPATCH: invalid config/crew-dispatch.json - ...`.
-While typed resolution is active, malformed `approval`, `floor`, and present `provider` declarations receive the same diagnostic; without the key those inert declarations preserve the pre-existing bootstrap behavior.
+Malformed `approval`, `floor`, and present `provider` declarations receive the same diagnostic whether or not Jev keys are present, because those fields govern deterministic routes too.
 Missing `jq` is reported through the normal `MISSING: jq` install-consent flow.
-While the file remains present, no crewmate or scout spawn may proceed without an explicit resolved harness; malformed configuration must be reported and corrected rather than selected around.
+While the file remains present, no crewmate or scout spawn may proceed without the resolver's concrete route; malformed configuration must be reported and corrected rather than selected around.
 Secondmate homes inherit this file from the primary, so a secondmate's own crewmates apply the same dispatch profile behavior.
 
 ## Typed dispatch resolution (.env TYPESAFE_API_KEY, .env AI_GATEWAY_API_KEY)
 
-`bin/fm-dispatch-resolve.sh` resolves one concrete crewmate or scout profile from a written brief with typesafe.ai's System One model (Jev), so the rule match that firstmate otherwise reasons out in its own context becomes one short tool turn.
-It is off unless `TYPESAFE_API_KEY` or `AI_GATEWAY_API_KEY` is non-empty in the calling environment or the home's gitignored `.env` holds a matching `KEY=` line; the environment wins, matching the Relay and mail-plane contracts, and the Relay accessor in `bin/fm-env-lib.sh` reads the line.
-Off means one `dispatch-resolve: off` line on stderr, nothing on stdout, exit 0, and no network call, so firstmate dispatches exactly as it does without the tool.
+`bin/fm-dispatch-resolve.sh` resolves one concrete crewmate or scout profile from the written brief and project name. It always runs for a fresh spawn when `config/crew-dispatch.json` exists. Without Jev keys, it selects an exact project rule or the deterministic default without a network call. With a Jev key, Jev sees only judgment rules and the task text; exact project rules remain code-selected.
+When no project rule matches, Jev is off, unavailable, returns an invalid answer, or has confidence below 0.6, the deterministic default is selected and reported. These cases do not block dispatch. A malformed or unreadable rules file remains an actionable configuration error.
 This section is the single owner of the tool's operator contract; the script header owns its exact flags and output lines, and "Crew dispatch profiles" above owns the declared rule and profile fields it applies.
 Rules come only from the effective home's `config/crew-dispatch.json`; `FM_CONFIG_OVERRIDE` selects the config directory for tests and specialized setup like the other scripts.
 
@@ -490,12 +494,12 @@ Rules come only from the effective home's `config/crew-dispatch.json`; `FM_CONFI
 bin/fm-dispatch-resolve.sh data/<id>/brief.md --project <name>        # TOON block on stdout
 ```
 
-Firstmate invokes the resolve path directly after writing the brief, without a preflight; the absent-key off line is handled exactly like every other non-clear outcome.
-When on and at least one rule exists, the tool sends the project name and the Task section of the brief (Captain's intent plus Firstmate spec) as state and asks one Choice question whose options are every rule's `when` plus the fixed neutral option for no matching rule; the model never sees quota, catalogs, `why`, `use`, or approvals.
-An absent rules file, a default-only file, or `rules: []` returns the non-clear reason `no rules to match` without a model or quota request, leaving firstmate's existing routing in control; an existing but unreadable or malformed rules file, including a broken symlink, remains an actionable exit 2 configuration error.
+`fm-spawn.sh` invokes the resolve path directly after writing the brief. It supplies the project directory's basename, which is compared exactly against each `projects` array. A matching project rule is selected without Jev; its profiles still pass through quota eligibility checks.
+When Jev is needed, the tool sends the project name and Task section of the brief (Captain's intent plus Firstmate spec) as state and asks one Choice question whose options are only judgment rules plus the fixed neutral option for no matching rule; the model never sees quota, catalogs, `why`, `use`, or approvals.
+An absent rules file, a default-only file, or `rules: []` selects the resolver's synthesized deterministic default; an existing but unreadable or malformed rules file, including a broken symlink, remains an actionable exit 2 configuration error.
 Everything after the answer runs in code: the confidence floor, the matched rule's `approval` and `floor`, each candidate's `provider` and `floor`, and every applicable account-wide and model/product row from one `quota-axi --json` snapshot.
 Quota evidence vetoes but never ranks: any applicable `exhausted_now` row, known zero bound, or known profile-floor shortfall makes that candidate ineligible, with a known shortfall decided before unrelated quota uncertainty is considered, while missing, unknown, or nonnumeric evidence keeps its candidate eligible with the uncertainty disclosed.
-The `clear` profile is the first eligible profile in the matched rule's (or default's) declared rung order, and the result says so in its note.
+The selected profile is the first eligible profile in the matched rule's (or default's) declared order, and the result says so in its note. Quota evidence vetoes candidates but does not reorder the array.
 A `use` array is written in rung order, and spawn-time gates decide the rung that launches.
 When a default array selects a governed OpenCode or Codex Plus profile, the resolver appends `--dispatch-ladder opencode` so the spawn gate chooses from current cap records.
 The agy array goes through `fm_agy_ladder_gate` in rung order, with a refusal escalated.
@@ -503,18 +507,20 @@ The opencode default order is free, Codex Plus (`gpt-6-luna` at the effort decla
 OpenCode free caps use the vendor retry horizon; Codex Plus and Go caps use fresh `quota-axi` zero-availability evidence with a reset time, with Codex Plus also accepting a lane usage-limit message that states its reset, and Go also accepting reactive vendor-cap evidence.
 Each rung's `state/.opencode-cap-<rung>` record is shared by dispatch, spawning, and running-worker descent through `bin/fm-opencode-retry.sh`.
 Unknown or stale quota data does not count as capped, and a recorded rung becomes eligible again after its reset time.
-If all three rungs are capped, the spawn is refused with each reset time.
+If all three default OpenCode rungs are proven capped, `fm-spawn.sh` resolves the optional `exhausted_ladder_fallback`. It tries the configured profiles in `use` first, then the configured agy ladder as a last resort; any selected agy rung still passes through the agy gate. If the fallback is absent or has no eligible profile, spawn is refused with the cap evidence. This is reached only from the deterministic default OpenCode route, so exact project rules such as Lucie's never use it. The declaration is temporary and can be removed by deleting `exhausted_ladder_fallback`.
 Running workers descend across harnesses when their current rung is capped and a later rung is available; climb-back for running workers is not performed.
 Order only ever decides among candidates quota has not already ruled out, so an exhausted first rung is skipped rather than chosen by position, and a paid rung after a free one is never named ahead of it.
-Every candidate is printed beside its evidence or the reason it is ineligible, including on ambiguous and approval-gated outcomes that emit no profile.
-On the opted-in path, duplicate concrete profiles with the same harness, model, and effort inside one rule or the default array are configuration errors rather than ties.
-The result is one of `clear` (a `profile:` line ready for `fm-spawn.sh`), `ambiguous` (confidence below the floor), `escalate` (an approval-gated rule, an unverifiable rule floor, or no eligible candidate at all), or `error` (API, network, malformed response metadata, rendering, or quota-axi failure), and every one of them exits 0.
+Text output prints every candidate beside its evidence or the reason it is ineligible, including when an approval-gated result emits no profile.
+Duplicate concrete profiles with the same harness, model, and effort inside one rule or default array are configuration errors rather than ties.
+The result is `clear` for a selected judgment rule, `default` for deterministic routing or a Jev fallback, `escalate` for an approval-gated rule, an unverifiable rule floor, or no eligible candidate, or `error` for malformed response metadata, rendering, or quota-axi failure. Jev/API/network failures select and report the deterministic default. Every structured outcome exits 0.
 Response probabilities must contain exactly every offered choice, use numeric values from 0 through 1, and sum to approximately 1 within 0.01.
 Only a usage or configuration error exits 2: an unreadable brief, an existing but unreadable or malformed canonical rules file, or missing `jq`, each reported and never selected around.
-Missing `curl` is a normal structured `error` outcome with exit 0 so firstmate uses today's routing.
-The tool never replaces firstmate's judgment, `quota-array-dispatch`, the captain-approval gate, or `fm-spawn.sh` validation; `AGENTS.md` section 4 owns what firstmate does with each outcome.
+Missing `curl` selects the deterministic default with exit 0 so firstmate uses today's routing.
+The tool never replaces the captain-approval gate or `fm-spawn.sh` validation; `AGENTS.md` section 4 owns the intake contract.
 By accepted design, a `clear` result does not enforce catalog/authentication, reasoning-class, or completion-runway gates.
-Firstmate passes its profile line unless it states a reason to override, such as the brief's reasoning class or an eligible-unranked-candidate note; every non-clear result returns to the full existing intake.
+`fm-spawn.sh` enforces the returned profile. A different explicit profile requires `--dispatch-override-reason` containing the current captain instruction; the exact reason is stored in task metadata for review.
+
+The optional `exhausted_ladder_fallback` object is independent of Jev and easy to remove. `use` adds one profile or an ordered profile array that is tried first. `include_agy_ladder: true` appends the configured `agy_ladder` candidates using `agy_effort` (default `high`) as the last resort. At least one of those sources must be enabled. Fallback profile declarations use the same validation, provider mapping, quota eligibility, and declared-order rules as ordinary profiles.
 
 The resolver and bootstrap copy an environment-provided key into a non-exported private variable and unset `TYPESAFE_API_KEY` and `AI_GATEWAY_API_KEY` before launching child processes, so each secret is absent from child environments.
 Each key also flows from the primary home's `.env` into every LOCAL secondmate home's `.env` through the primary-authoritative inheritance contract, so mates resolve with Jev too.
@@ -1153,8 +1159,8 @@ FMX_RELAY_URL=https://myfirstmate.io   # optional Relay endpoint override, mainl
 FMX_ENV_FILE=           # optional alternate .env file for direct Relay client invocations; bootstrap still checks $FM_HOME/.env
 FMX_DRY_RUN=            # truthy previews Relay replies and dismissals to state/x-outbox/ without posting or requiring a token
 FMX_X_REPLY_MAX_CHARS=280   # X reply per-message split budget; values below 50 clamp to 50
-TYPESAFE_API_KEY=       # typed dispatch resolution primary rung, from the environment or .env; with AI_GATEWAY_API_KEY absent the tool uses the typesafe rung only (docs/configuration.md "Typed dispatch resolution")
-AI_GATEWAY_API_KEY=   # fallback Jev rung through Vercel AI Gateway, from the environment or .env; with TYPESAFE_API_KEY absent the tool uses this rung only, otherwise it answers once per call when typesafe.ai refuses with 429/401/403
+TYPESAFE_API_KEY=       # primary Jev key for judgment-only crew dispatch, from the environment or .env; with AI_GATEWAY_API_KEY absent the resolver uses this rung only (docs/configuration.md "Typed dispatch resolution")
+AI_GATEWAY_API_KEY=   # fallback Jev key through Vercel AI Gateway, from the environment or .env; with TYPESAFE_API_KEY absent the resolver uses this rung only, otherwise it answers once per call when typesafe.ai refuses with 429/401/403
 FMX_DISCORD_REPLY_MAX_CHARS=1900   # Discord reply per-message split budget; values below 50 clamp to 50, values above 2000 reset to 1900
 FMX_X_THREAD_MAX=25     # maximum messages in one auto-split reply thread
 FMX_FOLLOWUP_MAX_AGE_SECS=604800   # local window for posting Relay completion follow-ups (7 days)

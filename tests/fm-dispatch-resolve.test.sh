@@ -24,9 +24,10 @@ RULES="$HOME_DIR/config/crew-dispatch.json"
 QUOTA="$TMP_ROOT/quota.json"
 BASE_PATH=$PATH
 mkdir -p "$HOME_DIR/config" "$LOG" "$NO_CURL_BIN"
-for command_name in bash chmod cp dirname jq mktemp rm; do
+for command_name in bash cat chmod cp dirname jq mktemp rm; do
   ln -s "$(command -v "$command_name")" "$NO_CURL_BIN/$command_name"
 done
+ln -s "$FAKEBIN/quota-axi" "$NO_CURL_BIN/quota-axi"
 
 cat > "$BRIEF" <<'MD'
 You are a crewmate: an autonomous worker agent managed by firstmate. Work on your own; do not wait for a human. PREAMBLE-SENTINEL stays home.
@@ -219,16 +220,17 @@ run_without_curl() {
 KEY='test-key-9f1c2d3e-never-on-argv'
 code='' out='' err=''
 
-# --- absent key: off, silent on stdout, no network, no quota read -----------
+# --- absent key: Jev off, deterministic default route -------------------------
 reset_log
 write_response "$RESPONSE" rule_4 0.9
 run code out err "$BRIEF" --project pager
 expect_code 0 "$code" "absent key exits 0"
-assert_equals '' "$out" "absent key prints nothing on stdout"
-assert_contains "$err" 'dispatch-resolve: off (TYPESAFE_API_KEY absent from the environment and' "absent key explains itself on stderr"
+assert_contains "$out" '  status: default' "absent key selects the deterministic default"
+assert_contains "$out" "  profile: --harness 'claude' --model 'opus'" "absent key still returns an enforceable profile"
+assert_contains "$err" 'Jev is off because no resolver key is configured; deterministic default selected' "absent key explains the deterministic route"
 assert_absent "$LOG/argv" "absent key never calls curl"
-assert_absent "$LOG/quota-axi.calls" "absent key never reads quota-axi"
-pass "absent key is off: one stderr line, exit 0, no network call"
+assert_equals '--json' "$(cat "$LOG/quota-axi.calls")" "deterministic routing still reads one quota snapshot"
+pass "Jev off selects and reports the deterministic default without an API call"
 
 # --- .env key, and the environment wins over it ------------------------------
 printf '%s\n' '# local secrets' 'FMX_PAIRING_TOKEN=abc' "export TYPESAFE_API_KEY=\"$KEY\"" > "$HOME_DIR/.env"
@@ -327,16 +329,15 @@ assert_equals 'foo --harness grok   profile: injected' "$4" "shell-safe profile 
 cp "$BASE_RULES" "$RULES"
 pass "rules snapshots and shell quoting preserve the profile protocol"
 
-# --- no rules return control to the existing intake ----------------------------
+# --- no judgment rules route to the deterministic default ----------------------
 rm -f "$RULES"
 reset_log
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
-expect_code 0 "$code" "absent rules file exits 0"
-assert_contains "$out" '  status: escalate' "absent rules file is non-clear"
-assert_contains "$out" '  reason: no rules to match' "absent rules file returns control to firstmate"
-assert_not_contains "$out" '  profile:' "absent rules file emits no profile"
+expect_code 0 "$code" "absent rules file exits 0: $err"
+assert_contains "$out" '  status: default' "absent rules file uses the static default"
+assert_contains "$out" '  profile: --harness' "absent rules file emits a concrete profile"
 assert_absent "$LOG/argv" "absent rules file never calls curl"
-assert_absent "$LOG/quota-axi.calls" "absent rules file never reads quota"
+assert_equals '--json' "$(cat "$LOG/quota-axi.calls")" "absent rules still reads quota for the selected profile"
 
 DEFAULT_ONLY="$TMP_ROOT/default-only.json"
 EMPTY_RULES="$TMP_ROOT/empty-rules.json"
@@ -347,11 +348,10 @@ for direct_rules in "$DEFAULT_ONLY" "$EMPTY_RULES"; do
   reset_log
   TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
   expect_code 0 "$code" "no-rule resolution exits 0: $direct_rules"
-  assert_contains "$out" '  status: escalate' "no-rule resolution is non-clear: $direct_rules"
-  assert_contains "$out" '  reason: no rules to match' "no-rule resolution returns control to firstmate: $direct_rules"
-  assert_not_contains "$out" '  profile:' "no-rule resolution emits no profile: $direct_rules"
+  assert_contains "$out" '  status: default' "no-rule resolution chooses the default: $direct_rules"
+  assert_contains "$out" '  profile: --harness' "no-rule resolution emits a concrete profile: $direct_rules"
   assert_absent "$LOG/argv" "no-rule resolution never calls curl: $direct_rules"
-  assert_absent "$LOG/quota-axi.calls" "no-rule resolution never reads quota: $direct_rules"
+  assert_equals '--json' "$(cat "$LOG/quota-axi.calls")" "no-rule resolution reads one quota snapshot: $direct_rules"
 done
 
 AGY_RULE="$TMP_ROOT/agy-rule.json"
@@ -379,23 +379,78 @@ cat > "$RESPONSE" <<'JSON'
 JSON
 reset_log
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
-assert_contains "$out" '  status: clear' "the documented example passes opted-in resolution"
+assert_contains "$out" '  status: default' "the documented example passes opted-in resolution"
 assert_contains "$out" 'candidate: pi:anthropic/claude-sonnet-5  provider=claude' "the documented Pi default uses its declared Claude provider"
 assert_not_contains "$err" 'malformed rules file' "the documented example reaches resolution"
 cp "$BASE_RULES" "$RULES"
-pass "no-rule fallback, Agy, Gemini, and documented configurations resolve"
+pass "deterministic defaults, Agy, Gemini, and documented configurations resolve"
+
+printf '%s\n' '{"rules":[]}' > "$RULES"
+printf '%s\n' pi > "$HOME_DIR/config/crew-harness"
+reset_log
+run code out err "$BRIEF" --project pager
+expect_code 0 "$code" "static crew-harness fallback exits 0"
+assert_contains "$out" "profile: --harness 'pi'" "a provider-less static Pi harness remains the deterministic route"
+assert_contains "$out" 'static crew harness has no declared provider or model for quota measurement' \
+  "the static route discloses why quota could not rank it"
+rm -f "$HOME_DIR/config/crew-harness"
+cp "$BASE_RULES" "$RULES"
+pass "a static multi-provider crew harness remains available when no dispatch default is declared"
+
+PROJECT_RULES="$TMP_ROOT/project-rules.json"
+cat > "$PROJECT_RULES" <<'JSON'
+{
+  "rules": [
+    {"when":"Lucie Content project work","projects":["lucie-content"],"use":{"harness":"codex","model":"gpt-5.6-sol","effort":"high"}},
+    {"when":"The task is genuinely unshaped","match":"judgment","use":{"harness":"claude","model":"opus","effort":"xhigh"}}
+  ],
+  "default":{"harness":"codex","model":"gpt-5.6-sol","effort":"high"}
+}
+JSON
+cp "$PROJECT_RULES" "$RULES"
+reset_log
+run code out err "$BRIEF" --project lucie-content --json
+expect_code 0 "$code" "exact project rule resolves without Jev"
+assert_equals 'clear' "$(jq -r '.status' <<<"$out")" "exact project match is clear"
+assert_equals 'rule:1' "$(jq -r '.source' <<<"$out")" "project route identifies its declared rule"
+assert_equals 'codex' "$(jq -r '.profile.harness' <<<"$out")" "project route selects its declared profile"
+assert_absent "$LOG/argv" "project rules do not call Jev"
+reset_log
+cat > "$RESPONSE" <<'JSON'
+{"model":"jev-1.13.0","answers":{"rule":{"type":"choice","choice":"rule_2","confidence":0.9,"probabilities":{"rule_2":0.95,"default":0.05}}},"usage":{"input_tokens":100,"output_tokens":40}}
+JSON
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF" --project other-repository
+expect_code 0 "$code" "judgment rule resolves with Jev"
+assert_equals '["default","rule_2"]' "$(jq -c '.questions.rule.criteria | keys' < "$LOG/body")" "Jev sees only judgment rules"
+assert_not_contains "$(cat "$LOG/body")" 'Lucie Content project work' "project rule text is excluded from Jev options"
+pass "project names match in code and Jev receives judgment rules only"
+
+FALLBACK_RULES="$TMP_ROOT/fallback-rules.json"
+printf '%s\n' '{"rules":[],"default":{"harness":"codex","model":"gpt-5.6-sol","effort":"high"},"exhausted_ladder_fallback":{"include_agy_ladder":false,"use":{"harness":"opencode","model":"opencode-go/longcat-2.5-preview-free","provider":"opencode-go"}}}' > "$FALLBACK_RULES"
+cp "$FALLBACK_RULES" "$RULES"
+reset_log
+run code out err --fallback --json
+expect_code 0 "$code" "declared exhausted-ladder fallback resolves"
+assert_equals 'clear' "$(jq -r '.status' <<<"$out")" "fallback resolves to a concrete profile"
+assert_equals 'exhausted_ladder_fallback' "$(jq -r '.source' <<<"$out")" "fallback route source is explicit"
+assert_equals 'opencode-go/longcat-2.5-preview-free' "$(jq -r '.profile.model' <<<"$out")" "declared fallback model is returned"
+rm -f "$RULES"
+run code out err --fallback --json
+expect_code 0 "$code" "missing exhausted-ladder fallback is a nonfatal route result"
+assert_equals 'missing' "$(jq -r '.status' <<<"$out")" "absent fallback is explicit"
+assert_equals 'null' "$(jq -c '.profile' <<<"$out")" "absent fallback cannot invent a profile"
+cp "$BASE_RULES" "$RULES"
+pass "fallback resolver returns only a declared fallback and reports absence"
 
 # --- ambiguous: fixed confidence floor -----------------------------------------
 reset_log
 write_response "$RESPONSE" rule_4 0.41
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
 expect_code 0 "$code" "ambiguous exits 0"
-assert_contains "$out" '  status: ambiguous' "below the floor is ambiguous"
-assert_contains "$out" '  reason: confidence 0.41 below floor 0.6' "ambiguous names the floor"
-assert_contains "$out" 'candidate: claude:sonnet  provider=claude  scope=all_models  remaining=79%  spendPriority=-0.4627  runway=projected_exhaustion  -> eligible' "ambiguous preserves matched candidate evidence"
-assert_contains "$out" 'candidate: kimi:kimi-code/k3  provider=kimi  -> eligible, unranked: provider kimi unmeasured (unknown): disclosed uncertainty' "ambiguous preserves eligible unranked candidate evidence"
-assert_not_contains "$out" '  profile:' "ambiguous emits no profile line"
-pass "ambiguous: confidence below the fixed floor hands the decision back"
+assert_contains "$out" '  status: default' "below the floor selects the deterministic default"
+assert_contains "$out" '  note: confidence 0.41 below floor 0.6; deterministic default selected' "low confidence names the fallback"
+assert_contains "$out" "  profile: --harness 'claude' --model 'opus'" "low confidence returns the default profile"
+pass "low confidence selects and reports the deterministic default"
 
 # --- escalate: captain approval ------------------------------------------------
 reset_log
@@ -412,7 +467,7 @@ pass "escalate: a rule declared approval: captain never yields a profile"
 reset_log
 write_response "$RESPONSE" rule_1 0.97
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
-assert_contains "$out" '  status: clear' "rule floor fall-through still resolves"
+assert_contains "$out" '  status: default' "rule floor fall-through selects the default"
 assert_contains "$out" '  note: rule rule_1 floor model:fable below 20%: fall through to default' "rule floor fall-through is explained"
 assert_contains "$out" "  profile: --harness 'claude' --model 'opus'" "fall-through resolves by declared order among the default profiles"
 assert_not_contains "$out" 'candidate: claude:fable' "the floored rule's own profile is not a candidate"
@@ -534,7 +589,7 @@ reset_log
 write_response "$RESPONSE" default 0.88
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
 assert_contains "$out" '  rule: default (No listed rule applies to this task.)' "default names the fixed neutral none option"
-assert_contains "$out" '  note: no rule matched' "default is explained"
+assert_contains "$out" '  note: no judgment rule matched; deterministic default selected' "default is explained"
 assert_contains "$out" "  profile: --harness 'claude' --model 'opus'" "default resolves by declared order"
 pass "default: no rule matched resolves among the default profiles"
 
@@ -557,7 +612,7 @@ TIE="$TMP_ROOT/tie.json"
 write_quota "$TIE" 0.5 0.5
 write_response "$RESPONSE" default 0.88
 TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$TIE" run code out err "$BRIEF"
-assert_contains "$out" '  status: clear' "equal quota still resolves"
+assert_contains "$out" '  status: default' "equal quota default route resolves"
 assert_contains "$out" "  profile: --harness 'claude' --model 'opus'" "equal quota resolves by declared order, not by rank"
 assert_contains "$out" 'declared rung order decides (first eligible profile)' "the result says why it chose by order"
 pass "equal quota: declared order decides instead of escalating on a tie"
@@ -632,7 +687,7 @@ cat > "$RESPONSE" <<'JSON'
 JSON
 cp "$PAID_FIRST_RULES" "$RULES"
 TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$PAID_BETTER" run code out err "$BRIEF"
-assert_contains "$out" '  status: clear' "a free-first default still resolves"
+assert_contains "$out" '  status: default' "a free-first default still resolves"
 assert_contains "$out" "  profile: --harness 'opencode' --model 'opencode/muse-spark-1.3-contributor-free'" "the free rung wins despite better paid quota"
 assert_not_contains "$out" "  profile: --harness 'opencode' --model 'opencode-go/muse-spark-1.3-contributor'" "the paid rung is never named ahead of free"
 cp "$BASE_RULES" "$RULES"
@@ -653,73 +708,76 @@ assert_contains "$out" '  status: error' "quota-axi failure is an error outcome"
 assert_contains "$out" '  reason: quota-axi --json failed' "quota-axi failure is named"
 pass "quota evidence comes from one quota-axi --json read, and its failure is an error outcome"
 
-# --- API and response failures are error outcomes, exit 0 ----------------------
+# --- Jev failures select the deterministic default, exit 0 ----------------------
 reset_log
 run_without_curl code out err "$BRIEF"
 expect_code 0 "$code" "missing curl exits 0"
-assert_contains "$out" '  status: error' "missing curl is a structured error outcome"
-assert_contains "$out" '  reason: curl not installed' "missing curl is named in the TOON block"
-assert_contains "$err" 'dispatch-resolve: error (curl not installed)' "missing curl is also reported on stderr"
+assert_contains "$out" '  status: default' "missing curl selects the deterministic default"
+assert_contains "$out" "  profile: --harness 'claude' --model 'opus'" "missing curl still returns a launchable profile"
+assert_contains "$err" 'Jev is unavailable because curl is not installed; deterministic default selected' "missing curl is named on stderr"
 reset_log
 TYPESAFE_API_KEY=$KEY FAKE_CURL_HTTP=429 run code out err "$BRIEF"
 expect_code 0 "$code" "http 429 exits 0"
-assert_contains "$out" '  status: error' "http 429 is an error outcome"
-assert_contains "$out" '  reason: http 429 after' "http status is reported"
-assert_contains "$err" 'dispatch-resolve: error (http 429' "error also goes to stderr"
+assert_contains "$out" '  status: default' "http 429 selects the deterministic default"
+assert_contains "$out" "  profile: --harness 'claude' --model 'opus'" "http 429 still returns a launchable profile"
+assert_contains "$err" 'Jev is unavailable after typesafe http 429; deterministic default selected' "http status is reported on stderr"
 reset_log
 TYPESAFE_API_KEY=$KEY FAKE_CURL_FAIL=1 run code out err "$BRIEF"
 expect_code 0 "$code" "curl failure exits 0"
-assert_contains "$out" '  reason: http 000 after' "transport failure reads as http 000"
+assert_contains "$out" '  status: default' "transport failure selects the deterministic default"
+assert_contains "$err" 'Jev is unavailable after typesafe http 000; deterministic default selected' "transport failure reads as http 000"
 reset_log
 printf '%s\n' '{"model":"jev","answers":{}}' > "$RESPONSE"
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
-assert_contains "$out" '  reason: response is not a rule Choice answer' "a malformed answer is an error outcome"
+assert_contains "$out" '  status: default' "a malformed answer selects the deterministic default"
+assert_contains "$err" 'Jev returned an invalid answer; deterministic default selected' "a malformed answer is reported"
 reset_log
 write_response "$RESPONSE" rule_4 0.9
 jq '.usage = "bad"' "$RESPONSE" > "$TMP_ROOT/malformed-usage.json"
 mv "$TMP_ROOT/malformed-usage.json" "$RESPONSE"
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
-assert_contains "$out" '  status: error' "malformed usage is an error outcome"
-assert_contains "$out" '  reason: response is not a rule Choice answer' "malformed usage cannot break text rendering silently"
+assert_contains "$out" '  status: default' "malformed usage selects the deterministic default"
+assert_contains "$err" 'Jev returned an invalid answer; deterministic default selected' "malformed usage is reported"
 reset_log
 write_response "$RESPONSE" rule_4 0.9
 jq 'del(.answers.rule.probabilities.default)' "$RESPONSE" > "$TMP_ROOT/malformed-probabilities.json"
 mv "$TMP_ROOT/malformed-probabilities.json" "$RESPONSE"
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
-assert_contains "$out" '  status: error' "missing probability choice is an error outcome"
-assert_contains "$out" '  reason: response is not a rule Choice answer' "probabilities must name every offered choice"
+assert_contains "$out" '  status: default' "missing probability choice selects the deterministic default"
+assert_contains "$err" 'Jev returned an invalid answer; deterministic default selected' "probabilities must name every offered choice"
 reset_log
 write_response "$RESPONSE" rule_4 0.9
 jq '.answers.rule.probabilities.rule_4 = "high"' "$RESPONSE" > "$TMP_ROOT/malformed-probabilities.json"
 mv "$TMP_ROOT/malformed-probabilities.json" "$RESPONSE"
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
-assert_contains "$out" '  status: error' "nonnumeric probability is an error outcome"
-assert_contains "$out" '  reason: response is not a rule Choice answer' "probabilities must be numeric and bounded"
+assert_contains "$out" '  status: default' "nonnumeric probability selects the deterministic default"
+assert_contains "$err" 'Jev returned an invalid answer; deterministic default selected' "probabilities must be numeric and bounded"
 reset_log
 write_response "$RESPONSE" rule_4 0.9
 jq '.answers.rule.probabilities[] = 0' "$RESPONSE" > "$TMP_ROOT/malformed-probabilities.json"
 mv "$TMP_ROOT/malformed-probabilities.json" "$RESPONSE"
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
-assert_contains "$out" '  status: error' "a zero-mass probability distribution is an error outcome"
-assert_contains "$out" '  reason: response is not a rule Choice answer' "probabilities must sum to approximately one"
+assert_contains "$out" '  status: default' "a zero-mass distribution selects the deterministic default"
+assert_contains "$err" 'Jev returned an invalid answer; deterministic default selected' "probabilities must sum to approximately one"
 reset_log
 write_response "$RESPONSE" rule_4 2
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
-assert_contains "$out" '  status: error' "out-of-range confidence is an error outcome"
-assert_contains "$out" '  reason: response is not a rule Choice answer' "out-of-range confidence is a malformed answer"
+assert_contains "$out" '  status: default' "out-of-range confidence selects the deterministic default"
+assert_contains "$err" 'Jev returned an invalid answer; deterministic default selected' "out-of-range confidence is malformed"
 reset_log
 write_response "$RESPONSE" rule_9 0.9
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
-assert_contains "$out" '  status: error' "an unknown rule id is an error outcome"
-assert_contains "$out" '  reason: rule rule_9 is not in the rules file' "unknown rule id is named"
+assert_contains "$out" '  status: default' "an unknown rule id selects the deterministic default"
+assert_contains "$err" 'Jev returned an invalid answer; deterministic default selected' "unknown rule id is reported"
 write_response "$RESPONSE" rule_0 0.9
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
-assert_contains "$out" '  status: error' "rule zero is an error outcome"
-assert_contains "$out" '  reason: rule rule_0 is not in the rules file' "rule zero cannot alias the final rule"
+assert_contains "$out" '  status: default' "rule zero selects the deterministic default"
+assert_contains "$err" 'Jev returned an invalid answer; deterministic default selected' "rule zero cannot alias the final rule"
 reset_log
 TYPESAFE_API_KEY=$KEY FAKE_CURL_HTTP=500 run code out err "$BRIEF"
-assert_contains "$out" '  status: error' "http 500 is a TOON error outcome"
-pass "API, transport, and response failures are error outcomes with exit 0"
+assert_contains "$out" '  status: default' "http 500 selects the deterministic default"
+assert_contains "$err" 'Jev is unavailable after typesafe http 500; deterministic default selected' "http 500 is reported"
+pass "API, transport, and response failures select the deterministic default"
 
 # --- configuration errors exit 2 and select nothing ----------------------------------
 reset_log
@@ -761,9 +819,10 @@ assert_absent "$LOG/argv" "configuration errors never reach the network"
 printf '%s\n' '{"rules":[],"default":{"harness":"codex","model":"gpt-6-luna","effort":"max","provider":"codex"}}' > "$RULES"
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
 assert_not_contains "$err" 'malformed rules file' "catalogued Codex max profile is valid"
-assert_contains "$out" '  reason: no rules to match' "valid Codex max profile reaches normal no-rule handling"
+assert_contains "$out" '  status: default' "valid Codex max profile reaches normal no-rule handling"
+assert_contains "$out" '  profile: --harness' "valid Codex max profile still selects a route"
 cp "$BASE_RULES" "$RULES"
-for removed in --json --rules --quota; do
+for removed in --rules --quota; do
   TYPESAFE_API_KEY=$KEY run code out err "$BRIEF" "$removed"
   expect_code 2 "$code" "removed option is rejected: $removed"
   assert_contains "$err" "unknown flag $removed" "removed option has no public path: $removed"
@@ -865,35 +924,35 @@ assert_equals "Authorization: Bearer $TSKEY" "$(cat "$LOG/header-1")" "first att
 assert_equals "Authorization: Bearer $GWKEY" "$(cat "$LOG/header")" "fallback authenticates as the gateway key"
 pass "typesafe auth failure falls back to the gateway once"
 
-# --- both rungs unavailable: clean error, exit 0 --------------------------------
+# --- both rungs unavailable: deterministic default, exit 0 -----------------------
 reset_log
 write_response "$RESPONSE" rule_4 0.9
 TYPESAFE_API_KEY=$TSKEY AI_GATEWAY_API_KEY=$GWKEY FAKE_CURL_HTTP=429 FAKE_CURL_HTTP2=500 run code out err "$BRIEF" --project pager
 expect_code 0 "$code" "both rungs down exits 0"
-assert_contains "$out" '  status: error' "both rungs down is an error outcome"
+assert_contains "$out" '  status: default' "both rungs down selects the deterministic default"
 assert_contains "$out" 'typesafe http 429' "both rungs down names the typesafe refusal"
 assert_contains "$out" 'gateway http 500' "both rungs down names the fallback refusal"
-assert_not_contains "$out" '  profile:' "both rungs down emits no profile"
-assert_contains "$err" 'dispatch-resolve: error (typesafe http 429' "both rungs down is also reported on stderr"
+assert_contains "$out" '  profile:' "both rungs down still emits the default profile"
+assert_contains "$err" 'deterministic default selected' "both rungs down is reported on stderr"
 assert_equals '2' "$(curl_calls)" "both rungs down tries each rung once"
-pass "both rungs unavailable is a clean error outcome"
+pass "both rungs unavailable selects the deterministic default"
 
 # --- gateway-only exhaustion has nowhere to fall back to --------------------------
 reset_log
 write_response "$RESPONSE" rule_4 0.9
 AI_GATEWAY_API_KEY=$GWKEY FAKE_CURL_HTTP=429 run code out err "$BRIEF" --project pager
 expect_code 0 "$code" "gateway-only 429 exits 0"
-assert_contains "$out" '  status: error' "gateway-only 429 is an error outcome"
-assert_contains "$out" '  reason: http 429 after' "gateway-only 429 names its refusal"
+assert_contains "$out" '  status: default' "gateway-only 429 selects the deterministic default"
+assert_contains "$err" 'deterministic default selected' "gateway-only 429 names its refusal"
 assert_equals '1' "$(curl_calls)" "gateway-only 429 makes one call and stays there"
-pass "gateway-only exhaustion is an error without a fallback rung"
+pass "gateway-only Jev exhaustion selects and reports the deterministic default"
 
 # --- typesafe 500 is not a descent trigger ------------------------------------------
 reset_log
 write_response "$RESPONSE" rule_4 0.9
 TYPESAFE_API_KEY=$TSKEY AI_GATEWAY_API_KEY=$GWKEY FAKE_CURL_HTTP=500 run code out err "$BRIEF" --project pager
 expect_code 0 "$code" "typesafe 500 exits 0"
-assert_contains "$out" '  status: error' "typesafe 500 is an error outcome"
+assert_contains "$out" '  status: default' "typesafe 500 selects the deterministic default"
 assert_not_contains "$(cat "$LOG/argv")" "$GW_URL" "typesafe 500 does not spend the gateway key"
 assert_equals '1' "$(curl_calls)" "typesafe 500 makes one call"
 pass "only exhaustion and auth failures descend the ladder"

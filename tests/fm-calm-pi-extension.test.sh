@@ -1002,6 +1002,18 @@ for (const [name, args, result] of cases) {
   rows.push({ name, baseline, actual });
 }
 
+function createCalmTestHtmlRenderer() {
+  const getRegisteredTool = (name) => tools.find((tool) => tool.name === name);
+  return createToolHtmlRenderer({
+    // Pi 1.0.1 renamed this dependency to getToolRenderers. Keep both keys so
+    // the fixture works with the previous ToolDefinition-based API too.
+    getToolDefinition: getRegisteredTool,
+    getToolRenderers: getRegisteredTool,
+    theme,
+    cwd: process.cwd(),
+  });
+}
+
 const watchPi = {
   ...pi,
   appendEntry() {},
@@ -1295,11 +1307,7 @@ for (const { name, actual } of rows) {
 async function assertStockHtmlRendering(command, submitData) {
   editorText = command;
   terminalInputHandler(submitData);
-  const htmlRenderer = createToolHtmlRenderer({
-    getToolDefinition: (name) => tools.find((tool) => tool.name === name),
-    theme,
-    cwd: process.cwd(),
-  });
+  const htmlRenderer = createCalmTestHtmlRenderer();
   const exportCases = [
     ...cases.filter(([toolName]) => toolName === "grep" || toolName === "find"),
     ["fm_watch_arm_pi", watchArgs, watchResult],
@@ -1326,11 +1334,7 @@ await assertStockHtmlRendering("/export calm.html", "\r");
 getKeybindings().setUserBindings({ "tui.input.submit": "alt+s" });
 editorText = "/export remapped.html";
 terminalInputHandler("\r");
-const unmatchedRenderer = createToolHtmlRenderer({
-  getToolDefinition: (name) => tools.find((tool) => tool.name === name),
-  theme,
-  cwd: process.cwd(),
-});
+const unmatchedRenderer = createCalmTestHtmlRenderer();
 if (unmatchedRenderer.renderCall("unmatched-submit", "grep", { pattern: "alpha", path: "." })) {
   throw new Error("ordinary non-submit input activated HTML export rendering");
 }

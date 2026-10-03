@@ -1163,7 +1163,7 @@ EOF
 }
 
 crew_dispatch_validate() {
-  local file err verified_harnesses typed_key typed_active=false legacy_notice
+  local file err verified_harnesses typed_active=true legacy_notice missing_provider location harness
   file="$CONFIG/crew-dispatch.json"
   [ -f "$file" ] || return 0
   if ! command -v jq >/dev/null 2>&1; then
@@ -1174,16 +1174,10 @@ crew_dispatch_validate() {
     echo "CREW_DISPATCH: invalid config/crew-dispatch.json - malformed JSON"
     return 0
   fi
-  typed_key=$TYPESAFE_API_KEY_PRIVATE
-  [ -n "$typed_key" ] || typed_key=$AI_GATEWAY_API_KEY_PRIVATE
-  [ -n "$typed_key" ] || typed_key=$(fmx_env_get TYPESAFE_API_KEY "$FM_HOME/.env")
-  [ -n "$typed_key" ] || typed_key=$(fmx_env_get AI_GATEWAY_API_KEY "$FM_HOME/.env")
-  [ -z "$typed_key" ] || typed_active=true
-  if $typed_active; then
-    verified_harnesses=$(fm_control_harnesses | jq -Rsc 'split("\n") | map(select(length > 0))')
-  else
-    verified_harnesses='["claude","codex","opencode","pi","pi-signed","grok","kimi","cursor","agy","muse","rovo","omp"]'
-  fi
+  # fm-spawn always consumes the resolver's deterministic route, even when Jev
+  # has no key, so resolver fields and its full verified adapter set are active
+  # for every crew-dispatch file.
+  verified_harnesses=$(fm_control_harnesses | jq -Rsc 'split("\n") | map(select(length > 0))')
   err=$(jq -r --argjson typed "$typed_active" --argjson verified_harnesses "$verified_harnesses" --arg provider_re "$FM_QUOTA_PROVIDER_ID_RE" '
     def verified($h): $verified_harnesses | index($h);
     def provider_id($p): ($p | type) == "string" and ($p | test($provider_re));
@@ -1208,7 +1202,8 @@ crew_dispatch_validate() {
       end;
     def configured_profiles:
       ([(.rules // [])[]? | profiles(.use?)[]?]
-        + (if has("default") then [profiles(.default)[]?] else [] end));
+        + (if has("default") then [profiles(.default)[]?] else [] end)
+        + [profiles(.exhausted_ladder_fallback.use? // null)[]?]);
     def malformed_optional_fields($items):
       ($items | any(has("model") and (((.model | type) != "string") or (.model | length) == 0)))
       or ($items | any(has("effort") and (((.effort | type) != "string") or (.effort | length) == 0)))
@@ -1238,6 +1233,10 @@ crew_dispatch_validate() {
     elif has("rules") and (.rules | type) != "array" then "rules must be an array"
     elif [(.rules // [])[]? | select(type != "object")] | length > 0 then "each rule must be an object"
     elif [(.rules // [])[]? | select((.when? | type) != "string" or (.when | length) == 0)] | length > 0 then "each rule needs non-empty when"
+    elif [(.rules // [])[]? | select(has("projects") and has("match"))] | length > 0 then "each rule must declare projects or match: \"judgment\", not both"
+    elif [(.rules // [])[]? | select(has("match") and .match != "judgment")] | length > 0 then "rule match must be \"judgment\" when present"
+    elif [(.rules // [])[]? | select(has("projects") and ((.projects | type) != "array" or (.projects | length) == 0 or any(.projects[]; if type != "string" then true else length == 0 or contains("\\n") or contains("\\r") end)))] | length > 0 then "rule projects must be a non-empty array of single-line project names"
+    elif ([.rules[]?.projects[]?] | length) != ([.rules[]?.projects[]?] | unique | length) then "a project name may appear in only one dispatch rule"
     elif [(.rules // [])[]? | select((.use? | type) != "object" and (.use? | type) != "array")] | length > 0 then "each rule needs use"
     elif [(.rules // [])[]? | select((.use? | type) == "array" and (.use | length) == 0)] | length > 0 then "each rule needs at least one use profile"
     elif [(.rules // [])[]? | profiles(.use?)[]? | select(type != "object")] | length > 0 then "each use profile must be an object"
@@ -1261,6 +1260,18 @@ crew_dispatch_validate() {
       else "default profile model and effort must be non-empty strings when present"
       end
     elif $typed and has("default") and malformed_profile_floors([profiles(.default)[]?]) then "default profile floor needs scope and min_percent 0..100"
+    elif has("exhausted_ladder_fallback") and .exhausted_ladder_fallback != null and (.exhausted_ladder_fallback | type) != "object" then "exhausted_ladder_fallback must be an object or null"
+    elif (.exhausted_ladder_fallback // null) != null and (.exhausted_ladder_fallback.include_agy_ladder != null and (.exhausted_ladder_fallback.include_agy_ladder | type) != "boolean") then "exhausted_ladder_fallback.include_agy_ladder must be boolean"
+    elif (.exhausted_ladder_fallback // null) != null and (.exhausted_ladder_fallback.agy_effort != null and ((.exhausted_ladder_fallback.agy_effort | type) != "string" or (effort_ok("agy"; "fallback"; .exhausted_ladder_fallback.agy_effort) | not))) then "exhausted_ladder_fallback.agy_effort must be low, medium, or high"
+    elif (.exhausted_ladder_fallback // null) != null and (.exhausted_ladder_fallback.use != null and ((.exhausted_ladder_fallback.use | type) != "object" and (.exhausted_ladder_fallback.use | type) != "array")) then "exhausted_ladder_fallback.use must be a profile object or non-empty profile array"
+    elif (.exhausted_ladder_fallback // null) != null and (.exhausted_ladder_fallback.use != null and (profiles(.exhausted_ladder_fallback.use) | length) == 0) then "exhausted_ladder_fallback.use must not be empty"
+    elif (.exhausted_ladder_fallback // null) != null and (.exhausted_ladder_fallback.include_agy_ladder != true and (profiles(.exhausted_ladder_fallback.use // null) | length) == 0) then "exhausted_ladder_fallback must include the agy ladder or at least one use profile"
+    elif (.exhausted_ladder_fallback // null) != null and any(profiles(.exhausted_ladder_fallback.use // null)[]; type != "object" or ((.harness | type) != "string" or (.harness | length) == 0)) then "each exhausted_ladder_fallback.use profile needs harness"
+    elif (.exhausted_ladder_fallback // null) != null and malformed_optional_fields(profiles(.exhausted_ladder_fallback.use // null)[]) then
+      if $typed then "fallback profile model and effort must be non-empty strings, and provider must match ^[a-z0-9]+(-[a-z0-9]+)*\\z when present"
+      else "fallback profile model and effort must be non-empty strings when present"
+      end
+    elif $typed and (.exhausted_ladder_fallback // null) != null and malformed_profile_floors(profiles(.exhausted_ladder_fallback.use // null)[]) then "fallback profile floor needs scope and min_percent 0..100"
     else
       (configured_profiles
         | map(.harness)
@@ -1275,6 +1286,31 @@ crew_dispatch_validate() {
   ' "$file" 2>/dev/null || true)
   if [ -n "$err" ]; then
     echo "CREW_DISPATCH: invalid config/crew-dispatch.json - $err"
+    return 0
+  fi
+  missing_provider=$(jq -r '
+    def profiles($value): if ($value | type) == "array" then $value elif ($value | type) == "object" then [$value] else [] end;
+    ([((.rules // [])[] | profiles(.use)[] | select(has("provider") | not) | {where:"rule", harness:.harness}),
+      (profiles(.default // null)[] | select(has("provider") | not) | {where:"default", harness:.harness}),
+      (profiles(.exhausted_ladder_fallback.use // null)[] | select(has("provider") | not) | {where:"exhausted_ladder_fallback", harness:.harness})][]
+      | "\(.where)\t\(.harness)")
+  ' "$file" | while IFS=$'\t' read -r location harness; do
+    [ -n "$harness" ] || continue
+    if ! fm_control_harness_supported "$harness"; then
+      printf 'unverified\t%s\n' "$harness"
+      break
+    elif ! fm_quota_single_provider_for_harness "$harness" >/dev/null; then
+      printf '%s\t%s\n' "$location" "$harness"
+      break
+    fi
+  done)
+  if [ -n "$missing_provider" ]; then
+    IFS=$'\t' read -r location harness <<< "$missing_provider"
+    if [ "$location" = unverified ]; then
+      echo "CREW_DISPATCH: invalid config/crew-dispatch.json - unverified harness: $harness"
+    else
+      echo "CREW_DISPATCH: invalid config/crew-dispatch.json - $location profiles whose harness lacks one authoritative provider family require provider: $harness"
+    fi
     return 0
   fi
   # The checks above validate dispatch PROFILES. This one validates the agy
