@@ -6388,14 +6388,15 @@ def _source_frame_size(item):
         return None
 
 
-def _held_transform(item, timeline=None, resolve_project=None):
+def _held_transform(item, timeline=None, resolve_project=None,
+                    transform_context=None):
     """Read one whole transform in the item timeline's own units."""
     if resolve_project is not None:
         from library.tools.reel_read import (
             ReelReadError, read_transform_timeline_units)
         try:
             return read_transform_timeline_units(
-                item, timeline, resolve_project)
+                item, timeline, resolve_project, context=transform_context)
         except ReelReadError as exc:
             raise ReelBuildError(
                 f"cannot establish the Pan/Tilt units for "
@@ -6437,7 +6438,8 @@ def assert_punch_took(name: str, item, source_file: str, properties: dict,
                       source_size, frame_width: int, frame_height: int,
                       screen_window,
                       draw_gain: float = FALLBACK_DRAW_GAIN,
-                      timeline=None, resolve_project=None) -> None:
+                      timeline=None, resolve_project=None,
+                      transform_context=None) -> None:
     """Raise unless the transform Resolve HOLDS covers the screen window.
 
     PR 862's discipline, applied to the punch-in: `SetProperty` returns
@@ -6459,7 +6461,9 @@ def assert_punch_took(name: str, item, source_file: str, properties: dict,
     from library.tools import reel_look as _look
     from library.tools.reel_framing import delivered_picture
 
-    transform = _held_transform(item, timeline, resolve_project)
+    transform = _held_transform(
+        item, timeline, resolve_project,
+        transform_context=transform_context)
     held = {key: (None if transform is None else
                   _held_number(transform.get(key)))
             for key in properties}
@@ -6656,6 +6660,7 @@ def aim_picture_row(name: str, look: dict, screen_window,
     if size_of is None:
         size_of = _source_frame_size
     aimed = 0
+    transform_context = None
     for index, item in enumerate(row_items):
         if index >= len(row_places):
             break
@@ -6701,6 +6706,16 @@ def aim_picture_row(name: str, look: dict, screen_window,
                   f"speaker is. The shot plays uncropped.",
                   file=sys.stderr)
             continue
+        if resolve_project is not None and transform_context is None:
+            from library.tools.reel_read import (
+                ReelReadError, TransformReadContext)
+            try:
+                transform_context = TransformReadContext(
+                    timeline, resolve_project)
+            except ReelReadError as exc:
+                raise ReelBuildError(
+                    f"cannot establish the Pan/Tilt units for "
+                    f"{item.GetName()!r}: {exc}") from exc
         for key, value in properties.items():
             # Judged by what it RETURNS (AGENTS.md 5) - and then READ
             # BACK (`assert_punch_took` below), because the return is a
@@ -6715,7 +6730,8 @@ def aim_picture_row(name: str, look: dict, screen_window,
                           source_size, frame_width, frame_height,
                           screen_window, draw_gain=draw_gain,
                           timeline=timeline,
-                          resolve_project=resolve_project)
+                          resolve_project=resolve_project,
+                          transform_context=transform_context)
         aimed += 1
         print(f"  {name}: punch-in {properties['ZoomX']:.4f} "
               f"(declared {look['punch_in']}, screen window needs "
@@ -6728,6 +6744,14 @@ def aim_picture_row(name: str, look: dict, screen_window,
               f"{os.path.basename(source_file)} -> Pan "
               f"{properties['Pan']}, Tilt {properties['Tilt']}",
               file=sys.stderr)
+    if transform_context is not None:
+        from library.tools.reel_read import ReelReadError
+        try:
+            transform_context.verify()
+        except ReelReadError as exc:
+            raise ReelBuildError(
+                f"cannot establish the Pan/Tilt units for {name}: {exc}") \
+                from exc
     return aimed
 
 

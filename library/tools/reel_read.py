@@ -219,67 +219,135 @@ def restore_transform_timeline_units(transform: Mapping,
     return restored
 
 
-def read_transform_timeline_units(item, timeline, resolve_project) -> Optional[dict]:
+class TransformReadContext:
+    """Reuse stable timeline dimensions while reading a batch of transforms.
+
+    A row can contain dozens of punch-ins. Timeline settings do not change
+    for each item, so fetch them once for the row, retain the per-item
+    current-timeline identity check, and verify both resolutions again at
+    the end. A changed cursor still refuses immediately; a resolution
+    change refuses the batch before it can be accepted.
+    """
+
+    def __init__(self, timeline, resolve_project):
+        self.timeline = timeline
+        self.resolve_project = resolve_project
+        current = self._current_timeline("read")
+        if current is None:
+            raise ReelReadError(
+                "Resolve has no current timeline; Pan/Tilt units cannot be "
+                "established")
+        self.current_identity = _timeline_identity(current)
+        self.timeline_identity = _timeline_identity(timeline)
+        self.current_size = _timeline_size(current)
+        # Read the target's own size even when it looks like the current
+        # timeline: identity falls back to the NAME, and two timelines can
+        # share one (AGENTS.md 5).
+        self.timeline_size = _timeline_size(timeline)
+        self.current_name = _call(current, "GetName", "?")
+        self.timeline_name = _call(timeline, "GetName", "?")
+        self._require_sizes(self.current_size, self.timeline_size)
+
+    def _current_timeline(self, operation):
+        try:
+            return self.resolve_project.GetCurrentTimeline()
+        except Exception as exc:
+            raise ReelReadError(
+                f"the current timeline could not be {operation} ({exc}); "
+                "Pan/Tilt units cannot be established") from exc
+
+    def _require_sizes(self, current_size, timeline_size):
+        if not all(current_size) or not all(timeline_size):
+            raise ReelReadError(
+                f"current timeline {self.current_name!r} has size "
+                f"{current_size!r} and target timeline "
+                f"{self.timeline_name!r} has size {timeline_size!r}; "
+                "Pan/Tilt units cannot be established")
+
+    def read(self, item) -> Optional[dict]:
+        """Read one item, refusing if Resolve's cursor moved around it."""
+        current_before = self._current_timeline("read")
+        if (current_before is None
+                or _timeline_identity(current_before) != self.current_identity):
+            current_name = _call(current_before, "GetName", "?")
+            current_size = (_timeline_size(current_before)
+                            if current_before is not None else None)
+            raise ReelReadError(
+                f"the current timeline changed before reading "
+                f"{self.timeline_name!r}: expected {self.current_name!r} "
+                f"{self.current_size!r}, got {current_name!r} "
+                f"{current_size!r}; refusing a mixed-unit transform")
+
+        try:
+            transform = item.GetProperty()
+        except Exception:
+            return None
+        if not isinstance(transform, dict):
+            return None
+
+        current_after = self._current_timeline("re-read")
+        if (current_after is None
+                or _timeline_identity(current_after) != self.current_identity):
+            current_name = _call(current_after, "GetName", "?")
+            current_size = (_timeline_size(current_after)
+                            if current_after is not None else None)
+            raise ReelReadError(
+                f"the current timeline changed while reading "
+                f"{self.timeline_name!r}: expected {self.current_name!r} "
+                f"{self.current_size!r}, got {current_name!r} "
+                f"{current_size!r}; refusing a mixed-unit transform")
+
+        return restore_transform_timeline_units(
+            transform, self.current_size, self.timeline_size)
+
+    def verify(self) -> None:
+        """Confirm batch-wide cursor and resolution assumptions still hold."""
+        current = self._current_timeline("re-read")
+        if current is None:
+            raise ReelReadError(
+                "Resolve has no current timeline after transform reads; "
+                "Pan/Tilt units cannot be established")
+        current_size = _timeline_size(current)
+        current_identity = _timeline_identity(current)
+        timeline_size = _timeline_size(self.timeline)
+        if (current_identity != self.current_identity
+                or current_size != self.current_size
+                or _timeline_identity(self.timeline) != self.timeline_identity
+                or timeline_size != self.timeline_size):
+            raise ReelReadError(
+                f"timeline context changed during transform reads: "
+                f"current {self.current_name!r} {self.current_size!r} -> "
+                f"{_call(current, 'GetName', '?')!r} {current_size!r}; "
+                f"target {self.timeline_name!r} {self.timeline_size!r} -> "
+                f"{_call(self.timeline, 'GetName', '?')!r} "
+                f"{timeline_size!r}; refusing mixed-unit transforms")
+
+
+def read_transform_timeline_units(item, timeline, resolve_project,
+                                  context=None) -> Optional[dict]:
     """Read one transform in the units of the timeline that owns the item.
 
     Resolve scales Pan/Tilt from the current timeline's dimensions even
-    when ``item`` belongs to another timeline. Capture the current
-    timeline around the whole-dictionary read, refuse a cursor change,
-    then pass the values through :func:`restore_transform_timeline_units`.
-    Zoom and the other properties are unchanged by that shared conversion.
+    when ``item`` belongs to another timeline. A standalone read owns a
+    one-item context and verifies it immediately; row callers may reuse a
+    :class:`TransformReadContext` and verify once after the batch.
 
     ``None`` preserves the build guard's established behavior when the
     item itself does not return a property dictionary. Missing timeline
     context is different: without it Pan/Tilt cannot be judged, so that
     raises ``ReelReadError``.
     """
-    try:
-        current_before = resolve_project.GetCurrentTimeline()
-    except Exception as exc:
+    owned_context = context is None
+    context = context or TransformReadContext(timeline, resolve_project)
+    if (context.timeline is not timeline
+            or context.resolve_project is not resolve_project):
         raise ReelReadError(
-            f"the current timeline could not be read ({exc}); "
-            "Pan/Tilt units cannot be established") from exc
-    if current_before is None:
-        raise ReelReadError(
-            "Resolve has no current timeline; Pan/Tilt units cannot be "
-            "established")
-    current_size = _timeline_size(current_before)
-    timeline_size = _timeline_size(timeline)
-    if not all(current_size) or not all(timeline_size):
-        raise ReelReadError(
-            f"current timeline {_call(current_before, 'GetName', '?')!r} "
-            f"has size {current_size!r} and target timeline "
-            f"{_call(timeline, 'GetName', '?')!r} has size "
-            f"{timeline_size!r}; Pan/Tilt units cannot be established")
-
-    try:
-        transform = item.GetProperty()
-    except Exception:
-        return None
-    if not isinstance(transform, dict):
-        return None
-
-    try:
-        current_after = resolve_project.GetCurrentTimeline()
-    except Exception as exc:
-        raise ReelReadError(
-            f"the current timeline could not be re-read ({exc}); "
-            "Pan/Tilt units cannot be established") from exc
-    if (current_after is None
-            or _timeline_identity(current_before)
-            != _timeline_identity(current_after)
-            or _timeline_size(current_after) != current_size):
-        before_name = _call(current_before, "GetName", "?")
-        after_name = _call(current_after, "GetName", "?")
-        raise ReelReadError(
-            f"the current timeline changed while reading "
-            f"{_call(timeline, 'GetName', '?')!r}: "
-            f"{before_name!r} {current_size!r} -> "
-            f"{after_name!r} {_timeline_size(current_after)!r}; "
-            "refusing a mixed-unit transform")
-
-    return restore_transform_timeline_units(
-        transform, current_size, timeline_size)
+            "transform read context belongs to a different timeline or "
+            "Resolve project")
+    transform = context.read(item)
+    if owned_context:
+        context.verify()
+    return transform
 
 
 def assert_timeline_current(timeline, resolve_project) -> None:

@@ -16,6 +16,7 @@ from library.tools import reel_fusion_comps as comps
 from tests.resolve_double import (
     FakeProject,
     FakeTimeline,
+    FakeTimelineItem,
     TimelineItemSpec,
 )
 
@@ -282,6 +283,86 @@ def test_noncurrent_transform_read_restores_each_axis_to_target_units():
     assert restored["Tilt"] == pytest.approx(target["Tilt"])
     assert restored["ZoomX"] == target["ZoomX"]
     assert restored["ZoomY"] == target["ZoomY"]
+
+
+def test_transform_read_context_reuses_resolution_measurements_for_a_row():
+    """Punch-in readback measures settings per row, not per clip."""
+    current = FakeTimeline("Master")
+    target = FakeTimeline(
+        "Reel 09", settings={"timelineResolutionWidth": "1080",
+                             "timelineResolutionHeight": "1920"})
+    project = FakeProject(timelines=[current, target], current=current)
+    project.SetSettings({"timelineResolutionWidth": "1920",
+                         "timelineResolutionHeight": "1080"})
+
+    setting_reads = {"current": 0, "target": 0}
+    for timeline, key in ((current, "current"), (target, "target")):
+        original = timeline.GetSetting
+
+        def counted(setting, *, _original=original, _key=key):
+            setting_reads[_key] += 1
+            return _original(setting)
+
+        timeline.GetSetting = counted
+
+    context = reel_read.TransformReadContext(target, project)
+    expected = {"Pan": -5.776, "Tilt": -696.041,
+                "ZoomX": 2.1386, "ZoomY": 2.1386}
+    observed = {
+        "Pan": expected["Pan"] * (1920 / 1080),
+        "Tilt": expected["Tilt"] * (1080 / 1920),
+        "ZoomX": expected["ZoomX"],
+        "ZoomY": expected["ZoomY"],
+    }
+    actual = []
+    for index in range(5):
+        item = FakeTimelineItem(f"shot-{index}", target)
+        item.properties = observed
+        actual.append(reel_read.read_transform_timeline_units(
+            item, target, project, context=context))
+    context.verify()
+
+    assert all(row == pytest.approx(expected) for row in actual)
+    # Initialization + final verification: each timeline's two axes are
+    # read twice total, independent of the five-item row length.
+    assert setting_reads == {"current": 4, "target": 4}
+
+
+def test_transform_read_context_refuses_resolution_drift_after_the_row():
+    current = FakeTimeline("Master")
+    target = FakeTimeline(
+        "Reel 09", settings={"timelineResolutionWidth": "1080",
+                             "timelineResolutionHeight": "1920"})
+    project = FakeProject(timelines=[current, target], current=current)
+    context = reel_read.TransformReadContext(target, project)
+
+    project.SetSettings({"timelineResolutionWidth": "1920",
+                         "timelineResolutionHeight": "1080"})
+
+    with pytest.raises(reel_read.ReelReadError,
+                       match="timeline context changed"):
+        context.verify()
+
+
+def test_transform_read_context_refuses_a_cursor_move_during_item_read():
+    current = FakeTimeline("Master")
+    target = FakeTimeline(
+        "Reel 09", settings={"timelineResolutionWidth": "1080",
+                             "timelineResolutionHeight": "1920"})
+    project = FakeProject(timelines=[current, target], current=current)
+    context = reel_read.TransformReadContext(target, project)
+    item = FakeTimelineItem("shot", target)
+    original_read = item.GetProperty
+
+    def move_cursor_then_read():
+        project.SetCurrentTimeline(target)
+        return original_read()
+
+    item.GetProperty = move_cursor_then_read
+
+    with pytest.raises(reel_read.ReelReadError,
+                       match="current timeline changed while reading"):
+        context.read(item)
 
 
 def test_the_guard_takes_its_rows_from_the_one_reader(tmp_path):
