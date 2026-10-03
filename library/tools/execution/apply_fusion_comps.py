@@ -294,9 +294,9 @@ def stray_comps(timeline, before: dict, targeted) -> list:
     """Every comp this pass did not plan that appeared on an item it never
     targeted, SAID; returns the notes. Nothing is deleted.
 
-    `OpenPage("fusion")` below makes Resolve create an empty
-    "Composition 1" on whatever clip is topmost under the playhead, if it
-    has none. Exported, it holds `MediaIn1`, `MediaOut1` and the two
+    `OpenPage("fusion")` makes Resolve create an empty
+    "Composition 1" on its selected clip, even when the playhead reads
+    past the timeline end. Exported, it holds `MediaIn1`, `MediaOut1` and the two
     `AudioDisplay` tools (`Left`, `Right`) - nothing that draws
     (`NON_DRAWING_TOOLS`). Measured on Reel 09 (2026-10-02): an appended
     build left one on the tail card, where the last append parked the
@@ -305,6 +305,10 @@ def stray_comps(timeline, before: dict, targeted) -> list:
     (`DeleteFusionCompByName` False, from the Fusion page and the Edit
     page alike, two live runs), so the pass reports it rather than
     leaving it unsaid; one that draws is reported as such.
+
+    The pass does not open Fusion while importing comps, so a note here
+    is a REGRESSION - an unplanned comp appeared during the pass - and
+    the report stays as the tripwire that says so.
     """
     notes = []
     for index in range(1, int(timeline.GetTrackCount("video") or 0) + 1):
@@ -324,8 +328,8 @@ def stray_comps(timeline, before: dict, targeted) -> list:
                     f"{where}: gained comp {names[position - 1]!r} this pass "
                     f"did not plan - "
                     + (f"it draws ({drawn})" if drawn else
-                       "Resolve's own empty comp, made under the playhead "
-                       "when the Fusion page opened; it draws nothing"))
+                       "Resolve's own empty comp, made on its selected "
+                       "item when the Fusion page opened; it draws nothing"))
     return notes
 
 
@@ -598,9 +602,12 @@ def apply_fusion_comps(manifest, project_folder,
             comp_tracks, _items_by_track, transition_by_clip,
             per_clip_effects))
 
-        # Every item's comps BEFORE the page switches below, so the
-        # empty comps Resolve makes under the playhead can be told from
-        # the ones this pass imports (`stray_comps`).
+        # Every item's comps BEFORE importing so the existing stray-comp
+        # report can identify anything this pass did not plan. Do not open
+        # Fusion here: Resolve can attach an empty "Composition 1" to the
+        # selected timeline item even after SetCurrentTimecode reads past
+        # the timeline end. ImportFusionComp operates on the explicit item
+        # handle, so changing pages is unnecessary and unsafe.
         _census = comp_census(timeline)
         _targeted = {entry[1][entry[2]].GetUniqueId() for entry in work}
         for (track_index, track_items, item_idx, orig_ci, clip_spec,
@@ -614,7 +621,7 @@ def apply_fusion_comps(manifest, project_folder,
             effects = dict(per_clip_effects.get(label, {}))
 
             preset_name = effects.get('_preset', None)
-            
+
             # Exact match only. The substring fallback that used to sit
             # here could turn one effect name into an unrelated built-in -
             # the handoff tells the planner to use the exact snake_case
@@ -928,7 +935,10 @@ def apply_fusion_comps(manifest, project_folder,
             if comp_names and len(comp_names) > 0:
                 comp = tl_clip.GetFusionCompByName(comp_names[0])
                 if comp:
-                    resolve.OpenPage("fusion")
+                    # Do not open the Fusion page during this pass:
+                    # Resolve can add an empty "Composition 1" to its
+                    # selected item on page open, even when the
+                    # playhead reads past the timeline end.
                     comp.Lock()
                     try:
                         dummy = comp.AddTool("Merge")
@@ -971,9 +981,9 @@ def apply_fusion_comps(manifest, project_folder,
                     f"[{where}] {label}: ImportFusionComp imported "
                     f"nothing - planned comp reaches no pixels")
 
-
         for note in stray_comps(timeline, _census, _targeted):
             print(f"  · {note}", file=sys.stderr)
+
 
     # ── Generator overlays ──
     # Generator presets (.setting files) produce content from nothing and

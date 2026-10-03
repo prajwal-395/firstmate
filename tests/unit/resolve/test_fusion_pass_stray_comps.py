@@ -1,14 +1,14 @@
 """A comp the Fusion pass did not plan is SAID, on the item it landed on.
 
-`OpenPage("fusion")` makes Resolve put an empty "Composition 1" on the
-clip topmost under the playhead. Reel 09, 2026-10-02: the appended build
-carried one on its tail card, the OTIO-placed build on its post header -
-on whichever item the playhead was parked over - and Resolve refuses to
-delete it. The defect is that comp going unsaid, or being called empty
-when it draws.
+Resolve can create an empty "Composition 1" when the Fusion page opens.
+The pass must avoid that page switch, and its stray report remains the
+tripwire for any unplanned comp that still appears.
 """
 
-from library.tools.execution.apply_fusion_comps import comp_census, stray_comps
+from library.tools.execution.apply_fusion_comps import (
+    comp_census,
+    stray_comps,
+)
 from tests.resolve_double import FakeComp, FakeTimeline, FakeTimelineItem, FakeTool
 
 
@@ -36,12 +36,12 @@ def _place(timeline, track, start):
 def test_an_unplanned_comp_is_said_and_one_that_draws_is_not_called_empty():
     timeline = FakeTimeline()
     picture = _place(timeline, 1, 0)       # the pass's own target
-    card = _place(timeline, 6, 1619)       # under the parked playhead
+    card = _place(timeline, 6, 1619)       # where Resolve left its comp
     header = _place(timeline, 7, 0)        # an unplanned comp that draws
     before = comp_census(timeline)
 
-    picture._fusion_comps.append(_drawing())   # what the pass imported
-    card._fusion_comps.append(_empty())        # what OpenPage made
+    picture._fusion_comps.append(_drawing())
+    card._fusion_comps.append(_empty())
     header._fusion_comps.append(_drawing())
 
     notes = stray_comps(timeline, before, {picture.GetUniqueId()})

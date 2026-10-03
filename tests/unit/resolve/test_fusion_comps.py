@@ -252,16 +252,19 @@ def _manifest():
     }
 
 
-def _mock_resolve(monkeypatch, imported):
+def _mock_resolve(monkeypatch, imported, state=None, include_unplanned=False):
     """Resolve, reduced to the one call this asks about: what was imported."""
     import library.tools.execution.apply_fusion_comps as afc
+    state = state if state is not None else {}
 
     class MockTool:
         def __init__(self, reg_id):
             self._reg_id = reg_id
 
-        def GetAttrs(self):
-            return {"TOOLS_RegID": self._reg_id}
+        def GetAttrs(self, key=None):
+            attrs = {"TOOLS_RegID": self._reg_id,
+                     "TOOLS_Name": self._reg_id}
+            return attrs if key is None else attrs.get(key)
 
         def GetInput(self, name, time=None):
             return None
@@ -270,8 +273,9 @@ def _mock_resolve(monkeypatch, imported):
             return True
 
     class MockComp:
-        def __init__(self):
+        def __init__(self, empty=False):
             self.locked = False
+            self.empty = empty
 
         def Lock(self):
             self.locked = True
@@ -284,6 +288,11 @@ def _mock_resolve(monkeypatch, imported):
             return MockTool(name)
 
         def GetToolList(self):
+            if self.empty:
+                return {"MediaIn1": MockTool("MediaIn"),
+                        "MediaOut1": MockTool("MediaOut"),
+                        "Left": MockTool("AudioDisplay"),
+                        "Right": MockTool("AudioDisplay")}
             return {"MediaIn1": MockTool("MediaIn"),
                     "Transform1": MockTool("Transform"),
                     "MediaOut1": MockTool("MediaOut")}
@@ -292,19 +301,41 @@ def _mock_resolve(monkeypatch, imported):
             return None
 
     class MockClip:
-        def GetUniqueId(self): return "clip-1"
+        def __init__(self, uid="clip-1", path="a_roll.mov", start=0,
+                     unplanned=False):
+            self.uid = uid
+            self.path = path
+            self.start = start
+            self.unplanned = unplanned
+            self.empty_page_comps = []
+
+        def GetUniqueId(self): return self.uid
+        def GetName(self): return self.path
+        def GetStart(self): return self.start
         def GetFusionCompCount(self):
+            if self.unplanned:
+                return len(self.empty_page_comps)
             return len(self.GetFusionCompNameList() or [])
-        def GetStart(self): return 0
-        def GetEnd(self): return 72
+        def GetEnd(self): return self.start + 72
         def GetDuration(self): return 72
-        def GetMediaPoolItem(self): return MockPool()
+        def GetMediaPoolItem(self): return MockPool(self.path)
         # Production ImportFusionComp creates the comp (finding 15).
         def GetFusionCompNameList(self):
+            if self.unplanned:
+                return ["Composition 1"] * len(self.empty_page_comps)
             return ["Comp1"] if imported else []
-        def DeleteFusionCompByName(self, name): pass
+        def GetFusionCompByIndex(self, index):
+            if self.unplanned and 1 <= index <= len(self.empty_page_comps):
+                return self.empty_page_comps[index - 1]
+            return MockComp() if 1 <= index <= len(imported) else None
+        def DeleteFusionCompByName(self, name):
+            if self.unplanned:
+                return False  # Resolve refuses its page-created empty comp.
+            return None
 
         def GetFusionCompByName(self, name):
+            if self.unplanned:
+                return self.empty_page_comps[0] if self.empty_page_comps else None
             return MockComp() if imported else None
 
         def ImportFusionComp(self, path):
@@ -315,9 +346,10 @@ def _mock_resolve(monkeypatch, imported):
             return True
 
     class MockPool:
+        def __init__(self, path): self.path = path
         def GetClipProperty(self, prop):
             if prop == "File Path":
-                return "a_roll.mov"
+                return self.path
             if prop == "Frames":
                 return "600"
             # A real MediaPoolItem states its stored frame; the
@@ -328,23 +360,71 @@ def _mock_resolve(monkeypatch, imported):
             return None
 
     class MockTimeline:
+        current_timecode = "00:00:00:00"
+
+        def __init__(self):
+            self.items = [MockClip()]
+            if include_unplanned:
+                self.items.append(MockClip(
+                    uid="clip-2", path="unplanned.mov", start=72,
+                    unplanned=True))
+
         def GetTrackCount(self, kind): return 1
         def GetSetting(self, name): return "30"
         def GetItemListInTrack(self, track_type, index):
-            return [MockClip()] if index == 1 else []
+            return self.items if index == 1 else []
+        def GetCurrentTimecode(self): return self.current_timecode
 
     class MockProject:
-        def GetCurrentTimeline(self): return MockTimeline()
+        def __init__(self): self.timeline = MockTimeline()
+        def GetCurrentTimeline(self): return self.timeline
 
     class MockPM:
-        def GetCurrentProject(self): return MockProject()
+        def __init__(self): self.project = MockProject()
+        def GetCurrentProject(self): return self.project
 
     class MockResolve:
-        def GetProjectManager(self): return MockPM()
-        def OpenPage(self, page): return True
+        def __init__(self):
+            self.page = "edit"
+            self.opened_pages = []
+            self.pm = MockPM()
+        def GetProjectManager(self): return self.pm
+        def GetCurrentPage(self): return self.page
+        def OpenPage(self, page):
+            self.opened_pages.append(page)
+            self.page = page
+            # Resolve can create its empty comp on the selected item even
+            # after the playhead was moved past all timeline clips.
+            if page == "fusion":
+                selected = self.pm.project.timeline.items[-1]
+                if selected.GetFusionCompCount() == 0:
+                    selected.empty_page_comps.append(MockComp(empty=True))
+            return True
 
-    monkeypatch.setattr(afc.dvr, "scriptapp", lambda x: MockResolve())
+    resolve = MockResolve()
+    state.update(resolve=resolve, timeline=resolve.pm.project.timeline,
+                 planned=resolve.pm.project.timeline.items[0],
+                 unplanned=(resolve.pm.project.timeline.items[-1]
+                            if include_unplanned else None))
+    monkeypatch.setattr(afc.dvr, "scriptapp", lambda x: resolve)
     return afc
+
+
+def test_comp_pass_does_not_open_fusion_over_an_unplanned_selected_clip(
+        monkeypatch, tmp_path):
+    imported = []
+    state = {}
+    afc = _mock_resolve(monkeypatch, imported, state=state,
+                        include_unplanned=True)
+
+    assert afc.apply_fusion_comps(_manifest(), str(tmp_path),
+                                  step_id="build_reels") is True
+
+    assert len(imported) == 1
+    assert state["planned"].GetFusionCompCount() == 1
+    assert state["unplanned"].GetFusionCompCount() == 0
+    assert "fusion" not in state["resolve"].opened_pages
+    assert state["timeline"].GetCurrentTimecode() == "00:00:00:00"
 
 
 def _legacy_key(label, effects, clip_dur, source_res, played_frames):
