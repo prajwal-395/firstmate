@@ -143,10 +143,12 @@ def build_reels(data: dict) -> dict:
         # is asked for. Absent is the default, and the default is to
         # skip what needs no pass.
         reuse_unchanged=not bool((data or {}).get("rebuild_all")),
-        # How each reel is PLACED - "append" (the default) or one OTIO
-        # import (`library/tools/reel_otio_placement.py`). FORWARDED,
-        # not interpreted: the builder refuses a value it does not know.
-        placement_mode=str((data or {}).get("placement_mode") or "append"))
+        # How each reel is PLACED - "auto" (the default: OTIO where the
+        # FREE check says the reel is representable, else append),
+        # "append" or "otio" (`library/tools/reel_otio_placement.py`).
+        # FORWARDED, not interpreted: the builder refuses a value it does
+        # not know.
+        placement_mode=str((data or {}).get("placement_mode") or "auto"))
 
     return {"reel_build": record}
 

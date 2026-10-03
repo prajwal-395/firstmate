@@ -148,7 +148,7 @@ def test_the_recorded_build_lands_the_default_builds_timeline(media,
     expected_resolution = [("useCustomSettings", "1"),
                            ("timelineResolutionWidth", "1080"),
                            ("timelineResolutionHeight", "1920")]
-    assert len(writes) == 2, "both placement paths size their own timeline"
+    assert len(writes) == 1, "only append sizes its empty timeline"
     assert all(calls == expected_resolution for calls in writes.values())
     assert pool.append_calls == [], "a recorded build appends nothing"
     assert default_pool.append_calls, "the default build appends"
@@ -164,7 +164,7 @@ def test_the_recorded_build_lands_the_default_builds_timeline(media,
     assert all(value >= 0 for key, value in profile.items()
                if key.endswith("_s"))
     assert profile["timeline_import_s"] >= 0
-    assert profile["resolution_setup_s"] >= 0
+    assert profile["imported_resolution_verify_s"] >= 0
     assert profile["placement_restore_readback_s"] >= 0
     assert profile["pool_organization_s"] >= 0
     assert profile["channel_checks_s"] >= 0
@@ -194,11 +194,8 @@ def test_completed_phase_is_written_to_kpi_ledger(monkeypatch):
          "reel": "Reel 09 - scratch", "placement": "otio"})]
 
 
-def test_a_resolution_timeout_refuses_the_otio_import_by_name(media, tmp_path,
-                                                               monkeypatch):
-    from library.tools import resolve_deadline
-
-    project = make_project(width=1080, height=1920, frame_rate=FPS)
+def test_resolution_mismatch_refuses_otio_before_import(media, tmp_path):
+    project = make_project(width=1920, height=1080, frame_rate=FPS)
     pool = project.GetMediaPool()
     pool.next_timeline = FakeTimeline()
     footage = [media["akshita"], media["craig"]]
@@ -212,20 +209,14 @@ def test_a_resolution_timeout_refuses_the_otio_import_by_name(media, tmp_path,
         _clip(media, "audio", 2, "Craig CH1", "Craig", "craig", 10, 20),
     ]
 
-    def timeout(*_args, **_kwargs):
-        raise resolve_deadline.ResolveCallTimeout(
-            "timeline SetSetting timelineResolutionWidth did not return")
-
-    monkeypatch.setattr(resolve_deadline, "apply_timeline_resolution",
-                        timeout)
-
     with pytest.raises(OtioPlacementRefused,
-                       match="Reel 99 - otio-proof: timeline SetSetting"):
+                       match="project timeline resolution is 1920x1080"):
         build_reel_timeline(
             project, _Moment(), clips, [], FPS, 1080, 1920,
             str(tmp_path / "project"), {"segments": []},
             program_channels={"1": 1, "2": 1}, placement_mode="otio")
 
+    assert project.GetTimelineCount() == 0
     assert project.GetCurrentTimeline() is None
 
 

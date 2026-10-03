@@ -8,19 +8,26 @@ and nothing is appended while they run: each append becomes a recorded
 placement, and each per-item transform the placers would set after an
 append becomes a DEFERRED call. Then one `ImportTimelineFromFile` of the
 compiled timeline (`otio_compile`) lands all of it, `import_recorded`
-restores what the import does not carry, and the deferred transforms
-run on the real items. Every pass after placement (retimes, grade,
+verifies the imported size, restores the pool bins and clip attributes,
+and the deferred transforms run on the real items. Every pass after
+placement (retimes, grade,
 punch-in, overrides, ledger, freeze, sweep, links) runs exactly as on
 the default path. Why: the per-item scripting path held Resolve 13.35 s
 for Reel 09 against 1.26 s for one import
 (`docs/OTIO_COMPILATION_MEASURED.md`).
 
-Default OFF. The default path is untouched; this is a second way to
-reach the same timeline, chosen per build.
+Chosen per build. The default is `auto`: `select_placement` reads the
+FREE plan and uses this path only when the reel is fully representable,
+else append, before the reel's placement hold starts. Four reels built
+both ways matched on every item field and every still
+(`docs/OTIO_COMPILATION_MEASURED.md`, "Equivalence across reels").
 
-What the import does not carry, and the restore puts back:
+What the import does not carry:
 
-- the timeline's custom resolution (measured: dropped);
+- the timeline's custom resolution (measured: dropped). The importer
+  inherits the project's resolution, so the free compatibility check
+  falls back to append unless it already matches the reel. The imported
+  dimensions are read back and never changed after items land;
 - the bin each render belongs in - the import files every new pool item
   into the CURRENT folder, so the timeline is imported with its own bin
   current and each render is then moved to `overlay_import_bin`;
@@ -78,6 +85,112 @@ def record_elapsed(profile: dict, name: str, seconds: float, *,
             placement="otio")
     except Exception:  # noqa: BLE001 - timing must never fail a placement
         pass
+
+
+def project_timeline_resolution(project) -> tuple[int, int] | None:
+    """Read the project default used by timeline imports, or None."""
+    try:
+        width = int(project.GetSetting("timelineResolutionWidth"))
+        height = int(project.GetSetting("timelineResolutionHeight"))
+    except Exception:  # noqa: BLE001 - unknown resolution selects append
+        return None
+    return (width, height) if width > 0 and height > 0 else None
+
+
+def project_timeline_resolution_for_timeline(
+        timeline) -> tuple[int, int] | None:
+    """Read an imported timeline's size without changing it."""
+    try:
+        width = int(timeline.GetSetting("timelineResolutionWidth"))
+        height = int(timeline.GetSetting("timelineResolutionHeight"))
+    except Exception:  # noqa: BLE001 - unreadable import must refuse
+        return None
+    return (width, height) if width > 0 and height > 0 else None
+
+
+def verify_imported_resolution(name: str, timeline, width: int,
+                               height: int) -> None:
+    """Require the imported frame size without setting timeline values."""
+    expected = (int(width), int(height))
+    actual = project_timeline_resolution_for_timeline(timeline)
+    if actual != expected:
+        raise OtioPlacementRefused(
+            f"{name}: OTIO imported resolution {actual!r}, "
+            f"expected {expected!r}. The resolution cannot be repaired "
+            "after the import; rebuild with append placement or set the "
+            "Resolve project default before importing timeline items.")
+
+
+def otio_incompatibilities(
+        prepared, overlay_placements=None, *, target_resolution=None,
+        import_resolution=None) -> tuple[str, ...]:
+    """Describe the known shapes this OTIO importer cannot represent.
+
+    This reads the FREE placement plan plus the project's resolution
+    captured before placement. Keep it beside the recorder's refusal
+    seams so `auto` can choose append before the build touches its target
+    timeline.
+    """
+    reasons = []
+    if overlay_placements:
+        reasons.append(
+            "transition elements may carry audio and have no measured OTIO "
+            "spelling")
+
+    from library.tools import do_not_draw as _dnd
+    for segment in prepared.subtitle_segments or ():
+        suppressed, _reason = _dnd.should_suppress(
+            prepared.suppressions, prepared.name, segment or {})
+        if suppressed:
+            continue
+        frames = segment.get("frames") or {}
+        if segment.get("container") == "frames" and frames.get("dir"):
+            label = (segment.get("segment_id")
+                     or segment.get("overlay_path") or frames["dir"])
+            reasons.append(
+                f"image-sequence caption {label!r} has no measured OTIO "
+                "spelling")
+
+    for angle, channel in sorted(prepared.resolved_channels.items()):
+        try:
+            channel_number = int(channel)
+        except (TypeError, ValueError):
+            channel_number = None
+        if channel_number != 1:
+            reasons.append(
+                f"program channel {channel!r} for angle {angle!r} has no "
+                "measured OTIO spelling (only channel 1 is measured)")
+
+    if target_resolution is not None:
+        if import_resolution is None:
+            reasons.append(
+                "the Resolve project timeline resolution could not be "
+                "read before import")
+        elif tuple(import_resolution) != tuple(target_resolution):
+            reasons.append(
+                f"the Resolve project timeline resolution is "
+                f"{import_resolution[0]}x{import_resolution[1]}, but this "
+                f"reel needs {target_resolution[0]}x{target_resolution[1]}; "
+                "OTIO cannot set resolution after importing items")
+    return tuple(reasons)
+
+
+def select_placement(requested: str, prepared,
+                     overlay_placements=None, *, target_resolution=None,
+                     import_resolution=None
+                     ) -> tuple[str, tuple[str, ...]]:
+    """Resolve `auto` from the free plan and captured project settings."""
+    if requested not in ("append", "otio", "auto"):
+        raise ValueError(f"unknown reel placement mode {requested!r}")
+    if requested == "append":
+        return requested, ()
+    reasons = otio_incompatibilities(
+        prepared, overlay_placements,
+        target_resolution=target_resolution,
+        import_resolution=import_resolution)
+    if requested == "otio":
+        return requested, reasons
+    return ("append" if reasons else "otio"), reasons
 
 
 class _PathItem:
@@ -286,22 +399,13 @@ def import_recorded(project, recorder: PlacementRecorder, name: str,
         raise OtioPlacementRefused(
             f"{name}: ImportTimelineFromFile returned None for the "
             f"compiled timeline (every referenced file was on disk)")
-    # The custom resolution the import drops - sized BEFORE the timeline
-    # becomes current, under the same deadline as the default path. The
-    # 2026-10-02 Fusion render-lock race hangs on these same three
-    # writes when they land on a just-made-current timeline
-    # (https://github.com/prajwal-395/video_editing_pilot/pull/1594);
-    # a hang here refuses the build by name after the deadline
-    # (`library/tools/resolve_deadline.py`).
-    from library.tools import resolve_deadline as _deadline
+    # The import uses the project's resolution. The free compatibility
+    # check requires it to match and this read confirms what landed. Never
+    # write resolution after the import has placed items: that project
+    # settings sync has deadlocked Resolve.
     started = time.perf_counter()
-    try:
-        _deadline.apply_timeline_resolution(timeline, width, height)
-    except (_deadline.ResolveCallTimeout,
-            _deadline.ResolutionNotApplied) as exc:
-        raise OtioPlacementRefused(f"{name}: {exc}") from exc
-    record_duration(recorder.profile, "resolution_setup_s", started)
-
+    verify_imported_resolution(name, timeline, width, height)
+    record_duration(recorder.profile, "imported_resolution_verify_s", started)
     started = time.perf_counter()
     assert_current_timeline(project, timeline)
     record_duration(recorder.profile, "timeline_cursor_check_s", started)

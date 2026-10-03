@@ -8237,7 +8237,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                       single_reel_scope: bool = False,
                       prepared: Optional[ReelPlacementPlan] = None,
                       defer_overlay_sweep: bool = False,
-                      placement_mode: str = "append"):
+                      placement_mode: str = "append",
+                      placement_compatibility_checked: bool = False):
     """Place one reel.  `timeline_name` is what Resolve will CALL it.
 
     Defaults to `moment.timeline_name`, which is the plan's own name and
@@ -8330,7 +8331,12 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     runs the same passes on it (`library/tools/reel_otio_placement.py`;
     measured 1.26 s of Resolve hold against 13.35 s on Reel 09,
     `docs/OTIO_COMPILATION_MEASURED.md`). A reel carrying something the
-    import cannot carry refuses by name rather than building differently.
+    import cannot carry refuses by name. "auto" makes the same decision
+    from the FREE placement plan, using append for unsupported shapes
+    before this reel's placement hold starts. `placement_compatibility_checked`
+    is set by the project builder after it resolves this choice outside
+    the exclusive placement hold; direct callers leave it false and get
+    the same check before the first placement call.
 
     Returns the build record: the track plan as placed, what stream
     enforcement removed, what the link pass joined, which empty rows
@@ -8374,19 +8380,41 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     build_record = prepared.build_record
     cards = prepared.cards
 
-    pool = project.GetMediaPool()
-    if placement_mode not in ("append", "otio"):
+    if placement_mode not in ("append", "otio", "auto"):
         raise ReelBuildError(f"{name}: placement_mode {placement_mode!r} "
-                             f"is neither 'append' nor 'otio'")
+                             f"is neither 'append', 'otio' nor 'auto'")
+    from library.tools import reel_otio_placement as _otio
+    requested_placement = placement_mode
+    if placement_compatibility_checked:
+        if placement_mode == "auto":
+            raise ReelBuildError(
+                f"{name}: a checked placement mode must be 'append' or "
+                f"'otio', not 'auto'")
+        incompatibilities = ()
+    else:
+        import_resolution = (
+            _otio.project_timeline_resolution(project)
+            if placement_mode in ("auto", "otio") else None)
+        placement_mode, incompatibilities = _otio.select_placement(
+            placement_mode, prepared, overlay_placements,
+            target_resolution=(int(width), int(height)),
+            import_resolution=import_resolution)
+    if requested_placement == "otio" and incompatibilities:
+        raise _otio.OtioPlacementRefused(
+            f"{name}: OTIO cannot place this reel: "
+            f"{'; '.join(incompatibilities)} - build this reel with the "
+            f"default placement")
+    if requested_placement == "auto":
+        if incompatibilities:
+            print(f"  {name}: --placement auto selected append before "
+                  f"placement: {'; '.join(incompatibilities)}",
+                  file=sys.stderr)
+        else:
+            print(f"  {name}: --placement auto selected otio "
+                  f"(free compatibility check passed)", file=sys.stderr)
     recording = placement_mode == "otio"
+    pool = project.GetMediaPool()
     if recording:
-        from library.tools import reel_otio_placement as _otio
-        if overlay_placements:
-            raise _otio.OtioPlacementRefused(
-                f"{name}: transition elements may carry audio, which the "
-                f"default path places on purpose and the OTIO placement "
-                f"has no measured spelling for - build this reel with the "
-                f"default placement")
         real_pool, pool = pool, _otio.PlacementRecorder(pool)
     profile = pool.profile if recording else None
     if profile is not None:
@@ -11480,7 +11508,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                              retain=None,
                              accept_editor_changes=None,
                              reuse_unchanged: bool = True,
-                             placement_mode: str = "append") -> dict:
+                             placement_mode: str = "auto") -> dict:
     """Build every approved reel, and RETURN the record of what was placed.
 
     NOTHING APPROVED IS DELETED BEFORE THE GATE PASSES. This used to
@@ -11716,6 +11744,11 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         resolve = _connect_resolve()
         project = resolve_project_exactly(
             resolve.GetProjectManager(), resolve_name)
+        project_default_resolution = None
+        if placement_mode in ("auto", "otio"):
+            from library.tools.reel_otio_placement import (
+                project_timeline_resolution as _read_default_resolution)
+            project_default_resolution = _read_default_resolution(project)
     from library.tools import reel_replace_guard as _inventory_guard
     from library.tools import plan_provenance as _inventory_provenance
     build_inventory_before = _inventory_guard.timeline_inventory(project)
@@ -13302,6 +13335,28 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             prepared = prepare_reel_timeline(
                 **_reel_inputs,
                 live_program_channels=_live_program_channels)
+            from library.tools import reel_otio_placement as _otio
+            reel_placement_mode, placement_incompatibilities = (
+                _otio.select_placement(
+                    placement_mode, prepared,
+                    _reel_inputs["overlay_placements"],
+                    target_resolution=(reel_width, reel_height),
+                    import_resolution=project_default_resolution))
+            if placement_mode == "otio" and placement_incompatibilities:
+                raise _otio.OtioPlacementRefused(
+                    f"{name}: OTIO cannot place this reel: "
+                    f"{'; '.join(placement_incompatibilities)} - build "
+                    f"this reel with the default placement")
+            if placement_mode == "auto":
+                if placement_incompatibilities:
+                    print(f"  {name}: --placement auto selected append "
+                          f"before placement: "
+                          f"{'; '.join(placement_incompatibilities)}",
+                          flush=True)
+                else:
+                    print(f"  {name}: --placement auto selected otio "
+                          f"(free compatibility check passed)",
+                          flush=True)
             # The Fusion manifest is planned here, FREE: it reads the
             # prepared plan, never the placed timeline.
             manifest = None
@@ -13394,7 +13449,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                     defer_overlay_sweep=True,
                     # How the timeline is placed, never what goes on it:
                     # "otio" is one import (`reel_otio_placement`).
-                    placement_mode=placement_mode,
+                    placement_mode=reel_placement_mode,
+                    placement_compatibility_checked=True,
                 )
                 _header_record = build_result.get("post_header")
                 if isinstance(_header_record, dict):

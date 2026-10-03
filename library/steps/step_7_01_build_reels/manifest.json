@@ -71,7 +71,7 @@
         "name": "placement_mode",
         "type": "string",
         "required": false,
-        "description": "How each reel timeline is PLACED, never what goes on it: `append` (the default) places item by item; `otio` records every placement, compiles it offline and lands the whole timeline with ONE ImportTimelineFromFile (`library/tools/reel_otio_placement.py`; 1.26 s of Resolve hold against 13.35 s on Reel 09, `docs/OTIO_COMPILATION_MEASURED.md`). A reel carrying something the import cannot carry refuses by name. The `--placement` flag of `manage_project.py build-reels`."
+        "description": "How each reel timeline is PLACED, never what goes on it: `append` places item by item; `otio` records every placement, compiles it offline and lands it with ONE ImportTimelineFromFile (`library/tools/reel_otio_placement.py`; 1.26 s of Resolve hold against 13.35 s on Reel 09, `docs/OTIO_COMPILATION_MEASURED.md`), refusing unsupported shapes by name; `auto` (the default) runs a FREE compatibility check and falls back to append for unsupported shapes or a mismatched project resolution before touching the reel timeline. The `--placement` flag of `manage_project.py build-reels`."
       }
     ],
     "outputs": [

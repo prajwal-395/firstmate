@@ -110,7 +110,58 @@ clip colour, markers, Fusion comps, links, channel mapping and node count.
   program channel (`Channels` -> `Source Channel ID`), so there is nothing
   to sweep.
 - **B lost the timeline's custom resolution** (`useCustomSettings`, width,
-  height). The restore pass set all three back.
+  height). The original measured restore pass set all three back. The
+  production importer now verifies the imported dimensions and never writes
+  timeline resolution after items land; `auto` falls back to append when the
+  project default does not match the reel. Append sizes its empty timeline
+  before importing items.
+
+## Equivalence across reels (the real builder, 2026-10-03)
+
+The A/B above compared a builder-shaped call pattern against one import.
+This compares the REAL builder (`reel.build`, every pass) placing the
+same reel both ways, on four reels chosen for different shapes.
+
+**Setup.** A disposable project at 1080x1920, 23.976, holding only the
+captain's master (`GEO Podcast - Synced`, imported from Resolve's own
+OTIO export) and a copy of `geo-podcast` pointed at it. Each reel was
+built with `reel.build` alone, so the verifier could not discard the
+staging, then renamed aside and the other placement built. Reel 09,
+06, 25 and 01 ran `--placement auto` first; it selected `otio` on all
+four.
+
+**Field diff.** Per row: name, subtype, enabled. Per item, keyed by
+record start: name, start, end, duration, left offset, source start and
+end, enabled, clip colour, every `GetProperty` key (floats to 1e-4),
+Fusion comp count, markers, file path, linked items, node count (video)
+and `GetSourceAudioChannelMapping` (audio). Plus timeline settings and
+duration. An item at a start the other build lacks is a difference.
+
+| Reel | Rows | Items (append / OTIO) | Field differences | Stills identical |
+|---|---|---|---|---|
+| 09 - your-website-is-only-20-percent | 9 | 61 / 61 | 0 | 9 / 9 |
+| 25 - what-content-ai-actually-rewards | 9 | 44 / 44 | 0 | 9 / 9 |
+| 06 - size-doesnt-matter-consistency-does | 9 | 41 / 41 | 0 | 9 / 9 |
+| 01 - geo-is-comprehension-not-position | 10 | 49 / 49 | 0 | 9 / 9 |
+
+Stills: `ExportCurrentFrameAsStill` at nine points from 3% to 97% of
+each timeline, taken only after `GetCurrentTimecode` read back the
+requested timecode (an unsettled playhead exports the wrong frame and
+reads as a false difference). Every pair: max channel difference 0.
+
+**What was not covered.** None of the four carried an image-sequence
+caption, a transition element or a program channel other than 1, so
+the shapes OTIO refuses stay unmeasured; `auto` places those with
+append. On the captain's project the project default is 3840x2160,
+so `auto` selects append for every reel there until that default
+matches the reel: the importer inherits the project resolution and the
+build never writes resolution after items land.
+
+**Hold, warm (subject probes cached), Reel 09:** OTIO place hold
+14.27 s, of which pool organisation 6.83 s, unattributed 1.55 s,
+deferred transforms 1.32 s, import 0.89 s, punch-in 0.37 s. The same reel's warm append place hold was 32.40 s
+(measured on the punch-in read change, which placed identically). A cold build pays the punch-in subject probe inside
+the hold (Reel 06 cold: punch-in 96.6 s of a 124.6 s OTIO hold).
 
 ## What the format itself drops
 
@@ -148,8 +199,11 @@ C.
 - The grade is already applied after placement (`reel_look.apply_grade`).
 - The build writes no clip colour and no marker during placement.
 
-So only the timeline resolution belongs to the importer, and the B restore
-pass shows it costs three `SetSetting` calls. One finding reaches beyond this path. Re-importing Resolve's own export
+The original B restore pass showed three `SetSetting` calls for timeline
+resolution, but that repair is unsafe after an import has placed items and
+is no longer used. The project default must match for OTIO; otherwise the
+builder uses append, which sets the size while the new timeline is empty.
+One finding reaches beyond this path. Re-importing Resolve's own export
 moved source frames by one where the compiled file moved none. Step
 6.01's `deliver_audio_mix` re-imports exactly such an export, so it is
 exposed to the same drift. That path itself was not measured here.

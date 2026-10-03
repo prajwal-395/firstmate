@@ -102,15 +102,18 @@ def add_arguments(parser) -> None:
              "way. Use this to re-place onto drift-free state, or to "
              "measure what the pass costs.")
     parser.add_argument(
-        "--placement", dest="placement_mode", default="append",
-        choices=("append", "otio"),
-        help="How each reel timeline is placed. `append` (the default) "
-             "places item by item. `otio` lands the whole timeline with "
+        "--placement", dest="placement_mode", default="auto",
+        choices=("append", "otio", "auto"),
+        help="How each reel timeline is placed. `append` places item "
+             "by item. `otio` lands the whole timeline with "
              "ONE OTIO import and restores what the import drops "
              "(library/tools/reel_otio_placement.py): measured 1.26s of "
              "Resolve hold against 13.35s on Reel 09. A reel carrying an "
              "image-sequence caption, a transition element or a program "
-             "channel other than 1 refuses by name.")
+             "channel other than 1 refuses by name. `auto` (the default) runs a FREE "
+             "compatibility check and uses append for those shapes, or "
+             "when the project resolution differs from the reel, before "
+             "touching the reel timeline.")
 
 
 def run(project_folder: str, args) -> int:
@@ -154,7 +157,7 @@ def run(project_folder: str, args) -> int:
                     supersede=args.supersede or None,
                     retain=args.retain or None,
                     rebuild_all=bool(getattr(args, "rebuild_all", False)),
-                    placement_mode=getattr(args, "placement_mode", "append"))
+                    placement_mode=getattr(args, "placement_mode", "auto"))
         except RenRefusal as refused:
             # A step-level refusal with a known next step (the replace
             # guard's `--allow-drop` declaration): no traceback, exit 4,

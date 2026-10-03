@@ -528,8 +528,16 @@ class FakeMediaPool:
                         return None
                     pool_item = self._pooled(media)
                     if pool_item is None:
+                        # Pooled from the file, as `ImportMedia` pools
+                        # it: Resolve reads a new file's own properties
+                        # whichever call brings it in.
                         pool_item = FakeMediaPoolItem(Path(media).name)
                         pool_item.SetClipProperty("File Path", media)
+                        read = (self.media_properties.get(media)
+                                or (self.probe(media) if self.probe
+                                    else {}) or {})
+                        for key, value in read.items():
+                            pool_item.SetClipProperty(key, value)
                         self._current_folder._clips.append(pool_item)
                     references = child.get("media_references") or {}
                     reference = references.get(
