@@ -336,13 +336,17 @@ def test_connecting_does_not_break_reading_utf8_files(resolve_project):
 # ── The green reply ─────────────────────────────────────────────────
 
 
-def test_reply_marker_past_the_end_is_refused_not_placed(scratch_timeline):
+def test_reply_marker_past_the_end_is_refused_not_placed(
+        resolve_project, scratch_timeline):
     """Resolve ACCEPTS past-the-end frames, so the bounds check is ours:
     the write must refuse before anything lands."""
+    _, project, _ = resolve_project
     end = int(scratch_timeline.GetEndFrame())
     with pytest.raises(MarkerWriteError):
         place_reply_marker(scratch_timeline, end + 50, "Green",
-                           "past the end", "must not land")
+                           "past the end", "must not land",
+                           project=project,
+                           idempotency_key="qualification:reply-past-end")
     assert end + 50 - int(scratch_timeline.GetStartFrame()) \
         not in (scratch_timeline.GetMarkers() or {})
 
@@ -355,15 +359,18 @@ def test_reply_marker_past_the_end_is_refused_not_placed(scratch_timeline):
 # written where the question was, in the clip's own SOURCE frames.
 
 
-def test_a_reply_lands_on_the_clip_at_a_source_frame(scratch_timeline):
+def test_a_reply_lands_on_the_clip_at_a_source_frame(
+        resolve_project, scratch_timeline):
     """The answer comes back on the SAME clip at the SAME position, or
     the captain looks where they asked and finds nothing."""
+    _, project, _ = resolve_project
     item = scratch_timeline.GetItemListInTrack("video", 1)[1]
     key = CLIP_B_IN + 20
     record = place_reply_clip_marker(
         item, key, "Green", "reply: the ending holds now",
         "You asked for room after her last word; the closer now ends "
-        "in silence.")
+        "in silence.", project=project,
+        idempotency_key="qualification:clip-reply")
     assert record["source_frame"] == key
     assert record["color"] == "Green"
 
@@ -376,32 +383,44 @@ def test_a_reply_lands_on_the_clip_at_a_source_frame(scratch_timeline):
     assert note.frame == int(item.GetStart()) + (key - int(item.GetLeftOffset()))
 
 
-def test_a_reply_outside_what_the_clip_plays_is_refused(scratch_timeline):
+def test_a_reply_outside_what_the_clip_plays_is_refused(
+        resolve_project, scratch_timeline):
     """Resolve bounds-checks NEITHER end: a key outside the played range
     is accepted, returns True, and sits on footage nobody sees."""
+    _, project, _ = resolve_project
     item = scratch_timeline.GetItemListInTrack("video", 1)[1]
     first = int(item.GetLeftOffset())
     for key in (first - 1, first + int(item.GetDuration())):
         with pytest.raises(MarkerWriteError):
             place_reply_clip_marker(item, key, "Green", "outside",
-                                    "must not land")
+                                    "must not land", project=project,
+                                    idempotency_key=(
+                                        f"qualification:clip-outside:{key}"))
         assert key not in (item.GetMarkers() or {})
 
 
 def test_an_answered_question_comes_off_and_is_judged_by_the_read_back(
-        scratch_timeline):
+        resolve_project, scratch_timeline):
     """`DeleteMarkerAtFrame` returns False for "there was nothing there",
     which is the same outcome as a successful delete - so the verdict is
     the read-back, never the return (AGENTS.md 5)."""
+    _, project, _ = resolve_project
     item = scratch_timeline.GetItemListInTrack("video", 1)[0]
     key = CLIP_A_IN + 9
     assert item.AddMarker(key, "Blue", "feedback", "asked", 1, "") is True
-    assert remove_clip_marker(item, key) is True
+    assert remove_clip_marker(
+        item, key, project=project,
+        idempotency_key="qualification:clip-question-delete") is True
     assert key not in (item.GetMarkers() or {})
     # Nothing there is not a failure, and says so.
-    assert remove_clip_marker(item, key) is False
+    assert remove_clip_marker(
+        item, key, project=project,
+        idempotency_key="qualification:clip-question-delete-again") \
+        is False
     # And the reply may then take the frame the question had.
-    place_reply_clip_marker(item, key, "Green", "reply: done", "answered")
+    place_reply_clip_marker(
+        item, key, "Green", "reply: done", "answered", project=project,
+        idempotency_key="qualification:clip-reply")
     assert (item.GetMarkers() or {})[key]["color"] == "Green"
 
 

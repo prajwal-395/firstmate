@@ -208,10 +208,12 @@ def test_reply_past_the_end_is_refused_by_ren(scratch):
     """Resolve accepts this marker; Ren's bounds check must refuse it."""
     from library.tools.marker_feedback import MarkerWriteError, place_reply_marker
 
-    _, _, timeline = scratch
+    project, _, timeline = scratch
     end = int(timeline.GetEndFrame())
     with pytest.raises(MarkerWriteError):
-        place_reply_marker(timeline, end + 50, "Green", "past the end", "must not land")
+        place_reply_marker(
+            timeline, end + 50, "Green", "past the end", "must not land",
+            project=project, idempotency_key="qualification:reply-past-end")
     assert end + 50 - int(timeline.GetStartFrame()) not in (timeline.GetMarkers() or {})
 
 
@@ -222,12 +224,15 @@ def test_clip_reply_outside_the_played_range_is_refused(scratch):
         place_reply_clip_marker,
     )
 
-    _, _, timeline = scratch
+    project, _, timeline = scratch
     item = timeline.GetItemListInTrack("video", 1)[0]
     first = int(item.GetLeftOffset())
     for key in (first - 1, first + int(item.GetDuration())):
         with pytest.raises(MarkerWriteError):
-            place_reply_clip_marker(item, key, "Green", "outside", "must not land")
+            place_reply_clip_marker(
+                item, key, "Green", "outside", "must not land",
+                project=project,
+                idempotency_key=f"qualification:clip-reply-outside:{key}")
         assert key not in (item.GetMarkers() or {})
 
 
@@ -238,15 +243,23 @@ def test_answered_clip_question_is_removed_by_readback(scratch):
         remove_clip_marker,
     )
 
-    _, _, timeline = scratch
+    project, _, timeline = scratch
     item = timeline.GetItemListInTrack("video", 1)[0]
     key = int(item.GetLeftOffset()) + 9
     assert item.AddMarker(key, "Blue", "feedback", "asked", 1, "") is True
     try:
-        assert remove_clip_marker(item, key) is True
+        assert remove_clip_marker(
+            item, key, project=project,
+            idempotency_key="qualification:clip-question-delete") is True
         assert key not in (item.GetMarkers() or {})
-        assert remove_clip_marker(item, key) is False
-        place_reply_clip_marker(item, key, "Green", "reply: done", "answered")
+        assert remove_clip_marker(
+            item, key, project=project,
+            idempotency_key="qualification:clip-question-delete-again") \
+            is False
+        place_reply_clip_marker(
+            item, key, "Green", "reply: done", "answered",
+            project=project,
+            idempotency_key="qualification:clip-reply")
         assert (item.GetMarkers() or {})[key]["color"] == "Green"
     finally:
         item.DeleteMarkerAtFrame(key)

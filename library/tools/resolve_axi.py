@@ -115,6 +115,7 @@ import json
 import os
 import sys
 import time as _time
+import uuid
 from datetime import datetime, timezone
 
 VERSION = "0.7.0"
@@ -971,23 +972,34 @@ def cmd_markers_restore(args) -> int:
                               f"{' --allow-partial' if skipped_rows else ''}"])])
             emit(parts)
             return 0
+        from library.tools import edit_patch
         restored, refused = 0, []
         for row in missing:
             try:
-                placed = timeline.AddMarker(
-                    int(row["frame_in_timeline_space"]),
-                    row.get("color") or "", row.get("name") or "",
-                    row.get("note") or "",
-                    int(row.get("duration_frames") or 1),
-                    row.get("custom_data_raw") or "")
+                frame = int(row["frame_in_timeline_space"])
+                receipt = edit_patch.apply_live_patch(
+                    project=project, timeline=timeline,
+                    capability="reel.touchup",
+                    operations=[{
+                        "op": "marker.add", "frame": frame,
+                        "color": row.get("color") or "",
+                        "name": row.get("name") or "",
+                        "note": row.get("note") or "",
+                        "duration": int(row.get("duration_frames") or 1),
+                        "custom_data": row.get("custom_data_raw") or "",
+                    }],
+                    conflict_domains=("markers",),
+                    idempotency_key=f"markers.restore:{uuid.uuid4().hex}",
+                    preconditions=[{"kind": "marker_absent",
+                                    "frame": frame}],
+                    postconditions=[{"kind": "duration_unchanged"}])
             except Exception as exc:
                 refused.append((row, str(exc)))
                 continue
-            if placed:
+            if receipt["status"] == "committed":
                 restored += 1
             else:
-                refused.append((row, "occupied frame - one marker per "
-                                     "frame"))
+                refused.append((row, str(receipt)))
     summary = {
         "timeline": timeline.GetName(),
         "restored": restored,
@@ -1016,7 +1028,7 @@ def cmd_markers_reply(args) -> int:
     """Record our answer on a reel as a marker, linked to what it answers.
 
     The write half of the reply workflow `marker_feedback` owns:
-    `place_reply_marker` (AddMarker + read-back verification) carries
+    `place_reply_marker` (EditPatch + read-back verification) carries
     a `reply_custom_data` payload built with `reply_custom_data`, so
     the marker states mechanically that it is OURS and what it
     answers. Nothing here invents that path - this command exposes
@@ -1167,9 +1179,10 @@ def cmd_markers_reply(args) -> int:
             "", effective_answers, answers_text, args.summary or "",
             effective_anchor)
         try:
-            place_reply_marker(timeline, int(args.frame), args.color,
-                               args.name, args.note,
-                               int(args.duration or 1), payload)
+            place_reply_marker(
+                timeline, int(args.frame), args.color, args.name, args.note,
+                int(args.duration or 1), payload, project=project,
+                idempotency_key=f"markers.reply:{uuid.uuid4().hex}")
         except MarkerWriteError as exc:
             return fail(str(exc), f"{TOOL} markers --timeline "
                                   f"\"{timeline.GetName()}\"")
@@ -3056,33 +3069,31 @@ def _replace_item(timeline, pool, orig, source_in: int,
     return new_items[0], ""
 
 
-def _drop_original(timeline, orig, uid: str):
-    """Delete after a verified re-place. Returns an error, or ""."""
+def _drop_original(project, timeline, uid: str):
+    """Delete a verified move/trim source item as a local EditPatch."""
+    from library.tools import edit_patch
+
     try:
-        ok = bool(timeline.DeleteClips([orig], False))
+        receipt = edit_patch.apply_live_patch(
+            project=project, timeline=timeline, capability="reel.touchup",
+            operations=[{"op": "clip.delete", "unique_id": uid}],
+            conflict_domains=("timeline_structure",),
+            idempotency_key=f"resolve-axi.replace-delete:{uuid.uuid4().hex}")
     except Exception as exc:
-        return (f"the replacement landed but the original could not "
-                f"be deleted ({exc}) - remove one by hand.")
-    if _presence(timeline, uid):
-        try:
-            ok = bool(timeline.DeleteClips([orig], False))
-        except Exception as exc:
-            return (f"the replacement landed but the original could "
-                    f"not be deleted ({exc}) - remove one by hand.")
-        if _presence(timeline, uid):
-            return (f"the replacement landed and the original is "
-                    f"still there (delete reports {ok}) - remove one "
-                    f"by hand; the write needs the Edit page.")
+        return (f"the replacement landed but the local-delete EditPatch "
+                f"failed ({exc}) - remove one by hand.")
+    if receipt["status"] != "committed":
+        return (f"the replacement landed but the original could not be "
+                f"removed by EditPatch ({receipt}) - remove one by hand.")
     return ""
 
 
 def cmd_edit_delete(args) -> int:
-    """Delete one item off the reel, verified by absence.
+    """Delete one item off the reel through a generation patch.
 
-    The call answers False while deleting nothing on some pages and
-    flops its first attempt on others, so False is re-read before any
-    retry, and retried at most once. `--ripple` closes the gap and is
-    never defaulted: it cannot be selectively undone.
+    A local `clip.delete` re-reads before its one measured retry.
+    `--ripple` closes the gap and is never defaulted: it has a timeline
+    wide temporal effect, outside the local EditPatch operation.
     """
     try:
         resolve = _connect()
@@ -3127,28 +3138,53 @@ def cmd_edit_delete(args) -> int:
                       f"{track_type}{track_index} --index {args.index}"
                       f"{' --ripple' if args.ripple else ''} --apply"])])
             return 0
-        try:
-            first = bool(timeline.DeleteClips([item], args.ripple))
-        except Exception as exc:
-            return fail(f"delete raised ({exc}) - verify by hand.",
+        if not args.ripple:
+            if not uid:
+                return fail("the item has no unique id, so EditPatch cannot "
+                            "address this local delete.",
+                            f"{TOOL} items --timeline "
+                            f"\"{timeline.GetName()}\"")
+            from library.tools import edit_patch
+            try:
+                receipt = edit_patch.apply_live_patch(
+                    project=project, timeline=timeline,
+                    capability="reel.touchup",
+                    operations=[{"op": "clip.delete", "unique_id": uid}],
+                    conflict_domains=("timeline_structure",),
+                    idempotency_key=(
+                        f"resolve-axi.edit-delete:{uuid.uuid4().hex}"))
+            except Exception as exc:
+                return fail(f"EditPatch refused or failed the delete ({exc}).",
+                            f"{TOOL} items --timeline "
+                            f"\"{timeline.GetName()}\"")
+            if receipt["status"] != "committed":
+                return fail(
+                    f"the local-delete EditPatch did not verify: {receipt}.",
+                    f"{TOOL} items --timeline "
+                    f"\"{timeline.GetName()}\"")
+        else:
+            try:
+                first = bool(timeline.DeleteClips([item], True))
+            except Exception as exc:
+                return fail(f"delete raised ({exc}) - verify by hand.",
+                            f"{TOOL} items --timeline "
+                            f"\"{timeline.GetName()}\"")
+            if _presence(timeline, uid):
+                try:
+                    second = bool(timeline.DeleteClips([item], True))
+                except Exception as exc:
+                    return fail(
+                        f"delete raised on retry ({exc}) and the item is "
+                        f"still there - verify by hand.",
                         f"{TOOL} items --timeline "
                         f"\"{timeline.GetName()}\"")
-        if _presence(timeline, uid):
-            try:
-                second = bool(timeline.DeleteClips([item], args.ripple))
-            except Exception as exc:
-                return fail(
-                    f"delete raised on retry ({exc}) and the item is "
-                    f"still there - verify by hand.",
-                    f"{TOOL} items --timeline "
-                    f"\"{timeline.GetName()}\"")
-            if _presence(timeline, uid):
-                return fail(
-                    f"delete reports {second} and the item is still "
-                    f"there - the write needs the Edit page open, and "
-                    f"nothing was retried past once.",
-                    f"{TOOL} items --timeline "
-                    f"\"{timeline.GetName()}\"")
+                if _presence(timeline, uid):
+                    return fail(
+                        f"delete reports {second} and the item is still "
+                        f"there - the write needs the Edit page open, and "
+                        f"nothing was retried past once.",
+                        f"{TOOL} items --timeline "
+                        f"\"{timeline.GetName()}\"")
         emit([kv_block("deleted", {
                   "timeline": timeline.GetName(),
                   "name": span["name"],
@@ -3229,7 +3265,7 @@ def cmd_edit_move(args) -> int:
         if error:
             return fail(error, f"{TOOL} items --timeline "
                                f"\"{timeline.GetName()}\"")
-        drop_error = _drop_original(timeline, item, uid)
+        drop_error = _drop_original(project, timeline, uid)
         if drop_error:
             return fail(drop_error, f"{TOOL} items --timeline "
                                     f"\"{timeline.GetName()}\"")
@@ -3321,7 +3357,7 @@ def cmd_edit_trim(args) -> int:
         if error:
             return fail(error, f"{TOOL} items --timeline "
                                f"\"{timeline.GetName()}\"")
-        drop_error = _drop_original(timeline, item, uid)
+        drop_error = _drop_original(project, timeline, uid)
         if drop_error:
             return fail(drop_error, f"{TOOL} items --timeline "
                                     f"\"{timeline.GetName()}\"")
@@ -5503,7 +5539,7 @@ def cmd_sense_intellisearch(args) -> int:
 
 def _reframe_state(item) -> dict:
     try:
-        props = item.GetProperties() or {}
+        props = item.GetProperty() or {}
     except Exception:
         props = {}
     return {k: (props or {}).get(k) for k in _REFRAME_KEYS}
@@ -5530,7 +5566,7 @@ def cmd_sense_reframe(args) -> int:
         except AxiError as exc:
             return fail(str(exc), exc.fix)
         try:
-            item, track_type, track_index, _uid = _edit_item(
+            item, track_type, track_index, uid = _edit_item(
                 timeline, args.track, args.index)
         except AxiError as exc:
             return fail(str(exc), exc.fix)
@@ -5556,26 +5592,39 @@ def cmd_sense_reframe(args) -> int:
         except AxiError as exc:
             return fail(str(exc), exc.fix)
         before = _reframe_state(item)
+        if not uid:
+            return fail("the item has no unique id, so EditPatch cannot "
+                        "address Smart Reframe.",
+                        f"{TOOL} items --timeline "
+                        f"\"{timeline.GetName()}\"")
+        from library.tools import edit_patch
         try:
-            reframed = bool(item.SmartReframe())
+            receipt = edit_patch.apply_live_patch(
+                project=project, timeline=timeline,
+                capability="reel.touchup",
+                operations=[{
+                    "op": "clip.smart_reframe", "unique_id": uid,
+                    "keys": list(_REFRAME_KEYS), "before": before,
+                }],
+                conflict_domains=("picture_transform",),
+                idempotency_key=(
+                    f"resolve-axi.sense-reframe:{uuid.uuid4().hex}"),
+                preconditions=[{
+                    "kind": "clip_transform_equals",
+                    "unique_id": uid, "properties": before,
+                }])
         except Exception as exc:
-            return fail(f"SmartReframe raised ({exc}) - verify "
-                        f"by hand.",
+            return fail(f"Smart Reframe EditPatch failed ({exc}).",
                         f"{TOOL} items --timeline "
-                        f"\"{timeline.GetName()}\"")
-        if not reframed:
-            return fail(f"SmartReframe answered False on "
-                        f"{span['name']!r} - nothing was claimed.",
-                        f"{TOOL} items --timeline "
-                        f"\"{timeline.GetName()}\"")
-        after = _reframe_state(item)
-        if after == before:
+                        f"\"{timeline.GetName()}\" --transforms")
+        if receipt["status"] != "committed":
             return fail(
-                f"SmartReframe reports True but Pan/Tilt/ZoomX read "
-                f"back unchanged ({before}) - no verifiable effect; "
-                f"judged on pixels, not here.",
+                f"Smart Reframe did not verify from its EditPatch: "
+                f"{receipt} - no verifiable effect; judged on pixels, "
+                "not here.",
                 f"{TOOL} items --timeline "
                 f"\"{timeline.GetName()}\" --transforms")
+        after = _reframe_state(item)
         emit([kv_block("reframed", {
                     "timeline": timeline.GetName(),
                     "item": span["name"],

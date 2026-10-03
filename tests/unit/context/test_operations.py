@@ -935,7 +935,34 @@ def _staged_pair(tmp_path):
     return approved, staged, media_pool(staged)
 
 
-def test_property_sets_write_with_no_delete_and_no_place(tmp_path):
+def _mock_touchup_patch(monkeypatch):
+    """Run the planned operations against the composed-edit Resolve double."""
+    from library.tools import edit_patch
+
+    def apply_live_patch(*, project, timeline, capability, operations,
+                         **_kwargs):
+        assert project is timeline._project
+        assert capability == "reel.touchup"
+        for operation in operations:
+            matches = [item for row in reel_read.live_items(timeline)
+                       for item in row["items"]
+                       if item.GetUniqueId() == operation["unique_id"]]
+            assert len(matches) == 1
+            item = matches[0]
+            if operation["op"] == "clip.set_property":
+                item.SetProperty(operation["key"], operation["value"])
+                if item.GetProperty(operation["key"]) != operation["value"]:
+                    return {"status": "refused",
+                            "reason": "property read-back differed"}
+            else:
+                raise AssertionError(operation)
+        return {"status": "committed", "generation": 1}
+
+    monkeypatch.setattr(edit_patch, "apply_live_patch", apply_live_patch)
+
+
+def test_property_sets_write_with_no_delete_and_no_place(tmp_path,
+                                                         monkeypatch):
     """The property-set half of the row: `SetProperty` with read-back,
     and the delete/place machinery never runs - the calls that would
     destroy and rebuild the row stay empty."""
@@ -945,8 +972,9 @@ def test_property_sets_write_with_no_delete_and_no_place(tmp_path):
     qualification = tu.qualify(_tracks(staged), {"reel": 1, "edits": [
         {"op": "set_properties", "row": "V4", "item": 0,
          "properties": {"ZoomX": 1.5}}]})
-    applied = tu._apply_in_place(staged, qualification,
-                                 str(tmp_path / "comps"))
+    _mock_touchup_patch(monkeypatch)
+    applied = tu._apply_in_place(staged._project, staged, qualification,
+                                 str(tmp_path / "comps"), "test-journal")
     assert staged.rows["V4"][0].GetProperty("ZoomX") == 1.5
     assert staged.delete_calls == []
     assert _pool.append_calls == []
@@ -954,7 +982,7 @@ def test_property_sets_write_with_no_delete_and_no_place(tmp_path):
     assert applied["entry_motion"] == []
 
 
-def test_a_property_that_will_not_read_back_refuses(tmp_path):
+def test_a_property_that_will_not_read_back_refuses(tmp_path, monkeypatch):
     """The write is judged by re-read, never by `SetProperty`'s
     return: an item whose read-back disagrees refuses mid-flight,
     with the staging left standing and the approved reel untouched."""
@@ -970,9 +998,10 @@ def test_a_property_that_will_not_read_back_refuses(tmp_path):
     qualification = tu.qualify(_tracks(staged), {"reel": 1, "edits": [
         {"op": "set_properties", "row": "V4", "item": 0,
          "properties": {"ZoomX": 1.5}}]})
-    with pytest.raises(tu.TouchupError, match="did not take"):
-        tu._apply_in_place(staged, qualification,
-                           str(tmp_path / "comps"))
+    _mock_touchup_patch(monkeypatch)
+    with pytest.raises(tu.TouchupError, match="did not verify"):
+        tu._apply_in_place(staged._project, staged, qualification,
+                           str(tmp_path / "comps"), "test-journal")
 
 
 def test_entry_motion_imports_a_drawing_comp_with_a_covering_window(
@@ -987,8 +1016,8 @@ def test_entry_motion_imports_a_drawing_comp_with_a_covering_window(
     qualification = tu.qualify(_tracks(staged), {"reel": 1, "edits": [
         {"op": "entry_motion", "row": "V4", "item": 0,
          "fade_in_frames": 6, "fade_out_frames": 6}]})
-    applied = tu._apply_in_place(staged, qualification,
-                                 str(tmp_path / "comps"))
+    applied = tu._apply_in_place(staged._project, staged, qualification,
+                                 str(tmp_path / "comps"), "test-journal")
     assert item.GetFusionCompCount() == 1
     assert staged.delete_calls == []
     assert _pool.append_calls == []

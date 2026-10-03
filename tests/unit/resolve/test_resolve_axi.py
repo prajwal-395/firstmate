@@ -8,9 +8,9 @@ coverage because sibling lanes build while this tool reads:
    `SetCurrentTimeline`/`SetCurrentProject`/opens/creates, and every
    read command runs against it. A cursor-moving read would fail here
    rather than killing a sibling lane's Fusion pass mid-build.
-2. The module source carries no cursor-moving call except the one
-   `AddMarker` inside `cmd_markers_restore` (the single declared
-   write, lease-guarded, cursor-asserted).
+2. Timeline-scoped writes are lease-guarded and cursor-asserted; the
+   incremental marker, transform, enable and local-delete paths submit
+   generation patches.
 """
 
 import ast
@@ -125,6 +125,9 @@ class _PoolClip:
 
     def GetName(self):
         return self._name
+
+    def GetMarkers(self):
+        return {}
 
     def GetClipProperty(self, name=None):
         if name is None:
@@ -456,6 +459,9 @@ class _Timeline:
 
     def GetName(self):
         return self._name
+
+    def GetUniqueId(self):
+        return f"timeline:{self._name}"
 
     def GetStartFrame(self):
         return self._start
@@ -1067,10 +1073,13 @@ def _field_timeline(with_clip_note=True):
 
 
 @pytest.fixture()
-def field_reel(monkeypatch):
+def field_reel(monkeypatch, tmp_path):
     timeline = _field_timeline()
     project = _Project("Podcast (field test)", [timeline],
                        current=timeline)
+    project.SetCurrentTimeline = lambda target: (
+        setattr(project, "_current", target) or True)
+    monkeypatch.setenv("REN_SHADOW_DB", str(tmp_path / "shadow.sqlite3"))
     monkeypatch.setattr(resolve_axi, "_connect",
                         lambda: _Resolve(project))
     monkeypatch.setattr(resolve_axi, "_lease",
@@ -1932,6 +1941,9 @@ def _edit_env(monkeypatch, tmp_path):
     project = _Project("Podcast (field test)", [timeline],
                        current=timeline, pool=_MediaPool(root),
                        render_presets=["H.265 Master"])
+    project.SetCurrentTimeline = lambda target: (
+        setattr(project, "_current", target) or True)
+    monkeypatch.setenv("REN_SHADOW_DB", str(tmp_path / "shadow.sqlite3"))
     monkeypatch.setattr(resolve_axi, "_connect",
                         lambda: _Resolve(project))
     monkeypatch.setattr(resolve_axi, "_lease",
@@ -2369,7 +2381,7 @@ _REFUSALS = [
     ("delete-persistent-failure", "edit",
      _set(lambda env: env["timeline"], _delete_fail_always=True),
      cmd_edit_delete, _item_ns(apply=True), 1,
-     ["Edit page", "past once"], _untouched),
+     ["local-delete EditPatch did not verify"], _untouched),
     ("delete-bad-track", "edit", None, cmd_edit_delete,
      _item_ns(track="video9", apply=True), 1, [], _untouched),
     ("delete-bad-index", "edit", None, cmd_edit_delete,

@@ -173,36 +173,54 @@ def test_legitimate_producers_survive_their_own_lease(monkeypatch, tmp_path):
     promotion's carry, the render's stamp) - so a nested exclusive
     that deadlocked would fail here rather than in a lane.
     """
+    from tests.resolve_double import (
+        FakeTimeline, make_pool_clip, make_project, place_clip,
+    )
+
     previous = _real_lease_env(monkeypatch, tmp_path / "locks")
+    monkeypatch.setenv("REN_SHADOW_DB", str(tmp_path / "shadow.sqlite3"))
     try:
+        project = make_project("Podcast")
+        timeline = project.adopt(FakeTimeline(
+            "Reel 08", project=project, start_frame=1000, end_frame=2000))
+        item = place_clip(timeline, make_pool_clip("clip.mov"), 100, 149)
+        project.SetCurrentTimeline(timeline)
         with resolve_lock.resolve_lease("test: outer hold",
                                         exclusive=True, timeout=30):
-            timeline = _MemTimeline()
             record = marker_feedback.place_reply_marker(
-                timeline, 1500, "Green", "reply: done", "the words")
+                timeline, 1500, "Green", "reply: done", "the words",
+                project=project, idempotency_key="lease-test:timeline-add")
             assert record["name"] == "reply: done"
 
-            item = _MemItem()
             clip_record = marker_feedback.place_reply_clip_marker(
-                item, 100, "Green", "reply: done", "the words")
+                item, 100, "Green", "reply: done", "the words",
+                project=project, idempotency_key="lease-test:clip-add")
             assert clip_record["source_frame"] == 100
-            assert marker_feedback.remove_clip_marker(item, 100) is True
+            assert marker_feedback.remove_clip_marker(
+                item, 100, project=project,
+                idempotency_key="lease-test:clip-delete") is True
 
-            doomed = _MemTimeline()
+            doomed = timeline
             doomed.AddMarker(500, "Blue", "q", "note?", 1)
-            outcome = marker_resolution.delete_timeline_marker(doomed, 500)
+            outcome = marker_resolution.delete_timeline_marker(
+                project, doomed, 500,
+                expected_marker={"name": "q", "note": "note?"},
+                idempotency_key="lease-test:timeline-delete")
             assert outcome["removed"] is True
 
-            doomed_item = _MemItem()
+            doomed_item = item
             doomed_item.AddMarker(100, "Blue", "q", "note?", 1)
-            outcome = marker_resolution.delete_clip_marker(doomed_item, 100)
+            outcome = marker_resolution.delete_clip_marker(
+                project, timeline, doomed_item, 100,
+                expected_marker={"name": "q", "note": "note?"},
+                idempotency_key="lease-test:clip-delete-resolution")
             assert outcome["removed"] is True
 
             custom = "record-id-1"
-            custom_timeline = _MemTimeline()
-            custom_timeline.AddMarker(501, "Blue", "q", "note?", 1, custom)
+            timeline.AddMarker(601, "Blue", "q", "note?", 1, custom)
             outcome = marker_resolution.delete_marker_by_custom_data(
-                custom_timeline, custom)
+                project, timeline, timeline, custom,
+                idempotency_key="lease-test:custom-data-delete")
             assert outcome["removed"] is True
 
             fresh = _MemTimeline()
@@ -306,8 +324,21 @@ def _probe_main(argv):
     timeline = _FileTimeline(store)
     if argv == ["write"]:
         try:
+            from library.tools import edit_patch
+
+            def fake_apply_live_patch(*, project, timeline, operations,
+                                      **_kwargs):
+                op = operations[0]
+                timeline.AddMarker(
+                    op["frame"], op["color"], op["name"], op["note"],
+                    op.get("duration", 1), op.get("custom_data", ""))
+                return {"status": "committed"}
+
+            edit_patch.apply_live_patch = fake_apply_live_patch
+            project = SimpleNamespace(GetCurrentTimeline=lambda: timeline)
             record = marker_feedback.place_reply_marker(
-                timeline, 1500, "Green", "reply: done", "the words")
+                timeline, 1500, "Green", "reply: done", "the words",
+                project=project, idempotency_key="lease-probe")
         except resolve_lock.ResolveBusy as busy:
             print(json.dumps({"refused": str(busy)}))
             return 2

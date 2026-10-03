@@ -89,6 +89,33 @@ def test_reusing_a_patch_id_with_different_contents_refuses(world):
     assert 12 in timeline.markers and 13 not in timeline.markers
 
 
+def test_live_patch_retry_is_idempotent_and_changed_reuse_refuses(world):
+    project, timeline, _item, store, _base = world
+    operation = {"op": "marker.add", "frame": 12, "color": "Blue",
+                 "name": "beat"}
+    kwargs = {
+        "project": project, "timeline": timeline,
+        "capability": "reel.touchup", "operations": [operation],
+        "conflict_domains": ("markers",),
+        "idempotency_key": "stable-live-patch-id",
+        "preconditions": [{"kind": "marker_absent", "frame": 12}],
+        "postconditions": [{"kind": "duration_unchanged"}],
+        "store": store,
+    }
+    receipt = edit_patch.apply_live_patch(**kwargs)
+    assert receipt["status"] == "committed", receipt
+    assert edit_patch.apply_live_patch(**kwargs) == receipt
+    assert store.head("Podcast", receipt["readback"]["timeline_id"]
+                      ).generation == receipt["generation"]
+
+    changed = {**kwargs, "operations": [{**operation, "frame": 13}],
+               "preconditions": [{"kind": "marker_absent", "frame": 13}]}
+    with pytest.raises(edit_patch.PatchRefused,
+                       match="already used with different contents"):
+        edit_patch.apply_live_patch(**changed)
+    assert 12 in timeline.markers and 13 not in timeline.markers
+
+
 def test_a_write_that_answers_true_and_changes_nothing_fails_by_readback(
         world, monkeypatch):
     project, timeline, item, store, base = world
@@ -101,6 +128,110 @@ def test_a_write_that_answers_true_and_changes_nothing_fails_by_readback(
     assert "ZoomX=1.0" in receipt["operations"][0]["failure"]
     # The shadow records what Resolve holds, not what was planned.
     assert receipt["generation"] == base.generation + 1
+
+
+def test_clip_marker_writes_commit_as_generations(world):
+    project, timeline, item, store, base = world
+    uid = item.GetUniqueId()
+    marker = {"unique_id": uid, "frame": 12, "color": "Green",
+              "name": "reply", "note": "answered", "duration": 3,
+              "custom_data": "reply-record"}
+    added = _apply(_patch("clip-marker-add", base.generation, [
+        {"op": "clip_marker.add", **marker}], ["markers"], [[0, 48]],
+        preconditions=[{"kind": "clip_marker_absent", "unique_id": uid,
+                        "frame": 12}]), project, timeline, store)
+    assert added["status"] == "committed", added
+    back = item.GetMarkers()[12]
+    assert back == {"color": "Green", "name": "reply", "note": "answered",
+                    "duration": 3, "customData": "reply-record"}
+
+    deleted = _apply(_patch("clip-marker-delete", added["generation"], [
+        {"op": "clip_marker.delete", "unique_id": uid, "frame": 12}],
+        ["markers"], [[0, 48]], preconditions=[{
+            "kind": "clip_marker_present", "unique_id": uid, **marker,
+        }]), project, timeline, store)
+    assert deleted["status"] == "committed", deleted
+    assert 12 not in item.GetMarkers()
+
+
+def test_custom_data_marker_delete_keeps_timeline_and_clip_targets_distinct(
+        world, monkeypatch):
+    from library.tools import marker_resolution
+
+    project, timeline, item, store, _base = world
+    monkeypatch.setenv("REN_SHADOW_DB", str(store.path))
+    assert item.AddMarker(12, "Blue", "question", "answer me", 1,
+                          "clip-record")
+    outcome = marker_resolution.delete_marker_by_custom_data(
+        project, timeline, item, "clip-record",
+        idempotency_key="clip-custom-data-delete")
+    assert outcome["removed"] is True, outcome
+    assert 12 not in item.GetMarkers()
+    assert 12 not in timeline.GetMarkers()
+
+
+def test_a_local_delete_retries_once_only_if_the_item_still_reads_back(world):
+    project, timeline, item, store, base = world
+    original = timeline.DeleteClips
+    calls = []
+
+    def flaky(items, ripple):
+        calls.append((list(items), ripple))
+        if len(calls) == 1:
+            return False
+        return original(items, ripple)
+
+    timeline.DeleteClips = flaky
+    receipt = _apply(_patch("delete-flaky", base.generation, [
+        {"op": "clip.delete", "unique_id": item.GetUniqueId()}],
+        ["timeline_structure"], [[0, 48]]), project, timeline, store)
+    assert receipt["status"] == "committed", receipt
+    assert len(calls) == 2
+    assert all(ripple is False for _, ripple in calls)
+    assert all(len(items) == 1 for items, _ in calls)
+
+
+def test_smart_reframe_is_a_measured_transform_patch(world):
+    project, timeline, item, store, base = world
+    uid = item.GetUniqueId()
+    before = {key: item.GetProperty().get(key)
+              for key in edit_patch.SMART_REFRAME_KEYS}
+
+    def reframe():
+        item._props["Pan"] = 1.5
+        return True
+
+    item.SmartReframe = reframe
+    patch = _patch("smart-reframe", base.generation, [{
+        "op": "clip.smart_reframe", "unique_id": uid,
+        "keys": list(edit_patch.SMART_REFRAME_KEYS), "before": before,
+    }], ["picture_transform"], [[0, 48]],
+        capability="reel.touchup", preconditions=[{
+        "kind": "clip_transform_equals", "unique_id": uid,
+        "properties": before,
+    }])
+    receipt = _apply(patch, project, timeline, store)
+    assert receipt["status"] == "committed", receipt
+    assert item.GetProperty("Pan") == 1.5
+
+
+def test_smart_reframe_true_without_a_transform_change_fails_readback(world):
+    project, timeline, item, store, base = world
+    uid = item.GetUniqueId()
+    before = {key: item.GetProperty().get(key)
+              for key in edit_patch.SMART_REFRAME_KEYS}
+    item.SmartReframe = lambda: True
+    patch = _patch("smart-reframe-noop", base.generation, [{
+        "op": "clip.smart_reframe", "unique_id": uid,
+        "keys": list(edit_patch.SMART_REFRAME_KEYS), "before": before,
+    }], ["picture_transform"], [[0, 48]],
+        capability="reel.touchup", preconditions=[{
+        "kind": "clip_transform_equals", "unique_id": uid,
+        "properties": before,
+    }])
+    receipt = _apply(patch, project, timeline, store)
+    assert receipt["status"] == "verification_failed"
+    assert "unchanged" in receipt["operations"][0]["failure"]
 
 
 def test_a_hand_edit_since_the_base_refuses_and_is_recorded(world):

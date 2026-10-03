@@ -43,7 +43,38 @@ from tests.composed_edit_harness import (  # noqa: E402
 FINAL = "Reel 01 - lab"
 
 
-def _touch(tmp_path, spec, *, prepare=None):
+def _mock_touchup_patch(monkeypatch):
+    """Apply touchup EditPatch operations against the Resolve double."""
+    from library.tools import edit_patch
+
+    def apply_live_patch(*, project, timeline, operations, **_kwargs):
+        assert project is timeline._project
+        for operation in operations:
+            matches = [item for row in reel_read.live_items(timeline)
+                       for item in row["items"]
+                       if item.GetUniqueId() == operation["unique_id"]]
+            assert len(matches) == 1
+            item = matches[0]
+            if operation["op"] == "clip.delete":
+                timeline.DeleteClips([item], False)
+                if any(item.GetUniqueId() == operation["unique_id"]
+                       for row in reel_read.live_items(timeline)
+                       for item in row["items"]):
+                    return {"status": "refused",
+                            "reason": "clip remained after local delete"}
+            elif operation["op"] == "clip.set_property":
+                item.SetProperty(operation["key"], operation["value"])
+                if item.GetProperty(operation["key"]) != operation["value"]:
+                    return {"status": "refused",
+                            "reason": "property read-back differed"}
+            else:
+                raise AssertionError(operation)
+        return {"status": "committed", "generation": 1}
+
+    monkeypatch.setattr(edit_patch, "apply_live_patch", apply_live_patch)
+
+
+def _touch(tmp_path, spec, *, monkeypatch, prepare=None):
     """Journal, then touch a staging copy exactly as `apply_touchup` does."""
     approved, _pool, media = build_reel(tmp_path)
     if prepare:
@@ -58,10 +89,13 @@ def _touch(tmp_path, spec, *, prepare=None):
 
     staged = duplicate(approved, name=FINAL)
     pool = media_pool(staged)
-    in_place = tu._apply_in_place(staged, qualification,
-                                  str(tmp_path / "touch"))
+    _mock_touchup_patch(monkeypatch)
+    in_place = tu._apply_in_place(
+        staged._project, staged, qualification, str(tmp_path / "touch"),
+        "test-journal")
     del in_place
-    tu._pre_delete_removed(staged, qualification.removals)
+    tu._pre_delete_removed(staged._project, staged, qualification.removals,
+                           "test-journal")
     changes = tu._rekey_changes(reel_read.read_tracks(staged),
                                 qualification)
     if changes:
@@ -107,9 +141,9 @@ def _card_with_a_look(approved, media):
                             "properties": {"ZoomX": 1.25}}]}, None),
 ], ids=["move", "remove-with-its-look", "set-properties"])
 def test_undo_restores_exactly_the_pre_touch_timeline(tmp_path, spec,
-                                                      prepare):
+                                                      prepare, monkeypatch):
     folder, approved, staged, entry, by_path = _touch(
-        tmp_path, spec, prepare=prepare)
+        tmp_path, spec, prepare=prepare, monkeypatch=monkeypatch)
     before = uj.projection(reel_read.read_tracks(approved))
     assert uj.projection(reel_read.read_tracks(staged)) != before
 
@@ -119,10 +153,12 @@ def test_undo_restores_exactly_the_pre_touch_timeline(tmp_path, spec,
     assert uj.projection(reel_read.read_tracks(staged)) == before
 
 
-def test_undo_refuses_a_timeline_changed_since_the_touch(tmp_path):
+def test_undo_refuses_a_timeline_changed_since_the_touch(tmp_path,
+                                                         monkeypatch):
     spec = {"reel": 1, "edits": [{"op": "move", "row": "V4", "item": 0,
                                   "to_row": "V4", "to_record": 1300}]}
-    folder, _approved, staged, entry, by_path = _touch(tmp_path, spec)
+    folder, _approved, staged, entry, by_path = _touch(
+        tmp_path, spec, monkeypatch=monkeypatch)
     # The captain nudges a card by hand after the touch.
     staged.rows["V4"][-1].properties["Pan"] = 40.0
     deletes = list(staged.delete_calls)

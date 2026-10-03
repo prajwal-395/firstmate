@@ -1513,8 +1513,10 @@ _REGISTRY: tuple[Operation, ...] = (
                 freshness=FRESHNESS_TIMELINE_GENERATION,
                 why="A touch-up is committed against one named timeline generation."),),
             patch=PatchSemantics(
-                operations=("marker.add", "marker.delete", "clip.set_enabled",
-                            "clip.set_property", "clip.delete"),
+                operations=("marker.add", "marker.delete", "clip_marker.add",
+                            "clip_marker.delete", "clip.set_enabled",
+                            "clip.set_property", "clip.smart_reframe",
+                            "clip.delete"),
                 conflict_domains=("markers", "timeline_structure",
                                   "picture_transform"),
                 temporal_effect="local", merge_semantics="exclusive")),

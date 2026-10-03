@@ -52,18 +52,13 @@ rather than building a placeholder. A taste note's marker stays.
 
 ── The removal itself ───────────────────────────────────────────────
 
-Nothing here guards on `hasattr`; every deletion is judged by what the
-call RETURNS, then confirmed by re-reading `GetMarkers` (`_confirm_absent`):
+Each clear is an EditPatch on the recorded timeline generation. The
+patch checks the marker's identity on its base, removes it by frame, and
+records the read-back. A falsy Resolve return with a confirmed absence
+is success; a marker that remains is a failed patch. No custom-data
+delete API is needed: its fallback finds the unique frame first, then
+uses the same timeline or clip marker operation.
 
-* `DeleteMarkerAtFrame` (`delete_timeline_marker`, `delete_clip_marker`)
-  returning True removed the marker at that frame; anything falsy - or a
-  True the re-read contradicts - is recorded as not removed, never
-  retried blindly.
-* `DeleteMarkerByCustomData` (`delete_marker_by_custom_data`) is the
-  fallback where a record id exists, judged the same way. KNOWN UNKNOWN:
-  which of the two calls works on a timeline marker versus a clip marker
-  is unmeasured against a live Resolve, so the record names the call used
-  and what it returned.
 * A rebuilt timeline is a different timeline. Clearing always
   re-resolves the note's CURRENT marker key off the open timeline before
   deleting (`_current_marker_key`), and refuses when the
@@ -109,6 +104,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -510,136 +506,134 @@ def find_note(project_folder, note_id: str):
     return None
 
 
-# ── The removal: judged by what Resolve returns ───────────────────
-#
-# Nothing here guards on `hasattr` - it is always True on Resolve's
-# proxies, including invented names (`marker_feedback`). The calls are
-# made and their returns are read. A missing method (a plain object
-# with no such call) raises AttributeError, which is recorded as "not
-# removed" with the reason - never as a pass.
-
-def _confirm_absent(get_markers, key) -> bool:
-    """Is `key` gone from `get_markers()` now? A re-read that raises is
-    not a confirmation: absence unconfirmed is still present."""
-    try:
-        markers = get_markers() or {}
-    except Exception:
-        return False
-    return key not in markers and int(key) not in {
-        int(k) for k in markers
-        if str(k).lstrip("-").isdigit()
-    }
+# ── The removal: an EditPatch, judged on its read-back ──────────────
 
 
 @under_lease("delete a timeline marker on resolution")
-def delete_timeline_marker(timeline, frame_key) -> dict:
-    """Delete the timeline marker at `frame_key`. Judged, then confirmed.
-
-    Calls `DeleteMarkerAtFrame` and reads what it returned: True means
-    Resolve removed it, anything falsy means it did not. A True that
-    leaves the key still readable in `GetMarkers` is recorded as not
-    removed - the return is trusted only as far as the re-read confirms.
-    """
-    outcome = {"called": "DeleteMarkerAtFrame", "frame": int(frame_key),
-               "returned": None, "still_present": True, "removed": False}
-    try:
-        returned = timeline.DeleteMarkerAtFrame(int(frame_key))
-    except Exception as exc:
-        outcome["reason"] = (
-            f"DeleteMarkerAtFrame raised {type(exc).__name__}: {exc}")
-        return outcome
-    outcome["returned"] = bool(returned)
-    if not returned:
-        outcome["reason"] = (
-            "DeleteMarkerAtFrame returned falsy - the marker is absent "
-            "at that frame, or Resolve refused the deletion")
-        return outcome
-    try:
-        absent = _confirm_absent(timeline.GetMarkers, int(frame_key))
-    except Exception as exc:
-        outcome["reason"] = (
-            f"DeleteMarkerAtFrame returned True but GetMarkers raised "
-            f"{type(exc).__name__}: {exc} - removal unconfirmed")
-        return outcome
-    outcome["still_present"] = not absent
-    outcome["removed"] = bool(absent)
-    if not absent:
-        outcome["reason"] = (
-            "DeleteMarkerAtFrame returned True but the marker still "
-            "reads back in GetMarkers")
-    return outcome
+def delete_timeline_marker(project, timeline, frame_key, *,
+                           expected_marker: dict,
+                           idempotency_key: str) -> dict:
+    """Delete one confirmed timeline marker through a generation patch."""
+    return _delete_marker_patch(
+        project, timeline, {"op": "marker.delete", "frame": int(frame_key)},
+        {"kind": "marker_present", "frame": int(frame_key),
+         **expected_marker}, idempotency_key)
 
 
 @under_lease("delete a clip marker on resolution")
-def delete_clip_marker(item, source_frame) -> dict:
-    """Delete the clip marker at `source_frame`. Same contract as
-    `delete_timeline_marker`: the return is read, then the re-read
-    confirms. Clip marker keys are SOURCE frames - the same space as
-    `GetLeftOffset()` (`marker_feedback`) - so no conversion happens
-    here; the caller passes the note's `frame_in_timeline_space`."""
-    outcome = {"called": "DeleteMarkerAtFrame", "frame": int(source_frame),
+def delete_clip_marker(project, timeline, item, source_frame, *,
+                       expected_marker: dict,
+                       idempotency_key: str) -> dict:
+    """Delete a confirmed clip marker through a generation patch."""
+    try:
+        unique_id = str(item.GetUniqueId() or "")
+    except Exception as exc:  # noqa: BLE001
+        return {"called": "timeline.apply_patch", "frame": int(source_frame),
+                "returned": None, "still_present": True, "removed": False,
+                "marker_kind": "clip_marker",
+                "reason": f"the clip unique id could not be read: {exc}"}
+    if not unique_id:
+        return {"called": "timeline.apply_patch", "frame": int(source_frame),
+                "returned": None, "still_present": True, "removed": False,
+                "marker_kind": "clip_marker",
+                "reason": "the clip has no unique id for its EditPatch"}
+    return _delete_marker_patch(
+        project, timeline,
+        {"op": "clip_marker.delete", "unique_id": unique_id,
+         "frame": int(source_frame)},
+        {"kind": "clip_marker_present", "unique_id": unique_id,
+         "frame": int(source_frame), **expected_marker},
+        idempotency_key, marker_kind="clip_marker")
+
+
+def _delete_marker_patch(project, timeline, operation, condition,
+                         idempotency_key, marker_kind="timeline_marker"):
+    from library.tools import edit_patch
+
+    frame = int(operation["frame"])
+    outcome = {"called": "timeline.apply_patch", "frame": frame,
                "returned": None, "still_present": True, "removed": False,
-               "marker_kind": "clip_marker"}
+               "marker_kind": marker_kind}
     try:
-        returned = item.DeleteMarkerAtFrame(int(source_frame))
+        receipt = edit_patch.apply_live_patch(
+            project=project, timeline=timeline, capability="reel.touchup",
+            operations=[operation], conflict_domains=("markers",),
+            idempotency_key=idempotency_key,
+            preconditions=[condition])
     except Exception as exc:
-        outcome["reason"] = (
-            f"DeleteMarkerAtFrame raised {type(exc).__name__}: {exc}")
+        outcome["reason"] = f"EditPatch refused marker removal: {exc}"
         return outcome
-    outcome["returned"] = bool(returned)
-    if not returned:
-        outcome["reason"] = (
-            "DeleteMarkerAtFrame returned falsy - the marker is absent "
-            "at that source frame, or Resolve refused the deletion")
-        return outcome
-    try:
-        absent = _confirm_absent(item.GetMarkers, int(source_frame))
-    except Exception as exc:
-        outcome["reason"] = (
-            f"DeleteMarkerAtFrame returned True but GetMarkers raised "
-            f"{type(exc).__name__}: {exc} - removal unconfirmed")
-        return outcome
-    outcome["still_present"] = not absent
-    outcome["removed"] = bool(absent)
-    if not absent:
-        outcome["reason"] = (
-            "DeleteMarkerAtFrame returned True but the marker still "
-            "reads back in GetMarkers")
+    op_receipts = receipt.get("operations") or []
+    outcome["returned"] = (op_receipts[0].get("returned")
+                            if op_receipts else None)
+    outcome["patch_receipt"] = receipt
+    outcome["removed"] = receipt["status"] == "committed"
+    outcome["still_present"] = not outcome["removed"]
+    if not outcome["removed"]:
+        outcome["reason"] = "the marker deletion patch did not verify"
     return outcome
 
 
 @under_lease("delete a marker by customData on resolution")
-def delete_marker_by_custom_data(timeline_or_item, custom_data: str) -> dict:
-    """Fallback deletion by `customData`. Judged the same way.
-
-    Only called where a record id exists to delete by - never with an
-    empty string, which Resolve would be free to read as "everything".
-    Whether this call works on timeline versus clip markers has not been
-    measured against a live Resolve in this module (see the docstring):
-    the outcome records which object it was called on and what came
-    back, so the answer accumulates instead of being assumed.
-    """
-    outcome = {"called": "DeleteMarkerByCustomData",
-               "custom_data": custom_data or "",
-               "returned": None, "still_present": True, "removed": False}
+def delete_marker_by_custom_data(project, timeline, target,
+                                 custom_data: str, *,
+                                 idempotency_key: str,
+                                 unique_id: str = "") -> dict:
+    """Resolve one unique custom-data match, then clear it by frame patch."""
     if not custom_data:
-        outcome["reason"] = (
-            "no customData to delete by - refusing an unscoped deletion")
-        return outcome
+        return {"called": "timeline.apply_patch", "custom_data": "",
+                "returned": None, "still_present": True, "removed": False,
+                "reason": "no customData to delete by - refusing an "
+                          "unscoped deletion"}
     try:
-        returned = timeline_or_item.DeleteMarkerByCustomData(custom_data)
+        markers = target.GetMarkers() or {}
     except Exception as exc:
-        outcome["reason"] = (
-            f"DeleteMarkerByCustomData raised {type(exc).__name__}: {exc}")
-        return outcome
-    outcome["returned"] = bool(returned)
-    outcome["removed"] = bool(returned)
-    outcome["still_present"] = not bool(returned)
-    if not returned:
-        outcome["reason"] = (
-            "DeleteMarkerByCustomData returned falsy - nothing carrying "
-            "that customData was removed")
-    return outcome
+        return {"called": "timeline.apply_patch", "custom_data": custom_data,
+                "returned": None, "still_present": True, "removed": False,
+                "reason": f"marker read failed: {type(exc).__name__}: {exc}"}
+    matches = [(int(frame), marker) for frame, marker in markers.items()
+               if isinstance(marker, dict)
+               and (marker.get("customData") or "") == custom_data]
+    if len(matches) != 1:
+        return {"called": "timeline.apply_patch", "custom_data": custom_data,
+                "returned": None, "still_present": True, "removed": False,
+                "reason": ("no marker carries that customData" if not matches
+                           else "customData is ambiguous across marker frames")}
+    frame, marker = matches[0]
+    expected = {"color": marker.get("color") or "",
+                "name": marker.get("name") or "",
+                "note": marker.get("note") or "",
+                "duration": marker.get("duration", 0),
+                "custom_data": custom_data}
+    if not unique_id and target is not timeline:
+        try:
+            target_id = str(target.GetUniqueId() or "")
+            timeline_id = str(timeline.GetUniqueId() or "")
+        except Exception as exc:  # noqa: BLE001
+            return {"called": "timeline.apply_patch",
+                    "custom_data": custom_data, "returned": None,
+                    "still_present": True, "removed": False,
+                    "reason": ("could not identify whether the marker is "
+                               f"on the timeline or a clip: {exc}")}
+        if target_id and target_id != timeline_id:
+            unique_id = target_id
+        elif target_id != timeline_id:
+            return {"called": "timeline.apply_patch",
+                    "custom_data": custom_data, "returned": None,
+                    "still_present": True, "removed": False,
+                    "reason": "the clip has no unique id for its EditPatch"}
+    if unique_id:
+        return _delete_marker_patch(
+            project, timeline,
+            {"op": "clip_marker.delete", "unique_id": unique_id,
+             "frame": frame},
+            {"kind": "clip_marker_present", "unique_id": unique_id,
+             "frame": frame, **expected}, idempotency_key,
+            marker_kind="clip_marker")
+    return _delete_marker_patch(
+        project, timeline, {"op": "marker.delete", "frame": frame},
+        {"kind": "marker_present", "frame": frame, **expected},
+        idempotency_key)
 
 
 # ── Putting it together ───────────────────────────────────────────
@@ -719,7 +713,7 @@ def _current_marker_key(note: dict, timeline=None, item=None):
 
 def resolve_note(project_folder, note: dict, action: str, rationale: str,
                  check: str = "", measured=None, verifier: str = "",
-                 timeline=None, item=None) -> dict:
+                 timeline=None, item=None, resolve_project=None) -> dict:
     """Answer one collected note, clearing its marker only from proof.
 
     * A decline (`is_decline(action)`) is recorded as `declined` and the
@@ -804,10 +798,19 @@ def resolve_note(project_folder, note: dict, action: str, rationale: str,
             removal={"marker_touched": False, "reason": refusal})
         return {"record": record, "marker_touched": False}
     source = (note or {}).get("source", "")
+    expected_marker = {
+        "name": (note or {}).get("name") or "",
+        "note": (note or {}).get("note") or "",
+    }
+    patch_id = f"marker-resolution:{uuid.uuid4().hex}"
     if source == "timeline_marker":
-        outcome = delete_timeline_marker(timeline, key)
+        outcome = delete_timeline_marker(
+            resolve_project, timeline, key, expected_marker=expected_marker,
+            idempotency_key=patch_id)
     else:
-        outcome = delete_clip_marker(item, key)
+        outcome = delete_clip_marker(
+            resolve_project, timeline, item, key,
+            expected_marker=expected_marker, idempotency_key=patch_id)
     record = record_resolution(
         project_folder, note, STATUS_RESOLVED_VERIFIED,
         action, rationale, check=check, evidence=evidence,
@@ -898,7 +901,7 @@ def main(argv=None) -> int:
     from library.tools import marker_feedback
 
     try:
-        timeline, _project = marker_feedback.current_timeline()
+        timeline, resolve_project = marker_feedback.current_timeline()
     except marker_feedback.ResolveUnavailable as exc:
         print(f"✗ {exc}", file=sys.stderr)
         return 3
@@ -942,7 +945,8 @@ def main(argv=None) -> int:
                               args.rationale, check=args.check,
                               measured=measured,
                               verifier=args.verifier or "cli:clear",
-                              timeline=timeline, item=item)
+                              timeline=timeline, item=item,
+                              resolve_project=resolve_project)
     except UnknownCheck as exc:
         print(f"✗ {exc}", file=sys.stderr)
         return 2

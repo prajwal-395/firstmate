@@ -69,6 +69,8 @@ can say what it meets.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
@@ -96,6 +98,7 @@ TRANSFORM_KEYS = frozenset({
 
 #: How close a re-read float must be to what was written.
 FLOAT_TOLERANCE = 1e-6
+SMART_REFRAME_KEYS = ("Pan", "Tilt", "ZoomX", "ZoomY")
 
 
 class PatchRefused(RenRefusal):
@@ -195,8 +198,20 @@ def _timeline_marker(snapshot: dict, frame: int) -> dict | None:
     return None
 
 
+def _clip_marker(snapshot: dict, unique_id: str,
+                 frame: int) -> dict | None:
+    clip = _clip(snapshot, unique_id)
+    if clip is None:
+        return None
+    for marker in clip["markers"]:
+        if int(marker["frame"]) == int(frame):
+            return marker
+    return None
+
+
 def _matches(marker: dict, want: dict) -> bool:
-    return all(marker.get(k) == want[k] for k in ("color", "name", "note")
+    return all(marker.get(k) == want[k] for k in (
+        "color", "name", "note", "duration", "custom_data")
                if k in want)
 
 
@@ -232,6 +247,87 @@ def _verify_marker_delete(op, after):
     if _timeline_marker(after, op["frame"]) is not None:
         return f"a timeline marker still reads back at frame {op['frame']}"
     return None
+
+
+def _verify_clip_marker_add(op, after):
+    marker = _clip_marker(after, op["unique_id"], op["frame"])
+    if marker is None or not _matches(marker, op):
+        return (f"no matching clip marker {op.get('name')!r} reads back "
+                f"on {op['unique_id']!r} at source frame {op['frame']}")
+    return None
+
+
+def _verify_clip_marker_delete(op, after):
+    if _clip_marker(after, op["unique_id"], op["frame"]) is not None:
+        return (f"a clip marker still reads back on {op['unique_id']!r} "
+                f"at source frame {op['frame']}")
+    return None
+
+
+def _verify_smart_reframe(op, after):
+    clip = _clip(after, op["unique_id"])
+    if clip is None:
+        return f"clip {op['unique_id']!r} disappeared during Smart Reframe"
+    before = op["before"]
+    current = clip["transform"]
+    if all(_same_value(current.get(key), before.get(key))
+           for key in op["keys"]):
+        return (f"SmartReframe reports success but Pan/Tilt/Zoom read back "
+                f"unchanged ({before})")
+    return None
+
+
+def _apply_smart_reframe(op, _timeline, item):
+    returned = item.SmartReframe()
+    if not returned:
+        raise RuntimeError("SmartReframe answered False")
+    return returned
+
+
+def _same_value(got, want):
+    if (isinstance(want, (int, float))
+            and isinstance(got, (int, float))):
+        return abs(float(got) - float(want)) <= FLOAT_TOLERANCE
+    return got == want
+
+
+def _live_handles(timeline):
+    from library.tools.reel_read import live_items
+
+    handles = {}
+    duplicates = set()
+    for row in live_items(timeline):
+        for item in row["items"]:
+            try:
+                unique_id = str(item.GetUniqueId() or "")
+            except Exception as unreadable:  # noqa: BLE001
+                raise RuntimeError(
+                    f"an item on {row['name']!r} would not report its "
+                    f"unique id ({unreadable})") from unreadable
+            if not unique_id:
+                continue
+            if unique_id in handles:
+                duplicates.add(unique_id)
+            handles[unique_id] = item
+    for unique_id in duplicates:
+        handles.pop(unique_id, None)
+    return handles
+
+
+def _delete_clip_with_measured_retry(op, timeline, item):
+    """Retry one local delete only when its unique id still reads back.
+
+    `ren edit delete` measured the first call flopping on some Resolve
+    pages. The old path re-read the timeline and retried once only while
+    the item remained; preserve that measured behavior inside the patch.
+    """
+    first = timeline.DeleteClips([item], False)
+    handles = _live_handles(timeline)
+    unique_id = op["unique_id"]
+    if unique_id not in handles:
+        return first
+    second = timeline.DeleteClips([handles[unique_id]], False)
+    return second if second else first
 
 
 def _verify_enabled(op, after):
@@ -278,6 +374,37 @@ OPERATIONS = {
         apply=lambda op, tl, _item: tl.DeleteMarkerAtFrame(int(op["frame"])),
         verify=_verify_marker_delete,
         key=lambda op: ("marker", int(op["frame"])), merge="commutative"),
+    "clip_marker.add": Operation(
+        domain="markers", required=("unique_id", "frame", "color", "name"),
+        span=_item_span, item=True,
+        apply=lambda op, _tl, item: (
+            item.AddMarker(int(op["frame"]), op["color"], op["name"],
+                           op.get("note", ""),
+                           int(op.get("duration", 1)), op["custom_data"])
+            if op.get("custom_data") else
+            item.AddMarker(int(op["frame"]), op["color"], op["name"],
+                           op.get("note", ""),
+                           int(op.get("duration", 1)))),
+        verify=_verify_clip_marker_add,
+        key=lambda op: ("clip", op["unique_id"], "marker",
+                        int(op["frame"])), merge="replace"),
+    "clip_marker.delete": Operation(
+        domain="markers", required=("unique_id", "frame"),
+        span=_item_span, item=True,
+        apply=lambda op, _tl, item: item.DeleteMarkerAtFrame(
+            int(op["frame"])),
+        verify=_verify_clip_marker_delete,
+        key=lambda op: ("clip", op["unique_id"], "marker",
+                        int(op["frame"])), merge="commutative"),
+    "clip.smart_reframe": Operation(
+        domain="picture_transform",
+        required=("unique_id", "keys", "before"),
+        span=_item_span, item=True,
+        apply=_apply_smart_reframe,
+        verify=_verify_smart_reframe,
+        # The native command may change any framing property on the item.
+        key=lambda op: ("clip", op["unique_id"], "transform"),
+        merge="exclusive"),
     "clip.set_enabled": Operation(
         domain="timeline_structure", required=("unique_id", "enabled"),
         span=_item_span, item=True,
@@ -297,7 +424,7 @@ OPERATIONS = {
         span=_item_span, item=True,
         # Never ripple: a ripple moves every later cut, which no span the
         # patch declares can cover.
-        apply=lambda op, tl, item: tl.DeleteClips([item], False),
+        apply=_delete_clip_with_measured_retry,
         verify=_verify_delete,
         # The whole clip: it meets every write to it, in any domain.
         key=lambda op: ("clip", op["unique_id"]), merge="exclusive"),
@@ -333,6 +460,31 @@ def _cond_marker_absent(c, snap, base):
         f"a timeline marker is at frame {c['frame']}"
 
 
+def _cond_clip_marker_present(c, snap, base):
+    marker = _clip_marker(snap, c["unique_id"], c["frame"])
+    return None if marker and _matches(marker, c) else (
+        f"no matching clip marker at source frame {c['frame']} on "
+        f"{c['unique_id']!r}")
+
+
+def _cond_clip_marker_absent(c, snap, base):
+    return None if _clip_marker(snap, c["unique_id"], c["frame"]) is None \
+        else (f"a clip marker is at source frame {c['frame']} on "
+              f"{c['unique_id']!r}")
+
+
+def _cond_clip_transform_equals(c, snap, base):
+    clip = _clip(snap, c["unique_id"])
+    if clip is None:
+        return f"clip {c['unique_id']!r} is not on the timeline"
+    for key, want in c["properties"].items():
+        got = clip["transform"].get(key)
+        if not _same_value(got, want):
+            return (f"clip {c['unique_id']!r} reads {key}={got!r}, "
+                    f"not {want!r}")
+    return None
+
+
 def _cond_duration_unchanged(c, snap, base):
     return None if _duration(snap) == _duration(base) else \
         f"duration is {_duration(snap)} frames, was {_duration(base)}"
@@ -351,6 +503,12 @@ CONDITIONS = {
     "clip_absent": (("unique_id",), _cond_clip_absent),
     "marker_present": (("frame",), _cond_marker_present),
     "marker_absent": (("frame",), _cond_marker_absent),
+    "clip_marker_present": (("unique_id", "frame"),
+                             _cond_clip_marker_present),
+    "clip_marker_absent": (("unique_id", "frame"),
+                            _cond_clip_marker_absent),
+    "clip_transform_equals": (("unique_id", "properties"),
+                               _cond_clip_transform_equals),
     "duration_unchanged": ((), _cond_duration_unchanged),
     "clip_count": (("track_type", "track_index", "count"), _cond_clip_count),
 }
@@ -461,6 +619,20 @@ def validate(patch: EditPatch, base: dict) -> None:
             _refuse(patch, f"operation {index} writes property {op['key']!r}",
                     "clip.set_property is the picture transform only",
                     f"use one of {sorted(TRANSFORM_KEYS)}")
+        if op["op"] == "clip.smart_reframe":
+            if tuple(op["keys"]) != SMART_REFRAME_KEYS:
+                _refuse(patch, f"operation {index} names reframe keys "
+                               f"{op['keys']!r}",
+                        "SmartReframe is judged on its measured framing "
+                        "properties",
+                        f"use {list(SMART_REFRAME_KEYS)}")
+            if not isinstance(op["before"], dict) or any(
+                    key not in op["before"] for key in SMART_REFRAME_KEYS):
+                _refuse(patch, f"operation {index} has no complete framing "
+                               "read-back",
+                        "a native operation needs a baseline to verify its "
+                        "effect",
+                        f"include all of {list(SMART_REFRAME_KEYS)}")
         span = spec.span(op, base)
         if span is None:
             _refuse(patch, f"operation {index} ({op['op']}) targets clip "
@@ -497,6 +669,101 @@ def rebase(patch, store: shadow.ShadowStore | None = None) -> EditPatch:
                          observed=False, rebase_possible=False,
                          reason=reason)
     return moved
+
+
+def apply_live_patch(*, project, timeline, capability: str,
+                     operations, conflict_domains,
+                     idempotency_key: str, preconditions=(),
+                     postconditions=(),
+                     store: shadow.ShadowStore | None = None) -> dict:
+    """Build and commit a patch while the caller already owns Resolve.
+
+    Entry points which already hold a Resolve lease use this seam to
+    give one in-process write the same generation checks and read-back
+    receipt as `timeline.apply_patch`. Remote callers submit that broker
+    job instead of holding a lease here.
+    """
+    from library.tools import resolve_lock
+
+    if not idempotency_key:
+        raise ValueError("an EditPatch needs a non-empty idempotency key")
+    operations = tuple(dict(op) for op in operations)
+    conflict_domains = tuple(conflict_domains)
+    preconditions = tuple(dict(condition) for condition in preconditions)
+    postconditions = tuple(dict(condition) for condition in postconditions)
+    if not operations:
+        raise ValueError("an EditPatch needs at least one operation")
+    store = store or shadow.ShadowStore()
+    project_name, timeline_id, timeline_name = shadow.timeline_key(
+        project, timeline)
+    identity = json.dumps(
+        [project_name, timeline_id, idempotency_key],
+        ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+        default=str)
+    patch_id = "ren-" + hashlib.sha256(identity.encode("utf-8")).hexdigest()
+    intent = {
+        "project": project_name,
+        "timeline": timeline_name,
+        "capability": capability,
+        "conflict_domains": list(conflict_domains),
+        "operations": list(operations),
+        "preconditions": list(preconditions),
+        "postconditions": list(postconditions),
+    }
+
+    # A caller retry after a successful write receives the recorded result
+    # even though observing the live timeline would now produce a newer
+    # base. The prior intent is checked against the reused key, so this
+    # cannot return a receipt for different work.
+    for generation in store.history(project_name, timeline_id):
+        if (generation.source == shadow.PATCH
+                and (generation.patch or {}).get("id") == patch_id):
+            prior = generation.patch
+            prior_intent = {key: prior[key] for key in intent}
+            if json.dumps(prior_intent, ensure_ascii=False, sort_keys=True,
+                          separators=(",", ":"), default=str) != json.dumps(
+                              intent, ensure_ascii=False, sort_keys=True,
+                              separators=(",", ":"), default=str):
+                _refuse(
+                    EditPatch.from_dict(prior),
+                    "this idempotency key was already used with different "
+                    "contents",
+                    "a patch id is a durable identity for one complete edit",
+                    "retry the original operation unchanged, or assign a "
+                    "new idempotency key")
+            return _receipt_of(generation)
+
+    with resolve_lock.cursor_excursion(
+            project, timeline, f"prepare EditPatch {patch_id}"):
+        base = shadow.observe(project, timeline, store)
+        snapshot = store.snapshot(base)
+        spans = []
+        for operation in operations:
+            spec = OPERATIONS.get(operation.get("op"))
+            if spec is None:
+                _refuse(EditPatch(
+                    patch_id, project_name, timeline_name, base.generation,
+                    capability, (), conflict_domains, operations),
+                    f"names unknown operation {operation.get('op')!r}",
+                    "only measured, read-back-judged writes are operations",
+                    f"use one of {sorted(OPERATIONS)}")
+            span = spec.span(operation, snapshot)
+            if span is None:
+                _refuse(EditPatch(
+                    patch_id, project_name, timeline_name, base.generation,
+                    capability, (), conflict_domains, operations),
+                    f"cannot find the target span for {operation!r}",
+                    "an operation addresses an item held by its base",
+                    "re-plan against the recorded timeline generation")
+            spans.append(tuple(int(frame) for frame in span))
+        patch = EditPatch(
+            id=patch_id, project=project_name, timeline=timeline_name,
+            base_generation=base.generation, capability=capability,
+            affected_spans=tuple(spans),
+            conflict_domains=conflict_domains, operations=operations,
+            preconditions=preconditions, postconditions=postconditions)
+        return apply_patch(patch, resolve=None, project=project,
+                           timeline=timeline, store=store)
 
 
 def apply_patch(patch, *, resolve, project, timeline,
@@ -567,26 +834,27 @@ def apply_patch(patch, *, resolve, project, timeline,
             _refuse(patch, "preconditions do not hold: " + "; ".join(failures),
                     "a patch states what it assumes of its base",
                     "re-plan against the live timeline")
-        handles = {}
-        if any(OPERATIONS[op["op"]].item for op in patch.operations):
-            from library.tools.reel_read import live_items
-            for row in live_items(timeline):
-                for item in row["items"]:
-                    handles[item.GetUniqueId()] = item
+        handles = (_live_handles(timeline)
+                   if any(OPERATIONS[op["op"]].item
+                          for op in patch.operations) else {})
         ran = []
         stopped = None
         for index, op in enumerate(patch.operations):
             spec = OPERATIONS[op["op"]]
             try:
-                returned = spec.apply(
-                    op, timeline,
-                    handles.get(op["unique_id"]) if spec.item else None)
+                item = handles.get(op["unique_id"]) if spec.item else None
+                if spec.item and item is None:
+                    raise RuntimeError(
+                        f"clip {op['unique_id']!r} is not uniquely present")
+                returned = spec.apply(op, timeline, item)
             except Exception as raised:  # noqa: BLE001 - recorded, then stop
                 stopped = {"index": index, "op": op["op"],
                            "raised": f"{type(raised).__name__}: {raised}"}
                 break
             ran.append({"index": index, "op": op["op"],
                         "returned": bool(returned)})
+            if spec.domain == "timeline_structure":
+                handles = _live_handles(timeline)
         after = shadow.read_live(project, timeline)
     hold_seconds = time.monotonic() - started
 

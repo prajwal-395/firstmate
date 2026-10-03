@@ -838,11 +838,13 @@ def reply_records_in(custom_data) -> list:
 @under_lease("place a reply marker on the timeline")
 def place_reply_marker(timeline, frame: int, color: str, name: str,
                        note: str, duration: int = 1,
-                       custom_data: str = "") -> dict:
-    """Add one reply marker at ABSOLUTE `frame`, verified by read-back.
+                       custom_data: str = "", *, project,
+                       idempotency_key: str) -> dict:
+    """Add one reply marker at ABSOLUTE `frame` through an EditPatch.
 
     `frame` is in the same space `read_notes` reports
-    (`GetStartFrame() + key`); the key handed to `AddMarker` is derived
+    (`GetStartFrame() + key`); the key handed to the marker EditPatch is
+    derived
     and bounds-checked here, because Resolve accepts past-the-end
     frames.  Returns the read-back record.  Raises `MarkerWriteError`
     when the frame is off the timeline, when Resolve refuses the write
@@ -870,15 +872,29 @@ def place_reply_marker(timeline, frame: int, color: str, name: str,
             f"(0..{span - 1} in timeline space) - Resolve would accept "
             f"it and the marker would sit past the end where nobody "
             f"can see it.")
-    landed = (timeline.AddMarker(key, color, name, note, duration,
-                                 custom_data) if custom_data
-              else timeline.AddMarker(key, color, name, note, duration))
-    if not landed:
+    from library.tools import edit_patch
+    try:
+        receipt = edit_patch.apply_live_patch(
+            project=project, timeline=timeline, capability="reel.touchup",
+            operations=[{
+                "op": "marker.add", "frame": key, "color": color,
+                "name": name, "note": note, "duration": duration,
+                "custom_data": custom_data,
+            }], conflict_domains=("markers",),
+            idempotency_key=idempotency_key,
+            preconditions=[{"kind": "marker_absent", "frame": key}],
+            postconditions=[{"kind": "duration_unchanged"}])
+    except Exception as exc:
         raise MarkerWriteError(
-            f"Resolve refused the marker at frame {frame} on "
-            f"{timeline.GetName()!r} - an empty name, or a marker "
-            f"already there. Nothing was written.")
-    back = (timeline.GetMarkers() or {}).get(key, {})
+            f"EditPatch refused the reply marker at frame {frame} on "
+            f"{timeline.GetName()!r}: {exc}") from exc
+    if receipt["status"] != "committed":
+        raise MarkerWriteError(
+            f"the reply marker EditPatch did not verify at frame {frame} "
+            f"on {timeline.GetName()!r}: {receipt}")
+    back = next((marker for raw, marker in
+                 (timeline.GetMarkers() or {}).items()
+                 if int(raw) == key), {})
     checks = [("color", color), ("name", name), ("note", note)]
     if custom_data:
         checks.append(("customData", custom_data))
@@ -898,8 +914,9 @@ def place_reply_marker(timeline, frame: int, color: str, name: str,
 def place_reply_clip_marker(item, source_frame: int, color: str,
                             name: str, note: str,
                             duration: int = 1,
-                            custom_data: str = "") -> dict:
-    """Add one reply marker ON A CLIP, at a SOURCE frame, read back.
+                            custom_data: str = "", *, project,
+                            idempotency_key: str) -> dict:
+    """Add one reply marker ON A CLIP at a SOURCE frame through EditPatch.
 
     The captain leaves feedback on the clip the decision is about -
     which picture clip, which overlay, which card - and the answer has
@@ -941,15 +958,43 @@ def place_reply_clip_marker(item, source_frame: int, color: str,
             f"clip plays ({item.GetName()!r}) - Resolve would accept it "
             f"and the marker would sit on footage the timeline never "
             f"shows.")
-    landed = (item.AddMarker(key, color, name, note, duration, custom_data)
-              if custom_data
-              else item.AddMarker(key, color, name, note, duration))
-    if not landed:
+    try:
+        unique_id = str(item.GetUniqueId() or "")
+    except Exception as exc:  # noqa: BLE001
+        unique_id = ""
+        unreadable = exc
+    else:
+        unreadable = None
+    if not unique_id:
         raise MarkerWriteError(
-            f"Resolve refused the marker at source frame {key} on "
-            f"{item.GetName()!r} - an empty name, or a marker already "
-            f"there. Nothing was written.")
-    back = (item.GetMarkers() or {}).get(key, {})
+            f"{item.GetName()!r} would not report a unique id for its "
+            f"EditPatch{f' ({unreadable})' if unreadable else ''}")
+    from library.tools import edit_patch
+    try:
+        receipt = edit_patch.apply_live_patch(
+            project=project, timeline=project.GetCurrentTimeline(),
+            capability="reel.touchup",
+            operations=[{
+                "op": "clip_marker.add", "unique_id": unique_id,
+                "frame": key, "color": color, "name": name,
+                "note": note, "duration": duration,
+                "custom_data": custom_data,
+            }], conflict_domains=("markers",),
+            idempotency_key=idempotency_key,
+            preconditions=[{"kind": "clip_marker_absent",
+                            "unique_id": unique_id, "frame": key}],
+            postconditions=[{"kind": "duration_unchanged"}])
+    except Exception as exc:
+        raise MarkerWriteError(
+            f"EditPatch refused the reply marker at source frame {key} "
+            f"on {item.GetName()!r}: {exc}") from exc
+    if receipt["status"] != "committed":
+        raise MarkerWriteError(
+            f"the reply marker EditPatch did not verify at source frame "
+            f"{key} on {item.GetName()!r}: {receipt}")
+    back = next((marker for raw, marker in
+                 (item.GetMarkers() or {}).items()
+                 if int(raw) == key), {})
     checks = [("color", color), ("name", name), ("note", note)]
     if custom_data:
         checks.append(("customData", custom_data))
@@ -966,26 +1011,58 @@ def place_reply_clip_marker(item, source_frame: int, color: str,
 
 
 @under_lease("remove an answered clip marker")
-def remove_clip_marker(item, source_frame: int) -> bool:
+def remove_clip_marker(item, source_frame: int, *, project,
+                       idempotency_key: str) -> bool:
     """Delete one clip marker at a SOURCE frame, verified by read-back.
 
     The other half of answering on a clip: once the green reply exists,
     the blue question it answers comes off, or the captain re-reads a
-    question that has been answered.  Judged by the READ-BACK, never by
-    the return (AGENTS.md 5): `DeleteMarkerAtFrame` returns False for
+    question that has been answered.  Judged by the EditPatch READ-BACK,
+    never by the return (AGENTS.md 5): `DeleteMarkerAtFrame` returns False for
     "there was nothing there", which is the same outcome as a
     successful delete and must not read as a failure.
     """
     key = int(source_frame)
-    if key not in (item.GetMarkers() or {}):
+    markers = item.GetMarkers() or {}
+    marker = next((value for raw, value in markers.items()
+                   if int(raw) == key), None)
+    if marker is None:
         return False
-    item.DeleteMarkerAtFrame(key)
-    if key in (item.GetMarkers() or {}):
+    try:
+        unique_id = str(item.GetUniqueId() or "")
+    except Exception as exc:  # noqa: BLE001
         raise MarkerWriteError(
-            f"clip marker at source frame {key} on {item.GetName()!r} "
-            f"is still there after DeleteMarkerAtFrame - the delete did "
-            f"not land, so the answered question is still on the "
-            f"timeline.")
+            f"{item.GetName()!r} would not report a unique id for its "
+            f"EditPatch ({exc})") from exc
+    if not unique_id:
+        raise MarkerWriteError(
+            f"{item.GetName()!r} would not report a unique id for its "
+            "EditPatch")
+    from library.tools import edit_patch
+    try:
+        receipt = edit_patch.apply_live_patch(
+            project=project, timeline=project.GetCurrentTimeline(),
+            capability="reel.touchup",
+            operations=[{"op": "clip_marker.delete",
+                         "unique_id": unique_id, "frame": key}],
+            conflict_domains=("markers",),
+            idempotency_key=idempotency_key,
+            preconditions=[{
+                "kind": "clip_marker_present", "unique_id": unique_id,
+                "frame": key, "color": marker.get("color") or "",
+                "name": marker.get("name") or "",
+                "note": marker.get("note") or "",
+                "duration": marker.get("duration", 0),
+                "custom_data": marker.get("customData") or "",
+            }])
+    except Exception as exc:
+        raise MarkerWriteError(
+            f"EditPatch refused the clip marker delete at source frame "
+            f"{key} on {item.GetName()!r}: {exc}") from exc
+    if receipt["status"] != "committed":
+        raise MarkerWriteError(
+            f"the clip marker delete EditPatch did not verify at source "
+            f"frame {key} on {item.GetName()!r}: {receipt}")
     return True
 
 

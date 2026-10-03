@@ -1807,8 +1807,9 @@ def _live_rows(timeline: Any) -> dict:
             for row in _read.live_items(timeline)}
 
 
-def _pre_delete_removed(timeline: Any, removals: Sequence[dict]) -> dict:
-    """Delete the removal targets on the STAGING copy, in one call.
+def _pre_delete_removed(project: Any, timeline: Any,
+                        removals: Sequence[dict], journal_id: str) -> dict:
+    """Delete the removal targets on the STAGING copy through EditPatch.
 
     `composed_edit` only deletes what it re-places, so a removal -
     and the old item of a pixel swap - would otherwise survive the
@@ -1845,9 +1846,30 @@ def _pre_delete_removed(timeline: Any, removals: Sequence[dict]) -> dict:
             f"{missing}. The plan and the timeline disagree - "
             f"nothing further is deleted and the approved timeline "
             f"stands.")
-    timeline.DeleteClips(victims, False)
+    operations = []
+    for entry, item in zip(removals, victims):
+        try:
+            unique_id = str(item.GetUniqueId() or "")
+        except Exception as unreadable:  # noqa: BLE001
+            unique_id = ""
+        if not unique_id:
+            raise TouchupError(
+                f"the staging item at {entry.get('row')}@"
+                f"{entry.get('record_frame')} has no unique id - "
+                "EditPatch cannot safely address the local delete")
+        operations.append({"op": "clip.delete", "unique_id": unique_id})
+    from library.tools import edit_patch
+    patch_receipt = edit_patch.apply_live_patch(
+        project=project, timeline=timeline, capability="reel.touchup",
+        operations=operations, conflict_domains=("timeline_structure",),
+        idempotency_key=f"touch:{journal_id}:local-deletes")
+    if patch_receipt["status"] != "committed":
+        raise TouchupError(
+            f"the staging local-delete patch did not verify: "
+            f"{patch_receipt}")
     return {"asked": len(victims),
-            "seconds": round(time.time() - started, 3)}
+            "seconds": round(time.time() - started, 3),
+            "patch_receipt": patch_receipt}
 
 
 def _rekey_changes(staging_tracks: Sequence[Mapping],
@@ -2240,9 +2262,10 @@ def _add_rows(staged: Any, new_rows: Sequence[Mapping]) -> list:
     return made
 
 
-def _apply_in_place(staged: Any, qualification: Qualification,
-                    comp_dir: str) -> dict:
-    """Write every in-place edit onto the staging copy. No delete, no place.
+def _apply_in_place(project: Any, staged: Any,
+                    qualification: Qualification, comp_dir: str,
+                    journal_id: str) -> dict:
+    """Write in-place edits onto staging; EditPatch owns timeline writes.
 
     Runs BEFORE the composition, addressed by pre-edit record frame
     (nothing has moved yet): a composition capture taken after this
@@ -2252,10 +2275,12 @@ def _apply_in_place(staged: Any, qualification: Qualification,
     diagnosis and the approved timeline was never touched.
     """
 
-    applied: dict = {"properties": [], "entry_motion": []}
+    applied: dict = {"properties": [], "enabled": [],
+                     "entry_motion": []}
     if not qualification.in_place:
         return applied
     rows = _live_rows(staged)
+    patch_operations = []
     for entry in qualification.in_place:
         row = str(entry.get("row")).upper()
         items = rows.get(row) or []
@@ -2272,33 +2297,64 @@ def _apply_in_place(staged: Any, qualification: Qualification,
         item = hits[0]
         if entry.get("kind") == "set_enabled":
             want = bool(entry["enabled"])
-            item.SetClipEnabled(want)
-            if bool(item.GetClipEnabled()) is not want:
+            try:
+                unique_id = str(item.GetUniqueId() or "")
+            except Exception:  # noqa: BLE001
+                unique_id = ""
+            if not unique_id:
                 raise TouchupError(
-                    f"the staged {row}@{entry.get('record_frame')} reads "
-                    f"back {'disabled' if want else 'enabled'} after the "
-                    f"switch - nothing further is edited and the approved "
-                    f"timeline stands.")
-            applied.setdefault("enabled", []).append({
+                    f"the staged {row}@{entry.get('record_frame')} has "
+                    "no unique id for its EditPatch")
+            patch_operations.append({"op": "clip.set_enabled",
+                                     "unique_id": unique_id,
+                                     "enabled": want})
+            applied["enabled"].append({
                 "row": row, "record_frame": entry["record_frame"],
                 "enabled": want})
             continue
         if entry.get("kind") == "set_properties":
-            diff = _ce.set_properties(
-                item, dict(entry.get("properties") or {}))
-            if diff:
+            try:
+                unique_id = str(item.GetUniqueId() or "")
+            except Exception:  # noqa: BLE001
+                unique_id = ""
+            if not unique_id:
                 raise TouchupError(
-                    f"the staged {row}@{entry.get('record_frame')} "
-                    f"did not take its properties: {diff}. A "
-                    f"property that will not read back is not "
-                    f"written - nothing further is edited and the "
-                    f"approved timeline stands.")
+                    f"the staged {row}@{entry.get('record_frame')} has "
+                    "no unique id for its EditPatch")
+            for key, value in sorted(
+                    (entry.get("properties") or {}).items()):
+                patch_operations.append({
+                    "op": "clip.set_property", "unique_id": unique_id,
+                    "key": key, "value": value})
             applied["properties"].append({
                 "row": row, "record_frame": entry["record_frame"],
                 "properties": dict(entry.get("properties") or {})})
-        else:
-            applied["entry_motion"].append(_import_entry_comp(
-                item, entry, comp_dir))
+    if patch_operations:
+        from library.tools import edit_patch
+        applied["patch_receipt"] = edit_patch.apply_live_patch(
+            project=project, timeline=staged, capability="reel.touchup",
+            operations=patch_operations,
+            conflict_domains=("picture_transform", "timeline_structure"),
+            idempotency_key=f"touch:{journal_id}:in-place")
+        if applied["patch_receipt"]["status"] != "committed":
+            raise TouchupError(
+                f"the staging in-place patch did not verify: "
+                f"{applied['patch_receipt']}")
+    for entry in qualification.in_place:
+        if entry.get("kind") != "entry_motion":
+            continue
+        row = str(entry.get("row")).upper()
+        items = rows.get(row) or []
+        hits = [item for item in items
+                if _live_prop(item, "GetStart", None)
+                == int(entry["record_frame"])]
+        if len(hits) != 1:
+            raise TouchupError(
+                f"the staging copy holds {len(hits)} items at "
+                f"{row}@{entry.get('record_frame')} for entry_motion - "
+                "the plan and timeline disagree")
+        applied["entry_motion"].append(_import_entry_comp(
+            hits[0], entry, comp_dir))
     return applied
 
 
@@ -2432,7 +2488,10 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
     # re-place further down carries the write instead of losing it.
     receipt["new_rows"] = _add_rows(staged, qualification.new_rows)
     receipt["in_place"] = _apply_in_place(
-        staged, qualification, comp_dir)
+        project, staged, qualification, comp_dir, journal["id"])
+    if receipt["in_place"].get("patch_receipt"):
+        receipt.setdefault("edit_patches", []).append(
+            receipt["in_place"]["patch_receipt"])
 
     insertions = _resolve_insertions(
         pool, staged, qualification.insertions)
@@ -2446,7 +2505,10 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
     # carried treatments off these same handles, so nothing
     # needed dies with them.
     receipt["pre_delete"] = _pre_delete_removed(
-        staged, qualification.removals)
+        project, staged, qualification.removals, journal["id"])
+    if receipt["pre_delete"].get("patch_receipt"):
+        receipt.setdefault("edit_patches", []).append(
+            receipt["pre_delete"]["patch_receipt"])
     # The pre-delete moved nothing but re-seated every row it
     # touched: re-key the plan's positional indexes off a fresh
     # read before the composition addresses anything by them.
@@ -2683,6 +2745,18 @@ def _promote(project_folder: str, project: Any, pool: Any,
         raise TouchupError(
             f"{final!r} is promoted, but {shrunk} - marker count(s) "
             f"SHRANK on reel(s) this touch-up did not touch.")
+
+    if receipt.get("edit_patches"):
+        from library.tools import timeline_shadow
+        try:
+            head = timeline_shadow.observe(project, staged_found[staging])
+        except Exception as unreadable:  # noqa: BLE001
+            raise TouchupError(
+                f"{final!r} is promoted, but the final EditPatch generation "
+                f"could not be recorded ({unreadable}); recover from "
+                f"{backup!r} and re-run `ren timeline observe`.") \
+                from unreadable
+        receipt["edit_patch_head"] = head.summary()
 
     # THE JOURNAL CLOSES before the replaced generation goes: until
     # `after` is on disk, the backup is the only way back.

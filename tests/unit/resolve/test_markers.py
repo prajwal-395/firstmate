@@ -573,7 +573,7 @@ def test_the_playhead_bound_is_the_last_playable_frame_from_any_origin():
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
 from library.tools import marker_resolution as mr
-from tests.resolve_double import FakeTimeline
+from tests.resolve_double import FakeTimeline, make_project
 
 # ── Notes ─────────────────────────────────────────────────────────
 
@@ -618,6 +618,8 @@ def _timeline_with(note):
     key = note["frame_in_timeline_space"]
     timeline = FakeTimeline("Reel 09", start_frame=108000)
     timeline.AddMarker(key, "Red", note["name"], note["note"], 1, "")
+    project = make_project("Podcast", timelines=[timeline], current=timeline)
+    timeline._resolution_project = project
     return timeline
 
 
@@ -665,7 +667,8 @@ def test_unknown_check_is_refused():
 # ── Verified fixes clear; everything else stays ───────────────────
 
 
-def test_verified_fix_clears_the_timeline_marker(tmp_path):
+def test_verified_fix_clears_the_timeline_marker(tmp_path, monkeypatch):
+    monkeypatch.setenv("REN_SHADOW_DB", str(tmp_path / "shadow.sqlite3"))
     note = _timeline_note()
     timeline = _timeline_with(note)
     result = mr.resolve_note(
@@ -676,6 +679,7 @@ def test_verified_fix_clears_the_timeline_marker(tmp_path):
         check=mr.CHECK_A_ROLL_ROWS,
         measured={"a_roll_video_rows": 2},
         timeline=timeline,
+        resolve_project=timeline._resolution_project,
     )
     record = result["record"]
     assert result["marker_touched"] is True
@@ -691,7 +695,7 @@ def test_verified_fix_clears_the_timeline_marker(tmp_path):
     assert on_disk["evidence"]["a_roll_video_rows"] == 2
 
 
-def test_only_a_verified_fix_clears_a_marker(tmp_path):
+def test_only_a_verified_fix_clears_a_marker(tmp_path, monkeypatch):
     """A decline never clears, even beside a passing check; a taste note
     is unverifiable; a failed check is addressed-unverified. Each keeps
     its marker - the delete is forbidden on the fake and would raise."""
@@ -710,9 +714,12 @@ def test_only_a_verified_fix_clears_a_marker(tmp_path):
          mr.STATUS_ADDRESSED_UNVERIFIED, 1),
     )
     for index, (note, kwargs, status, rows_measured) in enumerate(rows):
+        monkeypatch.setenv(
+            "REN_SHADOW_DB", str(tmp_path / str(index) / "shadow.sqlite3"))
         timeline = _timeline_with_forbidden_delete(note)
         if "check" in kwargs:
             kwargs["timeline"] = timeline
+            kwargs["resolve_project"] = timeline._resolution_project
         result = mr.resolve_note(str(tmp_path / str(index)), note, **kwargs)
         record = result["record"]
         assert record["status"] == status
@@ -728,7 +735,9 @@ def test_only_a_verified_fix_clears_a_marker(tmp_path):
 # ── Failure keeps the words ───────────────────────────────────────
 
 
-def test_failed_removal_keeps_the_words_and_says_the_marker_is_there(tmp_path):
+def test_failed_removal_keeps_the_words_and_says_the_marker_is_there(
+        tmp_path, monkeypatch):
+    monkeypatch.setenv("REN_SHADOW_DB", str(tmp_path / "shadow.sqlite3"))
     note = _timeline_note()
     timeline = _timeline_with_refused_delete(note)
     result = mr.resolve_note(
@@ -739,6 +748,7 @@ def test_failed_removal_keeps_the_words_and_says_the_marker_is_there(tmp_path):
         check=mr.CHECK_A_ROLL_ROWS,
         measured={"a_roll_video_rows": 2},
         timeline=timeline,
+        resolve_project=timeline._resolution_project,
     )
     record = result["record"]
     assert record["status"] == mr.STATUS_RESOLVED_VERIFIED
@@ -760,6 +770,7 @@ def test_stale_frame_refuses_the_deletion(tmp_path):
         1674, "Red", "Marker 9", "something the captain typed since", 1, ""
     )
     timeline.explode_marker_delete_frames.add(1674)
+    project = make_project("Podcast", timelines=[timeline], current=timeline)
     result = mr.resolve_note(
         str(tmp_path),
         note,
@@ -768,6 +779,7 @@ def test_stale_frame_refuses_the_deletion(tmp_path):
         check=mr.CHECK_A_ROLL_ROWS,
         measured={"a_roll_video_rows": 2},
         timeline=timeline,
+        resolve_project=project,
     )
     record = result["record"]
     assert record["status"] == mr.STATUS_RESOLVED_VERIFIED

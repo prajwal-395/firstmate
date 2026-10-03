@@ -298,7 +298,30 @@ def _pool_holding(clips):
     return pool
 
 
-def test_remove_plus_move_on_one_row_rekeys_and_verifies(tmp_path):
+def _mock_pre_delete_patch(monkeypatch, timeline):
+    """Keep these composition tests focused on rekeying around a patch."""
+    from library.tools import edit_patch
+
+    expected_timeline = timeline
+
+    def apply_live_patch(*, timeline, operations, **kwargs):
+        assert timeline is expected_timeline
+        assert kwargs["capability"] == "reel.touchup"
+        assert "timeline_structure" in kwargs["conflict_domains"]
+        for operation in operations:
+            assert operation["op"] == "clip.delete"
+            matches = [item for row in reel_read.live_items(timeline)
+                       for item in row["items"]
+                       if item.GetUniqueId() == operation["unique_id"]]
+            assert len(matches) == 1
+            timeline.DeleteClips([matches[0]], False)
+        return {"status": "committed", "generation": 1}
+
+    monkeypatch.setattr(edit_patch, "apply_live_patch", apply_live_patch)
+
+
+def test_remove_plus_move_on_one_row_rekeys_and_verifies(tmp_path,
+                                                         monkeypatch):
     """Indexes planned before the pre-delete are re-seated after it."""
     timeline, pool, _media = build_reel(tmp_path)
     spec = {"reel": 1, "edits": [
@@ -307,7 +330,9 @@ def test_remove_plus_move_on_one_row_rekeys_and_verifies(tmp_path):
          "to_record": 1300}]}
     qualification = tu.qualify(_tracks(timeline), spec)
     assert qualification.gate_class == tu.COMPOSED
-    tu._pre_delete_removed(timeline, qualification.removals)
+    _mock_pre_delete_patch(monkeypatch, timeline)
+    tu._pre_delete_removed(object(), timeline, qualification.removals,
+                           "test-journal")
     changes = tu._rekey_changes(_tracks(timeline), qualification)
     # V4[2]'s move was planned at index 2; the pre-delete of V4[1]
     # re-seated it to 1, and the rekey says so.
@@ -528,7 +553,7 @@ def _staged_pair(tmp_path):
     return approved, staged, media_pool(staged), media
 
 
-def test_grade_sources_map_by_pre_edit_span(tmp_path):
+def test_grade_sources_map_by_pre_edit_span(tmp_path, monkeypatch):
     approved, staged, _pool, _media = _staged_pair(tmp_path)
     spec = {"reel": 1, "edits": [
         {"op": "retime", "row": "V1", "item": 0, "duration": 492}]}
@@ -546,7 +571,9 @@ def test_grade_sources_map_by_pre_edit_span(tmp_path):
         {"op": "move", "row": "V4", "item": 2, "to_row": "V4",
          "to_record": 1300}]}
     qualification = tu.qualify(_tracks(staged), spec)
-    tu._pre_delete_removed(staged, qualification.removals)
+    _mock_pre_delete_patch(monkeypatch, staged)
+    tu._pre_delete_removed(object(), staged, qualification.removals,
+                           "test-journal")
     changes = tu._rekey_changes(_tracks(staged), qualification)
     # The rekey re-points the move at its re-seated change object.
     assert qualification.moves[0]["change"] in changes
@@ -558,7 +585,8 @@ def test_grade_sources_map_by_pre_edit_span(tmp_path):
         approved.rows["V4"][2]
 
 
-def test_retime_keeps_its_grade_through_the_qualified_plan(tmp_path):
+def test_retime_keeps_its_grade_through_the_qualified_plan(tmp_path,
+                                                           monkeypatch):
     """A graded retime without the carry renders de-graded: 8 nodes in,
     one node out. The wiring carries each re-placed item's grade from
     the approved reel and the restore judges it by read-back."""
@@ -567,7 +595,9 @@ def test_retime_keeps_its_grade_through_the_qualified_plan(tmp_path):
         {"op": "retime", "row": "V1", "item": 0, "duration": 492}]}
     qualification = tu.qualify(_tracks(staged), spec)
     assert qualification.gate_class == tu.COMPOSED_WITH_REDERIVATION
-    tu._pre_delete_removed(staged, qualification.removals)
+    _mock_pre_delete_patch(monkeypatch, staged)
+    tu._pre_delete_removed(object(), staged, qualification.removals,
+                           "test-journal")
     changes = tu._rekey_changes(_tracks(staged), qualification)
     grades = tu._grade_sources_for(approved, changes,
                                    qualification.moves)
