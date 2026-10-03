@@ -502,7 +502,9 @@ def validate_output(rendered_output: dict, assembly_manifest: dict,
     """Run automated validation checks on the rendered video using render_qa."""
     video_path = rendered_output.get('output_path', '')
     project_settings = assembly_manifest.get('project', {})
-    expected_fps = project_settings.get('frame_rate', 30)
+    # None, not 30: a manifest that names no rate gets a NOT-CHECKED
+    # failure from `run_full_render_qa`, never a guessed rate.
+    expected_fps = project_settings.get('frame_rate')
     # The frame the render was built at is DECLARED by the manifest
     # (`compile_manifest` writes `resolve_delivery_format` there). A
     # `.get('resolution', [1080, 1920])` would read a missing

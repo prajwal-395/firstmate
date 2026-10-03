@@ -122,6 +122,37 @@ def test_verify_render_fails_a_real_black_render(tmp_path, black_video):
     assert verdict["receipt"] is not None
 
 
+def _framerate_check(verdict):
+    return next(c for c in verdict["checks"] if c["name"] == "framerate")
+
+
+def test_verify_render_grades_the_rate_the_project_measured(tmp_path):
+    """Reel 01, 2026-10-03: a correct 24000/1001 render of a 23.976
+    project failed `framerate` against a hardcoded 30. The rate is the
+    one the catalog measured, and a 24 render of that project fails."""
+    from library.skills.verify_render.skill import run
+    (tmp_path / "pipeline_data.json").write_text(json.dumps(
+        {"step_outputs": {"catalog": {"project_fps": 23.976}}}))
+    ntsc = str(tmp_path / "ntsc.mp4")
+    _build_video(ntsc, fps="24000/1001")
+    film = str(tmp_path / "film.mp4")
+    _build_video(film, fps=24)
+
+    assert _framerate_check(run(ntsc, str(tmp_path), "validate",
+                                expected_resolution=[1080, 1920]))["passed"]
+    assert not _framerate_check(run(film, str(tmp_path), "validate",
+                                    expected_resolution=[1080, 1920]))["passed"]
+
+
+def test_verify_render_with_no_rate_anywhere_does_not_check_one(tmp_path,
+                                                                 good_video):
+    from library.skills.verify_render.skill import run
+    check = _framerate_check(run(good_video, str(tmp_path), "validate",
+                                 expected_resolution=[1080, 1920]))
+    assert not check["passed"]
+    assert "not checked" in check["detail"]
+
+
 # ── ask_the_footage reports: deterministic half carries, model opines
 
 def test_ask_the_footage_reports_and_its_measurements_carry(

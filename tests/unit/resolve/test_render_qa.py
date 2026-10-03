@@ -58,7 +58,7 @@ def test_resolution_framerate_and_duration_are_read_off_the_file(mock_run):
     mock_run.return_value = MagicMock(stdout='{"streams": [{"width": 1920, "height": 1080}]}', returncode=0)
     assert not verify_resolution("dummy.mp4", 1080, 1920).passed
     mock_run.return_value = MagicMock(stdout='{"streams": [{"r_frame_rate": "30000/1000"}]}', returncode=0)
-    res = verify_framerate("dummy.mp4")
+    res = verify_framerate("dummy.mp4", expected_fps=30)
     assert res.passed
     assert res.value == 30.0
     mock_run.return_value = MagicMock(stdout='{"format": {"duration": "30.0"}}', returncode=0)

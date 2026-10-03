@@ -8,7 +8,7 @@ behalf) can invoke it by import or by shell:
     python3 -m library.skills.verify_render.skill \
         --video /path/to/master.mp4 --project-folder /path/to/project \
         --step-id validate [--expected-duration 63.2]
-        [--expected-resolution 1080 1920] [--expected-fps 30]
+        [--expected-resolution 1080 1920] [--expected-fps 23.976]
         [--dirty-receipt <touch receipt> ...]
 
 `--dirty-receipt` scopes the run to what those touches changed
@@ -34,6 +34,21 @@ import sys
 from typing import Any, Dict, List, Optional
 
 SKILL_NAME = "verify_render"
+
+
+def _measured_project_fps(project_folder: str) -> Optional[float]:
+    """The frame rate the catalog measured off the footage, or None."""
+    import os
+
+    from library.tools import capability_outputs
+    from library.tools.project_layout import PIPELINE_DATA_FILE
+    path = os.path.join(project_folder or "", PIPELINE_DATA_FILE)
+    if not project_folder or not os.path.isfile(path):
+        return None
+    with open(path, encoding="utf-8") as handle:
+        state = json.load(handle)
+    fps = capability_outputs.value(state, "footage.catalog", "project_fps")
+    return float(fps) if fps else None
 
 
 def run(video_path: str,
@@ -106,8 +121,15 @@ def run(video_path: str,
         width, height = frame[:2]
         results.append(render_qa.verify_resolution(
             video_path, expected_width=width, expected_height=height))
+        # The rate, the same way: stated by the caller, else the rate the
+        # project's catalog MEASURED off its footage. A hardcoded 30 here
+        # failed a correct 23.976 reel (Reel 01, 2026-10-03).
         if expected_fps is None:
-            results.append(render_qa.verify_framerate(video_path))
+            expected_fps = _measured_project_fps(project_folder)
+        if expected_fps is None:
+            results.append(render_qa.framerate_not_checked(
+                "no --expected-fps and no measured project_fps in the "
+                "project's catalog"))
         else:
             results.append(render_qa.verify_framerate(
                 video_path, expected_fps=expected_fps))

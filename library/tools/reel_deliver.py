@@ -642,21 +642,25 @@ def deliver_reel(project_folder: str, reel: Optional[int],
         import yaml as _yaml
         resolve_name = ((_yaml.safe_load(handle).get("resolve") or {}).get(
             "project_name", os.path.basename(project_folder)))
-    project = reel_build._connect_resolve_project(resolve_name)
-    # Handle lookup only: `render_timeline` below selects the reel
-    # under its own lease, so selecting here would walk the cursor
-    # twice - once unleashed, outside any lease. The 2026-09-20
-    # incident was exactly such an unleased move colliding with a
-    # sibling lane's Fusion pass. Nothing here moves the cursor, so
-    # there is nothing to put back afterwards either.
-    timeline = resolve_render._find_timeline(project, timeline_name)
-    expected_seconds = _timeline_expected_seconds(timeline)
+    # The Resolve connection is refused outside the instance lease
+    # (see `resolve_locale`), so it and the reads below take one short
+    # exclusive hold, as `build-reels` connects. Without it every
+    # delivery refused before rendering (Reel 01, 2026-10-03).
+    from library.tools.resolve_lock import resolve_lease
+    with resolve_lease("deliver reel connect", exclusive=True):
+        project = reel_build._connect_resolve_project(resolve_name)
+        # Handle lookup only: `render_timeline` below selects the reel
+        # under its own lease, so selecting here would walk the cursor
+        # twice. Nothing here moves the cursor, so there is nothing to
+        # put back afterwards either.
+        timeline = resolve_render._find_timeline(project, timeline_name)
+        expected_seconds = _timeline_expected_seconds(timeline)
 
-    # Fail fast, naming the files: a render against stale overlay
-    # metadata burns the captain's machine to learn what the pool
-    # already says. (2026-09-13: every Reel 26 caption re-rendered at
-    # the constant canvas decoded as its predecessor's width.)
-    stale = overlay_staleness(project, timeline.GetName())
+        # Fail fast, naming the files: a render against stale overlay
+        # metadata burns the captain's machine to learn what the pool
+        # already says. (2026-09-13: every Reel 26 caption re-rendered
+        # at the constant canvas decoded as its predecessor's width.)
+        stale = overlay_staleness(project, timeline.GetName())
     if stale:
         raise DeliverRefused(
             "the reel's overlays changed underneath Resolve's pool metadata",

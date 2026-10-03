@@ -2636,7 +2636,24 @@ def verify_resolution(video_path: str, expected_width: int, expected_height: int
     except Exception as e:
         return RenderQAResult("resolution", False, str(e), None, "error", f"Error: {e}")
 
-def verify_framerate(video_path: str, expected_fps: float = 30.0, tolerance: float = 1.0) -> RenderQAResult:
+#: How far a render's rate may sit from the declared one. Tight enough to
+#: tell an NTSC rate from its integer neighbour (24000/1001 is 0.024 from
+#: 24), which a 1.0 tolerance passed: a 23.976 master rendered at 24 drifts
+#: a frame every 42 seconds.
+FRAMERATE_TOLERANCE = 0.01
+
+
+def framerate_not_checked(reason: str) -> RenderQAResult:
+    """The failing result for a render whose rate nobody declared."""
+    return RenderQAResult(
+        "framerate", False, None, None, "error",
+        f"No declared frame rate to grade the render against - the rate "
+        f"was not checked ({reason}). Pass expected_fps: the rate the "
+        f"project measured (catalog `project_fps`).")
+
+
+def verify_framerate(video_path: str, expected_fps: float,
+                     tolerance: float = FRAMERATE_TOLERANCE) -> RenderQAResult:
     try:
         cmd = ['ffprobe', '-v', 'quiet', '-show_entries', 'stream=r_frame_rate', '-of', 'json', video_path]
         res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15)
@@ -2834,7 +2851,9 @@ def run_full_render_qa(video_path: str, expected_duration: float = None,
         results.append(verify_resolution(video_path,
                                          expected_width=width,
                                          expected_height=height))
-    results.append(verify_framerate(video_path)
+    # The rate, likewise: a hardcoded 30 failed every correct 23.976
+    # render (Reel 01, 2026-10-03).
+    results.append(framerate_not_checked("the caller declared none")
                    if expected_fps is None else
                    verify_framerate(video_path, expected_fps=expected_fps))
     
