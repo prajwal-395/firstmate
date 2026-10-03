@@ -50,6 +50,7 @@ import math
 import os
 import subprocess
 import sys
+import time
 from typing import Optional
 
 from build_verification import (
@@ -983,6 +984,37 @@ def mapping_carries_program(channels, expected) -> bool:
     return expected in list(channels or [])
 
 
+class _PhaseClock:
+    """Where the master build's Resolve hold goes, one phase at a time.
+
+    `build_timeline` holds Resolve for its whole body, so the lease's
+    `resolve_hold` row is one number. Each `lap` closes the running
+    phase and appends it to the performance ledger as
+    `edit_placement.<phase>` the moment it ends, so `ren profile` can
+    rank the phases even when a later one fails. Ledger only: nothing
+    the build returns or places changes, and with no ledger in the
+    environment (`perf_ledger.LEDGER_ENV`) a lap records nothing.
+    What the phases measured live: docs/EDIT_VIDEO_BUILD_HOLD_MEASURED.md.
+    """
+
+    def __init__(self, timeline_name: str):
+        self.timeline_name = timeline_name
+        self.phase = None
+        self.started = 0.0
+
+    def lap(self, phase: Optional[str]) -> None:
+        now = time.perf_counter()
+        if self.phase is not None:
+            try:
+                from library.tools import perf_ledger
+                perf_ledger.record(
+                    f"edit_placement.{self.phase}", now - self.started,
+                    phase=self.phase, timeline=self.timeline_name)
+            except Exception:  # noqa: BLE001 - timing never fails a build
+                pass
+        self.phase, self.started = phase, now
+
+
 @under_lease("render the edit timeline", capability="render.build",
              phase="placement")
 @heavy_work_locked("edit timeline placement", "render.build:placement")
@@ -1013,6 +1045,8 @@ def build_timeline(
     # Declared by the manifest, checked by _preflight_check above: no
     # shape fallback survives here.
     timeline_name = project_settings['name']
+    _clock = _PhaseClock(timeline_name)
+    _clock.lap("plan_overlays")
     width, height = project_settings['resolution'][0], project_settings['resolution'][1]
     fps = project_settings.get('frame_rate', 30)
     total_duration = project_settings.get('duration_seconds', 46.0)
@@ -1136,6 +1170,7 @@ def build_timeline(
                         "detail": msg,
                     })
 
+    _clock.lap("connect")
     # ── Connect to Resolve ──
     try:
         resolve = _connect_resolve()
@@ -1151,6 +1186,7 @@ def build_timeline(
 
     media_pool = project.GetMediaPool()
 
+    _clock.lap("pool_import")
     # ── Import all media to pool with subdirectory organization ──
     # Note: We import media BEFORE creating timeline to detect actual FPS.
     root_folder = media_pool.GetRootFolder()
@@ -1258,6 +1294,7 @@ def build_timeline(
     if total_imported > 0:
         print(f"✓ Imported {total_imported} media files into subfolders", file=sys.stderr)
 
+    _clock.lap("pool_scan")
     # Build pool clip lookup.
     root_folder = media_pool.GetRootFolder()
     pool_clips_by_path = {}
@@ -1297,6 +1334,7 @@ def build_timeline(
     pool_clips = pool_clips_by_name  # Prefer _find_pool_clip() for all new code
     print(f"  Media pool: {len(pool_clips_by_name)} clips ({len(pool_clips_by_path)} with paths)", file=sys.stderr)
 
+    _clock.lap("fps_and_track_plan")
     # ── Detect actual source FPS ──
     actual_fps = float(fps)
     for c in v1_clips:
@@ -1519,6 +1557,7 @@ def build_timeline(
           f"{[(t.index, t.name) for t in track_plan.audio_tracks]}",
           file=sys.stderr)
 
+    _clock.lap("timeline_name_check")
     # ── Auto-increment timeline name to accumulate drafts ──
     # The project declares a base name (like Pipeline_Edit).
     # We append a timestamp and duration to satisfy the captain's request:
@@ -1594,6 +1633,7 @@ def build_timeline(
         results["errors"].append(_project_timeline_shape_refusal)
         return results
 
+    _clock.lap("timeline_create")
     # ── Create empty timeline ──
     timeline = media_pool.CreateEmptyTimeline(timeline_name)
     if not timeline:
@@ -1685,6 +1725,7 @@ def build_timeline(
           f"{float(_fps_readback):g}fps, read back from Resolve)",
           file=sys.stderr)
 
+    _clock.lap("track_setup")
     # ── Set up tracks: the plan's rows, and only those ──
     # Video rows are created up front. Speech audio rows are added one
     # angle at a time during placement below, so an angle's audio never
@@ -1819,6 +1860,7 @@ def build_timeline(
                       f"CH{expected} - removed", file=sys.stderr)
         return kept
 
+    _clock.lap("place_a_roll")
     # ══════════════════════════════════════════════════════════
     # PLACE A-ROLL, one angle per picture row, each with its speech row
     # ══════════════════════════════════════════════════════════
@@ -2022,6 +2064,7 @@ def build_timeline(
         for _row, (_items, _clips) in placed_by_row.items():
             _run_qa(verify_clip_placement(timeline, {_row: _items}, {_row: _clips}))
 
+    _clock.lap("place_room_tone")
     # ══════════════════════════════════════════════════════════
     # PLACE ROOM-TONE FILLS (J/L joins, fidelity rung R5a)
     # ══════════════════════════════════════════════════════════
@@ -2120,6 +2163,7 @@ def build_timeline(
                       f"({fill.get('level_dbfs')} dBFS room)",
                       file=sys.stderr)
 
+    _clock.lap("audio_rows")
     # ══════════════════════════════════════════════════════════
     # NOW create music and SFX audio rows (AFTER speech — so they start clean)
     # ══════════════════════════════════════════════════════════
@@ -2129,6 +2173,7 @@ def build_timeline(
     at = timeline.GetTrackCount("audio")
     print(f"✓ Audio tracks added: A={at} (speech rows, then bed, then SFX)", file=sys.stderr)
 
+    _clock.lap("place_b_roll")
     # ══════════════════════════════════════════════════════════
     # PLACE B-ROLL (plan row, video-only)
     # ══════════════════════════════════════════════════════════
@@ -2180,6 +2225,7 @@ def build_timeline(
 
         results["tracks"][f"V{_broll_row}"] = v2_count
 
+    _clock.lap("native_operations")
     # ══════════════════════════════════════════════════════════
     # NATIVE RESOLVE OPERATIONS (fidelity rung 3b)
     # ══════════════════════════════════════════════════════════
@@ -2262,6 +2308,7 @@ def build_timeline(
                         results["errors"].append(msg)
                         print(f"  ✗ {msg}", file=sys.stderr)
 
+    _clock.lap("place_captions")
     # ══════════════════════════════════════════════════════════
     # PLACE CAPTIONS (plan row, video-only overlays)
     # ══════════════════════════════════════════════════════════
@@ -2383,6 +2430,7 @@ def build_timeline(
 
         results["tracks"][f"V{_caption_row}"] = v3_count
 
+    _clock.lap("place_motion_graphics")
     # ══════════════════════════════════════════════════════════
     # PLACE MOTION GRAPHICS (plan rows, one row per overlapping layer)
     # ══════════════════════════════════════════════════════════
@@ -2466,6 +2514,7 @@ def build_timeline(
         for _r in _mg_rows:
             results["tracks"][f"V{_r}"] = _mg_counts.get(_r, 0)
 
+    _clock.lap("place_generators")
     # ══════════════════════════════════════════════════════════
     # PLACE GENERATOR EFFECTS (plan row, transparent carriers)
     # ══════════════════════════════════════════════════════════
@@ -2549,6 +2598,7 @@ def build_timeline(
 
         results["tracks"][f"V{_gen_row}"] = v5_count
 
+    _clock.lap("place_timed_text")
     # ══════════════════════════════════════════════════════════
     # PLACE TIMED TEXT (plan rows, one row per overlapping layer)
     # ══════════════════════════════════════════════════════════
@@ -2648,6 +2698,7 @@ def build_timeline(
                     f"segments reached the timeline"),
             })
 
+    _clock.lap("place_voiceover_and_music")
     # ══════════════════════════════════════════════════════════
     # PLACE A2: Music
     # ══════════════════════════════════════════════════════════
@@ -2752,6 +2803,7 @@ def build_timeline(
                 print(f"  ✗ {basename} on A{music_track_idx}: failed",
                       file=sys.stderr)
 
+    _clock.lap("place_sfx")
     # ══════════════════════════════════════════════════════════
     # PLACE A3+: SFX (overlap-aware multi-track)
     # ══════════════════════════════════════════════════════════
@@ -2806,6 +2858,7 @@ def build_timeline(
         for tk, count in sorted(sfx_track_counts.items()):
             results["tracks"][f"A{tk}"] = count
 
+    _clock.lap("deliver_audio_mix")
     # ══════════════════════════════════════════════════════════
     # DELIVER THE AUDIO MIX (OTIO round trip)
     # ══════════════════════════════════════════════════════════
@@ -2864,6 +2917,7 @@ def build_timeline(
         print(f"  ✓ cleanup stem {row['label']} on the timeline",
               file=sys.stderr)
 
+    _clock.lap("voice_isolation")
     # ══════════════════════════════════════════════════════════
     # DIALOGUE CLEANUP: VOICE ISOLATION (fidelity rung R5d)
     # ══════════════════════════════════════════════════════════
@@ -3003,6 +3057,7 @@ def build_timeline(
     if verify_audio:
         _run_qa(verify_audio(timeline, project, manifest.get("audio", {})))
 
+    _clock.lap("record_decisions")
     # ══════════════════════════════════════════════════════════
     # RECORD WHAT DECIDED EACH CLIP
     # ══════════════════════════════════════════════════════════
@@ -3048,6 +3103,7 @@ def build_timeline(
             results["warnings"].append(msg)
             print(f"  ⚠ {msg}", file=sys.stderr)
 
+    _clock.lap("fusion_comps")
     # ══════════════════════════════════════════════════════════
     # APPLY FUSION .comp FILES (animated VFX + transitions per clip)
     # ══════════════════════════════════════════════════════════
@@ -3138,6 +3194,7 @@ def build_timeline(
     else:
         results["warnings"].append(f"apply_fusion_comps.py not found at {script_path}")
 
+    _clock.lap("unreachable_fusion_effects")
     # ── Detect planned Fusion effects that the subprocess cannot reach ──
     # The logic lives in build_verification.detect_unreachable_fusion_effects
     # so it can be tested with plain data objects, without Resolve. The
@@ -3201,6 +3258,7 @@ def build_timeline(
                     f"and not one clip on V1 carries a Fusion comp"
                 )
 
+    _clock.lap("neural_directives")
     # ══════════════════════════════════════════════════════════
     # NEURAL ENGINE DIRECTIVES (Per-Clip)
     # ══════════════════════════════════════════════════════════
@@ -3253,6 +3311,7 @@ def build_timeline(
     # top of library/tools/neural_engine.py. Framing is delivered per clip
     # by _apply_conform above.
 
+    _clock.lap("fairlight_preset")
     # ══════════════════════════════════════════════════════════
     # APPLY FAIRLIGHT PRESET (if specified)
     # ══════════════════════════════════════════════════════════
@@ -3282,6 +3341,7 @@ def build_timeline(
     # rebuilds the timeline and would discard every Fusion comp drawn
     # since. The cyan-marker path that used to sit here is its fallback.
 
+    _clock.lap("color_grade")
     # ══════════════════════════════════════════════════════════
     # COLOR GRADING (house look: CDL half, then the PowerGrade route)
     # ══════════════════════════════════════════════════════════
@@ -3452,6 +3512,7 @@ def build_timeline(
     if verify_color_grades:
         _run_qa(verify_color_grades(timeline, None, manifest.get("color_grade", {})))
 
+    _clock.lap("link_pass")
     # ══════════════════════════════════════════════════════════
     # LINK PASS: picture to speech, captions into the group
     # ══════════════════════════════════════════════════════════
@@ -3739,6 +3800,7 @@ def build_timeline(
                     results["warnings"].append(
                         f"Caption link at {_cs} read back unlinked")
 
+    _clock.lap("track_labels")
     # ══════════════════════════════════════════════════════════
     print(f"\n── Track Labels ──", file=sys.stderr)
     # Names come from the plan, which named them from the material, and
@@ -3766,6 +3828,7 @@ def build_timeline(
         timeline.SetTrackName("audio", i, label)
         print(f"  A{i}: {label}", file=sys.stderr)
 
+    _clock.lap("occupancy")
     # ══════════════════════════════════════════════════════════
     # OCCUPANCY: a row with nothing on it leaves the timeline
     # ══════════════════════════════════════════════════════════
@@ -3842,6 +3905,7 @@ def build_timeline(
     # library/tools/transition_vocabulary.py); the surgery tool and its
     # test remain in the tree unused.
 
+    _clock.lap("verification")
     # ══════════════════════════════════════════════════════════
     # VERIFICATION
     # ══════════════════════════════════════════════════════════
@@ -3999,6 +4063,7 @@ def build_timeline(
         for w in results["warnings"]:
             print(f"  WARNING: {w}", file=sys.stderr)
 
+    _clock.lap("version_record")
     # ══════════════════════════════════════════════════════════
     # VERSION-CONTROL RECORD (per-project git repo)
     # ══════════════════════════════════════════════════════════
@@ -4028,6 +4093,7 @@ def build_timeline(
             results["warnings"].append(msg)
             print(f"  ⚠ {msg}", file=sys.stderr)
 
+    _clock.lap(None)
     return results
 
 
