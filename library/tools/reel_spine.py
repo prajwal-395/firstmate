@@ -662,8 +662,12 @@ def _split_runs_at_removed_spans(kept: list,
             if prev_end is not None and float(start) >= float(prev_end):
                 head = reel_time(float(prev_end), ranges, at_end=True)
                 tail = reel_time(float(start), ranges)
-                if (head is None or tail is None
-                        or tail < head - CONTIGUITY_TOLERANCE_SECONDS):
+                master_gap = float(start) - float(prev_end)
+                reel_gap = (None if head is None or tail is None
+                            else float(tail) - float(head))
+                if (reel_gap is None
+                        or reel_gap < master_gap
+                        - CONTIGUITY_TOLERANCE_SECONDS):
                     runs.append(current)
                     current = []
         current.append(word)

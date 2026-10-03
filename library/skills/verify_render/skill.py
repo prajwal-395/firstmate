@@ -58,7 +58,10 @@ def run(video_path: str,
         expected_resolution: Optional[List[int]] = None,
         expected_fps: Optional[float] = None,
         declared_black_beats: Optional[List] = None,
-        dirty_receipts: Optional[List[str]] = None) -> Dict[str, Any]:
+        dirty_receipts: Optional[List[str]] = None,
+        declared_ending_black_spans: Optional[List] = None,
+        declared_silence_spans: Optional[List] = None,
+        assembly_manifest: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Run the deterministic render checks and record the receipt.
 
     Returns a verdict dict with `passed`, per-check `checks`, and the
@@ -85,6 +88,17 @@ def run(video_path: str,
     not_rechecked: List[str] = []
     scope = "whole file"
     try:
+        if assembly_manifest is not None:
+            from library.tools.spine_contract import declared_black_beat_ranges
+
+            ending_spans = render_qa.declared_ending_spans(assembly_manifest)
+            if declared_black_beats is None:
+                declared_black_beats = declared_black_beat_ranges(
+                    assembly_manifest.get("_spine_blocks") or [])
+            if declared_ending_black_spans is None:
+                declared_ending_black_spans = ending_spans["black"]
+            if declared_silence_spans is None:
+                declared_silence_spans = ending_spans["silence"]
         from library.tools.dirty_regions import scope_for
         dirty = scope_for(video_path, dirty_receipts)
         if dirty is None or dirty["whole_reel"]:
@@ -92,10 +106,11 @@ def run(video_path: str,
                 scope = f"whole file: {dirty['whole_reel_reason']}"
             results.append(render_qa.measure_lufs(video_path))
             results.append(render_qa.detect_black_frames(
-                video_path, declared_beats=declared_black_beats))
+                video_path, declared_beats=declared_black_beats,
+                declared_ending_spans=declared_ending_black_spans))
             results.append(render_qa.detect_freeze_frames(video_path))
             results.append(render_qa.measure_silence_under_picture(
-                video_path))
+                video_path, declared_spans=declared_silence_spans))
         else:
             from library.tools.dirty_regions import AUDIO, describe
             scope = f"scoped to the touch: {describe(dirty)}"
@@ -104,7 +119,8 @@ def run(video_path: str,
             else:
                 not_rechecked.append("lufs")
             scoped, skipped = render_qa.run_scoped_render_qa(
-                video_path, dirty, declared_black_beats)
+                video_path, dirty, declared_black_beats,
+                declared_ending_black_spans, declared_silence_spans)
             results += scoped
             not_rechecked += skipped
         # The frame the render was built at: stated by the caller, else
@@ -178,15 +194,26 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--expected-resolution", type=int, nargs=2,
                         default=None, metavar=("W", "H"))
     parser.add_argument("--expected-fps", type=float, default=None)
+    parser.add_argument(
+        "--assembly-manifest", default=None,
+        help="compiled reel manifest; render QA allowances are derived "
+             "from its ending effect and silent end card")
     parser.add_argument("--dirty-receipt", action="append", default=None,
                         help="a touch receipt; re-check only what it "
                              "changed (repeatable)")
     args = parser.parse_args(argv)
 
+    assembly_manifest = None
+    if args.assembly_manifest:
+        with open(args.assembly_manifest, encoding="utf-8") as handle:
+            assembly_manifest = json.load(handle)
+        if not isinstance(assembly_manifest, dict):
+            parser.error("--assembly-manifest must contain a JSON object")
     verdict = run(args.video, args.project_folder, args.step_id,
                   expected_duration=args.expected_duration,
                   expected_resolution=args.expected_resolution,
                   expected_fps=args.expected_fps,
+                  assembly_manifest=assembly_manifest,
                   dirty_receipts=args.dirty_receipt)
     print(json.dumps(verdict, indent=2))
     return 0 if verdict["passed"] else 1

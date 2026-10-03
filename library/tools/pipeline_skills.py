@@ -181,6 +181,11 @@ def _verify_render_args(inputs: dict) -> dict:
     manifest = inputs.get("assembly_manifest") or {}
     project = (manifest.get("project") or {}) if isinstance(
         manifest, dict) else {}
+    if not isinstance(manifest, dict):
+        manifest = {}
+    from library.tools.render_qa import declared_ending_spans
+    from library.tools.spine_contract import declared_black_beat_ranges
+    endings = declared_ending_spans(manifest)
     duration = project.get("duration_seconds") or None
     if duration is not None and not float(duration) > 0:
         duration = None
@@ -189,6 +194,10 @@ def _verify_render_args(inputs: dict) -> dict:
         "expected_duration": duration,
         "expected_resolution": project.get("resolution"),
         "expected_fps": project.get("frame_rate"),
+        "declared_black_beats": declared_black_beat_ranges(
+            manifest.get("_spine_blocks") or []),
+        "declared_ending_black_spans": endings["black"],
+        "declared_silence_spans": endings["silence"],
     }
 
 

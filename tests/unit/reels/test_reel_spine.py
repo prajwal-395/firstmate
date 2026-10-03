@@ -272,6 +272,61 @@ def test_the_pipeline_step_captions_a_reel_from_this_spine(transcript,
     assert max(e["timeline_end"] for e in entries) <= reel_end + 1e-6
 
 
+def test_reel03_question_after_removed_take_reaches_the_caption_plan():
+    """A positive reel-time gap can still hide a removed source span.
+
+    Reel 03's transcript row carries the lead-in and its recovered CRM
+    question on both sides of a struck take. The question starts at
+    20.48s on the reel. The spine must split at the compressed gap so
+    step 4.01 can map the question's source seconds onto its reel seconds.
+    """
+    from library.tools.operations import get
+
+    question = "what's the best CRM if I run a 10 person law firm?"
+    row_words = [
+        word("instead", 237.700, 237.981),
+        word("typing", 238.021, 238.462),
+        word("best", 238.743, 239.084),
+        word("CRMs...", 239.204, 239.851),
+        word("What's", 241.891, 242.052),
+        word("the", 242.072, 242.132),
+        word("best", 242.172, 242.433),
+        word("CRM", 242.473, 242.654),
+        word("if", 242.694, 242.774),
+        word("I", 242.814, 242.874),
+        word("run", 242.914, 243.095),
+        word("a", 243.135, 243.235),
+        word("10", 243.245, 243.395),
+        word("person", 243.396, 243.696),
+        word("law", 243.716, 243.877),
+        word("firm?", 243.917, 244.181),
+    ]
+    row = segment(
+        "Akshita", "instead typing best CRMs... " + question,
+        237.700, 244.181, "LC4932.MXF", 167.08779166666665, row_words)
+    ranges = [(218.271, 238.710), (241.850, 248.270)]
+    reel = Moment(timeline_start=218.271, timeline_end=248.270)
+
+    spine = spine_for_reel(reel, {"segments": [row]}, ranges=ranges)
+    recovery = [block for block in spine["structure"]
+                if block["timeline_start"] >= 20.0]
+    assert len(recovery) == 1
+    assert recovery[0]["timeline_start"] == pytest.approx(20.48)
+
+    plan = get("subtitles.plan").run(
+        spine, caption_case="lowercase", brand_effect={}, brand_style={},
+        project_folder="")
+    entries = plan["subtitle_plan"]["subtitle_entries"]
+    spoken = [timing for entry in entries for timing in entry["words"]
+              if 20.48 <= timing["start"] < 22.77]
+    assert [timing["word"] for timing in spoken] == [
+        "what's", "the", "best", "CRM", "if", "i", "run", "a",
+        "10", "person", "law", "firm?",
+    ]
+    assert spoken[0]["start"] == pytest.approx(20.48)
+    assert spoken[-1]["end"] == pytest.approx(22.77)
+
+
 # ── Two mics, one sentence ──────────────────────────────────────────
 #
 # Migrated from tests/test_reel_subtitles.py, which tested this against

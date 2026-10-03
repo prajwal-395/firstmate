@@ -140,6 +140,7 @@ except ImportError:  # imported as a top-level module from library/tools
 # exactly MAX_DECLARED_BLACK_BEAT_SECONDS would pass compile_manifest and
 # then fail here, one render too late.
 DECLARED_BEAT_TOLERANCE_SECONDS = 0.05
+DECLARED_ENDING_TOLERANCE_SECONDS = 0.001
 
 
 @dataclass
@@ -248,7 +249,8 @@ def measure_lufs(video_path: str, target_lufs: float = DEFAULT_LUFS_TARGET,
         return RenderQAResult("lufs", False, str(e), target_lufs, "error", f"Error measuring LUFS: {e}")
 
 def segment_is_declared(segment: dict, declared_beats: Optional[List] = None,
-                        max_declared_seconds: float = MAX_DECLARED_BLACK_BEAT_SECONDS) -> bool:
+                        max_declared_seconds: float = MAX_DECLARED_BLACK_BEAT_SECONDS,
+                        declared_ending_spans: Optional[List] = None) -> bool:
     """True when a detected black segment is a beat the plan declared.
 
     The plan declares beats on spine blocks (see
@@ -259,15 +261,99 @@ def segment_is_declared(segment: dict, declared_beats: Optional[List] = None,
     render that turned a declared 0.4s hold into three seconds of black
     is still a defect, and black anywhere else always is.
     """
-    if not declared_beats:
+    def contained(start: float, end: float, tolerance: float) -> bool:
+        return (start - tolerance <= segment["start"]
+                and segment["end"] <= end + tolerance)
+
+    if any(contained(float(start), float(end),
+                     DECLARED_ENDING_TOLERANCE_SECONDS)
+           for start, end in (declared_ending_spans or [])):
+        return True
+    if (not declared_beats or segment["duration"]
+            > max_declared_seconds + DECLARED_BEAT_TOLERANCE_SECONDS):
         return False
-    if segment["duration"] > max_declared_seconds + DECLARED_BEAT_TOLERANCE_SECONDS:
-        return False
-    return any(
-        start - DECLARED_BEAT_TOLERANCE_SECONDS <= segment["start"]
-        and segment["end"] <= end + DECLARED_BEAT_TOLERANCE_SECONDS
-        for start, end in declared_beats
-    )
+    return any(contained(float(start), float(end),
+                         DECLARED_BEAT_TOLERANCE_SECONDS)
+               for start, end in declared_beats)
+
+
+def declared_ending_spans(assembly_manifest: Optional[dict]) -> dict:
+    """Read render-QA allowances from the ending the manifest will draw.
+
+    The black window comes from the final V1 clip's declared
+    ``tv_power_tail`` effect and its own frame timing. A silent end-card
+    window comes from a V1 ``bookend=end_card`` clip marked video-only.
+    No timestamps are authored here: both windows follow the same
+    declarations the renderer consumes.
+
+    Returns ``{"black": [(start, end)], "silence": [(start, end)]}``.
+    Malformed or incomplete declarations produce no allowance, leaving
+    the corresponding render finding undeclared and failing closed.
+    """
+    if not isinstance(assembly_manifest, dict):
+        return {"black": [], "silence": []}
+    project = assembly_manifest.get("project") or {}
+    if not isinstance(project, dict):
+        return {"black": [], "silence": []}
+    try:
+        fps = float(project["frame_rate"])
+    except (KeyError, TypeError, ValueError):
+        return {"black": [], "silence": []}
+    if not math.isfinite(fps) or fps <= 0:
+        return {"black": [], "silence": []}
+
+    black_spans = []
+    silent_spans = []
+    tracks = assembly_manifest.get("tracks") or {}
+    v1 = tracks.get("V1") if isinstance(tracks, dict) else None
+    v1_clips = v1.get("clips") if isinstance(v1, dict) else None
+    v1_clips = v1_clips if isinstance(v1_clips, list) else []
+    final_content_clip = next(
+        (clip for clip in reversed(v1_clips)
+         if isinstance(clip, dict) and not clip.get("bookend")), None)
+    final_content_label = (final_content_clip or {}).get("label")
+    fusion_effects = assembly_manifest.get("fusion_effects") or {}
+    effects = (fusion_effects.get("per_clip")
+               if isinstance(fusion_effects, dict) else None)
+    effects = effects if isinstance(effects, dict) else {}
+    for clip in v1_clips:
+        if not isinstance(clip, dict):
+            continue
+        label = clip.get("label")
+        effect = effects.get(label) or {}
+        if not isinstance(effect, dict):
+            effect = {}
+        if (label is not None and label == final_content_label
+                and effect.get("tv_power_tail")):
+            try:
+                from library.tools.tv_power import switch_shape
+
+                timing = dict(switch_shape())
+                timing.update(effect.get("tv_power_tail_timing") or {})
+                frames = sum(int(timing[key]) for key in (
+                    "collapse_frames", "dot_frames", "decay_frames"))
+                if frames > 0:
+                    if clip.get("timeline_out_frame") is not None:
+                        end = float(clip["timeline_out_frame"]) / fps
+                    else:
+                        end = float(clip["timeline_out"])
+                    start = end - frames / fps
+                    if math.isfinite(start) and math.isfinite(end) and end > start:
+                        black_spans.append((start, end))
+                        silent_spans.append((start, end))
+            except (KeyError, TypeError, ValueError, OverflowError):
+                pass
+
+        if clip.get("bookend") == "end_card" and clip.get("video_only") is True:
+            try:
+                start, end = float(clip["timeline_in"]), float(clip["timeline_out"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if math.isfinite(start) and math.isfinite(end) and end > start:
+                silent_spans.append((start, end))
+
+    return {"black": _merge_windows(black_spans),
+            "silence": _merge_windows(silent_spans)}
 
 
 def _seek(window: Optional[tuple]) -> list:
@@ -291,7 +377,8 @@ FREEZE_MIN_SECONDS = 1.0
 def detect_black_frames(video_path: str, min_duration: float = BLACK_MIN_SECONDS,
                         declared_beats: Optional[List] = None,
                         max_declared_seconds: float = MAX_DECLARED_BLACK_BEAT_SECONDS,
-                        window: Optional[tuple] = None) -> RenderQAResult:
+                        window: Optional[tuple] = None,
+                        declared_ending_spans: Optional[List] = None) -> RenderQAResult:
     """Detect sustained black frames using ffmpeg blackdetect.
 
     Black the plan deliberately declared is not a defect - the captain's
@@ -326,7 +413,8 @@ def detect_black_frames(video_path: str, min_duration: float = BLACK_MIN_SECONDS
                         "duration": float(m_dur.group(1))
                     }
                     segment["declared"] = segment_is_declared(
-                        segment, declared_beats, max_declared_seconds
+                        segment, declared_beats, max_declared_seconds,
+                        declared_ending_spans,
                     )
                     black_segments.append(segment)
 
@@ -2460,10 +2548,40 @@ def _picture_seconds(run: tuple, picture: dict, fps: float) -> float:
     return float(lit)
 
 
+def _unexcused_picture_seconds(run: tuple, picture: dict, fps: float,
+                               declared_spans: Sequence[tuple]) -> float:
+    """Picture time over a silent run that falls outside declarations."""
+    start, end, _ = run
+    first = int(math.floor(start * fps))
+    last = int(math.ceil(end * fps))
+    outside = 0.0
+    for index in range(first, last):
+        if picture.get(index, True):
+            continue
+        frame_start, frame_end = index / fps, (index + 1) / fps
+        lo, hi = max(start, frame_start), min(end, frame_end)
+        if hi <= lo:
+            continue
+        cursor = lo
+        for span_start, span_end in declared_spans or ():
+            span_start, span_end = float(span_start), float(span_end)
+            if span_end <= cursor or span_start >= hi:
+                continue
+            if span_start > cursor:
+                outside += span_start - cursor
+            cursor = max(cursor, span_end)
+            if cursor >= hi:
+                break
+        if cursor < hi:
+            outside += hi - cursor
+    return float(outside)
+
+
 def measure_silence_under_picture(
         video_path: str,
         ladder: Sequence[float] = NEAR_SILENCE_LADDER_DBFS,
-        sample_rate: int = 48000) -> RenderQAResult:
+        sample_rate: int = 48000,
+        declared_spans: Optional[Sequence[tuple]] = None) -> RenderQAResult:
     """P8: no stretch of picture plays over digital silence.
 
     Two halves, and only the first decides anything.
@@ -2536,10 +2654,17 @@ def measure_silence_under_picture(
             rows = []
             for run in runs_by_level[level]:
                 lit = _picture_seconds(run, picture, fps)
-                rows.append({"start": round(run[0], 3),
-                             "end": round(run[1], 3),
-                             "duration": round(run[2], 3),
-                             "seconds_under_picture": round(lit, 3)})
+                row = {"start": round(run[0], 3),
+                       "end": round(run[1], 3),
+                       "duration": round(run[2], 3),
+                       "seconds_under_picture": round(lit, 3)}
+                if level <= DIGITAL_ZERO_DBFS:
+                    undeclared = _unexcused_picture_seconds(
+                        run, picture, fps, declared_spans or ())
+                    row["seconds_undeclared_under_picture"] = round(
+                        undeclared, 3)
+                    row["declared_ending"] = (lit > 0 and undeclared < floor_seconds)
+                rows.append(row)
             total = sum(r["duration"] for r in rows)
             lit_total = sum(r["seconds_under_picture"] for r in rows)
             by_level[f"{level:.2f}" if level > DIGITAL_ZERO_DBFS
@@ -2557,12 +2682,14 @@ def measure_silence_under_picture(
 
         zero = by_level["digital_zero"]
         offenders = [r for r in zero["where"]
-                     if r["seconds_under_picture"] >= floor_seconds]
+                     if r["seconds_undeclared_under_picture"]
+                     >= floor_seconds]
         faults = []
         for row in offenders:
             faults.append(
-                f"{row['seconds_under_picture']:.3f}s of picture plays over "
-                f"digital silence at {row['start']:.3f}-{row['end']:.3f}s")
+                f"{row['seconds_undeclared_under_picture']:.3f}s of picture "
+                f"plays over undeclared digital silence at "
+                f"{row['start']:.3f}-{row['end']:.3f}s")
 
         detail = (
             f"{zero['seconds']:.3f}s of the {runtime:.3f}s master is at "
@@ -2576,6 +2703,13 @@ def measure_silence_under_picture(
             detail += f"; reported and not judged: {near}"
         if faults:
             detail += " - " + "; ".join(faults)
+        elif declared_spans and zero["seconds_under_picture"] > 0:
+            declared_seconds = sum(
+                r["seconds_under_picture"]
+                - r["seconds_undeclared_under_picture"]
+                for r in zero["where"])
+            detail += (f"; {declared_seconds:.3f}s of picture over digital "
+                       f"silence falls inside declared ending spans")
 
         return RenderQAResult(
             metric="silence_under_picture",
@@ -2591,6 +2725,8 @@ def measure_silence_under_picture(
                 "near_silence_ladder_dbfs": [float(x) for x in ladder],
                 "ladder_gates": False,
                 "minimum_run_frames": MIN_SILENCE_FRAMES,
+                "declared_ending_spans": [list(span)
+                                          for span in (declared_spans or ())],
                 "black_pixel_ratio": BLACK_PIXEL_RATIO,
                 "lit_luma_threshold": LIT_LUMA_THRESHOLD,
             },
@@ -2762,8 +2898,9 @@ def run_full_render_qa(video_path: str, expected_duration: float = None,
                        spine_blocks: Optional[Sequence[dict]] = None,
                        overlay_segments: Optional[Sequence["OverlaySegment"]] = None,
                        grade_spans: Optional[Sequence["GradeSpan"]] = None,
-                       true_peak_ceiling: float =
-                       DEFAULT_TRUE_PEAK_CEILING_DBTP
+                       true_peak_ceiling: float = DEFAULT_TRUE_PEAK_CEILING_DBTP,
+                       declared_ending_black_spans: Optional[List] = None,
+                       declared_silence_spans: Optional[List] = None
                        ) -> List[RenderQAResult]:
     """Run every render QA check.
 
@@ -2820,7 +2957,9 @@ def run_full_render_qa(video_path: str, expected_duration: float = None,
     results.append(measure_lufs(
         video_path, target_lufs=target_lufs,
         true_peak_ceiling=true_peak_ceiling))
-    results.append(detect_black_frames(video_path, declared_beats=declared_black_beats))
+    results.append(detect_black_frames(
+        video_path, declared_beats=declared_black_beats,
+        declared_ending_spans=declared_ending_black_spans))
     results.append(detect_freeze_frames(video_path))
     results.append(analyze_color_histogram(video_path))
     results.append(measure_frame_occupancy(video_path,
@@ -2829,7 +2968,8 @@ def run_full_render_qa(video_path: str, expected_duration: float = None,
     results.append(measure_chroma_presence(video_path,
                                            chroma_floor=chroma_floor))
     results.append(measure_face_intact(video_path))
-    results.append(measure_silence_under_picture(video_path))
+    results.append(measure_silence_under_picture(
+        video_path, declared_spans=declared_silence_spans))
     if music_path and music_automation and music_offset_seconds is not None:
         results.append(measure_speech_above_bed(
             video_path, music_path, music_automation, music_offset_seconds,
@@ -2896,7 +3036,9 @@ def _file_seconds(video_path: str) -> float:
 
 
 def run_scoped_render_qa(video_path: str, dirty: dict,
-                         declared_black_beats: Optional[List] = None
+                         declared_black_beats: Optional[List] = None,
+                         declared_ending_black_spans: Optional[List] = None,
+                         declared_silence_spans: Optional[List] = None,
                          ) -> tuple:
     """The located detectors, over the dirty spans only.
 
@@ -2917,11 +3059,13 @@ def run_scoped_render_qa(video_path: str, dirty: dict,
             continue
         found, errors = [], []
         if metric == "silence_under_picture":
-            part = measure_silence_under_picture(video_path)
+            part = measure_silence_under_picture(
+                video_path, declared_spans=declared_silence_spans)
             parts = [(None, part)]
         elif metric == "black_frames":
             parts = [(span, detect_black_frames(
                 video_path, declared_beats=declared_black_beats,
+                declared_ending_spans=declared_ending_black_spans,
                 window=span[:2])) for span in spans]
         else:
             parts = [(span, detect_freeze_frames(
@@ -2938,7 +3082,7 @@ def run_scoped_render_qa(video_path: str, dirty: dict,
             else:
                 rows = [r for r in
                         part.value["by_level"]["digital_zero"]["where"]
-                        if r["seconds_under_picture"]
+                        if r["seconds_undeclared_under_picture"]
                         >= part.value["minimum_run_seconds"]]
             found += [r for r in rows if any(
                 r["start"] < hi and r["end"] > lo

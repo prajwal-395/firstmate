@@ -57,6 +57,50 @@ def _build_video(path, width=1080, height=1920, duration=2.0,
         capture_output=True, check=True)
 
 
+def _build_ending_video(path):
+    """Switch-off black, then a silent picture end card."""
+    subprocess.run(
+        ["ffmpeg", "-y",
+         "-f", "lavfi", "-i",
+         "testsrc=s=320x568:r=30:d=2.6",
+         "-f", "lavfi", "-i",
+         "color=c=black:s=320x568:r=30:d=0.6",
+         "-f", "lavfi", "-i",
+         "testsrc=s=320x568:r=30:d=1.0",
+         "-f", "lavfi", "-i", "sine=frequency=440:duration=2.6",
+         "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo:d=1.6",
+         "-filter_complex",
+         "[0:v][1:v][2:v]concat=n=3:v=1:a=0[v];"
+         "[3:a][4:a]concat=n=2:v=0:a=1[a];"
+         "[a]loudnorm=I=-14:TP=-1.5:LRA=11[aout]",
+         "-map", "[v]", "-map", "[aout]",
+         "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+         "-c:a", "aac", "-t", "4.2", str(path)],
+        capture_output=True, check=True)
+
+
+def _ending_manifest():
+    return {
+        "project": {"frame_rate": 30, "resolution": [320, 568],
+                    "duration_seconds": 4.2},
+        "tracks": {"V1": {"clips": [
+            {"label": "body", "timeline_in": 0.0, "timeline_out": 3.2,
+             "timeline_in_frame": 0, "timeline_out_frame": 96},
+            {"label": "bookend_end_card", "bookend": "end_card",
+             "video_only": True, "timeline_in": 3.2,
+             "timeline_out": 4.2, "timeline_in_frame": 96,
+             "timeline_out_frame": 126},
+        ]}},
+        "fusion_effects": {"per_clip": {"body": {
+            "tv_power_tail": True,
+            "tv_power_tail_timing": {"collapse_frames": 6,
+                                      "dot_frames": 3,
+                                      "decay_frames": 9},
+        }}},
+        "_spine_blocks": [],
+    }
+
+
 @pytest.fixture()
 def good_video(tmp_path):
     path = str(tmp_path / "good.mp4")
@@ -120,6 +164,49 @@ def test_verify_render_fails_a_real_black_render(tmp_path, black_video):
     failed = [c["name"] for c in verdict["checks"] if not c["passed"]]
     assert failed, "a 2s black-and-silent render passed every check"
     assert verdict["receipt"] is not None
+
+
+def test_verify_render_reads_ending_spans_from_the_reel_manifest(tmp_path):
+    from library.skills.verify_render.skill import run
+    from library.tools.render_qa import declared_ending_spans
+
+    video = str(tmp_path / "ending.mp4")
+    _build_ending_video(video)
+    manifest = _ending_manifest()
+    spans = declared_ending_spans(manifest)
+    assert spans == {"black": [[2.6, 3.2]],
+                     "silence": [[2.6, 4.2]]}
+    misplaced = _ending_manifest()
+    misplaced["tracks"]["V1"]["clips"].insert(1, {
+        "label": "later_content", "timeline_in": 3.2,
+        "timeline_out": 3.3, "timeline_in_frame": 96,
+        "timeline_out_frame": 99,
+    })
+    assert declared_ending_spans(misplaced)["black"] == []
+
+    verdict = run(video, str(tmp_path), "ending", assembly_manifest=manifest,
+                  expected_resolution=[320, 568], expected_fps=30,
+                  expected_duration=4.2)
+    checks = {check["name"]: check for check in verdict["checks"]}
+    assert checks["black_frames"]["passed"], checks["black_frames"]
+    assert checks["silence_under_picture"]["passed"], checks["silence_under_picture"]
+    assert verdict["passed"], verdict["issues"]
+
+    # Move both declarations away from the rendered ending. The same
+    # black and picture-over-silence must still fail outside the spans.
+    manifest["tracks"]["V1"]["clips"][0].update(
+        {"timeline_out": 2.6, "timeline_out_frame": 78})
+    manifest["tracks"]["V1"]["clips"][1].update(
+        {"timeline_in": 3.8, "timeline_out": 4.8})
+    outside = run(video, str(tmp_path), "ending-outside",
+                  assembly_manifest=manifest,
+                  expected_resolution=[320, 568], expected_fps=30,
+                  expected_duration=4.2)
+    outside_checks = {check["name"]: check for check in outside["checks"]}
+    assert not outside_checks["black_frames"]["passed"]
+    assert not outside_checks["silence_under_picture"]["passed"]
+    assert "undeclared digital silence" in outside_checks[
+        "silence_under_picture"]["detail"]
 
 
 def _framerate_check(verdict):
@@ -248,17 +335,16 @@ def test_an_empty_vfx_plan_needs_no_treatment_receipt(tmp_path):
                 step_id, manifest, str(tmp_path), llm_output={})
 
 
-def test_pipeline_runs_the_gate_for_a_shell_less_harness(
-        tmp_path, good_video):
+def test_pipeline_runs_the_gate_for_a_shell_less_harness(tmp_path):
     """`api` cannot invoke: the pipeline runs verify_render itself and
-    the verdict comes back as retry-context text."""
+    the verdict comes back as retry-context text. The ending declarations
+    from the compile manifest reach the same gate here."""
+    video = str(tmp_path / "ending.mp4")
+    _build_ending_video(video)
     manifest = {"skills": ["verify_render"]}
     inputs = {"project_folder": str(tmp_path),
-              "rendered_output": {"output_path": good_video},
-              "assembly_manifest": {
-                  "project": {"frame_rate": 30,
-                              "resolution": [1080, 1920],
-                              "duration_seconds": 2.0}}}
+              "rendered_output": {"output_path": video},
+              "assembly_manifest": _ending_manifest()}
     fed = pipeline_skills.ensure_gating_receipts(
         "validate", manifest, inputs, "api")
     assert "PASSED" in fed

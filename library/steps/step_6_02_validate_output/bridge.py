@@ -35,7 +35,7 @@ from library.tools.render_qa import (
     RenderQAResult,
     run_full_render_qa,
 )
-from library.tools import render_watch
+from library.tools import render_qa, render_watch
 from library.tools.spine_contract import declared_black_beat_ranges
 from library.tools.subtitle_qa import verify_subtitle_timing
 from library.tools.transition_vocabulary import CUT_TYPES
@@ -562,6 +562,7 @@ def validate_output(rendered_output: dict, assembly_manifest: dict,
     music_path, music_automation, music_offset = _music_bed(assembly_manifest)
     audio_mix = assembly_manifest.get("audio_mix", {}) or {}
     try:
+        ending_spans = render_qa.declared_ending_spans(assembly_manifest)
         qa_results = run_full_render_qa(
             video_path, expected_duration,
             target_lufs=float(audio_mix.get(
@@ -570,6 +571,8 @@ def validate_output(rendered_output: dict, assembly_manifest: dict,
                 "delivery_true_peak_ceiling_dbtp",
                 DEFAULT_TRUE_PEAK_CEILING_DBTP)),
             declared_black_beats=_declared_black_beats(assembly_manifest),
+            declared_ending_black_spans=ending_spans["black"],
+            declared_silence_spans=ending_spans["silence"],
             # The delivery format the manifest was compiled at. These two
             # were computed above and then never passed, so the gate
             # judged every render against a hardcoded 1080x1920/30fps.
