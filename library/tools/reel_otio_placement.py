@@ -251,13 +251,21 @@ def import_recorded(project, recorder: PlacementRecorder, name: str,
         raise OtioPlacementRefused(
             f"{name}: ImportTimelineFromFile returned None for the "
             f"compiled timeline (every referenced file was on disk)")
-    assert_current_timeline(project, timeline)
+    # The custom resolution the import drops - sized BEFORE the timeline
+    # becomes current, under the same deadline as the default path. The
+    # 2026-10-02 Fusion render-lock race hangs on these same three
+    # writes when they land on a just-made-current timeline
+    # (https://github.com/prajwal-395/video_editing_pilot/pull/1594);
+    # a hang here refuses the build by name after the deadline
+    # (`library/tools/resolve_deadline.py`).
+    from library.tools import resolve_deadline as _deadline
+    try:
+        _deadline.apply_timeline_resolution(timeline, width, height)
+    except (_deadline.ResolveCallTimeout,
+            _deadline.ResolutionNotApplied) as exc:
+        raise OtioPlacementRefused(f"{name}: {exc}") from exc
 
-    # The custom resolution the import drops.
-    for key, value in (("useCustomSettings", "1"),
-                       ("timelineResolutionWidth", str(int(width))),
-                       ("timelineResolutionHeight", str(int(height)))):
-        timeline.SetSetting(key, value)
+    assert_current_timeline(project, timeline)
 
     # Every planned row, under its planned name, and every recorded item
     # where it was recorded - judged by the read-back, never the return.

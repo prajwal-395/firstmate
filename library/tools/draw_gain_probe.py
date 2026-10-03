@@ -225,9 +225,20 @@ def calibrate(resolve, project, frame_wh: tuple,
         if not scratch:
             return _fallback_record(
                 ["CreateEmptyTimeline refused: probe cannot run"])
-        scratch.SetSetting("useCustomSettings", "1")
-        scratch.SetSetting("timelineResolutionWidth", str(frame_wh[0]))
-        scratch.SetSetting("timelineResolutionHeight", str(frame_wh[1]))
+        # Sized before it becomes current (the 2026-10-02 Fusion
+        # render-lock race hangs these writes on a just-made-current
+        # timeline; https://github.com/prajwal-395/video_editing_pilot/pull/1594),
+        # each under a deadline: a hang falls
+        # back loudly after the deadline
+        # (`library/tools/resolve_deadline.py`).
+        from library.tools import resolve_deadline as _deadline
+        try:
+            _deadline.apply_timeline_resolution(
+                scratch, frame_wh[0], frame_wh[1])
+        except (_deadline.ResolveCallTimeout,
+                _deadline.ResolutionNotApplied) as exc:
+            return _fallback_record(
+                [f"scratch sizing failed ({exc}): probe cannot run"])
 
         plate_path = build_plate(os.path.join(tmpdir, "gain_probe.png"),
                                  frame_wh[0], frame_wh[1])

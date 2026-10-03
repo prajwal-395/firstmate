@@ -8381,21 +8381,36 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     else:
         timeline = create_reel_timeline(pool, name)
 
+        # Sized BEFORE it becomes current. 2026-10-02: these same three
+        # writes on a timeline that had JUST been made current
+        # deadlocked Resolve - the main thread in Fusion's
+        # SyncProjectSettings waiting on a render lock never released
+        # (https://github.com/prajwal-395/video_editing_pilot/pull/1594,
+        # "the timeline-resolution race"; passed 3 times,
+        # hung once). A fresh timeline nothing is rendering yet holds
+        # no render lock, so the settings sync has nothing to contend
+        # with. Each write runs under a deadline, so a hang that still
+        # happens refuses the build by name after the deadline
+        # (`library/tools/resolve_deadline.py`).
+        #
+        # The frame the caller already resolved and every overlay above
+        # was rendered at. Written from `width`/`height` rather than by
+        # literal: a timeline sized differently from the overlays drawn
+        # for it is exactly the 001 defect (a vertical overlay band down
+        # the middle of a landscape master), and the two numbers cannot
+        # disagree if only one of them exists.
+        from library.tools import resolve_deadline as _deadline
+        try:
+            _deadline.apply_timeline_resolution(timeline, width, height)
+        except (_deadline.ResolveCallTimeout,
+                _deadline.ResolutionNotApplied) as exc:
+            raise ReelBuildError(f"{name}: {exc}") from exc
+
         # Through the guard: this runs inside the per-reel exclusive hold,
         # and a direct set would bypass the lease refusal and the fence's
         # drift record. An unleased cursor move killed a sibling lane's
         # Fusion pass on 2026-09-20.
         assert_current_timeline(project, timeline)
-
-        # The frame the caller already resolved and every overlay above was
-        # rendered at. Written from `width`/`height` rather than by literal:
-        # a timeline sized differently from the overlays drawn for it is
-        # exactly the 001 defect (a vertical overlay band down the middle of
-        # a landscape master), and the two numbers cannot disagree if only
-        # one of them exists.
-        timeline.SetSetting("useCustomSettings", "1")
-        timeline.SetSetting("timelineResolutionWidth", str(int(width)))
-        timeline.SetSetting("timelineResolutionHeight", str(int(height)))
 
         # The plan's rows, and only those. A row exists because the plan
         # put something on it; occupancy is enforced after placement, so

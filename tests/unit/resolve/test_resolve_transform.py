@@ -288,10 +288,12 @@ class _Timeline:
         return True
 
     def GetSetting(self, key):
-        return {"timelineResolutionWidth": "1080",
-                "timelineResolutionHeight": "1920",
-                "timelineFrameRate": "23.976",
-                "timelinePlaybackFrameRate": "23.976"}.get(key)
+        settings = {"timelineResolutionWidth": "1080",
+                    "timelineResolutionHeight": "1920",
+                    "timelineFrameRate": "23.976",
+                    "timelinePlaybackFrameRate": "23.976"}
+        settings.update(self.settings)
+        return settings.get(key)
 
     def GetStartTimecode(self):
         return "00:00:00:00"

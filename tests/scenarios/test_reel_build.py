@@ -739,6 +739,57 @@ def _build(
     )
 
 
+def test_fresh_reel_resolution_is_set_before_it_becomes_current(monkeypatch):
+    """Model the Fusion render-lock race against the Resolve double.
+
+    Resolve hung when these writes landed after the new timeline had
+    become current. Refuse that ordering here so the real reel builder
+    proves it sizes the timeline before the guarded cursor move.
+    """
+    timeline, pool, project = _world()
+    keys = ("useCustomSettings", "timelineResolutionWidth",
+            "timelineResolutionHeight")
+    writes = []
+    original_set_setting = FakeTimeline.SetSetting
+
+    def refuse_if_current(target, key, value):
+        if key in keys:
+            assert not target._is_current, (
+                f"{key} was set after {target.GetName()} became current")
+            writes.append((key, value))
+        return original_set_setting(target, key, value)
+
+    monkeypatch.setattr(FakeTimeline, "SetSetting", refuse_if_current)
+
+    _build(timeline, pool, project, _master_clips(),
+           program_channels={"1": 1, "2": 1})
+
+    assert writes == [("useCustomSettings", "1"),
+                      ("timelineResolutionWidth", "1080"),
+                      ("timelineResolutionHeight", "1920")]
+    assert project.GetCurrentTimeline() is timeline
+
+
+def test_a_timeline_setting_timeout_refuses_the_build_by_name(monkeypatch):
+    from library.tools import resolve_deadline
+
+    timeline, pool, project = _world()
+
+    def timeout(*_args, **_kwargs):
+        raise resolve_deadline.ResolveCallTimeout(
+            "timeline SetSetting timelineResolutionWidth did not return")
+
+    monkeypatch.setattr(resolve_deadline, "apply_timeline_resolution",
+                        timeout)
+
+    with pytest.raises(ReelBuildError,
+                       match="Reel 99 - sop-proof: timeline SetSetting"):
+        _build(timeline, pool, project, _master_clips(),
+               program_channels={"1": 1, "2": 1})
+
+    assert project.GetCurrentTimeline() is None
+
+
 def test_reel24_build_uses_one_units_conversion_for_punches_and_override(
     tmp_path, monkeypatch
 ):

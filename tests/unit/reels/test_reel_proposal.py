@@ -1160,6 +1160,11 @@ def test_build_reel_timeline_places_audio_at_or_after_the_measured_edge(
     project.GetMediaPool.return_value = pool
     timeline = MagicMock()
     timeline.GetUniqueId.return_value = "test-reel03"
+    timeline.GetSetting.side_effect = lambda key: {
+        "useCustomSettings": "1",
+        "timelineResolutionWidth": "1080",
+        "timelineResolutionHeight": "1920",
+    }.get(key, "")
     timeline.GetTrackCount.side_effect = lambda kind: (
         1 if kind in ("video", "audio") else 0)
     timeline.GetItemListInTrack.return_value = []

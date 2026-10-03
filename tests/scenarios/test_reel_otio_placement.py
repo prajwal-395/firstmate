@@ -123,16 +123,71 @@ def _timeline_state(project):
 
 
 def test_the_recorded_build_lands_the_default_builds_timeline(media,
-                                                              tmp_path):
+                                                              tmp_path,
+                                                              monkeypatch):
+    keys = ("useCustomSettings", "timelineResolutionWidth",
+            "timelineResolutionHeight")
+    writes = {}
+    original_set_setting = FakeTimeline.SetSetting
+
+    def refuse_if_current(target, key, value):
+        if key in keys:
+            assert not target._is_current, (
+                f"{key} was set after {target.GetName()} became current")
+            writes.setdefault(id(target), []).append((key, value))
+        return original_set_setting(target, key, value)
+
+    monkeypatch.setattr(FakeTimeline, "SetSetting", refuse_if_current)
+
     default_project, default_pool, _ = _build(
         media, "append", tmp_path / "a")
     project, pool, record = _build(media, "otio", tmp_path / "b")
 
+    expected_resolution = [("useCustomSettings", "1"),
+                           ("timelineResolutionWidth", "1080"),
+                           ("timelineResolutionHeight", "1920")]
+    assert len(writes) == 2, "both placement paths size their own timeline"
+    assert all(calls == expected_resolution for calls in writes.values())
     assert pool.append_calls == [], "a recorded build appends nothing"
     assert default_pool.append_calls, "the default build appends"
     assert _timeline_state(project) == _timeline_state(default_project)
     assert record["stream_enforcement"]["checked"] == 2
     assert record["stream_enforcement"]["unverified"] == []
+
+
+def test_a_resolution_timeout_refuses_the_otio_import_by_name(media, tmp_path,
+                                                               monkeypatch):
+    from library.tools import resolve_deadline
+
+    project = make_project(width=1080, height=1920, frame_rate=FPS)
+    pool = project.GetMediaPool()
+    pool.next_timeline = FakeTimeline()
+    footage = [media["akshita"], media["craig"]]
+    pool.media_properties = {p: {"FPS": "23.976", "Resolution": "32x32"}
+                             for p in footage}
+    pool.ImportMedia(footage)
+    clips = [
+        _clip(media, "video", 1, "Akshita", "Akshita", "akshita", 0, 10),
+        _clip(media, "video", 2, "Craig", "Craig", "craig", 10, 20),
+        _clip(media, "audio", 1, "Akshita CH1", "Akshita", "akshita", 0, 10),
+        _clip(media, "audio", 2, "Craig CH1", "Craig", "craig", 10, 20),
+    ]
+
+    def timeout(*_args, **_kwargs):
+        raise resolve_deadline.ResolveCallTimeout(
+            "timeline SetSetting timelineResolutionWidth did not return")
+
+    monkeypatch.setattr(resolve_deadline, "apply_timeline_resolution",
+                        timeout)
+
+    with pytest.raises(OtioPlacementRefused,
+                       match="Reel 99 - otio-proof: timeline SetSetting"):
+        build_reel_timeline(
+            project, _Moment(), clips, [], FPS, 1080, 1920,
+            str(tmp_path / "project"), {"segments": []},
+            program_channels={"1": 1, "2": 1}, placement_mode="otio")
+
+    assert project.GetCurrentTimeline() is None
 
 
 def test_what_the_import_cannot_carry_refuses_by_name(media, tmp_path):
