@@ -2104,7 +2104,7 @@ def run_pipeline(
         pending_specs = edit_spec.pending_note_states(project_dir)
         pending_specs = {
             note_id: state for note_id, state in pending_specs.items()
-            if state.get("state") != "superseded"}
+            if state.get("state") not in ("superseded", "answered")}
     except (OSError, ValueError) as exc:
         pending_specs = {"edit_spec_state": {
             "reason": f"edit spec state cannot be read: {exc}",

@@ -1067,7 +1067,10 @@ def pending_note_states(project_folder: str, rows: list | None = None,
     holds collected natural-language notes before they have a translation.
     A complete ledger row set releases a note to op-type routing;
     `include_untranslated=False` lets `ren notes` keep its old route as a
-    diagnostic without allowing the pipeline to execute that guess.
+    diagnostic without allowing the pipeline to execute that guess. A note
+    the current edit answers comes back with state `answered` in both
+    modes (`marker_resolution.answered_release`): released from the hold,
+    and kept out of planning.
     """
     from library.tools import llm_handshake, marker_routing
 
@@ -1183,37 +1186,52 @@ def pending_note_states(project_folder: str, rows: list | None = None,
                 "questions": [],
             }
 
-    if include_untranslated:
-        linked_ids = set(latest)
-        recorded_ids = {row.get("source_note_id") for row in existing_rows
-                        if row.get("source_note_id")}
-        for pull_path, payload in marker_routing._pull_payloads(
-                project_folder):
-            timeline = payload.get("timeline", "")
-            for raw in payload.get("notes", []):
-                note_id = marker_routing.edit_link_id(
-                    raw, timeline, str(pull_path))
-                if note_id in linked_ids or note_id in recorded_ids:
-                    continue
-                request_value = raw.get("text") or raw.get("note") or ""
-                if (not isinstance(request_value, str)
-                        or not request_value.strip()):
-                    continue
-                request = request_value.strip()
-                command = " ".join((
-                    "ren spec prepare",
-                    shlex.quote(os.path.abspath(project_folder)),
-                    "--note-id", shlex.quote(note_id),
-                    "--request", shlex.quote(request)))
-                pending[note_id] = {
-                    "request_id": "",
-                    "reason": (
-                        "this collected natural-language note has not been "
-                        "translated into typed operations; keyword routing "
-                        "is not used to plan an edit"),
-                    "questions": [],
-                    "prepare_command": command,
-                }
+    # A note the current edit already answers, proven by a check the
+    # project measures itself (`marker_resolution.answered_release`), is
+    # held out of planning without a typed edit, in either mode. One whose
+    # answered record no longer holds is pending again, saying why.
+    from library.tools import marker_resolution
+
+    linked_ids = set(latest)
+    recorded_ids = {row.get("source_note_id") for row in existing_rows
+                    if row.get("source_note_id")}
+    for pull_path, payload in marker_routing._pull_payloads(project_folder):
+        timeline = payload.get("timeline", "")
+        for raw in payload.get("notes", []):
+            note_id = marker_routing.edit_link_id(
+                raw, timeline, str(pull_path))
+            if note_id in linked_ids or note_id in recorded_ids:
+                continue
+            request_value = raw.get("text") or raw.get("note") or ""
+            if (not isinstance(request_value, str)
+                    or not request_value.strip()):
+                continue
+            answered = marker_resolution.answered_release(
+                project_folder, raw, timeline, str(pull_path))
+            if answered and answered[0]:
+                pending[note_id] = {"state": "answered", "request_id": "",
+                                    "reason": answered[1], "questions": []}
+                continue
+            if not include_untranslated:
+                continue
+            request = request_value.strip()
+            command = " ".join((
+                "ren spec prepare",
+                shlex.quote(os.path.abspath(project_folder)),
+                "--note-id", shlex.quote(note_id),
+                "--request", shlex.quote(request)))
+            reason = (
+                "this collected natural-language note has not been "
+                "translated into typed operations; keyword routing "
+                "is not used to plan an edit")
+            if answered:
+                reason += "; " + answered[1]
+            pending[note_id] = {
+                "request_id": "",
+                "reason": reason,
+                "questions": [],
+                "prepare_command": command,
+            }
     return pending
 
 

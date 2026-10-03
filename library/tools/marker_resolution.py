@@ -43,6 +43,11 @@ failing input looks like (AGENTS.md 10.4):
   every named reel CARRIES the declared element, read off a
   `reel_divergence.survey` and judged by `reel_divergence.assert_reaches`.
   Fails on a survey that read no reel and on any reel reading ABSENT.
+* `caption_size_matches_declaration` and `source_span_absent_from_edit`
+  answer a note the CURRENT edit already answers (`answer_note`). The
+  project measures them itself (`MEASURES`), and the edit runner's hold
+  re-measures them on every run (`answered_release`), so a rebuild that
+  undoes the answer holds the note again. No typed edit is recorded.
 
 `SUGGESTED_CHECKS` maps the routed steps those checks can prove anything
 about (`render`, `render_motion_graphics`); a note routed anywhere else,
@@ -103,6 +108,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import uuid
 from dataclasses import asdict, dataclass, field
@@ -258,11 +264,87 @@ def check_declaration_reaches_reels(measured: dict) -> tuple:
 
 
 CHECK_DECLARATION_REACHES = "declared_element_reaches_reels"
+CHECK_CAPTION_SIZE = "caption_size_matches_declaration"
+CHECK_SOURCE_SPAN_ABSENT = "source_span_absent_from_edit"
+
+
+def check_caption_size_matches_declaration(measured: dict) -> tuple:
+    """(passed, evidence). Every caption the edit places renders at the
+    size the project declares (`pipeline.subtitle_typography.size`).
+
+    `measured` carries `declared_size` and `rendered_sizes`, the
+    `fontSize` values read off each placed caption segment's
+    `_props.json`. Fails on no declaration, on no caption segment, on a
+    segment whose props say no size, and on any size that differs.
+    """
+    measured = measured or {}
+    for required in ("declared_size", "rendered_sizes"):
+        if required not in measured:
+            return False, {"reason": f"no measurement supplied: "
+                                     f"`{required}` was never read"}
+    declared = measured["declared_size"]
+    rendered = measured["rendered_sizes"] or {}
+    if declared is None:
+        return False, {"reason": "the project declares no "
+                                 "pipeline.subtitle_typography.size"}
+    if not rendered:
+        return False, {"declared_size": declared,
+                       "reason": "the edit places no caption segment"}
+    off = {path: sizes for path, sizes in rendered.items()
+           if not sizes or any(size != declared for size in sizes)}
+    return (not off, {
+        "declared_size": declared,
+        "segments": len(rendered),
+        "differing": off,
+        "reason": (f"all {len(rendered)} placed caption segment(s) render "
+                   f"at the declared {declared}"
+                   if not off else
+                   f"{len(off)} of {len(rendered)} placed caption "
+                   f"segment(s) do not render at the declared {declared}"),
+    })
+
+
+def check_source_span_absent_from_edit(measured: dict) -> tuple:
+    """(passed, evidence). No clip the edit places plays any of
+    `source_file` between `start_s` and `end_s` (source seconds).
+
+    `placements` are `[source_file, source_in, source_out, track]` read
+    off the current assembly manifest; the source path matches exactly.
+    A placement with no `source_out` is taken to run to the end of its
+    source, so an unmeasured end counts as an overlap.
+    """
+    measured = measured or {}
+    for required in ("source_file", "start_s", "end_s", "placements"):
+        if required not in measured:
+            return False, {"reason": f"no measurement supplied: "
+                                     f"`{required}` was never read"}
+    source = measured["source_file"]
+    start, end = float(measured["start_s"]), float(measured["end_s"])
+    hits = []
+    for path, source_in, source_out, track in measured["placements"]:
+        if path != source:
+            continue
+        lo = float(source_in or 0.0)
+        hi = float("inf") if source_out is None else float(source_out)
+        if lo < end and start < hi:
+            hits.append([track, source_in, source_out])
+    return (not hits, {
+        "source_file": source, "start_s": start, "end_s": end,
+        "overlapping": hits,
+        "reason": (f"no placed clip plays {os.path.basename(source)} "
+                   f"{start:.3f}-{end:.3f}s"
+                   if not hits else
+                   f"{len(hits)} placed clip(s) still play "
+                   f"{os.path.basename(source)} {start:.3f}-{end:.3f}s"),
+    })
+
 
 CHECKS = {
     CHECK_A_ROLL_ROWS: check_a_roll_rows,
     CHECK_MOTION_GRAPHICS: check_motion_graphics_present,
     CHECK_DECLARATION_REACHES: check_declaration_reaches_reels,
+    CHECK_CAPTION_SIZE: check_caption_size_matches_declaration,
+    CHECK_SOURCE_SPAN_ABSENT: check_source_span_absent_from_edit,
 }
 """The whole vocabulary of deterministic verification. A name outside it
 is refused by `verify` rather than treated as a pass."""
@@ -504,6 +586,134 @@ def find_note(project_folder, note_id: str):
         if routed.note_id == note_id:
             return asdict(routed)
     return None
+
+
+# ── Answered by the current edit ──────────────────────────────────
+#
+# A note can be answered by an edit that already changed: the size it
+# complains about is now declared, the clip it is typed on is no longer
+# placed. Such a note needs no typed edit, and recording one would send
+# stale guidance to a planner. `answer_note` records it RESOLVED_VERIFIED
+# against a check the project MEASURES ITSELF (`MEASURES`), and the
+# edit runner's hold (`edit_spec.pending_note_states`) releases it only
+# while `answered_release` re-measures and the check still passes - a
+# rebuild that brings the clip back holds the note again. The marker
+# itself is untouched: removing it is `clear`, against the open timeline.
+
+def _assembly_manifest(project_folder) -> dict:
+    """The current assembly manifest off `pipeline_data.json`, or {}."""
+    from library.tools import capability_outputs
+
+    path = ProjectLayout(project_folder).pipeline_data_path
+    try:
+        state = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    output = capability_outputs.node_outputs(state).get("compile_manifest")
+    return (output or {}).get("assembly_manifest") or {}
+
+
+def _font_sizes(value) -> list:
+    """Every `fontSize` in one caption render's props, in order."""
+    found = []
+    if isinstance(value, dict):
+        for key, nested in value.items():
+            if key == "fontSize":
+                found.append(nested)
+            else:
+                found.extend(_font_sizes(nested))
+    elif isinstance(value, list):
+        for nested in value:
+            found.extend(_font_sizes(nested))
+    return found
+
+
+def measure_caption_size(project_folder, params: dict) -> dict:
+    from library.tools.overlay_draw_intent import render_props_path
+    from library.tools.subtitle_style import project_subtitle_typography
+
+    declared = (project_subtitle_typography(str(project_folder))
+                or {}).get("size")
+    overlay = _assembly_manifest(project_folder).get("subtitle_overlay") or {}
+    rendered = {}
+    if overlay.get("available") is not False:
+        for segment in overlay.get("segments") or []:
+            props = render_props_path(segment)
+            if not props:
+                continue
+            try:
+                rendered[props] = _font_sizes(json.loads(
+                    Path(props).read_text(encoding="utf-8")))
+            except (OSError, ValueError):
+                rendered[props] = []
+    return {"declared_size": declared, "rendered_sizes": rendered}
+
+
+def measure_source_span(project_folder, params: dict) -> dict:
+    placements = []
+    tracks = _assembly_manifest(project_folder).get("tracks") or {}
+    for track, body in sorted(tracks.items()):
+        for clip in (body or {}).get("clips") or []:
+            if isinstance(clip, dict) and clip.get("source_file"):
+                placements.append([clip["source_file"],
+                                   clip.get("source_in"),
+                                   clip.get("source_out"), track])
+    return {**params, "placements": placements}
+
+
+MEASURES = {
+    CHECK_CAPTION_SIZE: measure_caption_size,
+    CHECK_SOURCE_SPAN_ABSENT: measure_source_span,
+}
+"""The checks a project measures itself, off its own files. Only these
+can answer a note: the measurement is taken here, never supplied."""
+
+
+def answer_note(project_folder, note: dict, check: str, params: dict,
+                rationale: str, verifier: str = "") -> dict:
+    """Record `note` answered by the current edit, measured now.
+
+    RESOLVED_VERIFIED when the check passes on the project's own files,
+    ADDRESSED_UNVERIFIED when it does not. Never touches a marker.
+    """
+    if check not in MEASURES:
+        raise UnknownCheck(
+            f"check {check!r} is not one the project measures itself. "
+            f"Known: {sorted(MEASURES)}.")
+    measured = MEASURES[check](project_folder, dict(params or {}))
+    passed, evidence = verify(check, measured)
+    return record_resolution(
+        project_folder, note,
+        STATUS_RESOLVED_VERIFIED if passed else STATUS_ADDRESSED_UNVERIFIED,
+        action="answered by the current edit", rationale=rationale,
+        check=check, evidence={**evidence, "params": dict(params or {})},
+        verifier=verifier)
+
+
+def answered_release(project_folder, raw: dict, timeline: str,
+                     pull_file: str):
+    """(released, reason) for one collected note, or None without a record.
+
+    The record must carry the note's own words and an answering check,
+    and that check must pass on a measurement taken now.
+    """
+    from library.tools import marker_routing as routing
+
+    record = read_resolution(
+        project_folder, routing._note_id(raw, timeline, pull_file))
+    words = (raw.get("text") or raw.get("note") or "").strip()
+    if not record or (record.get("text") or "").strip() != words:
+        return None
+    check = record.get("check", "")
+    if (record.get("status") != STATUS_RESOLVED_VERIFIED
+            or check not in MEASURES):
+        return None
+    params = (record.get("evidence") or {}).get("params") or {}
+    passed, evidence = verify(check, MEASURES[check](project_folder, params))
+    if passed:
+        return True, f"answered by the current edit: {evidence['reason']}"
+    return False, (f"its answered record no longer holds: "
+                   f"{evidence['reason']}")
 
 
 # ── The removal: an EditPatch, judged on its read-back ──────────────
@@ -874,6 +1084,18 @@ def main(argv=None) -> int:
                          help="JSON measurement the check reads")
     p_clear.add_argument("--verifier", default="")
 
+    p_answer = sub.add_parser(
+        "answer", help="record a note answered by the current edit, against "
+                       "a check the project measures itself (never touches "
+                       "the timeline)")
+    p_answer.add_argument("--project", required=True)
+    p_answer.add_argument("--note", required=True)
+    p_answer.add_argument("--check", required=True, choices=sorted(MEASURES))
+    p_answer.add_argument("--params", default="{}",
+                          help="JSON parameters the measurement takes")
+    p_answer.add_argument("--rationale", required=True)
+    p_answer.add_argument("--verifier", default="")
+
     args = parser.parse_args(argv)
 
     if args.command == "show":
@@ -891,6 +1113,18 @@ def main(argv=None) -> int:
               f"a resolution for a note nobody collected is refused",
               file=sys.stderr)
         return 2
+
+    if args.command == "answer":
+        try:
+            params = json.loads(args.params)
+        except ValueError as exc:
+            print(f"✗ --params is not JSON: {exc}", file=sys.stderr)
+            return 2
+        record = answer_note(args.project, note, args.check, params,
+                             args.rationale,
+                             verifier=args.verifier or "cli:answer")
+        print(_render_record(record))
+        return 0 if record["status"] == STATUS_RESOLVED_VERIFIED else 4
 
     if args.command == "record":
         result = resolve_note(args.project, note, args.action,

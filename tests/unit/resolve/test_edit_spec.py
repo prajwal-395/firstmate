@@ -953,3 +953,78 @@ def test_story_pacing_cold_open_translates_and_reaches_mesh_spine(tmp_path):
         "library/steps/step_2_05_mesh_spine/manifest.json"
     ).read_text(encoding="utf-8"))
     marker_routing.assert_deliverable("mesh_spine", manifest, routed)
+
+
+def test_a_note_the_current_edit_answers_is_released_only_while_it_holds(
+        tmp_path):
+    """An answered record releases a note without a typed edit, and only
+    while the project's own measurement still passes.
+
+    Catches the release becoming an assertion: a record written once
+    would keep a note out of planning after a rebuild put the clip it
+    complains about back, and a record for other words typed on the same
+    frame would release a note nobody answered.
+    """
+    from library.processes.edit_video.run_pipeline import run_pipeline
+    from library.tools import (capability_outputs, marker_feedback,
+                               marker_resolution, marker_routing)
+    from library.tools.project_layout import Area
+
+    project = _project(tmp_path)
+    layout = ProjectLayout(str(project))
+    source = str(project / "raw" / "cutaway.mov")
+    note = {"source": "clip_marker", "name": "Marker 1",
+            "note": "this clip is b-roll of nothing",
+            "text": "Marker 1\n\nthis clip is b-roll of nothing",
+            "frame": 744, "frame_in_timeline_space": 89,
+            "custom_data": {}}
+    pull = layout.write_path(
+        Area.MARKER_FEEDBACK,
+        f"Edit.20260828{marker_feedback.PULL_FILE_SUFFIX}")
+    pull.write_text(json.dumps({"format": marker_feedback.PULL_FORMAT,
+                                "timeline": "Edit", "notes": [note]}),
+                    encoding="utf-8")
+    link_id = marker_routing.edit_link_id(note, "Edit", str(pull))
+
+    def placed(source_in):
+        state = {}
+        capability_outputs.record(state, "compile_manifest", {
+            "assembly_manifest": {"tracks": {"V2": {"clips": [{
+                "source_file": source, "source_in": source_in,
+                "source_out": source_in + 2.0}]}}}})
+        Path(layout.pipeline_data_path).write_text(
+            json.dumps(state), encoding="utf-8")
+
+    params = {"source_file": source, "start_s": 1.667, "end_s": 4.167}
+    routed = {**note, "note_id": marker_routing._note_id(
+        note, "Edit", str(pull)), "timeline": "Edit"}
+
+    placed(10.0)
+    record = marker_resolution.answer_note(
+        str(project), routed, marker_resolution.CHECK_SOURCE_SPAN_ABSENT,
+        params, "the cutaway was dropped")
+    assert record["status"] == marker_resolution.STATUS_RESOLVED_VERIFIED
+    pending = edit_spec.pending_note_states(str(project))
+    assert pending[link_id]["state"] == "answered"
+    (routed_note,) = marker_routing.route_project(str(project))
+    assert routed_note.outcome == marker_routing.OUTCOME_UNROUTED
+    assert routed_note.basis == marker_routing.BASIS_ANSWERED
+    assert run_pipeline(str(project), dry_run=True).get(
+        "status") != "REFUSED"
+
+    # A rebuild puts the span back: the note is held again, saying why.
+    placed(2.0)
+    pending = edit_spec.pending_note_states(str(project))
+    assert "state" not in pending[link_id]
+    assert "no longer holds" in pending[link_id]["reason"]
+    assert run_pipeline(str(project))["status"] == "REFUSED"
+
+    # Other words on the same frame are not answered by this record.
+    placed(10.0)
+    note["note"] = note["text"] = "and the colour is off"
+    pull.write_text(json.dumps({"format": marker_feedback.PULL_FORMAT,
+                                "timeline": "Edit", "notes": [note]}),
+                    encoding="utf-8")
+    other = marker_routing.edit_link_id(note, "Edit", str(pull))
+    assert "keyword routing is not used" in edit_spec.pending_note_states(
+        str(project))[other]["reason"]

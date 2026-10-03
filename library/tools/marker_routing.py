@@ -43,6 +43,9 @@ A note carrying a typed edit spec is routed by it first: its rows name
 their owning steps (`BASIS_EDIT_SPEC`), and a spec still pending
 translation or superseded by a later ledger decision holds the note back
 from planning (`BASIS_EDIT_SPEC_PENDING`, `BASIS_EDIT_SPEC_SUPERSEDED`).
+A note the current edit already answers, proven by a check the project
+measures itself, is held back the same way (`BASIS_ANSWERED`,
+`marker_resolution.answered_release`).
 Otherwise, three bases, in this order:
 
 * `declared` - the note says which step, either as a line
@@ -574,6 +577,7 @@ BASIS_VOCABULARY = "vocabulary"
 BASIS_STAMPED = "stamped"
 BASIS_EDIT_SPEC = "edit_spec"
 BASIS_EDIT_SPEC_PENDING = "edit_spec_pending"
+BASIS_ANSWERED = "answered_by_current_edit"
 BASIS_EDIT_SPEC_SUPERSEDED = "edit_spec_superseded"
 """The clip this note is attached to carries the decision that produced
 it - `library/tools/timeline_decisions.py`, the producer side of this
@@ -949,6 +953,14 @@ def route_note(raw: dict, timeline: str = "", pull_file: str = "",
             routed.reason = (
                 "this note's typed edit has been superseded by a later "
                 "ledger decision; it must not reach planning again")
+            return routed
+        if pending_edit_spec.get("state") == "answered":
+            routed.basis = BASIS_ANSWERED
+            routed.outcome = OUTCOME_UNROUTED
+            routed.evidence = {"answered": pending_edit_spec}
+            routed.reason = (
+                "this note is " + str(pending_edit_spec.get("reason", ""))
+                + "; it must not reach planning again")
             return routed
         routed.basis = BASIS_EDIT_SPEC_PENDING
         routed.outcome = OUTCOME_UNROUTED
