@@ -100,6 +100,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import math
 import os
 from dataclasses import dataclass
 from typing import Optional
@@ -827,7 +828,7 @@ def _next_word_start(transcript: dict, after: float):
 
 
 def closing_breath_end(transcript: dict, words_end: float,
-                       shot_end: float) -> float:
+                       shot_end: float, fps: float | None = None) -> float:
     """Where a reel closing on its call to action stops: the CTA's BREATH.
 
     The captain, 2026-09-11, on Reels 01, 23 and 31: *"the last bit of
@@ -857,10 +858,21 @@ def closing_breath_end(transcript: dict, words_end: float,
 
     Where the episode has nothing after the closing words at all, the
     shot's own end is the only bound there is, and it is the answer.
+
+    With `fps` the next-word bound is a FRAME bound: the breath ends at
+    or before the end of the frame before the next word's first frame,
+    `floor(following * fps) / fps`.  A bound in seconds is crossed by
+    frame placement whenever `round(bound * fps)` reaches past it - the
+    reel then plays a fraction of the next word's first frame, which
+    F25 reports as `played_not_captioned` (golden item 6).  Without
+    `fps` the bound stays in seconds, the historical behaviour callers
+    that place nothing rely on.
     """
     following = _next_word_start(transcript, words_end)
     if following is None:
         return float(shot_end)
+    if fps:
+        following = math.floor(float(following) * float(fps)) / float(fps)
     return min(float(shot_end), float(following))
 
 
@@ -909,7 +921,9 @@ def apply_ending(ranges, spans, transcript: dict, ending,
 
     An INHERITED ending may also move that end OUT, into the call to
     action's own trailing silence (`closing_breath_end`), and is
-    bounded by the same shot end plus the next spoken word.  The bound
+    bounded by the same shot end plus the next spoken word - the word
+    bound read in FRAMES at this seam's `fps`, so placement cannot
+    cross it by a fraction of a frame.  The bound
     is what matters, not the direction: neither reading can admit the
     next shot and the outward one cannot admit the next word either.
     A declaration is still truncate-only, because a pin is somebody
@@ -980,7 +994,7 @@ def apply_ending(ranges, spans, transcript: dict, ending,
         # and by the next thing anybody says, so this can no more
         # admit the next shot than the truncation above can - it is
         # the same bound, read the other way.
-        breath = closing_breath_end(transcript, new_end, shot_end)
+        breath = closing_breath_end(transcript, new_end, shot_end, fps)
         new_end = max(new_end, breath)
     record = {"kind": "ending", "reel": ending["reel"],
               "anchor_phrase": phrase,

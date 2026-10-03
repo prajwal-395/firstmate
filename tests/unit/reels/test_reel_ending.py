@@ -9,6 +9,7 @@ synthetic under `tmp_path` (AGENTS.md 8); none reaches Resolve.
 """
 from __future__ import annotations
 import json
+import math
 import os
 from types import SimpleNamespace
 import pytest
@@ -572,6 +573,52 @@ def test_the_closing_breath_gives_back_the_word_the_aligner_cut():
     # shot's own end to stop at.
     assert reel_ending.closing_breath_end(
         {"segments": []}, 341.270, 341.550) == pytest.approx(341.550)
+
+
+def test_the_closing_breath_stops_a_full_frame_before_the_next_word():
+    """Golden item 6: the breath was bounded by the next word's start in
+    SECONDS, and frame placement crossed the bound by a fraction of a
+    frame - the reel played into the next speaker's first frame, which
+    F25 refused as `played_not_captioned`.
+
+    The captain's measured numbers at the golden rate: "bio." ends at
+    341.270s and "so" starts at 342.038s, inside frame 8200 - but the
+    seconds bound rounds to frame 8201.  The bound is now in frames,
+    so the breath ends where frame 8200 starts and that frame never
+    plays."""
+    golden_fps = 24000 / 1001
+    transcript = {"segments": [{"words": [
+        {"word": "our", "start": 340.99, "end": 341.05, "timed": True},
+        {"word": "bio.", "start": 341.069, "end": 341.270, "timed": True},
+        {"word": "so", "start": 342.038, "end": 342.158, "timed": True}]}]}
+    first = math.floor(342.038 * golden_fps)
+    assert first == 8200
+    # The seconds bound demonstrably crossed it: this is the defect.
+    assert round(342.038 * golden_fps) == first + 1
+
+    bound = reel_ending.closing_breath_end(
+        transcript, 341.270, 400.0, golden_fps)
+    assert bound == pytest.approx(first / golden_fps)
+    assert round(bound * golden_fps) <= first
+
+    # End to end: an inherited ending whose word bound binds extends no
+    # further than that frame once placed.
+    shots = [SimpleNamespace(timeline_start=333.8, timeline_end=400.0,
+                             source_in=500.0, track_index=1,
+                             speaker="Akshita")]
+    ending = {"reel": "Reel 99 - x",
+              "ends_on": {"anchor_phrase": "our bio"},
+              "tail_element": "none", "reason": "test",
+              "source": "call_to_action"}
+    ranges = [(333.8, 341.27)]
+    out, record = reel_ending.apply_ending(
+        ranges, reel_build.placements(ranges, shots, golden_fps),
+        transcript, ending, golden_fps)
+    assert len(record["applied"]) == 1
+    assert out[-1][1] == pytest.approx(first / golden_fps)
+    placed = reel_build.placements(out, shots, golden_fps)
+    assert placed, "the ending must leave the closing words placed"
+    assert round(out[-1][1] * golden_fps) <= first
 
 
 def test_a_declared_ending_takes_no_breath(tmp_path):
