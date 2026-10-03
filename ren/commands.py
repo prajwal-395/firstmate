@@ -53,6 +53,13 @@ VERBS = (
     Verb("projects", "Projects", "List projects", subcommand="list"),
     Verb("status", "Projects", "Show a project's pipeline status", subcommand="status"),
     Verb("info", "Projects", "Show a project's configuration as JSON", subcommand="info"),
+    Verb("task", "Projects", "Start or finish an isolated semantic task",
+         subcommand="task",
+         detail="`ren task <project> start <task>` allocates a ren/<task> "
+                "worktree; `ren task <project> finish <task>` commits and "
+                "merges semantic state, then reports whether a Resolve "
+                "rebuild is needed. Use repeatable --claim paths for "
+                "disjoint tasks. Resolve work happens after finish"),
     Verb("check", "Projects", "Run a project's readiness check", subcommand="check"),
     Verb("edit", "Projects", "Run the editing pipeline on a project", subcommand="run"),
     Verb("trace", "Projects", "Regenerate the run traceback and artifact index", subcommand="trace"),

@@ -718,7 +718,8 @@ def _is_generated(rel_path: str) -> bool:
 
 
 def merge_variations(project_folder: str, source_branch: str,
-                     target_branch: str | None = None) -> dict:
+                     target_branch: str | None = None,
+                     semantic_only: bool = False) -> dict:
     """Git merge of one variation into the target, then stop for the rebuild.
 
     Checks out the target, merges the source, and auto-resolves
@@ -728,7 +729,9 @@ def merge_variations(project_folder: str, source_branch: str,
     conflicts (specs, captain_edits, project.yaml, proposals, marker
     pulls cannot conflict) are left in the tree UNCOMMITTED for a
     human; generated auto-resolutions are listed in the report so the
-    rebuild knows what it must regenerate.
+    rebuild knows what it must regenerate. `semantic_only=True` is the
+    task-worktree path: every generated source change is restored to the
+    target, and semantic conflicts abort so task finish can be retried.
 
     SAFETY (issue #925): do NOT treat a clean merge as a green build.
     Merging declarations is precisely where a dropped feature hides -
@@ -749,17 +752,58 @@ def merge_variations(project_folder: str, source_branch: str,
                               f"{checkout.stderr.strip()[-200:]}"}
     current = store.git(project_folder, "rev-parse", "--abbrev-ref", "HEAD")
     target = current.stdout.strip()
+    generated_source_changes = []
+    semantic_source_changes = []
+    target_generated_files = {}
+    if semantic_only:
+        changed = store.git(project_folder, "diff", "--name-only",
+                            f"{target}...{source_branch}")
+        if changed.returncode != 0:
+            return {"merged": False,
+                    "reason": "cannot compare task branch with target: "
+                              f"{changed.stderr.strip()[-200:]}"}
+        paths = sorted(p for p in changed.stdout.splitlines() if p.strip())
+        generated_source_changes = [p for p in paths if _is_generated(p)]
+        semantic_source_changes = [p for p in paths if not _is_generated(p)]
+        if not semantic_source_changes:
+            rev = store.git(project_folder, "rev-parse", "--short", "HEAD")
+            return {"merged": True, "target": target,
+                    "source": source_branch, "commit": rev.stdout.strip(),
+                    "auto_resolved": [], "conflicts": [],
+                    "semantic_changes": [],
+                    "generated_discarded": generated_source_changes,
+                    "note": "no semantic changes; generated task state "
+                            "was not merged"}
+        root = Path(project_folder)
+        target_generated_files = {
+            path: (store.git(project_folder, "cat-file", "-e",
+                             f"HEAD:{path}").returncode == 0,
+                   (root / path).exists())
+            for path in generated_source_changes
+        }
     merged = store.git(project_folder, "merge", "--no-commit", "--no-ff",
                   source_branch)
+    if semantic_only:
+        restored = _restore_generated_changes(
+            project_folder, generated_source_changes, target_generated_files)
+        if restored:
+            store.git(project_folder, "merge", "--abort")
+            return {"merged": False,
+                    "reason": "could not discard generated task state: "
+                              + restored}
     if merged.returncode == 0:
         if "Already up to date" in (merged.stdout or ""):
             rev = store.git(project_folder, "rev-parse", "--short", "HEAD")
-            return {"merged": True, "target": target,
-                    "source": source_branch,
-                    "commit": rev.stdout.strip(),
-                    "auto_resolved": [], "conflicts": [],
-                    "note": "already up to date - nothing to merge, "
-                            "nothing to rebuild"}
+            result = {"merged": True, "target": target,
+                      "source": source_branch,
+                      "commit": rev.stdout.strip(),
+                      "auto_resolved": [], "conflicts": [],
+                      "note": "already up to date - nothing to merge, "
+                              "nothing to rebuild"}
+            if semantic_only:
+                result.update(semantic_changes=[],
+                              generated_discarded=generated_source_changes)
+            return result
         # A clean merge still needs its merge commit recorded.
         commit = store.git(project_folder, "commit", "--no-edit")
         if commit.returncode != 0:
@@ -768,12 +812,18 @@ def merge_variations(project_folder: str, source_branch: str,
                     "reason": f"merge commit failed: "
                               f"{commit.stderr.strip()[-200:]}"}
         rev = store.git(project_folder, "rev-parse", "--short", "HEAD")
-        return {"merged": True, "target": target,
-                "source": source_branch, "commit": rev.stdout.strip(),
-                "auto_resolved": [], "conflicts": [],
-                "note": "clean merge - rebuild into the final timeline "
-                        "and read it back against both variations "
-                        "before promoting (issue #925)"}
+        result = {"merged": True, "target": target,
+                  "source": source_branch, "commit": rev.stdout.strip(),
+                  "auto_resolved": [], "conflicts": [],
+                  "note": "clean merge - rebuild into the final timeline "
+                          "and read it back against both variations "
+                          "before promoting (issue #925)"}
+        if semantic_only:
+            result.update(semantic_changes=semantic_source_changes,
+                          generated_discarded=generated_source_changes,
+                          note="semantic state merged; generated task "
+                               "state was kept out of the target")
+        return result
     unmerged = store.git(project_folder, "diff", "--name-only",
                     "--diff-filter=U")
     if unmerged.returncode != 0:
@@ -782,6 +832,15 @@ def merge_variations(project_folder: str, source_branch: str,
                                            "conflicted files cannot be "
                                            "listed; merge aborted"}
     conflicted = [p for p in unmerged.stdout.splitlines() if p.strip()]
+    if semantic_only and conflicted:
+        store.git(project_folder, "merge", "--abort")
+        return {"merged": False, "target": target,
+                "source": source_branch, "auto_resolved": [],
+                "conflicts": sorted(conflicted),
+                "generated_discarded": generated_source_changes,
+                "reason": "semantic task changes conflict; merge was "
+                          "aborted so the task can be revised and finished "
+                          "again"}
     auto = [p for p in conflicted if _is_generated(p)]
     human = [p for p in conflicted if not _is_generated(p)]
     for path in auto:
@@ -807,14 +866,50 @@ def merge_variations(project_folder: str, source_branch: str,
                 "reason": f"merge commit failed: "
                           f"{commit.stderr.strip()[-200:]}"}
     rev = store.git(project_folder, "rev-parse", "--short", "HEAD")
-    return {"merged": True, "target": target, "source": source_branch,
-            "commit": rev.stdout.strip(), "auto_resolved": sorted(auto),
-            "conflicts": [],
-            "note": "generated state resolved to the target side - the "
-                    "rebuild must regenerate every path listed in "
-                    "auto_resolved, then read the final timeline back "
-                    "against both variations before promoting "
-                    "(issue #925)"}
+    result = {"merged": True, "target": target, "source": source_branch,
+              "commit": rev.stdout.strip(), "auto_resolved": sorted(auto),
+              "conflicts": [],
+              "note": "generated state resolved to the target side - the "
+                      "rebuild must regenerate every path listed in "
+                      "auto_resolved, then read the final timeline back "
+                      "against both variations before promoting "
+                      "(issue #925)"}
+    if semantic_only:
+        result.update(semantic_changes=semantic_source_changes,
+                      generated_discarded=generated_source_changes,
+                      note="semantic state merged; generated task state "
+                           "was kept out of the target")
+    return result
+
+
+def _restore_generated_changes(project_folder: str, paths: list[str],
+                               target_files: dict) -> str:
+    """Drop task-generated paths from an in-progress merge.
+
+    A task worktree is the place for semantic work. Its generated run
+    outputs may be useful while the task runs, but must not become the
+    target project's state at finish; a later build runs from the merged
+    declarations. Files already present in the target checkout but
+    untracked by git are preserved.
+    """
+    root = Path(project_folder)
+    for path in paths:
+        target_tracked, existed_before = target_files[path]
+        if target_tracked:
+            proc = store.git(project_folder, "restore", "--source=HEAD",
+                             "--staged", "--worktree", "--", path)
+        else:
+            proc = store.git(project_folder, "rm", "--cached", "--force",
+                             "--ignore-unmatch", "--", path)
+            if proc.returncode == 0 and not existed_before:
+                generated = root / path
+                try:
+                    generated.unlink(missing_ok=True)
+                except OSError as exc:
+                    return f"cannot remove {path}: {exc}"
+        if proc.returncode != 0:
+            return f"git could not restore {path}: {proc.stderr.strip()[-200:]}"
+    return ""
 
 
 # ══ What is built, compared and chosen ═════════════════════════════

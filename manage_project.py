@@ -869,6 +869,14 @@ def cmd_worktree(args):
     sys.exit(worktrees.main(_reel_project_folder(args.project), args.rest))
 
 
+def cmd_task(args):
+    """Start or finish a semantic Ren task in its own project worktree."""
+    from library.tools.versions import worktrees
+
+    sys.exit(worktrees.task_main(_reel_project_folder(args.project),
+                                 args.rest))
+
+
 def cmd_variant(args):
     """Two versions of one reel, alive at once, compared, one chosen.
 
@@ -3457,6 +3465,13 @@ def main():
                             help="add TASK [--base REV] | list | commit TASK "
                                  "-m MSG | merge TASK | remove TASK")
     p_worktree.set_defaults(func=cmd_worktree)
+
+    p_task = _add_command(sub, "task")
+    p_task.add_argument("project",
+                        help="Project slug, or an absolute path")
+    p_task.add_argument("rest", nargs=argparse.REMAINDER,
+                        help="start TASK [--claim PROJECT_PATH] | finish TASK")
+    p_task.set_defaults(func=cmd_task)
 
     p_relink = _add_command(sub, "relink")
     p_relink.add_argument("slug", nargs="?", default="", metavar="PROJECT", help="Project slug (optional). Unlike run/status/info, relink resolves the project by scanning PIPELINE_PROJECTS_ROOT, so a path is not accepted here")
