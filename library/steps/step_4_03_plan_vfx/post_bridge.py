@@ -24,6 +24,9 @@ from library.tools.pipeline_validation import require_keys
 from library.tools.plan_keys import refuse_unknown_keys
 from library.tools.plan_splice import number_within_block
 from library.tools.post_bridge_retry import ATTEMPT_KEY, MAX_ATTEMPTS
+from library.tools.stabilization_authorization import (
+    authorizations_from_timeline_notes,
+)
 from library.tools.punch_timing import (
     MAX_PUNCH_RAMP_SECONDS,
     MIN_PUNCH_RAMP_SECONDS,
@@ -164,16 +167,11 @@ DRIFT_EFFECTS = ("slow_zoom_in", "slow_zoom_out")
 # `"route": "native_resolve"` so `compile_manifest` carries them to the
 # build instead of the comp engine.
 
-# Requested stabilization: a Neural Engine treatment, not a Fusion comp.
-# Compile used to decide this itself off vision prose (a keyword match),
-# so Ren stabilized clips nobody asked it to (captain, 2026-09-24).
-# Now the plan asks for it by naming `stabilize`, reading the measured
-# stability the bridge already carries (`vfx_suggested` camera text and
-# the `view:stability` context) as context rather than as a trigger.
-# It takes no params - the span is what stabilizes - and resolves with
-# `"route": "neural_engine"` so `compile_manifest` carries it to the
-# build's neural applicator (judged by Resolve's own answer) instead of
-# the comp engine.
+# Stabilization is a user-authorized Neural Engine treatment, not a
+# planner decision. The typed authorization is derived from explicit
+# timeline notes/edit requests and compiled onto its exact scope. A model
+# proposal is only accepted by compile_manifest when that same scope is
+# authorized; measurements never grant permission.
 STABILIZE_EFFECT = "stabilize"
 def _validate_native_speed(raw_type, effect_type, params, pos, _drop):
     """Check a native speed entry's params; return step percents or None.
@@ -583,10 +581,10 @@ def resolve_vfx(
                 covered_positions.discard(str(pos))
                 continue
         elif effect_type == STABILIZE_EFFECT:
-            # A requested stabilization takes no params: the span is
-            # what stabilizes, through Resolve's own Stabilize judged
-            # by its return. Anything carried is ignored, never read -
-            # the same shape as `freeze_frame`.
+            # A proposed stabilization takes no params: compile_manifest
+            # must still match it to a separate user authorization. The
+            # span is what Resolve's own Stabilize runs on, judged by its
+            # return. Anything carried is ignored, never read.
             params = {}
         elif effect_type in _builtin_effect_names():
             # A built-in Fusion clip effect, imported whole by the renderer.
@@ -792,10 +790,9 @@ def resolve_vfx(
             covered_positions.add(span_key)
 
         if is_stabilize:
-            # A requested stabilization travels the anchor path above
-            # (a request may span a moment, not the block) but NOT the
-            # Fusion comp path: there is no comp to check params
-            # against. The build judges Resolve's own Stabilize answer.
+            # A proposed stabilization travels the anchor path above but
+            # NOT the Fusion comp path. The compiler checks its scope
+            # against user authorization before the build reaches Resolve.
             resolved.append({
                 "vfx_id": f"vfx_{len(resolved)+1:03d}",
                 "target_block_position": block["position"],
@@ -1209,9 +1206,12 @@ def main():
 
     # C5 fix: Output key must be enhancement_spec to match manifest contract.
     # The DAG edge plan_vfx -> compile_manifest maps enhancement_spec.
+    stabilization_authorizations = authorizations_from_timeline_notes(
+        data.get("timeline_notes"), data.get("clip_catalog"))
     output = {"enhancement_spec": {
         "visual_effects": result,
         "planning_basis": basis,
+        "stabilization_authorizations": stabilization_authorizations,
     }}
     if gen_overlays:
         output["enhancement_spec"]["generator_overlays"] = gen_overlays

@@ -359,7 +359,10 @@ STEP_DECISIONS = (
         "which visual effects are drawn on which clip, and how strong",
         DELIVERY_PROMPT,
         terms=("vfx", "effect", "effects", "blur", "blurry", "zoom",
-               "shake", "glitch", "defocus", "glow", "grain", "vignette"),
+               "shake", "shaky", "stabilize", "stabilized",
+               "stabilization", "stabilise", "stabilised",
+               "stabilisation", "glitch", "defocus", "glow", "grain",
+               "vignette"),
     ),
     StepDecision(
         "plan_sfx", "4.04",
@@ -437,11 +440,9 @@ STEP_DECISIONS = (
     ),
     StepDecision(
         "render", "6.01",
-        "what the build did to the picture after placement - "
-        "stabilisation, and the render itself",
+        "what the build rendered and how the exported picture looks",
         DELIVERY_PROMPT,
-        terms=("stabilisation", "stabilization", "stabilised",
-               "stabilized", "shaky", "the render"),
+        terms=("the render",),
     ),
 )
 

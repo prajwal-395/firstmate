@@ -135,19 +135,21 @@ from tools.tv_power import switch_shape
 from tools.delivery_format import resolve_delivery_format
 from library.tools.subject_grade import apply_subject_grades
 from library.tools.timeline_layout import allocate_non_overlapping_rows
+from library.tools.stabilization_authorization import (
+    FORMAT as STABILIZATION_AUTHORIZATION_FORMAT,
+    StabilizationAuthorizationError,
+    scope_matches_clip,
+    validate_authorizations,
+)
 from tools.project_layout import (
     STEP_OUTPUT_FILE, Area, ProjectLayout, ProjectLayoutViolation,
 )
 
-# `stabilize` is a plan-requested neural-engine treatment, never a
-# keyword decision. compile used to set it off vision prose
-# (`_UNSTABLE_CAMERA_WORDS` matched against the stability summary,
-# camera prose, scene text and assessment keywords), so Ren stabilized
-# clips nobody asked it to. A clip is stabilized only when an
-# `enhancement_spec.visual_effects` entry with
-# `effect_type == "stabilize"` (step 4.03 plan_vfx) covers it - see the
-# VFX section below, which routes those entries here instead of the
-# Fusion comp engine. Captain's note, 2026-09-24.
+# Stabilization directives require a typed record derived from an
+# explicit user timeline note/edit request. Measurements may narrow the
+# `shaky_footage` scope, but never grant permission. An unapproved model
+# proposal refuses compilation; approved directives carry the original
+# instruction and scope to the Resolve applicator.
 
 def apply_cohesion_adjustments(transitions_raw: list, cohesion_review: dict) -> dict:
     """Apply the cohesion review's adjustments and record every one of them.
@@ -1551,12 +1553,10 @@ def compile_manifest(out_dir: str) -> dict:
     neural_engine_directives = {}
 
     def compute_neural_directives(clip_id, clip_entry):
-        # Super Scale only. Stabilization is NEVER decided here: it is a
-        # plan-requested treatment (`effect_type == "stabilize"` in
-        # `enhancement_spec.visual_effects`, step 4.03), applied in the
-        # VFX section below once the picture tracks exist to map it
-        # onto. Vision prose is context the planner reads, not a trigger
-        # this step adjudicates (captain, 2026-09-24).
+        # Super Scale only. Stabilization is NEVER decided here: user
+        # authorization is scoped onto placed items in the VFX section
+        # below, after the picture tracks exist. Vision prose is not
+        # permission.
         directives = {}
         meta = clip_metadata.get(clip_id, {})
 
@@ -1576,10 +1576,13 @@ def compile_manifest(out_dir: str) -> dict:
         if directives:
             neural_engine_directives[clip_entry["label"]] = directives
 
-    def apply_requested_stabilization(label):
-        """Record a plan-requested stabilize on a placed clip label."""
+    def apply_requested_stabilization(label, authorizations):
+        """Record a user-authorized stabilize on a placed clip label."""
         entry = neural_engine_directives.setdefault(label, {})
-        entry["stabilize"] = True
+        entry["stabilize"] = {
+            "format": STABILIZATION_AUTHORIZATION_FORMAT,
+            "authorizations": list(authorizations),
+        }
 
     a_roll_dict = {}
     for assignment in aroll_data.get("a_roll_assignments", []):
@@ -2135,6 +2138,12 @@ def compile_manifest(out_dir: str) -> dict:
     vfx = vfx_container if isinstance(vfx_container, list) else (
         vfx_container.get("vfx", []) or vfx_container.get("visual_effects", [])
     )
+    try:
+        stabilization_authorizations = validate_authorizations(
+            vfx_container.get("stabilization_authorizations", [])
+            if isinstance(vfx_container, dict) else [])
+    except StabilizationAuthorizationError as exc:
+        raise ValueError(f"Stabilization authorization refused: {exc}") from exc
     for v in vfx:
         if v.get("timeline_end", 0) > total_duration:
             v["timeline_end"] = total_duration
@@ -2186,19 +2195,81 @@ def compile_manifest(out_dir: str) -> dict:
     # naming a native effect without the route marker rides the same
     # path: the effect type decides, never the marker alone.
     native_speed_ops = []
+    source_path_to_id = {
+        os.path.normcase(os.path.abspath(path)): clip_id
+        for clip_id, path in clip_lookup.items()
+    }
+    target_timeline_name = project_timeline_name(_project_root)
+    authorized_stabilization_by_label = {}
+    picture_clips = [*v1_clips, *v2_clips]
+    for authorization in stabilization_authorizations:
+        scope = authorization["scope"]
+        labels = []
+        for clip in picture_clips:
+            clip_id = source_path_to_id.get(os.path.normcase(
+                os.path.abspath(clip.get("source_file") or "")), "")
+            if scope_matches_clip(
+                    authorization, clip, clip_id=clip_id,
+                    semantic_document=semantic_lookup.get(clip_id),
+                    source_frame_rate=(
+                        clip_metadata.get(clip_id, {}).get("frame_rate")
+                        or clip_metadata.get(clip_id, {}).get("fps") or 0.0),
+                    timeline_frame_rate=fps,
+                    timeline_name=target_timeline_name):
+                label = clip["label"]
+                labels.append(label)
+                authorized_stabilization_by_label.setdefault(
+                    label, []).append(authorization)
+        if not labels and scope["kind"] != "shaky_footage":
+            raise ValueError(
+                f"Stabilization authorization {authorization['authorization_id']!r} "
+                f"could not be placed within its {scope['kind']} scope; "
+                "no placed picture item fits the authorized scope on this "
+                "timeline."
+            )
+        if not labels:
+            logger.warning(
+                "Stabilization authorization %s matched no clips measured "
+                "shaky or unstable",
+                authorization["authorization_id"],
+            )
+        else:
+            for label in labels:
+                apply_requested_stabilization(
+                    label, authorized_stabilization_by_label[label])
+            logger.info(
+                "Stabilization authorization %s applies to %s",
+                authorization["authorization_id"], ", ".join(labels),
+            )
+
+    def refuse_unapproved_stabilization(v, label):
+        if label is None:
+            reason = "the model-authored entry does not land on a picture clip"
+        elif not stabilization_authorizations:
+            reason = "there is no explicit user timeline note or edit request"
+        else:
+            reason = "no user authorization covers that clip/span"
+        message = (
+            f"Stabilization authorization refused: model-authored stabilize "
+            f"entry for block {v.get('target_block_position')!r} "
+            f"({label or 'unplaced'}) is unauthorized because {reason}. "
+            "Authorize stabilization explicitly in a timeline note or edit "
+            "request and name its scope."
+        )
+        print(message, file=sys.stderr)
+        raise ValueError(message)
+
     for v in vfx:
-        # A requested stabilization: a Neural Engine treatment, not a
-        # Fusion comp. The plan (step 4.03) asks for it by naming
-        # `effect_type == "stabilize"`; this routes it to
-        # `neural_engine_directives` where the build judges Resolve's
-        # own answer. Nothing here decides it from vision prose.
+        # A model proposal cannot authorize itself. The independently
+        # compiled user scope above must cover the exact placed item.
         if (v.get("route") == "neural_engine"
                 or v.get("effect_type") == "stabilize"):
             label = _picture_label_at(v1_clips, v2_clips, v["timeline_start"])
-            if label is None:
-                unplaced_vfx.append(v)
-                continue
-            apply_requested_stabilization(label)
+            if (v.get("effect_type") != "stabilize" or label is None
+                    or label not in authorized_stabilization_by_label):
+                refuse_unapproved_stabilization(v, label)
+            apply_requested_stabilization(
+                label, authorized_stabilization_by_label[label])
             continue
         if (v.get("route") == "native_resolve"
                 or v.get("effect_type") in ("speed_ramp", "freeze_frame")):
@@ -3193,6 +3264,7 @@ def compile_manifest(out_dir: str) -> dict:
         # run log and the reviewer, never a gate.
         "pacing_report": pacing_report,
         "neural_engine_directives": neural_engine_directives,
+        "stabilization_authorizations": stabilization_authorizations,
         # The authoritative record of what creative_cohesion asked for and
         # what actually happened to each request.
         "cohesion_adjustments": cohesion_record,

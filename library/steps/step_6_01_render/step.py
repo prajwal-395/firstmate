@@ -301,6 +301,30 @@ def _export_timeline(timeline_name: str, inputs: dict, manifest: dict) -> dict:
     )
 
 
+def _skip_authorized_stabilization(manifest: dict) -> int:
+    """Apply the explicit emergency opt-out to stabilization alone."""
+    if os.environ.get("PIPELINE_SKIP_STABILIZATION", "").strip().lower() not in (
+            "1", "true", "yes"):
+        return 0
+    directives = manifest.get("neural_engine_directives") or {}
+    skipped = 0
+    for label, values in list(directives.items()):
+        if isinstance(values, dict) and "stabilize" in values:
+            del values["stabilize"]
+            skipped += 1
+            if not values:
+                directives.pop(label)
+    if skipped:
+        print(
+            f"  PIPELINE_SKIP_STABILIZATION set: skipping {skipped} "
+            f"authorized stabilization directive(s) for this build. "
+            f"The manifest on disk keeps their authorization records; "
+            f"other neural directives remain active.",
+            file=sys.stderr,
+        )
+    return skipped
+
+
 def run(inputs: dict) -> dict:
     import sys
     manifest = inputs.get("assembly_manifest", {})
@@ -312,32 +336,9 @@ def run(inputs: dict) -> dict:
         else:
             raise ValueError("assembly_manifest missing from inputs")
             
-    # Stabilization is the memory ceiling of the whole pipeline (AGENTS.md
-    # section 5): `neural_engine_directives` is applied AFTER every clip, comp,
-    # overlay and SFX is placed, so a build that dies inside it loses ALL of
-    # them.  On 2026-08-26 it did exactly that on project 001 - the entire
-    # timeline built (11 V1, 7 V2, 11 V3, 3 audio tracks) and the step then
-    # died on the FIRST stabilized clip, taking the finished build with it.
-    #
-    # The escape AGENTS.md section 5 prescribes is to pop the directives off
-    # the IN-MEMORY manifest and leave the file on disk carrying them, so the
-    # plan still records what was asked for and only this run declines to do
-    # it.  That is what this does.  Opt-in, and off by default: a shipped
-    # timeline wants its stabilization.
-    #
-    # Captain's ruling of 2026-08-26: "skip stabilization and move on".
-    if os.environ.get("PIPELINE_SKIP_STABILIZATION", "").strip().lower() in (
-            "1", "true", "yes"):
-        dropped = manifest.pop("neural_engine_directives", None)
-        if dropped:
-            print(
-                f"  PIPELINE_SKIP_STABILIZATION set: dropping "
-                f"{len(dropped)} neural-engine directive(s) from the "
-                f"in-memory manifest. The manifest ON DISK still carries "
-                f"them - this run declines to apply them, the plan is "
-                f"unchanged.",
-                file=sys.stderr,
-            )
+    # Keep the memory-ceiling escape hatch, but let it suppress only
+    # stabilization and leave other Neural Engine work intact.
+    _skip_authorized_stabilization(manifest)
 
     try:
         # Build timeline (this connects to Resolve)

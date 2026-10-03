@@ -78,6 +78,9 @@ for _p in (os.path.join(_HERE, '../../tools'), os.path.join(_HERE, '../../..')):
     if _p not in sys.path:
         sys.path.append(_p)
 
+from library.tools.stabilization_authorization import (  # noqa: E402
+    FORMAT as STABILIZATION_AUTHORIZATION_FORMAT,
+)
 from library.tools.project_layout import Area, ProjectLayout  # noqa: E402
 from library.tools.spine_contract import (  # noqa: E402
     SPEECH_BLOCK_TYPES)
@@ -1067,6 +1070,66 @@ class _PhaseClock:
             except Exception:  # noqa: BLE001 - timing never fails a build
                 pass
         self.phase, self.started = phase, now
+
+
+def _apply_neural_engine_directives(
+        manifest, timeline, v1_labels, v2_labels, results):
+    """Apply compiled per-item Neural Engine directives.
+
+    Stabilization is guarded at the last boundary before Resolve: even a
+    stale or hand-edited manifest cannot call ``TimelineItem.Stabilize``
+    without the typed user authorization that compile_manifest records.
+    """
+    neural_directives = manifest.get("neural_engine_directives", {})
+    if not neural_directives or apply_stabilization is None:
+        return
+
+    print(f"\n── Neural Engine: {len(neural_directives)} clips ──",
+          file=sys.stderr)
+
+    def apply_track(track, labels):
+        items = timeline.GetItemListInTrack("video", 1 if track == "V1" else 2) or []
+        for ci, label in enumerate(labels):
+            if label not in neural_directives or ci >= len(items):
+                continue
+            directives = neural_directives[label]
+            tl_clip = items[ci]
+            stabilization = directives.get("stabilize")
+            if stabilization:
+                if (not isinstance(stabilization, dict)
+                        or stabilization.get("format")
+                        != STABILIZATION_AUTHORIZATION_FORMAT
+                        or not stabilization.get("authorizations")):
+                    raise ValueError(
+                        f"Refusing Resolve Stabilize on {track}{ci} {label}: "
+                        "the directive has no valid user authorization record"
+                    )
+                ids = ", ".join(
+                    str(record["authorization_id"])
+                    for record in stabilization["authorizations"]
+                )
+                ok = apply_stabilization(tl_clip)
+                mark = "✓" if ok else "✗"
+                print(
+                    f"  {mark} [{track}{ci}] {label}: Stabilization "
+                    f"(authorized by {ids})",
+                    file=sys.stderr,
+                )
+                if not ok:
+                    results["warnings"].append(
+                        f"Stabilization refused on {track}{ci} {label}")
+            if directives.get("super_scale"):
+                ok = apply_super_scale(
+                    tl_clip, scale_factor=directives["super_scale"])
+                mark = "✓" if ok else "✗"
+                print(f"  {mark} [{track}{ci}] {label}: Super Scale "
+                      f"{directives['super_scale']}x", file=sys.stderr)
+                if not ok:
+                    results["warnings"].append(
+                        f"Super Scale refused on {track}{ci} {label}")
+
+    apply_track("V1", v1_labels)
+    apply_track("V2", v2_labels)
 
 
 @under_lease("render the edit timeline", capability="render.build",
@@ -3347,49 +3410,9 @@ def build_timeline(
     # ══════════════════════════════════════════════════════════
     # NEURAL ENGINE DIRECTIVES (Per-Clip)
     # ══════════════════════════════════════════════════════════
-    neural_directives = manifest.get('neural_engine_directives', {})
-    if neural_directives and apply_stabilization is not None:
-        print(f"\n── Neural Engine: {len(neural_directives)} clips ──", file=sys.stderr)
-
-        def _apply_directives(track, items, labels):
-            """Apply one track's directives, recording what really happened.
-
-            The wrappers return False when Resolve declines - which they
-            do - and this used to print a tick regardless of the answer.
-            Magic Mask is not handled at all: CreateMagicMask returns
-            False for every mode, so compile_manifest no longer emits it.
-            """
-            for ci, label in enumerate(labels):
-                if label not in neural_directives or ci >= len(items):
-                    continue
-                directives = neural_directives[label]
-                tl_clip = items[ci]
-
-                if directives.get('stabilize'):
-                    ok = apply_stabilization(tl_clip)
-                    mark = "✓" if ok else "✗"
-                    print(f"  {mark} [{track}{ci}] {label}: Stabilization",
-                          file=sys.stderr)
-                    if not ok:
-                        results["warnings"].append(
-                            f"Stabilization refused on {track}{ci} {label}")
-                if directives.get('super_scale'):
-                    ok = apply_super_scale(
-                        tl_clip, scale_factor=directives['super_scale'])
-                    mark = "✓" if ok else "✗"
-                    print(f"  {mark} [{track}{ci}] {label}: Super Scale "
-                          f"{directives['super_scale']}x", file=sys.stderr)
-                    if not ok:
-                        results["warnings"].append(
-                            f"Super Scale refused on {track}{ci} {label}")
-
-        _apply_directives(
-            "V1", timeline.GetItemListInTrack("video", 1) or [],
-            v1_placed_labels)
-        # v2_placed_labels only exists when V2 placement ran at all.
-        _apply_directives(
-            "V2", timeline.GetItemListInTrack("video", 2) or [],
-            v2_placed_labels if 'v2_placed_labels' in locals() else [])
+    _apply_neural_engine_directives(
+        manifest, timeline, v1_placed_labels,
+        v2_placed_labels if 'v2_placed_labels' in locals() else [], results)
 
     # Smart Reframe used to be applied here, on the timeline, and printed a
     # tick whatever Resolve answered. It is withdrawn; see the note at the

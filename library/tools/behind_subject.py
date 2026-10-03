@@ -103,7 +103,7 @@ def assert_no_geometric_overlap(behind_by_label: dict,
     `behind_by_label` maps clip label to `[(segment_id,
     timeline_start, timeline_end)]` - the placed precomp windows.
     `per_clip_effects` maps the same labels to their Fusion effect
-    keys; `stabilized_labels` are labels carrying a plan-requested
+    keys; `stabilized_labels` are labels carrying a user-authorized
     stabilize; `speed_ops` are native speed entries with `label`,
     `effect_type`, `timeline_start` and `timeline_end`.
 

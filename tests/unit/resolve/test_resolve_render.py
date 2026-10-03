@@ -3,6 +3,7 @@
 History: docs/evidence/resolve_test_history.md#test_render_borrow_restore.
 """
 import pytest
+from unittest.mock import patch
 from library.tools.segment_renderer import (
     render_segment,
 )
@@ -29,6 +30,43 @@ import shutil
 from library.tools import visual_qa_router
 from library.tools.qa_fidelity import (
     GENERATED_ASSET, RESOLVE_COMPOSITE, SOURCE_PIXEL)
+
+
+def test_normal_neural_directives_never_call_resolve_stabilize():
+    """A normal build can carry Super Scale without calling Stabilize."""
+    from library.steps.step_6_01_render import resolve_build_timeline
+
+    class Timeline:
+        def GetItemListInTrack(self, media_type, track_index):
+            assert media_type == "video"
+            return [object()]
+
+    manifest = {"neural_engine_directives": {
+        "speech_1": {"super_scale": 2},
+    }}
+    with patch.object(resolve_build_timeline, "apply_stabilization") as apply:
+        with patch.object(resolve_build_timeline, "apply_super_scale",
+                           return_value=True):
+            resolve_build_timeline._apply_neural_engine_directives(
+                manifest, Timeline(), ["speech_1"], [], {"warnings": []})
+    apply.assert_not_called()
+
+
+def test_resolve_stabilize_refuses_a_directive_without_user_provenance():
+    from library.steps.step_6_01_render import resolve_build_timeline
+
+    class Timeline:
+        def GetItemListInTrack(self, media_type, track_index):
+            return [object()]
+
+    manifest = {"neural_engine_directives": {
+        "speech_1": {"stabilize": True},
+    }}
+    with patch.object(resolve_build_timeline, "apply_stabilization") as apply:
+        with pytest.raises(ValueError, match="no valid user authorization"):
+            resolve_build_timeline._apply_neural_engine_directives(
+                manifest, Timeline(), ["speech_1"], [], {"warnings": []})
+    apply.assert_not_called()
 
 
 # ── Mock helpers ────────────────────────────────────────────────

@@ -47,7 +47,7 @@ reason, rather than passed on to draw nothing.
 | `cut_in` | Tighter framing held for the shot — simulates multi-cam | `zoom_start`, `zoom_mid`, `zoom_end` (all three equal holds the reframe) |
 | `speed_ramp` | A stepped speed change across the block — a montage ramp, a slow push into a moment | `segments`: a non-empty list of `percent` steps, each above 0 (e.g. `[{percent: 50}, {percent: 150}]`) |
 | `freeze_frame` | A held frame - time stops on the block or its anchored span | No params: the span is what freezes; OPTIONAL `hold_seconds` / `hold_frames` run the span from the anchor for exactly that long (see below) |
-| `stabilize` | A shaky block you want steadied - Resolve's own Stabilize runs on the clip and its answer is judged | No params: the span is what stabilizes. Name it only where the measured stability (`vfx_suggested` camera text, `view:stability`) says the shot needs it; nothing stabilizes unless you ask. |
+| `stabilize` | A user-authorized corrective treatment - Resolve's own Stabilize runs on the clip and its answer is judged | No params. Emit it only when a timeline note or edit request explicitly asks for stabilization, and only within that instruction's scope. Measurements may select targets only for a request about shaky footage; they never grant permission. With no authorization, emit no `stabilize` entry. |
 
 A zoom value of `1.0` is the untouched frame; above it is tighter, below
 it is wider.
@@ -273,6 +273,17 @@ to the creative direction's energy profile.
 
 ### Timeline Notes
 If the input includes `timeline_notes`, you MUST read and weigh them. Your output MUST include a `note_acknowledgements` array saying what was done about each note and why - including 'I did not act on this and here is why', since a note you cannot act on should be left alone rather than guessed at.
+
+Stabilization is a user-authorized treatment. The bridge derives a typed
+`stabilization_authorizations` record from each explicit request, preserving
+its original note and scope. A request for the whole video covers every
+placed picture clip; a request for shaky footage covers only clips the
+stability measurements mark shaky or unstable; a named clip or span covers
+only that scope. Do not infer authorization from handheld wording, camera
+measurements, the creative brief, or your own rationale. If there is no
+matching authorization, do not emit a `stabilize` effect.
+`compile_manifest` refuses any proposal outside its recorded authorization
+rather than dropping it silently.
 
 <!-- OUTPUT_SCHEMA: auto-injected from manifest.json -->
 

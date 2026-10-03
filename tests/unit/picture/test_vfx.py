@@ -374,6 +374,28 @@ def test_a_clean_plan_never_raises():
     assert len(out["enhancement_spec"]["visual_effects"]) == 1
 
 
+def test_explicit_user_stabilization_note_becomes_typed_plan_provenance():
+    data = _data([], timeline_notes={"notes": [{
+        "note_id": "note-vfx-23",
+        "typed": "Please stabilize this clip",
+        "attached_to": "clip",
+        "clip": "camera.mov",
+    }]}, clip_catalog=[{
+        "clip_id": "clip_a", "filename": "camera.mov",
+    }])
+
+    out, _ = _run_main(data)
+
+    (authorization,) = out["enhancement_spec"][
+        "stabilization_authorizations"]
+    assert authorization["format"] == (
+        "stabilization_authorization/1")
+    assert authorization["authorization_id"] == "note-vfx-23"
+    assert authorization["source"] == "timeline_note"
+    assert authorization["instruction"] == "Please stabilize this clip"
+    assert authorization["scope"]["clip_id"] == "clip_a"
+
+
 # --------------------------------------------------------------------------
 # From test_vfx_freeze_hold.py
 #

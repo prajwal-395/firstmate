@@ -37,6 +37,10 @@ from library.steps.step_4_03_plan_vfx.post_bridge import (
     STABILIZE_EFFECT,
     resolve_vfx,
 )
+from library.tools.stabilization_authorization import (
+    FORMAT as STABILIZATION_AUTHORIZATION_FORMAT,
+    authorizations_from_timeline_notes,
+)
 import unittest
 from library.tools.neural_engine import (  # noqa: E402
     apply_super_scale,
@@ -458,16 +462,15 @@ def test_directionless_params_get_no_motion():
 # --------------------------------------------------------------------------
 # From test_neural_directives.py
 #
-# Stabilization is plan-requested, never keyword-decided.
+# Stabilization requires explicit user authorization, never measurements
+# or a model plan alone.
 #
 # compile_manifest used to set `neural_engine_directives[*].stabilize`
 # off a keyword match (`_UNSTABLE_CAMERA_WORDS`) against vision prose -
 # the stability summary, camera prose, scene text and assessment
 # keywords - so Ren stabilized clips nobody asked it to (captain,
-# 2026-09-24). Now a shaky-worded clip compiles to NO stabilize
-# directive unless an `enhancement_spec.visual_effects` entry with
-# `effect_type == "stabilize"` (step 4.03 plan_vfx) covers it, and a
-# requested one still reaches the build's neural applicator.
+# 2026-09-24). Now user instructions compile into typed authorization
+# records; a model-authored entry without one refuses the compile.
 
 SOURCE = os.path.abspath(__file__)
 
@@ -531,18 +534,74 @@ def _stabilize_request(position=1, start=0.0, end=10.0):
     }]}
 
 
-def test_a_shaky_worded_clip_is_stabilized_only_when_the_plan_requests_it():
-    """Every word that used to trigger the keyword match is in this
-    document: no directive follows on its own, and one plan entry
-    stabilizes the placed clip through the build's neural path."""
+def test_shaky_measurements_do_not_authorize_a_model_stabilize_entry(capsys):
+    """Measured shake is not permission, and the compile names a model
+    proposal it cannot connect to an explicit user instruction."""
     directives = _directives(
         {"semantic_analysis_documents": [dict(SHAKY_V3_DOC)]})
     assert not any(d.get("stabilize") for d in directives.values())
 
-    directives = _directives(
-        {"semantic_analysis_documents": [dict(SHAKY_V3_DOC)]},
-        _stabilize_request())
-    assert directives.get("speech_1", {}).get("stabilize") is True
+    with pytest.raises(ValueError, match="no explicit user timeline note"):
+        _directives(
+            {"semantic_analysis_documents": [dict(SHAKY_V3_DOC)]},
+            _stabilize_request())
+    assert "Stabilization authorization refused" in capsys.readouterr().err
+
+
+def test_clip_scoped_timeline_request_reaches_only_that_clip(tmp_path):
+    second_path = str(tmp_path / "clip_002.mov")
+    Path(second_path).write_bytes(b"test footage")
+    semantic = {"semantic_analysis_documents": [
+        dict(SHAKY_V3_DOC),
+        dict(SHAKY_V3_DOC, clip_id="clip_002"),
+    ]}
+    inputs = _inputs(semantic)
+    second_block = dict(inputs["audio_spine"]["structure"][0])
+    second_block.update({
+        "position": 2, "clip_id": "clip_002",
+        "source_start": 0.217, "source_end": 10.217,
+        "timeline_start": 10.0, "timeline_end": 20.0,
+        "content": {"clip_id": "clip_002"},
+    })
+    inputs["audio_spine"]["structure"].append(second_block)
+    inputs["clip_catalog"].append({
+        "clip_id": "clip_002", "path": second_path,
+        "width": 1080, "height": 1920,
+    })
+    inputs["a_roll_assignments"].append({
+        "spine_block_position": 2, "clip_id": "clip_002",
+        "source_file": second_path,
+        "video_in": 0.217, "video_out": 10.217,
+        "timeline_start": 10.0, "timeline_end": 20.0,
+    })
+    notes = {"notes": [{
+        "note_id": "note-clip-001",
+        "typed": "Please stabilize this shaky clip",
+        "attached_to": "clip", "clip": "camera.mov",
+        "clip_source_file": SOURCE,
+    }]}
+    auths = authorizations_from_timeline_notes(notes, [{
+        "clip_id": "clip_001", "filename": "camera.mov",
+        "path": SOURCE, "frame_rate": 30.0,
+    }])
+    inputs["enhancement_spec"] = {
+        "visual_effects": [], "stabilization_authorizations": auths,
+    }
+
+    with patch("library.steps.step_5_04_compile_manifest.step.load",
+               side_effect=lambda out_dir, filename: inputs):
+        manifest = compile_manifest("dummy")
+
+    directives = manifest["neural_engine_directives"]
+    stabilized = [label for label, value in directives.items()
+                  if value.get("stabilize")]
+    assert stabilized == ["speech_1"]
+    directive = directives["speech_1"]["stabilize"]
+    assert directive["format"] == STABILIZATION_AUTHORIZATION_FORMAT
+    assert directive["authorizations"][0]["authorization_id"] == (
+        "note-clip-001")
+    assert directive["authorizations"][0]["instruction"] == (
+        "Please stabilize this shaky clip")
 
 
 def test_plan_vfx_resolves_a_stabilize_entry_to_the_neural_route():
@@ -560,6 +619,22 @@ def test_plan_vfx_resolves_a_stabilize_entry_to_the_neural_route():
     assert entry["effect_type"] == STABILIZE_EFFECT
     assert entry["route"] == "neural_engine"
     assert (entry["timeline_start"], entry["timeline_end"]) == (0.0, 10.0)
+
+
+def test_skip_stabilization_opt_out_preserves_other_neural_directives(
+        monkeypatch):
+    manifest = {"neural_engine_directives": {
+        "speech_1": {"super_scale": 2, "stabilize": {"authorizations": [
+            {"authorization_id": "note-1"}]}},
+        "speech_2": {"super_scale": 2},
+    }}
+    monkeypatch.setenv("PIPELINE_SKIP_STABILIZATION", "true")
+
+    assert render_step._skip_authorized_stabilization(manifest) == 1
+    assert manifest["neural_engine_directives"] == {
+        "speech_1": {"super_scale": 2},
+        "speech_2": {"super_scale": 2},
+    }
 
 
 def test_documents_that_join_to_nothing_fail_loudly():
