@@ -6720,7 +6720,18 @@ def aim_picture_row(name: str, look: dict, screen_window,
             # Judged by what it RETURNS (AGENTS.md 5) - and then READ
             # BACK (`assert_punch_took` below), because the return is a
             # lie past Resolve's silent clamp (PR 862).
-            if not item.SetProperty(key, value):
+            from library.tools.transform_write_log import set_property
+
+            if not set_property(
+                    item, key, value,
+                    item_identity={
+                        "source_file": source_file,
+                        "source_in": place["source_in"],
+                        "source_out": place["source_out"],
+                        "record_frame": place["snapped_record"],
+                    },
+                    project_folder=project_folder,
+                    timeline_name=name):
                 raise ReelBuildError(
                     f"{name}: Resolve refused {key}={value} on "
                     f"{item.GetName()!r}. The look declares a punch-in "
@@ -6774,7 +6785,8 @@ def _with_freeze(placements_list, freeze, fps: float) -> list:
 
 
 def _inherit_freeze_treatment(name: str, timeline, track_plan,
-                              video_row_by_angle: dict, freeze) -> dict:
+                              video_row_by_angle: dict, freeze,
+                              project_folder: str = "") -> dict:
     """Give the held frame the treatment of the shot it holds.
 
     A freeze is the ending shot's LAST FRAME, so it must draw like that
@@ -6833,6 +6845,7 @@ def _inherit_freeze_treatment(name: str, timeline, track_plan,
     # from is the item immediately BEFORE the hold in play order, which
     # is what this reads.
     held = shot = None
+    held_index = None
     for index, item in enumerate(items):
         source = item.GetMediaPoolItem()
         if source is None:
@@ -6842,7 +6855,7 @@ def _inherit_freeze_treatment(name: str, timeline, track_plan,
             continue
         if index == 0:
             break
-        held, shot = item, items[index - 1]
+        held, shot, held_index = item, items[index - 1], index
         break
     if held is None:
         raise ReelBuildError(
@@ -6853,12 +6866,19 @@ def _inherit_freeze_treatment(name: str, timeline, track_plan,
             f"{len(items)} item(s). Refusing rather than grading the "
             f"wrong clip.")
     wanted = shot.GetProperty() or {}
+    from library.tools.transform_write_log import set_property
+
     for key in ("ZoomX", "ZoomY", "Pan", "Tilt", "RotationAngle",
                 "AnchorPointX", "AnchorPointY", "CropLeft", "CropRight",
                 "CropTop", "CropBottom", "FlipX", "FlipY"):
         if key not in wanted:
             continue
-        held.SetProperty(key, wanted[key])
+        set_property(
+            held, key, wanted[key],
+            item_identity={"source_file": freeze.rendered_path,
+                           "track": f"V{row}", "row_index": held_index},
+            project_folder=project_folder or None,
+            timeline_name=name)
     got = held.GetProperty() or {}
     for key in ("ZoomX", "Pan", "Tilt"):
         if key not in wanted:
@@ -7018,7 +7038,18 @@ def apply_transform_overrides(name: str, track_plan, video_row_by_angle: dict,
                 record["applied_value"] = applied_value
                 before = _held_property(item, prop, timeline,
                                         resolve_project)
-                if not item.SetProperty(prop, applied_value):
+                from library.tools.transform_write_log import set_property
+
+                if not set_property(
+                        item, prop, applied_value,
+                        item_identity={
+                            "source_file": source_file,
+                            "source_in": place["source_in"],
+                            "source_out": place["source_out"],
+                            "record_frame": place["snapped_record"],
+                        },
+                        project_folder=project_folder,
+                        timeline_name=name, old_value=before):
                     raise ReelBuildError(
                         f"{name}: Resolve refused the recorded "
                         f"{prop}={value:g} (rebased to "
@@ -7706,10 +7737,21 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
         # only the TV frame's cover zoom. Judged by what SetProperty
         # RETURNS, because a frame that silently kept zoom 1.0 is the
         # letterboxed band all over again.
+        placed_segment_id = _overlay_segment_id(segment)
+        from library.tools.transform_write_log import set_property
+
         for key, value in (properties or {}).items():
             for item in (placed if isinstance(placed, list) else []):
-                if hasattr(item, "SetProperty") and not item.SetProperty(
-                        key, value):
+                if hasattr(item, "SetProperty") and not set_property(
+                        item, key, value,
+                        item_identity={
+                            "segment_id": placed_segment_id,
+                            "source_file": segment.get("overlay_path"),
+                            "track": f"V{track_index}",
+                            "record_frame": record_frame,
+                        },
+                        project_folder=project_folder,
+                        timeline_name=name):
                     raise ReelBuildError(
                         f"{name}: Resolve refused {key}={value} on the "
                         f"{kind} at {segment['timeline_start']:.2f}s")
@@ -7721,7 +7763,6 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
         # placement (Reel 09: the captain's hand corrections), so a
         # rebuild lands where they put things.
         tight = segment.get("tight_box") or {}
-        placed_segment_id = _overlay_segment_id(segment)
         placed_label = (segment or {}).get("placement_label") or None
         if seen_ids is not None:
             seen_ids.append(placed_segment_id)
@@ -7756,6 +7797,8 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
             intent_matched=intent_applied,
             draw_gain=draw_gain,
             resolve_project=project,
+            project_folder=project_folder,
+            timeline_name=name,
             draw_intent=draw_intent_for_segment(
                 segment, kind=kind, segment_id=placed_segment_id,
                 placement_label=placed_label,
@@ -8953,7 +8996,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         # master span and the shot's value arrives here instead.
         if freeze_tail is not None:
             inherited = _inherit_freeze_treatment(
-                name, timeline, track_plan, video_row_by_angle, freeze_tail)
+                name, timeline, track_plan, video_row_by_angle, freeze_tail,
+                project_folder=project_folder)
             build_record["freeze_tail"] = inherited
 
     def _place_overlays():
@@ -9051,6 +9095,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                 intent_matched=applied_intent_keys,
                 draw_gain=draw_gain,
                 resolve_project=project,
+                project_folder=project_folder,
+                timeline_name=name,
                 draw_intent=_draw_intent_for_segment(
                     segment, kind="caption",
                     segment_id=segment.get("segment_id"),
@@ -9251,7 +9297,9 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             reel_timeline_bin(name))
         build_record["stream_enforcement"] = _otio.verify_channels(
             timeline, recorder)
-        deferred = _otio.run_deferred(timeline, recorder)
+        deferred = _otio.run_deferred(
+            timeline, recorder, project_folder=project_folder,
+            timeline_name=name)
         print(f"  {name}: placed by ONE OTIO import - "
               f"{len(recorder.specs)} item(s), {deferred} deferred "
               f"transform(s)", file=sys.stderr)
@@ -12086,7 +12134,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     try:
         with resolve_lease("draw-gain probe", exclusive=True):
             gain_record = _gain_probe.calibrate(
-                resolve, project, (reel_width, reel_height))
+                resolve, project, (reel_width, reel_height),
+                project_folder=project_folder)
     except Exception as exc:  # noqa: BLE001 - probe never raises, belt
         # and braces: a probe-shaped surprise must not pass a build.
         gain_record = {
@@ -15014,7 +15063,8 @@ def build_reel_variants(project_slug: str, reel_number: int,
     from library.tools import draw_gain_probe as _variant_gain_probe
     try:
         _variant_gain_record = _variant_gain_probe.calibrate(
-            resolve, project, (reel_width, reel_height))
+            resolve, project, (reel_width, reel_height),
+            project_folder=project_folder)
     except Exception as exc:  # noqa: BLE001 - probe never raises
         _variant_gain_record = {
             "gain": FALLBACK_DRAW_GAIN, "source": "fallback",

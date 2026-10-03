@@ -1808,7 +1808,8 @@ def _live_rows(timeline: Any) -> dict:
 
 
 def _pre_delete_removed(project: Any, timeline: Any,
-                        removals: Sequence[dict], journal_id: str) -> dict:
+                        removals: Sequence[dict], journal_id: str,
+                        project_folder: str = "") -> dict:
     """Delete the removal targets on the STAGING copy through EditPatch.
 
     `composed_edit` only deletes what it re-places, so a removal -
@@ -1862,7 +1863,8 @@ def _pre_delete_removed(project: Any, timeline: Any,
     patch_receipt = edit_patch.apply_live_patch(
         project=project, timeline=timeline, capability="reel.touchup",
         operations=operations, conflict_domains=("timeline_structure",),
-        idempotency_key=f"touch:{journal_id}:local-deletes")
+        idempotency_key=f"touch:{journal_id}:local-deletes",
+        project_folder=project_folder or None)
     if patch_receipt["status"] != "committed":
         raise TouchupError(
             f"the staging local-delete patch did not verify: "
@@ -2264,7 +2266,8 @@ def _add_rows(staged: Any, new_rows: Sequence[Mapping]) -> list:
 
 def _apply_in_place(project: Any, staged: Any,
                     qualification: Qualification, comp_dir: str,
-                    journal_id: str) -> dict:
+                    journal_id: str,
+                    project_folder: str | None = None) -> dict:
     """Write in-place edits onto staging; EditPatch owns timeline writes.
 
     Runs BEFORE the composition, addressed by pre-edit record frame
@@ -2335,7 +2338,8 @@ def _apply_in_place(project: Any, staged: Any,
             project=project, timeline=staged, capability="reel.touchup",
             operations=patch_operations,
             conflict_domains=("picture_transform", "timeline_structure"),
-            idempotency_key=f"touch:{journal_id}:in-place")
+            idempotency_key=f"touch:{journal_id}:in-place",
+            project_folder=project_folder)
         if applied["patch_receipt"]["status"] != "committed":
             raise TouchupError(
                 f"the staging in-place patch did not verify: "
@@ -2488,7 +2492,8 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
     # re-place further down carries the write instead of losing it.
     receipt["new_rows"] = _add_rows(staged, qualification.new_rows)
     receipt["in_place"] = _apply_in_place(
-        project, staged, qualification, comp_dir, journal["id"])
+        project, staged, qualification, comp_dir, journal["id"],
+        project_folder)
     if receipt["in_place"].get("patch_receipt"):
         receipt.setdefault("edit_patches", []).append(
             receipt["in_place"]["patch_receipt"])
@@ -2505,7 +2510,8 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
     # carried treatments off these same handles, so nothing
     # needed dies with them.
     receipt["pre_delete"] = _pre_delete_removed(
-        project, staged, qualification.removals, journal["id"])
+        project, staged, qualification.removals, journal["id"],
+        project_folder=project_folder)
     if receipt["pre_delete"].get("patch_receipt"):
         receipt.setdefault("edit_patches", []).append(
             receipt["pre_delete"]["patch_receipt"])
@@ -2532,7 +2538,8 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
         rederiver=rederiver,
         grade_sources=grade_sources,
         link_rows={},
-        picture_row="V1")
+        picture_row="V1",
+        write_context={"project_folder": project_folder})
     receipt["composed_seconds"] = round(time.time() - edit_started,
                                         3)
     receipt["composed"] = {

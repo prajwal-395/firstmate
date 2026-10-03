@@ -566,22 +566,30 @@ def _tight_segment(path="/renders/vox_test_00_tight.mov"):
     return seg
 
 
-def _tight_placer(segments, track=7, placed=None, **kwargs):
+def _tight_placer(segments, track=7, placed=None, project_folder="", **kwargs):
     placed = placed if placed is not None else [_PlacedItem(218)]
     timeline = _TrackTimeline(placed)
     project = _FakeProject(timeline)
     pool = _FakePool()
-    place_overlay_segments(
-        pool, project, timeline, "fake reel", 24000 / 1001,
-        segments, track, kind="semantic visual", check="F22",
-        project_folder="/proj", **kwargs)
+    from library.tools.transform_write_log import write_scope
+
+    with write_scope(project="reel-build-test",
+                     timeline_name="fake reel",
+                     timeline_id="fake-reel-id",
+                     run_id="reel-build-test-run"):
+        place_overlay_segments(
+            pool, project, timeline, "fake reel", 24000 / 1001,
+            segments, track, kind="semantic visual", check="F22",
+            project_folder=project_folder, **kwargs)
     return pool, placed
 
 
-def test_a_tight_segment_is_placed_through_its_box_and_read_back(capsys):
+def test_a_tight_segment_is_placed_through_its_box_and_read_back(
+        capsys, tmp_path):
     """A tight graphic rides the Scaling/Pan/Tilt its box computed:
     the placer SETS them on the placed item, then reads them back."""
-    _, placed = _tight_placer([_tight_segment()])
+    _, placed = _tight_placer([_tight_segment()],
+                              project_folder=str(tmp_path))
     assert placed[0].set_calls == {
         "Scaling": 1, "Pan": 140.0, "Tilt": -1720.0}
 
@@ -589,7 +597,8 @@ def test_a_tight_segment_is_placed_through_its_box_and_read_back(capsys):
     # box placement is REPORTED by name, not failed - the clip IS on the
     # timeline, and failing would trade a misplaced graphic for a missing one.
     moved = [_PlacedItem(218, frozen={"Tilt": -3840.0})]
-    _tight_placer([_tight_segment()], placed=moved)
+    _tight_placer([_tight_segment()], placed=moved,
+                  project_folder=str(tmp_path))
     err = capsys.readouterr().err
     assert "semantic visual" in err
     assert "Tilt" in err and "-3840" in err

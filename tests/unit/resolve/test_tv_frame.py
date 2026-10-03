@@ -663,7 +663,8 @@ def test_a_transform_resolve_did_not_hold_is_refused(tmp_path):
         aim_picture_row("Reel 09", look, _window(look), 1080, 1920,
                         [_Item(held=dict(identity))], [_place()],
                         measure=lambda s, a, b: _subject(),
-                        size_of=lambda item: (3840, 2160))
+                        size_of=lambda item: (3840, 2160),
+                        project_folder=str(tmp_path))
     assert "did not take" in str(excinfo.value)
 
 

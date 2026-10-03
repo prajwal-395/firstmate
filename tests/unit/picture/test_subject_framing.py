@@ -277,7 +277,7 @@ class TestSubjectFramingRespectsTheDeclaration:
 # 3. The contract with the renderer
 # ─────────────────────────────────────────────────────────
 
-def test_the_pan_reaches_a_property_resolve_accepts():
+def test_the_pan_reaches_a_property_resolve_accepts(tmp_path):
     """Producing a value is not delivering it.
 
     `framing_pan_x` sat in the manifest for the life of P1.1 while the
@@ -300,7 +300,10 @@ def test_the_pan_reaches_a_property_resolve_accepts():
 
     item = _item(source_size=(3840, 2160))
     results = {"warnings": []}
-    _apply_conform(item, clip, results, frame_size=(1080, 1920))
+    _apply_conform(
+        item, clip, results, frame_size=(1080, 1920),
+        write_context={"project_folder": str(tmp_path),
+                       "timeline_name": "subject-framing-test"})
 
     assert item.refused == [], f"Resolve would refuse {item.refused}"
     # The manifest carries delivery pixels; Resolve takes units.  On a

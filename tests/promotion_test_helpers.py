@@ -66,7 +66,8 @@ def install_measured_draw_gain_probe(monkeypatch, gain=None):
 
     measured = FALLBACK_DRAW_GAIN if gain is None else gain
 
-    def _measured(resolve, project, frame_wh, workdir=""):
+    def _measured(resolve, project, frame_wh, workdir="",
+                  project_folder=None):
         pool = project.GetMediaPool()
         scratch = pool.CreateEmptyTimeline(probe_mod.PROBE_TIMELINE_NAME)
         pool.DeleteTimelines([scratch])

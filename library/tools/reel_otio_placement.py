@@ -487,7 +487,9 @@ def verify_channels(timeline, recorder: PlacementRecorder) -> dict:
     return record
 
 
-def run_deferred(timeline, recorder: PlacementRecorder) -> int:
+def run_deferred(timeline, recorder: PlacementRecorder, *,
+                 project_folder: str = "", project: str = "",
+                 timeline_name: str = "") -> int:
     """The per-item writes the placers made or deferred, on the real items,
     in the default path's order: an append's SetProperty, then the
     placement transform.
@@ -500,6 +502,7 @@ def run_deferred(timeline, recorder: PlacementRecorder) -> int:
     import does not. So every one is set here, exactly as the placer set
     it, judged by what SetProperty returns."""
     from library.tools.reel_build import _timeline_span
+    from library.tools.transform_write_log import set_property
 
     started = time.perf_counter()
     for spec in recorder.specs:
@@ -509,7 +512,18 @@ def run_deferred(timeline, recorder: PlacementRecorder) -> int:
         for item in timeline.GetItemListInTrack(kind, spec.track) or []:
             if (_timeline_span(item) or (None,))[0] == spec.record:
                 for key, value in spec.properties.items():
-                    if not item.SetProperty(key, value):
+                    if not set_property(
+                            item, key, value,
+                            item_identity={
+                                "source_file": spec.path,
+                                "track": f"{kind[0].upper()}{spec.track}",
+                                "record_frame": spec.record,
+                                "source_in": spec.source_in,
+                                "source_out": spec.source_out,
+                            },
+                            project_folder=project_folder or None,
+                            project=project or None,
+                            timeline_name=timeline_name or None):
                         raise OtioPlacementRefused(
                             f"Resolve refused {key}={value} on "
                             f"{os.path.basename(spec.path)}")

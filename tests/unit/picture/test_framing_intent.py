@@ -250,6 +250,13 @@ def _item(source_size=None):
     return item
 
 
+def _write_context(tmp_path):
+    return {
+        "project_folder": str(tmp_path),
+        "timeline_name": "framing-test timeline",
+    }
+
+
 # ─────────────────────────────────────────────────────────
 # 1. Parameter surviving planner -> manifest -> renderer
 # ─────────────────────────────────────────────────────────
@@ -290,7 +297,7 @@ class TestFramingEndToEnd:
         # Pan should be positive (shifted right) and non-trivial
         assert result["framing_pan_x"] > 0
 
-    def test_renderer_applies_zoom_and_pan(self):
+    def test_renderer_applies_zoom_and_pan(self, tmp_path):
         """_apply_conform must set properties Resolve actually accepts.
 
         Asserted against a fake that refuses unknown names, because that
@@ -305,7 +312,8 @@ class TestFramingEndToEnd:
             "framing_pan_x": 50.0,
             "label": "test_clip",
         }
-        _apply_conform(item, clip, results, frame_size=(1080, 1920))
+        _apply_conform(item, clip, results, frame_size=(1080, 1920),
+                       write_context=_write_context(tmp_path))
 
         assert item.refused == [], f"Resolve would refuse {item.refused}"
         assert item.GetProperty("ZoomX") == 2.0
@@ -323,7 +331,7 @@ class TestFramingEndToEnd:
         assert item.GetProperty("Pan") == pytest.approx(25.0, abs=0.01)
         assert not results["warnings"]
 
-    def test_renderer_uses_tilt_for_vertical_pan(self):
+    def test_renderer_uses_tilt_for_vertical_pan(self, tmp_path):
         """And converts the pixel offset into the Tilt UNIT.
 
         A landscape source conformed into a vertical frame draws
@@ -338,7 +346,8 @@ class TestFramingEndToEnd:
         _apply_conform(item, {
             "needs_conform": True, "fill_zoom": 2.0,
             "framing_pan_y": -25.0, "label": "test_clip",
-        }, results, frame_size=(1080, 1920))
+        }, results, frame_size=(1080, 1920),
+            write_context=_write_context(tmp_path))
         assert item.refused == []
         assert item.GetProperty("Tilt") == pytest.approx(
             units_for_shift(-25.0, 2160, 1920, _FIT_3840_TO_1080x1920),
@@ -346,7 +355,7 @@ class TestFramingEndToEnd:
         assert item.GetProperty("Tilt") == pytest.approx(-39.506, abs=0.01)
         assert not results["warnings"]
 
-    def test_a_pan_that_could_not_be_converted_says_so(self):
+    def test_a_pan_that_could_not_be_converted_says_so(self, tmp_path):
         """An unreadable source size does not silently guess a unit.
 
         The pixel value still goes through - refusing the pan would
@@ -359,11 +368,12 @@ class TestFramingEndToEnd:
         _apply_conform(item, {
             "needs_conform": True, "fill_zoom": 2.0,
             "framing_pan_x": 50.0, "label": "test_clip",
-        }, results, frame_size=(1080, 1920))
+        }, results, frame_size=(1080, 1920),
+            write_context=_write_context(tmp_path))
         assert item.GetProperty("Pan") == 50.0
         assert any("unconverted pixels" in w for w in results["warnings"])
 
-    def test_renderer_warns_when_resolve_refuses_a_property(self):
+    def test_renderer_warns_when_resolve_refuses_a_property(self, tmp_path):
         """A refused SetProperty must be reported, not swallowed.
 
         Resolve returns False rather than raising, so a function that only
@@ -375,7 +385,7 @@ class TestFramingEndToEnd:
         results = {"warnings": []}
         _apply_conform(item, {
             "needs_conform": True, "fill_zoom": 2.0, "label": "test_clip",
-        }, results)
+        }, results, write_context=_write_context(tmp_path))
         assert results["warnings"], "a refused property must be recorded"
         assert "ZoomX" in results["warnings"][0]
 
@@ -453,7 +463,7 @@ class TestUnsetIsTheDefault:
                                "framing_intent": 0.0,
                                "framing_delivered": 0.0}
 
-    def test_renderer_no_pan_when_unset(self):
+    def test_renderer_no_pan_when_unset(self, tmp_path):
         """With no pan in the clip dict, only zoom is touched, so a
         project that never set framing renders byte-identically."""
         item = _item()
@@ -463,7 +473,8 @@ class TestUnsetIsTheDefault:
             "fill_zoom": EXPECTED_FULL_FILL_ZOOM,
             "label": "legacy_clip",
         }
-        _apply_conform(item, clip, results)
+        _apply_conform(item, clip, results,
+                       write_context=_write_context(tmp_path))
 
         assert {name for name, _ in item.property_writes} == {"ZoomX", "ZoomY"}
         assert item.refused == []

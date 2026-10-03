@@ -439,7 +439,8 @@ def test_measured_gain_comes_back_from_rendered_pixels(monkeypatch,
     monkeypatch.setattr(mc_mod, "grab_still",
                         _make_grab_proxy(plate_holder))
     record = probe_mod.calibrate(resolve, project, FRAME_WH,
-                                 workdir=str(tmp_path))
+                                 workdir=str(tmp_path),
+                                 project_folder=str(tmp_path))
     assert record["source"] == "measured"
     assert record["gain"] == pytest.approx(SIM_GAIN, abs=0.05)
     assert record["disagrees_with_fallback"] == (
@@ -464,7 +465,8 @@ def test_a_refused_grab_falls_back_loud(monkeypatch, tmp_path):
     import library.tools.marker_capture as mc_mod
     monkeypatch.setattr(mc_mod, "grab_still", boom)
     record = probe_mod.calibrate(resolve, project, FRAME_WH,
-                                 workdir=str(tmp_path))
+                                 workdir=str(tmp_path),
+                                 project_folder=str(tmp_path))
     assert record["source"] == "fallback"
     assert record["gain"] == FALLBACK_DRAW_GAIN
     assert record["warnings"], "a silent fallback is the defect"
@@ -505,7 +507,8 @@ def test_a_past_the_end_entry_playhead_still_measures(monkeypatch,
     monkeypatch.setattr(mc_mod, "grab_still",
                         _make_grab_proxy(plate_holder))
     record = probe_mod.calibrate(resolve, project, FRAME_WH,
-                                 workdir=str(tmp_path))
+                                 workdir=str(tmp_path),
+                                 project_folder=str(tmp_path))
     assert record["source"] == "measured"
     assert record["gain"] == pytest.approx(SIM_GAIN, abs=0.05)
     assert any("entry playhead unreadable" in warning

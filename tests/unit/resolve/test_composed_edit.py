@@ -49,6 +49,26 @@ def _dirs(tmp_path):
     return (str(tmp_path / "comps"), str(tmp_path / "withheld"))
 
 
+def _write_context(tmp_path, timeline):
+    return {
+        "project": "composed-edit-test",
+        "project_folder": str(tmp_path),
+        "timeline_name": timeline.GetName(),
+        "timeline_id": timeline.GetUniqueId(),
+        "run_id": "composed-edit-test-run",
+    }
+
+
+def _bare_write_context(tmp_path):
+    return {
+        "project": "composed-edit-test",
+        "project_folder": str(tmp_path),
+        "timeline_name": "test timeline",
+        "timeline_id": "test-timeline-id",
+        "run_id": "composed-edit-test-run",
+    }
+
+
 class _Rederiver(ce.CompRederiver):
     """A comp generator that really re-keys, as `apply_comps` does.
 
@@ -431,7 +451,9 @@ def test_step7_restores_transform_comp_window_and_grade(tmp_path):
 
     receipt = ce.restore_item(placed, capture, grade_source=reference,
                               timeline=timeline,
-                              link_with=[timeline.rows["A1"][0]])
+                              link_with=[timeline.rows["A1"][0]],
+                              write_context=_write_context(tmp_path,
+                                                           timeline))
 
     assert placed.GetProperty("ZoomX") == 2.307
     assert placed.GetFusionCompCount() == 1
@@ -456,7 +478,8 @@ def test_step7_refuses_when_the_media_window_will_not_go_back(tmp_path):
     placed.inert_media_in = True      # SetInput takes nothing
 
     with pytest.raises(ce.RestoreNotVerified) as refusal:
-        ce.restore_item(placed, capture)
+        ce.restore_item(placed, capture,
+                        write_context=_write_context(tmp_path, timeline))
     assert "media window read back" in str(refusal.value)
 
 
@@ -477,7 +500,8 @@ def test_case1_an_in_clip_trim_composes_and_every_step_is_receipted(tmp_path):
     receipt = ce.apply_composed_edit(
         timeline=timeline, media_pool=pool, changes=changes,
         comp_dir=comp_dir, withheld_dir=withheld, rederiver=rederiver,
-        grade_sources=grade_sources, link_rows={"V1": "A1"})
+        grade_sources=grade_sources, link_rows={"V1": "A1"},
+        write_context=_write_context(tmp_path, timeline))
 
     assert receipt.deleted["asked"] == len(changes)
     assert receipt.verified == {"landed": len(changes), "asked": len(changes)}
@@ -517,7 +541,8 @@ def test_case2_an_ending_change_composes_and_carries_the_rows_out(tmp_path):
         timeline=timeline, media_pool=pool, changes=changes,
         insertions=[ending], comp_dir=comp_dir, withheld_dir=withheld,
         rederiver=_Rederiver(timeline),
-        grade_sources={("V3", 0): control.rows["V3"][0]})
+        grade_sources={("V3", 0): control.rows["V3"][0]},
+        write_context=_write_context(tmp_path, timeline))
 
     rows = ce._rows_of(timeline)
     v1 = [(i.GetStart(), i.GetEnd()) for i in rows["V1"]]
@@ -542,7 +567,8 @@ def test_the_composition_is_one_delete_and_one_place(tmp_path):
     ce.apply_composed_edit(timeline=timeline, media_pool=pool,
                            changes=changes, comp_dir=comp_dir,
                            withheld_dir=withheld,
-                           rederiver=_Rederiver(timeline))
+                           rederiver=_Rederiver(timeline),
+                           write_context=_write_context(tmp_path, timeline))
     assert timeline.delete_calls == [len(changes)]
     assert pool.append_calls == [len(changes)]
 
@@ -672,7 +698,8 @@ def test_an_edit_that_changes_no_played_length_needs_no_generator(tmp_path):
 
     receipt = ce.apply_composed_edit(
         timeline=timeline, media_pool=pool, changes=changes,
-        comp_dir=comp_dir, withheld_dir=withheld, rederiver=None)
+        comp_dir=comp_dir, withheld_dir=withheld, rederiver=None,
+        write_context=_write_context(tmp_path, timeline))
 
     assert receipt.rederivation_required == {"required": False, "trimmed": 0,
                                              "with_comps": 0, "insertions": 0}
@@ -705,7 +732,9 @@ def test_an_insertion_with_no_declared_treatment_refuses(tmp_path):
         ce.apply_composed_edit(timeline=timeline, media_pool=pool,
                                changes=changes, insertions=[undeclared],
                                comp_dir=comp_dir, withheld_dir=withheld,
-                               rederiver=_Generator())
+                               rederiver=_Generator(),
+                               write_context=_write_context(tmp_path,
+                                                            timeline))
     assert "comes back" in str(refusal.value)
     assert "'ZoomX': 2.307" in str(refusal.value), (
         "the refusal does not say what its neighbours carry")
@@ -716,7 +745,8 @@ def test_an_insertion_with_no_declared_treatment_refuses(tmp_path):
     ce.apply_composed_edit(timeline=timeline, media_pool=pool,
                            changes=changes, insertions=[chosen],
                            comp_dir=comp_dir, withheld_dir=withheld,
-                           rederiver=_Generator())
+                           rederiver=_Generator(),
+                           write_context=_write_context(tmp_path, timeline))
     assert [i.GetStart() for i in timeline.rows["V1"]] == [590, 1069, 1255, 1274]
 
 
@@ -733,7 +763,8 @@ def test_bypass_2_an_unreachable_generator_refuses_by_its_own_reason(tmp_path):
             timeline=timeline, media_pool=pool, changes=changes,
             comp_dir=comp_dir, withheld_dir=withheld,
             rederiver=_Generator(reason="the manifest declares no per-clip "
-                                        "Fusion effects"))
+                                        "Fusion effects"),
+            write_context=_write_context(tmp_path, timeline))
     assert "no per-clip Fusion effects" in str(refusal.value)
     assert timeline.delete_calls == []
 
@@ -833,7 +864,9 @@ def test_bypass_6_a_generator_that_reports_success_and_does_nothing(tmp_path):
     with pytest.raises(ce.CompRederivationNotProven) as refusal:
         ce.apply_composed_edit(timeline=timeline, media_pool=pool,
                                changes=changes, comp_dir=comp_dir,
-                               withheld_dir=withheld, rederiver=generator)
+                               withheld_dir=withheld, rederiver=generator,
+                               write_context=_write_context(tmp_path,
+                                                            timeline))
     assert generator.calls == 1
     assert "carries no comp after the pass" in str(refusal.value)
     assert "keyed to the length it used to play" in str(refusal.value)
@@ -863,7 +896,9 @@ def test_bypass_7_a_generator_that_leaves_an_uncovered_window(tmp_path):
         ce.apply_composed_edit(timeline=timeline, media_pool=pool,
                                changes=changes, comp_dir=comp_dir,
                                withheld_dir=withheld,
-                               rederiver=_Generator(on_run=_short))
+                               rederiver=_Generator(on_run=_short),
+                               write_context=_write_context(tmp_path,
+                                                            timeline))
     assert "GlobalIn 1 is past comp frame 0" in str(refusal.value)
 
 
@@ -959,10 +994,15 @@ class _Item:
         return dict(self.props)
 
 
-def test_a_one_ulp_readback_is_the_value_written():
+def test_a_one_ulp_readback_is_the_value_written(tmp_path):
     assert set_properties(_Item(1e-15), {"Pan": -8.610478359908884,
-                                         "Scaling": 1}) == {}
+                                         "Scaling": 1},
+                          write_context=_bare_write_context(tmp_path),
+                          item_identity={"test_item": "one"}) == {}
 
 
-def test_a_value_that_did_not_take_is_still_refused():
-    assert "Tilt" in set_properties(_Item(0.5), {"Tilt": 1844.0})
+def test_a_value_that_did_not_take_is_still_refused(tmp_path):
+    assert "Tilt" in set_properties(
+        _Item(0.5), {"Tilt": 1844.0},
+        write_context=_bare_write_context(tmp_path),
+        item_identity={"test_item": "one"})

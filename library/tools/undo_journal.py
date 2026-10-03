@@ -583,7 +583,7 @@ def _index_of(rows: Mapping, detail: Mapping) -> int:
 def undo_in_place(*, timeline, media_pool, entry: Mapping, entry_root: str,
                   reference, rederiver: _ce.CompRederiver,
                   resolve_media: Callable[[str], Any],
-                  work_dir: str) -> dict:
+                  work_dir: str, project_folder: str = "") -> dict:
     """Reverse one journaled touch on `timeline` itself. Returns a receipt.
 
     `reference` is a duplicate of `timeline` taken before this call -
@@ -699,7 +699,12 @@ def undo_in_place(*, timeline, media_pool, entry: Mapping, entry_root: str,
     try:
         _write_inverse(timeline, media_pool, entry_root, plan,
                        rows, insertions, reinsert_captures,
-                       grade_by_frame, rederiver, work_dir, receipt)
+                       grade_by_frame, rederiver, work_dir, receipt,
+                       write_context={
+                           "project_folder": project_folder or None,
+                           "project": entry.get("resolve_project"),
+                           "timeline_name": entry["final"],
+                       })
     except UndoRefused as refused:
         raise UndoNotVerified(str(refused)) from refused
 
@@ -743,14 +748,16 @@ def undo_in_place(*, timeline, media_pool, entry: Mapping, entry_root: str,
 
 def _write_inverse(timeline, media_pool, entry_root, plan, rows,
                    insertions, reinsert_captures, grade_by_frame,
-                   rederiver, work_dir, receipt) -> None:
+                   rederiver, work_dir, receipt,
+                   write_context=None) -> None:
     """Steps 4-6 of the undo: every write, in the one order that works."""
     # 4. In place: transforms and comps the touch changed on items it
     # did not move.
     receipt["in_place"] = []
     for a, b in plan.in_place:
         item = _at(rows, _row(a), a["record_in"])
-        receipt["in_place"].append(_revert_in_place(item, a, b))
+        receipt["in_place"].append(
+            _revert_in_place(item, a, b, write_context=write_context))
 
     # 5. Delete what the touch placed, then re-place the rest.
     if plan.deletions:
@@ -770,7 +777,8 @@ def _write_inverse(timeline, media_pool, entry_root, plan, rows,
             comp_dir=os.path.join(work_dir, "comps"),
             withheld_dir=os.path.join(work_dir, "withheld"),
             rederiver=rederiver, grade_sources=grade_sources,
-            link_rows={}, picture_row="V1")
+            link_rows={}, picture_row="V1",
+            write_context=write_context)
         receipt["composed"] = {"plan": composed.plan,
                                "verified": composed.verified,
                                "rederived": composed.rederived}
@@ -786,10 +794,21 @@ def _write_inverse(timeline, media_pool, entry_root, plan, rows,
         _ce.restore_item(item, _ce.ItemCapture(
             change=_identity_change(detail),
             properties=dict(capture.get("properties") or {}),
-            geometry={}, media_pool_item=mpi, restorable_comps=comps))
+            geometry={}, media_pool_item=mpi, restorable_comps=comps),
+            write_context=write_context)
     for _a, b in plan.restores:
         item = _at(rows, _row(b), b["record_in"])
-        diff = _ce.set_properties(item, _transform(b))
+        identity = {
+            key: b[key]
+            for key in ("name", "source_file", "source_in_frame",
+                        "source_out_frame")
+            if key in b
+        }
+        diff = _ce.set_properties(
+            item, _transform(b), write_context=write_context,
+            item_identity={**identity, "row": _row(b),
+                           "record_frame": b["record_in"]},
+            old_properties=_transform(_a))
         if diff:
             raise UndoNotVerified(
                 f"{_row(b)}@{b['record_in']} did not take its prior "
@@ -801,7 +820,8 @@ def _write_inverse(timeline, media_pool, entry_root, plan, rows,
             item.SetClipColor(colour)
 
 
-def _revert_in_place(item, after: Mapping, before: Mapping) -> dict:
+def _revert_in_place(item, after: Mapping, before: Mapping, *,
+                     write_context=None) -> dict:
     if item is None:
         raise UndoRefused(
             f"{_row(after)}@{after['record_in']} is not on the "
@@ -811,7 +831,16 @@ def _revert_in_place(item, after: Mapping, before: Mapping) -> dict:
             "refuses, the touch cannot be undone in place")
     out = {"row": _row(after), "record_frame": int(after["record_in"])}
     if _transform(after) != _transform(before):
-        diff = _ce.set_properties(item, _transform(before))
+        identity = {
+            key: after[key]
+            for key in ("name", "source_file", "source_in_frame",
+                        "source_out_frame")
+            if key in after
+        }
+        diff = _ce.set_properties(
+            item, _transform(before), write_context=write_context,
+            item_identity={**identity, **out},
+            old_properties=_transform(after))
         if diff:
             raise UndoNotVerified(
                 f"{out['row']}@{out['record_frame']} did not take its "
@@ -971,7 +1000,7 @@ def _undo_touch_connected(project_folder, entry, connect,
                 entry_root=root, reference=reference, rederiver=rederiver,
                 resolve_media=lambda path: reel_touchup.pool_item_for_path(
                     pool, path),
-                work_dir=work_dir)
+                work_dir=work_dir, project_folder=project_folder)
             rows = snapshot_timeline(live, final, side="staged")
     except UndoRefused:
         # Raised before the first write: the timeline is as the touch

@@ -127,7 +127,8 @@ def main():
         assert pm is not None
         project = pm.GetCurrentProject()
         assert project is not None
-        results.ok("GetProjectManager + GetCurrentProject", project.GetName())
+        project_name = project.GetName()
+        results.ok("GetProjectManager + GetCurrentProject", project_name)
     except Exception as e:
         results.fail("GetProjectManager", str(e))
         sys.exit(1)
@@ -180,15 +181,19 @@ def main():
     try:
         test_tl = mp.CreateEmptyTimeline("__capability_test__")
         assert test_tl is not None, "CreateEmptyTimeline returned None"
+        test_timeline_name = "__capability_test__"
         results.ok("CreateEmptyTimeline")
     except Exception as e:
         results.fail("CreateEmptyTimeline", str(e))
         # Try to use existing
         test_tl = project.GetCurrentTimeline()
+        test_timeline_name = test_tl.GetName() if test_tl else ""
 
     # Set current timeline
     try:
-        project.SetCurrentTimeline(test_tl)
+        from library.tools.resolve_lock import assert_current_timeline
+
+        assert_current_timeline(project, test_tl)
         results.ok("SetCurrentTimeline")
     except Exception as e:
         results.fail("SetCurrentTimeline", str(e))
@@ -316,11 +321,19 @@ def main():
             ("CropLeft", 5.0),
             ("CropRight", 5.0),
         ]
+        tested_values = {}
         
         for prop_name, value in prop_tests:
             try:
-                result = clip.SetProperty(prop_name, value)
+                from library.tools.transform_write_log import set_property
+
+                result = set_property(
+                    clip, prop_name, value,
+                    item_identity={"track": "V1", "index": 0},
+                    project=project_name,
+                    timeline_name=test_timeline_name)
                 readback = clip.GetProperty(prop_name)
+                tested_values[prop_name] = readback
                 if result and readback is not None:
                     results.ok(f"SetProperty('{prop_name}', {value})", f"readback={readback}")
                 else:
@@ -331,9 +344,17 @@ def main():
         # Reset properties
         for prop_name, _ in prop_tests:
             try:
-                clip.SetProperty(prop_name, {"ZoomX": 1.0, "ZoomY": 1.0, "Pan": 0.0, 
-                                              "Tilt": 0.0, "RotationAngle": 0.0, 
-                                              "Opacity": 100.0, "CropLeft": 0.0, "CropRight": 0.0}[prop_name])
+                set_property(
+                    clip, prop_name,
+                    {"ZoomX": 1.0, "ZoomY": 1.0, "Pan": 0.0,
+                     "Tilt": 0.0, "RotationAngle": 0.0,
+                     "Opacity": 100.0, "CropLeft": 0.0,
+                     "CropRight": 0.0}[prop_name],
+                    item_identity={"track": "V1", "index": 0},
+                    project=project_name,
+                    timeline_name=test_timeline_name,
+                    **({"old_value": tested_values[prop_name]}
+                       if prop_name in tested_values else {}))
             except Exception:
                 pass
         

@@ -177,7 +177,7 @@ def _fallback_record(warnings, probe=None) -> dict:
 
 
 def calibrate(resolve, project, frame_wh: tuple,
-              workdir: str = "") -> dict:
+              workdir: str = "", project_folder: str = "") -> dict:
     """Measure the draw gain off the live renderer, or fall back loud.
 
     `frame_wh` is the geometry placements are computed for (the reel
@@ -304,7 +304,14 @@ def calibrate(resolve, project, frame_wh: tuple,
                 [f"playhead reads key {back.marker_key}, want {mid}: "
                  f"probe cannot run"])
 
-        clip.SetProperty("Tilt", PROBE_TILT)
+        from library.tools.transform_write_log import set_property
+
+        set_property(
+            clip, "Tilt", PROBE_TILT,
+            item_identity={"source_file": plate_path, "track": "V1",
+                           "record_frame": 0},
+            project_folder=project_folder or None,
+            timeline_name=PROBE_TIMELINE_NAME)
         read_back = clip.GetProperty("Tilt")
         if read_back != PROBE_TILT:
             return _fallback_record(

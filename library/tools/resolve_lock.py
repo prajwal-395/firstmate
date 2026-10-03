@@ -406,6 +406,7 @@ _mode: Optional[str] = None
 # lease set (`assert_current_timeline`).
 _cursor_switches = 0
 _last_set_id = None
+_last_set_name = None
 _sole_writer_reason: Optional[str] = None
 
 
@@ -470,6 +471,14 @@ def exclusive_held() -> bool:
     """Does this process hold the instance exclusively?"""
     return (_sole_writer_reason is not None
             or (_depth > 0 and _mode == "exclusive"))
+
+
+def last_timeline_identity():
+    """Identity already read by the cursor guard, with no Resolve call."""
+    fence = current_fence()
+    if fence is not None:
+        return fence.expected_id, fence.expected_name
+    return _last_set_id, _last_set_name
 
 
 @contextmanager
@@ -1079,7 +1088,7 @@ def assert_current_timeline(project, expected_timeline):
     caller may remember or forget: the check every write path already
     makes now refuses without it.
     """
-    global _cursor_switches, _last_set_id
+    global _cursor_switches, _last_set_id, _last_set_name
     if not held():
         raise UnguardedPlacementError(
             f"placing into {_timeline_name(expected_timeline)!r} without "
@@ -1115,14 +1124,17 @@ def assert_current_timeline(project, expected_timeline):
     if before is not None and before != _timeline_id(expected_timeline):
         _cursor_switches += 1
 
+    expected_id = _timeline_id(expected_timeline)
     project.SetCurrentTimeline(expected_timeline)
     current = project.GetCurrentTimeline()
-    if not current or current.GetUniqueId() != expected_timeline.GetUniqueId():
+    if not current or current.GetUniqueId() != expected_id:
         raise ResolveRaceError(
             f"Timeline race: expected {expected_timeline.GetName()}, but "
             f"got {current.GetName() if current else 'None'}. Mutator "
             f"changed it!")
-    _last_set_id = _timeline_id(expected_timeline)
+    _last_set_id = expected_id
+    fence = current_fence()
+    _last_set_name = (fence.expected_name if fence is not None else None)
 
 
 # ── The captain's terminal: set it, see it, clear it ────────────────

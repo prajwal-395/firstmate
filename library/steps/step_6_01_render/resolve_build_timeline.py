@@ -261,7 +261,8 @@ def _item_source_size(timeline_item):
 
 
 def _apply_conform(timeline_item, clip: dict, results: dict,
-                   frame_size=None) -> None:
+                   frame_size=None, write_context: dict | None = None,
+                   item_identity: dict | None = None) -> None:
     """Scale and optionally pan a clip within the output frame.
 
     ``fill_zoom`` controls how much of the gap between fit (letterbox) and
@@ -286,11 +287,20 @@ def _apply_conform(timeline_item, clip: dict, results: dict,
     if not zoom or zoom <= 1.0:
         return
     label = clip.get("label", "?")
+    from library.tools.transform_write_log import set_property
+
+    identity = item_identity or {
+        "clip_id": clip.get("clip_id"),
+        "source_file": clip.get("source_file") or clip.get("file_path"),
+        "record_frame": clip.get("timeline_in_frame"),
+    }
 
     def _set(prop, value):
         """Set one property, and say so when Resolve declines."""
         try:
-            ok = timeline_item.SetProperty(prop, value)
+            ok = set_property(
+                timeline_item, prop, value, item_identity=identity,
+                **(write_context or {}))
         except Exception as e:  # Resolve raises bare Exceptions here
             results["warnings"].append(
                 f"Conform {prop} failed for {label}: {e}")
@@ -2066,8 +2076,18 @@ def build_timeline(
                 kept = _enforce_program_stream(_angle_key, a_list, a_label)
                 a_placed = kept[0] if kept else None
 
-                _apply_conform(placed, clip, results,
-                               frame_size=(width, height))
+                _apply_conform(
+                    placed, clip, results, frame_size=(width, height),
+                    write_context={
+                        "project_folder": project_folder,
+                        "project": project_name,
+                        "timeline_name": timeline_name,
+                    },
+                    item_identity={
+                        "source_file": clip["source_file"],
+                        "track": f"V{_vrow}",
+                        "record_frame": tl_in_f,
+                    })
                 v1_timeline_items.append(placed)
                 _placed_here.append((placed, clip))
                 v1_placed_labels.append(clip.get('label', basename))
@@ -2259,8 +2279,18 @@ def build_timeline(
 
             if result:
                 placed_v2 = result[0] if isinstance(result, list) else result
-                _apply_conform(placed_v2, clip, results,
-                               frame_size=(width, height))
+                _apply_conform(
+                    placed_v2, clip, results, frame_size=(width, height),
+                    write_context={
+                        "project_folder": project_folder,
+                        "project": project_name,
+                        "timeline_name": timeline_name,
+                    },
+                    item_identity={
+                        "source_file": clip["source_file"],
+                        "track": f"V{_broll_row}",
+                        "record_frame": tl_in_f,
+                    })
                 v2_count += 1
                 v2_placed_labels.append(clip.get('label', basename))
                 print(f"  ✓ [{ci}] {clip.get('label', basename)}: TL {tl_in_f}", file=sys.stderr)
@@ -2465,7 +2495,9 @@ def build_timeline(
                     seg, kind="caption",
                     frame_wh=(width, height),
                     project_folder=project_folder),
-                resolve_project=project)
+                resolve_project=project,
+                project_folder=project_folder,
+                timeline_name=timeline_name)
             if placed:
                 v3_count += 1
                 print(f"  ✓ [{si}] {seg_basename} on V{_caption_row} ({seg_frames}f @ TL {tl_in_frame})",
@@ -2547,7 +2579,9 @@ def build_timeline(
                 source_in_frame=0, source_out_frame=seg_frames,
                 placement=(seg.get("tight_box") or {}).get("placement"),
                 label=f"V{_mg_row}[{mi}] {seg_basename}",
-                resolve_project=project)
+                resolve_project=project,
+                project_folder=project_folder,
+                timeline_name=timeline_name)
             if placed:
                 v4_count += 1
                 _mg_counts[_mg_row] = _mg_counts.get(_mg_row, 0) + 1
@@ -2715,7 +2749,9 @@ def build_timeline(
                 track_index=_tt_row, record_frame=tl_in_frame,
                 source_in_frame=0, source_out_frame=seg_frames,
                 label=f"V{_tt_row}[{ti}] {seg_basename}",
-                resolve_project=project)
+                resolve_project=project,
+                project_folder=project_folder,
+                timeline_name=timeline_name)
             if placed:
                 v6_count += 1
                 _tt_counts[_tt_row] = _tt_counts.get(_tt_row, 0) + 1

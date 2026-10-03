@@ -980,7 +980,10 @@ def verify_placement(live_rows: Mapping[str, Sequence[Any]],
 READ_ONLY_PROPERTIES = ("Frames", "FPS", "Resolution")
 
 
-def set_properties(item: Any, properties: Mapping[str, Any]) -> dict:
+def set_properties(item: Any, properties: Mapping[str, Any], *,
+                   write_context: Mapping[str, Any] | None = None,
+                   item_identity: Mapping[str, Any] | None = None,
+                   old_properties: Mapping[str, Any] | None = None) -> dict:
     """Write the transform and READ IT BACK. The return value lies.
 
     `SetProperty` on `AnchorPointX`/`AnchorPointY` returns `False` while
@@ -988,12 +991,18 @@ def set_properties(item: Any, properties: Mapping[str, Any]) -> dict:
     the item and nothing else. Returns `{key: [wanted, got]}` for every
     key that did not take - empty when they all did.
     """
+    from library.tools.transform_write_log import set_property
+
     for key, value in (properties or {}).items():
         if key in READ_ONLY_PROPERTIES or value is None:
             continue
         if isinstance(value, str) and value.startswith("<"):
             continue
-        item.SetProperty(key, value)
+        write_args = dict(write_context or {})
+        if old_properties is not None and key in old_properties:
+            write_args["old_value"] = old_properties[key]
+        set_property(item, key, value, item_identity=item_identity,
+                     **write_args)
     now = item.GetProperty()
     if not isinstance(now, dict):
         return {}
@@ -1024,7 +1033,8 @@ def _same_value(got: Any, wanted: Any) -> bool:
     return got == wanted
 
 
-def treat_insertion(item: Any, insertion: Insertion) -> dict:
+def treat_insertion(item: Any, insertion: Insertion, *,
+                    write_context: Mapping[str, Any] | None = None) -> dict:
     """Put the DECLARED treatment on a newly placed item, and read back.
 
     The other half of `assert_insertions_declared`: the declaration is
@@ -1034,7 +1044,11 @@ def treat_insertion(item: Any, insertion: Insertion) -> dict:
     receipt = {"row": insertion.row, "record_frame": insertion.record_frame,
                "name": insertion.name,
                "properties": dict(insertion.properties or {})}
-    diff = set_properties(item, insertion.properties or {})
+    diff = set_properties(
+        item, insertion.properties or {}, write_context=write_context,
+        item_identity={"row": insertion.row,
+                       "record_frame": insertion.record_frame,
+                       "name": insertion.name})
     receipt["property_readback_diff"] = diff
     if diff:
         raise RestoreNotVerified(
@@ -1057,7 +1071,8 @@ def treat_insertion(item: Any, insertion: Insertion) -> dict:
 
 def restore_item(item: Any, capture: ItemCapture, *,
                  grade_source: Any = None, timeline: Any = None,
-                 link_with: Sequence[Any] = ()) -> dict:
+                 link_with: Sequence[Any] = (),
+                 write_context: Mapping[str, Any] | None = None) -> dict:
     """Step 7 (first half) - put back everything the delete destroyed.
 
     Properties, the comp, **the comp's media window**, the grade and the
@@ -1078,7 +1093,12 @@ def restore_item(item: Any, capture: ItemCapture, *,
                    capture.change.played_length_changes}
     started = time.time()
 
-    property_diff = set_properties(item, capture.properties or {})
+    property_diff = set_properties(
+        item, capture.properties or {}, write_context=write_context,
+        item_identity={"row": capture.change.row,
+                       "record_frame": capture.change.record_frame,
+                       "item_index": capture.change.item_index,
+                       "name": capture.change.name})
 
     for comp in capture.restorable_comps:
         if not comp.path or not os.path.exists(comp.path):
@@ -1413,7 +1433,9 @@ def apply_composed_edit(*, timeline, media_pool,
                         rederiver: Optional[CompRederiver] = None,
                         grade_sources: Optional[Mapping] = None,
                         link_rows: Mapping[str, str] = None,
-                        picture_row: str = "V1") -> ComposedEditReceipt:
+                        picture_row: str = "V1",
+                        write_context: Mapping[str, Any] | None = None
+                        ) -> ComposedEditReceipt:
     """Steps 3 to 7, in the one order that works, on a STAGED timeline.
 
     Step 1 (`conform_comp_windows`) and step 2 (`plan_ripple`) run
@@ -1489,11 +1511,13 @@ def apply_composed_edit(*, timeline, media_pool,
         receipt.restored.append(restore_item(
             item, capture,
             grade_source=grade_sources.get((change.row, change.item_index)),
-            timeline=timeline, link_with=link_with))
+            timeline=timeline, link_with=link_with,
+            write_context=write_context))
 
     for insertion in insertions:
         item = landed[(insertion.row, insertion.record_frame)]
-        receipt.inserted.append(treat_insertion(item, insertion))
+        receipt.inserted.append(treat_insertion(
+            item, insertion, write_context=write_context))
 
     if receipt.rederivation_required.get("required"):
         pass_receipt = rederiver.rederive(changes)

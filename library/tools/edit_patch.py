@@ -284,6 +284,14 @@ def _apply_smart_reframe(op, _timeline, item):
     return returned
 
 
+def _apply_set_property(op, _timeline, item):
+    from library.tools.transform_write_log import set_property
+
+    return set_property(
+        item, op["key"], op["value"],
+        item_identity={"resolve_unique_id": str(op["unique_id"])})
+
+
 def _same_value(got, want):
     if (isinstance(want, (int, float))
             and isinstance(got, (int, float))):
@@ -415,7 +423,7 @@ OPERATIONS = {
     "clip.set_property": Operation(
         domain="picture_transform", required=("unique_id", "key", "value"),
         span=_item_span, item=True,
-        apply=lambda op, tl, item: item.SetProperty(op["key"], op["value"]),
+        apply=_apply_set_property,
         verify=_verify_property,
         key=lambda op: ("clip", op["unique_id"], op["key"]),
         merge="replace"),
@@ -675,7 +683,8 @@ def apply_live_patch(*, project, timeline, capability: str,
                      operations, conflict_domains,
                      idempotency_key: str, preconditions=(),
                      postconditions=(),
-                     store: shadow.ShadowStore | None = None) -> dict:
+                     store: shadow.ShadowStore | None = None,
+                     project_folder: str | None = None) -> dict:
     """Build and commit a patch while the caller already owns Resolve.
 
     Entry points which already hold a Resolve lease use this seam to
@@ -763,11 +772,13 @@ def apply_live_patch(*, project, timeline, capability: str,
             conflict_domains=conflict_domains, operations=operations,
             preconditions=preconditions, postconditions=postconditions)
         return apply_patch(patch, resolve=None, project=project,
-                           timeline=timeline, store=store)
+                           timeline=timeline, store=store,
+                           project_folder=project_folder)
 
 
 def apply_patch(patch, *, resolve, project, timeline,
-                store: shadow.ShadowStore | None = None) -> dict:
+                store: shadow.ShadowStore | None = None,
+                project_folder: str | None = None) -> dict:
     """Commit one patch to the live timeline; the receipt, as plain data.
 
     The broker's `timeline.apply_patch` job. `resolve` is the app handle
@@ -846,7 +857,33 @@ def apply_patch(patch, *, resolve, project, timeline,
                 if spec.item and item is None:
                     raise RuntimeError(
                         f"clip {op['unique_id']!r} is not uniquely present")
-                returned = spec.apply(op, timeline, item)
+                if op["op"] == "clip.set_property":
+                    current = _clip(live, op["unique_id"])
+                    old_value = ((current.get("transform") or {}).get(
+                        op["key"]) if current is not None else None)
+                    from library.tools.transform_write_log import write_scope
+
+                    with write_scope(
+                            project=project_name,
+                            timeline_name=timeline_name,
+                            timeline_id=timeline_id,
+                            project_folder=project_folder,
+                            old_value=old_value):
+                        returned = spec.apply(op, timeline, item)
+                elif op["op"] == "clip.smart_reframe":
+                    from library.tools.transform_write_log import (
+                        validate_transform_write_context, write_scope)
+
+                    context = validate_transform_write_context(
+                        item_identity={"resolve_unique_id":
+                                       str(op["unique_id"])},
+                        project=project_name, timeline_name=timeline_name,
+                        timeline_id=timeline_id,
+                        project_folder=project_folder)
+                    with write_scope(**context):
+                        returned = spec.apply(op, timeline, item)
+                else:
+                    returned = spec.apply(op, timeline, item)
             except Exception as raised:  # noqa: BLE001 - recorded, then stop
                 stopped = {"index": index, "op": op["op"],
                            "raised": f"{type(raised).__name__}: {raised}"}
@@ -856,6 +893,32 @@ def apply_patch(patch, *, resolve, project, timeline,
             if spec.domain == "timeline_structure":
                 handles = _live_handles(timeline)
         after = shadow.read_live(project, timeline)
+    from library.tools import transform_write_log
+
+    # SmartReframe is Resolve's equivalent transform setter. Its result
+    # is already in the post-write snapshot, so record the values that
+    # actually changed without making another Resolve call.
+    for row in ran:
+        op = patch.operations[row["index"]]
+        if op["op"] != "clip.smart_reframe":
+            continue
+        before = op["before"]
+        current = _clip(after, op["unique_id"])
+        if current is None:
+            continue
+        held = current["transform"]
+        for key in SMART_REFRAME_KEYS:
+            old_value, new_value = before.get(key), held.get(key)
+            if _same_value(old_value, new_value):
+                continue
+            transform_write_log.record_transform_write(
+                key, new_value, old_value=old_value,
+                item_identity={"resolve_unique_id": str(op["unique_id"])},
+                project=project_name, timeline_name=timeline_name,
+                timeline_id=timeline_id, project_folder=project_folder,
+                caller_site={"file": "library/tools/edit_patch.py",
+                             "function": "_apply_smart_reframe"},
+                write_kind="SmartReframe")
     hold_seconds = time.monotonic() - started
 
     judged = [{"index": r["index"], "op": r["op"], "returned": r["returned"],

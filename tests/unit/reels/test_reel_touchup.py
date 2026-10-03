@@ -253,6 +253,16 @@ def _null(tmp_path):
     return tu._NullRederiver("test: nothing to re-derive")
 
 
+def _write_context(tmp_path, timeline):
+    return {
+        "project": "reel-touchup-test",
+        "project_folder": str(tmp_path),
+        "timeline_name": timeline.GetName(),
+        "timeline_id": timeline.GetUniqueId(),
+        "run_id": "reel-touchup-test-run",
+    }
+
+
 def test_move_runs_through_composed_edit_and_verifies(tmp_path):
     timeline, pool, _media = build_reel(tmp_path)
     spec = {"reel": 1, "edits": [
@@ -262,7 +272,8 @@ def test_move_runs_through_composed_edit_and_verifies(tmp_path):
     receipt = ce.apply_composed_edit(
         timeline=timeline, media_pool=pool,
         changes=qualification.changes, comp_dir=str(tmp_path / "c"),
-        withheld_dir=str(tmp_path / "w"), rederiver=_null(tmp_path))
+        withheld_dir=str(tmp_path / "w"), rederiver=_null(tmp_path),
+        write_context=_write_context(tmp_path, timeline))
     assert receipt.verified["landed"] == 1
     after = reel_read.read_tracks(timeline)
     v4 = next(t for t in after
@@ -341,7 +352,8 @@ def test_remove_plus_move_on_one_row_rekeys_and_verifies(tmp_path,
     ce.apply_composed_edit(
         timeline=timeline, media_pool=pool, changes=changes,
         comp_dir=str(tmp_path / "c"),
-        withheld_dir=str(tmp_path / "w"), rederiver=_null(tmp_path))
+        withheld_dir=str(tmp_path / "w"), rederiver=_null(tmp_path),
+        write_context=_write_context(tmp_path, timeline))
     after = reel_read.read_tracks(timeline)
     v4 = next(t for t in after
               if t["type"] == "video" and int(t["index"]) == 4)
@@ -604,7 +616,8 @@ def test_retime_keeps_its_grade_through_the_qualified_plan(tmp_path,
     receipt = ce.apply_composed_edit(
         timeline=staged, media_pool=pool, changes=changes,
         comp_dir=str(tmp_path / "c"), withheld_dir=str(tmp_path / "w"),
-        rederiver=_Rederiver(staged), grade_sources=grades)
+        rederiver=_Rederiver(staged), grade_sources=grades,
+        write_context=_write_context(tmp_path, staged))
 
     head = next(i for i in staged.rows["V1"] if i.GetStart() == 590)
     assert head.GetDuration() == 492

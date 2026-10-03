@@ -103,7 +103,13 @@ def _touch(tmp_path, spec, *, monkeypatch, prepare=None):
         ce.apply_composed_edit(
             timeline=staged, media_pool=pool, changes=changes,
             comp_dir=str(tmp_path / "c"), withheld_dir=str(tmp_path / "w"),
-            rederiver=tu._NullRederiver("test"))
+            rederiver=tu._NullRederiver("test"),
+            write_context={
+                "project": "lab", "project_folder": str(folder),
+                "timeline_name": staged.GetName(),
+                "timeline_id": staged.GetUniqueId(),
+                "run_id": "undo-journal-test",
+            })
     uj.close_entry(str(folder), entry, after_timeline=staged,
                    rows=reel_read.rows_of(
                        {"tracks": reel_read.read_tracks(staged)}))
@@ -113,12 +119,19 @@ def _touch(tmp_path, spec, *, monkeypatch, prepare=None):
 
 def _undo(tmp_path, folder, staged, entry, by_path):
     entry = uj.read_entry(str(folder), entry["id"])
-    return uj.undo_in_place(
-        timeline=staged, media_pool=media_pool(staged), entry=entry,
-        entry_root=uj.entry_dir(str(folder), entry["id"]),
-        reference=duplicate(staged, name="reference"),
-        rederiver=tu._NullRederiver("test"),
-        resolve_media=by_path.get, work_dir=str(tmp_path / "undo"))
+    from library.tools.transform_write_log import write_scope
+
+    with write_scope(project="lab", project_folder=str(folder),
+                     timeline_name=staged.GetName(),
+                     timeline_id=staged.GetUniqueId(),
+                     run_id="undo-journal-test"):
+        return uj.undo_in_place(
+            timeline=staged, media_pool=media_pool(staged), entry=entry,
+            entry_root=uj.entry_dir(str(folder), entry["id"]),
+            reference=duplicate(staged, name="reference"),
+            rederiver=tu._NullRederiver("test"),
+            resolve_media=by_path.get, work_dir=str(tmp_path / "undo"),
+            project_folder=str(folder))
 
 
 def _card_with_a_look(approved, media):

@@ -40,6 +40,18 @@ FRAME = (1080, 1920)
 #: The caption canvas the Reel 09 pins were measured on.
 CANVAS = (840, 480)
 
+
+def _place_overlay_segment(tmp_path, *args, **kwargs):
+    from library.tools.transform_write_log import write_scope
+
+    with write_scope(project="overlay-test",
+                     timeline_name="overlay-test timeline",
+                     timeline_id="overlay-test-timeline-id",
+                     run_id="overlay-test-run"):
+        return place_overlay_segment(
+            *args, project_folder=str(tmp_path),
+            timeline_name="overlay-test timeline", **kwargs)
+
 #: The Reel 09 pin set, as places: one kind default for all 22
 #: captions, one position per motion graphic. The caption centre is
 #: the row `Tilt -1700` reaches on a 480-tall canvas - `960 + 1700 *
@@ -158,7 +170,7 @@ class _Timeline:
         return self._items
 
 
-def test_declared_intent_wins_over_computed_on_the_timeline():
+def test_declared_intent_wins_over_computed_on_the_timeline(tmp_path):
     """Reel 09 captions: computed -1744.0, declared -1700.0 - the
     placed item carries the declared position, end to end through
     the production placer.
@@ -170,8 +182,8 @@ def test_declared_intent_wins_over_computed_on_the_timeline():
     computes it.
     """
     item = _Item(10)
-    ok, note = place_overlay_segment(
-        _Pool(result=["placed"]), _Timeline([item]), object(),
+    ok, note = _place_overlay_segment(
+        tmp_path, _Pool(result=["placed"]), _Timeline([item]), object(),
         track_index=3, record_frame=10,
         source_in_frame=0, source_out_frame=9,
         placement=dict(COMPUTED_CAPTION),
@@ -277,13 +289,13 @@ def test_two_pins_claiming_one_prefix_refuse_rather_than_guess():
 ZOOM_PIN = {"canvas_centre": [540.0, 312.0], "scaling": 1, "zoom": 0.88}
 
 
-def test_a_declared_zoom_holds_on_the_timeline():
+def test_a_declared_zoom_holds_on_the_timeline(tmp_path):
     """End to end through the production placer: the item carries the
     zoom uniform on ZoomX/ZoomY, judged by return AND read-back like
     every other property."""
     item = _Item(10)
-    ok, note = place_overlay_segment(
-        _Pool(result=["placed"]), _Timeline([item]), object(),
+    ok, note = _place_overlay_segment(
+        tmp_path, _Pool(result=["placed"]), _Timeline([item]), object(),
         track_index=3, record_frame=10,
         source_in_frame=0, source_out_frame=9,
         placement={"scaling": 1, "pan": 0.0, "tilt": 0.0},
@@ -766,15 +778,15 @@ def test_overlay_sweep_restores_cross_current_pan_and_tilt_units():
 
 # ── The placer evaluates what the callers now supply ──────────────────
 
-def test_placer_reports_a_stale_value_through_draw_intent():
+def test_placer_reports_a_stale_value_through_draw_intent(tmp_path):
     """Before this change the placer could not see this class at all:
     the value reads back exactly what was set."""
     draw_intent = {"canvas": OFF_FRAME_CANVAS, "frame": FRAME,
                    "ink_in_canvas": (0.0, 40.0, 724.0, 440.0),
                    "intent_box": (272.0, 1415.0, 800.0, 1572.0)}
     item = _Item_2(10)
-    ok, note = place_overlay_segment(
-        _Pool_2(), _timeline_with({3: [item]}), object(),
+    ok, note = _place_overlay_segment(
+        tmp_path, _Pool_2(), _timeline_with({3: [item]}), object(),
         track_index=3, record_frame=10,
         source_in_frame=0, source_out_frame=40,
         placement={"scaling": 1, "pan": 0.0, "tilt": OFF_FRAME_TILT},
@@ -783,10 +795,10 @@ def test_placer_reports_a_stale_value_through_draw_intent():
     assert "draws at" in note and "mg_stale" in note
 
 
-def test_placer_stays_quiet_without_draw_intent():
+def test_placer_stays_quiet_without_draw_intent(tmp_path):
     item = _Item_2(10)
-    ok, note = place_overlay_segment(
-        _Pool_2(), _timeline_with({3: [item]}), object(),
+    ok, note = _place_overlay_segment(
+        tmp_path, _Pool_2(), _timeline_with({3: [item]}), object(),
         track_index=3, record_frame=10,
         source_in_frame=0, source_out_frame=40,
         placement={"scaling": 1, "pan": 0.0, "tilt": OFF_FRAME_TILT},
@@ -795,7 +807,7 @@ def test_placer_stays_quiet_without_draw_intent():
         "no intent supplied behaves exactly as before")
 
 
-def test_placer_normalizes_cross_current_transform_readback():
+def test_placer_normalizes_cross_current_transform_readback(tmp_path):
     class _ScaledItem(_Item_2):
         def GetProperty(self, prop=None):
             values = dict(self._held)
@@ -806,8 +818,9 @@ def test_placer_normalizes_cross_current_transform_readback():
     item = _ScaledItem(10)
     timeline = _timeline_with({3: [item]})
     current = _timeline_with({}, size=(3840, 2160))
-    ok, note = place_overlay_segment(
-        _Pool_2(), timeline, object(), track_index=3, record_frame=10,
+    ok, note = _place_overlay_segment(
+        tmp_path, _Pool_2(), timeline, object(),
+        track_index=3, record_frame=10,
         source_in_frame=0, source_out_frame=40,
         placement={"scaling": 1, "pan": 23.0, "tilt": -400.0},
         label="overlay_units",
@@ -1076,15 +1089,15 @@ def _box_placement():
     return {"scaling": 1, "pan": 140.0, "tilt": -1720.0}
 
 
-def test_a_clamped_overlay_is_reported_by_name():
+def test_a_clamped_overlay_is_reported_by_name(tmp_path):
     """Resolve holding the rail value read off the captain's live
     timeline is a REPORT naming the overlay - the clip IS on the
     timeline, and failing the build over a movable graphic would
     trade a misplaced one for a missing one."""
     item = _Item_3(10, frozen={"Tilt": -MEASURED_TILT_RAIL_1080x1920})
     pool = _Pool_3()
-    ok, note = place_overlay_segment(
-        pool, _Timeline([item]), object(),
+    ok, note = _place_overlay_segment(
+        tmp_path, pool, _Timeline([item]), object(),
         track_index=3, record_frame=10,
         source_in_frame=0, source_out_frame=40,
         placement=_box_placement(), label="sub_reel-09_speakerone_9")

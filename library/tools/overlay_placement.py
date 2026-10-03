@@ -215,7 +215,9 @@ def apply_placement_transform(timeline, track_index: int,
                               placement_label: Optional[str] = None,
                               intent_matched: Optional[list] = None,
                               draw_gain: float = FALLBACK_DRAW_GAIN,
-                              resolve_project=None
+                              resolve_project=None,
+                              project_folder: str | None = None,
+                              timeline_name: str | None = None
                               ) -> str:
     """Move an already-placed overlay clip onto its tight box.
 
@@ -267,7 +269,9 @@ def apply_placement_transform(timeline, track_index: int,
                 draw_intent=draw_intent, canvas=canvas, frame=frame,
                 placement_label=placement_label,
                 intent_matched=intent_matched, draw_gain=draw_gain,
-                resolve_project=resolve_project)))
+                resolve_project=resolve_project,
+                project_folder=project_folder,
+                timeline_name=timeline_name)))
         return ""
 
     name = label or "overlay"
@@ -303,13 +307,26 @@ def apply_placement_transform(timeline, track_index: int,
                 f"transform was not judged")
     refused = []
     pending = []
+    from library.tools.transform_write_log import set_property
+
+    item_identity = {
+        "track": f"V{track_index}", "record_frame": int(record_frame),
+        "segment_id": segment_id, "placement_label": placement_label,
+        "label": label or name,
+    }
+    write_context = {
+        "project_folder": project_folder,
+        "timeline_name": timeline_name,
+    }
     for prop, key in (("Scaling", "scaling"), ("Pan", "pan"),
                       ("Tilt", "tilt")):
         value = placement.get(key)
         if value is None:
             continue
         try:
-            ok = placed_item.SetProperty(prop, value)
+            ok = set_property(
+                placed_item, prop, value, item_identity=item_identity,
+                **write_context)
         except Exception:  # noqa: BLE001 - judged below, not raised
             ok = False
         if not ok:
@@ -334,7 +351,9 @@ def apply_placement_transform(timeline, track_index: int,
         if zoom_value is not None:
             for prop in ("ZoomX", "ZoomY"):
                 try:
-                    ok = placed_item.SetProperty(prop, zoom_value)
+                    ok = set_property(
+                        placed_item, prop, zoom_value,
+                        item_identity=item_identity, **write_context)
                 except Exception:  # noqa: BLE001 - judged below
                     ok = False
                 if not ok:
@@ -426,7 +445,9 @@ def place_overlay_segment(media_pool, timeline, pool_item,
                           placement_label: Optional[str] = None,
                           intent_matched: Optional[list] = None,
                           draw_gain: float = FALLBACK_DRAW_GAIN,
-                          resolve_project=None
+                          resolve_project=None,
+                          project_folder: str | None = None,
+                          timeline_name: str | None = None
                           ) -> tuple[bool, str]:
     """Place one overlay clip and, where asked, transform it.
 
@@ -465,4 +486,5 @@ def place_overlay_segment(media_pool, timeline, pool_item,
         kind=kind, segment_id=segment_id, intent=intent,
         draw_intent=draw_intent, canvas=canvas, frame=frame,
         placement_label=placement_label, intent_matched=intent_matched,
-        draw_gain=draw_gain, resolve_project=resolve_project)
+        draw_gain=draw_gain, resolve_project=resolve_project,
+        project_folder=project_folder, timeline_name=timeline_name)

@@ -2136,6 +2136,8 @@ def _clip_with(name, **attrs):
 def _run_rows(rows, monkeypatch, tmp_path, capsys):
     """Run each (label, env, setup, cmd, args, rc, needles, check) row
     on a fresh fake and report every row that disagrees, by label."""
+    from library.tools.transform_write_log import write_scope
+
     failures = []
     for label, kind, setup, cmd, args, rc, needles, check in rows:
         with monkeypatch.context() as patch:
@@ -2144,7 +2146,8 @@ def _run_rows(rows, monkeypatch, tmp_path, capsys):
             env = _ENVS[kind](patch, row_dir)
             if setup:
                 setup(env, patch)
-            got = cmd(args(env) if callable(args) else args)
+            with write_scope(project_folder=str(row_dir)):
+                got = cmd(args(env) if callable(args) else args)
             out = capsys.readouterr().out
             checked = check(env, out) if check else True
         missing = [n for n in needles if n not in out]

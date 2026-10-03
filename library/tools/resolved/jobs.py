@@ -263,10 +263,14 @@ def _timeline(project, name: str):
 def run(job: dict, resolve) -> Optional[dict]:
     """Run one EXECUTED job; returns its JSON-serialisable result."""
     from library.tools import resolve_lock
+    from library.tools.transform_write_log import write_scope
     kind, params = job["kind"], job["params"]
     purpose = f"ren-resolved {kind} {job['id']}"
     if kind == "resolve_axi":
-        return _run_resolve_axi(params)
+        with write_scope(
+                project=job.get("project"), timeline_name=job.get("timeline"),
+                run_id=job.get("id")):
+            return _run_resolve_axi(params)
     project = _open_project(resolve, job["project"])
     timeline = _timeline(project, job["timeline"])
     if kind == "timeline.snapshot":
@@ -278,10 +282,14 @@ def run(job: dict, resolve) -> Optional[dict]:
         # The excursion makes the patch's timeline current and puts the
         # captain's cursor back after; `apply_patch` fences the write.
         try:
-            with resolve_lock.cursor_excursion(project, timeline, purpose):
-                return _jsonable(edit_patch.apply_patch(
-                    params["patch"], resolve=resolve, project=project,
-                    timeline=timeline))
+            patch = params["patch"]
+            with write_scope(project=patch["project"],
+                             timeline_name=patch["timeline"],
+                             run_id=job.get("id")):
+                with resolve_lock.cursor_excursion(project, timeline, purpose):
+                    return _jsonable(edit_patch.apply_patch(
+                        patch, resolve=resolve, project=project,
+                        timeline=timeline))
         except edit_patch.PatchRefused as refused:
             fields = {key: value for key, value in vars(refused).items()
                       if not key.startswith("_")}

@@ -892,7 +892,9 @@ def _handle(rows: list, item: dict):
         f"the staging changed under the carry.")
 
 
-def apply_plan(staged_timeline, project, plan: dict, final: str) -> list:
+def apply_plan(staged_timeline, project, plan: dict, final: str,
+               project_folder: str = "",
+               timeline_name: str = "") -> list:
     """Write a plan's cuts and in-place edits. Returns what was written."""
     from library.tools import composed_edit, reel_read
     from library.tools.resolve_lock import cursor_excursion
@@ -911,8 +913,20 @@ def apply_plan(staged_timeline, project, plan: dict, final: str) -> list:
             written.append(step["edit"]["id"])
         for step in plan["set_transform"]:
             handle = _handle(current, step["item"])
+            source_identity = step["item"]
+            item_identity = {
+                key: source_identity[key]
+                for key in ("row", "record_in", "record_out", "name",
+                            "source_file", "source_in_frame",
+                            "source_out_frame")
+                if key in source_identity
+            }
             composed_edit.set_properties(
-                handle, {step["key"]: step["edit"]["after"]})
+                handle, {step["key"]: step["edit"]["after"]},
+                write_context={"project_folder": project_folder or None,
+                               "timeline_name": timeline_name or None},
+                item_identity=item_identity,
+                old_properties={step["key"]: step["edit"]["before"]})
             written.append(step["edit"]["id"])
         # Lifts first, all at once: they move nothing. Rippled cuts
         # last, latest record span first, one span per call, so no
@@ -1016,7 +1030,8 @@ def _composed(project_folder: str, project, staged, tracks: list,
     from library.tools.resolve_lock import assert_current_timeline
 
     pool = project.GetMediaPool()
-    reference_name = f"{staged.GetName()}{BACKUP_SUFFIX}"
+    staged_name = staged.GetName()
+    reference_name = f"{staged_name}{BACKUP_SUFFIX}"
     reference = staged.DuplicateTimeline(reference_name)
     if reference is None or reference.GetName() != reference_name:
         raise EditorEditCarryRefused(
@@ -1040,7 +1055,9 @@ def _composed(project_folder: str, project, staged, tracks: list,
             comp_dir=os.path.join(work, "comps"),
             withheld_dir=os.path.join(work, "withheld"),
             rederiver=rederiver, grade_sources=grade_sources,
-            link_rows={}, picture_row="V1")
+            link_rows={}, picture_row="V1",
+            write_context={"project_folder": project_folder,
+                           "timeline_name": staged_name})
     finally:
         reel_retirement.delete_backups(project, pool,
                                        {reference_name: reference})
@@ -1291,6 +1308,7 @@ def carry_editor_edits(project_folder: str, final: str, project,
     superseded) rather than refusing.
     """
     from library.tools.resolve_lock import cursor_excursion
+    from library.tools.reel_build import staging_name
 
     edits, superseded = edits_in_force(
         project_folder, final, detection.get("pending") or [])
@@ -1325,7 +1343,9 @@ def carry_editor_edits(project_folder: str, final: str, project,
         cuts = [edit for edit in edits if edit["kind"] == "cut"]
         if cuts:
             cut_plan = plan_application(cuts, read_staged(), final)
-            written += apply_plan(staged_timeline, project, cut_plan, final)
+            written += apply_plan(
+                staged_timeline, project, cut_plan, final, project_folder,
+                staging_name(final))
         if plan["move"]:
             written += _apply_moves(
                 project_folder, project, staged_timeline,
@@ -1335,7 +1355,7 @@ def carry_editor_edits(project_folder: str, final: str, project,
         if in_place:
             in_place_plan = plan_application(in_place, read_staged(), final)
             written += apply_plan(staged_timeline, project, in_place_plan,
-                                  final)
+                                  final, project_folder, staging_name(final))
     return {"edits": edits, "superseded": superseded,
             "written": written, "already_held": plan["already_held"]}
 

@@ -535,7 +535,7 @@ def test_reel24_override_matches_the_opening_same_named_item_and_covers_tv(
 
 
 def test_reel24_punch_ins_and_override_share_vertical_timeline_units(
-        capsys, monkeypatch):
+        capsys, monkeypatch, tmp_path):
     """The other Reel 24 shots take the same values the F12 path grades.
 
     Each item is on the 1080x1920 staging timeline, while the fake
@@ -577,6 +577,7 @@ def test_reel24_punch_ins_and_override_share_vertical_timeline_units(
         measure=lambda *_: subject,
         size_of=lambda _item: (1920, 1080),
         draw_gain=4.0, timeline=target_timeline,
+        project_folder=str(tmp_path),
         resolve_project=resolve_project)
 
     assert aimed == 5

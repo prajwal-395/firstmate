@@ -48,7 +48,8 @@ def _patch(pid, base, operations, domains, spans, **extra):
 def _apply(patch, project, timeline, store):
     return edit_patch.apply_patch(patch, resolve=FakeResolve(project),
                                   project=project, timeline=timeline,
-                                  store=store)
+                                  store=store,
+                                  project_folder=store.path.parent)
 
 
 def test_a_patch_commits_and_becomes_the_next_generation(world):
