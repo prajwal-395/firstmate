@@ -16,6 +16,28 @@ The bounded broker window for the full command reported 15 jobs, 61.738s total h
 
 The concurrent case returned nonzero in all three clients. Two builds refused because the shared project timeline inventory could not be read (`timeline 37 returned no object`); Reel 03 built but failed conformance. Over the 255s window, the broker recorded 33 jobs, 132.520s hold, 127.485s exclusive hold, 51.46% utilization, wait p50/p95 0.007s / 36.361s, and hold p50/p95 0.120s / 33.575s. Per-run profiles counted 36.795s, 40.222s, and 80.424s waiting across the three task processes, respectively. The three reel-build profiles counted two timeline switches each. The task clients used three separate copy-on-write project trees but one scratch Resolve project; the shared cursor and project timeline inventory exposed a concurrency correctness failure, so these figures are a failure baseline, not completed throughput. No Resolve renders or timeline-shadow snapshot queries occurred.
 
+## Concurrent re-run after the inventory lease
+
+Re-run on main `a8c07ff7`, after `timeline_inventory` began holding a shared lease (https://github.com/prajwal-395/video_editing_pilot/pull/1616). Reels 01, 02 and 03 were submitted at once, one per copy-on-write project tree, into one scratch Resolve project imported from an export of the captain's project. Each build ran `build-reels --only-reel N --rebuild-all`.
+
+| | Baseline | Re-run |
+|---|---:|---:|
+| Inventory refusals (`timeline N returned no object`) | 2 of 3 | 0 of 3 |
+| Builds reaching conformance | 1 | 3 |
+| Conformance verdict | Reel 03 failed | Reels 01 and 02 passed; Reel 03 failed |
+| Wall to all finish | 254.67s | 467s |
+| Broker jobs | 33 | 54 |
+| Broker hold / exclusive hold | 132.520s / 127.485s | 266.593s / 246.730s |
+| Broker utilization | 51.46% | 54.99% |
+| Broker wait p50 / p95 | 0.007s / 36.361s | 0.001s / 43.300s |
+| Broker hold p50 / p95 | 0.120s / 33.575s | 0.702s / 37.839s |
+| Per-run Resolve wait | 36.795s, 40.222s, 80.424s | 102.046s, 91.830s, 109.666s |
+
+Wall, jobs and per-run wait rose because all three builds now place, verify and attempt promotion, where two of the baseline's stopped at the inventory read. All three still returned nonzero, and neither cause is the race:
+
+- Reels 01 and 02 passed conformance, then promotion refused. The copied timelines carry a disabled motion-graphics item named `mg_geo-podcast_<hash>.mov`, which the editor-change carry could not match to the staged `mg_c1_<hash>.mov`. Motion-graphics files are named after the project folder, so a clone whose folder is not named `geo-podcast` cannot promote over the captain's timelines. This is an artefact of the benchmark setup.
+- Reel 03 failed F25 `played_not_captioned`: 12 spoken words at 20.48-22.77s ("what's the best CRM if I run a 10 person law firm?") have no caption over them. All 25 planned captions were placed (`captions 25/25`), so the gap is in the caption plan, not in placement. It reproduces the baseline's Reel 03 failure and does not come from concurrency.
+
 ## Remaining scenarios
 
 The Reel 01 render produced a 77.6 MB, 1080x1920 MP4 in 109.64s of wall, with 109.493s held in Resolve. `verify_render` took 5.2s and failed four checks: audio was -23.71 LUFS (target -14 LUFS), one undeclared black segment, 3.210s of picture over digital silence, and 23.98fps. Freeze-frame, resolution, and audio-stream checks passed. The build, render, and QA phases were measured at separate times, so 298.91s is their component sum, not one contiguous completion time.
@@ -27,3 +49,5 @@ The master edit dry run on a copy of `post a day keeps the apple away/001` was b
 Benchmark commands require a granted live Resolve window, a disposable Resolve project, and copy-on-write project clones. The captured source project is `geo-podcast`; the master-edit source is `post a day keeps the apple away/001`. Reel 01 was individually built; Reels 01-03 were also submitted simultaneously. No build runs on the source project tree.
 
 Use `ren profile <project> --run <run-id> --json` for per-run timing. Use the broker's bounded KPI window over the same run's Unix-epoch start and end: `ren resolved kpi --since <start> --until <end> --json`. The broker wait and hold percentiles are computed over receipts in that window; utilization is held wall time divided by window wall time.
+
+A project tree's `pipeline_data.json` records its own absolute `project_folder`, and `build-reels` reads `project.yaml` from that recorded folder rather than from the path it was given. A clone must rewrite that path to point at itself, or the build reads, and could write, the source project. Name each clone's folder `geo-podcast`, in separate parent directories, so its motion-graphics filenames match the copied timelines.
