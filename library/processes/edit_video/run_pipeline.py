@@ -52,6 +52,10 @@ import subprocess
 import threading
 import time
 import argparse
+import copy
+import multiprocessing
+import tempfile
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from collections import deque
 import re
@@ -83,6 +87,8 @@ from library.tools import breakpoints as run_breakpoints
 from library.tools import run_profile
 
 logger = logging.getLogger(__name__)
+
+MAX_PARALLEL_STEPS = 4
 
 class PreBridgeError(Exception): pass
 class PostBridgeError(Exception): pass
@@ -265,6 +271,41 @@ def topological_sort(dag: dict) -> list:
         raise ValueError("DAG has cycles!")
     
     return order
+
+
+def ready_set(dag: dict, selected: list, satisfied: set,
+              running: set = frozenset(), blocked: set = frozenset()) -> list:
+    """Return selected nodes whose in-run predecessors have committed.
+
+    Edges are the sole source of scheduling dependencies. Nodes outside
+    ``selected`` are already satisfied by the run-scope resolver, which
+    checked prior state and verified external inputs before execution.
+    """
+    selected_set = set(selected)
+    parents = {node_id: set() for node_id in selected_set}
+    for edge in dag["edges"]:
+        target = edge["to"]
+        source = edge["from"]
+        if target in selected_set and source in selected_set:
+            parents[target].add(source)
+    return [node_id for node_id in selected
+            if node_id not in satisfied
+            and node_id not in running
+            and node_id not in blocked
+            and parents[node_id] <= satisfied]
+
+
+def parallel_workers_enabled(full_auto: str | None, single_step: str | None,
+                             selected: list, gates, pending_gate: bool = False
+                             ) -> bool:
+    """Whether this run can safely dispatch more than one step at a time."""
+    return (
+        not single_step
+        and normalize_full_auto(full_auto) in (FULL_AUTO_AGENT, "mock")
+        and len(selected) > 1
+        and not any(gates.armed_at(node_id) for node_id in selected)
+        and not pending_gate
+    )
 
 
 def _get_ancestors(node_id: str, dag: dict) -> set:
@@ -1589,6 +1630,9 @@ def _run_step_subprocess(argv: list, inputs: dict, label: str):
     return proc.returncode, "".join(captured_out), "".join(captured_err)
 
 
+_DEFAULT_RUN_STEP_SUBPROCESS = _run_step_subprocess
+
+
 def run_deterministic_step(entry: str, inputs: dict) -> dict:
     """Run a deterministic step via subprocess (stdin JSON → stdout JSON)."""
     code, stdout, stderr = _run_step_subprocess(
@@ -2051,6 +2095,114 @@ def validate_step_output(node_id: str, output: dict, manifest: dict = None) -> l
         return []
     return model_task.validate_declared_output(
         node_id, output, manifest["interface"]["outputs"])
+
+
+def _execute_step_once(impl: dict, inputs: dict, node_id: str,
+                       auto_mode: bool, full_auto: str | None,
+                       llm_timeout: int) -> tuple[dict, bool]:
+    """Execute one step body without committing runner-owned state."""
+    if impl["type"] == "deterministic":
+        return run_deterministic_step(impl["entry"], inputs), False
+    if impl["type"] == "deterministic_with_llm":
+        step_output = run_deterministic_step(impl["entry"], inputs)
+        merged_inputs = dict(inputs)
+        merged_inputs.update(step_output)
+        llm_output = present_llm_step(
+            impl["prompt"], merged_inputs, node_id,
+            manifest=impl.get("manifest"), full_auto=full_auto,
+            llm_timeout=llm_timeout)
+        if isinstance(llm_output, dict) and llm_output.get(
+                "__status") == "awaiting_llm":
+            return llm_output, True
+        if isinstance(llm_output, dict):
+            step_output = _merge_deterministic_llm_outputs(
+                step_output, llm_output)
+        return step_output, False
+    if impl["type"] == "hybrid":
+        if auto_mode:
+            pre_bridge = impl["step_dir"] / "bridge.py"
+            if pre_bridge.exists():
+                return run_subprocess(pre_bridge, inputs), False
+            return inputs, False
+        output = run_hybrid_step(
+            impl["step_dir"], inputs, node_id, impl.get("manifest"),
+            full_auto, llm_timeout)
+        return output, (isinstance(output, dict)
+                        and output.get("__status") == "awaiting_llm")
+    if impl["type"] == "llm_only":
+        output = present_llm_step(
+            impl["prompt"], inputs, node_id, manifest=impl.get("manifest"),
+            full_auto=full_auto, llm_timeout=llm_timeout)
+        return output, (isinstance(output, dict)
+                        and output.get("__status") == "awaiting_llm")
+    raise RuntimeError(f"Unknown implementation type: {impl['type']}")
+
+
+def _run_step_work(project_dir: str, node_id: str, impl: dict, inputs: dict,
+                   auto_mode: bool, full_auto: str | None,
+                   llm_timeout: int, run_id: str) -> dict:
+    """Run/retry a step in an isolated worker and return an uncommitted result.
+
+    The process receives a pickled copy of ``inputs``. Only the coordinator
+    writes pipeline state, step/run ledgers, and provenance.
+    """
+    get_logger(project_dir)
+    start_time = time.time()
+    # Worker spans inherit REN_PERF_LEDGER in any subprocess they launch.
+    # Give each worker a private file and return its rows so only the
+    # coordinator appends to the project's shared ledger.
+    with tempfile.TemporaryDirectory(prefix="ren-step-perf-") as temp_dir:
+        worker_ledger = Path(temp_dir) / perf_ledger.LEDGER_FILE
+        perf = perf_ledger.begin(
+            project_dir, node_id, run_id, node=node_id,
+            ledger_path_override=worker_ledger)
+        node = impl.get("node", {})
+        error_policy = node.get("error_policy", {}).get("policy", "fail")
+        max_retries = node.get("error_policy", {}).get("max_retries", 3)
+        result = {
+            "success": False, "output": None, "awaiting": False,
+            "error": None, "error_type": None,
+        }
+        for attempt in range(1, max_retries + 2):
+            try:
+                result["output"], result["awaiting"] = _execute_step_once(
+                    impl, inputs, node_id, auto_mode, full_auto, llm_timeout)
+                result["success"] = True
+                break
+            except Exception as step_error:
+                transient = _is_transient_error(step_error)
+                result["error"] = str(step_error)
+                result["error_type"] = step_error.__class__.__name__
+                if attempt <= max_retries and (
+                        error_policy == "retry" or transient):
+                    print(f"     ✗ FAILED ({result['error_type']}): "
+                          f"{step_error}", file=sys.stderr, flush=True)
+                    print(f"     [Retry {attempt}/{max_retries} due to "
+                          "transient error/policy]", file=sys.stderr,
+                          flush=True)
+                    time.sleep(2 ** attempt)
+                    continue
+                print(f"     ✗ FAILED ({result['error_type']}): "
+                      f"{step_error}", file=sys.stderr, flush=True)
+                break
+
+        result["elapsed"] = time.time() - start_time
+        if perf:
+            if not result["success"]:
+                perf.row["status"] = "failed"
+            elif result["awaiting"]:
+                perf.row["status"] = "awaiting_model"
+            capability_row = perf.end(persist=False)
+        else:
+            capability_row = None
+        worker_rows = []
+        if worker_ledger.exists():
+            with worker_ledger.open(encoding="utf-8") as handle:
+                worker_rows = [json.loads(line) for line in handle if line.strip()]
+        if capability_row is not None:
+            worker_rows.append(capability_row)
+        result["perf_rows"] = worker_rows
+        return result
 
 
 # ── Main Runner ─────────────────────────────────────────────────────
@@ -2637,9 +2789,89 @@ def run_pipeline(
     if archived:
         print(f"  Archived previous run traces to {archived}", file=sys.stderr)
 
+    selected_nodes = set(steps_to_run)
+    selected_parents = {node_id: set() for node_id in selected_nodes}
+    for edge in dag["edges"]:
+        if edge["to"] in selected_nodes and edge["from"] in selected_nodes:
+            selected_parents[edge["to"]].add(edge["from"])
+    dependency_complete = set()
+    dependency_blocked = set()
+    in_flight = {}
+    worker_started_at = {}
+    scheduler_halted = False
     current_phase = None
-    
-    for node_id in steps_to_run:
+    worker_full_auto = normalize_full_auto(full_auto)
+    armed_gate = any(gates.armed_at(node_id) for node_id in steps_to_run)
+    pending_gate = False
+    if (not single_step and worker_full_auto in (FULL_AUTO_AGENT, "mock")
+            and len(steps_to_run) > 1 and not armed_gate):
+        from library.tools.review_gate import get_gate_status
+        pending_gate = any(
+            step_ledger.is_completed(state, node_id)
+            and get_gate_status(project_dir, node_id) in ("pending", "rejected")
+            for node_id in steps_to_run
+        )
+    # A review breakpoint pauses the whole run. Keep that contract by
+    # avoiding speculative sibling work when a gate will stop it.
+    # In-process callers can replace the subprocess seam so step bodies
+    # run against their patched modules and shared test doubles. Spawned
+    # workers cannot inherit that seam, so preserve the caller's execution
+    # adapter by keeping those runs on the coordinator thread.
+    parallel_workers = (
+        parallel_workers_enabled(
+            worker_full_auto, single_step, steps_to_run, gates, pending_gate)
+        and _run_step_subprocess is _DEFAULT_RUN_STEP_SUBPROCESS
+    )
+    worker_limit = min(MAX_PARALLEL_STEPS, os.cpu_count() or 1)
+    executor = (ProcessPoolExecutor(
+        max_workers=worker_limit,
+        mp_context=multiprocessing.get_context("spawn"),
+    ) if parallel_workers else None)
+
+    def active_run_fields():
+        active = [step for step in steps_to_run if step in in_flight]
+        current = active[0] if active else None
+        return {
+            "active_steps": active,
+            "current_step": current,
+            "current_step_name": nodes[current]["name"] if current else None,
+            "current_step_started_at": worker_started_at.get(current),
+        }
+
+    def step_owned_paths(node_id, before, after):
+        """Keep overlapping workers from claiming a sibling's artifacts."""
+        layout = _provenance.layout
+        step_dir = layout.step_dir(node_id).relative_to(layout.root).as_posix()
+        prefixes = [step_dir.rstrip("/") + "/"]
+        for area in (Area.LLM_REQUESTS, Area.LLM_RESPONSES,
+                     Area.LLM_RESPONSES_BAK):
+            prefixes.append(
+                layout.read_path(area, f"{node_id}.json")
+                .relative_to(layout.root).as_posix())
+        prefixes.append(
+            layout.read_path(Area.REASONING, f"{node_id}.md")
+            .relative_to(layout.root).as_posix())
+        gate_dir = layout.read_path(Area.GATES, node_id).relative_to(
+            layout.root).as_posix()
+        prefixes.append(gate_dir.rstrip("/") + "/")
+        return {
+            rel for rel, signature in after.items()
+            if before.get(rel) != signature
+            and any(rel == prefix or rel.startswith(prefix)
+                    for prefix in prefixes)
+        }
+
+    for step_index, node_id in enumerate(steps_to_run):
+        pending_predecessors = selected_parents[node_id] & (
+            set(failed) | dependency_blocked)
+        if pending_predecessors:
+            dependency_blocked.add(node_id)
+            print(f"  ⤼ {node_id}: blocked by failed or paused predecessor(s): "
+                  f"{', '.join(sorted(pending_predecessors))}",
+                  file=sys.stderr)
+            continue
+
+        step_future = in_flight.get(node_id)
         # The handbrake.  Checked here, at the boundary between steps, so
         # the step that was in flight when the captain pressed Pause has
         # already written its output and its state.  Stopping mid-step
@@ -2647,15 +2879,29 @@ def run_pipeline(
         # happened, and nothing downstream could tell.
         hold = run_control.hold_requested(project_dir)
         if hold:
+            scheduler_halted = True
             requested_by = hold.get("requested_by") or "unknown"
-            print(f"\n  \u270b Handbrake engaged by {requested_by} - holding "
-                  f"before {node_id}", file=sys.stderr)
-            held_before_step = node_id
-            run_control.write_run_status(
-                project_dir, status="held", current_step=None,
-                held_before_step=node_id, hold=hold,
-            )
-            break
+            if step_future is None:
+                print(f"\n  \u270b Handbrake engaged by {requested_by} - "
+                      f"holding before {node_id}", file=sys.stderr)
+                held_before_step = held_before_step or node_id
+                run_control.write_run_status(
+                    project_dir, status="held", held_before_step=node_id,
+                    hold=hold, **active_run_fields(),
+                )
+                continue
+            if held_before_step is None:
+                held_before_step = next((candidate for candidate in
+                    steps_to_run[step_index + 1:]
+                    if candidate not in in_flight
+                    and candidate not in dependency_complete
+                    and candidate not in dependency_blocked), None)
+                if held_before_step:
+                    run_control.write_run_status(
+                        project_dir, status="held",
+                        held_before_step=held_before_step, hold=hold,
+                        **active_run_fields(),
+                    )
 
         node = nodes[node_id]
 
@@ -2669,7 +2915,8 @@ def run_pipeline(
         # preflight holds WhisperX, wav2vec2 and the vision model, and the
         # edit stage needs none of them.
         phase = _phase_of(node)
-        if phase and current_phase and phase != current_phase:
+        if (executor is None and phase and current_phase
+                and phase != current_phase):
             print(f"\n  [Phase Transition] {current_phase} -> {phase}. "
                   f"Freeing VRAM...", file=sys.stderr)
             unload_all()
@@ -2760,6 +3007,10 @@ def run_pipeline(
             run_control.record_step_timing(project_dir, node_id, reused=True)
             perf_ledger.record_reused(project_dir, node_id, _run_id, node=node_id)
             completed.append(node_id)
+            dependency_complete.add(node_id)
+            run_control.write_run_status(
+                project_dir, last_completed_step=node_id,
+                **active_run_fields())
             continue
         
         run_control.write_run_status(
@@ -2773,7 +3024,12 @@ def run_pipeline(
 
         
         # Gather inputs from upstream (pass manifest for optional-input checking)
-        inputs = gather_step_inputs(node_id, dag, state, manifest=impl.get("manifest"), step_type=impl.get("type", "unknown"), external=external)
+        if node_id in in_flight:
+            inputs = in_flight[node_id]["inputs"]
+        else:
+            inputs = gather_step_inputs(
+                node_id, dag, state, manifest=impl.get("manifest"),
+                step_type=impl.get("type", "unknown"), external=external)
         print(f"     Inputs: {list(inputs.keys())}", file=sys.stderr)
 
         # A delivery is a thing that happened, so it is recorded where a
@@ -2790,101 +3046,168 @@ def run_pipeline(
             _marker_routing.record_delivery(
                 project_dir, node_id,
                 [n.get("note_id") for n in _delivered])
-        
-        _perf = None
-        try:
-            start_time = time.time()
-            # What this step costs, for `ren profile`: wall, CPU, peak
-            # memory and bytes on one row, and the ledger handed to the
-            # step's subprocess so its layers can name their share. The
-            # runner executes a NODE, so the node is the row's identity.
-            # Ended in this try's `finally`. See library/tools/perf_ledger.py.
-            _perf = perf_ledger.begin(project_dir, node_id, _run_id, node=node_id)
-            # What the output tree looks like BEFORE this step. Compared
-            # against the same listing afterwards, this is how every
-            # artifact learns which step wrote it - without any step
-            # having to say so, which matters because half of them hand
-            # the writing to ffmpeg, Remotion or Resolve.
-            # See library/tools/provenance.py.
-            artifacts_before = _provenance.snapshot()
 
-            # Defined inside `for node_id in steps_to_run`, so the loop
-            # variables it reads must arrive as BOUND arguments, not as a
-            # closure over the loop: an unbound closure keeps whatever the
-            # loop holds when the closure RUNS, not when it was defined.
-            # Called immediately by the retry loop today, so binding changes
-            # nothing at runtime - it is what keeps a deferred or retried
-            # call from running a LATER iteration's step with no error.
-            def execute_step_once(impl=impl, inputs=inputs, node_id=node_id):
-                if impl["type"] == "deterministic":
-                    return run_deterministic_step(impl["entry"], inputs), False
-                elif impl["type"] == "deterministic_with_llm":
-                    step_output = run_deterministic_step(impl["entry"], inputs)
-                    merged_inputs = dict(inputs)
-                    merged_inputs.update(step_output)
-                    llm_output = present_llm_step(impl["prompt"], merged_inputs, node_id, manifest=impl.get("manifest"), full_auto=full_auto, llm_timeout=llm_timeout)
-                    if isinstance(llm_output, dict) and llm_output.get("__status") == "awaiting_llm":
-                        return llm_output, True
-                    if isinstance(llm_output, dict):
-                        step_output = _merge_deterministic_llm_outputs(
-                            step_output, llm_output)
-                    return step_output, False
-                elif impl["type"] == "hybrid":
-                    if auto_mode:
-                        # In auto mode, use the pre-bridge context output as the final step output.
-                        step_dir_path = impl["step_dir"]
-                        pre_bridge = step_dir_path / "bridge.py"
-                        if pre_bridge.exists():
-                            return run_subprocess(pre_bridge, inputs), False
-                        else:
-                            return inputs, False
-                    else:
-                        output = run_hybrid_step(impl["step_dir"], inputs, node_id, impl.get("manifest"), full_auto, llm_timeout)
-                        return output, (isinstance(output, dict) and output.get("__status") == "awaiting_llm")
-                elif impl["type"] == "llm_only":
-                    output = present_llm_step(impl["prompt"], inputs, node_id, manifest=impl.get("manifest"), full_auto=full_auto, llm_timeout=llm_timeout)
-                    return output, (isinstance(output, dict) and output.get("__status") == "awaiting_llm")
-                else:
-                    raise RuntimeError(f"Unknown implementation type: {impl['type']}")
-                    
-            error_policy = node.get("error_policy", {}).get("policy", "fail")
-            max_retries = node.get("error_policy", {}).get("max_retries", 3)
-            
-            success = False
-            for attempt in range(1, max_retries + 2):
-                try:
-                    output, is_awaiting = execute_step_once()
-                    success = True
+        # Bind this iteration's values explicitly. The worker path passes
+        # its detached inputs to `_execute_step_once`; the serial path uses
+        # this closure, whose defaults keep a deferred call on this step.
+        def execute_step_once(impl=impl, inputs=inputs, node_id=node_id,
+                              auto_mode=auto_mode,
+                              full_auto=worker_full_auto,
+                              llm_timeout=llm_timeout):
+            return _execute_step_once(
+                impl, inputs, node_id, auto_mode, full_auto, llm_timeout)
+
+        # Dispatch every currently ready node in stable topological order.
+        # Workers receive detached input dictionaries and never touch the
+        # runner-owned state or ledgers. The loop below consumes results in
+        # DAG order, so siblings commit through one coordinator.
+        if executor is not None and not scheduler_halted:
+            ready = ready_set(
+                dag, steps_to_run, dependency_complete, set(in_flight),
+                set(failed) | dependency_blocked | set(awaiting_llm)
+                | ({paused_at_gate} if paused_at_gate else set()),
+            )
+            ready = [candidate for candidate in ready
+                     if steps_to_run.index(candidate) >= step_index]
+            for candidate in ready:
+                if len(in_flight) >= worker_limit:
                     break
-                except Exception as step_e:
-                    is_trans = _is_transient_error(step_e)
-                    error_type = step_e.__class__.__name__
-                    if attempt <= max_retries and (error_policy == "retry" or is_trans):
-                        print(f"     ✗ FAILED ({error_type}): {step_e}", file=sys.stderr)
-                        print(f"     [Retry {attempt}/{max_retries} due to transient error/policy]", file=sys.stderr)
-                        time.sleep(2 ** attempt)
-                    else:
-                        # Give up
-                        print(f"     ✗ FAILED ({error_type}): {step_e}", file=sys.stderr)
-                        logger = get_logger()
-                        if logger:
-                            logger.log(step_id=node_id, event_type="step_failed", error=str(step_e))
-                        _record_step_failure(state, node_id, str(step_e))
-                        save_pipeline_state(project_dir, state)
-                        failed.append(node_id)
-                        break
+                if step_ledger.is_completed(state, candidate):
+                    continue
+                candidate_node = nodes[candidate]
+                if candidate == node_id:
+                    candidate_impl = impl
+                    candidate_inputs = inputs
+                else:
+                    candidate_dir = get_step_dir(candidate_node)
+                    candidate_impl = get_step_implementation(candidate_dir)
+                    try:
+                        candidate_inputs = gather_step_inputs(
+                            candidate, dag, state,
+                            manifest=candidate_impl.get("manifest"),
+                            step_type=candidate_impl.get("type", "unknown"),
+                            external=external)
+                    except Exception:
+                        # Let the ordinary coordinator path report the
+                        # input-contract failure when the node is reached.
+                        continue
+                    candidate_notes = ((candidate_inputs.get("timeline_notes")
+                                        or {}).get("notes") or [])
+                    if candidate_notes:
+                        from library.tools import marker_routing as _marker_routing
+                        _marker_routing.record_delivery(
+                            project_dir, candidate,
+                            [note.get("note_id") for note in candidate_notes])
 
-            if not success:
-                print(f"     Stopping pipeline due to failure.", file=sys.stderr)
-                break
-                
+                baseline = _provenance.snapshot()
+                worker_impl = dict(candidate_impl)
+                worker_impl["node"] = candidate_node
+                future = executor.submit(
+                    _run_step_work, project_dir, candidate, worker_impl,
+                    copy.deepcopy(candidate_inputs), auto_mode,
+                    worker_full_auto, llm_timeout, _run_id)
+                in_flight[candidate] = {
+                    "future": future,
+                    "inputs": candidate_inputs,
+                    "artifacts_before": baseline,
+                    "impl": candidate_impl,
+                }
+                worker_started_at[candidate] = time.strftime(
+                    "%Y-%m-%dT%H:%M:%S")
+                print(f"     ↗ Dispatched ready step {candidate}",
+                      file=sys.stderr)
+                run_control.write_run_status(
+                    project_dir, **active_run_fields())
+
+        _perf = None
+        _worker_perf_rows = []
+        _worker_perf_row = None
+        artifacts_before = None
+        try:
+            success = False
+            is_awaiting = False
+            if node_id in in_flight:
+                task = in_flight.pop(node_id)
+                worker_started_at.pop(node_id, None)
+                worker_result = task["future"].result()
+                artifacts_before = task["artifacts_before"]
+                _worker_perf_rows = worker_result["perf_rows"]
+                _worker_perf_row = next(
+                    (row for row in reversed(_worker_perf_rows)
+                     if row.get("kind") == perf_ledger.CAPABILITY), None)
+                success = worker_result["success"]
+                output = worker_result["output"]
+                is_awaiting = worker_result["awaiting"]
+                elapsed = worker_result["elapsed"]
+                run_control.write_run_status(
+                    project_dir, **active_run_fields())
+                if not success:
+                    message = worker_result["error"] or "step worker failed"
+                    run_logger = get_logger()
+                    if run_logger:
+                        run_logger.log(step_id=node_id,
+                                       event_type="step_failed",
+                                       error=message)
+                    _record_step_failure(state, node_id, message)
+                    save_pipeline_state(project_dir, state)
+                    failed.append(node_id)
+                    print("     Dependents are blocked; completing "
+                          "independent siblings.", file=sys.stderr)
+                    continue
+            else:
+                start_time = time.time()
+                # This serial path keeps the established manual-handoff
+                # behavior. Its ledgers are still written by this process.
+                _perf = perf_ledger.begin(
+                    project_dir, node_id, _run_id, node=node_id)
+                artifacts_before = _provenance.snapshot()
+                error_policy = node.get("error_policy", {}).get(
+                    "policy", "fail")
+                max_retries = node.get("error_policy", {}).get(
+                    "max_retries", 3)
+                step_error = None
+                for attempt in range(1, max_retries + 2):
+                    try:
+                        output, is_awaiting = execute_step_once()
+                        success = True
+                        break
+                    except Exception as exc:
+                        step_error = exc
+                        transient = _is_transient_error(exc)
+                        if attempt <= max_retries and (
+                                error_policy == "retry" or transient):
+                            print(f"     ✗ FAILED ({exc.__class__.__name__}): "
+                                  f"{exc}", file=sys.stderr)
+                            print(f"     [Retry {attempt}/{max_retries} due "
+                                  "to transient error/policy]",
+                                  file=sys.stderr)
+                            time.sleep(2 ** attempt)
+                            continue
+                        break
+                elapsed = time.time() - start_time
+                if not success:
+                    message = str(step_error or "step failed")
+                    print(f"     ✗ FAILED ({step_error.__class__.__name__}): "
+                          f"{message}", file=sys.stderr)
+                    run_logger = get_logger()
+                    if run_logger:
+                        run_logger.log(step_id=node_id,
+                                       event_type="step_failed",
+                                       error=message)
+                    _record_step_failure(state, node_id, message)
+                    save_pipeline_state(project_dir, state)
+                    failed.append(node_id)
+                    print("     Dependents are blocked; completing "
+                          "independent siblings.", file=sys.stderr)
+                    continue
+
             if is_awaiting:
                 awaiting_llm.append(node_id)
+                dependency_blocked.add(node_id)
                 print(f"     ⏸ Awaiting LLM completion", file=sys.stderr)
-                break
+                continue
                 
             # Success logic
-            elapsed = time.time() - start_time
 
             # Wrap LLM output in expected manifest key if missing (for LLM steps without post_bridge)
             if impl["type"] in ("llm_only", "hybrid"):
@@ -2947,7 +3270,7 @@ def run_pipeline(
                 save_pipeline_state(project_dir, state)
                 failed.append(node_id)
                 print("     Stopping pipeline due to failure.", file=sys.stderr)
-                break
+                continue
 
             verdict = check_validation_verdict(node_id, output)
             if verdict:
@@ -2964,7 +3287,7 @@ def run_pipeline(
                 save_pipeline_state(project_dir, state)
                 failed.append(node_id)
                 print("     Stopping pipeline due to failure.", file=sys.stderr)
-                break
+                continue
 
             capability_outputs.record(state, node_id, output)
             _clear_step_failure(state, node_id)
@@ -3007,8 +3330,22 @@ def run_pipeline(
             # is what belongs to the step.
             # See library/tools/provenance.py.
             _artifacts_after = _provenance.snapshot()
-            _provenance.observe(node_id, _run_id, artifacts_before,
-                                _artifacts_after)
+            if parallel_workers:
+                owned_paths = step_owned_paths(
+                    node_id, artifacts_before, _artifacts_after)
+                _provenance.observe(
+                    node_id, _run_id, artifacts_before, _artifacts_after,
+                    changed_paths=owned_paths)
+                if _worker_perf_row is not None:
+                    _worker_perf_row["bytes_written"] = perf_ledger.bytes_written(
+                        {path: sig for path, sig in artifacts_before.items()
+                         if path in owned_paths},
+                        {path: sig for path, sig in _artifacts_after.items()
+                         if path in owned_paths},
+                    )
+            else:
+                _provenance.observe(node_id, _run_id, artifacts_before,
+                                    _artifacts_after)
             if _perf:
                 _perf.row["bytes_written"] = perf_ledger.bytes_written(
                     artifacts_before, _artifacts_after)
@@ -3040,28 +3377,33 @@ def run_pipeline(
                 completed.append(node_id)
                 paused_at_gate = node_id
                 run_control.write_run_status(
-                    project_dir, status="gate_pending", current_step=None,
+                    project_dir, status="gate_pending",
                     last_completed_step=node_id, paused_at_gate=node_id,
+                    **active_run_fields(),
                 )
                 break
 
             completed.append(node_id)
+            dependency_complete.add(node_id)
             run_control.write_run_status(
-                project_dir, current_step=None,
+                project_dir,
                 last_completed_step=node_id,
+                **active_run_fields(),
             )
 
                 
         except Exception as e:
             # Unhandled errors outside step execution
             print(f"     ✗ FAILED UNEXPECTEDLY: {e}", file=sys.stderr)
-            logger = get_logger()
-            if logger:
-                logger.log(step_id=node_id, event_type="step_failed", error=str(e))
+            run_logger = get_logger()
+            if run_logger:
+                run_logger.log(step_id=node_id, event_type="step_failed",
+                               error=str(e))
             _record_step_failure(state, node_id, str(e))
             save_pipeline_state(project_dir, state)
             failed.append(node_id)
-            break
+            dependency_blocked.add(node_id)
+            continue
         finally:
             if _perf:
                 if node_id in failed:
@@ -3069,6 +3411,16 @@ def run_pipeline(
                 elif node_id in awaiting_llm:
                     _perf.row["status"] = "awaiting_model"
                 _perf.end()
+            elif _worker_perf_rows:
+                if _worker_perf_row is not None:
+                    if node_id in failed:
+                        _worker_perf_row["status"] = "failed"
+                    elif node_id in awaiting_llm:
+                        _worker_perf_row["status"] = "awaiting_model"
+                perf_ledger.commit_rows(project_dir, _worker_perf_rows)
+
+    if executor is not None:
+        executor.shutdown(wait=True)
     
     # ── Summary ──
     # Status is derived from the whole project ledger, not just the steps

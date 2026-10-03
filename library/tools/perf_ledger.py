@@ -123,8 +123,10 @@ class OpenCapability:
     """
 
     def __init__(self, project_folder, capability_id: str, run_id: str,
-                 node: Optional[str] = None) -> None:
-        self.path = ledger_path(project_folder)
+                 node: Optional[str] = None,
+                 ledger_path_override: Optional[Path] = None) -> None:
+        self.path = (Path(ledger_path_override) if ledger_path_override
+                     else ledger_path(project_folder))
         self._saved = {k: os.environ.get(k)
                        for k in (LEDGER_ENV, RUN_ENV, CAPABILITY_ENV)}
         os.environ[LEDGER_ENV] = str(self.path)
@@ -140,9 +142,9 @@ class OpenCapability:
         self._t0 = time.perf_counter()
         self._ended = False
 
-    def end(self) -> None:
+    def end(self, persist: bool = True) -> Dict[str, Any]:
         if self._ended:
-            return
+            return dict(self.row)
         self._ended = True
         for key, value in self._saved.items():
             if value is None:
@@ -159,14 +161,19 @@ class OpenCapability:
         if children_rss > self._children_rss:
             row["children_peak_rss_mb"] = children_rss
         row["self_peak_rss_mb"] = _maxrss_mb(resource.RUSAGE_SELF)
-        _append(self.path, row)
+        if persist:
+            _append(self.path, row)
+        return dict(row)
 
 
 def begin(project_folder, capability_id: str, run_id: str,
-          node: Optional[str] = None) -> Optional[OpenCapability]:
+          node: Optional[str] = None,
+          ledger_path_override: Optional[Path] = None
+          ) -> Optional[OpenCapability]:
     """Start timing a capability; None (and nothing timed) on any error."""
     try:
-        return OpenCapability(project_folder, capability_id, run_id, node)
+        return OpenCapability(project_folder, capability_id, run_id, node,
+                              ledger_path_override)
     except Exception:  # noqa: BLE001 - the ledger never takes down a run
         return None
 
@@ -198,6 +205,19 @@ def record_reused(project_folder, capability_id: str, run_id: str,
             {"kind": CAPABILITY, "run_id": run_id, "capability": capability_id,
              "node": node, "status": "reused", "started_at": round(time.time(), 3),
              "wall_s": 0.0})
+
+
+def commit_rows(project_folder, rows: List[Dict[str, Any]]) -> None:
+    """Append worker timing rows from the run coordinator, in order."""
+    path = ledger_path(project_folder)
+    for row in rows:
+        if row:
+            _append(path, row)
+
+
+def commit(project_folder, row: Dict[str, Any]) -> None:
+    """Append one completed timing row from the run coordinator."""
+    commit_rows(project_folder, [row])
 
 
 _local = threading.local()

@@ -417,7 +417,8 @@ class ProvenanceLedger:
         return out
 
     def observe(self, step_id: str, run_id: str, before: dict,
-                after: dict, operation_id: str | None = None) -> list:
+                after: dict, operation_id: str | None = None,
+                changed_paths: set[str] | None = None) -> list:
         """Record every file that appeared or changed while a producer ran.
 
         The strongest attribution the pipeline can make, and it costs the
@@ -495,7 +496,8 @@ class ProvenanceLedger:
                     f"Known: {sorted(self.step_ids)}.")
 
         changed = [rel for rel, sig in after.items()
-                   if before.get(rel) != sig]
+                   if before.get(rel) != sig
+                   and (changed_paths is None or rel in changed_paths)]
         now = time.strftime("%Y-%m-%dT%H:%M:%S")
         records = []
         for rel in sorted(changed):

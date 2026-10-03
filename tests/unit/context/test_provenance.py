@@ -537,6 +537,25 @@ def test_a_step_is_still_recorded_as_a_step(project):
     assert records[0].producer == "prosody_analysis"
 
 
+def test_parallel_step_observation_can_limit_attribution_to_owned_paths(project):
+    ledger = ProvenanceLedger(project, step_ids=["plan_subtitles"])
+    before = ledger.snapshot()
+    owned = _write(project, Area.SUBTITLE_SEGMENTS, "owned.json")
+    sibling = _write(project, Area.SUBTITLE_SEGMENTS, "sibling.json")
+
+    records = ledger.observe(
+        step_id="plan_subtitles", run_id="r1", before=before,
+        after=ledger.snapshot(),
+        changed_paths={owned.relative_to(project).as_posix()},
+    )
+
+    assert [record.path for record in records] == [
+        owned.relative_to(project).as_posix(),
+    ]
+    assert sibling.relative_to(project).as_posix() not in {
+        record.path for record in records}
+
+
 # ── The refusals, each paired with the passing case ─────────────────
 
 def test_an_unverifiable_producer_is_refused_by_name(project):
