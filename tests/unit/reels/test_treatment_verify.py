@@ -252,6 +252,9 @@ def _mock_resolve(monkeypatch, played):
             return self.tools.get(name)
 
     class MockClip:
+        def GetUniqueId(self): return "clip-1"
+        def GetFusionCompCount(self):
+            return len(self.GetFusionCompNameList() or [])
         def __init__(self):
             self.comps = {}
 
@@ -281,6 +284,7 @@ def _mock_resolve(monkeypatch, played):
 
     class MockTimeline:
         def GetSetting(self, name): return "30"
+        def GetTrackCount(self, kind): return 1
         def GetItemListInTrack(self, track_type, index):
             return [MockClip()] if index == 1 else []
 

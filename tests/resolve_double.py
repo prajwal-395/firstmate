@@ -457,6 +457,14 @@ class FakeMediaPool:
 
         Answers None, naming nothing, when the name is taken or when ANY
         referenced file is not on disk (`otio_mix`'s third format fact).
+
+        Measured on Resolve 21.1, 2026-10-02
+        (`docs/OTIO_COMPILATION_MEASURED.md`): rows are numbered per kind
+        in document order and NAMED from the document; a source frame
+        counts from the media's start timecode (`available_range`); a
+        file already pooled is reused and a new one is pooled into the
+        CURRENT folder; the program channel (`Channels`) and the
+        Transform (Pan/Tilt as fractions of the frame) are carried.
         """
         import os
 
@@ -468,10 +476,16 @@ class FakeMediaPool:
             return None
         otio = json.loads(Path(path).read_text(encoding="utf-8"))
         rebuilt = FakeTimeline(name, self._project)
+        width = float(self._project.GetSetting("timelineResolutionWidth") or 1)
+        height = float(self._project.GetSetting("timelineResolutionHeight")
+                       or 1)
+        counts = {"video": 0, "audio": 0}
         for track in otio["tracks"]["children"]:
             kind = "video" if track["kind"] == "Video" else "audio"
-            index = int(track["name"][1:])
+            counts[kind] += 1
+            index = counts[kind]
             rebuilt._ensure_track(kind, index)
+            rebuilt.SetTrackName(kind, index, track["name"])
             position = rebuilt.GetStartFrame()
             for child in track["children"]:
                 source = child["source_range"]
@@ -480,19 +494,66 @@ class FakeMediaPool:
                     media = otio_mix.clip_media_path(child)
                     if not os.path.exists(media):
                         return None
-                    pool_item = FakeMediaPoolItem(Path(media).name)
-                    pool_item.SetClipProperty("File Path", media)
+                    pool_item = self._pooled(media)
+                    if pool_item is None:
+                        pool_item = FakeMediaPoolItem(Path(media).name)
+                        pool_item.SetClipProperty("File Path", media)
+                        self._current_folder._clips.append(pool_item)
+                    references = child.get("media_references") or {}
+                    reference = references.get(
+                        child.get("active_media_reference_key"), {})
+                    media_start = int(((reference.get("available_range")
+                                        or {}).get("start_time")
+                                       or {}).get("value", 0))
+                    meta = (child.get("metadata") or {}).get(
+                        "Resolve_OTIO", {})
+                    channels = meta.get("Channels") or []
                     item = FakeTimelineItem(
                         pool_item.GetName(), rebuilt, start=position,
                         duration=duration,
-                        left_offset=int(source["start_time"]["value"]),
-                        pool_item=pool_item)
+                        left_offset=int(source["start_time"]["value"])
+                        - media_start,
+                        pool_item=pool_item,
+                        source_audio_channel_mapping=json.dumps({
+                            "embedded_audio_channels": 4,
+                            "linked_audio": {},
+                            "track_mapping": {"1": {
+                                "channel_idx": [
+                                    int(channels[0]["Source Channel ID"])
+                                    + 1],
+                                "mute": False, "type": "mono"}}})
+                        if channels else None)
+                    for effect in child.get("effects") or []:
+                        params = (effect.get("metadata") or {}).get(
+                            "Resolve_OTIO", {})
+                        if params.get("Effect Name") != "Transform":
+                            continue
+                        for param in params.get("Parameters") or []:
+                            key = {"transformationZoomX": ("ZoomX", 1.0),
+                                   "transformationZoomY": ("ZoomY", 1.0),
+                                   "transformationPan": ("Pan", width),
+                                   "transformationTilt": ("Tilt", height),
+                                   }.get(param["Parameter ID"])
+                            if key:
+                                item.SetProperty(
+                                    key[0], param["Parameter Value"] * key[1])
                     item._otio_volume = otio_mix._volume_parameter_of(child)
                     rebuilt._tracks[kind][index - 1][1].append(item)
                 position += duration
         self._project.adopt(rebuilt)
         self._current_folder._clips.append(rebuilt.GetMediaPoolItem())
         return rebuilt
+
+    def _pooled(self, media):
+        """The pool item already holding `media`, searched in every bin."""
+        stack = [self._root]
+        while stack:
+            folder = stack.pop()
+            for clip in folder.GetClipList() or ():
+                if clip.GetClipProperty("File Path") == media:
+                    return clip
+            stack.extend(folder.GetSubFolderList() or ())
+        return None
 
     def DeleteClips(self, clips):
         """Remove pool items; a TIMELINE's pool item deletes the timeline.

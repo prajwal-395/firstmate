@@ -26,11 +26,12 @@ timeline in a 1080x1920 project) rather than assumed:
 2. **Pan is in units of the frame WIDTH and Tilt of the frame HEIGHT**,
    where the scripting API speaks Resolve's pixel-like unit: API Pan -35
    is OTIO -0.032407 on a 1080-wide frame, API Tilt -1836 is -0.95625 on
-   a 1920-tall one. Zoom is the same number in both. Measured with project
-   and timeline at one resolution only; under a project resolution that
-   differs from the timeline's, Pan/Tilt units move
-   (`resolve_transform`), so an importer VERIFIES every transform against
-   the plan after the import and repairs a mismatch - never trusts this law.
+   a 1920-tall one. Zoom is the same number in both. It holds ONLY where
+   the project and the timeline share a resolution: on a 3840x2160 project
+   with a 1080x1920 reel timeline (the captain's) Tilt -55 written this
+   way read back -13.75 (Reel 09, 2026-10-02), because the API's Pan/Tilt
+   units follow the PROJECT (`resolve_transform`). The reel build sets
+   Pan/Tilt after the import (`reel_otio_placement.run_deferred`).
 3. **The program channel is `Source Channel ID` = channel - 1.** Channel 1
    is the only one measured (every reel export on disk names ID 0, and the
    scripting path's read-back reads `channel_idx [1]`); another channel

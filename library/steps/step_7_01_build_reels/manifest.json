@@ -66,6 +66,12 @@
         "type": "boolean",
         "required": false,
         "description": "Place every reel this run names, whatever the state says. Absent - the default - means a reel nothing changed about is LEFT ALONE (`library/tools/reel_rebuild_need.py`): the decision compares the derivation this build computed and the live timeline read back against what the build that placed it recorded, and is fail-closed in every other case. A reel's Resolve pass is 19.4-67.1s of which the Fusion comp pass is fixed overhead (`docs/RULE_EVIDENCE.md`), so re-placing an unchanged reel costs that and produces the same frames. The `--rebuild-all` flag of `manage_project.py build-reels`."
+      },
+      {
+        "name": "placement_mode",
+        "type": "string",
+        "required": false,
+        "description": "How each reel timeline is PLACED, never what goes on it: `append` (the default) places item by item; `otio` records every placement, compiles it offline and lands the whole timeline with ONE ImportTimelineFromFile (`library/tools/reel_otio_placement.py`; 1.26 s of Resolve hold against 13.35 s on Reel 09, `docs/OTIO_COMPILATION_MEASURED.md`). A reel carrying something the import cannot carry refuses by name. The `--placement` flag of `manage_project.py build-reels`."
       }
     ],
     "outputs": [

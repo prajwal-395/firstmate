@@ -101,6 +101,16 @@ def add_arguments(parser) -> None:
              "decision is printed per reel with its reason either "
              "way. Use this to re-place onto drift-free state, or to "
              "measure what the pass costs.")
+    parser.add_argument(
+        "--placement", dest="placement_mode", default="append",
+        choices=("append", "otio"),
+        help="How each reel timeline is placed. `append` (the default) "
+             "places item by item. `otio` lands the whole timeline with "
+             "ONE OTIO import and restores what the import drops "
+             "(library/tools/reel_otio_placement.py): measured 1.26s of "
+             "Resolve hold against 13.35s on Reel 09. A reel carrying an "
+             "image-sequence caption, a transition element or a program "
+             "channel other than 1 refuses by name.")
 
 
 def run(project_folder: str, args) -> int:
@@ -141,7 +151,8 @@ def run(project_folder: str, args) -> int:
                     args, "accept_editor_changes", None) or None,
                 supersede=args.supersede or None,
                 retain=args.retain or None,
-                rebuild_all=bool(getattr(args, "rebuild_all", False)))
+                rebuild_all=bool(getattr(args, "rebuild_all", False)),
+                placement_mode=getattr(args, "placement_mode", "append"))
         if result.refused:
             from library.tools.ren_refusal import REFUSAL_EXIT_CODE
             print(f"REFUSED: {op.name}", file=sys.stderr)

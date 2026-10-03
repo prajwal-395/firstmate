@@ -477,14 +477,10 @@ def resolve_reel_program_channels(angles: Sequence[dict],
         for source in files:
             short = source.rsplit("/", 1)[-1]
             channel = declared
-            basis = "the source.program_stream declaration"
             if channel is None:
                 channel = catalog.get(source, catalog.get(short))
-                basis = "the catalog's recorded program stream"
             if channel is None:
                 channel = live.get(source, live.get(short))
-                basis = ("the master timeline's own speech rows, which "
-                         "already carry only program audio")
             if channel is None:
                 raise ReelBuildError(
                     f"REFUSING to build: no recorded program stream for "
@@ -493,11 +489,11 @@ def resolve_reel_program_channels(angles: Sequence[dict],
                     + (f" - {refused.get(source, refused.get(short))}"
                        if refused.get(source, refused.get(short)) else
                        " and it predates stream recording")
-                    + f", and the master timeline carries nothing to read "
-                    f"it off. Declare source.program_stream in the "
-                    f"project's project.yaml and re-run catalog_footage, "
-                    f"or build from a master whose rows already carry "
-                    f"program audio.")
+                    + ", and the master timeline carries nothing to read "
+                    "it off. Declare source.program_stream in the "
+                    "project's project.yaml and re-run catalog_footage, "
+                    "or build from a master whose rows already carry "
+                    "program audio.")
             channels[source] = int(channel)
         distinct = set(channels.values())
         if len(distinct) != 1:
@@ -6582,8 +6578,7 @@ def aim_picture_row(name: str, look: dict, screen_window,
 
     from library.tools import reel_look as _look
     from library.tools.subject_framing import (
-        SubjectProbeUnavailable, measure_subject_in_window,
-        read_recorded_subject, record_subject_measurement)
+        SubjectProbeUnavailable, measure_subject_in_window)
 
     if measure is None:
         if project_folder is not None:
@@ -7046,6 +7041,9 @@ def pool_item_for(pool, filepath: str):
     is `pool_items_for` above, which the refresh path reads: a path
     under repair holds TWO items until history releases the stale one.
     """
+    from library.tools.reel_otio_placement import PlacementRecorder
+    if isinstance(pool, PlacementRecorder):
+        return pool.pooled(filepath)
     items = pool_items_for(pool, filepath)
     return items[0] if items else None
 
@@ -7216,6 +7214,17 @@ def import_pool_item(pool, filepath: str, project_folder: str = "",
     still plays it, and promotion retires that timeline to Archive
     rather than deleting it.
     """
+    from library.tools.reel_otio_placement import PlacementRecorder
+    if isinstance(pool, PlacementRecorder):
+        # A recorded build: the OTIO import brings the file in, and
+        # `reel_otio_placement.import_recorded` files it into this bin
+        # and sets these attributes afterwards.
+        if isinstance(project_folder, (tuple, list)) and dest is None:
+            dest = tuple(project_folder)
+        elif dest is None and project_folder:
+            dest = tuple(import_dest_bin(filepath, project_folder))
+        return pool.imported(filepath, dest)
+
     def _carry(item):
         """The clip attributes an alpha artefact needs, on EVERY return.
 
@@ -7337,6 +7346,12 @@ def import_pool_sequence(pool, frame_paths: list, frame_dir: str,
     `import_dest_bin` names. Returns None when there is nothing to
     import or the import failed.
     """
+    from library.tools.reel_otio_placement import (
+        OtioPlacementRefused, PlacementRecorder)
+    if isinstance(pool, PlacementRecorder):
+        raise OtioPlacementRefused(
+            f"{frame_dir}: an image-sequence overlay has no measured OTIO "
+            f"spelling - build this reel with the default placement")
     existing = pool_sequence_for(pool, frame_dir)
     if existing is not None:
         return existing
@@ -7366,6 +7381,23 @@ def import_pool_sequence(pool, frame_paths: list, frame_dir: str,
     return items[0] if items else None
 
 
+def reel_timeline_bin(name: str) -> tuple[str, ...]:
+    """The bin a reel timeline is made in: scratch, or the reels bin."""
+    from library.tools import resolve_bin_layout as bins
+
+    if bins.is_scratch_timeline(name):
+        return (bins.SCRATCH_BIN,)
+    return (bins.REELS_BIN,)
+
+
+def _assert_placing(project, timeline) -> None:
+    """`assert_current_timeline`, except while a build only RECORDS:
+    a recorded build has no timeline until its import, which asserts."""
+    from library.tools.reel_otio_placement import RecordingTimeline
+    if not isinstance(timeline, RecordingTimeline):
+        assert_current_timeline(project, timeline)
+
+
 def create_reel_timeline(pool, name: str):
     """A reel timeline created where reels belong, nowhere else.
 
@@ -7386,12 +7418,7 @@ def create_reel_timeline(pool, name: str):
     below is the only caller), so one branch here covers every build
     path rather than a patch per call site.
     """
-    from library.tools import resolve_bin_layout as bins
-
-    if bins.is_scratch_timeline(name):
-        dest = _ensure_bin_path(pool, (bins.SCRATCH_BIN,))
-    else:
-        dest = _ensure_bin_path(pool, (bins.REELS_BIN,))
+    dest = _ensure_bin_path(pool, reel_timeline_bin(name))
     before = pool.GetCurrentFolder()
     try:
         pool.SetCurrentFolder(dest)
@@ -7564,7 +7591,7 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
             raise ReelBuildError(
                 f"{name}: Resolve would not import the rendered {kind} "
                 f"{segment['overlay_path']!r}")
-        assert_current_timeline(project, timeline)
+        _assert_placing(project, timeline)
         record_frame = int(round(segment["timeline_start"] * fps))
         placed = pool.AppendToTimeline([{
             "mediaPoolItem": item,
@@ -8117,7 +8144,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                       edit_ledger_rows=None,
                       single_reel_scope: bool = False,
                       prepared: Optional[ReelPlacementPlan] = None,
-                      defer_overlay_sweep: bool = False):
+                      defer_overlay_sweep: bool = False,
+                      placement_mode: str = "append"):
     """Place one reel.  `timeline_name` is what Resolve will CALL it.
 
     Defaults to `moment.timeline_name`, which is the plan's own name and
@@ -8203,6 +8231,15 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     back 8 real Color page nodes and moved 28.9% of the frame.
     `reel_look.apply_grade` is the one place that choice is made.
 
+    `placement_mode` is how the timeline is PLACED, never what goes on
+    it. "append" (the default) places item by item, as every build
+    always has. "otio" records every placement, compiles them offline
+    and lands the whole timeline with ONE `ImportTimelineFromFile`, then
+    runs the same passes on it (`library/tools/reel_otio_placement.py`;
+    measured 1.26 s of Resolve hold against 13.35 s on Reel 09,
+    `docs/OTIO_COMPILATION_MEASURED.md`). A reel carrying something the
+    import cannot carry refuses by name rather than building differently.
+
     Returns the build record: the track plan as placed, what stream
     enforcement removed, what the link pass joined, which empty rows
     were deleted, and which master clips were skipped - so the
@@ -8242,6 +8279,19 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     cards = prepared.cards
 
     pool = project.GetMediaPool()
+    if placement_mode not in ("append", "otio"):
+        raise ReelBuildError(f"{name}: placement_mode {placement_mode!r} "
+                             f"is neither 'append' nor 'otio'")
+    recording = placement_mode == "otio"
+    if recording:
+        from library.tools import reel_otio_placement as _otio
+        if overlay_placements:
+            raise _otio.OtioPlacementRefused(
+                f"{name}: transition elements may carry audio, which the "
+                f"default path places on purpose and the OTIO placement "
+                f"has no measured spelling for - build this reel with the "
+                f"default placement")
+        real_pool, pool = pool, _otio.PlacementRecorder(pool)
 
     # The freeze tail's artefact goes into the pool BEFORE the picture
     # loop asks for it: that loop finds media by path with
@@ -8260,44 +8310,49 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                 f"refuses rather than ending on the live tail and "
                 f"calling that the declaration.")
 
-    timeline = create_reel_timeline(pool, name)
+    if recording:
+        # Nothing exists until the import: the rows and their names are
+        # the compiled document's, read back after it lands.
+        timeline = pool.timeline
+    else:
+        timeline = create_reel_timeline(pool, name)
 
-    # Through the guard: this runs inside the per-reel exclusive hold,
-    # and a direct set would bypass the lease refusal and the fence's
-    # drift record. An unleased cursor move killed a sibling lane's
-    # Fusion pass on 2026-09-20.
-    assert_current_timeline(project, timeline)
+        # Through the guard: this runs inside the per-reel exclusive hold,
+        # and a direct set would bypass the lease refusal and the fence's
+        # drift record. An unleased cursor move killed a sibling lane's
+        # Fusion pass on 2026-09-20.
+        assert_current_timeline(project, timeline)
 
-    # The frame the caller already resolved and every overlay above was
-    # rendered at. Written from `width`/`height` rather than by literal:
-    # a timeline sized differently from the overlays drawn for it is
-    # exactly the 001 defect (a vertical overlay band down the middle of
-    # a landscape master), and the two numbers cannot disagree if only
-    # one of them exists.
-    timeline.SetSetting("useCustomSettings", "1")
-    timeline.SetSetting("timelineResolutionWidth", str(int(width)))
-    timeline.SetSetting("timelineResolutionHeight", str(int(height)))
+        # The frame the caller already resolved and every overlay above was
+        # rendered at. Written from `width`/`height` rather than by literal:
+        # a timeline sized differently from the overlays drawn for it is
+        # exactly the 001 defect (a vertical overlay band down the middle of
+        # a landscape master), and the two numbers cannot disagree if only
+        # one of them exists.
+        timeline.SetSetting("useCustomSettings", "1")
+        timeline.SetSetting("timelineResolutionWidth", str(int(width)))
+        timeline.SetSetting("timelineResolutionHeight", str(int(height)))
 
-    # The plan's rows, and only those. A row exists because the plan
-    # put something on it; occupancy is enforced after placement, so
-    # a row whose placements all fail is DELETED, never kept blank.
-    while timeline.GetTrackCount("video") < len(track_plan.video_tracks):
-        timeline.AddTrack("video")
-    while timeline.GetTrackCount("audio") < len(track_plan.audio_tracks):
-        timeline.AddTrack("audio")
+        # The plan's rows, and only those. A row exists because the plan
+        # put something on it; occupancy is enforced after placement, so
+        # a row whose placements all fail is DELETED, never kept blank.
+        while timeline.GetTrackCount("video") < len(track_plan.video_tracks):
+            timeline.AddTrack("video")
+        while timeline.GetTrackCount("audio") < len(track_plan.audio_tracks):
+            timeline.AddTrack("audio")
 
-    # Names come from the plan, which named them from the material, and
-    # they go on BEFORE placement: a row the plan did not name is an
-    # error, not a fallback, and there is no "Video 1" anywhere
-    # downstream of the plan.
-    for spec in track_plan.video_tracks + track_plan.audio_tracks:
-        if not timeline.SetTrackName(spec.media_type, spec.index,
-                                      spec.name):
-            raise ReelBuildError(
-                f"{name}: Resolve would not name {spec.media_type} row "
-                f"{spec.index} {spec.name!r} - an unnamed row means "
-                f"nothing organised it, so the build stops rather than "
-                f"placing onto defaults.")
+        # Names come from the plan, which named them from the material, and
+        # they go on BEFORE placement: a row the plan did not name is an
+        # error, not a fallback, and there is no "Video 1" anywhere
+        # downstream of the plan.
+        for spec in track_plan.video_tracks + track_plan.audio_tracks:
+            if not timeline.SetTrackName(spec.media_type, spec.index,
+                                          spec.name):
+                raise ReelBuildError(
+                    f"{name}: Resolve would not name {spec.media_type} row "
+                    f"{spec.index} {spec.name!r} - an unnamed row means "
+                    f"nothing organised it, so the build stops rather than "
+                    f"placing onto defaults.")
 
     # A span IS the picture for the whole body, so the footage video it
     # replaces is not placed: two pictures on V1 would be an overlap, not
@@ -8387,7 +8442,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             raise ReelBuildError(
                 f"{name}: Resolve would not import the rendered card "
                 f"{path!r}")
-        assert_current_timeline(project, timeline)
+        _assert_placing(project, timeline)
         if getattr(card, "placement", "") in ("head", "tail"):
             dest_row = card_role_rows[card_lanes[head_tail_at]].index
             head_tail_at += 1
@@ -8469,13 +8524,15 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         source_start_frame, source_end_frame = _resolve_source_frame_span(
             p["source_in"], appended_out, pool_fps)
 
-        assert_current_timeline(project, timeline)
+        _assert_placing(project, timeline)
 
         # The row inventory BEFORE, so the sweep below can tell what
         # this append added: an explicit audio append returns one item
         # and can place two, the program stream plus a non-program
-        # spill on the next row.
-        before = _speech_row_uids(timeline, track_plan)
+        # spill on the next row. A recorded build names the channel
+        # instead, and places no spill to sweep.
+        before = None if recording else _speech_row_uids(timeline,
+                                                         track_plan)
         pool.AppendToTimeline([{
             "mediaPoolItem": pool_item,
             "startFrame": source_start_frame,
@@ -8486,6 +8543,9 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         }])
         if c.track_type != "video":
             expected = resolved_channels.get(angle_key, 1)
+            if recording:
+                pool.set_channel(expected)
+                continue
             kept, deleted, unverified = sweep_placed_audio(
                 timeline, track_plan, before, dest_row, expected,
                 f"A{dest_row} {os.path.basename(c.source_file)} "
@@ -8509,59 +8569,6 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                 print(f"  ✗ A{dest_row} "
                       f"{os.path.basename(c.source_file)}: nothing of "
                       f"this angle's speech remains here", file=sys.stderr)
-
-    # ── The ledger's retimes: each passage at its declared speed ──
-    # The ranges carried the rate (`rate_ranges_from_ledger`), so the
-    # record spans, captions and cards already assume it; this makes
-    # the placed picture and its dialogue play it.
-    if span_present and any("rate" in p for p in placements_list):
-        raise ReelBuildError(
-            f"{name}: a ledger retime falls on a reel whose picture is a "
-            f"span element, which places no footage to set a speed on - "
-            f"the speech alone would play retimed under a sync picture.")
-    build_record["ledger_retimes"] = _apply_ledger_retimes(
-        timeline, placements_list, fps,
-        sorted(set(video_row_by_angle.values())),
-        sorted(set(speech_row_by_angle.values())), name)
-
-    # ── The declared CDL: the look's hue half, on the footage ──
-    # Step 6.01 applies this on the master through TimelineItem.SetCDL
-    # and the reels path had no SetCDL call at all - so a reel carried
-    # the Fusion four (texture and falloff) but not the slope/offset/
-    # power/saturation that carries the colour split itself. Applied
-    # here, in process, right after placement: the caller's Fusion pass
-    # runs after this returns, which is the still recipe's CDL-first
-    # order held structurally. Rendered cards sharing the picture rows
-    # are matched out by source - a graphic is not footage.
-    if grade_cdl or power_grade:
-        from library.tools import reel_look as _grade
-        footage_sources = {
-            getattr(p["clip"], "source_file", "")
-            for p in placements_list
-            if getattr(p["clip"], "track_type", "video") == "video"}
-        cdl_record = _grade.apply_grade(
-            timeline, track_plan, grade_cdl, power_grade=power_grade,
-            footage_sources={s for s in footage_sources if s})
-        build_record["cdl"] = cdl_record
-        route = cdl_record.get("route", "cdl")
-        if route == "power_grade_drx":
-            detail = f"PowerGrade {os.path.basename(cdl_record['path'])}"
-            if cdl_record.get("cdl_node"):
-                detail += f" + CDL on node {cdl_record['cdl_node']!r}"
-        else:
-            detail = f"CDL {grade_cdl.get('saturation', '?')} sat"
-        verdict = "VERIFIED" if cdl_record.get("verified") else "UNVERIFIED"
-        print(f"  {name}: {detail} on "
-              f"{len(cdl_record['applied'])} picture item(s) [{verdict}]"
-              + (f" - {len(cdl_record['warnings'])} warning(s)"
-                 if cdl_record["warnings"] else ""), file=sys.stderr)
-        for warning in cdl_record["warnings"]:
-            print(f"  ⚠ {warning}", file=sys.stderr)
-    else:
-        build_record["cdl"] = {"applied": [], "skipped": [],
-                               "warnings": [], "route": "none",
-                               "verified": False,
-                               "basis": "no look declared - nothing graded"}
 
     # ── The declared look: punch-in on the picture, the frame over it ──
     # The punch-in is the Edit-page transform, which is what the
@@ -8594,14 +8601,69 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         # one is what left black bands inside the screen.
         from library.tools.tv_frame import screen_window_rect
         screen_window = screen_window_rect(look, width, height)
+
+    def _retime_and_grade():
+        """The ledger's retimes and the declared grade, on placed footage."""
+        # ── The ledger's retimes: each passage at its declared speed ──
+        # The ranges carried the rate (`rate_ranges_from_ledger`), so the
+        # record spans, captions and cards already assume it; this makes
+        # the placed picture and its dialogue play it.
+        if span_present and any("rate" in p for p in placements_list):
+            raise ReelBuildError(
+                f"{name}: a ledger retime falls on a reel whose picture is a "
+                f"span element, which places no footage to set a speed on - "
+                f"the speech alone would play retimed under a sync picture.")
+        build_record["ledger_retimes"] = _apply_ledger_retimes(
+            timeline, placements_list, fps,
+            sorted(set(video_row_by_angle.values())),
+            sorted(set(speech_row_by_angle.values())), name)
+
+        # ── The declared CDL: the look's hue half, on the footage ──
+        # Step 6.01 applies this on the master through TimelineItem.SetCDL
+        # and the reels path had no SetCDL call at all - so a reel carried
+        # the Fusion four (texture and falloff) but not the slope/offset/
+        # power/saturation that carries the colour split itself. Applied
+        # here, in process, right after placement: the caller's Fusion pass
+        # runs after this returns, which is the still recipe's CDL-first
+        # order held structurally. Rendered cards sharing the picture rows
+        # are matched out by source - a graphic is not footage.
+        if grade_cdl or power_grade:
+            from library.tools import reel_look as _grade
+            footage_sources = {
+                getattr(p["clip"], "source_file", "")
+                for p in placements_list
+                if getattr(p["clip"], "track_type", "video") == "video"}
+            cdl_record = _grade.apply_grade(
+                timeline, track_plan, grade_cdl, power_grade=power_grade,
+                footage_sources={s for s in footage_sources if s})
+            build_record["cdl"] = cdl_record
+            route = cdl_record.get("route", "cdl")
+            if route == "power_grade_drx":
+                detail = f"PowerGrade {os.path.basename(cdl_record['path'])}"
+                if cdl_record.get("cdl_node"):
+                    detail += f" + CDL on node {cdl_record['cdl_node']!r}"
+            else:
+                detail = f"CDL {grade_cdl.get('saturation', '?')} sat"
+            verdict = "VERIFIED" if cdl_record.get("verified") else "UNVERIFIED"
+            print(f"  {name}: {detail} on "
+                  f"{len(cdl_record['applied'])} picture item(s) [{verdict}]"
+                  + (f" - {len(cdl_record['warnings'])} warning(s)"
+                     if cdl_record["warnings"] else ""), file=sys.stderr)
+            for warning in cdl_record["warnings"]:
+                print(f"  ⚠ {warning}", file=sys.stderr)
+        else:
+            build_record["cdl"] = {"applied": [], "skipped": [],
+                                   "warnings": [], "route": "none",
+                                   "verified": False,
+                                   "basis": "no look declared - nothing graded"}
+
+    def _aim_picture():
+        """The look's punch-in, aimed per shot on the placed picture rows."""
         # The plan's picture rows - one per angle, never a hardcoded
         # V1 beside the plan. Each row's items zip with the placements
         # that landed on it (matched by the angle mapping above), so a
         # punch-in is aimed per speaker, per shot.
         aimed = 0
-        placed_shots = sum(
-            1 for p in placements_list
-            if getattr(p["clip"], "track_type", "video") == "video")
         for aroll_row in track_plan.aroll_rows():
             row_items = (timeline.GetItemListInTrack(
                 "video", aroll_row.index) or [])
@@ -8616,7 +8678,10 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                 row_items, row_places, project_folder=project_folder,
                 draw_gain=draw_gain, timeline=timeline,
                 resolve_project=project)
+        return aimed
 
+    def _place_frame():
+        """The TV frame, a rendered overlay over every picture run."""
         runs = _look.frame_runs(placements_list, fps)
         # The frame goes on as a RENDERED overlay, through the same
         # placer the explainer and the semantic visuals use: a still
@@ -8651,363 +8716,406 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             seen_labels=seen_intent_labels,
             sweep_out=_sweep_records,
             draw_gain=draw_gain))
+        return runs
+
+    def _hold_and_replay():
+        """Recorded transform holds, edit-ledger rows, the freeze's shot."""
+        # ── Recorded transform overrides ──
+        # A recorded transform lives in the project declarations, so a
+        # rebuild re-aims the punch-in over it. Overrides apply AFTER
+        # the aim above (or with no look at all), hold the recorded value,
+        # and re-prove coverage where the look declares a window. With no
+        # look there is no window and the read-back is the whole proof.
+        # A project that recorded none pays one file read and nothing
+        # else - the store that was never written costs nothing here.
+        held = apply_transform_overrides(
+            name, track_plan, video_row_by_angle, placements_list,
+            timeline, transcript, project_folder, width, height,
+            look=look, screen_window=screen_window, draw_gain=draw_gain,
+            report_sibling_stale=not single_reel_scope,
+            resolve_project=project)
+        if held:
+            print(f"  {name}: {held} recorded transform hold(s) in force",
+                  file=sys.stderr)
+
+        # ── The edit ledger's hands rows ──
+        # A direct edit made with Ren's hands (resolve-axi) or recorded
+        # from the captain lives in `external/edit_ledger.json`, and this
+        # derived timeline would otherwise paint it over: the build
+        # deletes and rebuilds from declarations, so anything that lives
+        # only on the old timeline is gone. Hands rows replay AFTER the
+        # build's own passes above - the held value is the requester's,
+        # never the plan's - each judged by Resolve's own read-back. A
+        # row the build cannot replay is REPORTED BY NAME, never dropped
+        # silently; a ledger the build cannot read at all REFUSES the
+        # build, because that build would paint over it by construction.
+        # Plan-level ledger rows (transform holds, trims, drops, caption
+        # fixes, closer redraws) replay through the existing appliers via
+        # the merged `captain_edits` view - never here, or every hold
+        # would land twice.
+        if any(row.get("op") in _ledger.REPLAYED_OPS
+               or row.get("op") in _ledger.CARRIER_OPS
+               for row in ledger_rows):
+            _video_places = [
+                p for p in placements_list
+                if getattr(p["clip"], "track_type", "video") == "video"]
+            _position = {id(place): index
+                         for index, place in enumerate(_video_places)}
+            _span_items: dict = {}
+            for _aroll_row in track_plan.aroll_rows():
+                _row_items = (timeline.GetItemListInTrack(
+                    "video", _aroll_row.index) or [])
+                _row_places = [
+                    p for p in placements_list
+                    if getattr(p["clip"], "track_type", "video") == "video"
+                    and video_row_by_angle.get(_angle_key(p["clip"]))
+                    == _aroll_row.index]
+                _row_places.sort(key=lambda p: p["snapped_record"])
+                for _index, _item in enumerate(_row_items):
+                    if _index >= len(_row_places):
+                        break
+                    _span_items[_position.get(
+                        id(_row_places[_index]), -1)] = _item
+            _replay = _ledger.replay_on_timeline(
+                name, ledger_rows, _video_places, transcript, timeline,
+                item_for_span=_span_items.get, reel_name=name)
+            build_record["edit_ledger"] = {
+                "applied": _replay["applied"],
+                "planned": _replay["planned"],
+                "unreplayable": _replay["unreplayable"],
+            }
+            if _replay["applied"]:
+                print(f"  {name}: {len(_replay['applied'])} edit-ledger "
+                      f"row(s) replayed", file=sys.stderr)
+            if _replay["planned"]:
+                print(f"  {name}: {len(_replay['planned'])} edit-ledger "
+                      f"plan change(s) carried to their owner step",
+                      file=sys.stderr)
+
+        # ── The freeze inherits the shot it holds ──
+        # A freeze IS the ending shot's last frame, so it must look exactly
+        # like that frame: same punch-in transform, same grade. Its own aim
+        # would be recomputed from a face probe and its own grade applied
+        # from the same template, and either could land a pixel or a shade
+        # off - which a viewer reads as a jump cut at the very last moment.
+        # Inherited rather than recomputed, and READ BACK (AGENTS.md 5).
+        # This is also why a word-anchored hold cannot reach it: the held
+        # frame speaks nothing, so `freeze_placement` gives it an empty
+        # master span and the shot's value arrives here instead.
+        if freeze_tail is not None:
+            inherited = _inherit_freeze_treatment(
+                name, timeline, track_plan, video_row_by_angle, freeze_tail)
+            build_record["freeze_tail"] = inherited
+
+    def _place_overlays():
+        """Captions, transition elements and every rendered overlay row."""
+        # Captions are PLACED here and RENDERED by step 4.05, which is the
+        # pipeline's renderer. This used to carry its own `npx remotion
+        # render` loop - a third implementation of the same call - and it is
+        # gone; `reel_subtitle_segments` above drives the step instead.
+        from library.tools.overlay_draw_intent import (
+            draw_intent_for_segment as _draw_intent_for_segment,
+            segment_canvas as _segment_canvas,
+        )
+        from library.tools.overlay_placement import (
+            place_overlay_segment,
+            sequence_frame_paths,
+        )
+        for segment in (subtitle_segments or []):
+            held_back, why = _dnd.should_suppress(
+                suppressions, name, segment or {})
+            if held_back:
+                print(f"  {name}: {why}", file=sys.stderr)
+                suppressed_ids.append(segment.get("segment_id"))
+                continue
+            if why:
+                print(f"  {name}: {why}", file=sys.stderr)
+            frames_info = segment.get("frames") or {}
+            frame_dir = frames_info.get("dir", "") if segment.get(
+                "container") == "frames" else ""
+            # Captions render durable already (Area.SUBTITLE_SEGMENTS); the
+            # assert pins it, so a future caller that reaches into scratch
+            # fails here rather than on the captain's timeline.
+            assert_placeable(segment.get("overlay_path") or "", project_folder)
+            if frame_dir:
+                assert_placeable(frame_dir, project_folder)
+            if frame_dir:
+                paths = sequence_frame_paths(frame_dir)
+                found = import_pool_sequence(
+                    pool, paths, frame_dir, project_folder,
+                    dest=overlay_import_bin(project_folder, name,
+                                            paths[0] if paths else ""))
+                items = [found] if found is not None else []
+            else:
+                found = import_pool_item(
+                    pool, segment["overlay_path"],
+                    overlay_import_bin(project_folder, name,
+                                       segment["overlay_path"]))
+                items = [found] if found is not None else []
+            if not items:
+                failed_path = segment.get("overlay_path") or frame_dir
+                raise ReelBuildError(
+                    f"{name}: Resolve would not import rendered caption "
+                    f"{failed_path!r}; refusing to omit a planned caption "
+                    f"segment")
+
+            _assert_placing(project, timeline)
+            # The record span is rounded PER EDGE - [round(start), round(end))
+            # - never round(start) + round(duration).  Abutting blocks share
+            # one edge in seconds and must share it in frames, or the spans
+            # overlap by a frame and Resolve trims one off the later item
+            # (reel 07 block 23, 2026-09-08: planned 34, placed 33, the lone
+            # F2 of the rebuild).  The source range is the same duration
+            # counted from the content start, inside the render handles 4.05
+            # leaves either side.  `span_frames` is the one arithmetic; F2
+            # grades exactly this span, so placer and check agree by
+            # construction and the gate stays exact.
+            record_start, record_end = span_frames(
+                segment["timeline_start"], segment["timeline_end"], fps)
+            content_frames = max(record_end - record_start, 1)
+            # The caption artefact rides the placement its tight box
+            # computed - read off the entry step 4.05 recorded - and the
+            # placer SETS it then READS BACK what Resolve holds. A
+            # sequence shares the mov's frame numbering, so the handle
+            # trim is the same arithmetic.
+            seen_intent_ids.append(segment.get("segment_id"))
+            # `draw_intent` arms the pixel half: a declared pin first (the
+            # captain's place wins over the row), else the DECLARED caption
+            # row for this reel - so a sidecar placement served under a
+            # superseded row is REPORTED rather than shipped. Unverifiable
+            # captions (legacy canvas, no render props) ride without it,
+            # exactly as before.
+            _caption_canvas = _segment_canvas(segment)
+            placed, note = place_overlay_segment(
+                pool, timeline, items[0],
+                track_index=track_plan.caption_row().index,
+                record_frame=record_start,
+                source_in_frame=segment["source_in_frame"],
+                source_out_frame=segment["source_in_frame"] + content_frames,
+                placement=(segment.get("tight_box") or {}).get("placement"),
+                label=segment.get("segment_id", "caption"),
+                kind="caption",
+                segment_id=segment.get("segment_id"),
+                intent=overlay_intent,
+                canvas=_caption_canvas,
+                frame=(width, height),
+                intent_matched=applied_intent_keys,
+                draw_gain=draw_gain,
+                resolve_project=project,
+                draw_intent=_draw_intent_for_segment(
+                    segment, kind="caption",
+                    segment_id=segment.get("segment_id"),
+                    placement_label=None,
+                    intent=overlay_intent, frame_wh=(width, height),
+                    project_folder=project_folder, reel_name=name,
+                    draw_gain=draw_gain))
+            if not placed:
+                raise ReelBuildError(
+                    f"{name}: Resolve would not place caption segment "
+                    f"{segment.get('segment_id')!r} at frame {record_start}: "
+                    f"{note or 'placement returned no item'}")
+            elif note:
+                print(f"  caption {segment.get('segment_id')}: {note}",
+                      file=sys.stderr)
+            if placed and _caption_canvas is not None:
+                # One post-build sweep record per tight caption: the values
+                # half (`overlay_verify.sweep_reel_overlays`) reads it back
+                # off the timeline after the build and judges it against
+                # intent. Full-canvas captions need no transform and leave
+                # no record.
+                _sweep_records.append({
+                    "label": segment.get("segment_id", "caption"),
+                    "kind": "caption",
+                    "segment_id": segment.get("segment_id"),
+                    # Captions carry no placing label (the label tier is
+                    # for reel graphics); the key stays so every sweep
+                    # record has one schema.
+                    "placement_label": None,
+                    "track_index": track_plan.caption_row().index,
+                    "record_frame": record_start,
+                    "canvas_wh": _segment_canvas(segment),
+                    "placement": (segment.get("tight_box") or {}
+                                  ).get("placement"),
+                    "overlay_path": segment.get("overlay_path") or "",
+                    "frames_dir": frame_dir,
+                })
+
+        # Transition elements last, on the plan's transitions row. Placed
+        # from FRAMES the planner already computed against this reel's own
+        # keep ranges - nothing is recomputed here, because a placer and a
+        # planner that both do the arithmetic are two chances to land one
+        # frame off the cut the element exists to hide. The planner stamps
+        # a default slot; the plan's row wins, because exactly one thing
+        # decides a track index - so the placements are re-stamped here
+        # and the re-stamped rows are what the build record carries (what
+        # the verifier grades against) rather than the planner's default.
+        import dataclasses as _dataclasses
+
+        transitions_row = track_plan.row_for_role(TRANSITIONS)
+        transitions_row = transitions_row.index if transitions_row else None
+        stamped_placements = [
+            _dataclasses.replace(placement, track_index=transitions_row)
+            if getattr(placement, "track_index", None) != transitions_row
+            else placement
+            for placement in (overlay_placements or [])]
+        for placement in stamped_placements:
+            if transitions_row is None:
+                raise ReelBuildError(
+                    f"{name}: transition elements were planned with no "
+                    f"transitions row; refusing to place them on an "
+                    f"unplanned row.")
+            element_item = import_pool_item(
+                pool, placement.element_path,
+                overlay_import_bin(project_folder, name,
+                                   placement.element_path))
+            items = [element_item] if element_item is not None else []
+            if not items:
+                raise ValueError(
+                    f"transition element {placement.element_path} could not be "
+                    f"imported into the media pool, so the element the project "
+                    f"declared would be silently missing from {name}")
+
+            # `startFrame`/`endFrame` are in the POOL ITEM's OWN frames, not
+            # the timeline's - AGENTS.md 5, the same rule the picture loop
+            # above obeys and the reason it reads `GetClipProperty("FPS")`.
+            # The Lucie bumper is 30fps on a 23.976 timeline: 36 timeline
+            # frames of it is 45 of its own, and passing 36 would have taken
+            # 1.2s of a 1.5s element. `record_frame` and `duration_frames`
+            # stay TIMELINE frames, because that is what the planner
+            # computed the cut's position in.
+            #
+            # This is the same convention the picture and caption placements
+            # use - `endFrame - startFrame` is the duration, not one less -
+            # and it is not a fresh guess: F18 in the conformance verifier
+            # compares the placed length against the planned one, so a wrong
+            # reading of it fails the next verification rather than shipping.
+            _place_transition_element(
+                pool, project, timeline, name, placement, items[0],
+                transitions_row, fps)
+
+
+        # The explainer. ADDITIVE, exactly as the captions above are: it is
+        # laid over picture that keeps playing and moves no frame of it, so
+        # no keep range, no caption timing and no footage binding changes
+        # because a reel carries one. Its whole span is placed - unlike a
+        # caption, a graphic renders no handles either side, so
+        # `total_frames` IS the content.
+        if explainer_segments:
+            suppressed_ids.extend(place_overlay_segments(
+                pool, project, timeline, name, fps, explainer_segments,
+                [row.index for row in track_plan.rows_for_role(EXPLAINER)],
+                kind="explainer", check="F21",
+                project_folder=project_folder,
+                overlay_intent=overlay_intent, frame=(width, height),
+                seen_ids=seen_intent_ids,
+                do_not_draw=suppressions,
+                intent_applied=applied_intent_keys,
+                seen_labels=seen_intent_labels,
+                sweep_out=_sweep_records,
+                draw_gain=draw_gain))
+
+
+
+        # The semantic visuals. ADDITIVE, exactly as the explainer above
+        # is: laid over picture that keeps playing, moving no frame of it.
+        # Each segment renders with no handles either side, so its whole
+        # span is placed - `total_frames` IS the content.
+        if semantic_segments:
+            suppressed_ids.extend(place_overlay_segments(
+                pool, project, timeline, name, fps, semantic_segments,
+                [row.index for row in track_plan.rows_for_role(SEMANTIC)],
+                kind="semantic visual", check="F22",
+                project_folder=project_folder,
+                overlay_intent=overlay_intent, frame=(width, height),
+                seen_ids=seen_intent_ids,
+                do_not_draw=suppressions,
+                intent_applied=applied_intent_keys,
+                seen_labels=seen_intent_labels,
+                sweep_out=_sweep_records,
+                draw_gain=draw_gain))
+
+        # The speaker lower thirds. ADDITIVE, exactly as the two above are:
+        # laid over picture that keeps playing, moving no frame of it, so a
+        # reel carrying one is cut identically to a reel carrying none.
+        # Each segment rides its own `tight_box.placement` where the
+        # measured bind succeeded (`reel_lower_third_segments`), and needs
+        # no transform where it stayed full canvas - `overlay_intent` is
+        # passed anyway because the placer reads it per segment and a
+        # full-canvas segment declares no canvas.
+        if lower_third_segments:
+            suppressed_ids.extend(place_overlay_segments(
+                pool, project, timeline, name, fps, lower_third_segments,
+                [row.index for row in track_plan.rows_for_role(MOTION_GRAPHICS)],
+                kind="speaker lower third", check="F21",
+                project_folder=project_folder,
+                overlay_intent=overlay_intent, frame=(width, height),
+                seen_ids=seen_intent_ids,
+                do_not_draw=suppressions,
+                intent_applied=applied_intent_keys,
+                seen_labels=seen_intent_labels,
+                sweep_out=_sweep_records,
+                draw_gain=draw_gain))
+
+        # The social-post header, on its own row above everything drawn.
+        # A tight canvas like every graphic: its segments carry their own
+        # placement, which the placer applies and reads back.
+        build_record["post_header"] = post_header.as_dict()
+        if post_header.segments:
+            suppressed_ids.extend(place_overlay_segments(
+                pool, project, timeline, name, fps, post_header.segments,
+                track_plan.row_for_role(POST_HEADER).index,
+                kind="post header", check="F4",
+                project_folder=project_folder,
+                overlay_intent=overlay_intent, frame=(width, height),
+                seen_ids=seen_intent_ids,
+                do_not_draw=suppressions,
+                intent_applied=applied_intent_keys,
+                seen_labels=seen_intent_labels,
+                sweep_out=_sweep_records,
+                draw_gain=draw_gain))
+        return stamped_placements
+
+    # The default path places as it goes. A recorded build (`placement_mode
+    # "otio"`, `reel_otio_placement`) records the frame and every overlay
+    # too, imports the whole timeline once, and only then runs the passes
+    # that need placed items - the same passes, on the same timeline.
+    placed_shots = sum(
+        1 for p in placements_list
+        if getattr(p["clip"], "track_type", "video") == "video")
+    aimed = 0
+    runs: list = []
+    if recording:
+        if look is not None:
+            runs = _place_frame()
+        stamped_placements = _place_overlays()
+        recorder, pool = pool, real_pool
+        timeline = _otio.import_recorded(
+            project, recorder, name, track_plan, fps, width, height,
+            reel_timeline_bin(name))
+        build_record["stream_enforcement"] = _otio.verify_channels(
+            timeline, recorder)
+        deferred = _otio.run_deferred(timeline, recorder)
+        print(f"  {name}: placed by ONE OTIO import - "
+              f"{len(recorder.specs)} item(s), {deferred} deferred "
+              f"transform(s)", file=sys.stderr)
+        _retime_and_grade()
+        if look is not None:
+            aimed = _aim_picture()
+    else:
+        _retime_and_grade()
+        if look is not None:
+            aimed = _aim_picture()
+            runs = _place_frame()
+    if look is not None:
         print(f"  {name}: TV frame over {len(runs)} picture run(s) on "
               f"V{track_plan.row_for_role(FRAME).index} at cover zoom "
               f"{_look.frame_properties(look, width, height)['ZoomX']:.4f}, "
               f"punch-in aimed on {aimed}/{placed_shots} shot(s) "
               f"({look['origin']})", file=sys.stderr)
 
-    # ── Recorded transform overrides ──
-    # A recorded transform lives in the project declarations, so a
-    # rebuild re-aims the punch-in over it. Overrides apply AFTER
-    # the aim above (or with no look at all), hold the recorded value,
-    # and re-prove coverage where the look declares a window. With no
-    # look there is no window and the read-back is the whole proof.
-    # A project that recorded none pays one file read and nothing
-    # else - the store that was never written costs nothing here.
-    held = apply_transform_overrides(
-        name, track_plan, video_row_by_angle, placements_list,
-        timeline, transcript, project_folder, width, height,
-        look=look, screen_window=screen_window, draw_gain=draw_gain,
-        report_sibling_stale=not single_reel_scope,
-        resolve_project=project)
-    if held:
-        print(f"  {name}: {held} recorded transform hold(s) in force",
-              file=sys.stderr)
-
-    # ── The edit ledger's hands rows ──
-    # A direct edit made with Ren's hands (resolve-axi) or recorded
-    # from the captain lives in `external/edit_ledger.json`, and this
-    # derived timeline would otherwise paint it over: the build
-    # deletes and rebuilds from declarations, so anything that lives
-    # only on the old timeline is gone. Hands rows replay AFTER the
-    # build's own passes above - the held value is the requester's,
-    # never the plan's - each judged by Resolve's own read-back. A
-    # row the build cannot replay is REPORTED BY NAME, never dropped
-    # silently; a ledger the build cannot read at all REFUSES the
-    # build, because that build would paint over it by construction.
-    # Plan-level ledger rows (transform holds, trims, drops, caption
-    # fixes, closer redraws) replay through the existing appliers via
-    # the merged `captain_edits` view - never here, or every hold
-    # would land twice.
-    if any(row.get("op") in _ledger.REPLAYED_OPS
-           or row.get("op") in _ledger.CARRIER_OPS
-           for row in ledger_rows):
-        _video_places = [
-            p for p in placements_list
-            if getattr(p["clip"], "track_type", "video") == "video"]
-        _position = {id(place): index
-                     for index, place in enumerate(_video_places)}
-        _span_items: dict = {}
-        for _aroll_row in track_plan.aroll_rows():
-            _row_items = (timeline.GetItemListInTrack(
-                "video", _aroll_row.index) or [])
-            _row_places = [
-                p for p in placements_list
-                if getattr(p["clip"], "track_type", "video") == "video"
-                and video_row_by_angle.get(_angle_key(p["clip"]))
-                == _aroll_row.index]
-            _row_places.sort(key=lambda p: p["snapped_record"])
-            for _index, _item in enumerate(_row_items):
-                if _index >= len(_row_places):
-                    break
-                _span_items[_position.get(
-                    id(_row_places[_index]), -1)] = _item
-        _replay = _ledger.replay_on_timeline(
-            name, ledger_rows, _video_places, transcript, timeline,
-            item_for_span=_span_items.get, reel_name=name)
-        build_record["edit_ledger"] = {
-            "applied": _replay["applied"],
-            "planned": _replay["planned"],
-            "unreplayable": _replay["unreplayable"],
-        }
-        if _replay["applied"]:
-            print(f"  {name}: {len(_replay['applied'])} edit-ledger "
-                  f"row(s) replayed", file=sys.stderr)
-        if _replay["planned"]:
-            print(f"  {name}: {len(_replay['planned'])} edit-ledger "
-                  f"plan change(s) carried to their owner step",
-                  file=sys.stderr)
-
-    # ── The freeze inherits the shot it holds ──
-    # A freeze IS the ending shot's last frame, so it must look exactly
-    # like that frame: same punch-in transform, same grade. Its own aim
-    # would be recomputed from a face probe and its own grade applied
-    # from the same template, and either could land a pixel or a shade
-    # off - which a viewer reads as a jump cut at the very last moment.
-    # Inherited rather than recomputed, and READ BACK (AGENTS.md 5).
-    # This is also why a word-anchored hold cannot reach it: the held
-    # frame speaks nothing, so `freeze_placement` gives it an empty
-    # master span and the shot's value arrives here instead.
-    if freeze_tail is not None:
-        inherited = _inherit_freeze_treatment(
-            name, timeline, track_plan, video_row_by_angle, freeze_tail)
-        build_record["freeze_tail"] = inherited
-
-    # Captions are PLACED here and RENDERED by step 4.05, which is the
-    # pipeline's renderer. This used to carry its own `npx remotion
-    # render` loop - a third implementation of the same call - and it is
-    # gone; `reel_subtitle_segments` above drives the step instead.
-    from library.tools.overlay_draw_intent import (
-        draw_intent_for_segment as _draw_intent_for_segment,
-        segment_canvas as _segment_canvas,
-    )
-    from library.tools.overlay_placement import (
-        place_overlay_segment,
-        sequence_frame_paths,
-    )
-    for segment in (subtitle_segments or []):
-        held_back, why = _dnd.should_suppress(
-            suppressions, name, segment or {})
-        if held_back:
-            print(f"  {name}: {why}", file=sys.stderr)
-            suppressed_ids.append(segment.get("segment_id"))
-            continue
-        if why:
-            print(f"  {name}: {why}", file=sys.stderr)
-        frames_info = segment.get("frames") or {}
-        frame_dir = frames_info.get("dir", "") if segment.get(
-            "container") == "frames" else ""
-        # Captions render durable already (Area.SUBTITLE_SEGMENTS); the
-        # assert pins it, so a future caller that reaches into scratch
-        # fails here rather than on the captain's timeline.
-        assert_placeable(segment.get("overlay_path") or "", project_folder)
-        if frame_dir:
-            assert_placeable(frame_dir, project_folder)
-        if frame_dir:
-            paths = sequence_frame_paths(frame_dir)
-            found = import_pool_sequence(
-                pool, paths, frame_dir, project_folder,
-                dest=overlay_import_bin(project_folder, name,
-                                        paths[0] if paths else ""))
-            items = [found] if found is not None else []
-        else:
-            found = import_pool_item(
-                pool, segment["overlay_path"],
-                overlay_import_bin(project_folder, name,
-                                   segment["overlay_path"]))
-            items = [found] if found is not None else []
-        if not items:
-            failed_path = segment.get("overlay_path") or frame_dir
-            raise ReelBuildError(
-                f"{name}: Resolve would not import rendered caption "
-                f"{failed_path!r}; refusing to omit a planned caption "
-                f"segment")
-
-        assert_current_timeline(project, timeline)
-        # The record span is rounded PER EDGE - [round(start), round(end))
-        # - never round(start) + round(duration).  Abutting blocks share
-        # one edge in seconds and must share it in frames, or the spans
-        # overlap by a frame and Resolve trims one off the later item
-        # (reel 07 block 23, 2026-09-08: planned 34, placed 33, the lone
-        # F2 of the rebuild).  The source range is the same duration
-        # counted from the content start, inside the render handles 4.05
-        # leaves either side.  `span_frames` is the one arithmetic; F2
-        # grades exactly this span, so placer and check agree by
-        # construction and the gate stays exact.
-        record_start, record_end = span_frames(
-            segment["timeline_start"], segment["timeline_end"], fps)
-        content_frames = max(record_end - record_start, 1)
-        # The caption artefact rides the placement its tight box
-        # computed - read off the entry step 4.05 recorded - and the
-        # placer SETS it then READS BACK what Resolve holds. A
-        # sequence shares the mov's frame numbering, so the handle
-        # trim is the same arithmetic.
-        seen_intent_ids.append(segment.get("segment_id"))
-        # `draw_intent` arms the pixel half: a declared pin first (the
-        # captain's place wins over the row), else the DECLARED caption
-        # row for this reel - so a sidecar placement served under a
-        # superseded row is REPORTED rather than shipped. Unverifiable
-        # captions (legacy canvas, no render props) ride without it,
-        # exactly as before.
-        _caption_canvas = _segment_canvas(segment)
-        placed, note = place_overlay_segment(
-            pool, timeline, items[0],
-            track_index=track_plan.caption_row().index,
-            record_frame=record_start,
-            source_in_frame=segment["source_in_frame"],
-            source_out_frame=segment["source_in_frame"] + content_frames,
-            placement=(segment.get("tight_box") or {}).get("placement"),
-            label=segment.get("segment_id", "caption"),
-            kind="caption",
-            segment_id=segment.get("segment_id"),
-            intent=overlay_intent,
-            canvas=_caption_canvas,
-            frame=(width, height),
-            intent_matched=applied_intent_keys,
-            draw_gain=draw_gain,
-            resolve_project=project,
-            draw_intent=_draw_intent_for_segment(
-                segment, kind="caption",
-                segment_id=segment.get("segment_id"),
-                placement_label=None,
-                intent=overlay_intent, frame_wh=(width, height),
-                project_folder=project_folder, reel_name=name,
-                draw_gain=draw_gain))
-        if not placed:
-            raise ReelBuildError(
-                f"{name}: Resolve would not place caption segment "
-                f"{segment.get('segment_id')!r} at frame {record_start}: "
-                f"{note or 'placement returned no item'}")
-        elif note:
-            print(f"  caption {segment.get('segment_id')}: {note}",
-                  file=sys.stderr)
-        if placed and _caption_canvas is not None:
-            # One post-build sweep record per tight caption: the values
-            # half (`overlay_verify.sweep_reel_overlays`) reads it back
-            # off the timeline after the build and judges it against
-            # intent. Full-canvas captions need no transform and leave
-            # no record.
-            _sweep_records.append({
-                "label": segment.get("segment_id", "caption"),
-                "kind": "caption",
-                "segment_id": segment.get("segment_id"),
-                # Captions carry no placing label (the label tier is
-                # for reel graphics); the key stays so every sweep
-                # record has one schema.
-                "placement_label": None,
-                "track_index": track_plan.caption_row().index,
-                "record_frame": record_start,
-                "canvas_wh": _segment_canvas(segment),
-                "placement": (segment.get("tight_box") or {}
-                              ).get("placement"),
-                "overlay_path": segment.get("overlay_path") or "",
-                "frames_dir": frame_dir,
-            })
-
-    # Transition elements last, on the plan's transitions row. Placed
-    # from FRAMES the planner already computed against this reel's own
-    # keep ranges - nothing is recomputed here, because a placer and a
-    # planner that both do the arithmetic are two chances to land one
-    # frame off the cut the element exists to hide. The planner stamps
-    # a default slot; the plan's row wins, because exactly one thing
-    # decides a track index - so the placements are re-stamped here
-    # and the re-stamped rows are what the build record carries (what
-    # the verifier grades against) rather than the planner's default.
-    import dataclasses as _dataclasses
-
-    transitions_row = track_plan.row_for_role(TRANSITIONS)
-    transitions_row = transitions_row.index if transitions_row else None
-    stamped_placements = [
-        _dataclasses.replace(placement, track_index=transitions_row)
-        if getattr(placement, "track_index", None) != transitions_row
-        else placement
-        for placement in (overlay_placements or [])]
-    for placement in stamped_placements:
-        if transitions_row is None:
-            raise ReelBuildError(
-                f"{name}: transition elements were planned with no "
-                f"transitions row; refusing to place them on an "
-                f"unplanned row.")
-        element_item = import_pool_item(
-            pool, placement.element_path,
-            overlay_import_bin(project_folder, name,
-                               placement.element_path))
-        items = [element_item] if element_item is not None else []
-        if not items:
-            raise ValueError(
-                f"transition element {placement.element_path} could not be "
-                f"imported into the media pool, so the element the project "
-                f"declared would be silently missing from {name}")
-
-        # `startFrame`/`endFrame` are in the POOL ITEM's OWN frames, not
-        # the timeline's - AGENTS.md 5, the same rule the picture loop
-        # above obeys and the reason it reads `GetClipProperty("FPS")`.
-        # The Lucie bumper is 30fps on a 23.976 timeline: 36 timeline
-        # frames of it is 45 of its own, and passing 36 would have taken
-        # 1.2s of a 1.5s element. `record_frame` and `duration_frames`
-        # stay TIMELINE frames, because that is what the planner
-        # computed the cut's position in.
-        #
-        # This is the same convention the picture and caption placements
-        # use - `endFrame - startFrame` is the duration, not one less -
-        # and it is not a fresh guess: F18 in the conformance verifier
-        # compares the placed length against the planned one, so a wrong
-        # reading of it fails the next verification rather than shipping.
-        _place_transition_element(
-            pool, project, timeline, name, placement, items[0],
-            transitions_row, fps)
-
-
-    # The explainer. ADDITIVE, exactly as the captions above are: it is
-    # laid over picture that keeps playing and moves no frame of it, so
-    # no keep range, no caption timing and no footage binding changes
-    # because a reel carries one. Its whole span is placed - unlike a
-    # caption, a graphic renders no handles either side, so
-    # `total_frames` IS the content.
-    if explainer_segments:
-        suppressed_ids.extend(place_overlay_segments(
-            pool, project, timeline, name, fps, explainer_segments,
-            [row.index for row in track_plan.rows_for_role(EXPLAINER)],
-            kind="explainer", check="F21",
-            project_folder=project_folder,
-            overlay_intent=overlay_intent, frame=(width, height),
-            seen_ids=seen_intent_ids,
-            do_not_draw=suppressions,
-            intent_applied=applied_intent_keys,
-            seen_labels=seen_intent_labels,
-            sweep_out=_sweep_records,
-            draw_gain=draw_gain))
-
-
-
-    # The semantic visuals. ADDITIVE, exactly as the explainer above
-    # is: laid over picture that keeps playing, moving no frame of it.
-    # Each segment renders with no handles either side, so its whole
-    # span is placed - `total_frames` IS the content.
-    if semantic_segments:
-        suppressed_ids.extend(place_overlay_segments(
-            pool, project, timeline, name, fps, semantic_segments,
-            [row.index for row in track_plan.rows_for_role(SEMANTIC)],
-            kind="semantic visual", check="F22",
-            project_folder=project_folder,
-            overlay_intent=overlay_intent, frame=(width, height),
-            seen_ids=seen_intent_ids,
-            do_not_draw=suppressions,
-            intent_applied=applied_intent_keys,
-            seen_labels=seen_intent_labels,
-            sweep_out=_sweep_records,
-            draw_gain=draw_gain))
-
-    # The speaker lower thirds. ADDITIVE, exactly as the two above are:
-    # laid over picture that keeps playing, moving no frame of it, so a
-    # reel carrying one is cut identically to a reel carrying none.
-    # Each segment rides its own `tight_box.placement` where the
-    # measured bind succeeded (`reel_lower_third_segments`), and needs
-    # no transform where it stayed full canvas - `overlay_intent` is
-    # passed anyway because the placer reads it per segment and a
-    # full-canvas segment declares no canvas.
-    if lower_third_segments:
-        suppressed_ids.extend(place_overlay_segments(
-            pool, project, timeline, name, fps, lower_third_segments,
-            [row.index for row in track_plan.rows_for_role(MOTION_GRAPHICS)],
-            kind="speaker lower third", check="F21",
-            project_folder=project_folder,
-            overlay_intent=overlay_intent, frame=(width, height),
-            seen_ids=seen_intent_ids,
-            do_not_draw=suppressions,
-            intent_applied=applied_intent_keys,
-            seen_labels=seen_intent_labels,
-            sweep_out=_sweep_records,
-            draw_gain=draw_gain))
-
-    # The social-post header, on its own row above everything drawn.
-    # A tight canvas like every graphic: its segments carry their own
-    # placement, which the placer applies and reads back.
-    build_record["post_header"] = post_header.as_dict()
-    if post_header.segments:
-        suppressed_ids.extend(place_overlay_segments(
-            pool, project, timeline, name, fps, post_header.segments,
-            track_plan.row_for_role(POST_HEADER).index,
-            kind="post header", check="F4",
-            project_folder=project_folder,
-            overlay_intent=overlay_intent, frame=(width, height),
-            seen_ids=seen_intent_ids,
-            do_not_draw=suppressions,
-            intent_applied=applied_intent_keys,
-            seen_labels=seen_intent_labels,
-            sweep_out=_sweep_records,
-            draw_gain=draw_gain))
+    _hold_and_replay()
+    if not recording:
+        stamped_placements = _place_overlays()
 
     if overlay_intent:
         # Pins that matched nothing on this reel, said aloud and kept
@@ -9090,7 +9198,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     # Span-based, in ONE call per speech item (see `link_reel_groups`
     # for why a second call breaks the first). Every call is read
     # back; what did not join is said rather than trusted.
-    print(f"── Link Pass ──", file=sys.stderr)
+    print("── Link Pass ──", file=sys.stderr)
     link_record = link_reel_groups(timeline, track_plan,
                                    offset_links=offset_links)
     build_record["link_groups"] = link_record["link_groups"]
@@ -11172,7 +11280,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                              supersede=None,
                              retain=None,
                              accept_editor_changes=None,
-                             reuse_unchanged: bool = True) -> dict:
+                             reuse_unchanged: bool = True,
+                             placement_mode: str = "append") -> dict:
     """Build every approved reel, and RETURN the record of what was placed.
 
     NOTHING APPROVED IS DELETED BEFORE THE GATE PASSES. This used to
@@ -13027,6 +13136,9 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                     single_reel_scope=(wanted is not None),
                     prepared=prepared,
                     defer_overlay_sweep=True,
+                    # How the timeline is placed, never what goes on it:
+                    # "otio" is one import (`reel_otio_placement`).
+                    placement_mode=placement_mode,
                 )
                 _header_record = build_result.get("post_header")
                 if isinstance(_header_record, dict):

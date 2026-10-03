@@ -292,6 +292,9 @@ def _mock_resolve(monkeypatch, imported):
             return None
 
     class MockClip:
+        def GetUniqueId(self): return "clip-1"
+        def GetFusionCompCount(self):
+            return len(self.GetFusionCompNameList() or [])
         def GetStart(self): return 0
         def GetEnd(self): return 72
         def GetDuration(self): return 72
@@ -325,6 +328,7 @@ def _mock_resolve(monkeypatch, imported):
             return None
 
     class MockTimeline:
+        def GetTrackCount(self, kind): return 1
         def GetSetting(self, name): return "30"
         def GetItemListInTrack(self, track_type, index):
             return [MockClip()] if index == 1 else []
@@ -1050,6 +1054,7 @@ def _drive_comp_pass(monkeypatch, tmp_path, after_import):
             return None
 
     class MockClip:
+        def GetUniqueId(self): return "clip-1"
         def GetStart(self): return 0
         def GetEnd(self): return 72
         def GetDuration(self): return 72
@@ -1084,6 +1089,7 @@ def _drive_comp_pass(monkeypatch, tmp_path, after_import):
             return {"File Path": "a_roll.mov", "Frames": "600"}.get(prop)
 
     class MockTimeline:
+        def GetTrackCount(self, kind): return 1
         def GetSetting(self, name): return "30"
         def GetItemListInTrack(self, kind, index):
             return [MockClip()] if index == 1 else []

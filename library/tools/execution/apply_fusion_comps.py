@@ -267,6 +267,68 @@ def _map_clips_to_items(clips, items):
     return mapping
 
 
+#: The tools of the comp Resolve makes by itself: none of them draws.
+NON_DRAWING_TOOLS = ("MediaIn", "MediaOut", "AudioDisplay")
+#: The same media pair as the exported file spells it (`MediaIn1 = Loader`,
+#: `MediaOut1 = Saver`): a Loader/Saver is the default pair only by NAME.
+DEFAULT_MEDIA_PAIR = {"MediaIn1": "Loader", "MediaOut1": "Saver"}
+
+
+def _draws(tool) -> bool:
+    reg_id = tool.GetAttrs("TOOLS_RegID")
+    if reg_id in NON_DRAWING_TOOLS:
+        return False
+    return DEFAULT_MEDIA_PAIR.get(tool.GetAttrs("TOOLS_Name")) != reg_id
+
+
+def comp_census(timeline) -> dict:
+    """{item unique id: Fusion comp count} for every video item."""
+    census = {}
+    for index in range(1, int(timeline.GetTrackCount("video") or 0) + 1):
+        for item in timeline.GetItemListInTrack("video", index) or []:
+            census[item.GetUniqueId()] = int(item.GetFusionCompCount() or 0)
+    return census
+
+
+def stray_comps(timeline, before: dict, targeted) -> list:
+    """Every comp this pass did not plan that appeared on an item it never
+    targeted, SAID; returns the notes. Nothing is deleted.
+
+    `OpenPage("fusion")` below makes Resolve create an empty
+    "Composition 1" on whatever clip is topmost under the playhead, if it
+    has none. Exported, it holds `MediaIn1`, `MediaOut1` and the two
+    `AudioDisplay` tools (`Left`, `Right`) - nothing that draws
+    (`NON_DRAWING_TOOLS`). Measured on Reel 09 (2026-10-02): an appended
+    build left one on the tail card, where the last append parked the
+    playhead, and an OTIO-placed build on the post header at frame 0 -
+    the same pass, a different playhead. Resolve REFUSES to delete it
+    (`DeleteFusionCompByName` False, from the Fusion page and the Edit
+    page alike, two live runs), so the pass reports it rather than
+    leaving it unsaid; one that draws is reported as such.
+    """
+    notes = []
+    for index in range(1, int(timeline.GetTrackCount("video") or 0) + 1):
+        for item in timeline.GetItemListInTrack("video", index) or []:
+            uid = item.GetUniqueId()
+            had = before.get(uid, 0)
+            names = list(item.GetFusionCompNameList() or [])
+            if uid in targeted or len(names) <= had:
+                continue
+            where = f"V{index} @{item.GetStart()} {item.GetName()}"
+            for position in range(had + 1, len(names) + 1):
+                comp = item.GetFusionCompByIndex(position)
+                tools = (comp.GetToolList() or {}) if comp else {}
+                drawn = sorted(str(t.GetAttrs("TOOLS_RegID"))
+                               for t in tools.values() if _draws(t))
+                notes.append(
+                    f"{where}: gained comp {names[position - 1]!r} this pass "
+                    f"did not plan - "
+                    + (f"it draws ({drawn})" if drawn else
+                       "Resolve's own empty comp, made under the playhead "
+                       "when the Fusion page opened; it draws nothing"))
+    return notes
+
+
 def unmapped_comp_failures(comp_tracks, items_by_track,
                             transition_by_clip, per_clip_effects):
     """Planned comps reaching no timeline item, NAMED (finding 15).
@@ -536,6 +598,11 @@ def apply_fusion_comps(manifest, project_folder,
             comp_tracks, _items_by_track, transition_by_clip,
             per_clip_effects))
 
+        # Every item's comps BEFORE the page switches below, so the
+        # empty comps Resolve makes under the playhead can be told from
+        # the ones this pass imports (`stray_comps`).
+        _census = comp_census(timeline)
+        _targeted = {entry[1][entry[2]].GetUniqueId() for entry in work}
         for (track_index, track_items, item_idx, orig_ci, clip_spec,
              applies_transitions) in work:
             where = f"V{track_index}:{orig_ci}"
@@ -904,6 +971,9 @@ def apply_fusion_comps(manifest, project_folder,
                     f"[{where}] {label}: ImportFusionComp imported "
                     f"nothing - planned comp reaches no pixels")
 
+
+        for note in stray_comps(timeline, _census, _targeted):
+            print(f"  · {note}", file=sys.stderr)
 
     # ── Generator overlays ──
     # Generator presets (.setting files) produce content from nothing and

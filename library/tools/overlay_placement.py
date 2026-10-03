@@ -255,6 +255,20 @@ def apply_placement_transform(timeline, track_index: int,
     overlay WITHOUT `draw_intent` behaves exactly as before.
     """
     from library.tools.overlay_intent import resolve as resolve_intent
+    from library.tools.reel_otio_placement import RecordingTimeline
+
+    if isinstance(timeline, RecordingTimeline):
+        # A recorded build (`reel_otio_placement`): the item is not on a
+        # timeline yet, so the write runs after the import, unchanged.
+        timeline.defer(label or "overlay", lambda real: (
+            apply_placement_transform(
+                real, track_index, record_frame, placement, label,
+                kind=kind, segment_id=segment_id, intent=intent,
+                draw_intent=draw_intent, canvas=canvas, frame=frame,
+                placement_label=placement_label,
+                intent_matched=intent_matched, draw_gain=draw_gain,
+                resolve_project=resolve_project)))
+        return ""
 
     name = label or "overlay"
     placement, provenance = resolve_intent(kind, segment_id, placement,

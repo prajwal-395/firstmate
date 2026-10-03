@@ -1277,6 +1277,9 @@ def test_builtin_effect_reaches_resolve_byte_identical(monkeypatch, tmp_path):
     imported = []
 
     class MockTimelineClip:
+        def GetUniqueId(self): return "clip-1"
+        def GetFusionCompCount(self):
+            return len(self.GetFusionCompNameList() or [])
         def GetStart(self):
             return 0
 
@@ -1301,6 +1304,7 @@ def test_builtin_effect_reaches_resolve_byte_identical(monkeypatch, tmp_path):
             return {"File Path": "test.mov", "Frames": "100"}.get(prop)
 
     class MockTimeline:
+        def GetTrackCount(self, kind): return 1
         def GetUniqueId(self): return str(id(self))
         def GetSetting(self, name):
             return "30"

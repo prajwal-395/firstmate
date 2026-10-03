@@ -1093,6 +1093,12 @@ class _FakeTimelineItem:
         self.imported = []
         self._start, self._end = start, end
 
+    def GetUniqueId(self):
+        return str(id(self))
+
+    def GetFusionCompCount(self):
+        return len(self.GetFusionCompNameList() or [])
+
     def GetMediaPoolItem(self):
         return self.mpi
 
@@ -1130,6 +1136,9 @@ class _FakeTimeline:
 
     def GetItemListInTrack(self, _kind, index):
         return self.items_by_track.get(index, [])
+
+    def GetTrackCount(self, _kind):
+        return max(self.items_by_track, default=0)
 
 
 class _FakeResolve:
