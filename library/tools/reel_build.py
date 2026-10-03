@@ -139,6 +139,7 @@ from library.tools.resolve_transform import (
     FALLBACK_DRAW_GAIN, LEGACY_OVERRIDE_DRAW_GAIN, rebase_draw_gain)
 from library.tools import reel_clock as _reel_clock
 from library.tools import resolve_bin_layout as bins
+from library.tools.ren_refusal import RenRefusal
 from library.tools.resolve_lock import (
     assert_current_timeline, resolve_lease, under_lease)
 from library.tools.timeline_ingest import resolve_project_exactly
@@ -1211,6 +1212,35 @@ class ReelVerificationRefused(RuntimeError):
     def __init__(self, message: str, failed_reels=()) -> None:
         super().__init__(message)
         self.failed_reels = list(failed_reels or ())
+
+
+class ReplaceGuardPromotionRefused(RenRefusal, ReelBuildError):
+    """The replace guard refused every reel, so nothing was promoted.
+
+    A `RenRefusal` on purpose: the guard names the exact declaration
+    that would proceed deliberately (`--allow-drop`), so there is a
+    known next step and the CLI exits 4 with no traceback
+    (`library/tools/ren_refusal.py`). A `ReelBuildError` too, so every
+    existing `except ReelBuildError` still catches it - adopting the
+    class changes what its message carries and how the CLI exits,
+    never who catches it.
+    """
+
+    def __init__(self, message: str, allow_drop_specs=()) -> None:
+        import shlex
+
+        specs = sorted({str(spec).strip() for spec in allow_drop_specs
+                        if str(spec).strip()})
+        flags = " ".join(
+            f"--allow-drop {shlex.quote(spec)}" for spec in specs)
+        super().__init__(
+            what=message,
+            why=("the staged rebuild carries less than the approved "
+                 "timeline it would replace"),
+            fix=("declare each reduced row and re-run: "
+                 f"`build-reels {flags}`" if flags else
+                 "declare each reduced row named above with "
+                 "`build-reels --allow-drop ROW` and re-run"))
 
 
 @dataclass(frozen=True)
@@ -9999,6 +10029,13 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             f"REFUSING to promote: {bad_declaration}") from bad_declaration
     replace_reports = {}
     refused = {}
+    guard_refused_finals = set()
+    guard_refused_rows = {}
+    # Finals the row-diff guard itself refused (`ReplaceGuardRefused`):
+    # a deliberate reduction awaiting its `--allow-drop` declaration.
+    # Tracked apart from every other refusal kind so a batch refused
+    # ONLY here raises the refusal contract (`RenRefusal`, exit 4)
+    # instead of an unexpected error.
     # The promotion boundary repeats the standalone verifier's A-roll
     # link check on the actual staging handle. The earlier reel quality
     # gate and its plan are separate contracts; a pass there cannot
@@ -10295,6 +10332,10 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
                 f"still in the project.")
         except _guard.ReplaceGuardRefused as guard_refused:
             refused[final] = str(guard_refused)
+            if guard_refused.allow_drop_rows:
+                guard_refused_finals.add(final)
+                guard_refused_rows.setdefault(final, set()).update(
+                    guard_refused.allow_drop_rows)
         except _signoff.SignOffNotDeclared as not_declared:
             refused[final] = str(not_declared)
         except _signoff.SignOffsUnreadable as unreadable:
@@ -10447,7 +10488,27 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
         for final in finals:
             if final in refused:
                 lines.append(refused[final])
-        raise ReelBuildError("\n".join(lines))
+        message = "\n".join(lines)
+        if refused and set(refused) <= guard_refused_finals:
+            # Every reel refused on the row-diff guard alone: the fix
+            # is the declaration each refusal already prints, so this
+            # is a refusal with a known next step (exit 4), not an
+            # unexpected error. The refused stagings stay held for
+            # that deliberate re-run, which reclaims them (finding 5).
+            row_sets = {tuple(sorted(rows))
+                        for rows in guard_refused_rows.values()}
+            if len(row_sets) == 1:
+                # One global declaration is exact when every refused reel
+                # lost the same rows. Otherwise scope each declaration to
+                # the final that actually needs it.
+                allow_drop_specs = next(iter(row_sets))
+            else:
+                allow_drop_specs = tuple(
+                    f"{final}::{row}"
+                    for final, rows in sorted(guard_refused_rows.items())
+                    for row in sorted(rows))
+            raise ReplaceGuardPromotionRefused(message, allow_drop_specs)
+        raise ReelBuildError(message)
     from library.tools.plan_provenance import (
         drop_reel_entries, read_provenance, rename_reel_entries)
     # A staging no build recorded in provenance - a promoted variant
@@ -11926,13 +11987,45 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         stale_backups = timelines_to_replace(
             project, {backup_name(final) for final in target_names})
     if stale_staging:
-        raise ReelBuildError(
-            f"REFUSING to build: {len(stale_staging)} staging "
-            f"timeline(s) from an interrupted run are still in the "
-            f"project - "
-            f"{sorted(t.GetName() for t in stale_staging)}. Delete "
-            f"them in Resolve and re-run; reusing a debris container "
-            f"would grade one run's content as another's.")
+        # A staging this build's own previous run left HELD awaiting
+        # the same final - a refused promotion (finding 5), not an
+        # interrupted run - is reclaimed, not refused on: it is
+        # discarded here (timelines, holds, sidecars) so the printed
+        # `--allow-drop` re-run stages clean. Anything else is still
+        # foreign debris and refuses, fail-closed: an unreadable
+        # holds file, a hold for another final, or no hold at all
+        # all read as debris.
+        from library.tools import staging_holds as _holds
+        try:
+            _held = _holds.read_holds(project_folder)
+        except Exception:  # noqa: BLE001 - unreadable holds refuse
+            _held = {}
+        _final_of_staging = {staging: final
+                             for final, staging in staged_to_final.items()}
+        _reclaimable = sorted({
+            timeline.GetName() for timeline in stale_staging
+            if _final_of_staging.get(timeline.GetName()) is not None
+            and (_held.get(timeline.GetName()) or {}).get("awaiting")
+            == _final_of_staging[timeline.GetName()]})
+        _foreign = sorted({
+            timeline.GetName() for timeline in stale_staging
+            if timeline.GetName() not in set(_reclaimable)})
+        if _reclaimable:
+            print(f"  reclaiming {len(_reclaimable)} held staging "
+                  f"timeline(s) from the refused run: "
+                  f"{_reclaimable} - discarding and re-staging",
+                  flush=True)
+            with resolve_lease("reclaim refused staging", exclusive=True):
+                discard_staged_reels(project, project_folder,
+                                     _reclaimable, master_timeline_name)
+        if _foreign:
+            raise ReelBuildError(
+                f"REFUSING to build: {len(_foreign)} staging "
+                f"timeline(s) from an interrupted run are still in the "
+                f"project - "
+                f"{_foreign}. Delete "
+                f"them in Resolve and re-run; reusing a debris container "
+                f"would grade one run's content as another's.")
     if stale_backups:
         raise ReelBuildError(
             f"REFUSING to build: {len(stale_backups)} backup "

@@ -8,12 +8,29 @@ build, touch, rebuild, the captain's own hand edits, and deliver.
 from __future__ import annotations
 
 import json
+import re
+import shlex
 import shutil
+import sys
 
 import pytest
 
-from library.tools.reel_build import ReelBuildError
+from library.tools.ren_refusal import REFUSAL_EXIT_CODE
 from tests.scenarios import golden
+
+
+def run_build_cli(monkeypatch, folder, command):
+    """Run the actual build-reels parser and dispatcher on this test's double."""
+    import manage_project
+
+    monkeypatch.setattr(
+        sys, "argv",
+        ["manage_project.py", "build-reels", *command, str(folder)])
+    try:
+        manage_project.main()
+    except SystemExit as exited:
+        return exited.code
+    return 0
 
 pytestmark = pytest.mark.skipif(
     shutil.which("ffmpeg") is None,
@@ -30,7 +47,8 @@ def world(tmp_path, monkeypatch, stub_resolve_script):
     return folder, project, renderer
 
 
-def test_conversation_analyze_plan_build_touch_rebuild_deliver(world):
+def test_conversation_analyze_plan_build_touch_rebuild_deliver(
+        world, monkeypatch, capsys):
     folder, project, renderer = world
     recipe = golden.CONVERSATION
 
@@ -95,23 +113,33 @@ def test_conversation_analyze_plan_build_touch_rebuild_deliver(world):
 
     # ...then the plan changes: the body now ends on Akshita's line.
     golden.rule(proposal, timeline_end=recipe.lines[2].last)
-    with pytest.raises(ReelBuildError) as refused:
-        golden.build(folder)
+    capsys.readouterr()
+    assert run_build_cli(monkeypatch, folder, []) == REFUSAL_EXIT_CODE, (
+        "the replace guard refuses: nothing is promoted")
+    refused_err = capsys.readouterr().err
     assert ("--allow-drop 'audio:Craig CH1' --allow-drop 'video:Subtitles'"
-            in str(refused.value)), "the refusal names the rows that shrink"
+            in refused_err), "the refusal names the rows that shrink"
+    assert "Traceback" not in refused_err, "a refusal prints no traceback"
     reel = golden.timeline(project, golden.REEL)
     assert golden.rows(reel) == hand_edited, (
         "a refused promotion leaves the approved, hand-edited reel whole")
     assert reel.GetItemListInTrack("video", 2)[1].GetProperty("Pan") == 40.0
 
+    # Read the exact command the refusal printed, then run its flags
+    # through the CLI against the same Resolve double.
+    fix_line = next(line for line in refused_err.splitlines()
+                    if line.strip().startswith("fix:"))
+    suggested = re.search(r"`(build-reels [^`]*)`", fix_line)
+    assert suggested, f"the refusal prints a runnable command: {fix_line}"
+    suggested_words = shlex.split(suggested.group(1))
+    assert suggested_words[0] == "build-reels"
+
     # ...declared, it promotes - and carries what the captain did by hand.
-    # The refused staging is still held in the project; the next build
-    # refuses on it as debris and says to delete it in Resolve, so the
-    # captain does (docs/GOLDEN_PROJECTS.md, finding 5).
-    staging = golden.timeline(project, f"{golden.REEL} (rebuild staging)")
-    assert project.GetMediaPool().DeleteTimelines([staging])
-    assert golden.build(
-        folder, allow_drop=["audio:Craig CH1", "video:Subtitles"]) == 0
+    # The refused staging stays held in the project; the next build
+    # reclaims it and re-stages, so the printed command works as
+    # printed with no hand deletion in Resolve
+    # (docs/GOLDEN_PROJECTS.md, finding 5).
+    assert run_build_cli(monkeypatch, folder, suggested_words[1:]) == 0
     assert golden.timeline_names(project) == [recipe.master, golden.REEL]
     reel = golden.timeline(project, golden.REEL)
     rebuilt = golden.rows(reel)

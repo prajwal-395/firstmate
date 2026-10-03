@@ -114,6 +114,13 @@ class ReplaceGuardUnreadable(RuntimeError):
 class ReplaceGuardRefused(RuntimeError):
     """The incoming timeline carries less than the one it would replace."""
 
+    def __init__(self, message: str, allow_drop_rows=()) -> None:
+        super().__init__(message)
+        # Only the row-diff refusal knows which declaration would let it
+        # proceed. Other subclasses in this module refuse for editor
+        # changes, and must not be mistaken for `--allow-drop` refusals.
+        self.allow_drop_rows = tuple(allow_drop_rows or ())
+
 
 class EditorChangeRefused(ReplaceGuardRefused):
     """Unattributed live edits would be lost by this replacement."""
@@ -1065,4 +1072,4 @@ def check_replacement(final: str, staging: str, retired: dict,
         f"To proceed deliberately, declare each reduced row: "
         f"`build-reels {flags}` "
         f"or `allow_drops={{{final!r}: {needed}}}`.")
-    raise ReplaceGuardRefused("\n".join(lines))
+    raise ReplaceGuardRefused("\n".join(lines), allow_drop_rows=needed)

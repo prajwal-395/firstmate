@@ -69,7 +69,9 @@ Found by the conversation shape on its first run. Fixed ones name the PR.
    build refuses it as debris "from an interrupted run", so the suggested
    command never works until the staging is deleted by hand. The refusal is
    also a `ReelBuildError`, so the CLI shows a traceback and exits 1 rather
-   than the refusal contract's 4. Open.
+   than the refusal contract's 4. Fixed: the next build reclaims the
+   refused run's own held staging and re-stages, and a batch refused on
+   the guard alone raises the refusal contract (`ren: refused`, exit 4).
 6. **The closing breath can play the next speaker's first word.** It is
    bounded by the next word's start in seconds, and frame placement crosses
    the bound by a fraction of a frame (F25 `played_not_captioned`). Open.

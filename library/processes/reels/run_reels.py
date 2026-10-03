@@ -140,19 +140,29 @@ def run(project_folder: str, args) -> int:
             continue
         # The execution receipt, keyed by capability id: before this a
         # reel build wrote its files and provenance recorded nothing.
-        with provenance.observing_operation(project_folder, op.name):
-            result = op.execute(
-                project_folder,
-                skip_captions=args.skip_captions,
-                only_reels=args.only_reel or None,
-                timeline_name_suffix=args.name_suffix,
-                allow_drops=args.allow_drop or None,
-                accept_editor_changes=getattr(
-                    args, "accept_editor_changes", None) or None,
-                supersede=args.supersede or None,
-                retain=args.retain or None,
-                rebuild_all=bool(getattr(args, "rebuild_all", False)),
-                placement_mode=getattr(args, "placement_mode", "append"))
+        from library.tools.ren_refusal import RenRefusal
+        try:
+            with provenance.observing_operation(project_folder, op.name):
+                result = op.execute(
+                    project_folder,
+                    skip_captions=args.skip_captions,
+                    only_reels=args.only_reel or None,
+                    timeline_name_suffix=args.name_suffix,
+                    allow_drops=args.allow_drop or None,
+                    accept_editor_changes=getattr(
+                        args, "accept_editor_changes", None) or None,
+                    supersede=args.supersede or None,
+                    retain=args.retain or None,
+                    rebuild_all=bool(getattr(args, "rebuild_all", False)),
+                    placement_mode=getattr(args, "placement_mode", "append"))
+        except RenRefusal as refused:
+            # A step-level refusal with a known next step (the replace
+            # guard's `--allow-drop` declaration): no traceback, exit 4,
+            # nothing after it ran and no closing commit.
+            from library.tools.ren_refusal import REFUSAL_EXIT_CODE
+            print(f"REFUSED: {op.name}", file=sys.stderr)
+            print(refused.render(), file=sys.stderr)
+            return REFUSAL_EXIT_CODE
         if result.refused:
             from library.tools.ren_refusal import REFUSAL_EXIT_CODE
             print(f"REFUSED: {op.name}", file=sys.stderr)
