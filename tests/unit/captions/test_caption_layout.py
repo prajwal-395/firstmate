@@ -378,7 +378,8 @@ def test_a_per_reel_pin_still_outranks_the_project_row(tmp_path):
 #   a hand edit) can never centre a caption mutely again.
 #
 # Full-canvas segments draw their text natively and ride
-# untransformed, exactly as before.
+# untransformed, exactly as before. A legacy segment with no geometry is
+# accepted only when the media-pool dimensions prove it is full-frame.
 
 REPO = Path(__file__).resolve().parents[3]
 if str(REPO) not in sys.path:
@@ -414,8 +415,8 @@ _PLACEMENT = {"scaling": 1, "pan": 0.0, "tilt": -870.0}
 def test_the_build_guard_never_centres_a_caption_silently():
     """Finding 21's shape - a tight canvas with no placement - is refused
     by name rather than shipped at a silent Tilt 0; full canvas rides
-    untransformed; a segment too old to declare its geometry rides its
-    placement if it has one and is refused if it has none."""
+    untransformed; a legacy segment rides its placement or is accepted
+    as full-frame only when its measured dimensions match the frame."""
     placement, refusal = caption_segment_placement(
         _seg(placement=_PLACEMENT), 0, 3)
     assert (placement, refusal) == (_PLACEMENT, "")
@@ -439,6 +440,46 @@ def test_the_build_guard_never_centres_a_caption_silently():
     seg.pop("tight_box", None)
     placement, refusal = caption_segment_placement(seg, 0, 3)
     assert placement is None and refusal != ""
+
+
+def test_legacy_caption_is_full_frame_only_when_resolve_dimensions_match():
+    """The master 001 cache predates geometry/tight_box but its MOVs are
+    full-frame; dimensions recover that fact without centring tight crops."""
+    class PoolItem:
+        def __init__(self, resolution):
+            self.resolution = resolution
+
+        def GetClipProperty(self, name):
+            assert name == "Resolution"
+            return self.resolution
+
+    segment = {
+        "segment_id": "sub_block_10",
+        "overlay_path": "/tmp/sub_block_10.mov",
+    }
+    assert caption_segment_placement(segment, 0, 3)[1]
+    assert caption_segment_placement(
+        segment, 0, 3,
+        media_pool_item=PoolItem("1080 x 1920"),
+        frame_size=(1080, 1920),
+    ) == (None, "")
+    placement, refusal = caption_segment_placement(
+        segment, 0, 3,
+        media_pool_item=PoolItem("480x320"),
+        frame_size=(1080, 1920),
+    )
+    assert placement is None and refusal
+    assert "legacy/unknown-geometry" in refusal
+
+    segment["tight_box"] = {
+        "width": 1080, "height": 1920, "placement": None,
+    }
+    placement, refusal = caption_segment_placement(
+        segment, 0, 3,
+        media_pool_item=PoolItem("1080x1920"),
+        frame_size=(1080, 1920),
+    )
+    assert placement is None and "tight_box record exists" in refusal
 
 
 # ── the compile refusal ──────────────────────────────────────────

@@ -514,8 +514,29 @@ def _ensure_transparent_carrier(
 
 # ─── Core: Build Timeline ────────────────────────────────────
 
-def caption_segment_placement(seg: dict, si: int, caption_row: int
-                              ) -> tuple:
+def _pool_item_resolution(pool_item) -> tuple | None:
+    """Read a media-pool item's stored frame dimensions, or return None.
+
+    Legacy subtitle segments predate the `geometry` and `tight_box`
+    fields. Their geometry can only be recovered safely from the media
+    item itself; missing or unreadable dimensions never imply full-frame.
+    """
+    try:
+        raw = pool_item.GetClipProperty("Resolution")
+        parts = str(raw).lower().split("x")
+        if len(parts) != 2:
+            return None
+        width, height = (int(part.strip()) for part in parts)
+    except Exception:  # noqa: BLE001 - unreadable dimensions stay unknown
+        return None
+    if width <= 0 or height <= 0:
+        return None
+    return width, height
+
+
+def caption_segment_placement(seg: dict, si: int, caption_row: int,
+                              *, media_pool_item=None,
+                              frame_size=None) -> tuple:
     """(placement, refusal) for one caption segment's transform.
 
     Finding 21: one segment per build landed at Tilt 0, inside the
@@ -533,19 +554,42 @@ def caption_segment_placement(seg: dict, si: int, caption_row: int
     nowhere. A full-canvas segment (`geometry == "full"`) draws its
     text natively and rides untransformed, exactly as before. A
     segment too old to declare a geometry but carrying a placement
-    rides it; one declaring neither is refused rather than assumed
-    full canvas.
+    rides it. A legacy segment with neither geometry nor a `tight_box`
+    record is accepted as full-frame only when the Resolve media-pool
+    dimensions exactly match the requested timeline frame. Unknown or
+    different dimensions are refused rather than assumed full canvas.
     """
-    tight = seg.get("tight_box") or {}
+    tight_record = seg.get("tight_box")
+    tight = tight_record or {}
     placement = tight.get("placement")
     if placement:
         return placement, ""
-    if (seg.get("geometry", "") or "") == "full":
+    geometry = seg.get("geometry", "") or ""
+    if geometry == "full":
         return None, ""
+    measured_size = None
+    if not geometry and tight_record is None and frame_size is not None:
+        measured_size = _pool_item_resolution(media_pool_item)
+        if measured_size == tuple(frame_size):
+            return None, ""
     seg_id = seg.get("segment_id") or seg.get("overlay_path") or "?"
+    geometry_label = geometry or "legacy/unknown-geometry"
+    dimension_note = ""
+    if not geometry:
+        if tight_record is not None:
+            dimension_note = "a tight_box record exists but has no placement"
+        elif frame_size is None:
+            dimension_note = "timeline frame dimensions were unavailable"
+        elif measured_size is None:
+            dimension_note = "media dimensions were unreadable"
+        else:
+            dimension_note = (
+                f"media dimensions {measured_size} do not match frame "
+                f"{frame_size}")
     return None, (
-        f"V{caption_row}[{si}] {seg_id}: tight caption segment with "
-        f"no tight_box placement - refusing to place it "
+        f"V{caption_row}[{si}] {seg_id}: {geometry_label} caption segment "
+        f"with no tight_box placement - refusing to place it "
+        f"{dimension_note + ' - ' if dimension_note else ''}"
         f"untransformed (an untransformed tight canvas sits centred "
         f"at Tilt 0, inside the picture, not on the declared row)")
 
@@ -2392,6 +2436,9 @@ def build_timeline(
             # (finding 21 - an untransformed tight canvas sits
             # centred at Tilt 0, inside the picture). What ships is
             # either row-placed or absent, never silently centred.
+            # Legacy geometry-less captions are the one backward-
+            # compatibility case: the helper admits them only when the
+            # imported media dimensions equal this timeline's frame.
             # `draw_intent` arms the pixel half: the held values are
             # judged against the DECLARED caption row, so a sidecar
             # placement served under a superseded row is REPORTED
@@ -2400,7 +2447,9 @@ def build_timeline(
             # the row path only - `intent` stays None.
             assert_current_timeline(project, timeline)
             _seg_placement, _seg_refusal = caption_segment_placement(
-                seg, si, _caption_row)
+                seg, si, _caption_row,
+                media_pool_item=pool_item,
+                frame_size=(width, height))
             if _seg_refusal:
                 results["warnings"].append(_seg_refusal)
                 print(f"  ✗ [{si}] {seg_basename}: {_seg_refusal}",

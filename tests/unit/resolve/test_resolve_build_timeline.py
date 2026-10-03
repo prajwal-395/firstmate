@@ -25,6 +25,147 @@ from library.steps.step_6_01_render.resolve_build_timeline import (  # noqa: E40
 from library.steps.step_6_01_render import resolve_build_timeline as _builder
 from tests.resolve_double import builder_paths_exist
 
+
+def test_build_passes_media_resolution_for_a_legacy_caption(
+        mock_resolve, sample_manifest, monkeypatch):
+    """The build loop must pass the imported item's dimensions to the
+    legacy geometry decision, then place the full-frame overlay."""
+    from library.tools.resolve_lock import assume_sole_writer
+
+    sample_manifest["project"]["resolution"] = [1080, 1920]
+    sample_manifest["tracks"]["V1"]["clips"][0]["label"] = "speech_1"
+    overlay_path = "/tmp/sub_block_1_legacy.mov"
+    sample_manifest["subtitle_overlay"] = {"segments": [{
+        "overlay_path": overlay_path,
+        "timeline_start": 0.0,
+        "timeline_end": 2.0,
+        "total_frames": 60,
+        "_block_position": 1,
+    }]}
+
+    def pool_item(path):
+        item = MagicMock()
+        item.GetName.return_value = path.rsplit("/", 1)[-1]
+        properties = {
+            "File Path": path,
+            "Resolution": "1080x1920",
+            "FPS": "30",
+            "Audio Ch": "1",
+        }
+        item.GetClipProperty.side_effect = lambda name: properties.get(name, "")
+        return item
+
+    v1_pool_item = pool_item("test_v1.mov")
+    subtitle_pool_item = pool_item(overlay_path)
+    mock_resolve["root_folder"].GetClipList.return_value = [
+        v1_pool_item, subtitle_pool_item]
+    placed_v1 = MagicMock()
+    placed_v1.GetDuration.return_value = 60
+    placed_v1.GetStart.return_value = 0
+    placed_v1.GetMediaPoolItem.return_value = v1_pool_item
+    mock_resolve["media_pool"].AppendToTimeline.return_value = [placed_v1]
+
+    original_decision = _builder.caption_segment_placement
+    decisions = []
+
+    def capture_decision(segment, index, row, **kwargs):
+        decision = original_decision(segment, index, row, **kwargs)
+        decisions.append((kwargs, decision))
+        return decision
+
+    placement_calls = []
+    monkeypatch.setattr(_builder, "caption_segment_placement", capture_decision)
+    monkeypatch.setattr(_builder, "apply_clip_attributes", lambda *args: None)
+    monkeypatch.setattr(_builder, "draw_intent_for_segment", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        _builder, "place_overlay_segment",
+        lambda *args, **kwargs: (placement_calls.append(kwargs) or (True, "")))
+    monkeypatch.setattr(_builder, "verify_clip_placement", lambda *args: None)
+    monkeypatch.setattr(_builder, "verify_audio", lambda *args: None)
+    monkeypatch.setattr(_builder, "verify_fusion_comps", lambda *args: None)
+    monkeypatch.setattr(_builder, "run_full_timeline_qa", lambda *args: None)
+
+    with (assume_sole_writer("offline Resolve double for legacy caption build"),
+          builder_paths_exist(_builder)):
+        result = build_timeline(sample_manifest)
+
+    assert decisions == [(
+        {"media_pool_item": subtitle_pool_item, "frame_size": (1080, 1920)},
+        (None, ""),
+    )]
+    assert len(placement_calls) == 1
+    assert placement_calls[0]["placement"] is None
+    assert result["tracks"]["V2"] == 1
+
+
+def test_master_001_legacy_full_frame_subtitles_pass_timeline_sync_qa(
+        monkeypatch):
+    """The eight cached master captions lack geometry metadata, but their
+    full-frame pool items make them safe to place without a tight transform."""
+    from library.tools.qa import timeline_sync_qa
+    from library.tools.resolve_lock import assume_sole_writer
+
+    names = (
+        "sub_block_10.mov", "sub_block_11.mov", "sub_block_2.mov",
+        "sub_block_3.mov", "sub_block_5.mov", "sub_block_7.mov",
+        "sub_block_8.mov", "sub_block_hook.mov",
+    )
+    segments = [
+        {"overlay_path": f"/clone/pipeline_output/steps/4_05_render_subtitles/{name}",
+         "timeline_start": index * 2.0,
+         "timeline_end": index * 2.0 + 1.5}
+        for index, name in enumerate(names)
+    ]
+    placed = []
+
+    manifest = {
+        "project": {"frame_rate": 30.0},
+        "tracks": {"V1": {"clips": []}},
+        "subtitle_overlay": {"segments": segments},
+    }
+    timeline = MagicMock()
+    timeline.GetName.return_value = "Pipeline_Edit_2_20261003_045330_56s"
+    timeline.GetSetting.return_value = "30"
+    timeline.GetItemListInTrack.side_effect = (
+        lambda kind, index: placed if kind == "video" and index == 3 else [])
+    project = MagicMock()
+    project.GetName.return_value = "master-001"
+    project.GetTimelineCount.return_value = 1
+    project.GetTimelineByIndex.return_value = timeline
+    resolve = MagicMock()
+    resolve.GetProjectManager.return_value.GetCurrentProject.return_value = project
+    monkeypatch.setattr(timeline_sync_qa, "_connect_resolve", lambda: resolve)
+
+    with assume_sole_writer("offline Resolve double for master subtitle regression"):
+        for index, segment in enumerate(segments):
+            _, refusal = _builder.caption_segment_placement(
+                segment, index, 3)
+            assert refusal
+        with pytest.raises(RuntimeError, match="Timeline Sync QA Failed") as exc:
+            timeline_sync_qa.run_timeline_sync_qa(
+                manifest, "master-001", timeline.GetName(),
+                {"video_tracks": [{"role": "captions", "index": 3}]})
+        assert str(exc.value).count("V3 missing:") == 8
+
+        for index, segment in enumerate(segments):
+            pool_item = MagicMock()
+            pool_item.GetClipProperty.return_value = "1080x1920"
+            placement, refusal = _builder.caption_segment_placement(
+                segment, index, 3, media_pool_item=pool_item,
+                frame_size=(1080, 1920))
+            assert (placement, refusal) == (None, "")
+            item = MagicMock()
+            item.GetName.return_value = names[index]
+            item.GetStart.return_value = round(
+                segment["timeline_start"] * 30)
+            placed.append(item)
+        result = timeline_sync_qa.run_timeline_sync_qa(
+            manifest, "master-001", timeline.GetName(),
+            {"video_tracks": [{"role": "captions", "index": 3}]})
+
+    assert len(placed) == 8
+    assert result == {"passed": True, "reason": "sync ok"}
+
 @pytest.fixture(autouse=True)
 def _the_fake_resolve_is_this_files_own(monkeypatch):
     """Swap the fake in for the length of one test, and back out after.
