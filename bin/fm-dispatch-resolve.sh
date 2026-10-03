@@ -41,7 +41,8 @@
 #   profile in the rule's (or default's) declared rung order, and the
 #   spawn-time ladder gates own which rung actually launches. The model never
 #   sees quota, catalogs, approvals, `why`, `use`, or project-profile mappings.
-#   `--fallback` resolves only the optional exhausted_ladder_fallback declaration.
+#   `--fallback` resolves only the optional exhausted_ladder_fallback declaration,
+#   trying its `use` profiles before optional agy ladder candidates.
 #   docs/configuration.md "Crew dispatch profiles" owns the declared fields and
 #   "Typed dispatch resolution" owns this tool's operator contract.
 #
@@ -433,10 +434,10 @@ RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg run
     end;
   def fallback_profiles($config):
     ($config.exhausted_ladder_fallback // {}) as $fallback |
-    (if $fallback.include_agy_ladder == true then
-       [(agy_ladder_models($config))[] | {harness:"agy",model:.,effort:($fallback.agy_effort // "high"),provider:"agy"}]
-     else [] end)
-    + profiles($fallback.use // null);
+    profiles($fallback.use // null)
+    + (if $fallback.include_agy_ladder == true then
+         [(agy_ladder_models($config))[] | {harness:"agy",model:.,effort:($fallback.agy_effort // "high"),provider:"agy"}]
+       else [] end);
   def prov($p): ([$q.providers[] | select(.provider == $p)] | first) // null;
   def rows($p): (prov($p) | .quotaSemantics.effectiveAvailability // []);
   def bare($m): ($m | split("/") | last);

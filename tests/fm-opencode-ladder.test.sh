@@ -464,6 +464,17 @@ fi
 exit 0
 SH
   chmod +x "$fakebin/codex"
+  cat > "$fakebin/agy" <<'SH'
+#!/usr/bin/env bash
+if [ -n "${FM_FAKE_AGY_CALL_LOG:-}" ]; then
+  printf '%s\n' "$*" >> "$FM_FAKE_AGY_CALL_LOG"
+fi
+if [ "${1:-}" = models ]; then
+  printf 'gemini-3.1-pro-high\tGemini 3.1 Pro (High)\n'
+fi
+exit 0
+SH
+  chmod +x "$fakebin/agy"
   printf '%s\n' "$fakebin"
 }
 
@@ -484,7 +495,7 @@ spawn_opencode() {  # <dir> <id> [model] [harness] [dispatch-ladder] [configured
   if [ -n "$plus_effort" ] || [ -n "$fallback_mode" ]; then
     [ -n "$plus_effort" ] || plus_effort=xhigh
     if [ "$fallback_mode" = declared ]; then
-      printf '{"rules":[],"default":[{"harness":"opencode","model":"%s","provider":"opencode"},{"harness":"codex","model":"gpt-6-luna","effort":"%s","provider":"codex"},{"harness":"opencode","model":"%s","provider":"opencode-go"}],"exhausted_ladder_fallback":{"include_agy_ladder":false,"use":{"harness":"opencode","model":"opencode-go/longcat-2.5-preview-free","provider":"opencode-go"}}}\n' \
+      printf '{"rules":[],"default":[{"harness":"opencode","model":"%s","provider":"opencode"},{"harness":"codex","model":"gpt-6-luna","effort":"%s","provider":"codex"},{"harness":"opencode","model":"%s","provider":"opencode-go"}],"agy_ladder":["Gemini 3.1 Pro (High)"],"exhausted_ladder_fallback":{"include_agy_ladder":true,"use":{"harness":"opencode","model":"opencode-go/longcat-2.5-preview-free","provider":"opencode-go"}}}\n' \
         "$FREE" "$plus_effort" "$GO" > "$home/config/crew-dispatch.json"
     elif [ "$fallback_mode" = none ]; then
       printf '{"rules":[],"default":[{"harness":"opencode","model":"%s","provider":"opencode"},{"harness":"codex","model":"gpt-6-luna","effort":"%s","provider":"codex"},{"harness":"opencode","model":"%s","provider":"opencode-go"}]}\n' \
@@ -507,7 +518,7 @@ spawn_opencode() {  # <dir> <id> [model] [harness] [dispatch-ladder] [configured
       FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
       FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
       FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$wt" FM_FAKE_LAUNCH_LOG="$dir/launch.log" TMUX="fake,1,0" \
-      FM_BACKEND=tmux FM_FAKE_HERDR_CALL_LOG="$dir/herdr-calls.log" \
+      FM_BACKEND=tmux FM_FAKE_HERDR_CALL_LOG="$dir/herdr-calls.log" FM_FAKE_AGY_CALL_LOG="$dir/agy-calls.log" \
       "$SPAWN" "$id" "$proj" \
       --harness "$harness" --model "$model" "${ladder_args[@]}" "${override_args[@]}" --mode no-mistakes --yolo off >"$dir/spawn.log" 2>&1
   else
@@ -515,7 +526,7 @@ spawn_opencode() {  # <dir> <id> [model] [harness] [dispatch-ladder] [configured
       FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
       FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
       FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$wt" FM_FAKE_LAUNCH_LOG="$dir/launch.log" TMUX="fake,1,0" \
-      FM_BACKEND=tmux FM_FAKE_HERDR_CALL_LOG="$dir/herdr-calls.log" \
+      FM_BACKEND=tmux FM_FAKE_HERDR_CALL_LOG="$dir/herdr-calls.log" FM_FAKE_AGY_CALL_LOG="$dir/agy-calls.log" \
       "$SPAWN" "$id" "$proj" \
       --harness "$harness" "${ladder_args[@]}" "${override_args[@]}" --mode no-mistakes --yolo off >"$dir/spawn.log" 2>&1
   fi
@@ -613,9 +624,10 @@ test_spawn_uses_declared_fallback_when_default_ladder_is_exhausted() {
   log=${log_home%% *}; log_home=${log_home#* }
   herdr_calls=${log_home%% *}; home=${log_home#* }
   assert_absent "$herdr_calls" "fallback launch must never reach Herdr"
+  assert_absent "$dir/agy-calls.log" "the agy ladder must remain a last resort while LongCat is eligible"
   [ -f "$log" ] || fail "declared fallback wrote no launch command: $(cat "$dir/spawn.log")"
   launch=$(cat "$log")
-  assert_contains "$launch" 'opencode-go/longcat-2.5-preview-free' "all capped default rungs must launch the declared Longcat fallback"
+  assert_contains "$launch" 'opencode-go/longcat-2.5-preview-free' "the declared use profile must take priority over an eligible agy last resort"
   assert_not_contains "$launch" "$FREE" "the exhausted free rung must not be launched"
   assert_contains "$(cat "$home/state/task-fallback.meta")" 'dispatch_fallback=opencode/opencode-go/longcat-2.5-preview-free' \
     "task metadata must record the selected fallback"
