@@ -89,18 +89,18 @@ def test_conversation_analyze_plan_build_touch_rebuild_deliver(
     from library.tools import reel_touchup
 
     receipt = reel_touchup.apply_touchup(str(folder), {"reel": 1, "edits": [
-        {"op": "set_properties", "row": "V2", "item": 0,
+        {"op": "set_properties", "row": "V2", "item": 1,
          "properties": {"ZoomX": 1.25, "ZoomY": 1.25}}]},
         connect=lambda _name: project)
     assert receipt["gate"]["class"] == "composed"
     reel = golden.timeline(project, golden.REEL)
-    assert reel.GetItemListInTrack("video", 2)[0].GetProperty("ZoomX") == 1.25
+    assert reel.GetItemListInTrack("video", 2)[1].GetProperty("ZoomX") == 1.25
     assert golden.rows(reel) == built, "a property touch moves nothing"
 
     # ── rebuild, nothing changed: the reel is left alone, touch and all ──
     assert golden.build(folder) == 0
     reel = golden.timeline(project, golden.REEL)
-    assert reel.GetItemListInTrack("video", 2)[0].GetProperty("ZoomX") == 1.25
+    assert reel.GetItemListInTrack("video", 2)[1].GetProperty("ZoomX") == 1.25
     assert golden.rows(reel) == built
 
     # ── the captain's own hands: edits made in Resolve, not through Ren ──
@@ -147,6 +147,10 @@ def test_conversation_analyze_plan_build_touch_rebuild_deliver(
     assert rebuilt[("video", "Subtitles")][2][2] is False, (
         "the caption the captain switched off stays off")
     assert reel.GetItemListInTrack("video", 2)[1].GetProperty("Pan") == 40.0
+    assert reel.GetItemListInTrack("video", 2)[1].GetProperty("ZoomX") == 1.25
+    assert reel.GetItemListInTrack("video", 2)[1].GetProperty("ZoomY") == 1.25, (
+        "the ren touch property write is carried through the plan-change "
+        "rebuild like the captain's own hand edits")
 
     # ── deliver: the approved reel rendered, mastered and verified ──
     from library.tools import reel_deliver

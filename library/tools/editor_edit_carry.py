@@ -47,12 +47,19 @@ original passage, a marker the marker carry cannot place) stays step
 one's refusal, named as what it is.
 
 Every carried edit records the human wording, where it came from (the
-editor-change record id), its before/after values and the plan version
-it was detected against (`plan_content_hash`). The ledger is
+editor-change record id or Ren touch journal id), its before/after
+values and the plan version it was detected against
+(`plan_content_hash`). The ledger is
 `plan_provenance.CARRIED_EDITS_KEY`; an edit stays in force across every
 later build until a Ren act changes the same thing on purpose
 (`record_after_promotion` retires it as superseded, naming the act) or
 the editor reverses it (the next detection supersedes it).
+
+A Ren touch-up's own in-place writes (`set_properties`, `set_enabled`)
+are filed onto the same ledger by `derive_touch_edits` at touch
+promotion time, so the next rebuild carries them exactly like the
+editor's: a touched passage the new plan no longer plays refuses by
+name instead of dropping the write.
 
 Apply, then verify by re-reading
 --------------------------------
@@ -482,6 +489,169 @@ def derive_edits(record: dict, *, plan_version=None) -> tuple[list, list]:
     return edits, uncarried
 
 
+def _touch_origin(journal_id: str) -> tuple[str, str]:
+    """The ledger identity of one touch's writes: `(source, author)`."""
+    return f"ren_touch:{journal_id}", "ren touch"
+
+
+def _touch_suffix(edit: dict) -> str:
+    """What a refusal line appends so a touch write names its touch."""
+    source = str(edit.get("source") or "")
+    if source.startswith("ren_touch:"):
+        return f" (from Ren touch {source.split(':', 1)[1]})"
+    return ""
+
+
+def derive_touch_edits(final: str, live_snapshot: dict,
+                       staged_snapshot: dict, applied_in_place: dict, *,
+                       journal_id: str, plan_version=None,
+                       detected_at=None) -> list[dict]:
+    """A touch's in-place writes as carried edits. Pure.
+
+    `live_snapshot` and `staged_snapshot` are full timeline snapshots
+    (`reel_replace_guard.full_timeline_snapshot`); `applied_in_place`
+    is the touch's `receipt["in_place"]` (`{"properties": [...],
+    "enabled": [...]}`). Each `set_properties` key becomes a
+    `transform` edit and each `set_enabled` an `enabled` edit, stated
+    in source terms exactly like the editor's own - so every later
+    rebuild carries them through `plan_application`, and a rebuild
+    whose plan no longer plays the touched passage refuses by name
+    instead of dropping the write.
+
+    A write that changed nothing (the value already held) files
+    nothing. Anything unmappable raises `EditorEditCarryRefused`:
+    the touch stands half-filed nowhere, and the caller fails the
+    touch rather than report a success the next rebuild silently
+    loses. `entry_motion` writes add a Fusion comp no rebuild
+    re-derives, so they are not carried here.
+    """
+    from library.tools import reel_touchup as _touchup
+
+    live_items = list((live_snapshot or {}).get("items") or ())
+    staged_items = list((staged_snapshot or {}).get("items") or ())
+    applied = applied_in_place or {}
+    if detected_at is None:
+        detected_at = datetime.now(UTC).isoformat(timespec="seconds")
+    source, author = _touch_origin(str(journal_id))
+    record = {"id": str(journal_id), "recorded_at": detected_at}
+    edits = []
+
+    def live_target(row: str, record_frame) -> dict:
+        # A touch addresses its item positionally (`V2`, `A1`); the
+        # ledger states it by what it plays, so the row is resolved
+        # to its track here and never stored.
+        kind = str(row).upper()
+        if kind.startswith("V"):
+            track_type = "video"
+        elif kind.startswith("A"):
+            track_type = "audio"
+        else:
+            raise EditorEditCarryRefused(
+                f"REFUSING the touch on {final!r}: its {row}@"
+                f"{record_frame} write names no track, so it cannot be "
+                f"stated as a carried edit. Nothing further is filed.")
+        try:
+            track_index = int(kind[1:])
+        except ValueError:
+            raise EditorEditCarryRefused(
+                f"REFUSING the touch on {final!r}: its {row}@"
+                f"{record_frame} write names no track, so it cannot be "
+                f"stated as a carried edit. Nothing further is filed.")
+        hits = [item for item in live_items
+                if item.get("track_type") == track_type
+                and item.get("track_index") == track_index
+                and item.get("record_in") == record_frame]
+        if len(hits) != 1:
+            raise EditorEditCarryRefused(
+                f"REFUSING the touch on {final!r}: its {row}@"
+                f"{record_frame} write matches {len(hits)} live items, "
+                f"so the write cannot be stated as a carried edit. "
+                f"Nothing further is filed.")
+        return hits[0]
+
+    def staged_counterpart(live: dict, record_frame) -> dict:
+        row = _row(live)
+        same_passage = [
+            item for item in staged_items
+            if _row(item) == row
+            and item.get("source_identity") == live.get("source_identity")
+            and (item.get("source_in_frame"),
+                 item.get("source_out_frame")) == (
+                     live.get("source_in_frame"),
+                     live.get("source_out_frame"))]
+        if len(same_passage) == 1:
+            return same_passage[0]
+        at_record = [item for item in same_passage
+                     if item.get("record_in") == record_frame]
+        if len(at_record) == 1:
+            return at_record[0]
+        raise EditorEditCarryRefused(
+            f"REFUSING the touch on {final!r}: its {_row(live)} "
+            f"{live.get('name')!r} source "
+            f"{_span(live.get('source_in_frame'), live.get('source_out_frame'))} "
+            f"matches {len(same_passage)} staged items, so the write "
+            f"cannot be stated as a carried edit. Nothing further "
+            f"is filed.")
+
+    for entry in applied.get("properties") or ():
+        row = str(entry.get("row")).upper()
+        frame = int(entry["record_frame"])
+        live = live_target(row, frame)
+        staged = staged_counterpart(live, frame)
+        for key in sorted(entry.get("properties") or {}):
+            before = (live.get("transform") or {}).get(key)
+            after = (staged.get("transform") or {}).get(key)
+            wanted = (entry.get("properties") or {})[key]
+            if not _same(after, wanted):
+                raise _touchup.TouchupError(
+                    f"the staged {_row(staged)} {staged.get('name')!r} "
+                    f"reads {key} {after!r} after the touch asked for "
+                    f"{wanted!r} - the write cannot be stated as a "
+                    f"carried edit. Nothing further is filed.")
+            if _same(before, after):
+                continue
+            passage = _span(staged["source_in_frame"],
+                            staged["source_out_frame"])
+            edits.append(_base(
+                final, "transform", staged, field=f"transform.{key}",
+                record=record, plan_version=plan_version,
+                wording=(f"Hold {key} {after!r} on "
+                         f"{staged.get('name')!r} source {passage} on "
+                         f"{_row(staged)} (ren touch {journal_id})"),
+                before=before, after=after))
+    for entry in applied.get("enabled") or ():
+        row = str(entry.get("row")).upper()
+        frame = int(entry["record_frame"])
+        live = live_target(row, frame)
+        staged = staged_counterpart(live, frame)
+        before, after = live.get("enabled"), staged.get("enabled")
+        if not isinstance(after, bool) or after is not bool(entry["enabled"]):
+            raise _touchup.TouchupError(
+                f"the staged {_row(staged)} {staged.get('name')!r} "
+                f"reads {'disabled' if after else 'enabled'} after the "
+                f"touch asked for "
+                f"{'disabled' if entry['enabled'] else 'enabled'} - the "
+                f"write cannot be stated as a carried edit. Nothing "
+                f"further is filed.")
+        if before is after:
+            continue
+        state = "on" if after else "off"
+        passage = _span(staged["source_in_frame"],
+                        staged["source_out_frame"])
+        edits.append(_base(
+            final, "enabled", staged, field="enabled",
+            record=record, plan_version=plan_version,
+            wording=(f"Switch {staged.get('name')!r} source {passage} "
+                     f"on {_row(staged)} {state} "
+                     f"(ren touch {journal_id})"),
+            before=before, after=after))
+    for edit in edits:
+        edit["source"] = source
+        edit["author"] = author
+        edit["detected_at"] = detected_at
+    return edits
+
+
 def _plan_version(project_folder: str):
     from library.tools import plan_provenance
 
@@ -530,9 +700,10 @@ def _kept(edit: dict) -> dict:
 
 def _refuse(final: str, problems: list[str]) -> None:
     raise EditorEditCarryRefused(
-        f"REFUSING to replace {final!r}: the editor's carried edits "
-        f"cannot be mapped onto the staged timeline. Nothing was "
-        f"renamed; the live timeline is still in the project.\n"
+        f"REFUSING to replace {final!r}: the carried edits (editor "
+        f"changes and Ren touch writes) cannot be mapped onto the staged timeline. "
+        f"Nothing was renamed; the live timeline is still in the "
+        f"project.\n"
         + "\n".join(problems)
         + f"\nTo accept this loss deliberately, pass "
           f"--accept-editor-changes {final!r}.")
@@ -586,7 +757,8 @@ def plan_application(edits: list[dict], staged: dict, final: str) -> dict:
             problems.append(
                 f"  {edit['kind']} {edit['row']} {edit['name']!r} source "
                 f"{passage}: staging plays that passage {len(exact)} "
-                f"time(s), so the edit has no single item to land on")
+                f"time(s), so the edit has no single item to land on"
+                f"{_touch_suffix(edit)}")
             continue
         item = exact[0]
         if edit["kind"] == "move":
@@ -930,8 +1102,9 @@ def _apply_trims(project_folder: str, project, staged, edits: list,
             if _locate(tracks, edit, (edit["after"]["source_in_frame"],
                                       edit["after"]["source_out_frame"])):
                 continue
-            _refuse(final, [f"  trim {edit['row']} {edit['name']!r}: the "
-                            f"staged passage moved before it was trimmed"])
+            _refuse(final, [(
+                f"  trim {edit['row']} {edit['name']!r}: the "
+                f"staged passage moved before it was trimmed")])
         steps.append({**found, "edit": edit})
     if not steps:
         return []
@@ -970,9 +1143,10 @@ def _apply_trims(project_folder: str, project, staged, edits: list,
                 step["edit"])
             clip["record_out"] = clip["record_in"] + clip["duration"]
         if clip.get("left_offset") is None:
-            _refuse(final, [f"  trim {step['edit']['row']} "
-                            f"{step['edit']['name']!r}: its source trim "
-                            f"(left offset) is unreadable"])
+            _refuse(final, [(
+                f"  trim {step['edit']['row']} "
+                f"{step['edit']['name']!r}: its source trim "
+                f"(left offset) is unreadable")])
         clip["left_offset"] = int(clip["left_offset"]) + head
     changes = []
     for track, moved in zip(tracks, virtual):
@@ -1000,10 +1174,11 @@ def _apply_trims(project_folder: str, project, staged, edits: list,
         manifest = reel_touchup.recorded_fusion_manifest(
             project_folder, staged.GetName())
         if manifest is None:
-            _refuse(final, [f"  {[f'{c.row}[{c.item_index}]' for c in trimmed]}"
-                            f" carry a Fusion comp and staging has no "
-                            f"recorded fusion manifest to re-derive it "
-                            f"from"])
+            _refuse(final, [(
+                f"  {[f'{c.row}[{c.item_index}]' for c in trimmed]}"
+                f" carry a Fusion comp and staging has no "
+                f"recorded fusion manifest to re-derive it "
+                f"from")])
         try:
             reel_touchup.check_manifest_matches(manifest, tracks)
         except reel_touchup.TouchupRefused as stale:
@@ -1189,7 +1364,8 @@ def verify_carried_edits(report: dict, staged_after: dict,
         if len(exact) != 1:
             missed.append(
                 f"  {edit['kind']} {edit['row']} {edit['name']!r} source "
-                f"{passage}: staging now plays it {len(exact)} time(s)")
+                f"{passage}: staging now plays it {len(exact)} time(s)"
+                f"{_touch_suffix(edit)}")
             continue
         if edit["kind"] == "move":
             picture = [item for item in items
@@ -1213,12 +1389,13 @@ def verify_carried_edits(report: dict, staged_after: dict,
             missed.append(
                 f"  {edit['field']} on {edit['row']} {edit['name']!r} "
                 f"source {passage}: wanted {edit['after']!r}, staging "
-                f"reads {got!r}")
+                f"reads {got!r}{_touch_suffix(edit)}")
     if missed:
         raise EditorEditCarryRefused(
-            f"REFUSING to replace {final!r}: the editor's carried edits "
-            f"did not land on the staged timeline. Nothing was renamed; "
-            f"the live timeline is still in the project.\n"
+            f"REFUSING to replace {final!r}: the carried edits "
+            f"(editor changes and Ren touch writes) did not land on the staged "
+            f"timeline. Nothing was renamed; the live timeline is still "
+            f"in the project.\n"
             + "\n".join(missed))
 
 

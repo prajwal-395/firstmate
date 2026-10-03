@@ -21,7 +21,11 @@ no place - and ride `Qualification.in_place` rather than
 changes/insertions/removals.  They run before the composition off the
 same staging, so a capture taken after them carries them, and a spec
 mixing them with composition ops stays servable: one source item, one
-edit (`_check_single_claim`).
+edit (`_check_single_claim`). The `set_properties` and `set_enabled`
+writes are filed onto the carried-edits ledger at promotion
+(`editor_edit_carry.derive_touch_edits`), so the next plan-change
+rebuild carries them like the editor's own - and refuses by name when
+the touched passage no longer plays.
 
 - `move` - an overlay item to a different record position on the SAME
   row.  Same duration, same pixels.  A move across rows refuses: the
@@ -152,15 +156,20 @@ docs/evidence/reel_touchup.md.
 
 from __future__ import annotations
 
+import logging
 import os
 import time
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Mapping, Optional, Sequence
+from itertools import pairwise
+from typing import Any
 
 from library.tools import composed_edit as _ce
 from library.tools import dirty_regions as _dirty_regions
 from library.tools.execution.fusion_tracks import FUSION_COMP_TRACKS
 from library.tools.ren_refusal import RenRefusal
+
+_logger = logging.getLogger(__name__)
 
 # ── Refusals ─────────────────────────────────────────────────────────
 #
@@ -558,7 +567,7 @@ def _spans_of(tracks: Sequence[Mapping]) -> dict:
 
 
 def _span_is_free(spans: Sequence[tuple], start: int, duration: int,
-                  ignore: Optional[tuple] = None) -> bool:
+                  ignore: tuple | None = None) -> bool:
     end = int(start) + int(duration)
     for span_start, span_end in spans:
         if ignore is not None and (span_start, span_end) == ignore:
@@ -569,7 +578,7 @@ def _span_is_free(spans: Sequence[tuple], start: int, duration: int,
 
 
 def _check_free(spans: Sequence[tuple], row: str, start: int,
-                duration: int, ignore: Optional[tuple] = None,
+                duration: int, ignore: tuple | None = None,
                 what: str = "the placement") -> None:
     if not _span_is_free(spans, start, duration, ignore):
         raise TouchupRefused(
@@ -718,8 +727,8 @@ def _check_post_edit_overlaps(tracks: Sequence[Mapping],
                 placed.append((int(move["to_record"]),
                                int(move["to_record"])
                                + int(move["duration"]),
-                               f"moved-in:{move['from_row']}"
-                               f"[{move['from_index']}]"))
+                               (f"moved-in:{move['from_row']}"
+                                f"[{move['from_index']}]")))
         for insertion in insertions:
             # `_PendingSwap` at gate time, `composed_edit.Insertion`
             # if re-checked later: same attribute names, both read
@@ -730,7 +739,7 @@ def _check_post_edit_overlaps(tracks: Sequence[Mapping],
                                + int(insertion.duration),
                                f"new:{insertion.name or row}"))
         placed.sort()
-        for first, second in zip(placed, placed[1:]):
+        for first, second in pairwise(placed):
             if second[0] < first[1]:
                 raise TouchupRefused(
                     f"the plan overlaps on {row}: "
@@ -1444,8 +1453,8 @@ class _PendingSwap:
     duration: int
     media: str
     left_offset: int = 0
-    carry_from: Optional[tuple] = None
-    declared_properties: Optional[Mapping[str, Any]] = None
+    carry_from: tuple | None = None
+    declared_properties: Mapping[str, Any] | None = None
     name: str = ""
     position: int = 0
 
@@ -1468,7 +1477,7 @@ class _NullRederiver(_ce.CompRederiver):
     def __init__(self, why: str):
         self.why = why
 
-    def reachable_reason(self, changes) -> Optional[str]:
+    def reachable_reason(self, changes) -> str | None:
         trimmed = [c for c in changes if c.played_length_changes]
         if trimmed:
             return ("this edit changes a played length and was handed "
@@ -1481,7 +1490,7 @@ class _NullRederiver(_ce.CompRederiver):
         return {"ran": True, "ok": True, "comp_pass": "skipped",
                 "why": self.why}
 
-    def expects_comp(self, row: str, record_frame: int) -> Optional[bool]:
+    def expects_comp(self, row: str, record_frame: int) -> bool | None:
         return False
 
 
@@ -1489,7 +1498,7 @@ class _NullRederiver(_ce.CompRederiver):
 
 
 def recorded_fusion_manifest(project_folder: str,
-                             timeline_name: str) -> Optional[dict]:
+                             timeline_name: str) -> dict | None:
     """The fusion manifest the last build wrote for this timeline.
 
     `reel_look.apply_comps` writes it beside the project under
@@ -1540,7 +1549,7 @@ def _live_source_sequence(tracks: Sequence[Mapping]) -> dict:
         row = _row_of(track["type"], int(track["index"]))
         if row not in rows:
             continue
-        out[row] = [str((c.get("source_file") or ""))
+        out[row] = [str(c.get("source_file") or "")
                     for c in (track.get("clips", []) or ())]
     return out
 
@@ -1615,7 +1624,7 @@ def pool_item_for_path(pool: Any, path: str) -> Any:
     return found
 
 
-def _find_pool_item(pool: Any, wanted: str) -> Optional[Any]:
+def _find_pool_item(pool: Any, wanted: str) -> Any | None:
     try:
         root = pool.GetRootFolder()
     except Exception:  # noqa: BLE001 - a pool that will not answer
@@ -1636,7 +1645,10 @@ def _find_pool_item(pool: Any, wanted: str) -> Optional[Any]:
         for clip in clips:
             try:
                 path = clip.GetClipProperty("File Path") or ""
-            except Exception:  # noqa: BLE001
+            except Exception as unreadable:  # noqa: BLE001
+                _logger.debug(
+                    "skipping media-pool clip with unreadable file path: %s",
+                    unreadable)
                 continue
             if os.path.abspath(str(path)) == wanted:
                 return clip
@@ -1683,7 +1695,7 @@ def check_source_lengths(pool: Any,
                 "`ren touch`")
 
 
-def _pool_source_frames(pool_item: Any) -> Optional[int]:
+def _pool_source_frames(pool_item: Any) -> int | None:
     try:
         raw = pool_item.GetClipProperty("Frames")
     except Exception:  # noqa: BLE001
@@ -2055,7 +2067,7 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
         "reel": int(spec.get("reel")),
         "final": final,
         "started": _dt.datetime.now(
-            _dt.timezone.utc).isoformat(timespec="seconds"),
+            _dt.UTC).isoformat(timespec="seconds"),
     }
 
     project = connect(resolve_name)
@@ -2505,9 +2517,9 @@ def _promote(project_folder: str, project: Any, pool: Any,
              journal: dict) -> None:
     """Guard, swap names, carry markers, close the journal, delete the
     replaced generation, close the signature."""
+    from library.tools import plan_provenance as _provenance
     from library.tools import reel_replace_guard as _guard
     from library.tools import reel_signoff as _signoff
-    from library.tools import plan_provenance as _provenance
     from library.tools.reel_build import (
         backup_name,
         timelines_to_replace,
@@ -2526,6 +2538,19 @@ def _promote(project_folder: str, project: Any, pool: Any,
         originals[final], project, project_folder)
     staged_full = _guard.full_timeline_snapshot(
         staged_found[staging], project, project_folder)
+    from library.tools import editor_edit_carry as _editor_carry
+    try:
+        touch_edits = _editor_carry.derive_touch_edits(
+            final, live_full, staged_full, receipt.get("in_place") or {},
+            journal_id=journal["id"],
+            plan_version=_editor_carry._plan_version(project_folder))
+    except _editor_carry.EditorEditCarryRefused as unstatable:
+        raise TouchupError(str(unstatable)) from unstatable
+    receipt["touch_carried"] = [
+        {"id": edit["id"], "kind": edit["kind"], "field": edit["field"],
+         "row": edit["row"], "name": edit["name"],
+         "source": edit["source"], "wording": edit["wording"]}
+        for edit in touch_edits]
     try:
         _guard.assert_target_inventory_unchanged(
             receipt["timeline_inventory_before"],
@@ -2668,9 +2693,12 @@ def _promote(project_folder: str, project: Any, pool: Any,
     receipt["version"] = journal["version"]
     if journal.get("preservation_after") is not None:
         from library.tools import editor_edit_carry as _editor_carry
+        prior = receipt["editor_changes"].get("carried_edits") or {}
+        combined = {**prior,
+                    "edits": list(prior.get("edits") or ()) + touch_edits,
+                    "superseded": dict(prior.get("superseded") or {})}
         receipt["carried_edits"] = _editor_carry.record_after_promotion(
-            project_folder, final,
-            receipt["editor_changes"].get("carried_edits"),
+            project_folder, final, combined,
             journal["preservation_after"], act=f"touch {journal['id']}")
     ren_owned_ids = set()
     for timeline in (originals[final], staged_found[staging]):
@@ -2786,7 +2814,7 @@ def _write_receipt(project_folder: str, final: str,
     review_dir = os.path.join(project_folder, "pipeline_output",
                               "review")
     os.makedirs(review_dir, exist_ok=True)
-    stamp = _dt.datetime.now(_dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    stamp = _dt.datetime.now(_dt.UTC).strftime("%Y%m%dT%H%M%SZ")
     path = os.path.join(review_dir,
                         f"touchup_{_safe_slug(final)}_{stamp}.json")
     with open(path, "w", encoding="utf-8") as handle:
@@ -2802,7 +2830,6 @@ __all__ = [
     "TouchupRefused",
     "_NullRederiver",
     "apply_touchup",
-    "touchup_all_reels",
     "check_manifest_matches",
     "locate_named_clip",
     "pool_item_for_path",
@@ -2811,4 +2838,5 @@ __all__ = [
     "reel_numbers",
     "resolve_final_name",
     "swap_spec_for_tracks",
+    "touchup_all_reels",
 ]

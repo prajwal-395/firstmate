@@ -2,19 +2,18 @@
 
 History: docs/evidence/resolve_test_history.md#test_editor_edit_carry.
 """
+import copy
 import json
 from contextlib import ExitStack, nullcontext
 from unittest.mock import patch
+
 import pytest
+
 from library.tools import editor_edit_carry as carry
 from library.tools import reel_replace_guard as guard
+from library.tools import undo_journal
 from library.tools.reel_build import ReelBuildError, promote_staged_reels
-from tests.promotion_test_helpers import no_a_roll_track_plans
-from tests.resolve_double import (
-    FakeProject,
-    FakeTimeline,
-    TimelineItemSpec,
-)
+from library.tools.versions import reel_versions
 from tests.composed_edit_harness import (
     covering_window,
     frames_of,
@@ -22,10 +21,12 @@ from tests.composed_edit_harness import (
     pool_clip,
     rows_timeline,
 )
-import copy
-from library.tools import undo_journal
-from library.tools.versions import reel_versions
-
+from tests.promotion_test_helpers import no_a_roll_track_plans
+from tests.resolve_double import (
+    FakeProject,
+    FakeTimeline,
+    TimelineItemSpec,
+)
 
 FINAL = "Reel 07 - number-one-on-google-invisible-to-ai"
 STAGING = FINAL + " (rebuild staging)"
@@ -163,13 +164,14 @@ def rebuilt_reel_7(name=STAGING):
 def played(timeline):
     """What each row plays, in source and record frames."""
     rows = {}
-    for item in snapshot(timeline)["items"]:
-        rows.setdefault((item["track_type"], item["track_name"]), []).append(
+    for timeline_item in snapshot(timeline)["items"]:
+        rows.setdefault((timeline_item["track_type"],
+                         timeline_item["track_name"]), []).append(
             (
-                item["source_in_frame"],
-                item["source_out_frame"],
-                item["record_in"],
-                item["enabled"],
+                timeline_item["source_in_frame"],
+                timeline_item["source_out_frame"],
+                timeline_item["record_in"],
+                timeline_item["enabled"],
             )
         )
     return {row: sorted(items) for row, items in rows.items()}
@@ -981,3 +983,103 @@ def test_first_contact_preserves_edits_against_the_right_baseline(
         assert set(change["changed"]) == {expected_change}
     if case == "untouched":
         assert detection["pending"] == []
+
+
+def _touch_item(record_in, transform=None, enabled=True):
+    return {
+        "track_type": "video",
+        "track_index": 1,
+        "track_name": "Speakers",
+        "name": "Akshita",
+        "source_identity": "file:/media/akshita.mov",
+        "source_in_frame": 100,
+        "source_out_frame": 200,
+        "record_in": record_in,
+        "record_out": record_in + 100,
+        "enabled": enabled,
+        "transform": dict(transform or {"ZoomX": 1.0, "ZoomY": 1.0}),
+    }
+
+
+def _touch_snapshots(record_in=0, transform=None, enabled=True):
+    item = _touch_item(record_in, transform, enabled)
+    return {"items": [dict(item)]}
+
+
+def test_a_touch_property_write_is_carried_onto_moved_staging():
+    live = _touch_snapshots(0, {"ZoomX": 1.0, "ZoomY": 1.0})
+    staged = _touch_snapshots(0, {"ZoomX": 1.25, "ZoomY": 1.25})
+    applied = {"properties": [{
+        "row": "V1", "record_frame": 0,
+        "properties": {"ZoomX": 1.25, "ZoomY": 1.25}}]}
+
+    (edit_x, edit_y) = carry.derive_touch_edits(
+        FINAL, live, staged, applied, journal_id="touch-7",
+        plan_version="plan-v1")
+    assert edit_x["kind"] == "transform"
+    assert edit_x["field"] == "transform.ZoomX"
+    assert edit_x["after"] == 1.25
+    assert edit_x["source"] == "ren_touch:touch-7"
+    assert edit_x["author"] == "ren touch"
+
+    # The rebuild moved every record frame; the source passage did not
+    # move, so the write still maps - onto the moved item.
+    moved = _touch_snapshots(50, {"ZoomX": 1.0, "ZoomY": 1.0})
+    plan = carry.plan_application([edit_x, edit_y], moved, FINAL)
+    assert {step["key"] for step in plan["set_transform"]} == {
+        "ZoomX", "ZoomY"}
+
+
+def test_a_touch_write_whose_clip_is_gone_refuses_naming_the_touch(
+        project_dir):
+    from library.tools import plan_provenance
+
+    review = str(project_dir / "pipeline_output" / "review")
+    live = _touch_snapshots(0, {"ZoomX": 1.0})
+    staged = _touch_snapshots(0, {"ZoomX": 1.25})
+    applied = {"properties": [{
+        "row": "V1", "record_frame": 0, "properties": {"ZoomX": 1.25}}]}
+    (edit,) = carry.derive_touch_edits(
+        FINAL, live, staged, applied, journal_id="touch-7",
+        plan_version="plan-v1")
+    plan_provenance.record_carried_edits(review, FINAL, [edit])
+
+    # The plan change dropped the touched passage entirely: no staged
+    # item plays it, so the rebuild refuses instead of dropping it.
+    gone = {"items": [_touch_item(0, {"ZoomX": 1.0})]}
+    gone["items"][0]["source_identity"] = "file:/media/craig.mov"
+    with pytest.raises(carry.EditorEditCarryRefused,
+                       match=r"Ren touch touch-7"):
+        carry.plan_application(
+            plan_provenance.carried_editor_edits(review, FINAL),
+            gone, FINAL)
+
+
+def test_a_touch_enabled_write_is_carried_onto_moved_staging():
+    live = _touch_snapshots(0, enabled=True)
+    staged = _touch_snapshots(0, enabled=False)
+    applied = {"enabled": [{
+        "row": "V1", "record_frame": 0, "enabled": False}]}
+    (edit,) = carry.derive_touch_edits(
+        FINAL, live, staged, applied, journal_id="touch-8")
+
+    moved = _touch_snapshots(50, enabled=True)
+    plan = carry.plan_application([edit], moved, FINAL)
+    assert edit["kind"] == "enabled"
+    assert plan["set_enabled"][0]["edit"]["after"] is False
+
+
+def test_a_touch_write_that_changed_nothing_files_nothing():
+    live = _touch_snapshots(0, {"ZoomX": 1.25})
+    staged = _touch_snapshots(0, {"ZoomX": 1.25})
+    applied = {"properties": [{
+        "row": "V1", "record_frame": 0, "properties": {"ZoomX": 1.25}}]}
+    assert carry.derive_touch_edits(
+        FINAL, live, staged, applied, journal_id="touch-7") == []
+
+    live_on = _touch_snapshots(enabled=True)
+    staged_on = _touch_snapshots(enabled=True)
+    assert carry.derive_touch_edits(
+        FINAL, live_on, staged_on,
+        {"enabled": [{"row": "V1", "record_frame": 0, "enabled": True}]},
+        journal_id="touch-7") == []
