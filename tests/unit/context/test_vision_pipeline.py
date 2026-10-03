@@ -18,6 +18,7 @@ from library.tools.vision_schema_adapter import (
 import shutil
 import subprocess
 import threading
+from library.tools.analysis import measurement_layers as ml
 from library.tools.analysis import vision_pipeline_v3 as vp
 import sys
 import textwrap
@@ -378,6 +379,69 @@ def test_analyze_windows_runs_the_compact_prompt_and_expands():
     assert entry["prompt_path"] == "compact_repaired"
     assert "parse_error" not in entry
     assert entry["actions"][0]["action"] == "speaking to camera"
+
+
+@pytest.mark.usefixtures("mock_mlx_functions")
+def test_window_cache_matches_cold_results_and_remeasures_only_changed_window(
+        tmp_path):
+    """A local transcript edit must miss just its own Gemma window.
+
+    The first cached pass is cold and matches today's ordered
+    ``analyze_windows`` result exactly. Editing only the second window's
+    word-timed transcript then reuses the first and asks the model once
+    for the changed second window.
+    """
+    import copy as _copy
+    import json as _json
+
+    clips = [
+        {"start": 0.0, "end": 10.0, "path": "/tmp/window-0.mp4",
+         "has_audio": True},
+        {"start": 10.0, "end": 20.0, "path": "/tmp/window-1.mp4",
+         "has_audio": True},
+    ]
+    temporal_index = {
+        "duration": 20.0,
+        "speech_regions": [
+            {"start": 1.0, "end": 2.0, "text": "first window words"},
+            {"start": 11.0, "end": 12.0, "text": "second window words"},
+        ],
+        "scene_boundaries": [{"timestamp": 5.0}, {"timestamp": 15.0}],
+    }
+    answer = _json.dumps(_sample_compact_answer())
+
+    baseline_analyzer = _FakeAnalyzer(answer)
+    baseline = vp.analyze_windows(
+        baseline_analyzer, clips, 20.0, temporal_index, "", fps=30.0)
+
+    cache_root = tmp_path / "source-memory"
+
+    def cache():
+        return ml.LayerCache(
+            "source-content-digest", {"windows": "prompt-method-digest"},
+            {}, root=cache_root)
+
+    cold_analyzer = _FakeAnalyzer(answer)
+    cold_cached = vp.analyze_windows_cached(
+        cold_analyzer, clips, 20.0, temporal_index, "", 30.0, cache())
+    assert cold_cached == baseline
+    assert len(cold_analyzer.calls) == 2
+
+    changed_index = _copy.deepcopy(temporal_index)
+    changed_index["speech_regions"][1]["text"] = "updated second window words"
+    changed_index["scene_boundaries"][1]["timestamp"] = 16.0
+    partial_analyzer = _FakeAnalyzer(answer)
+    partial = vp.analyze_windows_cached(
+        partial_analyzer, clips, 20.0, changed_index, "", 30.0, cache())
+
+    assert len(partial_analyzer.calls) == 1
+    assert "updated second window words" in partial_analyzer.calls[0]["prompt"]
+    assert "first window words" not in partial_analyzer.calls[0]["prompt"]
+    assert (
+        "Detected visual changes at: 6.0s"
+        in partial_analyzer.calls[0]["prompt"])
+    assert partial[0] == cold_cached[0]
+    assert partial[1]["window"] == cold_cached[1]["window"]
 
 
 @pytest.mark.usefixtures("mock_mlx_functions")

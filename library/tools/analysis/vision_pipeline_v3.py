@@ -2507,6 +2507,78 @@ def analyze_windows(analyzer, video_clips, duration, temporal_index, transcript,
     return results
 
 
+def _window_cache_params(clip_info, duration, temporal_index, transcript,
+                         fps):
+    """Inputs that can change the answer for one folded window.
+
+    Transcript and boundary values are the local values rendered into
+    that window's prompt. The source content digest and the reached
+    window method digest are supplied by ``LayerCache``.
+    """
+    start = clip_info["start"]
+    end = clip_info["end"]
+    window_duration = end - start
+    transcript_slice, word_timed = get_window_transcript(
+        temporal_index, start, end, full_transcript=transcript)
+    return {
+        "duration_s": duration,
+        "transcript_slice": {
+            "text": transcript_slice,
+            "word_timed": word_timed,
+        },
+        "temporal_prompt_measurements": {
+            "scene_boundaries": _scene_boundaries_text(
+                temporal_index, start=start, end=end),
+        },
+        "has_audio": bool(clip_info.get("has_audio")),
+        "model_id": MODEL_ID,
+        "sampling": {
+            "action_window_s": ACTION_WINDOW_S,
+            "minimum_window_s": MIN_WINDOW_S,
+            "window_clip_height": WINDOW_CLIP_HEIGHT,
+            "native_video_decode_fps": NATIVE_VIDEO_DECODE_FPS,
+            "native_video_frames_per_call": NATIVE_VIDEO_FRAMES_PER_CALL,
+            "source_fps": fps,
+            "sample_plan": (native_sample_plan(window_duration, fps)
+                            if fps else None),
+        },
+    }
+
+
+def analyze_windows_cached(analyzer, video_clips, duration, temporal_index,
+                           transcript, fps, layer_cache):
+    """Read or measure each window independently, preserving input order.
+
+    Clips are consumed as they arrive so the bounded extractor can stay
+    one cut ahead during inference. On a cold cache, each valid clip is
+    still analyzed in the original order by the unchanged
+    ``analyze_windows`` path. Cache hits skip only their own model call.
+    """
+    results = []
+    for clip_info in video_clips:
+        params = _window_cache_params(
+            clip_info, duration, temporal_index, transcript, fps)
+        cached = layer_cache.get_window(
+            clip_info["start"], clip_info["end"], params)
+        if cached is not None:
+            results.append(cached)
+            continue
+
+        measured = analyze_windows(
+            analyzer, [clip_info], duration, temporal_index, transcript,
+            fps=fps)
+        if len(measured) != 1:
+            raise RuntimeError(
+                "analyze_windows did not return one result for a valid "
+                "window clip")
+        result = measured[0]
+        results.append(result)
+        layer_cache.put_window(
+            clip_info["start"], clip_info["end"], params, result)
+
+    return results
+
+
 def analyze_objects_coarse(analyzer, frames, duration):
     """Object detection — coarse sweep with batched frames.
 
@@ -2747,8 +2819,13 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
     else:
         print(f"  [Windows] {n_window_calls} windows × {ACTION_WINDOW_S}s (video+audio clips)...")
         _inference_t0 = time.time()
-        windows = analyze_windows(analyzer, video_clips, duration,
-                                  temporal_index, transcript, fps=fps)
+        if layer_cache:
+            windows = analyze_windows_cached(
+                analyzer, video_clips, duration, temporal_index, transcript,
+                fps, layer_cache)
+        else:
+            windows = analyze_windows(analyzer, video_clips, duration,
+                                      temporal_index, transcript, fps=fps)
         window_inference_wall_s = round(time.time() - _inference_t0, 2)
         n_video_clips = len(video_clips)
         if layer_cache:

@@ -28,6 +28,12 @@ vote merge, the deterministic assessment and usable ranges, the schema
 adapter - is pure arithmetic over those and is recomputed on every
 compose, so a change to it costs no inference at all.
 
+The windows layer keeps its clip-wide entry as a fast path and stores
+each Gemma window separately as well. A local transcript or temporal
+measurement edit therefore misses only the window whose prompt changed;
+the clip profile is then recomposed from those per-window answers.
+Clip-wide entries keep the original on-disk shape and key.
+
 Actions, scene and camera are ONE layer, not three: since the folded
 call (#1384) they are answered by the same model call, so no change can
 re-measure one without the others.
@@ -268,19 +274,26 @@ class LayerCache:
 
     ``methods`` is ``{layer: method digest}``; ``params`` is
     ``{layer: parameters}``. A layer named in neither is never cached.
+    ``get_window``/``put_window`` address the windows layer's additional
+    per-window entries without changing its clip-wide cache format.
     """
 
     def __init__(self, source_digest: str, methods: dict, params: dict,
                  force: bool = False, root=None):
         self.source_digest = source_digest
-        self.keys = {layer: layer_key(layer, source_digest, methods[layer],
+        self.methods = dict(methods)
+        self.keys = {layer: layer_key(layer, source_digest, self.methods[layer],
                                       params.get(layer, {}))
-                     for layer in methods}
+                     for layer in self.methods}
         self.force = force
         self.dir = (Path(root) if root is not None else store_root()
                     ) / source_digest / MEASUREMENTS_DIRNAME
         # {layer: "reused" | "measured"} - what this compose did.
         self.outcomes: dict = {}
+        # Window entries are finer grained than the legacy clip-wide
+        # "windows" entry. Keep their outcomes so a partially warm clip
+        # reports that it measured only the windows whose keys missed.
+        self.window_outcomes: dict[str, str] = {}
 
     @classmethod
     def for_source(cls, source_file, methods: dict, params: dict,
@@ -299,6 +312,57 @@ class LayerCache:
 
     def _path(self, layer: str) -> Path:
         return self.dir / layer / f"{self.keys[layer]}.json"
+
+    def window_key(self, start: float, end: float, params: dict) -> str:
+        """Identity of one folded Gemma window within the windows layer.
+
+        The source digest and method identity are shared with the
+        clip-wide layer. ``params`` carries that window's prompt inputs,
+        model identity and sampling configuration.
+        """
+        if "windows" not in self.methods:
+            raise KeyError("window cache requires the 'windows' method")
+        return layer_key(
+            "window", self.source_digest, self.methods["windows"],
+            {"start": start, "end": end, "params": params})
+
+    def _window_path(self, key: str) -> Path:
+        return self.dir / "windows" / "per_window" / f"{key}.json"
+
+    def get_window(self, start: float, end: float, params: dict):
+        """Read one window result, or return None on a miss or force run."""
+        if self.force or "windows" not in self.methods:
+            return None
+        key = self.window_key(start, end, params)
+        try:
+            with open(self._window_path(key), encoding="utf-8") as handle:
+                entry = json.load(handle)
+        except (OSError, ValueError):
+            return None
+        if entry.get("key") != key or "value" not in entry:
+            return None
+        self.window_outcomes[key] = "reused"
+        return entry["value"]
+
+    def put_window(self, start: float, end: float, params: dict,
+                   value) -> None:
+        """Store one measured window using the normal best-effort policy."""
+        if "windows" not in self.methods:
+            return
+        key = self.window_key(start, end, params)
+        path = self._window_path(key)
+        tmp = path.parent / f".{path.name}.{os.getpid()}.tmp"
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(tmp, "w", encoding="utf-8") as handle:
+                json.dump({"key": key, "value": value}, handle)
+            os.replace(tmp, path)
+            self.window_outcomes[key] = "measured"
+        except (OSError, TypeError, ValueError):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
 
     def get(self, layer: str):
         """The stored measurement, or None (miss, forced, or unreadable)."""
@@ -336,9 +400,14 @@ class LayerCache:
 
     def record(self) -> dict:
         """``{layer: {key, outcome}}`` for the profile's metadata."""
+        outcomes = dict(self.outcomes)
+        if self.window_outcomes:
+            outcomes["windows"] = (
+                "measured" if "measured" in self.window_outcomes.values()
+                else "reused")
         return {layer: {"key": self.keys[layer],
-                        "outcome": self.outcomes[layer]}
-                for layer in sorted(self.outcomes)}
+                        "outcome": outcomes[layer]}
+                for layer in sorted(outcomes)}
 
 
 def canonical_digest(value) -> str:
