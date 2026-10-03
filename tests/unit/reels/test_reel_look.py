@@ -6,7 +6,6 @@ import os
 import sys
 from dataclasses import dataclass
 import pytest
-import importlib
 from pathlib import Path
 from library.tools.framing_intent import DEFAULT_FRAMING_INTENT, FILL, LETTERBOX
 from library.tools.reel_conformance_verifier import (
@@ -1160,9 +1159,8 @@ class _FakeDvr:
 
 @pytest.fixture
 def fusion_module():
-    module = importlib.import_module(
-        "library.tools.execution.apply_fusion_comps")
-    return importlib.reload(module)
+    import library.tools.execution.apply_fusion_comps as afc
+    return afc
 
 
 def _timeline():

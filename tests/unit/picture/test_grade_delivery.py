@@ -45,7 +45,6 @@ from library.tools.series_look import (
     ELEMENTS_BY_KEY,
     LookDeclarationError,
 )
-import importlib
 import json
 
 
@@ -1108,9 +1107,8 @@ class _FakeDvr:
 
 @pytest.fixture
 def fusion_module():
-    module = importlib.import_module(
-        "library.tools.execution.apply_fusion_comps")
-    return importlib.reload(module)
+    import library.tools.execution.apply_fusion_comps as afc
+    return afc
 
 
 def _timeline():
