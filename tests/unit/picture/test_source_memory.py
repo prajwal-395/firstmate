@@ -1211,11 +1211,11 @@ def test_declared_person_names_reads_yaml_and_drops_non_string_values(tmp_path):
     (project / "project.yaml").write_text(
         "source:\n"
         "  person_names:\n"
-        "    person_001: Craig\n"
+        "    person_001: SpeakerTwo\n"
         "    person_002: 7\n",
         encoding="utf-8")
     names = person_entity.declared_person_names(str(project))
-    assert names == {"person_001": "Craig"}
+    assert names == {"person_001": "SpeakerTwo"}
     (project / "project.yaml").write_text("name: x\n", encoding="utf-8")
     assert person_entity.declared_person_names(str(project)) == {}
 
@@ -1308,7 +1308,7 @@ def test_find_person_resolves_declared_name_and_reports_none_unmatched(
     digest = footage_identity.fingerprint(str(media))["content_digest"]
     project = _project_with_clips(
         tmp_path, [("clip_001", media, digest)],
-        extra_source={"person_names": "{person_001: Craig}"})
+        extra_source={"person_names": "{person_001: SpeakerTwo}"})
 
     _write_identity(memory_root_2, digest, {
         "content_digest": digest, "status": "measured",
@@ -1317,7 +1317,7 @@ def test_find_person_resolves_declared_name_and_reports_none_unmatched(
                             "det_score": 0.9}]}],
         "voices": [], "speech_face_links": []})
 
-    found = person_entity.find_person(str(project), "craig")
+    found = person_entity.find_person(str(project), "speakertwo")
     assert found is not None
     assert found["person_id"] == "person_001"
 
@@ -1365,7 +1365,7 @@ def test_the_study_takes_its_frames_from_productions_decode_path(tmp_path, memor
     monkeypatch.setattr(person_entity, "frames_at", frames_at)
     monkeypatch.setattr(person_entity, "measure_face_observations", measure)
 
-    out = face_identity_study.measure_source(str(media), "craig", [12.5])
+    out = face_identity_study.measure_source(str(media), "speakertwo", [12.5])
 
     assert seen == [sorted(set(person_entity.sample_timestamps(30.0)) | {12.5})]
     assert (out["frame_source"], out["frame_pixels"]) == ("decoded-here", [3840, 2160])
@@ -1376,12 +1376,12 @@ def test_one_same_person_pair_below_the_threshold_fails_the_study():
     """The bound is FAR=0 AND FRR=0: a single weak same-person pair - the
     thumbnails' profile frames - fails it, and is named."""
     a = (1.0, 0.0, 0.0)
-    faces = [("craig@1", "craig", a), ("craig@2", "craig", (0.95, 0.31, 0.0)),
-             ("craig@3", "craig", (0.2, 0.0, 0.98)), ("akshita@1", "akshita", (0.0, 1.0, 0.0))]
+    faces = [("speakertwo@1", "speakertwo", a), ("speakertwo@2", "speakertwo", (0.95, 0.31, 0.0)),
+             ("speakertwo@3", "speakertwo", (0.2, 0.0, 0.98)), ("speakerone@1", "speakerone", (0.0, 1.0, 0.0))]
 
     report = face_identity_study.pair_report(faces, threshold=0.25)
 
     assert not report["passes"]
     assert report["at_threshold"]["false_rejects"] == 2
-    assert {key for key, _n in report["frames_in_failing_pairs"]} >= {"craig@3"}
+    assert {key for key, _n in report["frames_in_failing_pairs"]} >= {"speakertwo@3"}
     json.dumps(report)

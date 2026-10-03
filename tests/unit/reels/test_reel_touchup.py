@@ -96,7 +96,7 @@ def test_live_touchup_read_holds_lease_and_makes_reel_current(monkeypatch):
         assert actual_timeline is timeline
         assert resolve_project is project
         events.append("read")
-        return [{"name": "Akshita"}]
+        return [{"name": "SpeakerOne"}]
 
     monkeypatch.setattr(
         project_registry, "get_project",
@@ -113,7 +113,7 @@ def test_live_touchup_read_holds_lease_and_makes_reel_current(monkeypatch):
 
     assert tu._live_tracks_for_reel("/project", 22,
                                     "Reel 22 - moment") == [
-                                        {"name": "Akshita"}]
+                                        {"name": "SpeakerOne"}]
     assert events == ["lease-enter", "connect", "cursor-enter", "read",
                       "cursor-exit", "lease-exit"]
 

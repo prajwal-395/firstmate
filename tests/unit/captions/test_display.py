@@ -104,7 +104,7 @@ def test_respell_fixes_copy_and_keeps_identity():
     corrections = [{"id": "lc-1", "heard": "lucy", "correct": "Lucie"}]
     obj = {
         "reason": "visit lucy today",
-        "cta": {"text": "say lucy now", "speaker": "Akshita"},
+        "cta": {"text": "say lucy now", "speaker": "SpeakerOne"},
         "slug": "lucy-thing",
         "label": "mg_lucy",
         "timeline_name": "Reel 1 - lucy",
@@ -123,7 +123,7 @@ def test_respell_fixes_copy_and_keeps_identity():
     assert obj["anchor_phrase"] == "say lucy"
     assert obj["source_file"] == "/x/lucy_takes/a.mov"
     assert obj["id"] == "sub_lucy_001"
-    assert obj["cta"]["speaker"] == "Akshita"
+    assert obj["cta"]["speaker"] == "SpeakerOne"
 
 
 def _words(*tokens, start=10.0):
@@ -291,7 +291,7 @@ def _project(tmp_path):
 
 def _doc():
     return {"segments": [
-        {"speaker": "Akshita", "text": "best CRMs, um s best",
+        {"speaker": "SpeakerOne", "text": "best CRMs, um s best",
          "source_clip_id": "LC4932.MXF",
          "source_start": 162.0, "source_end": 174.0,
          "words": [
@@ -300,7 +300,7 @@ def _doc():
              {"word": "um", "start": 162.7, "end": 162.9},
              {"word": "s", "start": 162.9, "end": 163.1},
              {"word": "best", "start": 163.1, "end": 163.4}]},
-        {"speaker": "Craig", "text": "I think I know",
+        {"speaker": "SpeakerTwo", "text": "I think I know",
          "source_clip_id": "LCATL0012.MXF",
          "source_start": 10.0, "source_end": 12.0,
          "words": [
@@ -316,7 +316,7 @@ def test_suppression_hides_token_but_keeps_audio_and_timings(tmp_path):
     tc.record_display_suppression(project, "um", "reel 24 ums")
     tc.record_display_suppression(
         project, "s", "reel 17 stray s",
-        scope={"speaker": "Akshita", "surface": "s",
+        scope={"speaker": "SpeakerOne", "surface": "s",
                "prev": "um", "next": "best"})
     doc = _doc()
     before = copy.deepcopy(doc)
@@ -342,7 +342,7 @@ def test_anchored_stray_never_touches_the_pronoun(tmp_path):
     project = _project(tmp_path)
     tc.record_display_suppression(
         project, "i", "reel 18 stray i",
-        scope={"speaker": "Craig", "surface": "i",
+        scope={"speaker": "SpeakerTwo", "surface": "i",
                "prev": "uh", "next": "kind"})
     doc = _doc()
     tc.apply_to_document(doc, project)
@@ -367,9 +367,9 @@ def test_cased_anchor_hits_lowercase_spine_words():
         {"word": "most", "start": 2.1, "end": 2.4},
     ]
     anchor = {"id": "x", "heard": "Probably",
-              "scope": {"speaker": "Akshita", "surface": "Probably",
+              "scope": {"speaker": "SpeakerOne", "surface": "Probably",
                         "prev": "probably", "next": "most"}}
-    kept, dropped = tc.filter_words(words, "Akshita", [anchor])
+    kept, dropped = tc.filter_words(words, "SpeakerOne", [anchor])
     assert [w["word"] for w in kept] == ["which", "probably", "most"]
     assert [w["word"] for w in dropped] == ["probably"]
 
@@ -384,16 +384,16 @@ def test_filter_words_partitions_without_retiming():
     suppressions = [
         {"id": "x", "heard": "um", "scope": None},
         {"id": "y", "heard": "f",
-         "scope": {"speaker": "Akshita", "surface": "f",
+         "scope": {"speaker": "SpeakerOne", "surface": "f",
                    "prev": "same", "next": "um"}},
     ]
-    kept, dropped = tc.filter_words(words, "Akshita", suppressions)
+    kept, dropped = tc.filter_words(words, "SpeakerOne", suppressions)
     assert [w["word"] for w in kept] == ["same", "same"]
     assert [w["word"] for w in dropped] == ["f", "um,"]
     # Partitioned, never edited: the survivors keep their timings.
     assert kept[0]["start"] == 1.0 and kept[1]["start"] == 1.8
     # Another speaker's identical words stand.
-    kept2, dropped2 = tc.filter_words(words, "Craig", suppressions)
+    kept2, dropped2 = tc.filter_words(words, "SpeakerTwo", suppressions)
     assert [w["word"] for w in kept2] == ["same", "f", "same"]
     assert [w["word"] for w in dropped2] == ["um,"]
 

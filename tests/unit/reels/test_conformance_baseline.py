@@ -54,7 +54,7 @@ def _mm_hmm(start=10.0, end=10.6):
     """
     from tests.unit.reels.test_reel_conformance_verifier import _row
 
-    return _row(start, end, "Akshita", "Mm-hmm.", words=())
+    return _row(start, end, "SpeakerOne", "Mm-hmm.", words=())
 
 
 def _f5_errors_on(cards, rows=None, keep=((0.0, 20.0),)):
@@ -557,9 +557,9 @@ def test_unsuppressed_missing_segment_still_errors():
 #
 # F25 exempts played words a recorded display suppression hides.
 #
-# Reel 09, Akshita tail (2026-09-19): she says "you can be completely
+# Reel 09, SpeakerOne tail (2026-09-19): she says "you can be completely
 # re like misrecommended" - the "re" a false start the audio keeps -
-# and learning lc-0061 (display suppression, anchored on Akshita /
+# and learning lc-0061 (display suppression, anchored on SpeakerOne /
 # completely / re / like) hides exactly that token from captions and
 # quoted copy. Step 4.01 enforces it when planning the cards, so the
 # placed card reads "you can be completely like misrecommended." and
@@ -574,10 +574,10 @@ def test_unsuppressed_missing_segment_still_errors():
 # wired as F25 in `library/tools/reel_conformance_verifier.py`
 # (`_suppressed_played_words`, `_derive_word_coverage`).
 
-CARD = "sub_akshita_tail.mov"
+CARD = "sub_speakerone_tail.mov"
 
 
-def _w_2(word, start, end, card=CARD, speaker="Akshita"):
+def _w_2(word, start, end, card=CARD, speaker="SpeakerOne"):
     return {"word": word, "norm": sc.normalize_word(word),
             "reel_start": start, "reel_end": end, "card": card,
             "speaker": speaker}
@@ -642,7 +642,7 @@ def _write_store(tmp_path):
         "said_by": "the pipeline",
         "source": {"correction_type": "display_suppression",
                    "heard": "re",
-                   "scope": {"speaker": "Akshita", "surface": "re",
+                   "scope": {"speaker": "SpeakerOne", "surface": "re",
                              "prev": "completely", "next": "like"},
                    "proposed_by": "model"},
         "detail": "MODEL: 'completely re like misrecommended' false start",
@@ -683,7 +683,7 @@ FRAME = 1001 / 24000
 
 TIMELINE = "Reel 13 - the-accounting-firm-ai-called-healthcare"
 PIN = {
-    "scope": {"speaker": "Akshita",
+    "scope": {"speaker": "SpeakerOne",
               "source_start_at_or_after": 500.78,
               "source_start_before": 512.759,
               "timeline": TIMELINE},
@@ -712,8 +712,8 @@ PLAYED = [
     {"word": "Lucie", "norm": "lucie",
      "reel_start": 69.121, "reel_end": 69.371},
 ]
-CARD_2 = "sub_akshita_xxx_505862-509292_yyy.mov"
-CARD2 = "sub_akshita_xxx_505862-509292_zzz.mov"
+CARD_2 = "sub_speakerone_xxx_505862-509292_yyy.mov"
+CARD2 = "sub_speakerone_xxx_505862-509292_zzz.mov"
 # Placed at record 1628 / 1662, seven frames past the words.
 SHIFT = 7 * FRAME
 CAPTIONED = [
@@ -731,7 +731,7 @@ CARDS = [{
     "card": CARD_2,
     "reel_start": 1628 / FPS,
     "reel_end": 1662 / FPS,
-    "binding": {"speaker": "Akshita",
+    "binding": {"speaker": "SpeakerOne",
                 "source_clip_id": "5ae8f521-647e-49c6-bf3d",
                 "source_start": 505.862,
                 "source_end": 509.292},
@@ -739,7 +739,7 @@ CARDS = [{
     "card": CARD2,
     "reel_start": 1662 / FPS,
     "reel_end": 1710 / FPS,
-    "binding": {"speaker": "Akshita",
+    "binding": {"speaker": "SpeakerOne",
                 "source_clip_id": "5ae8f521-647e-49c6-bf3d",
                 "source_start": 505.862,
                 "source_end": 509.292},
@@ -802,8 +802,8 @@ def test_genuine_drop_past_the_pin_still_errors():
 # `library/tools/subtitle_coverage.py` (`check_word_coverage`);
 # wired as F25 in `library/tools/reel_conformance_verifier.py`.
 
-CARD_A = "sub_akshita_leaving_all.mov"
-CARD_B = "sub_akshita_5star_reviews.mov"
+CARD_A = "sub_speakerone_leaving_all.mov"
+CARD_B = "sub_speakerone_5star_reviews.mov"
 
 
 def _w_3(word, start, end, card, degenerate=False):

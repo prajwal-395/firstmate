@@ -276,9 +276,9 @@ def test_the_unplaced_report_counts_only_what_this_pipeline_generated():
     # `flare.mov` is unplaced too, and comes from outside the project.
     assert not any("flare" in path for path in report["paths"])
 
-    # `Akshita` on the field test is unplaced with no file path, so
+    # `SpeakerOne` on the field test is unplaced with no file path, so
     # nothing shows a run wrote it: source material, not a leftover.
-    report = unplaced_report(a_project() + [clip("c-nofile", "Akshita", path="")],
+    report = unplaced_report(a_project() + [clip("c-nofile", "SpeakerOne", path="")],
                              PROJECT_ROOT)
     assert report["count"] == 1
     assert len(report["paths"]) == report["count"], (
@@ -786,7 +786,7 @@ class _Pool:
         return True
 
 
-def _overlay(tmp_path, name="sub_craig_162243-166986_e135147f.mov"):
+def _overlay(tmp_path, name="sub_speakertwo_162243-166986_e135147f.mov"):
     path = str(tmp_path / name)
     with open(path, "wb") as handle:
         handle.write(b"\x00")

@@ -1876,7 +1876,7 @@ def test_audio_does_not_report_mute_off_the_cursor(monkeypatch, capsys):
     timeline that is not current; read off the cursor, that is not a
     mute and must not be reported as one."""
     reel = _Timeline("Reel 22 - a-score", tracks={
-        ("audio", 1): {"name": "Akshita CH1", "items": [],
+        ("audio", 1): {"name": "SpeakerOne CH1", "items": [],
                        "enabled": False}}, start=0, end=99)
     other = _Timeline("Reel 08 - top-three", tracks={}, start=0, end=9)
     project = _Project("Podcast (field test)", [reel, other],
@@ -1888,7 +1888,7 @@ def test_audio_does_not_report_mute_off_the_cursor(monkeypatch, capsys):
     assert cmd_audio(_ns(project="", timeline="Reel 22 - a-score",
                           full=False)) == 0
     out = capsys.readouterr().out
-    assert "audio1,Akshita CH1,not-current,0" in out
+    assert "audio1,SpeakerOne CH1,not-current,0" in out
     assert ",no," not in out
 
 

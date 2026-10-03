@@ -487,7 +487,7 @@ def _props_3(elements, width=FULL_W, height=FULL_H, safe=None):
     }
 
 
-def _staged(name="Craig Lucie", title="CEO Lucie Content",
+def _staged(name="SpeakerTwo Lucie", title="CEO Lucie Content",
             anchor="bottom_left", **over):
     """A staged-rule lower third, the shape `speaker_identity` writes."""
     runs = [{"text": name, "type_role": "display"}]
@@ -496,8 +496,8 @@ def _staged(name="Craig Lucie", title="CEO Lucie Content",
     el = _el("lower_third", anchor=anchor, runs=runs)
     el["data"] = {
         "construction": "staged_rule",
-        "speaker": "Craig",
-        "colour_basis": "pipeline.speaker_subtitle_styles['Craig']"
+        "speaker": "SpeakerTwo",
+        "colour_basis": "pipeline.speaker_subtitle_styles['SpeakerTwo']"
                         ".accentColor",
     }
     el.update(over)
@@ -745,7 +745,7 @@ def _lower_third(anchor="bottom_left"):
         "element": "lower_third",
         "anchor": anchor,
         "row": 0,
-        "runs": [{"text": "Akshita Gorti", "type_role": "display"},
+        "runs": [{"text": "SpeakerOne Gorti", "type_role": "display"},
                  {"text": "AI @ Lucie Content",
                   "type_role": "supporting"}],
         "color": "#FFB8D4",
@@ -758,8 +758,8 @@ def _lower_third(anchor="bottom_left"):
     }
 
 
-# The Reel 01 Akshita lower third's measured union, all 84 frames.
-AKSHITA_UNION = InkUnion(x0=90, y0=784, x1=602, y1=906,
+# The Reel 01 SpeakerOne lower third's measured union, all 84 frames.
+SPEAKERONE_UNION = InkUnion(x0=90, y0=784, x1=602, y1=906,
                          inked_frames=83)
 
 
@@ -768,7 +768,7 @@ def test_measured_union_binds_to_padded_canvas_at_union_centre():
     union centre: 608 = 512 + 2*48, and 480 is the rail floor a
     single bottom zone grows to, above the ink."""
     box, refusal = mgt.tighten_measured_mg_with_reason(
-        _props_4([_lower_third()]), AKSHITA_UNION)
+        _props_4([_lower_third()]), SPEAKERONE_UNION)
     assert refusal is None
     assert (box.width, box.height) == (608, 480)
     ox, oy = canvas_offset(box)
@@ -801,7 +801,7 @@ def test_a_union_that_cannot_bind_is_refused_by_name():
         (TightBoxClipsInk,
          InkUnion(x0=0, y0=0, x1=2000, y1=100, inked_frames=10), {},
          "canvas_larger_than_frame"),
-        (TightBoxMismatch, AKSHITA_UNION, {"timeline_size": (640, 480)},
+        (TightBoxMismatch, SPEAKERONE_UNION, {"timeline_size": (640, 480)},
          "placement_unholdable"),
         (TightBoxMismatch,
          InkUnion(x0=0, y0=784, x1=602, y1=906, inked_frames=10), {},

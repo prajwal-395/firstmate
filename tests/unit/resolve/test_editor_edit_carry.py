@@ -114,9 +114,9 @@ def edited_reel_7():
             (
                 "Speakers",
                 [
-                    _clip("Akshita", 22_232, 22_348, 0),
-                    _clip("Craig", 22_257, 22_694, 116),
-                    _clip("Akshita", 25_557, 25_751, 553),
+                    _clip("SpeakerOne", 22_232, 22_348, 0),
+                    _clip("SpeakerTwo", 22_257, 22_694, 116),
+                    _clip("SpeakerOne", 25_557, 25_751, 553),
                 ],
             ),
             ("Semantic", [_clip("semantic-card", 0, 96, 47, enabled=False)]),
@@ -125,9 +125,9 @@ def edited_reel_7():
             (
                 "Dialogue",
                 [
-                    _clip("Akshita", 22_232, 22_348, 0),
-                    _clip("Craig", 22_257, 22_694, 116),
-                    _clip("Akshita", 25_557, 25_751, 553),
+                    _clip("SpeakerOne", 22_232, 22_348, 0),
+                    _clip("SpeakerTwo", 22_257, 22_694, 116),
+                    _clip("SpeakerOne", 25_557, 25_751, 553),
                 ],
             ),
         ],
@@ -142,11 +142,11 @@ def rebuilt_reel_7(name=STAGING):
             (
                 "Speakers",
                 [
-                    _clip("Akshita", 22_232, 22_348, 0),
-                    _clip("Craig", 22_257, 22_694, 116),
-                    _clip("Craig", 25_263, 25_374, 553),
-                    _clip("Akshita", 25_557, 25_751, 664),
-                    _clip("Akshita", 60_745, 60_979, 858),
+                    _clip("SpeakerOne", 22_232, 22_348, 0),
+                    _clip("SpeakerTwo", 22_257, 22_694, 116),
+                    _clip("SpeakerTwo", 25_263, 25_374, 553),
+                    _clip("SpeakerOne", 25_557, 25_751, 664),
+                    _clip("SpeakerOne", 60_745, 60_979, 858),
                 ],
             ),
             ("Semantic", [_clip("semantic-card", 0, 96, 47, enabled=True)]),
@@ -155,11 +155,11 @@ def rebuilt_reel_7(name=STAGING):
             (
                 "Dialogue",
                 [
-                    _clip("Akshita", 22_232, 22_348, 0),
-                    _clip("Craig", 22_257, 22_694, 116),
-                    _clip("Craig", 25_263, 25_374, 553),
-                    _clip("Akshita", 25_557, 25_751, 664),
-                    _clip("Akshita", 60_745, 60_979, 858),
+                    _clip("SpeakerOne", 22_232, 22_348, 0),
+                    _clip("SpeakerTwo", 22_257, 22_694, 116),
+                    _clip("SpeakerTwo", 25_263, 25_374, 553),
+                    _clip("SpeakerOne", 25_557, 25_751, 664),
+                    _clip("SpeakerOne", 60_745, 60_979, 858),
                 ],
             ),
         ],
@@ -418,7 +418,7 @@ def test_the_next_rebuild_carries_the_ledger_with_no_new_change(project_dir):
 @pytest.mark.usefixtures("mock_dvr")
 def test_a_rippled_trim_under_a_graphic_refuses_with_the_source_ranges(project_dir):
     live, staging = edited_reel_7(), rebuilt_reel_7()
-    # The editor also shortened the first Akshita passage by 16 frames
+    # The editor also shortened the first SpeakerOne passage by 16 frames
     # and closed the gap - under the Semantic card at 47..143.
     rows = [live.GetItemListInTrack("video", 1)] + [
         live.GetItemListInTrack("audio", index)
@@ -450,8 +450,8 @@ def test_a_cut_staging_plays_only_part_of_refuses_by_name(project_dir):
         "id": "e1",
         "kind": "cut",
         "row": "video:Speakers",
-        "name": "Craig",
-        "source_identity": "file:/media/Craig.mov",
+        "name": "SpeakerTwo",
+        "source_identity": "file:/media/SpeakerTwo.mov",
         "source_in_frame": 25_263,
         "source_out_frame": 25_374,
         "ripple": True,
@@ -461,8 +461,8 @@ def test_a_cut_staging_plays_only_part_of_refuses_by_name(project_dir):
             {
                 "track_type": "video",
                 "track_name": "Speakers",
-                "name": "Craig",
-                "source_identity": "file:/media/Craig.mov",
+                "name": "SpeakerTwo",
+                "source_identity": "file:/media/SpeakerTwo.mov",
                 "source_in_frame": 25_300,
                 "source_out_frame": 25_500,
                 "record_in": 553,
@@ -484,8 +484,8 @@ def test_a_cut_that_still_plays_after_the_write_refuses():
         "id": "e1",
         "kind": "cut",
         "row": "video:Speakers",
-        "name": "Craig",
-        "source_identity": "file:/media/Craig.mov",
+        "name": "SpeakerTwo",
+        "source_identity": "file:/media/SpeakerTwo.mov",
         "source_in_frame": 25_263,
         "source_out_frame": 25_374,
     }
@@ -494,8 +494,8 @@ def test_a_cut_that_still_plays_after_the_write_refuses():
             {
                 "track_type": "video",
                 "track_name": "Speakers",
-                "name": "Craig",
-                "source_identity": "file:/media/Craig.mov",
+                "name": "SpeakerTwo",
+                "source_identity": "file:/media/SpeakerTwo.mov",
                 "source_in_frame": 25_263,
                 "source_out_frame": 25_374,
                 "record_in": 553,
@@ -560,8 +560,8 @@ def test_putting_a_cut_passage_back_supersedes_the_cut(project_dir):
         "id": "c1",
         "kind": "cut",
         "row": "video:Speakers",
-        "name": "Craig",
-        "source_identity": "file:/media/Craig.mov",
+        "name": "SpeakerTwo",
+        "source_identity": "file:/media/SpeakerTwo.mov",
         "source_in_frame": 25_263,
         "source_out_frame": 25_374,
         "status": "active",
@@ -578,8 +578,8 @@ def test_putting_a_cut_passage_back_supersedes_the_cut(project_dir):
                 "after": {
                     "track_type": "video",
                     "track_name": "Speakers",
-                    "name": "Craig",
-                    "source_identity": "file:/media/Craig.mov",
+                    "name": "SpeakerTwo",
+                    "source_identity": "file:/media/SpeakerTwo.mov",
                     "source_in_frame": 25_263,
                     "source_out_frame": 25_374,
                     "record_in": 553,
@@ -664,11 +664,11 @@ def test_reel_7_as_resolve_reads_it_derives_rippled_cuts():
 
     before = picture(
         [
-            ("Akshita", 22_232, 22_347, 0, 116),
-            ("Craig", 22_257, 22_693, 116, 553),
-            ("Craig", 25_263, 25_374, 553, 665),
-            ("Akshita", 25_557, 25_750, 665, 859),
-            ("Akshita", 60_745, 60_978, 859, 1_093),
+            ("SpeakerOne", 22_232, 22_347, 0, 116),
+            ("SpeakerTwo", 22_257, 22_693, 116, 553),
+            ("SpeakerTwo", 25_263, 25_374, 553, 665),
+            ("SpeakerOne", 25_557, 25_750, 665, 859),
+            ("SpeakerOne", 60_745, 60_978, 859, 1_093),
         ]
     ) + [
         _item("Speakers", "freeze", 0, 18, 1_093, 1_112),
@@ -679,9 +679,9 @@ def test_reel_7_as_resolve_reads_it_derives_rippled_cuts():
     ]
     after = picture(
         [
-            ("Akshita", 22_232, 22_347, 0, 116),
-            ("Craig", 22_257, 22_693, 116, 553),
-            ("Akshita", 25_557, 25_750, 553, 747),
+            ("SpeakerOne", 22_232, 22_347, 0, 116),
+            ("SpeakerTwo", 22_257, 22_693, 116, 553),
+            ("SpeakerOne", 25_557, 25_750, 553, 747),
         ]
     ) + [
         _item("Speakers", "freeze", 0, 18, 747, 766),
@@ -704,10 +704,10 @@ def test_reel_7_as_resolve_reads_it_derives_rippled_cuts():
         if edit["kind"] == "cut"
     )
     assert cuts == [
-        ("audio:Dialogue", "Akshita", True),
-        ("audio:Dialogue", "Craig", True),
-        ("video:Speakers", "Akshita", True),
-        ("video:Speakers", "Craig", True),
+        ("audio:Dialogue", "SpeakerOne", True),
+        ("audio:Dialogue", "SpeakerTwo", True),
+        ("video:Speakers", "SpeakerOne", True),
+        ("video:Speakers", "SpeakerTwo", True),
         ("video:Subtitles", "cap-a", True),
         ("video:Subtitles", "cap-b", True),
         ("video:Subtitles", "cap-d", True),
@@ -721,9 +721,9 @@ def test_reel_7_as_resolve_reads_it_derives_rippled_cuts():
 # The editor's trims and moves are carried through a rebuild, or refused.
 #
 # Reel 7's shape again, with the two edits Resolve has no verb for: the
-# editor trimmed 37 frames off the tail of the Craig passage and closed
+# editor trimmed 37 frames off the tail of the SpeakerTwo passage and closed
 # the gap (picture and sound), and dragged a Semantic graphic to sit over
-# a different moment of the Akshita shot. A rebuild restores the full
+# a different moment of the SpeakerOne shot. A rebuild restores the full
 # passage and the graphic's planned place. Carrying them goes through
 # `composed_edit` - delete and re-place - against the fake Resolve that
 # models what the composition defends against
@@ -754,18 +754,18 @@ def Project(timelines):
     return FakeProject("Mock Project", timelines, current=timelines[0])
 
 
-AKSHITA = pool_clip("/media/akshita.mov", frames=100_000)
-CRAIG = pool_clip("/media/craig.mov", frames=100_000)
+SPEAKERONE = pool_clip("/media/speakerone.mov", frames=100_000)
+SPEAKERTWO = pool_clip("/media/speakertwo.mov", frames=100_000)
 CARD = pool_clip("/media/semantic-card.mov", frames=200)
 LATE = pool_clip("/media/semantic-late.mov", frames=200)
 
 
-def reel(name, *, craig=437, late_at=700, card_on=True, comps=False):
+def reel(name, *, speakertwo=437, late_at=700, card_on=True, comps=False):
     """V1 picture with A1 sound, and two Semantic graphics on V3."""
-    shift = 437 - craig
-    passages = [(AKSHITA, 22_232, 116, 0), (CRAIG, 22_257, craig, 116),
-                (AKSHITA, 25_557, 194, 553 - shift),
-                (AKSHITA, 60_745, 234, 747 - shift)]
+    shift = 437 - speakertwo
+    passages = [(SPEAKERONE, 22_232, 116, 0), (SPEAKERTWO, 22_257, speakertwo, 116),
+                (SPEAKERONE, 25_557, 194, 553 - shift),
+                (SPEAKERONE, 60_745, 234, 747 - shift)]
 
     def picture(mpi, left, duration, start):
         frames = frames_of(mpi)
@@ -788,10 +788,10 @@ def reel(name, *, craig=437, late_at=700, card_on=True, comps=False):
 
 
 def edited():
-    """The editor's cut: Craig 37 frames shorter with the gap closed,
+    """The editor's cut: SpeakerTwo 37 frames shorter with the gap closed,
     the card off, and the late graphic dragged earlier (600, not the
-    rippled 663) over Akshita source frame 25,641."""
-    return reel(FINAL, craig=400, late_at=600, card_on=False)
+    rippled 663) over SpeakerOne source frame 25,641."""
+    return reel(FINAL, speakertwo=400, late_at=600, card_on=False)
 
 
 def played_2(timeline):
@@ -851,7 +851,7 @@ def test_a_rippled_trim_and_a_moved_graphic_are_carried(project_dir_2):
                 and edit["row"] == "video:Speakers")
     assert trim["ripple"] is True
     assert (trim["after"]["head"], trim["after"]["tail"]) == (0, 37)
-    assert trim["wording"].startswith("Trim 'craig.mov' source 22,257..")
+    assert trim["wording"].startswith("Trim 'speakertwo.mov' source 22,257..")
     move = next(edit for edit in edits if edit["kind"] == "move")
     assert move["after"]["anchor_source_frame"] == 25_641
     assert move["before"] == {"record_in": 700}
@@ -894,7 +894,7 @@ def test_a_trim_of_a_comp_bearing_clip_with_no_manifest_refuses_unwritten(
 @pytest.mark.usefixtures("mock_dvr")
 def test_a_trim_under_another_rows_item_refuses_unwritten(project_dir_2):
     live, staging = edited(), reel(STAGING)
-    # A graphic straddling the end of the Craig passage on both sides.
+    # A graphic straddling the end of the SpeakerTwo passage on both sides.
     for timeline, start in ((live, 500), (staging, 500)):
         timeline.add_item("video", 3, item(CARD, start, 80, 0))
         timeline.rows["V3"].sort(key=lambda placed: placed.GetStart())
@@ -915,21 +915,21 @@ def test_a_comp_bearing_trim_reruns_the_comp_pass_on_its_kept_range(
         project_dir_2):
     """The pass gets the recorded manifest with the trimmed spec moved."""
     staging = reel(STAGING, comps=True)
-    live = reel(FINAL, craig=400, late_at=600, card_on=False, comps=True)
+    live = reel(FINAL, speakertwo=400, late_at=600, card_on=False, comps=True)
     wanted = played_2(live)
     project = Project([Timeline(MASTER, {}), live, staging])
     sources = [i.GetMediaPoolItem().GetClipProperty("File Path")
                for i in staging.rows["V1"]]
     manifest = {
-        "fusion_effects": {"per_clip": {"craig": {"zoom": 1.2}}},
+        "fusion_effects": {"per_clip": {"speakertwo": {"zoom": 1.2}}},
         "tracks": {"V1": {"clips": [
             {"label": f"clip{n}", "source_file": path,
              "source_in": 10.0, "source_out": 10.0 + 437 / 30}
-            if path.endswith("craig.mov") else
+            if path.endswith("speakertwo.mov") else
             {"label": f"clip{n}", "source_file": path}
             for n, path in enumerate(sources)]}},
     }
-    manifest["tracks"]["V1"]["clips"][1]["label"] = "craig"
+    manifest["tracks"]["V1"]["clips"][1]["label"] = "speakertwo"
     scratch = project_dir_2 / "pipeline_output" / "scratch" / "reel_look"
     scratch.mkdir(parents=True)
     (scratch / "reel_07_number_one_on_google_invisible_to_ai_rebuild_staging"
@@ -955,9 +955,9 @@ def test_a_comp_bearing_trim_reruns_the_comp_pass_on_its_kept_range(
     assert played_2(staging) == wanted
     (given, timeline_name), = passes
     assert timeline_name == STAGING
-    craig = given["tracks"]["V1"]["clips"][1]
-    assert craig["source_in"] == pytest.approx(10.0)
-    assert craig["source_out"] == pytest.approx(10.0 + 400 / 30)
+    speakertwo = given["tracks"]["V1"]["clips"][1]
+    assert speakertwo["source_in"] == pytest.approx(10.0)
+    assert speakertwo["source_out"] == pytest.approx(10.0 + 400 / 30)
 
 
 # --------------------------------------------------------------------------
@@ -991,7 +991,7 @@ def detail(row, index, name, record_in, record_out, *, source_in=0,
 
 def touched_tracks():
     return [
-        {"clips": [detail("Akshita", 1, "LC4932.MXF", 0, 120,
+        {"clips": [detail("SpeakerOne", 1, "LC4932.MXF", 0, 120,
                           source_in=34305, pan=-8.11)]},
         {"clips": [detail("Subtitles", 4, "sub_a.mov", 0, 40),
                    detail("Subtitles", 4, "sub_b.mov", 40, 120)]},
@@ -1091,8 +1091,8 @@ def _touch_item(record_in, transform=None, enabled=True):
         "track_type": "video",
         "track_index": 1,
         "track_name": "Speakers",
-        "name": "Akshita",
-        "source_identity": "file:/media/akshita.mov",
+        "name": "SpeakerOne",
+        "source_identity": "file:/media/speakerone.mov",
         "source_in_frame": 100,
         "source_out_frame": 200,
         "record_in": record_in,
@@ -1148,7 +1148,7 @@ def test_a_touch_write_whose_clip_is_gone_refuses_naming_the_touch(
     # The plan change dropped the touched passage entirely: no staged
     # item plays it, so the rebuild refuses instead of dropping it.
     gone = {"items": [_touch_item(0, {"ZoomX": 1.0})]}
-    gone["items"][0]["source_identity"] = "file:/media/craig.mov"
+    gone["items"][0]["source_identity"] = "file:/media/speakertwo.mov"
     with pytest.raises(carry.EditorEditCarryRefused,
                        match=r"Ren touch touch-7"):
         carry.plan_application(

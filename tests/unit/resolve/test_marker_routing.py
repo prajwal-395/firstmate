@@ -333,13 +333,13 @@ VOCABULARY_ROWS = (
      "are bleeding", {"audio_mix"}),
     # Two steps' decisions: ambiguous is correct here, not a tie-break.
     ("take the music down a touch", {"speech_sequence", "music_selection"}),
-    ("there is some fluf to remove from here where akshita messes "
+    ("there is some fluf to remove from here where speakerone messes "
      "up and recovers", {"speech_sequence"}),
-    ("the end of akshita's audio is cut off here, can you fix this",
+    ("the end of speakerone's audio is cut off here, can you fix this",
      {"speech_sequence"}),
-    ("there was an answer from akshita here that was cut out and it "
-     "makes the jump to craig feel wrong", {"speech_sequence"}),
-    ("akshita seems to kinda say the same things over in this span, "
+    ("there was an answer from speakerone here that was cut out and it "
+     "makes the jump to speakertwo feel wrong", {"speech_sequence"}),
+    ("speakerone seems to kinda say the same things over in this span, "
      "so it needs to be consolidated down properly", {"speech_sequence"}),
     ("there is not value add in the reel, this needs to be fixed",
      {"speech_sequence"}),

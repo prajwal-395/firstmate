@@ -371,7 +371,7 @@ def _cover_neighbour(source_file):
         track_type="video", source_file=source_file,
         source_in=5.0, source_out=7.0,
         timeline_start=50.0, timeline_end=52.0,
-        speaker="Craig")
+        speaker="SpeakerTwo")
 
 
 def _probe_result(stdout):
@@ -393,7 +393,7 @@ def test_cover_over_an_unparseable_word_refuses():
 
     with _tempfile.NamedTemporaryFile(suffix=".mp4") as tmp:
         neighbour = _cover_neighbour(_os.path.abspath(tmp.name))
-        transcript = {"segments": [{"speaker": "Craig", "words": [
+        transcript = {"segments": [{"speaker": "SpeakerTwo", "words": [
             {"word": "well", "start": "soon"}]}]}
         with patch.object(
                 subprocess, "run",

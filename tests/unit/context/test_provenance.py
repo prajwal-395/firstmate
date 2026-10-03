@@ -366,7 +366,7 @@ def test_caption_hash_ignores_styling():
 
     a = _Card(0.0, 24, "hello")
     b = _Card(0.0, 24, "hello")
-    b.speaker, b.font_size = "Craig", 99
+    b.speaker, b.font_size = "SpeakerTwo", 99
     assert pp.caption_content_hash([a]) == pp.caption_content_hash([b])
 
     # ...but a change to one card's text alone is.
@@ -788,7 +788,7 @@ def _write_plan_2(path: Path) -> Path:
         "moments": [
             {"number": 9, "slug": "test-moment", "reason": "test",
              "timeline_start": 690.0, "timeline_end": 710.0,
-             "approval": "approved", "speakers": ["Akshita"]},
+             "approval": "approved", "speakers": ["SpeakerOne"]},
         ],
     }
     path.write_text(json.dumps(doc, indent=2), encoding="utf-8")

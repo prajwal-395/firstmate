@@ -65,8 +65,8 @@ def test_conversation_analyze_plan_build_touch_rebuild_deliver(
     proposal = golden.plan(folder, golden.conversation_answer(recipe))
     (moment,) = json.loads(proposal.read_text(encoding="utf-8"))["moments"]
     assert moment["approval"] == "proposed"
-    assert moment["speakers"] == ["Akshita", "Craig"]
-    assert moment["call_to_action"]["speaker"] == "Akshita"
+    assert moment["speakers"] == ["SpeakerOne", "SpeakerTwo"]
+    assert moment["call_to_action"]["speaker"] == "SpeakerOne"
     assert moment["call_to_action"]["text"] == recipe.lines[4].text
     assert golden.build(folder) != 0, (
         "nothing is approved, so nothing may be built")
@@ -80,9 +80,9 @@ def test_conversation_analyze_plan_build_touch_rebuild_deliver(
     assert reel.GetSetting("timelineFrameRate") == recipe.resolve_rate
     built = golden.rows(reel)
     assert [name for kind, name in built if kind == "video"][:2] == [
-        "Akshita", "Craig"]
-    assert ("audio", "Akshita CH1") in built
-    assert ("audio", "Craig CH1") in built
+        "SpeakerOne", "SpeakerTwo"]
+    assert ("audio", "SpeakerOne CH1") in built
+    assert ("audio", "SpeakerTwo CH1") in built
     captions = built[("video", "Subtitles")]
     assert len(captions) == len(renderer.rendered) // 2
     assert all(enabled for _s, _e, enabled in captions)
@@ -113,13 +113,13 @@ def test_conversation_analyze_plan_build_touch_rebuild_deliver(
     assert by_hand_angle.SetProperty("Pan", 40.0)
     hand_edited = golden.rows(reel)
 
-    # ...then the plan changes: the body now ends on Akshita's line.
+    # ...then the plan changes: the body now ends on SpeakerOne's line.
     golden.rule(proposal, timeline_end=recipe.lines[2].last)
     capsys.readouterr()
     assert run_build_cli(monkeypatch, folder, []) == REFUSAL_EXIT_CODE, (
         "the replace guard refuses: nothing is promoted")
     refused_err = capsys.readouterr().err
-    assert ("--allow-drop 'audio:Craig CH1' --allow-drop 'video:Subtitles'"
+    assert ("--allow-drop 'audio:SpeakerTwo CH1' --allow-drop 'video:Subtitles'"
             in refused_err), "the refusal names the rows that shrink"
     assert "Traceback" not in refused_err, "a refusal prints no traceback"
     reel = golden.timeline(project, golden.REEL)

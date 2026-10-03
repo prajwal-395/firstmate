@@ -27,7 +27,7 @@ from library.tools.resolve_transform import FALLBACK_DRAW_GAIN
 # ── Fixtures ─────────────────────────────────────────────────────────
 
 def _tx():
-    """Two spans of timed speech: Akshita explains, Craig asks."""
+    """Two spans of timed speech: SpeakerOne explains, SpeakerTwo asks."""
     def seg(speaker, text, start, words):
         out = []
         cursor = start
@@ -40,15 +40,15 @@ def _tx():
                 "timeline_end": round(cursor, 3), "words": out}
 
     return {"segments": [
-        seg("Akshita", "akshita explains the number clearly", 10.0,
-            ["akshita", "explains", "the", "number", "clearly"]),
-        seg("Craig", "craig asks where the rest comes from", 20.0,
-            ["craig", "asks", "where", "the", "rest", "comes", "from"]),
+        seg("SpeakerOne", "speakerone explains the number clearly", 10.0,
+            ["speakerone", "explains", "the", "number", "clearly"]),
+        seg("SpeakerTwo", "speakertwo asks where the rest comes from", 20.0,
+            ["speakertwo", "asks", "where", "the", "rest", "comes", "from"]),
     ]}
 
 
 def _override(anchor="explains the number", prop="Pan", value=-35.0,
-              reason="captain: akshita sits left of the frame edge"):
+              reason="captain: speakerone sits left of the frame edge"):
     edit = {"kind": "transform_override", "anchor_phrase": anchor,
             "property": prop, "value": value, "reason": reason}
     if prop in ("Pan", "Tilt"):
@@ -79,7 +79,7 @@ def _write_transcript(project, transcript):
     path.write_text(json.dumps(transcript), encoding="utf-8")
 
 
-def _span(master, speaker="Akshita"):
+def _span(master, speaker="SpeakerOne"):
     clip = type("Clip", (), {})()
     clip.track_index = 1
     clip.track_type = "video"
@@ -227,7 +227,7 @@ def test_a_refused_override_names_what_refused_it(name):
 # ── 2. Matching: words to placed spans ──────────────────────────────
 
 def test_an_override_matches_the_span_speaking_its_anchor():
-    spans = [_span((10.0, 14.0)), _span((20.0, 24.0), speaker="Craig")]
+    spans = [_span((10.0, 14.0)), _span((20.0, 24.0), speaker="SpeakerTwo")]
     matched, stale = captain_edits.match_transform_overrides(
         spans, _tx(), [_override()])
     assert stale == []
@@ -240,7 +240,7 @@ def test_an_override_matches_the_span_speaking_its_anchor():
 def test_a_stale_override_says_which_kind_of_stale_it_is():
     """Routine (another reel's words) versus LOST (words gone everywhere);
     history in `docs/evidence/transform_override.md`."""
-    spans = [_span((20.0, 24.0), speaker="Craig")]
+    spans = [_span((20.0, 24.0), speaker="SpeakerTwo")]
     matched, stale = captain_edits.match_transform_overrides(
         spans, _tx(), [_override(anchor="explains the number"),
                        _override(anchor="zebras on mars")])
@@ -280,7 +280,7 @@ def test_an_override_for_another_reel_is_not_called_lost(
     _write_edits_file(project, [_override(anchor="explains the number")])
     reel_build.apply_transform_overrides(
         "Reel 09", _TrackPlan(), {"1": 1},
-        [_span((20.0, 24.0), speaker="Craig")],
+        [_span((20.0, 24.0), speaker="SpeakerTwo")],
         _Timeline([_Item(pan=14.0)]), _tx(), str(project), 1080, 1920)
     said = capsys.readouterr().err
     assert "not on this reel" in said
@@ -444,7 +444,7 @@ def test_reel24_override_matches_the_opening_same_named_item_and_covers_tv(
             words.append({"word": token, "start": round(cursor, 3),
                           "end": round(cursor + 0.3, 3), "timed": True})
             cursor += 0.4
-        return {"speaker": "Craig", "text": text,
+        return {"speaker": "SpeakerTwo", "text": text,
                 "timeline_start": start,
                 "timeline_end": round(cursor, 3), "words": words}
 
@@ -452,11 +452,11 @@ def test_reel24_override_matches_the_opening_same_named_item_and_covers_tv(
         segment("why do ai platforms love video content", 10.0),
         segment("later unrelated footage plays here", 20.0),
     ]}
-    opening = _span((10.0, 14.0), speaker="Craig")
+    opening = _span((10.0, 14.0), speaker="SpeakerTwo")
     opening["clip"].source_file = "/media/LCATL0013.MXF"
     opening["source_in"] = 3943.372
     opening["source_out"] = 3947.001
-    next_shot = _span((20.0, 24.0), speaker="Craig")
+    next_shot = _span((20.0, 24.0), speaker="SpeakerTwo")
     next_shot["clip"].source_file = "/media/LCATL0013.MXF"
     next_shot["snapped_record"] = 1
     placements = [opening, next_shot]
@@ -495,7 +495,7 @@ def test_reel24_override_matches_the_opening_same_named_item_and_covers_tv(
     assert old_items[1].sets == []
 
     # Source measurement is center_x=.4828, center_y=.325. The recorded
-    # frame still shows Craig speaking, so this manual aim resolves the
+    # frame still shows SpeakerTwo speaking, so this manual aim resolves the
     # detector's `others=1` ambiguity without treating it as auto-punch.
     current_records = transform_records(
         [("Pan", 39.263), ("Tilt", -696.041),
@@ -564,7 +564,7 @@ def test_reel24_punch_ins_and_override_share_vertical_timeline_units(
             "GetMediaPoolItem": lambda self: _HDPoolItem(),
         })
         items.append(item_type(zoom=1.0))
-        place = _span((index * 4.0, (index + 1) * 4.0), speaker="Craig")
+        place = _span((index * 4.0, (index + 1) * 4.0), speaker="SpeakerTwo")
         place["clip"].source_file = "/media/LCATL0013.MXF"
         places.append(place)
 
@@ -660,7 +660,7 @@ def test_record_closer_refuses_a_typo_before_it_lands(tmp_path):
     _write_transcript(project, _tx())
     typo = {"kind": "redraw_closer",
             "anchor_phrase": "explains the number",
-            "from_phrase": "craig asks where the zebras",
+            "from_phrase": "speakertwo asks where the zebras",
             "reason": "captain: typo check"}
     with pytest.raises(captain_edits.CaptainEditError):
         captain_edits.record_edit(str(project), typo)
@@ -688,9 +688,9 @@ def test_the_external_check_covers_the_new_kind(tmp_path):
     from library.tools.external_inputs import ExternalStateError
     project = _project(tmp_path)
     _write_edits_file(project, [_override(
-        anchor="akshita explains the number")])
+        anchor="speakerone explains the number")])
     state = {"step_outputs": {"speech_sequence": {"body_sequence": [
-        {"text": "akshita explains the number clearly"}]}}}
+        {"text": "speakerone explains the number clearly"}]}}}
     supplied = external_inputs.load(str(project), state)
     assert "1 edit(s)" in supplied["captain_edits"].checked
     _write_edits_file(project, [_override(anchor="zebras on mars")])
@@ -705,7 +705,7 @@ def test_cli_record_then_list(tmp_path, capsys):
     assert captain_edits.main([
         str(project), "record-transform", "--anchor", "explains the number",
         "--property", "Pan", "--value", "-35",
-        "--reason", "captain: akshita sits left"]) == 0
+        "--reason", "captain: speakerone sits left"]) == 0
     out, _ = capsys.readouterr()
     assert "recorded" in out and "Pan" in out
     assert captain_edits.main([str(project), "list"]) == 0
@@ -874,10 +874,10 @@ def _freeze(held_master):
     clip.track_index = 1
     clip.track_type = "video"
     clip.source_file = "reel_freeze_test.mov"
-    clip.speaker = "Akshita"
+    clip.speaker = "SpeakerOne"
     return {"clip": clip, "source_in": 0.0, "source_out": 0.8,
             "record": 4.0, "snapped_record": 96, "track_index": 1,
-            "speaker": "Akshita", "master": (0.0, 0.0),
+            "speaker": "SpeakerOne", "master": (0.0, 0.0),
             "held_master": held_master, "freeze": True}
 
 

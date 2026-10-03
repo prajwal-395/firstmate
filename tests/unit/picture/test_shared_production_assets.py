@@ -31,7 +31,7 @@ REEL_01 = "Reel 01 - geo-is-comprehension-not-position"
 REEL_09 = "Reel 09 - your-website-is-only-20-percent"
 
 SUB = (f"{PROJECT_ROOT}/pipeline_output/steps/4_05_render_subtitles/"
-       "sub_akshita_x.mov")
+       "sub_speakerone_x.mov")
 FRAME = (f"{PROJECT_ROOT}/pipeline_output/steps/7_01_build_reels/"
          "frame_overlays/tv_frame_x.mov")
 FREEZE = (f"{PROJECT_ROOT}/pipeline_output/steps/7_01_build_reels/"
@@ -88,10 +88,10 @@ def test_a_shared_subtitle_render_files_under_the_shared_leaf():
     reel owns it, but it is still a render, so it files under the
     shared leaf instead of sitting at the root beside the unfiled."""
     plan = a_plan(base() + [
-        clip("c-sub", "sub_akshita_x.mov", path=SUB,
+        clip("c-sub", "sub_speakerone_x.mov", path=SUB,
              placed_by=[REEL_01, REEL_09])])
     dest = {v.name: v.destination for v in plan.verdicts}
-    assert dest["sub_akshita_x.mov"] == (BIN_SUBTITLES, BIN_SHARED)
+    assert dest["sub_speakerone_x.mov"] == (BIN_SUBTITLES, BIN_SHARED)
 
 
 def test_the_shared_leaf_is_never_a_retirement():

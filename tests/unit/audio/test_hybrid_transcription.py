@@ -345,9 +345,9 @@ def test_transcriber_timed_words_are_counted_on_the_record(monkeypatch):
     monkeypatch.setattr(
         heard_speech, "transcribe",
         lambda path, **kw: _heard(
-            [("Craig", 1.0, 1.2), ("nods", 1.2, 1.5),
+            [("SpeakerTwo", 1.0, 1.2), ("nods", 1.2, 1.5),
              ("Yeah.", 5.0, 5.16)],
-            [("Craig nods", 1.0, 1.5), ("Yeah.", 5.0, 5.16)]))
+            [("SpeakerTwo nods", 1.0, 1.5), ("Yeah.", 5.0, 5.16)]))
 
     def _one_fallback_window(windows, language, audio_path):
         segments = []

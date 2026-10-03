@@ -600,7 +600,7 @@ def test_everything_else_reads_the_project_row(tmp_path):
 #
 # The closing card's row is DECLARED, not defaulted.
 #
-# The closing logo animation landed on V1 - Akshita's camera row - on
+# The closing logo animation landed on V1 - SpeakerOne's camera row - on
 # every reel because `build_reel_timeline` placed it on the first a-roll
 # row by POSITION, with nothing declared to say otherwise (2026-09-12,
 # captain's blue marker on Reel 13). The row is now one declared value -
@@ -657,10 +657,10 @@ def test_anything_but_the_two_roles_or_no_role_with_cards_is_refused(
 # ── B. The layout ──────────────────────────────────────────────────
 
 def _angles():
-    return [{"key": "1", "label": "Akshita",
-             "speech_name": "Akshita CH1", "program_channel": 1},
-            {"key": "2", "label": "Craig",
-             "speech_name": "Craig CH1", "program_channel": 1}]
+    return [{"key": "1", "label": "SpeakerOne",
+             "speech_name": "SpeakerOne CH1", "program_channel": 1},
+            {"key": "2", "label": "SpeakerTwo",
+             "speech_name": "SpeakerTwo CH1", "program_channel": 1}]
 
 
 def test_card_spans_mint_the_role_row_and_join_its_packing():
@@ -670,7 +670,7 @@ def test_card_spans_mint_the_role_row_and_join_its_packing():
         "angles": _angles(), "caption_spans": [(0, 100)],
         "card_role": "semantic", "card_spans": [(480, 551)]})
     names = [(t.index, t.name) for t in plan.video_tracks]
-    assert names == [(1, "Akshita"), (2, "Craig"), (3, "Subtitles"),
+    assert names == [(1, "SpeakerOne"), (2, "SpeakerTwo"), (3, "Subtitles"),
                      (4, "Semantic")]
     assert plan.rows_for_role("semantic")[0].index == 4
 
@@ -734,7 +734,7 @@ def _row_of(timeline, name):
 
 
 def test_a_tail_card_lands_on_the_row_named_for_its_role_not_v1(tmp_path):
-    """The defect, planted: V1 here is Akshita, and the card must not
+    """The defect, planted: V1 here is SpeakerOne, and the card must not
     be on it."""
     timeline, pool, project = _world()
     record = build_reel_timeline(
@@ -745,7 +745,7 @@ def test_a_tail_card_lands_on_the_row_named_for_its_role_not_v1(tmp_path):
         master_timeline=None, program_channels={"1": 1, "2": 1},
         card_row_role="semantic")
     names = _card_row_names(timeline)
-    assert names[1] == "Akshita"
+    assert names[1] == "SpeakerOne"
     assert _row_of(timeline, "logo_reveal.mov") == 4
     assert names[4] == "Semantic"
     # And the SOP proof still reads the built timeline clean: named
@@ -770,7 +770,7 @@ def test_a_tail_card_lands_on_the_row_named_for_its_role_not_v1(tmp_path):
         master_timeline=None, program_channels={"1": 1, "2": 1},
         card_row_role="motion_graphics")
     names = _card_row_names(timeline)
-    assert names[1] == "Akshita"
+    assert names[1] == "SpeakerOne"
     row = _row_of(timeline, "logo_reveal.mov")
     assert row is not None and row != 1
     assert names[row] == "Motion Graphics"
@@ -822,13 +822,13 @@ def _declared_card():
 
 
 def test_f13_fails_a_card_on_a_row_whose_name_breaks_its_role_only():
-    """THE gate this task was missing: the logo on V1 Akshita, with
+    """THE gate this task was missing: the logo on V1 SpeakerOne, with
     semantic declared, is an error naming the declared row.
 
     The input that breaks it is a card item whose track NAME is a
     camera row while `card_row_role` declares an overlay role."""
     findings = check_full_frame_cards(
-        "Reel 13", [_declared_card()], [_placed(1, "Akshita")],
+        "Reel 13", [_declared_card()], [_placed(1, "SpeakerOne")],
         1080, 1920, FPS, card_row_role="semantic")
     assert [f.finding_class for f in findings] == [FindingClass.F13]
     assert "Semantic" in findings[0].message
@@ -861,7 +861,7 @@ def test_the_classifier_keeps_a_card_on_an_overlay_row_as_picture():
         timeline_name = "Reel 13"
         start_frame, end_frame = 0, 551
         width, height = 1080, 1920
-        clips = [_Clip(1, "/m/a.MXF", "Akshita", 0.0, 20.0),
+        clips = [_Clip(1, "/m/a.MXF", "SpeakerOne", 0.0, 20.0),
                  _Clip(5, CARD_FILE, "Semantic", 20.0, 23.0)]
 
     card = _declared_card()
@@ -957,7 +957,7 @@ def test_a_motion_graphics_row_is_a_layer_not_a_camera():
             source_file="/m/mg.mov", source_in=0.0, source_out=1.0,
             source_in_frame=0, source_out_frame=24, source_frames=100,
             timeline_start=0.0, timeline_end=1.0, name="mg")
-    clips = [_clip(1, "Akshita"), _clip(2, "Craig"),
+    clips = [_clip(1, "SpeakerOne"), _clip(2, "SpeakerTwo"),
              _clip(5, "Motion Graphics")]
     assert [a["key"] for a in reel_angles(clips)] == ["1", "2"]
 

@@ -883,8 +883,8 @@ class FakeClip:
         self.resolve_item_id = "id"
         self.track_type = "video"
         self.track_index = 1
-        self.track_name = "Craig"
-        self.speaker = "Craig"
+        self.track_name = "SpeakerTwo"
+        self.speaker = "SpeakerTwo"
         self.source_file = "/f/a.mov"
         self.source_in_frame = 0
         self.source_out_frame = 100
@@ -1588,10 +1588,10 @@ def test_characteristics_read_the_median_of_caption_rows_only():
 
     per_reel = {
         REELS[0]: census.row_characteristics(
-            [_clip("Craig", -100.0), _clip("Craig", -102.0),
+            [_clip("SpeakerTwo", -100.0), _clip("SpeakerTwo", -102.0),
              _clip("B-Roll", 500.0)]),
         REELS[1]: census.row_characteristics(
-            [_clip("Craig", -900.0), _clip("Craig", -902.0),
+            [_clip("SpeakerTwo", -900.0), _clip("SpeakerTwo", -902.0),
              _clip("B-Roll", -500.0)]),
     }
     report = census.compare_reel_rows(per_reel)

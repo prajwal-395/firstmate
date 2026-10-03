@@ -97,23 +97,23 @@ def _two_angle_manifest():
         },
         "angles": [
             {
-                "key": "akshita",
-                "label": "Akshita",
-                "speech_name": "Akshita CH1",
+                "key": "speakerone",
+                "label": "SpeakerOne",
+                "speech_name": "SpeakerOne CH1",
                 "program_channel": 1,
             },
             {
-                "key": "craig",
-                "label": "Craig",
-                "speech_name": "Craig CH1",
+                "key": "speakertwo",
+                "label": "SpeakerTwo",
+                "speech_name": "SpeakerTwo CH1",
                 "program_channel": 1,
             },
         ],
         "tracks": {
             "V1": {
                 "clips": [
-                    clip("/media/LC4930.MXF", "akshita", 0),
-                    clip("/media/LCATL0011.MXF", "craig", 48),
+                    clip("/media/LC4930.MXF", "speakerone", 0),
+                    clip("/media/LCATL0011.MXF", "speakertwo", 48),
                 ]
             }
         },
@@ -152,10 +152,10 @@ def test_every_row_is_named_from_the_plan(fake_world, monkeypatch):
     result = _run_builder(fake_world, _two_angle_manifest(), monkeypatch)
     assert result["success"], result["errors"]
     tl = fake_world["timeline"]
-    assert tl.GetTrackName("video", 1) == "Akshita"
-    assert tl.GetTrackName("video", 2) == "Craig"
-    assert tl.GetTrackName("audio", 1) == "Akshita CH1"
-    assert tl.GetTrackName("audio", 2) == "Craig CH1"
+    assert tl.GetTrackName("video", 1) == "SpeakerOne"
+    assert tl.GetTrackName("video", 2) == "SpeakerTwo"
+    assert tl.GetTrackName("audio", 1) == "SpeakerOne CH1"
+    assert tl.GetTrackName("audio", 2) == "SpeakerTwo CH1"
 
 
 def test_caption_inside_speech_joins_one_three_group(fake_world, monkeypatch):
@@ -165,7 +165,7 @@ def test_caption_inside_speech_joins_one_three_group(fake_world, monkeypatch):
     manifest["subtitle_overlay"] = {
         "segments": [
             {
-                "overlay_path": "/media/cap_akshita.mov",
+                "overlay_path": "/media/cap_speakerone.mov",
                 "geometry": "full",
                 "timeline_start": 0.5,
                 "timeline_end": 1.5,
@@ -229,17 +229,17 @@ def test_verifier_flags_every_sop_violation():
     dup = TimelineItemSpec("LC4930.MXF", 0, 100, path="/media/LC4930.MXF")
     tl = FakeTimeline(
         "Fake",
-        video=[("Akshita", [pic]), ("Subtitles", [cap]), ("Video 3", [])],
-        audio=[("Akshita CH1", [speech]), ("Akshita CH1", [dup])],
+        video=[("SpeakerOne", [pic]), ("Subtitles", [cap]), ("Video 3", [])],
+        audio=[("SpeakerOne CH1", [speech]), ("SpeakerOne CH1", [dup])],
     )
 
     plan = plan_layout(
         {
             "angles": [
                 {
-                    "key": "akshita",
-                    "label": "Akshita",
-                    "speech_name": "Akshita CH1",
+                    "key": "speakerone",
+                    "label": "SpeakerOne",
+                    "speech_name": "SpeakerOne CH1",
                     "program_channel": 1,
                 }
             ],
@@ -257,7 +257,7 @@ def test_verifier_flags_every_sop_violation():
     by_check = {v["check"] for v in report["violations"]}
     assert "empty_track" in by_check  # defect 4: V2
     assert "unnamed_track" in by_check  # defect 6: "Video 2"
-    assert "duplicate_role" in by_check  # two rows named "Akshita CH1"
+    assert "duplicate_role" in by_check  # two rows named "SpeakerOne CH1"
     assert "aroll_unlinked" in by_check  # defect 5: picture+speech
     assert "caption_unlinked" in by_check  # defect 5: caption in span
     assert "program_stream" in by_check  # defects 2/3: CH3 placed, CH1 due
@@ -275,7 +275,7 @@ def test_verifier_without_a_plan_runs_structure_only_and_says_so():
 # ── a HELD FRAME is not an unlinked picture ─────────────────────
 # Measured 2026-09-12 rebuilding the captain's field-test project:
 # Reel 09 placed correctly through the variant path and this verifier
-# removed it, naming the freeze tail - "Picture item at 1650 on Craig
+# removed it, naming the freeze tail - "Picture item at 1650 on SpeakerTwo
 # links to nothing". A hold is rendered onto the ending shot's own
 # a-roll row and carries no audio anywhere on the timeline, so it can
 # never be linked to anything. `reel_ending.is_freeze_path` is the
@@ -294,8 +294,8 @@ def _timeline_with_tail(tail_name, tail_pool):
     tail = TimelineItemSpec(tail_name, 100, 119, path=tail_pool)
     tl = FakeTimeline(
         "Fake",
-        video=[("Akshita", [pic, tail]), ("Subtitles", [])],
-        audio=[("Akshita CH1", [speech])],
+        video=[("SpeakerOne", [pic, tail]), ("Subtitles", [])],
+        audio=[("SpeakerOne CH1", [speech])],
     )
     placed_pic = tl.GetItemListInTrack("video", 1)[0]
     placed_speech = tl.GetItemListInTrack("audio", 1)[0]
@@ -304,9 +304,9 @@ def _timeline_with_tail(tail_name, tail_pool):
         {
             "angles": [
                 {
-                    "key": "akshita",
-                    "label": "Akshita",
-                    "speech_name": "Akshita CH1",
+                    "key": "speakerone",
+                    "label": "SpeakerOne",
+                    "speech_name": "SpeakerOne CH1",
                     "program_channel": 1,
                 }
             ],

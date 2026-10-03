@@ -49,7 +49,7 @@ from library.tools.reel_proposal import (
 )
 
 
-def _words(text, start, ends, speaker="Craig"):
+def _words(text, start, ends, speaker="SpeakerTwo"):
     parts = text.split(" ")
     return [{"word": word, "start": start if i == 0 else ends[i - 1],
              "end": ends[i], "timed": True}
@@ -65,7 +65,7 @@ def _seg(speaker, text, start, ends, uid="u"):
 
 def _lc0004_transcript():
     """lc-0004's own words and seconds, exactly as
-    `test_keep_insistence` states them: a lead-in plus one Craig
+    `test_keep_insistence` states them: a lead-in plus one SpeakerTwo
     sentence carrying a rhetorical triple, which the word-stream scan
     reads as a retake. Trimmed fixtures do NOT reproduce the cut (the
     weak 3-word band needs the full stream), so the words are whole."""
@@ -75,7 +75,7 @@ def _lc0004_transcript():
         ("head", 10.398, 10.518), ("of", 10.558, 10.638),
         ("marketing", 10.699, 11.040), ("hey", 11.060, 11.120),
     ]
-    craig_words = [
+    speakertwo_words = [
         ("we've", 11.241, 11.401), ("got", 11.421, 11.522),
         ("to", 11.542, 11.582), ("get", 11.622, 11.723),
         ("into", 11.763, 11.924), ("geo", 11.984, 12.245),
@@ -91,16 +91,16 @@ def _lc0004_transcript():
     def _raw(words, item):
         first, last = words[0], words[-1]
         return {"timeline_start": first[1], "timeline_end": last[2],
-                "speaker": "Craig", "resolve_item_id": item,
+                "speaker": "SpeakerTwo", "resolve_item_id": item,
                 "text": " ".join(w for w, _s, _e in words),
                 "words": [{"word": w, "start": s, "end": e, "timed": True}
                           for w, s, e in words]}
 
     return {"segments": [_raw(lead_in, "clip-0"),
-                         _raw(craig_words, "clip-1")]}
+                         _raw(speakertwo_words, "clip-1")]}
 
 
-def _cut(dropped, kept, speaker="Craig", cont=0.667, jac=0.667):
+def _cut(dropped, kept, speaker="SpeakerTwo", cont=0.667, jac=0.667):
     return reel_build.Cut(
         dropped_start=dropped[0], dropped_end=dropped[1],
         dropped_text="dropped", kept_start=kept[0], kept_end=kept[1],
@@ -117,22 +117,22 @@ def test_each_indefensible_cut_is_withdrawn_by_name():
     J4 cross-speaker (two voices saying DIFFERENT things at once), J5 a
     dropped edge strictly inside a timed word."""
     two_voices = {"segments": [
-        _seg("Craig", "yeah so ai is actually better", 1200.588,
+        _seg("SpeakerTwo", "yeah so ai is actually better", 1200.588,
              [1200.70, 1200.90, 1201.10, 1201.30, 1201.50, 1201.70],
              uid="c"),
-        _seg("Akshita", "quite another point being made now", 1200.633,
+        _seg("SpeakerOne", "quite another point being made now", 1200.633,
              [1200.75, 1200.95, 1201.15, 1201.35, 1201.45, 1201.55],
              uid="a"),
     ]}
     one_voice = {"segments": [
-        _seg("Craig", "yeah so ai is actually better", 10.0,
+        _seg("SpeakerTwo", "yeah so ai is actually better", 10.0,
              [10.2, 10.4, 10.6, 10.8, 10.9, 11.0], uid="c"),
     ]}
     mid_word = {"segments": [
-        _seg("Akshita", "everything else on the broader web", 2428.626,
+        _seg("SpeakerOne", "everything else on the broader web", 2428.626,
              [2428.95, 2429.17, 2429.33, 2429.50, 2429.76, 2429.86],
              uid="a1"),
-        _seg("Akshita", "for example", 2429.90,
+        _seg("SpeakerOne", "for example", 2429.90,
              [2430.00, 2430.48], uid="a2"),
     ]}
     cases = [
@@ -142,7 +142,7 @@ def test_each_indefensible_cut_is_withdrawn_by_name():
          "spans_overlap"),
         (_cut((1200.60, 1201.40), (1202.00, 1203.00)), 1200.0, 1205.0,
          two_voices, "cross_speaker"),
-        (_cut((2428.626, 2429.60), (2455.581, 2456.959), speaker="Akshita",
+        (_cut((2428.626, 2429.60), (2455.581, 2456.959), speaker="SpeakerOne",
               cont=0.75, jac=0.60), 2420.0, 2460.0, mid_word,
          "mid_word_edge"),
     ]
@@ -157,7 +157,7 @@ def test_each_indefensible_cut_is_withdrawn_by_name():
 
 def test_lc0004_the_mid_sentence_cut_is_withdrawn():
     """lc-0004: 'got to get into' (11.42-11.98) sits strictly inside one
-    Craig segment (11.241-...) that flows on both sides of it. The
+    SpeakerTwo segment (11.241-...) that flows on both sides of it. The
     candidate generator still proposes it; the judge withdraws it."""
     transcript = _lc0004_transcript()
     candidates = reel_build.redundant_takes(9.0, 16.0, transcript)
@@ -196,13 +196,13 @@ def test_working_pair_cuts_survive_the_judge():
     Withdrawing either would regress an approved reel with no complaint
     against it."""
     transcript = {"segments": [
-        _seg("Akshita", "and i got", 2244.995,
+        _seg("SpeakerOne", "and i got", 2244.995,
              [2245.16, 2245.20, 2246.01], uid="a1"),
-        _seg("Akshita", "and that is a very specific query", 2246.07,
+        _seg("SpeakerOne", "and that is a very specific query", 2246.07,
              [2246.15, 2246.25, 2246.31, 2246.36, 2246.56, 2247.01,
               2247.25],
              uid="a2"),
-        _seg("Akshita", "i got some", 2251.833,
+        _seg("SpeakerOne", "i got some", 2251.833,
              [2251.91, 2252.16, 2252.37], uid="a3"),
     ]}
     segs = transcript["segments"]
@@ -215,11 +215,11 @@ def test_working_pair_cuts_survive_the_judge():
     # covers whole segments - withdrawing interior excisions must not
     # take whole-telling removals with it.
     reel03 = {"segments": [
-        _seg("Akshita", "search did not change", 301.24,
+        _seg("SpeakerOne", "search did not change", 301.24,
              [301.40, 301.70, 302.00, 302.57], uid="a1"),
-        _seg("Akshita", "the question changed", 302.63,
+        _seg("SpeakerOne", "the question changed", 302.63,
              [302.80, 303.10, 303.45], uid="a2"),
-        _seg("Akshita", "search did not change the question changed", 310.0,
+        _seg("SpeakerOne", "search did not change the question changed", 310.0,
              [310.20, 310.40, 310.60, 310.80, 311.00, 311.30, 311.60],
              uid="a3"),
     ]}
@@ -228,7 +228,7 @@ def test_working_pair_cuts_survive_the_judge():
         dropped_text="search did not change the question changed",
         kept_start=310.0, kept_end=311.60,
         kept_text="search did not change the question changed",
-        speaker="Akshita", containment=1.0, jaccard=1.0)
+        speaker="SpeakerOne", containment=1.0, jaccard=1.0)
     assert reel_build.judge_take_cuts([whole], 300.0, 315.0, reel03) == (
         [whole], [])
 
@@ -243,14 +243,14 @@ def test_the_build_no_longer_duplicates_seconds():
     cut, so `reel_ranges` stays disjoint.
 
     The words are tuned so the backwards windows actually match at the
-    0.65 bar: Craig's tail (zeta eta theta) recurs inside Akshita's
-    overlapping line, and the stream order (Craig's segment first)
-    against the clock (Akshita's words earlier) turns the match
+    0.65 bar: SpeakerTwo's tail (zeta eta theta) recurs inside SpeakerOne's
+    overlapping line, and the stream order (SpeakerTwo's segment first)
+    against the clock (SpeakerOne's words earlier) turns the match
     upside-down."""
     transcript = {"segments": [
-        _seg("Craig", "delta epsilon zeta eta theta", 9.0,
+        _seg("SpeakerTwo", "delta epsilon zeta eta theta", 9.0,
              [9.30, 10.40, 10.50, 10.60, 10.70], uid="c-long"),
-        _seg("Akshita", "zeta eta theta iota zeta eta theta", 9.05,
+        _seg("SpeakerOne", "zeta eta theta iota zeta eta theta", 9.05,
              [9.15, 9.25, 9.35, 9.45, 9.55, 9.65, 9.75], uid="a-overlap"),
     ]}
     candidates = reel_build.redundant_takes(8.0, 12.0, transcript)
@@ -277,29 +277,29 @@ def test_the_build_no_longer_duplicates_seconds():
 
 # ── Reel 08: mic bleed is one mic, not two voices ──
 
-def _reel08_transcript(craig_text="Yeah, so ranking tells Google."):
+def _reel08_transcript(speakertwo_text="Yeah, so ranking tells Google."):
     """Reel 08's marked telling, real texts and real word timings.
 
-    Akshita says "Yeah, so ranking tells Google," twice running; the
-    second telling adds "that you exist." Craig's track carries her
+    SpeakerOne says "Yeah, so ranking tells Google," twice running; the
+    second telling adds "that you exist." SpeakerTwo's track carries her
     first telling's words at her own seconds - his mic hearing her,
-    not a second voice. `craig_text` swaps his words for the control.
+    not a second voice. `speakertwo_text` swaps his words for the control.
     """
     return {"segments": [
-        _seg("Akshita", "Mm-hmm.", 613.64, [614.57], uid="a0"),
-        _seg("Akshita", "Yeah, so ranking tells Google,", 614.72,
+        _seg("SpeakerOne", "Mm-hmm.", 613.64, [614.57], uid="a0"),
+        _seg("SpeakerOne", "Yeah, so ranking tells Google,", 614.72,
              [614.91, 615.09, 615.44, 615.85, 616.48], uid="a1"),
-        _seg("Craig", craig_text, 614.77,
+        _seg("SpeakerTwo", speakertwo_text, 614.77,
              [614.97, 615.15, 615.48, 615.88, 616.48], uid="c1"),
-        _seg("Akshita", "ranking tells Google that you exist.", 616.51,
+        _seg("SpeakerOne", "ranking tells Google that you exist.", 616.51,
              [616.79, 617.03, 617.35, 617.48, 617.62, 618.12], uid="a2"),
     ]}
 
 
 def test_bleed_of_the_same_words_is_not_a_second_voice():
     """Reel 08's shape, stated input: the pair scan's cut drops
-    Akshita's first telling (containment 0.750, Jaccard 0.600) and the
-    judge used to withdraw it as cross_speaker on Craig's bleed. One
+    SpeakerOne's first telling (containment 0.750, Jaccard 0.600) and the
+    judge used to withdraw it as cross_speaker on SpeakerTwo's bleed. One
     telling heard on two mics is one telling, so the cut survives."""
     transcript = _reel08_transcript()
     cut = reel_build.Cut(
@@ -307,16 +307,16 @@ def test_bleed_of_the_same_words_is_not_a_second_voice():
         dropped_text="Yeah, so ranking tells Google,",
         kept_start=616.51, kept_end=618.12,
         kept_text="ranking tells Google that you exist.",
-        speaker="Akshita", containment=0.750, jaccard=0.600)
+        speaker="SpeakerOne", containment=0.750, jaccard=0.600)
     kept, withdrawn = reel_build.judge_take_cuts(
         [cut], 588.258, 622.375, transcript)
     assert withdrawn == []
     assert kept == [cut]
-    # The control: Craig saying DIFFERENT words at the same seconds is
+    # The control: SpeakerTwo saying DIFFERENT words at the same seconds is
     # an interruption, not bleed, and the cut is still withdrawn.
     kept, withdrawn = reel_build.judge_take_cuts(
         [cut], 588.258, 622.375,
-        _reel08_transcript(craig_text="Right, that lands well today."))
+        _reel08_transcript(speakertwo_text="Right, that lands well today."))
     assert kept == []
     assert [w["reason"] for w in withdrawn] == ["cross_speaker"]
 
@@ -364,7 +364,7 @@ def _transcript(extra_segments=()):
     the padding segments carry the span so `keep_ranges` has a body.
     """
     return {"segments": [
-        {"speaker": "Akshita", "resolve_item_id": "pad-1",
+        {"speaker": "SpeakerOne", "resolve_item_id": "pad-1",
          "text": "AI cares about who matters the most",
          "timeline_start": 1214.57, "timeline_end": 1218.62,
          "bound": True,
@@ -372,7 +372,7 @@ def _transcript(extra_segments=()):
              "AI cares about who matters the most", 1214.57,
              [1214.81, 1215.13, 1215.55, 1216.26, 1217.00, 1217.60,
               1218.62])},
-        {"speaker": "Akshita", "resolve_item_id": "drop-1",
+        {"speaker": "SpeakerOne", "resolve_item_id": "drop-1",
          "text": "if you're a salon that specializes in 3D nail art",
          "timeline_start": 1219.06, "timeline_end": 1221.51,
          "bound": True,
@@ -380,7 +380,7 @@ def _transcript(extra_segments=()):
              "if you're a salon that specializes in 3D nail art", 1219.06,
              [1219.103, 1219.304, 1219.344, 1219.765, 1219.925, 1220.607,
               1220.728, 1221.089, 1221.329, 1221.510])},
-        {"speaker": "Akshita", "resolve_item_id": "drop-2",
+        {"speaker": "SpeakerOne", "resolve_item_id": "drop-2",
          "text": "and your content is built around that niche",
          "timeline_start": 1221.73, "timeline_end": 1227.05,
          "bound": True,
@@ -388,7 +388,7 @@ def _transcript(extra_segments=()):
              "and your content is built around that niche", 1221.73,
              [1221.811, 1221.972, 1222.433, 1222.574, 1222.915, 1223.276,
               1223.497, 1223.919])},
-        {"speaker": "Akshita", "resolve_item_id": "pad-2",
+        {"speaker": "SpeakerOne", "resolve_item_id": "pad-2",
          "text": "maybe hundreds of locations",
          "timeline_start": 1227.23, "timeline_end": 1228.58,
          "bound": True,
@@ -408,14 +408,14 @@ def _cuts():
             kept_start=1231.91, kept_end=1234.46,
             kept_text=("and if you're a salon that specializes in "
                        "3D nail art,"),
-            speaker="Akshita", containment=1.0, jaccard=0.875),
+            speaker="SpeakerOne", containment=1.0, jaccard=0.875),
         Cut(dropped_start=1221.73, dropped_end=1227.05,
             dropped_text=("and your content is built around that niche, "
                           "AI is going to pull you over nail salons"),
             kept_start=1237.33, kept_end=1243.03,
             kept_text=("and your content is built around that niche, "
                        "AI could definitely pull you over"),
-            speaker="Akshita", containment=1.0, jaccard=0.875),
+            speaker="SpeakerOne", containment=1.0, jaccard=0.875),
     ]
 
 
@@ -436,7 +436,7 @@ def _items(ranges):
             end_frame=int(round(a * FPS)) + frames,
             duration_frames=frames,
             source_start_frame=0, source_end_frame=frames,
-            source_file=MXF, speaker="Akshita", name="take"))
+            source_file=MXF, speaker="SpeakerOne", name="take"))
     return out
 
 
@@ -483,7 +483,7 @@ def test_a_spoken_fragment_between_take_cuts_refuses():
     """Absorbing speech would delete words the cutter kept, so the
     build refuses, naming the take cut - it never swallows the word."""
     transcript = _transcript(extra_segments=[{
-        "speaker": "Akshita", "resolve_item_id": "stowaway",
+        "speaker": "SpeakerOne", "resolve_item_id": "stowaway",
         "text": "sorry", "timeline_start": 1221.55,
         "timeline_end": 1221.70, "bound": True,
         "words": [{"word": "sorry", "start": 1221.55, "end": 1221.70,
@@ -493,7 +493,7 @@ def test_a_spoken_fragment_between_take_cuts_refuses():
                                   _cuts(), transcript)
     # The strike path's refusal still names the keep exclusion.
     strike = _transcript(extra_segments=[{
-        "speaker": "Akshita", "resolve_item_id": "stowaway",
+        "speaker": "SpeakerOne", "resolve_item_id": "stowaway",
         "text": "sorry", "timeline_start": 1227.10,
         "timeline_end": 1227.30, "bound": True,
         "words": [{"word": "sorry", "start": 1227.10, "end": 1227.30,
@@ -509,7 +509,7 @@ def _a_long_pause_between_take_cuts_survives():
     pause the reel plays - the absorb must not touch it."""
     cuts = [Cut(dropped_start=1219.06, dropped_end=1221.51,
                 dropped_text="dropped", kept_start=1231.91,
-                kept_end=1234.46, kept_text="kept", speaker="Akshita",
+                kept_end=1234.46, kept_text="kept", speaker="SpeakerOne",
                 containment=1.0, jaccard=0.875)]
     ranges = [(START, 1219.06), (1221.51, 1222.51), (1227.05, END)]
     assert absorb_wordless_take_gaps(
@@ -870,8 +870,8 @@ def _plays(ranges, span):
 
 
 def _reel06():
-    craig = _seg_3(
-        "Craig",
+    speakertwo = _seg_3(
+        "SpeakerTwo",
         "So in this case size really doesn't matter.",
         422.68,
         425.48,
@@ -880,7 +880,7 @@ def _reel06():
         uid="c0",
     )
     first = _seg_3(
-        "Akshita",
+        "SpeakerOne",
         "No, it doesn't.",
         425.87,
         426.66,
@@ -894,7 +894,7 @@ def _reel06():
         uid="a0",
     )
     flub = _seg_3(
-        "Akshita",
+        "SpeakerOne",
         "Um I've seen 10-person agencies get recommended in AI over "
         "companies fifty times their size.",
         426.51,
@@ -921,7 +921,7 @@ def _reel06():
         uid="a1",
     )
     nod = _seg_3(
-        "Akshita",
+        "SpeakerOne",
         "Not at all.",
         432.67,
         433.09,
@@ -929,7 +929,7 @@ def _reel06():
         uid="a2",
     )
     retake = _seg_3(
-        "Akshita",
+        "SpeakerOne",
         "I've seen a 10-person agency get recommended over a company "
         "fifty times their size, and that's because every source they "
         "have consistently tells the same story.",
@@ -945,7 +945,7 @@ def _reel06():
         ),
         uid="a3",
     )
-    return {"segments": [craig, first, flub, nod, retake]}
+    return {"segments": [speakertwo, first, flub, nod, retake]}
 
 
 def test_each_recorded_verdict_strikes_its_take_and_keeps_the_telling():
@@ -965,8 +965,8 @@ def test_each_recorded_verdict_strikes_its_take_and_keeps_the_telling():
 
 
 def _reel11():
-    craig = _seg_3(
-        "Craig",
+    speakertwo = _seg_3(
+        "SpeakerTwo",
         "your website can be perfectly fine, but a lot of times "
         "everything else is broken.",
         776.32,
@@ -980,7 +980,7 @@ def _reel11():
         uid="c0",
     )
     op = _seg_3(
-        "Akshita",
+        "SpeakerOne",
         "Absolutely.",
         781.92,
         782.63,
@@ -988,7 +988,7 @@ def _reel11():
         uid="a0",
     )
     first = _seg_3(
-        "Akshita",
+        "SpeakerOne",
         "Your website is your resume and everything else are your "
         "references and just like a hiring manner hiring manager would "
         "check both, AI checks both.",
@@ -1026,7 +1026,7 @@ def _reel11():
         uid="a1",
     )
     retake = _seg_3(
-        "Akshita",
+        "SpeakerOne",
         "Yeah, so your website is your resume and everything else are "
         "your references, and just like a hiring manager would "
         "definitely check both, AI checks both.",
@@ -1042,7 +1042,7 @@ def _reel11():
         ),
         uid="a2",
     )
-    return {"segments": [craig, op, first, retake]}
+    return {"segments": [speakertwo, op, first, retake]}
 
 
 def test_reel11_verdict_consolidates_two_tellings():
@@ -1065,7 +1065,7 @@ def test_reel11_verdict_consolidates_two_tellings():
 
 def _reel21():
     abandoned = _seg_3(
-        "Akshita",
+        "SpeakerOne",
         "If that's the case that's a problem and your website is just "
         "a part of what's maybe",
         1794.86,
@@ -1092,7 +1092,7 @@ def _reel21():
         uid="a0",
     )
     restated = _seg_3(
-        "Akshita",
+        "SpeakerOne",
         "and your website is just a part of your whole profile and "
         "that's only twenty percent.",
         1800.62,
@@ -1127,7 +1127,7 @@ def _reel21_verdict_keeps_the_restart():
 
 def _reel24():
     prior = _seg_3(
-        "Akshita",
+        "SpeakerOne",
         "The reason is YouTube counts as a very trustworthy source of "
         "information, geo optimized,",
         2032.40,
@@ -1142,7 +1142,7 @@ def _reel24():
         uid="a0",
     )
     bad = _seg_3(
-        "Akshita",
+        "SpeakerOne",
         "make sure there's a very strong um okay there's a very strong concise but",
         2051.46,
         2058.18,
@@ -1167,7 +1167,7 @@ def _reel24():
         uid="a1",
     )
     completion = _seg_3(
-        "Akshita",
+        "SpeakerOne",
         "that there's a very concise description of what exactly your video is about.",
         2058.53,
         2061.98,
@@ -1201,7 +1201,7 @@ def _reel03():
     )
     tail = "the best CRM if I run a 10 person law firm?"
     segment = _seg_3(
-        "Akshita",
+        "SpeakerOne",
         head + " typing best C RMs, um s best what's " + tail,
         232.71,
         244.16,
@@ -1242,7 +1242,7 @@ def _reel08():
     return {
         "segments": [
             _seg_3(
-                "Akshita",
+                "SpeakerOne",
                 "Mm-hmm.",
                 613.64,
                 614.57,
@@ -1250,7 +1250,7 @@ def _reel08():
                 uid="a0",
             ),
             _seg_3(
-                "Akshita",
+                "SpeakerOne",
                 "Yeah, so ranking tells Google,",
                 614.72,
                 616.48,
@@ -1266,7 +1266,7 @@ def _reel08():
                 uid="a1",
             ),
             _seg_3(
-                "Craig",
+                "SpeakerTwo",
                 "Yeah, so ranking tells Google.",
                 614.77,
                 616.48,
@@ -1282,7 +1282,7 @@ def _reel08():
                 uid="c1",
             ),
             _seg_3(
-                "Akshita",
+                "SpeakerOne",
                 "ranking tells Google that you exist.",
                 616.51,
                 618.12,
@@ -1354,7 +1354,7 @@ def _words_3(start, end):
 
 def _transcript_3():
     return {"segments": [
-        {"speaker": "Akshita", "text": "ten seconds of speech here",
+        {"speaker": "SpeakerOne", "text": "ten seconds of speech here",
          "timeline_start": 10.0, "timeline_end": 20.0,
          "resolve_item_id": "a", "source_file": "LC4932.MXF",
          "source_start": 0.0, "source_end": 10.0,
@@ -1452,40 +1452,40 @@ TAKE_TWO = "55c6-take-two"
 # WhisperX emitted twice, 0.200s and 0.260s long, carrying the whole
 # sentence as its text both times.
 REEL_03_SEGMENTS = [
-    _seg_4("Akshita", "Yeah, so search didn't change.", 301.241, 302.566,
+    _seg_4("SpeakerOne", "Yeah, so search didn't change.", 301.241, 302.566,
          TAKE_ONE,
          [("Yeah,", 301.241, 301.441), ("so", 301.522, 301.642),
           ("search", 301.662, 301.883), ("didn't", 301.903, 302.164),
           ("change.", 302.204, 302.566)]),
-    _seg_4("Akshita", "The question changed.", 302.626, 303.449, TAKE_ONE,
+    _seg_4("SpeakerOne", "The question changed.", 302.626, 303.449, TAKE_ONE,
          [("The", 302.626, 302.706), ("question", 302.746, 303.068),
           ("changed.", 303.108, 303.449)]),
-    _seg_4("Akshita", "And whoever AI best understands, gets the answer.",
+    _seg_4("SpeakerOne", "And whoever AI best understands, gets the answer.",
          303.549, 306.400, TAKE_ONE,
          [("And", 303.549, 303.670), ("whoever", 303.971, 304.332),
           ("AI", 304.453, 304.633), ("best", 304.674, 304.894),
           ("understands,", 304.935, 305.577), ("gets", 305.938, 306.119),
           ("the", 306.139, 306.219), ("answer.", 306.259, 306.400)]),
-    _seg_4("Akshita", "yeah", 306.400, 306.527, TAKE_ONE,
+    _seg_4("SpeakerOne", "yeah", 306.400, 306.527, TAKE_ONE,
          [("yeah", 306.400, 306.527)]),
-    _seg_4("Akshita", "So,yeah, so search didn't change", 306.801, 307.596,
+    _seg_4("SpeakerOne", "So,yeah, so search didn't change", 306.801, 307.596,
          TAKE_TWO),
-    _seg_4("Akshita", "The question changed.", 307.840, 308.840, TAKE_TWO),
-    _seg_4("Akshita", "So,yeah", 308.840, 309.111, TAKE_TWO),
-    _seg_4("Akshita", "and whoever AI understands best, gets the answer.",
+    _seg_4("SpeakerOne", "The question changed.", 307.840, 308.840, TAKE_TWO),
+    _seg_4("SpeakerOne", "So,yeah", 308.840, 309.111, TAKE_TWO),
+    _seg_4("SpeakerOne", "and whoever AI understands best, gets the answer.",
          309.320, 309.920, TAKE_TWO),
-    _seg_4("Akshita", "Yeah, so search didn't change. The question changed. "
+    _seg_4("SpeakerOne", "Yeah, so search didn't change. The question changed. "
                     "And whoever AI understands best, gets the answer.",
          309.920, 310.120, TAKE_TWO),
-    _seg_4("Akshita", "Yeah, so search didn't change. The question changed. "
+    _seg_4("SpeakerOne", "Yeah, so search didn't change. The question changed. "
                     "And whoever AI understands best, gets the answer.",
          310.120, 310.380, TAKE_TWO),
-    _seg_4("Akshita", "best will have the answers.", 310.380, 312.041, TAKE_TWO),
-    _seg_4("Craig", "the questions change so that's why this is so important "
+    _seg_4("SpeakerOne", "best will have the answers.", 310.380, 312.041, TAKE_TWO),
+    _seg_4("SpeakerTwo", "the questions change so that's why this is so important "
                   "that's who ai is going to recommend", 313.690, 317.950,
-         "craig-1"),
-    _seg_4("Craig", "to be the answer it's exactly why we've been building "
-                  "this platform", 318.091, 321.530, "craig-2"),
+         "speakertwo-1"),
+    _seg_4("SpeakerTwo", "to be the answer it's exactly why we've been building "
+                  "this platform", 318.091, 321.530, "speakertwo-2"),
 ]
 
 REEL_03 = {"segments": REEL_03_SEGMENTS}
@@ -1498,12 +1498,12 @@ THE_PARTIAL_CUT = [
         dropped_text="Yeah, so search didn't change.",
         kept_start=306.801, kept_end=307.596,
         kept_text="So,yeah, so search didn't change",
-        speaker="Akshita", containment=1.0, jaccard=1.0),
+        speaker="SpeakerOne", containment=1.0, jaccard=1.0),
     Cut(dropped_start=302.626, dropped_end=303.449,
         dropped_text="The question changed.",
         kept_start=307.840, kept_end=308.840,
         kept_text="The question changed.",
-        speaker="Akshita", containment=1.0, jaccard=1.0),
+        speaker="SpeakerOne", containment=1.0, jaccard=1.0),
 ]
 
 
@@ -1532,10 +1532,10 @@ def _a_repeated_run_that_can_go_whole_still_goes():
     line_one = "so last week we ran an audit on a client for their website"
     line_two = "and their SEO team had stuffed the H1 tags with keywords"
     transcript = {"segments": [
-        _seg_4("Akshita", line_one, 10.0, 14.0, "a"),
-        _seg_4("Akshita", line_two, 14.1, 18.0, "a"),
-        _seg_4("Akshita", line_one, 20.0, 24.5, "b"),
-        _seg_4("Akshita", line_two, 24.6, 28.0, "b"),
+        _seg_4("SpeakerOne", line_one, 10.0, 14.0, "a"),
+        _seg_4("SpeakerOne", line_two, 14.1, 18.0, "a"),
+        _seg_4("SpeakerOne", line_one, 20.0, 24.5, "b"),
+        _seg_4("SpeakerOne", line_two, 24.6, 28.0, "b"),
     ]}
     cuts = redundant_takes(0.0, 60.0, transcript)
     assert sorted(round(cut.dropped_start, 3) for cut in cuts) == [10.0, 14.1]
@@ -1571,7 +1571,7 @@ def test_the_refused_run_names_what_stopped_it_and_what_it_kept_in():
     assert len(groups) == 1, groups
     group = groups[0]
 
-    assert group["speaker"] == "Akshita"
+    assert group["speaker"] == "SpeakerOne"
     assert group["lines"][0] == "Yeah, so search didn't change."
     assert len(group["would_have_cut"]) == 2
     stopper = group["could_not_cut"][0]
@@ -1585,8 +1585,8 @@ def test_the_refused_run_names_what_stopped_it_and_what_it_kept_in():
     long_line = ("it is going to start hallucinating because it is confused "
                  "about what you actually do")
     lone = {"segments": [
-        _seg_4("Akshita", long_line, 10.0, 14.3, "a"),
-        _seg_4("Akshita", "confused about what you actually do hallucinating",
+        _seg_4("SpeakerOne", long_line, 10.0, 14.3, "a"),
+        _seg_4("SpeakerOne", "confused about what you actually do hallucinating",
              15.0, 15.5, "b"),
     ]}
     assert redundant_takes(0.0, 60.0, lone) == []
@@ -1635,19 +1635,19 @@ def _real_words(entries, offset=0.0):
 # ── Reel 06: a two-take pair past the pair-scan bars ──
 
 def _reel06_transcript():
-    """Akshita's two tellings, real texts and boundaries, even words.
+    """SpeakerOne's two tellings, real texts and boundaries, even words.
 
     The pair scores containment 0.69 / Jaccard 0.39 - under both bars -
     while the shared head reads similarity 1.0 on the word stream.
     """
     return {"segments": [
-        _seg_5("Akshita", "No, it doesn't.", 425.87, 426.66, uid="a0"),
-        _seg_5("Akshita",
+        _seg_5("SpeakerOne", "No, it doesn't.", 425.87, 426.66, uid="a0"),
+        _seg_5("SpeakerOne",
              "Um I've seen 10-person agencies get recommended in AI "
              "over companies fifty times their size.",
              426.51, 432.36, uid="a1"),
-        _seg_5("Akshita", "Not at all.", 432.67, 433.09, uid="a2"),
-        _seg_5("Akshita",
+        _seg_5("SpeakerOne", "Not at all.", 432.67, 433.09, uid="a2"),
+        _seg_5("SpeakerOne",
              "I've seen a 10-person agency get recommended over a "
              "company fifty times their size, and that's because every "
              "source they have consistently tells the same story.",
@@ -1666,7 +1666,7 @@ def test_a_retake_shape_reports_its_strike():
     assert len(verbatim) == 1
     found = verbatim[0]
     assert (found["dropped_start"], found["dropped_end"]) == (426.51, 432.36)
-    assert found["speaker"] == "Akshita"
+    assert found["speaker"] == "SpeakerOne"
     assert found["similarity"] == 1.0
     assert "426.51-432.36" in found["recommended_action"].replace(" ", "")
     _a_restart_inside_one_segment_reports_the_run_up()
@@ -1685,7 +1685,7 @@ def _reel24_segment():
         ("very", 2055.77, 2055.94), ("strong", 2055.94, 2056.45),
         ("concise", 2056.45, 2057.24), ("but", 2057.78, 2058.18),
     ])
-    return _seg_5("Akshita",
+    return _seg_5("SpeakerOne",
                 "make sure there's a very strong um okay there's a "
                 "very strong concise but",
                 2051.46, 2058.18, words=words, uid="a1")
@@ -1696,10 +1696,10 @@ def _a_restart_inside_one_segment_reports_the_run_up():
     between, in a telling that ends on "but". The first copy is the
     flubbed run-up, at real word seconds."""
     transcript = {"segments": [
-        _seg_5("Akshita", "YouTube Shorts, make sure that when you post.",
+        _seg_5("SpeakerOne", "YouTube Shorts, make sure that when you post.",
              2040.00, 2051.26, uid="a0"),
         _reel24_segment(),
-        _seg_5("Akshita",
+        _seg_5("SpeakerOne",
              "that there's a very concise description of your video.",
              2058.53, 2061.98, uid="a2"),
     ]}
@@ -1740,16 +1740,16 @@ def test_legitimate_repetition_does_not_report():
     sentence. Real texts and boundaries, even words."""
     cases = [
         ((9.0, 16.0), [
-            _seg_5("Craig", "their CMO or their head of marketing",
+            _seg_5("SpeakerTwo", "their CMO or their head of marketing",
                  9.154, 11.120, uid="c0"),
-            _seg_5("Craig",
+            _seg_5("SpeakerTwo",
                  "we've got to get into geo geo geo i get it it's "
                  "something that's going to continually eat into",
                  11.241, 15.680, uid="c1"),
         ]),
         ((1791.00, 1795.00), _contrast_questions()),
         ((99.0, 105.0), [
-            _seg_5("Akshita",
+            _seg_5("SpeakerOne",
                  "if you're gonna post daily you're gonna burn out fast.",
                  100.00, 104.00, uid="a0"),
         ]),
@@ -1761,10 +1761,10 @@ def test_legitimate_repetition_does_not_report():
 
 def _contrast_questions():
     return [
-        _seg_5("Akshita",
+        _seg_5("SpeakerOne",
              "Are you actually showing up the way you want there?",
              1791.08, 1793.47, uid="a0"),
-        _seg_5("Akshita", "Are you not even showing up at all?",
+        _seg_5("SpeakerOne", "Are you not even showing up at all?",
              1793.17, 1794.59, uid="a1"),
     ]
 
@@ -1773,7 +1773,7 @@ def test_telling_properties_measure_concise_and_clear():
     """The properties the model reads: durations, content-word counts,
     completeness, and disfluency with seconds."""
     transcript = {"segments": [
-        _seg_5("Akshita",
+        _seg_5("SpeakerOne",
              "If that's the case that's a problem and your website is "
              "just a part of what's maybe",
              1794.86, 1800.39, words=_reel21_a_words(), uid="a1"),
@@ -1798,13 +1798,13 @@ def test_the_bridge_reports_candidates_with_a_verdict_line():
     from library.steps.step_3_04_select_reels import bridge
 
     transcript = {"segments": [
-        _seg_5("Akshita", "Are you not even showing up at all?",
+        _seg_5("SpeakerOne", "Are you not even showing up at all?",
              1793.17, 1794.59, uid="a0"),
-        _seg_5("Akshita",
+        _seg_5("SpeakerOne",
              "If that's the case that's a problem and your website is "
              "just a part of what's maybe",
              1794.86, 1800.39, words=_reel21_a_words(), uid="a1"),
-        _seg_5("Akshita",
+        _seg_5("SpeakerOne",
              "and your website is just a part of your whole profile "
              "and that's only twenty percent.",
              1800.62, 1804.88, uid="a2"),
@@ -1851,15 +1851,15 @@ def _seg_6(speaker, text, start, end, uid="u"):
 
 def _reel_03_distant():
     """Reel-03 shape: the tagline twice in the body, 43.6s apart with
-    Craig's turn between them, and a third time as the CTA."""
+    SpeakerTwo's turn between them, and a third time as the CTA."""
     return {"segments": [
-        _seg_6("Akshita", "Yeah, " + TAGLINE, 301.2, 306.4, "a1"),
-        _seg_6("Craig", "the questions change so that's why this is so "
+        _seg_6("SpeakerOne", "Yeah, " + TAGLINE, 301.2, 306.4, "a1"),
+        _seg_6("SpeakerTwo", "the questions change so that's why this is so "
                       "important", 313.7, 318.0, "c1"),
-        _seg_6("Akshita", "Yeah, " + TAGLINE, 350.0, 355.2, "a2"),
-        _seg_6("Craig", "to be the answer it's exactly why we've been "
+        _seg_6("SpeakerOne", "Yeah, " + TAGLINE, 350.0, 355.2, "a2"),
+        _seg_6("SpeakerTwo", "to be the answer it's exactly why we've been "
                       "building this", 356.0, 360.0, "c2"),
-        _seg_6("Akshita", TAGLINE, 900.0, 905.2, "cta1"),
+        _seg_6("SpeakerOne", TAGLINE, 900.0, 905.2, "cta1"),
     ]}
 
 
@@ -1896,7 +1896,7 @@ def test_the_distant_tagline_pair_is_suspected():
     pair = next(c for c in found
                 if round(c.dropped_start, 2) == 301.2)
     assert round(pair.kept_start, 2) == 350.0
-    assert pair.speaker == "Akshita"
+    assert pair.speaker == "SpeakerOne"
 
 
 def test_the_closer_echo_reaches_the_model_at_selection_time():

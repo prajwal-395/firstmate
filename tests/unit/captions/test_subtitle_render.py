@@ -772,9 +772,9 @@ def _asset_dir(root):
 
 def _mov_names():
     return [
-        "sub_tl_akshita_1_10000-12000_aaaaaaaa.mov",
-        "sub_tl_akshita_1_10000-12000_bbbbbbbb.mov",
-        "sub_tl_craig_2_20000-22000_cccccccc.mov",
+        "sub_tl_speakerone_1_10000-12000_aaaaaaaa.mov",
+        "sub_tl_speakerone_1_10000-12000_bbbbbbbb.mov",
+        "sub_tl_speakertwo_2_20000-22000_cccccccc.mov",
     ]
 
 
@@ -787,7 +787,7 @@ def _populate(asset_dir):
         _write(os.path.join(asset_dir, stem + "_reuse_key.txt"), size=10)
     # A lone sibling: props whose mov never rendered (failed render).
     _write(os.path.join(
-        asset_dir, "sub_tl_akshita_9_90000-92000_dddddddd_props.json"),
+        asset_dir, "sub_tl_speakerone_9_90000-92000_dddddddd_props.json"),
         size=100)
     return asset_dir
 
@@ -821,7 +821,7 @@ def test_unreadable_root_refuses_sweep(tmp_path):
     assert sorted(os.listdir(asset_dir)) == sorted(_mov_names()
         + [n[:-4] + "_props.json" for n in _mov_names()]
         + [n[:-4] + "_reuse_key.txt" for n in _mov_names()]
-        + ["sub_tl_akshita_9_90000-92000_dddddddd_props.json"])
+        + ["sub_tl_speakerone_9_90000-92000_dddddddd_props.json"])
 
 
 def test_sweep_refuses_when_a_root_became_unreadable_since_mark(tmp_path):
@@ -871,7 +871,7 @@ def test_siblings_and_box_sidecars_follow_their_mov(tmp_path):
     orphan_mov = os.path.join(asset_dir, _mov_names()[0])
     assert by_path[orphan_mov[:-4] + "_props.json"].status == ORPHAN
     lone = os.path.join(
-        asset_dir, "sub_tl_akshita_9_90000-92000_dddddddd_props.json")
+        asset_dir, "sub_tl_speakerone_9_90000-92000_dddddddd_props.json")
     assert by_path[lone].status == ORPHAN
     assert "mov" in by_path[lone].reason.lower()
 
@@ -884,7 +884,7 @@ def test_siblings_and_box_sidecars_follow_their_mov(tmp_path):
     orphan_box = orphan_mov[:-4] + "_box.json"
     _write(orphan_box, size=100)
     lone_box = os.path.join(
-        asset_dir, "sub_tl_akshita_9_90000-92000_dddddddd_box.json")
+        asset_dir, "sub_tl_speakerone_9_90000-92000_dddddddd_box.json")
     _write(lone_box, size=100)
     roots = [_ok_root("resolve:test", {live_mov})]
     result = mark(project, asset_dir, roots)
@@ -907,7 +907,7 @@ def test_reachability_beats_name_and_age(tmp_path):
     asset_dir = _asset_dir(project)
     old = _write(os.path.join(
         asset_dir, "sub_reel-23_keyword-stuffing-is-hurting-your-ai-visi"
-        "_akshita_3_460413-461208_7c2c1df7.mov"), size=500)
+        "_speakerone_3_460413-461208_7c2c1df7.mov"), size=500)
     ancient = os.path.getmtime(old) - 90 * 86400
     os.utime(old, (ancient, ancient))
     roots = [_ok_root("resolve:test", {old})]
@@ -1187,7 +1187,7 @@ def test_corrupt_ledger_reads_unreadable_and_refuses_sweep(tmp_path):
         _mov_names()
         + [n[:-4] + "_props.json" for n in _mov_names()]
         + [n[:-4] + "_reuse_key.txt" for n in _mov_names()]
-        + ["sub_tl_akshita_9_90000-92000_dddddddd_props.json",
+        + ["sub_tl_speakerone_9_90000-92000_dddddddd_props.json",
             RENDER_LEDGER_NAME])
 
 
@@ -1285,7 +1285,7 @@ def test_sweep_manifests_carry_their_area_and_never_share_a_path(tmp_path):
 
         _write(os.path.join(
             asset_dir,
-            "sub_tl_akshita_9_90000-92000_eeeeeeee.mov"), size=500)
+            "sub_tl_speakerone_9_90000-92000_eeeeeeee.mov"), size=500)
         repeat_mark = mark(project, asset_dir, roots)
         repeat_path = os.path.join(project, "mark_c.json")
         repeat_mark.write_json(repeat_path)
@@ -1987,7 +1987,7 @@ def _entries(texts=("alpha bravo", "charlie delta")):
             "timeline_end": start + 2.5,
             "text": text,
             "spine_block_position": f"body_{i + 1}",
-            "speaker": "Craig",
+            "speaker": "SpeakerTwo",
             "words": [],
         })
     return entries
@@ -2134,7 +2134,7 @@ def test_tight_reuse_without_sidecar_falls_through_to_measured(tmp_path):
         "_block_position": "body_1",
         "_timeline_start": 20.0,
         "_timeline_end": 22.5,
-        "_speaker": "Craig",
+        "_speaker": "SpeakerTwo",
         "_source_clip_id": "clip_001",
         "_source_start": 100.0,
         "_source_end": 102.5,
@@ -2187,7 +2187,7 @@ def test_tight_reuse_without_sidecar_falls_through_to_measured(tmp_path):
 def _binding(**overrides):
     base = dict(
         timeline="Studio Chat - Synced",
-        speaker="Akshita",
+        speaker="SpeakerOne",
         block_position="body_1",
         source_clip_id="clip_003",
         source_start=131.42295,
@@ -2224,7 +2224,7 @@ def test_provenance_changes_the_name_but_placement_does_not():
     change timeline or block ordinal, get the same stem - a wider ordinal
     would have separated neither case that matters."""
     base = _binding()
-    for key, value in (("speaker", "Craig"),
+    for key, value in (("speaker", "SpeakerTwo"),
                        ("source_clip_id", "clip_004"),
                        ("source_start", 99.0),
                        ("source_end", 199.0)):
@@ -2260,7 +2260,7 @@ def test_no_timeline_names_a_file():
 
 def test_the_name_carries_speaker_and_source_span_readably():
     name = _name()
-    assert "akshita" in name
+    assert "speakerone" in name
     assert "clip-003" in name
     assert "131423-151693" in name
 
@@ -2268,12 +2268,12 @@ def test_the_name_carries_speaker_and_source_span_readably():
 def test_speaker_reader_handles_current_and_legacy_names():
     current = segment_identifier(
         _binding(source_clip_id="b191411a-d2bf-4549-a09b"), DIGEST_A)
-    legacy = ("sub_reel-17_akshita_body0_3135634-3141184_"
+    legacy = ("sub_reel-17_speakerone_body0_3135634-3141184_"
               "f32a24c3.mov")
 
     assert speaker_slug_from_segment_id(f"/rendered/{current}.mov") == \
-        "akshita"
-    assert speaker_slug_from_segment_id(legacy) == "akshita"
+        "speakerone"
+    assert speaker_slug_from_segment_id(legacy) == "speakerone"
     assert speaker_slug_from_segment_id("sub_nospeaker_clip_0-1000_abc") \
         is None
 
@@ -2305,7 +2305,7 @@ def test_slug_names_the_absence_and_truncates_on_a_word_boundary():
     assert slug(None, "nospeaker") == "nospeaker"
     assert slug("   ", "nospeaker") == "nospeaker"
     assert slug("!!!", "nospeaker") == "nospeaker"
-    assert slug("Akshita Rao", "nospeaker") == "akshita-rao"
+    assert slug("SpeakerOne Rao", "nospeaker") == "speakerone-rao"
     # A truncated slug breaks on a word boundary, never mid-word (Reel
     # 05's `invisible-o`, `envisio`, `goo`) ...
     assert slug("Reel 05 - the-audit-that-was-eye-opening",
@@ -2358,23 +2358,23 @@ def test_stable_prefix_is_provenance_not_pixels():
     prefix was still live.
     """
     assert stable_prefix(
-        "sub_craig_341446bc-389b-468c-9add_1853716-1855056_1f0a29bf"
-    ) == "sub_craig_341446bc-389b-468c-9add_1853716-1855056"
+        "sub_speakertwo_341446bc-389b-468c-9add_1853716-1855056_1f0a29bf"
+    ) == "sub_speakertwo_341446bc-389b-468c-9add_1853716-1855056"
     assert stable_prefix(
-        "sub_craig_341446bc-389b-468c-9add_1853716-1855056_fdc48282"
-    ) == "sub_craig_341446bc-389b-468c-9add_1853716-1855056"
+        "sub_speakertwo_341446bc-389b-468c-9add_1853716-1855056_fdc48282"
+    ) == "sub_speakertwo_341446bc-389b-468c-9add_1853716-1855056"
     # Two spans off one clip stay two keys: re-keying a pin can never
     # bind the neighbour.
     assert (stable_prefix(
-        "sub_craig_341446bc-389b-468c-9add_1853716-1855056_1f0a29bf")
+        "sub_speakertwo_341446bc-389b-468c-9add_1853716-1855056_1f0a29bf")
         != stable_prefix(
-            "sub_craig_341446bc-389b-468c-9add_1855196-1856821_6b66c72d"))
+            "sub_speakertwo_341446bc-389b-468c-9add_1855196-1856821_6b66c72d"))
     # A motion-graphics name is ALL digest past the project, and a kind
     # default or a bare prefix is already a key: left whole.
     assert stable_prefix("mg_geo-podcast_622f69cb") == "mg_geo-podcast_622f69cb"
     assert stable_prefix("caption") == "caption"
-    assert (stable_prefix("sub_craig_341446bc-389b-468c-9add_1853716-1855056")
-            == "sub_craig_341446bc-389b-468c-9add_1853716-1855056")
+    assert (stable_prefix("sub_speakertwo_341446bc-389b-468c-9add_1853716-1855056")
+            == "sub_speakertwo_341446bc-389b-468c-9add_1853716-1855056")
     assert stable_prefix(None) == ""
 
 

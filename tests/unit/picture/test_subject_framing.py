@@ -883,7 +883,7 @@ class TestAimCenterX:
     """The aim favours the body, never past the face's own headroom."""
 
     def test_body_within_headroom_wins_outright(self):
-        # Akshita's measured case (report.md 2.3): body sits ~0.022 of
+        # SpeakerOne's measured case (report.md 2.3): body sits ~0.022 of
         # source width right of her face, well inside a 0.3-wide face's
         # SUBJECT_HEADROOM (0.15 * 0.3 = 0.045) budget.
         aim, basis = _aim_center_x(face_cx=0.40, face_width=0.30,

@@ -93,13 +93,13 @@ class _Timeline:
 
 
 def _retiring():
-    """The captain's Reel 13: Akshita on V1, Craig on V2, his Blue
+    """The captain's Reel 13: SpeakerOne on V1, SpeakerTwo on V2, his Blue
     `feedback` marker at 1909 - the frame he typed it on."""
     return _Timeline(
-        [("Akshita", [_Item(1599, 1909, "/f/LC4932.MXF", left=1000)]),
-         ("Craig", [_Item(1909, 1921, "/f/LCATL0013.MXF", left=50)])],
+        [("SpeakerOne", [_Item(1599, 1909, "/f/LC4932.MXF", left=1000)]),
+         ("SpeakerTwo", [_Item(1909, 1921, "/f/LCATL0013.MXF", left=50)])],
         markers={1700: {"color": "Blue", "name": "feedback",
-                        "note": "it cuts to craig here at the end",
+                        "note": "it cuts to speakertwo here at the end",
                         "duration": 1, "customData": "cd"}})
 
 
@@ -120,14 +120,14 @@ def test_a_marker_carries_to_the_frame_showing_the_same_picture():
     assert len(notes) == 1 and notes[0]["note"].startswith("it cuts")
     # The rebuild moved everything twenty frames earlier.
     replacement = _Timeline(
-        [("Akshita", [_Item(1579, 1889, "/f/LC4932.MXF", left=1000)])])
+        [("SpeakerOne", [_Item(1579, 1889, "/f/LC4932.MXF", left=1000)])])
     carried, uncarried = marker_carry.plan_carry(notes, replacement)
     assert not uncarried and len(carried) == 1
     assert carried[0]["to_frame"] == 1680
     failed = marker_carry.place(replacement, carried)
     assert not failed
     assert replacement.added == [
-        (1680, "Blue", "feedback", "it cuts to craig here at the end", 1,
+        (1680, "Blue", "feedback", "it cuts to speakertwo here at the end", 1,
          "cd")]
 
     # A reel that plays one source twice has not moved the note to the
@@ -148,8 +148,8 @@ def test_a_marker_carries_to_the_frame_showing_the_same_picture():
     # overlay under fresh content hashes; the footage did not move, so
     # the verdict anchored to picture stays at 65.
     replacement = _Timeline(
-        [("Akshita", [_Item(65, 511, "/f/LC4932.MXF", left=6505)]),
-         ("Craig", [_Item(0, 65, "/f/LCATL0013.MXF", left=6348)]),
+        [("SpeakerOne", [_Item(65, 511, "/f/LC4932.MXF", left=6505)]),
+         ("SpeakerTwo", [_Item(0, 65, "/f/LCATL0013.MXF", left=6348)]),
          ("Frame", [_Item(0, 716, "/f/tv_frame.mov")]),
          ("Subtitles", [_Item(0, 32, "/f/sub.mov")]),
          ("Semantic", [_Item(0, 108, "/f/mg_new.mov")]),
@@ -164,12 +164,12 @@ def test_a_marker_whose_picture_is_gone_is_named_not_dropped(capsys):
     """The whole point. A note on a shot the rebuild removed is
     REPORTED, with the captain's words, and left uncarried."""
     retiring = _Timeline(
-        [("Craig", [_Item(1909, 1921, "/f/LCATL0013.MXF", left=50)])],
+        [("SpeakerTwo", [_Item(1909, 1921, "/f/LCATL0013.MXF", left=50)])],
         markers={1915: {"color": "Blue", "name": "feedback",
                         "note": "this cut is jarring", "duration": 1}})
     notes = marker_carry.read_markers(retiring, "Reel 13")
     replacement = _Timeline(
-        [("Akshita", [_Item(1599, 1909, "/f/LC4932.MXF", left=1000)])])
+        [("SpeakerOne", [_Item(1599, 1909, "/f/LC4932.MXF", left=1000)])])
     carried, uncarried = marker_carry.plan_carry(notes, replacement)
     assert not carried and len(uncarried) == 1
     marker_carry.report("Reel 13", carried, uncarried)
@@ -179,13 +179,13 @@ def test_a_marker_whose_picture_is_gone_is_named_not_dropped(capsys):
 
 
 def _reel04():
-    """Reel 04's shape at the 2026-09-19 rebuild: Akshita body on V1
+    """Reel 04's shape at the 2026-09-19 rebuild: SpeakerOne body on V1
     from frame 65, a motion-graphics overlay across V5/V6 with
     per-build content hashes, and the pink verdict at 65 - the first
     body frame, under the overlay."""
     return _Timeline(
-        [("Akshita", [_Item(65, 395, "/f/LC4932.MXF", left=6505)]),
-         ("Craig", [_Item(0, 65, "/f/LCATL0013.MXF", left=6348)]),
+        [("SpeakerOne", [_Item(65, 395, "/f/LC4932.MXF", left=6505)]),
+         ("SpeakerTwo", [_Item(0, 65, "/f/LCATL0013.MXF", left=6348)]),
          ("Frame", [_Item(0, 600, "/f/tv_frame.mov")]),
          ("Subtitles", [_Item(0, 32, "/f/sub.mov")]),
          ("Semantic", [_Item(0, 108, "/f/mg_old.mov")]),
@@ -421,9 +421,9 @@ def _retiring_cta():
         markers={12: {"color": "Blue", "name": "feedback",
                       "note": CTA_NOTE, "duration": 1,
                       "customData": ""}})
-    body = timeline_item("Akshita A", 0, 600, path="/f/LC4932.MXF", left_offset=6505)
+    body = timeline_item("SpeakerOne A", 0, 600, path="/f/LC4932.MXF", left_offset=6505)
     return FakeTimeline("Reel 09", video=[
-        ("Akshita", [body]),
+        ("SpeakerOne", [body]),
         ("Motion Graphics", [card]),
     ])
 
@@ -436,7 +436,7 @@ def test_a_clip_marker_carries_by_file_not_by_timeline_frame():
     # same and still plays source frame 12.
     card = timeline_item("cta card", 570, 630, path="/f/mg_cta.mov", left_offset=0)
     replacement = FakeTimeline("staging", video=[
-        ("Akshita", [timeline_item("Akshita A", 0, 600, path="/f/LC4932.MXF",
+        ("SpeakerOne", [timeline_item("SpeakerOne A", 0, 600, path="/f/LC4932.MXF",
                                left_offset=6505)]),
         ("Motion Graphics", [card]),
     ])
@@ -468,7 +468,7 @@ def test_a_marker_on_the_audio_track_is_read():
                                      "note": "level dips here",
                                      "duration": 1, "customData": ""}})
     timeline = FakeTimeline("Reel 20", video=[
-        ("Akshita", [timeline_item("Akshita A", 0, 600, path="/f/LC4932.MXF",
+        ("SpeakerOne", [timeline_item("SpeakerOne A", 0, 600, path="/f/LC4932.MXF",
                                left_offset=0)])],
         audio=[("Master", [wchar])])
     notes = marker_carry.read_clip_markers(timeline, "Reel 20")
@@ -520,7 +520,7 @@ def test_a_marker_whose_file_is_gone_names_the_file(capsys):
     retiring = _retiring_cta()
     notes = marker_carry.read_clip_markers(retiring, "Reel 09")
     replacement = FakeTimeline("staging", video=[
-        ("Akshita", [timeline_item("Akshita A", 0, 600, path="/f/LC4932.MXF",
+        ("SpeakerOne", [timeline_item("SpeakerOne A", 0, 600, path="/f/LC4932.MXF",
                                left_offset=6505)]),
         ("Motion Graphics", [timeline_item("cta card", 500, 560,
                                        path="/f/mg_cta_NEW.mov", left_offset=0)]),
@@ -588,7 +588,7 @@ def _promote(project, project_dir, staged_to_final):
 
 def _reel_a():
     retiring = FakeTimeline(FINAL_A, video=[
-        ("Akshita", [timeline_item("Akshita A", 0, 600, path="/f/LC4932.MXF",
+        ("SpeakerOne", [timeline_item("SpeakerOne A", 0, 600, path="/f/LC4932.MXF",
                                left_offset=6505)]),
         ("Motion Graphics", [timeline_item(
             "cta card", 500, 560, path="/f/mg_cta.mov", left_offset=0,
@@ -597,7 +597,7 @@ def _reel_a():
                           "customData": ""}})]),
     ])
     staging = FakeTimeline(FINAL_A + " (rebuild staging)", video=[
-        ("Akshita", [timeline_item("Akshita A", 0, 600, path="/f/LC4932.MXF",
+        ("SpeakerOne", [timeline_item("SpeakerOne A", 0, 600, path="/f/LC4932.MXF",
                                left_offset=6505)]),
         ("Motion Graphics", [timeline_item("cta card", 570, 630,
                                        path="/f/mg_cta.mov", left_offset=0)]),
@@ -607,7 +607,7 @@ def _reel_a():
 
 def _reel_b():
     retiring = FakeTimeline(FINAL_B, video=[
-        ("Akshita", [timeline_item("Akshita A", 0, 600, path="/f/LC4932.MXF",
+        ("SpeakerOne", [timeline_item("SpeakerOne A", 0, 600, path="/f/LC4932.MXF",
                                left_offset=6505)]),
         ("Motion Graphics", [timeline_item(
             "doubled card", 100, 160, path="/f/mg_doubled.mov", left_offset=0,
@@ -617,7 +617,7 @@ def _reel_b():
     ])
     # Same file twice, both playing source frame 20: no unique item.
     staging = FakeTimeline(FINAL_B + " (rebuild staging)", video=[
-        ("Akshita", [timeline_item("Akshita A", 0, 600, path="/f/LC4932.MXF",
+        ("SpeakerOne", [timeline_item("SpeakerOne A", 0, 600, path="/f/LC4932.MXF",
                                left_offset=6505)]),
         ("Motion Graphics", [
             timeline_item("doubled card", 100, 160, path="/f/mg_doubled.mov",
@@ -771,8 +771,8 @@ def _retiring_2():
     span 31016..31107, and his Blue sits at 640 duration 81 over B."""
     return _Timeline_2(
         FINAL,
-        [("Akshita", [_Item_2("Akshita A", 600, 639, PATH, left=30788),
-                       _Item_2("Akshita B", 639, 730, PATH, left=31016)])],
+        [("SpeakerOne", [_Item_2("SpeakerOne A", 600, 639, PATH, left=30788),
+                       _Item_2("SpeakerOne B", 639, 730, PATH, left=31016)])],
         markers={640: {"color": "Blue", "name": "trim?",
                        "note": WORDS, "duration": 81,
                        "customData": ""}})
@@ -783,8 +783,8 @@ def _replacement():
     anchored span is entirely gone and the seam is frame 639."""
     return _Timeline_2(
         "staging",
-        [("Akshita", [_Item_2("Akshita A", 600, 639, PATH, left=30788),
-                       _Item_2("Akshita C", 639, 700, PATH, left=31097)])])
+        [("SpeakerOne", [_Item_2("SpeakerOne A", 600, 639, PATH, left=30788),
+                       _Item_2("SpeakerOne C", 639, 700, PATH, left=31097)])])
 
 
 @pytest.mark.usefixtures("mock_dvr")
@@ -837,8 +837,8 @@ def test_surviving_picture_still_carries_unchanged():
     notes = marker_carry.read_markers(retiring, FINAL)
     shifted = _Timeline_2(
         "staging",
-        [("Akshita", [_Item_2("Akshita A", 580, 619, PATH, left=30788),
-                       _Item_2("Akshita B", 619, 710, PATH, left=31016)])])
+        [("SpeakerOne", [_Item_2("SpeakerOne A", 580, 619, PATH, left=30788),
+                       _Item_2("SpeakerOne B", 619, 710, PATH, left=31016)])])
     carried, uncarried = marker_carry.plan_carry(notes, shifted)
     assert len(carried) == 1 and not uncarried
     assert carried[0]["to_frame"] == 620
@@ -857,14 +857,14 @@ def test_ambiguous_seam_goes_at_the_replacing_item_and_says_so():
     the replacing item, and the reply says the seam was ambiguous."""
     retiring = _Timeline_2(
         FINAL,
-        [("Akshita", [_Item_2("gone", 0, 100, PATH, left=5000),
+        [("SpeakerOne", [_Item_2("gone", 0, 100, PATH, left=5000),
                        _Item_2("kept", 100, 200, PATH, left=9000)])],
         markers={10: {"color": "Blue", "name": "look",
                       "note": "this opening drags", "duration": 10,
                       "customData": ""}})
     replacement = _Timeline_2(
         "staging",
-        [("Akshita", [_Item_2("new", 0, 50, "/footage/OTHER.MXF", left=0),
+        [("SpeakerOne", [_Item_2("new", 0, 50, "/footage/OTHER.MXF", left=0),
                        _Item_2("kept", 50, 150, PATH, left=9000)])])
     notes = marker_carry.read_markers(retiring, FINAL)
     _, uncarried = marker_carry.plan_carry(notes, replacement)
@@ -1067,7 +1067,7 @@ def _ask(frame=162, name="feedback", note=WORDS_2, color="Blue"):
         "note": note,
         "duration": 1,
         "custom_data": "",
-        "anchor": ("/footage/akshita-a.mp4", 4410),
+        "anchor": ("/footage/speakerone-a.mp4", 4410),
         "why": "its anchor picture is in the replacement nowhere",
     }
 

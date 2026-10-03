@@ -531,7 +531,7 @@ def test_a_past_the_end_entry_playhead_still_measures(monkeypatch,
 
 def _tracks():
     return [
-        {"type": "video", "index": 1, "name": "Craig", "clips": [
+        {"type": "video", "index": 1, "name": "SpeakerTwo", "clips": [
             {"name": "A.MXF", "source_file": "pic",
              "transform": {"Tilt": -0.79}}]},
         {"type": "video", "index": 4, "name": "Subtitles", "clips": [
@@ -548,7 +548,7 @@ SIZES = {"pic": (3840, 2160), "cap": (904, 480), "card": (1080, 1920)}
 
 def test_each_row_moves_the_stated_pixels_on_its_own_law():
     spec = row_shift.shift_spec(
-        _tracks(), 1, {"Craig": 220, "Subtitles": -26,
+        _tracks(), 1, {"SpeakerTwo": 220, "Subtitles": -26,
                        "Motion Graphics": 220},
         frame=(1080, 1920), draw_gain=1.0, skip_prefixes=("logo_",),
         size_of=SIZES.__getitem__)
@@ -574,7 +574,7 @@ def test_scaling_the_picture_keeps_what_it_frames_and_what_rides_on_it():
     # and a title riding on the picture must move with it, not shrink.
     fit = fit_base_scale(3840, 2160, 1080, 1920)
     tracks = [
-        {"type": "video", "index": 1, "name": "Craig", "clips": [
+        {"type": "video", "index": 1, "name": "SpeakerTwo", "clips": [
             {"name": "A.MXF", "source_file": "pic",
              "transform": {"Pan": 120.0, "Tilt": -0.79,
                            "ZoomX": 2.3, "ZoomY": 2.3}}]},

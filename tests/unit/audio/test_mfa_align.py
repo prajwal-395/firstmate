@@ -218,7 +218,7 @@ def test_mfa_dropped_word_keeps_transcriber_timing_through_transcript(
 def _sourced_windows():
     """Real hybrid windows (with `source_words`) over synthetic spans."""
     texts = [
-        "Craig nods along",
+        "SpeakerTwo nods along",
         "Lucie laughs then continues",
         "Then you're then you're Yeah, okay.",
         "So the system ships",
@@ -486,7 +486,7 @@ def test_mfa_success_is_recorded_on_the_run(monkeypatch, tmp_path):
         },
     )
 
-    aligned, record = tt.transcribe_audio(tmp_path / "craig.wav")
+    aligned, record = tt.transcribe_audio(tmp_path / "speakertwo.wav")
     assert record["arm"] == hybrid_transcription.ARM_HYBRID
     assert record["aligner"] == hybrid_transcription.ALIGNER_MFA
     assert aligned["segments"][0]["words"][0]["word"] == "Absolutely."
@@ -510,7 +510,7 @@ def test_an_mfa_decline_is_refused_not_realigned(monkeypatch, tmp_path):
     monkeypatch.setattr(mfa_align, "align", _declined)
 
     with pytest.raises(hybrid_transcription.FallbackRequired) as refused:
-        tt.transcribe_audio(tmp_path / "craig.wav")
+        tt.transcribe_audio(tmp_path / "speakertwo.wav")
     assert refused.value.reason == mfa_align.MFA_ENVIRONMENT_ABSENT
 
 

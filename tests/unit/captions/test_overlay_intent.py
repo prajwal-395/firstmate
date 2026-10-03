@@ -80,8 +80,8 @@ def _resolve(kind, segment_id, computed, intent, canvas=CANVAS,
 
 def test_kind_default_pins_every_caption_and_a_segment_pin_beats_it():
     intent = parse_intent(REEL_09_INTENT)
-    for segment_id in ("sub_akshita_x_1491914-1493721_6bdaa694",
-                       "sub_craig_y_1421571-1426656_8f6f0b4c",
+    for segment_id in ("sub_speakerone_x_1491914-1493721_6bdaa694",
+                       "sub_speakertwo_y_1421571-1426656_8f6f0b4c",
                        "sub_anything_unseen_before"):
         placement, provenance = _resolve(CAPTION_KIND, segment_id,
                                          COMPUTED_CAPTION, intent)
@@ -182,14 +182,14 @@ def test_declared_intent_wins_over_computed_on_the_timeline():
     assert item.set_calls == {"Scaling": 1, "Pan": 0.0, "Tilt": -850.0}
 
 
-#: Two segments off one Craig clip on Reel 13: same speaker, same
+#: Two segments off one SpeakerTwo clip on Reel 13: same speaker, same
 #: source clip, different source spans. The captain's own ids, which
 #: is the point - a re-key that merged these two would bind his pin
 #: to the neighbour's overlay.
-SPAN_A_OLD = "sub_craig_341446bc-389b-468c-9add_1853716-1855056_1f0a29bf"
-SPAN_A_NEW = "sub_craig_341446bc-389b-468c-9add_1853716-1855056_fdc48282"
-SPAN_B_OLD = "sub_craig_341446bc-389b-468c-9add_1855196-1856821_6b66c72d"
-SPAN_B_NEW = "sub_craig_341446bc-389b-468c-9add_1855196-1856821_c39e8475"
+SPAN_A_OLD = "sub_speakertwo_341446bc-389b-468c-9add_1853716-1855056_1f0a29bf"
+SPAN_A_NEW = "sub_speakertwo_341446bc-389b-468c-9add_1853716-1855056_fdc48282"
+SPAN_B_OLD = "sub_speakertwo_341446bc-389b-468c-9add_1855196-1856821_6b66c72d"
+SPAN_B_NEW = "sub_speakertwo_341446bc-389b-468c-9add_1855196-1856821_c39e8475"
 
 PIN_A = {"canvas_centre": [540.0, 1385.0], "scaling": 1}
 PIN_B = {"canvas_centre": [540.0, 960.0], "scaling": 1}
@@ -260,7 +260,7 @@ def test_two_pins_claiming_one_prefix_refuse_rather_than_guess():
          "targets": {SPAN_A_OLD: PIN_A, SPAN_A_NEW: PIN_B}})
     with pytest.raises(OverlayIntentError) as excinfo:
         _resolve(CAPTION_KIND,
-                 "sub_craig_341446bc-389b-468c-9add_1853716-1855056_00000000",
+                 "sub_speakertwo_341446bc-389b-468c-9add_1853716-1855056_00000000",
                  COMPUTED_CAPTION, intent)
     message = str(excinfo.value)
     assert SPAN_A_OLD in message and SPAN_A_NEW in message
@@ -330,7 +330,7 @@ def _reel_26_label(index=0):
 # karaoke change, caption segments are one per card rather than one
 # per transcript row, and several cards of one block share one
 # provenance prefix - three of Reel 26's read
-# `sub_craig_f24c6416-7523-42bb-b9fe_162173-167173_<digest>`. The
+# `sub_speakertwo_f24c6416-7523-42bb-b9fe_162173-167173_<digest>`. The
 # docstring covers TWO PINS naming one prefix (refused) but not ONE
 # PIN naming THREE SEGMENTS. What happens: the pin fans out - each
 # card resolves it independently, deterministically, with no guessing
@@ -339,9 +339,9 @@ def _reel_26_label(index=0):
 # and sit in one band), so these tests MEASURE it and it stays.
 
 #: Three karaoke cards off one Reel 26 block: one prefix, three digests.
-CARD_A = "sub_craig_f24c6416-7523-42bb-b9fe_162173-167173_aaaa1111"
-CARD_B = "sub_craig_f24c6416-7523-42bb-b9fe_162173-167173_bbbb2222"
-CARD_C = "sub_craig_f24c6416-7523-42bb-b9fe_162173-167173_cccc3333"
+CARD_A = "sub_speakertwo_f24c6416-7523-42bb-b9fe_162173-167173_aaaa1111"
+CARD_B = "sub_speakertwo_f24c6416-7523-42bb-b9fe_162173-167173_bbbb2222"
+CARD_C = "sub_speakertwo_f24c6416-7523-42bb-b9fe_162173-167173_cccc3333"
 
 
 def test_one_pin_fans_out_over_cards_sharing_its_prefix():
@@ -352,7 +352,7 @@ def test_one_pin_fans_out_over_cards_sharing_its_prefix():
     from library.tools.overlay_intent import unmatched
 
     intent = parse_intent({"version": 2, "targets": {
-        "sub_craig_f24c6416-7523-42bb-b9fe_162173-167173_dddd4444": PIN_A}})
+        "sub_speakertwo_f24c6416-7523-42bb-b9fe_162173-167173_dddd4444": PIN_A}})
     for card in (CARD_A, CARD_B, CARD_C):
         placement, provenance = _resolve(
             CAPTION_KIND, card, COMPUTED_CAPTION, intent)
@@ -913,12 +913,12 @@ def test_the_threshold_is_stated_in_stored_units():
 
 def test_pins_that_matched_nothing_are_named():
     intent = {
-        "sub_akshita_old-id_1_aaaa": {"scaling": 1, "pan": 0.0, "tilt": -870.0},
-        "sub_akshita_old-id_2_bbbb": {"scaling": 1, "pan": 0.0, "tilt": -870.0},
+        "sub_speakerone_old-id_1_aaaa": {"scaling": 1, "pan": 0.0, "tilt": -870.0},
+        "sub_speakerone_old-id_2_bbbb": {"scaling": 1, "pan": 0.0, "tilt": -870.0},
         "mg_live_one": {"scaling": 1, "pan": 0.0, "tilt": 895.0},
     }
     stale = overlay_intent.unmatched(intent, ["mg_live_one"])
-    assert stale == ["sub_akshita_old-id_1_aaaa", "sub_akshita_old-id_2_bbbb"]
+    assert stale == ["sub_speakerone_old-id_1_aaaa", "sub_speakerone_old-id_2_bbbb"]
 
 
 # --------------------------------------------------------------------------
@@ -1087,9 +1087,9 @@ def test_a_clamped_overlay_is_reported_by_name():
         pool, _Timeline([item]), object(),
         track_index=3, record_frame=10,
         source_in_frame=0, source_out_frame=40,
-        placement=_box_placement(), label="sub_reel-09_akshita_9")
+        placement=_box_placement(), label="sub_reel-09_speakerone_9")
     assert ok
-    assert "sub_reel-09_akshita_9" in note
+    assert "sub_reel-09_speakerone_9" in note
     assert "Tilt" in note and "-3840" in note
 
 

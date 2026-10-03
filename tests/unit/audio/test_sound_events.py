@@ -341,26 +341,26 @@ def _clock(digest, members, offset):
 
 
 def test_a_span_on_one_angle_is_placed_on_the_items_that_play_the_other(memory_root):
-    """The captain's example is a gesture seen on Craig's angle, but the
-    timeline also plays Akshita's angle at that moment. A span must reach
+    """The captain's example is a gesture seen on SpeakerTwo's angle, but the
+    timeline also plays SpeakerOne's angle at that moment. A span must reach
     every item that plays THAT MOMENT of the conversation, through the M6
     clock - and nothing past an item's recorded source extent."""
-    _clock("AKSHITA", ["AKSHITA", "CRAIG"], 0.0)
-    _clock("CRAIG", ["AKSHITA", "CRAIG"], 3.8)  # craig_t + 3.8 == akshita_t
+    _clock("SPEAKERONE", ["SPEAKERONE", "SPEAKERTWO"], 0.0)
+    _clock("SPEAKERTWO", ["SPEAKERONE", "SPEAKERTWO"], 3.8)  # speakertwo_t + 3.8 == speakerone_t
     items = [
-        {"resolve_item_id": "item-a", "speaker": "Akshita", "source_file": "/a.mxf",
+        {"resolve_item_id": "item-a", "speaker": "SpeakerOne", "source_file": "/a.mxf",
          "offset": 1000.0 - 500.0, "source_start": 500.0, "source_end": 520.0,
          "segments": [(500.0, 520.0)]},
-        {"resolve_item_id": "item-c", "speaker": "Craig", "source_file": "/c.mxf",
+        {"resolve_item_id": "item-c", "speaker": "SpeakerTwo", "source_file": "/c.mxf",
          "offset": 2000.0 - 600.0, "source_start": 600.0, "source_end": 610.0,
          "segments": [(600.0, 610.0)]},
     ]
-    files = {"/a.mxf": "AKSHITA", "/c.mxf": "CRAIG"}
+    files = {"/a.mxf": "SPEAKERONE", "/c.mxf": "SPEAKERTWO"}
 
-    placements = event_spans.place("proj", "CRAIG", 501.2, 503.2, items, files)
+    placements = event_spans.place("proj", "SPEAKERTWO", 501.2, 503.2, items, files)
 
     assert placements == [{
-        "resolve_item_id": "item-a", "track_speaker": "Akshita",
+        "resolve_item_id": "item-a", "track_speaker": "SpeakerOne",
         "via": "M6 clock", "source_file": "/a.mxf",
         "source_start": 505.0, "source_end": 507.0,
         "timeline_start": 1005.0, "timeline_end": 1007.0}]
@@ -368,14 +368,14 @@ def test_a_span_on_one_angle_is_placed_on_the_items_that_play_the_other(memory_r
 
 def test_a_predicate_the_measurement_cannot_answer_is_refused(tmp_path):
     """hand_near_mouth failed its pre-registered bar: an empty answer to
-    "when does Craig cover his mouth" reads as "never". on_screen spans
+    "when does SpeakerTwo cover his mouth" reads as "never". on_screen spans
     run the length of every take: verifying them is the whole-episode VLM
     pass the candidate stage exists to avoid."""
     with pytest.raises(RenRefusal) as refused:
-        event_spans.query(str(tmp_path), "Craig", "hand_near_mouth")
+        event_spans.query(str(tmp_path), "SpeakerTwo", "hand_near_mouth")
     assert "11/17" in str(refused.value.why)
     with pytest.raises(RenRefusal) as refused:
-        event_spans.verified_query(str(tmp_path), "Craig", "on_screen",
+        event_spans.verified_query(str(tmp_path), "SpeakerTwo", "on_screen",
                                    "covers his mouth with his hand")
     assert "whole episode" in str(refused.value.why)
 

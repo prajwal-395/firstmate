@@ -1024,8 +1024,8 @@ def test_segments_that_do_not_overlap_share_one_lane():
 # ── The rows ───────────────────────────────────────────────────────
 
 def _reel_material(**kwargs):
-    return {"angles": [{"key": "a", "label": "Akshita",
-                        "speech_name": "Akshita CH1",
+    return {"angles": [{"key": "a", "label": "SpeakerOne",
+                        "speech_name": "SpeakerOne CH1",
                         "program_channel": 1}],
             "has_broll": False, "has_frame": True,
             "caption_spans": [(0, 100)], "has_transitions": False,

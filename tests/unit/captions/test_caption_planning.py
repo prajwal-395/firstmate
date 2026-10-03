@@ -149,7 +149,7 @@ def _plan(words, text, duration):
                 for word, start, end in words
             ],
             "content": {"text": text},
-            "speaker": "Craig",
+            "speaker": "SpeakerTwo",
         }],
     }
     return generate_subtitles(
@@ -260,7 +260,7 @@ def _entry(block, index, tl_start, tl_end, words, text=None):
         "text": text if text is not None else " ".join(w[0] for w in words),
         "emphasis_words": [],
         "spine_block_position": block,
-        "speaker": "Craig",
+        "speaker": "SpeakerTwo",
         "word_count": len(words),
         "words": [_word(w, s, e) for w, s, e in words],
     }
@@ -705,7 +705,7 @@ def test_no_card_straddles_a_sentence():
     )
 
 
-def _overlap_entry(text, start, end, speaker="Craig"):
+def _overlap_entry(text, start, end, speaker="SpeakerTwo"):
     words = [
         {"word": word, "start": start, "end": end}
         for word in text.split()
@@ -1005,7 +1005,7 @@ def test_reel08_short_block_tail_uses_the_safe_gap_before_the_next_block():
             "timeline_end": 26.41,
             "source_start": 1285.0636666666664,
             "source_end": 1285.4436666666666,
-            "speaker": "Akshita",
+            "speaker": "SpeakerOne",
             "content": {"text": "mm-hmm."},
             "word_timestamps": [{
                 "word": "mm-hmm.",
@@ -1020,7 +1020,7 @@ def test_reel08_short_block_tail_uses_the_safe_gap_before_the_next_block():
             "timeline_end": 28.307,
             "source_start": 1297.023,
             "source_end": 1298.633,
-            "speaker": "Akshita",
+            "speaker": "SpeakerOne",
             "content": {"text": "ranking tells Google that you exist."},
             "word_timestamps": [
                 {"word": "ranking", "source_start": 1297.023,
@@ -1312,7 +1312,7 @@ def test_overlapping_word_timings_do_not_reach_the_cards():
 # Numbers below are frozen off the real artefacts: transcript segment 87
 # (`pipeline_output/scratch/timeline_transcript/transcript.json`,
 # 349.95-358.63) and the three placed props
-# (`sub_craig_7b1a6b77-..._633316-641996_{834c5d8d,7c1f3937,bf315839}`).
+# (`sub_speakertwo_7b1a6b77-..._633316-641996_{834c5d8d,7c1f3937,bf315839}`).
 # Times are shifted onto small card bounds preserving the measured shape
 # (six identical stamps, one overlap); the frames quoted are what the
 # builder really emits at 24000/1001. No test reaches a real project.
@@ -1336,7 +1336,7 @@ def _entry_2(block, index, tl_start, tl_end, words, text=None):
         "text": text if text is not None else " ".join(w[0] for w in words),
         "emphasis_words": [],
         "spine_block_position": block,
-        "speaker": "Craig",
+        "speaker": "SpeakerTwo",
         "word_count": len(words),
         "words": [_word(w, s, e) for w, s, e in words],
     }
@@ -1517,7 +1517,7 @@ class TestRendererSkipsEmptyWindows:
 # where `test_timeline_transcript.py` skips.
 
 def _clip(source, src_in, src_out, tl_start, tl_end, uid="uid",
-          speaker="Craig"):
+          speaker="SpeakerTwo"):
     return TimelineClip(
         resolve_item_id=uid, track_type="video", track_index=1,
         track_name=speaker, speaker=speaker, source_file=str(source),
@@ -1601,7 +1601,7 @@ def test_the_clamp_rebinds_a_stretched_row_and_invents_no_binding():
     """Before the fix this row split into three runs - A, unbound, B -
     because the stretched midpoint sat in the gap. Now the clamp puts
     the midpoint back on the clip the speech came from."""
-    out = tt.segments_for_speaker({"segments": [AUDITS_ROW]}, "Craig",
+    out = tt.segments_for_speaker({"segments": [AUDITS_ROW]}, "SpeakerTwo",
                                   CLIPS)
     assert [s.resolve_item_id for s in out] == ["A", "B"]
     assert [s.text for s in out] == ["and then audits", "resume"]
@@ -1610,7 +1610,7 @@ def test_the_clamp_rebinds_a_stretched_row_and_invents_no_binding():
     # back to 0.3s, still sits in the gap and still binds to None.
     row = {"start": 119.0, "end": 129.0, "text": "well",
            "words": [_word_2("well", 120.0, 128.0)]}
-    out = tt.segments_for_speaker({"segments": [row]}, "Craig", CLIPS)
+    out = tt.segments_for_speaker({"segments": [row]}, "SpeakerTwo", CLIPS)
     assert len(out) == 1
     assert out[0].resolve_item_id is None
     assert out[0].words[0]["start"] == 120.0
@@ -1632,7 +1632,7 @@ class _Snap:
     clips = ()
 
     def speakers(self):
-        return ["Craig"]
+        return ["SpeakerTwo"]
 
 
 def _document(words_per_row):
@@ -1640,7 +1640,7 @@ def _document(words_per_row):
     segments = []
     for words in words_per_row:
         segments.append(tt.SpokenSegment(
-            speaker="Craig", text=" ".join(w["word"] for w in words),
+            speaker="SpeakerTwo", text=" ".join(w["word"] for w in words),
             timeline_start=100.0, timeline_end=142.0,
             source_file="/m/a.MXF", source_start=1000.0,
             source_end=1042.0, resolve_item_id=None,

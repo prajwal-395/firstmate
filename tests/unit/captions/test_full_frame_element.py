@@ -189,12 +189,12 @@ def test_the_project_yaml_wins_over_the_brand_template(tmp_path):
 
 class _Moment:
     number = 7
-    speakers = ("Akshita", "Craig")
+    speakers = ("SpeakerOne", "SpeakerTwo")
 
 
 def _transcript():
     return {"segments": [{
-        "speaker": "Akshita", "timeline_start": 10.0, "timeline_end": 16.0,
+        "speaker": "SpeakerOne", "timeline_start": 10.0, "timeline_end": 16.0,
         "text": "So ranking number one on Google but invisible to AI",
         "words": [
             {"word": w, "start": 10.0 + i * 0.4, "end": 10.35 + i * 0.4,
@@ -664,7 +664,7 @@ def test_cue_lead_and_hold_proved_from_the_timing_functions(tmp_path):
 # ── Lines a reel really plays ────────────────────────────────────────
 
 def _line(at, says, words=None):
-    line = {"at": at, "speaker": "Akshita", "says": says}
+    line = {"at": at, "speaker": "SpeakerOne", "says": says}
     if words is not None:
         line["words"] = words
     return line
@@ -1171,7 +1171,7 @@ FOOTAGE = "/m/LCATL0013.MXF"
 
 
 def _item_2(track_index: int, start: int, frames: int,
-          source_file: str = FOOTAGE, speaker="Akshita",
+          source_file: str = FOOTAGE, speaker="SpeakerOne",
           transform=None) -> TimelineItem:
     return TimelineItem(
         track_type="video", track_index=track_index,
@@ -1239,7 +1239,7 @@ def test_f13_fails_a_card_missing_undeclared_or_above_the_picture():
 
 
 def _placements(n: int, frames: int) -> list:
-    return [PlannedPlacement(track_index=1, speaker="Akshita",
+    return [PlannedPlacement(track_index=1, speaker="SpeakerOne",
                              record_seconds=i * frames / FPS,
                              source_in=0.0, source_out=frames / FPS,
                              source_file=FOOTAGE)
@@ -1315,7 +1315,7 @@ def test_placements_shift_by_the_lead_in_whole_frames():
     class _Clip:
         track_type = "video"
         track_index = 1
-        speaker = "Akshita"
+        speaker = "SpeakerOne"
         source_file = FOOTAGE
         timeline_start = 10.0
         timeline_end = 20.0
@@ -1338,7 +1338,7 @@ def test_the_spine_moves_the_reel_clock_and_leaves_the_source_clock_alone():
     from library.tools.reel_spine import spine_for_reel
 
     transcript = {"segments": [{
-        "speaker": "Akshita", "timeline_start": 10.0, "timeline_end": 14.0,
+        "speaker": "SpeakerOne", "timeline_start": 10.0, "timeline_end": 14.0,
         "text": "ranking number one on Google but invisible to AI entirely",
         "clip_id": "clip_001", "source_file": FOOTAGE,
         "source_start": 100.0, "source_end": 104.0,
@@ -1353,7 +1353,7 @@ def test_the_spine_moves_the_reel_clock_and_leaves_the_source_clock_alone():
         number = 7
         timeline_start = 10.0
         timeline_end = 14.0
-        speakers = ("Akshita",)
+        speakers = ("SpeakerOne",)
 
     plain = spine_for_reel(_Moment(), transcript, [(10.0, 14.0)])
     shifted = spine_for_reel(_Moment(), transcript, [(10.0, 14.0)],
@@ -1400,7 +1400,7 @@ def test_a_tail_card_abuts_the_last_clip_on_a_range_that_does_not_round_evenly()
     class _Clip:
         track_type = "video"
         track_index = 1
-        speaker = "Akshita"
+        speaker = "SpeakerOne"
         source_file = FOOTAGE
         timeline_start = 0.0
         # Spans BOTH ranges: a clip that covered only the first would
@@ -1411,7 +1411,7 @@ def test_a_tail_card_abuts_the_last_clip_on_a_range_that_does_not_round_evenly()
 
     class _Moment:
         number = 7
-        speakers = ("Akshita",)
+        speakers = ("SpeakerOne",)
 
     declarations = ffe.declared_elements({"full_frame_elements": [{
         "element": "full_frame_card", "placement": "tail",

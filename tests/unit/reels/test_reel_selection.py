@@ -63,25 +63,25 @@ def _turn(speaker, start, end, text="some words here about the topic"):
 # ── Turns ────────────────────────────────────────────────────────────
 
 def test_consecutive_segments_from_one_speaker_are_one_turn():
-    tx = {"segments": [_seg("Craig", "first part", 0.0, 4.0),
-                       _seg("Craig", "second part", 4.2, 8.0, "uid-2"),
-                       _seg("Akshita", "the answer", 9.0, 15.0, "uid-3")]}
+    tx = {"segments": [_seg("SpeakerTwo", "first part", 0.0, 4.0),
+                       _seg("SpeakerTwo", "second part", 4.2, 8.0, "uid-2"),
+                       _seg("SpeakerOne", "the answer", 9.0, 15.0, "uid-3")]}
     turns = turns_from_transcript(tx)
-    assert [t.speaker for t in turns] == ["Craig", "Akshita"]
+    assert [t.speaker for t in turns] == ["SpeakerTwo", "SpeakerOne"]
     assert turns[0].text == "first part second part"
     assert turns[0].duration == pytest.approx(8.0)
 
 
 def test_a_long_pause_starts_a_new_turn():
-    tx = {"segments": [_seg("Craig", "before", 0.0, 4.0),
-                       _seg("Craig", "after", 20.0, 24.0, "uid-2")]}
+    tx = {"segments": [_seg("SpeakerTwo", "before", 0.0, 4.0),
+                       _seg("SpeakerTwo", "after", 20.0, 24.0, "uid-2")]}
     assert len(turns_from_transcript(tx)) == 2
 
 
 def test_a_straddling_segment_is_not_a_turn():
     """Its text is not reliably in the cut at all."""
-    tx = {"segments": [_seg("Craig", "real", 0.0, 4.0),
-                       dict(_seg("Craig", "bridged", 20.0, 40.0),
+    tx = {"segments": [_seg("SpeakerTwo", "real", 0.0, 4.0),
+                       dict(_seg("SpeakerTwo", "bridged", 20.0, 40.0),
                             resolve_item_id=None)]}
     assert len(turns_from_transcript(tx)) == 1
 
@@ -91,8 +91,8 @@ def test_a_straddling_segment_is_not_a_turn():
 def test_a_single_speaker_window_is_never_a_candidate():
     """Nine of the first ten proposals were one speaker. This is the
     check that makes that impossible rather than merely discouraged."""
-    turns = [_turn("Akshita", 0.0, 30.0), _turn("Akshita", 31.0, 60.0)]
-    assert exchange_windows(turns, "Craig", "Akshita") == []
+    turns = [_turn("SpeakerOne", 0.0, 30.0), _turn("SpeakerOne", 31.0, 60.0)]
+    assert exchange_windows(turns, "SpeakerTwo", "SpeakerOne") == []
 
 
 # ── The captain's length brief ───────────────────────────────────────
@@ -101,8 +101,8 @@ def test_length_is_guidance_and_a_long_story_is_still_reported():
     """Was a HARD window until 2026-09-04, which silently withheld every
     stretch needing longer to finish. A story that runs 95s because that
     is how long it takes to close is a real answer."""
-    turns = [_turn("Craig", 0.0, 10.0), _turn("Akshita", 11.0, 100.0)]  # 100s
-    windows = exchange_windows(turns, "Craig", "Akshita")
+    turns = [_turn("SpeakerTwo", 0.0, 10.0), _turn("SpeakerOne", 11.0, 100.0)]  # 100s
+    windows = exchange_windows(turns, "SpeakerTwo", "SpeakerOne")
     assert windows, "a 100s exchange must be offered, not withheld"
     assert windows[0].measurements()["within_length_guidance"] is False
 
@@ -114,11 +114,11 @@ def test_a_closing_pitch_is_measured_and_never_a_concern():
     provides value and then makes a little CTA at the end". Treating the
     pitch as a defect discarded ten candidates and removed the ending the
     format is built on."""
-    turns = [_turn("Craig", 0.0, 20.0, "so why does that matter to a business"),
-             _turn("Akshita", 21.0, 40.0, "because AI cannot describe you"),
-             _turn("Craig", 41.0, 55.0,
+    turns = [_turn("SpeakerTwo", 0.0, 20.0, "so why does that matter to a business"),
+             _turn("SpeakerOne", 21.0, 40.0, "because AI cannot describe you"),
+             _turn("SpeakerTwo", 41.0, 55.0,
                    "go check out the lucy visibility score on our website")]
-    window = exchange_windows(turns, "Craig", "Akshita")[0]
+    window = exchange_windows(turns, "SpeakerTwo", "SpeakerOne")[0]
     assert not any("pitch" in c for c in window.concerns), (
         "a closing CTA is the ending, not a defect")
     body = window.measurements()
@@ -129,22 +129,22 @@ def test_a_closing_pitch_is_measured_and_never_a_concern():
 
 
 def test_one_sided_is_the_conjunction_of_low_share_and_speaking_once():
-    """1:52-2:59 is one of the captain's own good examples and Craig
+    """1:52-2:59 is one of the captain's own good examples and SpeakerTwo
     holds only 9% of it - because he contributes twice, a real question
     and a real reaction. Alternation count alone discriminates nothing,
     so the concern is the CONJUNCTION."""
-    once = [_turn("Craig", 0.0, 4.0, "what about that"),
-            _turn("Akshita", 5.0, 60.0, "a very long answer indeed " * 5)]
-    windows = exchange_windows(once, "Craig", "Akshita")
+    once = [_turn("SpeakerTwo", 0.0, 4.0, "what about that"),
+            _turn("SpeakerOne", 5.0, 60.0, "a very long answer indeed " * 5)]
+    windows = exchange_windows(once, "SpeakerTwo", "SpeakerOne")
     assert any("speaks once" in c for c in windows[0].concerns)
 
-    returns = [_turn("Craig", 0.0, 3.0, "so give me an example of that"),
-               _turn("Akshita", 4.0, 35.0, "the audit example " * 6),
-               _turn("Craig", 36.0, 41.0,
+    returns = [_turn("SpeakerTwo", 0.0, 3.0, "so give me an example of that"),
+               _turn("SpeakerOne", 4.0, 35.0, "the audit example " * 6),
+               _turn("SpeakerTwo", 36.0, 41.0,
                      "they used to call that keyword stuffing"),
-               _turn("Akshita", 42.0, 60.0, "and it works against you " * 4)]
-    windows = exchange_windows(returns, "Craig", "Akshita")
-    assert windows[0].share_for("Craig") < 0.25
+               _turn("SpeakerOne", 42.0, 60.0, "and it works against you " * 4)]
+    windows = exchange_windows(returns, "SpeakerTwo", "SpeakerOne")
+    assert windows[0].share_for("SpeakerTwo") < 0.25
     assert windows[0].alternations >= 3
     assert not any("speaks once" in c for c in windows[0].concerns)
 
@@ -153,29 +153,29 @@ def test_one_sided_is_the_conjunction_of_low_share_and_speaking_once():
 
 def test_a_conversation_recorded_twice_collapses_and_two_different_do_not():
     words = "seo convinces an algorithm to rank pages geo makes ai comprehend"
-    a = Exchange(0.0, 55.0, (_turn("Craig", 0.0, 20.0, words),
-                             _turn("Akshita", 21.0, 55.0, words)))
-    b = Exchange(60.0, 118.0, (_turn("Craig", 60.0, 80.0, words),
-                               _turn("Akshita", 81.0, 118.0, words)))
+    a = Exchange(0.0, 55.0, (_turn("SpeakerTwo", 0.0, 20.0, words),
+                             _turn("SpeakerOne", 21.0, 55.0, words)))
+    b = Exchange(60.0, 118.0, (_turn("SpeakerTwo", 60.0, 80.0, words),
+                               _turn("SpeakerOne", 81.0, 118.0, words)))
     groups = collapse_retakes([a, b])
     assert len(groups) == 1
     assert groups[0][1].retake_band == "same"
 
-    c = Exchange(0.0, 55.0, (_turn("Craig", 0.0, 20.0, "seo algorithm ranking pages google"),
-                             _turn("Akshita", 21.0, 55.0, "position versus comprehension")))
-    d = Exchange(60.0, 118.0, (_turn("Craig", 60.0, 80.0, "competitors nine times visibility report"),
-                               _turn("Akshita", 81.0, 118.0, "modules citations directories")))
+    c = Exchange(0.0, 55.0, (_turn("SpeakerTwo", 0.0, 20.0, "seo algorithm ranking pages google"),
+                             _turn("SpeakerOne", 21.0, 55.0, "position versus comprehension")))
+    d = Exchange(60.0, 118.0, (_turn("SpeakerTwo", 60.0, 80.0, "competitors nine times visibility report"),
+                               _turn("SpeakerOne", 81.0, 118.0, "modules citations directories")))
     assert len(collapse_retakes([c, d])) == 2
 
 
 def test_containment_not_jaccard():
     """Two takes of one exchange differ in LENGTH - the second is usually
     more complete - and Jaccard punishes exactly that."""
-    short = Exchange(0.0, 50.0, (_turn("Craig", 0.0, 25.0, "algorithm ranking pages"),
-                                 _turn("Akshita", 26.0, 50.0, "comprehension")))
+    short = Exchange(0.0, 50.0, (_turn("SpeakerTwo", 0.0, 25.0, "algorithm ranking pages"),
+                                 _turn("SpeakerOne", 26.0, 50.0, "comprehension")))
     long = Exchange(60.0, 120.0, (
-        _turn("Craig", 60.0, 90.0, "algorithm ranking pages"),
-        _turn("Akshita", 91.0, 120.0,
+        _turn("SpeakerTwo", 60.0, 90.0, "algorithm ranking pages"),
+        _turn("SpeakerOne", 91.0, 120.0,
               "comprehension plus directories citations linkedin reddit press")))
     assert containment(short, long) == 1.0
 
@@ -184,10 +184,10 @@ def test_containment_not_jaccard():
 
 
 def test_a_flagged_window_is_reported_not_deleted():
-    turns = [_turn("Craig", 0.0, 20.0,
+    turns = [_turn("SpeakerTwo", 0.0, 20.0,
                    "the lucy visibility score go to our website check it out"),
-             _turn("Akshita", 21.0, 50.0)]
-    report = funnel(turns, "Craig", "Akshita")
+             _turn("SpeakerOne", 21.0, 50.0)]
+    report = funnel(turns, "SpeakerTwo", "SpeakerOne")
     assert report["flagged"], "a dropped window must still be reported"
     assert report["flagged"][0].concerns
 
@@ -198,12 +198,12 @@ def test_overlap_groups_do_not_chain():
     deletes everything it swallowed: measured on the field test, five
     windows spanning 248s collapsed to one 50s representative and the
     candidate covering the captain's approved reel 03 left the table."""
-    a = Exchange(0.0, 50.0, (_turn("Craig", 0.0, 20.0),
-                             _turn("Akshita", 21.0, 50.0)))
-    b = Exchange(40.0, 90.0, (_turn("Craig", 40.0, 60.0),
-                              _turn("Akshita", 61.0, 90.0)))
-    c = Exchange(80.0, 130.0, (_turn("Craig", 80.0, 100.0),
-                               _turn("Akshita", 101.0, 130.0)))
+    a = Exchange(0.0, 50.0, (_turn("SpeakerTwo", 0.0, 20.0),
+                             _turn("SpeakerOne", 21.0, 50.0)))
+    b = Exchange(40.0, 90.0, (_turn("SpeakerTwo", 40.0, 60.0),
+                              _turn("SpeakerOne", 61.0, 90.0)))
+    c = Exchange(80.0, 130.0, (_turn("SpeakerTwo", 80.0, 100.0),
+                               _turn("SpeakerOne", 101.0, 130.0)))
     groups = collapse_overlapping([a, b, c])
     # A and B overlap: one stretch, not two takes. C is its own group.
     assert [(g[0].start, g[0].end) for g in groups] == [(0.0, 50.0), (80.0, 130.0)]
@@ -243,11 +243,11 @@ def test_reel_selection_is_a_declared_model_step_with_a_neutral_role():
 def test_a_closing_pitch_is_never_a_reason_to_withhold_a_candidate():
     from library.tools.reel_exchange import Turn, exchange_windows
 
-    turns = [Turn("Craig", 0.0, 20.0, "so why does that matter to a business"),
-             Turn("Akshita", 21.0, 40.0, "because AI cannot describe you"),
-             Turn("Craig", 41.0, 55.0,
+    turns = [Turn("SpeakerTwo", 0.0, 20.0, "so why does that matter to a business"),
+             Turn("SpeakerOne", 21.0, 40.0, "because AI cannot describe you"),
+             Turn("SpeakerTwo", 41.0, 55.0,
                   "go check out the lucy visibility score on our website")]
-    window = exchange_windows(turns, "Craig", "Akshita")[0]
+    window = exchange_windows(turns, "SpeakerTwo", "SpeakerOne")[0]
     assert not any("pitch" in c for c in window.concerns)
     assert window.measurements()["closes_on_pitch"] is True
 
@@ -255,9 +255,9 @@ def test_a_closing_pitch_is_never_a_reason_to_withhold_a_candidate():
 def test_a_long_story_is_offered_with_its_length_not_truncated():
     from library.tools.reel_exchange import Turn, exchange_windows
 
-    turns = [Turn("Craig", 0.0, 10.0, "what is the story here"),
-             Turn("Akshita", 11.0, 100.0, "a long answer that lands late")]
-    windows = exchange_windows(turns, "Craig", "Akshita")
+    turns = [Turn("SpeakerTwo", 0.0, 10.0, "what is the story here"),
+             Turn("SpeakerOne", 11.0, 100.0, "a long answer that lands late")]
+    windows = exchange_windows(turns, "SpeakerTwo", "SpeakerOne")
     assert windows, "a 100s exchange must be offered, not withheld"
     assert windows[0].measurements()["within_length_guidance"] is False
 
@@ -294,11 +294,11 @@ def test_the_post_bridge_leaves_every_moment_proposed():
     from library.tools.reel_proposal import Approval, read_proposal  # noqa
     from library.steps.step_3_04_select_reels.post_bridge import resolve
 
-    seg1 = {"speaker": "Craig", "text": "a line about the topic here",
+    seg1 = {"speaker": "SpeakerTwo", "text": "a line about the topic here",
             "timeline_start": 10.0, "timeline_end": 30.0,
             "resolve_item_id": "u", "source_file": "/m/a.MXF",
             "source_start": 10.0, "source_end": 30.0}
-    seg2 = {"speaker": "Akshita", "text": "and here is the response",
+    seg2 = {"speaker": "SpeakerOne", "text": "and here is the response",
             "timeline_start": 30.5, "timeline_end": 55.0,
             "resolve_item_id": "u2", "source_file": "/m/b.MXF",
             "source_start": 30.5, "source_end": 55.0}
@@ -526,7 +526,7 @@ def test_the_approval_line_names_only_this_projects_transcript(tmp_path):
 # that a good opening produces nothing - the last of which is what stops
 # this becoming another gate that fires on correct output.
 
-def _words(text: str, speaker: str = "Akshita") -> list:
+def _words(text: str, speaker: str = "SpeakerOne") -> list:
     return [{"word": w, "speaker": speaker} for w in text.split()]
 
 
@@ -594,8 +594,8 @@ def _seg_2(speaker, text, start, step=0.3):
 
 def test_opening_words_are_read_through_the_keep_ranges():
     """A take cut out of the opening takes its words with it."""
-    tx = _transcript_2([_seg_2("Akshita", "this whole take was flubbed", 0.0),
-                      _seg_2("Akshita", "Yeah so we ran an audit", 10.0)])
+    tx = _transcript_2([_seg_2("SpeakerOne", "this whole take was flubbed", 0.0),
+                      _seg_2("SpeakerOne", "Yeah so we ran an audit", 10.0)])
 
     # Only the second range plays.
     got = opening_words([(10.0, 20.0)], tx)
@@ -612,11 +612,11 @@ def test_untimed_words_never_reach_the_opening():
     nobody spoke.
     """
     tx = _transcript_2([
-        {"speaker": "Akshita", "text": "a whole sentence with no timings",
+        {"speaker": "SpeakerOne", "text": "a whole sentence with no timings",
          "timeline_start": 0.0, "timeline_end": 0.2,
          "source_file": "/m/a.MXF",
          "words": [{"word": "a", "start": 0.0, "end": 0.1, "timed": False}]},
-        _seg_2("Akshita", "Why do AI platforms love video", 1.0),
+        _seg_2("SpeakerOne", "Why do AI platforms love video", 1.0),
     ])
 
     got = opening_words([(0.0, 30.0)], tx)

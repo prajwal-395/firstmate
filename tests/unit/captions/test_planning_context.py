@@ -366,19 +366,19 @@ def _lc0005_transcript():
     (profile links / reviews reflected) sharing only a closing phrase,
     26 seconds apart."""
     return {"segments": [
-        _seg("Akshita",
+        _seg("SpeakerOne",
              "and make sure everything on your google business profile "
              "links up with",
              2424.461,
              [2425.41, 2425.67, 2425.87, 2426.41, 2426.53, 2426.65,
               2426.93, 2427.32, 2427.64, 2427.76, 2427.82, 2428.02],
              uid="a1"),
-        _seg("Akshita", "everything else on the broader web.", 2428.626,
+        _seg("SpeakerOne", "everything else on the broader web.", 2428.626,
              [2428.95, 2429.17, 2429.33, 2429.50, 2429.76, 2429.86],
              uid="a2"),
-        _seg("Akshita", "for example", 2429.86,
+        _seg("SpeakerOne", "for example", 2429.86,
              [2430.00, 2430.48], uid="a3"),
-        _seg("Akshita",
+        _seg("SpeakerOne",
              "make sure that your google reviews are all positive and "
              "that's being reflected",
              2450.961,
@@ -386,37 +386,37 @@ def _lc0005_transcript():
               2453.47, 2453.65, 2454.39, 2454.56, 2454.82, 2455.02,
               2455.46],
              uid="a4"),
-        _seg("Akshita", "everywhere else on the broader web.", 2455.581,
+        _seg("SpeakerOne", "everywhere else on the broader web.", 2455.581,
              [2455.89, 2456.07, 2456.19, 2456.29, 2456.64, 2456.96],
              uid="a5"),
     ]}
 
 
 def _lc0006_transcript():
-    """lc-0006's shape: Craig says the same thing twice across
-    Akshita's interjection, reworded past every bar the cut lane holds
+    """lc-0006's shape: SpeakerTwo says the same thing twice across
+    SpeakerOne's interjection, reworded past every bar the cut lane holds
     (containment 0.667/1.0, Jaccard 0.286/0.50, ratio 2.03)."""
     return {"segments": [
-        _seg("Craig", "and that's what happened with that company why",
+        _seg("SpeakerTwo", "and that's what happened with that company why",
              889.92,
              [890.02, 890.20, 890.36, 890.54, 890.66, 890.84, 891.10,
               891.26],
              uid="c1"),
-        _seg("Craig", "they came back as a healthcare company", 891.40,
+        _seg("SpeakerTwo", "they came back as a healthcare company", 891.40,
              [891.48, 891.66, 891.88, 892.04, 892.10, 892.64, 893.02],
              uid="c2"),
-        _seg("Akshita", "and not an accounting software company yes",
+        _seg("SpeakerOne", "and not an accounting software company yes",
              893.455,
              [893.51, 893.70, 893.80, 894.16, 894.56, 894.94, 895.12],
              uid="a1"),
-        _seg("Craig",
+        _seg("SpeakerTwo",
              "and that's one of the reasons why that company got "
              "called a",
              895.471,
              [895.55, 895.79, 895.93, 895.99, 896.09, 896.45, 896.77,
               897.20, 897.66, 897.86, 898.16, 898.20],
              uid="c3"),
-        _seg("Craig", "healthcare company", 898.60,
+        _seg("SpeakerTwo", "healthcare company", 898.60,
              [899.00, 899.40], uid="c4"),
     ]}
 
@@ -450,7 +450,7 @@ def test_the_tail_drop_reads_as_a_tail():
 
 def test_the_paraphrase_is_surfaced_for_the_model():
     """But it is CAUGHT: `possible_retellings` names the pair, that it
-    crosses Akshita's turn, both tellings' sentences, and what the
+    crosses SpeakerOne's turn, both tellings' sentences, and what the
     second telling adds."""
     transcript = _lc0006_transcript()
     # The deterministic floor does not move: no cut is proposed ...
@@ -459,7 +459,7 @@ def test_the_paraphrase_is_surfaced_for_the_model():
     found = reel_build.possible_retellings(889.0, 900.0, transcript)
     assert len(found) == 1
     retelling = found[0]
-    assert retelling["speaker"] == "Craig"
+    assert retelling["speaker"] == "SpeakerTwo"
     assert retelling["crosses_turn"] is True
     assert "accounting software" in retelling["between_text"]
     assert "healthcare company" in retelling["kept_sentence"]
@@ -470,12 +470,12 @@ def test_no_retelling_where_the_turn_does_not_cross():
     """The same near-miss WITHOUT an interjection is an ordinary
     suspect, not a retelling: nothing is surfaced."""
     transcript = {"segments": [
-        _seg("Craig", "and that's what happened with that company why",
+        _seg("SpeakerTwo", "and that's what happened with that company why",
              889.92,
              [890.02, 890.20, 890.36, 890.54, 890.66, 890.84, 891.10,
               891.26],
              uid="c1"),
-        _seg("Craig",
+        _seg("SpeakerTwo",
              "and that's one of the reasons why that company got "
              "called a",
              895.471,

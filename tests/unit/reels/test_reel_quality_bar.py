@@ -50,14 +50,14 @@ def _transcript(segments, duration=1000.0, fps=24000 / 1001):
 #: One conversation with a spoken closer at 200-206s, well away from the
 #: body, so a moment can borrow it or not.
 SEGMENTS = [
-    _segment(10.0, 20.0, "Craig", "so what actually changed about search"),
-    _segment(20.0, 40.0, "Akshita",
+    _segment(10.0, 20.0, "SpeakerTwo", "so what actually changed about search"),
+    _segment(20.0, 40.0, "SpeakerOne",
              "the question changed people ask a full sentence now"),
-    _segment(40.0, 70.0, "Craig",
+    _segment(40.0, 70.0, "SpeakerTwo",
              "and that means the old ranking game stops paying"),
-    _segment(200.0, 206.0, "Akshita",
+    _segment(200.0, 206.0, "SpeakerOne",
              "jump on our site and run the free check"),
-    _segment(300.0, 340.0, "Craig", "a second conversation entirely here"),
+    _segment(300.0, 340.0, "SpeakerTwo", "a second conversation entirely here"),
 ]
 
 
@@ -69,7 +69,7 @@ def _moment(number=1, start=10.0, end=70.0, cta=None, slug="the-question"):
 
 CLOSER = CallToAction(timeline_start=200.0, timeline_end=206.0,
                       text="jump on our site and run the free check",
-                      speaker="Akshita")
+                      speaker="SpeakerOne")
 
 
 def _project_with_tail_card(tmp_path):
@@ -138,7 +138,7 @@ def test_length_is_never_a_gate_except_the_mechanical_absurd_bound():
     from library.tools.reel_exchange import ABSURD_SECONDS
 
     transcript = _transcript(SEGMENTS + [
-        _segment(float(t), t + 4.0, "Craig", f"and then point {t} follows")
+        _segment(float(t), t + 4.0, "SpeakerTwo", f"and then point {t} follows")
         for t in range(104, 700, 4)], duration=1000.0)
     absurd = _moment(end=10.0 + ABSURD_SECONDS + 30.0)
     codes = {f.code: f for f in qb.exact_findings(absurd, transcript, {})}
@@ -553,7 +553,7 @@ def test_the_words_are_the_played_ranges_in_play_order():
     # The reel PLAYS it; a reader shown only the bound rows would be
     # reading a reel that does not exist.
     segments = list(SEGMENTS) + [
-        _segment(45.0, 50.0, "Akshita", "and nobody noticed", bound=False)]
+        _segment(45.0, 50.0, "SpeakerOne", "and nobody noticed", bound=False)]
     transcript = _transcript(segments)
     assert "nobody noticed" in qb.reel_text(_moment(), transcript)
 
@@ -625,8 +625,8 @@ def test_the_closer_that_decides_is_the_LAST_one_the_reel_plays():
     first.
     """
     transcript = _transcript(SEGMENTS + [
-        _segment(96.0, 100.0, "Craig", "go and check it out"),
-        _segment(100.0, 104.0, "Akshita", "the link is in our bio"),
+        _segment(96.0, 100.0, "SpeakerTwo", "go and check it out"),
+        _segment(100.0, 104.0, "SpeakerOne", "the link is in our bio"),
     ])
     early = CallToAction(timeline_start=96.0, timeline_end=100.0,
                          text="go and check it out")
@@ -649,8 +649,8 @@ def test_the_closer_that_decides_is_the_LAST_one_the_reel_plays():
     # The other direction: reels 23 and 24 play 1.2s of speech after
     # their closer and genuinely do not end on it.
     transcript = _transcript(SEGMENTS + [
-        _segment(96.0, 100.0, "Craig", "go and check it out"),
-        _segment(100.0, 106.0, "Akshita", "anyway that is the whole idea"),
+        _segment(96.0, 100.0, "SpeakerTwo", "go and check it out"),
+        _segment(100.0, 106.0, "SpeakerOne", "anyway that is the whole idea"),
     ])
     early = CallToAction(timeline_start=96.0, timeline_end=100.0,
                          text="go and check it out")
@@ -726,15 +726,15 @@ def _transcript_2():
     return {
         "segments": [
             {"timeline_start": 10.0, "timeline_end": 20.0,
-             "speaker": "Craig",
+             "speaker": "SpeakerTwo",
              "text": "so what actually changed about search",
              "resolve_item_id": "item_10", "words": words_a},
             {"timeline_start": 20.0, "timeline_end": 40.0,
-             "speaker": "Akshita",
+             "speaker": "SpeakerOne",
              "text": "the question changed people ask now",
              "resolve_item_id": "item_20", "words": words_b},
             {"timeline_start": 40.0, "timeline_end": 50.0,
-             "speaker": "Craig",
+             "speaker": "SpeakerTwo",
              "text": "and that means the old ranking game stops paying",
              "resolve_item_id": "item_40", "words": words_c},
         ],
@@ -758,14 +758,14 @@ def _moment_with_cta(transcript_preview=""):
         call_to_action=CallToAction(
             timeline_start=5.0, timeline_end=8.0,
             text="go check it out, the links in the bio",
-            speaker="Craig"))
+            speaker="SpeakerTwo"))
 
 
 def _transcript_with_cta():
     return {
         "segments": [
             {"timeline_start": 5.0, "timeline_end": 8.0,
-             "speaker": "Craig", "text": "go check it out the links in the bio",
+             "speaker": "SpeakerTwo", "text": "go check it out the links in the bio",
              "resolve_item_id": "cta",
              "words": [
                  _w(word, 5.0 + i * 0.5, 5.4 + i * 0.5)
@@ -773,7 +773,7 @@ def _transcript_with_cta():
                      "go", "check", "it", "out", "the", "links",
                      "in", "bio"])]},
             {"timeline_start": 10.0, "timeline_end": 20.0,
-             "speaker": "Craig", "text": "so what actually changed about search",
+             "speaker": "SpeakerTwo", "text": "so what actually changed about search",
              "resolve_item_id": "body_1",
              "words": [
                  _w(word, 10.0 + i * 0.5, 10.4 + i * 0.5)
@@ -781,7 +781,7 @@ def _transcript_with_cta():
                      "so", "what", "actually", "changed", "about",
                      "search"])]},
             {"timeline_start": 20.0, "timeline_end": 25.0,
-             "speaker": "Akshita", "text": "and AI really likes that",
+             "speaker": "SpeakerOne", "text": "and AI really likes that",
              "resolve_item_id": "body_2",
              "words": [
                  _w(word, 20.0 + i * 0.5, 20.4 + i * 0.5)
@@ -896,7 +896,7 @@ def test_preview_phrase_inside_body_does_not_remove_a_planned_cta(tmp_path):
 STEP_2 = 0.4
 
 
-def _segment_2(start: float, text: str, speaker: str = "Akshita"):
+def _segment_2(start: float, text: str, speaker: str = "SpeakerOne"):
     """One bound transcript segment with evenly spaced timed words."""
     tokens = text.split()
     timed = [{"word": token, "start": round(start + i * STEP_2, 3),
@@ -983,14 +983,14 @@ R13_TAIL = "so what we are hearing they search their business"
 def _reel_13_pieces():
     body = _segment_2(889.0, R13_BODY)
     cta = _segment_2(320.0, R13_CTA)
-    tail = _segment_2(cta["timeline_end"], R13_TAIL, speaker="Craig")
+    tail = _segment_2(cta["timeline_end"], R13_TAIL, speaker="SpeakerTwo")
     transcript = _transcript_3(body, cta, tail)
     return body, cta, tail, transcript
 
 
 def test_reel_13_reads_incoherent_with_the_tail_and_coherent_fixed():
     body, cta, tail, transcript = _reel_13_pieces()
-    # This fixture explicitly approves a closer through Craig's whole
+    # This fixture explicitly approves a closer through SpeakerTwo's whole
     # sentence. The build's large-snap guard prevents that cascade from
     # an edge before the sentence, but a thesis check still judges a
     # plan that already includes the sentence.
@@ -1148,7 +1148,7 @@ def test_prompt_carries_the_kept_words_and_no_verdict_vocabulary():
     prompt = thesis.render_thesis_prompt(context)
     assert "specific reasons why" in prompt
     assert "definitely check it out" in prompt
-    assert "Akshita:" in prompt
+    assert "SpeakerOne:" in prompt
     thesis.assert_ask_carries_no_verdict(prompt)
 
 

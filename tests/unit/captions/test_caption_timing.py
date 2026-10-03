@@ -35,11 +35,11 @@ FPS = 24000 / 1001
 #: Reel 13's five closing cards as a REBUILD renders them: the source
 #: spans are off the segment names Resolve reports, in seconds.
 CLOSERS = [
-    ("sub_akshita_5ae8f521_500780-504042", 500.780, 504.042, 1600, 1678),
-    ("sub_akshita_5ae8f521_504162-505548", 504.162, 505.548, 1681, 1714),
-    ("sub_akshita_5ae8f521_505970-509122", 505.970, 509.122, 1724, 1800),
-    ("sub_akshita_5ae8f521_509764-512638", 509.764, 512.638, 1815, 1884),
-    ("sub_akshita_5ae8f521_512759-513442", 512.759, 513.442, 1887, 1903),
+    ("sub_speakerone_5ae8f521_500780-504042", 500.780, 504.042, 1600, 1678),
+    ("sub_speakerone_5ae8f521_504162-505548", 504.162, 505.548, 1681, 1714),
+    ("sub_speakerone_5ae8f521_505970-509122", 505.970, 509.122, 1724, 1800),
+    ("sub_speakerone_5ae8f521_509764-512638", 509.764, 512.638, 1815, 1884),
+    ("sub_speakerone_5ae8f521_512759-513442", 512.759, 513.442, 1887, 1903),
 ]
 
 #: And where the captain's own hand put them.
@@ -49,7 +49,7 @@ LIVE = [(1607, 1685), (1688, 1721), (1731, 1807), (1822, 1891),
 
 def _segments():
     return [{"segment_id": sid,
-             "binding": {"speaker": "akshita",
+             "binding": {"speaker": "speakerone",
                          "source_clip_id": "5ae8f521-647e-49c6-bf3d",
                          "source_start": start, "source_end": end},
              "timeline_start": a / FPS, "timeline_end": b / FPS}
@@ -67,12 +67,12 @@ def _captains_pins():
     """His edit, declared: four cards moved seven frames later, and the
     fifth's head pulled in with its tail held."""
     return [
-        {"scope": {"speaker": "akshita",
+        {"scope": {"speaker": "speakerone",
                    "source_start_at_or_after": 500.780,
                    "source_start_before": 512.759},
          "offset_frames": 7,
          "reason": "captain 2026-09-11: the closer cards run 7f early"},
-        {"scope": {"speaker": "akshita", "source_start": 512.759},
+        {"scope": {"speaker": "speakerone", "source_start": 512.759},
          "head_frames": 13,
          "reason": "captain 2026-09-11: the last card comes in late"},
     ]
@@ -97,27 +97,27 @@ def test_the_pins_reproduce_the_captains_timeline_exactly():
 
 def test_scope_addresses_the_source_audio_not_the_timeline():
     segments = _segments()
-    window = {"speaker": "akshita", "source_start_at_or_after": 505.970,
+    window = {"speaker": "speakerone", "source_start_at_or_after": 505.970,
               "source_start_before": 509.764}
     assert [s["segment_id"] for s in segments
             if caption_timing.matches(s, window)] == [
-        "sub_akshita_5ae8f521_505970-509122"]
+        "sub_speakerone_5ae8f521_505970-509122"]
     # A clip id read off a rendered FILENAME is slugged and truncated;
     # it must still address the binding it was copied from.
     assert caption_timing.matches(
         segments[0], {"source_clip_id": "5ae8f521-647e-49c6-bf3d"})
     assert not caption_timing.matches(segments[0],
-                                      {"speaker": "craig"})
+                                      {"speaker": "speakertwo"})
     assert not caption_timing.matches(segments[0],
                                       {"source_start": 999.0})
 
 
 def test_a_pin_matching_nothing_reports_stale_rather_than_vanishing():
     out, applied, _, stale = caption_timing.apply_pins(
-        _segments(), [{"scope": {"speaker": "craig"}, "offset_frames": 3,
+        _segments(), [{"scope": {"speaker": "speakertwo"}, "offset_frames": 3,
                        "reason": "words that moved"}], FPS)
     assert not applied and len(stale) == 1
-    assert "STALE" in stale[0]["reason"] and "craig" in str(stale[0]["scope"])
+    assert "STALE" in stale[0]["reason"] and "speakertwo" in str(stale[0]["scope"])
     assert _spans(out) == [(a, b) for _, _, _, a, b in CLOSERS]
     # A timeline-scoped pin gone stale on its own reel still reports.
     pins = _scoped_pins()
@@ -258,7 +258,7 @@ def test_a_rebase_moves_source_scopes_by_the_measured_delta():
     assert "captain 2026-09-11" in last["reason"]
     assert "rebased -0.047s" in last["reason"]
     # A pin with no source scope passes through unchanged.
-    pins = [{"scope": {"speaker": "akshita", "timeline": "Reel 13"},
+    pins = [{"scope": {"speaker": "speakerone", "timeline": "Reel 13"},
              "offset_frames": 7,
              "reason": "a placement pin names no source seconds"}]
     assert caption_timing.rebase_pins(
@@ -384,9 +384,9 @@ def _talkover_spine():
     different words on each mic, the shape `reel_spine` keeps by design."""
     return {"structure": [
         _block(3, "for small businesses the chains just cannot keep up",
-               10.0, "akshita"),
+               10.0, "speakerone"),
         _block(4, "google rewards the shop that answers every question",
-               12.6, "craig"),
+               12.6, "speakertwo"),
     ]}
 
 
@@ -483,7 +483,7 @@ def test_same_speaker_merge_covers_its_first_word():
     slop, so the merged card opens where its first word does."""
     entries = _merge_entries(
         "not at all.", [2.82, 2.97, 3.04], "i have seen", [2.98, 3.28, 3.42],
-        2.82, 3.24, 2.98, 4.41, ("akshita", "akshita"))
+        2.82, 3.24, 2.98, 4.41, ("speakerone", "speakerone"))
     fix = resolve_caption_overlaps(entries)
     assert fix == {"trimmed": 0, "merged": 1, "merged_backward": 0,
                    "reassigned": 0}, fix
@@ -501,7 +501,7 @@ def test_mixed_speaker_merge_keeps_the_later_start():
     it cannot cover, exactly as before."""
     entries = _merge_entries(
         "short tail", [14.0, 14.2], "google rewards", [14.2, 14.6],
-        14.0, 14.4, 14.2, 16.0, ("akshita", "craig"))
+        14.0, 14.4, 14.2, 16.0, ("speakerone", "speakertwo"))
     fix = resolve_caption_overlaps(entries)
     assert fix == {"trimmed": 0, "merged": 1, "merged_backward": 0,
                    "reassigned": 0}, fix
@@ -512,7 +512,7 @@ def test_mixed_speaker_merge_keeps_the_later_start():
 
 def _planned(start, end, text, block):
     return PlannedCaption(
-        start_seconds=start, end_seconds=end, text=text, speaker="craig",
+        start_seconds=start, end_seconds=end, text=text, speaker="speakertwo",
         frames=max(int(round((end - start) * FPS)), 1),
         block_position=str(block), block_end_seconds=end)
 
@@ -523,7 +523,7 @@ def _placed(start_frame, duration_frames):
         start_frame=start_frame, end_frame=start_frame + duration_frames,
         duration_frames=duration_frames,
         source_start_frame=0, source_end_frame=duration_frames,
-        source_file="/m/caption.mov", speaker="craig", name="caption")
+        source_file="/m/caption.mov", speaker="speakertwo", name="caption")
 
 
 def test_gate_still_refuses_overlapping_plan_cards():
@@ -532,9 +532,9 @@ def test_gate_still_refuses_overlapping_plan_cards():
     to refuse."""
     cards = [
         {"reel_start": 13.0, "reel_end": 14.93 + 1.79,
-         "text": "for small businesses", "speaker": "akshita"},
+         "text": "for small businesses", "speaker": "speakerone"},
         {"reel_start": 14.93, "reel_end": 16.5,
-         "text": "google rewards", "speaker": "craig"},
+         "text": "google rewards", "speaker": "speakertwo"},
     ]
     findings = check_caption_overlaps("reel 15", cards, FPS)
     assert [f.finding_class for f in findings] == [FindingClass.F6]
@@ -576,7 +576,7 @@ def _entries_2():
             "timeline_end": SPAN_END,
             "text": "search did not change",
             "spine_block_position": "body_7",
-            "speaker": "Craig",
+            "speaker": "SpeakerTwo",
             "words": [],
         }
     ]
@@ -635,7 +635,7 @@ def _item(start_frame: int, duration_frames: int) -> TimelineItem:
         end_frame=start_frame + duration_frames,
         duration_frames=duration_frames,
         source_start_frame=0, source_end_frame=duration_frames,
-        source_file="/s/seg.mov", speaker="Craig", name="seg",
+        source_file="/s/seg.mov", speaker="SpeakerTwo", name="seg",
     )
 
 
@@ -667,7 +667,7 @@ def test_placed_segment_passes_the_duration_gate(monkeypatch, tmp_path):
     record = int(round(SPAN_START * FPS))
     planned = (PlannedCaption(
         start_seconds=SPAN_START, end_seconds=SPAN_END,
-        text="search did not change", speaker="Craig",
+        text="search did not change", speaker="SpeakerTwo",
         frames=EXPECTED_FRAMES, block_position="body_7"),)
     findings = check_caption_duration(
         "Reel 01", planned, (_item(record, trimmed),), FPS)
@@ -685,7 +685,7 @@ def test_a_genuinely_one_frame_short_segment_still_fails():
     """
     planned = (PlannedCaption(
         start_seconds=SPAN_START, end_seconds=SPAN_END,
-        text="search did not change", speaker="Craig",
+        text="search did not change", speaker="SpeakerTwo",
         frames=EXPECTED_FRAMES, block_position="body_7"),)
     record = int(round(SPAN_START * FPS))
     short = check_caption_duration(
@@ -842,7 +842,7 @@ def test_f15_still_refuses_the_reel24_card_shape():
 PROJECT_RANGE = [(718.59, 775.52)]
 SOURCE_FILE = "LCATL0013.MXF"
 SEGMENT = {
-    "speaker": "Craig",
+    "speaker": "SpeakerTwo",
     "text": "I kind of explain it as what you kind of mentioned.",
     "timeline_start": 723.08,
     "timeline_end": 726.2,
@@ -936,7 +936,7 @@ def test_build_planner_covers_played_i_and_f25_passes(tmp_path, monkeypatch):
         project, "uh", "the filler before the sentence is not captioned")
     transcript_corrections.record_display_suppression(
         project, "I", "the second I is a false start",
-        scope={"speaker": "Craig", "surface": "I",
+        scope={"speaker": "SpeakerTwo", "surface": "I",
                "prev": "I", "next": "kind"})
     moment, transcript = _planner_input()
     monkeypatch.setattr(

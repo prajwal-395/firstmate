@@ -61,11 +61,11 @@ MALFORMED = [
     ("language", 5, "source.language"),
     ("language", ["en"], "source.language"),
     ("shape", "podcast", "source.shape"),
-    ("speakers", "Craig", "source.speakers must be a list"),
+    ("speakers", "SpeakerTwo", "source.speakers must be a list"),
     ("speakers", [{"title": "host"}], "names no speaker"),
     ("speakers", [{"name": "  "}], "names no speaker"),
-    ("speakers", [{"name": "Craig", "role": 5}], "must be a string"),
-    ("speakers", [{"name": "Craig", "agent": "x"}], "which nothing reads"),
+    ("speakers", [{"name": "SpeakerTwo", "role": 5}], "must be a string"),
+    ("speakers", [{"name": "SpeakerTwo", "agent": "x"}], "which nothing reads"),
 ]
 
 
@@ -83,7 +83,7 @@ def test_declared_source_round_trips():
     assert _dict_to_project_config(
         {"source": {"language": "ES"}}).source.language == "es"
     assert "language" not in project_config_to_dict(_config())["source"]
-    roster = [{"name": "Craig", "role": "host"}, {"name": "Akshita"}]
+    roster = [{"name": "SpeakerTwo", "role": "host"}, {"name": "SpeakerOne"}]
     config = _config(language="es", shape="both", speakers=roster)
     assert config.validate() == []
     as_dict = project_config_to_dict(config)
@@ -127,10 +127,10 @@ def test_declared_speakers_read_off_the_project_folder(tmp_path):
     (project / "project.yaml").write_text("source:\n  speakers: []\n")
     assert fi.declared_speakers(str(project)) == []
     (project / "project.yaml").write_text(
-        "source:\n  speakers:\n    - name: Craig\n      role: host\n"
+        "source:\n  speakers:\n    - name: SpeakerTwo\n      role: host\n"
         "    - {title: nameless}\n    - just-a-string\n")
     assert fi.declared_speakers(str(project)) == [
-        {"name": "Craig", "role": "host"}]
+        {"name": "SpeakerTwo", "role": "host"}]
     assert fi.expected_speaker_count(str(project)) == 1
     assert fi.expected_speaker_count(declaration=None) is None
     assert fi.expected_speaker_count(declaration=[]) == 0
@@ -148,7 +148,7 @@ def test_new_scaffolds_what_intake_collects(tmp_path):
 
     create_project(
         "intake", name="Intake", root=tmp_path, language="es",
-        shape="both", speakers=[{"name": "Craig", "role": "host"}],
+        shape="both", speakers=[{"name": "SpeakerTwo", "role": "host"}],
         brief_title="The test brief", brand_series="intake-series")
     project = tmp_path / "intake"
     for filename in ("project.yaml", "brand.json", "brief.md",
@@ -158,7 +158,7 @@ def test_new_scaffolds_what_intake_collects(tmp_path):
     reread = load_project_config(project / "project.yaml")
     assert reread.source.language == "es"
     assert reread.source.shape == "both"
-    assert reread.source.speakers == [{"name": "Craig",
+    assert reread.source.speakers == [{"name": "SpeakerTwo",
                                        "role": "host"}]
     assert reread.pipeline.creative_brief == "brief.md"
 
@@ -166,7 +166,7 @@ def test_new_scaffolds_what_intake_collects(tmp_path):
     assert template.series_id == "intake-series"
     assert load_video_preferences(project) is None
     brief = (project / "brief.md").read_text(encoding="utf-8")
-    assert "Craig (host)" in brief
+    assert "SpeakerTwo (host)" in brief
 
 
 def test_new_with_no_answers_scaffolds_undecided(tmp_path):

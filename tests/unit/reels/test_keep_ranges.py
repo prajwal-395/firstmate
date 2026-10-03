@@ -22,7 +22,7 @@ from library.tools.reel_proposal import (
 )
 
 
-#: Craig's two lines, worded and timed as the field test's own
+#: SpeakerTwo's two lines, worded and timed as the field test's own
 #: transcript words and times them.  Enough of the run-up is here for
 #: the word-stream scan to see what it saw on the real episode: with
 #: less context it finds nothing and the test would pass on a defect
@@ -33,7 +33,7 @@ LEAD_IN = [
     ("head", 10.398, 10.518), ("of", 10.558, 10.638),
     ("marketing", 10.699, 11.040), ("hey", 11.060, 11.120),
 ]
-CRAIG_WORDS = [
+SPEAKERTWO_WORDS = [
     ("we've", 11.241, 11.401), ("got", 11.421, 11.522),
     ("to", 11.542, 11.582), ("get", 11.622, 11.723),
     ("into", 11.763, 11.924), ("geo", 11.984, 12.245),
@@ -50,7 +50,7 @@ CRAIG_WORDS = [
 def _segment(words, item="clip-1"):
     first, last = words[0], words[-1]
     return {"timeline_start": first[1], "timeline_end": last[2],
-            "start": first[1], "end": last[2], "speaker": "Craig",
+            "start": first[1], "end": last[2], "speaker": "SpeakerTwo",
             "bound": True,
             # BOUND: `reel_proposal.bound_segments` reads this, and a
             # segment without one is never used for boundary arithmetic.
@@ -61,7 +61,7 @@ def _segment(words, item="clip-1"):
 
 
 def _transcript():
-    return {"segments": [_segment(LEAD_IN), _segment(CRAIG_WORDS)]}
+    return {"segments": [_segment(LEAD_IN), _segment(SPEAKERTWO_WORDS)]}
 
 
 def _moment(start=9.0, end=16.0):
@@ -74,7 +74,7 @@ def _cut(a, b):
     return reel_build.Cut(
         dropped_start=a, dropped_end=b, dropped_text="got to get into",
         kept_start=12.29, kept_end=13.15, kept_text="geo geo geo",
-        speaker="Craig", containment=0.667, jaccard=0.667)
+        speaker="SpeakerTwo", containment=0.667, jaccard=0.667)
 
 
 # ── The withdrawal ─────────────────────────────────────────────────
@@ -91,7 +91,7 @@ def _an_insistence_withdraws_the_cut_that_drops_those_seconds():
 
 def _spoken(ranges):
     """The words a set of keep ranges actually plays."""
-    return [w for w, s, _e in LEAD_IN + CRAIG_WORDS
+    return [w for w, s, _e in LEAD_IN + SPEAKERTWO_WORDS
             if any(a - 1e-6 <= s < b for a, b in ranges)]
 
 
@@ -130,7 +130,7 @@ def test_the_reel_plays_the_words_again():
 def test_an_insistence_round_trips_through_the_store(tmp_path):
     transcript_corrections.record_keep_insistence(
         str(tmp_path), 11.42, 11.98,
-        "captain, Reel 01 frame 270: the cut on Craig is jarring")
+        "captain, Reel 01 frame 270: the cut on SpeakerTwo is jarring")
     read = transcript_corrections.keep_insistences(str(tmp_path))
     assert len(read) == 1
     assert read[0]["start"] == pytest.approx(11.42)
@@ -152,7 +152,7 @@ def test_a_malformed_insistence_refuses(tmp_path):
 # --------------------------------------------------------------------------
 # From test_keep_exclusion_reel13_repeat.py
 #
-# Reel 13's repeated Craig line goes as a recorded keep exclusion: the
+# Reel 13's repeated SpeakerTwo line goes as a recorded keep exclusion: the
 # cutter refuses the pair, the strike grows over wordless edges past the
 # angle switch, and no edge lands mid-word.
 #
@@ -161,7 +161,7 @@ def test_a_malformed_insistence_refuses(tmp_path):
 START = 889.92
 END = 900.0
 
-#: The recorded strike: Craig's second line, word edge to word edge.
+#: The recorded strike: SpeakerTwo's second line, word edge to word edge.
 EXCLUDED = (895.471, 899.400)
 
 
@@ -174,14 +174,14 @@ def _words(text, start, ends):
 
 def _transcript_2():
     segments = [
-        {"speaker": "Craig", "resolve_item_id": "clip-craig-1", "text":
+        {"speaker": "SpeakerTwo", "resolve_item_id": "clip-speakertwo-1", "text":
          "and that's what happened with that company why",
          "timeline_start": 889.92, "timeline_end": 891.26,
          "words": _words(
              "and that's what happened with that company why", 889.92,
              [889.99, 890.20, 890.40, 890.60, 890.80, 891.00, 891.10,
               891.26])},
-        {"speaker": "Craig", "resolve_item_id": "clip-craig-1", "text":
+        {"speaker": "SpeakerTwo", "resolve_item_id": "clip-speakertwo-1", "text":
          "they came back as a healthcare company",
          "timeline_start": 891.40, "timeline_end": 893.025,
          "words": [{"word": "they", "start": 891.40, "end": 891.48,
@@ -198,7 +198,7 @@ def _transcript_2():
                     "timed": True},
                    {"word": "company", "start": 892.66, "end": 893.025,
                     "timed": True}]},
-        {"speaker": "Akshita", "resolve_item_id": "clip-akshita-1", "text":
+        {"speaker": "SpeakerOne", "resolve_item_id": "clip-speakerone-1", "text":
          "And not an accounting software company, yes.",
          "timeline_start": 893.455, "timeline_end": 895.12,
          "words": [{"word": "And", "start": 893.455, "end": 893.515,
@@ -215,7 +215,7 @@ def _transcript_2():
                     "timed": True},
                    {"word": "yes.", "start": 894.979, "end": 895.12,
                     "timed": True}]},
-        {"speaker": "Craig", "resolve_item_id": "clip-craig-2", "text":
+        {"speaker": "SpeakerTwo", "resolve_item_id": "clip-speakertwo-2", "text":
          "and that's one of the reasons why that company got called a",
          "timeline_start": 895.471, "timeline_end": 898.199,
          "words": [{"word": "and", "start": 895.471, "end": 895.552,
@@ -242,13 +242,13 @@ def _transcript_2():
                     "timed": True},
                    {"word": "a", "start": 898.179, "end": 898.199,
                     "timed": True}]},
-        {"speaker": "Craig", "resolve_item_id": "clip-craig-2", "text": "healthcare company",
+        {"speaker": "SpeakerTwo", "resolve_item_id": "clip-speakertwo-2", "text": "healthcare company",
          "timeline_start": 898.60, "timeline_end": 899.40,
          "words": [{"word": "healthcare", "start": 898.60, "end": 899.00,
                     "timed": True},
                    {"word": "company", "start": 899.04, "end": 899.40,
                     "timed": True}]},
-        {"speaker": "Akshita", "resolve_item_id": "clip-akshita-2", "text": "Yeah, so they had",
+        {"speaker": "SpeakerOne", "resolve_item_id": "clip-speakerone-2", "text": "Yeah, so they had",
          "timeline_start": 899.57, "timeline_end": 900.40,
          "words": [{"word": "Yeah,", "start": 899.57, "end": 899.83,
                     "timed": True},
@@ -285,9 +285,9 @@ def test_the_cutter_refuses_the_pair_and_the_suspect_lane_flags_it():
 # falls on the wrong side of. Measured 2026-09-12 building Reel 13
 # beside the captain's, against the live `Podcast (field test)`.
 
-#: Where `GEO Podcast - Synced` switches back to Akshita's camera after
-#: Craig's second telling. Read off the master: V2 Craig runs
-#: 895.311..899.482 and V1 Akshita resumes at 899.482.
+#: Where `GEO Podcast - Synced` switches back to SpeakerOne's camera after
+#: SpeakerTwo's second telling. Read off the master: V2 SpeakerTwo runs
+#: 895.311..899.482 and V1 SpeakerOne resumes at 899.482.
 ANGLE_SWITCH_BACK = 899.482
 
 
@@ -295,7 +295,7 @@ def _grown_cuts(transcript):
     """The strike as the build applies it: both edges grown."""
     cuts = tc.exclusion_cuts_for_span(
         START, END, [{"start": EXCLUDED[0], "end": EXCLUDED[1],
-                      "id": "reel13-craig-repeat"}])
+                      "id": "reel13-speakertwo-repeat"}])
     head = tc.grow_cuts_over_wordless_leadin(cuts, transcript)
     return tc.grow_cuts_over_wordless_tail(head, transcript)
 
@@ -303,18 +303,18 @@ def _grown_cuts(transcript):
 def test_the_strike_grows_over_wordless_edges_and_clears_the_switch():
     """The recorded strike is clipped to the span and grown both ways:
     back to "yes."'s last frame (no sub-floor room-tone nub for F7), and
-    forward over the 170ms between Craig's "company" (899.400) and
-    Akshita's "Yeah," (899.570), stopping at her word.
+    forward over the 170ms between SpeakerTwo's "company" (899.400) and
+    SpeakerOne's "Yeah," (899.570), stopping at her word.
 
     THE FAILING INPUT: resuming at the recorded 899.400 admitted 82ms of
-    Craig's camera (the master switches back at 899.482), which the build
+    SpeakerTwo's camera (the master switches back at 899.482), which the build
     gate refused as a 2-frame item under the readability floor. Grown,
-    the cut covers the switch and no sliver of Craig's is placed."""
+    the cut covers the switch and no sliver of SpeakerTwo's is placed."""
     transcript = _transcript_2()
     head_only = tc.grow_cuts_over_wordless_leadin(
         tc.exclusion_cuts_for_span(
             START, END, [{"start": EXCLUDED[0], "end": EXCLUDED[1],
-                          "id": "reel13-craig-repeat"}]),
+                          "id": "reel13-speakertwo-repeat"}]),
         transcript)
     assert head_only[0][1] < ANGLE_SWITCH_BACK, (
         "the head-only growth is what stranded the flash")
@@ -335,7 +335,7 @@ def test_the_reel_still_keeps_one_line_after_the_tail_grows():
     # tail here is extended to give the second range something to be
     # other than a sub-floor fragment of its own.
     transcript["segments"].append(
-        {"speaker": "Akshita", "resolve_item_id": "clip-akshita-2",
+        {"speaker": "SpeakerOne", "resolve_item_id": "clip-speakerone-2",
          "text": "a case study on their site",
          "timeline_start": 900.49, "timeline_end": 903.00,
          "words": [{"word": "a", "start": 900.49, "end": 900.55,
@@ -404,18 +404,18 @@ def _moment_2(start, end, number=9):
 
 
 def _false_start_tx():
-    """Craig's 653.421-656.760s segment in miniature: the false start
+    """SpeakerTwo's 653.421-656.760s segment in miniature: the false start
     'so what do they' (10.0-10.9s here) the captain struck, then the
     kept 'so what else ...' from 11.8s on."""
     return _tx(
-        _seg("Akshita", "very important to be aware.", 5.0, 9.0, "u0"),
-        _seg("Craig", "so what do they so what else do they need",
+        _seg("SpeakerOne", "very important to be aware.", 5.0, 9.0, "u0"),
+        _seg("SpeakerTwo", "so what do they so what else do they need",
              10.0, 15.0, "u1",
              words=[("so", 10.0, 10.2), ("what", 10.25, 10.45),
                     ("do", 10.5, 10.65), ("they", 10.7, 10.9),
                     ("so", 11.8, 12.0), ("what", 12.05, 12.25),
                     ("else", 12.3, 12.5)]),
-        _seg("Craig", "where is ai pulling all this from", 16.0, 19.0,
+        _seg("SpeakerTwo", "where is ai pulling all this from", 16.0, 19.0,
              "u2"),
     )
 
@@ -575,20 +575,20 @@ def _moment_3(number, start, end):
 
 # ------------------------------------------------- Reel 09, verbatim
 #
-# Akshita's closing segment, 682.19-693.38s, and Craig's following
+# SpeakerOne's closing segment, 682.19-693.38s, and SpeakerTwo's following
 # turn opening at 694.1s. The approved body end is 693.3s - inside
 # the final word "misrecommended." (692.50-693.38s) with 0.08s of it
-# uncovered, and 0.8s before Craig's next speech.
+# uncovered, and 0.8s before SpeakerTwo's next speech.
 
 
 def _reel9_transcript():
     return _tx(
-        _seg_2("Akshita",
+        _seg_2("SpeakerOne",
              "And so when AI reads all of these sources, that's how it's "
              "building a big picture of your company and your brand and "
              "you have to be aware of what it's saying or you can be "
              "completely re like misrecommended.",
-             682.19, 693.38, "u-akshita",
+             682.19, 693.38, "u-speakerone",
              words=[
                  _w("And", 682.19, 682.71),
                  _w("so", 682.71, 683.08),
@@ -631,8 +631,8 @@ def _reel9_transcript():
                  _w("like", 692.26, 692.5),
                  _w("misrecommended.", 692.5, 693.38),
              ]),
-        _seg_2("Craig", "Well, I kind of tell people when I talk.",
-             694.1, 698.0, "u-craig",
+        _seg_2("SpeakerTwo", "Well, I kind of tell people when I talk.",
+             694.1, 698.0, "u-speakertwo",
              words=[
                  _w("Well,", 694.1, 694.29),
                  _w("I", 694.29, 694.38),
@@ -686,7 +686,7 @@ def test_the_held_bound_places_36510():
     clip = SimpleNamespace(
         timeline_start=682.19, timeline_end=693.38,
         source_in=1511.64, source_file="LC4932.MXF",
-        track_index=0, speaker="Akshita", track_type="video")
+        track_index=0, speaker="SpeakerOne", track_type="video")
     placed = reel_build.placements(ranges, [clip], FPS)
     assert round(placed[-1]["source_out"] * FPS) == 36510
     _an_approved_bound_covering_all_but_breath_holds()
@@ -700,7 +700,7 @@ def test_the_held_bound_places_36510():
 
 def _reel4_transcript():
     return _tx(
-        _seg_2("Akshita",
+        _seg_2("SpeakerOne",
              "For Google search, it gave out a list from 2023, and for "
              "ChatGPT, it gave three recommendations with specific "
              "reasons why.",
@@ -728,7 +728,7 @@ def _reel4_transcript():
                  _w("reasons", 284.55, 285.03),
                  _w("why.", 285.03, 285.42),
              ]),
-        _seg_2("Akshita",
+        _seg_2("SpeakerOne",
              "So one, which is Google, is a search engine, and the "
              "other, ChatGPT, is a decision engine.",
              285.62, 290.23, "u-b",
@@ -793,12 +793,12 @@ def test_a_turn_boundary_or_straddling_word_is_left_alone():
     speaker takes over - reaching into their turn is selection's
     decision (redraw the span), never an automatic extension."""
     tx = _tx(
-        _seg_2("Akshita", "the setup is done.", 10.0, 20.0, "u1",
+        _seg_2("SpeakerOne", "the setup is done.", 10.0, 20.0, "u1",
              words=[_w("the", 10.0, 10.3),
                     _w("setup", 10.4, 10.7),
                     _w("is", 10.8, 10.9),
                     _w("done.", 11.0, 11.5)]),
-        _seg_2("Craig", "and here is why it matters.", 11.6, 20.0, "u2",
+        _seg_2("SpeakerTwo", "and here is why it matters.", 11.6, 20.0, "u2",
              words=[_w("and", 11.6, 11.9),
                     _w("here", 12.0, 12.3),
                     _w("is", 12.4, 12.5),
@@ -816,16 +816,16 @@ def test_take_cuts_are_not_stranded_tails():
     removed on purpose, so the same plan that refuses a mid-word
     edge passes a take boundary on word edges untouched."""
     tx = _tx(
-        _seg_2("Akshita", "Absolutely.", 100.0, 101.0, "u1",
+        _seg_2("SpeakerOne", "Absolutely.", 100.0, 101.0, "u1",
              words=[_w("Absolutely.", 100.0, 100.70)]),
-        _seg_2("Akshita", "is your resume, hiring managers check both",
+        _seg_2("SpeakerOne", "is your resume, hiring managers check both",
              104.42, 109.0, "u2",
              words=[_w("is", 104.50, 104.65),
                     _w("both", 108.60, 109.00)]),
-        _seg_2("Akshita", "is your resume, hiring managers check both places",
+        _seg_2("SpeakerOne", "is your resume, hiring managers check both places",
              112.0, 117.0, "u3",
              words=[_w("places", 116.60, 117.00)]),
-        _seg_2("Akshita", "and that is the whole point", 118.0, 121.0, "u4",
+        _seg_2("SpeakerOne", "and that is the whole point", 118.0, 121.0, "u4",
              words=[_w("point", 120.6, 121.0)]),
     )
     assert stranded_tail_keep_edges(100.0, 121.0, tx) == []
@@ -859,11 +859,11 @@ def _a_straddling_word_interior_is_never_held():
     """No boundary is ever placed on a straddling row: an end inside
     one belongs to the snap as before, however small the remainder."""
     tx = _tx(
-        _seg_2("Akshita", "recommend you.", 412.63, 413.85, "u-a",
+        _seg_2("SpeakerOne", "recommend you.", 412.63, 413.85, "u-a",
              words=[_w("recommend", 412.63, 412.99),
                     _w("you", 413.01, 413.17),
                     _w("yours", 413.59, 413.85)]),
-        _seg_2("Craig", "about", 412.77, 414.03, None,
+        _seg_2("SpeakerTwo", "about", 412.77, 414.03, None,
              words=[_w("about", 412.77, 414.03)]),
     )
     new_end, finding = repair_moment_tail(413.851, 412.63, tx)
@@ -1000,7 +1000,7 @@ def _reel28_transcript():
     are abbreviated - only its span enters the verdict, and the span
     (text and times) is verbatim."""
     return _tx(
-        _seg_2("Akshita",
+        _seg_2("SpeakerOne",
              "So I am using AI a lot and I do think a lot of our "
              "audience will be as well and they're typing in very "
              "specific queries that don't work for Google but work "
@@ -1044,7 +1044,7 @@ def _reel28_transcript():
                  _w("for", 2264.81, 2264.98),
                  _w("AI.", 2265.01, 2265.42),
              ]),
-        _seg_2("Akshita",
+        _seg_2("SpeakerOne",
              "So make sure that your when you're trying to optimize "
              "your content, your website, your LinkedIn, etcetera, "
              "Try to see what you have as a differentiator, your "
@@ -1062,7 +1062,7 @@ def _reel28_transcript():
                  _w("etcetera,", 2270.98, 2271.51),
                  _w("usually", 2284.27, 2284.59),
              ]),
-        _seg_2("Akshita",
+        _seg_2("SpeakerOne",
              "how they would search on Google and try to optimize "
              "for that.",
              2284.55, 2287.14, "u-c",
@@ -1254,19 +1254,19 @@ def _r07_transcript():
     """R07's shape, report numbers kept: the dropped take starts at
     104.42s, which is 0.02s inside "Your" (104.40-104.90s)."""
     return _tx(
-        _seg_3("Akshita", "Absolutely. Your website", 100.0, 104.42, "u1",
+        _seg_3("SpeakerOne", "Absolutely. Your website", 100.0, 104.42, "u1",
              words=[_w_2("Absolutely.", 100.0, 100.70),
                     _w_2("Your", 104.40, 104.90),
                     _w_2("website", 104.95, 105.60)]),
-        _seg_3("Akshita", "is your resume, hiring managers check both",
+        _seg_3("SpeakerOne", "is your resume, hiring managers check both",
              104.42, 109.0, "u2",
              words=[_w_2("is", 104.95, 105.10),
                     _w_2("both", 108.60, 109.00)]),
-        _seg_3("Akshita", "is your resume, hiring managers check both places",
+        _seg_3("SpeakerOne", "is your resume, hiring managers check both places",
              112.0, 117.0, "u3",
              words=[_w_2("is", 112.10, 112.25),
                     _w_2("places", 116.60, 117.00)]),
-        _seg_3("Akshita", "and that is the whole point", 118.0, 121.0, "u4",
+        _seg_3("SpeakerOne", "and that is the whole point", 118.0, 121.0, "u4",
              words=[_w_2("and", 118.0, 118.2),
                     _w_2("point", 120.6, 121.0)]),
     )
@@ -1296,16 +1296,16 @@ def test_a_keep_edge_on_word_edges_passes():
     """The same takes, but the segment edge lands exactly where "Your"
     starts: the viewer hears whole words, so the plan stands."""
     tx = _tx(
-        _seg_3("Akshita", "Absolutely.", 100.0, 101.0, "u1",
+        _seg_3("SpeakerOne", "Absolutely.", 100.0, 101.0, "u1",
              words=[_w_2("Absolutely.", 100.0, 100.70)]),
-        _seg_3("Akshita", "is your resume, hiring managers check both",
+        _seg_3("SpeakerOne", "is your resume, hiring managers check both",
              104.42, 109.0, "u2",
              words=[_w_2("is", 104.50, 104.65),
                     _w_2("both", 108.60, 109.00)]),
-        _seg_3("Akshita", "is your resume, hiring managers check both places",
+        _seg_3("SpeakerOne", "is your resume, hiring managers check both places",
              112.0, 117.0, "u3",
              words=[_w_2("places", 116.60, 117.00)]),
-        _seg_3("Akshita", "and that is the whole point", 118.0, 121.0, "u4",
+        _seg_3("SpeakerOne", "and that is the whole point", 118.0, 121.0, "u4",
              words=[_w_2("point", 120.6, 121.0)]),
     )
     from library.tools.reel_build import midword_keep_edges
@@ -1322,11 +1322,11 @@ def test_faithful_disfluency_is_not_a_take_and_not_a_midword_edge():
     cross-segment content repetition is editorial, intra-segment
     adjacency is faithful - so this plan must pass untouched."""
     tx = _tx(
-        _seg_3("Akshita", "it was a different different problem", 10.0, 16.0,
+        _seg_3("SpeakerOne", "it was a different different problem", 10.0, 16.0,
              "u1", words=[_w_2("different", 12.0, 12.35),
                           _w_2("different", 12.35, 12.70),
                           _w_2("problem", 13.0, 13.5)]),
-        _seg_3("Craig", "right, and then what happened", 17.0, 22.0, "u2",
+        _seg_3("SpeakerTwo", "right, and then what happened", 17.0, 22.0, "u2",
              words=[_w_2("right,", 17.0, 17.3)]),
     )
     assert duplicate_takes(10.0, 22.0, tx) == []
@@ -1344,18 +1344,18 @@ def test_float_dust_on_a_word_edge_is_not_a_midword_cut():
     a cut word while a genuine interior edge still fires."""
     from library.tools.reel_build import Cut, midword_keep_edges
     tx = _tx(
-        _seg_3("Akshita", "setup words here", 1138.0, 1140.0, "u1",
+        _seg_3("SpeakerOne", "setup words here", 1138.0, 1140.0, "u1",
              words=[_w_2("here", 1139.0, 1139.50)]),
-        _seg_3("Akshita", "If you run ads", 1158.32, 1160.0, "u2",
+        _seg_3("SpeakerOne", "If you run ads", 1158.32, 1160.0, "u2",
              words=[_w_2("If", 1158.3199999999997, 1158.48),
                     _w_2("you", 1158.48, 1158.60)]),
-        _seg_3("Akshita", "take two kept", 1168.0, 1170.0, "u3",
+        _seg_3("SpeakerOne", "take two kept", 1168.0, 1170.0, "u3",
              words=[_w_2("kept", 1169.0, 1169.50)]),
     )
     cuts = [Cut(
         dropped_start=1158.3199999999997, dropped_end=1164.0,
         dropped_text="If you run ads", kept_start=1168.0,
-        kept_end=1170.0, kept_text="take two kept", speaker="Akshita",
+        kept_end=1170.0, kept_text="take two kept", speaker="SpeakerOne",
         containment=1.0, jaccard=1.0, basis="test dust")]
     assert midword_keep_edges(1138.0, 1170.0, tx, cuts) == []
 
@@ -1365,18 +1365,18 @@ def test_a_genuine_interior_edge_still_fires():
     a full frame inside the word still refuses."""
     from library.tools.reel_build import Cut, midword_keep_edges
     tx = _tx(
-        _seg_3("Akshita", "setup words here", 1138.0, 1140.0, "u1",
+        _seg_3("SpeakerOne", "setup words here", 1138.0, 1140.0, "u1",
              words=[_w_2("here", 1139.0, 1139.50)]),
-        _seg_3("Akshita", "If you run ads", 1158.32, 1160.0, "u2",
+        _seg_3("SpeakerOne", "If you run ads", 1158.32, 1160.0, "u2",
              words=[_w_2("If", 1158.32, 1158.48),
                     _w_2("you", 1158.48, 1158.60)]),
-        _seg_3("Akshita", "take two kept", 1168.0, 1170.0, "u3",
+        _seg_3("SpeakerOne", "take two kept", 1168.0, 1170.0, "u3",
              words=[_w_2("kept", 1169.0, 1169.50)]),
     )
     cuts = [__import__("library.tools.reel_build", fromlist=["x"]).Cut(
         dropped_start=1158.36, dropped_end=1164.0,
         dropped_text="If you run ads", kept_start=1168.0,
-        kept_end=1170.0, kept_text="take two kept", speaker="Akshita",
+        kept_end=1170.0, kept_text="take two kept", speaker="SpeakerOne",
         containment=1.0, jaccard=1.0, basis="test interior")]
     found = midword_keep_edges(1138.0, 1170.0, tx, cuts)
     assert len(found) == 1

@@ -135,7 +135,7 @@ def test_row_11_ending(tmp_path):
         "text": "alpha beta gamma delta",
         "words": _words("alpha", "beta", "gamma", "delta")}]}
     # Two master shots, back to back. The reel's plan reaches 0.6s into
-    # the SECOND one, which is how Reel 13 grew twelve frames of Craig.
+    # the SECOND one, which is how Reel 13 grew twelve frames of SpeakerTwo.
     shot_a = SimpleNamespace(timeline_start=10.0, timeline_end=11.5,
                              source_in=50.0, track_index=1, speaker="A")
     shot_b = SimpleNamespace(timeline_start=11.5, timeline_end=13.0,
@@ -173,7 +173,7 @@ def test_row_12_caption_timing(tmp_path):
 
     fps = 24000 / 1001
     card = {"segment_id": "sub_a_c_500780-504042",
-            "binding": {"speaker": "akshita", "source_clip_id": "c",
+            "binding": {"speaker": "speakerone", "source_clip_id": "c",
                         "source_start": 500.78, "source_end": 504.042},
             "timeline_start": 1600 / fps, "timeline_end": 1678 / fps}
     # Shallow: drag the card seven frames later in Resolve. The placer
@@ -183,7 +183,7 @@ def test_row_12_caption_timing(tmp_path):
     # vocabulary is a keep-range EDGE and it refuses an extension.
     assert "offset" not in edit_depth.DEEP_PATH["clip_timing"]
     # Deep: a caption pin, scoped by the source audio the card captions.
-    pins = [{"scope": {"speaker": "akshita",
+    pins = [{"scope": {"speaker": "speakerone",
                        "source_start_at_or_after": 500.0},
              "offset_frames": 7, "reason": "vetting row 12"}]
     moved, applied, short, stale = caption_timing.apply_pins(

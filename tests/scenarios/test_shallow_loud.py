@@ -190,11 +190,11 @@ def test_row_caption_timing_refuses_and_reports_stale():
     from library.tools import caption_timing
 
     card = {"segment_id": "sub_a_c_500780-504042",
-            "binding": {"speaker": "akshita", "source_clip_id": "c",
+            "binding": {"speaker": "speakerone", "source_clip_id": "c",
                         "source_start": 500.78, "source_end": 504.042},
             "timeline_start": 1600 / 24.0, "timeline_end": 1678 / 24.0}
     _, applied, _, stale = caption_timing.apply_pins(
-        [card], [{"scope": {"speaker": "craig"}, "offset_frames": 3,
+        [card], [{"scope": {"speaker": "speakertwo"}, "offset_frames": 3,
                   "reason": "words that moved"}], 24.0)
     assert not applied and len(stale) == 1
     assert "STALE" in stale[0]["reason"]

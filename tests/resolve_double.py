@@ -38,8 +38,8 @@ not assumed. Each rule names the field evidence:
   the item carries; an unknown single-key read is falsy - NOT ``""``
   (live qualification 2026-10-02), answered here as None
   (``timeline_ingest._item_transform``).
-- audio rows are named for their STREAM (``Akshita CH1``), never for the
-  transcript speaker (``Akshita``) - joining speech to picture goes by
+- audio rows are named for their STREAM (``SpeakerOne CH1``), never for the
+  transcript speaker (``SpeakerOne``) - joining speech to picture goes by
   track index, not row name (mic-bleed fix, 2026-10-02).
 
 What this double does NOT model is said at ``UNSUPPORTED``: reaching for
@@ -2112,14 +2112,14 @@ def check_property_whole_dict_or_nothing(project, pool_clip=None):
 def check_audio_rows_carry_stream_names(project, pool_clip=None):
     timeline = _needs_timeline(project)
     named_rows = []
-    for name in ("Akshita CH1", "Craig CH2"):
+    for name in ("SpeakerOne CH1", "SpeakerTwo CH2"):
         timeline.AddTrack("audio")
         index = timeline.GetTrackCount("audio")
         timeline.SetTrackName("audio", index, name)
         named_rows.append((index, name))
     for index, name in named_rows:
         assert timeline.GetTrackName("audio", index) == name
-    assert timeline.GetTrackName("audio", named_rows[0][0]) != "Akshita"
+    assert timeline.GetTrackName("audio", named_rows[0][0]) != "SpeakerOne"
 
 
 def check_append_end_frame_is_exclusive(project, pool_clip=None):

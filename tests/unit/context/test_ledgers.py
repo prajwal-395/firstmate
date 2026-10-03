@@ -886,7 +886,7 @@ def test_editing_one_reel_invalidates_only_its_build_digest():
     camera = {
         "op": "angle_plan", "anchor": {"kind": "reel"},
         "reel": "Reel 09 - hook",
-        "params": {"camera": "Akshita", "min_shot_seconds": 2,
+        "params": {"camera": "SpeakerOne", "min_shot_seconds": 2,
                    "lead_frames": 0},
         "stated_by": "requester", "reason": "show the host",
     }
@@ -902,14 +902,14 @@ def test_recorded_plan_edits_reach_the_existing_replayers(tmp_path):
     or the next spine build paints it over (the K3 defect)."""
     project = _project(tmp_path)
     hold = {"op": "transform_override",
-            "anchor": {"kind": "words", "phrase": "akshitas line"},
+            "anchor": {"kind": "words", "phrase": "speakerones line"},
             "params": {"property": "Pan", "value": -8.75,
                         "recorded_draw_gain": 4.0},
             "stated_by": "captain", "reason": "hand move in inspector"}
     edit_ledger.record_row(str(project), hold)
     edit_ledger.record_row(str(project), _isolate())
     carrier = {"op": "angle_plan",
-               "anchor": {"kind": "words", "phrase": "akshitas line"},
+               "anchor": {"kind": "words", "phrase": "speakerones line"},
                "reel": "Reel 09 - hook",
                "params": {"camera": "close-up",
                           "min_shot_seconds": 3, "lead_frames": 12},
@@ -1362,7 +1362,7 @@ from library.tools import marker_resolution as mr  # noqa: E402
 
 REEL = "Reel 13 - the-accounting-firm-ai-called-healthcare"
 ASK = ("the ending tv close animation needs to happen right after "
-       "akshita finishes talking")
+       "speakerone finishes talking")
 
 
 def pull(timeline, pulled_at, *notes):
@@ -1615,7 +1615,7 @@ def test_render_shows_the_words_not_just_the_marker_name():
     document = fl.build(None, [pull(REEL, "2026-09-11T04:00:00Z",
                                     note(ASK))], resolutions=[])
     printed = fl.render(document)
-    assert "akshita finishes talking" in printed
+    assert "speakerone finishes talking" in printed
 
 
 # ── The identity grammar the `answers` single writer enforces ────────

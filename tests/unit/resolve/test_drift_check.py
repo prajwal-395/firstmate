@@ -46,13 +46,13 @@ def doc(name, *clips):
 #: reading -432, the emblem at 1167.568 reading 583.784.
 BUILT = doc(
     "Reel 26",
-    (1, 100, "akshita.MXF", -77.644, -0.79),
+    (1, 100, "speakerone.MXF", -77.644, -0.79),
     (4, 100, "caption.mov", 0.0, -864.0),
     (6, 100, "emblem.mov", 1167.568, 0.0),
 )
 HALVED = doc(
     "Reel 26",
-    (1, 100, "akshita.MXF", -38.822, -0.395),
+    (1, 100, "speakerone.MXF", -38.822, -0.395),
     (4, 100, "caption.mov", 0.0, -432.0),
     (6, 100, "emblem.mov", 583.784, 0.0),
 )
@@ -451,7 +451,7 @@ def test_a_hand_trim_and_a_hand_placed_cutaway_read_as_intent():
     live = _rows(_Timeline(_v1(
         _Item("LC4930.MXF", 24, 684),
         _Item("LC4931.MXF", 684, 1200),
-        _Item("Akshita reaction.mov", 1200, 1271),
+        _Item("SpeakerOne reaction.mov", 1200, 1271),
     )))
     diff = oracle.describe_hand_edits(expected, live)
     assert diff["unchanged"] is False

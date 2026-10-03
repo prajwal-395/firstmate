@@ -65,7 +65,7 @@ REEL_09B_CUTAWAY = (
 # Its SetClipsLinked forms one group per call, and a later call sharing
 # an item replaces (breaks) the earlier group - the measured semantics.
 
-POOL_PATHS = ["/m/akshita.MXF", "/m/craig.MXF", "/m/cap.mov"]
+POOL_PATHS = ["/m/speakerone.MXF", "/m/speakertwo.MXF", "/m/cap.mov"]
 
 
 def _item(path, start, end):
@@ -101,27 +101,27 @@ def _clip(track_type, index, track_name, speaker, source, tl_start,
         name="clip")
 
 
-def _master_clips(akshita_audio=True):
-    """Two Craig takes abutting at the join, Akshita continuous.
+def _master_clips(speakerone_audio=True):
+    """Two SpeakerTwo takes abutting at the join, SpeakerOne continuous.
 
     Mirrors the Reel 09 seam: one camera, two takes, the join at reel
     10s, the listener rolling through on her own angle.
     """
     clips = [
-        _clip("video", 1, "Akshita", "Akshita", "/m/akshita.MXF",
+        _clip("video", 1, "SpeakerOne", "SpeakerOne", "/m/speakerone.MXF",
               0.0, 20.0, src_in=2000.0),
-        _clip("video", 2, "Craig", "Craig", "/m/craig.MXF",
+        _clip("video", 2, "SpeakerTwo", "SpeakerTwo", "/m/speakertwo.MXF",
               0.0, 10.0, src_in=1000.0),
-        _clip("video", 2, "Craig", "Craig", "/m/craig.MXF",
+        _clip("video", 2, "SpeakerTwo", "SpeakerTwo", "/m/speakertwo.MXF",
               10.0, 20.0, src_in=1500.0),
-        _clip("audio", 2, "Craig CH1", "Craig", "/m/craig.MXF",
+        _clip("audio", 2, "SpeakerTwo CH1", "SpeakerTwo", "/m/speakertwo.MXF",
               0.0, 10.0, src_in=1000.0),
-        _clip("audio", 2, "Craig CH1", "Craig", "/m/craig.MXF",
+        _clip("audio", 2, "SpeakerTwo CH1", "SpeakerTwo", "/m/speakertwo.MXF",
               10.0, 20.0, src_in=1500.0),
     ]
-    if akshita_audio:
-        clips.append(_clip("audio", 1, "Akshita CH1", "Akshita",
-                           "/m/akshita.MXF", 0.0, 20.0, src_in=2000.0))
+    if speakerone_audio:
+        clips.append(_clip("audio", 1, "SpeakerOne CH1", "SpeakerOne",
+                           "/m/speakerone.MXF", 0.0, 20.0, src_in=2000.0))
     return clips
 
 
@@ -191,21 +191,21 @@ def test_j_cut_moves_the_audio_cut_picture_untouched():
             assert (span, False,
                     place["clip"].track_index) in after, \
                 "picture must not move"
-    craig_head = [p for p in plan.placements
+    speakertwo_head = [p for p in plan.placements
                   if _is_audio(p) and p["clip"].track_index == 2
                   and int(p["snapped_record"]) == CUT_FRAME]
-    assert len(craig_head) == 1
-    assert _span_frames(craig_head[0])[0] == CUT_FRAME
-    assert craig_head[0]["source_in"] == pytest.approx(1500.0 - 0.5)
-    craig_tail = [p for p in plan.placements
+    assert len(speakertwo_head) == 1
+    assert _span_frames(speakertwo_head[0])[0] == CUT_FRAME
+    assert speakertwo_head[0]["source_in"] == pytest.approx(1500.0 - 0.5)
+    speakertwo_tail = [p for p in plan.placements
                   if _is_audio(p) and p["clip"].track_index == 2
                   and _span_frames(p)[1] == CUT_FRAME]
-    assert len(craig_tail) == 1
+    assert len(speakertwo_tail) == 1
     assert plan.report["kind"] == "j_cut"
     assert plan.report["lead_ins"], \
         "the unplayed lead-in source is named for the operator"
     assert len(plan.links) == 2, \
-        "one link per moved head: Craig's take and Akshita's split head"
+        "one link per moved head: SpeakerTwo's take and SpeakerOne's split head"
 
 
 def test_j_cut_refuses_a_word_inside_the_trimmed_tail():
@@ -242,16 +242,16 @@ def test_audio_row_overlap_after_a_move_refuses():
 # ── plan_cutaway ──
 
 def test_cutaway_hides_the_speaker_reveals_the_listener():
-    """Craig's picture is trimmed off a one-second window around the
-    join; Akshita's continuous picture shows through; audio never
+    """SpeakerTwo's picture is trimmed off a one-second window around the
+    join; SpeakerOne's continuous picture shows through; audio never
     moves."""
     before = placements([(0.0, 20.0)], _master_clips(), FPS)
     window = (CUT_FRAME, CUT_FRAME + 24)
     plan = plan_cutaway(before, FPS, "2", window, cover_words=[])
-    craig_pics = sorted(
+    speakertwo_pics = sorted(
         _span_frames(p) for p in plan.placements
         if not _is_audio(p) and str(p["clip"].track_index) == "2")
-    assert craig_pics == [(0, CUT_FRAME), (CUT_FRAME + 24, 480)], \
+    assert speakertwo_pics == [(0, CUT_FRAME), (CUT_FRAME + 24, 480)], \
         "the hidden angle abuts the window exactly"
     for place in before:
         if _is_audio(place):
@@ -292,8 +292,8 @@ def test_captions_follow_the_audio_lead():
 def test_ordinary_link_pass_joins_overlapping_same_angle_spans():
     """Ordinary placement links source-edge offsets by angle and span."""
     plan = plan_layout({
-        "angles": [{"key": "1", "label": "Akshita",
-                    "speech_name": "Akshita CH1", "program_channel": 1}],
+        "angles": [{"key": "1", "label": "SpeakerOne",
+                    "speech_name": "SpeakerOne CH1", "program_channel": 1}],
         "has_broll": False, "has_frame": False, "caption_spans": [],
         "mg_spans": [], "has_generators": False, "timed_text_spans": [],
         "music_spans": [], "sfx_spans": [],
@@ -314,7 +314,7 @@ def test_ordinary_link_pass_joins_overlapping_same_angle_spans():
 def test_version_a_j_cut_builds_conformance_clean():
     """Reel 09A beside the captain's Reel 09: take-2's audio starts
     0.5s under take-1's picture. Watch the join at reel 10s: the
-    question's first words arrive early, over Craig's take-1 frame -
+    question's first words arrive early, over SpeakerTwo's take-1 frame -
     the ear crosses before the eye. The room-tone caveat stands: both
     takes sit apart in source, so a step at the audio seam survives
     this or any picture treatment - listen there."""
@@ -332,12 +332,12 @@ def test_version_a_j_cut_builds_conformance_clean():
     assert report["passed"], report["violations"]
     assert report["checks_skipped"] == []
     assert set(CHECKS) <= set(report["checks_run"])
-    craig_audio = timeline.GetItemListInTrack("audio", 2)
-    starts = sorted(item.GetStart() for item in craig_audio)
+    speakertwo_audio = timeline.GetItemListInTrack("audio", 2)
+    starts = sorted(item.GetStart() for item in speakertwo_audio)
     assert starts[1] == CUT_FRAME, \
         "take-2's audio starts the lead early, under take-1's picture"
-    craig_pic = timeline.GetItemListInTrack("video", 2)
-    assert sorted(item.GetStart() for item in craig_pic) == [0, JOIN_FRAME], \
+    speakertwo_pic = timeline.GetItemListInTrack("video", 2)
+    assert sorted(item.GetStart() for item in speakertwo_pic) == [0, JOIN_FRAME], \
         "picture cuts where it always did"
 
 
@@ -348,7 +348,7 @@ def test_version_a_j_cut_builds_conformance_clean():
 # Measured 2026-09-12 rebuilding the captain's field-test project:
 # every reel whose ending declares `tail_hold: freeze` refused the
 # OFFSET build with "Offset build leaves 1 a-roll item(s) unlinked:
-# picture at 1650-1669 on Craig", after placing correctly. A held
+# picture at 1650-1669 on SpeakerTwo", after placing correctly. A held
 # frame is rendered by `reel_ending` onto the ending shot's own row
 # and carries no audio anywhere on the timeline, so there is nothing
 # for it to link TO. The ordinary rebuild's link pass records a
@@ -358,8 +358,8 @@ def test_version_a_j_cut_builds_conformance_clean():
 def _offset_census_timeline(tail_name, tail_pool):
     """One linkable speech+picture pair plus one unlinked tail item."""
     plan = plan_layout({
-        "angles": [{"key": "1", "label": "Akshita",
-                    "speech_name": "Akshita CH1", "program_channel": 1}],
+        "angles": [{"key": "1", "label": "SpeakerOne",
+                    "speech_name": "SpeakerOne CH1", "program_channel": 1}],
         "has_broll": False, "has_frame": False, "caption_spans": [],
         "mg_spans": [], "has_generators": False, "timed_text_spans": [],
         "music_spans": [], "sfx_spans": [],
@@ -422,7 +422,7 @@ def _cover_clip(tl_start, tl_end):
     the placements, so a plain TimelineClip on the neighbour's row
     stands in for it.
     """
-    return _clip("video", 1, "Akshita", "Akshita", "/m/akshita-cover.MXF",
+    return _clip("video", 1, "SpeakerOne", "SpeakerOne", "/m/speakerone-cover.MXF",
                  tl_start, tl_end, src_in=3000.0)
 
 
@@ -769,17 +769,17 @@ def test_a_plan_opening_on_the_second_camera_keeps_the_master_row_order():
     """Scratch Reels 04/18/19/25, 2026-09-25: a plan whose first shot is
     the master's SECOND camera put that camera on V1, and the verifier -
     reading rows in the master's order - counted the freeze tail on the
-    other speaker ("Craig planned 16.43s, got 15.64s")."""
+    other speaker ("SpeakerTwo planned 16.43s, got 15.64s")."""
     from library.tools import timeline_layout
 
-    angles = [{"key": "1", "label": "Akshita", "speech_name": "Akshita CH1",
+    angles = [{"key": "1", "label": "SpeakerOne", "speech_name": "SpeakerOne CH1",
                "program_channel": 1},
-              {"key": "2", "label": "Craig", "speech_name": "Craig CH1",
+              {"key": "2", "label": "SpeakerTwo", "speech_name": "SpeakerTwo CH1",
                "program_channel": 1}]
     plan = timeline_layout.plan_layout({"angles": angles,
                                         "picture_angles": ["2", "1"]})
     assert [(row.occupant, row.name) for row in plan.aroll_rows()] == [
-        ("1", "Akshita"), ("2", "Craig")]
+        ("1", "SpeakerOne"), ("2", "SpeakerTwo")]
 
 
 # --------------------------------------------------------------------------
@@ -804,7 +804,7 @@ def _placement(speaker, track_type="audio"):
     }
 
 
-def _decision(speaker="Craig", start=103.0, end=106.0, status="dropped"):
+def _decision(speaker="SpeakerTwo", start=103.0, end=106.0, status="dropped"):
     return {
         "status": status,
         "dropped_speaker": speaker,
@@ -831,39 +831,39 @@ def _stream_row(person, index, track_type):
 
 
 def _mic_bleed_cases():
-    craig = _placement("Craig")
-    akshita = _placement("Akshita")
-    measured = _transcript_2(("Akshita", 103.0, 106.0,
+    speakertwo = _placement("SpeakerTwo")
+    speakerone = _placement("SpeakerOne")
+    measured = _transcript_2(("SpeakerOne", 103.0, 106.0,
                             "the clearer microphone owns this line"))
     measured["mic_bleed_resolution"] = [_decision()]
 
-    channel_akshita = _stream_row("Akshita", 1, "audio")
-    channel_craig = _stream_row("Craig", 2, "audio")
-    pictures = [_stream_row("Akshita", 1, "video")["clip"],
-                _stream_row("Craig", 2, "video")["clip"]]
+    channel_speakerone = _stream_row("SpeakerOne", 1, "audio")
+    channel_speakertwo = _stream_row("SpeakerTwo", 2, "audio")
+    pictures = [_stream_row("SpeakerOne", 1, "video")["clip"],
+                _stream_row("SpeakerTwo", 2, "video")["clip"]]
 
     return [
         pytest.param(
-            [craig, akshita], measured, None,
-            {"/Craig.MXF": 2, "/Akshita.MXF": 1},
-            [("Craig", ["Akshita"], int(3 * FPS_2), round(6 * FPS_2))],
+            [speakertwo, speakerone], measured, None,
+            {"/SpeakerTwo.MXF": 2, "/SpeakerOne.MXF": 1},
+            [("SpeakerTwo", ["SpeakerOne"], int(3 * FPS_2), round(6 * FPS_2))],
             id="split-only-the-losing-mic"),
         pytest.param(
-            [craig], _transcript_2(
-                ("Craig", 103.0, 106.0, "a distinct Craig sentence"),
-                ("Akshita", 103.0, 106.0,
-                 "a distinct Akshita sentence")), None,
-            {"/Craig.MXF": 1}, [], id="keep-genuine-overlap"),
+            [speakertwo], _transcript_2(
+                ("SpeakerTwo", 103.0, 106.0, "a distinct SpeakerTwo sentence"),
+                ("SpeakerOne", 103.0, 106.0,
+                 "a distinct SpeakerOne sentence")), None,
+            {"/SpeakerTwo.MXF": 1}, [], id="keep-genuine-overlap"),
         pytest.param(
-            [_placement("Craig", track_type="video")],
-            _transcript_2(("Akshita", 103.0, 106.0, "Akshita speaks")),
-            None, {"/Craig.MXF": 1}, [], id="never-mute-picture"),
+            [_placement("SpeakerTwo", track_type="video")],
+            _transcript_2(("SpeakerOne", 103.0, 106.0, "SpeakerOne speaks")),
+            None, {"/SpeakerTwo.MXF": 1}, [], id="never-mute-picture"),
         pytest.param(
-            [channel_akshita, channel_craig],
-            _transcript_2(("Akshita", 100.0, 109.0,
-                         "Akshita holds the turn")), pictures,
-            {"/Akshita.MXF": 1, "/Craig.MXF": 1},
-            [("Craig", ["Akshita"], 0, math.ceil(9 * FPS_2))],
+            [channel_speakerone, channel_speakertwo],
+            _transcript_2(("SpeakerOne", 100.0, 109.0,
+                         "SpeakerOne holds the turn")), pictures,
+            {"/SpeakerOne.MXF": 1, "/SpeakerTwo.MXF": 1},
+            [("SpeakerTwo", ["SpeakerOne"], 0, math.ceil(9 * FPS_2))],
             id="resolve-channel-row-through-its-picture-angle"),
     ]
 
@@ -887,29 +887,29 @@ def test_mic_bleed_only_suppresses_the_losing_audio_angle(
             for entry in suppressed] == expected_suppressions
 
     if expected_suppressions and expected_suppressions[0][2] == int(3 * FPS_2):
-        craig_parts = [part for part in kept if part["speaker"] == "Craig"]
-        [craig] = [item for item in placements if item["speaker"] == "Craig"]
-        akshita = next(item for item in placements
-                       if item["speaker"] == "Akshita")
-        assert len(craig_parts) == 2
-        assert craig_parts[0]["master"][0] == pytest.approx(100.0)
-        assert craig_parts[0]["master"][1] <= 103.0
-        assert craig_parts[0]["source_in"] == pytest.approx(10.0)
-        assert craig_parts[0]["source_out"] == pytest.approx(
-            craig_parts[0]["master"][1] - 90.0)
-        assert craig_parts[1]["master"][0] >= 106.0
-        assert craig_parts[1]["master"][1] == pytest.approx(
-            craig["master"][1])
-        assert craig_parts[1]["source_in"] == pytest.approx(
-            craig_parts[1]["master"][0] - 90.0)
-        assert craig_parts[1]["source_out"] == pytest.approx(
-            craig["source_out"])
-        assert craig_parts[1]["snapped_record"] == round(6 * FPS_2)
-        assert akshita in kept
+        speakertwo_parts = [part for part in kept if part["speaker"] == "SpeakerTwo"]
+        [speakertwo] = [item for item in placements if item["speaker"] == "SpeakerTwo"]
+        speakerone = next(item for item in placements
+                       if item["speaker"] == "SpeakerOne")
+        assert len(speakertwo_parts) == 2
+        assert speakertwo_parts[0]["master"][0] == pytest.approx(100.0)
+        assert speakertwo_parts[0]["master"][1] <= 103.0
+        assert speakertwo_parts[0]["source_in"] == pytest.approx(10.0)
+        assert speakertwo_parts[0]["source_out"] == pytest.approx(
+            speakertwo_parts[0]["master"][1] - 90.0)
+        assert speakertwo_parts[1]["master"][0] >= 106.0
+        assert speakertwo_parts[1]["master"][1] == pytest.approx(
+            speakertwo["master"][1])
+        assert speakertwo_parts[1]["source_in"] == pytest.approx(
+            speakertwo_parts[1]["master"][0] - 90.0)
+        assert speakertwo_parts[1]["source_out"] == pytest.approx(
+            speakertwo["source_out"])
+        assert speakertwo_parts[1]["snapped_record"] == round(6 * FPS_2)
+        assert speakerone in kept
         assert suppressed == [{
-            "speaker": "Craig",
-            "speaking_speakers": ["Akshita"],
-            "source_file": "/Craig.MXF",
+            "speaker": "SpeakerTwo",
+            "speaking_speakers": ["SpeakerOne"],
+            "source_file": "/SpeakerTwo.MXF",
             "passage": "the clearer microphone owns this line",
             "master_start": 100 + int(3 * FPS_2) / FPS_2,
             "master_end": 100 + math.ceil(6 * FPS_2) / FPS_2,
@@ -918,7 +918,7 @@ def test_mic_bleed_only_suppresses_the_losing_audio_angle(
         }]
     elif master_clips:
         assert next(item for item in placements
-                    if item["speaker"] == "Akshita CH1") in kept
+                    if item["speaker"] == "SpeakerOne CH1") in kept
 
 
 def _sliver_placement(speaker, start, end):
@@ -939,8 +939,8 @@ def _sliver_placement(speaker, start, end):
 
 def test_mic_bleed_drops_wordless_sub_floor_slivers():
     """`docs/GOLDEN_PROJECTS.md` item 4: the golden conversation's timings
-    (Craig to 7.35s, Akshita 8.1-10.75s) with the body end the captain
-    moves by hand to 11.0s - 0.25s of silence after Akshita's last word.
+    (SpeakerTwo to 7.35s, SpeakerOne 8.1-10.75s) with the body end the captain
+    moves by hand to 11.0s - 0.25s of silence after SpeakerOne's last word.
     The split stranded a 6-frame tail of the silent mic and F7 refused
     the whole reel. The suppression drops wordless pieces under the
     floor instead of keeping them, so F7 passes; speech survives."""
@@ -949,11 +949,11 @@ def test_mic_bleed_drops_wordless_sub_floor_slivers():
 
     floor_frames = int(math.ceil(MIN_CAPTION_DISPLAY_SECONDS * FPS_2))
     transcript = _transcript_2(
-        ("Craig", 4.1, 7.35, "it depends on what it read"),
-        ("Akshita", 8.1, 10.75, "which means the content you publish"))
+        ("SpeakerTwo", 4.1, 7.35, "it depends on what it read"),
+        ("SpeakerOne", 8.1, 10.75, "which means the content you publish"))
     kept, _suppressed = suppress_mic_bleed_audio(
-        [_sliver_placement("Craig", 7.0, 11.0),
-         _sliver_placement("Akshita", 7.0, 11.0)],
+        [_sliver_placement("SpeakerTwo", 7.0, 11.0),
+         _sliver_placement("SpeakerOne", 7.0, 11.0)],
         transcript, FPS_2)
 
     assert kept, "the suppression deleted audible speech, not dust"
@@ -971,30 +971,30 @@ def test_mic_bleed_drops_wordless_sub_floor_slivers():
          for piece in kept],
         FPS_2)
     assert findings == []
-    # Both turns still play: Craig before Akshita's line, Akshita through
+    # Both turns still play: SpeakerTwo before SpeakerOne's line, SpeakerOne through
     # the hand-moved end.
     by_speaker = {}
     for piece in kept:
         by_speaker.setdefault(piece["speaker"], []).append(piece["master"])
-    assert by_speaker["Craig"][0][0] == pytest.approx(7.0)
-    assert by_speaker["Craig"][-1][1] <= 8.1 + 1 / FPS_2
-    assert by_speaker["Akshita"][-1][1] == pytest.approx(11.0, abs=2 / FPS_2)
+    assert by_speaker["SpeakerTwo"][0][0] == pytest.approx(7.0)
+    assert by_speaker["SpeakerTwo"][-1][1] <= 8.1 + 1 / FPS_2
+    assert by_speaker["SpeakerOne"][-1][1] == pytest.approx(11.0, abs=2 / FPS_2)
 
 
 def test_mic_bleed_keeps_a_sub_floor_remnant_carrying_speech():
-    """The floor drop above must not delete words: Craig's 0.3s "quite"
-    sits 0.05s before Akshita's line, so his kept head is 10 frames -
+    """The floor drop above must not delete words: SpeakerTwo's 0.3s "quite"
+    sits 0.05s before SpeakerOne's line, so his kept head is 10 frames -
     under the floor, but carrying speech, so it stays for F7 to refuse
     rather than vanishing silently."""
     transcript = _transcript_2(
-        ("Craig", 8.0, 8.3, "quite"),
-        ("Akshita", 8.35, 10.0, "which means the content"))
+        ("SpeakerTwo", 8.0, 8.3, "quite"),
+        ("SpeakerOne", 8.35, 10.0, "which means the content"))
     kept, _suppressed = suppress_mic_bleed_audio(
-        [_sliver_placement("Craig", 7.9, 10.5)], transcript, FPS_2)
+        [_sliver_placement("SpeakerTwo", 7.9, 10.5)], transcript, FPS_2)
 
     assert any(piece["master"][0] < 8.3 < piece["master"][1]
                for piece in kept), (
-        "the suppression deleted Craig's audible word with the dust")
+        "the suppression deleted SpeakerTwo's audible word with the dust")
 
 
 # --------------------------------------------------------------------------

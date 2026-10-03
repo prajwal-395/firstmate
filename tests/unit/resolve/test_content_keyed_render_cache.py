@@ -265,22 +265,22 @@ def test_motion_graphics_reuse_across_variants(tmp_path, monkeypatch):
 
 
 def _bindings(timeline):
-    return {"timeline": timeline, "speaker": "craig",
+    return {"timeline": timeline, "speaker": "speakertwo",
             "block_position": "closer", "source_clip_id": "clip_004",
             "source_start": 742.1, "source_end": 746.9}
 
 
 def _shared_setup(asset_dir):
-    shared = os.path.join(asset_dir, "sub_craig_clip-004_11111-22222_"
+    shared = os.path.join(asset_dir, "sub_speakertwo_clip-004_11111-22222_"
                                      "aaaaaaaa.mov")
     with open(shared, "wb") as handle:
         handle.write(b"pixels")
     record_rendered_segments(asset_dir, [{
-        "segment_id": "sub_craig_clip-004_11111-22222_aaaaaaaa",
+        "segment_id": "sub_speakertwo_clip-004_11111-22222_aaaaaaaa",
         "overlay_path": shared, "provenance": "rendered",
         "superseded": [], "binding": _bindings(VARIANTS[0])}])
     record_rendered_segments(asset_dir, [{
-        "segment_id": "sub_craig_clip-004_11111-22222_aaaaaaaa",
+        "segment_id": "sub_speakertwo_clip-004_11111-22222_aaaaaaaa",
         "overlay_path": shared, "provenance": "reused",
         "superseded": [], "binding": _bindings(VARIANTS[1])}])
     return shared
@@ -306,12 +306,12 @@ def test_gc_shared_file_stays_live_while_any_placing_names_it(tmp_path):
 
     # Variant 0 re-renders with corrected words: its placing unpins the
     # shared file, variant 1's placing still names it.
-    corrected = os.path.join(asset_dir, "sub_craig_clip-004_11111-22222_"
+    corrected = os.path.join(asset_dir, "sub_speakertwo_clip-004_11111-22222_"
                                         "bbbbbbbb.mov")
     with open(corrected, "wb") as handle:
         handle.write(b"pixels")
     record_rendered_segments(asset_dir, [{
-        "segment_id": "sub_craig_clip-004_11111-22222_bbbbbbbb",
+        "segment_id": "sub_speakertwo_clip-004_11111-22222_bbbbbbbb",
         "overlay_path": corrected, "provenance": "rendered",
         "superseded": [shared], "binding": _bindings(VARIANTS[0])}])
 
@@ -324,7 +324,7 @@ def test_gc_shared_file_stays_live_while_any_placing_names_it(tmp_path):
     # Variant 1 moves on too: now nothing names the shared file, and
     # only now is it an orphan candidate.
     record_rendered_segments(asset_dir, [{
-        "segment_id": "sub_craig_clip-004_11111-22222_cccccccc",
+        "segment_id": "sub_speakertwo_clip-004_11111-22222_cccccccc",
         "overlay_path": corrected, "provenance": "rendered",
         "superseded": [shared], "binding": _bindings(VARIANTS[1])}])
     assert _live_paths()[shared].status != LIVE

@@ -313,15 +313,15 @@ def test_mic_bleed_is_dropped_and_the_primary_mic_keeps_the_line():
 #
 # The captain looked at reel 05 and the captions were wrong. Two of the
 # three things they saw come from ONE cause, and it is not the grouper:
-# a transcript row on Craig's mic carries his sentence AND, at its tail,
-# the first words of Akshita's, picked up as bleed. `_drop_bleed` cannot
+# a transcript row on SpeakerTwo's mic carries his sentence AND, at its tail,
+# the first words of SpeakerOne's, picked up as bleed. `_drop_bleed` cannot
 # see it - the rows are not duplicates of each other, one just ends
 # inside the other. So the block carries two speakers, and step 4.01,
 # which groups WITHIN a block, groups across the change.
 #
 # The numbers below are reel 05's own, read off
 # `pipeline_output/scratch/timeline_transcript/transcript.json` rows
-# 204 and 205 of the field test. Craig's row is given a clip binding
+# 204 and 205 of the field test. SpeakerTwo's row is given a clip binding
 # here because `timeline_transcript` leaves it unbound and
 # `spine_for_reel` drops unbound rows - a separate defect, named in
 # CAPTION_UNANCHORED_ROWS, that is not what these tests are about.
@@ -330,46 +330,46 @@ def test_mic_bleed_is_dropped_and_the_primary_mic_keeps_the_line():
 def _reel_05_frame_1616_rows():
     """Reel 05's real rows either side of the card the captain saw.
 
-    Craig says "...what is going on here", Akshita starts "So ranking
+    SpeakerTwo says "...what is going on here", SpeakerOne starts "So ranking
     tells Google," while his mic is still open, and his row's last two
     words are her first two - the same words, at the same instant.
     """
-    craig_words = [
+    speakertwo_words = [
         word("what", 612.731, 612.932), word("is", 613.052, 613.153),
         word("going", 613.193, 613.454), word("on", 613.574, 613.654),
         word("here", 613.715, 613.875), word("yeah", 614.818, 615.059),
         word("so", 615.079, 615.139), word("ranking", 615.159, 615.34),
     ]
-    akshita_words = [
+    speakerone_words = [
         word("So", 614.949, 615.129), word("ranking", 615.169, 615.449),
         word("tells", 615.489, 615.75), word("Google,", 615.89, 616.25),
     ]
     return [
-        segment("Craig", "what is going on here yeah so ranking",
-                609.380, 615.340, "craig.mov", 1290.0, craig_words),
-        segment("Akshita", "So ranking tells Google,",
-                614.949, 616.250, "akshita.mov", 1293.918, akshita_words),
+        segment("SpeakerTwo", "what is going on here yeah so ranking",
+                609.380, 615.340, "speakertwo.mov", 1290.0, speakertwo_words),
+        segment("SpeakerOne", "So ranking tells Google,",
+                614.949, 616.250, "speakerone.mov", 1293.918, speakerone_words),
     ]
 
 
 def test_a_row_carrying_two_speakers_is_cut_at_the_speaker_change():
     """Reel 05's frame-1616 card. It read "here yeah so ranking" - the end
-    of Craig's sentence and the start of Akshita's on one card.
+    of SpeakerTwo's sentence and the start of SpeakerOne's on one card.
 
     Two people cannot say one word at one instant, so "so ranking" on
-    Craig's mic at 615.079 is Akshita's, heard 0.13s after her own mic
+    SpeakerTwo's mic at 615.079 is SpeakerOne's, heard 0.13s after her own mic
     took it. It is cut from HIS block, which is where the card boundary
     is decided: 4.01 never groups across a block.
     """
     spine = spine_for_reel(Moment(609.0, 619.0),
                            {"segments": _reel_05_frame_1616_rows()})
     assert spine["cross_speaker_words_cut"] == 2
-    craig = [b for b in spine["structure"] if b["speaker"] == "Craig"]
-    assert len(craig) == 1
-    text = craig[0]["content"]["text"]
+    speakertwo = [b for b in spine["structure"] if b["speaker"] == "SpeakerTwo"]
+    assert len(speakertwo) == 1
+    text = speakertwo[0]["content"]["text"]
     assert text == "what is going on here yeah", text
-    assert [w["word"] for w in craig[0]["word_timestamps"]][-1] == "yeah"
-    # no speech is lost by the cut: the words removed from Craig's block are
+    assert [w["word"] for w in speakertwo[0]["word_timestamps"]][-1] == "yeah"
+    # no speech is lost by the cut: the words removed from SpeakerTwo's block are
     # still captioned, by the speaker who said them
     said = set()
     for block in spine["structure"]:
@@ -528,7 +528,7 @@ def test_unanchored_row_on_a_real_clip_is_captioned():
     from library.tools import reel_spine
 
     transcript = {"segments": [
-        {"timeline_start": 0.0, "timeline_end": 4.0, "speaker": "Craig",
+        {"timeline_start": 0.0, "timeline_end": 4.0, "speaker": "SpeakerTwo",
          "resolve_item_id": "clip-a", "source_start": 100.0,
          "source_end": 104.0, "text": "anchored speech here",
          "words": [{"word": "anchored", "start": 0.0, "end": 1.0,
@@ -536,7 +536,7 @@ def test_unanchored_row_on_a_real_clip_is_captioned():
                    {"word": "speech", "start": 1.0, "end": 2.0,
                     "timed": True}]},
         # No binding, but its words sit inside clip-a's reach.
-        {"timeline_start": 2.5, "timeline_end": 3.5, "speaker": "Craig",
+        {"timeline_start": 2.5, "timeline_end": 3.5, "speaker": "SpeakerTwo",
          "resolve_item_id": None, "source_start": None, "source_end": None,
          "text": "wholly different unrelated wording",
          "words": [{"word": "wholly", "start": 2.5, "end": 3.0,
@@ -1012,7 +1012,7 @@ def _moment(body, closer=None):
 
 # The measured shape: Reel 13 declared, Reel 05 declared, and what the
 # snap made of Reel 13's closer (cta_end 342.03 -> 349.54 through
-# Craig's opening "So").
+# SpeakerTwo's opening "So").
 R13_BODY = (889.92, 956.64)
 R13_CLOSER = (328.608, 342.03)
 R05_BODY = (342.038, 413.851)

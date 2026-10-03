@@ -49,7 +49,7 @@ JCUT_SUFFIX = " (j-cut)"
 CUTAWAY_SPEC = {
     "suffix": CUTAWAY_SUFFIX,
     "cutaway": {
-        "hide_angle": "Craig",
+        "hide_angle": "SpeakerTwo",
         "window_seconds": [574, 598],
         "cover_words": ["exactly", "why"],
     },
@@ -58,7 +58,7 @@ CUTAWAY_SPEC = {
         "source_in": 1450.9495,
         "source_out": 1451.9505,
     },
-    "watch": "Craig hides, Akshita covers 24 frames",
+    "watch": "SpeakerTwo hides, SpeakerOne covers 24 frames",
 }
 
 CTA_EDIT = {
@@ -284,7 +284,7 @@ def test_create_variation_branches_records_commits(tmp_path):
     assert _git(tmp_path, "rev-parse", "--abbrev-ref",
                 "HEAD").strip() == result["branch"]
     specs = tv.read_variant_specs(str(tmp_path))
-    assert specs["variants"]["9"][0]["cutaway"]["hide_angle"] == "Craig"
+    assert specs["variants"]["9"][0]["cutaway"]["hide_angle"] == "SpeakerTwo"
     # The spec rode on the branch commit, not the working tree.
     _git(tmp_path, "checkout", default)
     assert tv.read_variant_specs(str(tmp_path))["variants"] == {}
@@ -578,13 +578,13 @@ def test_two_variants_are_compared_without_resolve(project_folder):
         REEL,
         " (reaction-cutaway)",
         rows(4),
-        watch="Akshita's reaction",
+        watch="SpeakerOne's reaction",
     )
     diff = choice.compare(project_folder, 9, " (j-cut)", " (reaction-cutaway)")
     assert diff["earlier"] == JCUT and diff["later"] == CUTAWAY
     assert diff["changed"], "four items against two is a change"
     text = choice.render_comparison(diff)
-    assert "the join" in text and "Akshita's reaction" in text
+    assert "the join" in text and "SpeakerOne's reaction" in text
     # An empty side reads exactly like a version that contained nothing,
     # so comparing against a variant nobody built refuses.
     with pytest.raises(choice.ChoiceRefused) as refusal:

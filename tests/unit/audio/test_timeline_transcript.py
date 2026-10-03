@@ -39,7 +39,7 @@ def _write_iso_level(path: Path, start: float, end: float,
 
 def _reel15_duplicate(speaker: str, start: float) -> tt.SpokenSegment:
     text = ("Yeah so AI is actually better for small businesses"
-            if speaker == "Craig"
+            if speaker == "SpeakerTwo"
             else "Yeah, so AI is actually better for small businesses.")
     words = text.split()
     duration = 2.37
@@ -91,24 +91,24 @@ def test_mic_bleed_duplicate_is_dropped_only_when_the_iso_levels_decide(
     """Reel 15: one sentence on both mics, 50ms apart. The clearly louder
     iso owns it; equal levels or a missing iso keep both and say why; and
     distinct overlapping speech is never a bleed candidate."""
-    def tracks(craig, akshita):
+    def tracks(speakertwo, speakerone):
         return {
-            "Craig": _write_iso_level(tmp_path / "craig.wav", 1.0, 3.42, craig),
-            "Akshita": _write_iso_level(tmp_path / "akshita.wav", 1.0, 3.42,
-                                        akshita),
+            "SpeakerTwo": _write_iso_level(tmp_path / "speakertwo.wav", 1.0, 3.42, speakertwo),
+            "SpeakerOne": _write_iso_level(tmp_path / "speakerone.wav", 1.0, 3.42,
+                                        speakerone),
         }
 
-    duplicate = {"Craig": [_reel15_duplicate("Craig", 1.0)],
-                 "Akshita": [_reel15_duplicate("Akshita", 1.05)]}
+    duplicate = {"SpeakerTwo": [_reel15_duplicate("SpeakerTwo", 1.0)],
+                 "SpeakerOne": [_reel15_duplicate("SpeakerOne", 1.05)]}
 
     merged, decisions = tt.merge_speakers(duplicate, tracks(200, 2000))
     assert len(merged) == 1
-    assert merged[0].speaker == "Akshita"
+    assert merged[0].speaker == "SpeakerOne"
     assert merged[0].text.startswith("Yeah,")
     assert len(decisions) == 1
     assert decisions[0]["status"] == "dropped"
-    assert decisions[0]["winner"] == "Akshita"
-    assert decisions[0]["dropped_speaker"] == "Craig"
+    assert decisions[0]["winner"] == "SpeakerOne"
+    assert decisions[0]["dropped_speaker"] == "SpeakerTwo"
     assert decisions[0]["level_difference_db"] >= 19.0
 
     for audio, reason in ((tracks(1000, 1000),
@@ -116,21 +116,21 @@ def test_mic_bleed_duplicate_is_dropped_only_when_the_iso_levels_decide(
                           (None, "audio_tracks_missing")):
         args = (duplicate, audio) if audio else (duplicate,)
         merged, decisions = tt.merge_speakers(*args)
-        assert {segment.speaker for segment in merged} == {"Craig", "Akshita"}
+        assert {segment.speaker for segment in merged} == {"SpeakerTwo", "SpeakerOne"}
         assert decisions[0]["status"] == "unresolved", reason
         assert decisions[0]["reason"] == reason
 
     distinct = tt.SpokenSegment(
-        speaker="Akshita", text="No, I was talking about the other thing.",
-        timeline_start=1.05, timeline_end=3.42, source_file="/Akshita.MXF",
+        speaker="SpeakerOne", text="No, I was talking about the other thing.",
+        timeline_start=1.05, timeline_end=3.42, source_file="/SpeakerOne.MXF",
         source_start=2716.0, source_end=2718.37,
-        resolve_item_id="Akshita-clip", words=tuple(
+        resolve_item_id="SpeakerOne-clip", words=tuple(
             {"word": word, "start": 1.05 + index * 0.26,
              "end": 1.05 + (index + 1) * 0.26, "timed": True}
             for index, word in enumerate(
                 "No I was talking about the other thing".split())))
     merged, decisions = tt.merge_speakers({
-        "Craig": [_reel15_duplicate("Craig", 1.0)], "Akshita": [distinct]})
+        "SpeakerTwo": [_reel15_duplicate("SpeakerTwo", 1.0)], "SpeakerOne": [distinct]})
     assert len(merged) == 2
     assert decisions == []
 
@@ -173,7 +173,7 @@ def test_overlapping_rows_on_one_clip_serialize_at_the_later_word_onset():
             _word("small", 2.4, 2.7)]},
     ]}
 
-    segments = tt.segments_for_speaker(aligned, "Craig", clips)
+    segments = tt.segments_for_speaker(aligned, "SpeakerTwo", clips)
     first = segments[0]
 
     assert first.timeline_end == pytest.approx(1.9)
@@ -197,25 +197,25 @@ def test_the_document_reports_what_could_not_be_bound():
         project_name, timeline_name = "P", "T"
         fps, duration = 23.976, 100.0
         clips = []
-        def speakers(self): return ["Craig", None]
+        def speakers(self): return ["SpeakerTwo", None]
 
     merged = [
-        tt.SpokenSegment("Craig", "bound", 1.0, 2.0, "/m/a.MXF", 10.0, 11.0, "a"),
-        tt.SpokenSegment("Craig", "straddles", 3.0, 4.0, None, None, None, None),
+        tt.SpokenSegment("SpeakerTwo", "bound", 1.0, 2.0, "/m/a.MXF", 10.0, 11.0, "a"),
+        tt.SpokenSegment("SpeakerTwo", "straddles", 3.0, 4.0, None, None, None, None),
     ]
     doc = tt.transcript_document(Snap(), merged)
     assert doc["segment_count"] == 2
     assert doc["segments_straddling_a_cut"] == 1
     # From the SEGMENTS, not the snapshot's track roster - Snap() lists
     # a second entry nothing speaks under, exactly as the real one lists
-    # `Akshita CH1` beside `Akshita`.
-    assert doc["speakers"] == ["Craig"]
+    # `SpeakerOne CH1` beside `SpeakerOne`.
+    assert doc["speakers"] == ["SpeakerTwo"]
     assert "Resolve was not opened" in doc["measurement"]
 
 
 # ── A row that crosses a cut is re-read from its own words ───────────
 #
-# The numbers here are the field test's, not invented: Craig's clips at
+# The numbers here are the field test's, not invented: SpeakerTwo's clips at
 # 606.796-614.013 and 614.765-616.560 and 630.909-636.583, and rows 204
 # and 206 of `transcript.json` as WhisperX left them. Reel 05 plays this
 # stretch and had no caption over about nine seconds of it.
@@ -228,10 +228,10 @@ CLIP_C = {"src_in": 1421.295, "tl_start": 630.909, "tl_end": 636.583,
           "uid": "C"}
 
 
-def _craig_clips():
+def _speakertwo_clips():
     return [_clip("/m/LCATL0013.MXF", c["src_in"],
                   c["src_in"] + (c["tl_end"] - c["tl_start"]),
-                  c["tl_start"], c["tl_end"], uid=c["uid"], speaker="Craig")
+                  c["tl_start"], c["tl_end"], uid=c["uid"], speaker="SpeakerTwo")
             for c in (CLIP_A, CLIP_B, CLIP_C)]
 
 
@@ -264,8 +264,8 @@ def test_a_row_crossing_a_cut_is_split_at_its_own_words():
     """Row 204. No WORD crosses the cut at 614.0/614.8 - eighteen end
     before it and three begin after - so the row has two bindings, not
     none."""
-    out = tt.segments_for_speaker({"segments": [ROW_204]}, "Craig",
-                                  _craig_clips())
+    out = tt.segments_for_speaker({"segments": [ROW_204]}, "SpeakerTwo",
+                                  _speakertwo_clips())
     assert [s.resolve_item_id for s in out] == ["A", "B"]
     assert [s.text for s in out] == ["on here", "yeah so ranking"]
     assert out[0].timeline_start == pytest.approx(613.574)
@@ -281,11 +281,11 @@ def test_a_row_crossing_a_cut_is_split_at_its_own_words():
 
 
 def test_a_row_whose_middle_is_silence_binds_both_ends():
-    """Row 206 spans 615.5-636.2, and Craig has no clip for 14.4s of
+    """Row 206 spans 615.5-636.2, and SpeakerTwo has no clip for 14.4s of
     that. The row carries NO WORD in the middle: the envelope is Whisper
     joining two utterances, and both ends are on real clips."""
-    out = tt.segments_for_speaker({"segments": [ROW_206]}, "Craig",
-                                  _craig_clips())
+    out = tt.segments_for_speaker({"segments": [ROW_206]}, "SpeakerTwo",
+                                  _speakertwo_clips())
     assert [s.resolve_item_id for s in out] == ["B", "C"]
     assert [s.text for s in out] == ["tells google", "when it comes"]
     # Nothing is emitted for the silence itself.
@@ -299,8 +299,8 @@ def test_a_row_inside_one_clip_is_left_exactly_as_it_was():
            "words": [_word("Whisper's", 607.5, 608.0),
                      _word("own", 608.2, 609.0),
                      _word("text.", 609.2, 610.0)]}
-    out = tt.segments_for_speaker({"segments": [row]}, "Craig",
-                                  _craig_clips())
+    out = tt.segments_for_speaker({"segments": [row]}, "SpeakerTwo",
+                                  _speakertwo_clips())
     assert len(out) == 1
     assert out[0].resolve_item_id == "A"
     assert out[0].text == "Whisper's own text."
@@ -314,8 +314,8 @@ def test_speech_in_a_gap_between_clips_stays_unbound():
     whose head and tail sit on clips."""
     whole = {"start": 620.0, "end": 628.0, "text": "well",
              "words": [_word("well", 620.0, 628.0)]}
-    out = tt.segments_for_speaker({"segments": [whole]}, "Craig",
-                                  _craig_clips())
+    out = tt.segments_for_speaker({"segments": [whole]}, "SpeakerTwo",
+                                  _speakertwo_clips())
     assert len(out) == 1
     assert out[0].resolve_item_id is None
     assert out[0].source_start is None
@@ -325,8 +325,8 @@ def test_speech_in_a_gap_between_clips_stays_unbound():
            "words": [_word("here", 613.7, 613.9),
                      _word("well", 620.0, 628.0),
                      _word("when", 631.1, 631.3)]}
-    out = tt.segments_for_speaker({"segments": [row]}, "Craig",
-                                  _craig_clips())
+    out = tt.segments_for_speaker({"segments": [row]}, "SpeakerTwo",
+                                  _speakertwo_clips())
     assert [s.resolve_item_id for s in out] == ["A", None, "C"]
     assert [s.text for s in out] == ["here", "well", "when"]
 
@@ -336,7 +336,7 @@ def test_a_word_is_placed_by_the_same_containment_rule_with_no_tolerance():
     atom. A word one millisecond outside a clip is outside it - the
     rebuilt track plays silence there, so there is nothing to be inside
     of."""
-    clips = _craig_clips()
+    clips = _speakertwo_clips()
     assert tt.clip_of_word(_word("x", 613.0, 613.2), clips).resolve_item_id == "A"
     just_out = _word("x", 614.014, 614.016)
     assert tt.clip_of_word(just_out, clips) is None
@@ -358,14 +358,14 @@ def test_the_document_counts_rows_whose_text_outruns_their_timings():
         clips = ()
 
         def speakers(self):
-            return ["Craig"]
+            return ["SpeakerTwo"]
 
     def _segment(text, n_words):
         words = tuple(
             {"word": f"w{i}", "start": float(i), "end": float(i) + 0.2}
             for i in range(n_words))
         return tt.SpokenSegment(
-            speaker="Craig", text=text,
+            speaker="SpeakerTwo", text=text,
             timeline_start=0.0, timeline_end=1.0,
             source_file="s.wav", source_start=0.0, source_end=1.0,
             resolve_item_id="A", words=words)
@@ -391,25 +391,25 @@ def test_the_document_counts_rows_whose_text_outruns_their_timings():
 
 
 class _Snap:
-    """A snapshot carrying Craig's three clips and nothing else."""
+    """A snapshot carrying SpeakerTwo's three clips and nothing else."""
 
     project_name, timeline_name = "P", "T"
     fps, duration = FPS, 700.0
 
     def __init__(self):
-        self.clips = tuple(_craig_clips())
+        self.clips = tuple(_speakertwo_clips())
 
     def picture_clips(self):
         return self.clips
 
     def speakers(self):
-        return ["Craig"]
+        return ["SpeakerTwo"]
 
 
 def _straddling_document():
     """What a pre-fix transcribe pass wrote: row 204 with NO binding."""
     unbound = tt.SpokenSegment(
-        speaker="Craig", text=ROW_204["text"],
+        speaker="SpeakerTwo", text=ROW_204["text"],
         timeline_start=ROW_204["start"], timeline_end=ROW_204["end"],
         source_file=None, source_start=None, source_end=None,
         resolve_item_id=None, words=tuple(ROW_204["words"]))
@@ -438,7 +438,7 @@ def test_rebinding_leaves_bound_and_wordless_rows_exactly_as_they_were():
     left ALONE - and re-reading the bound ones was measured to move 4 of
     875 by 0.05-0.12s for no gain. A rebind must not do it either."""
     bound = tt.SpokenSegment(
-        speaker="Craig", text="on here yeah",
+        speaker="SpeakerTwo", text="on here yeah",
         timeline_start=613.574, timeline_end=613.875,
         source_file="/m/LCATL0013.MXF", source_start=1288.0,
         source_end=1288.3, resolve_item_id="A",
@@ -450,7 +450,7 @@ def test_rebinding_leaves_bound_and_wordless_rows_exactly_as_they_were():
     # A row with no per-word timing cannot be asked the word question;
     # it stays rather than being dropped.
     wordless = tt.SpokenSegment(
-        speaker="Craig", text="mm", timeline_start=609.0, timeline_end=609.4,
+        speaker="SpeakerTwo", text="mm", timeline_start=609.0, timeline_end=609.4,
         source_file=None, source_start=None, source_end=None,
         resolve_item_id=None, words=())
     before = tt.transcript_document(_Snap(), [wordless])
@@ -497,7 +497,7 @@ def _hybrid_result():
 
 def test_the_hybrid_answer_is_returned_with_its_record(monkeypatch):
     asked = _stub_seam(monkeypatch, hybrid=_hybrid_result())
-    aligned, record = tt.transcribe_audio(Path("craig.wav"))
+    aligned, record = tt.transcribe_audio(Path("speakertwo.wav"))
     assert asked == {"hybrid": 1}
     assert aligned["segments"][0]["text"] == "hi"
     assert record["arm"] == "hybrid"
@@ -517,14 +517,14 @@ def test_silence_is_returned_empty_and_attributed(monkeypatch):
         hybrid=hybrid_transcription.FallbackRequired(
             hybrid_transcription.HEARD_NOTHING,
             "the transcriber returned no words"))
-    aligned, record = tt.transcribe_audio(Path("craig.wav"))
+    aligned, record = tt.transcribe_audio(Path("speakertwo.wav"))
     assert asked == {"hybrid": 1}
     assert aligned["segments"] == []
     assert record["arm"] == "none"
     assert record["aligner"] is None
     assert record["fell_back_because"]["trigger"] == \
         hybrid_transcription.HEARD_NOTHING
-    assert record["attempted_on"] == "craig.wav"
+    assert record["attempted_on"] == "speakertwo.wav"
 
 
 def test_a_refusal_the_seam_cannot_answer_propagates(monkeypatch):
@@ -543,7 +543,7 @@ def test_a_refusal_the_seam_cannot_answer_propagates(monkeypatch):
             hybrid_transcription.SEGMENT_PRODUCED_NO_WORDS,
             "the aligner returned no words for 'Yeah.'"))
     with pytest.raises(hybrid_transcription.FallbackRequired) as exc:
-        tt.transcribe_audio(Path("craig.wav"))
+        tt.transcribe_audio(Path("speakertwo.wav"))
     assert asked == {"hybrid": 1}
     assert exc.value.reason == hybrid_transcription.SEGMENT_PRODUCED_NO_WORDS
     assert "no words" in exc.value.detail
@@ -557,21 +557,21 @@ def test_the_document_says_which_arm_and_aligner_heard_each_speaker():
     from library.tools import hybrid_transcription
 
     record = tt.transcription_record({
-        "Akshita": {"arm": hybrid_transcription.ARM_HYBRID,
+        "SpeakerOne": {"arm": hybrid_transcription.ARM_HYBRID,
                     "aligner": hybrid_transcription.ALIGNER_MFA},
-        "Craig": {"arm": hybrid_transcription.ARM_WHISPERX,
+        "SpeakerTwo": {"arm": hybrid_transcription.ARM_WHISPERX,
                   "aligner": hybrid_transcription.ALIGNER_WAV2VEC2,
                   "fell_back_because": {"trigger": "heard_nothing",
                                         "detail": "no words"}},
     })
-    assert record["arms"] == {"Akshita": "hybrid", "Craig": "whisperx"}
-    assert record["aligners"] == {"Akshita": "mfa", "Craig": "wav2vec2"}
-    assert record["by_speaker"]["Craig"]["fell_back_because"]["trigger"] \
+    assert record["arms"] == {"SpeakerOne": "hybrid", "SpeakerTwo": "whisperx"}
+    assert record["aligners"] == {"SpeakerOne": "mfa", "SpeakerTwo": "wav2vec2"}
+    assert record["by_speaker"]["SpeakerTwo"]["fell_back_because"]["trigger"] \
         == "heard_nothing"
     assert record["asr_confidence"] == \
         hybrid_transcription.ASR_CONFIDENCE_ABSENT
     whisperx_only = tt.transcription_record(
-        {"Craig": {"arm": hybrid_transcription.ARM_WHISPERX}})
+        {"SpeakerTwo": {"arm": hybrid_transcription.ARM_WHISPERX}})
     assert whisperx_only["asr_confidence"] == "present"
     assert "transcription" not in tt.transcript_document(_Snap(), [])
 
@@ -584,12 +584,12 @@ def test_a_rebind_does_not_lose_which_transcriber_heard_the_words():
 
     before = _straddling_document()
     before["transcription"] = {
-        "arms": {"Craig": hybrid_transcription.ARM_HYBRID},
+        "arms": {"SpeakerTwo": hybrid_transcription.ARM_HYBRID},
         "by_speaker": {},
         "asr_confidence": hybrid_transcription.ASR_CONFIDENCE_ABSENT,
     }
     after = tt.rebind_document(before, _Snap())
-    assert after["transcription"]["arms"] == {"Craig": "hybrid"}
+    assert after["transcription"]["arms"] == {"SpeakerTwo": "hybrid"}
 
 
 def test_a_suppression_entry_does_not_lose_the_transcript(tmp_path,
@@ -603,7 +603,7 @@ def test_a_suppression_entry_does_not_lose_the_transcript(tmp_path,
     from library.tools import single_track_diarization as std
     from library.tools import transcript_corrections
 
-    clip = SimpleNamespace(speaker="Akshita")
+    clip = SimpleNamespace(speaker="SpeakerOne")
     snapshot = SimpleNamespace(picture_clips=lambda: [clip])
     monkeypatch.setattr(tt, "build_speaker_audio", lambda *a, **k: None)
     monkeypatch.setattr(tt, "transcribe_audio", lambda *a, **k: ({}, {}))

@@ -10,7 +10,7 @@ what this file exists to pin:
    library code and a second project must be able to declare a different
    cast - or none.
 2. **A speaker who appears twice gets ONE graphic.** "on the first
-   appearance" is the ask; a reel where Craig comes back six times must
+   appearance" is the ask; a reel where SpeakerTwo comes back six times must
    name him once.
 
 Every project here is built under `tmp_path`. No test reaches a real
@@ -128,7 +128,7 @@ def test_no_speaker_identity_string_is_anywhere_in_library():
     not as a docstring example, not as a fallback.
 
     Scoped to `library/`, which is the engine. `tests/` carries
-    `Akshita` and `Craig` as FIXTURES across many files and renaming
+    `SpeakerOne` and `SpeakerTwo` as FIXTURES across many files and renaming
     those is a separate, declared piece of work; a fixture in a test is
     not a value the engine can reach.
     """
@@ -138,8 +138,8 @@ def test_no_speaker_identity_string_is_anywhere_in_library():
     # The four strings from the captain's marker of 2026-09-12. Built
     # rather than written, so this file does not carry them either.
     forbidden = [" ".join(parts) for parts in (
-        ("Craig", "Lucie"), ("CEO", "Lucie", "Content"),
-        ("Akshita", "Gorti"), ("AI", "@", "Lucie", "Content"))]
+        ("SpeakerTwo", "Lucie"), ("CEO", "Lucie", "Content"),
+        ("SpeakerOne", "Gorti"), ("AI", "@", "Lucie", "Content"))]
     offenders = []
     for path in root.rglob("*.py"):
         try:
@@ -540,11 +540,11 @@ def _refuse_missing(*args, **kwargs):
 SINGLE_LABEL_ROUTES = [
     # Two timeline speakers never reach the diarizer, even with no
     # declared roster: the per-ISO path owns multi-track timelines.
-    ("two audio paths", None, ["Akshita", "Craig"], True, _refuse_diarize,
+    ("two audio paths", None, ["SpeakerOne", "SpeakerTwo"], True, _refuse_diarize,
      "per-iso", None),
     # One path plus a one-name roster keeps the single label: diarizing a
     # declared monologue could only split one voice into invented speakers.
-    ("declared monologue", "source:\n  speakers:\n    - {name: Craig}\n",
+    ("declared monologue", "source:\n  speakers:\n    - {name: SpeakerTwo}\n",
      [None], True, _refuse_diarize, "single-label", None),
     # `--no-diarize-single-track` holds even an eligible timeline.
     ("opt-out flag", None, [None], False, _refuse_diarize, "single-label",
@@ -583,7 +583,7 @@ def test_the_fallback_is_not_taken_where_it_must_not_be(tmp_path,
         if reason:
             assert reason in document["diarization"]["reason"], case
         if case == "two audio paths":
-            assert sorted(document["speakers"]) == ["Akshita", "Craig"]
+            assert sorted(document["speakers"]) == ["SpeakerOne", "SpeakerTwo"]
 
 
 @_SECTION_1_MARK
@@ -592,7 +592,7 @@ def test_declared_roster_count_reaches_k(tmp_path, monkeypatch):
     and its declared count must reach the clusterer: estimating k when
     the project already said it would throw away the stronger signal."""
     (tmp_path / "project.yaml").write_text(
-        "source:\n  speakers:\n    - {name: Akshita}\n    - {name: Craig}\n",
+        "source:\n  speakers:\n    - {name: SpeakerOne}\n    - {name: SpeakerTwo}\n",
         encoding="utf-8")
     src = _tone(tmp_path / "src.wav", 2.0)
     clips = [_clip(src, 0.0, 2.0, 0.0, 2.0, uid="a", speaker=None)]

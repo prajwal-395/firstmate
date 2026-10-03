@@ -103,14 +103,14 @@ def _short_timeline(tmp_path):
         frame_rate="23.976",
         video={
             ("video", 1): (
-                "Akshita",
+                "SpeakerOne",
                 [
                     _item("take.mp4", 0, 48, 24, 72, media, "uid-a1"),
                     _item("take.mp4", 48, 96, 96, 144, media, "uid-a2"),
                 ],
             ),
             ("video", 2): (
-                "Craig",
+                "SpeakerTwo",
                 [
                     _item("take.mp4", 96, 144, 168, 216, media, "uid-c1"),
                 ],
@@ -132,7 +132,7 @@ def _two_speaker_timeline(tmp_path, name="GEO Podcast - Synced"):
     a, b = _media(tmp_path, "LC4930.MXF", "LCATL0011.MXF")
     tracks = {
         ("video", 1): (
-            "Akshita",
+            "SpeakerOne",
             [
                 _item("LC4930.MXF", 594, 1080, 3151, 3637, a, "uid-a1"),
                 # left_offset disagrees by one frame, as measured
@@ -142,13 +142,13 @@ def _two_speaker_timeline(tmp_path, name="GEO Podcast - Synced"):
             ],
         ),
         ("video", 2): (
-            "Craig",
+            "SpeakerTwo",
             [
                 _item("LCATL0011.MXF", 0, 594, 2285, 2879, b, "uid-c1"),
             ],
         ),
         ("audio", 1): (
-            "Akshita CH1",
+            "SpeakerOne CH1",
             [
                 _item("LC4930.MXF", 594, 1080, 3151, 3637, a, "uid-aa1"),
             ],
@@ -164,14 +164,14 @@ def test_speaker_comes_from_the_track_and_is_never_invented(tmp_path):
     snap = timeline_ingest.snapshot_timeline(
         _two_speaker_timeline(tmp_path), "Podcast (field test)"
     )
-    assert snap.speakers() == ["Akshita", "Craig", "Akshita CH1"]  # video first
-    assert {c.speaker for c in snap.picture_clips()} == {"Akshita", "Craig"}
+    assert snap.speakers() == ["SpeakerOne", "SpeakerTwo", "SpeakerOne CH1"]  # video first
+    assert {c.speaker for c in snap.picture_clips()} == {"SpeakerOne", "SpeakerTwo"}
     # A speaker map renames a track without inventing one.
     snap = timeline_ingest.snapshot_timeline(
-        _two_speaker_timeline(tmp_path), "P", speaker_map={"Akshita CH1": "Akshita"}
+        _two_speaker_timeline(tmp_path), "P", speaker_map={"SpeakerOne CH1": "SpeakerOne"}
     )
     audio = [c for c in snap.clips if c.track_type == "audio"]
-    assert audio[0].speaker == "Akshita"
+    assert audio[0].speaker == "SpeakerOne"
     # An unnamed track yields no speaker rather than a made-up one.
     (a,) = _media(tmp_path, "x.mov")
     tl = _timeline(
@@ -314,7 +314,7 @@ def test_the_spoken_order_is_the_timeline_order(tmp_path):
     seq = timeline_ingest.to_speech_sequence(snap)
     starts = [s["timeline_start"] for s in seq["segments"]]
     assert starts == sorted(starts)
-    assert [s["speaker"] for s in seq["segments"]] == ["Craig", "Akshita", "Akshita"]
+    assert [s["speaker"] for s in seq["segments"]] == ["SpeakerTwo", "SpeakerOne", "SpeakerOne"]
     # The chain links agree with the order.
     segments = seq["segments"]
     assert segments[0]["previous_segment_id"] is None

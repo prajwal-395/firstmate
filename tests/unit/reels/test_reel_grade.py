@@ -419,7 +419,7 @@ def _placement(source_file, record_frame, seconds, track_index=1, fps=24.0):
         "source_out": seconds,
         "record": record_frame / fps,
         "snapped_record": record_frame,
-        "speaker": "Craig",
+        "speaker": "SpeakerTwo",
     }
 
 

@@ -251,7 +251,7 @@ def test_rebuild_reels_unknown_slug_is_refused():
 # `rebuild_reels_in_project` deleted the existing timelines FIRST, placed
 # the rebuild, and ran the conformance verifier LAST. A build the gate
 # refused - reel 5 of the 2026-09-08 rebuild, F17 (mixed-speaker card)
-# plus F8 (end cuts Craig mid-word through 'about') - exited 1 AFTER
+# plus F8 (end cuts SpeakerTwo mid-word through 'about') - exited 1 AFTER
 # replacing the timeline, converting a live approved reel into
 # verify-failed content with no code/content fix in hand
 # (`docs/REEL_REBUILD_RUN_20260908_R3.md`).
@@ -376,9 +376,9 @@ def _gate_failed_report(project_dir):
         "findings": [
             {"severity": "error", "finding_class": "F17",
              "message": "caption card 'recommend you or your brand.' "
-                        "mixes speakers: Akshita, Craig"},
+                        "mixes speakers: SpeakerOne, SpeakerTwo"},
             {"severity": "error", "finding_class": "F8",
-             "message": "END at 413.85s cuts Craig mid-speech, "
+             "message": "END at 413.85s cuts SpeakerTwo mid-speech, "
                         "through the word 'about'"},
         ],
         "reels": [
@@ -521,21 +521,21 @@ def test_build_reels_cli_plans_reel15_from_cached_iso_and_f25_passes(
     audio_dir = (project / "pipeline_output" / "scratch"
                  / "timeline_transcript")
     audio_dir.mkdir(parents=True, exist_ok=True)
-    (audio_dir / "craig.wav").write_bytes(b"fixture Craig ISO")
-    (audio_dir / "akshita.wav").write_bytes(b"fixture Akshita ISO")
-    rows = [_row("Craig", 1200.57, 2716.084),
-            _row("Akshita", 1200.62, 2719.88775)]
+    (audio_dir / "speakertwo.wav").write_bytes(b"fixture SpeakerTwo ISO")
+    (audio_dir / "speakerone.wav").write_bytes(b"fixture SpeakerOne ISO")
+    rows = [_row("SpeakerTwo", 1200.57, 2716.084),
+            _row("SpeakerOne", 1200.62, 2719.88775)]
     transcript_path = audio_dir / "transcript.json"
     transcript_path.write_text(json.dumps({
         "segments": rows,
         "segment_count": len(rows),
-        "speakers": ["Craig", "Akshita"],
+        "speakers": ["SpeakerTwo", "SpeakerOne"],
         "derived_from": {"duration_seconds": 1400.0},
     }), encoding="utf-8")
     monkeypatch.setattr(
         timeline_transcript, "_track_rms_dbfs",
         lambda path, _start, _end: (
-            (-42.62 if Path(path).name == "craig.wav" else -27.12), None),
+            (-42.62 if Path(path).name == "speakertwo.wav" else -27.12), None),
     )
 
     moment = ReelMoment(
@@ -573,7 +573,7 @@ def test_build_reels_cli_plans_reel15_from_cached_iso_and_f25_passes(
     def _verify_with_f25(**kwargs):
         transcript = kwargs["transcript"]
         assert [row["speaker"] for row in transcript["segments"]] == [
-            "Akshita"]
+            "SpeakerOne"]
         assert len(planned) == 1
         plan, planned_transcript, ranges = planned[0]
         assert planned_transcript == transcript
@@ -640,8 +640,8 @@ def test_build_reels_cli_plans_reel15_from_cached_iso_and_f25_passes(
 
     assert len(planned) == 1
     assert planned[0][0].caption_entries
-    assert ("ISO mic 1200.57-1202.99s: keep Akshita (-27.12 dBFS) over "
-            "Craig (-42.62 dBFS), 15.50 dB lead" in capsys.readouterr().err)
+    assert ("ISO mic 1200.57-1202.99s: keep SpeakerOne (-27.12 dBFS) over "
+            "SpeakerTwo (-42.62 dBFS), 15.50 dB lead" in capsys.readouterr().err)
 
 
 # --------------------------------------------------------------------------

@@ -287,7 +287,7 @@ def _sequence(tmp_path, count=3, **overrides):
         segments.append({
             "segment_id": f"uid-{i}",
             "order": i,
-            "speaker": "Akshita" if i % 2 else "Craig",
+            "speaker": "SpeakerOne" if i % 2 else "SpeakerTwo",
             "source_file": clip,
             "source_start": 10.0 * i,
             "source_end": 10.0 * i + 5.0,
@@ -296,7 +296,7 @@ def _sequence(tmp_path, count=3, **overrides):
             "previous_segment_id": f"uid-{i - 1}" if i else None,
             "next_segment_id": f"uid-{i + 1}" if i + 1 < count else None,
         })
-    value = {"segments": segments, "speakers": ["Craig", "Akshita"]}
+    value = {"segments": segments, "speakers": ["SpeakerTwo", "SpeakerOne"]}
     value.update(overrides)
     return value
 
@@ -561,7 +561,7 @@ def test_a_declaration_is_checked_by_its_owner_and_not_supplied(tmp_path):
     (external / reel_post_header.HOOKS_FILE).write_text(_json.dumps({
         "format": "reel_post_header/1",
         "hooks": {"3": {"hook": "People stopped searching.",
-                        "basis": "Akshita, verbatim"}}}), encoding="utf-8")
+                        "basis": "SpeakerOne, verbatim"}}}), encoding="utf-8")
     assert external_inputs.checked_declarations(root) == {
         "reel_ending": "1 entry", "reel_post_header": "1 entry"}
     assert external_inputs.load(root, {}) == {}

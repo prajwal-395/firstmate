@@ -47,7 +47,7 @@ def _placement(source_file, record_frame, seconds, fps=24.0):
         "source_out": seconds,
         "record": record_frame / fps,
         "snapped_record": record_frame,
-        "speaker": "Craig",
+        "speaker": "SpeakerTwo",
     }
 
 
@@ -892,19 +892,19 @@ def test_the_overlay_name_shape_matches_shared_and_legacy_renders():
 
 
 def _reel_09_pictures():
-    """Reel 09 at 24 fps, base and with its one-second Akshita cover
-    over the Craig-to-Craig join: the cover splits Craig's shot and
+    """Reel 09 at 24 fps, base and with its one-second SpeakerOne cover
+    over the SpeakerTwo-to-SpeakerTwo join: the cover splits SpeakerTwo's shot and
     every later shot moves up the picture."""
-    base = [_placement("/craig.mxf", 0, 5.5),
-            _placement("/akshita.mxf", 132, 16.0),
-            _placement("/craig.mxf", 516, 4.5),
-            _placement("/akshita.mxf", 624, 33.0)]
-    offset = [_placement("/craig.mxf", 0, 5.5),
-              _placement("/akshita.mxf", 132, 16.0),
-              _placement("/craig.mxf", 516, 1.0),
-              _placement("/akshita.mxf", 540, 1.0),
-              _placement("/craig.mxf", 564, 2.5),
-              _placement("/akshita.mxf", 624, 33.0)]
+    base = [_placement("/speakertwo.mxf", 0, 5.5),
+            _placement("/speakerone.mxf", 132, 16.0),
+            _placement("/speakertwo.mxf", 516, 4.5),
+            _placement("/speakerone.mxf", 624, 33.0)]
+    offset = [_placement("/speakertwo.mxf", 0, 5.5),
+              _placement("/speakerone.mxf", 132, 16.0),
+              _placement("/speakertwo.mxf", 516, 1.0),
+              _placement("/speakerone.mxf", 540, 1.0),
+              _placement("/speakertwo.mxf", 564, 2.5),
+              _placement("/speakerone.mxf", 624, 33.0)]
     return base, offset
 
 
@@ -978,13 +978,13 @@ def _placement_2(source_file, track_index, record_frame, speaker, fps=24.0):
 
 
 def _two_angle_plan():
-    """The Reel 09 shape: Akshita on V1, Craig on V2, the set above."""
+    """The Reel 09 shape: SpeakerOne on V1, SpeakerTwo on V2, the set above."""
     return plan_layout({
         "angles": [
-            {"key": "1", "label": "Akshita",
-             "speech_name": "Akshita CH1", "program_channel": 1},
-            {"key": "2", "label": "Craig",
-             "speech_name": "Craig CH1", "program_channel": 1},
+            {"key": "1", "label": "SpeakerOne",
+             "speech_name": "SpeakerOne CH1", "program_channel": 1},
+            {"key": "2", "label": "SpeakerTwo",
+             "speech_name": "SpeakerTwo CH1", "program_channel": 1},
         ],
         "has_broll": False,
         "has_frame": True,
@@ -1005,13 +1005,13 @@ def _angle_key(clip):
 
 
 def _placements():
-    # The Reel 09 arrangement: the outer shots ride Craig's row (V2),
-    # the inner two Akshita's (V1).
+    # The Reel 09 arrangement: the outer shots ride SpeakerTwo's row (V2),
+    # the inner two SpeakerOne's (V1).
     return [
-        _placement_2("/tmp/cr0.mxf", 2, 0, "Craig"),
-        _placement_2("/tmp/ak1.mxf", 1, 120, "Akshita"),
-        _placement_2("/tmp/ak2.mxf", 1, 240, "Akshita"),
-        _placement_2("/tmp/cr3.mxf", 2, 360, "Craig"),
+        _placement_2("/tmp/cr0.mxf", 2, 0, "SpeakerTwo"),
+        _placement_2("/tmp/ak1.mxf", 1, 120, "SpeakerOne"),
+        _placement_2("/tmp/ak2.mxf", 1, 240, "SpeakerOne"),
+        _placement_2("/tmp/cr3.mxf", 2, 360, "SpeakerTwo"),
     ]
 
 
@@ -1233,7 +1233,7 @@ def _item(transform=None, source="/footage/LC4930.MXF", track=1):
     return TimelineItem(
         track_type="video", track_index=track, start_frame=0, end_frame=100,
         duration_frames=100, source_start_frame=0, source_end_frame=100,
-        source_file=source, speaker="Craig", name="LC4930.MXF",
+        source_file=source, speaker="SpeakerTwo", name="LC4930.MXF",
         transform=dict(_HARVEST if transform is None else transform))
 
 

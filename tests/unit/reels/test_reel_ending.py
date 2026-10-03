@@ -132,14 +132,14 @@ def test_body_ending_drops_a_later_played_cta_from_an_earlier_source():
         timeline_start=100.0, timeline_end=110.0,
         call_to_action=CallToAction(
             timeline_start=10.0, timeline_end=12.0,
-            text="the links in the bio", speaker="Craig"))
+            text="the links in the bio", speaker="SpeakerTwo"))
     ranges = reel_build.reel_ranges(moment, transcript)
     assert ranges == [(100.0, 110.0), (10.0, 12.0)]
     clips = [
         SimpleNamespace(timeline_start=10.0, timeline_end=12.0,
-                        source_in=0.0, track_index=1, speaker="Craig"),
+                        source_in=0.0, track_index=1, speaker="SpeakerTwo"),
         SimpleNamespace(timeline_start=100.0, timeline_end=110.0,
-                        source_in=0.0, track_index=2, speaker="Akshita"),
+                        source_in=0.0, track_index=2, speaker="SpeakerOne"),
     ]
     ending = _ending(
         reel="Reel 26 - write-for-the-question-your-customer-ask",
@@ -326,14 +326,14 @@ def test_the_freeze_placement_is_a_picture_clip_that_speaks_nothing():
 
 FPS = 24.0
 
-#: Akshita's closer and Craig's, as they sit in this episode - two
+#: SpeakerOne's closer and SpeakerTwo's, as they sit in this episode - two
 #: different passages, two different speakers, one behaviour.
-AKSHITA_CTA = {
-    "timeline_start": 333.8, "timeline_end": 341.27, "speaker": "Akshita",
+SPEAKERONE_CTA = {
+    "timeline_start": 333.8, "timeline_end": 341.27, "speaker": "SpeakerOne",
     "text": "And if you want to see how your brand appears, you should "
             "go check it out. The link's in our bio."}
-CRAIG_CTA = {
-    "timeline_start": 809.69, "timeline_end": 819.13, "speaker": "Craig",
+SPEAKERTWO_CTA = {
+    "timeline_start": 809.69, "timeline_end": 819.13, "speaker": "SpeakerTwo",
     "text": "So definitely check it out on our website, also the links "
             "in the bio."}
 
@@ -375,7 +375,7 @@ def test_a_reel_nobody_declared_anything_for_inherits_the_freeze(tmp_path):
 
     ending = reel_ending.resolve_ending(
         str(tmp_path), "Reel 99 - a-reel-planned-tomorrow",
-        _moment(AKSHITA_CTA))
+        _moment(SPEAKERONE_CTA))
 
     assert ending is not None, (
         "a reel closing on a call to action inherited no ending, so its "
@@ -389,29 +389,29 @@ def test_a_reel_nobody_declared_anything_for_inherits_the_freeze(tmp_path):
 
 
 def test_the_inheritance_does_not_know_who_closes(tmp_path):
-    """Reel 28 closes on CRAIG, and takes the identical path.
+    """Reel 28 closes on SPEAKERTWO, and takes the identical path.
 
     The captain named him precisely because the first fix was built
-    around Akshita's closing line.  Nothing in the mechanism may read
+    around SpeakerOne's closing line.  Nothing in the mechanism may read
     the speaker to decide the hold.
     """
-    akshita = reel_ending.resolve_ending(
+    speakerone = reel_ending.resolve_ending(
         str(tmp_path), "Reel 23 - why-small-business-wins-on-ai",
-        _moment(AKSHITA_CTA))
-    craig = reel_ending.resolve_ending(
+        _moment(SPEAKERONE_CTA))
+    speakertwo = reel_ending.resolve_ending(
         str(tmp_path), "Reel 28 - the-nail-salon-query-google-cant-answer",
-        _moment(CRAIG_CTA))
+        _moment(SPEAKERTWO_CTA))
 
-    for ending in (akshita, craig):
+    for ending in (speakerone, speakertwo):
         assert ending["tail_hold"] == "freeze"
         assert ending["tail_element"] == "tv_power_tail"
     # The speaker is RECORDED and takes no part in the decision: the two
     # endings differ only in the reel, the words and whose name is filed.
-    assert akshita["cta"]["speaker"] == "Akshita"
-    assert craig["cta"]["speaker"] == "Craig"
-    assert {k: v for k, v in akshita.items()
+    assert speakerone["cta"]["speaker"] == "SpeakerOne"
+    assert speakertwo["cta"]["speaker"] == "SpeakerTwo"
+    assert {k: v for k, v in speakerone.items()
             if k not in ("reel", "ends_on", "cta")} == \
-           {k: v for k, v in craig.items()
+           {k: v for k, v in speakertwo.items()
             if k not in ("reel", "ends_on", "cta")}
 
 
@@ -427,7 +427,7 @@ def test_a_per_reel_declaration_overrides_the_inheritance(tmp_path):
 
     ending = reel_ending.resolve_ending(
         str(tmp_path), "Reel 07 - a-reel-that-wants-its-live-tail",
-        _moment(AKSHITA_CTA))
+        _moment(SPEAKERONE_CTA))
 
     assert ending["tail_hold"] == "none"
     assert not reel_ending.is_inherited(ending)
@@ -457,7 +457,7 @@ def test_the_anchor_is_read_from_the_transcript_not_the_cta_text():
     An anchor taken from `text` would have named words no span speaks.
     """
     cta = {"timeline_start": 1168.34, "timeline_end": 1177.58,
-           "speaker": "Akshita",
+           "speaker": "SpeakerOne",
            "text": "what we fixed with the Lucy visibility system"}
     spoken = ["what", "we", "fixed", "with", "the", "lucie",
               "visibility", "system"]
@@ -477,7 +477,7 @@ def test_the_anchor_is_read_from_the_transcript_not_the_cta_text():
 
 # ── What the inheritance actually does to a build ──────────────────
 
-def _shot(track_index=1, speaker="Akshita"):
+def _shot(track_index=1, speaker="SpeakerOne"):
     return SimpleNamespace(timeline_start=333.8, timeline_end=341.27,
                            source_in=500.0, track_index=track_index,
                            speaker=speaker, source_file="/tmp/closer.mxf",
@@ -488,7 +488,7 @@ def _placements(frames=179):
     return [{"clip": _shot(), "source_in": 500.0,
              "source_out": 500.0 + frames / FPS,
              "snapped_record": 1056, "record": 1056 / FPS,
-             "track_index": 1, "speaker": "Akshita",
+             "track_index": 1, "speaker": "SpeakerOne",
              "master": (333.8, 341.27)}]
 
 
@@ -499,7 +499,7 @@ def test_the_inherited_ending_arms_the_element_on_the_held_frame(tmp_path):
     refuses rather than silently undoing it."""
     inherited = reel_ending.resolve_ending(
         str(tmp_path), "Reel 23 - why-small-business-wins-on-ai",
-        _moment(AKSHITA_CTA))
+        _moment(SPEAKERONE_CTA))
     effects = reel_look.power_effects(
         None, "reel_picture_00", "reel_picture_01", ending=inherited)
     tail = effects["reel_picture_01"]
@@ -514,11 +514,11 @@ def test_an_inherited_ending_can_never_admit_the_next_shot(tmp_path):
     speaks the closing words."""
     shots = [SimpleNamespace(timeline_start=333.8, timeline_end=341.55,
                              source_in=500.0, track_index=1,
-                             speaker="Akshita"),
+                             speaker="SpeakerOne"),
              SimpleNamespace(timeline_start=341.55, timeline_end=345.0,
                              source_in=900.0, track_index=2,
-                             speaker="Craig")]
-    cta = dict(AKSHITA_CTA)
+                             speaker="SpeakerTwo")]
+    cta = dict(SPEAKERONE_CTA)
     spoken = ["you", "should", "go", "check", "it", "out", "the",
               "link's", "in", "our", "bio"]
     transcript = _transcript_2(cta, spoken)
@@ -535,17 +535,17 @@ def test_an_inherited_ending_can_never_admit_the_next_shot(tmp_path):
     assert len(record["applied"]) == 1
     assert record["applied"][0]["source"] == "call_to_action"
     assert [p["clip"].speaker
-            for p in reel_build.placements(out, shots, FPS)] == ["Akshita"]
+            for p in reel_build.placements(out, shots, FPS)] == ["SpeakerOne"]
 
     # And a range stopping short is extended no further than the same
-    # bound, so the outward reading cannot admit Craig either.
+    # bound, so the outward reading cannot admit SpeakerTwo either.
     short = [(333.8, 339.0)]
     out, _ = reel_ending.apply_ending(
         short, reel_build.placements(short, shots, FPS), transcript,
         inherited, FPS)
     assert out[-1][1] <= 341.55
     assert [p["clip"].speaker
-            for p in reel_build.placements(out, shots, FPS)] == ["Akshita"]
+            for p in reel_build.placements(out, shots, FPS)] == ["SpeakerOne"]
 
 
 # ── The closing breath: the captain's SECOND fault ─────────────────
@@ -605,7 +605,7 @@ def test_the_closing_breath_stops_a_full_frame_before_the_next_word():
     # further than that frame once placed.
     shots = [SimpleNamespace(timeline_start=333.8, timeline_end=400.0,
                              source_in=500.0, track_index=1,
-                             speaker="Akshita")]
+                             speaker="SpeakerOne")]
     ending = {"reel": "Reel 99 - x",
               "ends_on": {"anchor_phrase": "our bio"},
               "tail_element": "none", "reason": "test",
@@ -632,7 +632,7 @@ def test_a_declared_ending_takes_no_breath(tmp_path):
         "reason": "the captain said it ends here"}])
     shots = [SimpleNamespace(timeline_start=333.8, timeline_end=341.55,
                              source_in=500.0, track_index=1,
-                             speaker="Akshita")]
+                             speaker="SpeakerOne")]
     transcript = {"segments": [{"words": [
         {"word": "the", "start": 340.6, "end": 340.7, "timed": True},
         {"word": "link's", "start": 340.7, "end": 340.9, "timed": True},
@@ -640,7 +640,7 @@ def test_a_declared_ending_takes_no_breath(tmp_path):
         {"word": "our", "start": 340.99, "end": 341.05, "timed": True},
         {"word": "bio", "start": 341.07, "end": 341.27, "timed": True}]}]}
     declared = reel_ending.resolve_ending(
-        str(tmp_path), "Reel 07 - pinned", _moment(AKSHITA_CTA), transcript)
+        str(tmp_path), "Reel 07 - pinned", _moment(SPEAKERONE_CTA), transcript)
     assert not reel_ending.is_inherited(declared)
     ranges = [(333.8, 341.27)]
     out, record = reel_ending.apply_ending(
@@ -650,7 +650,7 @@ def test_a_declared_ending_takes_no_breath(tmp_path):
     assert len(record["held"]) == 1 and record["held"][0]["breath_end"] is None
 
 
-@pytest.mark.parametrize("cta", [AKSHITA_CTA])
+@pytest.mark.parametrize("cta", [SPEAKERONE_CTA])
 def test_every_inherited_ending_passes_the_declared_check(cta):
     """A default that would be refused as a hand-written declaration is
     a default nobody could have written down."""
@@ -703,7 +703,7 @@ def _moment_2(text=CTA_TEXT):
         number=9, timeline_name="Reel 09 - x",
         call_to_action=CallToAction(timeline_start=100.0,
                                     timeline_end=110.0,
-                                    text=text, speaker="craig"))
+                                    text=text, speaker="speakertwo"))
 
 
 def _declare_2(root, treatment=None, scope=SCOPE, reason="captain marker",
@@ -810,7 +810,7 @@ def test_an_excluded_reel_is_untouched_even_in_scope(tmp_path):
         number=8, timeline_name="Reel 08 - top-three-on-google-hallucinated-by-ai",
         call_to_action=CallToAction(timeline_start=100.0,
                                     timeline_end=110.0, text=CTA_TEXT,
-                                    speaker="craig"))
+                                    speaker="speakertwo"))
     answer = [_entry("title_lockup", "lucie visibility system")]
     same, report = cta_rx.apply(answer, moment, _speech(), root)
     assert same is answer
@@ -890,7 +890,7 @@ def _moment_3(number: int, body: tuple, closer=None):
     )
 
 
-def _segment(start: float, words: list, speaker: str = "Akshita"):
+def _segment(start: float, words: list, speaker: str = "SpeakerOne"):
     """One transcript segment with evenly spaced timed words."""
     step = 0.4
     timed = [{"word": token, "start": start + i * step,
@@ -927,7 +927,7 @@ def test_shared_closers_group():
 def _body_and_closer():
     body = _segment(0.0, "reviews build trust and authority for a company".split())
     closer = _segment(100.0, "check it out on our website today".split(),
-                      speaker="Akshita")
+                      speaker="SpeakerOne")
     transcript = _transcript_3(body, closer)
     moment = _moment_3(27, (0.0, 2.8), (100.0, 102.8))
     return moment, transcript
@@ -1062,29 +1062,29 @@ def _tx():
     assert closer_words[0][1] == OLD_START
     return {
         "segments": [
-            _seg("Craig", "the old ranking game stops paying", 10.0, 25.0,
+            _seg("SpeakerTwo", "the old ranking game stops paying", 10.0, 25.0,
                  "b2a"),
-            _seg("Akshita", "people ask full sentences now", 25.0, 40.0,
+            _seg("SpeakerOne", "people ask full sentences now", 25.0, 40.0,
                  "b2b"),
-            _seg("Craig", "client site earns zero clicks daily", 50.0, 80.0,
+            _seg("SpeakerTwo", "client site earns zero clicks daily", 50.0, 80.0,
                  "b9a"),
-            _seg("Akshita", "buyers trust visible proof fast", 80.0, 110.0,
+            _seg("SpeakerOne", "buyers trust visible proof fast", 80.0, 110.0,
                  "b9b"),
-            _seg("Craig", "competitor publishes answers weekly", 120.0,
+            _seg("SpeakerTwo", "competitor publishes answers weekly", 120.0,
                  150.0, "b20a"),
-            _seg("Akshita", "search summary quotes them instead", 150.0,
+            _seg("SpeakerOne", "search summary quotes them instead", 150.0,
                  180.0, "b20b"),
-            _seg("Craig", "owners write helpful guides nightly", 200.0,
+            _seg("SpeakerTwo", "owners write helpful guides nightly", 200.0,
                  230.0, "b26a"),
-            _seg("Akshita", "callers mention those pages often", 230.0,
+            _seg("SpeakerOne", "callers mention those pages often", 230.0,
                  260.0, "b26b"),
-            _seg("Craig",
+            _seg("SpeakerTwo",
                  "we kept asking what the old playbook claimed to be "
                  "the answer.", 312.75, 318.875, "lead", words=answer_words),
-            _seg("Craig",
+            _seg("SpeakerTwo",
                  "it's exactly why we've been building this platform",
                  319.358, 321.61, "head", words=head_words),
-            _seg("Craig", CLOSER_TEXT, 321.61, 328.231, "closer",
+            _seg("SpeakerTwo", CLOSER_TEXT, 321.61, 328.231, "closer",
                  words=closer_words),
         ],
         "derived_from": {"duration_seconds": 1000.0,
@@ -1099,7 +1099,7 @@ def _moment_4(number, start, end):
         timeline_start=start, timeline_end=end,
         call_to_action=CallToAction(
             timeline_start=OLD_START, timeline_end=CTA_END,
-            text=CLOSER_TEXT, speaker="Craig"))
+            text=CLOSER_TEXT, speaker="SpeakerTwo"))
 
 
 def _moments():
@@ -1228,7 +1228,7 @@ def test_a_closer_opening_on_neither_phrase_is_left_alone():
         _moment_4(5, 400.0, 440.0),
         call_to_action=CallToAction(
             timeline_start=400.0, timeline_end=406.0, text="",
-            speaker="Craig"))
+            speaker="SpeakerTwo"))
     moments, applied, held, stale = captain_edits.apply_closer_redraws(
         [other], tx, [_pin()])
     assert applied == [] and stale == []
@@ -1321,7 +1321,7 @@ def _an_overlapping_word_still_refuses():
     STALE rather than shipping a half-word."""
     tx = _tx_merged()
     tx["segments"].append(
-        _seg("Akshita", "yeah", 319.0, 319.5, "overlap",
+        _seg("SpeakerOne", "yeah", 319.0, 319.5, "overlap",
              words=[("yeah", 319.0, 319.5)]))
     moments, applied, held, stale = captain_edits.apply_closer_redraws(
         [_moment_4(2, 10.0, 40.0)], tx, [_pin()])
@@ -1516,18 +1516,18 @@ def test_the_tail_element_decides_what_draws_over_the_tail():
 
 
 def test_reel13s_defect_cannot_pass_the_check_that_now_runs():
-    """The exact numbers off the captain's timeline: Craig's twelve
+    """The exact numbers off the captain's timeline: SpeakerTwo's twelve
     frames could not carry the eighteen-frame switch-off, and the
     build now refuses instead of dropping it to stderr."""
     ending = {"reel": "Reel 13", "ends_on": {"anchor_phrase": "our bio"},
               "tail_element": "tv_power_tail", "reason": "captain"}
     fps = 24000 / 1001
-    craig = [{"source_in": 0.0, "source_out": 12 / fps}]
+    speakertwo = [{"source_in": 0.0, "source_out": 12 / fps}]
     with pytest.raises(reel_ending.TailElementHasNoRoom):
-        reel_ending.assert_tail_fits(craig, ending, fps)
-    akshita = [{"source_in": 0.0, "source_out": 310 / fps}]
+        reel_ending.assert_tail_fits(speakertwo, ending, fps)
+    speakerone = [{"source_in": 0.0, "source_out": 310 / fps}]
     assert reel_ending.assert_tail_fits(
-        akshita, ending, fps)["shot_frames"] == 310
+        speakerone, ending, fps)["shot_frames"] == 310
 
 
 # ── The caption-timing owner ───────────────────────────────────────

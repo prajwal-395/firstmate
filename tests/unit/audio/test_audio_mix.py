@@ -813,7 +813,7 @@ def test_the_speech_channel_resolves_by_precedence():
     for (sources, recorded, refusals, manifest_decl, project_decl, single,
          expected, basis_fragment) in RESOLVED:
         channel, basis = resolve_speech_channel(
-            "a", "Akshita", manifest_decl, sources, recorded, refusals,
+            "a", "SpeakerOne", manifest_decl, sources, recorded, refusals,
             project_decl, single)
         assert channel == expected, (sources, recorded, basis)
         assert basis_fragment in basis, (sources, basis)
@@ -823,7 +823,7 @@ def test_an_unresolvable_speech_channel_refuses_by_name():
     for sources, recorded, refusals, manifest_decl, fragments in REFUSED:
         with pytest.raises(SpeechChannelRefused) as exc:
             resolve_speech_channel(
-                "a", "Akshita", manifest_decl, sources, recorded, refusals,
+                "a", "SpeakerOne", manifest_decl, sources, recorded, refusals,
                 None, set())
         for fragment in fragments:
             assert fragment in str(exc.value), (fragment, str(exc.value))

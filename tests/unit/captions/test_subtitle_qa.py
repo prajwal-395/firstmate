@@ -109,7 +109,7 @@ def test_reel05_phrase_timed_as_one_master_token_reaches_its_caption_and_f25():
 
     source_file = "/field-test/LCATL0012.MXF"
     segment = {
-        "speaker": "Craig",
+        "speaker": "SpeakerTwo",
         "text": ("So if you want to see how you're ranking, how AI sees "
                  "you, go to our website, the link's in the bio."),
         "timeline_start": 186.41,
@@ -205,7 +205,7 @@ class TestNormalizeWord:
 
 # ── played but not captioned ─────────────────────────────────────
 #
-# Reel 29, Craig tail: the reel plays LCATL0014 to reel frame 217
+# Reel 29, SpeakerTwo tail: the reel plays LCATL0014 to reel frame 217
 # (9.05s) but the last caption ends at frame 162 (6.76s). Transcript
 # row LCATL0014 src 404.79-408.89 carries "It's only giving you four
 # to five search ..." (captain's frame-162 note).
@@ -218,8 +218,8 @@ class TestPlayedNotCaptioned:
         _w("five", 8.404, 8.784), _w("search", 8.784, 9.051),
     ]
     CARDS = [
-        _card("sub_craig_tail_a.mov", 5.589, 6.756),
-        _card("sub_akshita_next.mov", 9.050, 10.801),
+        _card("sub_speakertwo_tail_a.mov", 5.589, 6.756),
+        _card("sub_speakerone_next.mov", 9.050, 10.801),
     ]
 
     def test_uncaptioned_tail_is_one_error_run(self):
@@ -298,7 +298,7 @@ class TestCaptionedNotPlayed:
 
 # ── empty karaoke windows ────────────────────────────────────────
 #
-# Reel 12 card sub_craig_..._1774344-1780764_9c0ba988: the props give
+# Reel 12 card sub_speakertwo_..._1774344-1780764_9c0ba988: the props give
 # 'twenty' startFrame 12 endFrame 6 - the word ends before its own
 # card begins, so the clamp inverts it and the sweep travels past it.
 # The word IS drawn (the renderer draws every entry in `words` -
@@ -460,7 +460,7 @@ class TestTranscriptCurrency:
 class TestDerivation:
     def test_played_words_map_source_to_reel_and_unbound_are_undetermined(self):
         segments = [{
-            "speaker": "Craig", "text": "But now",
+            "speaker": "SpeakerTwo", "text": "But now",
             "timeline_start": 2330.0, "timeline_end": 2331.0,
             "source_file": "/m/LCATL0014.MXF",
             "source_start": 402.0, "source_end": 403.0,
@@ -482,7 +482,7 @@ class TestDerivation:
 
         # Unbound rows are undetermined, never played.
         segments = [{
-            "speaker": "Craig", "text": "unbound",
+            "speaker": "SpeakerTwo", "text": "unbound",
             "timeline_start": 1.0, "timeline_end": 2.0,
             "source_file": None, "source_start": None,
             "resolve_item_id": None,
@@ -498,7 +498,7 @@ class TestDerivation:
     def test_captioned_words_read_the_props_artefact_or_say_unreadable(
             self, tmp_path):
         # Frozen excerpt of Reel 12's mistimed card props
-        # (sub_craig_..._1774344-1780764_9c0ba988): words AND their
+        # (sub_speakertwo_..._1774344-1780764_9c0ba988): words AND their
         # render-relative frames are what the check reads.
         props = {
             "subtitles": [{
@@ -605,7 +605,7 @@ class TestVerifierWiring:
 class TestSpanEdgeSliver:
     def _segments(self):
         return [{
-            "speaker": "Craig", "text": "because we've",
+            "speaker": "SpeakerTwo", "text": "because we've",
             "timeline_start": 268.0, "timeline_end": 270.0,
             "source_file": "/m/LCATL0013.MXF",
             "source_start": 268.0, "source_end": 270.0,
@@ -682,7 +682,7 @@ class TestCaptionReadingComparison:
 
 # ── one file is one mouth ──────────────────────────────────────────
 #
-# Reel 04, 2026-09-19: the transcript runs Craig's "website." to
+# Reel 04, 2026-09-19: the transcript runs SpeakerTwo's "website." to
 # 817.89s while starting his "Also" at 817.59s of the same LCATL0013.
 # One mouth cannot say both; the overlap is alignment slop and the
 # caption must serialize the words whatever the transcript stamps.

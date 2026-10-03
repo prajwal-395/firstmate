@@ -75,9 +75,9 @@ def test_conversation_live_build_touch_rebuild_deliver(live):
     reel = golden.timeline(project, golden.REEL)
     built = golden.rows(reel)
     assert [name for kind, name in built if kind == "video"][:2] == [
-        "Akshita", "Craig"]
-    assert ("audio", "Akshita CH1") in built
-    assert ("audio", "Craig CH1") in built
+        "SpeakerOne", "SpeakerTwo"]
+    assert ("audio", "SpeakerOne CH1") in built
+    assert ("audio", "SpeakerTwo CH1") in built
     assert len(built[("video", "Subtitles")]) == len(renderer.rendered) // 2
 
     from library.tools import reel_touchup

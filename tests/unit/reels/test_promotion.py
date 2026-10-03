@@ -6,7 +6,7 @@ rebuilds proved the shape in one day, reconstructed here against fake
 timelines whose rows really hold items:
 
 1. the cutaway: a `--only-reel` rebuild over a cutaway-bearing timeline
-   must refuse - V1 goes 3 items to 2 and the 24-frame Akshita cover at
+   must refuse - V1 goes 3 items to 2 and the 24-frame SpeakerOne cover at
    record frame 574 is named as missing;
 2. the semantic visuals: a build whose overlay renders failed leaves
    the V5 'Semantic' row absent, and the promote must refuse naming
@@ -215,22 +215,22 @@ def _cutaway_timelines():
         FINAL,
         video=[
             (
-                "Akshita",
+                "SpeakerOne",
                 [
-                    FakeItem("Craig A", 0, 55),
+                    FakeItem("SpeakerTwo A", 0, 55),
                     FakeItem("LC4932 cover", 574, 598),
-                    FakeItem("Craig B", 598, 657),
+                    FakeItem("SpeakerTwo B", 598, 657),
                 ],
             ),
-            ("Craig", [FakeItem("Craig wide", 0, 131)]),
+            ("SpeakerTwo", [FakeItem("SpeakerTwo wide", 0, 131)]),
             ("Subtitles", [FakeItem("card 1", 0, 60), FakeItem("card 2", 60, 131)]),
         ],
     )
     staging = FakeTimeline(
         FINAL + " (rebuild staging)",
         video=[
-            ("Akshita", [FakeItem("Craig A", 0, 67), FakeItem("Craig B", 67, 138)]),
-            ("Craig", [FakeItem("Craig wide", 0, 131)]),
+            ("SpeakerOne", [FakeItem("SpeakerTwo A", 0, 67), FakeItem("SpeakerTwo B", 67, 138)]),
+            ("SpeakerTwo", [FakeItem("SpeakerTwo wide", 0, 131)]),
             ("Subtitles", [FakeItem("card 1", 0, 60), FakeItem("card 2", 60, 131)]),
         ],
     )
@@ -244,8 +244,8 @@ def _semantic_timelines():
     retired = FakeTimeline(
         FINAL,
         video=[
-            ("Akshita", [FakeItem("Akshita A", 0, 131)]),
-            ("Craig", [FakeItem("Craig wide", 0, 131)]),
+            ("SpeakerOne", [FakeItem("SpeakerOne A", 0, 131)]),
+            ("SpeakerTwo", [FakeItem("SpeakerTwo wide", 0, 131)]),
             ("Subtitles", [FakeItem("card 1", 0, 131)]),
             ("Transitions", [FakeItem("flash", 60, 66)]),
             ("Semantic", visual),
@@ -254,8 +254,8 @@ def _semantic_timelines():
     staging = FakeTimeline(
         FINAL + " (rebuild staging)",
         video=[
-            ("Akshita", [FakeItem("Akshita A", 0, 131)]),
-            ("Craig", [FakeItem("Craig wide", 0, 131)]),
+            ("SpeakerOne", [FakeItem("SpeakerOne A", 0, 131)]),
+            ("SpeakerTwo", [FakeItem("SpeakerTwo wide", 0, 131)]),
             ("Subtitles", [FakeItem("card 1", 0, 131)]),
             ("Transitions", [FakeItem("flash", 60, 66)]),
         ],
@@ -271,14 +271,14 @@ def _gains_frames_loses_cover():
         FINAL,
         video=[
             (
-                "Akshita",
-                [FakeItem("Craig A", 0, 100), FakeItem("LC4932 cover", 100, 124)],
+                "SpeakerOne",
+                [FakeItem("SpeakerTwo A", 0, 100), FakeItem("LC4932 cover", 100, 124)],
             ),
         ],
     )
     staging = FakeTimeline(
         FINAL + " (rebuild staging)",
-        video=[("Akshita", [FakeItem("Craig A", 0, 140)])],
+        video=[("SpeakerOne", [FakeItem("SpeakerTwo A", 0, 140)])],
     )
     return retired, staging
 
@@ -288,8 +288,8 @@ LOSS_SHAPES = [
     # Drop 1: V1 3 items -> 2, the 24-frame cover at rec 574 named.
     (
         _cutaway_timelines,
-        ["video:Akshita", "3 item(s) -> 2", "LC4932 cover", "574..598",
-         "--allow-drop 'video:Akshita'"],
+        ["video:SpeakerOne", "3 item(s) -> 2", "LC4932 cover", "574..598",
+         "--allow-drop 'video:SpeakerOne'"],
     ),
     # Drop 2: the V5 row exists retired and not at all incoming.
     (
@@ -298,7 +298,7 @@ LOSS_SHAPES = [
          "--allow-drop 'video:Semantic'"],
     ),
     # A loss that gains frames still refuses.
-    (_gains_frames_loses_cover, ["video:Akshita", "2 item(s) -> 1", "LC4932 cover"]),
+    (_gains_frames_loses_cover, ["video:SpeakerOne", "2 item(s) -> 1", "LC4932 cover"]),
 ]
 
 
@@ -557,7 +557,7 @@ def test_first_contact_carries_a_manual_marker_before_comparing(
         "note": "keep this",
         "duration": 1,
         "custom_data": "",
-        "anchor": ("/media/craig.mov", 400),
+        "anchor": ("/media/speakertwo.mov", 400),
     }
     live_marker = {
         "source": "timeline_marker",
@@ -706,19 +706,19 @@ def test_unreadable_retiring_timeline_refuses(project_dir):
 
 def _join_timelines():
     """The lc-0004 shape: keep insistence withdrew a take cut, so two
-    adjacent Craig placements became one continuous one - 2 items to 1
+    adjacent SpeakerTwo placements became one continuous one - 2 items to 1
     over MORE frames (the restored seconds are back in)."""
     retired = FakeTimeline(
         FINAL,
         video=[
-            ("Craig", [FakeItem("Craig", 0, 100), FakeItem("Craig", 100, 190)]),
+            ("SpeakerTwo", [FakeItem("SpeakerTwo", 0, 100), FakeItem("SpeakerTwo", 100, 190)]),
             ("Subtitles", [FakeItem("card 1", 0, 190)]),
         ],
     )
     staging = FakeTimeline(
         FINAL + " (rebuild staging)",
         video=[
-            ("Craig", [FakeItem("Craig", 0, 203)]),
+            ("SpeakerTwo", [FakeItem("SpeakerTwo", 0, 203)]),
             ("Subtitles", [FakeItem("card 1", 0, 203)]),
         ],
     )
@@ -737,7 +737,7 @@ def test_a_join_passes_undeclared_and_says_so(project_dir):
     assert promoted["promoted"] == [FINAL]
     report = promoted["replace_reports"][FINAL]
     assert report["refused"] is False
-    assert report["joined"] == ["video:Craig"]
+    assert report["joined"] == ["video:SpeakerTwo"]
     # The replaced timeline is DELETED by default: one timeline per
     # reel, nothing archived (`library/tools/reel_retirement.py`).
     assert sorted(resolve.names()) == sorted([MASTER, FINAL])
@@ -785,7 +785,7 @@ def test_a_staging_no_build_recorded_drops_the_replaced_provenance(project_dir):
         return FakeTimeline(
             name,
             video=[
-                ("Akshita", [FakeItem("Akshita A", 0, 131)]),
+                ("SpeakerOne", [FakeItem("SpeakerOne A", 0, 131)]),
                 ("Subtitles", [FakeItem("card 1", 0, 131)]),
             ],
         )
@@ -839,14 +839,14 @@ def _clean_reel(final):
     retired = FakeTimeline(
         final,
         video=[
-            ("Akshita", [FakeItem("Akshita A", 0, 131)]),
+            ("SpeakerOne", [FakeItem("SpeakerOne A", 0, 131)]),
             ("Subtitles", [FakeItem("card 1", 0, 131)]),
         ],
     )
     staging = FakeTimeline(
         final + " (rebuild staging)",
         video=[
-            ("Akshita", [FakeItem("Akshita A", 0, 131)]),
+            ("SpeakerOne", [FakeItem("SpeakerOne A", 0, 131)]),
             ("Subtitles", [FakeItem("card 1", 0, 131)]),
         ],
     )
@@ -860,11 +860,11 @@ def _refused_reel():
         REEL_31,
         video=[
             (
-                "Akshita",
+                "SpeakerOne",
                 [
-                    FakeItem("Craig A", 0, 55),
+                    FakeItem("SpeakerTwo A", 0, 55),
                     FakeItem("LC4932 cover", 574, 598),
-                    FakeItem("Craig B", 598, 657),
+                    FakeItem("SpeakerTwo B", 598, 657),
                 ],
             ),
             ("Subtitles", [FakeItem("card 1", 0, 60), FakeItem("card 2", 60, 131)]),
@@ -873,7 +873,7 @@ def _refused_reel():
     staging = FakeTimeline(
         REEL_31 + " (rebuild staging)",
         video=[
-            ("Akshita", [FakeItem("Craig A", 0, 67), FakeItem("Craig B", 67, 138)]),
+            ("SpeakerOne", [FakeItem("SpeakerTwo A", 0, 67), FakeItem("SpeakerTwo B", 67, 138)]),
             ("Subtitles", [FakeItem("card 1", 0, 60), FakeItem("card 2", 60, 131)]),
         ],
     )
@@ -932,7 +932,7 @@ def test_one_refusal_promotes_its_siblings(project_dir):
         f"REFUSING to promote 1 reel(s): {[REEL_31]}."
     )
     assert REEL_31 in refusal_body
-    assert "video:Akshita" in refusal_body
+    assert "video:SpeakerOne" in refusal_body
     assert "LC4932 cover" in refusal_body
     assert REEL_01 not in refusal_body
     assert REEL_23 not in refusal_body
@@ -986,8 +986,8 @@ def test_a_staging_without_a_passing_track_plan_is_refused_untouched(project_dir
     final = "Reel 11 - your-website-is-your-resume"
     staging_name = final + " (rebuild staging)"
     raw_plan = {
-        "video_tracks": [vars(TrackSpec(1, "video", A_ROLL, "Craig", "2"))],
-        "audio_tracks": [vars(TrackSpec(1, "audio", SPEECH, "Craig CH1", "2"))],
+        "video_tracks": [vars(TrackSpec(1, "video", A_ROLL, "SpeakerTwo", "2"))],
+        "audio_tracks": [vars(TrackSpec(1, "audio", SPEECH, "SpeakerTwo CH1", "2"))],
         "material": {},
     }
     for track_plans, refusal in (
@@ -996,14 +996,14 @@ def test_a_staging_without_a_passing_track_plan_is_refused_untouched(project_dir
     ):
         retired = FakeTimeline(
             final,
-            video=[("Craig", [FakeItem("LCATL0013.MXF", 0, 138)])],
-            audio=[("Craig CH1", [FakeItem("LCATL0013.MXF", 0, 138)])],
+            video=[("SpeakerTwo", [FakeItem("LCATL0013.MXF", 0, 138)])],
+            audio=[("SpeakerTwo CH1", [FakeItem("LCATL0013.MXF", 0, 138)])],
         )
         # The picture slipped 7 frames off its speech: unlinked.
         staging = FakeTimeline(
             staging_name,
-            video=[("Craig", [FakeItem("LCATL0013.MXF", 7, 138)])],
-            audio=[("Craig CH1", [FakeItem("LCATL0013.MXF", 0, 138)])],
+            video=[("SpeakerTwo", [FakeItem("LCATL0013.MXF", 7, 138)])],
+            audio=[("SpeakerTwo CH1", [FakeItem("LCATL0013.MXF", 0, 138)])],
         )
         resolve = FakeProject([FakeTimeline(MASTER), retired, staging])
 
@@ -1335,7 +1335,7 @@ def _full_rows(extra=()):
     visual = [timeline_item(f"semantic {n}", n * 100, n * 100 + 40)
               for n in range(4)]
     return [
-        ("Akshita", [timeline_item("Akshita A", 0, 131)]),
+        ("SpeakerOne", [timeline_item("SpeakerOne A", 0, 131)]),
         ("Semantic", list(visual) + list(extra)),
     ]
 
@@ -1727,11 +1727,11 @@ def mock_dvr_2(stub_resolve_script):
 
 def _clean_reel_2():
     retired = FakeTimeline(REEL_01, video=[
-        ("Akshita", [TimelineItemSpec("Akshita A", 0, 131)]),
+        ("SpeakerOne", [TimelineItemSpec("SpeakerOne A", 0, 131)]),
         ("Subtitles", [TimelineItemSpec("card 1", 0, 131)]),
     ])
     staging = FakeTimeline(STAGING_01, video=[
-        ("Akshita", [TimelineItemSpec("Akshita A", 0, 131)]),
+        ("SpeakerOne", [TimelineItemSpec("SpeakerOne A", 0, 131)]),
         ("Subtitles", [TimelineItemSpec("card 1", 0, 131)]),
     ])
     return retired, staging
@@ -1982,7 +1982,7 @@ def test_an_unreadable_signoff_file_refuses(project):
 
 
 def _rows(name):
-    return [("Akshita", [FakeItem(f"{name} clip", 0, 100)])]
+    return [("SpeakerOne", [FakeItem(f"{name} clip", 0, 100)])]
 
 
 def _pair(final):

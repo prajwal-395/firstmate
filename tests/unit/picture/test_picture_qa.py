@@ -1444,7 +1444,7 @@ def _picture(start_frame: int, end_frame: int) -> TimelineItem:
         start_frame=start_frame, end_frame=end_frame,
         duration_frames=end_frame - start_frame,
         source_start_frame=0, source_end_frame=end_frame - start_frame,
-        source_file="/m/a.MXF", speaker="Akshita", name="clip",
+        source_file="/m/a.MXF", speaker="SpeakerOne", name="clip",
     )
 
 
@@ -1454,7 +1454,7 @@ def _caption(start_frame: int, end_frame: int) -> TimelineItem:
         start_frame=start_frame, end_frame=end_frame,
         duration_frames=end_frame - start_frame,
         source_start_frame=0, source_end_frame=end_frame - start_frame,
-        source_file="/s/seg.mov", speaker="Akshita", name="seg",
+        source_file="/s/seg.mov", speaker="SpeakerOne", name="seg",
     )
 
 
@@ -1467,7 +1467,7 @@ def _plan() -> ReelPlan:
         span_start=RANGE_START,
         span_end=RANGE_END,
         placements=(PlannedPlacement(
-            track_index=1, speaker="Akshita", record_seconds=0.0,
+            track_index=1, speaker="SpeakerOne", record_seconds=0.0,
             source_in=0.0, source_out=REEL_END_SECONDS,
             source_file="/m/a.MXF"),),
         captions=(),

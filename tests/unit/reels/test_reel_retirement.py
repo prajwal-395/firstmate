@@ -206,7 +206,7 @@ MASTER = "Podcast - Synced"
 
 
 def _rows(name):
-    return [("Akshita", [TimelineItemSpec(f"{name} clip", 0, 100)])]
+    return [("SpeakerOne", [TimelineItemSpec(f"{name} clip", 0, 100)])]
 
 
 def _pair(final):
@@ -658,7 +658,7 @@ def _row_timeline(name):
     return FakeTimeline(
         name,
         video=[
-            ("Akshita", [TimelineItemSpec("clip", 0, 131)]),
+            ("SpeakerOne", [TimelineItemSpec("clip", 0, 131)]),
             ("Subtitles", [TimelineItemSpec("card", 0, 131)]),
         ],
     )

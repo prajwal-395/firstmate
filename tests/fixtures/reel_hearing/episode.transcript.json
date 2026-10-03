@@ -4,13 +4,13 @@
   "fps": 23.976023976023978
  },
  "speakers": [
-  "Craig",
-  "Akshita"
+  "SpeakerTwo",
+  "SpeakerOne"
  ],
  "segment_count": 41,
  "segments": [
   {
-   "speaker": "Craig",
+   "speaker": "SpeakerTwo",
    "text": "seo 2.0 and then they keep moving on or a ceo is telling their cmo or their head of marketing hey",
    "timeline_start": 5.281,
    "timeline_end": 11.12,
@@ -149,7 +149,7 @@
    "avg_logprob": null
   },
   {
-   "speaker": "Craig",
+   "speaker": "SpeakerTwo",
    "text": "jim and i perplexity i keep hearing marketing directors say yes it's just seo 2.0 and then",
    "timeline_start": 59.36,
    "timeline_end": 64.717,
@@ -264,7 +264,7 @@
    "avg_logprob": null
   },
   {
-   "speaker": "Craig",
+   "speaker": "SpeakerTwo",
    "text": "saying this is what you're saying and i'm going to give you a little bit of an example of that",
    "timeline_start": 223.72,
    "timeline_end": 224.36,
@@ -276,7 +276,7 @@
    "avg_logprob": null
   },
   {
-   "speaker": "Akshita",
+   "speaker": "SpeakerOne",
    "text": "searching. They've started asking. So instead of someone searching on Google, they've started asking.",
    "timeline_start": 231.28,
    "timeline_end": 232.84,
@@ -288,7 +288,7 @@
    "avg_logprob": null
   },
   {
-   "speaker": "Akshita",
+   "speaker": "SpeakerOne",
    "text": "instead typing best CRMs... What's the best CRM if I run a 10 person law firm?",
    "timeline_start": 237.7,
    "timeline_end": 244.158,
@@ -397,7 +397,7 @@
    "avg_logprob": null
   },
   {
-   "speaker": "Akshita",
+   "speaker": "SpeakerOne",
    "text": "Google search, it gave out a list from 2023, and from chat GPT, It gave three recommendations with specific",
    "timeline_start": 276.03,
    "timeline_end": 280.59,
@@ -524,7 +524,7 @@
    "avg_logprob": null
   },
   {
-   "speaker": "Akshita",
+   "speaker": "SpeakerOne",
    "text": "같이 라고 달 라는 가 on Google search, and chat GPT is a decision engine.",
    "timeline_start": 284.13,
    "timeline_end": 288.063,
@@ -597,7 +597,7 @@
    "avg_logprob": null
   },
   {
-   "speaker": "Akshita",
+   "speaker": "SpeakerOne",
    "text": "and whoever AI understands best, gets the answer.",
    "timeline_start": 309.32,
    "timeline_end": 309.92,
@@ -609,7 +609,7 @@
    "avg_logprob": null
   },
   {
-   "speaker": "Akshita",
+   "speaker": "SpeakerOne",
    "text": "Yeah, so search didn't change. The question changed. And whoever AI understands best, gets the answer.",
    "timeline_start": 309.92,
    "timeline_end": 310.12,
@@ -621,7 +621,7 @@
    "avg_logprob": null
   },
   {
-   "speaker": "Akshita",
+   "speaker": "SpeakerOne",
    "text": "Yeah, so search didn't change. The question changed. And whoever AI understands best, gets the answer.",
    "timeline_start": 310.12,
    "timeline_end": 310.38,
@@ -633,7 +633,7 @@
    "avg_logprob": null
   },
   {
-   "speaker": "Craig",
+   "speaker": "SpeakerTwo",
    "text": "the founder of a business you're a 10 man shop you're a 50 person shop maybe you're a 100 person",
    "timeline_start": 350.78,
    "timeline_end": 355.66,
@@ -766,7 +766,7 @@
    "avg_logprob": null
   },
   {
-   "speaker": "Craig",
+   "speaker": "SpeakerTwo",
    "text": "a lot of times when i was talking about",
    "timeline_start": 414.05,
    "timeline_end": 414.89,
@@ -833,7 +833,7 @@
    "avg_logprob": null
   },
   {
-   "speaker": "Craig",
+   "speaker": "SpeakerTwo",
    "text": "earlier it doesn't even matter if you're a 15 man shop or you have 200 employees a size in this",
    "timeline_start": 415.03,
    "timeline_end": 421.31,
@@ -966,7 +966,7 @@
    "avg_logprob": null
   },
   {
-   "speaker": "Akshita",
+   "speaker": "SpeakerOne",
    "text": "I've seen 10 person agencies get recommended in AI",
    "timeline_start": 426.978,
    "timeline_end": 429.54,
@@ -1033,7 +1033,7 @@
    "avg_logprob": null
   },
   {
-   "speaker": "Akshita",
+   "speaker": "SpeakerOne",
    "text": "over companies 50 times their size.",
    "timeline_start": 429.981,
    "timeline_end": 432.289,
@@ -1082,7 +1082,7 @@
    "avg_logprob": null
   },
   {
-   "speaker": "Akshita",
+   "speaker": "SpeakerOne",
    "text": "Not at all.",
    "timeline_start": 432.691,
    "timeline_end": 433.032,
@@ -1113,7 +1113,7 @@
    "avg_logprob": null
   },
   {
-   "speaker": "Akshita",
+   "speaker": "SpeakerOne",
    "text": "I've seen a 10 person agency get recommended over",
    "timeline_start": 433.052,
    "timeline_end": 435.16,
@@ -1180,7 +1180,7 @@
    "avg_logprob": null
   },
   {
-   "speaker": "Akshita",
+   "speaker": "SpeakerOne",
    "text": "a company 50 times their size.",
    "timeline_start": 435.542,
    "timeline_end": 437.169,
@@ -1229,7 +1229,7 @@
    "avg_logprob": null
   },
   {
-   "speaker": "Akshita",
+   "speaker": "SpeakerOne",
    "text": "same information, same information. And so if you're not being properly recommended on your",
    "timeline_start": 443.96,
    "timeline_end": 444.38,
@@ -1241,7 +1241,7 @@
    "avg_logprob": null
   },
   {
-   "speaker": "Akshita",
+   "speaker": "SpeakerOne",
    "text": "company, then AI is going to recommend you over a company that has a lot of sources,",
    "timeline_start": 444.38,
    "timeline_end": 444.88,
@@ -1253,7 +1253,7 @@
    "avg_logprob": null
   },
   {
-   "speaker": "Akshita",
+   "speaker": "SpeakerOne",
    "text": "It is not",
    "timeline_start": 516.889,
    "timeline_end": 517.21,
@@ -1284,7 +1284,7 @@
    "avg_logprob": null
   },
   {
-   "speaker": "Akshita",
+   "speaker": "SpeakerOne",
    "text": "number one on Google because you have may have optimized your services.",
    "timeline_start": 535.73,
    "timeline_end": 537.165,
@@ -1369,7 +1369,7 @@
    "avg_logprob": null
   },
   {
-   "speaker": "Akshita",
+   "speaker": "SpeakerOne",
    "text": "But if you don't have",
    "timeline_start": 537.185,
    "timeline_end": 537.61,
@@ -1412,7 +1412,7 @@
    "avg_logprob": null
   },
   {
-   "speaker": "Akshita",
+   "speaker": "SpeakerOne",
    "text": "redesigning your website, like 50 to a hundred grand, you're definitely going to want to hear",
    "timeline_start": 640.58,
    "timeline_end": 644.54,
@@ -1521,7 +1521,7 @@
    "avg_logprob": null
   },
   {
-   "speaker": "Akshita",
+   "speaker": "SpeakerOne",
    "text": "this because AI is not only reading your website, that's only 20% of what it does.",
    "timeline_start": 644.64,
    "timeline_end": 648.857,
@@ -1630,7 +1630,7 @@
    "avg_logprob": null
   },
   {
-   "speaker": "Akshita",
+   "speaker": "SpeakerOne",
    "text": "press release from 2021 had said complete different.",
    "timeline_start": 746.86,
    "timeline_end": 750.212,
@@ -1691,7 +1691,7 @@
    "avg_logprob": null
   },
   {
-   "speaker": "Akshita",
+   "speaker": "SpeakerOne",
    "text": "up the way you want to show up.",
    "timeline_start": 765.582,
    "timeline_end": 766.498,
@@ -1752,7 +1752,7 @@
    "avg_logprob": null
   },
   {
-   "speaker": "Craig",
+   "speaker": "SpeakerTwo",
    "text": "only about 20 i'm sure everybody after i asked that question was doing it but it really is",
    "timeline_start": 839.051,
    "timeline_end": 843.868,
@@ -1873,7 +1873,7 @@
    "avg_logprob": null
   },
   {
-   "speaker": "Akshita",
+   "speaker": "SpeakerOne",
    "text": "that doesn't have all that information, and maybe you see like 3.5 stars and some bad reviews and",
    "timeline_start": 1369.481,
    "timeline_end": 1374.82,
@@ -1994,7 +1994,7 @@
    "avg_logprob": null
   },
   {
-   "speaker": "Akshita",
+   "speaker": "SpeakerOne",
    "text": "modules is to help you understand how AI sees you before you take any steps. So if you're",
    "timeline_start": 1474.54,
    "timeline_end": 1474.6,
@@ -2006,7 +2006,7 @@
    "avg_logprob": null
   },
   {
-   "speaker": "Akshita",
+   "speaker": "SpeakerOne",
    "text": "running on a lot of modules, that's an answer. But the main focus of those modules is to test",
    "timeline_start": 1474.6,
    "timeline_end": 1475.72,
@@ -2018,7 +2018,7 @@
    "avg_logprob": null
   },
   {
-   "speaker": "Akshita",
+   "speaker": "SpeakerOne",
    "text": "ones that we can use to test your website. So the first thing that I would say is that you",
    "timeline_start": 1504.04,
    "timeline_end": 1504.58,
@@ -2030,7 +2030,7 @@
    "avg_logprob": null
   },
   {
-   "speaker": "Akshita",
+   "speaker": "SpeakerOne",
    "text": "but it's only 20% of what AI actually sees.",
    "timeline_start": 1761.822,
    "timeline_end": 1764.9,
@@ -2097,7 +2097,7 @@
    "avg_logprob": null
   },
   {
-   "speaker": "Akshita",
+   "speaker": "SpeakerOne",
    "text": "And your website is just a part of your whole profile, and that's only 20%.",
    "timeline_start": 1800.62,
    "timeline_end": 1804.218,
@@ -2194,7 +2194,7 @@
    "avg_logprob": null
   },
   {
-   "speaker": "Craig",
+   "speaker": "SpeakerTwo",
    "text": "with the big dogs out there. They're probably thinking, there's no way I can compete with",
    "timeline_start": 1892.84,
    "timeline_end": 1893.08,
@@ -2206,7 +2206,7 @@
    "avg_logprob": null
   },
   {
-   "speaker": "Craig",
+   "speaker": "SpeakerTwo",
    "text": "the big dogs out there. They're probably thinking, there's no way I can compete with the LA Fitnesses of the world.",
    "timeline_start": 1893.8,
    "timeline_end": 1895.4,
@@ -2218,7 +2218,7 @@
    "avg_logprob": null
   },
   {
-   "speaker": "Craig",
+   "speaker": "SpeakerTwo",
    "text": "I don't think I",
    "timeline_start": 1937.749,
    "timeline_end": 1938.13,
@@ -2255,7 +2255,7 @@
    "avg_logprob": null
   },
   {
-   "speaker": "Akshita",
+   "speaker": "SpeakerOne",
    "text": "make sure that you're coming up with something that answers specific questions.",
    "timeline_start": 2163.68,
    "timeline_end": 2164.6,
@@ -2267,7 +2267,7 @@
    "avg_logprob": null
   },
   {
-   "speaker": "Akshita",
+   "speaker": "SpeakerOne",
    "text": "Cause it's not,",
    "timeline_start": 2384.271,
    "timeline_end": 2384.61,
@@ -2298,7 +2298,7 @@
    "avg_logprob": null
   },
   {
-   "speaker": "Akshita",
+   "speaker": "SpeakerOne",
    "text": "And you're going to lose,",
    "timeline_start": 2446.964,
    "timeline_end": 2447.578,
@@ -2341,7 +2341,7 @@
    "avg_logprob": null
   },
   {
-   "speaker": "Akshita",
+   "speaker": "SpeakerOne",
    "text": "So blogs are still important,",
    "timeline_start": 2470.92,
    "timeline_end": 2471.48,

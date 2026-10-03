@@ -323,9 +323,9 @@ def _project_with(tmp_path, body):
 
 _TWO_SPEAKERS = """pipeline:
   speaker_subtitle_styles:
-    Akshita:
+    SpeakerOne:
       accentColor: '#FFB8D4'
-    Craig:
+    SpeakerTwo:
       accentColor: '#FBF0B8'
       position: top
 """
@@ -334,12 +334,12 @@ _TWO_SPEAKERS = """pipeline:
 def test_each_speaker_gets_their_declared_look(tmp_path):
     from library.tools.subtitle_style import resolve_subtitle_style
     folder = _project_with(tmp_path, _TWO_SPEAKERS)
-    akshita = resolve_subtitle_style(project_folder=folder, speaker="Akshita")
-    craig = resolve_subtitle_style(project_folder=folder, speaker="Craig")
-    assert akshita["accentColor"] == "#FFB8D4"
-    assert craig["accentColor"] == "#FBF0B8"
-    assert craig["position"] == "top"
-    assert akshita["position"] == "bottom", "an undeclared key is untouched"
+    speakerone = resolve_subtitle_style(project_folder=folder, speaker="SpeakerOne")
+    speakertwo = resolve_subtitle_style(project_folder=folder, speaker="SpeakerTwo")
+    assert speakerone["accentColor"] == "#FFB8D4"
+    assert speakertwo["accentColor"] == "#FBF0B8"
+    assert speakertwo["position"] == "top"
+    assert speakerone["position"] == "bottom", "an undeclared key is untouched"
     # A speaker the project does not name changes nothing.
     shared = resolve_subtitle_style(project_folder=folder)
     other = resolve_subtitle_style(project_folder=folder, speaker="Nobody")
@@ -354,8 +354,8 @@ def test_a_project_declaring_no_speaker_styles_gets_one_look(tmp_path):
         project_speaker_styles, resolve_subtitle_style)
     folder = _project_with(tmp_path, "pipeline:\n")
     assert project_speaker_styles(folder) is None
-    a = resolve_subtitle_style(project_folder=folder, speaker="Akshita")
-    b = resolve_subtitle_style(project_folder=folder, speaker="Craig")
+    a = resolve_subtitle_style(project_folder=folder, speaker="SpeakerOne")
+    b = resolve_subtitle_style(project_folder=folder, speaker="SpeakerTwo")
     assert a["accentColor"] == b["accentColor"]
 
 
@@ -369,10 +369,10 @@ def test_a_speaker_declaration_nothing_reads_is_refused(tmp_path):
         folder = _project_with(tmp_path / str(n),
                                "pipeline:\n"
                                "  speaker_subtitle_styles:\n"
-                               "    Akshita:\n"
+                               "    SpeakerOne:\n"
                                f"      {key}: '#FFB8D4'\n")
         with pytest.raises(ValueError, match=key):
-            resolve_subtitle_style(project_folder=folder, speaker="Akshita")
+            resolve_subtitle_style(project_folder=folder, speaker="SpeakerOne")
     folder = _project_with(tmp_path / "bad", "pipeline:\n"
                                             "  speaker_subtitle_styles: 'nope'\n")
     with pytest.raises(TypeError):

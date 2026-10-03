@@ -46,8 +46,8 @@ def media(tmp_path_factory):
         # The source-frame law itself is `test_otio_compile`'s: the
         # double reads a source frame off the range the document
         # declares, so it cannot see a law broken on both sides.
-        "akshita": _media(root / "akshita.mov", 130, "00:00:10:00"),
-        "craig": _media(root / "craig.mov", 130, "00:00:10:00"),
+        "speakerone": _media(root / "speakerone.mov", 130, "00:00:10:00"),
+        "speakertwo": _media(root / "speakertwo.mov", 130, "00:00:10:00"),
         "cap": _media(root / "cap.mov", 3),
         "sem": _media(root / "sem.mov", 3),
     }
@@ -75,15 +75,15 @@ def _build(media, mode, tmp_path):
     project = make_project(width=1080, height=1920, frame_rate=FPS)
     pool = project.GetMediaPool()
     pool.next_timeline = FakeTimeline()
-    footage = [media["akshita"], media["craig"]]
+    footage = [media["speakerone"], media["speakertwo"]]
     pool.media_properties = {p: {"FPS": "23.976", "Resolution": "32x32"}
                              for p in footage}
     pool.ImportMedia(footage)          # the master's footage is pooled
     clips = [
-        _clip(media, "video", 1, "Akshita", "Akshita", "akshita", 0, 10),
-        _clip(media, "video", 2, "Craig", "Craig", "craig", 10, 20),
-        _clip(media, "audio", 1, "Akshita CH1", "Akshita", "akshita", 0, 10),
-        _clip(media, "audio", 2, "Craig CH1", "Craig", "craig", 10, 20),
+        _clip(media, "video", 1, "SpeakerOne", "SpeakerOne", "speakerone", 0, 10),
+        _clip(media, "video", 2, "SpeakerTwo", "SpeakerTwo", "speakertwo", 10, 20),
+        _clip(media, "audio", 1, "SpeakerOne CH1", "SpeakerOne", "speakerone", 0, 10),
+        _clip(media, "audio", 2, "SpeakerTwo CH1", "SpeakerTwo", "speakertwo", 10, 20),
     ]
     caption = {"overlay_path": media["cap"], "timeline_start": 2.0,
                "timeline_end": 4.0, "source_in_frame": 0,
@@ -198,15 +198,15 @@ def test_resolution_mismatch_refuses_otio_before_import(media, tmp_path):
     project = make_project(width=1920, height=1080, frame_rate=FPS)
     pool = project.GetMediaPool()
     pool.next_timeline = FakeTimeline()
-    footage = [media["akshita"], media["craig"]]
+    footage = [media["speakerone"], media["speakertwo"]]
     pool.media_properties = {p: {"FPS": "23.976", "Resolution": "32x32"}
                              for p in footage}
     pool.ImportMedia(footage)
     clips = [
-        _clip(media, "video", 1, "Akshita", "Akshita", "akshita", 0, 10),
-        _clip(media, "video", 2, "Craig", "Craig", "craig", 10, 20),
-        _clip(media, "audio", 1, "Akshita CH1", "Akshita", "akshita", 0, 10),
-        _clip(media, "audio", 2, "Craig CH1", "Craig", "craig", 10, 20),
+        _clip(media, "video", 1, "SpeakerOne", "SpeakerOne", "speakerone", 0, 10),
+        _clip(media, "video", 2, "SpeakerTwo", "SpeakerTwo", "speakertwo", 10, 20),
+        _clip(media, "audio", 1, "SpeakerOne CH1", "SpeakerOne", "speakerone", 0, 10),
+        _clip(media, "audio", 2, "SpeakerTwo CH1", "SpeakerTwo", "speakertwo", 10, 20),
     ]
 
     with pytest.raises(OtioPlacementRefused,

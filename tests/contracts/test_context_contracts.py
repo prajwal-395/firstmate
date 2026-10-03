@@ -249,7 +249,7 @@ def test_select_reels_does_not_carry_the_transcript_document():
                        "timeline time.",
         "derived_from": {"fps": 23.976, "picture_holes": [[1.0, 2.0]]},
         "segments": [{
-            "speaker": "Craig", "text": "hello", "timeline_start": 0.0,
+            "speaker": "SpeakerTwo", "text": "hello", "timeline_start": 0.0,
             "timeline_end": 1.0, "source_file": "/m/a.MXF",
             "resolve_item_id": "u",
             "words": [{"word": "hello", "start": 0.0, "end": 1.0,

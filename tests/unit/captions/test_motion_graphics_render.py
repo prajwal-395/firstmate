@@ -573,7 +573,7 @@ def test_accents_stay_full_canvas_when_tight_is_asked(tmp_path, monkeypatch):
 # whole-piece `timelineProgress*` fractions, `timing_basis`,
 # `subject`, `why`, `colorBasis`). Every reel's card therefore digested
 # differently and re-rendered from scratch: measured on geo-podcast as
-# 26 Craig cards and 27 Akshita cards decoding framemd5-identical while
+# 26 SpeakerTwo cards and 27 SpeakerOne cards decoding framemd5-identical while
 # carrying 53 distinct digests.
 #
 # `render_one_segment` behind a stubbed `subprocess.run`, so what is
@@ -595,7 +595,7 @@ def _lower_third(progress_end=0.0438, timeline_start=0.0):
         "element": "lower_third",
         "anchor": "bottom_left",
         "row": 0,
-        "runs": [{"text": "Craig Lucie", "type_role": "display"},
+        "runs": [{"text": "SpeakerTwo Lucie", "type_role": "display"},
                  {"text": "CEO Lucie Content",
                   "type_role": "supporting"}],
         "color": "#FBF0B8",
@@ -613,9 +613,9 @@ def _lower_third(progress_end=0.0438, timeline_start=0.0):
         "asset": "",
         "footprint": None,
         "emphasis": None,
-        "why": "first appearance of 'Craig' in this reel, at 0.0s",
+        "why": "first appearance of 'SpeakerTwo' in this reel, at 0.0s",
         "data": {"construction": "staged_rule",
-                 "speaker": "Craig"},
+                 "speaker": "SpeakerTwo"},
     }
 
 
@@ -655,8 +655,8 @@ def test_provenance_edits_share_a_digest():
     edited = copy.deepcopy(base)
     edited["why"] = "second appearance, later in the reel"
     edited["subject"] = "the guest"
-    edited["timing_basis"] = "word_window:Craig"
-    edited["colorBasis"] = "pipeline.speaker_subtitle_styles['Craig']"
+    edited["timing_basis"] = "word_window:SpeakerTwo"
+    edited["colorBasis"] = "pipeline.speaker_subtitle_styles['SpeakerTwo']"
     assert (_mg_drawing_digest(_props(base), "full", None)
             == _mg_drawing_digest(_props(edited), "full", None))
 

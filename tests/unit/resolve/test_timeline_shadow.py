@@ -313,10 +313,10 @@ def media(tmp_path):
 
 
 def test_source_counts_from_the_start_timecode_and_transforms_from_the_frame(media):
-    # Reel 09, Akshita at record 132: API startFrame 34305 on a file whose
+    # Reel 09, SpeakerOne at record 132: API startFrame 34305 on a file whose
     # timecode starts at frame 12296 is OTIO source 46601; API Pan -35 and
     # Tilt -1836 on a 1080x1920 frame are -0.032407 and -0.95625.
-    track = C.Track("video", "Akshita", [C.Placement(
+    track = C.Track("video", "SpeakerOne", [C.Placement(
         media, source_in=34305, frames=392, record_in=132, media_start=12296,
         media_frames=118468,
         transform={"ZoomX": 2.307, "ZoomY": 2.307, "Pan": -35.0,
@@ -343,7 +343,7 @@ def test_a_record_offset_is_a_gap_and_an_overlap_refuses(media):
 
 def test_channel_one_is_source_channel_zero_and_another_refuses(media):
     def audio(channel):
-        return [C.Track("audio", "Akshita CH1", [C.Placement(
+        return [C.Track("audio", "SpeakerOne CH1", [C.Placement(
             media, 0, 10, 0, 0, 100, link_group=1, channel=channel)], "Mono")]
     clip = _clip(C.compile_timeline("R", audio(1), RATE, 1080, 1920))
     assert clip["metadata"]["Resolve_OTIO"]["Channels"] == [

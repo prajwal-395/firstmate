@@ -34,9 +34,9 @@ import sys
 def _two_angle_material(**over):
     material = {
         "angles": [
-            {"key": "akshita", "label": "Akshita", "speech_name": "Akshita CH1",
+            {"key": "speakerone", "label": "SpeakerOne", "speech_name": "SpeakerOne CH1",
              "program_channel": 1},
-            {"key": "craig", "label": "Craig", "speech_name": "Craig CH1",
+            {"key": "speakertwo", "label": "SpeakerTwo", "speech_name": "SpeakerTwo CH1",
              "program_channel": 1},
         ],
         "has_broll": False,
@@ -56,11 +56,11 @@ def test_two_angles_get_two_picture_rows_and_two_speech_rows():
     plan = plan_layout(_two_angle_material())
 
     video_roles = [(t.index, t.role, t.name) for t in plan.video_tracks]
-    assert video_roles == [(1, "a_roll", "Akshita"), (2, "a_roll", "Craig")]
+    assert video_roles == [(1, "a_roll", "SpeakerOne"), (2, "a_roll", "SpeakerTwo")]
 
     audio_roles = [(t.index, t.role, t.name) for t in plan.audio_tracks]
-    assert audio_roles == [(1, "speech", "Akshita CH1"),
-                           (2, "speech", "Craig CH1")]
+    assert audio_roles == [(1, "speech", "SpeakerOne CH1"),
+                           (2, "speech", "SpeakerTwo CH1")]
     # Defect 4: a row exists because something goes on it - no b-roll,
     # captions, music or SFX asked for, none planned.
     roles = [t.role for t in plan.video_tracks + plan.audio_tracks]
@@ -80,8 +80,8 @@ def test_names_come_from_the_material_never_a_constant():
     plan = plan_layout(_two_angle_material(has_broll=True))
     for track in plan.video_tracks + plan.audio_tracks:
         assert track.name, f"track {track.index} has no name"
-    assert plan.video_row_for_angle("akshita").name == "Akshita"
-    assert plan.speech_row_for_angle("craig").name == "Craig CH1"
+    assert plan.video_row_for_angle("speakerone").name == "SpeakerOne"
+    assert plan.speech_row_for_angle("speakertwo").name == "SpeakerTwo CH1"
     assert plan.video_row_for_angle("nobody") is None
 
 
@@ -98,18 +98,18 @@ def test_two_picture_rows_survive_the_tv_frame_look():
         has_semantic=True,
     ))
     assert [(t.index, t.role, t.name) for t in plan.video_tracks] == [
-        (1, "a_roll", "Akshita"), (2, "a_roll", "Craig"),
+        (1, "a_roll", "SpeakerOne"), (2, "a_roll", "SpeakerTwo"),
         (3, "frame", "Frame"), (4, "captions", "Subtitles"),
         (5, "transitions", "Transitions"), (6, "explainer", "Explainer"),
         (7, "semantic", "Semantic")]
     assert [(t.index, t.role, t.name) for t in plan.audio_tracks] == [
-        (1, "speech", "Akshita CH1"), (2, "speech", "Craig CH1")]
+        (1, "speech", "SpeakerOne CH1"), (2, "speech", "SpeakerTwo CH1")]
     # `collapse_picture` was the TV-frame rule PR 830 reasoned into the
     # plan; the captain overruled it. A stale caller still passing it
     # gets two picture rows anyway.
     plan = plan_layout(_two_angle_material(
         has_frame=True, collapse_picture=True))
-    assert [t.name for t in plan.aroll_rows()] == ["Akshita", "Craig"]
+    assert [t.name for t in plan.aroll_rows()] == ["SpeakerOne", "SpeakerTwo"]
 
 
 # --------------------------------------------------------------------------

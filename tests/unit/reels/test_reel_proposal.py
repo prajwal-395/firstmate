@@ -61,15 +61,15 @@ def _transcript(**overrides):
         "derived_from": {"timeline": "GEO Podcast - Synced",
                          "duration_seconds": 2656.6},
         "segments": [
-            {"speaker": "Craig", "text": "SEO is about convincing a crawler.",
+            {"speaker": "SpeakerTwo", "text": "SEO is about convincing a crawler.",
              "timeline_start": 10.0, "timeline_end": 18.0,
              "source_file": "/m/LCATL0011.MXF", "resolve_item_id": "uid-1",
              "source_start": 100.0, "source_end": 108.0},
-            {"speaker": "Akshita", "text": "GEO is about comprehension.",
+            {"speaker": "SpeakerOne", "text": "GEO is about comprehension.",
              "timeline_start": 18.5, "timeline_end": 26.0,
              "source_file": "/m/LC4930.MXF", "resolve_item_id": "uid-2",
              "source_start": 200.0, "source_end": 207.5},
-            {"speaker": "Craig", "text": "Totally different system.",
+            {"speaker": "SpeakerTwo", "text": "Totally different system.",
              "timeline_start": 400.0, "timeline_end": 409.0,
              "source_file": "/m/LCATL0012.MXF", "resolve_item_id": "uid-3",
              "source_start": 50.0, "source_end": 59.0},
@@ -148,7 +148,7 @@ def test_an_unreal_proposal_is_refused_by_name():
 
 def test_enrich_attaches_speakers_and_ground_truth():
     enriched = enrich(_moment(), _transcript())
-    assert enriched.speakers == ("Craig", "Akshita")
+    assert enriched.speakers == ("SpeakerTwo", "SpeakerOne")
     assert "SEO is about convincing" in enriched.transcript_preview
     assert [s["source_file"] for s in enriched.source_spans] == [
         "/m/LCATL0011.MXF", "/m/LC4930.MXF"]
@@ -183,11 +183,11 @@ def test_a_proposal_round_trips_with_the_captains_decision(tmp_path):
 #
 # 63 of the field test's 906 segments straddle a cut. A boundary landing
 # on one takes half a sentence, and in practice a straddling segment is
-# often WhisperX bridging a silent gap - Craig's 22.0-47.2s runs 25
+# often WhisperX bridging a silent gap - SpeakerTwo's 22.0-47.2s runs 25
 # seconds across a stretch where his track has no clip at all.
 
 def _bound(**kw):
-    base = dict(speaker="Craig", text="a line", timeline_start=10.0,
+    base = dict(speaker="SpeakerTwo", text="a line", timeline_start=10.0,
                 timeline_end=18.0, source_file="/m/a.MXF",
                 source_start=100.0, source_end=108.0,
                 resolve_item_id="uid-1")
@@ -230,7 +230,7 @@ def test_a_straddler_the_span_touches_still_does_not_widen_it():
 def test_enrich_carries_the_straddling_report_and_it_round_trips():
     tx = _tx(_bound(timeline_start=10.0, timeline_end=18.0),
              _bound(timeline_start=16.0, timeline_end=47.2,
-                    resolve_item_id=None, speaker="Craig",
+                    resolve_item_id=None, speaker="SpeakerTwo",
                     words=[{"word": "well", "start": 16.5, "end": 17.0}]))
     moment = enrich(_moment(timeline_start=10.0, timeline_end=18.0), tx)
     assert moment.straddling_within[0]["text"] == "well"
@@ -240,13 +240,13 @@ def test_enrich_carries_the_straddling_report_and_it_round_trips():
     assert ReelMoment.from_dict(body).straddling_within == moment.straddling_within
     # Otherwise a preview shows words the reel does not contain, and
     # names a speaker who is not in it.
-    tx = _tx(_bound(speaker="Akshita", text="in the reel",
+    tx = _tx(_bound(speaker="SpeakerOne", text="in the reel",
                     timeline_start=10.0, timeline_end=18.0),
-             _bound(speaker="Craig", text="bridged across a silent gap",
+             _bound(speaker="SpeakerTwo", text="bridged across a silent gap",
                     timeline_start=5.0, timeline_end=40.0,
                     resolve_item_id=None))
     enriched = enrich(_moment(timeline_start=10.0, timeline_end=18.0), tx)
-    assert enriched.speakers == ("Akshita",)
+    assert enriched.speakers == ("SpeakerOne",)
     assert "bridged" not in enriched.transcript_preview
 
 
@@ -269,16 +269,16 @@ def test_a_straddling_segment_does_not_make_a_boundary_illegal():
 
 def test_snap_moves_an_end_out_of_a_straddling_word():
     """Reel 5 of the rebuild (2026-09-08) ended at 413.851s - the end of
-    Akshita's bound row - and inside Craig's straddling word 'about'
+    SpeakerOne's bound row - and inside SpeakerTwo's straddling word 'about'
     (412.77-414.03s). Segment snapping cannot see words, and straddlers
     are excluded from its arithmetic, so the raw end survived and the
     build failed F8 on it. The drawer snaps OUT of the word, to its end.
     """
     tx = _tx(
-        _bound(speaker="Craig", text="the setup", timeline_start=342.038,
+        _bound(speaker="SpeakerTwo", text="the setup", timeline_start=342.038,
                timeline_end=350.0, resolve_item_id="uid-0",
                words=[{"word": "setup", "start": 342.1, "end": 342.5}]),
-        _bound(speaker="Akshita", text="recommend you or your brand.",
+        _bound(speaker="SpeakerOne", text="recommend you or your brand.",
                timeline_start=412.63, timeline_end=413.85,
                resolve_item_id="uid-a",
                words=[{"word": "recommend", "start": 412.63, "end": 412.99},
@@ -286,11 +286,11 @@ def test_snap_moves_an_end_out_of_a_straddling_word():
                       {"word": "or", "start": 413.37, "end": 413.43},
                       {"word": "your", "start": 413.45, "end": 413.57},
                       {"word": "brand.", "start": 413.59, "end": 413.85}]),
-        _bound(speaker="Craig", text="about",
+        _bound(speaker="SpeakerTwo", text="about",
                timeline_start=412.77, timeline_end=414.03,
                resolve_item_id=None,
                words=[{"word": "about", "start": 412.77, "end": 414.03}]),
-        _bound(speaker="Craig", text="a lot of times",
+        _bound(speaker="SpeakerTwo", text="a lot of times",
                timeline_start=414.05, timeline_end=420.0,
                resolve_item_id="uid-c",
                words=[{"word": "times", "start": 414.23, "end": 414.33}]),
@@ -309,7 +309,7 @@ def _words(text, start, step=0.4):
             for i, w in enumerate(text.split())]
 
 
-def _spoken(text, start, end, uid="uid-1", speaker="Akshita"):
+def _spoken(text, start, end, uid="uid-1", speaker="SpeakerOne"):
     return {"speaker": speaker, "text": text, "timeline_start": start,
             "timeline_end": end, "source_file": "/m/a.MXF",
             "source_start": start, "source_end": end,
@@ -376,9 +376,9 @@ def test_a_stray_word_does_not_count_as_a_turn():
     word from mic bleed, not a real conversational turn."""
     from library.tools.reel_proposal import is_conversation
     tx = _tx(
-        _bound(speaker="Craig", timeline_start=10.0, timeline_end=26.0),
-        # Akshita has only 1 second of speech - below MIN_TURN_SECONDS
-        _bound(speaker="Akshita", timeline_start=20.0, timeline_end=21.0,
+        _bound(speaker="SpeakerTwo", timeline_start=10.0, timeline_end=26.0),
+        # SpeakerOne has only 1 second of speech - below MIN_TURN_SECONDS
+        _bound(speaker="SpeakerOne", timeline_start=20.0, timeline_end=21.0,
                resolve_item_id="uid-2"),
     )
     reason = is_conversation(
@@ -394,12 +394,12 @@ def test_post_bridge_drops_a_monologue_and_keeps_a_conversation():
     tx = _transcript()
     llm_output = {
         "moments": [
-            # This one covers both Craig (10-18) and Akshita (18.5-26) -
+            # This one covers both SpeakerTwo (10-18) and SpeakerOne (18.5-26) -
             # a real conversation.
             {"start": 10.0, "end": 26.0,
              "slug": "seo-vs-geo",
              "reason": "The clearest contrast."},
-            # This one is Craig only (400-409) - a monologue.
+            # This one is SpeakerTwo only (400-409) - a monologue.
             {"start": 400.0, "end": 409.0,
              "slug": "different-system",
              "reason": "A good aside."},
@@ -450,7 +450,7 @@ def test_post_bridge_keeps_both_overlapping_moments_and_says_so():
     from library.steps.step_3_04_select_reels.post_bridge import resolve
     tx = _transcript()
     tx["segments"].append({
-        "speaker": "Akshita", "text": "Yes exactly.",
+        "speaker": "SpeakerOne", "text": "Yes exactly.",
         "timeline_start": 409.5, "timeline_end": 420.0,
         "source_file": "/m/LC4930.MXF", "resolve_item_id": "uid-4",
         "source_start": 210.0, "source_end": 220.5
@@ -487,15 +487,15 @@ def _cta_transcript():
     return {
         "derived_from": {"duration_seconds": 1200.0},
         "segments": [
-            {"speaker": "Craig", "text": "So what actually changes for them?",
+            {"speaker": "SpeakerTwo", "text": "So what actually changes for them?",
              "timeline_start": 600.0, "timeline_end": 612.0,
              "source_file": "/m/LCATL0013.MXF", "resolve_item_id": "uid-b1",
              "source_start": 10.0, "source_end": 22.0},
-            {"speaker": "Akshita", "text": "The whole retrieval path changes.",
+            {"speaker": "SpeakerOne", "text": "The whole retrieval path changes.",
              "timeline_start": 612.5, "timeline_end": 660.0,
              "source_file": "/m/LC4932.MXF", "resolve_item_id": "uid-b2",
              "source_start": 30.0, "source_end": 77.5},
-            {"speaker": "Craig",
+            {"speaker": "SpeakerTwo",
              "text": "jump on lucycontent.com take it dm us "
                      "it's also in the link below",
              "timeline_start": 468.06, "timeline_end": 476.5,
@@ -533,7 +533,7 @@ def test_a_cta_reads_its_words_back_off_the_transcript():
     the closer is speech the episode really contains."""
     enriched = enrich(_with_cta(), _cta_transcript())
     assert "lucycontent.com" in enriched.call_to_action.text
-    assert enriched.call_to_action.speaker == "Craig"
+    assert enriched.call_to_action.speaker == "SpeakerTwo"
 
 
 # ── Publishing the plan the builder reads ────────────────────────────
@@ -604,9 +604,9 @@ def test_a_borrowed_closer_reports_the_speech_its_text_omits():
     """
     from library.tools.reel_proposal import (CallToAction,
                                              enrich_call_to_action)
-    tx = _tx(_bound(speaker="Craig", text="we'd love for you to",
+    tx = _tx(_bound(speaker="SpeakerTwo", text="we'd love for you to",
                     timeline_start=400.0, timeline_end=404.0),
-             _bound(speaker="Craig", timeline_start=404.1, timeline_end=417.0,
+             _bound(speaker="SpeakerTwo", timeline_start=404.1, timeline_end=417.0,
                     resolve_item_id=None,
                     text="jump on lucycontent.com it's also in the link below",
                     words=[{"word": "jump", "start": 404.1, "end": 404.4},
@@ -632,14 +632,14 @@ def _tx_2(*segments):
 
 
 def _reel5_transcript():
-    """The reel-5 shape, verbatim from the #671 drawer test: Akshita's
-    bound row ends at 413.85s and Craig's straddling word 'about'
+    """The reel-5 shape, verbatim from the #671 drawer test: SpeakerOne's
+    bound row ends at 413.85s and SpeakerTwo's straddling word 'about'
     (412.77-414.03s) overlaps it, invisible to segment arithmetic."""
     return _tx_2(
-        _bound(speaker="Craig", text="the setup", timeline_start=342.038,
+        _bound(speaker="SpeakerTwo", text="the setup", timeline_start=342.038,
                timeline_end=350.0, resolve_item_id="uid-0",
                words=[{"word": "setup", "start": 342.1, "end": 342.5}]),
-        _bound(speaker="Akshita", text="recommend you or your brand.",
+        _bound(speaker="SpeakerOne", text="recommend you or your brand.",
                timeline_start=412.63, timeline_end=413.85,
                resolve_item_id="uid-a",
                words=[{"word": "recommend", "start": 412.63, "end": 412.99},
@@ -647,11 +647,11 @@ def _reel5_transcript():
                       {"word": "or", "start": 413.37, "end": 413.43},
                       {"word": "your", "start": 413.45, "end": 413.57},
                       {"word": "brand.", "start": 413.59, "end": 413.85}]),
-        _bound(speaker="Craig", text="about",
+        _bound(speaker="SpeakerTwo", text="about",
                timeline_start=412.77, timeline_end=414.03,
                resolve_item_id=None,
                words=[{"word": "about", "start": 412.77, "end": 414.03}]),
-        _bound(speaker="Craig", text="a lot of times",
+        _bound(speaker="SpeakerTwo", text="a lot of times",
                timeline_start=414.05, timeline_end=420.0,
                resolve_item_id="uid-c",
                words=[{"word": "times", "start": 414.23, "end": 414.33}]),
@@ -670,7 +670,7 @@ def _moment_2(start, end, cta=None):
 
 
 def test_build_time_repair_moves_a_stored_end_out_of_a_word():
-    """The defect, exactly: the stored end 413.851s sits inside Craig's
+    """The defect, exactly: the stored end 413.851s sits inside SpeakerTwo's
     straddling 'about', and the repair moves it to the word's end -
     the same span a fresh proposal would have stored."""
     repaired, moves = snap_moment_to_speech(
@@ -690,7 +690,7 @@ def test_repair_snaps_a_stored_cta_without_reselecting():
     range moves off the word edge, and nothing else about the moment
     (which take, which CTA, whose approval) changes."""
     tx = _tx_2(
-        _bound(speaker="Craig", text="a borrowed close",
+        _bound(speaker="SpeakerTwo", text="a borrowed close",
                timeline_start=468.0, timeline_end=476.5,
                resolve_item_id="uid-x",
                words=[{"word": "go", "start": 476.2, "end": 477.1}]),
@@ -719,13 +719,13 @@ def test_large_cta_end_cascade_is_reported_but_held():
     )
 
     tx = _tx_2(
-        _bound(speaker="Akshita", text="The link's bio.",
+        _bound(speaker="SpeakerOne", text="The link's bio.",
                timeline_start=340.54, timeline_end=341.38,
                resolve_item_id="uid-cta",
                words=[{"word": "The", "start": 340.54, "end": 340.66},
                       {"word": "link's", "start": 340.68, "end": 341.02},
                       {"word": "bio.", "start": 341.05, "end": 341.38}]),
-        _bound(speaker="Craig", text="So what we're hearing",
+        _bound(speaker="SpeakerTwo", text="So what we're hearing",
                timeline_start=341.98, timeline_end=349.54,
                resolve_item_id="uid-next",
                words=[{"word": "So", "start": 341.98, "end": 342.18},
@@ -981,7 +981,7 @@ def _transcript_2(previous_item=ITEM, current_item=ITEM,
     current_end = 218.26
     return {"derived_from": {"duration_seconds": 500.0}, "segments": [
         {
-            "speaker": "Craig",
+            "speaker": "SpeakerTwo",
             "text": "So we are hearing about that.",
             "timeline_start": previous_start,
             "timeline_end": previous_end,
@@ -995,7 +995,7 @@ def _transcript_2(previous_item=ITEM, current_item=ITEM,
             ],
         },
         {
-            "speaker": "Craig",
+            "speaker": "SpeakerTwo",
             "text": "If you're attorney,",
             "timeline_start": current_start,
             "timeline_end": current_end,
@@ -1018,8 +1018,8 @@ def _clip():
         resolve_item_id=ITEM,
         track_type="video",
         track_index=1,
-        track_name="Craig",
-        speaker="Craig",
+        track_name="SpeakerTwo",
+        speaker="SpeakerTwo",
         source_file=SOURCE,
         source_in=124.67154166666667,
         source_out=131.38154166666664,
@@ -1249,9 +1249,9 @@ def texts(spine):
 def test_a_tail_fragment_is_given_back_to_the_sentence_it_ends():
     """Reel 23's own case: "It was definitely going to help" / "them."."""
     transcript = {"segments": [
-        row("Akshita", "It was definitely going to help",
+        row("SpeakerOne", "It was definitely going to help",
             135.616, 136.460, "cam_a", 197.970),
-        row("Akshita", "them.", 136.540, 136.721, "cam_a", 198.894),
+        row("SpeakerOne", "them.", 136.540, 136.721, "cam_a", 198.894),
     ]}
     spine = spine_for_reel(Moment(135.0, 137.5), transcript)
 
@@ -1266,16 +1266,16 @@ def test_a_tail_fragment_is_given_back_to_the_sentence_it_ends():
 
 
 def test_a_head_fragment_is_given_back_to_the_sentence_it_opens():
-    """Reel 23's third card: "that's" heads Craig's next sentence.
+    """Reel 23's third card: "that's" heads SpeakerTwo's next sentence.
 
     The previous block ENDS a sentence, so the fragment cannot be its
     tail - the transcriber's own full stop is what says so.
     """
     transcript = {"segments": [
-        row("Craig", "and that is the whole point.",
+        row("SpeakerTwo", "and that is the whole point.",
             176.0, 179.4, "cam_b", 238.0),
-        row("Craig", "that's", 179.830, 179.970, "cam_b", 241.892),
-        row("Craig", "why i'm super excited about this",
+        row("SpeakerTwo", "that's", 179.830, 179.970, "cam_b", 241.892),
+        row("SpeakerTwo", "why i'm super excited about this",
             180.151, 185.210, "cam_b", 242.213),
     ]}
     spine = spine_for_reel(Moment(175.0, 186.0), transcript)
@@ -1293,10 +1293,10 @@ def test_the_fragment_joins_the_sentence_the_punctuation_names():
     short.  The transcriber wrote the full stop; this reads it.
     """
     transcript = {"segments": [
-        row("Akshita", "i ran google and chat gpt side by side.",
+        row("SpeakerOne", "i ran google and chat gpt side by side.",
             10.0, 13.0, "cam_a", 100.0),
-        row("Akshita", "For", 13.1, 13.2, "cam_a", 103.1),
-        row("Akshita", "google it gave a list from 2023",
+        row("SpeakerOne", "For", 13.1, 13.2, "cam_a", 103.1),
+        row("SpeakerOne", "google it gave a list from 2023",
             13.3, 16.0, "cam_a", 103.3),
     ]}
     spine = spine_for_reel(Moment(9.0, 17.0), transcript)
@@ -1317,10 +1317,10 @@ def test_a_head_fragment_falls_back_to_the_previous_sentence():
     when the punctuated side cannot take it.
     """
     transcript = {"segments": [
-        row("Akshita", "Authority and trust.",
+        row("SpeakerOne", "Authority and trust.",
             81.901, 83.42, "cam_a", 4830.045),
-        row("Akshita", "Yeah.", 83.521, 83.621, "cam_a", 4831.665),
-        row("Akshita", "Let us do the work for you.",
+        row("SpeakerOne", "Yeah.", 83.521, 83.621, "cam_a", 4831.665),
+        row("SpeakerOne", "Let us do the work for you.",
             83.621, 84.7, "cam_b", 3673.531),
     ]}
     spine = spine_for_reel(Moment(81.0, 85.0), transcript)
@@ -1343,10 +1343,10 @@ def test_a_fragment_is_left_alone_across_a_cut_and_is_named():
     never continuous.
     """
     transcript = {"segments": [
-        row("Akshita", "so the thing you have to know is",
+        row("SpeakerOne", "so the thing you have to know is",
             10.0, 12.0, "cam_a", 100.0),
         # 0.08s later on the reel, 3.08s later in the SOURCE.
-        row("Akshita", "this.", 12.08, 12.26, "cam_a", 105.08),
+        row("SpeakerOne", "this.", 12.08, 12.26, "cam_a", 105.08),
     ]}
     spine = spine_for_reel(Moment(9.0, 13.0), transcript)
 
@@ -1357,11 +1357,11 @@ def test_a_fragment_is_left_alone_across_a_cut_and_is_named():
     # A head fragment whose previous side is cut too, and whose next block
     # is another clip: nothing continuous can take it, so it stays, named.
     transcript = {"segments": [
-        row("Akshita", "Authority and trust.",
+        row("SpeakerOne", "Authority and trust.",
             81.901, 83.42, "cam_a", 4830.045),
         # Same reel seconds, but 3 seconds later in the SOURCE: a cut.
-        row("Akshita", "Yeah.", 83.521, 83.621, "cam_a", 4834.665),
-        row("Akshita", "Let us do the work for you.",
+        row("SpeakerOne", "Yeah.", 83.521, 83.621, "cam_a", 4834.665),
+        row("SpeakerOne", "Let us do the work for you.",
             83.621, 84.7, "cam_b", 3673.531),
     ]}
     spine = spine_for_reel(Moment(81.0, 85.0), transcript)
@@ -1399,7 +1399,7 @@ def _moment_4(start, end, source_start=100.0):
     )
 
 
-def _segment(text, words, start, end, source_start, speaker="Craig"):
+def _segment(text, words, start, end, source_start, speaker="SpeakerTwo"):
     return {
         "speaker": speaker,
         "text": text,
@@ -1539,21 +1539,21 @@ def test_reel15_cached_iso_merge_makes_caption_plan_pass_f25(
     audio_dir = (tmp_path / "pipeline_output" / "scratch"
                  / "timeline_transcript")
     audio_dir.mkdir(parents=True)
-    (audio_dir / "craig.wav").write_bytes(b"cached Craig ISO")
-    (audio_dir / "akshita.wav").write_bytes(b"cached Akshita ISO")
+    (audio_dir / "speakertwo.wav").write_bytes(b"cached SpeakerTwo ISO")
+    (audio_dir / "speakerone.wav").write_bytes(b"cached SpeakerOne ISO")
     monkeypatch.setattr(
         timeline_transcript, "_track_rms_dbfs",
         lambda path, _start, _end: (
-            (-42.62 if Path(path).name == "craig.wav" else -27.12), None),
+            (-42.62 if Path(path).name == "speakertwo.wav" else -27.12), None),
     )
     stale_document = {"segments": [row.as_dict() for row in
-                                    (segment("Craig", 1.0),
-                                     segment("Akshita", 1.05))]}
+                                    (segment("SpeakerTwo", 1.0),
+                                     segment("SpeakerOne", 1.05))]}
     transcript = timeline_transcript.resolve_document_mic_bleed(
         stale_document, str(tmp_path))
     merged = transcript["segments"]
     decisions = transcript["mic_bleed_resolution"]
-    assert [row["speaker"] for row in merged] == ["Akshita"]
+    assert [row["speaker"] for row in merged] == ["SpeakerOne"]
     assert decisions[0]["level_difference_db"] == 15.5
 
     ranges = [(1.0, 3.42)]
@@ -1602,7 +1602,7 @@ def test_reel15_build_snap_keeps_full_edge_words_and_passes_f25(
         _segment("If you're a salon owner or", body_words,
                  1186.83, 1188.55, 100.0),
         _segment("And that's why we've been building", cta_words,
-                 333.69, 335.08, 200.0, speaker="Akshita"),
+                 333.69, 335.08, 200.0, speaker="SpeakerOne"),
     ]}
     moment = ReelMoment(
         number=15,
@@ -1620,7 +1620,7 @@ def test_reel15_build_snap_keeps_full_edge_words_and_passes_f25(
             timeline_start=333.798,
             timeline_end=335.08,
             text="And that's why we've been building",
-            speaker="Akshita",
+            speaker="SpeakerOne",
         ),
     )
 
@@ -1649,7 +1649,7 @@ def test_legacy_suppressed_i_does_not_steal_ive_alignment(
     _skip_render(monkeypatch)
     transcript_corrections.record_display_suppression(
         str(tmp_path), "I", "the anchored second I is a false start",
-        scope={"speaker": "Craig", "surface": "I",
+        scope={"speaker": "SpeakerTwo", "surface": "I",
                "prev": "I've", "next": "thought"})
     words = [
         {"word": "I've", "start": 1.0, "end": 1.45, "timed": True},

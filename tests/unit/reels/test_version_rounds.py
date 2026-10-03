@@ -92,8 +92,8 @@ def test_a_reply_of_ours_opens_no_round(tmp_path, monkeypatch):
 # ── Stamping ─────────────────────────────────────────────────────
 
 def _rows(count, frames):
-    return {"video:Akshita": {
-        "media_type": "video", "index": 1, "name": "Akshita",
+    return {"video:SpeakerOne": {
+        "media_type": "video", "index": 1, "name": "SpeakerOne",
         "items": [{"name": f"clip {n}", "start": n * 10,
                    "end": n * 10 + 10, "duration": 10}
                   for n in range(count)],
@@ -114,11 +114,11 @@ def test_a_promotion_stamps_the_round_with_the_rows_it_promoted(tmp_path):
     entry = stamped["reels"]["Reel 09 - x"]
     assert entry["source"] == rv.SOURCE_STAMPED
     assert entry["built_with"] == "abc123"
-    assert entry["rows"]["video:Akshita"]["count"] == 3
+    assert entry["rows"]["video:SpeakerOne"]["count"] == 3
 
     document = rv.read_rounds(str(project))
     assert document["rounds"][-1]["reels"]["Reel 09 - x"]["rows"] \
-        ["video:Akshita"]["frames"] == 30
+        ["video:SpeakerOne"]["frames"] == 30
 
 
 def test_an_unreadable_rounds_file_refuses_rather_than_starting_empty(
@@ -145,7 +145,7 @@ def _git(folder, *args):
 
 def _snapshot(count):
     return {"metadata": {"name": "Reel 09 - x"},
-            "tracks": [{"type": "video", "index": 1, "name": "Akshita",
+            "tracks": [{"type": "video", "index": 1, "name": "SpeakerOne",
                         "clips": [{"name": f"clip {n}",
                                    "record_in": n * 10,
                                    "record_out": n * 10 + 10,
@@ -182,7 +182,7 @@ def test_backfill_reconstructs_from_the_committed_snapshots(repo_project):
     promoted = [entry for entry in rounds if entry["reels"]]
     assert promoted, "backfill recorded no reel"
     latest = promoted[-1]["reels"]["Reel 09 - x"]
-    assert latest["rows"]["video:Akshita"]["count"] == 3
+    assert latest["rows"]["video:SpeakerOne"]["count"] == 3
     # Which engine revision built a reel cannot be recovered once the
     # build is over (AGENTS.md 10.1), so a reconstruction says
     # RECONSTRUCTED and leaves the stamp empty rather than inventing one.
@@ -270,11 +270,11 @@ def _reel(rows, when="2026-09-12T01:28Z"):
 
 def test_a_row_gained_or_lost_is_named_in_the_guards_vocabulary(tmp_path):
     """The real shape of the 2026-09-12 round on the captain's project:
-    a tail logo card arrived on the Akshita row of six reels."""
-    earlier = {"Reel 01": _reel({"video:Akshita": _row(
-        "Akshita", [_item("LC4930.MXF", 0, 684)])})}
-    later = {"Reel 01": _reel({"video:Akshita": _row(
-        "Akshita", [_item("LC4930.MXF", 0, 684),
+    a tail logo card arrived on the SpeakerOne row of six reels."""
+    earlier = {"Reel 01": _reel({"video:SpeakerOne": _row(
+        "SpeakerOne", [_item("LC4930.MXF", 0, 684)])})}
+    later = {"Reel 01": _reel({"video:SpeakerOne": _row(
+        "SpeakerOne", [_item("LC4930.MXF", 0, 684),
                     _item("logo_reveal.mov", 1274, 71)])})}
     project = _rounds(tmp_path, earlier, later)
 
@@ -284,7 +284,7 @@ def test_a_row_gained_or_lost_is_named_in_the_guards_vocabulary(tmp_path):
     assert "3 -> 4 item(s)" not in rendered      # 1 -> 2 here
     assert "1 -> 2 item(s)" in rendered
     changed = diff["reels"]["Reel 01"]["changed"]
-    assert [row["key"] for row in changed] == ["video:Akshita"]
+    assert [row["key"] for row in changed] == ["video:SpeakerOne"]
     assert changed[0]["gained"][0]["name"] == "logo_reveal.mov"
 
     # A whole row gone is named as gone, in the promote guard's own
@@ -340,8 +340,8 @@ def test_overlays_re_rendered_at_identical_spans_are_not_a_change(
 def test_a_reel_not_rebuilt_in_the_round_says_so(tmp_path):
     """A real answer - "round 3 did not touch Reel 13" - not a gap, and
     certainly not a loss."""
-    earlier = {"Reel 13": _reel({"video:Akshita": _row(
-        "Akshita", [_item("a.mov", 0, 10)])})}
+    earlier = {"Reel 13": _reel({"video:SpeakerOne": _row(
+        "SpeakerOne", [_item("a.mov", 0, 10)])})}
     project = _rounds(tmp_path, earlier, {})
     diff = rounds.diff_rounds(str(project), 2, 3)
     assert diff["reels"]["Reel 13"]["state"] == "not rebuilt in this round"

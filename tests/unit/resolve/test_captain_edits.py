@@ -911,7 +911,7 @@ def _transcript_3(so_start):
     return {"segments": [{
         "text": "so for small business owners the first step",
         "timeline_start": 1400.0, "timeline_end": 1420.0,
-        "source_start": 3119.0, "source_file": "/v/craig.mov",
+        "source_start": 3119.0, "source_file": "/v/speakertwo.mov",
         "words": _words_3(
             ["so", "for", "small", "business", "owners",
              "the", "first", "step"],
@@ -985,7 +985,7 @@ def test_freshness_names_drifted_held_and_stale_anchors_before_a_build():
     reworded = {"segments": [{
         "text": "well for tiny business owners the first step",
         "timeline_start": 1400.0, "timeline_end": 1420.0,
-        "source_start": 3119.0, "source_file": "/v/craig.mov",
+        "source_start": 3119.0, "source_file": "/v/speakertwo.mov",
         "words": _words_3(
             ["well", "for", "tiny", "business", "owners",
              "the", "first", "step"],

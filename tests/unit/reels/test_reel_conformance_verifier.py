@@ -68,7 +68,7 @@ FPS = 24000 / 1001  # 23.976 exact
 def _item(track_type: str, track_index: int,
           start_frame: int, end_frame: int,
           source_file: str = "/m/a.MXF",
-          speaker: str = "Akshita",
+          speaker: str = "SpeakerOne",
           name: str = "clip") -> TimelineItem:
     """Build a synthetic timeline item for testing."""
     return TimelineItem(
@@ -86,7 +86,7 @@ def _item(track_type: str, track_index: int,
 
 
 def _placement(track: int, record: float, dur: float,
-               speaker: str = "Akshita",
+               speaker: str = "SpeakerOne",
                source_file: str = "/m/a.MXF") -> PlannedPlacement:
     """Build a synthetic planned placement."""
     return PlannedPlacement(
@@ -100,7 +100,7 @@ def _placement(track: int, record: float, dur: float,
 
 
 def _caption_card(start: float, end: float, text: str,
-                  speaker: str = "Akshita") -> dict:
+                  speaker: str = "SpeakerOne") -> dict:
     """Build a synthetic caption card dict."""
     frames = max(int(round((end - start) * FPS)), 2)
     return {
@@ -112,7 +112,7 @@ def _caption_card(start: float, end: float, text: str,
     }
 
 
-def _row(start: float, end: float, speaker: str = "Craig",
+def _row(start: float, end: float, speaker: str = "SpeakerTwo",
          text: str = "some speech", item_id=None,
          words: tuple | None = None,
          speaking: tuple | None = None) -> dict:
@@ -250,13 +250,13 @@ class TestF2CaptionDuration:
         """
         planned = (
             PlannedCaption(start_seconds=1.0, end_seconds=2.0,
-                           text="first", speaker="Akshita", frames=24,
+                           text="first", speaker="SpeakerOne", frames=24,
                            block_position="body_1"),
             PlannedCaption(start_seconds=2.0, end_seconds=3.0,
-                           text="never placed", speaker="Akshita", frames=24,
+                           text="never placed", speaker="SpeakerOne", frames=24,
                            block_position="body_2"),
             PlannedCaption(start_seconds=3.0, end_seconds=4.5,
-                           text="third", speaker="Craig", frames=36,
+                           text="third", speaker="SpeakerTwo", frames=36,
                            block_position="body_3"),
         )
         actual = (
@@ -277,10 +277,10 @@ class TestF2CaptionDuration:
         """Two cards cannot both pair with the same placed item."""
         planned = (
             PlannedCaption(start_seconds=1.0, end_seconds=2.0,
-                           text="one", speaker="Akshita", frames=24,
+                           text="one", speaker="SpeakerOne", frames=24,
                            block_position="body_1"),
             PlannedCaption(start_seconds=1.0, end_seconds=2.0,
-                           text="two", speaker="Akshita", frames=24,
+                           text="two", speaker="SpeakerOne", frames=24,
                            block_position="body_2"),
         )
         actual = (_item("video", 2, 24, 48, name="a"),)
@@ -308,15 +308,15 @@ class TestF2SegmentGranularity:
         placed short still draws its F2."""
         planned = (
             PlannedCaption(start_seconds=1.0, end_seconds=2.0,
-                           text="first card", speaker="Akshita",
+                           text="first card", speaker="SpeakerOne",
                            frames=round(1.0 * FPS),
                            block_position="body_1"),
             PlannedCaption(start_seconds=2.0, end_seconds=3.5,
-                           text="second card", speaker="Akshita",
+                           text="second card", speaker="SpeakerOne",
                            frames=round(1.5 * FPS),
                            block_position="body_1"),
             PlannedCaption(start_seconds=5.0, end_seconds=6.0,
-                           text="third card", speaker="Akshita",
+                           text="third card", speaker="SpeakerOne",
                            frames=round(1.0 * FPS),
                            block_position="body_2"),
         )
@@ -353,21 +353,21 @@ class TestF2AbuttingBlocks:
     def _planned(self):
         return (
             PlannedCaption(start_seconds=60.125, end_seconds=61.200,
-                           text="first card of block 22", speaker="Akshita",
+                           text="first card of block 22", speaker="SpeakerOne",
                            frames=round((61.200 - 60.125) * FPS),
                            block_position="22"),
             PlannedCaption(start_seconds=61.200, end_seconds=62.374,
-                           text="second card of block 22", speaker="Akshita",
+                           text="second card of block 22", speaker="SpeakerOne",
                            frames=round((62.374 - 61.200) * FPS),
                            block_position="22"),
             PlannedCaption(start_seconds=62.374, end_seconds=63.100,
                            text="number one on google because you",
-                           speaker="Akshita",
+                           speaker="SpeakerOne",
                            frames=round((63.100 - 62.374) * FPS),
                            block_position="23"),
             PlannedCaption(start_seconds=63.100, end_seconds=63.809,
                            text="have may have optimized your services.",
-                           speaker="Akshita",
+                           speaker="SpeakerOne",
                            frames=round((63.809 - 63.100) * FPS),
                            block_position="23"),
         )
@@ -426,23 +426,23 @@ class TestF4ItemCount:
 
 
     def test_detects_speaker_duration_mismatch(self):
-        """Plant a reel where Craig is missing significant duration.
+        """Plant a reel where SpeakerTwo is missing significant duration.
 
-        The audit found Reel 09 Craig planned 25.69s but got 13.43s.
+        The audit found Reel 09 SpeakerTwo planned 25.69s but got 13.43s.
         """
         planned = (
-            _placement(1, 0.0, 50.0, "Akshita"),
-            _placement(2, 0.0, 25.0, "Craig"),
+            _placement(1, 0.0, 50.0, "SpeakerOne"),
+            _placement(2, 0.0, 25.0, "SpeakerTwo"),
         )
-        # Craig is only half his planned duration
+        # SpeakerTwo is only half his planned duration
         actual = (
             _item("video", 1, 0, int(50 * FPS)),
-            _item("video", 2, 0, int(13 * FPS), speaker="Craig"),
+            _item("video", 2, 0, int(13 * FPS), speaker="SpeakerTwo"),
         )
         findings = check_item_count("Reel 09", planned, actual, FPS)
-        craig_findings = [f for f in findings if "Craig" in f.message]
-        assert len(craig_findings) >= 1
-        assert craig_findings[0].detail["speaker"] == "Craig"
+        speakertwo_findings = [f for f in findings if "SpeakerTwo" in f.message]
+        assert len(speakertwo_findings) >= 1
+        assert speakertwo_findings[0].detail["speaker"] == "SpeakerTwo"
 
 
 # ── F5: Caption coverage ────────────────────────────────────────────
@@ -459,11 +459,11 @@ class TestF5CaptionCoverage:
         (docs/evidence/reel_conformance_verifier.md)."""
         # Begins 5s BEFORE the reel and runs 5s into it; five 2s words,
         # so the row crosses the boundary and no word does.
-        past = [_row(5.0, 15.0, "Craig", "a row the reel starts in",
+        past = [_row(5.0, 15.0, "SpeakerTwo", "a row the reel starts in",
                      speaking=tuple((float(i), float(i + 2))
                                     for i in range(5, 15, 2)))]
         # Fifteen 2s words; a 10s take is removed from the middle.
-        cut = [_row(0.0, 30.0, "Akshita", "a row with a take taken out",
+        cut = [_row(0.0, 30.0, "SpeakerOne", "a row with a take taken out",
                     speaking=tuple((float(i), float(i + 2))
                                    for i in range(0, 30, 2)))]
         for segments, keep, expected in (
@@ -479,19 +479,19 @@ class TestF5CaptionCoverage:
     def test_a_stretched_word_is_excluded_and_honest_speech_still_fails(self):
         """Reel 10's shape: one 34.13s word, otherwise card-covered.
 
-        Craig's "audits" (732.69-766.82) is a single word the aligner
-        stretched across Akshita's whole story. Her cards leave 2.6s of
-        gaps; counting the word reported those pauses as Craig talking
+        SpeakerTwo's "audits" (732.69-766.82) is a single word the aligner
+        stretched across SpeakerOne's whole story. Her cards leave 2.6s of
+        gaps; counting the word reported those pauses as SpeakerTwo talking
         with no caption and failed the reel. The word is excluded and
         the narrowing is REPORTED, never silent.
         """
         segments = [
             # No binding, one 34.13s word: the stretched residue itself.
-            _row(732.69, 766.819, "Craig", "audits"),
-            _row(733.02, 760.0, "Akshita", "her story", item_id="uid-a",
+            _row(732.69, 766.819, "SpeakerTwo", "audits"),
+            _row(733.02, 760.0, "SpeakerOne", "her story", item_id="uid-a",
                  speaking=tuple((float(i), float(i + 1))
                                 for i in range(733, 760))),
-            _row(762.0, 766.5, "Akshita", "her story",
+            _row(762.0, 766.5, "SpeakerOne", "her story",
                  item_id="uid-b",
                  speaking=((762.0, 763.0), (763.0, 764.0),
                            (764.0, 765.0), (765.0, 766.5))),
@@ -506,7 +506,7 @@ class TestF5CaptionCoverage:
             "Reel 10", segments, captions, keep_ranges, FPS)
         errors = [f for f in findings if f.severity == "error"]
         assert errors == [], (
-            "pauses between another speaker's cards are not Craig's speech")
+            "pauses between another speaker's cards are not SpeakerTwo's speech")
         warnings = [f for f in findings if f.severity == "warning"]
         assert any(w.detail.get("stretched_words") == 1
                    for w in warnings), (
@@ -515,7 +515,7 @@ class TestF5CaptionCoverage:
         # The gate is not weakened: straddling speech with honest word
         # timings and nothing on screen over it is still an error.
         segments = [
-            _row(732.69, 736.0, "Craig", "audits indeed yes",
+            _row(732.69, 736.0, "SpeakerTwo", "audits indeed yes",
                  speaking=((732.69, 733.2), (733.4, 734.1),
                            (734.3, 736.0))),
         ]
@@ -542,9 +542,9 @@ class TestF6CaptionOverlap:
         """
         cards = [
             _caption_card(18.7, 20.1, "and a lot of big companies",
-                          speaker="Craig"),
+                          speaker="SpeakerTwo"),
             _caption_card(18.7, 20.1, "and a lot of big companies",
-                          speaker="Akshita"),  # same time = overlap
+                          speaker="SpeakerOne"),  # same time = overlap
         ]
         findings = check_caption_overlaps("Reel 09", cards, FPS)
         assert len(findings) == 1
@@ -595,7 +595,7 @@ class TestF9DuplicatePlacements:
         # 4 unique positions, each with 4 items = 16 total
         items = []
         positions = [0, int(10 * FPS), int(20 * FPS), int(30 * FPS)]
-        speakers = ["Akshita", "Craig", "Akshita", "Craig"]
+        speakers = ["SpeakerOne", "SpeakerTwo", "SpeakerOne", "SpeakerTwo"]
         durations = [int(10 * FPS), int(10 * FPS), int(10 * FPS),
                      int(10 * FPS)]
         for pos, dur in zip(positions, durations):
@@ -683,15 +683,15 @@ class TestF11SubtitleStyling:
         one speaker's style on every card of a two-speaker video, cards
         with no speaker in their name, and two speakers sharing one
         overlay file (identical rendering whatever the names say)."""
-        two = (_item("video", 1, 0, int(10 * FPS), speaker="Akshita"),
-               _item("video", 2, 0, int(10 * FPS), speaker="Craig"))
+        two = (_item("video", 1, 0, int(10 * FPS), speaker="SpeakerOne"),
+               _item("video", 2, 0, int(10 * FPS), speaker="SpeakerTwo"))
 
         def cap(name, start, end, source=None):
             return _item("video", 3, start, end, name=name,
                          source_file=source or f"/overlays/{name}")
 
         one_style = tuple(
-            cap(f"sub_synced_akshita_body{i}_0-1000_abc123.mov",
+            cap(f"sub_synced_speakerone_body{i}_0-1000_abc123.mov",
                 int(3 * i * FPS), int(3 * (i + 1) * FPS))
             for i in range(3))
         f11 = [f for f in check_subtitle_styling("Reel 01", one_style, two)
@@ -708,9 +708,9 @@ class TestF11SubtitleStyling:
                        "Reel 01", unattributed, two[:1]))
 
         shared = "/overlays/sub_synced_shared_body0_0-1000_abc123.mov"
-        sharing = (cap("sub_synced_akshita_body0_0-1000_abc123.mov",
+        sharing = (cap("sub_synced_speakerone_body0_0-1000_abc123.mov",
                        0, int(5 * FPS), shared),
-                   cap("sub_synced_craig_body0_1000-2000_def456.mov",
+                   cap("sub_synced_speakertwo_body0_1000-2000_def456.mov",
                        int(5 * FPS), int(10 * FPS), shared))
         shared_findings = [f for f in check_subtitle_styling(
             "Reel 01", sharing, two) if "share" in f.message.lower()]
@@ -720,19 +720,19 @@ class TestF11SubtitleStyling:
         """Current caption names put speaker before the source clip id.
 
         The old verifier skipped a timeline token and read the following
-        UUID as the speaker, so Reel 17's three placed Akshita cards were
+        UUID as the speaker, so Reel 17's three placed SpeakerOne cards were
         attributed to source clip ``b191411a-...``.
         """
         from library.tools.reel_conformance_verifier import _caption_speaker
 
         item = _item(
             "video", 3, 0, int(FPS),
-            name=("sub_akshita_b191411a-d2bf-4549-a09b_"
+            name=("sub_speakerone_b191411a-d2bf-4549-a09b_"
                   "3135634-3141184_f32a24c3.mov"),
-            source_file=("/overlays/sub_akshita_b191411a-d2bf-4549-a09b_"
+            source_file=("/overlays/sub_speakerone_b191411a-d2bf-4549-a09b_"
                          "3135634-3141184_f32a24c3.mov"),
         )
-        assert _caption_speaker(item) == "akshita"
+        assert _caption_speaker(item) == "speakerone"
 
 
 # ── Plan quality: Length ─────────────────────────────────────────────
@@ -763,7 +763,7 @@ class TestPlanQualitySpeakers:
     def test_single_speaker(self):
         """Only one speaker should trigger a finding."""
         placements = (
-            _placement(1, 0.0, 50.0, "Akshita"),
+            _placement(1, 0.0, 50.0, "SpeakerOne"),
         )
         findings = check_plan_speakers("Reel 01", placements)
         assert len(findings) == 1
@@ -789,18 +789,18 @@ class TestVerifyReel:
         plan = _plan(
             span_end=int(25 * FPS) / FPS,
             placements=(
-                _placement(1, 0.0, 25.0, "Akshita"),
-                _placement(2, 0.0, 25.0, "Craig"),
+                _placement(1, 0.0, 25.0, "SpeakerOne"),
+                _placement(2, 0.0, 25.0, "SpeakerTwo"),
             ),
         )
         timeline = _timeline(
             video_items=(
                 _item("video", 1, 0, int(25 * FPS)),
-                _item("video", 2, 0, int(25 * FPS), speaker="Craig"),
+                _item("video", 2, 0, int(25 * FPS), speaker="SpeakerTwo"),
             ),
             audio_items=(
                 _item("audio", 1, 0, int(25 * FPS)),
-                _item("audio", 2, 0, int(25 * FPS), speaker="Craig"),
+                _item("audio", 2, 0, int(25 * FPS), speaker="SpeakerTwo"),
             ),
         )
         result = verify_reel(plan, timeline)
@@ -811,7 +811,7 @@ class TestVerifyReel:
     def test_reel_with_multiple_defects(self):
         """A reel with holes AND missing clips reports both F1 and F4.
 
-        Craig's V2 placement sits UNDER Akshita's V1, so dropping it
+        SpeakerTwo's V2 placement sits UNDER SpeakerOne's V1, so dropping it
         loses a clip without shortening the reel - the plan still
         describes the timeline's length, F4 is still asked, and it still
         reports the drop.  That is the case `check_plan_describes_
@@ -820,15 +820,15 @@ class TestVerifyReel:
         plan = _plan(
             span_end=1075 / FPS,
             placements=(
-                _placement(1, 0.0, 25.0, "Akshita"),
-                _placement(2, 0.0, 25.0, "Craig"),
-                _placement(1, 25.0, 25.0, "Akshita"),
+                _placement(1, 0.0, 25.0, "SpeakerOne"),
+                _placement(2, 0.0, 25.0, "SpeakerTwo"),
+                _placement(1, 25.0, 25.0, "SpeakerOne"),
             ),
         )
         timeline = _timeline(
             video_items=(
                 _item("video", 1, 0, 589),
-                _item("video", 1, 590, 1075),  # gap at 589, Craig missing
+                _item("video", 1, 590, 1075),  # gap at 589, SpeakerTwo missing
             ),
             audio_items=(),
         )
@@ -875,10 +875,10 @@ class TestCLI:
     def test_unmapped_track_distinct_finding(self):
         """A track that cannot be mapped to a speaker is reported distinctly."""
         planned = (
-            _placement(1, 0.0, 27.30, "Akshita"),
+            _placement(1, 0.0, 27.30, "SpeakerOne"),
         )
         actual = (
-            _item("video", 1, 0, int(27.30 * FPS), speaker="Akshita"),
+            _item("video", 1, 0, int(27.30 * FPS), speaker="SpeakerOne"),
             _item("video", 2, 0, 120, speaker="UnknownSpeaker"), # Not in plan!
         )
         findings = check_item_count("Reel 01", planned, actual, FPS)
@@ -902,7 +902,7 @@ def _master_clip(**kw):
     from library.tools.timeline_ingest import TimelineClip
 
     base = dict(resolve_item_id="uid-1", track_type="video", track_index=1,
-                track_name="V1", speaker="Craig", source_file="/m/a.MXF",
+                track_name="V1", speaker="SpeakerTwo", source_file="/m/a.MXF",
                 source_in=100.0, source_out=110.0, source_in_frame=2400,
                 source_out_frame=2640, source_frames=100000,
                 timeline_start=10.0, timeline_end=20.0, name="a.MXF")
@@ -925,7 +925,7 @@ def test_the_plan_can_be_derived_from_the_master():
     master = _master_snapshot(
         _master_clip(),
         _master_clip(resolve_item_id="uid-2", track_index=2, track_name="V2",
-                     speaker="Akshita", source_file="/m/b.MXF",
+                     speaker="SpeakerOne", source_file="/m/b.MXF",
                      timeline_start=14.0, timeline_end=22.0))
     plan = _derive_plan_from_master("Reel 01 - x", 1, 12.0, 21.0, master)
 
@@ -951,7 +951,7 @@ class TestClosingCallToAction:
 
     @staticmethod
     def _master():
-        """A master with continuous picture: Akshita on V1, Craig on V2."""
+        """A master with continuous picture: SpeakerOne on V1, SpeakerTwo on V2."""
         from library.tools.timeline_ingest import TimelineClip, TimelineSnapshot
 
         def clip(track, speaker, start, end, source):
@@ -969,8 +969,8 @@ class TestClosingCallToAction:
             project_name="P", timeline_name="Master",
             fps=FPS, reported_fps=24.0, width=3840, height=2160,
             start_frame=0, end_frame=int(1200 * FPS),
-            clips=(clip(1, "Akshita", 0.0, 1200.0, "/m/ak.MXF"),
-                   clip(2, "Craig", 0.0, 1200.0, "/m/cr.MXF")))
+            clips=(clip(1, "SpeakerOne", 0.0, 1200.0, "/m/ak.MXF"),
+                   clip(2, "SpeakerTwo", 0.0, 1200.0, "/m/cr.MXF")))
 
     @staticmethod
     def _moment(cta=None, start=600.0, end=660.0, number=1):
@@ -1034,16 +1034,16 @@ class TestClosingCallToAction:
             return words
 
         transcript = {"segments": [
-            _row(468.0, 476.0, "Craig", "check it out",
+            _row(468.0, 476.0, "SpeakerTwo", "check it out",
                  words=_timed(["check", "it", "out"], 468.0)),
             # The inherited CTA ending carries its trailing silence only
             # to the next spoken word. Keep that boundary adjacent here;
             # otherwise the synthetic gap to the body at 600s becomes a
             # 124-second ending breath once exact placements retain all
             # three CTA anchor words.
-            _row(476.01, 476.41, "Craig", "and",
+            _row(476.01, 476.41, "SpeakerTwo", "and",
                  words=_timed(["and"], 476.01)),
-            _row(600.0, 660.0, "Craig",
+            _row(600.0, 660.0, "SpeakerTwo",
                  "what you are saying reverts back if your brand is "
                  "mentioned here today",
                  words=_timed(
@@ -1079,7 +1079,7 @@ class TestClosingCallToAction:
         """F8 tested only the body's two boundaries. The closer's are the
         ones that decide whether the reel ends on a finished sentence."""
         segments = [
-            _row(470.0, 480.0, "Craig",
+            _row(470.0, 480.0, "SpeakerTwo",
                  "jump on lucycontent.com and dm us"),
         ]
         findings = check_boundary_speech(
@@ -1164,14 +1164,14 @@ class TestF8MeasuresWordsNotRowEnvelopes:
     def test_f8_reads_words_and_falls_back_to_the_envelope_out_loud(self):
         """Reel 01's END, exactly as it is on the captain's timeline.
 
-        Row 22.04-47.23s is one WhisperX segment of Craig's isolated
+        Row 22.04-47.23s is one WhisperX segment of SpeakerTwo's isolated
         track carrying two separate utterances - "this is a completely
         different system right" to 24.28s, then "so give me an example
         of that difference" from 45.41s.  Twenty-one seconds of that row
-        is Craig silent.  The reel ends at 44.74s, inside the silence and
+        is SpeakerTwo silent.  The reel ends at 44.74s, inside the silence and
         0.67s before he speaks again, and nothing is cut.
         """
-        segments = [_row(22.04, 47.23, "Craig",
+        segments = [_row(22.04, 47.23, "SpeakerTwo",
                          "this is a completely different system right so "
                          "give me an example of that difference",
                          speaking=((22.04, 24.281), (45.409, 47.23)))]
@@ -1183,7 +1183,7 @@ class TestF8MeasuresWordsNotRowEnvelopes:
 
         # A row with NO word timings must not silently switch the check
         # off: the envelope answers, and the fallback is reported.
-        segments = [_row(470.0, 480.0, "Craig", "no timings", words=())]
+        segments = [_row(470.0, 480.0, "SpeakerTwo", "no timings", words=())]
         findings = check_boundary_speech(
             "Reel 01", span_start=460.0, span_end=476.0,
             transcript_segments=segments)
@@ -1203,7 +1203,7 @@ class TestF5MeasuresSpeechNotRowSpan:
 
     def test_only_the_words_count_not_the_row_envelope(self):
         """A row 40s wide carrying 2s of speech is 2s of speech."""
-        segments = [_row(0.0, 40.0, "Craig", "two seconds of talking",
+        segments = [_row(0.0, 40.0, "SpeakerTwo", "two seconds of talking",
                          speaking=((0.0, 1.0), (39.0, 40.0)))]
         findings = check_caption_coverage(
             "Reel 05", segments, [], [(0.0, 40.0)], FPS)
@@ -1221,18 +1221,18 @@ class TestF5MeasuresSpeechNotRowSpan:
         """
         plan = _plan(
             span_end=int(25 * FPS) / FPS,
-            placements=(_placement(1, 0.0, 25.0, "Akshita"),),
+            placements=(_placement(1, 0.0, 25.0, "SpeakerOne"),),
             captions=(PlannedCaption(start_seconds=0.0, end_seconds=25.0,
                                      text="a card the plan wanted",
-                                     speaker="Craig", frames=599),),
+                                     speaker="SpeakerTwo", frames=599),),
         )
         timeline = _timeline(
             video_items=(_item("video", 1, 0, int(25 * FPS)),),
             # One card, and it covers a single second of the reel.
             caption_items=(_item("video", 3, 0, int(1 * FPS),
-                                 name="sub_reel-01_craig_one-second.mov"),),
+                                 name="sub_reel-01_speakertwo_one-second.mov"),),
         )
-        segments = [_row(0.0, 25.0, "Craig", "talking the whole time",
+        segments = [_row(0.0, 25.0, "SpeakerTwo", "talking the whole time",
                           speaking=tuple((float(i), float(i + 1))
                                          for i in range(25)))]
         result = verify_reel(plan, timeline, transcript_segments=segments)
@@ -1250,8 +1250,8 @@ class TestPlanMismatchRefusesF4:
 
     def test_a_plan_of_a_different_length_refuses_f4(self):
         plan = _plan(span_end=60.0,
-                     placements=(_placement(1, 0.0, 25.0, "Akshita"),
-                                 _placement(1, 25.0, 25.0, "Akshita")))
+                     placements=(_placement(1, 0.0, 25.0, "SpeakerOne"),
+                                 _placement(1, 25.0, 25.0, "SpeakerOne")))
         timeline = _timeline(video_items=(_item("video", 1, 0, 599),))
         result = verify_reel(plan, timeline)
         classes = {f.finding_class for f in result.findings
@@ -1288,17 +1288,17 @@ class TestCaptionHangs:
 
 class TestF17SequentialTurnVsSimultaneousTalkover:
     """F17 claims a card MIXES two speakers. Reel 5 of the rebuild
-    (2026-09-08) proves time overlap is not mixing: Akshita's card
+    (2026-09-08) proves time overlap is not mixing: SpeakerOne's card
     'recommend you or your brand.' (412.63-413.85s) carries only her
-    words, but Craig's overlapping onset 'about' (412.77-414.03s) shares
+    words, but SpeakerTwo's overlapping onset 'about' (412.77-414.03s) shares
     the same seconds, so the check failed a card no regrouping can fix -
-    every sub-span of it overlaps Craig too. Only a SEQUENTIAL turn
+    every sub-span of it overlaps SpeakerTwo too. Only a SEQUENTIAL turn
     (one speaker's words then the other's, disjoint in time) is a card
     defect, because only that can be regrouped apart."""
 
     def _reel5_segments(self):
         return [
-            _row(412.63, 413.85, "Akshita", "recommend you or your brand.",
+            _row(412.63, 413.85, "SpeakerOne", "recommend you or your brand.",
                  item_id="uid-a",
                  words=tuple(
                      {"word": w, "start": a, "end": b, "timed": True}
@@ -1309,7 +1309,7 @@ class TestF17SequentialTurnVsSimultaneousTalkover:
                          "your": (413.45, 413.57),
                          "brand.": (413.59, 413.85),
                      }.items())),
-            _row(412.77, 414.03, "Craig", "about",
+            _row(412.77, 414.03, "SpeakerTwo", "about",
                  words=({"word": "about", "start": 412.77, "end": 414.03,
                           "timed": True},)),
         ]
@@ -1463,10 +1463,10 @@ class TestCaptionProvenanceGate:
         frames = 24
         captions = (
             PlannedCaption(start_seconds=0.0, end_seconds=1.0,
-                           text="one two", speaker="Akshita",
+                           text="one two", speaker="SpeakerOne",
                            frames=frames, block_position="body_1"),
             PlannedCaption(start_seconds=1.0, end_seconds=2.0,
-                           text="three four", speaker="Akshita",
+                           text="three four", speaker="SpeakerOne",
                            frames=frames, block_position="body_2"),
         )
         placed = (
@@ -1556,10 +1556,10 @@ class TestF6GradesPlacedCards:
         """The planner's overlap was never placed: no F6 on the reel."""
         plan_captions = (
             PlannedCaption(start_seconds=0.0, end_seconds=1.0,
-                           text="one two", speaker="Akshita",
+                           text="one two", speaker="SpeakerOne",
                            frames=24, block_position="body_1"),
             PlannedCaption(start_seconds=0.5, end_seconds=1.5,
-                           text="three four", speaker="Craig",
+                           text="three four", speaker="SpeakerTwo",
                            frames=24, block_position="body_1"),
         )
         placed = (
@@ -1605,7 +1605,7 @@ class TestPlacedCaptionHangs:
         plan = [_planned_card(55.375, 57.2, "yeah so ranking tells google")]
         hang = _placed_caption(
             self.HANG_START, self.HANG_FRAMES,
-            "sub_reel-05-the-audit-that-was-eye-o_akshita_"
+            "sub_reel-05-the-audit-that-was-eye-o_speakerone_"
             "yeah-so-ranking-tells-google_05383e4d.mov")
         return plan, hang
 
@@ -1632,22 +1632,22 @@ class TestCaptionSlugFragments:
 
     REAL_NAMES = [
         (440, 40,
-         "sub_reel-05-the-audit-that-was-eye-o_akshita_"
+         "sub_reel-05-the-audit-that-was-eye-o_speakerone_"
          "it-they-were-being-invisible-o_54079ecd.mov"),
         (482, 56,
-         "sub_reel-05-the-audit-that-was-eye-o_akshita_"
+         "sub_reel-05-the-audit-that-was-eye-o_speakerone_"
          "their-services-were-not-being-_825fef8a.mov"),
         (546, 36,
-         "sub_reel-05-the-audit-that-was-eye-o_akshita_"
+         "sub_reel-05-the-audit-that-was-eye-o_speakerone_"
          "the-same-way-that-they-envisio_c270b8f1.mov"),
         (1616, 12,
-         "sub_reel-05-the-audit-that-was-eye-o_craig_"
+         "sub_reel-05-the-audit-that-was-eye-o_speakertwo_"
          "here-yeah-so-ranking-tells-goo_e896ede1.mov"),
         (1628, 11,
-         "sub_reel-05-the-audit-that-was-eye-o_akshita_"
+         "sub_reel-05-the-audit-that-was-eye-o_speakerone_"
          "ranking-tells-google-that-you-_1cbbb2da.mov"),
         (1837, 43,
-         "sub_reel-05-the-audit-that-was-eye-o_akshita_"
+         "sub_reel-05-the-audit-that-was-eye-o_speakerone_"
          "yourself-the-lucy-visibility-s_979c0be4.mov"),
     ]
 
@@ -1663,7 +1663,7 @@ class TestCaptionSlugFragments:
 
         # A previous producer's name from ANOTHER reel placed here is the
         # old overwrite made visible, and is still flagged.
-        items = self._items([(100, 40, "sub_reel-01-geography_akshita_"
+        items = self._items([(100, 40, "sub_reel-01-geography_speakerone_"
                                        "body-1_10000-11000_ab12cd34.mov")])
         assert check_caption_slugs(self.REEL, items) != []
 
@@ -1761,7 +1761,7 @@ def _item_2(track_type, track_index, duration_frames, name="clip"):
         start_frame=0, end_frame=duration_frames,
         duration_frames=duration_frames,
         source_start_frame=0, source_end_frame=duration_frames,
-        source_file="/m/a.MXF", speaker="Akshita", name=name)
+        source_file="/m/a.MXF", speaker="SpeakerOne", name=name)
 
 
 def test_fragment_av_slivers_fail_against_the_same_floor():
@@ -1798,12 +1798,12 @@ def test_verify_reel_grades_the_placed_card_not_the_plan():
         plan_seconds=30.0, plan_frames=round(30.0 * FPS, 1),
         span_start=0.0, span_end=30.0,
         placements=(PlannedPlacement(
-            track_index=1, speaker="Akshita", record_seconds=0.0,
+            track_index=1, speaker="SpeakerOne", record_seconds=0.0,
             source_in=0.0, source_out=30.0,
             source_file="/m/a.MXF"),),
         captions=(PlannedCaption(
             start_seconds=0.0, end_seconds=1.0, text="yeah.",
-            speaker="Akshita", frames=int(round(1.0 * FPS)),
+            speaker="SpeakerOne", frames=int(round(1.0 * FPS)),
             block_position="7", block_end_seconds=1.0),),
         keep_ranges=((0.0, 30.0),))
     picture = TimelineItem(
@@ -1812,11 +1812,11 @@ def test_verify_reel_grades_the_placed_card_not_the_plan():
         duration_frames=int(round(30.0 * FPS)),
         source_start_frame=0,
         source_end_frame=int(round(30.0 * FPS)),
-        source_file="/m/a.MXF", speaker="Akshita", name="take")
+        source_file="/m/a.MXF", speaker="SpeakerOne", name="take")
     flash = TimelineItem(
         track_type="video", track_index=3, start_frame=0, end_frame=2,
         duration_frames=2, source_start_frame=0, source_end_frame=2,
-        source_file="/m/a.MXF", speaker="Akshita", name="yeah.")
+        source_file="/m/a.MXF", speaker="SpeakerOne", name="yeah.")
     timeline = ReelTimeline(
         reel_name="Reel 19 - can-you-game-ai", fps=FPS,
         total_frames=int(round(30.0 * FPS)),
@@ -1888,8 +1888,8 @@ def _snapshot(timeline, transform=None):
     if timeline.GetName() == STAGING:
         clips = (TimelineClip(
             resolve_item_id="uid-lc4932",
-            track_type="video", track_index=1, track_name="Akshita",
-            speaker="Akshita", source_file=SOURCE,
+            track_type="video", track_index=1, track_name="SpeakerOne",
+            speaker="SpeakerOne", source_file=SOURCE,
             source_in=0.0, source_out=10.0,
             source_in_frame=0, source_out_frame=240,
             source_frames=1000,
@@ -2075,8 +2075,8 @@ def _render(path, src, duration=4):
 def _placed(source_file, source_in, source_out, master_start):
     return TimelineClip(
         resolve_item_id=f"placed-{source_in}",
-        track_type="video", track_index=1, track_name="Akshita",
-        speaker="Akshita", source_file=str(source_file),
+        track_type="video", track_index=1, track_name="SpeakerOne",
+        speaker="SpeakerOne", source_file=str(source_file),
         source_in=source_in, source_out=source_out,
         source_in_frame=int(source_in * 24),
         source_out_frame=int(source_out * 24),
@@ -2088,7 +2088,7 @@ def _placed(source_file, source_in, source_out, master_start):
 
 def _transcript(words=()):
     return {"segments": [
-        {"speaker": "Akshita", "timeline_start": 0.0,
+        {"speaker": "SpeakerOne", "timeline_start": 0.0,
          "words": [{"word": w[2], "start": w[0], "end": w[1]}
                    for w in words]}]}
 
@@ -2106,7 +2106,7 @@ def test_cover_derives_master_span_from_the_neighbour(tmp_path):
     assert clip.timeline_start == pytest.approx(100.5)
     assert clip.timeline_end == pytest.approx(101.5)
     assert (clip.track_index, clip.track_name, clip.speaker) == (
-        1, "Akshita", "Akshita")
+        1, "SpeakerOne", "SpeakerOne")
     assert clip.transform == {"ZoomX": 2.0}, \
         "the same camera keeps the same crop"
     assert clip.source_file == str(media)

@@ -172,7 +172,7 @@ class FakeClip:
     def __init__(self, **kwargs):
         defaults = dict(
             resolve_item_id="id-1", track_type="video", track_index=1,
-            track_name="Craig", speaker="Craig",
+            track_name="SpeakerTwo", speaker="SpeakerTwo",
             source_file="/f/a.mov", source_in_frame=10,
             source_out_frame=110, source_frames=1000,
             timeline_start=0.0, timeline_end=4.17, name="a.mov",

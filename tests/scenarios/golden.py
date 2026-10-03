@@ -112,16 +112,16 @@ CONVERSATION = Conversation(
     name="Golden Conversation",
     master="Golden - Synced",
     seconds=21.0,
-    speakers=("Akshita", "Craig"),
+    speakers=("SpeakerOne", "SpeakerTwo"),
     lines=(
-        Line("Akshita", 0.0,
+        Line("SpeakerOne", 0.0,
              "so what does an AI actually say about your brand today"),
-        Line("Craig", 4.0, "it depends on what it read and where it read it"),
-        Line("Akshita", 8.0,
+        Line("SpeakerTwo", 4.0, "it depends on what it read and where it read it"),
+        Line("SpeakerOne", 8.0,
              "which means the content you publish is the answer"),
-        Line("Craig", 12.0,
+        Line("SpeakerTwo", 12.0,
              "right and most brands never check that answer at all"),
-        Line("Akshita", 16.0,
+        Line("SpeakerOne", 16.0,
              "so go check what it says about you the link is below"),
     ),
 )
@@ -135,7 +135,7 @@ CONVERSATION_24FPS = replace(
 )
 
 #: What the model answers at step 3.04 for a conversation recipe: one reel,
-#: the exchange in lines 0-3, closing on Akshita's call to action (line 4).
+#: the exchange in lines 0-3, closing on SpeakerOne's call to action (line 4).
 def conversation_answer(recipe: Conversation) -> dict:
     """The model answer for the conversation recipe's planned exchange."""
     return {
@@ -303,7 +303,7 @@ def render_engine(job: dict, timeline) -> bool:
 def conversation_world(recipe: Conversation, media: dict):
     """The captain's synced master in the canonical double: a row per
     angle named for its speaker, a program-audio row per angle named for
-    its STREAM (`Akshita CH1`), every angle covering the whole master."""
+    its STREAM (`SpeakerOne CH1`), every angle covering the whole master."""
     from tests import resolve_double as rd
 
     project = rd.make_project(recipe.name, width=1080, height=1920,

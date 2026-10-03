@@ -326,14 +326,14 @@ def test_select_reels_bridge_publishes_rules_and_soft_target(tmp_path):
         tmp_path, None,
         "target_length_seconds: 45\n"
         "content_rules:\n"
-        "  speakers_must_interact: [akshita]\n"
+        "  speakers_must_interact: [speakerone]\n"
         "  require_value_add: true\n"
         "  require_cta: false\n")
     out = reels_bridge.build_context(
         {"timeline_transcript": {}, "project_folder": folder})
     assert out["target_length_seconds"] == 45.0
     assert out["content_rules"] == {
-        "speakers_must_interact": ["akshita"],
+        "speakers_must_interact": ["speakerone"],
         "require_value_add": True, "require_cta": False}
     # A video with no preferences offers the prompt no new tables.
     empty = tmp_path / "empty"

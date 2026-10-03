@@ -78,9 +78,9 @@ def document(with_confidence: bool) -> dict:
         "derived_from": {"duration_seconds": 400.0, "fps": 23.976,
                          "picture_holes": []},
         "segments": [
-            segment("Akshita", 281.07, 284.07, CLEAN, "clip-b", conf[0]),
-            segment("Akshita", 284.13, 288.06, GARBLED, "clip-b", conf[1]),
-            segment("Craig", 290.73, 299.41, PICKUP, "clip-c", conf[2]),
+            segment("SpeakerOne", 281.07, 284.07, CLEAN, "clip-b", conf[0]),
+            segment("SpeakerOne", 284.13, 288.06, GARBLED, "clip-b", conf[1]),
+            segment("SpeakerTwo", 290.73, 299.41, PICKUP, "clip-c", conf[2]),
         ],
     }
 
@@ -153,7 +153,7 @@ def test_the_line_the_model_asked_about_is_the_line_that_is_flagged():
     flagged = tc.script_mismatches(document(False))
     assert len(flagged) == 1
     assert flagged[0]["start"] == 284.13 and flagged[0]["end"] == 288.06
-    assert flagged[0]["speaker"] == "Akshita"
+    assert flagged[0]["speaker"] == "SpeakerOne"
     assert flagged[0]["foreign"] == {"HANGUL": 4}
 
 
@@ -271,7 +271,7 @@ def test_a_transcript_that_predates_this_still_loads():
     disk today was written without the field."""
     from library.tools.timeline_transcript import SpokenSegment
 
-    old = segment("Craig", 1.0, 2.0, "hello", "clip-a")
+    old = segment("SpeakerTwo", 1.0, 2.0, "hello", "clip-a")
     old["words"] = tuple(old["words"])
     assert SpokenSegment(**old).avg_logprob is None
 
@@ -284,13 +284,13 @@ def test_a_row_re_read_at_word_level_keeps_the_decodes_confidence():
 
     clip = TimelineClip(
         resolve_item_id="clip-a", track_type="video", track_index=1,
-        track_name="Craig", speaker="Craig", source_file="/x.MXF",
+        track_name="SpeakerTwo", speaker="SpeakerTwo", source_file="/x.MXF",
         source_in=100.0, source_out=110.0, source_in_frame=2400,
         source_out_frame=2640, source_frames=None,
         timeline_start=0.0, timeline_end=10.0, name="clip")
     words = [{"word": w, "start": 1.0 + i, "end": 1.5 + i, "timed": True}
              for i, w in enumerate(["one", "two", "three"])]
-    pieces = read_from_words("Craig", "one two three", words, [clip],
+    pieces = read_from_words("SpeakerTwo", "one two three", words, [clip],
                              avg_logprob=-0.42)
     assert pieces and all(p.avg_logprob == -0.42 for p in pieces)
 
@@ -307,9 +307,9 @@ def test_the_document_says_how_many_rows_carry_one():
         duration = 400.0
         clips = ()
 
-    rows = [SpokenSegment("Akshita", CLEAN, 281.07, 284.07, "/x.MXF", 1.0,
+    rows = [SpokenSegment("SpeakerOne", CLEAN, 281.07, 284.07, "/x.MXF", 1.0,
                           4.0, "clip-b", (), False, -0.21),
-            SpokenSegment("Akshita", GARBLED, 284.13, 288.06, "/x.MXF", 4.0,
+            SpokenSegment("SpeakerOne", GARBLED, 284.13, 288.06, "/x.MXF", 4.0,
                           8.0, "clip-b", (), False, None)]
     built = transcript_document(Snapshot(), rows)
     assert built["segments_with_asr_confidence"] == 1
@@ -338,8 +338,8 @@ def hybrid_document() -> dict:
         for word in row["words"]:
             word[ALIGNMENT_SCORE] = 0.9 - 0.1 * index
     doc["transcription"] = {
-        "arms": {"Akshita": hybrid_transcription.ARM_HYBRID,
-                 "Craig": hybrid_transcription.ARM_HYBRID},
+        "arms": {"SpeakerOne": hybrid_transcription.ARM_HYBRID,
+                 "SpeakerTwo": hybrid_transcription.ARM_HYBRID},
         "by_speaker": {},
         "asr_confidence": hybrid_transcription.ASR_CONFIDENCE_ABSENT,
     }
@@ -425,10 +425,10 @@ def mfa_document() -> dict:
 
     doc = document(with_confidence=False)
     doc["transcription"] = {
-        "arms": {"Akshita": hybrid_transcription.ARM_HYBRID,
-                 "Craig": hybrid_transcription.ARM_HYBRID},
-        "aligners": {"Akshita": hybrid_transcription.ALIGNER_MFA,
-                     "Craig": hybrid_transcription.ALIGNER_MFA},
+        "arms": {"SpeakerOne": hybrid_transcription.ARM_HYBRID,
+                 "SpeakerTwo": hybrid_transcription.ARM_HYBRID},
+        "aligners": {"SpeakerOne": hybrid_transcription.ALIGNER_MFA,
+                     "SpeakerTwo": hybrid_transcription.ALIGNER_MFA},
         "by_speaker": {},
         "asr_confidence": hybrid_transcription.ASR_CONFIDENCE_ABSENT,
     }
@@ -469,7 +469,7 @@ def _doc_with_lucy():
     return {
         "segments": [
             {
-                "speaker": "Craig",
+                "speaker": "SpeakerTwo",
                 "text": "we're calling the lucy visibility system",
                 "timeline_start": 10.0,
                 "timeline_end": 13.0,
@@ -495,7 +495,7 @@ def _doc_with_lucy():
                 "avg_logprob": -0.2,
             },
             {
-                "speaker": "Craig",
+                "speaker": "SpeakerTwo",
                 "text": "Lucy helps teams ship",
                 "timeline_start": 20.0,
                 "timeline_end": 22.0,
@@ -580,7 +580,7 @@ def test_suppression_boundary_does_not_split_an_apostrophe_contraction():
     from library.tools import transcript_corrections as tc
 
     document = {"segments": [{
-        "speaker": "Craig",
+        "speaker": "SpeakerTwo",
         "text": "I've I thought",
         "words": [
             {"word": "I've", "start": 1.0, "end": 1.4},
@@ -590,7 +590,7 @@ def test_suppression_boundary_does_not_split_an_apostrophe_contraction():
     }]}
     suppression = [{
         "heard": "I",
-        "scope": {"speaker": "Craig", "surface": "I",
+        "scope": {"speaker": "SpeakerTwo", "surface": "I",
                   "prev": "I've", "next": "thought"},
     }]
 
@@ -656,7 +656,7 @@ def _reel_transcript():
     for i in range(4):
         start = 20.0 + i * 5.0
         segments.append({
-            "speaker": "Craig" if i % 2 == 0 else "Akshita",
+            "speaker": "SpeakerTwo" if i % 2 == 0 else "SpeakerOne",
             "text": f"line number {i} here",
             "timeline_start": start,
             "timeline_end": start + 5.0,
@@ -786,7 +786,7 @@ def _hybrid_doc_with_lucy():
         for word in row["words"]:
             word[ALIGNMENT_SCORE] = 0.72
     doc["transcription"] = {
-        "arms": {"Craig": hybrid_transcription.ARM_HYBRID},
+        "arms": {"SpeakerTwo": hybrid_transcription.ARM_HYBRID},
         "by_speaker": {},
         "asr_confidence": hybrid_transcription.ASR_CONFIDENCE_ABSENT,
     }
@@ -847,7 +847,7 @@ def test_an_uncertain_model_proposal_records_pending_not_applied(tmp_path):
     rec = tc.record_display_suppression(
         str(tmp_path), "different",
         reason="MODEL, BORDERLINE: reduplication; retire if emphasis",
-        scope={"speaker": "Akshita", "surface": "different",
+        scope={"speaker": "SpeakerOne", "surface": "different",
                "prev": "different", "next": "sources"},
         proposed_by="model", status=lc.PENDING)
     assert rec["status"] == "pending"
@@ -894,7 +894,7 @@ from library.steps.step_4_01_plan_subtitles.step import generate_subtitles
 from library.tools.transcript_duration_anomaly import flag_duration_anomalies
 
 
-def _row(tokens, position=8, speaker="Akshita"):
+def _row(tokens, position=8, speaker="SpeakerOne"):
     """Stamp (word, duration) pairs onto cumulative timeline seconds."""
     words = []
     cursor = 1843.0
@@ -948,7 +948,7 @@ def test_the_r12_row_flags_both_complaints_against_its_local_rate():
     hallucinate = next(w for w in report["warnings"]
                        if w["word"] == "hallucinate")
     assert hallucinate["duration_seconds"] == 1.55
-    assert hallucinate["speaker"] == "Akshita"
+    assert hallucinate["speaker"] == "SpeakerOne"
     assert hallucinate["position"] == 8
     # Derived from this row, not a constant: the row median, far below
     # either flagged duration.
@@ -975,7 +975,7 @@ def test_ordinary_rows_stay_silent():
     and flag that one."""
     for tokens in (SLOW_ROW, HEALTHY_FAST_ROW):
         report = flag_duration_anomalies([_row(tokens, position=3,
-                                               speaker="Craig")])
+                                               speaker="SpeakerTwo")])
         assert report["rows_checked"] == 1
         assert report["warnings"] == []
 
@@ -1232,7 +1232,7 @@ def _doc():
     return {"transcription": {"arms": {"A": "hybrid"},
                               "aligners": {"A": "mfa"}},
             "segments": [
-                {"speaker": "Akshita",
+                {"speaker": "SpeakerOne",
                  "text": "make niche qu niche questions",
                  "words": [
                      {"word": "make", "start": 1.0, "end": 1.2},
@@ -1240,7 +1240,7 @@ def _doc():
                      {"word": "qu", "start": 1.5, "end": 1.7},
                      {"word": "niche", "start": 1.7, "end": 2.0},
                      {"word": "questions", "start": 2.0, "end": 2.5}]},
-                {"speaker": "Craig",
+                {"speaker": "SpeakerTwo",
                  "text": "better than X, Y, and Z",
                  "words": [
                      {"word": "better", "start": 3.0, "end": 3.3},
@@ -1249,7 +1249,7 @@ def _doc():
                      {"word": "Y,", "start": 3.7, "end": 3.9},
                      {"word": "and", "start": 3.9, "end": 4.0},
                      {"word": "Z.", "start": 4.0, "end": 4.2}]},
-                {"speaker": "Craig",
+                {"speaker": "SpeakerTwo",
                  "text": "I I think so",
                  "words": [
                      {"word": "I", "start": 5.0, "end": 5.1},
@@ -1327,7 +1327,7 @@ def test_scan_records_with_evidence_and_provenance(tmp_path):
         assert len(view) == 3  # every sentence, not just candidates
         return {"suppress": [
                     {"seg": 0, "index": 2, "word": "qu",
-                     "speaker": "Akshita", "prev": "niche",
+                     "speaker": "SpeakerOne", "prev": "niche",
                      "next": "niche", "scope": "anchored",
                      "why": "stray phoneme the reader does not need"}],
                 "respell": [{"heard": "aics", "correct": "AI sees",
@@ -1347,7 +1347,7 @@ def test_scan_records_with_evidence_and_provenance(tmp_path):
     assert all(kind == ("mistake_fix", "the pipeline")
                for kind in kinds.values())
     suppression = tc.suppressions(project)[0]
-    assert suppression["scope"] == {"speaker": "Akshita",
+    assert suppression["scope"] == {"speaker": "SpeakerOne",
                                     "surface": "qu",
                                     "prev": "niche", "next": "niche"}
     # ...and the next run enforces what was recorded.
@@ -1396,12 +1396,12 @@ def test_scan_holds_uncertain_rows_pending_and_applies_confident(tmp_path):
     def stub_judge(view, candidates, terms, project_folder):
         return {"suppress": [
                     {"seg": 0, "index": 2, "word": "qu",
-                     "speaker": "Akshita", "prev": "niche",
+                     "speaker": "SpeakerOne", "prev": "niche",
                      "next": "niche", "scope": "anchored",
                      "why": "BORDERLINE: stray phoneme, keep if "
                             "emphasis"},
                     {"seg": 2, "index": 1, "word": "I",
-                     "speaker": "Craig", "prev": "I", "next": "think",
+                     "speaker": "SpeakerTwo", "prev": "I", "next": "think",
                      "scope": "anchored",
                      "why": "false-start repeat the reader does not "
                             "need"}],
@@ -1833,7 +1833,7 @@ def segment_2(speaker, start, end, text, item="clip-a"):
     }
 
 
-# The shape of the field-test episode, small enough to read: Akshita's
+# The shape of the field-test episode, small enough to read: SpeakerOne's
 # 328.61-341.27 turn is FOUR segments, and 337.59 is the third of them -
 # the boundary the noisy run used and the clean run could not name.
 CLOSER = "And if you want to see how your brand appears, you should go check it out."
@@ -1844,21 +1844,21 @@ DOCUMENT = {
     "derived_from": {"duration_seconds": 400.0, "fps": 23.976,
                      "picture_holes": []},
     "segments": [
-        segment_2("Craig", 312.75, 320.10,
+        segment_2("SpeakerTwo", 312.75, 320.10,
                 "search didn't change, the question changed", "clip-a"),
-        segment_2("Craig", 320.40, 328.23,
+        segment_2("SpeakerTwo", 320.40, 328.23,
                 "and that is what decides where you show up", "clip-a"),
-        segment_2("Akshita", 328.61, 333.20,
+        segment_2("SpeakerOne", 328.61, 333.20,
                 "yes and that is exactly what we found in the audit",
                 "clip-b"),
-        segment_2("Akshita", 333.30, 337.40,
+        segment_2("SpeakerOne", 333.30, 337.40,
                 "one is a search engine the other is a decision engine",
                 "clip-b"),
-        segment_2("Akshita", 337.59, 340.47, CLOSER, "clip-b"),
-        segment_2("Akshita", 340.59, 341.27, BIO, "clip-b"),
+        segment_2("SpeakerOne", 337.59, 340.47, CLOSER, "clip-b"),
+        segment_2("SpeakerOne", 340.59, 341.27, BIO, "clip-b"),
         # Straddles a cut: no `resolve_item_id`. A boundary is never
         # placed on one, and it is REPORTED rather than hidden.
-        {"speaker": "Akshita", "text": "Yeah.",
+        {"speaker": "SpeakerOne", "text": "Yeah.",
          "timeline_start": 461.26, "timeline_end": 473.34,
          "source_file": None, "source_start": None, "source_end": None,
          "resolve_item_id": None, "words": [], "read_from_words": False},
@@ -1890,18 +1890,18 @@ def test_every_bound_segment_is_a_row_and_a_straddling_one_is_reported():
     lines = view["lines"]
     bound = [s for s in DOCUMENT["segments"] if s["resolve_item_id"]]
     assert len(lines) == len(bound)
-    assert lines[0] == {"speaker": "Craig", "start": 312.75, "end": 320.1,
+    assert lines[0] == {"speaker": "SpeakerTwo", "start": 312.75, "end": 320.1,
                         "text": "search didn't change, the question changed"}
     for row in lines:
         assert set(row) == {"speaker", "start", "end", "text"}
     assert all(row["start"] != 461.26 for row in lines)
     said = view["not_a_boundary"]
-    assert "461.26-473.34" in said and "Akshita" in said
+    assert "461.26-473.34" in said and "SpeakerOne" in said
     assert "1 stretch(es)" in said
 
 
 def test_the_boundary_inside_a_turn_reaches_the_prompt():
-    """`Akshita 337.59-341.27` is the measured case, and it is sub-turn.
+    """`SpeakerOne 337.59-341.27` is the measured case, and it is sub-turn.
 
     Her turn is 328.61-341.27. 337.59 exists only in `segments`, and the
     run that could not see it opened its reel on throat-clearing.

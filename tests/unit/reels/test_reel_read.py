@@ -172,8 +172,8 @@ class _Timeline:
 
 
 def _reel(tmp_path):
-    pool = _Pool("/footage/craig.mov")
-    clip = _Item("craig-take", 108100, 108300, 100, pool)
+    pool = _Pool("/footage/speakertwo.mov")
+    clip = _Item("speakertwo-take", 108100, 108300, 100, pool)
     return _Timeline({"video": {"V1": [clip]}}), str(tmp_path)
 
 
@@ -249,14 +249,14 @@ def test_one_read_carries_every_marker_level_and_the_clips(tmp_path):
     assert clip_notes[0]["note"] == "trim the head"
     assert clip_notes[0]["frame"] == 108100 + (200 - 100)
     assert clip_notes[0]["color"] == "Red"
-    assert clip_notes[0]["attached_clip"]["name"] == "craig-take"
+    assert clip_notes[0]["attached_clip"]["name"] == "speakertwo-take"
     assert by_source["timeline_marker"][0]["frame"] == 108000 + 50
 
     clips = reel_read.clips_of(result)
     assert len(clips) == 1
     clip = clips[0]
     assert (clip["record_in"], clip["record_out"]) == (108100, 108300)
-    assert clip["source_file"] == "/footage/craig.mov"
+    assert clip["source_file"] == "/footage/speakertwo.mov"
     assert clip["transform"]["ZoomX"] == 1.0
     assert clip["fusion"] == {"comp_count": 0, "comp_names": [],
                               "media_windows": []}
@@ -373,7 +373,7 @@ def test_the_guard_takes_its_rows_from_the_one_reader(tmp_path):
     assert guard.snapshot_timeline(timeline, REEL) == reel_read.rows_of(result)
     rows = reel_read.rows_of(result)
     assert rows["video:V1"]["count"] == 1
-    assert rows["video:V1"]["items"][0]["name"] == "craig-take"
+    assert rows["video:V1"]["items"][0]["name"] == "speakertwo-take"
 
 
 def test_full_mode_measures_ink_from_pixels_not_from_the_gain(tmp_path):
@@ -387,8 +387,8 @@ def test_full_mode_measures_ink_from_pixels_not_from_the_gain(tmp_path):
             pixels[x, y] = (255, 255, 255, 255)
     canvas.save(artefact)
 
-    pool = _Pool("/footage/craig.mov")
-    clip = _Item("craig-take", 108100, 108300, 100, pool)
+    pool = _Pool("/footage/speakertwo.mov")
+    clip = _Item("speakertwo-take", 108100, 108300, 100, pool)
     overlay_pool = _Pool(str(artefact))
     overlay = _Item("caption", 108100, 108200, 0, overlay_pool,
                     extra_markers={}, fusion=2)
@@ -405,8 +405,8 @@ def test_full_mode_measures_ink_from_pixels_not_from_the_gain(tmp_path):
                                resolve_project=_Project(timeline))
     overlays = reel_read.overlays_of(full)
     by_clip = {row["clip"]: row for row in overlays}
-    assert by_clip["craig-take"]["ink"]["measured"] is False
-    assert by_clip["craig-take"]["ink"]["reason"] == "artefact not on disk"
+    assert by_clip["speakertwo-take"]["ink"]["measured"] is False
+    assert by_clip["speakertwo-take"]["ink"]["reason"] == "artefact not on disk"
     ink = by_clip["caption"]["ink"]
     assert ink["measured"] is True
     assert ink["ink_box_xyxy"] == [50, 10, 120, 40]

@@ -55,8 +55,8 @@ AUDIT_2 = ("So we ran an audit last week on a client where an SEO team "
 def test_a_reworded_retake_is_cut_and_the_later_take_kept():
     """A retake exists because the first was flubbed - reel 02's first
     says "stuffed all their keywords with H1 tags", which is backwards."""
-    tx = _tx(_seg("Akshita", AUDIT_1, 10.0, 15.0),
-             _seg("Akshita", AUDIT_2, 18.0, 22.5, "u2"))
+    tx = _tx(_seg("SpeakerOne", AUDIT_1, 10.0, 15.0),
+             _seg("SpeakerOne", AUDIT_2, 18.0, 22.5, "u2"))
     cuts = redundant_takes(0.0, 60.0, tx)
     assert len(cuts) == 1
     assert cuts[0].dropped_start == 10.0
@@ -68,17 +68,17 @@ def test_a_reworded_retake_is_cut_and_the_later_take_kept():
 def test_what_must_not_be_cut_is_not_cut():
     """Three rows the cut rule must leave alone. An answer echoes the
     question's words - cutting on vocabulary alone deletes the question."""
-    tx = _tx(_seg("Craig", "what kind of content works best on AI platforms",
+    tx = _tx(_seg("SpeakerTwo", "what kind of content works best on AI platforms",
                   10.0, 15.0),
-             _seg("Akshita", "the best content is content that answers "
+             _seg("SpeakerOne", "the best content is content that answers "
                              "specific questions on AI platforms", 16.0, 21.0, "u2"))
     assert redundant_takes(0.0, 60.0, tx) == []
 
     # A fragment is never kept over a full line: reel 06 would have
     # dropped 4.3s to keep a 0.5s fragment.
-    tx = _tx(_seg("Akshita", "it is going to start hallucinating because it is "
+    tx = _tx(_seg("SpeakerOne", "it is going to start hallucinating because it is "
                              "confused about what you actually do", 10.0, 14.3),
-             _seg("Akshita", "confused about what you actually do hallucinating",
+             _seg("SpeakerOne", "confused about what you actually do hallucinating",
                   15.0, 15.5, "u2"))
     assert redundant_takes(0.0, 60.0, tx) == []
     # DURATION_RATIO is what refuses this, and it is the guard the module
@@ -89,8 +89,8 @@ def test_what_must_not_be_cut_is_not_cut():
     assert 4.3 / 0.5 > DURATION_RATIO
 
     # Everything the cut rule is unsure of becomes a MARKER.
-    tx = _tx(_seg("Akshita", "make sure you are writing about that", 10.0, 13.0),
-             _seg("Akshita", "make sure you are writing about why you are "
+    tx = _tx(_seg("SpeakerOne", "make sure you are writing about that", 10.0, 13.0),
+             _seg("SpeakerOne", "make sure you are writing about why you are "
                              "better than a competitor today", 14.0, 19.0, "u2"))
     assert redundant_takes(0.0, 60.0, tx) == []
     assert suspected_takes(0.0, 60.0, tx), "a near miss must still be reported"
@@ -112,9 +112,9 @@ def _clip(track, speaker, tl_start, tl_end, src_in=100.0):
 def test_both_tracks_shift_by_the_same_amount():
     """This is what stops a cut sliding one speaker against the other."""
     from library.tools.reel_build import Cut
-    cut = Cut(20.0, 25.0, "d", 26.0, 31.0, "k", "Akshita", 0.9, 0.8)
+    cut = Cut(20.0, 25.0, "d", 26.0, 31.0, "k", "SpeakerOne", 0.9, 0.8)
     ranges = keep_ranges(0.0, 60.0, [cut])
-    clips = [_clip(1, "Akshita", 0.0, 60.0), _clip(2, "Craig", 0.0, 60.0)]
+    clips = [_clip(1, "SpeakerOne", 0.0, 60.0), _clip(2, "SpeakerTwo", 0.0, 60.0)]
     spots = placements(ranges, clips, 23.976)
     by_track = {}
     for spot in spots:
@@ -184,15 +184,15 @@ def test_a_distant_cta_clip_lands_last_on_the_reel():
     """The done-check: build the placements and prove the CTA is the final
     clip, at the record frame the body's length puts it at.
 
-    Craig's closer at 468.06s is EARLIER on the master than this reel's
+    SpeakerTwo's closer at 468.06s is EARLIER on the master than this reel's
     body at 600-660s, which is the case that cannot be expressed by
     subtracting from one window - `keep_ranges` only ever removes.
     """
     from library.tools.reel_build import placements, reel_ranges
 
     fps = 24000 / 1001
-    body = _clip(1, "Akshita", 600.0, 660.0, src_in=600.0)
-    closer = _clip(2, "Craig", 460.0, 480.0, src_in=460.0)
+    body = _clip(1, "SpeakerOne", 600.0, 660.0, src_in=600.0)
+    closer = _clip(2, "SpeakerTwo", 460.0, 480.0, src_in=460.0)
 
     ranges = reel_ranges(_moment(600.0, 660.0, cta=(468.0, 476.0)), _tx())
     spots = placements(ranges, [body, closer], fps)
@@ -251,8 +251,8 @@ def test_a_finely_segmented_retake_is_cut():
     """
     line = ("search didn't change the question changed and whoever AI "
             "understands best gets the answer")
-    tx = _tx(_seg("Akshita", line, 10.0, 10.9),
-             _seg("Akshita", line, 11.0, 12.0, "u2"))
+    tx = _tx(_seg("SpeakerOne", line, 10.0, 10.9),
+             _seg("SpeakerOne", line, 11.0, 12.0, "u2"))
 
     cuts = redundant_takes(0.0, 60.0, tx)
 
@@ -271,7 +271,7 @@ def test_intra_turn_repetition_is_cut():
     """
     line = "search didn't change the question changed whoever AI understands best gets the answer"
     # Three takes inside a single segment
-    seg = _seg("Akshita", f"{line} {line} {line}", 301.2, 341.3)
+    seg = _seg("SpeakerOne", f"{line} {line} {line}", 301.2, 341.3)
     
     words_list = line.split()
     words = []
@@ -666,16 +666,16 @@ def _clip_2(
 
 def _master_clips():
     return [
-        _clip_2("video", 1, "Akshita", "Akshita", "/m/akshita.MXF", 0.0, 10.0),
-        _clip_2("video", 2, "Craig", "Craig", "/m/craig.MXF", 10.0, 20.0),
-        _clip_2("audio", 1, "Akshita CH1", "Akshita", "/m/akshita.MXF", 0.0, 10.0),
-        _clip_2("audio", 2, "Craig CH1", "Craig", "/m/craig.MXF", 10.0, 20.0),
+        _clip_2("video", 1, "SpeakerOne", "SpeakerOne", "/m/speakerone.MXF", 0.0, 10.0),
+        _clip_2("video", 2, "SpeakerTwo", "SpeakerTwo", "/m/speakertwo.MXF", 10.0, 20.0),
+        _clip_2("audio", 1, "SpeakerOne CH1", "SpeakerOne", "/m/speakerone.MXF", 0.0, 10.0),
+        _clip_2("audio", 2, "SpeakerTwo CH1", "SpeakerTwo", "/m/speakertwo.MXF", 10.0, 20.0),
     ]
 
 
 def _world(audio_channels=(1,), fail_paths=()):
     timeline = FakeTimeline()
-    paths = ["/m/akshita.MXF", "/m/craig.MXF", "/m/cap.mov", "/m/sem.mov"]
+    paths = ["/m/speakerone.MXF", "/m/speakertwo.MXF", "/m/cap.mov", "/m/sem.mov"]
     project = make_project(width=1080, height=1920, frame_rate=23.976)
     pool = project.GetMediaPool()
     pool.next_timeline = timeline
@@ -844,7 +844,7 @@ def test_reel24_build_uses_one_units_conversion_for_punches_and_override(
             )
             cursor += 0.25
         return {
-            "speaker": "Craig",
+            "speaker": "SpeakerTwo",
             "text": text,
             "timeline_start": start,
             "timeline_end": start + 4.0,
@@ -879,8 +879,8 @@ def test_reel24_build_uses_one_units_conversion_for_punches_and_override(
                 _clip_2(
                     "video",
                     1,
-                    "Craig",
-                    "Craig",
+                    "SpeakerTwo",
+                    "SpeakerTwo",
                     source_file,
                     start,
                     end,
@@ -889,8 +889,8 @@ def test_reel24_build_uses_one_units_conversion_for_punches_and_override(
                 _clip_2(
                     "audio",
                     1,
-                    "Craig CH1",
-                    "Craig",
+                    "SpeakerTwo CH1",
+                    "SpeakerTwo",
                     source_file,
                     start,
                     end,
@@ -1062,7 +1062,7 @@ def test_caption_import_failure_refuses_instead_of_dropping_the_card(monkeypatch
                     "timeline_start": 0.0,
                     "timeline_end": 1.0,
                     "source_in_frame": 0,
-                    "segment_id": "sub_akshita_source-clip_0-1000_abcdef12",
+                    "segment_id": "sub_speakerone_source-clip_0-1000_abcdef12",
                 }
             ],
             program_channels={"1": 1, "2": 1},
@@ -1099,7 +1099,7 @@ def test_caption_placement_failure_refuses_instead_of_dropping_the_card(monkeypa
                     "timeline_start": 0.0,
                     "timeline_end": 1.0,
                     "source_in_frame": 0,
-                    "segment_id": "sub_akshita_source-clip_0-1000_abcdef12",
+                    "segment_id": "sub_speakerone_source-clip_0-1000_abcdef12",
                 }
             ],
             program_channels={"1": 1, "2": 1},
@@ -1116,10 +1116,10 @@ def test_two_angles_get_two_picture_rows_and_two_named_speech_rows():
     _build(timeline, pool, project, _master_clips(), program_channels={"1": 1, "2": 1})
     assert timeline.GetTrackCount("video") == 2
     assert timeline.GetTrackCount("audio") == 2
-    assert timeline.GetTrackName("video", 1) == "Akshita"
-    assert timeline.GetTrackName("video", 2) == "Craig"
-    assert timeline.GetTrackName("audio", 1) == "Akshita CH1"
-    assert timeline.GetTrackName("audio", 2) == "Craig CH1"
+    assert timeline.GetTrackName("video", 1) == "SpeakerOne"
+    assert timeline.GetTrackName("video", 2) == "SpeakerTwo"
+    assert timeline.GetTrackName("audio", 1) == "SpeakerOne CH1"
+    assert timeline.GetTrackName("audio", 2) == "SpeakerTwo CH1"
 
 
 def test_captain_override_window_check_uses_the_builds_measured_draw_gain(monkeypatch):
@@ -1158,9 +1158,9 @@ def test_captain_override_window_check_uses_the_builds_measured_draw_gain(monkey
     v2 = timeline.GetItemListInTrack("video", 2)
     a2 = timeline.GetItemListInTrack("audio", 2)
     assert len(v1) == len(a1) == 1 and len(v2) == len(a2) == 1
-    assert "akshita" in v1[0].GetName() and "craig" in v2[0].GetName()
-    assert "akshita" in a1[0].GetName() and "craig" in a2[0].GetName()
-    assert record["track_plan"]["material"]["angles"][0]["label"] == "Akshita"
+    assert "speakerone" in v1[0].GetName() and "speakertwo" in v2[0].GetName()
+    assert "speakerone" in a1[0].GetName() and "speakertwo" in a2[0].GetName()
+    assert record["track_plan"]["material"]["angles"][0]["label"] == "SpeakerOne"
 
 
 def test_declared_angle_plan_limits_picture_rows_but_keeps_all_speech():
@@ -1168,16 +1168,16 @@ def test_declared_angle_plan_limits_picture_rows_but_keeps_all_speech():
     speech placement, or the reel keeps copying every master camera row."""
     timeline, pool, project = _world()
     clips = [
-        _clip_2("video", 1, "Akshita", "Akshita", "/m/akshita.MXF", 0.0, 20.0),
-        _clip_2("video", 2, "Craig", "Craig", "/m/craig.MXF", 0.0, 20.0),
-        _clip_2("audio", 1, "Akshita CH1", "Akshita", "/m/akshita.MXF", 0.0, 20.0),
-        _clip_2("audio", 2, "Craig CH1", "Craig", "/m/craig.MXF", 0.0, 20.0),
+        _clip_2("video", 1, "SpeakerOne", "SpeakerOne", "/m/speakerone.MXF", 0.0, 20.0),
+        _clip_2("video", 2, "SpeakerTwo", "SpeakerTwo", "/m/speakertwo.MXF", 0.0, 20.0),
+        _clip_2("audio", 1, "SpeakerOne CH1", "SpeakerOne", "/m/speakerone.MXF", 0.0, 20.0),
+        _clip_2("audio", 2, "SpeakerTwo CH1", "SpeakerTwo", "/m/speakertwo.MXF", 0.0, 20.0),
     ]
     row = {
         "op": "angle_plan",
         "anchor": {"kind": "reel"},
         "reel": FakeMoment.timeline_name,
-        "params": {"camera": "Akshita", "min_shot_seconds": 3, "lead_frames": 0},
+        "params": {"camera": "SpeakerOne", "min_shot_seconds": 3, "lead_frames": 0},
         "stated_by": "requester",
         "reason": "stay on the host",
     }
@@ -1191,9 +1191,9 @@ def test_declared_angle_plan_limits_picture_rows_but_keeps_all_speech():
     )
     assert timeline.GetTrackCount("video") == 1
     assert timeline.GetTrackCount("audio") == 2
-    assert timeline.GetTrackName("video", 1) == "Akshita"
-    assert timeline.GetTrackName("audio", 1) == "Akshita CH1"
-    assert timeline.GetTrackName("audio", 2) == "Craig CH1"
+    assert timeline.GetTrackName("video", 1) == "SpeakerOne"
+    assert timeline.GetTrackName("audio", 1) == "SpeakerOne CH1"
+    assert timeline.GetTrackName("audio", 2) == "SpeakerTwo CH1"
     assert record["angle_plan"]["declared"] is True
     assert record["angle_plan"]["picture_placements"] == 1
 
@@ -1254,7 +1254,7 @@ def test_picture_links_to_speech_in_one_call_per_pair():
 def test_seven_frame_audio_lead_links_same_angle_a_roll():
     """Reel 11's source-edge offset still links picture and speech.
 
-    Craig's speech starts seven frames before his picture item. The
+    SpeakerTwo's speech starts seven frames before his picture item. The
     placement entry point must join the overlapping items from the
     same angle despite their different start frames.
     """
@@ -1262,7 +1262,7 @@ def test_seven_frame_audio_lead_links_same_angle_a_roll():
 
     timeline, pool, project = _world()
     clips = _master_clips()
-    clips[-1] = _clip_2("audio", 2, "Craig CH1", "Craig", "/m/craig.MXF", 9.7, 20.0)
+    clips[-1] = _clip_2("audio", 2, "SpeakerTwo CH1", "SpeakerTwo", "/m/speakertwo.MXF", 9.7, 20.0)
     record = _build(timeline, pool, project, clips, program_channels={"1": 1, "2": 1})
     raw = record["track_plan"]
     plan = TrackPlan(
@@ -1339,8 +1339,8 @@ def test_program_channels_prefer_the_catalog_then_the_master():
     """Known unknown, answered: the reel path reaches the recorded
     program stream through the catalog first and the live master's own
     speech rows second - and refuses when neither names one."""
-    clips = [_clip_2("audio", 1, "Akshita CH1", "Akshita", "/m/a.MXF", 0.0, 10.0)]
-    angles = [{"key": "1", "label": "Akshita", "track_index": 1}]
+    clips = [_clip_2("audio", 1, "SpeakerOne CH1", "SpeakerOne", "/m/a.MXF", 0.0, 10.0)]
+    angles = [{"key": "1", "label": "SpeakerOne", "track_index": 1}]
     assert resolve_reel_program_channels(angles, clips, "", explicit={"1": 3}) == {
         "1": 3
     }
