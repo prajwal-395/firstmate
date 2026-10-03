@@ -486,13 +486,21 @@ class TimelineItem:
     rather than as an identity transform - see
     `library/tools/reel_framing.py`."""
 
+    fps: float = 24000 / 1001
+    """The reel timeline's own rate - the clock its frames count on.
+
+    Read from the timeline (`_snapshot_to_reel_timeline` carries
+    `snapshot.fps` here). The default is the historical 23.976 reels
+    were always built at, so hand-built fixtures that name no rate
+    read exactly as before."""
+
     @property
     def start_seconds(self) -> float:
-        return self.start_frame / (24000 / 1001)
+        return self.start_frame / self.fps
 
     @property
     def end_seconds(self) -> float:
-        return self.end_frame / (24000 / 1001)
+        return self.end_frame / self.fps
 
 
 @dataclass(frozen=True)
@@ -588,7 +596,7 @@ from library.tools.transition_overlay import OVERLAY_TRACK  # noqa: E402
 
 
 def _fps() -> float:
-    """The exact frame rate Resolve computes with."""
+    """Historical fallback for hand-built records without a frame rate."""
     return 24000 / 1001
 
 
@@ -4196,6 +4204,7 @@ def check_plan_picture_continuity(
     span_end: float,
     master_video_items: Optional[Sequence[dict]] = None,
     ranges: Optional[Sequence[Tuple[float, float]]] = None,
+    fps: float = 0.0,
 ) -> List[Finding]:
     """Plan quality: no picture holes in the master across the reel span.
 
@@ -4222,7 +4231,8 @@ def check_plan_picture_continuity(
         out: List[Finding] = []
         for one_start, one_end in spans:
             out.extend(check_plan_picture_continuity(
-                reel_name, one_start, one_end, master_video_items))
+                reel_name, one_start, one_end, master_video_items,
+                fps=fps))
         return out
 
     span_start, span_end = spans[0]
@@ -4287,7 +4297,7 @@ def check_plan_picture_continuity(
     for i in range(len(merged) - 1):
         gap_start = merged[i][1]
         gap_end = merged[i + 1][0]
-        gap_frames = int(round((gap_end - gap_start) * _fps()))
+        gap_frames = int(round((gap_end - gap_start) * (fps or _fps())))
         if gap_frames > 0:
             findings.append(Finding(
                 finding_class=FindingClass.PQ_PICTURE,
@@ -4331,6 +4341,9 @@ class ReelResult:
     bad_take_cuts: int
     markers: int
     findings: List[Finding]
+    fps: float = 24000 / 1001
+    """Reel rate for formatting measured frame counts; default preserves
+    output for legacy hand-built results."""
 
     @property
     def errors(self) -> List[Finding]:
@@ -4663,7 +4676,9 @@ def format_table(report: VerificationReport) -> str:
         big_hole_str = "-"
         if r.big_holes:
             bh = r.big_holes[0]
-            big_hole_str = f"{bh.get('gap_frames', 0)}f @{bh.get('frame', 0) / _fps():.1f}s"
+            big_hole_str = (
+                f"{bh.get('gap_frames', 0)}f @"
+                f"{bh.get('frame', 0) / (r.fps or _fps()):.1f}s")
 
         line = (
             f" {r.reel_number:>2} {r.reel_name:<48} "
@@ -5360,7 +5375,7 @@ def verify_reel(plan: ReelPlan,
     gradeable = bool(have_reference and plan.captions
                      and timeline.caption_items)
     may_grade, why = check_captions_match_provenance(
-        plan.reel_name, plan.captions, caption_provenance)
+        plan.reel_name, plan.captions, caption_provenance, fps)
     if gradeable and not may_grade:
         findings.append(Finding(
             finding_class=FindingClass.NO_REFERENCE,
@@ -5528,7 +5543,8 @@ def verify_reel(plan: ReelPlan,
         findings.extend(check_plan_picture_continuity(
             plan.reel_name, plan.span_start, plan.span_end,
             master_video_items=master_video_items,
-            ranges=plan.keep_ranges or heard_spans))
+            ranges=plan.keep_ranges or heard_spans,
+            fps=master_fps or fps))
 
     # F21: the animated explainer, against the plan the build recorded.
     # Passing None means "no record", which returns nothing rather than
@@ -5603,6 +5619,7 @@ def verify_reel(plan: ReelPlan,
         bad_take_cuts=len(plan.cuts),
         markers=len(timeline.markers),
         findings=findings,
+        fps=fps,
     )
 
 
@@ -5670,6 +5687,7 @@ def _snapshot_to_reel_timeline(snapshot, cards=()) -> ReelTimeline:
             unique_id=clip.resolve_item_id,
             track_name=getattr(clip, "track_name", "") or "",
             transform=dict(getattr(clip, "transform", None) or {}),
+            fps=fps,
         )
         row = (item.track_name or "").strip()
         is_video = clip.track_type == "video"

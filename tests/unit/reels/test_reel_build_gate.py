@@ -353,7 +353,9 @@ def _patched_build(resolve_project, project_dir, gate_result,
                   return_value=resolve_project), \
             patch("library.tools.reel_proposal.read_proposal",
                   return_value=planned_moments), \
-            patch("library.tools.timeline_ingest.snapshot_timeline"), \
+            patch("library.tools.timeline_ingest.snapshot_timeline",
+                  return_value=SimpleNamespace(
+                      clips=(), fps=24000 / 1001)), \
             verifier_patch as gate:
         caps.return_value = []
         yield placed, gate

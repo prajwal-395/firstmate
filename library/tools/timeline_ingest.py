@@ -171,6 +171,13 @@ class TimelineClip:
     treats the two alike deliberately, because the renderer's own
     `_apply_conform` returns without setting anything for a letterbox."""
 
+    fps: float = 24000 / 1001
+    """The timeline's own rate - the clock its frames count on.
+
+    Carried so `source_length_disagrees` below judges on the right
+    clock. The default is the historical 23.976, so records built
+    without a rate read exactly as before."""
+
     @property
     def duration(self) -> float:
         """How long this clip occupies the timeline - the PLAYED length,
@@ -180,8 +187,9 @@ class TimelineClip:
     @property
     def source_length_disagrees(self) -> bool:
         """True when Resolve's source frame count is not the played one."""
-        return (self.source_out_frame - self.source_in_frame) != round(
-            self.duration * 24000 / 1001) and self.source_frames is not None
+        played_frames = round(self.duration * (self.fps or 24000 / 1001))
+        return ((self.source_out_frame - self.source_in_frame) != played_frames
+                and self.source_frames is not None)
 
 
 @dataclass(frozen=True)
@@ -441,6 +449,7 @@ def snapshot_timeline(timeline, project_name: str,
                     # else - including None - is recorded as "it did not
                     # say" rather than as an identity transform.
                     transform=_item_transform(item),
+                    fps=fps,
                 ))
 
     # Video first, then audio: a reader of this snapshot is reading the

@@ -34,16 +34,11 @@ import hashlib
 import json
 import os
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import yaml
 
-#: The GEO podcast's rate. The reels path is built for 23.976 masters:
-#: `reel_build` plans captions at 24000/1001 whatever the master says
-#: (docs/GOLDEN_PROJECTS.md, "What the golden projects found").
-FPS = 24000 / 1001
-RATE = "23.976"
 WORD_SECONDS = 0.3
 WORD_LENGTH = 0.25
 LEAD = 0.1
@@ -88,15 +83,25 @@ class Conversation:
     lines: tuple
     tones: tuple = (440, 660)
     reels: tuple = field(default_factory=tuple)
+    fps: float = 24000 / 1001
+    resolve_rate: str = "23.976"
+
+    @property
+    def media_rate(self) -> str:
+        """ffmpeg's exact rate argument for the rate Resolve reports."""
+        if self.resolve_rate == "23.976":
+            return "24000/1001"
+        return self.resolve_rate
 
     def key(self) -> str:
         recipe = {"seconds": self.media_seconds(), "speakers": self.speakers,
-                  "tones": self.tones, "rate": RATE, "size": [640, 360]}
+                  "tones": self.tones, "rate": self.resolve_rate,
+                  "size": [640, 360]}
         return hashlib.sha256(
             json.dumps(recipe).encode("utf-8")).hexdigest()[:12]
 
     def frames(self) -> int:
-        return round(self.seconds * FPS)
+        return round(self.seconds * self.fps)
 
     def media_seconds(self) -> float:
         """A camera file runs past what the master uses of it."""
@@ -121,19 +126,32 @@ CONVERSATION = Conversation(
     ),
 )
 
-#: What the model answers at step 3.04 for `CONVERSATION`: one reel, the
-#: exchange in lines 0-3, closing on Akshita's call to action (line 4).
-CONVERSATION_ANSWER = {
-    "moments": [{
-        "start": CONVERSATION.lines[0].first,
-        "end": CONVERSATION.lines[3].last,
-        "slug": "check-the-answer",
-        "reason": "the whole argument in one exchange",
-        "cta": {"start": CONVERSATION.lines[4].first,
-                "end": CONVERSATION.lines[4].last,
-                "note": "the literal next step after the argument"},
-    }],
-}
+CONVERSATION_24FPS = replace(
+    CONVERSATION,
+    name="Golden Conversation 24fps",
+    master="Golden - Synced 24fps",
+    fps=24.0,
+    resolve_rate="24",
+)
+
+#: What the model answers at step 3.04 for a conversation recipe: one reel,
+#: the exchange in lines 0-3, closing on Akshita's call to action (line 4).
+def conversation_answer(recipe: Conversation) -> dict:
+    """The model answer for the conversation recipe's planned exchange."""
+    return {
+        "moments": [{
+            "start": recipe.lines[0].first,
+            "end": recipe.lines[3].last,
+            "slug": "check-the-answer",
+            "reason": "the whole argument in one exchange",
+            "cta": {"start": recipe.lines[4].first,
+                    "end": recipe.lines[4].last,
+                    "note": "the literal next step after the argument"},
+        }],
+    }
+
+
+CONVERSATION_ANSWER = conversation_answer(CONVERSATION)
 
 REEL = "Reel 01 - check-the-answer"
 
@@ -157,7 +175,7 @@ def ensure_media(recipe: Conversation) -> dict:
             subprocess.run([
                 "ffmpeg", "-v", "error", "-y",
                 "-f", "lavfi", "-i",
-                (f"testsrc2=size=640x360:rate=24000/1001:"
+                (f"testsrc2=size=640x360:rate={recipe.media_rate}:"
                  f"duration={recipe.media_seconds()}"),
                 "-f", "lavfi", "-i",
                 (f"sine=frequency={tone}:sample_rate=48000:"
@@ -183,8 +201,10 @@ def probe(path: str) -> dict:
         return {}
     num, _, den = str(stream.get("r_frame_rate", "0/1")).partition("/")
     rate = float(num) / float(den or 1) if float(den or 1) else 0.0
+    displayed_rate = (
+        "23.976" if abs(rate - 24000 / 1001) < 0.01 else f"{rate:g}")
     found = {"Resolution": f"{stream['width']}x{stream['height']}",
-             "FPS": RATE if abs(rate - FPS) < 0.01 else f"{rate:g}"}
+             "FPS": displayed_rate}
     if stream.get("nb_frames"):
         found["Frames"] = str(stream["nb_frames"])
     return found
@@ -199,7 +219,8 @@ def make_project_folder(root: Path, recipe: Conversation,
     (folder / "project.yaml").write_text(yaml.safe_dump({
         "name": recipe.name,
         "slug": "golden-conversation",
-        "source": {"type": "mov", "resolution": "640x360", "fps": 23.976},
+        "source": {"type": "mov", "resolution": "640x360",
+                   "fps": float(recipe.resolve_rate)},
         "resolve": {"project_name": resolve_name or recipe.name,
                     "timeline_name": recipe.master},
     }), encoding="utf-8")
@@ -232,7 +253,8 @@ class CardRenderer:
     QA expects a caption. Remotion draws the words; nothing
     golden asserts depends on which pixels spell them."""
 
-    def __init__(self) -> None:
+    def __init__(self, rate: str = "24000/1001") -> None:
+        self.rate = rate
         self.rendered: list = []
 
     def render(self, props_path, overlay_path, sequence=False):
@@ -244,7 +266,7 @@ class CardRenderer:
         os.makedirs(os.path.dirname(overlay_path), exist_ok=True)
         done = subprocess.run([
             "ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i",
-            (f"color=c=black@0.0:size={width}x{height}:rate=24000/1001,"
+            (f"color=c=black@0.0:size={width}x{height}:rate={self.rate},"
              f"format=rgba"),
             "-vf", (f"drawbox=x={width // 4}:y={height * 5 // 8}:"
                     f"w={width // 2}:"
@@ -261,8 +283,8 @@ def render_engine(job: dict, timeline) -> bool:
     width = int(timeline.GetSetting("timelineResolutionWidth"))
     height = int(timeline.GetSetting("timelineResolutionHeight"))
     reported = str(timeline.GetSetting("timelineFrameRate"))
-    rate, fps = (("24000/1001", FPS) if reported == RATE
-                 else (reported, float(reported)))
+    rate = "24000/1001" if reported == "23.976" else reported
+    fps = 24000 / 1001 if reported == "23.976" else float(reported)
     frames = int(job["MarkOut"]) - int(job["MarkIn"]) + 1
     path = Path(job["TargetDir"]) / f"{job['OutputFilename']}.mp4"
     done = subprocess.run([
@@ -285,7 +307,7 @@ def conversation_world(recipe: Conversation, media: dict):
     from tests import resolve_double as rd
 
     project = rd.make_project(recipe.name, width=1080, height=1920,
-                              frame_rate=RATE)
+                              frame_rate=recipe.resolve_rate)
     pool = project.GetMediaPool()
     pool.probe = probe
     clips = dict(zip(recipe.speakers,
@@ -302,7 +324,7 @@ def conversation_world(recipe: Conversation, media: dict):
             source_audio_channel_mapping=program if audio else None)
 
     master = rd.FakeTimeline(
-        recipe.master, project=project, frame_rate=RATE,
+        recipe.master, project=project, frame_rate=recipe.resolve_rate,
         settings={"timelineResolutionWidth": "1080",
                   "timelineResolutionHeight": "1920"},
         video=[(s, [angle(s)]) for s in recipe.speakers],
@@ -338,7 +360,7 @@ def install_model_seams(monkeypatch, recipe) -> CardRenderer:
 
     monkeypatch.setattr(timeline_transcript, "transcribe_audio",
                         heard(recipe))
-    renderer = CardRenderer()
+    renderer = CardRenderer(recipe.media_rate)
     captions = load_step_module("step_4_05_render_subtitles", "step.py")
     monkeypatch.setattr(captions, "_default_unit_engine",
                         lambda *_a, **_k: renderer)
@@ -433,7 +455,7 @@ def live_conversation_master(project, recipe: Conversation, media: dict):
     project's rate and frame set first (reel timelines inherit the
     rate), the angles imported, one picture and one program-audio row
     per speaker, every angle covering the whole master."""
-    for key, value in (("timelineFrameRate", RATE),
+    for key, value in (("timelineFrameRate", recipe.resolve_rate),
                        ("timelineResolutionWidth", "1080"),
                        ("timelineResolutionHeight", "1920")):
         assert project.SetSetting(key, value), f"Resolve refused {key}"

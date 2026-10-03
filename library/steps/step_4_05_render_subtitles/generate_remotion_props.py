@@ -105,9 +105,10 @@ def generate_subtitle_props_per_block(
     (project 001's lighter central band). The caller states the frame -
     see library/tools/delivery_format.py.
 
-    `fps` is the TIMELINE rate, exact - 24000/1001 on the reels path, not
-    24. Frame counts below are media frames of a file rendered at this
-    rate, so they land 1:1 on the timeline. Rounding it to an integer
+    `fps` is the exact TIMELINE rate - the reel path passes the master's
+    rate, which may be 24000/1001, 24, or another supported value. Frame
+    counts below are media frames of a file rendered at this rate, so
+    they land 1:1 on the timeline. Rounding it to an integer
     renders media at a different rate than the timeline and costs every
     segment a frame in Resolve's time-mapping (vep-caption-segment-
     off-by-one-frame). Remotion renders fractional fps faithfully.

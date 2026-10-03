@@ -37,20 +37,21 @@ pytestmark = pytest.mark.skipif(
     reason="golden media is rendered with ffmpeg")
 
 
-@pytest.fixture
-def world(tmp_path, monkeypatch, stub_resolve_script):
-    media = golden.ensure_media(golden.CONVERSATION)
-    resolve, project = golden.conversation_world(golden.CONVERSATION, media)
+@pytest.fixture(params=[golden.CONVERSATION, golden.CONVERSATION_24FPS],
+                ids=["23.976-fps", "24-fps"])
+def world(request, tmp_path, monkeypatch, stub_resolve_script):
+    recipe = request.param
+    media = golden.ensure_media(recipe)
+    resolve, project = golden.conversation_world(recipe, media)
     renderer = golden.install_offline_seams(
-        monkeypatch, resolve, golden.CONVERSATION)
-    folder = golden.make_project_folder(tmp_path, golden.CONVERSATION)
-    return folder, project, renderer
+        monkeypatch, resolve, recipe)
+    folder = golden.make_project_folder(tmp_path, recipe)
+    return folder, project, renderer, recipe
 
 
 def test_conversation_analyze_plan_build_touch_rebuild_deliver(
         world, monkeypatch, capsys):
-    folder, project, renderer = world
-    recipe = golden.CONVERSATION
+    folder, project, renderer, recipe = world
 
     # ── analyze: every line heard, bound to its own speaker's footage ──
     transcript = golden.analyze(folder)
@@ -61,7 +62,7 @@ def test_conversation_analyze_plan_build_touch_rebuild_deliver(
             f"{segment['speaker'].lower()}.mov")
 
     # ── plan: the model's moment, checked and published PROPOSED ──
-    proposal = golden.plan(folder, golden.CONVERSATION_ANSWER)
+    proposal = golden.plan(folder, golden.conversation_answer(recipe))
     (moment,) = json.loads(proposal.read_text(encoding="utf-8"))["moments"]
     assert moment["approval"] == "proposed"
     assert moment["speakers"] == ["Akshita", "Craig"]
@@ -76,6 +77,7 @@ def test_conversation_analyze_plan_build_touch_rebuild_deliver(
     assert golden.build(folder) == 0
     assert golden.timeline_names(project) == [recipe.master, golden.REEL]
     reel = golden.timeline(project, golden.REEL)
+    assert reel.GetSetting("timelineFrameRate") == recipe.resolve_rate
     built = golden.rows(reel)
     assert [name for kind, name in built if kind == "video"][:2] == [
         "Akshita", "Craig"]

@@ -196,7 +196,7 @@ swap and variant choice re-applies (`library/tools/editor_edit_carry.py`).
 """
 
 
-def caption_content_hash(cards) -> str:
+def caption_content_hash(cards, fps: float = 24000 / 1001) -> str:
     """A stable digest of the caption cards a build actually placed.
 
     The MOMENT plan is a file on disk and hashes itself. The caption
@@ -216,7 +216,9 @@ def caption_content_hash(cards) -> str:
     ``frames``, ``text``) and subtitle-entry dicts from step 4.01
     (``timeline_start``, ``timeline_end``, ``text``).  Frames are
     computed from the entry's own ``timeline_start``/``timeline_end``
-    at 24000/1001 fps when the entry carries no ``frames`` field.
+    at the reel timeline's rate (``fps`` - the build passes the
+    master's rate; the default is the historical 23.976) when the
+    entry carries no ``frames`` field.
 
     **Raises ``ValueError`` when every card is contentless** - no text,
     no meaningful start and no frames.  That is what happened when the
@@ -224,7 +226,6 @@ def caption_content_hash(cards) -> str:
     empty dicts hashed identically to fourteen real cards, and the
     duration checks believed they had a baseline when they had none.
     """
-    fps = 24000 / 1001
     digest = hashlib.sha256()
     any_content = False
     for card in cards:
@@ -874,6 +875,7 @@ def check_captions_match_provenance(
     reel_name: str,
     cards,
     provenance: Optional[dict],
+    fps: float = 24000 / 1001,
 ) -> tuple[bool, str]:
     """May caption durations be graded on this reel, and why not.
 
@@ -915,7 +917,7 @@ def check_captions_match_provenance(
             f"length and would match any set of the same count. "
             f"Treated as absent - caption durations are NOT graded. "
             f"Rebuild to record a genuine baseline.")
-    actual = caption_content_hash(cards)
+    actual = caption_content_hash(cards, fps)
     if actual == recorded:
         return True, f"{reel_name}: caption plan matches provenance"
     return False, (

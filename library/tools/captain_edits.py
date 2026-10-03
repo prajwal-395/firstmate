@@ -1982,24 +1982,6 @@ def _capture_transform(args) -> tuple:
         raise CaptainEditError(
             f"reel {number}'s played ranges cannot be derived: "
             f"{exc}") from exc
-    # A head card occupies reel seconds before any footage plays -
-    # the words land that far later on the timeline. The same
-    # arithmetic the build places from, so the capture reads the clip
-    # the words actually play on. The frame is the declared delivery
-    # format, resolved the same way the build resolves it - a capture
-    # that plans cards against an assumed frame reads the wrong clip.
-    _cap_w, _cap_h = _build.reel_resolution(args.project_folder)
-    cards = _build.plan_cards(
-        moment, transcript, ranges, args.project_folder,
-        fps=24000 / 1001,
-        width=_cap_w, height=_cap_h,
-        declarations=_build.declared_cards(args.project_folder))
-    lead = _build.lead_frames(cards, 24000 / 1001) / (24000 / 1001)
-    reel_start, master_start, master_end = anchor_reel_time(
-        ranges, transcript, anchor, lead_seconds=lead)
-    # Centre on the words, not their edge: a frame at the anchor's
-    # first word can round onto the previous item at a cut, and the
-    # previous item is exactly the wrong clip to capture.
     try:
         import DaVinciResolveScript as dvr
     except ImportError:
@@ -2022,7 +2004,8 @@ def _capture_transform(args) -> tuple:
     resolve_name = resolve_config.get("project_name", "")
     master_name = resolve_config.get("timeline_name", "")
     from library.tools.resolve_locale import scriptapp_preserving_locale
-    from library.tools.timeline_ingest import resolve_project_exactly
+    from library.tools.timeline_ingest import (
+        resolve_project_exactly, snapshot_timeline)
     resolve = scriptapp_preserving_locale(dvr, "Resolve")
     project = resolve_project_exactly(
         resolve.GetProjectManager(), resolve_name)
@@ -2044,18 +2027,6 @@ def _capture_transform(args) -> tuple:
                 f"--track {args.track!r} names no video track.")
     else:
         wanted = None
-    fps = float(timeline.GetSetting("timelineFrameRate") or 0) or 24000 / 1001
-    start_frame = timeline.GetStartFrame()
-    # Mid-anchor in reel seconds, so a cut exactly on the anchor's
-    # first word cannot round the lookup onto the previous item.
-    reel_second = reel_start + (master_end - master_start) / 2
-    frame = start_frame + round(reel_second * fps)
-    # Footage only: the frame, the captions and the motion graphics
-    # all cover the same seconds, and none of them is the clip the
-    # captain moved. What counts as footage is the master snapshot
-    # the build places from - an exact membership, never an
-    # extension guess.
-    from library.tools.timeline_ingest import snapshot_timeline
     master = None
     for index in range(1, project.GetTimelineCount() + 1):
         candidate = project.GetTimelineByIndex(index)
@@ -2067,8 +2038,37 @@ def _capture_transform(args) -> tuple:
             f"master timeline {master_name!r} is not in Resolve "
             f"project {resolve_name!r} - the footage set cannot be "
             f"listed, so nothing is recorded.")
-    footage = {clip.source_file for clip in
-               snapshot_timeline(master, resolve_name).clips}
+    master_snapshot = snapshot_timeline(master, resolve_name)
+    fps = master_snapshot.fps
+
+    # A head card occupies reel seconds before any footage plays -
+    # the words land that far later on the timeline. The same
+    # arithmetic the build places from, so the capture reads the clip
+    # the words actually play on. Use the master's exact frame clock,
+    # as the build does, when deriving cards and their lead.
+    _cap_w, _cap_h = _build.reel_resolution(args.project_folder)
+    cards = _build.plan_cards(
+        moment, transcript, ranges, args.project_folder,
+        fps=fps,
+        width=_cap_w, height=_cap_h,
+        declarations=_build.declared_cards(args.project_folder))
+    lead = _build.lead_frames(cards, fps) / fps
+    reel_start, master_start, master_end = anchor_reel_time(
+        ranges, transcript, anchor, lead_seconds=lead)
+    # Centre on the words, not their edge: a frame at the anchor's
+    # first word can round onto the previous item at a cut, and the
+    # previous item is exactly the wrong clip to capture.
+    start_frame = timeline.GetStartFrame()
+    # Mid-anchor in reel seconds, so a cut exactly on the anchor's
+    # first word cannot round the lookup onto the previous item.
+    reel_second = reel_start + (master_end - master_start) / 2
+    frame = start_frame + round(reel_second * fps)
+    # Footage only: the frame, the captions and the motion graphics
+    # all cover the same seconds, and none of them is the clip the
+    # captain moved. What counts as footage is the master snapshot
+    # the build places from - an exact membership, never an
+    # extension guess.
+    footage = {clip.source_file for clip in master_snapshot.clips}
     covering = []
     for track in range(1, timeline.GetTrackCount("video") + 1):
         if wanted is not None and track != wanted:

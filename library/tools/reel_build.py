@@ -5654,7 +5654,6 @@ def write_reel_asks_for_project(project_folder: str, transcript: dict,
     )
     import sys as _sys
 
-    fps = 24000 / 1001
     resolve_project_name, master_timeline_name = resolve_binding(
         project_folder)
     if not resolve_project_name or not master_timeline_name:
@@ -5674,8 +5673,13 @@ def write_reel_asks_for_project(project_folder: str, transcript: dict,
     if not timeline:
         raise ValueError(
             f"Could not find master timeline {master_timeline_name}")
-    master_clips = snapshot_timeline(
-        timeline, project.GetName()).clips
+    master_snapshot = snapshot_timeline(
+        timeline, project.GetName())
+    # The master's own rate: the asks describe seconds the build will
+    # play, so they are derived on the timeline's clock, never on an
+    # assumed 23.976 (docs/GOLDEN_PROJECTS.md finding 3).
+    fps = master_snapshot.fps
+    master_clips = master_snapshot.clips
 
     proposal_path = str(_proposal_path(project_folder))
     moments = read_proposal(proposal_path)
@@ -11904,6 +11908,11 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         # (`prepare_reel_timeline`).
         _live_program_channels = master_program_channels(timeline)
     master_clips = snapshot.clips
+    # The master's own rate: every caption, card, overlay and motion
+    # derivation below is planned on the timeline's clock, never on an
+    # assumed 23.976 (docs/GOLDEN_PROJECTS.md finding 3). On a 23.976
+    # master this is exactly 24000/1001, so that output is unchanged.
+    fps = snapshot.fps
 
     # `building` was selected before the repair passes, so only the
     # requested reel has been snapped, pinned or reported above.
@@ -12618,7 +12627,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 ranges, cards, _ending_decl = (
                     derive_reel_ranges_and_cards(
                         moment, transcript, master_clips,
-                        project_folder, 24000 / 1001, name,
+                        project_folder, fps, name,
                         moment_cuts, moment_insisted,
                         card_declarations=card_declarations,
                         look_decl=reel_look_decl,
@@ -12744,14 +12753,14 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 cards = render_reel_cards_timed(
                     project_folder, moment.number, name,
                     cards, str(REMOTION_DIR))
-            lead = lead_frames(cards, 24000 / 1001) / (24000 / 1001)
+            lead = lead_frames(cards, fps) / fps
 
             # Was: computed by the standalone captioner and then passed as
             # None, so every reel built since #524 carried no subtitles at
             # all while the work was done and discarded.
             subtitle_segments = None if skip_captions else reel_subtitle_segments(
                 moment, transcript, ranges, project_folder,
-                fps=24000 / 1001, width=reel_width, height=reel_height,
+                fps=fps, width=reel_width, height=reel_height,
                 timeline_name=name, lead_seconds=lead,
                 draw_gain=run_gain)
 
@@ -12764,7 +12773,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             if subtitle_segments is not None and _caption_pins:
                 (subtitle_segments, _cap_applied, _cap_short,
                  _cap_stale) = _caption_timing.apply_pins(
-                    subtitle_segments, _caption_pins, 24000 / 1001)
+                    subtitle_segments, _caption_pins, fps)
                 _caption_timing.report(_cap_applied, _cap_short,
                                        _cap_stale)
 
@@ -12773,7 +12782,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             # timeline it gets is the one it got before this existed.
             explainer_segments, explainer_plan = reel_explainer_segments(
                 moment, transcript, ranges, project_folder,
-                fps=24000 / 1001, width=reel_width, height=reel_height,
+                fps=fps, width=reel_width, height=reel_height,
                 judgement=judgement, brand_effect=brand_effect,
                 timeline_name=name, draw_gain=run_gain)
             explainer_plans.append(explainer_plan)
@@ -12790,7 +12799,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             lower_third_segments, lower_third_plan = (
                 reel_lower_third_segments(
                     moment, transcript, ranges, project_folder,
-                    fps=24000 / 1001, width=reel_width, height=reel_height,
+                    fps=fps, width=reel_width, height=reel_height,
                     brand_effect=brand_effect, timeline_name=name,
                     subtitle_segments=subtitle_segments,
                     lead_seconds=lead, extra_cuts=moment_cuts,
@@ -12807,11 +12816,11 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             from library.tools import reel_semantic_visual as sem_vis
             ask_paths = write_visual_asks(
                 moment, transcript, ranges, master_clips,
-                project_folder, 24000 / 1001, name, cards,
+                project_folder, fps, name, cards,
                 reel_look_decl)
             semantic_segments, semantic_record = sem_vis.build_for_reel(
                 moment, transcript, ranges, project_folder,
-                fps=24000 / 1001, width=reel_width, height=reel_height,
+                fps=fps, width=reel_width, height=reel_height,
                 timeline_name=name)
             semantic_records.append(semantic_record)
 
@@ -12825,7 +12834,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             # decision for no pictures.
             span_record = sem_vis.resolve_span_record(
                 moment, transcript, ranges, project_folder,
-                fps=24000 / 1001, timeline_name=name,
+                fps=fps, timeline_name=name,
                 asked=bool(ask_paths["reel_span"]))
             span_records.append(span_record)
 
@@ -12853,11 +12862,12 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                     # this reel's hash (2026-09-12: Reel 13's closer pins
                     # reached Reel 23's shared-CTA cards).
                     entries = _caption_timing.retime_entries(
-                        entries, spine, _caption_pins, 24000 / 1001,
+                        entries, spine, _caption_pins, fps,
                         timeline=name)[0]
                 if entries:
                     from library.tools.plan_provenance import caption_content_hash
-                    caption_hashes[name] = caption_content_hash(entries)
+                    caption_hashes[name] = caption_content_hash(
+                        entries, fps)
                 if spine:
                     from library.tools.plan_provenance import footage_binding_hash
                     try:
@@ -12874,9 +12884,9 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             overlay_plan = None
             if overlay_declared:
                 overlay_plan = overlay_mod.plan_reel_overlays(
-                    overlay_effect, ranges, 24000 / 1001, project_folder,
+                    overlay_effect, ranges, fps, project_folder,
                     closer_seam_frame=_closer_seam_frame(
-                        moment, ranges, 24000 / 1001))
+                        moment, ranges, fps))
                 overlay_records[name] = overlay_plan.as_dict()
                 if overlay_plan.placements:
                     # The GESTURE is said on the run that places it. An
@@ -12905,7 +12915,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 # TRIMMED ranges, never a recompute from the moment.
                 spine = ask_paths["motion_spine"]
                 reel_motion, motion_record = _look.resolve_motion_for_build(
-                    project_folder, moment.number, spine, 24000/1001)
+                    project_folder, moment.number, spine, fps)
                 motion_record["locked_closing_positions"] = sorted(
                     _look.locked_closing_positions(project_folder,
                                                    moment.number))
@@ -12974,8 +12984,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 master_digest=_master_digest,
                 ranges=ranges,
                 placements_list=placements(
-                    ranges, master_clips, 24000 / 1001,
-                    lead_frames=lead_frames(cards, 24000 / 1001)),
+                    ranges, master_clips, fps,
+                    lead_frames=lead_frames(cards, fps)),
                 cards=cards,
                 caption_segments=subtitle_segments,
                 explainer_segments=explainer_segments,
@@ -13164,7 +13174,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 moment=moment,
                 master_clips=master_clips,
                 subtitle_segments=subtitle_segments,
-                fps=24000/1001,
+                fps=fps,
                 width=reel_width,
                 height=reel_height,
                 project_folder=project_folder,
@@ -13226,16 +13236,16 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                         plan_reel_picture(
                             placements(
                                 ranges, master_clips,
-                                24000/1001,
+                                fps,
                                 lead_frames=lead_frames(
-                                    cards, 24000/1001)),
+                                    cards, fps)),
                             project_folder, name, master_clips,
-                            ranges, transcript, 24000/1001,
+                            ranges, transcript, fps,
                             lead_in_frames=lead_frames(
-                                cards, 24000/1001),
+                                cards, fps),
                             rows=_ledger_mine),
-                        prepared.freeze_tail, 24000/1001),
-                    reel_look_decl, reel_motion, 24000/1001,
+                        prepared.freeze_tail, fps),
+                    reel_look_decl, reel_motion, fps,
                     track_plan=prepared.build_record["track_plan"],
                     angle_key=_angle_key,
                     grade_look=reel_grade_look,
@@ -14729,8 +14739,11 @@ def build_reel_variants(project_slug: str, reel_number: int,
     if not timeline:
         raise ValueError(
             f"Could not find master timeline {master_timeline_name}")
-    master_clips = list(snapshot_timeline(timeline,
-                                          project.GetName()).clips)
+    _variant_snapshot = snapshot_timeline(timeline,
+                                          project.GetName())
+    # The master's own rate, as in the build loop above.
+    _variant_fps = _variant_snapshot.fps
+    master_clips = list(_variant_snapshot.clips)
 
     existing = set()
     for i in range(1, project.GetTimelineCount() + 1):
@@ -14761,7 +14774,7 @@ def build_reel_variants(project_slug: str, reel_number: int,
         if blocked:
             raise ReelBuildError(blocked)
 
-    fps = 24000 / 1001
+    fps = _variant_fps
     moment_cuts = _tc.grow_cuts_over_wordless_leadin(
         _tc.exclusion_cuts_for_span(moment.timeline_start,
                                     moment.timeline_end,

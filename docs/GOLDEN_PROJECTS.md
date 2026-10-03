@@ -55,9 +55,10 @@ Found by the conversation shape on its first run. Fixed ones name the PR.
    carries four such names. Fixed in `reel_deliver._built_names_for`.
 2. **A touch that places nothing called `AppendToTimeline([])`** and took
    `len()` of whatever came back. Fixed in `composed_edit.place_all`.
-3. **The reels path is 23.976-only.** `reel_build` plans captions and cards
-   at a literal `24000 / 1001` whatever the master's rate, so a 24 fps master
-   fails F2 (captions placed a frame off). Open.
+3. **The reels path follows the master rate.** Caption, card, and overlay
+   timing is planned on the master's frame clock. The golden conversation
+   covers both 23.976 and 24 fps masters, so F2 catches one-frame caption
+   placement regressions at either rate.
 4. **Mic-bleed suppression leaves sub-floor audio slivers.** When a reel
    boundary sits in a silence under 0.5s from the other speaker's words (a
    body end the captain moves by hand), `suppress_mic_bleed_audio` keeps a

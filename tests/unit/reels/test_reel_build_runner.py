@@ -2131,7 +2131,8 @@ def test_concurrent_only_reel_asks_run_only_the_selected_reel(
                         lambda name: FakeProject("Fixture", ["Master"]))
     monkeypatch.setattr(
         "library.tools.timeline_ingest.snapshot_timeline",
-        lambda timeline, project_name: SimpleNamespace(clips=[]))
+        lambda timeline, project_name: SimpleNamespace(
+            clips=[], fps=24000 / 1001))
     monkeypatch.setattr(reel_build, "reel_resolution",
                         lambda folder: (1080, 1920))
     monkeypatch.setattr(
