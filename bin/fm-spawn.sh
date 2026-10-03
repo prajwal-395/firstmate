@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Spawn a direct report: a crewmate in a treehouse or Orca worktree, or a
 # secondmate in its isolated firstmate home.
-# Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
-#        fm-spawn.sh <task-id> <project-dir> --scout [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
+# Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--dispatch-override-reason <captain instruction>] [--backend <name>]
+#        fm-spawn.sh <task-id> <project-dir> --scout [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--dispatch-override-reason <captain instruction>] [--backend <name>]
 #        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] --secondmate
 #   --mode and --yolo are this task's delivery contract, REQUIRED for every ship
 #   spawn and refused on --scout and --secondmate spawns. Firstmate resolves both
@@ -49,7 +49,9 @@
 #   --harness <name> is the explicit per-spawn harness/profile adapter. The old
 #   positional harness arg still works for back-compat.
 #   --model <name> and --effort <low|medium|high|xhigh|max|ultra> are concrete profile
-#   axes chosen by firstmate at intake. They are only threaded into harnesses whose
+#   axes resolved from crew-dispatch.json at spawn. An explicit profile that differs
+#   from that route needs --dispatch-override-reason and the reason is recorded in meta.
+#   They are only threaded into harnesses whose
 #   installed CLIs were verified to support that axis; unsupported axes are omitted
 #   from that harness's launch rather than guessed. Ultra is the explicit
 #   exception: bin/fm-harness.sh validate-native-effort owns its model scope;
@@ -566,6 +568,20 @@ MODE_SET=0
 YOLO_SET=0
 TRACEPARENT_SET=0
 DISPATCH_LADDER=
+DISPATCH_LADDER_SET=0
+DISPATCH_OVERRIDE_REASON=
+DISPATCH_OVERRIDE_SET=0
+DISPATCH_PROFILE_ACTIVE=0
+DISPATCH_OVERRIDE_APPLIED=0
+DISPATCH_LADDER_RESOLVED=0
+DISPATCH_SOURCE=
+DISPATCH_REASON=
+DISPATCH_ROUTE_HARNESS=
+DISPATCH_ROUTE_MODEL=
+DISPATCH_ROUTE_EFFORT=
+DISPATCH_ROUTE_LADDER=
+DISPATCH_FALLBACK_SELECTED=
+DISPATCH_META_OVERRIDE_REASON=
 RELAUNCH=0
 POS=()
 want_value=
@@ -578,11 +594,12 @@ for a in "$@"; do
       harness) HARNESS_ARG=$a; HARNESS_SET=1 ;;
       model) MODEL=$a; MODEL_SET=1 ;;
       effort) EFFORT=$a; EFFORT_SET=1 ;;
+      dispatch-override-reason) DISPATCH_OVERRIDE_REASON=$a; DISPATCH_OVERRIDE_SET=1 ;;
       backend) BACKEND_ARG=$a; BACKEND_SET=1 ;;
       mode) MODE=$a; MODE_SET=1 ;;
       yolo) YOLO=$a; YOLO_SET=1 ;;
       traceparent) TRACEPARENT_ARG=$a; TRACEPARENT_SET=1 ;;
-      dispatch-ladder) DISPATCH_LADDER=$a ;;
+      dispatch-ladder) DISPATCH_LADDER=$a; DISPATCH_LADDER_SET=1 ;;
       *) echo "error: internal parser state for --$want_value" >&2; exit 1 ;;
     esac
     want_value=
@@ -597,6 +614,7 @@ for a in "$@"; do
     --model) want_value=model ;;
     --model=*) MODEL=${a#--model=}; MODEL_SET=1 ;;
     --effort) want_value=effort ;;
+    --dispatch-override-reason) want_value=dispatch-override-reason ;;
     --effort=*) EFFORT=${a#--effort=}; EFFORT_SET=1 ;;
     --backend) want_value=backend ;;
     --backend=*) BACKEND_ARG=${a#--backend=}; BACKEND_SET=1 ;;
@@ -607,15 +625,17 @@ for a in "$@"; do
     --traceparent) want_value=traceparent ;;
     --traceparent=*) TRACEPARENT_ARG=${a#--traceparent=}; TRACEPARENT_SET=1 ;;
     --dispatch-ladder) want_value=dispatch-ladder ;;
-    --dispatch-ladder=*) DISPATCH_LADDER=${a#--dispatch-ladder=} ;;
+    --dispatch-ladder=*) DISPATCH_LADDER=${a#--dispatch-ladder=}; DISPATCH_LADDER_SET=1 ;;
     *) POS+=("$a") ;;
   esac
 done
 [ -z "$want_value" ] || { echo "error: --$want_value requires a value" >&2; exit 1; }
-[ -z "$DISPATCH_LADDER" ] || [ "$DISPATCH_LADDER" = opencode ] || { echo "error: --dispatch-ladder accepts only opencode" >&2; exit 1; }
+[ "$DISPATCH_LADDER_SET" -eq 0 ] || [ "$DISPATCH_LADDER" = opencode ] || { echo "error: --dispatch-ladder accepts only opencode" >&2; exit 1; }
 [ "$HARNESS_SET" -eq 0 ] || [ -n "$HARNESS_ARG" ] || { echo "error: --harness requires a non-empty value" >&2; exit 1; }
 [ "$MODEL_SET" -eq 0 ] || [ -n "$MODEL" ] || { echo "error: --model requires a non-empty value" >&2; exit 1; }
 [ "$EFFORT_SET" -eq 0 ] || [ -n "$EFFORT" ] || { echo "error: --effort requires a non-empty value" >&2; exit 1; }
+[ "$DISPATCH_OVERRIDE_SET" -eq 0 ] || [ -n "$DISPATCH_OVERRIDE_REASON" ] || { echo "error: --dispatch-override-reason requires a non-empty value" >&2; exit 1; }
+[ "$DISPATCH_OVERRIDE_SET" -eq 0 ] || ! printf '%s' "$DISPATCH_OVERRIDE_REASON" | LC_ALL=C grep -q '[[:cntrl:]]' || { echo "error: --dispatch-override-reason must be one printable line" >&2; exit 1; }
 [ "$BACKEND_SET" -eq 0 ] || [ -n "$BACKEND_ARG" ] || { echo "error: --backend requires a non-empty value" >&2; exit 1; }
 [ "$MODE_SET" -eq 0 ] || [ -n "$MODE" ] || { echo "error: --mode requires a non-empty value" >&2; exit 1; }
 [ "$YOLO_SET" -eq 0 ] || [ -n "$YOLO" ] || { echo "error: --yolo requires a non-empty value" >&2; exit 1; }
@@ -1224,15 +1244,12 @@ if [ "$RELAUNCH" -eq 1 ] && [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart"
   exit 1
 fi
 if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in */*) false ;; *) true ;; esac; then
-  if [ "$KIND" != secondmate ] && [ -z "$HARNESS_ARG" ] && [ -f "$CONFIG/crew-dispatch.json" ]; then
-    echo "error: config/crew-dispatch.json is active - pass an explicit harness resolved from the dispatch rules (the consultation backstop, so the rules are never silently skipped)." >&2
-    exit 1
-  fi
   rc=0
   shared_args=()
   [ -z "$HARNESS_ARG" ] || shared_args+=(--harness "$HARNESS_ARG")
   [ -z "$MODEL" ] || shared_args+=(--model "$MODEL")
   [ -z "$EFFORT" ] || shared_args+=(--effort "$EFFORT")
+  [ "$DISPATCH_OVERRIDE_SET" -eq 0 ] || shared_args+=(--dispatch-override-reason "$DISPATCH_OVERRIDE_REASON")
   [ -z "$BACKEND_ARG" ] || shared_args+=(--backend "$BACKEND_ARG")
   # One delivery contract applies to every pair in a batch, exactly like the shared
   # harness. Each pair still re-validates it against its own brief, so a batch
@@ -1471,6 +1488,14 @@ if [ "$RELAUNCH" -eq 1 ]; then
   RELAUNCH_PRIOR_HARNESS=$(fm_meta_get "$RELAUNCH_META" harness)
   KIND=$(fm_meta_get "$RELAUNCH_META" kind)
   [ -n "$KIND" ] || KIND=ship
+  DISPATCH_SOURCE=$(fm_meta_get "$RELAUNCH_META" dispatch_source)
+  DISPATCH_REASON=$(fm_meta_get "$RELAUNCH_META" dispatch_reason)
+  DISPATCH_ROUTE_HARNESS=$(fm_meta_get "$RELAUNCH_META" dispatch_route_harness)
+  DISPATCH_ROUTE_MODEL=$(fm_meta_get "$RELAUNCH_META" dispatch_route_model)
+  DISPATCH_ROUTE_EFFORT=$(fm_meta_get "$RELAUNCH_META" dispatch_route_effort)
+  DISPATCH_ROUTE_LADDER=$(fm_meta_get "$RELAUNCH_META" dispatch_ladder)
+  DISPATCH_FALLBACK_SELECTED=$(fm_meta_get "$RELAUNCH_META" dispatch_fallback)
+  DISPATCH_META_OVERRIDE_REASON=$(fm_meta_get "$RELAUNCH_META" dispatch_override_reason)
   MODE=$(fm_meta_get "$RELAUNCH_META" mode)
   YOLO=$(fm_meta_get "$RELAUNCH_META" yolo)
   RELAUNCH_WT=$(fm_meta_get "$RELAUNCH_META" worktree)
@@ -1547,6 +1572,126 @@ shell_quote() {
   printf "'"
   printf '%s' "$1" | sed "s/'/'\\\\''/g"
   printf "'"
+}
+
+resolve_project_dir_arg() {
+  local path=$1
+  case "$path" in
+    projects/*) printf '%s/%s\n' "$PROJECTS" "${path#projects/}" ;;
+    *) printf '%s\n' "$path" ;;
+  esac
+}
+
+dispatch_apply_profile() {
+  local dispatch_rules="$CONFIG/crew-dispatch.json" brief_file project_dir project_name note_file route_json route_status
+  local requested_harness requested_raw mismatch=0 expected_profile
+  if [ "$KIND" = secondmate ] || [ "$RELAUNCH" -eq 1 ]; then
+    if [ "$DISPATCH_OVERRIDE_SET" -eq 1 ]; then
+      echo "error: --dispatch-override-reason applies only to a fresh crewmate or scout dispatch with config/crew-dispatch.json" >&2
+      return 1
+    fi
+    return 0
+  fi
+  if [ ! -e "$dispatch_rules" ] && [ ! -L "$dispatch_rules" ]; then
+    if [ "$DISPATCH_OVERRIDE_SET" -eq 1 ]; then
+      echo "error: --dispatch-override-reason needs an active config/crew-dispatch.json route" >&2
+      return 1
+    fi
+    return 0
+  fi
+  DISPATCH_PROFILE_ACTIVE=1
+  command -v jq >/dev/null 2>&1 || { echo "error: jq is required to enforce config/crew-dispatch.json" >&2; return 1; }
+  brief_file="$DATA/$ID/brief.md"
+  [ -r "$brief_file" ] || { echo "error: dispatch resolution needs the written task brief at $brief_file" >&2; return 1; }
+  project_dir=$(cd "$(resolve_project_dir_arg "$PROJ")" 2>/dev/null && pwd -P) || {
+    echo "error: project directory cannot be resolved for dispatch: $PROJ" >&2
+    return 1
+  }
+  project_name=$(basename "$project_dir")
+  note_file=$(mktemp "${TMPDIR:-/tmp}/fm-dispatch-resolve.XXXXXX") || {
+    echo "error: could not prepare dispatch resolver diagnostics" >&2
+    return 1
+  }
+  if route_json=$(FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-dispatch-resolve.sh" --json "$brief_file" --project "$project_name" 2>"$note_file"); then
+    :
+  else
+    route_status=$?
+    cat "$note_file" >&2
+    rm -f "$note_file"
+    echo "error: dispatch profile resolution failed with status $route_status" >&2
+    return 1
+  fi
+  [ ! -s "$note_file" ] || cat "$note_file" >&2
+  rm -f "$note_file"
+  if ! printf '%s' "$route_json" | jq -e 'type == "object" and (.status | type) == "string" and has("profile")' >/dev/null 2>&1; then
+    echo "error: dispatch resolver returned an invalid route" >&2
+    return 1
+  fi
+  DISPATCH_SOURCE=$(jq -r '.source // ""' <<<"$route_json")
+  DISPATCH_REASON=$(jq -r '.reason // ""' <<<"$route_json")
+  DISPATCH_ROUTE_HARNESS=$(jq -r '.profile.harness // ""' <<<"$route_json")
+  DISPATCH_ROUTE_MODEL=$(jq -r '.profile.model // ""' <<<"$route_json")
+  DISPATCH_ROUTE_EFFORT=$(jq -r '.profile.effort // ""' <<<"$route_json")
+  DISPATCH_ROUTE_LADDER=$(jq -r '.profile.dispatch_ladder // ""' <<<"$route_json")
+  route_status=$(jq -r '.status' <<<"$route_json")
+  expected_profile=$(jq -r '
+    if .profile == null then "no profile (status=" + .status + "; " + (.reason // "no route reason") + ")"
+    else "--harness " + .profile.harness
+      + (if .profile.model then " --model " + .profile.model else "" end)
+      + (if .profile.effort then " --effort " + .profile.effort else "" end)
+      + (if .profile.dispatch_ladder then " --dispatch-ladder " + .profile.dispatch_ladder else "" end)
+    end' <<<"$route_json")
+  requested_harness=${ARG3:-}
+  requested_raw=0
+  case "$requested_harness" in *' '*) requested_raw=1 ;; esac
+  if [ -n "$DISPATCH_ROUTE_HARNESS" ]; then
+    [ -n "$requested_harness" ] && [ "$requested_harness" = "$DISPATCH_ROUTE_HARNESS" ] || {
+      [ -z "$requested_harness" ] || mismatch=1
+    }
+    [ "$MODEL_SET" -eq 0 ] || [ "$MODEL" = "$DISPATCH_ROUTE_MODEL" ] || mismatch=1
+    [ "$EFFORT_SET" -eq 0 ] || [ "$EFFORT" = "$DISPATCH_ROUTE_EFFORT" ] || mismatch=1
+    if [ "$DISPATCH_LADDER_SET" -eq 1 ] && [ "$DISPATCH_LADDER" != "$DISPATCH_ROUTE_LADDER" ]; then
+      mismatch=1
+    fi
+  else
+    if [ -n "$requested_harness" ] || [ "$MODEL_SET" -eq 1 ] || [ "$EFFORT_SET" -eq 1 ] || [ "$DISPATCH_LADDER_SET" -eq 1 ]; then
+      mismatch=1
+    fi
+  fi
+  [ "$requested_raw" -eq 0 ] || mismatch=1
+  if [ "$mismatch" -eq 1 ] && [ "$DISPATCH_OVERRIDE_SET" -eq 0 ]; then
+    echo "error: explicit dispatch profile differs from the selected route ($expected_profile); pass --dispatch-override-reason with the current captain instruction to authorize it" >&2
+    return 1
+  fi
+  if [ "$mismatch" -eq 0 ] && [ "$DISPATCH_OVERRIDE_SET" -eq 1 ]; then
+    echo "error: --dispatch-override-reason was supplied, but the explicit profile matches the selected route ($expected_profile)" >&2
+    return 1
+  fi
+  if [ "$mismatch" -eq 1 ]; then
+    DISPATCH_OVERRIDE_APPLIED=1
+    DISPATCH_META_OVERRIDE_REASON=$DISPATCH_OVERRIDE_REASON
+  fi
+  if [ -z "$ARG3" ]; then
+    [ -n "$DISPATCH_ROUTE_HARNESS" ] || {
+      echo "error: dispatch resolver selected $expected_profile; an override needs an explicit --harness" >&2
+      return 1
+    }
+    ARG3=$DISPATCH_ROUTE_HARNESS
+  fi
+  if [ -z "$requested_harness" ] || [ "$requested_harness" = "$DISPATCH_ROUTE_HARNESS" ]; then
+    [ "$MODEL_SET" -eq 1 ] || MODEL=$DISPATCH_ROUTE_MODEL
+    [ "$EFFORT_SET" -eq 1 ] || EFFORT=$DISPATCH_ROUTE_EFFORT
+    if [ "$DISPATCH_LADDER_SET" -eq 0 ] && [ "$mismatch" -eq 0 ]; then
+      DISPATCH_LADDER=$DISPATCH_ROUTE_LADDER
+    fi
+  fi
+  if [ "$mismatch" -eq 0 ]; then
+    [ -n "$DISPATCH_ROUTE_HARNESS" ] || {
+      echo "error: dispatch resolver selected $expected_profile; refusing to launch without an authorized profile" >&2
+      return 1
+    }
+  fi
+  return 0
 }
 
 resolve_pi_executable() {
@@ -1821,6 +1966,7 @@ launch_template() {
   esac
 }
 
+dispatch_apply_profile || exit 1
 case "$ARG3" in
   *' '*)  # raw launch command (unverified-adapter escape hatch)
     RAW_LAUNCH=1
@@ -1833,8 +1979,8 @@ case "$ARG3" in
   '')
     # No explicit harness: resolve from config. A secondmate AGENT launches on the
     # secondmate harness (config/secondmate-harness -> config/crew-harness -> own);
-    # every other kind uses the crew harness only when no dispatch profile file is
-    # active. Resolving here on every spawn is what makes the split DURABLE - a
+    # every other kind uses the crew harness when no dispatch profile route selected
+    # one. Resolving here on every spawn is what makes the split DURABLE - a
     # respawn (recovery, /updatefirstmate, restart) re-resolves, so
     # config/secondmate-harness keeps governing secondmate launches across restarts.
     # The launch_template lookup below is the unverified-adapter guard for both
@@ -1843,10 +1989,6 @@ case "$ARG3" in
       HARNESS=$("$FM_ROOT/bin/fm-harness.sh" secondmate)
       harness_src='config/secondmate-harness (falling back to config/crew-harness)'
     else
-      if [ -f "$CONFIG/crew-dispatch.json" ]; then
-        echo "error: config/crew-dispatch.json is active - pass an explicit harness resolved from the dispatch rules (the consultation backstop, so the rules are never silently skipped)." >&2
-        exit 1
-      fi
       HARNESS=$("$FM_ROOT/bin/fm-harness.sh" crew)
       harness_src='config/crew-harness'
     fi
@@ -1857,6 +1999,86 @@ case "$ARG3" in
     LAUNCH=$(launch_template "$HARNESS" "$KIND") || { echo "error: unknown harness '$HARNESS'; pass a raw launch command to use an unverified adapter" >&2; exit 1; }
     ;;
 esac
+
+dispatch_opencode_ladder_apply() {
+  local note_file model rc fallback_note fallback_json fallback_status fallback_harness fallback_model fallback_effort
+  [ "$DISPATCH_LADDER" = opencode ] || return 0
+  case "$HARNESS" in opencode|codex) ;; *) return 0 ;; esac
+  note_file=$(mktemp "${TMPDIR:-/tmp}/fm-opencode-ladder.XXXXXX") || {
+    echo "error: could not prepare opencode ladder decision" >&2
+    return 1
+  }
+  if model=$(fm_opencode_ladder_model "$FM_OPENCODE_LADDER_FREE" "$STATE" 2>"$note_file"); then
+    :
+  else
+    rc=$?
+    if [ "$rc" -ne 3 ] || [ "$DISPATCH_PROFILE_ACTIVE" -ne 1 ] || [ "$DISPATCH_SOURCE" != default ] \
+       || [ "$DISPATCH_OVERRIDE_APPLIED" -eq 1 ] || [ "${FM_OPENCODE_LADDER:-}" = off ] \
+       || [ -n "${FM_OPENCODE_LADDER_OVERRIDE:-}" ]; then
+      cat "$note_file" >&2
+      rm -f "$note_file"
+      return 1
+    fi
+    fallback_note=$(mktemp "${TMPDIR:-/tmp}/fm-dispatch-fallback.XXXXXX") || {
+      cat "$note_file" >&2
+      rm -f "$note_file"
+      echo "error: could not prepare exhausted-ladder fallback resolution" >&2
+      return 1
+    }
+    if fallback_json=$(FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-dispatch-resolve.sh" --fallback --json 2>"$fallback_note"); then
+      :
+    else
+      fallback_status=$?
+      cat "$note_file" "$fallback_note" >&2
+      rm -f "$note_file" "$fallback_note"
+      echo "error: exhausted-ladder fallback resolution failed with status $fallback_status" >&2
+      return 1
+    fi
+    [ ! -s "$fallback_note" ] || cat "$fallback_note" >&2
+    rm -f "$fallback_note"
+    if ! printf '%s' "$fallback_json" | jq -e '.profile != null and (.status == "clear" or .status == "default")' >/dev/null 2>&1; then
+      cat "$note_file" >&2
+      rm -f "$note_file"
+      printf 'error: %s\n' "$(jq -r '.reason // "no eligible fallback profile"' <<<"$fallback_json")" >&2
+      return 1
+    fi
+    fallback_harness=$(jq -r '.profile.harness' <<<"$fallback_json")
+    fallback_model=$(jq -r '.profile.model // ""' <<<"$fallback_json")
+    fallback_effort=$(jq -r '.profile.effort // ""' <<<"$fallback_json")
+    DISPATCH_FALLBACK_SELECTED="$fallback_harness${fallback_model:+/$fallback_model}${fallback_effort:+/$fallback_effort}"
+    HARNESS=$fallback_harness
+    MODEL=$fallback_model
+    EFFORT=$fallback_effort
+    DISPATCH_LADDER_RESOLVED=1
+    LAUNCH=$(launch_template "$HARNESS" "$KIND") || {
+      cat "$note_file" >&2
+      rm -f "$note_file"
+      echo "error: no launch template for exhausted-ladder fallback harness '$HARNESS'" >&2
+      return 1
+    }
+    sed 's/^error: /notice: /' "$note_file" >&2
+    rm -f "$note_file"
+    printf 'notice: opencode default ladder exhausted; dispatching configured fallback %s\n' "$DISPATCH_FALLBACK_SELECTED" >&2
+    return 0
+  fi
+  model=${model:-$FM_OPENCODE_LADDER_FREE}
+  [ ! -s "$note_file" ] || cat "$note_file" >&2
+  rm -f "$note_file"
+  MODEL=$model
+  if [ "$MODEL" = "$FM_OPENCODE_LADDER_PLUS_MODEL" ]; then
+    HARNESS=codex
+    EFFORT=$(fm_opencode_ladder_plus_effort "$CONFIG")
+  else
+    HARNESS=opencode
+  fi
+  LAUNCH=$(launch_template "$HARNESS" "$KIND") || {
+    echo "error: opencode ladder launch template is unavailable" >&2
+    return 1
+  }
+  DISPATCH_LADDER_RESOLVED=1
+  return 0
+}
+dispatch_opencode_ladder_apply || exit 1
 
 # muse, gemini, and agy are verified as CREWMATE/SCOUT adapters only. A secondmate is
 # a firstmate instance, so it needs a primary supervision protocol.
@@ -1909,8 +2131,9 @@ case "$HARNESS" in
     # three refuses the new spawn. MODEL_SET is left as it was: the
     # meta record below reads MODEL itself, so the routed tier is what
     # recovery relaunches on.
-    _FM_OPENCODE_LADDER_NOTE=$(mktemp "${TMPDIR:-/tmp}/fm-opencode-ladder.XXXXXX" 2>/dev/null) || _FM_OPENCODE_LADDER_NOTE=
-    if [ -n "$_FM_OPENCODE_LADDER_NOTE" ]; then
+    if [ "$DISPATCH_LADDER_RESOLVED" -eq 0 ]; then
+      _FM_OPENCODE_LADDER_NOTE=$(mktemp "${TMPDIR:-/tmp}/fm-opencode-ladder.XXXXXX" 2>/dev/null) || _FM_OPENCODE_LADDER_NOTE=
+      [ -n "$_FM_OPENCODE_LADDER_NOTE" ] || { echo "error: could not prepare opencode ladder decision" >&2; exit 1; }
       _FM_OPENCODE_LADDER_REQUEST=${MODEL:-}
       [ "$DISPATCH_LADDER" != opencode ] || _FM_OPENCODE_LADDER_REQUEST=$FM_OPENCODE_LADDER_FREE
       _FM_OPENCODE_LADDER_MODEL=$(fm_opencode_ladder_model "$_FM_OPENCODE_LADDER_REQUEST" "$STATE" 2>"$_FM_OPENCODE_LADDER_NOTE") || {
@@ -1930,8 +2153,8 @@ case "$HARNESS" in
       fi
       [ -s "$_FM_OPENCODE_LADDER_NOTE" ] && cat "$_FM_OPENCODE_LADDER_NOTE" >&2 || true
       rm -f "$_FM_OPENCODE_LADDER_NOTE"
+      unset _FM_OPENCODE_LADDER_NOTE _FM_OPENCODE_LADDER_MODEL _FM_OPENCODE_LADDER_REQUEST
     fi
-    unset _FM_OPENCODE_LADDER_NOTE _FM_OPENCODE_LADDER_MODEL _FM_OPENCODE_LADDER_REQUEST
     # The descent tick cannot see FM_OPENCODE_LADDER_OVERRIDE where it runs -
     # the watcher is a long-lived process that predates the instruction - so
     # a launch held on free on the captain's word is recorded per task where
@@ -1944,7 +2167,7 @@ case "$HARNESS" in
     fi
     ;;
   codex)
-    if [ "$DISPATCH_LADDER" = opencode ]; then
+    if [ "$DISPATCH_LADDER" = opencode ] && [ "$DISPATCH_LADDER_RESOLVED" -eq 0 ]; then
       _FM_OPENCODE_LADDER_NOTE=$(mktemp "${TMPDIR:-/tmp}/fm-opencode-ladder.XXXXXX" 2>/dev/null) || _FM_OPENCODE_LADDER_NOTE=
       [ -n "$_FM_OPENCODE_LADDER_NOTE" ] || { echo "error: could not prepare opencode ladder decision" >&2; exit 1; }
       _FM_OPENCODE_LADDER_MODEL=$(fm_opencode_ladder_model "$FM_OPENCODE_LADDER_FREE" "$STATE" 2>"$_FM_OPENCODE_LADDER_NOTE") || {
@@ -2352,14 +2575,6 @@ resolved_existing_dir() {
   local path=$1
   [ -d "$path" ] || { echo "error: firstmate home does not exist or is not a directory: $path" >&2; return 1; }
   cd "$path" && pwd -P
-}
-
-resolve_project_dir_arg() {
-  local path=$1
-  case "$path" in
-    projects/*) printf '%s/%s\n' "$PROJECTS" "${path#projects/}" ;;
-    *) printf '%s\n' "$path" ;;
-  esac
 }
 
 path_is_ancestor_of() {
@@ -4511,7 +4726,7 @@ SPAWN_META_PATH=$SPAWN_META_TMP
 preserve_relaunch_meta() {
   awk -F= '
     BEGIN {
-      split("window endpoint_task_id worktree project harness kind mode yolo tasktmp model effort busy_gen spawn_gen spawned_at traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
+      split("window endpoint_task_id worktree project harness kind mode yolo tasktmp model effort busy_gen spawn_gen spawned_at traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx dispatch_source dispatch_reason dispatch_route_harness dispatch_route_model dispatch_route_effort dispatch_ladder dispatch_fallback dispatch_override_reason", keys, " ")
       for (i in keys) owned[keys[i]] = 1
     }
     !($1 in owned)
@@ -4529,6 +4744,14 @@ preserve_relaunch_meta() {
   echo "tasktmp=$TASK_TMP"
   echo "model=${MODEL:-default}"
   echo "effort=${EFFORT:-default}"
+  [ -z "$DISPATCH_SOURCE" ] || echo "dispatch_source=$DISPATCH_SOURCE"
+  [ -z "$DISPATCH_REASON" ] || echo "dispatch_reason=$DISPATCH_REASON"
+  [ -z "$DISPATCH_ROUTE_HARNESS" ] || echo "dispatch_route_harness=$DISPATCH_ROUTE_HARNESS"
+  [ -z "$DISPATCH_ROUTE_MODEL" ] || echo "dispatch_route_model=$DISPATCH_ROUTE_MODEL"
+  [ -z "$DISPATCH_ROUTE_EFFORT" ] || echo "dispatch_route_effort=$DISPATCH_ROUTE_EFFORT"
+  [ -z "$DISPATCH_ROUTE_LADDER" ] || echo "dispatch_ladder=$DISPATCH_ROUTE_LADDER"
+  [ -z "$DISPATCH_FALLBACK_SELECTED" ] || echo "dispatch_fallback=$DISPATCH_FALLBACK_SELECTED"
+  [ -z "$DISPATCH_META_OVERRIDE_REASON" ] || echo "dispatch_override_reason=$DISPATCH_META_OVERRIDE_REASON"
   [ -z "${BUSY_GEN:-}" ] || echo "busy_gen=$BUSY_GEN"
   echo "spawn_gen=$SPAWN_GEN"
   echo "spawned_at=$SPAWN_PUBLISHED_AT"

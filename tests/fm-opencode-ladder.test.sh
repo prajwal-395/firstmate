@@ -218,10 +218,11 @@ test_all_rungs_exhausted_refuses() {
     fail "all exhausted tiers must refuse, got '$got'"
   fi
   case "$(cat "$note")" in *'free capped until'*'Codex Plus capped until'*'Go capped until'*) : ;; *) fail "refusal must name all reset times: $(cat "$note")" ;; esac
-  if got=$(FM_OPENCODE_LADDER_OVERRIDE=hold FM_TEST_GO_REMAINING=0 FM_TEST_CODEX_REMAINING=0 PATH="$QUOTA_BIN:$PATH" fm_opencode_ladder_model "$FREE" "$state" 2>"$note"); then
-    fail "override must not bypass refusal when all tiers are exhausted, got '$got'"
-  fi
-  pass "all three exhausted tiers refuse and name themselves"
+  got=$(FM_OPENCODE_LADDER_OVERRIDE=hold FM_TEST_GO_REMAINING=0 FM_TEST_CODEX_REMAINING=0 PATH="$QUOTA_BIN:$PATH" fm_opencode_ladder_model "$FREE" "$state" 2>"$note") \
+    || fail "the explicit ladder override should continue holding free after all caps: $(cat "$note")"
+  [ "$got" = "$FREE" ] || fail "the explicit override must hold free, got '$got'"
+  assert_contains "$(cat "$note")" 'OVERRIDDEN by FM_OPENCODE_LADDER_OVERRIDE=hold' "all-cap override explains its bypass"
+  pass "all three exhausted tiers refuse, and the explicit override still holds free"
 }
 
 test_plugin_vocabulary_free_cap_falls_through_to_go() {
@@ -431,6 +432,19 @@ SH
   cat > "$fakebin/quota-axi" <<'SH'
 #!/usr/bin/env bash
 provider=
+if [ "${1:-}" = --json ]; then
+  codex=${FM_TEST_CODEX_REMAINING:-100}
+  opencode=${FM_TEST_OPENCODE_REMAINING:-100}
+  go=${FM_TEST_GO_REMAINING:-100}
+  cat <<JSON
+{"schemaVersion":5,"providers":[
+ {"provider":"codex","state":{"status":"fresh"},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":$codex,"runway":{"status":"through_reset"},"selection":{"spendPriority":0.1}}]}},
+ {"provider":"opencode","state":{"status":"fresh"},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":$opencode,"runway":{"status":"through_reset"},"selection":{"spendPriority":0.1}}]}},
+ {"provider":"opencode-go","state":{"status":"fresh"},"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":$go,"runway":{"status":"through_reset"},"selection":{"spendPriority":0.1}}]}}
+]}
+JSON
+  exit 0
+fi
 while [ "$#" -gt 0 ]; do
   case "$1" in --provider) provider=$2; shift 2 ;; *) shift ;; esac
 done
@@ -456,18 +470,29 @@ SH
 # spawn_opencode <dir> <id> [model] [harness] [dispatch-ladder] [configured-plus-effort]
 # Run a REAL bin/fm-spawn.sh launch and print "<launch-log> <herdr-call-log> <home>".
 # Model empty means no --model flag at all.
-spawn_opencode() {  # <dir> <id> [model] [harness] [dispatch-ladder] [configured-plus-effort]
-  local dir=$1 id=$2 model=${3:-} harness=${4:-opencode} ladder=${5:-} plus_effort=${6:-} home proj wt fakebin
-  local -a ladder_args
+spawn_opencode() {  # <dir> <id> [model] [harness] [dispatch-ladder] [configured-plus-effort] [fallback-mode] [override-reason]
+  local dir=$1 id=$2 model=${3:-} harness=${4:-opencode} ladder=${5:-} plus_effort=${6:-} fallback_mode=${7:-} override_reason=${8:-} home proj wt fakebin
+  local -a ladder_args override_args
   ladder_args=()
   [ -z "$ladder" ] || ladder_args=(--dispatch-ladder "$ladder")
+  override_args=()
+  [ -z "$override_reason" ] || override_args=(--dispatch-override-reason "$override_reason")
   home="$dir/home"
   proj="$dir/proj"
   wt="$dir/wt"
   mkdir -p "$home/data/$id" "$home/state" "$home/config" "$home/projects"
-  if [ -n "$plus_effort" ]; then
-    printf '{"default":[{"harness":"opencode","model":"%s"},{"harness":"codex","model":"gpt-6-luna","effort":"%s"},{"harness":"opencode-go","model":"%s"}]}\n' \
-      "$FREE" "$plus_effort" "$GO" > "$home/config/crew-dispatch.json"
+  if [ -n "$plus_effort" ] || [ -n "$fallback_mode" ]; then
+    [ -n "$plus_effort" ] || plus_effort=xhigh
+    if [ "$fallback_mode" = declared ]; then
+      printf '{"rules":[],"default":[{"harness":"opencode","model":"%s","provider":"opencode"},{"harness":"codex","model":"gpt-6-luna","effort":"%s","provider":"codex"},{"harness":"opencode","model":"%s","provider":"opencode-go"}],"exhausted_ladder_fallback":{"include_agy_ladder":false,"use":{"harness":"opencode","model":"opencode-go/longcat-2.5-preview-free","provider":"opencode-go"}}}\n' \
+        "$FREE" "$plus_effort" "$GO" > "$home/config/crew-dispatch.json"
+    elif [ "$fallback_mode" = none ]; then
+      printf '{"rules":[],"default":[{"harness":"opencode","model":"%s","provider":"opencode"},{"harness":"codex","model":"gpt-6-luna","effort":"%s","provider":"codex"},{"harness":"opencode","model":"%s","provider":"opencode-go"}]}\n' \
+        "$FREE" "$plus_effort" "$GO" > "$home/config/crew-dispatch.json"
+    else
+      printf '{"default":[{"harness":"opencode","model":"%s","provider":"opencode"},{"harness":"codex","model":"gpt-6-luna","effort":"%s","provider":"codex"},{"harness":"opencode","model":"%s","provider":"opencode-go"}]}\n' \
+        "$FREE" "$plus_effort" "$GO" > "$home/config/crew-dispatch.json"
+    fi
   fi
   fakebin=$(spawn_fakebin "$dir/fake")
   fm_git_worktree "$proj" "$wt" "wt-$id"
@@ -484,7 +509,7 @@ spawn_opencode() {  # <dir> <id> [model] [harness] [dispatch-ladder] [configured
       FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$wt" FM_FAKE_LAUNCH_LOG="$dir/launch.log" TMUX="fake,1,0" \
       FM_BACKEND=tmux FM_FAKE_HERDR_CALL_LOG="$dir/herdr-calls.log" \
       "$SPAWN" "$id" "$proj" \
-      --harness "$harness" --model "$model" "${ladder_args[@]}" --mode no-mistakes --yolo off >/dev/null 2>&1
+      --harness "$harness" --model "$model" "${ladder_args[@]}" "${override_args[@]}" --mode no-mistakes --yolo off >"$dir/spawn.log" 2>&1
   else
     env PATH="$fakebin:$PATH" FM_ROOT_OVERRIDE='' FM_HOME="$home" \
       FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
@@ -492,7 +517,7 @@ spawn_opencode() {  # <dir> <id> [model] [harness] [dispatch-ladder] [configured
       FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$wt" FM_FAKE_LAUNCH_LOG="$dir/launch.log" TMUX="fake,1,0" \
       FM_BACKEND=tmux FM_FAKE_HERDR_CALL_LOG="$dir/herdr-calls.log" \
       "$SPAWN" "$id" "$proj" \
-      --harness "$harness" "${ladder_args[@]}" --mode no-mistakes --yolo off >/dev/null 2>&1
+      --harness "$harness" "${ladder_args[@]}" "${override_args[@]}" --mode no-mistakes --yolo off >"$dir/spawn.log" 2>&1
   fi
   printf '%s %s %s\n' "$dir/launch.log" "$dir/herdr-calls.log" "$home"
 }
@@ -536,7 +561,7 @@ test_codex_dispatch_branch_uses_configured_max_effort() {
   dir="$TMP_ROOT/spawn-codex-plus-configured-max"
   mkdir -p "$dir/home/state"
   record_cap "$dir/home/state" free-cap 78840 "$FREE" || fail "record refused free cap"
-  log_home=$(spawn_opencode "$dir" task-codex-plus "$FM_OPENCODE_LADDER_PLUS_MODEL" codex opencode max)
+  log_home=$(spawn_opencode "$dir" task-codex-plus "$FREE" opencode '' max)
   log=${log_home%% *}
   [ -f "$log" ] || fail "configured-max spawn wrote no launch command"
   launch=$(cat "$log")
@@ -575,6 +600,62 @@ test_spawn_defaults_to_free() {
   assert_contains "$launch" "$FREE" "a modelless opencode spawn carries the free id"
   assert_contains "$(cat "$home/state/task-free.meta")" "model=$FREE" "the durable record names the free model"
   pass "a modelless opencode spawn dispatches free end to end"
+}
+
+test_spawn_uses_declared_fallback_when_default_ladder_is_exhausted() {
+  local dir="$TMP_ROOT/spawn-declared-fallback" log_home log herdr_calls home launch state
+  mkdir -p "$dir/home/state"
+  state="$dir/home/state"
+  record_cap "$state" free-cap 78840 "$FREE" || fail "record refused free fixture"
+  "$HELPER" record-cap "$state" plus "$(ms_from_now 78840)" || fail "record refused Plus fixture"
+  "$HELPER" record-cap "$state" go "$(ms_from_now 78840)" || fail "record refused Go fixture"
+  log_home=$(spawn_opencode "$dir" task-fallback '' opencode '' xhigh declared)
+  log=${log_home%% *}; log_home=${log_home#* }
+  herdr_calls=${log_home%% *}; home=${log_home#* }
+  assert_absent "$herdr_calls" "fallback launch must never reach Herdr"
+  [ -f "$log" ] || fail "declared fallback wrote no launch command: $(cat "$dir/spawn.log")"
+  launch=$(cat "$log")
+  assert_contains "$launch" 'opencode-go/longcat-2.5-preview-free' "all capped default rungs must launch the declared Longcat fallback"
+  assert_not_contains "$launch" "$FREE" "the exhausted free rung must not be launched"
+  assert_contains "$(cat "$home/state/task-fallback.meta")" 'dispatch_fallback=opencode/opencode-go/longcat-2.5-preview-free' \
+    "task metadata must record the selected fallback"
+  pass "an exhausted default OpenCode ladder launches and records the declared fallback"
+}
+
+test_spawn_refuses_exhausted_default_ladder_without_fallback() {
+  local dir="$TMP_ROOT/spawn-no-fallback" log_home log herdr_calls home state
+  mkdir -p "$dir/home/state"
+  state="$dir/home/state"
+  record_cap "$state" free-cap 78840 "$FREE" || fail "record refused free fixture"
+  "$HELPER" record-cap "$state" plus "$(ms_from_now 78840)" || fail "record refused Plus fixture"
+  "$HELPER" record-cap "$state" go "$(ms_from_now 78840)" || fail "record refused Go fixture"
+  log_home=$(spawn_opencode "$dir" task-no-fallback '' opencode '' xhigh none)
+  log=${log_home%% *}; log_home=${log_home#* }
+  herdr_calls=${log_home%% *}; home=${log_home#* }
+  assert_absent "$herdr_calls" "refusal must never reach Herdr"
+  assert_absent "$log" "an exhausted ladder without a declared fallback must not launch"
+  assert_contains "$(cat "$dir/spawn.log")" 'no exhausted_ladder_fallback is configured' \
+    "refusal must explain that no fallback was declared"
+  assert_absent "$home/state/task-no-fallback.meta" "refusal must not publish task metadata"
+  pass "an exhausted default OpenCode ladder refuses when no fallback is declared"
+}
+
+test_explicit_dispatch_override_keeps_its_profile() {
+  local dir log_home log herdr_calls home launch
+  dir="$TMP_ROOT/spawn-explicit-dispatch-override"
+  log_home=$(spawn_opencode "$dir" task-explicit-override 'opencode-go/longcat-2.5-preview-free' opencode '' xhigh none \
+    'captain instruction: use LongCat as the exhausted-ladder alternative')
+  log=${log_home%% *}; log_home=${log_home#* }
+  herdr_calls=${log_home%% *}; home=${log_home#* }
+  assert_absent "$herdr_calls" "the override launch must never reach Herdr"
+  [ -f "$log" ] || fail "explicit override wrote no launch command: $(cat "$dir/spawn.log")"
+  launch=$(cat "$log")
+  assert_contains "$launch" "opencode --model 'opencode-go/longcat-2.5-preview-free'" \
+    "the authorized explicit model must not be replaced by the configured default ladder"
+  assert_contains "$(cat "$home/state/task-explicit-override.meta")" \
+    'dispatch_override_reason=captain instruction: use LongCat as the exhausted-ladder alternative' \
+    "metadata must preserve the override instruction"
+  pass "an authorized explicit dispatch override keeps its profile instead of re-entering the default ladder"
 }
 
 test_default_resolver_codex_profile_still_enters_ladder_gate() {
@@ -709,6 +790,9 @@ test_idle_healthy_lane_stays_free
 test_spawn_falls_through_on_proven_cap
 test_spawn_uses_configured_codex_plus_effort
 test_codex_dispatch_branch_uses_configured_max_effort
+test_spawn_uses_declared_fallback_when_default_ladder_is_exhausted
+test_spawn_refuses_exhausted_default_ladder_without_fallback
+test_explicit_dispatch_override_keeps_its_profile
 test_spawn_switches_to_codex_when_go_is_exhausted
 test_spawn_defaults_to_free
 test_default_resolver_codex_profile_still_enters_ladder_gate

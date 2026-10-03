@@ -39,8 +39,9 @@
 #
 # FAILURE DIRECTION. Unknown or stale quota data never counts as exhaustion.
 # A free cap may fall through despite an absent model binding; a destination
-# rung with its own unexpired cap is skipped. If all three are capped, dispatch
-# is refused with every rung and reset time named.
+# rung with its own unexpired cap is skipped. If all three are capped, return 3
+# marks proven exhaustion so fm-spawn can try a declared default fallback; when
+# none exists, dispatch is refused with every rung and reset time named.
 #
 # THE OVERRIDE. FM_OPENCODE_LADDER_OVERRIDE, set to a non-empty reason, holds
 # a free request on free past a proven cap and prints that it did. It is an
@@ -368,7 +369,9 @@ fm_opencode_ladder_free_capped() {  # <state-dir>
 
 # fm_opencode_ladder_model: the model id a launch with <requested> should run.
 # Prints exactly one line - the effective model id - on stdout. All three
-# governed requests pass through the same ordered cap gate.
+# governed requests pass through the same ordered cap gate. Returns 3 only when
+# every default ladder rung is proven capped; callers may then consult the
+# separately declared exhausted-ladder fallback. Other refusals return 1.
 fm_opencode_ladder_model() {  # <requested> <state-dir>
   local requested=${1:-} state_dir=${2:-} cap='' horizon='' bound=''
   local word free_capped=0 plus_capped=0 go_capped=0
@@ -424,14 +427,14 @@ fm_opencode_ladder_model() {  # <requested> <state-dir>
   { fm_opencode_ladder_go_reactive_capped "$state_dir" ||
     [ "$("$_FM_OPENCODE_LADDER_RETRY" check-cap "$state_dir" "$FM_OPENCODE_LADDER_GO_RUNG" 2>/dev/null | sed -n 's/^status=//p')" = blocked ]; } && go_capped=1
   [ "$free_capped" -eq 1 ] || { printf '%s\n' "$FM_OPENCODE_LADDER_FREE"; return 0; }
-  if [ "$plus_capped" -eq 1 ] && [ "$go_capped" -eq 1 ]; then
+  if [ "$plus_capped" -eq 1 ] && [ "$go_capped" -eq 1 ] && [ -z "${FM_OPENCODE_LADDER_OVERRIDE:-}" ]; then
     local free_until plus_until go_until
     free_until=$("$_FM_OPENCODE_LADDER_RETRY" check-cap "$state_dir" "$FM_OPENCODE_LADDER_FREE_RUNG" 2>/dev/null | sed -n 's/.*reset_at=//p')
     plus_until=$("$_FM_OPENCODE_LADDER_RETRY" check-cap "$state_dir" "$FM_OPENCODE_LADDER_PLUS_RUNG" 2>/dev/null | sed -n 's/.*reset_at=//p')
     go_until=$("$_FM_OPENCODE_LADDER_RETRY" check-cap "$state_dir" "$FM_OPENCODE_LADDER_GO_RUNG" 2>/dev/null | sed -n 's/.*reset_at=//p')
     printf 'error: opencode ladder exhausted: free capped until %s; Codex Plus capped until %s; Go capped until %s\n' \
       "${free_until:-unknown}" "${plus_until:-unknown}" "${go_until:-unknown}" >&2
-    return 1
+    return 3
   fi
   if [ -n "${FM_OPENCODE_LADDER_OVERRIDE:-}" ]; then
     printf '%s\n' "$FM_OPENCODE_LADDER_FREE"
