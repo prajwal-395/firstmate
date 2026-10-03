@@ -2,6 +2,7 @@ from __future__ import annotations
 import pytest
 from unittest.mock import patch, MagicMock
 from tests.promotion_test_helpers import install_fake_timeline_snapshots
+from tests.promotion_test_helpers import install_measured_draw_gain_probe
 from library.tools.reel_build import rebuild_reels_in_project
 import json
 from contextlib import contextmanager
@@ -43,6 +44,7 @@ def mock_dvr(stub_resolve_script, monkeypatch):
     # `sys.modules` restores the WHOLE dict and so evicts every
     # module first imported inside it (tests/conftest.py).
     install_fake_timeline_snapshots(monkeypatch)
+    install_measured_draw_gain_probe(monkeypatch)
     yield
 
 
@@ -674,10 +676,11 @@ STAGING = TARGET_2 + STAGING_SUFFIX
 
 
 @pytest.fixture
-def mock_dvr_2(stub_resolve_script):
+def mock_dvr_2(stub_resolve_script, monkeypatch):
     # Stubbed through the shared fixture: `patch.dict` on
     # `sys.modules` restores the WHOLE dict and so evicts every
     # module first imported inside it (tests/conftest.py).
+    install_measured_draw_gain_probe(monkeypatch)
     yield
 
 
@@ -801,6 +804,39 @@ def test_refused_build_files_its_caption_imports(project_dir):
         "'Not placed on any timeline' once no timeline places them")
 
 
+@pytest.mark.usefixtures("mock_dvr_2")
+def test_fallback_draw_gain_refuses_before_staging(project_dir, monkeypatch):
+    """An unavailable renderer measurement must stop the build before
+    it places overlays using the fallback gain."""
+    from library.tools import draw_gain_probe
+
+    resolve_project, _, _ = _project()
+    monkeypatch.setattr(
+        draw_gain_probe, "calibrate",
+        lambda *args, **kwargs: {
+            "gain": 2.0,
+            "source": "fallback",
+            "disagrees_with_fallback": False,
+            "warnings": ["gallery declined"],
+            "probe": {},
+        })
+
+    with patch("library.tools.reel_build.build_reel_timeline") as place, \
+            patch("library.tools.resolve_locale.scriptapp_preserving_locale"), \
+            patch("library.tools.reel_build.resolve_project_exactly",
+                  return_value=resolve_project), \
+            patch("library.tools.reel_proposal.read_proposal",
+                  return_value=[_moment_2()]), \
+            patch("library.tools.timeline_ingest.snapshot_timeline"):
+        with pytest.raises(ReelBuildError,
+                           match="draw-gain probe could not calibrate") as exc:
+            rebuild_reels_in_project(str(project_dir), only=[5])
+
+    assert "gallery declined" in str(exc.value)
+    place.assert_not_called()
+    assert sorted(resolve_project.names()) == sorted([MASTER, TARGET_2])
+
+
 # --------------------------------------------------------------------------
 # From test_reel_build_touches_only_its_own_timelines.py
 #
@@ -840,10 +876,11 @@ the old loop's blast radius the point rather than a detail."""
 
 
 @pytest.fixture
-def mock_dvr_3(stub_resolve_script):
+def mock_dvr_3(stub_resolve_script, monkeypatch):
     # Stubbed through the shared fixture: `patch.dict` on
     # `sys.modules` restores the WHOLE dict and so evicts every
     # module first imported inside it (tests/conftest.py).
+    install_measured_draw_gain_probe(monkeypatch)
     yield
 
 

@@ -26,6 +26,7 @@ from library.tools import resolve_lock
 from library.tools.resolve_lock import (
     assert_current_timeline, resolve_lease)
 from tests.promotion_test_helpers import install_fake_timeline_snapshots
+from tests.promotion_test_helpers import install_measured_draw_gain_probe
 from library.tools.plan_provenance import read_provenance
 from library.tools.reel_build import rebuild_reels_in_project
 from tests.resolve_double import FakeProject
@@ -492,6 +493,7 @@ ORGANISE = False
 @pytest.fixture
 def mock_dvr(stub_resolve_script, monkeypatch):
     install_fake_timeline_snapshots(monkeypatch)
+    install_measured_draw_gain_probe(monkeypatch)
     yield
 
 
@@ -1662,12 +1664,18 @@ class _FakeProject:
         self.timelines = [_FakeTimeline(name) for name in names]
         pool = MagicMock()
         pool.CreateEmptyTimeline.side_effect = self._create
+        pool.DeleteTimelines.side_effect = self._delete
         self._pool = pool
 
     def _create(self, name):
         timeline = _FakeTimeline(name)
         self.timelines.append(timeline)
         return timeline
+
+    def _delete(self, timelines):
+        for timeline in timelines:
+            self.timelines.remove(timeline)
+        return True
 
     def GetMediaPool(self):
         return self._pool
@@ -1694,11 +1702,13 @@ class _FakeProject:
         return True
 
 
-def test_a_multi_reel_build_reports_before_placing(build_project):
+def test_a_multi_reel_build_reports_before_placing(build_project,
+                                                   monkeypatch):
     """The census fires on the build path whether or not anyone
     remembers: two reels build, the census is called with both finals
     before anything is placed."""
     from library.tools.reel_build import rebuild_reels_in_project
+    install_measured_draw_gain_probe(monkeypatch)
 
     resolve_project = _FakeProject(["Master"])
     moments = [_moment_3(1, "Reel 01 - hook"),

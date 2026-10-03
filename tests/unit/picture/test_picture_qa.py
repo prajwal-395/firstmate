@@ -29,6 +29,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 from library.tools import render_qa
+from tests.promotion_test_helpers import install_measured_draw_gain_probe
 from library.tools.manifest_validator import (
     _check_no_effect_on_everything,
     _check_no_flash_captions,
@@ -1314,7 +1315,7 @@ def build_project(tmp_path):
 
 
 def test_the_build_records_and_prints_its_proof_scope(
-        build_project, capsys):
+        build_project, capsys, monkeypatch):
     """A fresh project has no provenance, so the plan is new and the
     record carries a FULL scope the run also printed."""
     from library.tools.reel_build import rebuild_reels_in_project
@@ -1341,12 +1342,18 @@ def test_the_build_records_and_prints_its_proof_scope(
             self.timelines = [_FakeTimeline(name) for name in names]
             pool = MagicMock()
             pool.CreateEmptyTimeline.side_effect = self._create
+            pool.DeleteTimelines.side_effect = self._delete
             self._pool = pool
 
         def _create(self, name):
             timeline = _FakeTimeline(name)
             self.timelines.append(timeline)
             return timeline
+
+        def _delete(self, timelines):
+            for timeline in timelines:
+                self.timelines.remove(timeline)
+            return True
 
         def GetMediaPool(self):
             return self._pool
@@ -1375,6 +1382,7 @@ def test_the_build_records_and_prints_its_proof_scope(
             return True
 
     resolve_project = _FakeProject(["Master"])
+    install_measured_draw_gain_probe(monkeypatch)
     moment = MagicMock()
     moment.approval = "approved"
     moment.number = 1

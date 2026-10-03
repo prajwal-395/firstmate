@@ -25,21 +25,29 @@ guards is a sleeping display, which returns blank or half-composited
 grabs - or the probe is refused.
 
 Whatever happens the probe NEVER raises and NEVER leaves Resolve
-changed: any failure - a refused grab, bars the still does not show,
-a scaled plate, an out-of-range gain, a SetProperty the read-back
-does not echo, a teardown that does not verify - returns the fallback
-with LOUD warnings on stderr and on the record. A run that silently
-fell back is the thing this exists to stop, so the record always says
-which source the run used, and a measured gain that disagrees with
-the fallback is reported as a finding: that disagreement is the first
-machine-readable handle on the renderer state moving again, and it
-is worth more than the placement fix itself.
+changed: any failure on the SCRATCH timeline - a refused grab, bars
+the still does not show, a scaled plate, an out-of-range gain, a
+SetProperty the read-back does not echo, a teardown that does not
+verify - returns the fallback with LOUD warnings on stderr and on
+the record. The one failure that does NOT fall back is the ENTRY
+playhead being unreadable (past the end after a watch-through, for
+one): the probe measures on its OWN scratch timeline at its own mid
+frame, never at the entry position, so an entry position that cannot
+be read only means it cannot be put back - it is left alone, noted
+in the record's warnings, and the probe measures anyway. A run that
+silently fell back is the thing this exists to stop, so the record
+always says which source the run used, and a measured gain that
+disagrees with the fallback is reported as a finding: that
+disagreement is the first machine-readable handle on the renderer
+state moving again, and it is worth more than the placement fix
+itself.
 
 Own scratch timeline, created and DELETED, own plate file, imported
-and removed again; the entry current timeline and playhead are
-restored and read back. Anything left behind by a failed teardown is
-named in the record's warnings - nothing gets deleted on a guess, so
-the list is what makes a later cleanup safe.
+and removed again; the entry current timeline is restored and read
+back, and the entry playhead is restored where it was readable and
+left alone where it was not. Anything left behind by a failed
+teardown is named in the record's warnings - nothing gets deleted on
+a guess, so the list is what makes a later cleanup safe.
 """
 
 from __future__ import annotations
@@ -176,8 +184,10 @@ def calibrate(resolve, project, frame_wh: tuple,
     delivery frame). Returns the record - `gain`, `source`
     (`"measured"` or `"fallback"`), `disagrees_with_fallback`, the
     `probe` detail and `warnings`. Never raises; never leaves Resolve
-    changed (entry timeline and playhead restored and read back, the
-    scratch timeline and the imported plate removed, temp files gone).
+    changed (entry timeline restored and read back, the entry playhead
+    restored where it was readable and left alone where it was not,
+    the scratch timeline and the imported plate removed, temp files
+    gone).
     """
     from library.tools import marker_capture as mc
     from library.tools.marker_capture import grab_still
@@ -197,14 +207,20 @@ def calibrate(resolve, project, frame_wh: tuple,
     try:
         entry_tc = mc.read_playhead(entry_tl).timecode if entry_tl else None
     except Exception as exc:  # noqa: BLE001 - entry position unreadable
-        if entry_page:
-            try:
-                resolve.OpenPage(entry_page)
-            except Exception:  # noqa: BLE001 - best effort on a refusal
-                pass
-        return _fallback_record(
-            [f"entry playhead unreadable ({exc!r}): refusing to move "
-             f"a playhead that cannot be put back"])
+        # The entry playhead is where the captain left it - past the end
+        # after a watch-through, for one - and the probe measures on its
+        # OWN scratch timeline at its own mid frame, never at the entry
+        # position. So an unreadable entry position is not a reason to
+        # fall back (2026-10-02: a playhead past the end fell back to
+        # gain 2.0 against a measured 4.0 and halved every overlay
+        # transform on the build); it only means the entry playhead
+        # cannot be put back, so it is left alone and the probe measures
+        # anyway. The teardown still restores the entry TIMELINE and the
+        # entry page - only the SetCurrentTimecode is skipped.
+        warnings.append(
+            f"entry playhead unreadable ({exc!r}): measuring anyway; "
+            f"the entry playhead is left where it is")
+        entry_tc = None
 
     pool = project.GetMediaPool()
     tmpdir = tempfile.mkdtemp(prefix="vep_gain_probe_",

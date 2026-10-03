@@ -320,12 +320,14 @@ def install_offline_seams(monkeypatch, resolve, recipe) -> CardRenderer:
     read."""
     from library.tools import marker_feedback, reel_build, resolve_locale
     from library.tools.execution import resolve_render
+    from tests.promotion_test_helpers import install_measured_draw_gain_probe
 
     monkeypatch.setattr(resolve_locale, "scriptapp_preserving_locale",
                         lambda *_a, **_k: resolve)
     monkeypatch.setattr(reel_build, "_connect_resolve", lambda: resolve)
     monkeypatch.setattr(marker_feedback, "connect_resolve", lambda: resolve)
     monkeypatch.setattr(resolve_render, "_connect", lambda: resolve)
+    install_measured_draw_gain_probe(monkeypatch)
     return install_model_seams(monkeypatch, recipe)
 
 

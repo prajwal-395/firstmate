@@ -212,9 +212,12 @@ def test_the_inverse_round_trips_at_the_measured_gain():
 # runs against duck-typed fakes in the shape of the scripting proxies,
 # with the still capture stubbed to draw the plate shifted by a KNOWN
 # gain: the record must come back with that gain from pixels the test
-# drew itself. Failure paths (a refused grab, a blank still, an
-# unreadable entry playhead) must fall back loud, never raise and never
-# leave the fakes changed.
+# drew itself. Failure paths (a refused grab, a blank still) must
+# fall back loud, never raise and never leave the fakes changed. An
+# unreadable ENTRY playhead is the exception: the probe measures on
+# its own scratch timeline at its own mid frame, never at the entry
+# position, so it measures anyway and leaves the entry playhead
+# alone.
 
 def _plate_array():
     import tempfile, os
@@ -466,6 +469,52 @@ def test_a_refused_grab_falls_back_loud(monkeypatch, tmp_path):
     assert record["gain"] == FALLBACK_DRAW_GAIN
     assert record["warnings"], "a silent fallback is the defect"
     assert project.GetCurrentTimeline().GetName() == "entry"
+    assert probe_mod.PROBE_TIMELINE_NAME not in [
+        tl.GetName() for tl in project.timelines]
+
+
+@pytest.mark.usefixtures("_sole_writer")
+def test_a_past_the_end_entry_playhead_still_measures(monkeypatch,
+                                                      tmp_path):
+    """2026-10-02: the entry timeline's playhead sat past its end and
+    the probe fell back to gain 2.0 against a measured 4.0, halving
+    every caption, motion-graphic, post-header and punch-in transform
+    on the build with only a stderr line to say so. The probe measures
+    on its OWN scratch timeline at its own mid frame, never at the
+    entry position, so an unreadable entry playhead must not fall
+    back: the run measures anyway and the entry playhead is left where
+    the captain left it."""
+    import library.tools.draw_gain_probe as probe_mod
+
+    project = _Project()
+    resolve = _Resolve(project)
+    entry = project.GetCurrentTimeline()
+    entry.clip = _Clip(duration=120)
+    entry.key = 500  # past the end: read_playhead refuses here
+    plate_holder = {}
+
+    real_build = probe_mod.build_plate
+
+    def spy_build(path, width=1080, height=1920):
+        out = real_build(path, width, height)
+        plate_holder["path"] = out
+        return out
+
+    monkeypatch.setattr(probe_mod, "build_plate", spy_build)
+    import library.tools.marker_capture as mc_mod
+    monkeypatch.setattr(mc_mod, "grab_still",
+                        _make_grab_proxy(plate_holder))
+    record = probe_mod.calibrate(resolve, project, FRAME_WH,
+                                 workdir=str(tmp_path))
+    assert record["source"] == "measured"
+    assert record["gain"] == pytest.approx(SIM_GAIN, abs=0.05)
+    assert any("entry playhead unreadable" in warning
+               for warning in record["warnings"])
+    # The entry timeline is put back with its playhead untouched -
+    # the probe moved only its own scratch - and nothing is left
+    # behind.
+    assert project.GetCurrentTimeline().GetName() == "entry"
+    assert entry.key == 500
     assert probe_mod.PROBE_TIMELINE_NAME not in [
         tl.GetName() for tl in project.timelines]
 

@@ -11939,12 +11939,14 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # deploy in between. So this build calibrates the renderer it is
     # about to place onto - one probe element, one still, once per
     # build, never per element - and every placement below is computed
-    # with what the probe measured. A probe that cannot run falls back
-    # to the documented fallback LOUDLY (never silently), and a
-    # measured gain that disagrees with the fallback lands on the
-    # record as a finding: that disagreement is the first
-    # machine-readable handle on the renderer state moving again.
-    # Reports, never refuses: like the drift baseline, an instrument.
+    # with what the probe measured. A probe that cannot run REFUSES
+    # the build: placing at the fallback gain when the renderer has
+    # moved on halves every overlay transform (2026-10-02: fallback
+    # 2.0 against measured 4.0, caption Tilt -433 for -866), and a
+    # stderr line is not a verdict on a misplaced build. A measured
+    # gain that disagrees with the fallback lands on the record as a
+    # finding: that disagreement is the first machine-readable handle
+    # on the renderer state moving again.
     # EXCLUSIVE, and the one whole-build hold that stays coarse: the
     # probe creates a fixed-name scratch timeline, appends, stills
     # twice and deletes, so a second concurrent probe would remove
@@ -11957,7 +11959,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             gain_record = _gain_probe.calibrate(
                 resolve, project, (reel_width, reel_height))
     except Exception as exc:  # noqa: BLE001 - probe never raises, belt
-        # and braces: a probe-shaped surprise must not fail a build.
+        # and braces: a probe-shaped surprise must not pass a build.
         gain_record = {
             "gain": _FALLBACK_GAIN, "source": "fallback",
             "disagrees_with_fallback": False,
@@ -11965,7 +11967,16 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             "probe": {},
         }
     _gain_probe.log_record(gain_record)
-    run_gain = float(gain_record.get("gain") or _FALLBACK_GAIN)
+    if gain_record.get("source") != "measured":
+        raise ReelBuildError(
+            "REFUSING to build: the draw-gain probe could not calibrate "
+            "the renderer "
+            f"({'; '.join(gain_record.get('warnings', [])) or 'no reason'}). "
+            "Every caption, motion-graphic, post-header and punch-in "
+            "below is computed at the measured gain, and placing them at "
+            "an unmeasured one is how a build halves every overlay "
+            "transform. Fix the probe and re-run.")
+    run_gain = float(gain_record["gain"])
 
     # STAGE, not replace: the final names this call is FOR, and the
     # staging containers it actually places. Nothing existing is
@@ -14822,8 +14833,8 @@ def build_reel_variants(project_slug: str, reel_number: int,
     # ── DRAW-GAIN PROBE (start of variant build) ──
     # Same instrument as `rebuild_reels_in_project` above: one
     # calibration per build, placements computed with what it
-    # measured, fallback loud. See that block for why the gain is
-    # measured rather than declared.
+    # measured, refusal where it cannot measure. See that block for
+    # why the gain is measured rather than declared.
     from library.tools import draw_gain_probe as _variant_gain_probe
     try:
         _variant_gain_record = _variant_gain_probe.calibrate(
@@ -14836,8 +14847,13 @@ def build_reel_variants(project_slug: str, reel_number: int,
             "probe": {},
         }
     _variant_gain_probe.log_record(_variant_gain_record)
-    run_gain = float(_variant_gain_record.get("gain")
-                     or FALLBACK_DRAW_GAIN)
+    if _variant_gain_record.get("source") != "measured":
+        raise ReelBuildError(
+            "REFUSING to build: the draw-gain probe could not calibrate "
+            "the renderer "
+            f"({'; '.join(_variant_gain_record.get('warnings', [])) or 'no reason'}). "
+            "Fix the probe and re-run.")
+    run_gain = float(_variant_gain_record["gain"])
 
     # The three per-reel DECLARATIONS the rebuild reads, read here on
     # the same terms (AGENTS.md 3, `tests/

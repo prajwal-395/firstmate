@@ -46,6 +46,46 @@ def install_fake_timeline_snapshots(monkeypatch):
     monkeypatch.setattr(reel_replace_guard, "full_timeline_snapshot", snapshot)
 
 
+def install_measured_draw_gain_probe(monkeypatch, gain=None):
+    """Stub the draw-gain probe as MEASURED for offline whole builds.
+
+    No offline double has a renderer to calibrate against - the
+    canonical double deliberately models no gallery stills - so the
+    real probe always falls back there, and a fallback refuses the
+    build rather than placing at an unmeasured gain (2026-10-02: a
+    playhead past the end fell back to 2.0 against a measured 4.0 and
+    halved every overlay transform). Tests driving whole builds
+    offline therefore install this: it keeps the probe's own
+    create-and-delete scratch pair, so the deletion-scope guards still
+    see exactly what the real probe leaves behind, and answers a
+    measured record. The default gain is the fallback's own value, so
+    existing placement assertions read unchanged.
+    """
+    from library.tools import draw_gain_probe as probe_mod
+    from library.tools.resolve_transform import FALLBACK_DRAW_GAIN
+
+    measured = FALLBACK_DRAW_GAIN if gain is None else gain
+
+    def _measured(resolve, project, frame_wh, workdir=""):
+        pool = project.GetMediaPool()
+        scratch = pool.CreateEmptyTimeline(probe_mod.PROBE_TIMELINE_NAME)
+        pool.DeleteTimelines([scratch])
+        return {
+            "gain": measured,
+            "source": "measured",
+            "disagrees_with_fallback": False,
+            "warnings": [],
+            "probe": {
+                "timeline": probe_mod.PROBE_TIMELINE_NAME,
+                "frame_wh": list(frame_wh),
+                "fallback_gain": FALLBACK_DRAW_GAIN,
+            },
+        }
+
+    monkeypatch.setattr(probe_mod, "calibrate", _measured)
+    return _measured
+
+
 def no_a_roll_track_plans(staged_to_final):
     """Return explicit plans with no A-roll rows for promotion unit tests."""
     plan = {"video_tracks": [], "audio_tracks": [], "material": {}}
