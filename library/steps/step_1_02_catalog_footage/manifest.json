@@ -16,7 +16,7 @@
         "name": "project_config",
         "type": "object",
         "required": false,
-        "description": "State input: project_config - the project's own declarations. `audio.program_stream` (or `source.program_stream`) declares which audio stream is the program mix; `audio.measure_program_stream` (or `source.measure_program_stream`) opts into measuring it off the footage when nothing is declared."
+        "description": "State input: project_config - the project's own declarations. `audio.program_stream` (or `source.program_stream`) declares which audio stream is the program mix. Without a declaration, the catalog can select a unique default mono/stereo AAC/PCM stream beside spatial-only tracks; `audio.measure_program_stream` (or `source.measure_program_stream`) opts into measurement for other multi-stream layouts."
       },
       {
         "name": "project_folder",

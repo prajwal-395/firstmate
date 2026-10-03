@@ -21,14 +21,22 @@ synthetic OTIO dicts - no model, no Resolve, no DeepFilterNet):
   per surviving range (DeepFilterNet itself mocked - the model run is
   measured in the module docstring, not here).
 """
+import json
 import math
 import os
+import shutil
 import struct
+import subprocess
 import sys
 import wave
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
+
+import numpy as np
 import pytest
-import shutil
+
+from library.steps.step_1_02_catalog_footage import step as catalog_step
 from library.steps.step_1_02_catalog_footage.step import (
     MEASURE_MARGIN_DB,
     ProgramStreamRefused,
@@ -41,13 +49,11 @@ from library.steps.step_1_02_catalog_footage.step import (
 from library.steps.step_6_01_render.resolve_build_timeline import (
     SpeechChannelRefused,
     mapping_carries_program,
+    read_catalog_program_channels,
     resolve_speech_channel,
 )
-import subprocess
-import numpy as np
+from library.tools.project_layout import ProjectLayout
 from library.tools.render_qa import measure_silence_under_picture
-from pathlib import Path
-
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 if PROJECT_ROOT not in sys.path:
@@ -569,18 +575,18 @@ def test_enhance_binary_moves_the_produced_stem_into_place(
 # --------------------------------------------------------------------------
 # From test_program_stream_measurement.py
 #
-# The program mix is a decision: declared, or measured - never defaulted.
+# The program mix is declared, measured or selected from a narrow metadata
+# pattern with an audit reason; other multi-stream layouts refuse.
 #
 # The catalog records every audio stream with what tells them apart. The
 # captain's field-test MXF (LC4930.MXF, 2026-09-09) carries four identical
 # mono pcm_s24le streams (one mix, two ISOs, one empty) with no layout,
 # language, title or disposition, and the catalog once took the FIRST
 # audio stream and discarded the rest - a non-program stream leaked onto
-# the timeline. So `select_program_stream` refuses without a declaration,
-# even where metadata could tell streams apart; a project may instead
-# measure the mix off the footage (`source.measure_program_stream`). A
-# declaration always wins; a measurement that is not decisive refuses
-# exactly like an undeclared one.
+# the timeline. That ambiguous layout refuses without a declaration; a
+# project may instead measure the mix off the footage
+# (`source.measure_program_stream`). The specific default AAC/PCM plus
+# spatial-track layout is covered separately below.
 #
 # Media fixtures are generated with ffmpeg (skipped with a named
 # environment where it is absent): four sine streams 6 dB apart read as
@@ -695,7 +701,8 @@ def test_the_program_stream_is_declared_single_or_refused():
     chosen = select_program_stream(phone, declaration=None, source="phone.MOV")
     assert (chosen["channel"], chosen["basis"]) == (1, "single")
 
-    # Even distinguishable metadata is not a heuristic the engine may use.
+    # A title and channel count alone do not satisfy the default spatial
+    # pattern, so this still needs a declaration or explicit measurement.
     tagged = describe_audio_streams({"streams": [_video(), {
         "index": 1, "codec_name": "aac", "codec_type": "audio",
         "sample_rate": "48000", "channels": 2, "channel_layout": "stereo",
@@ -716,6 +723,99 @@ def test_the_program_stream_is_declared_single_or_refused():
         measured_selection={"channel": 1, "basis": "measured-loudest",
                             "levels": {1: -10.0, 2: -20.0}})
     assert (chosen["channel"], chosen["basis"]) == (2, "declared")
+
+
+def _iphone_spatial_probe():
+    return {"streams": [_video(), {
+        "index": 1, "codec_name": "aac", "codec_type": "audio",
+        "sample_rate": "48000", "channels": 2,
+        "channel_layout": "stereo", "codec_tag_string": "mp4a",
+        "tags": {"handler_name": "Core Media Audio"},
+        "disposition": {"default": 1},
+    }, {
+        "index": 2, "codec_name": "apple_apac", "codec_type": "audio",
+        "sample_rate": "48000", "channels": 4,
+        "codec_tag_string": "apac",
+        "tags": {"handler_name": "Core Media Audio"},
+        "disposition": {"default": 0},
+    }], "format": {"duration": "5.0", "tags": {}}}
+
+
+def test_catalog_records_default_aac_for_iphone_spatial_pair(
+        tmp_path, monkeypatch):
+    source = tmp_path / "IMG_1816.MOV"
+    source.write_bytes(b"catalog fixture")
+    probe = _iphone_spatial_probe()
+
+    def fake_ffprobe(*_args, **_kwargs):
+        return SimpleNamespace(returncode=0, stdout=json.dumps(probe),
+                               stderr="")
+
+    monkeypatch.setattr(catalog_step.subprocess, "run", fake_ffprobe)
+    file_info = [{"path": str(source), "filename": source.name,
+                  "extension": source.suffix,
+                  "size_bytes": source.stat().st_size,
+                  "clip_id": "clip_001"}]
+
+    result = catalog_footage(file_info, project_folder=str(tmp_path))
+    entry = result["clip_catalog"][0]
+    selection = entry["program_stream"]
+    assert (selection["index"], selection["channel"],
+            selection["codec"], selection["basis"]) == (
+                1, 1, "aac", "default-spatial-audio")
+    assert "apple_apac" in selection["reason"]
+    assert entry["program_stream_refusal"] is None
+    assert entry["audio_codec"] == "aac"
+
+    state = {"capability_outputs": {"footage.catalog": {
+        "clip_catalog": [entry]}}}
+    ProjectLayout(tmp_path).pipeline_data_path.write_text(
+        json.dumps(state), encoding="utf-8")
+    channels, refusals, reasons = read_catalog_program_channels(
+        str(tmp_path))
+    assert channels["IMG_1816.MOV"] == 1
+    assert not refusals
+    assert reasons["IMG_1816.MOV"] == selection["reason"]
+    _channel, basis = resolve_speech_channel(
+        "main", "Main", None, {"IMG_1816.MOV"}, channels, refusals,
+        None, set(), reasons)
+    assert "catalog's recorded program stream" in basis
+    assert selection["reason"] in basis
+
+    # The project's own declaration always overrides the automatic read.
+    (tmp_path / "project.yaml").write_text(
+        "source:\n  program_stream: 2\n", encoding="utf-8")
+    declared = catalog_footage(
+        file_info, project_folder=str(tmp_path))["clip_catalog"][0]
+    assert (declared["program_stream"]["channel"],
+            declared["program_stream"]["codec"],
+            declared["program_stream"]["basis"]) == (
+                2, "apple_apac", "declared")
+
+
+def test_two_mic_like_streams_still_refuse_without_a_declaration():
+    streams = describe_audio_streams({"streams": [_video(), {
+        "index": 1, "codec_name": "aac", "codec_type": "audio",
+        "channels": 1, "disposition": {"default": 1}}, {
+        "index": 2, "codec_name": "aac", "codec_type": "audio",
+        "channels": 1, "disposition": {"default": 0}}]})
+    with pytest.raises(ProgramStreamRefused,
+                       match="no declared program stream"):
+        select_program_stream(streams, declaration=None,
+                              source="two-mic.MOV")
+
+
+def test_ambisonic_multichannel_metadata_is_recognized_as_spatial():
+    streams = describe_audio_streams({"streams": [_video(), {
+        "index": 1, "codec_name": "pcm_s16le", "codec_type": "audio",
+        "channels": 2, "channel_layout": "stereo",
+        "disposition": {"default": 1}}, {
+        "index": 2, "codec_name": "pcm_f32le", "codec_type": "audio",
+        "channels": 4, "channel_layout": "ambisonic",
+        "disposition": {"default": 0}}]})
+    chosen = select_program_stream(streams, source="ambisonic.MOV")
+    assert chosen["channel"] == 1
+    assert "ambisonic" in chosen["reason"]
 
 
 @NEEDS_FFMPEG
@@ -817,6 +917,17 @@ def test_the_speech_channel_resolves_by_precedence():
             project_decl, single)
         assert channel == expected, (sources, recorded, basis)
         assert basis_fragment in basis, (sources, basis)
+
+
+def test_speech_channel_log_basis_includes_catalog_selection_reason():
+    reason = "default AAC mix selected beside apple_apac spatial audio"
+    channel, basis = resolve_speech_channel(
+        "main", "Main", None, {"IMG_1816.MOV"},
+        {"IMG_1816.MOV": 1}, {}, None, set(),
+        {"IMG_1816.MOV": reason})
+    assert channel == 1
+    assert "catalog's recorded program stream" in basis
+    assert reason in basis
 
 
 def test_an_unresolvable_speech_channel_refuses_by_name():
@@ -1164,7 +1275,10 @@ def test_ledger_retime_sets_picture_and_dialogue_and_refuses_a_reshape():
     import pytest
 
     from library.tools.reel_build import (
-        ReelBuildError, _apply_ledger_retimes, placements)
+        ReelBuildError,
+        _apply_ledger_retimes,
+        placements,
+    )
     from library.tools.reel_clock import rated_range
 
     ranges = [rated_range(0.0, 10.0, [(2.0, 4.2, 1.1)])]

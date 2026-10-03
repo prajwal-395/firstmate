@@ -24,13 +24,13 @@ from datetime import datetime
 
 
 class ProgramStreamRefused(ValueError):
-    """No stream reaches the timeline by default.
+    """No stream reaches the timeline without a declaration or evidence.
 
-    Which stream of a multi-stream source is the program mix is a
-    project declaration, never a heuristic and never stream 0. When the
-    metadata cannot supply the answer and no declaration names it, the
-    catalog refuses - naming the source and everything ffprobe saw - so
-    a non-program stream can never leak onto a timeline unchosen.
+    A project declaration always wins. Without one, the catalog only
+    selects the unique default mono/stereo AAC/PCM mix beside spatial
+    tracks. Other multi-stream layouts refuse - naming the source and
+    everything ffprobe saw - so a microphone feed cannot leak onto a
+    timeline unchosen.
     """
 
 
@@ -73,9 +73,80 @@ def describe_audio_streams(probe: dict) -> list:
             "language": tags.get("language"),
             "title": tags.get("title"),
             "handler": stream.get("codec_tag_string"),
+            "handler_name": tags.get("handler_name"),
             "disposition_default": disposition.get("default"),
         })
     return streams
+
+
+def _is_default_mono_stereo_aac_pcm(stream: dict) -> bool:
+    """Whether metadata marks this as a default program-mix candidate."""
+    codec = str(stream.get("codec") or "").lower()
+    try:
+        channels = int(stream.get("channels"))
+    except (TypeError, ValueError):
+        return False
+    is_aac_or_pcm = codec == "aac" or codec.startswith("pcm_")
+    return (stream.get("disposition_default") == 1
+            and channels in (1, 2) and is_aac_or_pcm)
+
+
+def _spatial_stream_kind(stream: dict) -> str | None:
+    """Name spatial evidence strong enough to exclude a mic-like track.
+
+    A channel count alone is not evidence of spatial audio: multichannel
+    recorder inputs can be separate microphones and must still refuse.
+    """
+    codec = str(stream.get("codec") or "").lower()
+    if codec == "apple_apac":
+        return "Apple spatial audio (apple_apac)"
+
+    try:
+        channels = int(stream.get("channels"))
+    except (TypeError, ValueError):
+        return None
+    if channels <= 2:
+        return None
+
+    evidence = " ".join(str(stream.get(key) or "") for key in (
+        "codec", "channel_layout", "title", "handler_name", "handler"
+    )).lower()
+    spatial_terms = ("spatial", "ambisonic", "ambisonia", "b-format",
+                     "b_format")
+    normalized = evidence.replace("-", " ").replace("_", " ")
+    hoa_token = "hoa" in normalized.split()
+    if any(term in evidence for term in spatial_terms) or hoa_token:
+        descriptor = (stream.get("channel_layout") or
+                      stream.get("title") or stream.get("codec") or
+                      f"{channels}-channel")
+        return f"multichannel spatial/ambisonic audio ({descriptor})"
+    return None
+
+
+def _default_spatial_program_stream(audio_streams: list) -> dict | None:
+    """Select a uniquely marked default mix beside spatial-only tracks."""
+    candidates = [stream for stream in audio_streams
+                  if _is_default_mono_stereo_aac_pcm(stream)]
+    if len(candidates) != 1:
+        return None
+
+    candidate = candidates[0]
+    other_streams = [stream for stream in audio_streams
+                     if stream is not candidate]
+    spatial_kinds = [_spatial_stream_kind(stream)
+                     for stream in other_streams]
+    if not other_streams or any(kind is None for kind in spatial_kinds):
+        return None
+
+    chosen = dict(candidate)
+    chosen["basis"] = "default-spatial-audio"
+    details = "; ".join(kind for kind in spatial_kinds if kind)
+    chosen["reason"] = (
+        "Selected the sole default mono/stereo AAC/PCM stream; every "
+        f"other audio stream is a spatial track ({details}), not a "
+        "separate microphone feed."
+    )
+    return chosen
 
 
 def _stream_signature(stream: dict) -> str:
@@ -86,6 +157,7 @@ def _stream_signature(stream: dict) -> str:
         f"layout={stream.get('channel_layout')}, "
         f"lang={stream.get('language')}, title={stream.get('title')}, "
         f"handler={stream.get('handler')}, "
+        f"handler_name={stream.get('handler_name')}, "
         f"default={stream.get('disposition_default')}"
     )
 
@@ -99,12 +171,14 @@ def select_program_stream(audio_streams: list, declaration=None,
     - One stream: it is the program, basis "single".
     - More than one: `declaration` - the 1-based channel ordinal the
       project declares - names it, basis "declared". Failing that, a
-      `measured_selection` the pipeline measured off the footage names
-      it, basis "measured-loudest" with its levels as evidence. A
-      declaration always wins over a measurement. Anything else is
+      sole default mono/stereo AAC/PCM stream beside spatial-only
+      tracks is selected from ffprobe metadata, with its evidence and
+      reason recorded. Failing that, a `measured_selection` the
+      pipeline measured off the footage names it, basis
+      "measured-loudest" with its levels as evidence. Anything else is
       a ProgramStreamRefused naming the source and every stream seen.
-      Even distinguishable metadata does not choose: the mix is
-      declared or measured, never inferred from labels.
+      A declaration always wins; unrelated labels or layout metadata
+      do not choose.
     """
     if not audio_streams:
         return None
@@ -124,6 +198,9 @@ def select_program_stream(audio_streams: list, declaration=None,
             f"streams and none is CH{declaration}: "
             + "; ".join(_stream_signature(s) for s in audio_streams)
         )
+    spatial_default = _default_spatial_program_stream(audio_streams)
+    if spatial_default is not None:
+        return spatial_default
     if measured_selection is not None:
         for stream in audio_streams:
             if stream.get("channel") == measured_selection.get("channel"):
@@ -276,11 +353,13 @@ def extract_metadata(filepath: str, program_stream=None,
 
     `program_stream` is the project's declaration of which audio stream
     is the program mix (1-based channel ordinal, e.g. 1 for CH1). A
-    multi-stream source without one is RECORDED as refused, never
-    defaulted: see `select_program_stream`. When `measure_program_stream`
-    is true and nothing is declared, the footage itself is measured
-    (uniquely loudest stream) and the levels recorded; an indecisive
-    measurement refuses the same way.
+    multi-stream source without one is selected only for the specific
+    default AAC/PCM plus spatial-track layout in
+    `select_program_stream`; other ambiguous layouts are recorded as
+    refused. When `measure_program_stream` is true and no declaration
+    or unambiguous spatial layout applies, the footage itself is
+    measured (uniquely loudest stream) and the levels recorded; an
+    indecisive measurement refuses the same way.
     """
     try:
         result = subprocess.run(
@@ -396,8 +475,9 @@ def extract_metadata(filepath: str, program_stream=None,
         except ValueError:
             rotation = 0
 
-    # The program-stream decision, recorded, never defaulted. A
-    # refusal is data on the entry - not an exception - so one
+    # The program-stream decision is recorded from a declaration, the
+    # evidenced spatial layout above or measurement. A refusal is data
+    # on the entry - not an exception - so one
     # undeclared source cannot fail the whole catalog; the entry says
     # which source and what ffprobe saw, and downstream must not place
     # its audio until the project declares. A declaration always wins;
@@ -408,7 +488,8 @@ def extract_metadata(filepath: str, program_stream=None,
     _program_refusal = None
     _measured_selection = None
     if (program_stream is None and measure_program_stream
-            and len(described_streams) > 1):
+            and len(described_streams) > 1
+            and _default_spatial_program_stream(described_streams) is None):
         try:
             _measured_selection = measure_program_selection(
                 filepath, described_streams,
@@ -472,7 +553,8 @@ def _audio_only_metadata(filepath: str, probe: dict, fmt: dict,
     _program_refusal = None
     _measured_selection = None
     if (program_stream is None and measure_program_stream
-            and len(described_streams) > 1):
+            and len(described_streams) > 1
+            and _default_spatial_program_stream(described_streams) is None):
         try:
             _measured_selection = measure_program_selection(
                 filepath, described_streams,
@@ -542,10 +624,12 @@ def catalog_footage(raw_footage_files: list, program_stream=None,
 
     `program_stream` (or `project_config["audio"]["program_stream"]`,
     or the project's `source:` block) declares which audio stream is
-    the program mix. See `select_program_stream`. When nothing declares
-    one, `measure_program_stream` (or
+    the program mix. See `select_program_stream`. With no declaration,
+    a unique default mono/stereo AAC/PCM stream is selected beside
+    spatial-only tracks; otherwise `measure_program_stream` (or
     `source.measure_program_stream`) opts into measuring it off the
-    footage; an indecisive measurement refuses like an undeclared one.
+    footage, and an indecisive measurement refuses like an undeclared
+    one.
 
     `raw_audio_files` (scan's `raw_audio_files`, `audio_001`
     numbering) is cataloged into a SEPARATE `audio_catalog`: voiceover

@@ -918,7 +918,7 @@ def read_declared_program_stream(project_folder: str):
 
 
 def read_catalog_program_channels(project_folder: str):
-    """`({basename: channel}, {basename: refusal})` off the recorded catalog.
+    """`({basename: channel}, {basename: refusal}, {basename: reason})`.
 
     The catalog's own route - `pipeline_data.json`, the file a step's
     output is guaranteed to have landed in - read the way
@@ -928,14 +928,15 @@ def read_catalog_program_channels(project_folder: str):
     """
     channels: dict = {}
     refusals: dict = {}
+    reasons: dict = {}
     if not project_folder:
-        return channels, refusals
+        return channels, refusals, reasons
     try:
         with open(ProjectLayout(project_folder).pipeline_data_path,
                   encoding="utf-8") as handle:
             state = json.load(handle)
     except (OSError, ValueError):
-        return channels, refusals
+        return channels, refusals, reasons
     from library.tools import capability_outputs
     entries = capability_outputs.value(
         state, "footage.catalog", "clip_catalog") or []
@@ -954,12 +955,16 @@ def read_catalog_program_channels(project_folder: str):
         if channel is not None and channel >= 1:
             for key in keys:
                 channels.setdefault(key, channel)
+            reason = selection.get("reason")
+            if reason:
+                for key in keys:
+                    reasons.setdefault(key, str(reason))
             continue
         refusal = entry.get("program_stream_refusal")
         if refusal:
             for key in keys:
                 refusals.setdefault(key, str(refusal))
-    return channels, refusals
+    return channels, refusals, reasons
 
 
 def resolve_speech_channel(angle_key: str, angle_label: str,
@@ -968,7 +973,8 @@ def resolve_speech_channel(angle_key: str, angle_label: str,
                            catalog_channels: dict,
                            catalog_refusals: dict,
                            declared_channel,
-                           single_stream_basenames) -> tuple:
+                           single_stream_basenames,
+                           catalog_reasons: dict | None = None) -> tuple:
     """The speech channel for one angle: `(channel, basis)`, or a refusal.
 
     Precedence - the project's stated preference first, then what was
@@ -998,9 +1004,13 @@ def resolve_speech_channel(angle_key: str, angle_label: str,
             f"REFUSING to place speech for angle {angle_label!r}: no "
             f"source clips, so no program stream can be resolved.")
     resolved: dict = {}
+    catalog_reasons = catalog_reasons or {}
     for basename in sorted(source_basenames):
         channel = catalog_channels.get(basename)
         basis = "the catalog's recorded program stream"
+        reason = catalog_reasons.get(basename)
+        if reason:
+            basis += f"; {reason}"
         if channel is None and basename in single_stream_basenames:
             channel, basis = 1, "single-stream source"
         if channel is None:
@@ -1537,8 +1547,8 @@ def build_timeline(
         if _src:
             _angle_sources.setdefault(
                 _c.get("angle", _default_angle), set()).add(_src)
-    _catalog_channels, _catalog_refusals = read_catalog_program_channels(
-        project_folder)
+    (_catalog_channels, _catalog_refusals,
+     _catalog_reasons) = read_catalog_program_channels(project_folder)
     _declared_channel = read_declared_program_stream(project_folder)
     _single_stream_sources = set()
     for _paths in _angle_sources.values():
@@ -1583,7 +1593,8 @@ def build_timeline(
                     _k, _label, _decl.get("program_channel"),
                     _angle_files,
                     _catalog_channels, _catalog_refusals,
-                    _declared_channel, _single_stream_sources)
+                    _declared_channel, _single_stream_sources,
+                    _catalog_reasons)
             except SpeechChannelRefused as exc:
                 results["errors"].append(str(exc))
                 print(f"  ✗ {exc}", file=sys.stderr)
@@ -1916,7 +1927,8 @@ def build_timeline(
                 _main_channel, _main_basis = resolve_speech_channel(
                     "main", "main", None, _legacy_sources,
                     _catalog_channels, _catalog_refusals,
-                    _declared_channel, _single_stream_sources)
+                    _declared_channel, _single_stream_sources,
+                    _catalog_reasons)
             except SpeechChannelRefused as exc:
                 results["errors"].append(str(exc))
                 print(f"  ✗ {exc}", file=sys.stderr)
