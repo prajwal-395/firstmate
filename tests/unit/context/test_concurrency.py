@@ -415,6 +415,26 @@ def test_placement_runs_beside_a_gate_and_a_second_gate_waits(scheduler):
     assert not scheduler.legacy_dir.exists()
 
 
+def test_a_render_is_admitted_beside_a_gate_and_a_model_run(scheduler):
+    """Catches: the render's unmeasured CPU/GPU/RAM demand queueing it
+    behind a full-suite gate or a Gemma run while it already holds the
+    Resolve lease - 249 s of an idle, held Resolve on 2026-10-03."""
+    gate = scheduler.acquire(
+        "gate", resource_scheduler.demand_for("full_suite_gate"))
+    vlm = scheduler.acquire("gemma", resource_scheduler.demand_for(
+        "semantics.analyse:inference"))
+    render, box = _acquire_in_thread(scheduler, "render",
+                                     "render.build:render")
+    assert render.wait(5)
+    second, box2 = _acquire_in_thread(scheduler, "render 2",
+                                      "render.build:render")
+    assert not second.wait(0.3), "one Resolve render engine"
+    for token in (box[0], gate, vlm):
+        scheduler.release(token)
+    assert second.wait(5)
+    scheduler.release(box2[0])
+
+
 def test_old_code_lock_dir_and_scheduler_exclude_each_other(scheduler):
     """Catches: a lane on pre-scheduler code (the bare mkdir lock) running
     its gate beside a scheduler gate during the switch-over."""

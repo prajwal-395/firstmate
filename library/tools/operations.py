@@ -2015,14 +2015,19 @@ _REGISTRY: tuple[Operation, ...] = (
             ExecutionPhase(
                 name="render", resolve_mode=RESOLVE_EXCLUSIVE,
                 locality=LOCALITY_TIMELINE,
-                resources=(("cpu", 4), ("disk", 2), ("gpu", 1),
-                           ("ram_gb", 4), ("resolve_render", 1)),
+                resources=(("resolve_render", 1),),
                 lock_sites=("library.tools.execution.resolve_render:render_timeline",),
                 entry_points=("library.tools.execution.resolve_render",),
                 why="Resolve has one global render queue and render engine.",
-                resource_basis=("Resolve's render CPU, RAM and GPU demand is "
-                                "declared, not measured; sample Resolve itself "
-                                "during a scratch-project render.")),
+                resource_basis=(
+                    "Only Resolve's one render engine. The CPU, GPU, RAM and "
+                    "disk this phase used to declare were never measured, "
+                    "and on 2026-10-03 they queued a master render 249 s "
+                    "behind test gates while it held the Resolve lease "
+                    "(measured in "
+                    "https://github.com/prajwal-395/video_editing_pilot/pull/1620). "
+                    "The captain "
+                    "ruled not to hardcode CPU/GPU balancing for it.")),
         )),
     ),
     Operation(

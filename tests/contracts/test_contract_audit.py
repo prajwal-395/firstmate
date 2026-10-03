@@ -221,8 +221,12 @@ def test_a_capability_with_ambiguous_resource_demand_is_named():
     index = next(i for i, op in enumerate(registry)
                  if op.name == "render.build")
     op = registry[index]
+    render_phase = next(phase for phase in op.execution.phases
+                        if phase.name == "render")
+    assert render_phase.resources
+    duplicate_resource = render_phase.resources[0][0]
     phases = tuple(
-        replace(phase, resources=phase.resources + (("cpu", 1),))
+        replace(phase, resources=phase.resources + ((duplicate_resource, 1),))
         if phase.name == "render" else phase
         for phase in op.execution.phases)
     registry[index] = replace(op, execution=replace(op.execution,
