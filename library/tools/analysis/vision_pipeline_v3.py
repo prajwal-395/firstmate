@@ -34,6 +34,7 @@ import sys
 import tempfile
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -2819,6 +2820,41 @@ def _merge_assessment_votes(window_entries):
     return content_type, primary_subject_visible
 
 
+def _uses_image_capable_still_host(analyzer):
+    """Whether object stills are answered by a declared image host.
+
+    Unknown harnesses remain on the existing serial path so the still
+    router keeps owning its established refusal and message. The helper
+    only opts into overlap for a host the router explicitly declares
+    image-capable.
+    """
+    from library.tools.still_vision import HOST_SEES_IMAGES, resolve_harness
+
+    harness = resolve_harness(getattr(analyzer, "harness", None))
+    return HOST_SEES_IMAGES.get(harness) is True
+
+
+def _iter_checking_worker(video_clips, future):
+    """Yield windows in order, surfacing a failed still worker between them."""
+    iterator = iter(video_clips)
+    try:
+        while True:
+            if future.done():
+                future.result()
+            try:
+                clip_info = next(iterator)
+            except StopIteration:
+                return
+            yield clip_info
+    finally:
+        close_iterator = getattr(iterator, "close", None)
+        if close_iterator is not None:
+            close_iterator()
+        close_source = getattr(video_clips, "close", None)
+        if close_source is not None:
+            close_source()
+
+
 def _finish_assessment(deterministic, content_type, primary_subject_visible,
                        temporal_index, duration, soft_picture_ranges):
     """Merge model fields into the deterministic dict (shared tail).
@@ -2846,7 +2882,7 @@ def _finish_assessment(deterministic, content_type, primary_subject_visible,
 # ═══════════════════════════════════════════════════════════════════════
 
 def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
-                 temporal_index, cache_dir, layer_cache=None):
+                 temporal_index, cache_dir, layer_cache=None, clock=None):
     """Orchestrate all dimension passes for a single clip.
 
     Execution order:
@@ -2862,7 +2898,13 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
     measured layer it already holds and stores the ones measured here;
     `frames` / `video_clips` are not read for a layer it supplies. None
     measures everything, as before.
+
+    With a declared image-capable host, the serial coarse/detail object
+    branch runs on one worker while this thread processes ordered windows.
+    `clock` is injectable so measurement tests do not patch the shared
+    process clock.
     """
+    clock = clock if clock is not None else time.time
     cached = {layer: layer_cache.get(layer)
               for layer in MEASUREMENT_LAYERS} if layer_cache else {}
     clip_id = clip_meta["clip_id"]
@@ -2888,6 +2930,54 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
     total_time = 0
     total_calls = 0
 
+    def measure_objects():
+        """Run the existing coarse-then-detail object route in order."""
+        objects_time = 0
+        objects_calls = 0
+        n_frames = len(frames)
+
+        # 2. Objects - coarse sweep
+        print(f"  [Objects] Coarse sweep ({len(frames)} frames, "
+              f"{n_obj_coarse_calls} batch(es))...", end=" ", flush=True)
+        coarse_objects, elapsed = analyze_objects_coarse(
+            analyzer, frames, duration, request_prefix=clip_id)
+        objects_time += elapsed
+        objects_calls += n_obj_coarse_calls
+        print(f"({elapsed:.1f}s) → {len(coarse_objects)} entities")
+
+        # 3. Objects - detail pass, dependent on the coarse result
+        detail_ranges = find_detail_ranges(coarse_objects, duration)
+        if detail_ranges:
+            n_detail_ranges = len(detail_ranges)
+            print(f"  [Objects] Detail pass ({n_detail_ranges} range(s))...",
+                  end=" ", flush=True)
+            objects, elapsed = analyze_objects_detail(
+                analyzer, clip_path, cache_dir, coarse_objects, duration,
+                request_prefix=clip_id)
+            objects_time += elapsed
+            objects_calls += max(1, n_detail_ranges)  # Approximate
+            print(f"({elapsed:.1f}s) → {len(objects)} entities (refined)")
+        else:
+            objects = coarse_objects
+            print("  [Objects] Detail pass skipped (no transient entities)")
+
+        return objects, objects_time, objects_calls, n_frames
+
+    objects_executor = None
+    objects_future = None
+    objects_result = None
+    overlap_objects = (
+        not cached.get("objects")
+        and not cached.get("windows")
+        and _uses_image_capable_still_host(analyzer)
+    )
+    if overlap_objects:
+        # The worker owns only the sequential host-backed object calls.
+        # Cache writes and profile composition stay on this thread.
+        objects_executor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="semantic-object-stills")
+        objects_future = objects_executor.submit(measure_objects)
+
     # ── Group A: Independent passes ──────────────────────────────────
 
     # 1. Folded windows: actions + scene + camera + assessment sections
@@ -2899,16 +2989,38 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
         n_video_clips = cached["windows"]["video_clips_extracted"]
     else:
         print(f"  [Windows] {n_window_calls} windows × {ACTION_WINDOW_S}s (video+audio clips)...")
-        _inference_t0 = time.time()
-        if layer_cache:
-            windows = analyze_windows_cached(
-                analyzer, video_clips, duration, temporal_index, transcript,
-                fps, layer_cache, request_prefix=clip_id)
+        _inference_t0 = clock()
+        window_source = (
+            _iter_checking_worker(video_clips, objects_future)
+            if objects_future is not None else video_clips)
+        try:
+            if layer_cache:
+                windows = analyze_windows_cached(
+                    analyzer, window_source, duration, temporal_index,
+                    transcript, fps, layer_cache, request_prefix=clip_id)
+            else:
+                windows = analyze_windows(
+                    analyzer, window_source, duration, temporal_index,
+                    transcript, fps=fps, request_prefix=clip_id)
+            if objects_future is not None:
+                objects_result = objects_future.result()
+        except BaseException:
+            if objects_future is not None:
+                close_window_source = getattr(window_source, "close", None)
+                if close_window_source is not None:
+                    close_window_source()
+                close_windows = getattr(video_clips, "close", None)
+                if close_windows is not None:
+                    close_windows()
+            if objects_executor is not None:
+                objects_executor.shutdown(wait=True, cancel_futures=True)
+                objects_executor = None
+            raise
         else:
-            windows = analyze_windows(analyzer, video_clips, duration,
-                                      temporal_index, transcript, fps=fps,
-                                      request_prefix=clip_id)
-        window_inference_wall_s = round(time.time() - _inference_t0, 2)
+            if objects_executor is not None:
+                objects_executor.shutdown(wait=True)
+                objects_executor = None
+        window_inference_wall_s = round(clock() - _inference_t0, 2)
         n_video_clips = len(video_clips)
         if layer_cache:
             layer_cache.put("windows", {
@@ -2991,36 +3103,10 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
         print(f"  [Objects] {len(objects)} entities reused "
               f"(measurement layer cache)")
     else:
-        objects_time = 0
-        objects_calls = 0
-        n_frames = len(frames)
-        # 2. Objects — coarse sweep
-        print(f"  [Objects] Coarse sweep ({len(frames)} frames, {n_obj_coarse_calls} batch(es))...",
-              end=" ", flush=True)
-        coarse_objects, t = analyze_objects_coarse(
-            analyzer, frames, duration, request_prefix=clip_id)
-        objects_time += t
-        objects_calls += n_obj_coarse_calls
-        print(f"({t:.1f}s) → {len(coarse_objects)} entities")
-
-        # ── Group B: Dependent passes ────────────────────────────────
-
-        # 3. Objects — detail pass
-        detail_ranges = find_detail_ranges(coarse_objects, duration)
-        if detail_ranges:
-            n_detail_ranges = len(detail_ranges)
-            print(f"  [Objects] Detail pass ({n_detail_ranges} range(s))...", end=" ", flush=True)
-            objects, t = analyze_objects_detail(
-                analyzer, clip_path, cache_dir, coarse_objects, duration,
-                request_prefix=clip_id
-            )
-            objects_time += t
-            detail_calls = max(1, n_detail_ranges)  # Approximate
-            objects_calls += detail_calls
-            print(f"({t:.1f}s) → {len(objects)} entities (refined)")
+        if objects_result is None:
+            objects, objects_time, objects_calls, n_frames = measure_objects()
         else:
-            objects = coarse_objects
-            print(f"  [Objects] Detail pass skipped (no transient entities)")
+            objects, objects_time, objects_calls, n_frames = objects_result
         total_time += objects_time
         total_calls += objects_calls
         if layer_cache:
@@ -3040,7 +3126,7 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
     # through as an absent measurement rather than smoothed into "fine".
     print(f"  [Picture] Sharpness at "
           f"{picture_quality.SAMPLE_RATE_HZ:g}Hz...", end=" ", flush=True)
-    t_pic = time.time()
+    t_pic = clock()
     if cached.get("picture"):
         soft_ranges = cached["picture"]["soft_ranges"]
     else:
@@ -3050,7 +3136,7 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
         # again rather than carrying the absence forward.
         if layer_cache and soft_ranges is not None:
             layer_cache.put("picture", {"soft_ranges": soft_ranges})
-    t_pic = time.time() - t_pic
+    t_pic = clock() - t_pic
     if soft_ranges is None:
         print(f"({t_pic:.1f}s) → unmeasured")
     else:
@@ -3062,12 +3148,12 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
         soft_picture_ranges=soft_ranges)
     print(f"  [Assessment] Hybrid (votes from {n_window_calls} window(s) + deterministic)...",
           end=" ", flush=True)
-    t_assess = time.time()
+    t_assess = clock()
     content_type, primary_subject_visible = _merge_assessment_votes(windows)
     assessment = _finish_assessment(
         deterministic, content_type, primary_subject_visible,
         temporal_index, duration, soft_ranges)
-    t_assess = time.time() - t_assess
+    t_assess = clock() - t_assess
     print(f"({t_assess:.1f}s) → {assessment.get('content_type', '?')}")
 
     # ── Build clip profile ───────────────────────────────────────────

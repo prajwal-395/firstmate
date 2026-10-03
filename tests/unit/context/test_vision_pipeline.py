@@ -626,6 +626,253 @@ def test_analyze_clip_records_the_inference_wall_beside_the_model_sum():
     json.dumps(profile)
 
 
+def test_host_still_overlap_preserves_serial_profile_and_commit_order(
+        monkeypatch):
+    """The same fake answers compose identically, while host still work
+    overlaps ordered windows and all measurement-layer commits stay on
+    the composing thread in their established order.
+    """
+    import copy
+    import threading
+
+    from library.tools import still_vision
+
+    monkeypatch.delenv(still_vision.HARNESS_ENV_VAR, raising=False)
+    monkeypatch.setattr(vp.picture_quality, "measure_soft_picture",
+                        lambda *_args: [])
+
+    windows = [
+        {"window": [0.0, 10.0], "actions": [{"action": "speaking"}],
+         "analysis_time_s": 0.25, "prompt_path": "compact",
+         "scene": [{"start": 0.0, "end": 10.0,
+                    "description": "room"}],
+         "camera": [],
+         "assessment": {"content_type": "person_talking_to_camera",
+                        "primary_subject_visible": [[0.0, 10.0]]},
+         "has_audio": False},
+        {"window": [10.0, 20.0], "actions": [{"action": "turning"}],
+         "analysis_time_s": 0.5, "prompt_path": "compact",
+         "scene": [{"start": 10.0, "end": 20.0,
+                    "description": "room"}],
+         "camera": [],
+         "assessment": {"content_type": "person_talking_to_camera",
+                        "primary_subject_visible": [[10.0, 20.0]]},
+         "has_audio": False},
+    ]
+    coarse_objects = [{"label": "person", "appearances": [[1.0, 2.0]]}]
+    detailed_objects = [
+        {"label": "person", "appearances": [[1.0, 2.0]],
+         "details": ["standing"]},
+    ]
+    window_clips = [
+        {"index": i, "start": start, "end": start + 10.0,
+         "path": f"/tmp/window-{i}.mp4", "has_audio": False}
+        for i, start in enumerate((0.0, 10.0))
+    ]
+    meta = {"clip_id": "IMG_1816", "file_path": "/footage/IMG_1816.MOV",
+            "duration_s": 20.0, "fps": 30.0,
+            "resolution": [1920, 1080]}
+    frames = [{"path": f"/tmp/still-{i}.jpg", "timestamp": i * 5.0}
+              for i in range(4)]
+
+    class RecordingLayerCache:
+        def __init__(self):
+            self.writes = []
+
+        def get(self, _layer):
+            return None
+
+        def get_window(self, *_args):
+            return None
+
+        def put_window(self, start, _end, _params, _value):
+            self.writes.append(("window", start,
+                                threading.current_thread().name))
+
+        def put(self, layer, _value):
+            self.writes.append((layer, threading.current_thread().name))
+
+        def record(self):
+            return {}
+
+    def run(harness):
+        window_active = threading.Event()
+        detail_finished = threading.Event()
+        object_order = []
+        layer_cache = RecordingLayerCache()
+        analyzer = SimpleNamespace(harness=harness)
+
+        def fake_windows(_analyzer, clips, *_args, **_kwargs):
+            entries = []
+            for clip in clips:
+                if harness == "agent":
+                    window_active.set()
+                entries.extend(copy.deepcopy([
+                    entry for entry in windows
+                    if entry["window"][0] == clip["start"]]))
+            if harness == "agent":
+                assert detail_finished.wait(2), \
+                    "host object branch did not overlap window analysis"
+            return entries
+
+        def fake_coarse(_analyzer, _frames, _duration, request_prefix):
+            object_order.append(("coarse", request_prefix))
+            if harness == "agent":
+                assert window_active.wait(2), \
+                    "window analysis had not started before host still work"
+            return copy.deepcopy(coarse_objects), 1.5
+
+        def fake_detail(_analyzer, _path, _cache, coarse, _duration,
+                        request_prefix):
+            object_order.append(("detail", request_prefix))
+            if harness == "agent":
+                detail_finished.set()
+            assert coarse == coarse_objects
+            return copy.deepcopy(detailed_objects), 2.5
+
+        monkeypatch.setattr(vp, "analyze_windows", fake_windows)
+        monkeypatch.setattr(vp, "analyze_objects_coarse", fake_coarse)
+        monkeypatch.setattr(vp, "find_detail_ranges",
+                            lambda *_args: [(1.0, 3.0)])
+        monkeypatch.setattr(vp, "analyze_objects_detail", fake_detail)
+        profile = vp.analyze_clip(
+            analyzer, meta, frames, window_clips, "", None,
+            "/tmp/nonexistent-cache", layer_cache=layer_cache,
+            clock=lambda: 100.0)
+        return profile, object_order, layer_cache.writes
+
+    serial_profile, serial_objects, serial_writes = run(None)
+    parallel_profile, parallel_objects, parallel_writes = run("agent")
+
+    assert serial_profile == parallel_profile
+    assert serial_objects == [("coarse", "IMG_1816"),
+                              ("detail", "IMG_1816")]
+    assert parallel_objects == [("coarse", "IMG_1816"),
+                                ("detail", "IMG_1816")]
+    expected_writes = [
+        ("window", 0.0, "MainThread"),
+        ("window", 10.0, "MainThread"),
+        ("windows", "MainThread"),
+        ("objects", "MainThread"),
+        ("picture", "MainThread"),
+    ]
+    assert serial_writes == expected_writes
+    assert parallel_writes == expected_writes
+
+
+def test_failed_host_object_branch_writes_no_partial_profile(
+        tmp_path, monkeypatch):
+    """A failed still branch aborts the clip before run_pipeline writes
+    its per-clip profile or combined index.
+    """
+    from contextlib import nullcontext
+
+    source = tmp_path / "IMG_1816.MOV"
+    source.write_bytes(b"fake video")
+    output_dir = tmp_path / "pipeline_output"
+    analyzer = SimpleNamespace(harness="agent")
+
+    class ClosableWindowClips(list):
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    window_clips = ClosableWindowClips([{
+        "index": 0, "start": 0.0, "end": 10.0,
+        "path": str(tmp_path / "window.mp4"), "has_audio": False,
+    }])
+
+    class EmptyLayerCache:
+        def get(self, _layer):
+            return None
+
+        def get_window(self, *_args):
+            return None
+
+        def put_window(self, *_args):
+            pass
+
+        def put(self, *_args):
+            pass
+
+        def record(self):
+            return {}
+
+    monkeypatch.setattr(vp, "_LazyAnalyzer",
+                        lambda *_args, **_kwargs: nullcontext(analyzer))
+    monkeypatch.setattr(vp.measurement_layers, "method_digest",
+                        lambda *_args: "fake-method")
+    monkeypatch.setattr(vp.measurement_layers, "canonical_digest",
+                        lambda *_args: "fake-inputs")
+    monkeypatch.setattr(vp.measurement_layers.LayerCache, "for_source",
+                        lambda *_args, **_kwargs: EmptyLayerCache())
+    monkeypatch.setattr(vp, "probe_clip", lambda path: {
+        "clip_id": path.stem, "file_path": str(path),
+        "duration_s": 10.0, "fps": 30.0,
+        "resolution": [1920, 1080]})
+    monkeypatch.setattr(vp, "load_temporal_index", lambda *_args: None)
+    monkeypatch.setattr(vp, "load_transcript_text", lambda *_args: "")
+    monkeypatch.setattr(vp, "extract_frames", lambda *_args: [
+        {"path": str(tmp_path / "still.jpg"), "timestamp": 0.0}])
+    monkeypatch.setattr(vp, "extract_video_clips",
+                        lambda *_args, **_kwargs: window_clips)
+    monkeypatch.setattr(vp, "analyze_windows", lambda *_args, **_kwargs: [{
+        "window": [0.0, 10.0], "actions": [], "analysis_time_s": 0.1,
+        "prompt_path": "compact", "scene": [], "camera": [],
+        "assessment": None,
+    }])
+
+    def fail_objects(*_args, **_kwargs):
+        raise RuntimeError("recorded object-branch failure")
+
+    monkeypatch.setattr(vp, "analyze_objects_coarse", fail_objects)
+
+    with pytest.raises(RuntimeError, match="recorded object-branch failure"):
+        vp.run_pipeline.__wrapped__(
+            [source], cache_dir=tmp_path / "cache", output_dir=output_dir,
+            force=True, harness="agent", project_folder=str(tmp_path))
+
+    assert not (output_dir / "clip_profile_IMG_1816_v3.json").exists()
+    assert not (output_dir / "vision_index_v3.json").exists()
+    assert window_clips.closed
+
+
+def test_no_image_host_keeps_object_passes_after_windows(monkeypatch):
+    """No host leaves the existing same-device serial execution order."""
+    from library.tools import still_vision
+
+    monkeypatch.delenv(still_vision.HARNESS_ENV_VAR, raising=False)
+    monkeypatch.setattr(vp.picture_quality, "measure_soft_picture",
+                        lambda *_args: [])
+    order = []
+    meta = {"clip_id": "IMG_1816", "file_path": "/footage/IMG_1816.MOV",
+            "duration_s": 10.0, "fps": 30.0,
+            "resolution": [1920, 1080]}
+    clips = [{"index": 0, "start": 0.0, "end": 10.0,
+              "path": "/tmp/window.mp4", "has_audio": False}]
+
+    def fake_windows(*_args, **_kwargs):
+        order.append("windows")
+        return [{"window": [0.0, 10.0], "actions": [],
+                 "analysis_time_s": 0.1, "prompt_path": "compact",
+                 "scene": [], "camera": [], "assessment": None}]
+
+    def fake_coarse(*_args, **_kwargs):
+        order.append("objects_coarse")
+        return [], 0.2
+
+    monkeypatch.setattr(vp, "analyze_windows", fake_windows)
+    monkeypatch.setattr(vp, "analyze_objects_coarse", fake_coarse)
+    monkeypatch.setattr(vp, "find_detail_ranges", lambda *_args: [])
+
+    vp.analyze_clip(
+        SimpleNamespace(harness=None), meta, [], clips, "", None,
+        "/tmp/nonexistent-cache")
+
+    assert order == ["windows", "objects_coarse"]
+
+
 @pytest.mark.usefixtures("mock_mlx_functions")
 def test_retried_window_writes_one_per_attempt_row(tmp_path, monkeypatch):
     ledger = tmp_path / "perf_ledger.jsonl"
