@@ -2285,6 +2285,26 @@ def _remnant_has_timed_words(start: float, end: float,
     return None
 
 
+def _remnant_has_speech(start: float, end: float,
+                        transcript: dict) -> object:
+    """A timed word or text-carrying transcript row inside the remnant."""
+    spoken = _remnant_has_timed_words(start, end, transcript)
+    if spoken is not None:
+        return spoken
+    for segment in (transcript or {}).get("segments") or ():
+        text = (segment.get("text") or "").strip()
+        if not text:
+            continue
+        try:
+            seg_start = float(segment["timeline_start"])
+            seg_end = float(segment["timeline_end"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if seg_start < end and seg_end > start:
+            return text[:40]
+    return None
+
+
 def absorb_wordless_remnants(
         ranges: Sequence[Tuple[float, float]],
         intervals: Sequence[tuple],
@@ -2471,20 +2491,7 @@ def absorb_wordless_clip_edge_dust(ranges: Sequence[Tuple[float, float]],
         dust = (edge, range_end) if side == "end" else (range_start, edge)
         if not 0 < dust[1] - dust[0] <= ABSORB_REMNANT_SECONDS:
             continue
-        spoken = _remnant_has_timed_words(dust[0], dust[1], transcript)
-        if spoken is not None:
-            continue
-        for segment in (transcript or {}).get("segments") or ():
-            if not (segment.get("text") or "").strip():
-                continue
-            try:
-                seg_start = float(segment["timeline_start"])
-                seg_end = float(segment["timeline_end"])
-            except (KeyError, TypeError, ValueError):
-                continue
-            if seg_start < dust[1] and seg_end > dust[0]:
-                spoken = (segment.get("text") or "").strip()[:40]
-                break
+        spoken = _remnant_has_speech(dust[0], dust[1], transcript)
         if spoken is not None:
             continue
         out[index][1 if side == "end" else 0] = float(edge)
@@ -3942,6 +3949,15 @@ def suppress_mic_bleed_audio(placements_list: Sequence[dict],
     side remains intact. Genuine overlapping turns keep both microphones.
     An audio placement speaks for its ANGLE's person (`_angle_people`),
     never for its row's stream name.
+
+    A kept remnant under the F7 readability floor (`manifest_validator.
+    MIN_CAPTION_DISPLAY_SECONDS`) that carries no speech is DROPPED,
+    not placed: when a reel boundary sits in a silence under 0.5s from
+    the other speaker's words (a body end the captain moves by hand),
+    the split strands a 2-7 frame piece of the silent mic beside the
+    mute, and placing it fails F7. A sub-floor remnant carrying speech
+    is kept - cutting it would delete words, so the gate's refusal
+    stands and names the redraw.
     """
     spoken = [
         (str(segment["speaker"]), float(segment["timeline_start"]),
@@ -3955,6 +3971,12 @@ def suppress_mic_bleed_audio(placements_list: Sequence[dict],
     people = _angle_people(master_clips, placements_list)
     out: list[dict] = []
     suppressions: list[dict] = []
+    import sys
+
+    from library.tools.manifest_validator import MIN_CAPTION_DISPLAY_SECONDS
+
+    floor_frames = int(math.ceil(MIN_CAPTION_DISPLAY_SECONDS * float(fps)))
+
     for placement in placements_list:
         clip = placement["clip"]
         if getattr(clip, "track_type", "video") != "audio":
@@ -4002,16 +4024,28 @@ def suppress_mic_bleed_audio(placements_list: Sequence[dict],
         # inside the iteration that defines it, and binding says so (B023).
         def keep_piece(start: float, end: float, placement=placement,
                        master_start=master_start, source_start=source_start,
-                       base_record_frame=base_record_frame) -> None:
+                       base_record_frame=base_record_frame,
+                       speaker=speaker) -> None:
             start_frame = int(round((start - master_start) * fps))
             end_frame = int(round((end - master_start) * fps))
             if end_frame <= start_frame:
                 return
             offset = start_frame / fps
             duration = (end_frame - start_frame) / fps
+            piece_start = master_start + offset
+            piece_end = piece_start + duration
+            if end_frame - start_frame < floor_frames:
+                spoken = _remnant_has_speech(
+                    piece_start, piece_end, transcript)
+                if spoken is None:
+                    print(f"  mic-bleed dust: {speaker}'s "
+                          f"{piece_start:.2f}-{piece_end:.2f}s "
+                          f"({duration:.3f}s of wordless room tone "
+                          f"dropped, under the F7 floor)",
+                          file=sys.stderr, flush=True)
+                    return
             piece = dict(placement)
-            piece["master"] = (master_start + offset,
-                               master_start + offset + duration)
+            piece["master"] = (piece_start, piece_end)
             piece["source_in"] = source_start + offset
             piece["source_out"] = piece["source_in"] + duration
             piece["snapped_record"] = base_record_frame + start_frame

@@ -61,7 +61,9 @@ Found by the conversation shape on its first run. Fixed ones name the PR.
 4. **Mic-bleed suppression leaves sub-floor audio slivers.** When a reel
    boundary sits in a silence under 0.5s from the other speaker's words (a
    body end the captain moves by hand), `suppress_mic_bleed_audio` keeps a
-   2-7 frame piece of the silent mic and F7 refuses the whole reel. Open.
+   2-7 frame piece of the silent mic and F7 refuses the whole reel. Fixed:
+   wordless pieces below F7's floor are dropped, while speech-bearing pieces
+   remain for F7 to identify. [PR](https://github.com/prajwal-395/video_editing_pilot/pull/1597).
 5. **A replace-guard refusal cannot be followed.** It prints
    `build-reels --allow-drop ...`, but its staging stays held and the next
    build refuses it as debris "from an interrupted run", so the suggested

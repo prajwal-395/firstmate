@@ -921,6 +921,82 @@ def test_mic_bleed_only_suppresses_the_losing_audio_angle(
                     if item["speaker"] == "Akshita CH1") in kept
 
 
+def _sliver_placement(speaker, start, end):
+    duration = end - start
+    return {
+        "clip": SimpleNamespace(
+            track_type="audio",
+            source_file=f"/{speaker}.MXF",
+        ),
+        "source_in": 50.0,
+        "source_out": 50.0 + duration,
+        "record": 0.0,
+        "snapped_record": 0,
+        "speaker": speaker,
+        "master": (start, end),
+    }
+
+
+def test_mic_bleed_drops_wordless_sub_floor_slivers():
+    """`docs/GOLDEN_PROJECTS.md` item 4: the golden conversation's timings
+    (Craig to 7.35s, Akshita 8.1-10.75s) with the body end the captain
+    moves by hand to 11.0s - 0.25s of silence after Akshita's last word.
+    The split stranded a 6-frame tail of the silent mic and F7 refused
+    the whole reel. The suppression drops wordless pieces under the
+    floor instead of keeping them, so F7 passes; speech survives."""
+    from library.tools.manifest_validator import MIN_CAPTION_DISPLAY_SECONDS
+    from library.tools.reel_conformance_verifier import check_short_av_items
+
+    floor_frames = int(math.ceil(MIN_CAPTION_DISPLAY_SECONDS * FPS_2))
+    transcript = _transcript_2(
+        ("Craig", 4.1, 7.35, "it depends on what it read"),
+        ("Akshita", 8.1, 10.75, "which means the content you publish"))
+    kept, _suppressed = suppress_mic_bleed_audio(
+        [_sliver_placement("Craig", 7.0, 11.0),
+         _sliver_placement("Akshita", 7.0, 11.0)],
+        transcript, FPS_2)
+
+    assert kept, "the suppression deleted audible speech, not dust"
+    for piece in kept:
+        frames = int(round((piece["source_out"] - piece["source_in"])
+                           * FPS_2))
+        assert frames >= floor_frames, (
+            f"{piece['speaker']}'s {frames}-frame remnant "
+            f"{piece['master']} survives for F7 to refuse")
+    findings = check_short_av_items(
+        "Reel 01 - check-the-answer", [],
+        [{"name": piece["speaker"],
+          "duration_frames": int(round(
+              (piece["source_out"] - piece["source_in"]) * FPS_2))}
+         for piece in kept],
+        FPS_2)
+    assert findings == []
+    # Both turns still play: Craig before Akshita's line, Akshita through
+    # the hand-moved end.
+    by_speaker = {}
+    for piece in kept:
+        by_speaker.setdefault(piece["speaker"], []).append(piece["master"])
+    assert by_speaker["Craig"][0][0] == pytest.approx(7.0)
+    assert by_speaker["Craig"][-1][1] <= 8.1 + 1 / FPS_2
+    assert by_speaker["Akshita"][-1][1] == pytest.approx(11.0, abs=2 / FPS_2)
+
+
+def test_mic_bleed_keeps_a_sub_floor_remnant_carrying_speech():
+    """The floor drop above must not delete words: Craig's 0.3s "quite"
+    sits 0.05s before Akshita's line, so his kept head is 10 frames -
+    under the floor, but carrying speech, so it stays for F7 to refuse
+    rather than vanishing silently."""
+    transcript = _transcript_2(
+        ("Craig", 8.0, 8.3, "quite"),
+        ("Akshita", 8.35, 10.0, "which means the content"))
+    kept, _suppressed = suppress_mic_bleed_audio(
+        [_sliver_placement("Craig", 7.9, 10.5)], transcript, FPS_2)
+
+    assert any(piece["master"][0] < 8.3 < piece["master"][1]
+               for piece in kept), (
+        "the suppression deleted Craig's audible word with the dust")
+
+
 # --------------------------------------------------------------------------
 # From test_reel_build_pool_filing.py
 #
