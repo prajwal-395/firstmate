@@ -10,6 +10,9 @@ not assumed. Each rule names the field evidence:
 
 - the cursor: listing/reading never moves it; only ``SetCurrentTimeline``
   does (``resolve_axi._target_timeline`` goes through ``GetTimelineByIndex``).
+- timeline inventories: ``GetTimelineByIndex`` returns no object when a
+  concurrent deletion makes an index stale (the three-build benchmark,
+  2026-10-03; ``reel_replace_guard.timeline_inventory``).
 - ``GetIsTrackEnabled`` answers False for every track of a timeline that
   is not current (Podcast field test, 2026-10-01; ``resolve_axi.cmd_audio``).
 - ``TimelineItem.SetClipEnabled`` writes only on the current timeline:
@@ -297,6 +300,8 @@ class FakeProject:
         return len(self._timelines)
 
     def GetTimelineByIndex(self, index):
+        if index < 1 or index > len(self._timelines):
+            return None
         return self._timelines[index - 1]
 
     def GetCurrentTimeline(self):
@@ -1918,6 +1923,14 @@ def check_listing_never_moves_the_cursor(project, pool_clip=None):
     assert second.GetName() == "Second"
 
 
+def check_deleted_timeline_index_returns_no_object(project, pool_clip=None):
+    timeline = project.GetMediaPool().CreateEmptyTimeline(
+        "Stale inventory index")
+    index = project.GetTimelineCount()
+    assert project.GetMediaPool().DeleteTimelines([timeline]) is True
+    assert project.GetTimelineByIndex(index) is None
+
+
 def check_track_enable_reads_on_the_cursor(project, pool_clip=None):
     timeline = _needs_timeline(project)
     _ensure_track(timeline, "audio", 1)
@@ -2253,6 +2266,8 @@ def check_linked_items_round_trip(project, pool_clip=None):
 CONTRACT_CHECKS = [
     ("exact names win; listing never moves the cursor", check_exact_names_win),
     ("listing never moves the cursor", check_listing_never_moves_the_cursor),
+    ("a deleted timeline invalidates its inventory index",
+     check_deleted_timeline_index_returns_no_object),
     ("track enable reads on the cursor", check_track_enable_reads_on_the_cursor),
     ("track enable lies off the cursor", check_track_enable_lies_off_the_cursor),
     ("clip enable writes on the cursor", check_clip_enable_writes_on_the_cursor),

@@ -102,6 +102,8 @@ from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
 
+from library.tools.resolve_lock import under_lease
+
 #: How many missing items a refusal names inline per row. The report the
 #: promote result carries names every one; the message stays readable.
 MISSING_SHOWN = 5
@@ -170,6 +172,7 @@ def _plain_setting(value):
     return str(value)
 
 
+@under_lease("read project timeline inventory", exclusive=False)
 def timeline_inventory(project) -> list[dict]:
     """Read project timeline names, unique ids and settings as plain data."""
     entries = []
