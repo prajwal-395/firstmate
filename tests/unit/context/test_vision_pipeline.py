@@ -826,7 +826,7 @@ def test_failed_host_object_branch_writes_no_partial_profile(
     def fail_objects(*_args, **_kwargs):
         raise RuntimeError("recorded object-branch failure")
 
-    monkeypatch.setattr(vp, "analyze_objects_coarse", fail_objects)
+    monkeypatch.setattr(vp, "analyze_objects_coarse_batch", fail_objects)
 
     with pytest.raises(RuntimeError, match="recorded object-branch failure"):
         vp.run_pipeline.__wrapped__(
@@ -871,6 +871,207 @@ def test_no_image_host_keeps_object_passes_after_windows(monkeypatch):
         "/tmp/nonexistent-cache")
 
     assert order == ["windows", "objects_coarse"]
+
+
+def test_host_schedule_profiles_and_cache_commits_ignore_completion_order(
+        tmp_path, monkeypatch):
+    """Recorded model answers compose identically whichever lane finishes first."""
+    from concurrent.futures import Future
+    import copy
+    import threading
+
+    monkeypatch.setattr(vp.picture_quality, "measure_soft_picture",
+                        lambda *_args: [])
+    monkeypatch.setattr(vp, "find_detail_ranges",
+                        lambda *_args: [(1.0, 3.0)])
+
+    def fake_extract_detail_frames(clip_path, _cache_dir, ranges):
+        clip_id = Path(clip_path).stem
+        return {
+            (start, end): [
+                {"path": f"/{clip_id}-detail-0.jpg", "timestamp": 1.0},
+                {"path": f"/{clip_id}-detail-1.jpg", "timestamp": 2.0},
+            ]
+            for start, end in ranges
+        }
+
+    monkeypatch.setattr(vp, "extract_detail_frames",
+                        fake_extract_detail_frames)
+
+    def fake_windows(_analyzer, clips, *_args, **_kwargs):
+        clip_id = Path(clips[0]["path"]).stem
+        return [{
+            "window": [0.0, 10.0],
+            "actions": [{"action": f"action-{clip_id}"}],
+            "analysis_time_s": 0.1, "prompt_path": "compact",
+            "scene": [], "camera": [],
+            "assessment": {"content_type": "person_talking_to_camera",
+                           "primary_subject_visible": [[0.0, 10.0]]},
+            "has_audio": False,
+        }]
+
+    monkeypatch.setattr(vp, "analyze_windows", fake_windows)
+
+    class RecordingCache:
+        def __init__(self):
+            self.writes = []
+
+        def get(self, _layer):
+            return None
+
+        def put_window(self, start, _end, _params, _value):
+            self.writes.append(("window", start,
+                                threading.current_thread().name))
+
+        def put(self, layer, _value):
+            self.writes.append((layer, threading.current_thread().name))
+
+        def record(self):
+            return {"windows": {"key": "w", "outcome": "measured"},
+                    "objects": {"key": "o", "outcome": "measured"},
+                    "picture": {"key": "p", "outcome": "measured"}}
+
+    class FakeAnalyzer:
+        harness = "agent"
+
+        def __init__(self, calls):
+            self.calls = calls
+            self.answers = {
+                "clip-0": {"label": "object-0",
+                           "appearances": [[1.0, 2.0]]},
+                "clip-1": {"label": "object-1",
+                           "appearances": [[1.0, 2.0]]},
+            }
+
+        def analyze_with_retry(self, _prompt, _parse_fn, *, request_kind,
+                               request_id, still_executor, **_kwargs):
+            clip_id = request_id.split(":", 1)[0]
+            self.calls.append((request_kind, clip_id, still_executor))
+            if request_kind == "object-coarse":
+                result = [copy.deepcopy(self.answers[clip_id])]
+                elapsed = 0.2
+            else:
+                result = [{**copy.deepcopy(self.answers[clip_id]),
+                           "details": ["recorded detail"]}]
+                elapsed = 0.3
+            return result, json.dumps(result), elapsed
+
+    class ImmediateExecutor:
+        def submit(self, function, *args, **kwargs):
+            future = Future()
+            try:
+                future.set_result(function(*args, **kwargs))
+            except BaseException as exc:
+                future.set_exception(exc)
+            return future
+
+        def shutdown(self, wait=True, cancel_futures=False):
+            return None
+
+    def run(reverse_completion):
+        contexts = []
+        model_calls = []
+        for clip_order in range(2):
+            clip_id = f"clip-{clip_order}"
+            source = tmp_path / f"{clip_id}.mov"
+            source.write_bytes(b"source")
+            cache = RecordingCache()
+            meta = {"clip_id": clip_id, "file_path": str(source),
+                    "duration_s": 10.0, "fps": 30.0,
+                    "resolution": [1920, 1080]}
+            contexts.append({
+                "clip_order": clip_order,
+                "clip_order_in_input": clip_order,
+                "meta": meta, "clip_path": source,
+                "cache_dir": tmp_path / "cache",
+                "transcript": "", "temporal_index": None,
+                "frames": [{"path": f"/{clip_id}-coarse.jpg",
+                            "timestamp": 0.0}],
+                "video_clips": [{
+                    "index": 0, "start": 0.0, "end": 10.0,
+                    "path": f"/{clip_id}-window.mp4", "has_audio": False}],
+                "layer_cache": cache,
+                "windows_cached": None, "objects_cached": None,
+                "window_params": [{"prompt": clip_id}],
+                "window_cache_hits": [False],
+                "windows_by_index": [None], "window_task_spans": {},
+                "objects_time": 0.0, "objects_calls": 0,
+            })
+
+        def wait_one(futures, return_when):
+            finished = [future for future in futures if future.done()]
+            selected = finished[-1 if reverse_completion else 0]
+            return {selected}, set(futures) - {selected}
+
+        vp._run_host_semantic_schedule(
+            contexts, FakeAnalyzer(model_calls),
+            executor_factory=lambda _lane: ImmediateExecutor(),
+            wait_for=wait_one, clock=lambda: 10.0)
+
+        profiles = []
+        cache_writes = []
+        for context in contexts:
+            profile = vp.analyze_clip(
+                FakeAnalyzer([]), context["meta"], None, [], "", None,
+                context["cache_dir"], layer_cache=context["layer_cache"],
+                precomputed_layers={
+                    "windows": context["windows_result"],
+                    "objects": context["objects_result_layer"],
+                })
+            profiles.append(profile)
+            cache_writes.extend(context["layer_cache"].writes)
+        assert all(write[-1] == "MainThread" for write in cache_writes)
+        assert [write[1] for write in cache_writes if write[0] == "window"] == [
+            0.0, 0.0]
+        completed_coarse = set()
+        for request_kind, clip_id, _executor in model_calls:
+            if request_kind == "object-detail":
+                assert clip_id in completed_coarse
+            else:
+                completed_coarse.add(clip_id)
+        cloud_calls = [(kind, clip_id) for kind, clip_id, executor in model_calls
+                       if executor == "cloud"]
+        if ("object-coarse", "clip-1") in cloud_calls:
+            assert cloud_calls.index(("object-detail", "clip-0")) < \
+                cloud_calls.index(("object-coarse", "clip-1"))
+        return profiles, cache_writes
+
+    forward = run(False)
+    reverse = run(True)
+    assert forward == reverse
+
+
+@pytest.mark.usefixtures("mock_mlx_functions")
+def test_scheduled_still_attempt_records_selected_executor(tmp_path, monkeypatch):
+    from library.tools import still_vision
+
+    ledger = tmp_path / "perf_ledger.jsonl"
+    monkeypatch.setenv(vp.perf_ledger.LEDGER_ENV, str(ledger))
+    monkeypatch.setenv(vp.perf_ledger.RUN_ENV, "run-test")
+    monkeypatch.setenv(vp.perf_ledger.CAPABILITY_ENV, "semantic_analysis")
+
+    def host_answer(_prompt, _images, *, route_metadata, **_kwargs):
+        route_metadata.update(
+            backend="host", model="host:agent", model_version="unknown",
+            fallback_causes=[])
+        return "[]"
+
+    monkeypatch.setattr(still_vision, "inspect_stills", host_answer)
+    analyzer = vp.VisionAnalyzer(
+        SimpleNamespace(config=SimpleNamespace(_commit_hash="abc123")),
+        object(), harness="agent")
+
+    result, _raw, _elapsed = analyzer.analyze_with_retry(
+        "Describe these frames.", vp.parse_json_array,
+        images=["/tmp/frame.jpg"], request_kind="object-coarse",
+        request_id="clip:object-coarse:batch:1/1", still_executor="cloud")
+
+    rows = [json.loads(line) for line in ledger.read_text().splitlines()]
+    attempts = [row for row in rows if "attempt_number" in row]
+    assert result == []
+    assert len(attempts) == 2
+    assert all(row["backend"] == "host" for row in attempts)
+    assert all(row["executor"] == "cloud_host" for row in attempts)
 
 
 @pytest.mark.usefixtures("mock_mlx_functions")

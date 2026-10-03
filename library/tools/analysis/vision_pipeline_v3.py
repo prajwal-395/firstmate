@@ -34,7 +34,8 @@ import sys
 import tempfile
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+import heapq
 from pathlib import Path
 
 import numpy as np
@@ -639,7 +640,7 @@ class VisionAnalyzer:
         return str(revision or MODEL_ID)
 
     def analyze(self, prompt, images=None, video=None, max_tokens=512,
-                  audio=None, _route=None):
+                  audio=None, _route=None, _still_executor=None):
         """Run a single analysis pass. Returns (text, elapsed_seconds).
 
         Args:
@@ -669,7 +670,9 @@ class VisionAnalyzer:
         """
         route = _route if _route is not None else {}
         if images:
-            return self._analyze_stills(prompt, images, max_tokens, route)
+            return self._analyze_stills(
+                prompt, images, max_tokens, route,
+                executor=_still_executor)
         route.update({
             "backend": "mlx_vlm",
             "model": MODEL_ID,
@@ -708,7 +711,8 @@ class VisionAnalyzer:
         text = r.text if hasattr(r, "text") else str(r)
         return text, elapsed
 
-    def _analyze_stills(self, prompt, images, max_tokens, route):
+    def _analyze_stills(self, prompt, images, max_tokens, route,
+                        executor=None):
         """One still-frame pass: the driver first, gemma fallback.
 
         Routes through `library/tools/still_vision.py` and returns
@@ -721,16 +725,48 @@ class VisionAnalyzer:
 
         t0 = time.time()
         route["input_kind"] = "still"
-        text = inspect_stills(
-            prompt, list(images), harness=self.harness,
-            project_folder=self.project_folder, step_id=self.step_id,
-            label="objects", max_tokens=max_tokens,
-            route_metadata=route)
+        if executor == "local":
+            route["executor"] = "local_gemma"
+            route.update({
+                "backend": "mlx_vlm", "model": MODEL_ID,
+                "model_version": self._model_version(self.model),
+                "fallback_causes": [],
+            })
+            formatted = apply_chat_template(
+                self.proc, self.model.config, prompt,
+                num_images=len(images))
+            with perf_ledger.span(
+                    "gemma_inference", backend="mlx_vlm", model=MODEL_ID,
+                    calls=1) as cost:
+                result = generate(
+                    self.model, self.proc, prompt=formatted,
+                    image=list(images), max_tokens=max_tokens,
+                    temperature=0.1, verbose=False)
+                cost["input_tokens"] = getattr(
+                    result, "prompt_tokens", None)
+                cost["output_tokens"] = getattr(
+                    result, "generation_tokens", None)
+            text = (result.text if hasattr(result, "text")
+                    else str(result))
+        else:
+            if executor not in (None, "cloud"):
+                raise ValueError(f"unknown still executor: {executor!r}")
+            if executor == "cloud":
+                route["executor"] = "cloud_host"
+            text = inspect_stills(
+                prompt, list(images), harness=self.harness,
+                project_folder=self.project_folder, step_id=self.step_id,
+                label="objects", max_tokens=max_tokens,
+                route_metadata=route)
+            if executor == "cloud" and route.get("backend") != "host":
+                raise RuntimeError(
+                    "cloud still executor did not receive a host answer")
         return text, time.time() - t0
 
     def analyze_with_retry(self, prompt, parse_fn, images=None, video=None,
                            max_tokens=512, label="pass", audio=None,
-                           request_kind=None, request_id=None):
+                           request_kind=None, request_id=None,
+                           still_executor=None):
         """Run analysis with one retry on parse failure.
 
         Args:
@@ -755,7 +791,8 @@ class VisionAnalyzer:
             try:
                 text, elapsed = self.analyze(
                     attempt_prompt, images=images, video=video,
-                    max_tokens=max_tokens, audio=audio, _route=route)
+                    max_tokens=max_tokens, audio=audio, _route=route,
+                    _still_executor=still_executor)
                 result = parse_fn(text.strip())
             except Exception as exc:
                 elapsed = time.perf_counter() - started
@@ -800,16 +837,20 @@ class VisionAnalyzer:
         # The performance report unions intervals by backend layer. Keeping
         # each attempt in its answering backend's bucket preserves the row
         # without charging the same inference wall twice.
-        perf_ledger.record(
-            layer, elapsed, started_at=started_at,
-            request_kind=request_kind, request_id=request_id,
-            input_kind=route.get("input_kind", "unknown"),
-            attempt_number=attempt_number, parser_outcome=parser_outcome,
-            backend=backend,
-            fallback_cause=route.get("fallback_causes", []),
-            model=route.get("model", "unknown"),
-            model_version=route.get("model_version", "unknown"),
-            error=error, elapsed_s=round(float(elapsed), 3))
+        attempt_fields = {
+            "request_kind": request_kind, "request_id": request_id,
+            "input_kind": route.get("input_kind", "unknown"),
+            "attempt_number": attempt_number,
+            "parser_outcome": parser_outcome, "backend": backend,
+            "fallback_cause": route.get("fallback_causes", []),
+            "model": route.get("model", "unknown"),
+            "model_version": route.get("model_version", "unknown"),
+            "error": error, "elapsed_s": round(float(elapsed), 3),
+        }
+        if route.get("executor") is not None:
+            attempt_fields["executor"] = route["executor"]
+        perf_ledger.record(layer, elapsed, started_at=started_at,
+                           **attempt_fields)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -2652,6 +2693,28 @@ def analyze_windows_cached(analyzer, video_clips, duration, temporal_index,
     return results
 
 
+def analyze_objects_coarse_batch(analyzer, frames, duration, batch_idx,
+                                 n_batches, request_prefix="clip",
+                                 still_executor=None):
+    """Answer one established coarse batch without changing its prompt."""
+    batch_paths = [frame["path"] for frame in frames]
+    batch_ts = [frame["timestamp"] for frame in frames]
+    ts_str = ", ".join(f"{ts:.1f}s" for ts in batch_ts)
+    prompt = PROMPT_OBJECTS_COARSE.format(
+        n_frames=len(frames), duration=duration, frame_timestamps=ts_str)
+    route_options = ({"still_executor": still_executor}
+                     if still_executor is not None else {})
+    result, _raw, elapsed = analyzer.analyze_with_retry(
+        prompt, parse_json_array, images=batch_paths,
+        max_tokens=MAX_TOKENS["objects_coarse"],
+        label=f"Objects coarse batch {batch_idx+1}/{n_batches}",
+        request_kind="object-coarse",
+        request_id=(f"{request_prefix}:object-coarse:"
+                    f"batch:{batch_idx+1}/{n_batches}"),
+        **route_options)
+    return result, elapsed
+
+
 def analyze_objects_coarse(analyzer, frames, duration,
                            request_prefix="clip"):
     """Object detection — coarse sweep with batched frames.
@@ -2666,32 +2729,46 @@ def analyze_objects_coarse(analyzer, frames, duration,
     for batch_idx in range(n_batches):
         start_i = batch_idx * COARSE_BATCH_SIZE
         end_i = min(start_i + COARSE_BATCH_SIZE, n_frames)
-        batch_frames = frames[start_i:end_i]
-
-        batch_paths = [f["path"] for f in batch_frames]
-        batch_ts = [f["timestamp"] for f in batch_frames]
-        ts_str = ", ".join(f"{ts:.1f}s" for ts in batch_ts)
-
-        prompt = PROMPT_OBJECTS_COARSE.format(
-            n_frames=len(batch_frames),
-            duration=duration,
-            frame_timestamps=ts_str,
-        )
-
-        result, _raw, elapsed = analyzer.analyze_with_retry(
-            prompt, parse_json_array, images=batch_paths,
-            max_tokens=MAX_TOKENS["objects_coarse"],
-            label=f"Objects coarse batch {batch_idx+1}/{n_batches}",
-            request_kind="object-coarse",
-            request_id=(f"{request_prefix}:object-coarse:"
-                        f"batch:{batch_idx+1}/{n_batches}")
-        )
+        result, elapsed = analyze_objects_coarse_batch(
+            analyzer, frames[start_i:end_i], duration, batch_idx, n_batches,
+            request_prefix=request_prefix)
         total_elapsed += elapsed
         all_objects.extend(result)
 
-    # Merge across batches
     merged = merge_objects(all_objects, max_duration=duration)
     return merged, total_elapsed
+
+
+def analyze_objects_detail_batch(analyzer, frames, coarse_objects, duration,
+                                 range_start, range_end, batch_start,
+                                 request_prefix="clip", still_executor=None):
+    """Answer one established detail batch after its coarse result exists."""
+    relevant_entities = []
+    for obj in coarse_objects:
+        for appearance in obj.get("appearances", []):
+            if isinstance(appearance, (list, tuple)) and len(appearance) == 2:
+                if appearance[1] > range_start and appearance[0] < range_end:
+                    relevant_entities.append(obj.get("label", "unknown"))
+                    break
+    entities_str = (
+        ", ".join(relevant_entities)
+        if relevant_entities else "(none previously detected)")
+    frame_paths = [frame["path"] for frame in frames]
+    prompt = PROMPT_OBJECTS_DETAIL.format(
+        n_frames=len(frames), duration=duration,
+        range_start=range_start, range_end=range_end,
+        entities_summary=entities_str)
+    route_options = ({"still_executor": still_executor}
+                     if still_executor is not None else {})
+    return analyzer.analyze_with_retry(
+        prompt, parse_json_array, images=frame_paths,
+        max_tokens=MAX_TOKENS["objects_detail"],
+        label=f"Objects detail [{range_start:.0f}-{range_end:.0f}s]",
+        request_kind="object-detail",
+        request_id=(f"{request_prefix}:object-detail:"
+                    f"{range_start:.3f}-{range_end:.3f}:"
+                    f"batch:{batch_start}-{batch_start + len(frames)}"),
+        **route_options)
 
 
 def analyze_objects_detail(analyzer, clip_path, cache_dir, coarse_objects,
@@ -2714,43 +2791,11 @@ def analyze_objects_detail(analyzer, clip_path, cache_dir, coarse_objects,
         if not frames:
             continue
 
-        # Summarize what coarse sweep found in this range
-        relevant_entities = []
-        for obj in coarse_objects:
-            for app in obj.get("appearances", []):
-                if isinstance(app, (list, tuple)) and len(app) == 2:
-                    if app[1] > r_start and app[0] < r_end:
-                        relevant_entities.append(obj.get("label", "unknown"))
-                        break
-        entities_str = ", ".join(relevant_entities) if relevant_entities else "(none previously detected)"
-
-        # Batch frames for this range
-        frame_paths = [f["path"] for f in frames]
-        frame_ts = [f["timestamp"] for f in frames]
-
-        for batch_start in range(0, len(frame_paths), DETAIL_BATCH_SIZE):
-            batch_end = min(batch_start + DETAIL_BATCH_SIZE, len(frame_paths))
-            b_paths = frame_paths[batch_start:batch_end]
-            b_ts = frame_ts[batch_start:batch_end]
-            ts_str = ", ".join(f"{ts:.1f}s" for ts in b_ts)
-
-            prompt = PROMPT_OBJECTS_DETAIL.format(
-                n_frames=len(b_paths),
-                duration=duration,
-                range_start=r_start,
-                range_end=r_end,
-                entities_summary=entities_str,
-            )
-
-            result, _raw, elapsed = analyzer.analyze_with_retry(
-                prompt, parse_json_array, images=b_paths,
-                max_tokens=MAX_TOKENS["objects_detail"],
-                label=f"Objects detail [{r_start:.0f}-{r_end:.0f}s]",
-                request_kind="object-detail",
-                request_id=(f"{request_prefix}:object-detail:"
-                            f"{r_start:.3f}-{r_end:.3f}:"
-                            f"batch:{batch_start}-{batch_end}")
-            )
+        for batch_start in range(0, len(frames), DETAIL_BATCH_SIZE):
+            batch = frames[batch_start:batch_start + DETAIL_BATCH_SIZE]
+            result, _raw, elapsed = analyze_objects_detail_batch(
+                analyzer, batch, coarse_objects, duration, r_start, r_end,
+                batch_start, request_prefix=request_prefix)
             total_elapsed += elapsed
             all_detail_objects.extend(result)
 
@@ -2882,7 +2927,8 @@ def _finish_assessment(deterministic, content_type, primary_subject_visible,
 # ═══════════════════════════════════════════════════════════════════════
 
 def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
-                 temporal_index, cache_dir, layer_cache=None, clock=None):
+                 temporal_index, cache_dir, layer_cache=None, clock=None,
+                 precomputed_layers=None):
     """Orchestrate all dimension passes for a single clip.
 
     Execution order:
@@ -2907,6 +2953,7 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
     clock = clock if clock is not None else time.time
     cached = {layer: layer_cache.get(layer)
               for layer in MEASUREMENT_LAYERS} if layer_cache else {}
+    cached.update(precomputed_layers or {})
     clip_id = clip_meta["clip_id"]
     duration = clip_meta["duration_s"]
     video_path = clip_meta["file_path"]
@@ -3273,6 +3320,529 @@ class _LazyAnalyzer:
         return False
 
 
+def _run_semantic_work(window_tasks, coarse_tasks, on_complete, *,
+                       executor_factory=None, wait_for=wait,
+                       clock=time.perf_counter):
+    """Run ready semantic work on one local and one cloud lane.
+
+    Window and coarse tasks are available at startup. A completion may
+    enqueue detail tasks; the coordinator alone receives results and
+    releases those dependencies. Queue order is stable within each kind,
+    and cloud details always precede unstarted coarse batches.
+    """
+    if executor_factory is None:
+        executor_factory = lambda lane: ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix=f"semantic-{lane}")
+
+    queues = {"window": [], "detail": [], "coarse": []}
+    serial = 0
+
+    def enqueue(task):
+        nonlocal serial
+        serial += 1
+        heapq.heappush(
+            queues[task["kind"]],
+            (task["order"], serial, task))
+
+    for task in window_tasks:
+        enqueue(task)
+    for task in coarse_tasks:
+        enqueue(task)
+
+    local = executor_factory("local")
+    cloud = executor_factory("cloud")
+    executors = {"local": local, "cloud": cloud}
+    running = {}
+
+    def next_task(lane):
+        kinds = ("detail", "coarse") if lane == "cloud" else (
+            "window", "coarse")
+        for kind in kinds:
+            skipped = []
+            while queues[kind]:
+                entry = heapq.heappop(queues[kind])
+                task = entry[2]
+                if lane == "cloud" and task.get("local_only"):
+                    skipped.append(entry)
+                    continue
+                for skipped_entry in skipped:
+                    heapq.heappush(queues[kind], skipped_entry)
+                return task
+            for skipped_entry in skipped:
+                heapq.heappush(queues[kind], skipped_entry)
+        return None
+
+    try:
+        while any(queues.values()) or running:
+            active_lanes = {entry["lane"] for entry in running.values()}
+            for lane in ("cloud", "local"):
+                if lane in active_lanes:
+                    continue
+                task = next_task(lane)
+                if task is None:
+                    continue
+                started = clock()
+                future = executors[lane].submit(task["run"], lane)
+                running[future] = {
+                    "task": task, "lane": lane, "started": started}
+                active_lanes.add(lane)
+
+            if not running:
+                raise RuntimeError(
+                    "semantic scheduler has pending work but no ready task")
+
+            completed, _pending = wait_for(
+                tuple(running), return_when=FIRST_COMPLETED)
+            for future in sorted(
+                    completed,
+                    key=lambda item: running[item]["task"]["order"]):
+                entry = running.pop(future)
+                result = future.result()
+                on_complete(
+                    entry["task"], result, entry["lane"],
+                    entry["started"], clock(), enqueue)
+    except BaseException:
+        for future in running:
+            future.cancel()
+        for executor in executors.values():
+            executor.shutdown(wait=True, cancel_futures=True)
+        raise
+    else:
+        for executor in executors.values():
+            executor.shutdown(wait=True)
+
+
+def _make_host_semantic_tasks(contexts, analyzer):
+    """Build stable window/coarse tasks for the step-wide host scheduler."""
+    window_tasks = []
+    coarse_tasks = []
+    for context in contexts:
+        clip_order = context["clip_order"]
+        meta = context["meta"]
+        clip_id = meta["clip_id"]
+        duration = meta["duration_s"]
+        window_cache = context["windows_by_index"]
+        for window_index, clip_info in enumerate(context["video_clips"]):
+            if window_cache[window_index] is not None:
+                continue
+
+            def analyze_window(_lane, *, ctx=context, index=window_index,
+                               info=clip_info):
+                results = analyze_windows(
+                    analyzer, [info], ctx["meta"]["duration_s"],
+                    ctx["temporal_index"], ctx["transcript"],
+                    ctx["meta"].get("fps") or 30.0,
+                    request_prefix=ctx["meta"]["clip_id"])
+                if len(results) != 1:
+                    raise RuntimeError(
+                        "analyze_windows did not return one result for a "
+                        "valid window clip")
+                return results[0]
+
+            window_tasks.append({
+                "key": (clip_order, "window", window_index),
+                "kind": "window", "order": (clip_order, window_index),
+                "run": analyze_window,
+            })
+
+        if context["objects_cached"] is not None:
+            continue
+        frames = context["frames"]
+        n_batches = max(1, int(math.ceil(len(frames) / COARSE_BATCH_SIZE)))
+        context["coarse_batches"] = n_batches
+        context["coarse_answers"] = {}
+        for batch_index in range(n_batches):
+            start = batch_index * COARSE_BATCH_SIZE
+            end = min(start + COARSE_BATCH_SIZE, len(frames))
+            batch_frames = frames[start:end]
+
+            def analyze_coarse(lane, *, ctx=context, index=batch_index,
+                               count=n_batches, batch=batch_frames):
+                return analyze_objects_coarse_batch(
+                    analyzer, batch, ctx["meta"]["duration_s"], index,
+                    count, request_prefix=ctx["meta"]["clip_id"],
+                    still_executor=lane)
+
+            coarse_tasks.append({
+                "key": (clip_order, "coarse", batch_index),
+                "kind": "coarse", "order": (clip_order, batch_index),
+                "local_only": not batch_frames,
+                "run": analyze_coarse,
+            })
+    return window_tasks, coarse_tasks
+
+
+def _run_host_semantic_schedule(contexts, analyzer, *,
+                                executor_factory=None, wait_for=wait,
+                                clock=time.perf_counter):
+    """Measure uncached layers across clips, committing caches in order."""
+    window_tasks, coarse_tasks = _make_host_semantic_tasks(contexts, analyzer)
+
+    def complete(task, result, lane, started, finished, enqueue):
+        clip_order, kind, item_index = task["key"]
+        context = contexts[clip_order]
+        if kind == "window":
+            context["windows_by_index"][item_index] = result
+            context["window_task_spans"][item_index] = (started, finished)
+            return
+        if kind == "coarse":
+            context["coarse_answers"][item_index] = result
+            if len(context["coarse_answers"]) != context["coarse_batches"]:
+                return
+
+            all_objects = []
+            coarse_time = 0.0
+            for batch_index in range(context["coarse_batches"]):
+                batch_objects, elapsed = context["coarse_answers"][batch_index]
+                all_objects.extend(batch_objects)
+                coarse_time += elapsed
+            coarse_objects = merge_objects(
+                all_objects, max_duration=context["meta"]["duration_s"])
+            context["coarse_objects"] = coarse_objects
+            context["objects_time"] = coarse_time
+            context["objects_calls"] = context["coarse_batches"]
+
+            ranges = find_detail_ranges(
+                coarse_objects, context["meta"]["duration_s"])
+            context["detail_ranges"] = ranges
+            if not ranges:
+                context["objects_result"] = coarse_objects
+                return
+            context["objects_calls"] += max(1, len(ranges))
+
+            range_frames = extract_detail_frames(
+                context["clip_path"], context["cache_dir"], ranges)
+            detail_tasks = []
+            detail_item = 0
+            for range_index, (time_range, frames) in enumerate(
+                    range_frames.items()):
+                if not frames:
+                    continue
+                range_start, range_end = time_range
+                for batch_start in range(0, len(frames), DETAIL_BATCH_SIZE):
+                    batch = frames[batch_start:batch_start + DETAIL_BATCH_SIZE]
+
+                    def analyze_detail(lane, *, ctx=context,
+                                       start=range_start, end=range_end,
+                                       index=batch_start, details=batch):
+                        return analyze_objects_detail_batch(
+                            analyzer, details, ctx["coarse_objects"],
+                            ctx["meta"]["duration_s"], start, end, index,
+                            request_prefix=ctx["meta"]["clip_id"],
+                            still_executor=lane)
+
+                    detail_tasks.append({
+                        "key": (clip_order, "detail", detail_item),
+                        "kind": "detail",
+                        "order": (clip_order, range_index, batch_start),
+                        "run": analyze_detail,
+                    })
+                    detail_item += 1
+            context["detail_tasks"] = detail_tasks
+            if not detail_tasks:
+                context["objects_result"] = coarse_objects
+                return
+            context["detail_answers"] = {}
+            context["detail_batches"] = len(detail_tasks)
+            for detail_task in detail_tasks:
+                enqueue(detail_task)
+            return
+
+        context["detail_answers"][item_index] = result
+        if len(context["detail_answers"]) != context["detail_batches"]:
+            return
+        detailed_objects = []
+        detail_time = 0.0
+        for detail_index in range(context["detail_batches"]):
+            objects, _raw, elapsed = context["detail_answers"][detail_index]
+            detailed_objects.extend(objects)
+            detail_time += elapsed
+        context["objects_time"] += detail_time
+        context["objects_result"] = merge_objects(
+            list(context["coarse_objects"]) + detailed_objects,
+            max_duration=context["meta"]["duration_s"])
+
+    # All contexts share input clip order, which is the index used by the
+    # stable task keys and the result/cache commit pass below.
+    _run_semantic_work(
+        window_tasks, coarse_tasks, complete,
+        executor_factory=executor_factory, wait_for=wait_for, clock=clock)
+
+    for context in contexts:
+        layer_cache = context["layer_cache"]
+        windows = context["windows_by_index"]
+        if any(window is None for window in windows):
+            raise RuntimeError(
+                f"scheduler did not produce every window for "
+                f"{context['meta']['clip_id']}")
+        window_spans = list(context["window_task_spans"].values())
+        inference_wall_s = (
+            max(finished for _started, finished in window_spans)
+            - min(started for started, _finished in window_spans)
+            if window_spans else 0.0)
+        cached_windows = context["windows_cached"]
+        context["windows_result"] = {
+            "windows": windows,
+            "inference_wall_s": (
+                cached_windows["inference_wall_s"]
+                if cached_windows is not None
+                else round(inference_wall_s, 2)),
+            "video_clips_extracted": (
+                cached_windows["video_clips_extracted"]
+                if cached_windows is not None
+                else len(context["video_clips"])),
+        }
+        if context["windows_cached"] is None and layer_cache:
+            for index, clip_info in enumerate(context["video_clips"]):
+                params = context["window_params"][index]
+                if context["window_cache_hits"][index]:
+                    continue
+                layer_cache.put_window(
+                    clip_info["start"], clip_info["end"], params,
+                    windows[index])
+            layer_cache.put("windows", context["windows_result"])
+
+        objects = context["objects_cached"]
+        if objects is None:
+            objects = {
+                "objects": context["objects_result"],
+                "frames_extracted": len(context["frames"]),
+                "analysis_time_s": context["objects_time"],
+                "model_calls": context["objects_calls"],
+            }
+            if layer_cache:
+                layer_cache.put("objects", objects)
+        context["objects_result_layer"] = objects
+
+
+def _prepare_host_semantic_contexts(clips, cache_dir, output_dir,
+                                   layer_methods, force, still_viewer):
+    """Prepare inputs for the host scheduler without invoking a model."""
+    entries = []
+    contexts = []
+    skipped = 0
+    for clip_order, raw_clip_path in enumerate(clips):
+        clip_path = Path(raw_clip_path)
+        if not clip_path.exists():
+            print(f"\n  ⚠ Skipping {clip_path} (not found)")
+            entries.append(None)
+            continue
+
+        out_path = output_dir / f"clip_profile_{clip_path.stem}_v3.json"
+        if out_path.exists() and not force:
+            print(f"\n  ⏭ Skipping {clip_path.name} "
+                  "(profile exists, use --force to re-analyze)")
+            try:
+                with open(out_path, encoding="utf-8") as handle:
+                    entries.append(json.load(handle))
+            except Exception:
+                entries.append(None)
+            skipped += 1
+            continue
+
+        print(f"\n{'━'*60}")
+        print(f"  Clip {clip_order+1}/{len(clips)}: {clip_path.name}")
+        print(f"{'━'*60}")
+        meta = probe_clip(clip_path)
+        if not meta:
+            print("  ⚠ No video stream found, skipping")
+            entries.append(None)
+            continue
+        duration = meta["duration_s"]
+        print(f"  Duration: {duration:.1f}s | "
+              f"{meta['resolution'][0]}x{meta['resolution'][1]} "
+              f"@ {meta['fps']}fps")
+
+        temporal_index = load_temporal_index(clip_path)
+        if temporal_index:
+            n_speech = len(temporal_index.get("speech_regions", []))
+            n_boundaries = len(get_scene_boundaries(temporal_index))
+            print(f"  Temporal index: loaded ({n_speech} speech regions, "
+                  f"{n_boundaries} scene boundaries)")
+        else:
+            print("  Temporal index: not found")
+        transcript = load_transcript_text(clip_path, output_dir)
+        if transcript:
+            print(f"  Transcript: \"{transcript[:80]}...\""
+                  if len(transcript) > 80 else f"  Transcript: \"{transcript}\"")
+        else:
+            print("  Transcript: (none)")
+
+        layer_cache = measurement_layers.LayerCache.for_source(
+            clip_path, layer_methods, {
+                "windows": {
+                    "duration_s": duration, "fps": meta.get("fps"),
+                    "temporal_index": measurement_layers.canonical_digest(
+                        temporal_index),
+                    "transcript": transcript or "",
+                },
+                "objects": {"duration_s": duration,
+                            "still_viewer": still_viewer},
+                "picture": {"duration_s": duration},
+            }, force=force)
+        cached = {
+            layer: layer_cache.get(layer)
+            for layer in MEASUREMENT_LAYERS
+        } if layer_cache else {}
+        cached_layers = {layer for layer, value in cached.items()
+                         if value is not None}
+        if cached_layers:
+            print(f"  Measurement layers cached: "
+                  f"{', '.join(sorted(cached_layers))}")
+
+        frames = None
+        if cached.get("objects") is None:
+            frames = extract_frames(clip_path, duration, cache_dir)
+            print(f"  Frames extracted: {len(frames)} "
+                  f"(every {COARSE_FRAME_INTERVAL_S}s)")
+        reset_ffprobe_spawn_count()
+        extraction_started = time.perf_counter()
+        video_clips = []
+        if cached.get("windows") is None:
+            video_clips = extract_video_clips(
+                clip_path, duration, cache_dir, prefetch=False)
+        extraction_wall = round(time.perf_counter() - extraction_started, 2)
+        extraction_spawns = ffprobe_spawn_count()
+        audio_count = sum(1 for item in video_clips
+                          if item.get("has_audio"))
+        if video_clips:
+            print(f"  Video window cuts ready: {len(video_clips)} × "
+                  f"{ACTION_WINDOW_S}s")
+
+        window_params = []
+        window_cache_hits = []
+        windows_by_index = []
+        if cached.get("windows") is not None:
+            windows_by_index = list(cached["windows"]["windows"])
+            window_params = [None] * len(windows_by_index)
+            window_cache_hits = [True] * len(windows_by_index)
+        else:
+            for clip_info in video_clips:
+                params = _window_cache_params(
+                    clip_info, duration, temporal_index, transcript,
+                    meta.get("fps") or 30.0)
+                cached_window = (
+                    layer_cache.get_window(
+                        clip_info["start"], clip_info["end"], params)
+                    if layer_cache else None)
+                windows_by_index.append(cached_window)
+                window_params.append(params)
+                window_cache_hits.append(cached_window is not None)
+
+        perf_ledger.record(
+            "demux", extraction_wall, backend="ffmpeg",
+            subprocesses=extraction_spawns,
+            decoded_source_s=round(float(duration or 0.0), 3))
+        context = {
+            "clip_order": len(contexts), "meta": meta,
+            "clip_order_in_input": clip_order,
+            "clip_path": clip_path, "cache_dir": cache_dir,
+            "transcript": transcript or "",
+            "temporal_index": temporal_index, "frames": frames or [],
+            "video_clips": video_clips, "layer_cache": layer_cache,
+            "windows_cached": cached.get("windows"),
+            "objects_cached": cached.get("objects"),
+            "window_params": window_params,
+            "window_cache_hits": window_cache_hits,
+            "windows_by_index": windows_by_index,
+            "window_task_spans": {},
+            "objects_time": 0.0, "objects_calls": 0,
+            "window_extraction_wall_s": extraction_wall,
+            "window_extraction_ffprobe_spawns": extraction_spawns,
+            "window_audio_count": audio_count,
+            "out_path": out_path,
+        }
+        contexts.append(context)
+        entries.append(context)
+
+    return entries, contexts, skipped
+
+
+def _run_host_semantic_pipeline(analyzer, clips, cache_dir, output_dir,
+                                layer_methods, force, still_viewer):
+    """Analyze every host-driven clip through the global two-lane schedule."""
+    entries, contexts, skipped = _prepare_host_semantic_contexts(
+        clips, cache_dir, output_dir, layer_methods, force, still_viewer)
+    if contexts:
+        has_model_work = any(
+            (context["windows_cached"] is None
+             and any(not hit for hit in context["window_cache_hits"]))
+            or context["objects_cached"] is None
+            for context in contexts)
+        if has_model_work:
+            # Materialize the lazy Gemma wrapper on the coordinator before
+            # either executor can enter VisionAnalyzer.
+            getattr(analyzer, "harness")
+            resolved_analyzer = getattr(analyzer, "_analyzer", analyzer)
+        else:
+            resolved_analyzer = getattr(analyzer, "_analyzer", analyzer)
+        try:
+            _run_host_semantic_schedule(contexts, resolved_analyzer)
+        finally:
+            for context in contexts:
+                close_windows = getattr(context["video_clips"], "close", None)
+                if close_windows is not None:
+                    close_windows()
+
+        for context in contexts:
+            cached_layers = {
+                "windows": context["windows_result"],
+                "objects": context["objects_result_layer"],
+            }
+            profile = analyze_clip(
+                resolved_analyzer, context["meta"], None, [],
+                context["transcript"], context["temporal_index"],
+                context["cache_dir"], layer_cache=context["layer_cache"],
+                precomputed_layers=cached_layers)
+            profile.setdefault("analysis_metadata", {}).update({
+                "window_extraction_wall_s": (
+                    context["window_extraction_wall_s"]),
+                "window_extraction_ffprobe_spawns": (
+                    context["window_extraction_ffprobe_spawns"]),
+            })
+            entries[context["clip_order_in_input"]] = profile
+            with open(context["out_path"], "w", encoding="utf-8") as handle:
+                json.dump(profile, handle, indent=2)
+            print(f"  Saved: {context['out_path']}")
+
+    return [entry for entry in entries if entry is not None], skipped
+
+
+def _write_vision_index(all_profiles, skipped, total_start, output_dir):
+    """Write the combined profile index and print its run summary."""
+    total_time = time.time() - total_start
+    index = {
+        "pipeline": "vision_analysis_v3",
+        "model": MODEL_ID,
+        "total_clips": len(all_profiles),
+        "total_analyzed": len(all_profiles) - skipped,
+        "total_skipped": skipped,
+        "total_time_s": round(total_time, 2),
+        "avg_time_per_clip_s": round(
+            total_time / max(len(all_profiles) - skipped, 1), 2
+        ),
+        "clips": all_profiles,
+    }
+    index_path = output_dir / "vision_index_v3.json"
+    with open(index_path, "w", encoding="utf-8") as handle:
+        json.dump(index, handle, indent=2)
+
+    print(f"\n{'═'*60}")
+    print("  Pipeline Complete")
+    print(f"{'═'*60}")
+    print(f"  Clips analyzed: {len(all_profiles) - skipped} "
+          f"(skipped {skipped})")
+    print(f"  Total time: {total_time:.1f}s ({total_time/60:.1f} min)")
+    if all_profiles:
+        total_calls = sum(
+            profile.get("analysis_metadata", {}).get("total_model_calls", 0)
+            for profile in all_profiles)
+        print(f"  Total model calls: {total_calls}")
+    print(f"  Index saved: {index_path}")
+    print()
+    return index
+
+
 @heavy_work_locked("Gemma video analysis", "semantics.analyse:inference")
 def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
                  harness=None, project_folder=None):
@@ -3302,7 +3872,6 @@ def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
     output_dir = Path(output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     cache_dir.mkdir(parents=True, exist_ok=True)
-    cache_dir.mkdir(parents=True, exist_ok=True)
 
     all_profiles = []
     total_start = time.time()
@@ -3314,8 +3883,16 @@ def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
         layer: measurement_layers.method_digest(__file__, entry_points)
         for layer, entry_points in MEASUREMENT_LAYERS.items()
     }
-    from library.tools.still_vision import resolve_harness
+    from library.tools.still_vision import HOST_SEES_IMAGES, resolve_harness
     still_viewer = resolve_harness(harness)
+
+    if HOST_SEES_IMAGES.get(still_viewer) is True:
+        with _LazyAnalyzer(harness, project_folder) as analyzer:
+            all_profiles, skipped = _run_host_semantic_pipeline(
+                analyzer, clips, cache_dir, output_dir, layer_methods,
+                force, still_viewer)
+        return _write_vision_index(
+            all_profiles, skipped, total_start, output_dir)
 
     # The model loads on the first pass that needs it: a clip whose
     # windows are all cached never pays for it.
@@ -3459,39 +4036,7 @@ def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
                 json.dump(profile, f, indent=2)
             print(f"  Saved: {out_path}")
 
-    # Save combined index
-    total_time = time.time() - total_start
-    index = {
-        "pipeline": "vision_analysis_v3",
-        "model": MODEL_ID,
-        "total_clips": len(all_profiles),
-        "total_analyzed": len(all_profiles) - skipped,
-        "total_skipped": skipped,
-        "total_time_s": round(total_time, 2),
-        "avg_time_per_clip_s": round(
-            total_time / max(len(all_profiles) - skipped, 1), 2
-        ),
-        "clips": all_profiles,
-    }
-    index_path = output_dir / "vision_index_v3.json"
-    with open(index_path, "w") as f:
-        json.dump(index, f, indent=2)
-
-    print(f"\n{'═'*60}")
-    print(f"  Pipeline Complete")
-    print(f"{'═'*60}")
-    print(f"  Clips analyzed: {len(all_profiles) - skipped} (skipped {skipped})")
-    print(f"  Total time: {total_time:.1f}s ({total_time/60:.1f} min)")
-    if all_profiles:
-        total_calls = sum(
-            p.get("analysis_metadata", {}).get("total_model_calls", 0)
-            for p in all_profiles
-        )
-        print(f"  Total model calls: {total_calls}")
-    print(f"  Index saved: {index_path}")
-    print()
-
-    return index
+    return _write_vision_index(all_profiles, skipped, total_start, output_dir)
 
 
 # ═══════════════════════════════════════════════════════════════════════
