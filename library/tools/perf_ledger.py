@@ -26,9 +26,10 @@ Two kinds of row, appended to `pipeline_output/logs/perf_ledger.jsonl`
 The Resolve lease (`resolve_lock.resolve_lease`) writes two spans of its
 own: `resolve_wait`, the seconds an acquisition waited, granted or
 refused, and `resolve_hold`, the seconds it held Resolve. `ren profile`
-reads them back as the run's share of agent time lost waiting for
-Resolve (`resolve_kpis`); the machine's side - every broker job, every
-agent - is `ren resolved kpi` (`library/tools/resolved/kpi.py`).
+reads them back as the run's share of agent time lost waiting, wait and
+hold percentiles, hold utilization over the run window, render time and
+cursor switches (`resolve_kpis`); the machine's side - every broker job,
+every agent - is `ren resolved kpi` (`library/tools/resolved/kpi.py`).
 
 A step runs as a subprocess, so the front door hands the ledger's path,
 the run and the capability to its children through the environment
@@ -438,7 +439,10 @@ def resolve_kpis(spans: List[Dict[str, Any]], total_wall_s: float,
     has nothing left to win from one Resolve instance. `held_s` is the
     time the run held Resolve and `exclusive_held_s` the part no other
     lease could share, and `timeline_switches` the cursor moves made
-    under those holds. `concurrency` is how many capabilities ran at
+    under those holds. The hold percentiles are per lease; utilization
+    is the union of hold intervals over the run's elapsed capability
+    window, from the earliest capability start to the latest end.
+    `concurrency` is how many capabilities ran at
     once on average outside Resolve: each capability's seconds outside
     its own waits and holds, over the wall clock those seconds cover.
     """
@@ -447,6 +451,7 @@ def resolve_kpis(spans: List[Dict[str, Any]], total_wall_s: float,
     renders = [s for s in spans if s.get("layer") == "resolve_render"]
     blocked = sum(float(s.get("wall_s") or 0.0) for s in waits)
     wait_values = [float(s.get("wall_s") or 0.0) for s in waits]
+    hold_values = [float(s.get("held_s") or 0.0) for s in holds]
     in_resolve: Dict[str, List[tuple]] = {}
     for rows, length_key in ((waits, "wall_s"), (holds, "held_s")):
         for s in rows:
@@ -461,6 +466,14 @@ def resolve_kpis(spans: List[Dict[str, Any]], total_wall_s: float,
             outer, in_resolve.get(str(c.get("capability")), [])))
     free_s = sum(end - begin for begin, end in free)
     clock = union_s(free)
+    cap_starts = [float(c.get("started_at") or 0.0) for c in caps]
+    cap_ends = [start + float(c.get("wall_s") or 0.0)
+                for start, c in zip(cap_starts, caps)]
+    run_window = ((max(cap_ends) - min(cap_starts))
+                  if cap_starts else 0.0)
+    hold_intervals = [(float(s.get("started_at") or 0.0),
+                       float(s.get("started_at") or 0.0)
+                       + float(s.get("held_s") or 0.0)) for s in holds]
     return {
         "leases": len(holds),
         "refused": sum(1 for s in waits if s.get("outcome") == "refused"),
@@ -470,6 +483,10 @@ def resolve_kpis(spans: List[Dict[str, Any]], total_wall_s: float,
                        if total_wall_s else None),
         "wait_p50_s": quantile(wait_values, 0.5),
         "wait_p95_s": quantile(wait_values, 0.95),
+        "hold_p50_s": quantile(hold_values, 0.5),
+        "hold_p95_s": quantile(hold_values, 0.95),
+        "utilization": (round(union_s(hold_intervals) / run_window, 4)
+                        if run_window else None),
         "held_s": round(sum(float(s.get("held_s") or 0.0)
                             for s in holds), 3),
         "exclusive_held_s": round(sum(float(s.get("held_s") or 0.0)
@@ -521,14 +538,20 @@ def render(report: Dict[str, Any]) -> str:
             f"{total:.1f}s capability wall = "
             f"{100 * ratio:.1f}% of agent time lost to Resolve"
             if ratio is not None else "Resolve: no capability wall")
+        utilization = ("-" if kpi["utilization"] is None else
+                       f"{100 * kpi['utilization']:.1f}%")
+        concurrency = ("-" if kpi["concurrency"] is None else
+                       str(kpi["concurrency"]))
         out.append(
             f"  {kpi['leases']} lease(s), {kpi['refused']} refused; wait "
             f"p50 {_seconds(kpi['wait_p50_s'])} p95 "
-            f"{_seconds(kpi['wait_p95_s'])}; held {kpi['held_s']:.1f}s "
+            f"{_seconds(kpi['wait_p95_s'])}; hold p50 "
+            f"{_seconds(kpi['hold_p50_s'])} p95 "
+            f"{_seconds(kpi['hold_p95_s'])}; held {kpi['held_s']:.1f}s "
             f"({kpi['exclusive_held_s']:.1f}s exclusive); render "
             f"{kpi['render_s']:.1f}s; {kpi['timeline_switches']} timeline "
-            f"switch(es); free-work concurrency "
-            f"{kpi['concurrency'] if kpi['concurrency'] is not None else '-'}")
+            f"switch(es); Resolve utilization {utilization}; "
+            f"free-work concurrency {concurrency}")
     if report["overlap_s"] >= 0.05:
         out.append(f"{report['overlap_s']:.1f}s ran in two layers at once "
                    f"and is counted in both, so the shares add past 100%.")

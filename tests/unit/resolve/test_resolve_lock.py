@@ -29,7 +29,7 @@ from tests.resolve_double import FakeProject, FakeTimeline
 import json
 import sqlite3
 from library.tools import perf_ledger, resource_scheduler
-from library.tools.resolved import kpi
+from library.tools.resolved import __main__ as resolved_cli, kpi
 from library.tools.resolved.store import (
     IdempotencyConflict, JobStore,
 )
@@ -720,9 +720,15 @@ def test_a_run_says_what_it_lost_waiting_for_resolve(tmp_path, monkeypatch):
     assert resolve["useful_s"] == pytest.approx(
         report["total_wall_s"] - resolve["blocked_s"], abs=1e-3)
     assert resolve["exclusive_held_s"] >= 0.1
+    assert resolve["hold_p50_s"] is not None
+    assert resolve["hold_p95_s"] >= resolve["hold_p50_s"]
+    assert 0 < resolve["utilization"] <= 1
     # Reel09 -> Reel03; the unfenced first write has nothing to compare.
     assert resolve["timeline_switches"] == 1
-    assert "lost to Resolve" in perf_ledger.render(report)
+    rendered = perf_ledger.render(report)
+    assert "lost to Resolve" in rendered
+    assert "hold p50" in rendered
+    assert "Resolve utilization" in rendered
 
 
 def test_the_report_reads_a_live_brokers_receipts_without_closing_them(
@@ -744,8 +750,11 @@ def test_the_report_reads_a_live_brokers_receipts_without_closing_them(
         timeline="Reel09", started=now - 7, finished=now - 5,
         params={"patch": {"operations": [{"op": "a"}, {"op": "b"}]}})
     job("live", "running", started=now - 1)
+    job("queued-snap", "queued")
+    job("future", "done", submitted=now + 5, started=now + 6,
+        finished=now + 7)
 
-    report = kpi.kpis(kpi.receipts_since(db, now - 60), now - 60, now,
+    report = kpi.kpis(kpi.receipts_since(db, now - 60, now), now - 60, now,
                       shadow_answers=3,
                       shadow_reads={"shadow_hits": 3,
                                     "live_refreshes": 2, "misses": 1})
@@ -753,9 +762,28 @@ def test_the_report_reads_a_live_brokers_receipts_without_closing_them(
     assert (report["patches"], report["operations_batched"]) == (1, 2)
     assert report["cursor_changes"] == 2      # Reel03, Reel09, Reel03
     assert report["exclusive_hold_s"] == pytest.approx(2.0, abs=0.01)
+    assert report["hold_p50_s"] == pytest.approx(1.0, abs=0.01)
+    assert report["hold_p95_s"] == pytest.approx(2.0, abs=0.01)
     assert report["shadow_read_requests"] == 6
     assert report["shadow_hit_rate"] == 0.5
     assert store.get("live")["state"] == "running"
+
+
+def test_resolved_kpi_cli_passes_an_explicit_epoch_window(monkeypatch):
+    called = {}
+
+    def report(hours, as_json, since, until):
+        called.update(hours=hours, as_json=as_json,
+                      since=since, until=until)
+        return 0
+
+    monkeypatch.setattr(kpi, "main", report)
+    assert resolved_cli.main([
+        "kpi", "--since", "10.5", "--until", "20.5", "--json",
+    ]) == 0
+    assert called == {
+        "hours": None, "as_json": True, "since": 10.5, "until": 20.5,
+    }
 
 
 def test_a_released_grant_keeps_what_it_measurably_used(tmp_path):

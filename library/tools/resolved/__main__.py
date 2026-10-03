@@ -33,8 +33,13 @@ def main(argv=None) -> int:
     result.add_argument("id")
     result.add_argument("--wait", type=float, default=0.0)
     kpi = verbs.add_parser("kpi", help="what Resolve cost, off the receipts")
-    kpi.add_argument("--hours", type=float, default=24.0,
-                     help="the window, ending now (default 24)")
+    window = kpi.add_mutually_exclusive_group()
+    window.add_argument("--hours", type=float,
+                        help="the window ending at --until (default 24)")
+    window.add_argument("--since", type=float,
+                        help="inclusive window start as Unix epoch seconds")
+    kpi.add_argument("--until", type=float,
+                     help="inclusive window end as Unix epoch seconds")
     kpi.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
 
@@ -44,7 +49,7 @@ def main(argv=None) -> int:
         return 0
     if args.verb == "kpi":
         from library.tools.resolved import kpi as kpi_report
-        return kpi_report.main(args.hours, args.json)
+        return kpi_report.main(args.hours, args.json, args.since, args.until)
     if args.verb == "status":
         answer = client.ping()
         print(json.dumps({"serving": answer is not None,

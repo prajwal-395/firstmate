@@ -34,7 +34,8 @@ exclusive section, through `resolve_lock.cursor_fence`.
 
     ren resolved serve            # foreground daemon
     ren resolved status|list|stop
-    ren resolved kpi [--hours N]       # what Resolve cost (`kpi.py`)
+    ren resolved kpi [--hours N | --since EPOCH] [--until EPOCH]
+                                      # what Resolve cost (`kpi.py`)
     ren resolved submit <kind> '<json params>' [--wait SECONDS]
     ren resolved result <id> [--wait SECONDS]
 

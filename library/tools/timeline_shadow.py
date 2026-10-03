@@ -320,18 +320,31 @@ class ShadowStore:
             db.execute("INSERT INTO read_requests VALUES (?, ?, ?, ?, ?)",
                        (time.time(), command, project, timeline_id, outcome))
 
-    def answers_since(self, since: float) -> int:
+    def answers_since(self, since: float,
+                      until: float | None = None) -> int:
         with self._connect() as db:
+            if until is not None:
+                return db.execute("SELECT COUNT(*) FROM answers WHERE"
+                                  " answered_at >= ? AND answered_at <= ?",
+                                  (since, until)).fetchone()[0]
             return db.execute("SELECT COUNT(*) FROM answers WHERE"
                               " answered_at >= ?", (since,)).fetchone()[0]
 
-    def read_requests_since(self, since: float) -> dict:
+    def read_requests_since(self, since: float,
+                            until: float | None = None) -> dict:
         """Read requests by outcome for the shadow-hit-rate denominator."""
         with self._connect() as db:
-            rows = db.execute(
-                "SELECT outcome, COUNT(*) AS count FROM read_requests"
-                " WHERE requested_at >= ? GROUP BY outcome", (since,)
-            ).fetchall()
+            if until is None:
+                rows = db.execute(
+                    "SELECT outcome, COUNT(*) AS count FROM read_requests"
+                    " WHERE requested_at >= ? GROUP BY outcome", (since,)
+                ).fetchall()
+            else:
+                rows = db.execute(
+                    "SELECT outcome, COUNT(*) AS count FROM read_requests"
+                    " WHERE requested_at >= ? AND requested_at <= ?"
+                    " GROUP BY outcome", (since, until)
+                ).fetchall()
         counts = {row["outcome"]: row["count"] for row in rows}
         return {
             "shadow_hits": counts.get("shadow_hit", 0),
@@ -399,21 +412,22 @@ class ShadowStore:
 # ── The live half: one read, under the reader's own lease ─────────────
 
 
-def answers_since(since: float, path: Path | None = None) -> int | None:
+def answers_since(since: float, path: Path | None = None,
+                  until: float | None = None) -> int | None:
     """Questions answered since `since`; None where no store exists yet."""
     target = Path(path) if path is not None else default_db_path()
     if not target.exists():
         return None
-    return ShadowStore(target).answers_since(since)
+    return ShadowStore(target).answers_since(since, until=until)
 
 
-def read_requests_since(since: float,
-                        path: Path | None = None) -> dict | None:
+def read_requests_since(since: float, path: Path | None = None,
+                        until: float | None = None) -> dict | None:
     """Read-request counts; None means this machine has no shadow history."""
     target = Path(path) if path is not None else default_db_path()
     if not target.exists():
         return None
-    return ShadowStore(target).read_requests_since(since)
+    return ShadowStore(target).read_requests_since(since, until=until)
 
 
 def timeline_key(resolve_project, timeline) -> tuple:

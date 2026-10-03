@@ -26,13 +26,14 @@ wall clock - is `ren profile` (`perf_ledger.resolve_kpis`).
 Read-only: the job table is opened `mode=ro`, never through `JobStore`,
 whose constructor closes a live broker's open jobs as failed.
 
-    ren resolved kpi [--hours N] [--json]
+    ren resolved kpi [--hours N | --since EPOCH] [--until EPOCH] [--json]
 """
 
 from __future__ import annotations
 
 import json
 import sqlite3
+import sys
 import time
 from pathlib import Path
 from typing import Iterable, List, Optional
@@ -43,15 +44,21 @@ from library.tools.resolved.store import receipt
 RENDER_PRIORITIES = ("qa_render", "export")
 
 
-def receipts_since(db: Path, since: float) -> List[dict]:
-    """Every receipt submitted at or after `since`, oldest first."""
+def receipts_since(db: Path, since: float,
+                   until: Optional[float] = None) -> List[dict]:
+    """Every receipt submitted in the inclusive window, oldest first."""
     if not Path(db).exists():
         return []
     conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     try:
-        rows = conn.execute("SELECT * FROM jobs WHERE submitted >= ?"
-                            " ORDER BY submitted", (since,)).fetchall()
+        if until is None:
+            rows = conn.execute("SELECT * FROM jobs WHERE submitted >= ?"
+                                " ORDER BY submitted", (since,)).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM jobs WHERE submitted >= ?"
+                                " AND submitted <= ? ORDER BY submitted",
+                                (since, until)).fetchall()
     finally:
         conn.close()
     return [receipt(row) for row in rows]
@@ -79,6 +86,7 @@ def kpis(jobs: Iterable[dict], since: float, until: float,
     for job in jobs:
         states[job["state"]] = states.get(job["state"], 0) + 1
     waits = [j["wait_seconds"] for j in started]
+    hold_values = [j["hold_seconds"] for j in held]
     shadow_reads = shadow_reads or {}
     shadow_hits = shadow_reads.get("shadow_hits")
     live_refreshes = shadow_reads.get("live_refreshes")
@@ -94,6 +102,8 @@ def kpis(jobs: Iterable[dict], since: float, until: float,
                                       if j["mode"] == "exclusive"), 3),
         "wait_p50_s": quantile(waits, 0.5),
         "wait_p95_s": quantile(waits, 0.95),
+        "hold_p50_s": quantile(hold_values, 0.5),
+        "hold_p95_s": quantile(hold_values, 0.95),
         "coalesced": sum(max(0, int(j["subscribers"]) - 1) for j in jobs),
         "patches": len(patches),
         "operations_batched": operations,
@@ -135,6 +145,8 @@ def render(report: dict) -> str:
         f"{report['render_s']:.1f}s",
         f"queue wait p50 {s(report['wait_p50_s'])} p95 "
         f"{s(report['wait_p95_s'])}",
+        f"Resolve hold p50 {s(report['hold_p50_s'])} p95 "
+        f"{s(report['hold_p95_s'])}",
         f"{report['coalesced']} coalesced; {report['operations_batched']} "
         f"operation(s) in {report['patches']} patch commit(s); "
         f"{report['cursor_changes']} cursor change(s)",
@@ -146,13 +158,20 @@ def render(report: dict) -> str:
     return "\n".join(lines)
 
 
-def main(hours: float, as_json: bool) -> int:
+def main(hours: Optional[float], as_json: bool,
+         since: Optional[float] = None,
+         until: Optional[float] = None) -> int:
     from library.tools import timeline_shadow
     from library.tools.resolved.server import db_path
-    until = time.time()
-    since = until - hours * 3600
-    report = kpis(receipts_since(db_path(), since), since, until,
-                  timeline_shadow.answers_since(since),
-                  timeline_shadow.read_requests_since(since))
+    until = time.time() if until is None else until
+    since = (until - (24.0 if hours is None else hours) * 3600
+             if since is None else since)
+    if since > until:
+        print("ren resolved kpi: --since must be at or before --until",
+              file=sys.stderr)
+        return 2
+    report = kpis(receipts_since(db_path(), since, until), since, until,
+                  timeline_shadow.answers_since(since, until=until),
+                  timeline_shadow.read_requests_since(since, until=until))
     print(json.dumps(report, indent=2) if as_json else render(report))
     return 0

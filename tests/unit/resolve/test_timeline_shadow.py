@@ -76,6 +76,28 @@ def test_two_writers_cannot_number_two_states_the_same(tmp_path):
                      expected_head=0)
 
 
+def test_shadow_kpi_counts_are_bounded_to_a_benchmark_window(tmp_path):
+    store = shadow.ShadowStore(tmp_path / "shadow.db")
+    with store._connect() as db:
+        db.execute("INSERT INTO answers VALUES (?, ?, ?, ?)",
+                   (10.0, "clips", "Podcast", "timeline:1"))
+        db.execute("INSERT INTO answers VALUES (?, ?, ?, ?)",
+                   (20.0, "markers", "Podcast", "timeline:1"))
+        db.execute("INSERT INTO read_requests VALUES (?, ?, ?, ?, ?)",
+                   (10.0, "clips", "Podcast", "timeline:1", "shadow_hit"))
+        db.execute("INSERT INTO read_requests VALUES (?, ?, ?, ?, ?)",
+                   (20.0, "markers", "Podcast", "timeline:1", "miss"))
+
+    assert store.answers_since(0, until=15) == 1
+    assert store.answers_since(0, until=25) == 2
+    assert store.read_requests_since(0, until=15) == {
+        "shadow_hits": 1, "live_refreshes": 0, "misses": 0,
+    }
+    assert store.read_requests_since(0, until=25) == {
+        "shadow_hits": 1, "live_refreshes": 0, "misses": 1,
+    }
+
+
 def test_structural_read_uses_a_recorded_generation_and_counts_the_hit(
         tmp_path):
     store = shadow.ShadowStore(tmp_path / "shadow.db")
