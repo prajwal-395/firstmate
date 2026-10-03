@@ -858,6 +858,16 @@ def test_caption_geometry_passes_a_normal_caption_and_names_each_fault(
     problems = check_caption_geometry(
         str(_frame(tmp_path, (288, 200, 776, 280))))
     assert any("upper" in p for p in problems), problems
+    # A TIGHT canvas is only the caption's box: its ink sits mid-box, and
+    # where it sits is the frame's question, asked through the canvas
+    # origin. Judged on the box, every tight caption read "upper half"
+    # and step 4.05 refused every edit (golden monologue, 2026-10-02).
+    tight = str(_frame(tmp_path, (100, 200, 620, 272), size=(720, 480)))
+    assert any("upper" in p for p in check_caption_geometry(tight))
+    assert check_caption_geometry(
+        tight, {"origin": [180, 1300], "frame": [1080, 1920]}) == []
+    assert any("upper" in p for p in check_caption_geometry(
+        tight, {"origin": [180, 100], "frame": [1080, 1920]}))
     path = tmp_path / "blank.png"
     Image.new("RGBA", (1080, 1920), (0, 0, 0, 0)).save(path)
     problems = check_caption_geometry(str(path))
@@ -877,7 +887,7 @@ def test_the_vision_verdict_does_not_block(tmp_path, monkeypatch):
 
     mov = _render_overlay(tmp_path / "solid.mov", "gte(t,0)")
     monkeypatch.setattr(
-        qa, "check_caption_geometry", lambda _path: [])
+        qa, "check_caption_geometry", lambda _path, _canvas=None: [])
     monkeypatch.setattr(
         qa, "_vision_observation",
         lambda _paths, **k: "FAIL\nthe letters are overlapping and distorted")

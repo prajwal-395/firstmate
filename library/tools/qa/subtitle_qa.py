@@ -117,12 +117,20 @@ def _alpha_bbox(frame_path: str):
         return im.convert("RGBA").getchannel("A").getbbox()
 
 
-def check_caption_geometry(frame_path: str) -> list:
+def check_caption_geometry(frame_path: str,
+                           canvas: dict | None = None) -> list:
     """Everything mechanically wrong with one caption frame.
 
     This is the half of the gate that reads real state: is anything
     drawn, is it clipped at an edge, is it where a subtitle goes.
     Returns a list of sentences; empty means the frame is sound.
+
+    `canvas` is a TIGHT segment's record (`origin`, `frame`): the file
+    is only the caption's own box, so clipping is judged on the file and
+    the position in the delivered frame the box is placed into. Judged on
+    the box alone, every tight caption sat in its "upper half" - the box
+    is centred on its ink - and step 4.05 refused every edit once tight
+    became the default (golden monologue, 2026-10-02).
     """
     from PIL import Image
 
@@ -153,24 +161,31 @@ def check_caption_geometry(frame_path: str) -> list:
         )
 
     centre_y = (top + bottom) / 2
-    if centre_y < height * CAPTION_TOP_LIMIT_FRACTION:
+    frame_height = height
+    if canvas and canvas.get("origin") and canvas.get("frame"):
+        centre_y += canvas["origin"][1]
+        frame_height = canvas["frame"][1]
+    if centre_y < frame_height * CAPTION_TOP_LIMIT_FRACTION:
         problems.append(
-            f"caption sits at y={centre_y:.0f} of {height}, in the upper "
-            f"half of the frame. Subtitles are bottom-positioned."
+            f"caption sits at y={centre_y:.0f} of {frame_height}, in the "
+            f"upper half of the frame. Subtitles are bottom-positioned."
         )
 
     return problems
 
 
 def run_subtitle_qa(mov_path: str, project_folder: str = None,
-                      harness: str = None) -> dict:
+                      harness: str = None,
+                      canvas: dict | None = None) -> dict:
     """Check a rendered subtitle segment. Raises on a mechanical failure.
 
     `harness` selects who looks at the sampled frames for the
     advisory typography observation: a driving host with vision
     answers first, else gemma (`library/tools/still_vision.py`).
     Unset reads `PIPELINE_HOST_HARNESS`, so a bare run keeps the
-    gemma behaviour exactly.
+    gemma behaviour exactly. `canvas` is a tight segment's `tight_box`
+    record (see `check_caption_geometry`); None judges the file as the
+    whole frame.
     """
     if os.environ.get("SKIP_QA_CHECKS") == "1":
         print("Skipping subtitle QA check (SKIP_QA_CHECKS=1)", file=sys.stderr)
@@ -231,7 +246,7 @@ def run_subtitle_qa(mov_path: str, project_folder: str = None,
     # ── The half that decides ──────────────────────────────────────────
     geometry_problems = []
     for frame_path in frame_paths:
-        geometry_problems.extend(check_caption_geometry(frame_path))
+        geometry_problems.extend(check_caption_geometry(frame_path, canvas))
 
     if geometry_problems:
         for frame_path in frame_paths:

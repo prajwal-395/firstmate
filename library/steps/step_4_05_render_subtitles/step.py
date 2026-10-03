@@ -1013,10 +1013,17 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
     def _placement_record() -> dict:
         if tight is None:
             return None
+        from library.tools.tight_box import canvas_offset
         return {
             "width": tight.width,
             "height": tight.height,
             "placement": tight.placement,
+            # Where the canvas sits in the delivered frame: a tight
+            # canvas is only the caption's own box, so "is it where a
+            # subtitle goes" is a question about the FRAME
+            # (`subtitle_qa.check_caption_geometry`).
+            "origin": list(canvas_offset(tight)),
+            "frame": [tight.full_width, tight.full_height],
         }
 
     def _frames_record() -> dict:
@@ -1948,7 +1955,8 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
                 _qa_frame_sequence(usable[0])
             else:
                 from tools.qa.subtitle_qa import run_subtitle_qa
-                run_subtitle_qa(usable[0]["overlay_path"], project_folder)
+                run_subtitle_qa(usable[0]["overlay_path"], project_folder,
+                                canvas=usable[0].get("tight_box"))
         except Exception as e:
             error_msg = f"Subtitle QA Validation Failed: {e!s}"
             print(f"ERROR: {error_msg}", file=sys.stderr)

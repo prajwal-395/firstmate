@@ -228,7 +228,8 @@ def heard(recipe: Conversation):
 
 class CardRenderer:
     """Step 4.05's renderer seam: an opaque card in a clear frame, of the
-    size and length the props ask for. Remotion draws the words; nothing
+    size and length the props ask for, in the lower half where step 4.05's
+    QA expects a caption. Remotion draws the words; nothing
     golden asserts depends on which pixels spell them."""
 
     def __init__(self) -> None:
@@ -245,7 +246,8 @@ class CardRenderer:
             "ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i",
             (f"color=c=black@0.0:size={width}x{height}:rate=24000/1001,"
              f"format=rgba"),
-            "-vf", (f"drawbox=x={width // 4}:y={height // 3}:w={width // 2}:"
+            "-vf", (f"drawbox=x={width // 4}:y={height * 5 // 8}:"
+                    f"w={width // 2}:"
                     f"h={max(height // 8, 2)}:color=white@1:t=fill"),
             "-frames:v", str(frames), "-c:v", "qtrle", overlay_path],
             capture_output=True, encoding="utf-8", check=False)
@@ -258,15 +260,18 @@ def render_engine(job: dict, timeline) -> bool:
     the marked frames at the timeline's frame size, with audio."""
     width = int(timeline.GetSetting("timelineResolutionWidth"))
     height = int(timeline.GetSetting("timelineResolutionHeight"))
+    reported = str(timeline.GetSetting("timelineFrameRate"))
+    rate, fps = (("24000/1001", FPS) if reported == RATE
+                 else (reported, float(reported)))
     frames = int(job["MarkOut"]) - int(job["MarkIn"]) + 1
     path = Path(job["TargetDir"]) / f"{job['OutputFilename']}.mp4"
     done = subprocess.run([
         "ffmpeg", "-v", "error", "-y",
         "-f", "lavfi", "-i",
-        f"testsrc2=size={width}x{height}:rate=24000/1001",
+        f"testsrc2=size={width}x{height}:rate={rate}",
         "-f", "lavfi", "-i", "sine=frequency=330:sample_rate=48000",
         "-frames:v", str(frames), "-c:v", "libx264", "-pix_fmt", "yuv420p",
-        "-c:a", "aac", "-t", f"{frames / FPS:.6f}", str(path)],
+        "-c:a", "aac", "-t", f"{frames / fps:.6f}", str(path)],
         capture_output=True, encoding="utf-8", check=False)
     return done.returncode == 0
 

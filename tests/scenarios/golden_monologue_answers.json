@@ -1,0 +1,205 @@
+{
+ "_comment": "The model's recorded answers for the golden monologue, one per LLM step, as the file handshake carries them. {project} is the project folder. Authored against the requests the run files; tests/scenarios/golden_edit.py.",
+ "creative_direction": {
+  "creative_direction": {
+   "narrative_theme": "One plain lesson from the week, said to camera on the walk: a plan you can see beats a plan you remember.",
+   "target_mood": "plain and encouraging",
+   "target_energy": "steady and conversational",
+   "energy_arc": "open on the lesson, show the planner and the whiteboard as proof, close on the instruction",
+   "emotional_landscape": "calm conviction; no conflict, one idea stated and shown",
+   "audience_emotion": "nudged to write their own plan down today",
+   "key_moments": [
+    "talk: 'a plan you can see beats a plan you remember'",
+    "talk: 'so write it down today'"
+   ],
+   "rationale": "There is one speaker and one thought; the two B-roll clips (broll_1 planner, broll_2 whiteboard) are the visible plan the line names."
+  },
+  "could_not_determine": []
+ },
+ "music_selection": {
+  "music_selection": {
+   "title": "bed",
+   "source": "project",
+   "audio_path": "{project}/music/bed.wav",
+   "duration_seconds": 15.0,
+   "direction_justification": {
+    "direction_mood": "plain and encouraging",
+    "why_it_fits": "a single steady tone sits under speech without competing with it",
+    "forbidden_registers": [
+     "dramatic"
+    ],
+    "why_not_forbidden": {
+     "dramatic": "it has no build and no peak"
+    }
+   },
+   "candidates_evaluated": [
+    {
+     "title": "bed",
+     "source": "project",
+     "verdict": "chosen",
+     "reason": "the project's own bed, long enough for the edit"
+    }
+   ],
+   "section": {
+    "source_in": 0.0,
+    "why": "the tone is uniform; the head plays as well as any second"
+   }
+  },
+  "could_not_determine": [],
+  "contradicts_direction": []
+ },
+ "speech_sequence": {
+  "speech_sequence": {
+   "body_sequence": [
+    {
+     "clip_id": "clip_003",
+     "text": "the one thing i learned this week is simple",
+     "source_start": 0.5,
+     "source_end": 3.15,
+     "engagement": {
+      "rank": 2,
+      "basis": "it sets up the lesson but says nothing yet"
+     }
+    },
+    {
+     "clip_id": "clip_003",
+     "text": "a plan you can see beats a plan you remember",
+     "source_start": 4.5,
+     "source_end": 7.45,
+     "engagement": {
+      "rank": 1,
+      "basis": "the whole idea in one line"
+     }
+    },
+    {
+     "clip_id": "clip_003",
+     "text": "so write it down today",
+     "source_start": 8.5,
+     "source_end": 9.95,
+     "engagement": {
+      "rank": 3,
+      "basis": "a plain instruction that lands the ending"
+     }
+    }
+   ],
+   "excluded_passages": []
+  },
+  "could_not_determine": [],
+  "contradicts_direction": []
+ },
+ "mesh_spine": {
+  "structure": [
+   {
+    "position": 1,
+    "block_type": "speech",
+    "duration_seconds": 2.65,
+    "music_behavior": "background",
+    "content": {
+     "passage_ref": 1
+    }
+   },
+   {
+    "position": 2,
+    "block_type": "speech",
+    "duration_seconds": 2.95,
+    "music_behavior": "background",
+    "content": {
+     "passage_ref": 2
+    }
+   },
+   {
+    "position": 3,
+    "block_type": "transition_slot",
+    "duration_seconds": 0.5,
+    "music_behavior": "prominent",
+    "visual_note": "the whiteboard list, the plan made visible"
+   },
+   {
+    "position": 4,
+    "block_type": "speech",
+    "duration_seconds": 1.45,
+    "music_behavior": "background",
+    "content": {
+     "passage_ref": 3
+    }
+   }
+  ],
+  "could_not_determine": [],
+  "contradicts_direction": []
+ },
+ "select_broll": {
+  "broll_creative": [
+   {
+    "clip_id": "clip_002",
+    "spine_block_position": 3,
+    "preferred_moment": "the list itself, early in the clip",
+    "selection_rationale": "the whiteboard is the plan you can see, shown in the breath after the line names it"
+   }
+  ],
+  "b_roll_interjections": [
+   {
+    "clip_id": "clip_001",
+    "over_spine_block_position": 2,
+    "timeline_start": 3.6,
+    "timeline_end": 4.6,
+    "purpose": "the paper planner on 'a plan you can see'"
+   }
+  ],
+  "could_not_determine": [],
+  "contradicts_direction": []
+ },
+ "audio_mix": {
+  "cleanup_plan": [],
+  "music_ducking_plan": {
+   "enabled": true,
+   "duck_db": 6,
+   "release_ms": 300,
+   "why": "a steady tone bed under one voice: pull it down a little more between words so the gaps do not fill"
+  },
+  "audio_delivery_plan": {
+   "dialogue_target_lufs": null,
+   "true_peak_ceiling_dbtp": null,
+   "why": "nothing in the brief names a delivery target, so the platform defaults apply"
+  },
+  "value_decisions": [
+   {
+    "slot": "mix.speech_above_bed_db",
+    "scope": "background",
+    "value": 12,
+    "why": "the voice measures -22 LUFS and the bed -21.9; 12 dB keeps a flat tone clearly under every word"
+   },
+   {
+    "slot": "mix.speech_above_bed_db",
+    "scope": "prominent",
+    "value": 4,
+    "why": "the one music-led breath is half a second; the bed may come up but should not jump"
+   }
+  ],
+  "could_not_determine": [],
+  "contradicts_direction": []
+ },
+ "review_rough_cut": {
+  "cut_decisions": [],
+  "rough_cut_review": {
+   "reconstructed_script": "the one thing i learned this week is simple / a plan you can see beats a plan you remember / so write it down today",
+   "sentence_completion": "every sentence plays whole",
+   "narrative_flow": "setup, the idea, the instruction - in that order",
+   "emotional_arc": "steady; the half-second whiteboard breath lands the idea before the close",
+   "key_moments": [
+    "a plan you can see beats a plan you remember",
+    "so write it down today"
+   ],
+   "note_acknowledgements": []
+  },
+  "could_not_determine": [],
+  "contradicts_direction": []
+ },
+ "render": {
+  "render_review": {
+   "overall": "not_watched",
+   "notes": [
+    "the golden render is a test pattern stand-in for Resolve's render: its structure is asserted, its picture is not watched"
+   ]
+  }
+ }
+}

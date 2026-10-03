@@ -67,8 +67,8 @@ class ResolveDoubleError(AttributeError):
 #: growing a private fake that answers differently.
 UNSUPPORTED = frozenset(
     {
-        "rendering files (StartRendering queues and records, writes nothing"
-        " unless a test hands the project a `render_engine`)",
+        ("rendering files (StartRendering queues and records, writes "
+         "nothing unless a test hands the project a `render_engine`)"),
         "gallery stills (GrabStill/GetStills)",
         "voice isolation (GetVoiceIsolationState/SetVoiceIsolationState)",
         "multicam (CreateMulticamClip)",
@@ -929,7 +929,7 @@ class FakeTimeline:
         end = self._start_frame
         for _name, items in self._tracks["video"] + self._tracks["audio"]:
             for item in items:
-                end = max(end, item.GetEnd() - 1)
+                end = max(end, item.GetEnd())
         return end
 
     def GetSetting(self, key=None):
@@ -2021,6 +2021,17 @@ def check_append_end_frame_is_exclusive(project, pool_clip=None):
     assert first.GetEnd() - first.GetStart() == 48
 
 
+def check_end_frame_is_exclusive(project, pool_clip=None):
+    """`GetEndFrame` is one past the last frame, like an item's `GetEnd`
+    (`qualification_project.verify`, live on 21.1: a 216-frame timeline
+    read end - start = 216). The double answered the last frame itself
+    until the golden monologue counted the frames it showed."""
+    timeline = _needs_timeline(project)
+    pool_clip = _contract_pool_clip(project, pool_clip)
+    item = _append_contract_clip(project, pool_clip, 100, 148)
+    assert timeline.GetEndFrame() == item.GetEnd()
+
+
 def check_append_over_a_live_item_places_nothing(project, pool_clip=None):
     timeline = _needs_timeline(project)
     pool_clip = _contract_pool_clip(project, pool_clip)
@@ -2176,6 +2187,7 @@ CONTRACT_CHECKS = [
     ("property whole-dict-or-nothing", check_property_whole_dict_or_nothing),
     ("audio rows carry stream names", check_audio_rows_carry_stream_names),
     ("append endFrame is exclusive", check_append_end_frame_is_exclusive),
+    ("timeline end frame is exclusive", check_end_frame_is_exclusive),
     (
         "append over a live item places nothing",
         check_append_over_a_live_item_places_nothing,
