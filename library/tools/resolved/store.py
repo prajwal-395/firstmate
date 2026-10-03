@@ -42,7 +42,18 @@ CREATE TABLE IF NOT EXISTS jobs (
     error TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS jobs_state ON jobs(state);
+CREATE TABLE IF NOT EXISTS idempotency_records (
+    kind TEXT NOT NULL,
+    key TEXT NOT NULL,
+    digest TEXT NOT NULL,
+    job_id TEXT NOT NULL UNIQUE,
+    PRIMARY KEY (kind, key)
+);
 """
+
+
+class IdempotencyConflict(ValueError):
+    """An idempotency key was reused for a different request."""
 
 
 class JobStore:
@@ -67,6 +78,53 @@ class JobStore:
         with self._lock:
             self._db.execute(f"INSERT INTO jobs ({columns}) VALUES ({marks})",
                              tuple(row.values()))
+
+    def insert_idempotent(self, job: dict, *, kind: str, key: str,
+                          digest: str) -> dict | None:
+        """Insert a job and its durable key atomically.
+
+        Return the previous job receipt for an identical retry, or None
+        after inserting a new job. A key is scoped by job kind so patch ids
+        and caller keys on unrelated operations cannot collide.
+        """
+        row = dict(job)
+        row["params"] = json.dumps(row["params"], sort_keys=True)
+        columns = ", ".join(row)
+        marks = ", ".join("?" for _ in row)
+        with self._lock:
+            self._db.execute("BEGIN IMMEDIATE")
+            try:
+                previous = self._db.execute(
+                    "SELECT digest, job_id FROM idempotency_records"
+                    " WHERE kind=? AND key=?", (kind, key)).fetchone()
+                if previous is not None:
+                    if previous["digest"] != digest:
+                        raise IdempotencyConflict(
+                            f"idempotency key {key!r} for {kind} was already "
+                            "used with different contents")
+                    found = self._db.execute(
+                        "SELECT * FROM jobs WHERE id=?",
+                        (previous["job_id"],)).fetchone()
+                    if found is None:
+                        raise RuntimeError(
+                            f"idempotency record for {kind} {key!r} points "
+                            "to a missing job")
+                    self._db.execute("COMMIT")
+                    return receipt(found)
+
+                self._db.execute(
+                    f"INSERT INTO jobs ({columns}) VALUES ({marks})",
+                    tuple(row.values()))
+                self._db.execute(
+                    "INSERT INTO idempotency_records"
+                    " (kind, key, digest, job_id) VALUES (?, ?, ?, ?)",
+                    (kind, key, digest, row["id"]))
+                self._db.execute("COMMIT")
+                return None
+            except BaseException:
+                if self._db.in_transaction:
+                    self._db.execute("ROLLBACK")
+                raise
 
     def update(self, job_id: str, **fields) -> None:
         if "result" in fields and fields["result"] is not None:

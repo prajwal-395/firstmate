@@ -100,9 +100,13 @@ def serving(path=None) -> bool:
 
 
 def submit(kind: str, params: dict, owner: str = "",
-           qualification: bool = False, path=None) -> dict:
-    return call({"op": "submit", "kind": kind, "params": params,
-                 "owner": owner, "qualification": qualification}, path)
+           qualification: bool = False, path=None,
+           idempotency_key: str | None = None) -> dict:
+    request = {"op": "submit", "kind": kind, "params": params,
+               "owner": owner, "qualification": qualification}
+    if idempotency_key is not None:
+        request["idempotency_key"] = idempotency_key
+    return call(request, path)
 
 
 def result(job_id: str, wait: float = 0.0, path=None) -> dict:

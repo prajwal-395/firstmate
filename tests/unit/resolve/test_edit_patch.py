@@ -73,6 +73,22 @@ def test_a_patch_commits_and_becomes_the_next_generation(world):
         receipt["generation"]
 
 
+def test_reusing_a_patch_id_with_different_contents_refuses(world):
+    project, timeline, _item, store, base = world
+    first = _patch("stable-id", base.generation, [
+        {"op": "marker.add", "frame": 12, "color": "Blue", "name": "beat"}],
+        ["markers"], [[12, 13]])
+    _apply(first, project, timeline, store)
+
+    changed = _patch("stable-id", base.generation, [
+        {"op": "marker.add", "frame": 13, "color": "Blue", "name": "beat"}],
+        ["markers"], [[13, 14]])
+    with pytest.raises(edit_patch.PatchRefused,
+                       match="already committed with different contents"):
+        _apply(changed, project, timeline, store)
+    assert 12 in timeline.markers and 13 not in timeline.markers
+
+
 def test_a_write_that_answers_true_and_changes_nothing_fails_by_readback(
         world, monkeypatch):
     project, timeline, item, store, base = world

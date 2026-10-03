@@ -30,7 +30,9 @@ import json
 import sqlite3
 from library.tools import perf_ledger, resource_scheduler
 from library.tools.resolved import kpi
-from library.tools.resolved.store import JobStore
+from library.tools.resolved.store import (
+    IdempotencyConflict, JobStore,
+)
 import shutil
 import tempfile
 import types
@@ -916,6 +918,116 @@ def test_identical_snapshots_coalesce_into_one_resolve_read(
     assert receipt["result"] == {"name": "Reel 01"}
     assert receipt["wait_seconds"] is not None
     assert receipt["hold_seconds"] is not None
+
+
+def test_caller_idempotency_key_reuses_a_completed_job_and_rejects_changes(
+        serving, unguarded_2, monkeypatch):
+    reads = []
+
+    def observe(project, timeline):
+        reads.append(timeline.GetName())
+        return types.SimpleNamespace(
+            summary=lambda: {"name": timeline.GetName()})
+
+    monkeypatch.setattr("library.tools.timeline_shadow.observe", observe)
+    params = {"project": "Podcast", "timeline": "Reel 01"}
+    submitted = client.submit("timeline.snapshot", params,
+                              idempotency_key="snapshot-request-1")
+    original = client.result(submitted["id"], wait=5)
+
+    retry = client.submit("timeline.snapshot",
+                          {"timeline": "Reel 01", "project": "Podcast"},
+                          idempotency_key="snapshot-request-1")
+    assert retry == {"id": submitted["id"], "coalesced": True}
+    assert client.result(retry["id"]) == original
+    assert reads == ["Reel 01"]
+
+    with pytest.raises(client.BrokerError,
+                       match="different contents") as refused:
+        client.submit("timeline.snapshot",
+                      {"project": "Podcast", "timeline": "Master"},
+                      idempotency_key="snapshot-request-1")
+    assert refused.value.reply["refused"] is True
+
+
+def test_jobs_without_an_idempotency_key_keep_new_job_behavior(
+        serving, unguarded_2, monkeypatch):
+    reads = []
+
+    def observe(project, timeline):
+        reads.append(timeline.GetName())
+        return types.SimpleNamespace(
+            summary=lambda: {"name": timeline.GetName()})
+
+    monkeypatch.setattr("library.tools.timeline_shadow.observe", observe)
+    params = {"project": "Podcast", "timeline": "Reel 01"}
+    first = client.submit("timeline.snapshot", params)
+    client.result(first["id"], wait=5)
+    second = client.submit("timeline.snapshot", params)
+    client.result(second["id"], wait=5)
+
+    assert first["id"] != second["id"]
+    assert reads == ["Reel 01", "Reel 01"]
+
+
+def test_patch_id_reuses_completed_job_and_refuses_changed_patch(
+        serving, unguarded_2, monkeypatch):
+    broker, _resolve = serving
+    executions = []
+
+    def run_patch(job, resolve):
+        executions.append(job["params"]["patch"])
+        return {"status": "committed", "patch_id":
+                job["params"]["patch"]["id"]}
+
+    monkeypatch.setattr(jobs, "run", run_patch)
+    patch = {"id": "durable-patch-1", "project": "Podcast",
+             "timeline": "Reel 01"}
+    submitted = client.submit("timeline.apply_patch", {"patch": patch})
+    original = client.result(submitted["id"], wait=5)
+    retry = client.submit("timeline.apply_patch", {"patch": dict(patch)})
+    assert retry == {"id": submitted["id"], "coalesced": True}
+    assert client.result(retry["id"]) == original
+    assert len(executions) == 1
+
+    changed = {**patch, "note": "different content"}
+    with pytest.raises(client.BrokerError,
+                       match="different contents") as refused:
+        client.submit("timeline.apply_patch", {"patch": changed})
+    assert refused.value.reply["refused"] is True
+    assert len(executions) == 1
+    assert broker.store.get(submitted["id"])["result"] == \
+        {"status": "committed", "patch_id": "durable-patch-1"}
+
+
+def test_idempotency_receipts_survive_a_store_reopen(tmp_path):
+    database = tmp_path / "ren-resolved.sqlite3"
+    store = JobStore(database)
+    now = time.time()
+    job = {
+        "id": "first-job", "kind": "resolve_axi", "priority": "read",
+        "mode": "shared", "executed": 1, "params": {"argv": ["items"]},
+        "project": "", "timeline": "", "qualification": 0,
+        "coalesce_key": None, "owner": "", "state": "queued",
+        "submitted": now,
+    }
+    assert store.insert_idempotent(
+        job, kind="resolve_axi", key="request-1", digest="digest-1") is None
+    store.update("first-job", state="done", finished=now + 1,
+                 result={"exit_code": 0})
+    store.close()
+
+    reopened = JobStore(database)
+    retry = {**job, "id": "second-job", "submitted": now + 2}
+    previous = reopened.insert_idempotent(
+        retry, kind="resolve_axi", key="request-1", digest="digest-1")
+    assert previous["id"] == "first-job"
+    assert previous["result"] == {"exit_code": 0}
+    with pytest.raises(IdempotencyConflict, match="different contents"):
+        reopened.insert_idempotent(
+            retry, kind="resolve_axi", key="request-1", digest="digest-2")
+    assert reopened.get("second-job") is None
+    reopened.close()
 
 
 def test_a_qualification_job_aimed_at_a_user_project_is_refused():

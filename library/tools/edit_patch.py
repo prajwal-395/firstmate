@@ -518,9 +518,14 @@ def apply_patch(patch, *, resolve, project, timeline,
                 "observe the timeline first (`timeline_shadow.observe`)")
     # The id is the idempotency key: a retry of a patch already recorded
     # answers with the receipt it got, and writes nothing again.
-    for gen in store.history(project_name, timeline_id,
-                             after=patch.base_generation):
+    for gen in store.history(project_name, timeline_id):
         if gen.source == shadow.PATCH and gen.patch["id"] == patch.id:
+            if gen.patch != patch.to_dict():
+                _refuse(
+                    patch,
+                    "this id was already committed with different contents",
+                    "a patch id is a durable identity for one complete patch",
+                    "retry the original patch unchanged, or assign a new id")
             return _receipt_of(gen)
     if head.generation != patch.base_generation:
         from library.tools import patch_algebra

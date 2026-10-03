@@ -36,7 +36,11 @@ from typing import Callable, Optional
 
 from library.tools.resolved import jobs as job_kinds
 from library.tools.resolved import scheduler
-from library.tools.resolved.store import TERMINAL, JobStore
+from library.tools.resolved.store import (
+    TERMINAL,
+    IdempotencyConflict,
+    JobStore,
+)
 
 SOCKET_NAME = "ren-resolved.sock"
 DB_NAME = "ren-resolved.sqlite3"
@@ -83,24 +87,41 @@ class Broker:
 
     # ── submission ───────────────────────────────────────────────
     def submit(self, kind: str, params: dict, owner: str = "",
-               qualification: bool = False) -> dict:
+               qualification: bool = False,
+               idempotency_key: str | None = None) -> dict:
         shape = job_kinds.prepare(kind, params, qualification=qualification)
+        idempotency = job_kinds.idempotency_request(
+            kind, params, idempotency_key)
         with self._cond:
             key = shape["coalesce_key"]
-            joined = self._coalesce.get(key) if key else None
-            if joined is not None:
-                self.store.add_subscriber(joined)
-                return {"id": joined, "coalesced": True}
+            if idempotency is None:
+                joined = self._coalesce.get(key) if key else None
+                if joined is not None:
+                    self.store.add_subscriber(joined)
+                    return {"id": joined, "coalesced": True}
             job_id = uuid.uuid4().hex[:16]
             now = time.time()
-            self.store.insert({
+            record = {
                 "id": job_id, "kind": kind, "priority": shape["priority"],
                 "mode": shape["mode"], "executed": int(shape["executed"]),
                 "params": params, "project": shape["project"],
                 "timeline": shape["timeline"],
                 "qualification": int(qualification),
                 "coalesce_key": key, "owner": owner, "state": "queued",
-                "submitted": now})
+                "submitted": now}
+            if idempotency is None:
+                self.store.insert(record)
+            else:
+                durable_key, digest = idempotency
+                try:
+                    previous = self.store.insert_idempotent(
+                        record, kind=kind, key=durable_key, digest=digest)
+                except IdempotencyConflict as exc:
+                    raise job_kinds.JobRefused(str(exc)) from exc
+                if previous is not None:
+                    if previous["state"] not in TERMINAL:
+                        self.store.add_subscriber(previous["id"])
+                    return {"id": previous["id"], "coalesced": True}
             self._queued[job_id] = scheduler.Pending(
                 id=job_id, priority=shape["priority"], mode=shape["mode"],
                 submitted=now, project=shape["project"],
@@ -304,7 +325,9 @@ class _Handler(socketserver.StreamRequestHandler):
             return broker.submit(request["kind"], request.get("params", {}),
                                  owner=request.get("owner", ""),
                                  qualification=bool(
-                                     request.get("qualification")))
+                                     request.get("qualification")),
+                                 idempotency_key=request.get(
+                                     "idempotency_key"))
         if op in ("status", "result"):
             wait = float(request.get("wait", 0)) if op == "result" else 0.0
             return {"job": broker.result(request["id"], wait)}
@@ -367,4 +390,3 @@ def serve(path: Optional[Path] = None, connect=None) -> None:
         except FileNotFoundError:
             pass
         store.close()
-

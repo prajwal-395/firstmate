@@ -66,6 +66,34 @@ def _coalesce_key(*parts) -> str:
         json.dumps(parts, sort_keys=True).encode("utf-8")).hexdigest()
 
 
+def canonical_digest(value) -> str:
+    """Hash JSON data with object-key order and whitespace removed."""
+    body = json.dumps(value, sort_keys=True, separators=(",", ":"),
+                      ensure_ascii=False)
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
+def idempotency_request(kind: str, params: dict,
+                        idempotency_key: str | None = None
+                        ) -> tuple[str, str] | None:
+    """Return the durable key and request digest, where one was requested.
+
+    EditPatch authors own their stable identity in `patch.id`; other job
+    kinds opt in with a caller-supplied idempotency key.
+    """
+    if kind == "timeline.apply_patch":
+        if idempotency_key is not None:
+            raise JobRefused(
+                "timeline.apply_patch uses patch.id as its idempotency key")
+        patch = params["patch"]
+        return patch["id"], canonical_digest(patch)
+    if idempotency_key is None:
+        return None
+    if not isinstance(idempotency_key, str) or not idempotency_key:
+        raise JobRefused("idempotency_key must be a non-empty string")
+    return idempotency_key, canonical_digest({"kind": kind, "params": params})
+
+
 def _required(params: dict, key: str, kind: str) -> str:
     value = params.get(key)
     if not isinstance(value, str) or not value:

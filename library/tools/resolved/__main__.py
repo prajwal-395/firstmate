@@ -25,6 +25,8 @@ def main(argv=None) -> int:
                         help="the job's parameters, as a JSON object")
     submit.add_argument("--qualification", action="store_true",
                         help="a test job: only the qualification project")
+    submit.add_argument("--idempotency-key",
+                        help="reuse this key to return the same job receipt")
     submit.add_argument("--wait", type=float, default=0.0,
                         help="wait this long for the receipt")
     result = verbs.add_parser("result", help="a job's receipt")
@@ -56,7 +58,8 @@ def main(argv=None) -> int:
             client.call({"op": "shutdown"})
         elif args.verb == "submit":
             submitted = client.submit(args.kind, json.loads(args.params),
-                                      qualification=args.qualification)
+                                      qualification=args.qualification,
+                                      idempotency_key=args.idempotency_key)
             if args.wait:
                 print(json.dumps(client.result(submitted["id"], args.wait),
                                  indent=2))
