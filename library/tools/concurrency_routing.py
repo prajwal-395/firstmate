@@ -1,4 +1,4 @@
-"""Which work runs in parallel and which serialises. One table.
+"""Which work runs in parallel and which serialises.
 
 The captain's ruling of 2026-09-12 that this exists for: *"get the
 async locking and gating and declaration keys and routing all figured
@@ -7,8 +7,10 @@ across me and the LLM(s) working on video projects using a single
 davinci instance on my local computer"* - and, said plainly, *"today
 that judgement is mine and I have got it wrong twice today"*.
 
-So this is not advice. It is a lookup a supervisor performs without
-judgement: name the operation, read the exclusion, dispatch or queue.
+So this is not advice. Capability routes are derived from each
+`Operation.execution` phase. The remaining rows cover direct tool
+surfaces that are not capabilities; a supervisor names the operation,
+reads its exclusion, and dispatches or queues it.
 
 The four classes
 ----------------
@@ -104,26 +106,10 @@ class Operation:
         return EXCLUSION[self.exclusion][1]
 
 
-#: Every operation in this engine that reaches Resolve or a shared
-#: file, with the entry point a supervisor dispatches.
-#:
-#: An operation NOT in this table is `FREE` by omission and that is
-#: deliberate: the table names what constrains, so adding a Resolve
-#: caller means adding a row, and `tests/contracts/test_resolve_guard_wiring.py`
-#: fails when a module connects to Resolve without one.
-OPERATIONS: Tuple[Operation, ...] = (
-    Operation(
-        name="build reels",
-        entry_point="library.tools.reel_build.rebuild_reels_in_project",
-        exclusion=FREE,
-        why="Minutes of caption renders and model-answer reads around "
-            "seconds of placement per reel. The cursor sections take "
-            "their own holds inside the body - one exclusive hold per "
-            "placed reel, shared holds for the gate and the surveys - "
-            "so two builds meet only there. SAME-PROJECT builds still "
-            "do not overlap: staging containers are deterministic per "
-            "reel name and the per-reel sidecar merges are "
-            "read-modify-write."),
+#: Direct tool entry points which do not have a capability owner. The
+#: route policy for capability-backed entry points lives on the
+#: capability's execution phase and is derived below.
+AUXILIARY_OPERATIONS: Tuple[Operation, ...] = (
     Operation(
         name="build reel variants",
         entry_point="library.tools.reel_build.build_reel_variants",
@@ -136,12 +122,6 @@ OPERATIONS: Tuple[Operation, ...] = (
         why="The ONLY place an approved timeline is deleted. A cursor "
             "that moved mid-promotion deletes the wrong name."),
     Operation(
-        name="render the edit timeline",
-        entry_point="library.steps.step_6_01_render.resolve_build_timeline",
-        exclusion=RESOLVE_CURSOR,
-        why="Builds the whole edit timeline: pool imports, track "
-            "layout, placement, stabilisation, render queue."),
-    Operation(
         name="apply fusion comps",
         entry_point="library.tools.execution.apply_fusion_comps",
         exclusion=RESOLVE_CURSOR,
@@ -153,11 +133,6 @@ OPERATIONS: Tuple[Operation, ...] = (
         exclusion=RESOLVE_CURSOR,
         why="Adds to the render queue, which is global, and renders "
             "what is current."),
-    Operation(
-        name="render out",
-        entry_point="library.tools.execution.resolve_render",
-        exclusion=RESOLVE_CURSOR,
-        why="The render queue is one queue for the whole instance."),
     Operation(
         name="capture a frame for firstmate",
         entry_point="library.tools.marker_capture",
@@ -230,29 +205,6 @@ OPERATIONS: Tuple[Operation, ...] = (
         declaration="timeline_ingest",
         why="Writes supplied state into `external/`, whole-file."),
     Operation(
-        name="analyse footage",
-        entry_point="library.steps.step_1_03_semantic_analysis",
-        exclusion=FREE,
-        why="Vision on files. Never opens Resolve. The example the "
-            "table exists to keep parallel."),
-    Operation(
-        name="render subtitles",
-        entry_point="library.steps.step_4_05_render_subtitles",
-        exclusion=FREE,
-        why="Remotion and ffmpeg on files. The swap's connect-and-check "
-            "is a read that refuses unless the open project is this "
-            "project's own, and its writes take their own leases in "
-            "`caption_swap`."),
-    Operation(
-        name="grab gate stills",
-        entry_point="library.steps.step_7_02_verify_reels",
-        exclusion=FREE,
-        why="File work plus a connect-and-check read (refuses unless "
-            "the open project is this project's own, mirroring the "
-            "render-subtitles row above). The grab moves the cursor, "
-            "but under its own exclusive lease in `gate_stills`, so a "
-            "parallel dispatch meets the build only there."),
-    Operation(
         name="reset the qualification project",
         entry_point="library.tools.qualification_project.reset",
         exclusion=RESOLVE_CURSOR,
@@ -267,8 +219,52 @@ OPERATIONS: Tuple[Operation, ...] = (
             "inherits this lease; every check runs inside the one hold."),
 )
 
+
+def _capability_operations(registry=None) -> Tuple[Operation, ...]:
+    """Routing rows derived from capability-owned execution phases."""
+    from library.tools import operations
+
+    source = operations.all() if registry is None else tuple(registry)
+    by_mode = {FREE: "none", RESOLVE_READ: "shared",
+               RESOLVE_CURSOR: "exclusive"}
+    rows = []
+    for operation in source:
+        if not hasattr(operation, "execution"):
+            continue
+        for phase in getattr(operation.execution, "phases", ()):
+            exclusion = next((name for name, mode in by_mode.items()
+                              if mode == phase.resolve_mode), None)
+            if exclusion is None:
+                continue
+            for entry_point in phase.entry_points:
+                rows.append(Operation(
+                    name=f"{operation.name}:{phase.name}",
+                    entry_point=entry_point, exclusion=exclusion,
+                    why=phase.why or "Derived from the capability execution phase."))
+    return tuple(rows)
+
+
+#: Computed view for readers and tests. The authored routing for a
+#: capability exists only once, in its `ExecutionPhase`.
+OPERATIONS: Tuple[Operation, ...] = (
+    *_capability_operations(), *AUXILIARY_OPERATIONS)
 BY_ENTRY_POINT: Dict[str, Operation] = {op.entry_point: op
                                         for op in OPERATIONS}
+
+
+def problems(registry=None) -> list[str]:
+    """Check that derived and auxiliary route declarations do not disagree."""
+    rows = (*_capability_operations(registry), *AUXILIARY_OPERATIONS)
+    seen = {}
+    out = []
+    for row in rows:
+        previous = seen.get(row.entry_point)
+        if previous is not None:
+            out.append(f"route {row.entry_point} is declared by both "
+                       f"{previous.name} and {row.name}")
+        else:
+            seen[row.entry_point] = row
+    return out
 
 
 def route(entry_point: str) -> Operation:

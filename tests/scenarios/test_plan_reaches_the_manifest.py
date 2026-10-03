@@ -21,6 +21,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 import pytest
 from library.tools.fusion.comp_builder import build_effect_comp
@@ -903,8 +904,10 @@ def _run_build(tmp_path, manifest, media, configure=None):
             item.comps.append("Composition 1")
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
+    subprocess_proxy = SimpleNamespace(
+        run=_fusion_pass, TimeoutExpired=subprocess.TimeoutExpired)
     with patch.object(rbt, "_connect_resolve", return_value=resolve), \
-            patch.object(rbt.subprocess, "run", side_effect=_fusion_pass), \
+            patch.object(rbt, "subprocess", subprocess_proxy), \
             patch.object(rbt, "verify_audio", None), \
             patch.object(rbt, "verify_clip_placement", None), \
             patch.object(rbt, "verify_fusion_comps", None), \

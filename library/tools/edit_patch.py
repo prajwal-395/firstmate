@@ -381,20 +381,30 @@ def validate(patch: EditPatch, base: dict) -> None:
                 "observe the timeline (`timeline_shadow.observe`) and plan "
                 "against its generation")
     try:
-        capabilities.get(patch.capability)
+        capability = capabilities.get(patch.capability)
     except UnknownOperation:
         _refuse(patch, f"names capability {patch.capability!r}, which "
                        f"is not registered",
                 "a capability's id is its identity (AGENTS.md 3)",
                 "name one of `capabilities.ids()`")
-    declared = capabilities.PATCH_SEMANTICS.get(patch.capability)
+    declared = capability.execution.patch
     if declared is None:
         _refuse(patch, f"names capability {patch.capability!r}, which "
                        f"declares no patch semantics",
                 "composition trusts the capability's declaration "
                 "(`patch_algebra`), and this one makes none",
-                f"name one of {sorted(capabilities.PATCH_SEMANTICS)}, or "
-                f"declare it in `capabilities.PATCH_SEMANTICS`")
+                "name a capability whose `Operation.execution.patch` "
+                "declares the write")
+    phase = capability.execution.phase("apply")
+    if (phase is None or phase.resolve_mode != "exclusive"
+            or phase.locality != "timeline"
+            or phase.freshness != "timeline_generation"):
+        _refuse(patch, f"capability {patch.capability!r} has no compatible "
+                       "patch execution policy",
+                "patches need exclusive Resolve access, timeline locality "
+                "and a recorded timeline generation",
+                "declare those requirements in the capability's execution "
+                "phase")
     beyond = set(patch.conflict_domains) - set(declared.conflict_domains)
     if beyond:
         _refuse(patch, f"declares domains {sorted(beyond)}, beyond what "

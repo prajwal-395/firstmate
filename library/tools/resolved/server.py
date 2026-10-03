@@ -126,7 +126,8 @@ class Broker:
                 id=job_id, priority=shape["priority"], mode=shape["mode"],
                 submitted=now, project=shape["project"],
                 timeline=shape["timeline"], executed=shape["executed"],
-                qualification=qualification)
+                qualification=qualification,
+                locality=shape["locality"])
             if key:
                 self._coalesce[key] = job_id
             if not shape["executed"]:

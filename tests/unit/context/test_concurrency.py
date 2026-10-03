@@ -363,6 +363,15 @@ def test_waiter_names_live_holder_once_and_waits_for_release(
 # ── The resource scheduler behind the lock ───────────────────────────
 
 
+def test_capability_resource_profiles_are_derived_from_execution_policy():
+    profiles = resource_scheduler.profiles()
+    assert profiles["semantics.analyse:inference"] == {
+        "cpu": 2, "gpu": 1, "ram_gb": 8}
+    assert profiles["render.build:render"]["resolve_cursor"] == 1
+    assert "local_vlm" not in profiles
+    assert "resolve_render" not in profiles
+
+
 @pytest.fixture
 def scheduler(tmp_path, monkeypatch):
     """A private scheduler on a fixed 10-core, 16 GB-usable machine."""
@@ -392,7 +401,7 @@ def test_placement_runs_beside_a_gate_and_a_second_gate_waits(scheduler):
     gate = scheduler.acquire(
         "gate", resource_scheduler.demand_for("full_suite_gate"))
     placement = scheduler.acquire(
-        "placement", resource_scheduler.demand_for("resolve_placement"))
+        "placement", resource_scheduler.demand_for("reel.build:placement"))
     second_gate, box = _acquire_in_thread(scheduler, "gate 2",
                                           "full_suite_gate")
 
@@ -414,7 +423,7 @@ def test_old_code_lock_dir_and_scheduler_exclude_each_other(scheduler):
     (legacy / "owner").write_text(json.dumps(
         {"owner": "scripts/full_suite_gate.sh", "pid": 1}), encoding="utf-8")
     admitted, box = _acquire_in_thread(scheduler, "placement",
-                                       "resolve_placement")
+                                       "reel.build:placement")
     assert not admitted.wait(0.3)
 
     (legacy / "owner").unlink()
@@ -430,11 +439,12 @@ def test_a_queued_large_job_is_not_starved_by_later_small_ones(scheduler):
     """Catches: placements arriving back to back keeping a second model
     run queued forever while each one fits beside the running one."""
     vlm = scheduler.acquire("gemma", resource_scheduler.demand_for(
-        "local_vlm"))
-    second, _ = _acquire_in_thread(scheduler, "gemma 2", "local_vlm")
+        "semantics.analyse:inference"))
+    second, _ = _acquire_in_thread(
+        scheduler, "gemma 2", "semantics.analyse:inference")
     time.sleep(0.1)  # the second model run queues first, on the gpu
     placement, box = _acquire_in_thread(scheduler, "placement",
-                                        "resolve_placement")
+                                        "reel.build:placement")
 
     assert not placement.wait(0.3)
     scheduler.release(vlm)
@@ -461,6 +471,6 @@ def test_a_nested_section_cannot_grow_its_grant(tmp_path, monkeypatch):
     which needs the gpu it never reserved."""
     monkeypatch.setattr(heavy_work_lock, "HEAVY_LOCK_DIR",
                         tmp_path / "heavy-work.lock")
-    with heavy_work_lock.heavy_work_lock("outer", "resolve_placement"):
+    with heavy_work_lock.heavy_work_lock("outer", "reel.build:placement"):
         with pytest.raises(heavy_work_lock.GrantTooSmall):
-            heavy_work_lock.take_heavy_lock("render", "resolve_render")
+            heavy_work_lock.take_heavy_lock("render", "render.build:render")

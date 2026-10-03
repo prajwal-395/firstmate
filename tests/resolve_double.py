@@ -48,7 +48,34 @@ passing against a shrug.
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from pathlib import Path
+
+
+@contextmanager
+def builder_paths_exist(builder_module):
+    """Make builder file checks succeed without patching pathlib globally."""
+    original_os = builder_module.os
+
+    class _PathProxy:
+        def __getattr__(self, name):
+            return getattr(original_os.path, name)
+
+        @staticmethod
+        def exists(_path):
+            return True
+
+    class _OsProxy:
+        path = _PathProxy()
+
+        def __getattr__(self, name):
+            return getattr(original_os, name)
+
+    builder_module.os = _OsProxy()
+    try:
+        yield
+    finally:
+        builder_module.os = original_os
 
 
 class ResolveDoubleError(AttributeError):

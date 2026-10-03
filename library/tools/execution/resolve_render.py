@@ -148,8 +148,8 @@ def _files_written_since(output_dir: str, name: str, since: float) -> list:
     return [f for _, f in sorted(fresh)]
 
 
-@under_lease("render out")
-@heavy_work_locked("Resolve timeline render", "resolve_render")
+@under_lease("render out", capability="render.build", phase="render")
+@heavy_work_locked("Resolve timeline render", "render.build:render")
 def render_timeline(
     timeline_name: str = "",
     output_dir: str = "",

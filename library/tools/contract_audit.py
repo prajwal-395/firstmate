@@ -77,14 +77,26 @@ def problems(registry=None, reqs=None) -> list:
     `registry` and `reqs` are injectable so the auditor's own tests can
     plant deliberately-invalid graphs; production calls pass neither.
     """
-    from library.tools import capabilities, dag_adapter, operations, patch_algebra
+    from library.tools import (
+        capabilities, concurrency_routing, dag_adapter, operations,
+        patch_algebra,
+    )
     from library.tools import requirements as req_mod
     from library.tools.scope import PROJECT, REGION
 
     registry = operations.all() if registry is None else tuple(registry)
     reqs = req_mod.all_requirements() if reqs is None else list(reqs)
     out = list(capabilities.problems(registry))
+    out += concurrency_routing.problems(registry)
+    patch_declarations = {
+        op.name: op.execution.patch
+        for op in registry
+        if isinstance(getattr(op, "execution", None),
+                      operations.ExecutionPolicy)
+        and op.execution.patch is not None
+    }
     out += patch_algebra.problems(
+        declarations=patch_declarations,
         capability_ids={op.name for op in registry})
 
     nodes = dag_adapter.node_ids()

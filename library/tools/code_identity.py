@@ -326,6 +326,10 @@ EXEMPT_IMPORTS = {
     # STEP_IMPLEMENTATION_DEPS into each importing step's hash through
     # the coverage test's transitive scan.
     "library/tools/code_identity.py",
+    # Execution policy: resource_scheduler reads capability declarations
+    # to admit work, but those declarations change no measured footage
+    # result and must not invalidate a preflight analysis cache.
+    "library/tools/capabilities.py",
     # Centralized path configuration: every entry is a location or an
     # environment override, so a change here fails loud (a binary not
     # found) rather than as a silently stale cached value.  Declaring it

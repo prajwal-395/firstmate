@@ -23,12 +23,15 @@ The resources
                   the captain's live Resolve.
 `disk`            I/O weight (capacity `DISK_CAPACITY`).
 
-`PROFILES` is the declared demand of each kind of heavy work. Its numbers
-encode which pairs may coexist (written beside the table); where a
-number has been MEASURED the table says so and from what, and the rest
-are declared until a measurement replaces them. `machine` - every resource at
-capacity - is the default and the old mutex exactly: a caller that
-declares nothing excludes everything.
+Capability phases declare their resource demand on
+`operations.Operation.execution`; this module derives the profiles it
+admits. An exclusive Resolve phase also reserves `resolve_cursor`, so
+the resource scheduler and Resolve router cannot disagree. `machine` is
+the default and the old mutex exactly. `full_suite_gate` is the one
+non-capability workload profile: it is a test runner, not a pipeline
+capability. Its 6 GB RAM ceiling was measured at 5.30 GB resident
+across 243 samples. Its CPU demand stays declared: a noisy shared-machine
+run showed what the gate obtained, not what it asked for.
 
 The store
 ---------
@@ -113,61 +116,35 @@ def capacity() -> Dict[str, int]:
     }
 
 
+def _capability_demand(phase, cap: Dict[str, int]) -> Dict[str, int]:
+    """Materialize one capability phase's machine-clamped demand."""
+    demand = {resource: min(amount, cap[resource])
+              for resource, amount in phase.resources}
+    if phase.resolve_mode == "exclusive":
+        demand["resolve_cursor"] = 1
+    return {resource: amount for resource, amount in demand.items() if amount}
+
+
 def profiles() -> Dict[str, Dict[str, int]]:
-    """Declared demand per kind of heavy work, on this machine.
+    """Derived scheduler profiles, keyed by capability id and phase."""
+    from library.tools import capabilities
 
-    Which pairs coexist (on the 10-core, 24 GB machine: cpu 10, ram 16):
-      * gate + gate              no  - each takes more than half the cpu
-      * gate + local_vlm         yes - ram 6 + 8 <= 16, cpu 8 + 2 <= 10
-      * gate + resolve_placement yes - a placement is Resolve seconds
-      * gate + resolve_render    no  - cpu 8 + 4 > 10
-      * local_vlm + placement    yes
-      * local_vlm + render       no  - both take the gpu
-      * placement + anything holding the cursor: no (and the Resolve
-        lease already serialises them first)
-
-    Measured, 2026-10-02:
-      * full_suite_gate ram 6: a whole gate's process tree, sampled with
-        `ps` every 2 s from outside, peaked at 5.30 GB resident summed
-        (243 samples, up to 24 processes). Its cpu stays
-        DECLARED: it starts `-n auto` workers, and the run measured
-        (peak 4.4 cores) shared a machine at load 40-48, so it shows
-        what the gate got, not what it asks for.
-      * local_vlm ram 8: Gemma 4 12B 4-bit held 7.3-7.9 GB resident
-        loaded and under requests (docs/GEMMA_SERVER.md 5). Its cpu
-        stays declared.
-      * resolve_placement, resolve_render: DECLARED, not measured.
-        Resolve's own use is outside a grant's process tree and needs a
-        placement and a render run in a scratch project, with the
-        Resolve process sampled while they hold the cursor.
-    """
     cap = capacity()
-    return {
+    declared = {
         "machine": dict(cap),
+        # The full-suite runner is infrastructure, not a pipeline capability.
         "full_suite_gate": {
             "cpu": max(cap["cpu"] - 2, cap["cpu"] // 2 + 1),
             "ram_gb": min(6, cap["ram_gb"]),
             "disk": 2,
         },
-        "local_vlm": {
-            "gpu": 1,
-            "ram_gb": min(8, cap["ram_gb"]),
-            "cpu": min(2, cap["cpu"]),
-        },
-        "resolve_placement": {
-            "resolve_cursor": 1,
-            "cpu": min(2, cap["cpu"]),
-            "ram_gb": min(2, cap["ram_gb"]),
-        },
-        "resolve_render": {
-            "resolve_cursor": 1,
-            "resolve_render": 1,
-            "gpu": 1,
-            "cpu": min(4, cap["cpu"]),
-            "ram_gb": min(4, cap["ram_gb"]),
-            "disk": 2,
-        },
     }
+    for capability in capabilities.all():
+        for phase in capability.execution.phases:
+            demand = _capability_demand(phase, cap)
+            if demand:
+                declared[f"{capability.id}:{phase.name}"] = demand
+    return declared
 
 
 def demand_for(profile: str) -> Dict[str, int]:

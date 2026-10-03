@@ -131,6 +131,8 @@ def _resolve_axi_shape(params: dict) -> dict:
         "priority": priority,
         "project": getattr(args, "project", "") or "",
         "timeline": getattr(args, "timeline", "") or "",
+        "locality": ("timeline" if getattr(args, "timeline", "") else
+                     "project" if getattr(args, "project", "") else "none"),
         "coalesce_key": (None if exclusive else _coalesce_key(
             "resolve_axi", argv, params.get("cwd", ""))),
     }
@@ -146,10 +148,16 @@ def prepare(kind: str, params: dict, qualification: bool = False) -> dict:
         exclusive = bool(params.get("exclusive", True))
         priority = ("interactive" if params.get("interactive")
                     else "mutation" if exclusive else "read")
+        project = params.get("project", "") or ""
+        timeline = params.get("timeline", "") or ""
+        locality = (params.get("locality") or
+                    ("timeline" if timeline else
+                     "project" if project else "none"))
         shape = {"mode": EXCLUSIVE if exclusive else SHARED,
                  "priority": priority, "executed": False,
-                 "project": params.get("project", "") or "",
-                 "timeline": "", "coalesce_key": None}
+                 "project": project, "timeline": timeline,
+                 "locality": locality,
+                 "coalesce_key": None}
     elif kind == "timeline.snapshot":
         project = _required(params, "project", kind)
         timeline = _required(params, "timeline", kind)
@@ -158,15 +166,47 @@ def prepare(kind: str, params: dict, qualification: bool = False) -> dict:
         # current is a cursor write (`timeline_shadow.read_live`).
         shape = {"mode": EXCLUSIVE, "priority": "read", "executed": True,
                  "project": project, "timeline": timeline,
+                 "locality": "timeline",
                  "coalesce_key": _coalesce_key(kind, project, timeline)}
     elif kind == "timeline.apply_patch":
         patch = params.get("patch")
         if not isinstance(patch, dict):
             raise JobRefused("timeline.apply_patch needs 'patch', an object")
         patch_id = _required(patch, "id", "an EditPatch")
-        shape = {"mode": EXCLUSIVE, "priority": "mutation", "executed": True,
-                 "project": _required(patch, "project", "an EditPatch"),
-                 "timeline": _required(patch, "timeline", "an EditPatch"),
+        from library.tools import capabilities
+        from library.tools.operations import (
+            FRESHNESS_TIMELINE_GENERATION,
+            LOCALITY_TIMELINE,
+            RESOLVE_EXCLUSIVE,
+            UnknownOperation,
+        )
+        capability_id = _required(patch, "capability", "an EditPatch")
+        try:
+            capability = capabilities.get(capability_id)
+        except UnknownOperation as exc:
+            raise JobRefused(str(exc)) from exc
+        phase = capability.execution.phase("apply")
+        if (phase is None or phase.resolve_mode != RESOLVE_EXCLUSIVE
+                or phase.locality != LOCALITY_TIMELINE
+                or phase.freshness != FRESHNESS_TIMELINE_GENERATION
+                or capability.execution.patch is None):
+            raise JobRefused(
+                f"{capability.id!r} has no compatible EditPatch execution "
+                "policy")
+        project = _required(patch, "project", "an EditPatch")
+        timeline = _required(patch, "timeline", "an EditPatch")
+        base_generation = patch.get("base_generation")
+        if (phase.freshness == "timeline_generation"
+                and (not isinstance(base_generation, int)
+                     or isinstance(base_generation, bool)
+                     or base_generation < 1)):
+            raise JobRefused(
+                "the EditPatch capability requires a positive timeline "
+                "base_generation")
+        shape = {"mode": EXCLUSIVE,
+                 "priority": "mutation", "executed": True,
+                 "project": project, "timeline": timeline,
+                 "locality": phase.locality,
                  "coalesce_key": _coalesce_key(kind, patch_id)}
     else:
         shape = dict(_resolve_axi_shape(params), executed=True)

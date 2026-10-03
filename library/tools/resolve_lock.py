@@ -505,7 +505,9 @@ def resolve_lease(purpose: str, exclusive: bool = True,
                   timeout: Optional[float] = None,
                   owner: Optional[str] = None,
                   honor_captain: bool = True,
-                  qualification_project: str = ""):
+                  qualification_project: str = "",
+                  capability: str = "", phase: str = "",
+                  project: str = "", timeline: str = ""):
     """Hold the Resolve instance for one critical section.
 
     Exclusive by default: a cursor operation is a write even when it
@@ -541,6 +543,19 @@ def resolve_lease(purpose: str, exclusive: bool = True,
     qualification project and is the one open.
     """
     global _depth, _mode, _cursor_switches, _last_set_id
+    locality = "timeline" if timeline else "project" if project else "none"
+    if capability:
+        from library.tools import capabilities
+        declared = capabilities.get(capability).execution.phase(phase)
+        if declared is None:
+            raise ValueError(f"{capability!r} has no execution phase {phase!r}")
+        if declared.resolve_mode not in ("shared", "exclusive"):
+            raise ValueError(
+                f"{capability}:{phase} does not declare Resolve access")
+        exclusive = declared.resolve_mode == "exclusive"
+        locality = declared.locality
+        if locality == "project" and not project:
+            project = qualification_project
     if _sole_writer_reason is not None:
         # A declared sole writer has no instance to contend for - a test
         # whose Resolve is a mock - so there is nothing to wait on, no
@@ -611,7 +626,8 @@ def resolve_lease(purpose: str, exclusive: bool = True,
             _wait_for_captain(purpose, resolved_timeout)
         with _broker_turn(purpose, exclusive, not honor_captain,
                           resolved_timeout, owner or default_owner(),
-                          qualification_project) as broker_job:
+                          qualification_project, locality, project,
+                          timeline) as broker_job:
             deadline = time.time() + resolved_timeout
             lock_dir().mkdir(parents=True, exist_ok=True)
             handle = open(lock_path(), "a+", encoding="utf-8")
@@ -692,7 +708,9 @@ def resolve_lease(purpose: str, exclusive: bool = True,
 
 @contextmanager
 def _broker_turn(purpose: str, exclusive: bool, interactive: bool,
-                 timeout: float, owner: str, qualification_project: str):
+                 timeout: float, owner: str, qualification_project: str,
+                 locality: str = "none", project: str = "",
+                 timeline: str = ""):
     """The broker's grant for one lease, or nothing where none serves."""
     from library.tools.resolved import client
     if not client.serving():
@@ -702,7 +720,8 @@ def _broker_turn(purpose: str, exclusive: bool, interactive: bool,
     try:
         with client.grant({"purpose": purpose, "exclusive": exclusive,
                            "interactive": interactive,
-                           "project": qualification_project},
+                           "project": project or qualification_project,
+                           "timeline": timeline, "locality": locality},
                           owner=owner,
                           qualification=bool(qualification_project),
                           wait=timeout) as job_id:
@@ -759,8 +778,9 @@ def prefer_lease(purpose: str, timeout: float = 2.0):
         _sole_writer_reason = previous
 
 
-def under_lease(purpose: str, exclusive: bool = True,
-                prefer: bool = False):
+def under_lease(purpose: str, exclusive: bool | None = None,
+                prefer: bool = False, capability: str = "",
+                phase: str = ""):
     """Decorator form, for an entry point that IS the critical section.
 
     `prefer=True` is the human-initiated case: take the instance if it
@@ -785,15 +805,48 @@ def under_lease(purpose: str, exclusive: bool = True,
     """
     import functools
 
+    effective_exclusive = True if exclusive is None else exclusive
+    if capability:
+        from library.tools import capabilities
+        declared = capabilities.get(capability).execution.phase(phase)
+        if declared is None or declared.resolve_mode not in ("shared", "exclusive"):
+            raise ValueError(
+                f"{capability!r} has no Resolve execution phase {phase!r}")
+        policy_exclusive = declared.resolve_mode == "exclusive"
+        if exclusive is not None and exclusive != policy_exclusive:
+            raise ValueError(
+                f"{capability}:{phase} declares Resolve mode "
+                f"{declared.resolve_mode!r}, but under_lease requested "
+                f"{exclusive!r}")
+        effective_exclusive = policy_exclusive
+
     def wrap(function):
         @functools.wraps(function)
         def guarded(*args, **kwargs):
+            project = ""
+            timeline = ""
+            if capability:
+                import inspect
+                bound = inspect.signature(function).bind_partial(*args, **kwargs)
+                arguments = bound.arguments
+                project = (arguments.get("project")
+                           or arguments.get("project_name") or "")
+                timeline = (arguments.get("timeline")
+                            or arguments.get("timeline_name") or "")
+                manifest = arguments.get("manifest")
+                if not timeline and isinstance(manifest, dict):
+                    timeline = ((manifest.get("project") or {}).get("name")
+                                or "")
             if prefer:
                 with prefer_lease(purpose):
                     return function(*args, **kwargs)
-            with resolve_lease(purpose, exclusive=exclusive):
+            with resolve_lease(
+                    purpose, exclusive=effective_exclusive,
+                    capability=capability, phase=phase,
+                    project=project, timeline=timeline):
                 return function(*args, **kwargs)
-        guarded.__resolve_lease__ = (purpose, exclusive, prefer)
+        guarded.__resolve_lease__ = (purpose, effective_exclusive, prefer)
+        guarded.__resolve_execution__ = (capability, phase)
         return guarded
     return wrap
 

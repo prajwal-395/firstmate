@@ -3,7 +3,7 @@
 The single-Resolve plan (captain, 2026-10-02): many agents plan edits at
 once against one timeline, so "both touch the timeline" is too coarse a
 reason to refuse. Each capability declares how its patches compose
-(`capabilities.PATCH_SEMANTICS`), each operation knows what it writes
+(`Operation.execution.patch`), each operation knows what it writes
 (`edit_patch.OPERATIONS`), and `compose(earlier, later, base)` decides,
 for a `later` patch planned on the same base as an `earlier` one that
 lands first:
@@ -70,7 +70,11 @@ class Composition:
 
 def semantics_of(patch: edit_patch.EditPatch):
     from library.tools import capabilities
-    return capabilities.PATCH_SEMANTICS.get(patch.capability)
+    from library.tools.operations import UnknownOperation
+    try:
+        return capabilities.get(patch.capability).execution.patch
+    except UnknownOperation:
+        return None
 
 
 def _meet(a: tuple, b: tuple) -> bool:
@@ -202,12 +206,16 @@ def problems(declarations: dict | None = None,
     from library.tools import capabilities
 
     if declarations is None:
-        declarations = capabilities.PATCH_SEMANTICS
+        declarations = {
+            spec.id: spec.execution.patch
+            for spec in capabilities.all()
+            if spec.execution.patch is not None
+        }
     if capability_ids is None:
         capability_ids = capabilities.ids()
     out = []
     for cap_id, sem in declarations.items():
-        name = f"PATCH_SEMANTICS[{cap_id!r}]"
+        name = f"{cap_id}.execution.patch"
         if cap_id not in capability_ids:
             out.append(f"{name} names no registered capability")
         if sem.temporal_effect not in TEMPORAL_EFFECTS:

@@ -154,21 +154,82 @@ def test_an_artifact_without_an_owner_is_named(monkeypatch):
 
 
 def test_an_uncited_heavy_lock_site_is_named(monkeypatch):
-    monkeypatch.delitem(capabilities.HEAVY_LOCK_SITES, "reel.build")
+    registry = list(operations.all())
+    index = next(i for i, op in enumerate(registry)
+                 if op.name == "reel.build")
+    op = registry[index]
+    registry[index] = replace(
+        op, execution=replace(
+            op.execution,
+            phases=tuple(p for p in op.execution.phases
+                         if p.name != "placement")))
+    monkeypatch.setattr(operations, "_REGISTRY", tuple(registry))
     found = contract_audit.problems()
     assert any(
-        "rebuild_reels_in_project is cited by no capability" in p for p in found
+        "rebuild_reels_in_project is cited by no capability execution phase"
+        in p for p in found
     ), found
 
 
 def test_a_cited_heavy_lock_site_that_takes_no_lock_is_named(monkeypatch):
-    monkeypatch.setitem(
-        capabilities.HEAVY_LOCK_SITES,
-        "reel.build",
-        ("library.tools.reel_build:build_reels_typo",),
-    )
+    registry = list(operations.all())
+    index = next(i for i, op in enumerate(registry)
+                 if op.name == "reel.build")
+    op = registry[index]
+    phases = tuple(
+        replace(p, lock_sites=("library.tools.reel_build:build_reels_typo",))
+        if p.name == "placement" else p
+        for p in op.execution.phases)
+    registry[index] = replace(op, execution=replace(op.execution,
+                                                   phases=phases))
+    monkeypatch.setattr(operations, "_REGISTRY", tuple(registry))
     found = contract_audit.problems()
-    assert any("build_reels_typo does not take" in p for p in found), found
+    assert any("build_reels_typo does not take the heavy-work lock" in p
+               for p in found), found
+
+
+def test_a_capability_with_incompatible_patch_freshness_is_named():
+    registry = list(operations.all())
+    index = next(i for i, op in enumerate(registry)
+                 if op.name == "reel.touchup")
+    op = registry[index]
+    phases = tuple(replace(p, resolve_mode="shared") if p.name == "apply"
+                   else p for p in op.execution.phases)
+    registry[index] = replace(op, execution=replace(op.execution,
+                                                   phases=phases))
+    found = contract_audit.problems(registry=registry)
+    assert any("reel.touchup: EditPatch semantics disagree" in p
+               for p in found), found
+
+
+def test_a_capability_with_patch_semantics_that_overstate_its_operations_is_named():
+    registry = list(operations.all())
+    index = next(i for i, op in enumerate(registry)
+                 if op.name == "reel.touchup")
+    op = registry[index]
+    registry[index] = replace(
+        op, execution=replace(
+            op.execution,
+            patch=replace(op.execution.patch,
+                          merge_semantics="commutative")))
+    found = contract_audit.problems(registry=registry)
+    assert any("declares 'commutative'" in problem for problem in found), found
+
+
+def test_a_capability_with_ambiguous_resource_demand_is_named():
+    registry = list(operations.all())
+    index = next(i for i, op in enumerate(registry)
+                 if op.name == "render.build")
+    op = registry[index]
+    phases = tuple(
+        replace(phase, resources=phase.resources + (("cpu", 1),))
+        if phase.name == "render" else phase
+        for phase in op.execution.phases)
+    registry[index] = replace(op, execution=replace(op.execution,
+                                                   phases=phases))
+    found = contract_audit.problems(registry=registry)
+    assert any("resource demand declares a resource more than once" in p
+               for p in found), found
 
 
 def test_an_unregistered_step_directory_is_named(monkeypatch):

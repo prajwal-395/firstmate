@@ -160,10 +160,13 @@ def test_the_same_write_merges_and_a_different_one_is_a_lost_update(world):
 def test_a_frame_addressed_write_past_a_ripple_conflicts(world, monkeypatch):
     _project, _timeline, item, store, base = world
     snap = store.snapshot(base)
-    monkeypatch.setitem(
-        capabilities.PATCH_SEMANTICS, "reel.touchup",
-        replace(capabilities.PATCH_SEMANTICS["reel.touchup"],
-                temporal_effect="ripple"))
+    specs = tuple(
+        replace(spec, execution=replace(
+            spec.execution,
+            patch=replace(spec.execution.patch, temporal_effect="ripple")))
+        if spec.id == "reel.touchup" else spec
+        for spec in capabilities.all())
+    monkeypatch.setattr(capabilities, "all", lambda: specs)
     ripple = _patch("cut", base.generation, [
         {"op": "marker.add", "frame": 10, "color": "Blue", "name": "c"}],
         ["markers"], [[10, 20]])

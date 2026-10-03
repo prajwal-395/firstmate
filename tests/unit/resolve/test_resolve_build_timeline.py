@@ -22,6 +22,8 @@ from library.steps.step_6_01_render.resolve_build_timeline import (  # noqa: E40
     timeline_frame_rate_refusal,
     v1_plan_overlap_refusal,
 )
+from library.steps.step_6_01_render import resolve_build_timeline as _builder
+from tests.resolve_double import builder_paths_exist
 
 @pytest.fixture(autouse=True)
 def _the_fake_resolve_is_this_files_own(monkeypatch):
@@ -260,7 +262,7 @@ def test_build_refuses_project_rate_conflict_before_creating_timeline(
     project.GetTimelineCount.return_value = 1
     project.SetSetting("timelineFrameRate", "24")
 
-    with patch("os.path.exists", return_value=True):
+    with builder_paths_exist(_builder):
         result = build_timeline(sample_manifest)
 
     assert not result["success"]
@@ -282,7 +284,7 @@ def test_build_refuses_project_timeline_shape_change_before_inherited_timelines(
     inherited.GetSetting.return_value = "0"
     project.GetTimelineByIndex.return_value = inherited
 
-    with patch("os.path.exists", return_value=True):
+    with builder_paths_exist(_builder):
         result = build_timeline(sample_manifest)
 
     assert not result["success"]
@@ -329,7 +331,7 @@ def test_resolve_connection_failure():
         "tracks": {"V1": {"clips": [{"source_file": "test.mov", "timeline_in_frame": 0}]}}
     }
     
-    with patch('os.path.exists', return_value=True):
+    with builder_paths_exist(_builder):
         result = build_timeline(manifest)
         
     assert not result["success"]
@@ -359,7 +361,7 @@ def test_clip_placement_calculations(mock_resolve, sample_manifest):
     placed_item.GetStart.return_value = 0
     media_pool.AppendToTimeline.return_value = [placed_item]
     
-    with patch('os.path.exists', return_value=True):
+    with builder_paths_exist(_builder):
         build_timeline(sample_manifest)
     
     append_args = media_pool.AppendToTimeline.call_args[0][0][0]
@@ -427,7 +429,7 @@ def test_audio_markers_are_the_fallback_not_the_mix(mock_resolve, sample_manifes
     placed_item.GetStart.return_value = 0
     media_pool.AppendToTimeline.return_value = [placed_item]
     
-    with patch('os.path.exists', return_value=True):
+    with builder_paths_exist(_builder):
         result = build_timeline(sample_manifest)
 
     assert result["audio_mix_delivery"]["delivered"] is False
@@ -534,7 +536,7 @@ def test_generator_overlay_lands_on_plan_row(mock_resolve, sample_manifest):
     root_folder.GetSubFolderList.return_value = []
     media_pool.AddSubFolder.return_value = gen_subfolder
 
-    with patch('os.path.exists', return_value=True), \
+    with builder_paths_exist(_builder), \
          patch('os.makedirs'), \
          patch('subprocess.run') as mock_ffmpeg:
         # ffmpeg succeeds
@@ -603,7 +605,7 @@ def test_loud_banner_prints_on_qa_failure_but_not_fatal(mock_resolve, sample_man
     report = QAReport(station="full_sweep", passed=False)
     report.checks.append(QACheck(name="mock_loud_check", passed=False, expected="foo", actual="bar"))
     
-    with patch('os.path.exists', return_value=True), \
+    with builder_paths_exist(_builder), \
          patch('library.steps.step_6_01_render.resolve_build_timeline.run_full_timeline_qa',
                return_value=report):
         result = build_timeline(sample_manifest)
@@ -647,7 +649,7 @@ def test_a_project_that_will_not_hold_the_shape_fails_the_build(
          "timelineResolutionHeight": "1080"}.get(str(key), "")
         if key is not None else {})
 
-    with patch('os.path.exists', return_value=True):
+    with builder_paths_exist(_builder):
         result = build_timeline(sample_manifest)
 
     assert not result.get("success")

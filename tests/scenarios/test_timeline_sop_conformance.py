@@ -4,11 +4,14 @@ History: docs/evidence/resolve_test_history.md#test_timeline_sop_conformance.
 """
 
 import json
+import subprocess
 import sys
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import pytest
 
+from library.steps.step_6_01_render import resolve_build_timeline as _builder
 from library.steps.step_6_01_render.resolve_build_timeline import build_timeline
 from library.tools.timeline_conformance import (
     CHECKS,
@@ -20,6 +23,7 @@ from tests.resolve_double import (
     FakeResolve,
     FakeTimeline,
     TimelineItemSpec,
+    builder_paths_exist,
 )
 
 
@@ -55,17 +59,17 @@ def _run_builder(fake_world, manifest, monkeypatch):
         )(),
     )
     # Media exists on disk for the import pass.
-    monkeypatch.setattr("os.path.exists", lambda p: True)
-    # Pool lookup must find the pre-registered items.
-    from unittest.mock import MagicMock
-
     fusion_proc = MagicMock()
     fusion_proc.returncode = 0
     fusion_proc.stdout = ""
     fusion_proc.stderr = ""
-    with patch(
-        "library.steps.step_6_01_render.resolve_build_timeline.subprocess.run",
-        return_value=fusion_proc,
+    subprocess_proxy = SimpleNamespace(
+        run=lambda *args, **kwargs: fusion_proc,
+        TimeoutExpired=subprocess.TimeoutExpired,
+    )
+    # Pool lookup must find the pre-registered items.
+    with builder_paths_exist(_builder), patch.object(
+        _builder, "subprocess", subprocess_proxy
     ):
         result = build_timeline(manifest)
     fake_world["timeline"] = fake_world["project"].GetCurrentTimeline()

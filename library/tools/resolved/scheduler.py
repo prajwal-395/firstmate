@@ -47,6 +47,7 @@ class Pending:
     timeline: str = ""
     executed: bool = False
     qualification: bool = False
+    locality: str = ""
 
 
 def effective_rank(job: Pending, now: float) -> float:
@@ -55,7 +56,12 @@ def effective_rank(job: Pending, now: float) -> float:
 
 def order_key(job: Pending, now: float,
               cursor: Tuple[str, str]) -> tuple:
-    local = bool(job.project) and (job.project, job.timeline) == cursor
+    locality = job.locality or ("timeline" if job.timeline else
+                                "project" if job.project else "none")
+    local = ((locality == "timeline" and bool(job.project)
+              and (job.project, job.timeline) == cursor)
+             or (locality == "project" and bool(job.project)
+                 and job.project == cursor[0]))
     return (math.floor(effective_rank(job, now)), 0 if local else 1,
             job.submitted, job.id)
 

@@ -822,6 +822,18 @@ def test_a_job_on_the_current_timeline_goes_before_one_elsewhere():
     assert chosen.id == "here"
 
 
+def test_project_locality_ignores_timeline_name():
+    same_project = _pending("same", project="P", timeline="Other",
+                            submitted=0.0)
+    same_project.locality = "project"
+    elsewhere = _pending("elsewhere", project="Q", timeline="Reel03",
+                         submitted=1.0)
+    elsewhere.locality = "project"
+    chosen = scheduler.next_job([elsewhere, same_project], [],
+                                ("P", "Reel03"), 2.0)
+    assert chosen.id == "same"
+
+
 # ── The broker, with a fake Resolve ─────────────────────────────────
 
 class _Timeline_2:
@@ -986,8 +998,9 @@ def test_patch_id_reuses_completed_job_and_refuses_changed_patch(
                 job["params"]["patch"]["id"]}
 
     monkeypatch.setattr(jobs, "run", run_patch)
-    patch = {"id": "durable-patch-1", "project": "Podcast",
-             "timeline": "Reel 01"}
+    patch = {"id": "durable-patch-1", "capability": "reel.touchup",
+             "project": "Podcast", "timeline": "Reel 01",
+             "base_generation": 7}
     submitted = client.submit("timeline.apply_patch", {"patch": patch})
     original = client.result(submitted["id"], wait=5)
     retry = client.submit("timeline.apply_patch", {"patch": dict(patch)})
@@ -1042,6 +1055,24 @@ def test_a_qualification_job_aimed_at_a_user_project_is_refused():
                      qualification=True)
 
 
+def test_patch_job_uses_its_capability_execution_contract():
+    shape = jobs.prepare("timeline.apply_patch", {"patch": {
+        "id": "p1", "capability": "reel.touchup", "project": "Podcast",
+        "timeline": "Reel 01", "base_generation": 7,
+    }})
+    assert shape["mode"] == "exclusive"
+    assert shape["locality"] == "timeline"
+    assert (shape["project"], shape["timeline"]) == ("Podcast", "Reel 01")
+
+
+def test_patch_job_refuses_missing_declared_generation():
+    with pytest.raises(jobs.JobRefused, match="base_generation"):
+        jobs.prepare("timeline.apply_patch", {"patch": {
+            "id": "p1", "capability": "reel.touchup", "project": "Podcast",
+            "timeline": "Reel 01",
+        }})
+
+
 def test_a_qualification_grant_is_refused_while_a_user_project_is_open(
         serving, unguarded_2):
     with pytest.raises(resolve_lock.ResolveBusy, match="Podcast"):
@@ -1086,12 +1117,14 @@ def test_a_stale_patch_is_rejected_with_what_a_rebase_needs(
         serving, unguarded_2, monkeypatch):
     from library.tools import edit_patch
     broker, resolve = serving
-    patch = {"id": "patch_1", "project": "Podcast", "timeline": "Reel 01"}
+    patch = {"id": "patch_1", "capability": "reel.touchup",
+             "project": "Podcast", "timeline": "Reel 01",
+             "base_generation": 104}
 
     def apply_patch(patch, *, resolve, project, timeline):
         assert project.GetCurrentTimeline() is timeline
         raise edit_patch.StalePatch(
-            types.SimpleNamespace(base_generation=104, **patch), 105,
+            types.SimpleNamespace(**patch), 105,
             observed=True, rebase_possible=True, reason="the timeline moved")
 
     monkeypatch.setattr(edit_patch, "apply_patch", apply_patch)

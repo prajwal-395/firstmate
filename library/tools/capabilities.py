@@ -2,15 +2,18 @@
 
 The target shape (the captain's punch list, 2026-10-01): agent goal ->
 typed scope -> capability selection -> typed artifacts -> executor ->
-measured verification -> receipt.  This module is the identity half of
-that: one `CapabilitySpec` per thing the engine can be asked to do, with
-a stable id and everything a selector needs to choose it, and the DAG
-node it used to be addressed by carried as optional `legacy` metadata.
+measured verification -> receipt. This is the derived view of the
+capability registry: one `CapabilitySpec` per thing the engine can be
+asked to do, with the DAG node it used to be addressed by carried as
+optional `legacy` metadata.
 
-Derived, never hand-written
----------------------------
-Every field is DERIVED from a declaration that already exists, so there
-is no second vocabulary to keep in sync:
+Derived, except the capability-owned execution contract
+------------------------------------------------------
+Identity and pipeline effects are derived from the operation registry,
+requirements, layout and DAG adapter. `Operation.execution` is the one
+authored declaration for resource demand, Resolve mode, locality,
+freshness and EditPatch composition; routing and scheduler profiles are
+computed from it:
 
     id, summary, scopes, executor,  library/tools/operations.py (the registry)
     produces
@@ -18,10 +21,9 @@ is no second vocabulary to keep in sync:
                                     the DAG adapter (still node-keyed)
     effects                         the requirements whose key, at the
                                     capability's node, it `produces`
-    exclusion                       library/tools/concurrency_routing.py
     artifact_areas                  library/tools/project_layout.AREAS
     legacy                          library/tools/processes.py
-    cost_class                      the heavy-work lock sites, below
+    execution                       the capability's execution contract
 
 The cost rule
 -------------
@@ -36,14 +38,9 @@ names the evidence:
             latency and the spend are a model call's.
     LIGHT   neither: local Python on files and state.
 
-Which capability reaches which lock site cannot be read off the import
-graph - measured, nearly every step reaches `reel_build` transitively
-through pure helpers - so `HEAVY_LOCK_SITES` CITES the site each heavy
-capability reaches, and `problems()` fails when a lock site in
-`library/` is cited by neither a capability nor `UNCAPABLE_LOCK_SITES`,
-so a new heavy path cannot read LIGHT by omission. The semantic test
-markers (`unit`, `scenario`, `resolve_live`, and `real_model` in
-`pyproject.toml`) classify tests, not capabilities, and are not evidence here.
+Each resource phase cites the heavy-work lock site it owns. The audit
+compares those declarations with the source and refuses an uncited site
+unless it has a reason in `UNCAPABLE_LOCK_SITES`.
 
 The DAG is reached ONLY through `library/tools/dag_adapter.py`.  The
 invariants a registry must hold are `problems()`, pinned by
@@ -61,6 +58,7 @@ from functools import cache, lru_cache
 from pathlib import Path
 
 from library.tools import dag_adapter
+from library.tools.operations import PatchSemantics
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 STEPS_ROOT = REPO_ROOT / "library" / "steps"
@@ -94,49 +92,6 @@ CREATIVE_POLICIES = {
     "audio_mix.resolve": MODEL_DECIDES_QUANTITY,
 }
 
-@dataclass(frozen=True)
-class PatchSemantics:
-    """What a capability's EditPatches may write, and how they compose.
-
-    The vocabularies and their order are `library/tools/patch_algebra.py`'s;
-    `patch_algebra.problems()` refuses a declaration its operations break.
-    """
-
-    operations: tuple       # `edit_patch.OPERATIONS` names it may emit
-    conflict_domains: tuple  # `edit_patch.CONFLICT_DOMAINS` it may write
-    temporal_effect: str    # local | ripple | global
-    merge_semantics: str    # commutative | ordered | replace | exclusive
-
-
-PATCH_SEMANTICS: dict = {
-    # capability id -> its PatchSemantics. A capability not named here
-    # authors no EditPatch, and `edit_patch.validate` refuses one that
-    # names it. Only these two change a built timeline through operations
-    # the EditPatch vocabulary has; `reel.entry_motion` writes a Fusion
-    # comp, which no operation expresses yet.
-    "reel.touchup": PatchSemantics(
-        operations=("marker.add", "marker.delete", "clip.set_enabled",
-                    "clip.set_property", "clip.delete"),
-        conflict_domains=("markers", "timeline_structure",
-                          "picture_transform"),
-        # Strict enough for clip.delete, the strictest operation it emits.
-        temporal_effect="local", merge_semantics="exclusive"),
-    "reel.set_properties": PatchSemantics(
-        operations=("clip.set_property",),
-        conflict_domains=("picture_transform",),
-        temporal_effect="local", merge_semantics="replace"),
-}
-
-HEAVY_LOCK_SITES: dict = {
-    # capability id -> the `module:function` lock sites it runs through.
-    "semantics.analyse": (
-        "library.tools.analysis.vision_pipeline_v3:run_pipeline",),
-    "render.build": (
-        "library.steps.step_6_01_render.resolve_build_timeline:build_timeline",
-        "library.tools.execution.resolve_render:render_timeline"),
-    "reel.build": ("library.tools.reel_build:rebuild_reels_in_project",),
-}
-
 UNCAPABLE_LOCK_SITES: dict = {
     "library.tools.footage_analysis:analyze":
         "`ren analyze` - footage intelligence, a ren verb rather than a "
@@ -145,10 +100,6 @@ UNCAPABLE_LOCK_SITES: dict = {
         "`ren search` span verification - a ren verb rather than a "
         "registered capability",
 }
-
-_EXCLUSION_STRENGTH = ("free", "declaration", "resolve_read",
-                       "resolve_cursor")
-
 
 @dataclass(frozen=True)
 class Executor:
@@ -197,10 +148,8 @@ class CapabilitySpec:
     prompt, or a post-bridge resolving the model's plan)."""
     caller_supplied: bool
     """Its arguments come from a caller, not from gathering."""
-    exclusion: str | None
-    """Its `concurrency_routing` class, or None where no row covers its
-    step - NOT the same claim as free: the table names what constrains a
-    dispatch, and its silence about a body says nothing about it."""
+    execution: object
+    """The authored execution contract from `Operation.execution`."""
     artifact_areas: tuple
     """Project-relative directories the layout declares its node writes."""
     legacy: LegacyNode | None
@@ -210,28 +159,32 @@ class CapabilitySpec:
     """The evidence `cost_class` was decided from."""
     creative_policy: str | None = None
     """Machine-readable owner of creative choice cardinality, when any."""
-    patch_semantics: PatchSemantics | None = None
-    """How its EditPatches compose (`PATCH_SEMANTICS`); None authors none."""
+
+    @property
+    def exclusion(self) -> str | None:
+        """Compatibility view of the first dispatch route's exclusion."""
+        phase = next((p for p in self.execution.phases if p.entry_points), None)
+        if phase is None:
+            return None
+        return {
+            "none": "free", "shared": "resolve_read",
+            "exclusive": "resolve_cursor",
+        }[phase.resolve_mode]
+
+    @property
+    def patch_semantics(self):
+        """The capability's EditPatch declaration, when it authors one."""
+        return self.execution.patch
 
 
-def _cost_of(capability_id: str, needs_model_answer: bool) -> tuple:
-    sites = HEAVY_LOCK_SITES.get(capability_id)
+def _cost_of(execution, needs_model_answer: bool) -> tuple:
+    sites = tuple(site for phase in execution.phases
+                  for site in phase.lock_sites)
     if sites:
         return HEAVY, "holds the heavy-work lock at " + ", ".join(sites)
     if needs_model_answer:
         return MODEL, "needs a host model's answer"
     return LIGHT, "holds no heavy-work lock and needs no model answer"
-
-
-def _exclusion_for(owning_dir: str) -> str | None:
-    from library.tools import concurrency_routing
-    prefix = f"library.steps.{owning_dir}"
-    found = [row.exclusion for row in concurrency_routing.OPERATIONS
-             if row.entry_point == prefix
-             or row.entry_point.startswith(prefix + ".")]
-    if not found:
-        return None
-    return max(found, key=_EXCLUSION_STRENGTH.index)
 
 
 def spec_of(op) -> CapabilitySpec:
@@ -247,7 +200,7 @@ def spec_of(op) -> CapabilitySpec:
     # caller-supplied unit is handed its arguments, never the answer.
     needs_model = op.is_prompt or (
         not op.caller_supplied and bool(op.missing_model_answer({})))
-    cost_class, cost_basis = _cost_of(op.name, needs_model)
+    cost_class, cost_basis = _cost_of(op.execution, needs_model)
     return CapabilitySpec(
         id=op.name,
         summary=op.summary,
@@ -267,7 +220,7 @@ def spec_of(op) -> CapabilitySpec:
                               and not r.produced_by),
         needs_model_answer=needs_model,
         caller_supplied=op.caller_supplied,
-        exclusion=_exclusion_for(op.owning_dir),
+        execution=op.execution,
         artifact_areas=tuple(spec.relpath for spec in AREAS.values()
                              if spec.step == node),
         legacy=LegacyNode(node_id=node,
@@ -275,7 +228,6 @@ def spec_of(op) -> CapabilitySpec:
         cost_class=cost_class,
         cost_basis=cost_basis,
         creative_policy=CREATIVE_POLICIES.get(op.name),
-        patch_semantics=PATCH_SEMANTICS.get(op.name),
     )
 
 
@@ -360,6 +312,19 @@ def _names_the_lock(node) -> bool:
         isinstance(func, ast.Attribute) and func.attr in _LOCK_NAMES)
 
 
+def _lock_profile(call) -> str:
+    """The static capability-phase label passed to a heavy-work lock."""
+    if len(call.args) > 1:
+        value = call.args[1]
+    else:
+        value = next((kw.value for kw in call.keywords
+                      if kw.arg == "profile"), None)
+    if value is None:
+        return "machine"
+    return value.value if isinstance(value, ast.Constant) and isinstance(
+        value.value, str) else "<dynamic>"
+
+
 @lru_cache(maxsize=1)
 def heavy_lock_sites() -> frozenset:
     """Every `module:function` in library/ that takes the heavy-work lock.
@@ -385,6 +350,26 @@ def heavy_lock_sites() -> frozenset:
             if locked:
                 out.add(f"{module}:{fn.name}")
     return frozenset(out)
+
+
+@lru_cache(maxsize=1)
+def heavy_lock_profiles() -> dict:
+    """Every top-level lock site and the profile labels it requests."""
+    out = {}
+    for path in (REPO_ROOT / "library").rglob("*.py"):
+        text = path.read_text(encoding="utf-8")
+        if "heavy_work_lock" not in text or path.name == "heavy_work_lock.py":
+            continue
+        module = ".".join(path.relative_to(REPO_ROOT).with_suffix("").parts)
+        for fn in ast.parse(text).body:
+            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            calls = [node for node in ast.walk(fn)
+                     if isinstance(node, ast.Call) and _names_the_lock(node)]
+            if calls:
+                out[f"{module}:{fn.name}"] = frozenset(
+                    _lock_profile(call) for call in calls)
+    return out
 
 
 def unregistered_step_dirs() -> tuple:
@@ -430,7 +415,8 @@ def problems(registry=None) -> list:
     4. every artifact has an owner - each step-owned layout area names a
        real node;
     5. a capability that produces nothing says why (`EMPTY_EFFECT_REASONS`);
-    6. every heavy-work lock site is cited (`HEAVY_LOCK_SITES`);
+    6. every execution phase is internally sound and agrees with its
+       heavy-work lock site and routing surface;
     7. effects and reads are declared per capability and true to the
        step: every key a capability `consumes` is one a requirement of its
        node reads, every key it `produces` is an output its step's
@@ -447,13 +433,16 @@ def problems(registry=None) -> list:
     `Operation.requires` is a property of a frozen dataclass, so a
     registry entry passing `requires=` cannot be constructed.
     """
-    from library.tools import operations, requirements
+    from library.tools import operations, requirements, resource_scheduler
     from library.tools.project_layout import AREAS
 
     registry = operations.all() if registry is None else registry
     all_reqs = requirements.all_requirements()
     out = []
     nodes = dag_adapter.node_ids()
+    actual_lock_profiles = heavy_lock_profiles()
+    declared_lock_profiles = {}
+    declared_routes = {}
 
     seen = set()
     for op in registry:
@@ -462,6 +451,89 @@ def problems(registry=None) -> list:
         seen.add(op.name)
         if not op.name or op.name != op.name.strip() or " " in op.name:
             out.append(f"capability id {op.name!r} is not a stable token")
+
+        execution = getattr(op, "execution", None)
+        if not isinstance(execution, operations.ExecutionPolicy):
+            out.append(f"{op.name}: has no valid execution policy")
+            execution = operations.ExecutionPolicy()
+        phase_names = set()
+        for phase in execution.phases:
+            if not isinstance(phase, operations.ExecutionPhase):
+                out.append(f"{op.name}: has an invalid execution phase "
+                           f"{phase!r}")
+                continue
+            if phase.name in phase_names:
+                out.append(f"{op.name}: execution phase {phase.name!r} is "
+                           "declared twice")
+            phase_names.add(phase.name)
+            if phase.resolve_mode not in operations.RESOLVE_MODES:
+                out.append(f"{op.name}:{phase.name}: unknown Resolve mode "
+                           f"{phase.resolve_mode!r}")
+            if phase.locality not in operations.LOCALITIES:
+                out.append(f"{op.name}:{phase.name}: unknown locality "
+                           f"{phase.locality!r}")
+            if phase.freshness not in operations.FRESHNESS_REQUIREMENTS:
+                out.append(f"{op.name}:{phase.name}: unknown freshness "
+                           f"requirement {phase.freshness!r}")
+            if phase.freshness == operations.FRESHNESS_TIMELINE_GENERATION:
+                if phase.locality != operations.LOCALITY_TIMELINE:
+                    out.append(f"{op.name}:{phase.name}: timeline-generation "
+                               "freshness requires timeline locality")
+                if phase.resolve_mode != operations.RESOLVE_EXCLUSIVE:
+                    out.append(f"{op.name}:{phase.name}: timeline-generation "
+                               "freshness requires exclusive Resolve access")
+            if (phase.resolve_mode == operations.RESOLVE_NONE
+                    and phase.locality != operations.LOCALITY_NONE):
+                out.append(f"{op.name}:{phase.name}: locality requires "
+                           "Resolve access")
+            resource_names = [name for name, _amount in phase.resources]
+            if len(resource_names) != len(set(resource_names)):
+                out.append(f"{op.name}:{phase.name}: resource demand "
+                           "declares a resource more than once")
+            if "resolve_cursor" in resource_names:
+                out.append(f"{op.name}:{phase.name}: resolve_cursor demand "
+                           "is derived from Resolve mode and must not be "
+                           "declared separately")
+            if phase.resources and not phase.lock_sites:
+                out.append(f"{op.name}:{phase.name}: resource demand has no "
+                           "heavy-work lock site")
+            for resource, amount in phase.resources:
+                if resource not in resource_scheduler.RESOURCES:
+                    out.append(f"{op.name}:{phase.name}: unknown resource "
+                               f"{resource!r}")
+                if not isinstance(amount, int) or isinstance(amount, bool) \
+                        or amount <= 0:
+                    out.append(f"{op.name}:{phase.name}: resource {resource!r} "
+                               f"has invalid demand {amount!r}")
+            if phase.resources and not phase.resource_basis.strip():
+                out.append(f"{op.name}:{phase.name}: resource demand has no "
+                           "measurement or declared basis")
+            for site in phase.lock_sites:
+                if not phase.resources:
+                    out.append(f"{op.name}:{phase.name}: lock site {site} "
+                               "has no resource demand")
+                if site in declared_lock_profiles:
+                    out.append(f"heavy-work lock site {site} is declared by "
+                               "more than one execution phase")
+                declared_lock_profiles[site] = f"{op.name}:{phase.name}"
+            for entry_point in phase.entry_points:
+                prior = declared_routes.get(entry_point)
+                if prior is not None:
+                    out.append(f"route {entry_point} is declared by both "
+                               f"{prior} and {op.name}:{phase.name}")
+                declared_routes[entry_point] = f"{op.name}:{phase.name}"
+
+        if execution.patch is not None:
+            apply_phase = execution.phase("apply")
+            if apply_phase is None:
+                out.append(f"{op.name}: EditPatch semantics have no apply phase")
+            elif (apply_phase.resolve_mode != operations.RESOLVE_EXCLUSIVE
+                  or apply_phase.locality != operations.LOCALITY_TIMELINE
+                  or apply_phase.freshness !=
+                  operations.FRESHNESS_TIMELINE_GENERATION):
+                out.append(f"{op.name}: EditPatch semantics disagree with its "
+                           "execution phase; patches require exclusive Resolve, "
+                           "timeline locality and timeline-generation freshness")
 
         body = STEPS_ROOT / op.owning_dir / op.body
         if not body.is_file():
@@ -529,19 +601,22 @@ def problems(registry=None) -> list:
             out.append(f"EMPTY_EFFECT_REASONS names {name!r}, which is not "
                        f"a capability")
 
-    cited = {site for sites in HEAVY_LOCK_SITES.values() for site in sites}
     actual = heavy_lock_sites()
-    for site in sorted(actual - cited - set(UNCAPABLE_LOCK_SITES)):
+    for site in sorted(actual - set(declared_lock_profiles)
+                       - set(UNCAPABLE_LOCK_SITES)):
         out.append(f"heavy-work lock site {site} is cited by no capability "
-                   f"in HEAVY_LOCK_SITES and not excused in "
-                   f"UNCAPABLE_LOCK_SITES, so what reaches it reads LIGHT")
-    for site in sorted((cited | set(UNCAPABLE_LOCK_SITES)) - actual):
-        out.append(f"cited lock site {site} does not take the heavy-work "
-                   f"lock")
-    for name in HEAVY_LOCK_SITES:
-        if name not in seen:
-            out.append(f"HEAVY_LOCK_SITES names {name!r}, which is not a "
-                       f"capability")
+                   "execution phase and not excused in "
+                   "UNCAPABLE_LOCK_SITES, so its resource demand is unknown")
+    for site in sorted((set(declared_lock_profiles)
+                        | set(UNCAPABLE_LOCK_SITES)) - actual):
+        out.append(f"declared heavy-work lock site {site} does not take the "
+                   "heavy-work lock")
+    for site, expected_profile in sorted(declared_lock_profiles.items()):
+        actual_profiles = actual_lock_profiles.get(site, frozenset())
+        if actual_profiles != {expected_profile}:
+            out.append(f"heavy-work lock site {site} requests "
+                       f"{sorted(actual_profiles)}, but its execution phase "
+                       f"declares {expected_profile!r}")
 
     for d in unregistered_step_dirs():
         out.append(f"step directory {d} is reached by no capability and "

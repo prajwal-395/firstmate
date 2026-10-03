@@ -983,8 +983,9 @@ def mapping_carries_program(channels, expected) -> bool:
     return expected in list(channels or [])
 
 
-@under_lease("render the edit timeline")
-@heavy_work_locked("edit timeline placement", "resolve_placement")
+@under_lease("render the edit timeline", capability="render.build",
+             phase="placement")
+@heavy_work_locked("edit timeline placement", "render.build:placement")
 def build_timeline(
     manifest: dict,
     subtitle_overlay_path: Optional[str] = None,
@@ -3053,7 +3054,6 @@ def build_timeline(
     # CRITICAL RULE FIX: We must run ImportFusionComp in a separate process
     # because clip references go stale after timeline creation.
     import tempfile
-    import subprocess
     
     script_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'tools', 'execution', 'apply_fusion_comps.py')
     if os.path.exists(script_path):

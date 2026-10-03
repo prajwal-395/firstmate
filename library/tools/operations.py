@@ -181,6 +181,66 @@ under_a_name_this_module_does_not_know` fails the moment one appears
 without being."""
 
 
+RESOLVE_NONE = "none"
+RESOLVE_SHARED = "shared"
+RESOLVE_EXCLUSIVE = "exclusive"
+RESOLVE_MODES = (RESOLVE_NONE, RESOLVE_SHARED, RESOLVE_EXCLUSIVE)
+LOCALITY_NONE = "none"
+LOCALITY_PROJECT = "project"
+LOCALITY_TIMELINE = "timeline"
+LOCALITIES = (LOCALITY_NONE, LOCALITY_PROJECT, LOCALITY_TIMELINE)
+FRESHNESS_NONE = "none"
+FRESHNESS_TIMELINE_GENERATION = "timeline_generation"
+FRESHNESS_REQUIREMENTS = (FRESHNESS_NONE,
+                          FRESHNESS_TIMELINE_GENERATION)
+
+
+@dataclass(frozen=True)
+class ExecutionPhase:
+    """One schedulable phase of a capability's execution contract.
+
+    `resources` are maximum amounts: the scheduler clamps them to the
+    machine's capacity. An exclusive Resolve mode also reserves the
+    scheduler's `resolve_cursor` resource, so the two schedulers share
+    one declaration. `lock_sites` name functions whose heavy-work lock
+    this phase owns; the contract audit compares them with the source.
+    `entry_points` are dispatch surfaces whose routing is derived from
+    this phase.
+    """
+
+    name: str
+    resolve_mode: str = RESOLVE_NONE
+    locality: str = LOCALITY_NONE
+    freshness: str = FRESHNESS_NONE
+    resources: tuple[tuple[str, int], ...] = ()
+    lock_sites: tuple[str, ...] = ()
+    entry_points: tuple[str, ...] = ()
+    why: str = ""
+    resource_basis: str = ""
+
+
+@dataclass(frozen=True)
+class PatchSemantics:
+    """The EditPatch operations and composition a capability permits."""
+
+    operations: tuple[str, ...]
+    conflict_domains: tuple[str, ...]
+    temporal_effect: str
+    merge_semantics: str
+
+
+@dataclass(frozen=True)
+class ExecutionPolicy:
+    """Resource, Resolve, locality, freshness, and patch policy for a capability."""
+
+    phases: tuple[ExecutionPhase, ...] = ()
+    patch: PatchSemantics | None = None
+
+    def phase(self, name: str) -> ExecutionPhase | None:
+        return next((phase for phase in self.phases if phase.name == name),
+                    None)
+
+
 @dataclass(frozen=True)
 class OperationResult:
     """What one operation did.  The one shape hooks and the runner read.
@@ -378,6 +438,13 @@ class Operation:
     alternative is inferring it from how many required parameters the
     function has, which would silently stop checking the two-argument
     `resolve(llm_output, data)` shape every real post-bridge uses.
+    """
+    execution: ExecutionPolicy = field(default_factory=ExecutionPolicy)
+    """The sole execution-policy declaration for this capability.
+
+    Resolve routing, resource scheduler demands, locality, freshness and
+    EditPatch composition are read from these phases. Consumers may
+    derive views, but may not keep parallel per-capability tables.
     """
 
     @property
@@ -1127,6 +1194,20 @@ _REGISTRY: tuple[Operation, ...] = (
         attr="analyse_semantics",
         produces=("semantic_analysis_documents", "total_clips_analyzed"),
         consumes=("raw_footage_files",),
+        execution=ExecutionPolicy(phases=(
+            ExecutionPhase(
+                name="dispatch",
+                entry_points=("library.steps.step_1_03_semantic_analysis",),
+                why="Vision reads source files and does not touch Resolve."),
+            ExecutionPhase(
+                name="inference",
+                resources=(("cpu", 2), ("gpu", 1), ("ram_gb", 8)),
+                lock_sites=("library.tools.analysis.vision_pipeline_v3:run_pipeline",),
+                why="Gemma inference uses the local model host.",
+                resource_basis=("RAM 8 GB is a measured ceiling: Gemma 4 "
+                                "12B 4-bit used 7.3-7.9 GB resident "
+                                "(docs/GEMMA_SERVER.md 5); CPU 2 is declared.")),
+        )),
     ),
     Operation(
         name="temporal.index",
@@ -1392,6 +1473,21 @@ _REGISTRY: tuple[Operation, ...] = (
         attr="build_reels",
         produces=("reel_build",),
         consumes=("timeline_transcript",),
+        execution=ExecutionPolicy(phases=(
+            ExecutionPhase(
+                name="dispatch",
+                entry_points=("library.tools.reel_build.rebuild_reels_in_project",),
+                why="Derivation is free; Resolve holds are taken around placement."),
+            ExecutionPhase(
+                name="placement", resolve_mode=RESOLVE_EXCLUSIVE,
+                locality=LOCALITY_TIMELINE,
+                resources=(("cpu", 2), ("ram_gb", 2)),
+                lock_sites=("library.tools.reel_build:rebuild_reels_in_project",),
+                why="One reel is placed under an exclusive cursor lease.",
+                resource_basis=("Resolve's placement CPU and RAM demand is "
+                                "declared, not measured; sample Resolve itself "
+                                "during a scratch-project placement.")),
+        )),
     ),
     Operation(
         name="reel.touchup",
@@ -1410,6 +1506,18 @@ _REGISTRY: tuple[Operation, ...] = (
         # on one reel's timeline, so a region address would promise a
         # scope the touchup does not keep.
         scopes=(PROJECT,),
+        execution=ExecutionPolicy(
+            phases=(ExecutionPhase(
+                name="apply", resolve_mode=RESOLVE_EXCLUSIVE,
+                locality=LOCALITY_TIMELINE,
+                freshness=FRESHNESS_TIMELINE_GENERATION,
+                why="A touch-up is committed against one named timeline generation."),),
+            patch=PatchSemantics(
+                operations=("marker.add", "marker.delete", "clip.set_enabled",
+                            "clip.set_property", "clip.delete"),
+                conflict_domains=("markers", "timeline_structure",
+                                  "picture_transform"),
+                temporal_effect="local", merge_semantics="exclusive")),
     ),
     Operation(
         name="reel.entry_motion",
@@ -1442,6 +1550,16 @@ _REGISTRY: tuple[Operation, ...] = (
         caller_supplied=True,
         # PROJECT only, for the same reason as `reel.touchup`.
         scopes=(PROJECT,),
+        execution=ExecutionPolicy(
+            phases=(ExecutionPhase(
+                name="apply", resolve_mode=RESOLVE_EXCLUSIVE,
+                locality=LOCALITY_TIMELINE,
+                freshness=FRESHNESS_TIMELINE_GENERATION,
+                why="Clip properties are committed against one named timeline generation."),),
+            patch=PatchSemantics(
+                operations=("clip.set_property",),
+                conflict_domains=("picture_transform",),
+                temporal_effect="local", merge_semantics="replace")),
     ),
     Operation(
         name="reel.ask",
@@ -1458,6 +1576,12 @@ _REGISTRY: tuple[Operation, ...] = (
         attr="verify_reels",
         produces=("reel_verification",),
         consumes=("reel_build", "timeline_transcript"),
+        execution=ExecutionPolicy(phases=(
+            ExecutionPhase(
+                name="dispatch",
+                entry_points=("library.steps.step_7_02_verify_reels",),
+                why="The gate dispatch is free; its still capture takes its own cursor hold."),
+        )),
     ),
     Operation(
         name="reel.gate_stills",
@@ -1718,6 +1842,12 @@ _REGISTRY: tuple[Operation, ...] = (
         # (subtitle_segment_id), not from a counter. Contrast
         # subtitles.plan above.
         scopes=(PROJECT, REGION),
+        execution=ExecutionPolicy(phases=(
+            ExecutionPhase(
+                name="dispatch",
+                entry_points=("library.steps.step_4_05_render_subtitles",),
+                why="Subtitle renders operate on files; timeline swaps lease their own writes."),
+        )),
     ),
     Operation(
         name="subtitles.render_segment",
@@ -1869,6 +1999,29 @@ _REGISTRY: tuple[Operation, ...] = (
         # The plain step.py case: `run(inputs)` takes the whole
         # gathered dict under the known `inputs` spelling, the
         # footage.scan shape. Needs Resolve at call time.
+        execution=ExecutionPolicy(phases=(
+            ExecutionPhase(
+                name="placement", resolve_mode=RESOLVE_EXCLUSIVE,
+                locality=LOCALITY_TIMELINE,
+                resources=(("cpu", 2), ("ram_gb", 2)),
+                lock_sites=("library.steps.step_6_01_render.resolve_build_timeline:build_timeline",),
+                entry_points=("library.steps.step_6_01_render.resolve_build_timeline",),
+                why="The edit timeline is built under the exclusive cursor lease.",
+                resource_basis=("Resolve's placement CPU and RAM demand is "
+                                "declared, not measured; sample Resolve itself "
+                                "during a scratch-project placement.")),
+            ExecutionPhase(
+                name="render", resolve_mode=RESOLVE_EXCLUSIVE,
+                locality=LOCALITY_TIMELINE,
+                resources=(("cpu", 4), ("disk", 2), ("gpu", 1),
+                           ("ram_gb", 4), ("resolve_render", 1)),
+                lock_sites=("library.tools.execution.resolve_render:render_timeline",),
+                entry_points=("library.tools.execution.resolve_render",),
+                why="Resolve has one global render queue and render engine.",
+                resource_basis=("Resolve's render CPU, RAM and GPU demand is "
+                                "declared, not measured; sample Resolve itself "
+                                "during a scratch-project render.")),
+        )),
     ),
     Operation(
         name="validation.resolve",
