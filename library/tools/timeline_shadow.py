@@ -104,6 +104,17 @@ CREATE TABLE IF NOT EXISTS answers (
     project     TEXT NOT NULL,
     timeline_id TEXT NOT NULL
 );
+-- Every structural read routed through timeline_read. This is the
+-- denominator for the shadow-hit KPI; misses are counted too.
+CREATE TABLE IF NOT EXISTS read_requests (
+    requested_at REAL NOT NULL,
+    command     TEXT NOT NULL,
+    project     TEXT NOT NULL,
+    timeline_id TEXT,
+    outcome     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS read_requests_by_time
+    ON read_requests (requested_at, outcome);
 """
 
 
@@ -223,6 +234,40 @@ class ShadowStore:
                 (project, timeline_id, after)).fetchall()
         return [_row_to_generation(r) for r in rows]
 
+    def current_snapshots(self, project: str | None = None) -> list[tuple]:
+        """Heads and bodies from one SQLite read snapshot.
+
+        A name lookup and the returned body share the same query view, so a
+        concurrent generation append cannot pair an old head with a newer
+        snapshot (or return a generation that was already superseded before
+        its body was fetched).
+        """
+        where = ""
+        params: tuple = ()
+        if project is not None:
+            where = "g.project=? AND "
+            params = (project,)
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT g.*, s.body FROM generations g JOIN snapshots s"
+                " ON s.hash=g.hash WHERE " + where +
+                " g.generation=(SELECT MAX(h.generation) FROM generations h"
+                " WHERE h.project=g.project AND h.timeline_id=g.timeline_id)"
+                " ORDER BY g.project, g.timeline_name, g.timeline_id", params
+            ).fetchall()
+        return [(_row_to_generation(row), json.loads(row["body"]))
+                for row in rows]
+
+    def heads(self, project: str) -> list[Generation]:
+        """The newest recorded generation of each timeline in a project."""
+        return [generation for generation, _snapshot in
+                self.current_snapshots(project)]
+
+    def all_heads(self) -> list[Generation]:
+        """The newest recorded generation of every known timeline."""
+        return [generation for generation, _snapshot in
+                self.current_snapshots()]
+
     def snapshot(self, generation: Generation) -> dict:
         with self._connect() as db:
             row = db.execute("SELECT body FROM snapshots WHERE hash=?",
@@ -266,10 +311,33 @@ class ShadowStore:
             db.execute("INSERT INTO answers VALUES (?, ?, ?, ?)",
                        (time.time(), command, project, timeline_id))
 
+    def record_read_request(self, command: str, project: str,
+                            timeline_id: str | None, outcome: str) -> None:
+        """Record one structural read and whether the shadow served it."""
+        if outcome not in {"shadow_hit", "live_refresh", "miss"}:
+            raise ValueError(f"unknown read outcome {outcome!r}")
+        with self._connect() as db:
+            db.execute("INSERT INTO read_requests VALUES (?, ?, ?, ?, ?)",
+                       (time.time(), command, project, timeline_id, outcome))
+
     def answers_since(self, since: float) -> int:
         with self._connect() as db:
             return db.execute("SELECT COUNT(*) FROM answers WHERE"
                               " answered_at >= ?", (since,)).fetchone()[0]
+
+    def read_requests_since(self, since: float) -> dict:
+        """Read requests by outcome for the shadow-hit-rate denominator."""
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT outcome, COUNT(*) AS count FROM read_requests"
+                " WHERE requested_at >= ? GROUP BY outcome", (since,)
+            ).fetchall()
+        counts = {row["outcome"]: row["count"] for row in rows}
+        return {
+            "shadow_hits": counts.get("shadow_hit", 0),
+            "live_refreshes": counts.get("live_refresh", 0),
+            "misses": counts.get("miss", 0),
+        }
 
     # ── writes ──
 
@@ -339,6 +407,15 @@ def answers_since(since: float, path: Path | None = None) -> int | None:
     return ShadowStore(target).answers_since(since)
 
 
+def read_requests_since(since: float,
+                        path: Path | None = None) -> dict | None:
+    """Read-request counts; None means this machine has no shadow history."""
+    target = Path(path) if path is not None else default_db_path()
+    if not target.exists():
+        return None
+    return ShadowStore(target).read_requests_since(since)
+
+
 def timeline_key(resolve_project, timeline) -> tuple:
     """`(project name, timeline id, timeline name)` for the store."""
     from library.tools.reel_read import _timeline_identity
@@ -347,7 +424,7 @@ def timeline_key(resolve_project, timeline) -> tuple:
     return resolve_project.GetName(), str(value), timeline.GetName()
 
 
-def read_live(resolve_project, timeline) -> dict:
+def read_live(resolve_project, timeline, project_folder=None) -> dict:
     """The snapshot of a live timeline: `read_reel` quick mode.
 
     The timeline must be the project's CURRENT one (`read_reel` refuses
@@ -357,6 +434,7 @@ def read_live(resolve_project, timeline) -> dict:
     from library.tools.reel_read import QUICK, read_reel
 
     snapshot = read_reel(timeline, resolve_project.GetName(), mode=QUICK,
+                         project_folder=project_folder,
                          resolve_project=resolve_project)
     # `read_at` is when the note was READ, not part of the timeline: left
     # in, every read would hash as a new state.
@@ -366,7 +444,8 @@ def read_live(resolve_project, timeline) -> dict:
 
 
 def observe(resolve_project, timeline,
-            store: ShadowStore | None = None) -> Generation:
+            store: ShadowStore | None = None, *,
+            project_folder=None) -> Generation:
     """Read the live timeline once and record it if it changed.
 
     This is the `timeline.snapshot` job: the one live read that keeps
@@ -374,12 +453,20 @@ def observe(resolve_project, timeline,
     """
     store = store or ShadowStore()
     project, timeline_id, name = timeline_key(resolve_project, timeline)
-    head = store.head(project, timeline_id)
-    snapshot = read_live(resolve_project, timeline)
-    return store.record(project=project, timeline_id=timeline_id,
-                        timeline_name=name, snapshot=snapshot,
-                        source=OBSERVED,
-                        expected_head=head.generation if head else 0)
+    try:
+        head = store.head(project, timeline_id)
+        snapshot = read_live(resolve_project, timeline, project_folder)
+        generation = store.record(
+            project=project, timeline_id=timeline_id,
+            timeline_name=name, snapshot=snapshot, source=OBSERVED,
+            expected_head=head.generation if head else 0)
+    except Exception:
+        store.record_read_request("timeline.snapshot", project, timeline_id,
+                                  "miss")
+        raise
+    store.record_read_request("timeline.snapshot", project, timeline_id,
+                              "live_refresh")
+    return generation
 
 
 # ── Questions answered from the shadow, never from Resolve ────────────
@@ -480,6 +567,8 @@ def _main(argv=None) -> int:
         print(f"timeline_shadow: {missing}", file=sys.stderr)
         return 2
     store.answered(args.command, args.project, timeline_id)
+    store.record_read_request(f"timeline_shadow.{args.command}",
+                              args.project, timeline_id, "shadow_hit")
     print(json.dumps(out, indent=2, sort_keys=True, default=str))
     return 0
 

@@ -7,6 +7,7 @@ marker alongside the timeline-level ones, because its marker half IS
 `marker_feedback.read_notes`.
 """
 import ast
+import json
 from pathlib import Path
 import pytest
 from library.tools import reel_read
@@ -173,6 +174,44 @@ def _reel(tmp_path):
     pool = _Pool("/footage/craig.mov")
     clip = _Item("craig-take", 108100, 108300, 100, pool)
     return _Timeline({"video": {"V1": [clip]}}), str(tmp_path)
+
+
+def test_cli_reads_the_latest_generation_without_connecting_to_resolve(
+        tmp_path, monkeypatch, capsys):
+    from library.tools import timeline_read, timeline_shadow
+
+    store = timeline_shadow.ShadowStore(tmp_path / "shadow.db")
+    snapshot = {
+        "timeline": REEL,
+        "project": "Podcast",
+        "fps": "24",
+        "reported_fps": 24.0,
+        "width": 1080,
+        "height": 1920,
+        "start_frame": 0,
+        "end_frame": 23,
+        "tracks": [],
+        "markers": {"timeline": [], "notes": []},
+        "bin": {},
+        "fusion": [],
+        "overlays": [],
+        "mode": "quick",
+    }
+    store.record(project="Podcast", timeline_id="timeline-09",
+                 timeline_name=REEL, snapshot=snapshot,
+                 source=timeline_shadow.OBSERVED, expected_head=0)
+    monkeypatch.setattr(timeline_read, "ShadowStore", lambda: store)
+    monkeypatch.setattr(
+        reel_read.marker_feedback, "current_timeline",
+        lambda: (_ for _ in ()).throw(AssertionError("Resolve connected")))
+
+    assert reel_read.main(["--timeline", REEL]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["read_source"] == "recorded_generation"
+    assert result["read_generation"]["generation"] == 1
+    assert "live edits after verified_at may not be present" in \
+        result["freshness_note"]
 
 
 class _Project:

@@ -862,18 +862,12 @@ def test_a_marker_is_NOT_cleared_when_the_reels_do_not_back_the_claim(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# From test_markers_refuse_unreadable_timeline.py
+# From test_markers_read_recorded_generation.py
 #
-# `resolve-axi markers` refuses a scratch timeline instead of crashing.
+# `resolve-axi markers` reads a recorded generation by default and does
+# not fall back to querying the current timeline when no generation exists.
 #
-# Finding 19, execution-frontier report 2026-09-24: `resolve-axi markers`
-# crashed on the scratch timeline. The listing read the timeline's start
-# frame, rate, markers and items unguarded, so a timeline that would not
-# report one of them failed deep inside with a bare TypeError instead of
-# a refusal. "No markers" and "I could not look" stay different answers.
-#
-# No Resolve: scripted timeline fakes, and `cmd_markers` with its
-# connect/lease/project seams patched.
+# No Resolve: the project identity and read facade are patched.
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 if str(REPO_ROOT) not in sys.path:
@@ -941,7 +935,7 @@ def test_markers_with_an_unreported_start_raise_a_named_refusal():
     assert "TypeError" not in message
 
 
-# ── cmd_markers: the refusal reaches the operator, not a traceback ──
+# ── cmd_markers: a missing generation never falls back to live Resolve ──
 
 def _args(**kwargs):
     base = {"project": "", "timeline": "ren-exec-scratch-001",
@@ -950,15 +944,18 @@ def _args(**kwargs):
     return types.SimpleNamespace(**base)
 
 
-def _patched_cmd(monkeypatch, timeline):
+def _patched_cmd(monkeypatch):
     monkeypatch.setattr(resolve_axi, "_connect", lambda: object())
     monkeypatch.setattr(
         resolve_axi, "_lease",
         lambda exclusive: _NullContext())
-    monkeypatch.setattr(resolve_axi, "_project", lambda resolve, name: object())
+    project = types.SimpleNamespace(GetName=lambda: "Scratch Project")
+    monkeypatch.setattr(resolve_axi, "_project",
+                        lambda resolve, name: project)
     monkeypatch.setattr(
         resolve_axi, "_target_timeline",
-        lambda project, name: (timeline, False, ""))
+        lambda project, name: (_ for _ in ()).throw(
+            AssertionError("timeline structure read live")))
 
 
 class _NullContext:
@@ -969,20 +966,16 @@ class _NullContext:
         return False
 
 
-def test_cmd_markers_lists_an_empty_scratch_timeline(monkeypatch, capsys):
-    _patched_cmd(monkeypatch, _ScratchTimeline())
-    assert cmd_markers(_args()) == 0
-    assert "error:" not in capsys.readouterr().out
+def test_cmd_markers_requires_a_recorded_generation(monkeypatch, capsys):
+    from library.tools import timeline_read
 
+    _patched_cmd(monkeypatch)
+    def missing(*_args, **_kwargs):
+        raise timeline_read.ShadowError("no recorded generation")
+    monkeypatch.setattr(timeline_read, "read_any", missing)
 
-def test_cmd_markers_refuses_an_unreadable_timeline(monkeypatch, capsys):
-    """The finding: exit 1 with an error line, never a traceback."""
-    _patched_cmd(monkeypatch, _ScratchTimeline(
-        markers={10: {"color": "Green", "name": "note",
-                      "note": "look", "duration": 1, "customData": ""}},
-        start=None))
     assert cmd_markers(_args()) == 1
     out = capsys.readouterr().out
     assert "error:" in out
-    assert "ren-exec-scratch-001" in out
+    assert "no recorded generation" in out
     assert "Traceback" not in out

@@ -60,14 +60,17 @@ a sibling lane.
 READ-ONLY. Every call here is a getter. This module changes no timeline
 and makes no decision - it is not a rewrite of `reel_conformance_verifier`.
 
-Resolve is a single instance and other lanes drive it: the CLI refuses
-when a build holds the project (see `run_control.hold_requested`) and
-never opens or creates a project - the project must already be open.
+Resolve is a single instance and other lanes drive it. The CLI reads a
+recorded generation by default and needs no Resolve connection. Its
+`--refresh-live` path refuses while a build holds the project, reads only
+the exact current timeline, and records the refreshed generation.
 
 Rules relocated from AGENTS.md 15
 ---------------------------------
 **To read a reel, call `library/tools/reel_read.py`. Do not write a new
-probe.** `read_reel(timeline, ...)` answers the whole truth about one
+probe.** The CLI reads through `library/tools/timeline_read.py` by
+default; `--refresh-live` is the explicit current-timeline refresh.
+`read_reel(timeline, ...)` answers the whole truth about one
 reel in one call: clips, markers at every level, Fusion elements, bin,
 and overlay ink. `GetMarkers` / `GetItemListInTrack` outside the reader
 modules listed in `tests/unit/reels/test_reel_read.py` is a new probe by another
@@ -1035,18 +1038,23 @@ def _hold_active(project_folder) -> bool:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         prog="python3 -m library.tools.reel_read",
-        description="Read the whole truth about one Resolve timeline. "
-                    "Read-only: it changes no timeline and makes no "
-                    "decision.",
+        description="Read one recorded timeline generation, or explicitly "
+                    "refresh the current Resolve timeline.",
     )
     parser.add_argument("--timeline", required=True,
                         help="the timeline's EXACT name (AGENTS.md 5: "
                              "never a prefix)")
     parser.add_argument("--project", default="",
-                        help="the Resolve project name, reported only")
+                        help="the Resolve project name; required when the "
+                             "timeline name is not unique across recorded "
+                             "projects")
+    parser.add_argument("--refresh-live", action="store_true",
+                        help="read and record the current Resolve timeline "
+                             "before returning it")
     parser.add_argument("--mode", default=QUICK, choices=(QUICK, FULL),
-                        help="quick reads Resolve getters only; full also "
-                             "measures overlay ink off disk")
+                        help="quick reads a recorded generation; full "
+                             "requires --refresh-live and measures overlay "
+                             "ink off disk")
     parser.add_argument("--artefact-root", action="append", default=[],
                         help="search root for overlay artefacts "
                              "(repeatable, full mode only)")
@@ -1057,34 +1065,59 @@ def main(argv=None) -> int:
                         help="write the JSON result here as well as stdout")
     args = parser.parse_args(argv)
 
-    if _hold_active(args.project_folder):
+    if args.mode == FULL and not args.refresh_live:
+        print("REFUSING: full mode measures overlay artefacts on disk and "
+              "requires --refresh-live so those measurements share a "
+              "current timeline read.", file=sys.stderr)
+        return 2
+    if args.refresh_live and _hold_active(args.project_folder):
         print("REFUSING: a build holds this project "
               "(pipeline.hold); a read taken mid-build is half a truth. "
               "Clear the hold or wait for the build, then re-run.",
               file=sys.stderr)
         return 4
+    from library.tools import timeline_read
     try:
-        timeline, project = marker_feedback.current_timeline()
-    except marker_feedback.ResolveUnavailable as exc:
-        print(f"Cannot read: {exc}", file=sys.stderr)
-        return 3
-    if timeline.GetName() != args.timeline:
-        print(f"REFUSING: the open timeline is {timeline.GetName()!r}, "
-              f"not {args.timeline!r}. Exact names only (AGENTS.md 5); "
-              f"open the reel and re-run.", file=sys.stderr)
-        return 2
-    try:
-        result = read_reel(
-            timeline, args.project or project.GetName(),
-            mode=args.mode, artefact_roots=args.artefact_root,
-            project_folder=args.project_folder,
-            # The CLI reads through `current_timeline()` and refuses
-            # unless the open timeline IS the named one, so this proof
-            # always holds here - and a future caller that reaches for
-            # a by-index handle gets the refusal instead of scaled
-            # Pan/Tilt (`assert_timeline_current`).
-            resolve_project=project)
-    except ReelReadError as exc:
+        if args.refresh_live:
+            timeline, project = marker_feedback.current_timeline()
+            if timeline.GetName() != args.timeline:
+                print(f"REFUSING: the open timeline is "
+                      f"{timeline.GetName()!r}, not {args.timeline!r}. "
+                      "Exact names only (AGENTS.md 5); open the reel "
+                      "and re-run.", file=sys.stderr)
+                return 2
+            if args.project and project.GetName() != args.project:
+                print(f"REFUSING: the open project is "
+                      f"{project.GetName()!r}, not {args.project!r}.",
+                      file=sys.stderr)
+                return 2
+            view = timeline_read.refresh(
+                project, timeline, project_folder=args.project_folder)
+            read_source = "live_refresh"
+        elif args.project:
+            view = timeline_read.read(
+                args.project, args.timeline, caller="reel_read.cli")
+            read_source = "recorded_generation"
+        else:
+            view = timeline_read.read_any(
+                args.timeline, caller="reel_read.cli")
+            read_source = "recorded_generation"
+        result = dict(view.snapshot)
+        result["project"] = view.generation.project
+        result["mode"] = args.mode
+        result["read_generation"] = view.summary()
+        result["read_source"] = read_source
+        result["freshness_note"] = (
+            "This is the latest recorded generation; live edits after "
+            "verified_at may not be present."
+            if not args.refresh_live else
+            "This generation was captured from the current live timeline.")
+        if args.mode == FULL:
+            result["overlays"] = measure_ink(
+                result["tracks"], result["width"], result["height"],
+                args.artefact_root)
+    except (ReelReadError, timeline_read.ShadowError,
+            marker_feedback.ResolveUnavailable) as exc:
         print(f"Cannot read: {exc}", file=sys.stderr)
         return 1
     text = json.dumps(result, indent=2, sort_keys=True, default=str)

@@ -198,7 +198,7 @@ Never create a timeline and use `ImportFusionComp` in the same Python process: `
 
 **The unit of exclusion is the instance CURSOR; a write REFUSES outside the lease, and a foreign move is DETECTED.**: `library/tools/resolve_lock.py`.
 
-**A timeline QUESTION is answered from its recorded GENERATION; a write is an EditPatch on one.**: `library/tools/timeline_shadow.py`, `library/tools/edit_patch.py`.
+**Timeline reads use recorded generations; writes use EditPatch.**: `library/tools/timeline_read.py`, `library/tools/timeline_shadow.py`, `library/tools/edit_patch.py`.
 
 **What may run in parallel is a TABLE**: `library/tools/concurrency_routing.py`; declarations contend per KEY: `library/tools/declaration_keys.py`.
 

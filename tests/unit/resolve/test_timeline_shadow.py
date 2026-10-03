@@ -3,6 +3,7 @@
 from __future__ import annotations
 import pytest
 from library.tools import timeline_shadow as shadow
+from library.tools import timeline_read
 from library.tools.resolve_lock import assume_sole_writer
 from tests.resolve_double import FakeTimeline, make_pool_clip, make_project, place_clip
 import json
@@ -41,6 +42,8 @@ def test_an_unchanged_reread_is_the_same_generation(reel, tmp_path):
     assert edited.generation == 2 and edited.source == shadow.OBSERVED
     change = shadow.diff(store.snapshot(first), store.snapshot(edited))
     assert [m["frame"] for m in change["markers_added"]] == [20]
+    assert store.read_requests_since(0) == {
+        "shadow_hits": 0, "live_refreshes": 3, "misses": 0}
 
 
 def test_a_rename_keeps_its_history_and_a_shared_name_refuses(reel, tmp_path):
@@ -71,6 +74,45 @@ def test_two_writers_cannot_number_two_states_the_same(tmp_path):
     with pytest.raises(shadow.HeadMoved):
         store.record(**key, snapshot={"a": 2}, source=shadow.OBSERVED,
                      expected_head=0)
+
+
+def test_structural_read_uses_a_recorded_generation_and_counts_the_hit(
+        tmp_path):
+    store = shadow.ShadowStore(tmp_path / "shadow.db")
+    snapshot = {"timeline": "Reel 09", "tracks": [{"clips": []}]}
+    store.record(project="Podcast", timeline_id="tl-1",
+                 timeline_name="Reel 09", snapshot=snapshot,
+                 source=shadow.OBSERVED, expected_head=0)
+
+    read = timeline_read.read("Podcast", "Reel 09", store=store)
+
+    assert read.snapshot == snapshot
+    assert read.generation.generation == 1
+    assert store.read_requests_since(0) == {
+        "shadow_hits": 1, "live_refreshes": 0, "misses": 0}
+    assert store.answers_since(0) == 1
+
+
+def test_structural_read_miss_is_counted_without_falling_back_live(tmp_path):
+    store = shadow.ShadowStore(tmp_path / "shadow.db")
+
+    with pytest.raises(shadow.ShadowError, match="refresh a timeline"):
+        timeline_read.read("Podcast", "Reel 09", store=store)
+
+    assert store.read_requests_since(0) == {
+        "shadow_hits": 0, "live_refreshes": 0, "misses": 1}
+
+
+def test_read_any_accepts_a_unique_timeline_id(tmp_path):
+    store = shadow.ShadowStore(tmp_path / "shadow.db")
+    store.record(project="Podcast", timeline_id="timeline-09",
+                 timeline_name="Reel 09", snapshot={"timeline": "Reel 09"},
+                 source=shadow.OBSERVED, expected_head=0)
+
+    read = timeline_read.read_any("timeline-09", store=store)
+
+    assert read.generation.timeline_name == "Reel 09"
+    assert read.snapshot == {"timeline": "Reel 09"}
 
 
 # --------------------------------------------------------------------------

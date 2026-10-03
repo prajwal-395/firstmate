@@ -16,6 +16,9 @@ job the broker scheduled in a window - grants and executed jobs alike:
     render               seconds held by render-priority jobs
     live reads avoided   timeline questions the shadow store answered
                          (`timeline_shadow` `answers`)
+    shadow-hit rate      facade and `timeline_shadow` CLI requests served
+                         by the shadow, divided by those hits, live
+                         refreshes and misses in `timeline_shadow`
 
 A run's own share - its agents' time lost waiting for Resolve over their
 wall clock - is `ren profile` (`perf_ledger.resolve_kpis`).
@@ -55,7 +58,8 @@ def receipts_since(db: Path, since: float) -> List[dict]:
 
 
 def kpis(jobs: Iterable[dict], since: float, until: float,
-         shadow_answers: Optional[int] = None) -> dict:
+         shadow_answers: Optional[int] = None,
+         shadow_reads: Optional[dict] = None) -> dict:
     jobs = list(jobs)
     started = [j for j in jobs if j["started"] is not None]
     held = [j for j in started if j["hold_seconds"] is not None]
@@ -75,6 +79,12 @@ def kpis(jobs: Iterable[dict], since: float, until: float,
     for job in jobs:
         states[job["state"]] = states.get(job["state"], 0) + 1
     waits = [j["wait_seconds"] for j in started]
+    shadow_reads = shadow_reads or {}
+    shadow_hits = shadow_reads.get("shadow_hits")
+    live_refreshes = shadow_reads.get("live_refreshes")
+    misses = shadow_reads.get("misses")
+    request_count = (None if shadow_hits is None else
+                     shadow_hits + live_refreshes + misses)
     return {
         "since": round(since, 3), "until": round(until, 3),
         "jobs": len(jobs), "states": states,
@@ -91,6 +101,12 @@ def kpis(jobs: Iterable[dict], since: float, until: float,
         "render_s": round(sum(j["hold_seconds"] for j in held
                               if j["priority"] in RENDER_PRIORITIES), 3),
         "live_reads_avoided": shadow_answers,
+        "shadow_read_requests": request_count,
+        "shadow_read_hits": shadow_hits,
+        "live_refreshes": live_refreshes,
+        "shadow_read_misses": misses,
+        "shadow_hit_rate": (round(shadow_hits / request_count, 4)
+                            if request_count else None),
     }
 
 
@@ -98,6 +114,17 @@ def render(report: dict) -> str:
     def s(value):
         return "-" if value is None else f"{value:.2f}s"
     util = report["utilization"]
+    if report["shadow_read_requests"] is None:
+        shadow_rate = "shadow-hit rate: - (no recorded read history)"
+    else:
+        shadow_rate = (
+            "shadow-hit rate: "
+            + ("-" if report["shadow_hit_rate"] is None else
+               f"{100 * report['shadow_hit_rate']:.1f}%")
+            + f" ({report['shadow_read_hits']}/"
+            + f"{report['shadow_read_requests']}; "
+            + f"{report['live_refreshes']} live refreshes, "
+            + f"{report['shadow_read_misses']} misses)")
     lines = [
         f"{report['jobs']} job(s) since "
         f"{time.strftime('%Y-%m-%d %H:%M', time.localtime(report['since']))}"
@@ -114,6 +141,7 @@ def render(report: dict) -> str:
         "live reads avoided by the shadow store: "
         + ("-" if report["live_reads_avoided"] is None
            else str(report["live_reads_avoided"])),
+        shadow_rate,
     ]
     return "\n".join(lines)
 
@@ -124,6 +152,7 @@ def main(hours: float, as_json: bool) -> int:
     until = time.time()
     since = until - hours * 3600
     report = kpis(receipts_since(db_path(), since), since, until,
-                  timeline_shadow.answers_since(since))
+                  timeline_shadow.answers_since(since),
+                  timeline_shadow.read_requests_since(since))
     print(json.dumps(report, indent=2) if as_json else render(report))
     return 0

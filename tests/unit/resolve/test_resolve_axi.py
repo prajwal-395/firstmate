@@ -809,27 +809,174 @@ def test_source_carries_no_cursor_moving_call_outside_writes():
 # ── The seven commands ───────────────────────────────────────────────
 
 
-def test_timeline_get_refuses_ambiguous_prefix(patched, capsys):
+def test_timeline_get_refuses_ambiguous_prefix(
+        patched, capsys, tmp_path, monkeypatch):
     # "Reel 29" is a prefix of BOTH the final and its staging sibling -
     # the incident-2 collision shape. It must refuse, compactly, and
     # name the staging sibling as the cause (that is the case that
     # bites: the caller asked for the reel and the rebuild answered).
+    from library.tools import timeline_read, timeline_shadow
+    store = timeline_shadow.ShadowStore(tmp_path / "shadow.db")
+    monkeypatch.setattr(timeline_read, "ShadowStore", lambda: store)
+    for index, name in enumerate((
+            "Reel 29 - salvage",
+            "Reel 29 - salvage (rebuild staging)"), start=1):
+        store.record(project="Podcast (field test)",
+                     timeline_id=f"timeline-{index}", timeline_name=name,
+                     snapshot={"timeline": name},
+                     source=timeline_shadow.OBSERVED, expected_head=0)
     assert cmd_timeline_get(_ns(project="", name="Reel 29")) == 1
     out = capsys.readouterr().out
-    assert "prefix of 2 timelines" in out
-    assert "(rebuild staging) sibling" in out
+    assert "prefix of 2 recorded timelines" in out
+    assert "(rebuild staging)" in out
     # The refusal must NOT dump the whole project listing: that dump
     # is the token cost this tool removes.
     assert len(out) < 800
 
 
-def test_markers_reads_both_planes(patched, notes, capsys):
+def test_timeline_get_reads_the_recorded_generation(patched, capsys,
+                                                    tmp_path, monkeypatch):
+    from library.tools import timeline_read, timeline_shadow
+    store = timeline_shadow.ShadowStore(tmp_path / "shadow.db")
+    monkeypatch.setattr(timeline_read, "ShadowStore", lambda: store)
+    snapshot = {
+        "timeline": "Reel 29 - salvage",
+        "reported_fps": 23.976,
+        "start_frame": 0,
+        "end_frame": 99,
+        "tracks": [{"type": "video", "index": 1, "name": "V1",
+                    "clips": [{"name": "LC0001.MXF"},
+                              {"name": "LC0002.MXF"}]},
+                   {"type": "audio", "index": 1, "name": "A1",
+                    "clips": []}],
+        "markers": {
+            "timeline": [{"color": "Green"}],
+            "notes": [{"source": "timeline_marker", "color": "Green"},
+                      {"source": "clip_marker", "color": "Blue"}],
+        },
+    }
+    generation = store.record(
+        project="Podcast (field test)", timeline_id="timeline-29",
+        timeline_name="Reel 29 - salvage", snapshot=snapshot,
+        source=timeline_shadow.OBSERVED, expected_head=0)
+
+    assert cmd_timeline_get(_ns(project="", name="Reel 29 - salvage")) == 0
+
+    out = capsys.readouterr().out
+    assert "source: recorded generation" in out
+    assert f"generation: {generation.generation}" in out
+    assert "video1" in out and "V1" in out
+    assert "clip_marker" in out and "Blue" in out
+    assert store.read_requests_since(0)["shadow_hits"] == 1
+
+
+def test_default_timeline_read_bypasses_resolve_lease_and_broker(
+        patched, capsys, tmp_path, monkeypatch):
+    from library.tools import timeline_read, timeline_shadow
+    from library.tools.resolved import client
+    store = timeline_shadow.ShadowStore(tmp_path / "shadow.db")
+    monkeypatch.setattr(timeline_read, "ShadowStore", lambda: store)
+    store.record(
+        project="Podcast (field test)", timeline_id="timeline-29",
+        timeline_name="Reel 29 - salvage",
+        snapshot={
+            "reported_fps": 24, "start_frame": 0, "end_frame": 9,
+            "tracks": [],
+            "markers": {"timeline": [], "notes": []},
+        },
+        source=timeline_shadow.OBSERVED, expected_head=0)
+    monkeypatch.setattr(resolve_axi, "_connect",
+                        lambda: pytest.fail("offline read connected to Resolve"))
+    monkeypatch.setattr(resolve_axi, "_lease",
+                        lambda _exclusive: pytest.fail("offline read took lease"))
+    monkeypatch.setattr(client, "serving", lambda: True)
+    monkeypatch.setattr(resolve_axi, "_through_broker",
+                        lambda *_args: pytest.fail("offline read used broker"))
+
+    assert resolve_axi.main([
+        "timeline", "get", "Reel 29 - salvage", "--project",
+        "Podcast (field test)"]) == 0
+
+    assert "source: recorded generation" in capsys.readouterr().out
+    assert store.read_requests_since(0)["shadow_hits"] == 1
+
+
+def test_explicit_refresh_reads_only_the_exact_current_timeline(
+        patched, capsys, monkeypatch):
+    from library.tools import timeline_read, timeline_shadow
+    snapshot = {
+        "reported_fps": 24, "start_frame": 0, "end_frame": 9,
+        "tracks": [], "markers": {"timeline": [], "notes": []},
+    }
+    generation = timeline_shadow.Generation(
+        project="Podcast (field test)", timeline_id="timeline-29",
+        generation=1, timeline_name=patched["timeline"].GetName(),
+        hash="snapshot-hash", source=timeline_shadow.OBSERVED,
+        patch=None, receipt=None, recorded_at=1.0, verified_at=2.0)
+    expected = timeline_read.TimelineRead(generation, snapshot)
+    calls = []
+
+    def refresh(project, timeline, **kwargs):
+        calls.append((project, timeline, kwargs))
+        return expected
+
+    monkeypatch.setattr(timeline_read, "refresh", refresh)
+
+    assert cmd_timeline_get(_ns(
+        project="", name="Reel 29 - salvage", refresh_live=True)) == 0
+
+    assert calls == [(patched["project"], patched["timeline"], {})]
+    assert "source: live refresh" in capsys.readouterr().out
+
+
+def test_timeline_list_uses_recorded_heads(patched, capsys, tmp_path,
+                                           monkeypatch):
+    from library.tools import timeline_read, timeline_shadow
+    store = timeline_shadow.ShadowStore(tmp_path / "shadow.db")
+    monkeypatch.setattr(timeline_read, "ShadowStore", lambda: store)
+    for index, name in enumerate((
+            "Reel 29 - salvage",
+            "Reel 29 - salvage (rebuild staging)"), start=1):
+        snapshot = {
+            "start_frame": 100,
+            "end_frame": 199,
+            "markers": {"timeline": [{"color": "Green"}]
+                        if index == 1 else []},
+        }
+        store.record(project="Podcast (field test)",
+                     timeline_id=f"timeline-{index}", timeline_name=name,
+                     snapshot=snapshot,
+                     source=timeline_shadow.OBSERVED, expected_head=0)
+
+    assert resolve_axi.cmd_timeline_list(_ns(project="")) == 0
+
+    out = capsys.readouterr().out
+    assert "source: recorded generations" in out
+    assert "promotion_pending" in out
+    assert ",yes,yes," in out
+    assert "100" in out
+    assert store.read_requests_since(0)["shadow_hits"] == 1
+
+
+def test_markers_reads_both_planes(patched, capsys, tmp_path, monkeypatch):
     """Incident 1's trap: a timeline-plane-only read reports 1 of 2."""
-    notes["Reel 29 - salvage"] = [
+    from library.tools import timeline_read, timeline_shadow
+    store = timeline_shadow.ShadowStore(tmp_path / "shadow.db")
+    monkeypatch.setattr(timeline_read, "ShadowStore", lambda: store)
+    notes = [
         _Note("timeline_marker", 10, color="Green", name="feedback",
               note="good"),
         _Note("clip_marker", 0, color="Blue", name="fix", note="trim"),
     ]
+    store.record(
+        project="Podcast (field test)", timeline_id="timeline-29",
+        timeline_name="Reel 29 - salvage",
+        snapshot={"markers": {"notes": [{
+            "source": note.source, "frame": note.frame,
+            "timecode": note.timecode, "color": note.color,
+            "name": note.name, "note": note.note, "text": note.text,
+        } for note in notes]}},
+        source=timeline_shadow.OBSERVED, expected_head=0)
     assert cmd_markers(
         _ns(project="", timeline="Reel 29 - salvage", plane="",
             full=False)) == 0
@@ -1395,7 +1542,8 @@ def test_run_unsafe_runs_copygrades_once_named(patched, capsys):
 # ── The positional rule ──────────────────────────────────────────
 
 
-def test_positional_primary_args(patched, notes, canned, shelf, capsys):
+def test_positional_primary_args(patched, notes, canned, shelf, capsys,
+                                tmp_path, monkeypatch):
     """The class, not the instances: every command taking one obvious
     primary argument - a reel name for the reads, a script for `run`,
     a pattern for `api search`, a file for `luts delete` - accepts it
@@ -1403,6 +1551,35 @@ def test_positional_primary_args(patched, notes, canned, shelf, capsys):
     here instead of on first use."""
     notes["Reel 29 - salvage"] = [_Note("timeline_marker", 10,
                                         note="hi")]
+    from library.tools import timeline_read, timeline_shadow
+    store = timeline_shadow.ShadowStore(tmp_path / "shadow.db")
+    monkeypatch.setattr(timeline_read, "ShadowStore", lambda: store)
+    clip = {
+        "track_type": "video", "track_index": 1, "name": "LC0001.MXF",
+        "record_in": 0, "record_out": 50, "duration": 50,
+        "source_in_frame": 0, "source_out_frame": 50,
+        "source_file": "/footage/LC0001.MXF", "transform": {},
+        "fusion": {"comp_count": 0, "comp_names": [],
+                   "media_windows": []},
+    }
+    snapshot = {
+        "timeline": "Reel 29 - salvage", "reported_fps": 23.976,
+        "start_frame": 0, "end_frame": 99,
+        "tracks": [{"type": "video", "index": 1, "name": "V1",
+                    "clips": [clip]},
+                   {"type": "audio", "index": 1, "name": "A1",
+                    "clips": []}],
+        "markers": {
+            "timeline": [],
+            "notes": [{"source": "timeline_marker", "frame": 10,
+                       "timecode": "00:00:00:10", "color": "Green",
+                       "name": "", "note": "hi", "text": "hi"}],
+        },
+    }
+    store.record(project="Podcast (field test)",
+                 timeline_id="timeline-29",
+                 timeline_name="Reel 29 - salvage", snapshot=snapshot,
+                 source=timeline_shadow.OBSERVED, expected_head=0)
     canned.responses["search_scripting_api"] = "  def GetMarkers() ..."
     rows = [([command, "Reel 29 - salvage"], "Reel 29 - salvage")
             for command in ("markers", "items", "captions", "frames",

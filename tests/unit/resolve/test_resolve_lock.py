@@ -745,11 +745,16 @@ def test_the_report_reads_a_live_brokers_receipts_without_closing_them(
         params={"patch": {"operations": [{"op": "a"}, {"op": "b"}]}})
     job("live", "running", started=now - 1)
 
-    report = kpi.kpis(kpi.receipts_since(db, now - 60), now - 60, now)
+    report = kpi.kpis(kpi.receipts_since(db, now - 60), now - 60, now,
+                      shadow_answers=3,
+                      shadow_reads={"shadow_hits": 3,
+                                    "live_refreshes": 2, "misses": 1})
     assert report["coalesced"] == 2
     assert (report["patches"], report["operations_batched"]) == (1, 2)
     assert report["cursor_changes"] == 2      # Reel03, Reel09, Reel03
     assert report["exclusive_hold_s"] == pytest.approx(2.0, abs=0.01)
+    assert report["shadow_read_requests"] == 6
+    assert report["shadow_hit_rate"] == 0.5
     assert store.get("live")["state"] == "running"
 
 

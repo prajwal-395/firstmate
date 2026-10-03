@@ -352,7 +352,8 @@ def qualify_broker(resolve, project, socket: Path) -> list:
                        {"project": QUALIFICATION_PROJECT,
                         "timeline": "Q Markers"}) for _ in range(2)]
         axi = [submit("resolve_axi",
-                      {"argv": ["items", "--timeline", "Q Spine"],
+                      {"argv": ["items", "--timeline", "Q Spine",
+                                "--refresh-live"],
                        "cwd": os.getcwd()}) for _ in range(2)]
     _check(results, "identical snapshots coalesce",
            snap[1] == {"id": snap[0]["id"], "coalesced": True}, snap)

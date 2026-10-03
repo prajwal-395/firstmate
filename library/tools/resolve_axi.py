@@ -1,4 +1,4 @@
-"""resolve-axi: agent-ergonomic reads (and guarded writes) over the live Resolve session.
+"""resolve-axi: agent-ergonomic timeline reads and guarded Resolve writes.
 
 The captain's ask: unify the hand-written-script-through-MCP paths that
 drive DaVinci Resolve every day into one command surface, in TOON rather
@@ -48,9 +48,11 @@ Safety shape, stated once:
   `sense *`)
   and `run --unsafe`.
 - Nothing here opens or creates a project or timeline, and nothing
-  moves the current-timeline cursor: listing and reading go through
-  `GetTimelineByIndex`, never `SetCurrentTimeline`. Opening something
-  is a write to the captain's session.
+  moves the current-timeline cursor. `timeline list/get` use recorded
+  generations; `timeline get --refresh-live` requires the exact target
+  to be current. Other timeline reads use `GetTimelineByIndex`, never
+  `SetCurrentTimeline`. Opening something is a write to the captain's
+  session.
 - Reads hold the Resolve lease SHARED (`exclusive=False`); any call
   with `--apply` or `--unsafe` holds it EXCLUSIVE. `restore --apply` and `reply --apply`
   refuse unless the cursor already sits on the reel; `run --unsafe`
@@ -117,7 +119,8 @@ from datetime import datetime, timezone
 
 VERSION = "0.7.0"
 
-DESCRIPTION = "Read the live DaVinci Resolve session in token-cheap TOON rows"
+DESCRIPTION = ("Read recorded timeline generations or explicitly refresh "
+               "the live Resolve session in token-cheap TOON rows")
 
 TOOL = "resolve-axi"
 
@@ -318,9 +321,7 @@ def _lease(exclusive: bool):
     return resolve_lease(f"resolve-axi ({TOOL})", exclusive=exclusive)
 
 
-# These verbs use the native MCP or local files only. Every other CLI
-# command reaches the Resolve scripting API and must hold the instance
-# before the command body can call `_connect()`.
+# These verbs use the native MCP or local files only.
 _LOCAL_COMMANDS = frozenset({
     "cmd_api_search", "cmd_api_stubs", "cmd_api_docs",
     "cmd_api_whats_new", "cmd_luts_list", "cmd_luts_update",
@@ -328,16 +329,26 @@ _LOCAL_COMMANDS = frozenset({
     "cmd_update",
 })
 
+_SHADOW_READ_COMMANDS = frozenset({
+    "cmd_timeline_list", "cmd_timeline_get", "cmd_markers",
+    "cmd_items", "cmd_fusion", "cmd_captions", "cmd_frames",
+})
+
 
 def _dispatch(func, args) -> int:
-    """Run one CLI command inside its Resolve lease, before connection.
+    """Run Resolve-backed commands inside their lease, before connection.
 
     Command bodies keep their narrower leases around operations. The outer
     hold closes the earlier connection-handshake gap; `resolve_lease` is
     reentrant for same-mode nesting, and write flags select the same mode
-    as the operation's existing inner hold.
+    as the operation's existing inner hold. Recorded structural reads run
+    locally and take neither a broker job nor a Resolve lease.
     """
-    if getattr(func, "__name__", "") in _LOCAL_COMMANDS:
+    name = getattr(func, "__name__", "")
+    if name in _LOCAL_COMMANDS:
+        return func(args)
+    if (name in _SHADOW_READ_COMMANDS
+            and not getattr(args, "refresh_live", False)):
         return func(args)
     exclusive = bool(getattr(args, "unsafe", False)
                      or getattr(args, "apply", False))
@@ -482,7 +493,18 @@ def cmd_home(_args) -> int:
             cursor = open_timeline.GetName()
         except Exception:
             cursor = "(none open)"
-        names = _timeline_names(project)
+        from library.tools import timeline_read
+        try:
+            views = timeline_read.list_timelines(
+                project.GetName(), caller="resolve_axi.home")
+            names = [view.generation.timeline_name for view in views]
+            timeline_count = len(names)
+            timeline_freshness = "latest stored generations; later live " \
+                "edits may be absent"
+        except timeline_read.ShadowError:
+            names = []
+            timeline_count = "unknown (none recorded)"
+            timeline_freshness = "no recorded generation"
         suffix = _staging_suffix()
         staged = [n for n in names if n.endswith(suffix)]
     emit([f"bin: {_bin_path()}",
@@ -490,7 +512,9 @@ def cmd_home(_args) -> int:
           kv_block("resolve", {
               "project": project.GetName(),
               "cursor": cursor,
-              "timelines": len(names),
+              "timelines": timeline_count,
+              "timeline_source": "recorded generations",
+              "timeline_freshness": timeline_freshness,
               "staging": len(staged),
           }),
           table("staging", [{"timeline": n} for n in staged],
@@ -508,36 +532,59 @@ def _bin_path() -> str:
 
 
 def cmd_timeline_list(args) -> int:
+    from library.tools import timeline_read
     try:
-        resolve = _connect()
-    except AxiError as exc:
-        return fail(str(exc), exc.fix)
-    with _lease(exclusive=False):
-        project = _project(resolve, args.project)
-        names = _timeline_names(project)
-        suffix = _staging_suffix()
-        timelines = [project.GetTimelineByIndex(index + 1)
-                     for index in range(len(names))]
-        rows = []
-        for name, timeline in zip(names, timelines):
-            start, end, frames = _frames_of(timeline)
-            count, colours = _timeline_marker_summary(timeline)
-            base = (name[:-len(suffix)]
-                    if name.endswith(suffix) else None)
-            rows.append({
-                "name": name,
-                "frames": frames,
-                "markers": count,
-                "colors": ",".join(colours),
-                "staging": "yes" if base is not None else "no",
-                "promotion_pending": ("yes" if base in names else "no")
-                if base is not None else "no",
-            })
-    emit([kv_block("project", {"name": project.GetName(),
-                               "timelines": len(rows)}),
+        views = timeline_read.list_timelines(
+            args.project or None, caller="resolve_axi.timeline.list")
+    except timeline_read.ShadowError as exc:
+        return fail(str(exc),
+                    "ren resolved submit timeline.snapshot "
+                    "'{\"project\":\"<project>\","
+                    "\"timeline\":\"<exact timeline>\"}'")
+    suffix = _staging_suffix()
+    names_by_project = {}
+    for view in views:
+        names_by_project.setdefault(view.generation.project, set()).add(
+            view.generation.timeline_name)
+    rows = []
+    for view in views:
+        name = view.generation.timeline_name
+        snapshot = view.snapshot
+        start = int(snapshot["start_frame"])
+        end = int(snapshot["end_frame"])
+        frames = end - start + 1
+        timeline_markers = snapshot["markers"]["timeline"]
+        count = len(timeline_markers)
+        colours = sorted({(marker["color"] or "")
+                          for marker in timeline_markers} - {""})
+        base = (name[:-len(suffix)] if name.endswith(suffix) else None)
+        rows.append({
+            "project": view.generation.project,
+            "timeline_id": view.generation.timeline_id,
+            "name": name,
+            "frames": frames,
+            "markers": count,
+            "colors": ",".join(colours),
+            "staging": "yes" if base is not None else "no",
+            "promotion_pending": ("yes" if base in
+                                  names_by_project[view.generation.project]
+                                  else "no") if base is not None else "no",
+            "generation": view.generation.generation,
+            "verified_at": datetime.fromtimestamp(
+                view.generation.verified_at, timezone.utc
+            ).isoformat(timespec="seconds"),
+        })
+    emit([kv_block("timelines", {
+                               "project_filter": args.project or "all",
+                               "timelines": len(rows),
+                               "source": "recorded generations",
+                               "freshness": "latest stored generation; "
+                               "later live edits may be absent"}),
           table("timelines", rows,
-                ["name", "frames", "markers", "colors",
-                 "staging", "promotion_pending"]),
+                ["project", "timeline_id", "name", "frames", "markers",
+                 "colors",
+                 "staging", "promotion_pending", "generation",
+                 "verified_at"]),
           help_block([f"{TOOL} timeline get \"<exact-name>\"",
                       f"{TOOL} markers --timeline \"<exact-name>\""])])
     return 0
@@ -545,49 +592,34 @@ def cmd_timeline_list(args) -> int:
 
 def cmd_timeline_get(args) -> int:
     try:
-        resolve = _connect()
+        view, note = _timeline_view(
+            args.name, args.project, caller="resolve_axi.timeline.get",
+            refresh_live=getattr(args, "refresh_live", False))
     except AxiError as exc:
         return fail(str(exc), exc.fix)
-    with _lease(exclusive=False):
-        project = _project(resolve, args.project)
-        try:
-            timeline, _, note = _target_timeline(project, args.name)
-        except AxiError as exc:
-            return fail(str(exc), exc.fix)
-        start, end, frames = _frames_of(timeline)
-        try:
-            fps = timeline.GetSetting("timelineFrameRate")
-        except Exception:
-            fps = "unknown"
-        try:
-            notes = _read_notes(
-                timeline, f"{TOOL} timeline get \"{args.name}\"")
-        except AxiError as exc:
-            return fail(str(exc), exc.fix)
-        planes: dict = {}
-        colours: dict = {}
-        for entry in notes:
-            planes[entry.source] = planes.get(entry.source, 0) + 1
-            if entry.color:
-                colours[entry.color] = colours.get(entry.color, 0) + 1
-        try:
-            tracks = []
-            for track_type in ("video", "audio"):
-                count = timeline.GetTrackCount(track_type) or 0
-                for index in range(1, count + 1):
-                    items = (timeline.GetItemListInTrack(track_type,
-                                                         index) or [])
-                    tracks.append({"track": f"{track_type}{index}",
-                                   "name": timeline.GetTrackName(
-                                       track_type, index) or "",
-                                   "clips": len(items)})
-        except Exception as exc:
-            return fail(f"timeline {args.name!r} would not report its "
-                        f"tracks ({exc}).",
-                        f"{TOOL} timeline list")
+    snapshot = view.snapshot
+    timeline_name = view.generation.timeline_name
+    start = int(snapshot["start_frame"])
+    end = int(snapshot["end_frame"])
+    frames = end - start + 1
+    fps = snapshot["reported_fps"]
+    notes = snapshot["markers"]["notes"]
+    planes: dict = {}
+    colours: dict = {}
+    for entry in notes:
+        planes[entry["source"]] = planes.get(entry["source"], 0) + 1
+        if entry["color"]:
+            colours[entry["color"]] = colours.get(entry["color"], 0) + 1
+    tracks = [{
+        "track": f"{track['type']}{track['index']}",
+        "name": track["name"],
+        "clips": len(track["clips"]),
+    } for track in snapshot["tracks"]]
     emit([kv_block("timeline", {
-              "name": timeline.GetName(),
+              "name": timeline_name,
               "start": start, "end": end, "frames": frames, "fps": fps,
+              **_timeline_view_metadata(
+                  view, getattr(args, "refresh_live", False)),
           }),
           note,
           table("tracks", tracks, ["track", "name", "clips"]),
@@ -597,23 +629,94 @@ def cmd_timeline_get(args) -> int:
           table("marker_colors",
                 [{"color": k, "notes": v} for k, v in sorted(colours.items())],
                 ["color", "notes"]) if colours else "marker_colors: 0 colors",
-          help_block([f"{TOOL} markers --timeline \"{timeline.GetName()}\"",
-                      f"{TOOL} frames --timeline \"{timeline.GetName()}\""])])
+          help_block([f"{TOOL} markers --timeline \"{timeline_name}\"",
+                      f"{TOOL} frames --timeline \"{timeline_name}\""])])
     return 0
+
+
+def _timeline_view(timeline_name: str, project_name: str = "", *, caller: str,
+                   refresh_live: bool = False):
+    """Read one latest generation, or explicitly refresh the current reel.
+
+    The name and snapshot are resolved by `timeline_read`; only a live
+    refresh consults Resolve's current-timeline handle. It never switches
+    the cursor to satisfy a query.
+    """
+    from library.tools import timeline_read
+    from library.tools.marker_feedback import current_timeline
+
+    if refresh_live:
+        resolve = _connect()
+        project = _project(resolve, project_name)
+        current, _ = current_timeline(resolve)
+        if not timeline_name:
+            timeline_name = current.GetName()
+        if current.GetName() != timeline_name:
+            raise AxiError(
+                f"live refresh requires the exact timeline to be current; "
+                f"Resolve has {current.GetName()!r}, not {timeline_name!r}.",
+                f"open {timeline_name!r}, then run {TOOL} timeline get "
+                f"\"{timeline_name}\" --refresh-live")
+        return timeline_read.refresh(project, current), ""
+    if not timeline_name:
+        raise AxiError(
+            "a recorded read needs --timeline; only --refresh-live can use "
+            "the current Resolve timeline.",
+            f"{TOOL} markers --timeline \"<exact-name>\"")
+    try:
+        if project_name:
+            view = timeline_read.read(
+                project_name, timeline_name, allow_prefix=True,
+                caller=caller)
+        else:
+            view = timeline_read.read_any(
+                timeline_name, allow_prefix=True, caller=caller)
+    except timeline_read.ShadowError as exc:
+        raise AxiError(
+            str(exc),
+            f"{TOOL} timeline list, or refresh with {TOOL} timeline get "
+            "\"<exact-name>\" --refresh-live") from exc
+    note = (f"resolved: {timeline_name!r} is a unique recorded prefix of "
+            f"{view.generation.timeline_name}"
+            if (timeline_name != view.generation.timeline_name
+                and view.generation.timeline_name.startswith(timeline_name))
+            else "")
+    return view, note
+
+
+def _timeline_view_metadata(view, refresh_live: bool) -> dict:
+    """Provenance every structural query reports beside its snapshot."""
+    return {
+        "project": view.generation.project,
+        "timeline_id": view.generation.timeline_id,
+        "generation": view.generation.generation,
+        "verified_at": datetime.fromtimestamp(
+            view.generation.verified_at, timezone.utc
+        ).isoformat(timespec="seconds"),
+        "source": ("live refresh" if refresh_live else
+                   "recorded generation"),
+        "freshness": ("captured during this read" if refresh_live else
+                      "latest stored generation; later live edits may be "
+                      "absent"),
+    }
 
 
 def _note_rows(notes, full: bool, plane: str) -> list:
     rows = []
     for note in notes:
-        if plane and note.source != plane:
+        values = note if isinstance(note, dict) else vars(note)
+        source = values["source"]
+        if plane and source != plane:
             continue
+        text = values.get("note", "") or values.get("text", "")
+        frame = values.get("frame")
         rows.append({
-            "frame": note.frame if note.frame is not None else "",
-            "timecode": note.timecode or "",
-            "color": note.color or "",
-            "plane": note.source,
-            "name": note.name or "",
-            "note": preview(note.note or note.text or "", full),
+            "frame": frame if frame is not None else "",
+            "timecode": values.get("timecode", "") or "",
+            "color": values.get("color", "") or "",
+            "plane": source,
+            "name": values.get("name", "") or "",
+            "note": preview(text, full),
         })
     return rows
 
@@ -627,34 +730,26 @@ def cmd_markers(args) -> int:
                     f" [--plane timeline_marker|clip_marker|"
                     f"media_pool_marker|clip_comment]")
     try:
-        resolve = _connect()
+        view, note = _timeline_view(
+            args.timeline, args.project, caller="resolve_axi.markers",
+            refresh_live=getattr(args, "refresh_live", False))
     except AxiError as exc:
         return fail(str(exc), exc.fix)
-    with _lease(exclusive=False):
-        project = _project(resolve, args.project)
-        try:
-            timeline, is_current, note = _target_timeline(
-                project, args.timeline)
-        except AxiError as exc:
-            return fail(str(exc), exc.fix)
-        try:
-            notes = _read_notes(
-                timeline, f"{TOOL} markers --timeline "
-                f"\"{args.timeline or '<name>'}\"")
-        except AxiError as exc:
-            return fail(str(exc), exc.fix)
+    timeline_name = view.generation.timeline_name
+    notes = view.snapshot["markers"]["notes"]
     rows = _note_rows(notes, args.full, args.plane or "")
     truncated = sum(1 for r in rows if "(truncated," in r["note"])
     emit([kv_block("markers", {
-              "timeline": timeline.GetName() +
-              (" (current)" if is_current else ""),
+              "timeline": timeline_name,
               "notes": len(rows),
               "truncated": truncated,
+              **_timeline_view_metadata(
+                  view, getattr(args, "refresh_live", False)),
           }),
           note,
           table("notes", rows,
                 ["frame", "timecode", "color", "plane", "name", "note"]),
-          help_block([f"{TOOL} markers --timeline \"{timeline.GetName()}\""
+          help_block([f"{TOOL} markers --timeline \"{timeline_name}\""
                       f" --full"]) if truncated and not args.full else ""])
     return 0
 
@@ -1164,18 +1259,13 @@ def cmd_markers_audit_replies(args) -> int:
 
 def cmd_items(args) -> int:
     try:
-        resolve = _connect()
+        view, note = _timeline_view(
+            args.timeline, args.project, caller="resolve_axi.items",
+            refresh_live=getattr(args, "refresh_live", False))
     except AxiError as exc:
         return fail(str(exc), exc.fix)
-    with _lease(exclusive=False):
-        project = _project(resolve, args.project)
-        try:
-            timeline, is_current, note = _target_timeline(
-                project, args.timeline)
-        except AxiError as exc:
-            return fail(str(exc), exc.fix)
-        from library.tools.reel_read import read_tracks
-        tracks = read_tracks(timeline)
+    timeline_name = view.generation.timeline_name
+    tracks = view.snapshot["tracks"]
     rows = []
     for track in tracks:
         for clip in track.get("clips", []):
@@ -1195,17 +1285,10 @@ def cmd_items(args) -> int:
                 # `timeline_ingest` trusts (AGENTS.md 5). No units are
                 # converted here: Pan/Tilt is one model and a unit is
                 # not a pixel (`resolve_transform`), so the numbers
-                # travel as Resolve stores them.
-                #
-                # CURRENCY WARNING (not enforced here): through a
-                # non-current handle Pan/Tilt come back scaled by the
-                # current timeline's dimensions
-                # (`reel_read.assert_timeline_current`). The
-                # "(current)" marker above only covers the opened-via-
-                # current path - a named timeline that happens to be
-                # current reads true but unmarked, and one that is not
-                # reads scaled with no warning. Treat these numbers as
-                # the timeline's own only when it is current.
+                # travel as captured. `timeline_shadow.observe` only
+                # records a full generation after `read_reel` proves
+                # this timeline current; the generation timestamp below
+                # is the currency evidence for these values.
                 stored = clip.get("transform") or {}
                 for key in ("Pan", "Tilt", "ZoomX", "ZoomY", "Opacity"):
                     row[key.lower()] = stored.get(key, "")
@@ -1216,16 +1299,17 @@ def cmd_items(args) -> int:
     if args.transforms:
         cols += ["pan", "tilt", "zoomx", "zoomy", "opacity"]
     emit([kv_block("items", {
-              "timeline": timeline.GetName() +
-              (" (current)" if is_current else ""),
+              "timeline": timeline_name,
               "clips": len(rows),
               "placed_frames": placed,
+              **_timeline_view_metadata(
+                  view, getattr(args, "refresh_live", False)),
           }),
           table("clips", rows, cols),
           note,
           "source_out is inclusive (GetSourceEndFrame); record_out is "
           "exclusive - the mix-up that cost a frame is visible here",
-          help_block([f"{TOOL} frames --timeline \"{timeline.GetName()}\""])])
+          help_block([f"{TOOL} frames --timeline \"{timeline_name}\""])])
     return 0
 
 
@@ -1240,18 +1324,13 @@ def cmd_fusion(args) -> int:
     or `no` when every comp covers every played frame. Read-only.
     """
     try:
-        resolve = _connect()
+        view, note = _timeline_view(
+            args.timeline, args.project, caller="resolve_axi.fusion",
+            refresh_live=getattr(args, "refresh_live", False))
     except AxiError as exc:
         return fail(str(exc), exc.fix)
-    with _lease(exclusive=False):
-        project = _project(resolve, args.project)
-        try:
-            timeline, is_current, note = _target_timeline(
-                project, args.timeline)
-        except AxiError as exc:
-            return fail(str(exc), exc.fix)
-        from library.tools.reel_read import read_tracks
-        tracks = read_tracks(timeline)
+    timeline_name = view.generation.timeline_name
+    tracks = view.snapshot["tracks"]
     rows = []
     for track in tracks:
         for clip in track.get("clips", []):
@@ -1272,60 +1351,41 @@ def cmd_fusion(args) -> int:
                 "uncovered": uncovered,
             })
     emit([kv_block("fusion", {
-              "timeline": timeline.GetName() +
-              (" (current)" if is_current else ""),
+              "timeline": timeline_name,
               "clips_with_comps": len(rows),
+              **_timeline_view_metadata(
+                  view, getattr(args, "refresh_live", False)),
           }),
           note,
           table("comps", rows,
                 ["clip", "track", "record_in", "record_out", "comps",
                  "comp_names", "uncovered"]),
-          help_block([f"{TOOL} items --timeline \"{timeline.GetName()}\""])])
+          help_block([f"{TOOL} items --timeline \"{timeline_name}\""])])
     return 0
 
 
 def cmd_captions(args) -> int:
     try:
-        resolve = _connect()
+        view, note = _timeline_view(
+            args.timeline, args.project, caller="resolve_axi.captions",
+            refresh_live=getattr(args, "refresh_live", False))
     except AxiError as exc:
         return fail(str(exc), exc.fix)
-    with _lease(exclusive=False):
-        project = _project(resolve, args.project)
-        try:
-            timeline, is_current, note = _target_timeline(
-                project, args.timeline)
-        except AxiError as exc:
-            return fail(str(exc), exc.fix)
-        from library.tools.caption_swap import subtitle_track_index
-        track = subtitle_track_index(timeline)
-        rows = []
-        if track is not None:
-            for item in timeline.GetItemListInTrack("video", track) or []:
-                try:
-                    pool_item = item.GetMediaPoolItem()
-                except Exception:
-                    pool_item = None
-                path = ""
-                if pool_item is not None:
-                    try:
-                        path = (pool_item.GetClipProperty("File Path")
-                                or "")
-                    except Exception:
-                        path = ""
-                try:
-                    start, end = item.GetStart(), item.GetEnd()
-                except Exception:
-                    continue
-                try:
-                    name = item.GetName()
-                except Exception:
-                    name = ""
-                rows.append({"start": start, "end": end, "name": name,
-                             "file": path})
+    from library.tools.caption_swap import SUBTITLES_TRACK_NAME
+    timeline_name = view.generation.timeline_name
+    rows = [{"start": clip["record_in"],
+             "end": clip["record_out"],
+             "name": clip["name"],
+             "file": clip["source_file"]}
+            for track in view.snapshot["tracks"]
+            if track["type"] == "video"
+            and track["name"] == SUBTITLES_TRACK_NAME
+            for clip in track["clips"]]
     emit([kv_block("captions", {
-              "timeline": timeline.GetName() +
-              (" (current)" if is_current else ""),
+              "timeline": timeline_name,
               "cards": len(rows),
+              **_timeline_view_metadata(
+                  view, getattr(args, "refresh_live", False)),
           }),
           note,
           table("cards", rows, ["start", "end", "name", "file"])])
@@ -2037,10 +2097,22 @@ def cmd_project(args) -> int:
             render_presets = _named_list(project.GetRenderPresetList())
         except Exception:
             render_presets = []
-        names = _timeline_names(project)
+        from library.tools import timeline_read
+        try:
+            views = timeline_read.list_timelines(
+                project.GetName(), caller="resolve_axi.project")
+            names = [view.generation.timeline_name for view in views]
+            timeline_count = len(names)
+            timeline_freshness = "latest stored generations; later live " \
+                "edits may be absent"
+        except timeline_read.ShadowError:
+            timeline_count = "unknown (none recorded)"
+            timeline_freshness = "no recorded generation"
     emit([kv_block("project", {
               "name": project.GetName(),
-              "timelines": len(names),
+              "timelines": timeline_count,
+              "timeline_source": "recorded generations",
+              "timeline_freshness": timeline_freshness,
               "cursor": cursor_name,
               "fps": settings["timelineFrameRate"],
               "resolution": (f"{settings['timelineResolutionWidth']}x"
@@ -2175,39 +2247,27 @@ def cmd_cursor(args) -> int:
 
 def cmd_frames(args) -> int:
     try:
-        resolve = _connect()
+        view, note = _timeline_view(
+            args.timeline, args.project, caller="resolve_axi.frames",
+            refresh_live=getattr(args, "refresh_live", False))
     except AxiError as exc:
         return fail(str(exc), exc.fix)
-    with _lease(exclusive=False):
-        project = _project(resolve, args.project)
-        try:
-            timeline, _, note = _target_timeline(project, args.timeline)
-        except AxiError as exc:
-            return fail(str(exc), exc.fix)
-        start, end, frames = _frames_of(timeline)
-        try:
-            fps = timeline.GetSetting("timelineFrameRate")
-        except Exception:
-            fps = "unknown"
-        rows = []
-        try:
-            for track_type in ("video", "audio"):
-                count = timeline.GetTrackCount(track_type) or 0
-                for index in range(1, count + 1):
-                    items = (timeline.GetItemListInTrack(track_type,
-                                                         index) or [])
-                    placed = sum((i.GetDuration() or 0) for i in items
-                                 if _readable(i))
-                    rows.append({"track": f"{track_type}{index}",
-                                 "clips": len(items),
-                                 "placed_frames": placed})
-        except Exception as exc:
-            return fail(f"timeline {timeline.GetName()!r} would not report "
-                        f"its tracks ({exc}).",
-                        f"{TOOL} timeline list")
+    snapshot = view.snapshot
+    timeline_name = view.generation.timeline_name
+    start, end = int(snapshot["start_frame"]), int(snapshot["end_frame"])
+    frames = end - start + 1
+    fps = snapshot["reported_fps"]
+    rows = [{
+        "track": f"{track['type']}{track['index']}",
+        "clips": len(track["clips"]),
+        "placed_frames": sum(clip["duration"]
+                             for clip in track["clips"]),
+    } for track in snapshot["tracks"]]
     emit([kv_block("frames", {
-              "timeline": timeline.GetName(),
+              "timeline": timeline_name,
               "start": start, "end": end, "frames": frames, "fps": fps,
+              **_timeline_view_metadata(
+                  view, getattr(args, "refresh_live", False)),
           }),
           note,
           table("tracks", rows, ["track", "clips", "placed_frames"])])
@@ -5782,11 +5842,13 @@ def cmd_update(_args) -> int:
 
 def _add_scope(parser, what: str) -> None:
     parser.add_argument("--project", default="",
-                        help=f"expect this Resolve project open ({what})")
+                        help=f"select this recorded project for reads or "
+                             f"expect it open for live operations ({what})")
     parser.add_argument("--timeline", default="",
                         help="which timeline: the exact name, a UNIQUE "
                              "prefix, or a bare positional "
-                             "(markers \"Reel 29\"); omit for the open one. "
+                             "(markers \"Reel 29\"); omit only for an "
+                             "explicit live refresh. "
                              "An ambiguous prefix is refused.")
 
 
@@ -5798,6 +5860,7 @@ def build_parser() -> Parser:
   {TOOL} timeline list
   {TOOL} --submit pool "Footage/Day 1"
   {TOOL} timeline get "Reel 13 - moment"
+  {TOOL} timeline get "Reel 13 - moment" --refresh-live
   {TOOL} markers "Reel 29"
   {TOOL} markers --timeline "Reel 13 - moment"
   {TOOL} markers snapshot --timeline "Reel 13 - moment" --out /tmp/m.json
@@ -5832,17 +5895,21 @@ def build_parser() -> Parser:
     p = subs.add_parser("timeline", help="list timelines or get one by "
                                          "exact name")
     tsubs = p.add_subparsers(dest="timeline_command", required=True)
-    pl = tsubs.add_parser("list", help="every timeline with frame counts, "
-                                       "marker colours and staging flags")
+    pl = tsubs.add_parser("list", help="recorded timelines with frame "
+                                       "counts, markers and staging flags")
     pl.add_argument("--project", default="",
-                    help="expect this Resolve project open")
+                    help="filter to this recorded project (default: all)")
     pl.set_defaults(func=cmd_timeline_list)
-    pg = tsubs.add_parser("get", help="one timeline by name - exact or "
-                                      "unique prefix; collisions refused")
-    pg.add_argument("name", help="the timeline's name (exact or unique "
-                                 "prefix)")
+    pg = tsubs.add_parser("get", help="one recorded timeline by name or id - "
+                                      "exact or unique prefix; collisions refused")
+    pg.add_argument("name", help="the timeline's exact name, unique "
+                                 "prefix, or timeline id")
     pg.add_argument("--project", default="",
-                    help="expect this Resolve project open")
+                    help="select this project when the timeline name "
+                         "appears in more than one project")
+    pg.add_argument("--refresh-live", action="store_true",
+                    help="refresh from Resolve; the exact timeline must "
+                         "already be current")
     pg.set_defaults(func=cmd_timeline_get)
     pd = tsubs.add_parser("duplicate", help="version a reel under a new "
                                             "exact name; --apply writes")
@@ -6009,11 +6076,13 @@ def build_parser() -> Parser:
                         "dry-run plan)")
     q.set_defaults(func=cmd_render_stop)
 
-    p = subs.add_parser("markers", help="every note on a reel, both "
-                                        "marker planes in one call; "
-                                        "snapshot/restore round-trip "
-                                        "marker content")
+    p = subs.add_parser("markers", help="notes from a recorded reel "
+                                        "generation; --refresh-live reads "
+                                        "Resolve")
     _add_scope(p, "markers")
+    p.add_argument("--refresh-live", action="store_true",
+                   help="refresh from Resolve; the exact timeline must "
+                        "already be current")
     p.add_argument("--plane", default="",
                    help="timeline_marker|clip_marker|media_pool_marker|"
                         "clip_comment")
@@ -6085,14 +6154,20 @@ def build_parser() -> Parser:
                         "the preview")
     p.set_defaults(func=cmd_markers_audit_replies)
 
-    p = subs.add_parser("fusion", help="clips carrying Fusion comps and "
-                                       "whether each comp covers its item")
+    p = subs.add_parser("fusion", help="recorded clips carrying Fusion "
+                                       "comps and their media coverage")
     _add_scope(p, "fusion")
+    p.add_argument("--refresh-live", action="store_true",
+                   help="refresh from Resolve; the exact timeline must "
+                        "already be current")
     p.set_defaults(func=cmd_fusion)
 
-    p = subs.add_parser("items", help="placed clips with record/source "
+    p = subs.add_parser("items", help="recorded clips with record/source "
                                       "spans and source paths")
     _add_scope(p, "items")
+    p.add_argument("--refresh-live", action="store_true",
+                   help="refresh from Resolve; the exact timeline must "
+                        "already be current")
     p.add_argument("--transforms", action="store_true",
                    help="add the stored Pan/Tilt/Zoom/Opacity columns, "
                         "read back verbatim (units unconverted)")
@@ -6101,6 +6176,9 @@ def build_parser() -> Parser:
     p = subs.add_parser("captions", help="Subtitles-row cards with file "
                                          "paths")
     _add_scope(p, "captions")
+    p.add_argument("--refresh-live", action="store_true",
+                   help="refresh from Resolve; the exact timeline must "
+                        "already be current")
     p.set_defaults(func=cmd_captions)
 
     p = subs.add_parser("cursor", help="show (and optionally assert) the "
@@ -6109,8 +6187,12 @@ def build_parser() -> Parser:
                    help="refuse unless the cursor sits on this timeline")
     p.set_defaults(func=cmd_cursor)
 
-    p = subs.add_parser("frames", help="frame counts for drift checks")
+    p = subs.add_parser("frames", help="recorded frame counts for drift "
+                                       "checks")
     _add_scope(p, "frames")
+    p.add_argument("--refresh-live", action="store_true",
+                   help="refresh from Resolve; the exact timeline must "
+                        "already be current")
     p.set_defaults(func=cmd_frames)
 
     p = subs.add_parser("api", help="the native MCP's knowledge tools "
@@ -6614,7 +6696,11 @@ def main(argv=None) -> int:
         return fail("--submit only applies to commands that reach Resolve",
                     "remove --submit from this local command")
     from library.tools.resolve_lock import ResolveBusy
-    if getattr(func, "__name__", "") not in _LOCAL_COMMANDS:
+    name = getattr(func, "__name__", "")
+    needs_resolve = (name not in _LOCAL_COMMANDS and not (
+        name in _SHADOW_READ_COMMANDS
+        and not getattr(args, "refresh_live", False)))
+    if needs_resolve:
         from library.tools.resolved import client
         if submit and not client.in_broker():
             return _submit_through_broker(client, argv)
