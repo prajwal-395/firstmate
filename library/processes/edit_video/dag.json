@@ -481,13 +481,6 @@
       }
     },
     {
-      "from": "mesh_spine",
-      "to": "select_reels",
-      "data_mapping": {
-        "audio_spine": "audio_spine"
-      }
-    },
-    {
       "from": "creative_direction",
       "to": "select_reels",
       "data_mapping": {
@@ -814,13 +807,6 @@
       "to": "mesh_spine",
       "data_mapping": {
         "semantic_analysis_documents": "semantic_analysis_documents"
-      }
-    },
-    {
-      "from": "temporal_index",
-      "to": "mesh_spine",
-      "data_mapping": {
-        "temporal_event_indices": "temporal_index"
       }
     },
     {

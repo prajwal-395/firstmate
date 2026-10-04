@@ -388,11 +388,10 @@ def test_validate_is_not_sent_the_qa_report_and_its_own_summary():
 #
 # What each LLM step is handed, and what it is deliberately not handed.
 #
-# A step that declares no `context_fields` is handed its whole input set.
-# `mesh_spine` and `review_rough_cut` declared none, so each was handed
-# `temporal_index` in full - a 5 Hz per-frame numeric stream that neither
-# step's own code reads, and 98% of the tokens in the two calls that decide
-# the spine of the edit and review the rough cut.
+# `review_rough_cut` still receives `temporal_index` and projects the
+# transcript view; `mesh_spine` no longer declares or routes it because
+# neither its code nor prompt consumes it. Both prompts keep the raw index
+# out.
 #
 # The assertions here are about ROUTING, not about token counts: what the
 # prompt carries, and what it must not.
@@ -444,27 +443,40 @@ def find_key(obj, name: str) -> bool:
 
 
 def test_temporal_index_stays_out_of_the_prompt():
-    """It is still an input; it is no longer prompt text.
+    """Keep the raw index out while preserving review's transcript view.
 
-    The deterministic half of each step keeps receiving it unprojected -
-    `run_hybrid_step` hands the post-bridge the raw inputs, and
-    `deterministic_with_llm` runs step.py before the projection - so
-    dropping it from the prompt takes nothing away from any code.
+    `mesh_spine` has no consumer, so neither its input declaration nor its
+    scheduling edge remains. `review_rough_cut` still consumes the index
+    through `view:transcript`; neither prompt receives the raw structure.
     """
     for node_id in ("mesh_spine", "review_rough_cut"):
         m = manifest_2(node_id)
-        assert "temporal_index" in declared_inputs(m), (
-            "the input declaration was removed; this test no longer proves "
-            "the prompt-side drop is safe"
-        )
+        if node_id == "mesh_spine":
+            assert "temporal_index" not in declared_inputs(m)
+            assert not any(
+                e["from"] == "temporal_index" and e["to"] == node_id
+                for e in DAG_2["edges"]
+            )
+        else:
+            assert "temporal_index" in declared_inputs(m)
+            assert "view:transcript" in m["context_fields"]
         assert not any("temporal_index" in p for p in m["context_fields"]), (
             f"temporal_index is back in '{node_id}'s prompt"
         )
         step_code = "".join(
-            p.read_text() for p in (STEPS / LLM_STEPS[node_id]).glob("*.py"))
+            p.read_text(encoding="utf-8")
+            for p in (STEPS / LLM_STEPS[node_id]).glob("*.py"))
         assert "temporal_index" not in step_code, (
-            f"'{node_id}' now reads temporal_index in code, so the prompt-side "
-            f"drop needs re-examining rather than this assertion relaxing"
+            f"'{node_id}' now names temporal_index in code; re-examine its "
+            f"route and prompt contract"
+        )
+        projected = project_step_context(
+            {"temporal_index": [{"sentinel": "raw index"}],
+             "project_folder": "/tmp/p"},
+            m,
+        )
+        assert not find_key(projected, "temporal_index"), (
+            f"'{node_id}' projected the raw temporal_index structure"
         )
 
 

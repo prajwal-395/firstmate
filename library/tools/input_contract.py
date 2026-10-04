@@ -99,33 +99,12 @@ _LIBRARY_ROOT = Path(__file__).resolve().parents[1]
 # ── Declared, and nothing reads it ───────────────────────────────────
 #
 # A declaration nothing consumes is the purest unwarranted requirement:
-# it costs a scoped run its producer and buys nothing.  Both entries here
-# are the same case, found by the survey and relaxed to optional in the
-# same change - the input is still ROUTED, because unrouting it would
-# leave the step's `handoff.md` documenting a read that no longer
-# happens, and those files are the captain's.
-#
-# Widening this table is not a way to make the survey quiet.  A new entry
-# means a new declaration nobody reads.
+# it costs a scoped run its producer and buys nothing. This table records
+# any explicitly held exception; remove the entry when its route and
+# handoff are brought into agreement. Widening it is not a way to make
+# the survey quiet: each entry is a declaration nobody reads.
 
-UNCONSUMED_DECLARATIONS = {
-    ("select_reels", "audio_spine"):
-        "Read by neither the bridge, the post-bridge, the handoff nor "
-        "the prompt. It was invisible until the step's `context_fields` "
-        "declaration became readable: while it sat under `interface` "
-        "this survey answered `reaches the prompt` True for every one "
-        "of 3.04's inputs. Kept declared because the DAG edge carrying "
-        "it is also what orders `select_reels` after the spine, and a "
-        "routed key with no declaration derives as REQUIRED "
-        "(`tests/test_dag_contracts.py`); dropping both is a routing "
-        "decision rather than a projection one.",
-    ("mesh_spine", "temporal_index"):
-        "The post_bridge never names it and `context_fields` does not "
-        "select it, so the projection deletes it before the prompt. "
-        "Relaxed to optional under #260; unrouting it is a separate "
-        "decision because the handoff's State Interaction table still "
-        "lists it.",
-}
+UNCONSUMED_DECLARATIONS = {}
 
 
 # ── Unrouted, though the handoff still documents the read ───────────

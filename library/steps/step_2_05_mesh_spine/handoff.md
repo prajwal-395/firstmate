@@ -350,7 +350,6 @@ declared default.
 |-----------|-----------|
 | Reads | `speech_sequence` (with timestamps from 2.3) |
 | Reads | `music_selection` |
-| Reads | `temporal_index` |
 | Reads | `music_analysis` |
 | Writes | `audio_spine` |
 | Writes | `timed_spine` |

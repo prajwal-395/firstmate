@@ -7,12 +7,6 @@
   "interface": {
     "inputs": [
       {
-        "name": "audio_spine",
-        "type": "object",
-        "required": false,
-        "description": "State input: audio_spine, when the run has one. Nothing reads it - see input_contract.UNCONSUMED_DECLARATIONS. It is declared because the DAG edge that carries it is what orders this step after the spine, and a routed key with no declaration derives as REQUIRED."
-      },
-      {
         "name": "timeline_transcript",
         "type": "object",
         "required": true,

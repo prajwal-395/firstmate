@@ -10,7 +10,7 @@
 | Archetype | Creative Judgement |
 | Encoding Format | LLM Prompt |
 | Idempotent | No |
-| Dependencies | A finished cut and its transcript |
+| Dependencies | The finished cut's timeline transcript |
 
 ---
 
