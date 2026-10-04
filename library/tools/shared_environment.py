@@ -437,6 +437,41 @@ def interpreter_report(repo_root: Optional[str | Path] = None) -> dict:
     }
 
 
+# ── verifying what was fetched: one hash function for every pin ────
+#
+# Every executable or model this module pins is checked with sha256
+# before use, and a mismatch REFUSES rather than running. The shell
+# install scripts cannot import this module's callers, but they can ASK
+# it (the `ask()` pattern): they read the expected hash from here and
+# compare with `shasum`/`sha256sum`, so the pin still lives exactly
+# once. Python callers use `file_sha256` directly.
+
+def file_sha256(path: str | Path) -> str:
+    """The hex sha256 of the file at `path`. Stdlib only.
+
+    Raises `FileNotFoundError` for a missing file - an absent download
+    is not an empty hash, and the callers' refusals say which file was
+    absent.
+    """
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def verify_file_sha256(path: str | Path, expected: str) -> tuple:
+    """`(True, actual)` when the file matches, `(False, actual)` when not.
+
+    Returns rather than raises on mismatch so the caller owns the
+    refusal wording (fail-closed scripts delete the bad bytes first).
+    A missing file raises, per `file_sha256` - absence and tampering
+    are different refusals.
+    """
+    actual = file_sha256(path)
+    return actual == expected.lower(), actual
+
+
 # ── the MFA half: the forced aligner for Voz transcription ──────────
 #
 # A third shared dependency, discovered the same way as the two above:
@@ -480,8 +515,108 @@ measured as one.
 
 MFA_DICTIONARY = "english_us_arpa"
 
+MFA_DICTIONARY_VERSION = "v3.0.0"
+"""The dictionary version the install downloads. PINNED.
+
+`dictionary-english_us_arpa-v3.0.0` is the newest tag on
+MontrealCorpusTools/mfa-models (measured 2026-10-04); `--version` is a
+shared `mfa model download` option across acoustic/dictionary/g2p, so
+an unpinned dictionary floats exactly the way the unpinned acoustic
+model used to.
+"""
+
+MFA_G2P_MODEL = MFA_ACOUSTIC_MODEL
+"""The G2P model name. The install asks for G2P under the acoustic name,
+so it is spelled once, here, rather than twice in the install script."""
+
+MFA_G2P_VERSION = "v2.0.0a"
+"""The G2P version the install downloads. PINNED.
+
+`g2p-english_us_arpa-v2.0.0a` is the newest (and only v2+) tag on
+MontrealCorpusTools/mfa-models (measured 2026-10-04) - there is no
+v3.0.0 for this model, so the G2P pin deliberately differs from the
+acoustic/dictionary one. Same `--version` mechanism as above.
+"""
+
+MFA_PACKAGE_VERSION = "3.4.2"
+"""The montreal-forced-aligner release the install creates. PINNED.
+
+Measured 2026-10-04 as the newest 3.4.x on conda-forge. The install
+used to ask for `3.4.*`, which floats every fresh machine onto
+whatever the index holds that day; conda verifies package hashes from
+repodata on download, so the exact spec is the integrity anchor here.
+"""
+
+MFA_PACKAGE_SPEC = f"montreal-forced-aligner={MFA_PACKAGE_VERSION}"
+"""The exact conda spec the install creates. Spelled once, here."""
+
+MICROMAMBA_VERSION = "2.9.0"
+"""The micromamba release the install fetches. PINNED.
+
+Measured 2026-10-04: what `/latest` served that day, for osx-arm64 and
+linux-64 alike. The install used to fetch `/latest` outright, so two
+machines a month apart bootstrapped with different binaries and
+nothing could say which. The versioned API path serves the same bytes
+deterministically - the 2.9.0 versioned-URL tarball hashes identically
+to what `/latest` served on the measurement day.
+"""
+
+MICROMAMBA_BASE_URL = "https://micro.mamba.pm/api/micromamba"
+"""Where micromamba binaries come from. Spelled once, here."""
+
+MICROMAMBA_SHA256 = {
+    "osx-arm64": "500f5074feb8d02c4296ef9921c3650ed2874171805a9fbb8fbb53896433646b",
+    "linux-64": "8761c382127e6363bd9e0a2451aa3ef90d071a79133f736e2f759a3bf13040dd",
+}
+"""The sha256 of the `MICROMAMBA_VERSION` tarball per platform.
+
+Measured 2026-10-04 by downloading the versioned URL and hashing it.
+The install refuses a tarball that does not match, before unpacking.
+Keys are micro.mamba.pm platform names, not `uname` pairs - see
+`micromamba_platform()`.
+"""
+
 MFA_INSTALL_SCRIPT = "scripts/install_mfa.sh"
 """The one way to fill the MFA environment. Named in every refusal."""
+
+
+def micromamba_platform() -> str:
+    """This machine's micro.mamba.pm platform name, or REFUSE.
+
+    `install_mfa.sh` supports Darwin-arm64 and Linux-x86_64; anything
+    else has no prebuilt micromamba and the install says so rather
+    than fetching a wrong-architecture binary.
+    """
+    import platform as _platform
+
+    pair = (_platform.system(), _platform.machine())
+    if pair == ("Darwin", "arm64"):
+        return "osx-arm64"
+    if pair == ("Linux", "x86_64"):
+        return "linux-64"
+    raise MfaEnvironmentMissing(
+        f"No prebuilt micromamba for {pair[0]}-{pair[1]} "
+        f"(this install supports osx-arm64 and linux-64).")
+
+
+def micromamba_download_url(platform_name: str | None = None) -> str:
+    """The versioned micromamba tarball URL for this (or the named) platform.
+
+    Versioned, never `/latest`: the version is `MICROMAMBA_VERSION`
+    and the bytes are checked against `MICROMAMBA_SHA256` on fetch.
+    """
+    name = platform_name or micromamba_platform()
+    return f"{MICROMAMBA_BASE_URL}/{name}/{MICROMAMBA_VERSION}"
+
+
+def micromamba_expected_sha256(platform_name: str | None = None) -> str:
+    """The expected tarball sha256 for this (or the named) platform."""
+    name = platform_name or micromamba_platform()
+    try:
+        return MICROMAMBA_SHA256[name]
+    except KeyError:
+        raise MfaEnvironmentMissing(
+            f"No pinned micromamba hash for platform {name!r}.") from None
 
 
 class MfaEnvironmentMissing(RuntimeError):
@@ -606,6 +741,19 @@ DEEPFILTER_DOWNLOAD_URL = (
     f"{DEEPFILTER_RELEASE_TAG}/{DEEPFILTER_ASSET}"
 )
 """Where the one install script fetches the binary from. Spelled once, here."""
+
+DEEPFILTER_SHA256 = (
+    "4601e7f4e4c03e59a4c5b5000216ef3add3e808799cfccd95e14e83ea4611081"
+)
+"""The sha256 of the `DEEPFILTER_ASSET` binary.
+
+Measured 2026-10-04 by downloading the release asset and hashing it;
+the fetched binary also reports `deep_filter 0.5.6`, so the hash is of
+the genuine artifact, not of an error page. The install refuses a
+binary that does not match, before chmod and before the smoke run.
+Upstream publishes no checksum file, so this measured hash IS the pin -
+re-pin by the same procedure when `DEEPFILTER_VERSION` moves.
+"""
 
 DEEPFILTER_BINARY_DIRNAME = "bin"
 """The directory under `vep_home()` that holds machine-level binaries."""

@@ -89,6 +89,16 @@ HEAD_URL = (
 )
 HEAD_FILENAME = "sa_0_4_vit_l_14_linear.pth"
 
+#: The sha256 of the head file. PINNED.
+#:
+#: Measured 2026-10-04 by downloading `HEAD_URL` and hashing it (4071
+#: bytes). `download_head` refuses bytes that do not match, before the
+#: weights are ever loaded - an unverified 4 KB of linear weights is a
+#: silent re-ranking of every thumbnail. Upstream publishes no checksum
+#: file, so this measured hash IS the pin - re-pin by the same
+#: procedure if the head ever moves (it has not since 2022).
+HEAD_SHA256 = "2cd4e60f4f24ae3bcd57b847b13c1f3ba27edc28cc1a7f9ce74ee9f421243cba"
+
 #: The spike scored 8 evenly spaced alternatives plus the pipeline pick.
 N_THUMBNAIL_CANDIDATES = 9
 
@@ -245,12 +255,35 @@ def _normalized_clip_features(feats):
 
 def download_head(dest_dir: str) -> str:
     """Fetch the 4 KB LAION head.  Network only; the CLIP weights come from
-    the shared HF cache at load time, nothing is vendored."""
+    the shared HF cache at load time, nothing is vendored.
+
+    The bytes are checked against the pinned `HEAD_SHA256`, on fetch
+    AND on reuse - a cached head that does not match refuses with
+    `FrameRankerUnavailable` rather than re-ranking on unknown
+    weights. A fresh mismatch is deleted, never loaded.
+    """
+    import hashlib
     from pathlib import Path as _Path
+
+    def _sha256(path) -> str:
+        digest = hashlib.sha256()
+        with open(path, "rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
 
     _Path(dest_dir).mkdir(parents=True, exist_ok=True)
     dest = str(_Path(dest_dir) / HEAD_FILENAME)
+    if _Path(dest).is_file() and _sha256(dest) == HEAD_SHA256:
+        return dest
+    if _Path(dest).is_file():
+        _Path(dest).unlink()
     urllib.request.urlretrieve(HEAD_URL, dest)
+    if _sha256(dest) != HEAD_SHA256:
+        _Path(dest).unlink()
+        raise FrameRankerUnavailable(
+            f"LAION head sha256 mismatch (expected {HEAD_SHA256}): "
+            f"the download was deleted, nothing was loaded.")
     return dest
 
 

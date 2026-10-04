@@ -14,7 +14,10 @@
 #
 #   1. Fetches the PINNED prebuilt `deep-filter` binary for Apple
 #      Silicon from the upstream release page into `<vep_home>/bin`,
-#      unless it is already there. No Python, no venv, no numpy: the
+#      unless it is already there. The bytes are checked against the
+#      sha256 pinned in `shared_environment.DEEPFILTER_SHA256` before
+#      install AND on reuse - a mismatch refuses, and a fresh mismatch
+#      is deleted, never chmodded or run. No Python, no venv, no numpy: the
 #      binary is a static Rust build carrying its own model runtime,
 #      which is the whole reason it exists - `deepfilternet` pins
 #      numpy<2 and `deepfilterlib` 0.5.6 ships no cp312 macOS-arm64
@@ -62,9 +65,20 @@ print($1)
 
 DEEPFILTER_BINARY="$(ask 'se.deepfilter_binary()')"
 DEEPFILTER_URL="$(ask 'se.DEEPFILTER_DOWNLOAD_URL')"
+DEEPFILTER_SHA256="$(ask 'se.DEEPFILTER_SHA256')"
+DEEPFILTER_VERSION="$(ask 'se.DEEPFILTER_VERSION')"
+
+sha256_of() {
+    if command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$1" | awk '{print $1}'
+    else
+        sha256sum "$1" | awk '{print $1}'
+    fi
+}
 
 echo "DEEPFILTERNET BINARY"
 echo "  binary : $DEEPFILTER_BINARY"
+echo "  pinned : $DEEPFILTER_VERSION (sha256 verified)"
 
 if [ "$CHECK_ONLY" = 1 ]; then
     if [ -x "$DEEPFILTER_BINARY" ]; then
@@ -85,12 +99,30 @@ case "$(uname -s)-$(uname -m)" in
 esac
 
 if [ -x "$DEEPFILTER_BINARY" ]; then
-    echo "  binary : already installed, reusing"
+    echo "  binary : already installed, verifying sha256"
+    if [ "$(sha256_of "$DEEPFILTER_BINARY")" != "$DEEPFILTER_SHA256" ]; then
+        echo "DEEPFILTERNET BINARY: FAIL - existing binary fails the pinned sha256" >&2
+        echo "  It was left in place and nothing was run; remove it yourself and re-run:" >&2
+        echo "    rm '$DEEPFILTER_BINARY' && $0" >&2
+        exit 1
+    fi
+    echo "  binary : sha256 verified, reusing"
 else
     echo "  binary : fetching $DEEPFILTER_URL"
     mkdir -p "$(dirname "$DEEPFILTER_BINARY")"
-    curl -fsSL -o "$DEEPFILTER_BINARY" "$DEEPFILTER_URL"
+    DF_TMP="$(mktemp "$(dirname "$DEEPFILTER_BINARY")/deep-filter-XXXXXX")"
+    trap 'rm -f "$DF_TMP"' EXIT
+    curl -fsSL -o "$DF_TMP" "$DEEPFILTER_URL"
+    if [ "$(sha256_of "$DF_TMP")" != "$DEEPFILTER_SHA256" ]; then
+        echo "DEEPFILTERNET BINARY: FAIL - sha256 mismatch (expected $DEEPFILTER_SHA256)" >&2
+        echo "  The download was deleted, nothing was installed or run." >&2
+        rm -f "$DF_TMP"
+        exit 1
+    fi
+    echo "  sha256 : verified"
+    mv "$DF_TMP" "$DEEPFILTER_BINARY"
     chmod +x "$DEEPFILTER_BINARY"
+    trap - EXIT
 fi
 
 # ── prove it is a working suppressor, not just bytes ──────────────────
