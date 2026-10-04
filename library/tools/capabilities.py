@@ -315,7 +315,8 @@ def _top_level_defs(path: Path) -> frozenset:
                      if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)))
 
 
-_LOCK_NAMES = ("heavy_work_lock", "heavy_work_locked")
+_LOCK_NAMES = ("heavy_work_lock", "heavy_work_locked",
+               "heavy_work_reservation")
 
 
 def _names_the_lock(node) -> bool:
@@ -342,8 +343,9 @@ def heavy_lock_sites() -> frozenset:
     """Every `module:function` in library/ that takes the heavy-work lock.
 
     A site is a top-level function decorated with `heavy_work_locked` or
-    containing a `with heavy_work_lock(...)`.  The lock's own module is
-    not a site.
+    containing a `with heavy_work_lock(...)` or
+    `with heavy_work_reservation(...)`. The lock's own module is not a
+    site.
     """
     out = set()
     for path in (REPO_ROOT / "library").rglob("*.py"):

@@ -241,7 +241,8 @@ def request_host_answer(prompt: str, image_paths: list,
 
 def answer_via_gemma(prompt: str, image_paths: list,
                      max_tokens: int = 800,
-                     route_metadata: dict | None = None) -> str:
+                     route_metadata: dict | None = None,
+                     inference_admission=None) -> str:
     """The fallback: local gemma4, exactly as every site did before.
 
     One image goes through `analyze_image`, several through
@@ -257,6 +258,8 @@ def answer_via_gemma(prompt: str, image_paths: list,
     route_kwargs = {}
     if route_metadata is not None:
         route_kwargs["_route_metadata"] = route_metadata
+    if inference_admission is not None:
+        route_kwargs["inference_admission"] = inference_admission
     if len(image_paths) == 1:
         return model.analyze_image(
             image_paths[0], prompt, max_tokens=max_tokens,
@@ -273,7 +276,8 @@ def inspect_stills(prompt: str, image_paths: list, *,
                    label: str = "stills",
                    max_tokens: int = 800,
                    timeout_seconds: float = 300,
-                   route_metadata: dict | None = None) -> str:
+                   route_metadata: dict | None = None,
+                   inference_admission=None) -> str:
     """Look at stills. Returns the model's answer as raw text.
 
     The driver first when one drives and sees images; gemma4
@@ -294,7 +298,9 @@ def inspect_stills(prompt: str, image_paths: list, *,
                 {"stage": "still_route", "cause": "no_host_configured"})
         return answer_via_gemma(prompt, list(image_paths),
                                 max_tokens=max_tokens,
-                                route_metadata=route_metadata)
+                                route_metadata=route_metadata,
+                                **({"inference_admission": inference_admission}
+                                   if inference_admission is not None else {}))
     if host_sees_images(driving):
         if route_metadata is not None:
             route_metadata.update({
@@ -314,4 +320,6 @@ def inspect_stills(prompt: str, image_paths: list, *,
             {"stage": "still_route", "cause": f"host_declared_blind:{driving}"})
     return answer_via_gemma(prompt, list(image_paths),
                             max_tokens=max_tokens,
-                            route_metadata=route_metadata)
+                            route_metadata=route_metadata,
+                            **({"inference_admission": inference_admission}
+                               if inference_admission is not None else {}))

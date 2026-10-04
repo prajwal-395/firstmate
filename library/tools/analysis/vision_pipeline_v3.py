@@ -26,6 +26,7 @@ Usage:
 """
 
 import argparse
+from contextlib import contextmanager
 import json
 import math
 import queue
@@ -59,7 +60,10 @@ from model_lifecycle import managed_model
 # (conftest already has the root on sys.path) and fails only in a run.
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
-from library.tools.heavy_work_lock import heavy_work_locked
+from library.tools.heavy_work_lock import (
+    heavy_work_lock,
+    heavy_work_reservation,
+)
 from library.tools import perf_ledger
 from library.tools.analysis import measurement_layers, picture_quality
 from library.tools.camera_stability import read_camera_stability
@@ -74,6 +78,30 @@ from library.tools.segment_coverage import (
 # ═══════════════════════════════════════════════════════════════════════
 
 MODEL_ID = "mlx-community/gemma-4-12b-it-4bit"
+_LOCAL_GEMMA_INFERENCE = threading.Lock()
+
+
+@contextmanager
+def _semantic_model_memory_reservation():
+    """Keep the loaded Gemma weights reserved across non-local waits.
+
+    Lock order is RAM reservation first, then an independently admitted
+    CPU/GPU inference section. The inference grant is RAM-free and always
+    released before returning to host work or unloading the model.
+    """
+    with heavy_work_reservation(
+            "Gemma semantic model memory", "semantics.analyse:model_memory",
+            nested_profiles=("semantics.analyse:inference",)):
+        yield
+
+
+@contextmanager
+def _semantic_inference_admission():
+    """Serialize local Gemma calls under a short CPU/GPU scheduler grant."""
+    with _LOCAL_GEMMA_INFERENCE:
+        with heavy_work_lock("Gemma semantic inference",
+                             "semantics.analyse:inference"):
+            yield
 
 # The cached measurement layers of a profile and the entry points whose
 # reached code is each one's method identity
@@ -693,20 +721,21 @@ class VisionAnalyzer:
             )
 
         t0 = time.time()
-        with perf_ledger.span("gemma_inference", backend="mlx_vlm",
-                              model=MODEL_ID, calls=1) as cost:
-            r = generate(
-                self.model, self.proc,
-                prompt=formatted,
-                image=images,
-                video=video,
-                audio=audio,
-                max_tokens=max_tokens,
-                temperature=0.1,
-                verbose=False,
-            )
-            cost["input_tokens"] = getattr(r, "prompt_tokens", None)
-            cost["output_tokens"] = getattr(r, "generation_tokens", None)
+        with _semantic_inference_admission():
+            with perf_ledger.span("gemma_inference", backend="mlx_vlm",
+                                  model=MODEL_ID, calls=1) as cost:
+                r = generate(
+                    self.model, self.proc,
+                    prompt=formatted,
+                    image=images,
+                    video=video,
+                    audio=audio,
+                    max_tokens=max_tokens,
+                    temperature=0.1,
+                    verbose=False,
+                )
+                cost["input_tokens"] = getattr(r, "prompt_tokens", None)
+                cost["output_tokens"] = getattr(r, "generation_tokens", None)
         elapsed = time.time() - t0
         text = r.text if hasattr(r, "text") else str(r)
         return text, elapsed
@@ -735,17 +764,18 @@ class VisionAnalyzer:
             formatted = apply_chat_template(
                 self.proc, self.model.config, prompt,
                 num_images=len(images))
-            with perf_ledger.span(
-                    "gemma_inference", backend="mlx_vlm", model=MODEL_ID,
-                    calls=1) as cost:
-                result = generate(
-                    self.model, self.proc, prompt=formatted,
-                    image=list(images), max_tokens=max_tokens,
-                    temperature=0.1, verbose=False)
-                cost["input_tokens"] = getattr(
-                    result, "prompt_tokens", None)
-                cost["output_tokens"] = getattr(
-                    result, "generation_tokens", None)
+            with _semantic_inference_admission():
+                with perf_ledger.span(
+                        "gemma_inference", backend="mlx_vlm",
+                        model=MODEL_ID, calls=1) as cost:
+                    result = generate(
+                        self.model, self.proc, prompt=formatted,
+                        image=list(images), max_tokens=max_tokens,
+                        temperature=0.1, verbose=False)
+                    cost["input_tokens"] = getattr(
+                        result, "prompt_tokens", None)
+                    cost["output_tokens"] = getattr(
+                        result, "generation_tokens", None)
             text = (result.text if hasattr(result, "text")
                     else str(result))
         else:
@@ -757,7 +787,8 @@ class VisionAnalyzer:
                 prompt, list(images), harness=self.harness,
                 project_folder=self.project_folder, step_id=self.step_id,
                 label="objects", max_tokens=max_tokens,
-                route_metadata=route)
+                route_metadata=route,
+                inference_admission=_semantic_inference_admission)
             if executor == "cloud" and route.get("backend") != "host":
                 raise RuntimeError(
                     "cloud still executor did not receive a host answer")
@@ -3294,29 +3325,64 @@ class _LazyAnalyzer:
 
     The managed-model lifetime `run_pipeline` always had, entered only
     when a pass actually runs: a compose from cached layers never loads
-    gemma.
+    gemma. Its RAM reservation spans that lifetime. The CPU/GPU lease is
+    taken only for the load, unload and individual local inference calls.
     """
 
     def __init__(self, harness, project_folder):
         self._args = (harness, project_folder)
         self._analyzer = None
         self._context = None
+        self._memory_context = None
+        self._load_lock = threading.RLock()
+
+    def _ensure_loaded(self):
+        with self._load_lock:
+            if self._analyzer is not None:
+                return
+
+            memory_context = _semantic_model_memory_reservation()
+            memory_context.__enter__()
+            context = managed_model("gemma-4", lambda: load(MODEL_ID))
+            entered = False
+            try:
+                with _semantic_inference_admission():
+                    model, proc = context.__enter__()
+                    entered = True
+                harness, project_folder = self._args
+                analyzer = VisionAnalyzer(
+                    model, proc, harness=harness,
+                    project_folder=project_folder)
+            except BaseException:
+                if entered:
+                    with _semantic_inference_admission():
+                        context.__exit__(None, None, None)
+                memory_context.__exit__(None, None, None)
+                raise
+
+            self._memory_context = memory_context
+            self._context = context
+            self._analyzer = analyzer
 
     def __getattr__(self, name):
-        if self._analyzer is None:
-            self._context = managed_model("gemma-4", lambda: load(MODEL_ID))
-            model, proc = self._context.__enter__()
-            harness, project_folder = self._args
-            self._analyzer = VisionAnalyzer(model, proc, harness=harness,
-                                            project_folder=project_folder)
+        self._ensure_loaded()
         return getattr(self._analyzer, name)
 
     def __enter__(self):
         return self
 
     def __exit__(self, *exc):
-        if self._context is not None:
-            return self._context.__exit__(*exc)
+        with self._load_lock:
+            if self._context is not None:
+                with _semantic_inference_admission():
+                    result = self._context.__exit__(*exc)
+                # managed_model has now unloaded its weights. Only then may
+                # the persistent RAM reservation be released.
+                self._memory_context.__exit__(*exc)
+                self._context = None
+                self._memory_context = None
+                self._analyzer = None
+                return result
         return False
 
 
@@ -3843,7 +3909,6 @@ def _write_vision_index(all_profiles, skipped, total_start, output_dir):
     return index
 
 
-@heavy_work_locked("Gemma video analysis", "semantics.analyse:inference")
 def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
                  harness=None, project_folder=None):
     """Run the v3 vision pipeline on a list of clip paths.

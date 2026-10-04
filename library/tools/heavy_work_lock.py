@@ -47,6 +47,7 @@ MACHINE = "machine"
 
 _state_guard = threading.Lock()
 _held_state: dict | None = None
+_memory_reservation: dict | None = None
 _F = TypeVar("_F", bound=Callable)
 
 
@@ -87,6 +88,14 @@ def take_heavy_lock(owner: str, profile: str = MACHINE,
             _held_state["depth"] += 1
             return
 
+        if (_memory_reservation is not None
+                and profile not in _memory_reservation["nested_profiles"]):
+            raise GrantTooSmall(
+                f"heavy-work: {owner!r} requested {profile!r} while holding "
+                f"a persistent memory reservation; only its declared "
+                f"admissions {_memory_reservation['nested_profiles']} may "
+                "be nested")
+
         inherited = os.environ.get(OWNER_ENV)
         held = _inherited_grant()
         if held is not None:
@@ -115,6 +124,83 @@ def take_heavy_lock(owner: str, profile: str = MACHINE,
                        "demand": demand, "previous_env": inherited,
                        "profile": profile, "sampler": sampler}
         os.environ[OWNER_ENV] = token
+
+
+def take_heavy_memory_reservation(
+        owner: str, profile: str, nested_profiles: tuple[str, ...],
+        cancelled: Callable[[], bool] | None = None) -> None:
+    """Hold a RAM-only reservation while weights remain resident.
+
+    Scoped admissions are separate scheduler jobs, acquired after this
+    reservation. They must not demand RAM, which fixes the order as
+    memory reservation -> inference admission and leaves no reverse edge
+    that could deadlock. Ordinary nested grants remain subject to
+    ``GrantTooSmall``.
+    """
+    global _memory_reservation
+    demand = resource_scheduler.demand_for(profile)
+    if set(demand) != {"ram_gb"}:
+        raise ValueError(
+            f"heavy-work: persistent reservation {profile!r} must demand "
+            "RAM only")
+    admissions = {}
+    for nested_profile in nested_profiles:
+        nested_demand = resource_scheduler.demand_for(nested_profile)
+        if "ram_gb" in nested_demand:
+            raise ValueError(
+                f"heavy-work: nested admission {nested_profile!r} may not "
+                "demand RAM under a persistent memory reservation")
+        admissions[nested_profile] = nested_demand
+
+    # The state guard makes the hierarchy a real process-local contract:
+    # an inference admission cannot start ahead of this RAM reservation.
+    # It is safe to wait here because we refuse an existing ordinary grant
+    # or inherited token before entering the scheduler.
+    with _state_guard:
+        if _held_state is not None:
+            raise GrantTooSmall(
+                f"heavy-work: {owner!r} must reserve model memory before "
+                "taking any ordinary grant")
+        inherited = _inherited_grant()
+        if inherited is not None:
+            raise GrantTooSmall(
+                f"heavy-work: {owner!r} must reserve model memory outside "
+                f"an inherited grant of {inherited}")
+        if _memory_reservation is not None:
+            raise RuntimeError(
+                "heavy-work: only one persistent memory reservation may be "
+                "active in a process")
+
+        sampler = resource_scheduler.TreeSampler()
+        try:
+            token = _scheduler().acquire(
+                owner, demand, announce=lambda line: print(line, flush=True),
+                cancelled=cancelled)
+        except BaseException:
+            sampler.stop()
+            raise
+        _memory_reservation = {
+            "token": token, "profile": profile, "demand": demand,
+            "sampler": sampler, "nested_profiles": frozenset(admissions),
+        }
+
+
+def release_heavy_memory_reservation() -> None:
+    """Release the RAM reservation after its model has been unloaded."""
+    global _memory_reservation
+    with _state_guard:
+        held = _memory_reservation
+        if held is None:
+            raise RuntimeError(
+                "heavy-work: memory reservation release without an "
+                "acquisition")
+        if _held_state is not None:
+            raise RuntimeError(
+                "heavy-work: cannot release model memory during an active "
+                "admission")
+        _scheduler().release(held["token"], held["profile"],
+                             held["sampler"].stop())
+        _memory_reservation = None
 
 
 def release_heavy_lock() -> None:
@@ -151,6 +237,25 @@ def heavy_work_lock(owner: str, profile: str = MACHINE,
         yield
     finally:
         release_heavy_lock()
+
+
+@contextmanager
+def heavy_work_reservation(owner: str, profile: str, *,
+                           nested_profiles: tuple[str, ...],
+                           cancelled: Callable[[], bool] | None = None
+                           ) -> Iterator[None]:
+    """Reserve persistent RAM, then allow only named RAM-free admissions.
+
+    Use for a loaded model whose memory stays resident across waits. The
+    nested admission is a separate scheduler job; it is never folded into
+    or grown from this reservation.
+    """
+    take_heavy_memory_reservation(owner, profile, nested_profiles,
+                                  cancelled)
+    try:
+        yield
+    finally:
+        release_heavy_memory_reservation()
 
 
 def heavy_work_locked(owner: str, profile: str = MACHINE

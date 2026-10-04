@@ -1200,13 +1200,26 @@ _REGISTRY: tuple[Operation, ...] = (
                 entry_points=("library.steps.step_1_03_semantic_analysis",),
                 why="Vision reads source files and does not touch Resolve."),
             ExecutionPhase(
+                name="model_memory",
+                resources=(("ram_gb", 8),),
+                lock_sites=(
+                    "library.tools.analysis.vision_pipeline_v3:"
+                    "_semantic_model_memory_reservation",),
+                why="Keep loaded Gemma weights accounted for even while "
+                    "the local inference lane yields to host work.",
+                resource_basis=("RAM 8 GB is the measured resident ceiling: "
+                                "Gemma 4 12B 4-bit used 7.3-7.9 GB "
+                                "resident (docs/GEMMA_SERVER.md 5).")),
+            ExecutionPhase(
                 name="inference",
-                resources=(("cpu", 2), ("gpu", 1), ("ram_gb", 8)),
-                lock_sites=("library.tools.analysis.vision_pipeline_v3:run_pipeline",),
-                why="Gemma inference uses the local model host.",
-                resource_basis=("RAM 8 GB is a measured ceiling: Gemma 4 "
-                                "12B 4-bit used 7.3-7.9 GB resident "
-                                "(docs/GEMMA_SERVER.md 5); CPU 2 is declared.")),
+                resources=(("cpu", 2), ("gpu", 1)),
+                lock_sites=(
+                    "library.tools.analysis.vision_pipeline_v3:"
+                    "_semantic_inference_admission",),
+                why="Admit CPU and GPU only while local Gemma loads, "
+                    "unloads or generates an answer.",
+                resource_basis="CPU 2 is declared; the local Gemma model "
+                               "takes the GPU as one tenant."),
         )),
     ),
     Operation(

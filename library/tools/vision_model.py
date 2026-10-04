@@ -2,6 +2,7 @@ import json
 import os
 import sys
 import time
+from contextlib import nullcontext
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -78,7 +79,8 @@ def _server_chat(content_parts: list, max_tokens: int) -> str:
 
 
 def _via_server_or_fallback(content_parts: list, max_tokens: int, what: str,
-                            route_metadata: dict | None = None):
+                            route_metadata: dict | None = None,
+                            inference_admission=None):
     """Return (text, True) from the server, or (None, False) to run in-process.
 
     Both directions print to stderr, never stdout - a step's stdout is its
@@ -106,7 +108,10 @@ def _via_server_or_fallback(content_parts: list, max_tokens: int, what: str,
         )
         return None, False
     try:
-        text = _server_chat(content_parts, max_tokens)
+        admission = (inference_admission()
+                     if inference_admission is not None else nullcontext())
+        with admission:
+            text = _server_chat(content_parts, max_tokens)
     except _ServerUnusable as exc:
         _set_route("mlx_vlm", MODEL_ID, str(exc))
         print(
@@ -150,32 +155,41 @@ class VisionModel:
             self._load_time = time.time() - t0
             print(f"Model loaded in {self._load_time:.1f}s", file=sys.stderr)
 
-    def _generate(self, **kwargs):
-        with perf_ledger.span("gemma_inference", backend="mlx_vlm",
-                              model=MODEL_ID, calls=1) as cost:
-            r = generate(self._model, self._proc, **kwargs)
-            cost["input_tokens"] = getattr(r, "prompt_tokens", None)
-            cost["output_tokens"] = getattr(r, "generation_tokens", None)
+    def _generate(self, *, inference_admission=None, **kwargs):
+        admission = (inference_admission()
+                     if inference_admission is not None else nullcontext())
+        with admission:
+            with perf_ledger.span("gemma_inference", backend="mlx_vlm",
+                                  model=MODEL_ID, calls=1) as cost:
+                r = generate(self._model, self._proc, **kwargs)
+                cost["input_tokens"] = getattr(r, "prompt_tokens", None)
+                cost["output_tokens"] = getattr(r, "generation_tokens", None)
         return r
 
     def analyze_image(self, image_path: str, prompt: str, max_tokens: int = 600,
-                      _route_metadata: dict | None = None) -> str:
+                      _route_metadata: dict | None = None,
+                      inference_admission=None) -> str:
         """Analyze a single image."""
         parts = [
             {"type": "text", "text": prompt},
             {"type": "image_url", "image_url": {"url": image_path}},
         ]
         text, via_server = _via_server_or_fallback(
-            parts, max_tokens, "analyze_image", _route_metadata)
+            parts, max_tokens, "analyze_image", _route_metadata,
+            inference_admission)
         if via_server:
             return text
-        self._ensure_loaded()
+        admission = (inference_admission()
+                     if inference_admission is not None else nullcontext())
+        with admission:
+            self._ensure_loaded()
         
         formatted = apply_chat_template(
             self._proc, self._model.config, prompt, num_images=1
         )
         
         r = self._generate(
+            inference_admission=inference_admission,
             prompt=formatted,
             image=[image_path],
             max_tokens=max_tokens,
@@ -186,23 +200,29 @@ class VisionModel:
 
     def analyze_images(self, image_paths: List[str], prompt: str,
                        max_tokens: int = 800,
-                       _route_metadata: dict | None = None) -> str:
+                       _route_metadata: dict | None = None,
+                       inference_admission=None) -> str:
         """Analyze multiple images."""
         parts = [{"type": "text", "text": prompt}]
         parts += [
             {"type": "image_url", "image_url": {"url": p}} for p in image_paths
         ]
         text, via_server = _via_server_or_fallback(
-            parts, max_tokens, "analyze_images", _route_metadata)
+            parts, max_tokens, "analyze_images", _route_metadata,
+            inference_admission)
         if via_server:
             return text
-        self._ensure_loaded()
+        admission = (inference_admission()
+                     if inference_admission is not None else nullcontext())
+        with admission:
+            self._ensure_loaded()
         
         formatted = apply_chat_template(
             self._proc, self._model.config, prompt, num_images=len(image_paths)
         )
         
         r = self._generate(
+            inference_admission=inference_admission,
             prompt=formatted,
             image=image_paths,
             max_tokens=max_tokens,
@@ -211,16 +231,22 @@ class VisionModel:
         )
         return r.text if hasattr(r, "text") else str(r)
 
-    def analyze_video(self, video_path: str, prompt: str, max_tokens: int = 800) -> str:
+    def analyze_video(self, video_path: str, prompt: str, max_tokens: int = 800,
+                      inference_admission=None) -> str:
         """Analyze a video file natively."""
         parts = [
             {"type": "text", "text": prompt},
             {"type": "video_url", "video_url": {"url": video_path}},
         ]
-        text, via_server = _via_server_or_fallback(parts, max_tokens, "analyze_video")
+        text, via_server = _via_server_or_fallback(
+            parts, max_tokens, "analyze_video",
+            inference_admission=inference_admission)
         if via_server:
             return text
-        self._ensure_loaded()
+        admission = (inference_admission()
+                     if inference_admission is not None else nullcontext())
+        with admission:
+            self._ensure_loaded()
         
         prompt_with_video = f"<|video|>{prompt}"
         formatted = apply_chat_template(
@@ -228,6 +254,7 @@ class VisionModel:
         )
         
         r = self._generate(
+            inference_admission=inference_admission,
             prompt=formatted,
             video=video_path,
             max_tokens=max_tokens,

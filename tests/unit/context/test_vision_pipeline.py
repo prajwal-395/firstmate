@@ -1,5 +1,6 @@
 import json
 import pytest
+from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 from pathlib import Path
 import os
@@ -27,6 +28,7 @@ import urllib.error
 import urllib.request
 from types import SimpleNamespace
 from library.tools.gemma_shim import GemmaShim, ShimConfig, server_scope
+from library.tools import heavy_work_lock, resource_scheduler
 
 
 # Mock heavy mlx_vlm dependency before importing vision_pipeline_v3
@@ -829,7 +831,7 @@ def test_failed_host_object_branch_writes_no_partial_profile(
     monkeypatch.setattr(vp, "analyze_objects_coarse_batch", fail_objects)
 
     with pytest.raises(RuntimeError, match="recorded object-branch failure"):
-        vp.run_pipeline.__wrapped__(
+        vp.run_pipeline(
             [source], cache_dir=tmp_path / "cache", output_dir=output_dir,
             force=True, harness="agent", project_folder=str(tmp_path))
 
@@ -2243,3 +2245,79 @@ def test_shim_exits_only_after_backend_stopped(ports, fake_backend_script):
             _get(f"http://127.0.0.1:{shim_port}/_shim/status", timeout=5)
     finally:
         shim.stop()
+
+
+def test_lazy_semantic_model_holds_ram_but_not_gpu_during_host_wait(
+        tmp_path, monkeypatch):
+    """Use fakes to check the lease lifecycle without Gemma or a host."""
+    lock_dir = tmp_path / "heavy-work.lock"
+    monkeypatch.setattr(heavy_work_lock, "HEAVY_LOCK_DIR", lock_dir)
+    monkeypatch.setattr(resource_scheduler, "capacity", lambda: {
+        "resolve_cursor": 1, "resolve_render": 1, "cpu": 10, "gpu": 1,
+        "ram_gb": 16, "disk": 4})
+    scheduler = resource_scheduler.Scheduler(lock_dir)
+    model = SimpleNamespace(config=SimpleNamespace(revision="fake"))
+    memory_demand = {"ram_gb": 8}
+    inference_demand = {"cpu": 2, "gpu": 1}
+    host_waiting = threading.Event()
+    release_host = threading.Event()
+    failures = []
+
+    @contextmanager
+    def fake_managed_model(_name, _loader):
+        assert {tuple(sorted(job["demand"].items()))
+                for job in scheduler.jobs()} == {
+                    tuple(sorted(memory_demand.items())),
+                    tuple(sorted(inference_demand.items())),
+                }
+        yield model, object()
+        # _LazyAnalyzer unloads under inference admission, then drops RAM.
+        assert {tuple(sorted(job["demand"].items()))
+                for job in scheduler.jobs()} == {
+                    tuple(sorted(memory_demand.items())),
+                    tuple(sorted(inference_demand.items())),
+                }
+
+    def fake_generate(*_args, **_kwargs):
+        assert inference_demand in [job["demand"]
+                                    for job in scheduler.jobs()]
+        return SimpleNamespace(text="local answer", prompt_tokens=1,
+                               generation_tokens=1)
+
+    def wait_for_host(*_args, **_kwargs):
+        host_waiting.set()
+        if not release_host.wait(3):
+            raise TimeoutError("test host wait was not released")
+        return "host answer"
+
+    monkeypatch.setattr(vp, "managed_model", fake_managed_model)
+    monkeypatch.setattr(vp, "apply_chat_template", lambda *_a, **_k: "prompt")
+    monkeypatch.setattr(vp, "generate", fake_generate)
+    from library.tools import still_vision
+    monkeypatch.setattr(still_vision, "request_host_answer", wait_for_host)
+
+    with vp._LazyAnalyzer("agent", str(tmp_path)) as analyzer:
+        local_text, _elapsed = analyzer.analyze("local", video="clip.mov")
+        assert local_text == "local answer"
+        assert [job["demand"] for job in scheduler.jobs()] == [memory_demand]
+
+        def ask_host():
+            try:
+                results.append(analyzer.analyze(
+                    "host", images=["frame.jpg"]))
+            except BaseException as exc:
+                failures.append(exc)
+
+        results = []
+        host_thread = threading.Thread(target=ask_host)
+        host_thread.start()
+        assert host_waiting.wait(2), "host request did not start"
+        # The local inference job was released before the external wait.
+        assert [job["demand"] for job in scheduler.jobs()] == [memory_demand]
+        release_host.set()
+        host_thread.join(timeout=3)
+        assert not host_thread.is_alive()
+        assert failures == []
+        assert results[0][0] == "host answer"
+
+    assert scheduler.jobs() == []

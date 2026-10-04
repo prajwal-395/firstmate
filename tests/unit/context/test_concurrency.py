@@ -365,8 +365,9 @@ def test_waiter_names_live_holder_once_and_waits_for_release(
 
 def test_capability_resource_profiles_are_derived_from_execution_policy():
     profiles = resource_scheduler.profiles()
+    assert profiles["semantics.analyse:model_memory"] == {"ram_gb": 8}
     assert profiles["semantics.analyse:inference"] == {
-        "cpu": 2, "gpu": 1, "ram_gb": 8}
+        "cpu": 2, "gpu": 1}
     assert profiles["render.build:render"]["resolve_cursor"] == 1
     assert "local_vlm" not in profiles
     assert "resolve_render" not in profiles
@@ -494,3 +495,59 @@ def test_a_nested_section_cannot_grow_its_grant(tmp_path, monkeypatch):
     with heavy_work_lock.heavy_work_lock("outer", "reel.build:placement"):
         with pytest.raises(heavy_work_lock.GrantTooSmall):
             heavy_work_lock.take_heavy_lock("render", "render.build:render")
+
+
+def test_model_memory_reservation_admits_only_bounded_nested_inference(
+        scheduler, monkeypatch):
+    """RAM stays held while GPU admissions come and go in a fixed order."""
+    monkeypatch.setattr(heavy_work_lock, "HEAVY_LOCK_DIR",
+                        scheduler.legacy_dir)
+    memory_profile = "semantics.analyse:model_memory"
+    inference_profile = "semantics.analyse:inference"
+
+    with heavy_work_lock.heavy_work_reservation(
+            "semantic weights", memory_profile,
+            nested_profiles=(inference_profile,)):
+        assert [job["demand"] for job in scheduler.jobs()] == [
+            {"ram_gb": 8}]
+        with pytest.raises(heavy_work_lock.GrantTooSmall):
+            with heavy_work_lock.heavy_work_lock(
+                    "unlisted nested work", "full_suite_gate"):
+                pass
+
+        with heavy_work_lock.heavy_work_lock(
+                "semantic inference", inference_profile):
+            demands = [job["demand"] for job in scheduler.jobs()]
+            assert {"ram_gb": 8} in demands
+            assert {"cpu": 2, "gpu": 1} in demands
+            assert len(demands) == 2
+
+            competing, box = _acquire_in_thread(
+                scheduler, "second inference", inference_profile)
+            assert not competing.wait(0.1), "the GPU admits one tenant"
+
+        assert competing.wait(5)
+        scheduler.release(box[0])
+        assert [job["demand"] for job in scheduler.jobs()] == [
+            {"ram_gb": 8}]
+
+    assert scheduler.jobs() == []
+
+
+def test_memory_reservation_must_be_outermost_and_ram_only(
+        scheduler, monkeypatch):
+    monkeypatch.setattr(heavy_work_lock, "HEAVY_LOCK_DIR",
+                        scheduler.legacy_dir)
+    with heavy_work_lock.heavy_work_lock(
+            "ordinary grant", "semantics.analyse:inference"):
+        with pytest.raises(heavy_work_lock.GrantTooSmall):
+            with heavy_work_lock.heavy_work_reservation(
+                    "late memory", "semantics.analyse:model_memory",
+                    nested_profiles=("semantics.analyse:inference",)):
+                pass
+
+    with pytest.raises(ValueError, match="RAM only"):
+        with heavy_work_lock.heavy_work_reservation(
+                "not a memory profile", "semantics.analyse:inference",
+                nested_profiles=()):
+            pass

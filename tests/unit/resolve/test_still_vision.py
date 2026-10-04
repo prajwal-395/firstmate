@@ -316,7 +316,8 @@ def test_analyzer_gemma_path_files_no_handshake(tmp_path, monkeypatch):
     monkeypatch.delenv(still_vision.HARNESS_ENV_VAR, raising=False)
     monkeypatch.setattr(
         still_vision, "answer_via_gemma",
-        lambda prompt, images, max_tokens=800, route_metadata=None: "gemma text")
+        lambda prompt, images, max_tokens=800, route_metadata=None,
+        **_kwargs: "gemma text")
 
     project = tmp_path / "proj"
     project.mkdir()
