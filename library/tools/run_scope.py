@@ -600,6 +600,15 @@ def resolve(selection: Selection,
     _reject_unknown(selection, known, always_include)
 
     needs = prerequisites(dag, manifests)
+    # Some executable requirements need a producer's verdict but do not
+    # consume that verdict as an input. They still pull the producer into a
+    # selected consumer's scope; the runner uses the same declaration as a
+    # readiness dependency once both nodes are selected.
+    from library.tools import requirements as requirement_registry
+    readiness_by_consumer: Dict[str, Set[str]] = {}
+    for producer, consumer in requirement_registry.readiness_edges(
+            known, requirement_registry.HAND_WRITTEN):
+        readiness_by_consumer.setdefault(consumer, set()).add(producer)
     recorded = {node_id: output
                 for node_id, output in recorded_outputs(state).items()
                 if node_id not in set(invalidated)}
@@ -655,6 +664,12 @@ def resolve(selection: Selection,
                 continue
             if producer in DESELECTED_BY_DEFAULT and producer not in named \
                     and producer not in set(selection.skip):
+                pulled_in.add(producer)
+            queue.append(producer)
+        for producer in readiness_by_consumer.get(node_id, set()):
+            if producer in set(selection.skip):
+                continue
+            if producer in DESELECTED_BY_DEFAULT and producer not in named:
                 pulled_in.add(producer)
             queue.append(producer)
 
@@ -725,6 +740,14 @@ def resolve(selection: Selection,
             if all(need.names_a_key and need.state_key in external
                    for need in producer_needs):
                 continue
+            if producer not in wanted:
+                queue.append(producer)
+        for producer in readiness_by_consumer.get(node_id, set()):
+            if producer in set(selection.skip):
+                continue
+            if producer in off_by_default:
+                off_by_default.remove(producer)
+                pulled_in.add(producer)
             if producer not in wanted:
                 queue.append(producer)
 

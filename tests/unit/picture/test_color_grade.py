@@ -1172,7 +1172,8 @@ class TestCompileMerge:
         with _patch(
                 "library.steps.step_5_04_compile_manifest.step.load",
                 side_effect=lambda out_dir, filename: inputs):
-            manifest = compile_manifest(str(tmp_path))
+            manifest = compile_manifest(
+                str(tmp_path), object_segmentation=[{"clip_id": "c1"}])
 
         per_clip = manifest["fusion_effects"]["per_clip"]
         assert per_clip, "the subject grade reached no clip"
@@ -1183,6 +1184,33 @@ class TestCompileMerge:
         assert manifest["subject_grade_drops"] == []
         assert len(manifest["subject_mattes"]) == 1
         assert subject_grade.validate_matte(manifest["subject_mattes"][0]) == []
+
+    def test_unreported_old_mask_is_not_reused(self, tmp_path):
+        import json as _json
+        from unittest.mock import patch as _patch
+
+        from library.steps.step_5_04_compile_manifest.step import compile_manifest
+
+        seg_dir = tmp_path / "1_06_object_segmentation"
+        seg_dir.mkdir()
+        seg = _seg_result(frames=4, shape=(24, 32))
+        (seg_dir / "c1_segmentation.json").write_text(_json.dumps(seg))
+
+        source = os.path.abspath(__file__)
+        entry = {"clip_id": "c1",
+                 "target": {"kind": "person", "role": "speaker"},
+                 "scope": "subject-only",
+                 "grade": {"gain": 1.173}}
+        inputs = _compile_inputs(source, [entry])
+        with _patch(
+                "library.steps.step_5_04_compile_manifest.step.load",
+                side_effect=lambda out_dir, filename: inputs):
+            manifest = compile_manifest(str(tmp_path), object_segmentation=[])
+
+        assert manifest["fusion_effects"]["per_clip"] == {}
+        assert len(manifest["subject_grade_drops"]) == 1
+        assert manifest["subject_grade_drops"][0]["reason"] == (
+            "no_segmentation")
 
     def test_ungrounded_entry_is_a_manifest_drop(self, tmp_path):
         from unittest.mock import patch as _patch

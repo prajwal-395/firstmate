@@ -55,7 +55,7 @@ import argparse
 import copy
 import multiprocessing
 import tempfile
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from pathlib import Path
 from collections import deque
 import re
@@ -89,6 +89,26 @@ from library.tools import run_profile
 logger = logging.getLogger(__name__)
 
 MAX_PARALLEL_STEPS = 4
+
+
+def _next_completed_node(in_flight: dict, step_order: list) -> str | None:
+    """Reap one finished worker in stable DAG order.
+
+    Waiting is for *any* worker, never for the next node in topological
+    order. If several workers have finished by the time the coordinator
+    observes them, the DAG's stable order breaks that tie.
+    """
+    if not in_flight:
+        return None
+
+    futures = [task["future"] for task in in_flight.values()]
+    if not any(future.done() for future in futures):
+        wait(futures, return_when=FIRST_COMPLETED)
+
+    priority = {node_id: index for index, node_id in enumerate(step_order)}
+    completed = [node_id for node_id, task in in_flight.items()
+                 if task["future"].done()]
+    return min(completed, key=priority.__getitem__) if completed else None
 
 class PreBridgeError(Exception): pass
 class PostBridgeError(Exception): pass
@@ -274,18 +294,22 @@ def topological_sort(dag: dict) -> list:
 
 
 def ready_set(dag: dict, selected: list, satisfied: set,
-              running: set = frozenset(), blocked: set = frozenset()) -> list:
+              running: set = frozenset(), blocked: set = frozenset(),
+              extra_edges=()) -> list:
     """Return selected nodes whose in-run predecessors have committed.
 
-    Edges are the sole source of scheduling dependencies. Nodes outside
-    ``selected`` are already satisfied by the run-scope resolver, which
-    checked prior state and verified external inputs before execution.
+    DAG edges and explicit requirement readiness dependencies are honored.
+    Nodes outside ``selected`` are already satisfied by the run-scope
+    resolver, which checked prior state and verified external inputs.
     """
     selected_set = set(selected)
     parents = {node_id: set() for node_id in selected_set}
     for edge in dag["edges"]:
         target = edge["to"]
         source = edge["from"]
+        if target in selected_set and source in selected_set:
+            parents[target].add(source)
+    for source, target in extra_edges:
         if target in selected_set and source in selected_set:
             parents[target].add(source)
     return [node_id for node_id in selected
@@ -2790,10 +2814,14 @@ def run_pipeline(
         print(f"  Archived previous run traces to {archived}", file=sys.stderr)
 
     selected_nodes = set(steps_to_run)
+    requirement_edges = requirements.readiness_edges(
+        steps_to_run, requirements.all_requirements(dag, manifests))
     selected_parents = {node_id: set() for node_id in selected_nodes}
     for edge in dag["edges"]:
         if edge["to"] in selected_nodes and edge["from"] in selected_nodes:
             selected_parents[edge["to"]].add(edge["from"])
+    for producer, consumer in requirement_edges:
+        selected_parents[consumer].add(producer)
     dependency_complete = set()
     dependency_blocked = set()
     in_flight = {}
@@ -2861,7 +2889,122 @@ def run_pipeline(
                     for prefix in prefixes)
         }
 
-    for step_index, node_id in enumerate(steps_to_run):
+    def coordinated_order():
+        """Yield one node for the runner to commit, then replan readiness.
+
+        Manual and review-gated runs retain their serial order. Full-auto
+        runs dispatch graph-ready workers, wait for any completion, and
+        yield finished work in stable DAG order. Because the runner's commit
+        body is the consumer of this iterator, readiness is recalculated
+        immediately after each result has been validated and recorded.
+        """
+        nonlocal scheduler_halted
+        if executor is None:
+            yield from enumerate(steps_to_run)
+            return
+
+        pending = set(steps_to_run)
+        order_index = {node_id: index
+                       for index, node_id in enumerate(steps_to_run)}
+        while pending:
+            pending_predecessors = {
+                node_id for node_id in pending
+                if selected_parents[node_id]
+                & (set(failed) | dependency_blocked)
+            }
+            if pending_predecessors:
+                node_id = min(pending_predecessors,
+                              key=order_index.__getitem__)
+                pending.remove(node_id)
+                yield order_index[node_id], node_id
+                continue
+
+            if run_control.hold_requested(project_dir):
+                scheduler_halted = True
+
+            if not scheduler_halted:
+                ready = ready_set(
+                    dag, steps_to_run, dependency_complete, set(in_flight),
+                    set(failed) | dependency_blocked | set(awaiting_llm)
+                    | ({paused_at_gate} if paused_at_gate else set()),
+                    extra_edges=requirement_edges,
+                )
+                ready = [node_id for node_id in ready
+                         if node_id in pending]
+
+                # A previously completed node may carry a revised gate
+                # output. Apply that revision before dispatching any newly
+                # unblocked consumers against the old state.
+                reusable = [node_id for node_id in ready
+                            if step_ledger.is_completed(state, node_id)]
+                if reusable:
+                    node_id = min(reusable, key=order_index.__getitem__)
+                    pending.remove(node_id)
+                    yield order_index[node_id], node_id
+                    continue
+
+                for candidate in ready:
+                    if len(in_flight) >= worker_limit:
+                        break
+                    candidate_node = nodes[candidate]
+                    candidate_dir = get_step_dir(candidate_node)
+                    candidate_impl = get_step_implementation(candidate_dir)
+                    try:
+                        candidate_inputs = gather_step_inputs(
+                            candidate, dag, state,
+                            manifest=candidate_impl.get("manifest"),
+                            step_type=candidate_impl.get("type", "unknown"),
+                            external=external)
+                    except Exception:
+                        # Let the ordinary runner path surface this input
+                        # contract failure when this node is selected.
+                        continue
+                    candidate_notes = ((candidate_inputs.get("timeline_notes")
+                                        or {}).get("notes") or [])
+                    if candidate_notes:
+                        from library.tools import marker_routing as _marker_routing
+                        _marker_routing.record_delivery(
+                            project_dir, candidate,
+                            [note.get("note_id") for note in candidate_notes])
+
+                    baseline = _provenance.snapshot()
+                    worker_impl = dict(candidate_impl)
+                    worker_impl["node"] = candidate_node
+                    future = executor.submit(
+                        _run_step_work, project_dir, candidate, worker_impl,
+                        copy.deepcopy(candidate_inputs), auto_mode,
+                        worker_full_auto, llm_timeout, _run_id)
+                    in_flight[candidate] = {
+                        "future": future,
+                        "inputs": candidate_inputs,
+                        "artifacts_before": baseline,
+                        "impl": candidate_impl,
+                    }
+                    worker_started_at[candidate] = time.strftime(
+                        "%Y-%m-%dT%H:%M:%S")
+                    print(f"     ↗ Dispatched ready step {candidate}",
+                          file=sys.stderr)
+                    run_control.write_run_status(
+                        project_dir, **active_run_fields())
+
+            if in_flight:
+                node_id = _next_completed_node(in_flight, steps_to_run)
+                if node_id is None:
+                    continue
+                pending.remove(node_id)
+                yield order_index[node_id], node_id
+                continue
+
+            if pending:
+                # With a hold, yield unstarted nodes so the established
+                # handbrake path can record where it stopped. Without a
+                # hold, this also lets the ordinary path report a gather
+                # error instead of silently losing an un-dispatchable node.
+                node_id = min(pending, key=order_index.__getitem__)
+                pending.remove(node_id)
+                yield order_index[node_id], node_id
+
+    for step_index, node_id in coordinated_order():
         pending_predecessors = selected_parents[node_id] & (
             set(failed) | dependency_blocked)
         if pending_predecessors:
@@ -2892,10 +3035,13 @@ def run_pipeline(
                 continue
             if held_before_step is None:
                 held_before_step = next((candidate for candidate in
-                    steps_to_run[step_index + 1:]
-                    if candidate not in in_flight
+                    steps_to_run
+                    if candidate != node_id
+                    and candidate not in in_flight
                     and candidate not in dependency_complete
-                    and candidate not in dependency_blocked), None)
+                    and candidate not in dependency_blocked
+                    and candidate not in failed
+                    and candidate not in awaiting_llm), None)
                 if held_before_step:
                     run_control.write_run_status(
                         project_dir, status="held",
@@ -3057,68 +3203,6 @@ def run_pipeline(
             return _execute_step_once(
                 impl, inputs, node_id, auto_mode, full_auto, llm_timeout)
 
-        # Dispatch every currently ready node in stable topological order.
-        # Workers receive detached input dictionaries and never touch the
-        # runner-owned state or ledgers. The loop below consumes results in
-        # DAG order, so siblings commit through one coordinator.
-        if executor is not None and not scheduler_halted:
-            ready = ready_set(
-                dag, steps_to_run, dependency_complete, set(in_flight),
-                set(failed) | dependency_blocked | set(awaiting_llm)
-                | ({paused_at_gate} if paused_at_gate else set()),
-            )
-            ready = [candidate for candidate in ready
-                     if steps_to_run.index(candidate) >= step_index]
-            for candidate in ready:
-                if len(in_flight) >= worker_limit:
-                    break
-                if step_ledger.is_completed(state, candidate):
-                    continue
-                candidate_node = nodes[candidate]
-                if candidate == node_id:
-                    candidate_impl = impl
-                    candidate_inputs = inputs
-                else:
-                    candidate_dir = get_step_dir(candidate_node)
-                    candidate_impl = get_step_implementation(candidate_dir)
-                    try:
-                        candidate_inputs = gather_step_inputs(
-                            candidate, dag, state,
-                            manifest=candidate_impl.get("manifest"),
-                            step_type=candidate_impl.get("type", "unknown"),
-                            external=external)
-                    except Exception:
-                        # Let the ordinary coordinator path report the
-                        # input-contract failure when the node is reached.
-                        continue
-                    candidate_notes = ((candidate_inputs.get("timeline_notes")
-                                        or {}).get("notes") or [])
-                    if candidate_notes:
-                        from library.tools import marker_routing as _marker_routing
-                        _marker_routing.record_delivery(
-                            project_dir, candidate,
-                            [note.get("note_id") for note in candidate_notes])
-
-                baseline = _provenance.snapshot()
-                worker_impl = dict(candidate_impl)
-                worker_impl["node"] = candidate_node
-                future = executor.submit(
-                    _run_step_work, project_dir, candidate, worker_impl,
-                    copy.deepcopy(candidate_inputs), auto_mode,
-                    worker_full_auto, llm_timeout, _run_id)
-                in_flight[candidate] = {
-                    "future": future,
-                    "inputs": candidate_inputs,
-                    "artifacts_before": baseline,
-                    "impl": candidate_impl,
-                }
-                worker_started_at[candidate] = time.strftime(
-                    "%Y-%m-%dT%H:%M:%S")
-                print(f"     ↗ Dispatched ready step {candidate}",
-                      file=sys.stderr)
-                run_control.write_run_status(
-                    project_dir, **active_run_fields())
-
         _perf = None
         _worker_perf_rows = []
         _worker_perf_row = None
@@ -3129,6 +3213,9 @@ def run_pipeline(
             if node_id in in_flight:
                 task = in_flight.pop(node_id)
                 worker_started_at.pop(node_id, None)
+                if not task["future"].done():
+                    raise RuntimeError(
+                        f"Coordinator selected unfinished worker {node_id}")
                 worker_result = task["future"].result()
                 artifacts_before = task["artifacts_before"]
                 _worker_perf_rows = worker_result["perf_rows"]

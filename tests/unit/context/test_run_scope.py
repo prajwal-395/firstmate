@@ -475,6 +475,19 @@ def test_the_podcast_profile_says_what_the_captain_asked_for(dag, manifests,
     assert profile.breakpoints == ("review_rough_cut",)
 
 
+def test_target_scopes_predicate_producer_without_a_data_mapping(
+        dag, manifests):
+    scope = _resolve(Selection(target="rough_cut_subtitles"), dag,
+                     manifests, external={})
+
+    assert "review_rough_cut" in scope.steps_to_run
+    assert not any(
+        edge["from"] == "review_rough_cut"
+        and edge["to"] == "plan_subtitles"
+        and "rough_cut_review" in (edge.get("data_mapping") or {})
+        for edge in dag["edges"])
+
+
 # ── A profile has no power of its own ────────────────────────────────
 
 def test_a_profile_gets_the_same_refusal_the_flags_get(project, dag,

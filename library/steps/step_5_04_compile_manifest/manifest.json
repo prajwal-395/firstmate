@@ -92,9 +92,15 @@
       },
       {
         "name": "object_segmentation",
+        "type": "array",
+        "required": false,
+        "description": "Optional artifact inventory from step 1.06. Its successful clip IDs gate disk masks so a stale mask from an earlier run is never treated as current."
+      },
+      {
+        "name": "matte_trigger",
         "type": "object",
         "required": false,
-        "description": "State input: object_segmentation from step 1.06 - per-clip results plus the matte_trigger record naming which clips the plans wanted mattes for. OPTIONAL: the masks themselves travel as 1_06_object_segmentation/<clip_id>_segmentation.json files; this key is the provenance the compile grounds against."
+        "description": "Optional plan provenance from step 1.06. The DAG edge is a readiness dependency: its output is committed after segmentation files are written, even when the trigger records no requested mattes. Standalone compilation can read the same record from project state."
       },
       {
         "name": "semantic_analysis",
@@ -119,12 +125,6 @@
         "type": "object",
         "required": true,
         "description": "State input: subtitle_plan"
-      },
-      {
-        "name": "temporal_index",
-        "type": "object",
-        "required": false,
-        "description": "State input: temporal_index. Read for the per-clip face-centre track that drives subject-aware framing (P1.2); optional, and a run without it frames centred."
       },
       {
         "name": "transition_spec",
@@ -158,7 +158,8 @@
     "step_5_02_audio_mix",
     "step_5_03_creative_cohesion",
     "step_3_03_review_rough_cut",
-    "step_4_06_render_motion_graphics"
+    "step_4_06_render_motion_graphics",
+    "step_1_06_object_segmentation"
   ],
   "tags": [
     "data_transformation",

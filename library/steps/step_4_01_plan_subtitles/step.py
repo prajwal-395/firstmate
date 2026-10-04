@@ -14,10 +14,7 @@ Classification: Deterministic / Data Transformation
 Archetype: Data Transformation
 Idempotent: Yes
 
-Input:  {
-    "audio_spine": { structure: [...] },
-    "speech_sequence": { body_sequence (with word_timestamps) }
-}
+Input:  {"audio_spine": {structure: [...]}, "project_fps": number}
 Output: { "subtitle_entries": [...], "total_subtitles": int }
 """
 import json

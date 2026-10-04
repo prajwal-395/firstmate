@@ -19,18 +19,6 @@
         "description": "State input: project_fps from catalog. Used to round a planned card to at least the gate's required frame count; defaults to the reels timeline rate for direct callers."
       },
       {
-        "name": "rough_cut_review",
-        "type": "object",
-        "required": true,
-        "description": "State input: rough_cut_review"
-      },
-      {
-        "name": "speech_sequence",
-        "type": "object",
-        "required": false,
-        "description": "OPTIONAL, and the step's code never names it. 4.01 takes its word timings off the SPINE (step.py:517-533 _require_word_timestamps), not off this key; the docstring's lineage note - produced by 1.04, enriched via bridge 2.02 - runs through mesh_spine. Declared REQUIRED it made a scoped re-plan of one region pay for 2.02 as well, and it was one of the two declarations that made 'regenerate just these subtitles' impossible to express. The requirement it was standing in for is real and is now executable: requirements.spine.word_timings. The edge still routes it - the DAG is unchanged - it is simply no longer a refusal. Surveyed by library/tools/input_contract.py."
-      },
-      {
         "name": "brand_effect",
         "type": "object",
         "required": false,

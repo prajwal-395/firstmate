@@ -1446,9 +1446,13 @@ def assert_overlay_segments_on_disk(manifest: dict) -> None:
                         f"frames but {frame_dir} holds {have}.")
 
 
-def compile_manifest(out_dir: str) -> dict:
+def compile_manifest(out_dir: str, *, object_segmentation=None,
+                     matte_trigger=None) -> dict:
     global _STATE_OUTPUTS
     _STATE_OUTPUTS = _load_state_outputs(out_dir)
+    reported_segmentation_ids = (
+        None if object_segmentation is None else
+        {result["clip_id"] for result in object_segmentation})
 
     # Load pipeline step outputs
     # Pipeline writes files as <step_name>.json; fall back to legacy step_X_YY.json
@@ -2357,6 +2361,9 @@ def compile_manifest(out_dir: str) -> dict:
                 _seg_cache[cid] = None
                 _seg_path = os.path.join(
                     _seg_dir, f"{cid}_segmentation.json")
+                if (reported_segmentation_ids is not None
+                        and cid not in reported_segmentation_ids):
+                    return _seg_cache[cid]
                 if os.path.exists(_seg_path):
                     with open(_seg_path, encoding="utf-8") as f:
                         _seg_cache[cid] = json.load(f)
@@ -2442,6 +2449,9 @@ def compile_manifest(out_dir: str) -> dict:
                 _seg_cache[cid] = None
                 _seg_path = os.path.join(
                     _seg_dir, f"{cid}_segmentation.json")
+                if (reported_segmentation_ids is not None
+                        and cid not in reported_segmentation_ids):
+                    return _seg_cache[cid]
                 if os.path.exists(_seg_path):
                     with open(_seg_path, encoding="utf-8") as f:
                         _seg_cache[cid] = json.load(f)
@@ -3285,8 +3295,10 @@ def compile_manifest(out_dir: str) -> dict:
         # What step 1.06 was asked to segment and why - the trigger
         # stated on the run, carried so the mattes above trace to the
         # plans that wanted them.
-        "matte_trigger": (load(out_dir, "object_segmentation.json")
-                          or {}).get("matte_trigger", {}),
+        "matte_trigger": (
+            matte_trigger if matte_trigger is not None else
+            (load(out_dir, "object_segmentation.json") or {}).get(
+                "matte_trigger", {})),
         "audio_mix": audio_mix_data.get("audio_mix_spec", {}),
         "_spine_blocks": [_spine_block_entry(b) for b in structure],
         "subtitle_overlay": subtitle_overlay_data.get(
@@ -3445,15 +3457,21 @@ def compile_step(inputs: dict) -> dict:
     The `manifest.compile` capability (library/tools/operations.py) and
     the orchestrator's stdin mode both arrive here.  The manifest is
     compiled from the project's recorded state, which `compile_manifest`
-    reads itself (AGENTS.md 10.1), so the gathered inputs contribute the
-    project folder and nothing else.
+    reads itself (AGENTS.md 10.1). The gathered segmentation inventory
+    gates which on-disk masks can be used, and `matte_trigger` is copied
+    into the output as provenance.
     """
     if "project_folder" in inputs:
         out_dir = str(
             ProjectLayout(inputs["project_folder"]).write_dir(Area.OUTPUT_ROOT))
         if os.path.isdir(out_dir):
-            return {"assembly_manifest": compile_manifest(out_dir)}
-    raise RuntimeError("compile_manifest requires project_folder in inputs and a valid pipeline_output dir")
+            return {"assembly_manifest": compile_manifest(
+                out_dir,
+                object_segmentation=inputs.get("object_segmentation"),
+                matte_trigger=inputs.get("matte_trigger"))}
+    raise RuntimeError(
+        "compile_manifest requires a project_folder input and a valid "
+        "pipeline_output dir")
 
 if __name__ == "__main__":
     main()

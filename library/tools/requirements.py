@@ -1695,6 +1695,30 @@ def all_requirements(dag: Optional[dict] = None,
             + list(HAND_WRITTEN))
 
 
+def readiness_edges(run_set: Iterable[str],
+                    requirements: Optional[Sequence[Requirement]] = None
+                    ) -> Tuple[Tuple[str, str], ...]:
+    """Producer-backed predicates are readiness dependencies when selected.
+
+    A predicate can require an answer from a producer without consuming that
+    answer as a step input. Keep that ordering in the execution plan without
+    inventing an unused data edge in the DAG.
+    """
+    selected = set(run_set)
+    pool = (requirements if requirements is not None
+            else all_requirements())
+    edges = {
+        (producer, consumer)
+        for req in pool
+        if req.kind == KIND_PREDICATE
+        for consumer in req.consumers
+        if consumer in selected
+        for producer in req.produced_by
+        if producer in selected
+    }
+    return tuple(sorted(edges))
+
+
 def registry() -> Tuple[Requirement, ...]:
     """The hand-written registry alone - what the anti-vacuity tests walk.
 

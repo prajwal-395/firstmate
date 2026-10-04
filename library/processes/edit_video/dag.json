@@ -344,7 +344,8 @@
       "from": "object_segmentation",
       "to": "compile_manifest",
       "data_mapping": {
-        "object_segmentation": "object_segmentation"
+        "object_segmentation": "object_segmentation",
+        "matte_trigger": "matte_trigger"
       }
     },
     {
@@ -515,13 +516,6 @@
       }
     },
     {
-      "from": "speech_sequence",
-      "to": "plan_subtitles",
-      "data_mapping": {
-        "speech_sequence": "speech_sequence"
-      }
-    },
-    {
       "from": "assign_aroll",
       "to": "plan_transitions",
       "data_mapping": {
@@ -641,13 +635,6 @@
       "to": "creative_cohesion",
       "data_mapping": {
         "sfx_spec": "sfx_spec"
-      }
-    },
-    {
-      "from": "plan_vfx",
-      "to": "creative_cohesion",
-      "data_mapping": {
-        "enhancement_spec": "enhancement_spec"
       }
     },
     {
@@ -772,13 +759,6 @@
       }
     },
     {
-      "from": "temporal_index",
-      "to": "compile_manifest",
-      "data_mapping": {
-        "temporal_event_indices": "temporal_index"
-      }
-    },
-    {
       "from": "semantic_analysis",
       "to": "plan_transitions",
       "data_mapping": {
@@ -883,13 +863,6 @@
       "to": "review_rough_cut",
       "data_mapping": {
         "temporal_event_indices": "temporal_index"
-      }
-    },
-    {
-      "from": "review_rough_cut",
-      "to": "plan_subtitles",
-      "data_mapping": {
-        "rough_cut_review": "rough_cut_review"
       }
     },
     {
