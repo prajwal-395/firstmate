@@ -47,6 +47,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from typing import Mapping
 
 #: How many hex characters of the drawing digest a filename carries.
 #: Uniqueness never rested on the readable half - the sidecar key is
@@ -75,7 +76,7 @@ def short_digest(full: str) -> str:
 
 
 def renderer_fingerprint(remotion_dir: str) -> str:
-    """The identity of the code and fonts that turn props into pixels.
+    """The identity of the code, dependencies and fonts that draw pixels.
 
     Props do NOT capture the Remotion composition or the bundled font,
     so a drawing digest alone would skip every segment forever after
@@ -94,55 +95,108 @@ def renderer_fingerprint(remotion_dir: str) -> str:
     path and re-renders on the other.
     """
     root = Path(remotion_dir)
-    parts = []
-    for pattern in ("src/**/*.tsx", "src/**/*.ts", "public/fonts/*"):
+    # A source edit, a CSS edit, or a dependency-lock update can all
+    # change the pixels without changing the card props. Require the
+    # dependency declaration and lock: an incomplete renderer tree is
+    # not evidence that the current engine matches a recorded render.
+    required = (root / "package.json", root / "package-lock.json",
+                root / "public/fonts/Montserrat-Variable.ttf")
+    if any(not path.is_file() for path in required):
+        return ""
+
+    files = set(required)
+    for pattern in (
+            "src/**/*.tsx", "src/**/*.ts", "src/**/*.jsx", "src/**/*.js",
+            "src/**/*.css", "src/**/*.json", "src/**/*.svg",
+            "public/fonts/**/*"):
         for path in sorted(root.glob(pattern)):
             if not path.is_file():
                 continue
-            try:
-                digest = hashlib.sha256(path.read_bytes()).hexdigest()
-            except OSError:
-                return ""
-            parts.append(f"{path.relative_to(root)}={digest}")
-    if not parts:
+            files.add(path)
+    if not any(path.is_relative_to(root / "src") for path in files):
         return ""
+    parts = []
+    for path in sorted(files):
+        try:
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        except OSError:
+            return ""
+        parts.append(f"{path.relative_to(root)}={digest}")
     return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()[:32]
 
 
 def hyperframes_fingerprint(hyperframes_dir: str) -> str:
-    """The identity of the HyperFrames templates and vendor that draw.
+    """The identity of the HyperFrames templates, adapter and font.
 
     The same promise as `renderer_fingerprint`, for the second engine:
     props do not capture the HTML templates or the vendored GSAP build,
     so a template edit must mismatch every recorded key and re-render
     rather than serve pixels the old template drew. `""` never matches,
     for the same reason. Tracked inputs only - the staged per-card
-    project (props baked in) is build output, and the brand files beside
-    it belong to the project rather than to the renderer.
+    project (props baked in) is build output, and referenced brand files
+    belong to the project rather than to the renderer.
     """
     root = Path(hyperframes_dir)
-    parts = []
+    files = set()
     for pattern in ("compositions/*.html", "vendor/*"):
         for path in sorted(root.glob(pattern)):
             if not path.is_file():
                 continue
-            try:
-                digest = hashlib.sha256(path.read_bytes()).hexdigest()
-            except OSError:
-                return ""
-            parts.append(f"{path.relative_to(root)}={digest}")
-    if not parts:
+            files.add(path)
+    # HyperFrames bakes props and fonts through this adapter, and all
+    # compositions draw the bundled typeface. Both are render inputs;
+    # the adapter also carries the pinned HyperFrames and GSAP versions.
+    adapter = root.parent / "library/tools/hyperframes_render.py"
+    font = root.parent / "remotion-subtitles/public/fonts/Montserrat-Variable.ttf"
+    if not adapter.is_file() or not font.is_file():
         return ""
+    files.update((adapter, font))
+    if not any(path.is_relative_to(root / "compositions") for path in files) \
+            or not any(path.is_relative_to(root / "vendor") for path in files):
+        return ""
+    parts = []
+    for path in sorted(files):
+        try:
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        except OSError:
+            return ""
+        parts.append(f"{path.relative_to(root.parent)}={digest}")
     return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()[:32]
 
 
+def local_asset_fingerprint(assets: Mapping[str, str | os.PathLike]) -> str:
+    """Digest the exact bytes of every local file a composition names.
+
+    An empty mapping means the props name no local assets and is a
+    complete identity. A named asset that cannot be read returns "";
+    unavailable evidence must never match a previous render.
+    """
+    records = []
+    for reference, raw_path in sorted(assets.items()):
+        path = Path(raw_path)
+        if not path.is_file():
+            return ""
+        digest = hashlib.sha256()
+        try:
+            with path.open("rb") as handle:
+                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                    digest.update(chunk)
+        except OSError:
+            return ""
+        records.append((str(reference), digest.hexdigest()))
+    canonical = json.dumps(records, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def content_key(digest: str, renderer_dir: str, carriage: str,
-                engine: str = "remotion") -> str:
-    """The three things that have to match for a skip to be safe, or `""`.
+                engine: str = "remotion", *, codec: str = "",
+                assets_digest: str | None = None) -> str:
+    """The drawing, renderer, and carriage identity required for a hit.
 
     Empty means "cannot be established", and every comparison against
-    it fails, so an unreadable renderer tree renders rather than
-    skips.
+    it fails, so an unreadable renderer tree or named asset renders
+    rather than skips. The renderer identity contains the engine,
+    dependency fingerprint, codec, and exact local-asset bytes.
 
     The CARRIAGE is in the key because an artefact from a previous
     carriage is not stale, it is UNUSABLE: the `pan-tilt` era rendered
@@ -161,11 +215,23 @@ def content_key(digest: str, renderer_dir: str, carriage: str,
     """
     if engine == "hyperframes":
         fingerprint = hyperframes_fingerprint(renderer_dir)
-    else:
+    elif engine == "remotion":
         fingerprint = renderer_fingerprint(renderer_dir)
-    if not fingerprint or not digest:
+    else:
         return ""
-    return f"{digest}+{fingerprint}+{carriage}"
+    if not fingerprint or not digest or not carriage or not codec:
+        return ""
+    if assets_digest is None:
+        assets_digest = local_asset_fingerprint({})
+    if not assets_digest:
+        return ""
+    renderer_identity = hashlib.sha256(json.dumps({
+        "engine": engine,
+        "renderer": fingerprint,
+        "codec": codec,
+        "assets": assets_digest,
+    }, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    return f"{digest}+{renderer_identity}+{carriage}"
 
 
 def project_stem(project_folder: str) -> str:

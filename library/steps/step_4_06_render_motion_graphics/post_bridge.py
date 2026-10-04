@@ -38,6 +38,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 from typing import Optional
 
 from generate_motion_props import PLAN_KEY, generate_motion_props
@@ -50,6 +51,7 @@ from library.tools.delivery_format import resolve_delivery_format  # noqa: E402
 from library.tools.resolve_transform import FALLBACK_DRAW_GAIN  # noqa: E402
 from library.tools.overlay_carriage import (  # noqa: E402
     OVERLAY_FORMAT_NAME,
+    OVERLAY_PIXEL_FORMAT,
     OVERLAY_VIDEO_CODEC,
     transcode_in_place,
 )
@@ -63,6 +65,7 @@ from library.tools.project_layout import Area, ProjectLayout  # noqa: E402
 from library.tools.render_cache import (  # noqa: E402
     content_key as _content_key,
     drawing_digest as _drawing_digest_of,
+    local_asset_fingerprint as _local_asset_fingerprint,
     motion_segment_name,
 )
 
@@ -277,7 +280,9 @@ def _mg_drawing_element(element: dict) -> dict:
 
 
 def _mg_drawing_digest(render_props: dict, geometry: str,
-                       tight_box: dict | None) -> str:
+                       tight_box: dict | None,
+                       assets_digest: str | None = None,
+                       container: str = "video") -> str:
     """A stable hash of everything about this graphic that draws pixels.
 
     The props actually rendered (the tightened union canvas where a
@@ -299,22 +304,25 @@ def _mg_drawing_digest(render_props: dict, geometry: str,
             _mg_drawing_element(item) if isinstance(item, dict) else item
             for item in elements
         ]
-    return _drawing_digest_of({
+    drawing = {
         "props": drawing_props,
         "geometry": geometry,
         "tight_box": tight_box,
-    })
+        "container": container,
+    }
+    if assets_digest is not None:
+        drawing["assets_digest"] = assets_digest
+    return _drawing_digest_of(drawing)
 
 
 def _mg_reuse_key(digest: str, remotion_dir: str,
-                  engine: str = "remotion") -> str:
+                  engine: str = "remotion",
+                  assets_digest: str | None = None) -> str:
     """The three things that have to match for a skip to be safe, or `""`.
 
-    The drawing digest, the renderer fingerprint (the MotionGraphics
-    composition lives in the same `remotion-subtitles/src/` tree the
-    fingerprint covers - or the HyperFrames template tree under that
-    selection), and the carriage. Empty never matches: an
-    unreadable renderer tree renders rather than skips.
+    The drawing digest, engine and renderer fingerprint, output codec,
+    local asset bytes, and carriage. Empty never matches: an unreadable
+    renderer tree or named asset renders rather than skips.
     """
     if engine == "hyperframes":
         from library.tools import hyperframes_render as _hf
@@ -322,8 +330,58 @@ def _mg_reuse_key(digest: str, remotion_dir: str,
             os.path.dirname(os.path.abspath(remotion_dir))))
     else:
         renderer_dir = remotion_dir
-    return _content_key(digest, renderer_dir, OVERLAY_CARRIAGE,
-                        engine=engine)
+    return _content_key(
+        digest, renderer_dir, OVERLAY_CARRIAGE, engine=engine,
+        codec=f"{OVERLAY_VIDEO_CODEC}/{OVERLAY_PIXEL_FORMAT}",
+        assets_digest=assets_digest)
+
+
+def _mg_local_assets(render_props: dict, remotion_dir: str,
+                     project_folder: str, engine: str) -> dict[str, str]:
+    """Resolve the props' local files to the exact paths the engine draws.
+
+    Remotion reads `staticFile()` references under its `public/` tree;
+    HyperFrames stages project files from the same brand-asset source
+    but reads them by basename. A named file that cannot be resolved is
+    kept as a missing path so its fingerprint refuses cache reuse.
+    """
+    references = []
+    for key in ("fontFile", "image", "src"):
+        value = render_props.get(key)
+        if isinstance(value, str) and value:
+            references.append(value)
+    for element in render_props.get("elements") or []:
+        if not isinstance(element, dict):
+            continue
+        for key in ("asset", "src"):
+            value = element.get(key)
+            if isinstance(value, str) and value:
+                references.append(value)
+
+    assets = {}
+    public_root = Path(remotion_dir) / "public"
+    brand_root = None
+    if engine == "hyperframes" and project_folder:
+        from library.tools.remotion_brand_linker import find_brand_assets
+        brand_root = find_brand_assets(project_folder)
+
+    for reference in sorted(set(references)):
+        relative = Path(reference)
+        if relative.is_absolute() or ".." in relative.parts:
+            assets[reference] = str(public_root / "__invalid_asset_reference__")
+        elif engine == "hyperframes":
+            candidate = (Path(brand_root) / relative.name
+                         if brand_root else
+                         public_root / "__missing_project_asset__")
+            assets[reference] = str(candidate)
+        else:
+            candidate = public_root / relative
+            try:
+                candidate.resolve().relative_to(public_root.resolve())
+            except (OSError, ValueError):
+                candidate = public_root / "__invalid_asset_reference__"
+            assets[reference] = str(candidate)
+    return assets
 
 
 def _report_palette_state(template_name: str, palette: dict) -> None:
@@ -566,16 +624,20 @@ def render_one_segment(planned: dict, out_dir: str,
 
     def _name_and_key(drawn_props, box):
         from library.tools import graphics_renderer as _engines
+        engine = _engines.resolve_engine(project_folder or None)
+        assets = _mg_local_assets(
+            drawn_props, remotion, project_folder or "", engine)
+        assets_digest = _local_asset_fingerprint(assets)
         digest = _mg_drawing_digest(
-            drawn_props, _resolved_geometry(), box)
+            drawn_props, _resolved_geometry(), box,
+            assets_digest=assets_digest)
         content_name = motion_segment_name(project_folder, digest)
         return (content_name,
                 os.path.join(out_dir, f"{content_name}.mov"),
                 os.path.join(out_dir, f"{content_name}_props.json"),
                 os.path.join(out_dir, f"{content_name}_reuse_key.txt"),
-                _mg_reuse_key(
-                    digest, remotion,
-                    _engines.resolve_engine(project_folder or None)))
+                _mg_reuse_key(digest, remotion, engine,
+                              assets_digest=assets_digest))
 
     def _read_recorded_key(key_path):
         try:
@@ -831,10 +893,9 @@ def render_motion_graphics(data: dict, reuse: bool = False) -> dict:
     inputs, the pre-bridge's output, and the model's answer.  Raises
     `MotionGraphicsRenderRefused` where nothing can be delivered.
 
-    `reuse` is OFF by default, so a plain run re-renders exactly as it
-    always has - reuse is the optimisation and fresh is the contract,
-    the same line step 4.05 draws.  A caller rebuilding identical
-    graphics (the reels path) opts in.
+    `reuse` is OFF by default for direct callers. The regular step entry
+    opts in and accepts `force_fresh_render: true` in its input payload;
+    the reels path opts in at its call site.
     """
     import sys
     audio_spine = data.get("audio_spine", {})
@@ -1147,8 +1208,12 @@ def render_motion_graphics(data: dict, reuse: bool = False) -> dict:
 
 def main():
     import sys
+    data = json.loads(sys.stdin.read())
+    force_fresh = data.get("force_fresh_render", False)
+    if not isinstance(force_fresh, bool):
+        raise ValueError("force_fresh_render must be a boolean")
     try:
-        result = render_motion_graphics(json.loads(sys.stdin.read()))
+        result = render_motion_graphics(data, reuse=not force_fresh)
     except MotionGraphicsRenderRefused as refusal:
         json.dump(refusal.payload, sys.stdout, indent=2)
         sys.exit(1)

@@ -32,6 +32,7 @@ Every branch here is a SUCCESS - an unavailable analysis is a reported
 fact, not a failure, because SFX placement works without a beat grid -
 so the function returns on all of them and never exits.  See AGENTS.md 3.
 """
+import hashlib
 import json
 import os
 import subprocess
@@ -56,6 +57,23 @@ def _method_hash() -> str | None:
     """
     return code_identity.current_code_hash(
         os.path.dirname(os.path.abspath(__file__)))
+
+
+def _audio_content_digest(track_path: str) -> str:
+    """The exact bytes behind a reusable music-analysis result.
+
+    Empty means the file could not be fingerprinted and must never be a
+    cache hit. Streaming keeps this safe for long tracks without loading
+    one into memory.
+    """
+    digest = hashlib.sha256()
+    try:
+        with open(track_path, "rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except OSError:
+        return ""
+    return digest.hexdigest()
 
 
 def analyse_music(music_selection: dict, project_folder: str = "") -> dict:
@@ -103,6 +121,7 @@ def analyse_music(music_selection: dict, project_folder: str = "") -> dict:
     # Check if analysis already exists for this track
     analysis_path = os.path.join(output_dir, "music_analysis.json")
     method_hash = _method_hash()
+    audio_digest = _audio_content_digest(track_path)
     if os.path.exists(analysis_path):
         try:
             with open(analysis_path) as f:
@@ -115,16 +134,23 @@ def analyse_music(music_selection: dict, project_folder: str = "") -> dict:
             # did not happen. A cache from before hashes were stamped
             # carries no "method_hash" and reads as unknown, never as a
             # match - it is re-analyzed once, then stamped.
-            if existing.get("file") == track_path and method_hash and \
-                    existing.get("method_hash") == method_hash:
+            if (existing.get("file") == track_path and method_hash
+                    and existing.get("method_hash") == method_hash
+                    and audio_digest
+                    and existing.get("audio_content_digest") == audio_digest):
                 print(f"Music analysis already exists for {os.path.basename(track_path)}, "
                       f"reusing cached result", file=sys.stderr)
                 existing["available"] = True
                 return {"music_analysis": existing}
             elif existing.get("file") == track_path:
+                method_matches = (method_hash and
+                                  existing.get("method_hash") == method_hash)
+                if method_matches:
+                    reason = "audio contents changed or cannot be fingerprinted"
+                else:
+                    reason = "was written by an older method"
                 print(f"Music analysis for {os.path.basename(track_path)} "
-                      f"was written by an older method - re-analyzing",
-                      file=sys.stderr)
+                      f"{reason} - re-analyzing", file=sys.stderr)
             else:
                 print(f"Music analysis cache is for a different track - "
                       f"re-analyzing {os.path.basename(track_path)}",
@@ -194,6 +220,15 @@ def analyse_music(music_selection: dict, project_folder: str = "") -> dict:
             # re-analyze on every run.
             if method_hash:
                 analysis["method_hash"] = method_hash
+            # Stamp only when the bytes stayed stable across analysis. If
+            # the source changed while the subprocess was reading it, the
+            # result is useful for this run but cannot be reused later.
+            if audio_digest and \
+                    _audio_content_digest(track_path) == audio_digest:
+                analysis["audio_content_digest"] = audio_digest
+            else:
+                analysis.pop("audio_content_digest", None)
+            if method_hash or "audio_content_digest" in analysis:
                 try:
                     with open(analysis_path, "w") as f:
                         json.dump(analysis, f, indent=2)

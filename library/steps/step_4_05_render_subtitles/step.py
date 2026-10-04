@@ -73,6 +73,7 @@ from library.tools.remotion_batch import (
 )
 from library.tools.overlay_carriage import (
     OVERLAY_FORMAT_NAME,
+    OVERLAY_PIXEL_FORMAT,
     OVERLAY_VIDEO_CODEC,
     transcode_in_place as _carry_overlay_codec,
 )
@@ -290,8 +291,11 @@ def _reuse_key(props: dict, remotion_dir: str,
     from library.tools import hyperframes_render as _hf
     renderer_dir = remotion_dir if engine == "remotion" else str(
         _hf.hyperframes_dir(os.path.dirname(os.path.abspath(remotion_dir))))
-    return _content_key(_drawing_digest(props, geometry, container),
-                        renderer_dir, OVERLAY_CARRIAGE, engine=engine)
+    codec = (f"{OVERLAY_VIDEO_CODEC}/{OVERLAY_PIXEL_FORMAT}"
+             if container == "video" else "png-sequence/rgba")
+    return _content_key(
+        _drawing_digest(props, geometry, container), renderer_dir,
+        OVERLAY_CARRIAGE, engine=engine, codec=codec)
 
 
 def _tally(segments) -> dict:
@@ -2349,6 +2353,9 @@ def main():
     # See library/tools/step_stdout.py.
     claim_stdout()
     data = json.loads(sys.stdin.read())
+    force_fresh = data.get("force_fresh_render", False)
+    if not isinstance(force_fresh, bool):
+        raise ValueError("force_fresh_render must be a boolean")
 
     try:
         result = render_subtitle_overlays(
@@ -2364,6 +2371,7 @@ def main():
             # refuses rather than falling back.
             renderer_kind=data.get("caption_renderer",
                                    DEFAULT_CAPTION_RENDERER),
+            reuse=not force_fresh,
         )
     except SubtitleRenderRefused as refusal:
         emit(refusal.payload)

@@ -7,6 +7,7 @@ import json
 import os
 import re
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -29,6 +30,7 @@ from library.tools.caption_asset_gc import (  # noqa: E402
     record_rendered_segments,
     sweep,
 )
+from library.tools import render_cache as _render_cache  # noqa: E402
 from tests.unit.captions.test_motion_graphics_render import (  # noqa: E402
     _el as _mg_el,
 )
@@ -49,13 +51,126 @@ VARIANTS = [
 ]
 
 
+def test_render_key_tracks_lock_engine_codec_and_local_asset_bytes(
+        tmp_path, monkeypatch):
+    remotion = _remotion_tree(tmp_path)
+    base = _render_cache.content_key(
+        "drawing", remotion, "carriage-v1", codec="qtrle/argb")
+    assert base
+
+    lock = os.path.join(remotion, "package-lock.json")
+    with open(lock, "w", encoding="utf-8") as handle:
+        json.dump({"packages": {"node_modules/remotion": {
+            "version": "4.0.2"}}}, handle)
+    lock_changed = _render_cache.content_key(
+        "drawing", remotion, "carriage-v1", codec="qtrle/argb")
+    assert lock_changed != base
+
+    font = os.path.join(remotion, "public", "fonts",
+                        "Montserrat-Variable.ttf")
+    with open(font, "wb") as handle:
+        handle.write(b"replacement font")
+    font_changed = _render_cache.content_key(
+        "drawing", remotion, "carriage-v1", codec="qtrle/argb")
+    assert font_changed != lock_changed
+
+    source = os.path.join(remotion, "src", "x.tsx")
+    with open(source, "w", encoding="utf-8") as handle:
+        handle.write("export const x = 2;\n")
+    source_changed = _render_cache.content_key(
+        "drawing", remotion, "carriage-v1", codec="qtrle/argb")
+    assert source_changed != font_changed
+
+    monkeypatch.setattr(
+        _render_cache, "hyperframes_fingerprint", lambda _root: "same-engine-files")
+    engine_changed = _render_cache.content_key(
+        "drawing", remotion, "carriage-v1", engine="hyperframes",
+        codec="qtrle/argb")
+    assert engine_changed and engine_changed != source_changed
+
+    codec_changed = _render_cache.content_key(
+        "drawing", remotion, "carriage-v1", codec="png-sequence/rgba")
+    carriage_changed = _render_cache.content_key(
+        "drawing", remotion, "carriage-v2", codec="qtrle/argb")
+    assert codec_changed != source_changed
+    assert carriage_changed != source_changed
+
+    asset = tmp_path / "logo.svg"
+    asset.write_bytes(b"<svg>first</svg>")
+    first_asset_digest = _render_cache.local_asset_fingerprint(
+        {"brand/logo.svg": asset})
+    first_asset_key = _render_cache.content_key(
+        "drawing", remotion, "carriage-v1", codec="qtrle/argb",
+        assets_digest=first_asset_digest)
+    asset.write_bytes(b"<svg>replacement</svg>")
+    second_asset_digest = _render_cache.local_asset_fingerprint(
+        {"brand/logo.svg": asset})
+    second_asset_key = _render_cache.content_key(
+        "drawing", remotion, "carriage-v1", codec="qtrle/argb",
+        assets_digest=second_asset_digest)
+    missing_asset_digest = _render_cache.local_asset_fingerprint(
+        {"brand/logo.svg": tmp_path / "missing.svg"})
+    missing_asset_key = _render_cache.content_key(
+        "drawing", remotion, "carriage-v1", codec="qtrle/argb",
+        assets_digest=missing_asset_digest)
+    assert first_asset_digest != second_asset_digest
+    assert first_asset_key != second_asset_key
+    assert missing_asset_digest == ""
+    assert missing_asset_key == ""
+
+    os.remove(lock)
+    assert _render_cache.content_key(
+        "drawing", remotion, "carriage-v1", codec="qtrle/argb") == ""
+
+
+def test_hyperframes_fingerprint_covers_renderer_pin_and_requires_inputs(
+        tmp_path):
+    hyperframes = tmp_path / "hyperframes"
+    (hyperframes / "compositions").mkdir(parents=True)
+    (hyperframes / "vendor").mkdir()
+    (hyperframes / "compositions" / "MotionGraphics.html").write_text(
+        "<main>one</main>", encoding="utf-8")
+    (hyperframes / "vendor" / "gsap.min.js").write_text(
+        "window.gsap = 1", encoding="utf-8")
+    adapter = tmp_path / "library" / "tools" / "hyperframes_render.py"
+    adapter.parent.mkdir(parents=True)
+    adapter.write_text("HYPERFRAMES_VERSION_PIN = '0.8.70'\n",
+                       encoding="utf-8")
+    font = tmp_path / "remotion-subtitles" / "public" / "fonts" / \
+        "Montserrat-Variable.ttf"
+    font.parent.mkdir(parents=True)
+    font.write_bytes(b"font")
+
+    baseline = _render_cache.hyperframes_fingerprint(str(hyperframes))
+    adapter.write_text("HYPERFRAMES_VERSION_PIN = '0.8.71'\n",
+                       encoding="utf-8")
+    updated_pin = _render_cache.hyperframes_fingerprint(str(hyperframes))
+    assert baseline
+    assert updated_pin != baseline
+
+    font.unlink()
+    assert _render_cache.hyperframes_fingerprint(str(hyperframes)) == ""
+
+
 def _remotion_tree(root):
     """A renderer tree the fingerprint can read - no Remotion needed."""
     src = os.path.join(str(root), "remotion", "src")
     os.makedirs(src, exist_ok=True)
     with open(os.path.join(src, "x.tsx"), "w", encoding="utf-8") as handle:
         handle.write("export const x = 1;\n")
-    return os.path.join(str(root), "remotion")
+    remotion = os.path.dirname(src)
+    fonts = os.path.join(remotion, "public", "fonts")
+    os.makedirs(fonts, exist_ok=True)
+    with open(os.path.join(fonts, "Montserrat-Variable.ttf"), "wb") as handle:
+        handle.write(b"synthetic font")
+    with open(os.path.join(remotion, "package.json"), "w",
+              encoding="utf-8") as handle:
+        json.dump({"dependencies": {"remotion": "4.0.1"}}, handle)
+    with open(os.path.join(remotion, "package-lock.json"), "w",
+              encoding="utf-8") as handle:
+        json.dump({"packages": {"node_modules/remotion": {
+            "version": "4.0.1"}}}, handle)
+    return remotion
 
 
 def _render_caption(props, out_dir, timeline, remotion, stub):
@@ -212,6 +327,22 @@ def test_different_durations_render_different_files(tmp_path):
     assert len(stub.calls) == 2
 
 
+def test_subtitle_key_tracks_frame_rate_geometry_and_container(tmp_path):
+    from library.steps.step_4_05_render_subtitles import step as captions
+
+    remotion = _remotion_tree(tmp_path)
+    props = _caption_props()
+    baseline = captions._reuse_key(props, remotion, "full", "video")
+    changed_fps = dict(props, fps=24)
+    changed_geometry = captions._reuse_key(props, remotion, "tight", "video")
+    changed_container = captions._reuse_key(props, remotion, "full", "frames")
+
+    assert baseline
+    assert captions._reuse_key(changed_fps, remotion, "full", "video") != baseline
+    assert changed_geometry != baseline
+    assert changed_container != baseline
+
+
 # ── Motion graphics: the reuse path it never had ──────────────────
 
 
@@ -257,6 +388,67 @@ def test_motion_graphics_reuse_across_variants(tmp_path, monkeypatch):
     assert re.fullmatch(r"mg_geo-podcast_[0-9a-f]{8}\.mov", name), name
     assert "vox" not in name and "reel" not in name
     assert [b["placement_label"] for b in built] == labels
+
+
+def test_motion_graphics_asset_bytes_invalidate_and_hits_match_fresh(
+        tmp_path, monkeypatch):
+    from library.steps.step_4_06_render_motion_graphics import (
+        post_bridge as mg,
+    )
+
+    monkeypatch.setenv("PIPELINE_GRAPHICS_RENDERER", "remotion")
+    remotion = _remotion_tree(tmp_path)
+    public_brand = tmp_path / "remotion" / "public" / "brand"
+    public_brand.mkdir(parents=True)
+    asset = public_brand / "logo.svg"
+    asset.write_bytes(b"<svg>version one</svg>")
+    out_dir = tmp_path / "graphics"
+    out_dir.mkdir()
+    fresh_dir = tmp_path / "fresh"
+    fresh_dir.mkdir()
+    project = tmp_path / "project"
+    project.mkdir()
+    planned = _mg_planned([_mg_el("channel_bug")])
+    planned["props"]["elements"][0]["asset"] = "brand/logo.svg"
+    calls = []
+
+    def fake_render(props_path, dest_path, _remotion_dir, _name):
+        calls.append(dest_path)
+        with open(props_path, encoding="utf-8") as handle:
+            rendered_props = json.load(handle)
+        assert rendered_props["elements"][0]["asset"] == "brand/logo.svg"
+        with open(dest_path, "wb") as handle:
+            handle.write(b"pixels:" + asset.read_bytes())
+        return True
+
+    monkeypatch.setattr(mg, "_render_motion_graphics_file", fake_render)
+    monkeypatch.setattr(
+        mg, "transcode_in_place", lambda _path: {"changed": False})
+
+    first = mg.render_one_segment(
+        planned, str(out_dir), remotion_dir=remotion,
+        project_folder=str(project), overlay_geometry="full", reuse=True)
+    reused = mg.render_one_segment(
+        planned, str(out_dir), remotion_dir=remotion,
+        project_folder=str(project), overlay_geometry="full", reuse=True)
+    reused_bytes = Path(reused["overlay_path"]).read_bytes()
+    fresh = mg.render_one_segment(
+        planned, str(fresh_dir), remotion_dir=remotion,
+        project_folder=str(project), overlay_geometry="full", reuse=False)
+
+    assert first["provenance"] == "rendered"
+    assert reused["provenance"] == "reused"
+    assert fresh["provenance"] == "rendered"
+    assert reused_bytes == Path(fresh["overlay_path"]).read_bytes()
+    assert len(calls) == 2
+
+    asset.write_bytes(b"<svg>version two</svg>")
+    changed = mg.render_one_segment(
+        planned, str(out_dir), remotion_dir=remotion,
+        project_folder=str(project), overlay_geometry="full", reuse=True)
+    assert changed["provenance"] == "rendered"
+    assert changed["overlay_path"] != first["overlay_path"]
+    assert len(calls) == 3
 
 
 
