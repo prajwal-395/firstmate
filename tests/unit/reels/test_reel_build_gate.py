@@ -1341,6 +1341,94 @@ def test_the_node_discards_nothing_when_the_gate_never_graded(project_dir):
     assert STAGED_A in held and STAGED_B in held
 
 
+@pytest.mark.usefixtures("mock_dvr")
+def test_scoped_verification_promotes_its_reel_and_keeps_an_unrelated_hold(
+        project_dir):
+    """A stale Reel 11 identity must not block Reel 03's real promotion.
+
+    The conformance read is stubbed, but the verify node and promotion run
+    against fake Resolve timelines. Reel 11's staging and hold represent an
+    unrelated pending promotion and must survive untouched.
+    """
+    from library.processes.reels import run_reels
+    from library.tools import capability_outputs
+    from tests.promotion_test_helpers import no_a_roll_track_plans
+
+    module = _verify_step_module()
+    final_a = "Reel 03 - moment-3"
+    final_b = "Reel 11 - held"
+    staged_a = final_a + STAGING_SUFFIX
+    staged_b = final_b + STAGING_SUFFIX
+    resolve_project = FakeProject(
+        [MASTER, final_a, final_b, staged_a, staged_b])
+    timeline_ids = {
+        staged_a: next(t for t in resolve_project.timelines
+                       if t.GetName() == staged_a).GetUniqueId(),
+        staged_b: next(t for t in resolve_project.timelines
+                       if t.GetName() == staged_b).GetUniqueId(),
+    }
+    holds.take_hold(str(project_dir), staged_a, awaiting=final_a,
+                    taken_by="test")
+    holds.take_hold(str(project_dir), staged_b, awaiting=final_b,
+                    taken_by="test")
+    (project_dir / "pipeline_output" / "review" / "plan_provenance.json")\
+        .write_text(json.dumps({"built_reels": [staged_a, staged_b]}),
+                    encoding="utf-8")
+    shared = {
+        "resolve_project_name": "Mock Project",
+        "master_timeline_name": MASTER,
+        "plan_path": str(project_dir / "plan.json"),
+    }
+    run_reels.record_project_output(
+        str(project_dir), "reel.build",
+        {"reel_build": {
+            **shared,
+            "timelines_built": [staged_b],
+            "staged_timelines": {final_b: staged_b},
+            "staged_timeline_ids": {staged_b: timeline_ids[staged_b]},
+            "track_plans": no_a_roll_track_plans(
+                {final_b: staged_b}),
+        }})
+    run_reels.record_project_output(
+        str(project_dir), "reel.build",
+        {"reel_build": {
+            **shared,
+            "timelines_built": [staged_a],
+            "staged_timelines": {final_a: staged_a},
+            "staged_timeline_ids": {staged_a: timeline_ids[staged_a]},
+            "track_plans": no_a_roll_track_plans(
+                {final_a: staged_a}),
+        }},
+        only_reels=[3],
+    )
+    state = json.loads((project_dir / "pipeline_data.json").read_text(
+        encoding="utf-8"))
+    data = {
+        "project_folder": str(project_dir),
+        "only_reels": [3],
+        "timeline_transcript": {"segments": []},
+        "reel_build": capability_outputs.node_output(
+            state, "build_reels")["reel_build"],
+    }
+
+    with patch("library.tools.reel_build.verify_built_reels") as gate, \
+            patch("library.tools.reel_build._connect_resolve_project",
+                  return_value=resolve_project), \
+            patch("library.tools.reel_build._record_reel_versions",
+                  return_value=[]), \
+            patch("library.tools.reel_build.sweep_all_reels_informational"), \
+            patch("library.tools.timeline_transcript.transcript_path",
+                  return_value=str(project_dir / "transcript.json")):
+        record = module.verify_reels(data)
+
+    assert gate.call_args.kwargs["only_reels"] == [staged_a]
+    assert record["reel_verification"]["timelines_verified"] == [final_a]
+    assert final_a in resolve_project.names()
+    assert staged_a not in resolve_project.names()
+    assert staged_b in resolve_project.names()
+    assert holds.held_names(str(project_dir)) == {staged_b}
+
+
 # --------------------------------------------------------------------------
 # From test_verify_scopes_to_built_reels.py
 #

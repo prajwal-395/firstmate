@@ -259,7 +259,7 @@ _SCOPED_PROJECT_LIST_KEYS = {"pending_promotions", "reels_requested"}
 _PER_REEL_MAP_KEYS = {
     "caption_hashes", "closer_fit", "track_plans",
     "transition_overlays", "staged_timelines", "allow_drops",
-    "reels", "notes",
+    "staged_timeline_ids", "reels", "notes",
 }
 
 
@@ -336,6 +336,16 @@ def _merge_payload(prior: dict, incoming: dict,
         if (wanted is not None and key == "divergence"
                 and isinstance(old, dict) and isinstance(value, dict)):
             merged[key] = _merge_scoped_divergence(old, value, wanted)
+        elif (wanted is not None and key == "staged_timeline_ids"
+              and isinstance(value, dict)):
+            # Identity records authorize promotion of staging containers
+            # created by this run. Carrying an older reel's id forward
+            # makes a scoped promotion inspect an identity it did not stage.
+            # Holds remain durable in staging_holds.json for their own reel.
+            merged[key] = {
+                name: identity for name, identity in value.items()
+                if _record_reel_number(name) in wanted
+            }
         elif (wanted is not None and key in _PER_REEL_MAP_KEYS
               and isinstance(old, dict) and isinstance(value, dict)):
             merged[key] = _merge_scoped_map(old, value, wanted)

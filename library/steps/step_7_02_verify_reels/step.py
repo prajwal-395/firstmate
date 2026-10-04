@@ -174,6 +174,13 @@ def verify_reels(data: dict) -> dict:
             if isinstance(value, list):
                 build[field] = [
                     name for name in value if belongs_to_requested(name)]
+    staged_timeline_ids = build.get("staged_timeline_ids")
+    if staged_timeline_ids is not None:
+        staged_names = set(staged.values())
+        staged_timeline_ids = {
+            name: identity for name, identity in staged_timeline_ids.items()
+            if name in staged_names
+        }
     if not timelines_built and left_alone:
         # The build placed nothing because nothing needed placing
         # (`library/tools/reel_rebuild_need.py`). That is not a build
@@ -377,7 +384,7 @@ def verify_reels(data: dict) -> dict:
                 accept_editor_changes=accepting_editor_changes,
                 timeline_inventory_before=build.get(
                     "timeline_inventory_before"),
-                staged_timeline_ids=build.get("staged_timeline_ids"))
+                staged_timeline_ids=staged_timeline_ids)
         except _PromoteError as partial:
             # A partial promotion raises AFTER its passing reels fully
             # promoted - and their marker losses ride on the exception

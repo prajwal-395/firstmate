@@ -82,6 +82,45 @@ def test_a_project_recorded_before_the_records_still_loads(tmp_path):
     assert capability_outputs.read(state, "reel.ask") == {"reel_ask": {}}
 
 
+def test_scoped_build_replaces_staged_timeline_identity_records(tmp_path):
+    """Timeline ids belong to the staging names promoted by this run.
+
+    A scoped build must not carry an unrelated reel's old staging id into
+    the verifier's promotion record. Its hold remains in the separate hold
+    ledger until that reel has its own promotion.
+    """
+    from library.tools import staging_holds
+
+    project = str(tmp_path)
+    stage_a = "Reel 03 - current (rebuild staging)"
+    stage_b = "Reel 11 - held (rebuild staging)"
+    staging_holds.take_hold(
+        project, stage_b, awaiting="Reel 11 - held", taken_by="test")
+
+    run_reels.record_project_output(
+        project, "reel.build",
+        {"reel_build": {
+            "staged_timelines": {"Reel 11 - held": stage_b},
+            "staged_timeline_ids": {stage_b: "old-reel-11-id"},
+        }})
+    run_reels.record_project_output(
+        project, "reel.build",
+        {"reel_build": {
+            "staged_timelines": {"Reel 03 - current": stage_a},
+            "staged_timeline_ids": {stage_a: "current-reel-03-id"},
+        }},
+        only_reels=[3],
+    )
+
+    state = json.loads((tmp_path / "pipeline_data.json").read_text(
+        encoding="utf-8"))
+    build = capability_outputs.node_output(state, "build_reels")[
+        "reel_build"]
+    assert build["staged_timeline_ids"] == {
+        stage_a: "current-reel-03-id"}
+    assert staging_holds.held_names(project) == {stage_b}
+
+
 # --------------------------------------------------------------------------
 # From test_build_reels_skips_caller_supplied.py
 #
@@ -2376,6 +2415,8 @@ def test_verify_node_filters_aggregated_build_record_to_its_lane(monkeypatch):
             "timelines_built": [staged_21, staged_25],
             "staged_timelines": {final_21: staged_21,
                                  final_25: staged_25},
+            "staged_timeline_ids": {
+                staged_21: "stale-21-id", staged_25: "current-25-id"},
             "track_plans": {final_21: {"reel": 21},
                             final_25: {"reel": 25}},
             "allow_drops": {final_21: [], final_25: []},
@@ -2406,6 +2447,8 @@ def test_verify_node_filters_aggregated_build_record_to_its_lane(monkeypatch):
 
     assert gate.call_args.kwargs["only_reels"] == [staged_25]
     assert promote.call_args.args[3] == {final_25: staged_25}
+    assert promote.call_args.kwargs["staged_timeline_ids"] == {
+        staged_25: "current-25-id"}
     assert promote.call_args.kwargs["supersede"] == [final_25]
     assert promote.call_args.kwargs["retain"] == [final_25]
     assert result["reel_verification"]["timelines_verified"] == [final_25]
