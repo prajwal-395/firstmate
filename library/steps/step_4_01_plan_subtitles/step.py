@@ -1000,6 +1000,234 @@ def _readability_issues(entries: list) -> list:
     return issues
 
 
+def _same_caption_voice(left: dict, right: dict) -> bool:
+    """Whether two neighboring cards can share one caption without mixing voices."""
+    same_block = (
+        left.get("spine_block_position") is not None
+        and left.get("spine_block_position")
+        == right.get("spine_block_position")
+    )
+    same_speaker = (
+        left.get("speaker") is not None
+        and left.get("speaker") == right.get("speaker")
+    )
+    return same_block or same_speaker
+
+
+def _enforce_caption_reading_speed(entries: list, structure: list) -> dict:
+    """Try to repair fast cards without dropping words or refusing a plan.
+
+    ``split_into_groups`` gives a card enough time for its text, but the
+    single-track overlap pass can then end it at the next card's spoken
+    onset.  A final pass accounts for that resulting duration.  It uses a
+    safe uncaptioned gap first, then re-splits at word boundaries, then joins
+    a neighboring card from the same speech block or speaker.  A passage that
+    still cannot fit remains in the plan for subtitle QA to report; valid
+    speech must not make planning fail.
+    """
+    if not entries:
+        return {"extended": 0, "merged": 0, "split": 0}
+
+    extended = 0
+    merged = 0
+    split = 0
+    unresolved = set()
+    speech_blocks = [
+        block for block in structure
+        if block["block_type"] in ("hook", "speech")
+    ]
+    plan_end = max(
+        (float(block["timeline_end"]) for block in structure),
+        default=float("inf"),
+    )
+
+    while True:
+        ordered = sorted(
+            entries, key=lambda entry: (entry["timeline_start"],
+                                        entry["timeline_end"]))
+        fast = next((entry for entry in ordered
+                     if id(entry) not in unresolved
+                     and len(entry["text"])
+                     / max(1e-9, float(entry["timeline_end"])
+                           - float(entry["timeline_start"]))
+                     > MAX_CHARACTERS_PER_SECOND), None)
+        if fast is None:
+            break
+
+        start = float(fast["timeline_start"])
+        end = float(fast["timeline_end"])
+        target_duration = len(fast["text"]) / MAX_CHARACTERS_PER_SECOND
+        target_end = math.ceil((start + target_duration) * 1000 - 1e-9) / 1000
+        safe_end = plan_end
+        index = ordered.index(fast)
+        if index + 1 < len(ordered):
+            safe_end = min(
+                safe_end, float(ordered[index + 1]["timeline_start"]))
+
+        position = fast["spine_block_position"]
+        for block in speech_blocks:
+            if block["position"] == position:
+                continue
+            block_start = float(block["timeline_start"])
+            block_end = float(block["timeline_end"])
+            if block_start <= start < block_end:
+                safe_end = min(safe_end, start)
+            elif start < block_start < target_end:
+                safe_end = min(safe_end, block_start)
+
+        if (target_end > end + 1e-9
+                and target_end <= safe_end + 1e-9):
+            fast["timeline_end"] = target_end
+            extended += 1
+            unresolved.clear()
+            continue
+
+        # The overlap pass can collapse a previously readable group onto a
+        # later word onset.  Repartition its measured words when each new
+        # card can fit wholly before the next card and still clear the same
+        # visible-duration floor enforced earlier in the plan.
+        words = list(fast.get("words") or [])
+        if len(words) > 1:
+            # Every between-word boundary is eligible. Sentence endings are
+            # especially safe places to split, because the group keeps its
+            # terminal punctuation at the end.
+            boundaries = range(1, len(words))
+
+            # Dynamic programming keeps the split as coarse as possible,
+            # preferring the fewest cards and then the most balanced rates.
+            split_options = {len(words): (0, 0.0, [])}
+            for left in range(len(words) - 1, -1, -1):
+                best = None
+                for right in range(left + 1, len(words) + 1):
+                    if right < len(words) and right not in boundaries:
+                        continue
+                    group_words = words[left:right]
+                    group_text = " ".join(
+                        str(word["word"]) for word in group_words).strip()
+                    group_start = (
+                        start if left == 0
+                        else float(group_words[0]["start"]))
+                    available_end = (
+                        float(words[right]["start"])
+                        if right < len(words) else safe_end
+                    )
+                    group_end = min(available_end, safe_end)
+                    duration = group_end - group_start
+                    cps = (len(group_text) / duration
+                           if duration > 0 else float("inf"))
+                    tail = split_options.get(right)
+                    if (tail is None
+                            or cps > MAX_CHARACTERS_PER_SECOND
+                            or duration < MIN_CAPTION_FLASH_SECONDS):
+                        continue
+                    cost = (
+                        tail[0] + 1,
+                        tail[1] + cps,
+                        [(left, right)] + tail[2],
+                    )
+                    if best is None or cost[:2] < best[:2]:
+                        best = cost
+                if best is not None:
+                    split_options[left] = best
+
+            choice = split_options.get(0)
+            if choice is not None and choice[0] > 1:
+                block_entries = [
+                    entry for entry in entries
+                    if entry.get("spine_block_position")
+                    == fast.get("spine_block_position")
+                ]
+                next_index = max(
+                    (int(entry.get("card_index", -1))
+                     for entry in block_entries), default=-1) + 1
+                identifier_prefix = str(fast.get("id", "subtitle_"))
+                identifier_prefix = identifier_prefix.rsplit("_", 1)[0]
+                replacement = []
+                for ordinal, (left, right) in enumerate(choice[2]):
+                    part_words = words[left:right]
+                    part_text = " ".join(
+                        str(word["word"]) for word in part_words).strip()
+                    part = dict(fast)
+                    part.update({
+                        "id": (fast["id"] if ordinal == 0 else
+                               f"{identifier_prefix}_{next_index:03d}"),
+                        "card_index": (
+                            fast.get("card_index", next_index)
+                            if ordinal == 0 else next_index),
+                        "timeline_start": (
+                            start if left == 0
+                            else float(part_words[0]["start"])),
+                        "timeline_end": min(
+                            float(words[right]["start"])
+                            if right < len(words) else safe_end,
+                            safe_end,
+                        ),
+                        "text": part_text,
+                        "word_count": len(part_words),
+                        "words": [dict(word) for word in part_words],
+                        "emphasis_words": identify_emphasis_words(part_text),
+                    })
+                    replacement.append(part)
+                    if ordinal:
+                        next_index += 1
+                entry_index = entries.index(fast)
+                entries[entry_index:entry_index + 1] = replacement
+                split += len(replacement) - 1
+                unresolved.clear()
+                continue
+
+        terminal = _ends_sentence_text(fast.get("text", ""))
+        directions = (-1,) if terminal else (1, -1)
+        candidates = []
+        for priority, direction in enumerate(directions):
+            neighbor_index = index + direction
+            if not 0 <= neighbor_index < len(ordered):
+                continue
+            neighbor = ordered[neighbor_index]
+            if not _same_caption_voice(fast, neighbor):
+                continue
+            if direction < 0 and _ends_sentence_text(neighbor.get("text", "")):
+                continue
+            if direction > 0 and terminal:
+                continue
+
+            combined_text = (
+                f"{neighbor['text']} {fast['text']}" if direction < 0
+                else f"{fast['text']} {neighbor['text']}"
+            ).strip()
+            combined_start = min(
+                float(fast["timeline_start"]),
+                float(neighbor["timeline_start"]))
+            combined_end = max(
+                float(fast["timeline_end"]),
+                float(neighbor["timeline_end"]))
+            combined_duration = combined_end - combined_start
+            combined_cps = (
+                len(combined_text) / combined_duration
+                if combined_duration > 0 else float("inf"))
+            candidates.append((combined_cps, priority, neighbor))
+
+        if not candidates:
+            unresolved.add(id(fast))
+            continue
+
+        passing = [candidate for candidate in candidates
+                   if candidate[0] <= MAX_CHARACTERS_PER_SECOND]
+        if passing:
+            _, _, neighbor = min(
+                passing, key=lambda candidate: (candidate[1], candidate[0]))
+        else:
+            _, _, neighbor = min(
+                candidates, key=lambda candidate: (candidate[0],
+                                                   candidate[1]))
+        _merge_entry(fast, neighbor)
+        entries.remove(fast)
+        merged += 1
+        unresolved.clear()
+
+    return {"extended": extended, "merged": merged, "split": split}
+
+
 def identify_emphasis_words(text: str) -> list:
     """
     Identify keywords that should receive visual emphasis (scale bump).
@@ -1679,36 +1907,6 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
             file=sys.stderr,
         )
 
-    # ── Fit the cards a group split cannot fix ──
-    # Grouping stops a caption being too WIDE, because a group can be
-    # split. It cannot stop a single WORD being too wide: an inline block
-    # does not wrap, so the frame clips it at both edges. "announcement"
-    # at Montserrat 800/160px is 1303px in an 840px usable width, and
-    # that is the card the audit photographed running off both sides of
-    # the frame.
-    #
-    # The card shrinks; the STYLE does not. What size captions should be
-    # is an open captain decision and this step has no business making
-    # it - the job here is to make whatever size is chosen fit the frame.
-    # A scale below 1.0 is worth reading as a signal that the chosen size
-    # is too large for the footage's vocabulary, which is why it is
-    # reported rather than applied quietly.
-    shrunk = []
-    for sub in subtitle_entries:
-        scale = fitter.fit_scale(sub["text"], sub.get("emphasis_words"))
-        sub["fit_scale"] = scale
-        if scale < 1.0:
-            shrunk.append((sub["id"], sub["text"], scale))
-    if shrunk:
-        print(
-            f"NOTE: {len(shrunk)} of {len(subtitle_entries)} caption cards "
-            f"carry a word wider than the {fitter.usable_width:.0f}px usable "
-            f"width at {style['fontSize']}px and are drawn smaller: "
-            + ", ".join(f"{i} {t!r} x{s}" for i, t, s in shrunk[:5])
-            + ("..." if len(shrunk) > 5 else ""),
-            file=sys.stderr,
-        )
-
     # --- Verification ---
 
     # No overlapping subtitles
@@ -1772,15 +1970,6 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
             if drawn:
                 prev_last_word[sub.get("spine_block_position")] = drawn[-1]
 
-    # Word count warnings
-    for sub in subtitle_entries:
-        if sub["word_count"] > 8:
-            print(
-                f"WARNING: Subtitle {sub.get('entry_id', sub.get('id', '?'))} has "
-                f"{sub['word_count']} words",
-                file=sys.stderr,
-            )
-
     # Filter emphasis words not present in subtitle text
     for sub in subtitle_entries:
         sub["emphasis_words"] = [
@@ -1820,7 +2009,49 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
         print(f"WARNING: captain caption edits could not apply ({exc}); "
               f"continuing without them.", file=sys.stderr)
 
+    speed_fix = _enforce_caption_reading_speed(
+        subtitle_entries, structure)
+    if (speed_fix["extended"] or speed_fix["merged"]
+            or speed_fix["split"]):
+        print(
+            f"NOTE: extended {speed_fix['extended']} caption card(s) through "
+            f"safe silence, split {speed_fix['split']} fast card(s), and "
+            f"merged {speed_fix['merged']} neighboring card(s) to meet the "
+            f"{MAX_CHARACTERS_PER_SECOND:.0f} characters/second limit",
+            file=sys.stderr,
+        )
+
     readability_issues = _readability_issues(subtitle_entries)
+    # An unsplittable or speech-overlapped card remains in the plan with its
+    # measured issue. Subtitle QA owns the verdict; planning must not reject
+    # valid speech just because no synced one-track repair exists.
+
+    # A speed repair may merge cards, so measure and report the final plan,
+    # not the groups that existed before the repair.
+    shrunk = []
+    for sub in subtitle_entries:
+        scale = fitter.fit_scale(sub["text"], sub.get("emphasis_words"))
+        sub["fit_scale"] = scale
+        if scale < 1.0:
+            shrunk.append((sub["id"], sub["text"], scale))
+    if shrunk:
+        print(
+            f"NOTE: {len(shrunk)} of {len(subtitle_entries)} caption cards "
+            f"carry a word wider than the {fitter.usable_width:.0f}px usable "
+            f"width at {style['fontSize']}px and are drawn smaller: "
+            + ", ".join(f"{i} {t!r} x{s}" for i, t, s in shrunk[:5])
+            + ("..." if len(shrunk) > 5 else ""),
+            file=sys.stderr,
+        )
+
+    for sub in subtitle_entries:
+        if sub["word_count"] > 8:
+            print(
+                f"WARNING: Subtitle {sub.get('entry_id', sub.get('id', '?'))} has "
+                f"{sub['word_count']} words",
+                file=sys.stderr,
+            )
+
     if readability_issues:
         print(
             f"WARNING: {len(readability_issues)} subtitle card(s) still "

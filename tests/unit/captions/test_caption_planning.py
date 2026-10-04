@@ -8,6 +8,7 @@ whole number >= 1, and is receipted on the plan as
 `subtitle_plan.max_words`.
 """
 from __future__ import annotations
+import copy
 import sys
 from pathlib import Path
 from library.steps.step_4_01_plan_subtitles.step import (
@@ -209,13 +210,14 @@ def test_two_words_max_groups_pairs():
 # floor.  These frozen spine fixtures exercise that planning path without
 # Resolve or a real project.
 
-def _plan(words, text, duration):
+def _plan(words, text, duration, *, display_end=None):
+    display_end = duration if display_end is None else display_end
     spine = {
         "structure": [{
             "block_type": "speech",
             "position": 1,
             "timeline_start": 0.0,
-            "timeline_end": duration,
+            "timeline_end": display_end,
             "source_start": 0.0,
             "source_end": duration,
             "clip_id": "clip_001",
@@ -288,6 +290,7 @@ def test_late_reel17_tail_does_not_make_an_f7_short_card():
 
     entries = _plan(
         words, "and that would be the first step.", 1.10,
+        display_end=1.5,
     )
 
     _assert_each_word_has_time_inside_its_card(entries)
@@ -1226,28 +1229,157 @@ def test_short_tail_can_merge_across_long_pause_to_keep_date_readable():
     assert plan["readability_issues"] == []
 
 
-def test_unfixably_fast_single_word_is_reported_by_card_id():
+def test_unfixably_fast_single_word_stays_in_plan_for_qa():
     spine = _speech_spine([
         {"word": "unreadablefastcaption", "source_start": 0.0,
          "source_end": 0.8},
     ], source_end=0.8, timeline_end=0.8)
 
     plan = generate_subtitles(
-        spine, caption_case="as_written", brand_effect={}, brand_style={}
+        spine, caption_case="as_written", brand_effect={}, brand_style={},
     )["subtitle_plan"]
-    entry = plan["subtitle_entries"][0]
 
+    assert len(plan["subtitle_entries"]) == 1
+    entry = plan["subtitle_entries"][0]
     assert entry["text"] == "unreadablefastcaption"
-    assert plan["readability_issues"] == [{
-        "card_id": entry["id"],
-        "spine_block_position": 7,
-        "text": "unreadablefastcaption",
-        "duration_seconds": 0.8,
-        "characters_per_second": 26.25,
-        "reasons": [
-            "reading_speed_over_25_characters_per_second",
+    assert [word["word"] for word in entry["words"]] == [
+        "unreadablefastcaption"]
+    issue, = plan["readability_issues"]
+    assert issue["card_id"] == entry["id"]
+    assert issue["characters_per_second"] == 26.25
+    assert issue["reasons"] == [
+        "reading_speed_over_25_characters_per_second"]
+
+
+def _benchmark_caption(card_id, position, start, end, text):
+    words = text.split()
+    span = (end - start) / len(words)
+    return {
+        "id": card_id,
+        "spine_block_position": position,
+        "speaker": None,
+        "timeline_start": start,
+        "timeline_end": end,
+        "text": text,
+        "word_count": len(words),
+        "emphasis_words": [],
+        "words": [
+            {
+                "word": word,
+                "start": start + index * span,
+                "end": start + (index + 1) * span,
+            }
+            for index, word in enumerate(words)
         ],
-    }]
+    }
+
+
+def test_current_head_benchmark_fast_cards_are_repaired():
+    """The seven recorded QA failures are extended or merged before output."""
+    from library.steps.step_4_01_plan_subtitles.step import (
+        _enforce_caption_reading_speed,
+        _readability_issues,
+    )
+
+    entries = [
+        _benchmark_caption(
+            "sub_hook_005", "hook", 7.130, 8.186,
+            "told myself this is the last"),
+        _benchmark_caption(
+            "sub_hook_006", "hook", 8.186, 10.780,
+            "shot i got because like what"),
+        _benchmark_caption(
+            "sub_1_001", 1, 13.933, 14.573,
+            "so the reason i bring up"),
+        _benchmark_caption(
+            "sub_1_002", 1, 14.573, 15.535,
+            "the date is because"),
+        _benchmark_caption(
+            "sub_1_003", 1, 15.535, 17.033,
+            "11 years ago today"),
+        _benchmark_caption(
+            "sub_3_001", 3, 36.500, 37.480,
+            "and so my very very small"),
+        _benchmark_caption(
+            "sub_3_002", 3, 37.480, 39.350,
+            "announcement is that i just want"),
+        _benchmark_caption(
+            "sub_4_003", 4, 45.657, 47.077,
+            "you know if something comes of it then cool but"),
+        _benchmark_caption(
+            "sub_4_004", 4, 48.437, 49.777,
+            "i'm not gonna put any"),
+        _benchmark_caption(
+            "sub_4_007", 4, 52.287, 54.507,
+            "get a 100 a 100 of"),
+        _benchmark_caption(
+            "sub_4_008", 4, 54.507, 55.327,
+            "these videos out this"),
+        _benchmark_caption(
+            "sub_4_009", 4, 55.327, 56.033,
+            "is the first one i mean"),
+        _benchmark_caption(
+            "sub_5_001", 5, 56.033, 57.906,
+            "so even if it's bad,"),
+        _benchmark_caption(
+            "sub_5_003", 5, 58.587, 59.933,
+            "even if i hate it, i always post it."),
+    ]
+    original_words = [
+        word["word"] for entry in entries for word in entry["words"]
+    ]
+    before = _readability_issues(entries)
+    assert [issue["card_id"] for issue in before] == [
+        "sub_hook_005", "sub_1_001", "sub_3_001", "sub_4_003",
+        "sub_4_008", "sub_4_009", "sub_5_003",
+    ]
+
+    spine = [
+        {"position": "hook", "block_type": "hook",
+         "timeline_start": 0.0, "timeline_end": 13.933},
+        {"position": 1, "block_type": "speech",
+         "timeline_start": 13.933, "timeline_end": 34.700},
+        {"position": 3, "block_type": "speech",
+         "timeline_start": 36.500, "timeline_end": 45.167},
+        {"position": 4, "block_type": "speech",
+         "timeline_start": 45.167, "timeline_end": 56.033},
+        {"position": 5, "block_type": "speech",
+         "timeline_start": 56.033, "timeline_end": 59.933},
+    ]
+    fix = _enforce_caption_reading_speed(entries, spine)
+
+    assert fix["extended"] > 0
+    assert fix["merged"] > 0
+    assert _readability_issues(entries) == []
+    assert sorted(word["word"] for entry in entries for word in entry["words"]) == \
+        sorted(original_words)
+    from library.tools.subtitle_qa import verify_subtitle_timing
+    speed_check = next(
+        result for result in verify_subtitle_timing(
+            entries, total_duration=59.933, spine_blocks=spine)
+        if result.metric == "subtitle_read_speed"
+    )
+    assert speed_check.passed
+    assert speed_check.value == []
+
+
+def test_normal_rate_caption_is_unchanged_by_speed_enforcement():
+    from library.steps.step_4_01_plan_subtitles.step import (
+        _enforce_caption_reading_speed,
+    )
+
+    entry = _benchmark_caption(
+        "sub_1_003", 1, 15.535, 17.033, "11 years ago today")
+    entries = [entry]
+    before = copy.deepcopy(entries)
+
+    fix = _enforce_caption_reading_speed(entries, [
+        {"position": 1, "block_type": "speech",
+         "timeline_start": 13.933, "timeline_end": 34.700},
+    ])
+
+    assert fix == {"extended": 0, "merged": 0, "split": 0}
+    assert entries == before
 
 
 # --------------------------------------------------------------------------
