@@ -2,6 +2,7 @@
 
 History: docs/evidence/resolve_test_history.md#test_render_borrow_restore.
 """
+from contextlib import contextmanager
 import pytest
 from unittest.mock import patch
 from library.tools.segment_renderer import (
@@ -93,6 +94,7 @@ class MockProject:
 
     def SetCurrentRenderFormatAndCodec(self, fmt, codec):
         self.set_format_codec_calls.append((fmt, codec))
+        self._format_codec = {"format": fmt, "codec": codec}
         return True
 
     def SetRenderSettings(self, settings):
@@ -133,6 +135,8 @@ class MockProject:
 
     def DeleteRenderJob(self, job_id):
         self.deleted_jobs.append(job_id)
+        self._queued = [job for job in self._queued
+                        if job.get("JobId") != job_id]
         return True
 
     def GetRenderFormats(self):
@@ -249,6 +253,7 @@ class RenderTimelineMockProject(MockProject):
 
     def SetCurrentRenderFormatAndCodec(self, fmt, codec):
         self.set_format_codec_calls.append((fmt, codec))
+        self._format_codec = {"format": fmt, "codec": codec}
         return True
 
     def GetCurrentRenderFormatAndCodec(self):
@@ -353,6 +358,79 @@ class TestRenderTimelineRestoreOnException:
         assert not project.deleted_all, (
             "DeleteAllRenderJobs was called instead of DeleteRenderJob"
         )
+
+
+def test_render_output_validation_runs_after_cleanup_and_both_leases(
+    monkeypatch, tmp_path,
+):
+    """Filesystem and ffprobe checks happen after Resolve is fully restored."""
+    from library.tools import heavy_work_lock
+    from library.tools.execution import resolve_render
+
+    state = {"resolve": False, "heavy": False}
+    events = []
+
+    @contextmanager
+    def resolve_scope(*args, **kwargs):
+        assert not state["resolve"]
+        state["resolve"] = True
+        events.append("resolve-enter")
+        try:
+            yield
+        finally:
+            events.append("resolve-exit")
+            state["resolve"] = False
+
+    @contextmanager
+    def heavy_scope(*args, **kwargs):
+        assert state["resolve"]
+        state["heavy"] = True
+        events.append("heavy-enter")
+        try:
+            yield
+        finally:
+            events.append("heavy-exit")
+            state["heavy"] = False
+
+    project = RenderTimelineMockProject(timeline_name="TestTimeline")
+    resolve = RenderTimelineMockResolve(project, page="color")
+
+    def connect():
+        assert state["resolve"] and state["heavy"]
+        events.append("connect")
+        return resolve
+
+    def files_written(output_dir, output_name, _started_at):
+        assert not state["resolve"] and not state["heavy"]
+        assert project.deleted_jobs == ["job-42"]
+        assert project.GetCurrentRenderFormatAndCodec() == {
+            "format": "mov", "codec": "ProRes"}
+        assert resolve.GetCurrentPage() == "color"
+        events.append("freshness")
+        return [f"{output_name}.mp4"]
+
+    def assert_audio(path):
+        assert not state["resolve"] and not state["heavy"]
+        events.append("audio-probe")
+
+    monkeypatch.setattr(resolve_lock, "resolve_lease", resolve_scope)
+    monkeypatch.setattr(heavy_work_lock, "heavy_work_lock", heavy_scope)
+    monkeypatch.setattr(resolve_render, "_connect", connect)
+    monkeypatch.setattr(resolve_render, "_files_written_since", files_written)
+    monkeypatch.setattr(resolve_render, "_assert_has_audio", assert_audio)
+    (tmp_path / "test.mp4").write_bytes(b"0" * 200_000)
+
+    result = render_timeline(
+        timeline_name="TestTimeline",
+        output_dir=str(tmp_path),
+        output_name="test",
+    )
+
+    assert result["output_path"] == str(tmp_path / "test.mp4")
+    assert events == [
+        "resolve-enter", "heavy-enter", "connect", "heavy-exit",
+        "resolve-exit", "freshness", "audio-probe",
+    ]
 
 
 # --------------------------------------------------------------------------

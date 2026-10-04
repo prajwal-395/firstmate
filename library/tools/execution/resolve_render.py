@@ -150,7 +150,7 @@ def _files_written_since(output_dir: str, name: str, since: float) -> list:
 
 @under_lease("render out", capability="render.build", phase="render")
 @heavy_work_locked("Resolve timeline render", "render.build:render")
-def render_timeline(
+def _render_timeline_under_lease(
     timeline_name: str = "",
     output_dir: str = "",
     output_name: str = "",
@@ -160,8 +160,9 @@ def render_timeline(
 ) -> dict:
     """Queue, start and await a render of the timeline. Returns a report.
 
-    Raises RenderError when Resolve refuses the job or the resulting file
-    is missing or implausibly small.
+    The returned record identifies the job and its output; filesystem
+    freshness, size and audio validation belong to the public wrapper after
+    both leases have been released.
     """
     resolve = _connect()
     project = resolve.GetProjectManager().GetCurrentProject()
@@ -172,11 +173,11 @@ def render_timeline(
     timeline_name = timeline.GetName()
     output_name = output_name or timeline_name
 
-    if not output_dir:
-        raise RenderError("output_dir is required")
-    os.makedirs(output_dir, exist_ok=True)
-
     prev_page = resolve.GetCurrentPage()
+    if not prev_page:
+        raise RenderError(
+            "Resolve did not report its current page; refusing to change it "
+            "without a restorable value")
 
     # Save format/codec - the ONLY render state Resolve lets us read
     # back (H4 from the statefulness hazards investigation).  The rest
@@ -184,10 +185,17 @@ def render_timeline(
     # the full settings dict.  We track our own job ID and clean it up
     # on every exit path including exceptions.
     saved_format_codec = project.GetCurrentRenderFormatAndCodec() or {}
+    if not saved_format_codec.get("format") or not saved_format_codec.get("codec"):
+        raise RenderError(
+            "Resolve did not return the current render format and codec; "
+            "refusing to change settings that cannot be restored")
     our_job_id = None
 
     try:
-        resolve.OpenPage("deliver")
+        if not resolve.OpenPage("deliver"):
+            raise RenderError("Resolve refused to open the deliver page")
+        if resolve.GetCurrentPage() != "deliver":
+            raise RenderError("Resolve did not switch to the deliver page")
 
         if not project.SetCurrentRenderFormatAndCodec(fmt, codec):
             raise RenderError(
@@ -277,6 +285,10 @@ def render_timeline(
                 time.sleep(POLL_SECONDS)
             else:
                 project.StopRendering()
+                while project.IsRenderingInProgress():
+                    print("  Waiting for Resolve to stop the timed-out render",
+                          file=sys.stderr)
+                    time.sleep(POLL_SECONDS)
                 raise RenderError(
                     f"Render did not finish within {timeout_seconds}s "
                     f"(last status: {status})"
@@ -290,31 +302,10 @@ def render_timeline(
                 f"{status.get('Error', 'no error reported')}"
             )
 
-        produced = _files_written_since(output_dir, output_name, render_started_at)
-        if not produced:
-            stale = sorted(_candidate_render_files(output_dir, output_name))
-            raise RenderError(
-                f"Render reported Complete but wrote no file starting with "
-                f"{output_name!r} in {output_dir} during this run "
-                f"(pre-existing files there: {stale or 'none'})"
-            )
-
-        output_path = os.path.join(output_dir, produced[-1])
-        size_bytes = os.path.getsize(output_path)
-        if size_bytes < MIN_PLAUSIBLE_BYTES:
-            raise RenderError(
-                f"Rendered file {output_path} is only {size_bytes} bytes - "
-                f"that is not a video"
-            )
-
-        _assert_has_audio(output_path)
-
-        print(f"  \u2713 Rendered {output_path} ({size_bytes / 1e6:.1f} MB)",
-              file=sys.stderr)
-
         return {
-            "output_path": output_path,
-            "size_bytes": size_bytes,
+            "output_dir": output_dir,
+            "output_name": output_name,
+            "render_started_at": render_started_at,
             "job_id": our_job_id,
             "job_status": job_status,
             "timeline_name": timeline_name,
@@ -323,30 +314,130 @@ def render_timeline(
         }
 
     finally:
-        # Restore format/codec - the only render state with a read-back
-        # API.  Do this BEFORE deleting the job so any error here does
-        # not skip the job cleanup.
+        # Restore the state this operation borrowed before releasing either
+        # lease. Retry until Resolve confirms each restoration and the job is
+        # absent from its queue; cleanup failure must not hand the instance to
+        # another writer in a dirty state.
+        if our_job_id:
+            while True:
+                try:
+                    if not project.IsRenderingInProgress():
+                        break
+                except Exception as exc:
+                    print(f"  Waiting to read render activity: {exc}",
+                          file=sys.stderr)
+                try:
+                    project.StopRendering()
+                except Exception as exc:
+                    print(f"  Waiting for Resolve to stop the render: {exc}",
+                          file=sys.stderr)
+                time.sleep(POLL_SECONDS)
+
         if saved_format_codec:
-            try:
-                project.SetCurrentRenderFormatAndCodec(
-                    saved_format_codec.get("format", ""),
-                    saved_format_codec.get("codec", ""),
-                )
-            except Exception:
-                pass  # best-effort; the job cleanup below is more important
+            while True:
+                try:
+                    project.SetCurrentRenderFormatAndCodec(
+                        saved_format_codec.get("format", ""),
+                        saved_format_codec.get("codec", ""),
+                    )
+                    restored = project.GetCurrentRenderFormatAndCodec() or {}
+                    if (restored.get("format")
+                            == saved_format_codec.get("format")
+                            and restored.get("codec")
+                            == saved_format_codec.get("codec")):
+                        break
+                except Exception as exc:
+                    print(f"  Waiting to restore render format/codec: {exc}",
+                          file=sys.stderr)
+                time.sleep(POLL_SECONDS)
 
         # Delete ONLY the job this process created.
         if our_job_id:
-            try:
-                project.DeleteRenderJob(our_job_id)
-            except Exception:
-                pass  # best-effort
+            while True:
+                deleted = False
+                try:
+                    project.DeleteRenderJob(our_job_id)
+                    jobs = project.GetRenderJobList() or []
+                    queued_ids = {job.get("JobId") for job in jobs
+                                  if isinstance(job, dict)}
+                    deleted = our_job_id not in queued_ids
+                except Exception as exc:
+                    print(f"  Waiting to verify render job cleanup: {exc}",
+                          file=sys.stderr)
+                if deleted:
+                    break
+                time.sleep(POLL_SECONDS)
 
         if prev_page and prev_page != "deliver":
-            try:
-                resolve.OpenPage(prev_page)
-            except Exception:
-                pass  # best-effort; must not mask a propagating exception
+            while True:
+                try:
+                    resolve.OpenPage(prev_page)
+                    if resolve.GetCurrentPage() == prev_page:
+                        break
+                except Exception as exc:
+                    print(f"  Waiting to restore Resolve page: {exc}",
+                          file=sys.stderr)
+                time.sleep(POLL_SECONDS)
+
+
+def render_timeline(
+    timeline_name: str = "",
+    output_dir: str = "",
+    output_name: str = "",
+    fmt: str = "mp4",
+    codec: str = "H264",
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+) -> dict:
+    """Render under both leases, then validate the file after they release."""
+    if not output_dir:
+        raise RenderError("output_dir is required")
+    os.makedirs(output_dir, exist_ok=True)
+
+    render = _render_timeline_under_lease(
+        timeline_name=timeline_name,
+        output_dir=output_dir,
+        output_name=output_name,
+        fmt=fmt,
+        codec=codec,
+        timeout_seconds=timeout_seconds,
+    )
+    produced = _files_written_since(
+        render["output_dir"], render["output_name"],
+        render["render_started_at"])
+    if not produced:
+        stale = sorted(_candidate_render_files(
+            render["output_dir"], render["output_name"]))
+        raise RenderError(
+            f"Render reported Complete but wrote no file starting with "
+            f"{render['output_name']!r} in {render['output_dir']} during "
+            f"this run (pre-existing files there: {stale or 'none'})"
+        )
+
+    output_path = os.path.join(render["output_dir"], produced[-1])
+    size_bytes = os.path.getsize(output_path)
+    if size_bytes < MIN_PLAUSIBLE_BYTES:
+        raise RenderError(
+            f"Rendered file {output_path} is only {size_bytes} bytes - "
+            "that is not a video"
+        )
+    _assert_has_audio(output_path)
+    print(f"  \u2713 Rendered {output_path} ({size_bytes / 1e6:.1f} MB)",
+          file=sys.stderr)
+    return {
+        "output_path": output_path,
+        "size_bytes": size_bytes,
+        "job_id": render["job_id"],
+        "job_status": render["job_status"],
+        "timeline_name": render["timeline_name"],
+        "format": render["format"],
+        "codec": render["codec"],
+    }
+
+
+# Preserve routed-operation metadata on the public wrapper. The decorated
+# worker acquires Resolve first and the machine resource grant second.
+render_timeline.__resolve_lease__ = _render_timeline_under_lease.__resolve_lease__
+render_timeline.__resolve_execution__ = _render_timeline_under_lease.__resolve_execution__
 
 
 def main():

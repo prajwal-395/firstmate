@@ -400,6 +400,14 @@ def test_24fps_project_with_existing_timelines_refuses_a_30fps_build():
 def test_build_refuses_project_rate_conflict_before_creating_timeline(
         mock_resolve, sample_manifest):
     project = mock_resolve["project"]
+    single_stream_item = MagicMock()
+    single_stream_item.GetName.return_value = "test_v1.mov"
+    single_stream_item.GetClipProperty.side_effect = lambda key: {
+        "File Path": "test_v1.mov",
+        "Audio Ch": "1",
+    }.get(key, "")
+    mock_resolve["root_folder"].GetClipList.return_value = [
+        single_stream_item]
     project.GetTimelineCount.return_value = 1
     project.SetSetting("timelineFrameRate", "24")
 
@@ -414,6 +422,14 @@ def test_build_refuses_project_rate_conflict_before_creating_timeline(
 def test_build_refuses_project_timeline_shape_change_before_inherited_timelines(
         mock_resolve, sample_manifest):
     project = mock_resolve["project"]
+    single_stream_item = MagicMock()
+    single_stream_item.GetName.return_value = "test_v1.mov"
+    single_stream_item.GetClipProperty.side_effect = lambda key: {
+        "File Path": "test_v1.mov",
+        "Audio Ch": "1",
+    }.get(key, "")
+    mock_resolve["root_folder"].GetClipList.return_value = [
+        single_stream_item]
     project.GetTimelineCount.return_value = 1
     project.SetSetting("timelineFrameRate", "30")
     project.SetSetting("timelineResolutionWidth", "3840")
@@ -777,6 +793,15 @@ def test_a_project_that_will_not_hold_the_shape_fails_the_build(
     """
     project = mock_resolve['project']
     sample_manifest["project"]["resolution"] = [1080, 1920]
+
+    single_stream_item = MagicMock()
+    single_stream_item.GetName.return_value = "test_v1.mov"
+    single_stream_item.GetClipProperty.side_effect = lambda key: {
+        "File Path": "test_v1.mov",
+        "Audio Ch": "1",
+    }.get(key, "")
+    mock_resolve["root_folder"].GetClipList.return_value = [
+        single_stream_item]
 
     # A project that accepts the write and keeps its own value anyway -
     # exactly what a stale render preset looks like from the outside.

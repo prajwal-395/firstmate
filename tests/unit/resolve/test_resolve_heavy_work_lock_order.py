@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+from contextlib import contextmanager
 import os
 import subprocess
 import sys
@@ -43,8 +44,11 @@ def _wait_for_marker(path: Path, process: subprocess.Popen, timeout: float):
         (
             "library.steps.step_6_01_render.resolve_build_timeline",
             "build_timeline",
-            "_preflight_check",
-            'entry(manifest={})',
+            "_connect_resolve",
+            "entry(manifest={'project': {'name': 'Test', "
+            "'resolution': [1920, 1080], 'frame_rate': 30}, "
+            "'tracks': {'V1': {'clips': [{'source_file': '/missing.mov', "
+            "'timeline_in_frame': 0}]}}})",
         ),
     ],
 )
@@ -91,6 +95,9 @@ def test_resolve_waiter_does_not_hold_heavy_work_lock(
 
         sys.path.insert(0, {str(REPO_ROOT / "library/steps/step_6_01_render")!r})
         module = importlib.import_module({module_name!r})
+        if {module_name!r} == (
+                "library.steps.step_6_01_render.resolve_build_timeline"):
+            module._preflight_check = lambda _manifest: []
         Path({str(ready)!r}).touch()
         while not Path({str(start)!r}).exists():
             time.sleep(0.01)
@@ -182,3 +189,114 @@ def test_combined_resolve_and_heavy_lock_sites_use_the_global_order():
         "combined locks must be acquired as Resolve lease, then heavy-work "
         "lock: " + ", ".join(violations)
     )
+
+
+def test_build_prepares_before_resolve_and_connects_inside_both_locks(
+    monkeypatch,
+):
+    """The offline plan runs before the lease; Resolve connects after both."""
+    from library.steps.step_6_01_render import resolve_build_timeline as builder
+    from library.tools import heavy_work_lock
+
+    active = {"resolve": False, "heavy": False}
+    events = []
+    original_prepare = builder._prepare_timeline_build
+
+    def prepare(*args, **kwargs):
+        assert not active["resolve"]
+        assert not active["heavy"]
+        events.append("prepare")
+        return original_prepare(*args, **kwargs)
+
+    @contextmanager
+    def resolve_scope(*args, **kwargs):
+        assert not active["resolve"]
+        active["resolve"] = True
+        events.append("resolve-enter")
+        try:
+            yield
+        finally:
+            events.append("resolve-exit")
+            active["resolve"] = False
+
+    @contextmanager
+    def heavy_scope(*args, **kwargs):
+        assert active["resolve"]
+        active["heavy"] = True
+        events.append("heavy-enter")
+        try:
+            yield
+        finally:
+            events.append("heavy-exit")
+            active["heavy"] = False
+
+    def connect():
+        assert active["resolve"]
+        assert active["heavy"]
+        events.append("connect")
+        raise ConnectionError("offline test stopped before Resolve")
+
+    monkeypatch.setattr(builder, "_prepare_timeline_build", prepare)
+    monkeypatch.setattr(builder, "_connect_resolve", connect)
+    monkeypatch.setattr(resolve_lock, "resolve_lease", resolve_scope)
+    monkeypatch.setattr(heavy_work_lock, "heavy_work_lock", heavy_scope)
+
+    manifest = {
+        "project": {
+            "name": "Lease boundary test",
+            "resolution": [1920, 1080],
+            "frame_rate": 30,
+            "duration_seconds": 2,
+        },
+        "tracks": {
+            "V1": {"clips": [{
+                "source_file": "offline.mov",
+                "timeline_in_frame": 0,
+                "timeline_in": 0,
+                "timeline_out": 2,
+            }]},
+        },
+    }
+    from tests.resolve_double import builder_paths_exist
+    with builder_paths_exist(builder):
+        result = builder.build_timeline(manifest)
+
+    assert "offline test stopped before Resolve" in result["errors"][0]
+    assert events == [
+        "prepare", "resolve-enter", "heavy-enter", "connect",
+        "heavy-exit", "resolve-exit",
+    ]
+
+
+def test_offline_and_post_render_wrappers_contain_no_resolve_calls():
+    """Resolve methods stay in the functions whose decorators take the lease."""
+    protected_names = {
+        "_connect_resolve", "_connect", "scriptapp_preserving_locale",
+        "GetProjectManager", "GetMediaPool", "GetRootFolder",
+        "GetClipList", "GetClipProperty", "CreateEmptyTimeline",
+        "SetCurrentTimeline", "AppendToTimeline", "GetRenderJobStatus",
+        "AddRenderJob", "StartRendering", "DeleteRenderJob",
+    }
+    modules = (
+        ("library/steps/step_6_01_render/resolve_build_timeline.py",
+         {"_prepare_timeline_build", "build_timeline"}),
+        ("library/tools/execution/resolve_render.py", {"render_timeline"}),
+    )
+    violations = []
+    for filename, function_names in modules:
+        tree = ast.parse((REPO_ROOT / filename).read_text(encoding="utf-8"))
+        for node in tree.body:
+            if not isinstance(node, ast.FunctionDef) or node.name not in function_names:
+                continue
+            referenced = {
+                child.attr for child in ast.walk(node)
+                if isinstance(child, ast.Attribute)
+            }
+            referenced.update(
+                child.id for child in ast.walk(node)
+                if isinstance(child, ast.Name)
+            )
+            escaped = sorted(protected_names & referenced)
+            if escaped:
+                violations.append(f"{filename}:{node.name}: {escaped}")
+    assert not violations, "Resolve calls escaped the leased worker: " + "; ".join(violations)

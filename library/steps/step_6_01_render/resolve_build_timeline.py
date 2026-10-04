@@ -438,6 +438,7 @@ def _ensure_transparent_carrier(
     duration_s: float,
     media_pool,
     root_folder,
+    carrier_exists: Optional[bool] = None,
 ):
     """Create a transparent ProRes 4444 carrier clip via ffmpeg and import it.
 
@@ -454,18 +455,14 @@ def _ensure_transparent_carrier(
     # everything else the pipeline generated.  Without a project there is
     # nowhere to put it that belongs to anything, so it falls back to the
     # step directory as before.  See library/tools/project_layout.py.
-    carrier_dir = (
-        str(ProjectLayout(project_folder).write_dir(Area.CARRIERS, step="render"))
-        if project_folder
-        else os.path.join(os.path.dirname(__file__), "_carriers"))
+    carrier_dir, carrier_path = _transparent_carrier_paths(
+        project_folder, width, height, fps)
     os.makedirs(carrier_dir, exist_ok=True)
-    carrier_path = os.path.join(
-        carrier_dir,
-        f"transparent_{width}x{height}_{fps}fps.mov",
-    )
 
     # Generate via ffmpeg if not already on disk.
-    if not os.path.exists(carrier_path):
+    if carrier_exists is None:
+        carrier_exists = os.path.exists(carrier_path)
+    if not carrier_exists:
         # Duration needs to be at least as long as the longest generator
         # overlay, but we generate one that covers the whole timeline to
         # be safe. Generous ceiling avoids off-by-one frame issues.
@@ -523,6 +520,16 @@ def _ensure_transparent_carrier(
     # written as something else the reading follows it.
     apply_clip_attributes(carrier_item, carrier_path)
     return carrier_item
+
+
+def _transparent_carrier_paths(project_folder, width, height, fps):
+    carrier_dir = (
+        str(ProjectLayout(project_folder).write_dir(Area.CARRIERS, step="render"))
+        if project_folder
+        else os.path.join(os.path.dirname(__file__), "_carriers"))
+    carrier_path = os.path.join(
+        carrier_dir, f"transparent_{width}x{height}_{fps}fps.mov")
+    return carrier_dir, carrier_path
 
 
 # ─── Core: Build Timeline ────────────────────────────────────
@@ -1142,15 +1149,422 @@ def _apply_neural_engine_directives(
     apply_track("V2", v2_labels)
 
 
+def _prepare_timeline_build(
+    manifest: dict,
+    subtitle_overlay_path: Optional[str],
+    motion_graphics_path: Optional[str],
+    project_folder: str,
+) -> dict:
+    """Validate inputs and build the Resolve-independent placement plan.
+
+    This runs before either machine resource admission or the Resolve
+    cursor lease. The only plan detail that still needs Resolve is the
+    legacy single-channel fallback; its read-back is filled into the
+    already-built plan after the pool is read under the lease.
+    """
+    errors = _preflight_check(manifest)
+    if errors:
+        return {"errors": errors}
+
+    project_settings = manifest["project"]
+    timeline_name = project_settings["name"]
+    width, height = project_settings["resolution"][:2]
+    # The timeline grid is the manifest's product delivery rate. Individual
+    # source timebases are read from their pool items later, inside the lease.
+    fps = float(project_settings.get("frame_rate", 30))
+    total_duration = project_settings.get("duration_seconds", 46.0)
+    tracks = manifest.get("tracks", {})
+    v1_clips = tracks.get("V1", {}).get("clips", [])
+    v2_clips = tracks.get("V2", {}).get("clips", [])
+    a2_clips = tracks.get("A2", {}).get("clips", [])
+    a1_voiceover_clips = [
+        clip for clip in tracks.get("A1", {}).get("clips", [])
+        if isinstance(clip, dict) and clip.get("voiceover")]
+    a3_clips = tracks.get("A3", {}).get("clips", [])
+    room_tone_fills = manifest.get("room_tone_fills", []) or []
+    jl_cut_plans = manifest.get("jl_cuts", []) or []
+
+    path_state = {}
+
+    def path_exists(path):
+        if not path:
+            return False
+        if path not in path_state:
+            path_state[path] = os.path.exists(path)
+        return path_state[path]
+
+    sub_overlay_info = manifest.get("subtitle_overlay", {})
+    mg_overlay_info = manifest.get("motion_graphics_overlay", {})
+    tt_overlay_info = manifest.get("timed_text_overlay", {})
+    if sub_overlay_info.get("available") is False:
+        sub_overlay_info = {}
+        print("  ⚠ Subtitles marked as not available, skipping", file=sys.stderr)
+    if mg_overlay_info.get("available") is False:
+        mg_overlay_info = {}
+        print("  ⚠ Motion graphics marked as not available, skipping",
+              file=sys.stderr)
+    sub_segments = sub_overlay_info.get("segments", [])
+    mg_segments = mg_overlay_info.get("segments", [])
+    tt_segments = tt_overlay_info.get("segments", [])
+
+    if (not sub_segments and subtitle_overlay_path
+            and path_exists(subtitle_overlay_path)):
+        sub_segments = [{
+            "overlay_path": subtitle_overlay_path,
+            "timeline_start": 0,
+            "timeline_end": total_duration,
+            "total_frames": round(total_duration * fps),
+        }]
+    if not sub_segments:
+        legacy_sub = sub_overlay_info.get("overlay_path", "")
+        if legacy_sub and path_exists(legacy_sub):
+            sub_segments = [{
+                "overlay_path": legacy_sub,
+                "timeline_start": 0,
+                "timeline_end": total_duration,
+                "total_frames": round(total_duration * fps),
+            }]
+    if (not mg_segments and motion_graphics_path
+            and path_exists(motion_graphics_path)):
+        mg_segments = [{
+            "overlay_path": motion_graphics_path,
+            "timeline_start": 0,
+            "timeline_end": total_duration,
+            "total_frames": round(total_duration * fps),
+        }]
+    if not mg_segments:
+        legacy_mg = mg_overlay_info.get("overlay_path", "")
+        if legacy_mg and path_exists(legacy_mg):
+            mg_segments = [{
+                "overlay_path": legacy_mg,
+                "timeline_start": 0,
+                "timeline_end": total_duration,
+                "total_frames": round(total_duration * fps),
+            }]
+
+    for clip in v1_clips + v2_clips + a2_clips + a3_clips:
+        if "source_in" in clip:
+            clip["source_in_frame"] = round(clip["source_in"] * fps)
+        if "source_out" in clip:
+            clip["source_out_frame"] = round(clip["source_out"] * fps)
+        if "timeline_in" in clip:
+            clip["timeline_in_frame"] = round(clip["timeline_in"] * fps)
+        if "timeline_out" in clip:
+            clip["timeline_out_frame"] = round(clip["timeline_out"] * fps)
+    for segment in sub_segments + mg_segments + tt_segments:
+        if "source_in" in segment:
+            segment["source_in_frame"] = round(segment["source_in"] * fps)
+        if "source_out" in segment:
+            segment["source_out_frame"] = round(segment["source_out"] * fps)
+        if "timeline_in" in segment:
+            segment["timeline_in_frame"] = round(segment["timeline_in"] * fps)
+        if "timeline_out" in segment:
+            segment["timeline_out_frame"] = round(segment["timeline_out"] * fps)
+        if "source_in_frame" not in segment:
+            segment["total_frames"] = round(
+                (segment.get("timeline_end", 0)
+                 - segment.get("timeline_start", 0)) * fps)
+
+    declared_angles = [angle for angle in (manifest.get("angles") or [])
+                       if angle.get("key")]
+    declared_by_key = {angle["key"]: angle for angle in declared_angles}
+    marked_keys = []
+    for clip in v1_clips:
+        key = clip.get("angle")
+        if key and key not in marked_keys:
+            marked_keys.append(key)
+    if marked_keys:
+        default_angle = marked_keys[0]
+        angle_keys = list(marked_keys)
+    elif declared_angles:
+        default_angle = declared_angles[0]["key"]
+        angle_keys = [angle["key"] for angle in declared_angles]
+    else:
+        default_angle = "main"
+        angle_keys = ["main"]
+    for clip in v1_clips:
+        clip.setdefault("angle", default_angle)
+
+    angle_sources = {}
+    for clip in v1_clips:
+        if clip.get("video_only"):
+            continue
+        source = clip.get("source_file", "")
+        if source:
+            angle_sources.setdefault(
+                clip.get("angle", default_angle), set()).add(source)
+
+    (catalog_channels, catalog_refusals,
+     catalog_reasons) = read_catalog_program_channels(project_folder)
+    declared_channel = read_declared_program_stream(project_folder)
+    material_angles = []
+    pending_speech_angles = {}
+    speech_bases = {}
+    for key in angle_keys:
+        if not marked_keys and not declared_angles:
+            break
+        declaration = declared_by_key.get(key, {})
+        label = declaration.get("label") or key
+        angle_files = {path.rsplit("/", 1)[-1]
+                       for path in angle_sources.get(key, set())}
+        if not angle_files:
+            try:
+                channel = int(declaration.get("program_channel")
+                              or declared_channel or 1)
+            except (TypeError, ValueError):
+                channel = int(declared_channel or 1)
+            basis = "no clips on this angle - row naming only"
+        else:
+            manifest_channel = declaration.get("program_channel")
+            can_resolve_without_pool = (
+                manifest_channel is not None
+                or declared_channel is not None
+                or all(name in catalog_channels for name in angle_files))
+            try:
+                if can_resolve_without_pool:
+                    channel, basis = resolve_speech_channel(
+                        key, label, manifest_channel, angle_files,
+                        catalog_channels, catalog_refusals,
+                        declared_channel, set(), catalog_reasons)
+                else:
+                    channel = 1
+                    basis = "Resolve pool read-back pending"
+                    pending_speech_angles[key] = angle_files
+            except SpeechChannelRefused as exc:
+                return {"errors": [str(exc)]}
+        speech_bases[key] = basis
+        material_angles.append({
+            "key": key,
+            "label": label,
+            "speech_name": declaration.get("speech_name")
+            or f"{label} CH{channel}",
+            "program_channel": channel,
+        })
+
+    spine_blocks = manifest.get("_spine_blocks", []) or []
+    if spine_blocks:
+        spine_has_speech = (
+            any(isinstance(block, dict)
+                and block.get("block_type") in SPEECH_BLOCK_TYPES
+                for block in spine_blocks)
+            or bool(a1_voiceover_clips))
+    else:
+        spine_has_speech = (
+            any(not clip.get("video_only") and not clip.get("picture_led")
+                for clip in v1_clips)
+            or bool(a1_voiceover_clips))
+
+    def span_seconds(start_s, end_s):
+        return [round((start_s or 0) * fps), round((end_s or 0) * fps)]
+
+    material = {
+        "angles": material_angles,
+        "has_broll": bool(v2_clips),
+        "v1_intentionally_empty": not v1_clips,
+        "speech_row_intentionally_empty": not spine_has_speech,
+        "picture_led_spans": [
+            [round(float(block.get("timeline_start", 0)) * fps),
+             round(float(block.get("timeline_end", 0)) * fps)]
+            for block in spine_blocks
+            if isinstance(block, dict)
+            and block.get("block_type") == "picture"],
+        "caption_spans": [span_seconds(segment.get("timeline_start"),
+                                        segment.get("timeline_end"))
+                          for segment in sub_segments],
+        "mg_spans": [span_seconds(segment.get("timeline_start"),
+                                   segment.get("timeline_end"))
+                     for segment in mg_segments],
+        "has_generators": bool(manifest.get("generator_overlays", [])),
+        "timed_text_spans": [span_seconds(segment.get("timeline_start"),
+                                            segment.get("timeline_end"))
+                             for segment in tt_segments],
+        "music_spans": [span_seconds(clip.get("timeline_in"),
+                                      clip.get("timeline_out", total_duration))
+                        for clip in a2_clips],
+        "sfx_spans": [span_seconds(clip.get("timeline_in", 0),
+                                    clip.get("timeline_out",
+                                             clip.get("timeline_in", 0)))
+                      for clip in a3_clips],
+    }
+    try:
+        track_plan = plan_layout(material)
+    except (TypeError, ValueError) as exc:
+        return {"errors": [f"Could not build timeline placement plan: {exc}"]}
+
+    legacy_sources = {
+        clip.get("source_file", "").rsplit("/", 1)[-1]
+        for clip in v1_clips if clip.get("source_file")
+        and not clip.get("video_only")}
+    legacy_fallback_needed = (
+        not marked_keys and not declared_angles and bool(legacy_sources))
+    legacy_program_channel = None
+    legacy_program_basis = ""
+    if legacy_fallback_needed:
+        if (declared_channel is not None
+                or all(name in catalog_channels for name in legacy_sources)):
+            try:
+                legacy_program_channel, legacy_program_basis = resolve_speech_channel(
+                    "main", "main", None, legacy_sources,
+                    catalog_channels, catalog_refusals, declared_channel,
+                    set(), catalog_reasons)
+            except SpeechChannelRefused as exc:
+                return {"errors": [str(exc)]}
+
+    results = {
+        "success": False,
+        "timeline_name": timeline_name,
+        "tracks": {},
+        "errors": [],
+        "warnings": [],
+        "qa_failures": [],
+    }
+    source_paths = [clip.get("source_file", "")
+                    for clip in (v1_clips + v2_clips + a2_clips + a3_clips
+                                 + a1_voiceover_clips + room_tone_fills)]
+    overlay_paths = [segment.get("overlay_path", "")
+                     for segment in sub_segments + mg_segments + tt_segments]
+    for segment in sub_segments:
+        frame_dir = ((segment.get("frames") or {}).get("dir", "")
+                     if segment.get("container") == "frames" else "")
+        if frame_dir:
+            overlay_paths.extend(sequence_frame_paths(frame_dir))
+    available_paths = {path for path in source_paths + overlay_paths
+                       if path_exists(path)}
+    fusion_script_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+        "tools", "execution", "apply_fusion_comps.py")
+    carrier_exists = None
+    if material["has_generators"]:
+        _, carrier_path = _transparent_carrier_paths(
+            project_folder, width, height, fps)
+        carrier_exists = path_exists(carrier_path)
+
+    return {
+        "errors": [],
+        "project_settings": project_settings,
+        "timeline_name": timeline_name,
+        "width": width,
+        "height": height,
+        "fps": fps,
+        "total_duration": total_duration,
+        "tracks": tracks,
+        "v1_clips": v1_clips,
+        "v2_clips": v2_clips,
+        "a2_clips": a2_clips,
+        "a1_voiceover_clips": a1_voiceover_clips,
+        "a3_clips": a3_clips,
+        "room_tone_fills": room_tone_fills,
+        "jl_cut_plans": jl_cut_plans,
+        "spine_has_speech": spine_has_speech,
+        "sub_segments": sub_segments,
+        "mg_segments": mg_segments,
+        "tt_segments": tt_segments,
+        "results": results,
+        "available_paths": available_paths,
+        "track_plan": track_plan,
+        "angle_sources": angle_sources,
+        "declared_by_key": declared_by_key,
+        "catalog_channels": catalog_channels,
+        "catalog_refusals": catalog_refusals,
+        "catalog_reasons": catalog_reasons,
+        "declared_channel": declared_channel,
+        "pending_speech_angles": pending_speech_angles,
+        "speech_bases": speech_bases,
+        "legacy_sources": legacy_sources,
+        "legacy_fallback_needed": legacy_fallback_needed,
+        "legacy_program_channel": legacy_program_channel,
+        "legacy_program_basis": legacy_program_basis,
+        "fusion_script_path": fusion_script_path,
+        "fusion_script_exists": path_exists(fusion_script_path),
+        "carrier_exists": carrier_exists,
+    }
+
+
+def _finalize_prepared_speech_channels(prepared, find_pool_clip):
+    """Resolve only legacy channel fallbacks from leased pool read-backs."""
+    single_channel_sources = set()
+    pending_sources = set(prepared["legacy_sources"]
+                          if prepared["legacy_fallback_needed"]
+                          and prepared["legacy_program_channel"] is None
+                          else ())
+    for key in prepared["pending_speech_angles"]:
+        pending_sources.update(prepared["angle_sources"].get(key, set()))
+    for source in pending_sources:
+        pool_item = find_pool_clip(source)
+        if pool_item is None:
+            continue
+        try:
+            audio_channels = int(str(
+                pool_item.GetClipProperty("Audio Ch")).strip())
+        except (Exception, TypeError, ValueError):
+            continue
+        if audio_channels == 1:
+            single_channel_sources.add(source.rsplit("/", 1)[-1])
+
+    if (prepared["legacy_fallback_needed"]
+            and prepared["legacy_program_channel"] is None):
+        try:
+            (prepared["legacy_program_channel"],
+             prepared["legacy_program_basis"]) = resolve_speech_channel(
+                "main", "main", None, prepared["legacy_sources"],
+                prepared["catalog_channels"],
+                prepared["catalog_refusals"],
+                prepared["declared_channel"], single_channel_sources,
+                prepared["catalog_reasons"])
+        except SpeechChannelRefused as exc:
+            prepared["results"]["errors"].append(str(exc))
+            print(f"  ✗ {exc}", file=sys.stderr)
+            return str(exc)
+
+    for angle in prepared["track_plan"].material["angles"]:
+        key = angle["key"]
+        if key not in prepared["pending_speech_angles"]:
+            continue
+        declaration = prepared["declared_by_key"].get(key, {})
+        label = declaration.get("label") or key
+        try:
+            channel, basis = resolve_speech_channel(
+                key, label, declaration.get("program_channel"),
+                prepared["pending_speech_angles"][key],
+                prepared["catalog_channels"],
+                prepared["catalog_refusals"],
+                prepared["declared_channel"], single_channel_sources,
+                prepared["catalog_reasons"])
+        except SpeechChannelRefused as exc:
+            prepared["results"]["errors"].append(str(exc))
+            print(f"  ✗ {exc}", file=sys.stderr)
+            return str(exc)
+        angle["program_channel"] = channel
+        prepared["speech_bases"][key] = basis
+        if not declaration.get("speech_name"):
+            angle["speech_name"] = f"{angle['label']} CH{channel}"
+
+    for angle in prepared["track_plan"].material["angles"]:
+        print(f"  Speech for angle {angle['label']!r}: program "
+              f"CH{angle['program_channel']} "
+              f"({prepared['speech_bases'][angle['key']]})",
+              file=sys.stderr)
+
+    names_by_angle = {angle["key"]: angle["speech_name"]
+                      for angle in prepared["track_plan"].material["angles"]}
+    for track in prepared["track_plan"].audio_tracks:
+        if track.role == "speech" and track.occupant in names_by_angle:
+            track.name = names_by_angle[track.occupant]
+    prepared["results"]["track_plan"] = (
+        prepared["track_plan"].serializable())
+    return ""
+
+
 @under_lease("render the edit timeline", capability="render.build",
              phase="placement")
 @heavy_work_locked("edit timeline placement", "render.build:placement")
-def build_timeline(
+def _build_timeline_under_lease(
     manifest: dict,
     subtitle_overlay_path: Optional[str] = None,
     motion_graphics_path: Optional[str] = None,
     project_name: Optional[str] = None,
     project_folder: str = "",
+    _prepared: Optional[dict] = None,
 ) -> dict:
     """Build a complete Resolve timeline from an assembly manifest.
 
@@ -1163,122 +1577,35 @@ def build_timeline(
     Returns:
         dict with build results and verification data
     """
-    # ── Pre-flight ──
-    errors = _preflight_check(manifest)
-    if errors:
-        return {"success": False, "errors": errors}
+    if _prepared is None:
+        raise RuntimeError(
+            "build_timeline preparation must finish before the Resolve lease")
+    prepared = _prepared
+    if prepared["errors"]:
+        return {"success": False, "errors": prepared["errors"]}
 
-    project_settings = manifest['project']
-    # Declared by the manifest, checked by _preflight_check above: no
-    # shape fallback survives here.
-    timeline_name = project_settings['name']
+    project_settings = prepared["project_settings"]
+    timeline_name = prepared["timeline_name"]
     _clock = _PhaseClock(timeline_name)
     _clock.lap("plan_overlays")
-    width, height = project_settings['resolution'][0], project_settings['resolution'][1]
-    fps = project_settings.get('frame_rate', 30)
-    total_duration = project_settings.get('duration_seconds', 46.0)
-
-    tracks = manifest.get('tracks', {})
-    v1_clips = tracks.get('V1', {}).get('clips', [])
-    v2_clips = tracks.get('V2', {}).get('clips', [])
-    a2_clips = tracks.get('A2', {}).get('clips', [])
-    # Voiceover narration: manifest A1 clips carrying `voiceover: True`
-    # (placed by compile_manifest from step 3.01's voiceover
-    # assignments). The V1-mirror A1 clips beside them are NOT placed
-    # from here - their sound arrives linked under their own picture.
-    a1_voiceover_clips = [
-        c for c in tracks.get('A1', {}).get('clips', [])
-        if isinstance(c, dict) and c.get('voiceover')]
-    # SFX live in exactly one place: tracks.A3.clips (see compile_manifest).
-    a3_clips = tracks.get('A3', {}).get('clips', [])
-    # J/L room-tone fills (fidelity rung R5a): audio-only clips the
-    # compile staged over exactly the gaps its trims opened, plus the
-    # applied-join records the link pass matches against below. Read
-    # here so a declared fill with no reader fails loudly at the
-    # output_contract survey instead of shipping as silence.
-    room_tone_fills = manifest.get('room_tone_fills', []) or []
-    jl_cut_plans = manifest.get('jl_cuts', []) or []
-    # Note: transitions are applied via fusion_effects.transitions, not
-    # the top-level 'transitions' key (which is informational only).
-
-    # ── Resolve overlay segments from manifest ──
-    # Per-segment overlays (new): manifest contains subtitle_overlay.segments
-    # and motion_graphics_overlay.segments arrays with per-segment paths.
-    # Legacy fallback: single subtitle_overlay_path / motion_graphics_path.
-    sub_overlay_info = manifest.get('subtitle_overlay', {})
-    mg_overlay_info = manifest.get('motion_graphics_overlay', {})
-    # Timed text moments the brand template declared (V6). Rendered by
-    # 4.06; see library/tools/timed_text_overlay.py. A template that
-    # declares none carries `declared: false` and no segments.
-    tt_overlay_info = manifest.get('timed_text_overlay', {})
-
-    if sub_overlay_info.get('available') is False:
-        sub_overlay_info = {}
-        print("  ⚠ Subtitles marked as not available, skipping", file=sys.stderr)
-
-    if mg_overlay_info.get('available') is False:
-        mg_overlay_info = {}
-        print("  ⚠ Motion graphics marked as not available, skipping", file=sys.stderr)
-
-    sub_segments = sub_overlay_info.get('segments', [])
-    mg_segments = mg_overlay_info.get('segments', [])
-    tt_segments = tt_overlay_info.get('segments', [])
-
-    # Legacy fallback: single overlay file
-    if not sub_segments and subtitle_overlay_path and os.path.exists(subtitle_overlay_path):
-        sub_segments = [{
-            'overlay_path': subtitle_overlay_path,
-            'timeline_start': 0,
-            'timeline_end': total_duration,
-            'total_frames': round(total_duration * fps),
-        }]
-    if not sub_segments:
-        # Try legacy overlay_path in manifest
-        legacy_sub = sub_overlay_info.get('overlay_path', '')
-        if legacy_sub and os.path.exists(legacy_sub):
-            sub_segments = [{
-                'overlay_path': legacy_sub,
-                'timeline_start': 0,
-                'timeline_end': total_duration,
-                'total_frames': round(total_duration * fps),
-            }]
-
-    if not mg_segments and motion_graphics_path and os.path.exists(motion_graphics_path):
-        mg_segments = [{
-            'overlay_path': motion_graphics_path,
-            'timeline_start': 0,
-            'timeline_end': total_duration,
-            'total_frames': round(total_duration * fps),
-        }]
-    if not mg_segments:
-        legacy_mg = mg_overlay_info.get('overlay_path', '')
-        if legacy_mg and os.path.exists(legacy_mg):
-            mg_segments = [{
-                'overlay_path': legacy_mg,
-                'timeline_start': 0,
-                'timeline_end': total_duration,
-                'total_frames': round(total_duration * fps),
-            }]
-    results = {
-        "success": False,
-        "timeline_name": timeline_name,
-        "tracks": {},
-        "errors": [],
-        "warnings": [],
-        # Error-severity QA check failures, kept SEPARATE from warnings.
-        # They used to be appended to `warnings`, where they sat among
-        # "Fairlight preset not found" and friends, and the build still
-        # printed "Build succeeded" with an empty error list. A check that
-        # runs, can fail, and whose failure nobody sees is barely better
-        # than one that cannot fail - the defect Phase 0 existed to remove.
-        #
-        # Deliberately NOT fatal yet: `success` is unchanged by this list,
-        # because nobody has measured how often these fire on real footage
-        # and making them fatal on no evidence would be the mirror image of
-        # the mistake. `qa_failures` is the evidence channel for that
-        # decision. See docs/PIPELINE_PLAN.md.
-        "qa_failures": [],
-    }
+    width, height = prepared["width"], prepared["height"]
+    fps = prepared["fps"]
+    total_duration = prepared["total_duration"]
+    tracks = prepared["tracks"]
+    v1_clips = prepared["v1_clips"]
+    v2_clips = prepared["v2_clips"]
+    a2_clips = prepared["a2_clips"]
+    a1_voiceover_clips = prepared["a1_voiceover_clips"]
+    a3_clips = prepared["a3_clips"]
+    room_tone_fills = prepared["room_tone_fills"]
+    jl_cut_plans = prepared["jl_cut_plans"]
+    _spine_has_speech = prepared["spine_has_speech"]
+    sub_segments = prepared["sub_segments"]
+    mg_segments = prepared["mg_segments"]
+    tt_segments = prepared["tt_segments"]
+    results = prepared["results"]
+    available_paths = prepared["available_paths"]
+    track_plan = prepared["track_plan"]
 
     qa_reports = []
     def _run_qa(report):
@@ -1352,7 +1679,7 @@ def build_timeline(
         # 222), so importing blindly litters a shared project with a
         # duplicate per source per build. Exact-path match only: a mere
         # basename match could be a different file with the same name.
-        wanted = [p for p in paths if p and os.path.exists(p)]
+        wanted = [p for p in paths if p and p in available_paths]
         skipped = [p for p in wanted if p in _pooled_paths]
         if skipped:
             results.setdefault("pool_dedupe_skipped", []).extend(skipped)
@@ -1462,219 +1789,11 @@ def build_timeline(
     print(f"  Media pool: {len(pool_clips_by_name)} clips ({len(pool_clips_by_path)} with paths)", file=sys.stderr)
 
     _clock.lap("fps_and_track_plan")
-    # ── Detect actual source FPS ──
-    actual_fps = float(fps)
-    for c in v1_clips:
-        src = c.get('source_file', '')
-        if src:
-            pool_item = _find_pool_clip(src)
-            if pool_item:
-                try:
-                    media_fps = float(pool_item.GetClipProperty("FPS"))
-                    if media_fps > 0:
-                        actual_fps = media_fps
-                        print(f"✓ Detected actual FPS from source: {actual_fps}", file=sys.stderr)
-                        break
-                except (ValueError, TypeError):
-                    pass
-    fps = actual_fps
-
-    # Recompute frame bounds for all clips based on actual fps to prevent placement gaps
-    def _recompute_frames(clip):
-        if 'source_in' in clip: clip['source_in_frame'] = round(clip['source_in'] * fps)
-        if 'source_out' in clip: clip['source_out_frame'] = round(clip['source_out'] * fps)
-        if 'timeline_in' in clip: clip['timeline_in_frame'] = round(clip['timeline_in'] * fps)
-        if 'timeline_out' in clip: clip['timeline_out_frame'] = round(clip['timeline_out'] * fps)
-
-    for c in v1_clips + v2_clips + a2_clips + a3_clips:
-        _recompute_frames(c)
-    for s in sub_segments + mg_segments + tt_segments:
-        _recompute_frames(s)
-        if 'source_in_frame' not in s:
-            s['total_frames'] = round(
-                (s.get('timeline_end', 0) - s.get('timeline_start', 0)) * fps)
-
-    # ── The track plan: the material asks, timeline_layout answers ──
-    # Every track index and name below comes from this plan. Counts are
-    # derived from what WILL be placed (angles present, overlay spans,
-    # music/SFX overlap), never from what might be - which is what makes
-    # "two speakers, one row" and "blank rows with nothing on them"
-    # structurally impossible instead of fixed once.
-    def _span_seconds(start_s, end_s):
-        return [round((start_s or 0) * fps), round((end_s or 0) * fps)]
-
-    _declared_angles = [a for a in (manifest.get("angles") or [])
-                        if a.get("key")]
-    _declared_by_key = {a["key"]: a for a in _declared_angles}
-    _marked_keys = []
-    for _c in v1_clips:
-        _k = _c.get("angle")
-        if _k and _k not in _marked_keys:
-            _marked_keys.append(_k)
-    if _marked_keys:
-        # Clips that name no angle join the first materialised one (a
-        # declared silent card lands on the first picture row, not on a
-        # row of its own).
-        _default_angle = _marked_keys[0]
-        _angle_keys = list(_marked_keys)
-    elif _declared_angles:
-        _default_angle = _declared_angles[0]["key"]
-        _angle_keys = [a["key"] for a in _declared_angles]
-    else:
-        _default_angle = "main"
-        _angle_keys = ["main"]
-    for _c in v1_clips:
-        _c.setdefault("angle", _default_angle)
-    # No declared angles and no marked clips: pass none and let the
-    # layout fall back to its legacy single-camera pair (A-Roll/Speech).
-    # Anything materialised is named from the declaration or the key.
-    #
-    # The speech channel is RESOLVED per angle here, never defaulted.
-    # The project's `source.program_stream` declaration first, then the
-    # catalog's recorded selection, then a single-stream pool source as
-    # the mechanical last resort (there is nothing else it could be).
-    # A multi-stream source with none of those refuses the whole build,
-    # naming the angle and the source - the timeline created below must
-    # never carry an unchosen stream.
-    _angle_sources: dict = {}
-    for _c in v1_clips:
-        # Silent cards carry no audio to resolve: the placement loop
-        # below places them video-only, so resolving a stream for them
-        # would refuse builds over nothing.
-        if _c.get("video_only"):
-            continue
-        _src = _c.get("source_file", "")
-        if _src:
-            _angle_sources.setdefault(
-                _c.get("angle", _default_angle), set()).add(_src)
-    (_catalog_channels, _catalog_refusals,
-     _catalog_reasons) = read_catalog_program_channels(project_folder)
-    _declared_channel = read_declared_program_stream(project_folder)
-    _single_stream_sources = set()
-    for _paths in _angle_sources.values():
-        for _src in _paths:
-            # The SAME lookup the placement loop below uses: pool path
-            # first, basename second. A pool item Resolve renamed still
-            # answers for its file.
-            _pool_item = _find_pool_clip(_src)
-            if _pool_item is None:
-                continue
-            try:
-                _audio_ch = _pool_item.GetClipProperty("Audio Ch")
-            except Exception:
-                continue
-            try:
-                if int(str(_audio_ch).strip()) == 1:
-                    _single_stream_sources.add(
-                        _src.rsplit("/", 1)[-1])
-            except (TypeError, ValueError):
-                continue
-    _material_angles = []
-    for _k in _angle_keys:
-        if not _marked_keys and not _declared_angles:
-            break
-        _decl = _declared_by_key.get(_k, {})
-        _label = _decl.get("label") or _k
-        _angle_files = {_p.rsplit("/", 1)[-1]
-                        for _p in _angle_sources.get(_k, set())}
-        if not _angle_files:
-            # A declared angle with no clips places no audio, so there
-            # is no stream to resolve - but the row still needs a name.
-            # Cosmetic only: enforcement never runs without a placement.
-            try:
-                _channel = int(_decl.get("program_channel")
-                               or _declared_channel or 1)
-            except (TypeError, ValueError):
-                _channel = int(_declared_channel or 1)
-            _basis = "no clips on this angle - row naming only"
-        else:
-            try:
-                _channel, _basis = resolve_speech_channel(
-                    _k, _label, _decl.get("program_channel"),
-                    _angle_files,
-                    _catalog_channels, _catalog_refusals,
-                    _declared_channel, _single_stream_sources,
-                    _catalog_reasons)
-            except SpeechChannelRefused as exc:
-                results["errors"].append(str(exc))
-                print(f"  ✗ {exc}", file=sys.stderr)
-                return results
-        print(f"  Speech for angle {_label!r}: program CH{_channel} "
-              f"({_basis})", file=sys.stderr)
-        _material_angles.append({
-            "key": _k,
-            "label": _label,
-            "speech_name": _decl.get("speech_name") or f"{_label} CH{_channel}",
-            "program_channel": _channel,
-        })
-
-    # Whether any speech will ever be placed on a speech row: a
-    # speech/hook spine block, or voiceover narration. Picture-led and
-    # music-led cuts have neither, so their speech row stays empty BY
-    # DESIGN (not by failed placement) - the occupancy sweep keeps it
-    # and the SOP checker exempts it, off the material flags below.
-    _spine_blocks = manifest.get('_spine_blocks', []) or []
-    if _spine_blocks:
-        _spine_has_speech = (
-            any(isinstance(b, dict)
-                and b.get("block_type") in SPEECH_BLOCK_TYPES
-                for b in _spine_blocks)
-            or bool(a1_voiceover_clips))
-    else:
-        # A manifest predating the spine record: read the V1 mirror,
-        # which carries speech audio for speech/hook blocks, silent
-        # picture audio for picture-led blocks (marked `picture_led`),
-        # and nothing for bookend cards. Picture-led reads as
-        # speechless, as it is.
-        _spine_has_speech = (
-            any(not c.get("video_only") and not c.get("picture_led")
-                for c in v1_clips)
-            or bool(a1_voiceover_clips))
-    _material = {
-        "angles": _material_angles,
-        "has_broll": bool(v2_clips),
-        # A voiceover-led cut mints the legacy V1 row with nothing to
-        # place on it: the picture rides V2 by design, not by failure.
-        # The occupancy sweep below keeps that row, and the SOP checker
-        # exempts it, off this flag - an empty V1 anywhere else is
-        # still a row that failed, and still goes.
-        "v1_intentionally_empty": not v1_clips,
-        # The same, for the speech row: a cut with no speech to place
-        # (music-led, or picture-led whose V1 carries picture but no
-        # words) mints it empty, and deleting it drops the rows above
-        # onto the wrong indices against the plan, the names and every
-        # check that reads them.
-        "speech_row_intentionally_empty": not _spine_has_speech,
-        # Where the picture leads with no words: timeline spans (in
-        # frames) of picture-led spine blocks. The SOP checker exempts
-        # items inside them from the picture-travels-with-speech rule -
-        # a picture-led moment carries no audio anywhere, so "could not
-        # be linked" is not "left unlinked" (the held-frame exemption
-        # beside it is the same shape).
-        "picture_led_spans": [
-            [round(float(b.get("timeline_start", 0)) * fps),
-             round(float(b.get("timeline_end", 0)) * fps)]
-            for b in _spine_blocks
-            if isinstance(b, dict) and b.get("block_type") == "picture"],
-        "caption_spans": [_span_seconds(s.get("timeline_start"),
-                                        s.get("timeline_end"))
-                          for s in sub_segments],
-        "mg_spans": [_span_seconds(s.get("timeline_start"),
-                                   s.get("timeline_end"))
-                     for s in mg_segments],
-        "has_generators": bool(manifest.get("generator_overlays", [])),
-        "timed_text_spans": [_span_seconds(s.get("timeline_start"),
-                                           s.get("timeline_end"))
-                             for s in tt_segments],
-        "music_spans": [_span_seconds(c.get("timeline_in"),
-                                      c.get("timeline_out", total_duration))
-                        for c in a2_clips],
-        "sfx_spans": [_span_seconds(c.get("timeline_in", 0),
-                                    c.get("timeline_out",
-                                          c.get("timeline_in", 0)))
-                      for c in a3_clips],
-    }
-    track_plan = plan_layout(_material)
+    channel_error = _finalize_prepared_speech_channels(
+        prepared, _find_pool_clip)
+    if channel_error:
+        return results
+    track_plan = prepared["track_plan"]
     results["track_plan"] = track_plan.serializable()
     results["stream_enforcement"] = {"checked": 0, "deleted": []}
     results["link_groups"] = []
@@ -1909,33 +2028,24 @@ def build_timeline(
     print(f"  (Speech audio rows are added one angle at a time, "
           f"music/SFX rows after speech placement)", file=sys.stderr)
 
-    _program_channel = {a["key"]: a["program_channel"]
-                        for a in _material_angles}
-    if not _program_channel:
+    _program_channel = {
+        angle["key"]: angle["program_channel"]
+        for angle in track_plan.material["angles"]}
+    if not _program_channel and prepared["legacy_fallback_needed"]:
         # The legacy single-camera manifest: no angles declared, no
         # clips marked, one speech row for everything. The channel for
         # it resolves the same way - declaration, recording, then the
         # single-stream mechanical answer - and refuses the same way.
         # The old `or {"main": 1}` put every undeclared multi-stream
         # source on stream 0 without a word said.
-        _legacy_sources = {
-            _c.get("source_file", "").rsplit("/", 1)[-1]
-            for _c in v1_clips if _c.get("source_file")
-            and not _c.get("video_only")}
-        if _legacy_sources:
-            try:
-                _main_channel, _main_basis = resolve_speech_channel(
-                    "main", "main", None, _legacy_sources,
-                    _catalog_channels, _catalog_refusals,
-                    _declared_channel, _single_stream_sources,
-                    _catalog_reasons)
-            except SpeechChannelRefused as exc:
-                results["errors"].append(str(exc))
-                print(f"  ✗ {exc}", file=sys.stderr)
-                return results
-            print(f"  Speech for the single row: program "
-                  f"CH{_main_channel} ({_main_basis})", file=sys.stderr)
-            _program_channel = {"main": _main_channel}
+        _main_channel = prepared["legacy_program_channel"]
+        if _main_channel is None:
+            raise RuntimeError(
+                "legacy speech channel was not resolved before placement")
+        print(f"  Speech for the single row: program "
+              f"CH{_main_channel} ({prepared['legacy_program_basis']})",
+              file=sys.stderr)
+        _program_channel = {"main": _main_channel}
 
     def _enforce_program_stream(angle_key, placed_items, label):
         """Only mappings carrying the recorded program stream stay on a
@@ -2704,6 +2814,7 @@ def build_timeline(
             duration_s=total_duration,
             media_pool=media_pool,
             root_folder=root_folder,
+            carrier_exists=prepared["carrier_exists"],
         )
 
         # Store generator overlay metadata for apply_fusion_comps
@@ -3271,8 +3382,8 @@ def build_timeline(
     # because clip references go stale after timeline creation.
     import tempfile
     
-    script_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'tools', 'execution', 'apply_fusion_comps.py')
-    if os.path.exists(script_path):
+    script_path = prepared["fusion_script_path"]
+    if prepared["fusion_script_exists"]:
         # The Fusion pass walks the timeline the plan laid out. It still
         # reads per-clip comps off manifest tracks V1/V2 (its own
         # conformance is a filed follow-up); the plan travels with the
@@ -4215,6 +4326,35 @@ def build_timeline(
 
     _clock.lap(None)
     return results
+
+
+def build_timeline(
+    manifest: dict,
+    subtitle_overlay_path: Optional[str] = None,
+    motion_graphics_path: Optional[str] = None,
+    project_name: Optional[str] = None,
+    project_folder: str = "",
+) -> dict:
+    """Prepare a placement plan, then execute it under Resolve and machine leases."""
+    prepared = _prepare_timeline_build(
+        manifest, subtitle_overlay_path, motion_graphics_path, project_folder)
+    if prepared["errors"]:
+        return {"success": False, "errors": prepared["errors"]}
+    return _build_timeline_under_lease(
+        manifest,
+        subtitle_overlay_path=subtitle_overlay_path,
+        motion_graphics_path=motion_graphics_path,
+        project_name=project_name,
+        project_folder=project_folder,
+        _prepared=prepared,
+    )
+
+
+# The routed operation is the public entry point. Its lease is deliberately
+# acquired by the prepared worker only after the wrapper has finished offline
+# manifest, path and placement-plan work.
+build_timeline.__resolve_lease__ = _build_timeline_under_lease.__resolve_lease__
+build_timeline.__resolve_execution__ = _build_timeline_under_lease.__resolve_execution__
 
 
 # ─── CLI Entry Point ─────────────────────────────────────────

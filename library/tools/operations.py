@@ -2019,7 +2019,9 @@ _REGISTRY: tuple[Operation, ...] = (
                 name="placement", resolve_mode=RESOLVE_EXCLUSIVE,
                 locality=LOCALITY_TIMELINE,
                 resources=(("cpu", 2), ("ram_gb", 2)),
-                lock_sites=("library.steps.step_6_01_render.resolve_build_timeline:build_timeline",),
+                lock_sites=(
+                    "library.steps.step_6_01_render.resolve_build_timeline:"
+                    "_build_timeline_under_lease",),
                 entry_points=("library.steps.step_6_01_render.resolve_build_timeline",),
                 why="The edit timeline is built under the exclusive cursor lease.",
                 resource_basis=("Resolve's placement CPU and RAM demand is "
@@ -2029,7 +2031,9 @@ _REGISTRY: tuple[Operation, ...] = (
                 name="render", resolve_mode=RESOLVE_EXCLUSIVE,
                 locality=LOCALITY_TIMELINE,
                 resources=(("resolve_render", 1),),
-                lock_sites=("library.tools.execution.resolve_render:render_timeline",),
+                lock_sites=(
+                    "library.tools.execution.resolve_render:"
+                    "_render_timeline_under_lease",),
                 entry_points=("library.tools.execution.resolve_render",),
                 why="Resolve has one global render queue and render engine.",
                 resource_basis=(
