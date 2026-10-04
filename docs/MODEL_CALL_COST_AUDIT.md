@@ -1,27 +1,87 @@
 # What the pipeline asks models, and what each question costs
 
-Measured 2026-09-12 on the current tree (`a7f9397c`), with the repo's own
-[step-replay bench](STEP_REPLAY_BENCH.md).  No pipeline run, no Resolve, no
-project write - the bench reconstructs each step's real prompt off frozen
-state with the runner's own assembly, so every figure below is the string
-the pipeline would send.
+The original audit below was measured on 2026-09-12. Its totals are historical,
+not current costs. The current remeasurement is dated 2026-10-04 and uses the
+current `origin/main` code at `f432d244` with a newly captured frozen 001
+snapshot. It rebuilt 12 of the 17 model-call steps in the `edit_video` DAG.
+The table is a measured subtotal; five steps and the separate per-reel request
+path are listed as gaps rather than estimated.
 
-**The tokenizer is named on every figure.**  `o200k_base`, via `tiktoken`,
-which `library/tools/replay_bench/tokens.py` calls a STATED PROXY - Claude's
-tokenizer is not public.  `utf8_bytes` is exact and is what the earlier
-context audits report, so both are here.  Never quote the pipeline's own
-`llm_token_stats`: it is `len(s.split()) * 1.3`, measured here at 0.47x to
-0.77x the `o200k_base` count on the same strings.
+**Every count names its tokenizer.** `o200k_base`, via `tiktoken`, is the
+stated proxy in `library/tools/replay_bench/tokens.py`; Claude's tokenizer is
+not public. `utf8_bytes` is exact. Do not quote the pipeline's own
+`llm_token_stats`: it is `len(s.split()) * 1.3`, not a tokenizer.
 
-Reproduce the whole table:
+## Current remeasurement (2026-10-04)
 
-    python3 -m library.tools.replay_bench replay round3-20260829 <step> --rev WORKTREE
+Snapshot `vep-cost-audit-20261004-001` was captured on 2026-10-04 from the
+latest stable 001 project state available. The copied `pipeline_data.json`
+was last written on 2026-08-30; the replay snapshot itself was sealed and all
+referenced areas were unmoved during these replays. Its manifest is
+[`tests/fixtures/replay_snapshots/vep-cost-audit-20261004-001.json`](../tests/fixtures/replay_snapshots/vep-cost-audit-20261004-001.json).
+The project state is therefore frozen and repeatable, while the measurement
+answers what the current code sends for that state. No LLM task answer was
+requested, and no pipeline or Resolve call was made. The incomplete
+`plan_vfx` bridge replay is excluded below.
+
+The 12 reconstructed requests total **183,052 `o200k_base` input tokens**
+(49,880 prompt + 133,172 context), or **667,625 UTF-8 bytes**. This is a
+subtotal, not a full-run total. Output tokens and provider billing rates are
+not included.
+
+| Step | Prompt `o200k_base` | Context `o200k_base` | Input `o200k_base` | Prompt + context UTF-8 bytes |
+|---|---:|---:|---:|---:|
+| `creative_direction` | 1,579 | 11,063 | 12,642 | 44,711 |
+| `speech_sequence` | 4,443 | 15,909 | 20,352 | 71,868 |
+| `mesh_spine` | 6,653 | 10,207 | 16,860 | 63,223 |
+| `select_broll` | 4,973 | 19,843 | 24,816 | 84,865 |
+| `review_rough_cut` | 4,546 | 13,331 | 17,877 | 66,467 |
+| `plan_subtitles` | 539 | 4,167 | 4,706 | 12,150 |
+| `plan_transitions` | 6,806 | 19,122 | 25,928 | 98,838 |
+| `plan_sfx` | 5,325 | 20,690 | 26,015 | 96,756 |
+| `render_motion_graphics` | 6,726 | 7,091 | 13,817 | 58,026 |
+| `audio_mix` | 4,589 | 1,968 | 6,557 | 25,369 |
+| `render` | 1,272 | 9,381 | 10,653 | 33,638 |
+| `validate` | 2,429 | 400 | 2,829 | 11,714 |
+| **Measured subtotal (12 calls)** | **49,880** | **133,172** | **183,052** | **667,625** |
+
+Five current `edit_video` model-call steps are not included:
+
+| Step | Why it is not measured here |
+|---|---|
+| `music_selection` | Its bridge performs the project's default-on music search and measures candidate tracks. Replaying it would run a new search and audio analysis, outside this no-heavy-compute audit. |
+| `select_reels` | The stable 001 snapshot has no `timeline_transcript`; `replay_bench` refused reconstruction because the required transcript file is absent. |
+| `judge_reels` | It depends on the `select_reels` result, which the 001 snapshot does not contain. |
+| `plan_vfx` | Its bridge routes extracted stills through `still_vision`, which falls back to Gemma when no host vision is available. The replay was stopped at that boundary. |
+| `color_grade` | Its bridge uses the same still-vision path and Gemma fallback. |
+
+The separate per-reel operations (`reel_semantic`, `reel_span`, and
+`reel_motion`) are not `edit_video` DAG steps, so this step-replay bench cannot
+reconstruct them by step id. Their September archive counts later in this
+document remain historical. The geo-podcast project's referenced output area
+was changing during this audit, so it was not used as a frozen input for new
+per-reel totals.
+
+The `plan_sfx` reconstruction was repeated through `replay_bench compare`
+with `WORKTREE` on both arms. Prompt and context were identical, so the
+non-repeatability previously observed on `round3-20260829` did not recur on
+this snapshot.
+
+To reproduce an individual row:
+
+    python3 -m library.tools.replay_bench replay vep-cost-audit-20261004-001 <step> --rev WORKTREE
+
+For `review_rough_cut`, pass `--llm-authored cut_decisions,rough_cut_review`;
+the recorded values were withheld. For `render`, pass
+`--llm-authored render_review`; that key was absent from this snapshot's
+recorded output.
 
 ---
 
-## 1. Which steps ask a model anything
+## 1. Historical call census (2026-09-12)
 
-The edit_video DAG has 29 nodes.  **Twelve of them make a call.**  The
+At the original audit date, the edit_video DAG had 29 nodes and **twelve of
+them made a call.** The
 other seventeen do not, and two of those are the interesting case: their
 `interface` declares outputs their deterministic half has already produced,
 so `llm_output_declarations` returns `[]` and `present_llm_step` prints
@@ -52,7 +112,7 @@ three per-reel steps; see section 4.
 
 ---
 
-## 2. The cost of one full plan run
+## 2. Historical plan-run cost (2026-09-12)
 
 Snapshot `round3-20260829` (project 001), `o200k_base`, prompt + context.
 
@@ -83,7 +143,10 @@ saving multiplies by up to nine on a bad run.
 
 ---
 
-## 3. What was narrowed, and the evidence it did not degrade
+## 3. Historical context changes and evidence (2026-09-12)
+
+These measurements document the earlier context reductions; they are not
+current cost totals.
 
 Each change is one `context_fields` drop path.  For each, the bench was run
 at `origin/main` and at `WORKTREE` on the same snapshot; the prompt is
@@ -202,10 +265,11 @@ to FAIL with its drop path removed before being left passing.
 
 ---
 
-## 4. The reel path
+## 4. Historical reel-path costs (September 2026)
 
-The captain's field-test podcast holds 24 request records under
-`pipeline_output/llm_requests/`, eight reels by three per-reel steps:
+At the September capture, the captain's field-test podcast held 24 request
+records under `pipeline_output/llm_requests/`, eight reels by three
+per-reel steps:
 
 | Step | 8 reels | mean/reel |
 |---|---:|---:|
@@ -227,7 +291,7 @@ directory at all, though both ran.
 
 ---
 
-## 5. Found, priced, and NOT changed
+## 5. Historical candidates, priced and not changed (September 2026)
 
 | What | Cost per plan run | Why it stands |
 |---|---:|---|
@@ -240,21 +304,20 @@ directory at all, though both ran.
 
 ---
 
-## 6. Not examined
+## 6. Historical scope limits (September 2026)
 
 - **The `reels` process's own `context_fields`.**  Only `select_reels` and
   `judge_reels` were measured; the three per-reel steps were priced off the
   captain's archive and not audited for duplication.
-- **`compile_manifest`, `creative_cohesion`, `audio_mix`, `assign_aroll`,
-  `plan_subtitles`, `render_subtitles`.**  All deterministic - they assemble
-  a large context that no model is ever shown.  `compile_manifest`'s is
-  104,766 tokens' worth and costs nothing.
-- **Why `plan_sfx`'s reconstruction is not reproducible.**  Comparing
-  `origin/main` against ITSELF reports `context identical: False` with
-  no section delta and a byte-identical length, so something in its
-  pre-bridge varies between runs. Pre-existing, unrelated to anything
-  here, and it makes that one step's before/after unprovable by the
-  bench.
+- **`compile_manifest`, `creative_cohesion`, `assign_aroll`, and
+  `render_subtitles`.** They assemble contexts that no model is shown.
+  `compile_manifest`'s is 104,766 tokens' worth and costs nothing.
+  `plan_subtitles` and `audio_mix` were subsequently made model-call steps;
+  they are included in the current table above.
+- **The earlier `plan_sfx` reproducibility issue.** The 2026-09 snapshot
+  comparison reported unequal contexts with no section delta. On the current
+  001 snapshot, two `WORKTREE` replays had identical prompt and context, so
+  that earlier result did not recur.
 - **Output tokens.**  Every figure here is what is SENT.
 - **Model choice per step.**  Out of scope without evidence a cheaper model
   is sufficient.
@@ -263,7 +326,7 @@ directory at all, though both ran.
 
 ---
 
-## 7. `select_reels`, re-measured and narrowed (2026-10-01)
+## 7. Historical `select_reels` result (2026-10-01)
 
 Snapshot `reel-endtoend-before`, `o200k_base`, tree `579d5954`.
 

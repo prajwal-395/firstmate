@@ -1,0 +1,230 @@
+{
+  "archive_from": null,
+  "capture_repo_head": "f432d24409c8d8ed58dd9ca53c6732c7edc3fd71",
+  "captured_at": "2026-10-04T18:26:17.361588+00:00",
+  "declared_project_folder": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001",
+  "files": [
+    {
+      "bytes": 4849302,
+      "path": "project/pipeline_data.json",
+      "sha256": "97d46e2dcd7b4bbc9e2d5f00756522f0021a45d5663043948e9f3bf8515a9f81",
+      "source": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_data.json"
+    },
+    {
+      "bytes": 3436,
+      "path": "project/project.yaml",
+      "sha256": "f4085de48edd93bf8c68234a3f00a2be92abe7df52b14c360dd95c275b7a37c1",
+      "source": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/project.yaml"
+    },
+    {
+      "bytes": 44234,
+      "path": "archive/llm_requests/creative_direction.json",
+      "sha256": "639ffa50ac3154d81e92efbb72b31baee99b6c08af1db304d445556f838581ae",
+      "source": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/llm_requests/creative_direction.json"
+    },
+    {
+      "bytes": 39047,
+      "path": "archive/llm_requests/mesh_spine.json",
+      "sha256": "16980ee93333b1ba6ba50b947b300858d80e4a250b3ed1494a65ce6bad0df82d",
+      "source": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/llm_requests/mesh_spine.json"
+    },
+    {
+      "bytes": 30536,
+      "path": "archive/llm_requests/music_selection.json",
+      "sha256": "e52c11bd12e406ec770924af832adde5743f78eef1161f163942582c1a232155",
+      "source": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/llm_requests/music_selection.json"
+    },
+    {
+      "bytes": 72645,
+      "path": "archive/llm_requests/plan_sfx.json",
+      "sha256": "06275fbb1227ac31cbd864e402f8667f5c1b945114ac7837cc45ac09fb484ac5",
+      "source": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/llm_requests/plan_sfx.json"
+    },
+    {
+      "bytes": 69234,
+      "path": "archive/llm_requests/plan_transitions.json",
+      "sha256": "60adf446a702da6dc7d68bc20818e856e7eefbff9148c9959748c00300336a62",
+      "source": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/llm_requests/plan_transitions.json"
+    },
+    {
+      "bytes": 62323,
+      "path": "archive/llm_requests/plan_vfx.json",
+      "sha256": "64d894fd697f6053c9e3782c2d58d087231c7dae08d96643f71522daf9bde37e",
+      "source": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/llm_requests/plan_vfx.json"
+    },
+    {
+      "bytes": 42906,
+      "path": "archive/llm_requests/render.json",
+      "sha256": "19f280d5c240c6555801cbe4f394134009eca0bd0ce4217ab410f8a1755b8bcc",
+      "source": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/llm_requests/render.json"
+    },
+    {
+      "bytes": 57306,
+      "path": "archive/llm_requests/review_rough_cut.json",
+      "sha256": "9b08d4be0549ba50a524593d0d53fa5bc4cfd240a7bd7392ca0e127ff144559e",
+      "source": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/llm_requests/review_rough_cut.json"
+    },
+    {
+      "bytes": 72163,
+      "path": "archive/llm_requests/select_broll.json",
+      "sha256": "500dae9afd31e1632489932bf529bf69bb8dba52b220ecbed108434e98b6dc0d",
+      "source": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/llm_requests/select_broll.json"
+    },
+    {
+      "bytes": 63598,
+      "path": "archive/llm_requests/speech_sequence.json",
+      "sha256": "5eac24426dd5e995a2a98ba4fdb33021aba2223ab9011d6fa9748afb262f0d32",
+      "source": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/llm_requests/speech_sequence.json"
+    },
+    {
+      "bytes": 5567,
+      "path": "archive/llm_responses/creative_direction.json",
+      "sha256": "0967d53e4716bfd4a35df7923a38a24931e409e29bb963b577eca338a128843a",
+      "source": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/llm_responses/creative_direction.json"
+    },
+    {
+      "bytes": 4782,
+      "path": "archive/llm_responses/mesh_spine.json",
+      "sha256": "29b05e5069221716cc7a269ced387e355137b6c2a262eb71cd1e24f5be7b4687",
+      "source": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/llm_responses/mesh_spine.json"
+    },
+    {
+      "bytes": 6909,
+      "path": "archive/llm_responses/music_selection.json",
+      "sha256": "508389abda712acf5def3376f872b7046e1a6f2f90f425c1f8a05188ec751de6",
+      "source": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/llm_responses/music_selection.json"
+    },
+    {
+      "bytes": 1586,
+      "path": "archive/llm_responses/plan_sfx.json",
+      "sha256": "97e4f2a12e861e594038800b584482de6d2ec011fc2970c8a3b3d5b5247020b9",
+      "source": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/llm_responses/plan_sfx.json"
+    },
+    {
+      "bytes": 4107,
+      "path": "archive/llm_responses/plan_transitions.json",
+      "sha256": "e899c363b46fff673e3cb2c8a50a585e98da1aec443184958a6f80917f228d5c",
+      "source": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/llm_responses/plan_transitions.json"
+    },
+    {
+      "bytes": 1122,
+      "path": "archive/llm_responses/plan_vfx.json",
+      "sha256": "f080430c6567960b5570234939b2521bdfc438e6ac0cb143ac54f2e296c667bc",
+      "source": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/llm_responses/plan_vfx.json"
+    },
+    {
+      "bytes": 2950,
+      "path": "archive/llm_responses/review_rough_cut.json",
+      "sha256": "7b90a7f7ad308dd4ef4659fbf2a486bd3fda269498858ecc7755c4152a26678a",
+      "source": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/llm_responses/review_rough_cut.json"
+    },
+    {
+      "bytes": 4379,
+      "path": "archive/llm_responses/select_broll.json",
+      "sha256": "5f0f133ca926c21546a44f400daa08fb833b8fe88bfba6955728b6c11f11e36a",
+      "source": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/llm_responses/select_broll.json"
+    },
+    {
+      "bytes": 9198,
+      "path": "archive/llm_responses/speech_sequence.json",
+      "sha256": "4c2dda46980e7a97894f7049508a93bb5c8e391e97084199b693de6d17dc0b12",
+      "source": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/llm_responses/speech_sequence.json"
+    },
+    {
+      "bytes": 11810,
+      "path": "archive/reasoning/creative_direction.md",
+      "sha256": "784636c994483c60e5f1e3483193b9794bde84583d08d00f8d97c55d435bcc8b",
+      "source": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/reasoning/creative_direction.md"
+    },
+    {
+      "bytes": 12782,
+      "path": "archive/reasoning/mesh_spine.md",
+      "sha256": "63fad9e199b4255d4991edc0a1ef70fb8a33f980dcfb9e5ac33058c0c354bd56",
+      "source": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/reasoning/mesh_spine.md"
+    },
+    {
+      "bytes": 10651,
+      "path": "archive/reasoning/music_selection.md",
+      "sha256": "07a2f2c7db13871b9288e6ea88ace661acdf7e6a24133dade55f49fddf2b242a",
+      "source": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/reasoning/music_selection.md"
+    },
+    {
+      "bytes": 11403,
+      "path": "archive/reasoning/plan_sfx.md",
+      "sha256": "73b29fa7176d3e25c38a0868080dc2044414772f3ef88f7825fc418349bd4848",
+      "source": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/reasoning/plan_sfx.md"
+    },
+    {
+      "bytes": 15611,
+      "path": "archive/reasoning/plan_transitions.md",
+      "sha256": "b64c6e288632c6d0c1c9c9e3d1e340a498122b05b3981772a954144230db03d6",
+      "source": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/reasoning/plan_transitions.md"
+    },
+    {
+      "bytes": 14783,
+      "path": "archive/reasoning/plan_vfx.md",
+      "sha256": "bffcaefd96c8f68e4f34e982bc09d078152281290220d4cc0bfb3615b83ad522",
+      "source": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/reasoning/plan_vfx.md"
+    },
+    {
+      "bytes": 8104,
+      "path": "archive/reasoning/render.md",
+      "sha256": "59519501d446480066dea1b3f2f507f305888fd868de41cc630f0f4edecfaa0a",
+      "source": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/reasoning/render.md"
+    },
+    {
+      "bytes": 10689,
+      "path": "archive/reasoning/review_rough_cut.md",
+      "sha256": "4dbd6ec9e6f76368a87aa04f33161d5a5b42d0b6d778a78d2387c1e1a07f2219",
+      "source": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/reasoning/review_rough_cut.md"
+    },
+    {
+      "bytes": 12948,
+      "path": "archive/reasoning/select_broll.md",
+      "sha256": "e70bb1e1dae1edc7816506bbe771eca64a8d80c782e7dc495bda7b6ccb161c1a",
+      "source": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/reasoning/select_broll.md"
+    },
+    {
+      "bytes": 13290,
+      "path": "archive/reasoning/speech_sequence.md",
+      "sha256": "52521c46b754bd8c8a232b3b62da26a58f45572bd662bf0467dee22a14bc02df",
+      "source": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output/reasoning/speech_sequence.md"
+    }
+  ],
+  "note": "Current frozen 001 project state for the 2026-10-04 model-call cost audit; captured against repository HEAD f432d24409c8d8ed58dd9ca53c6732c7edc3fd71. No pipeline run or Resolve call.",
+  "pipeline_run_at_capture": {
+    "current_step": null,
+    "started_at": "2026-08-30T13:39:34",
+    "status": "failed"
+  },
+  "references": [
+    {
+      "area": "raw",
+      "entry_count": 36,
+      "listing_sha256": "b540896bd586c259bbe32b92af009787246e98cbaecf0913192f22e39a11882c",
+      "target": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw"
+    },
+    {
+      "area": "music",
+      "entry_count": 5,
+      "listing_sha256": "a203fa5d888625c2f3489916554250c076734626aff7675639aee238077737c7",
+      "target": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/music"
+    },
+    {
+      "area": "assets",
+      "entry_count": 127,
+      "listing_sha256": "0a834f230e742db29d8c250f4ff5254e0337a1ed4ee054567237e523847e7dda",
+      "target": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/assets"
+    },
+    {
+      "area": "pipeline_output",
+      "entry_count": 1941,
+      "listing_sha256": "7786cc7fc2218afb3980aceb3c1166779e5598cfce2354623509f3e5e8effa10",
+      "target": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_output"
+    }
+  ],
+  "snapshot_id": "vep-cost-audit-20261004-001",
+  "source_project": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001",
+  "state_from": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/pipeline_data.json",
+  "torn": false
+}
