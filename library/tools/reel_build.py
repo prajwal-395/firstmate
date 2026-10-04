@@ -7599,23 +7599,21 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
                            intent_applied: list = None,
                            seen_labels: list = None,
                            sweep_out: list = None,
-                           draw_gain: float = FALLBACK_DRAW_GAIN) -> list:
+                           draw_gain: float = FALLBACK_DRAW_GAIN,
+                           resolve_app=None) -> list:
     """Place rendered overlay segments onto one upper video track.
 
-    One placer for the explainer track and the semantic-visual track:
-    both append full-canvas graphics whose whole span is placed
-    (`total_frames` IS the content, no handles either side), and two
-    placers doing the same arithmetic are two chances to land one
-    frame off.
+    One placer for every generated graphic layer. Pixel-static PNGs are
+    placed as native stills at the planned span; changing pixels remain
+    rendered video with the span trimmed to the planned length.
 
-    Video ONLY (`mediaType: 1`): the rendered overlay carries a silent
-    audio stream, and without this Resolve silently drops the whole
-    append - R09's first vox build placed nothing on V6 while every
-    other video append in this module already passed it. Both the
-    import and the append are judged by what they RETURN (AGENTS.md 5)
-    and REFUSED as `ReelBuildError` rather than skipped: an unplaced
-    segment the record claims is a build the conformance gate
-    (`check`, F21/F22) refuses, so carrying on would only fail later
+    Both stills and videos are appended video-only (`mediaType: 1`):
+    videos trim by source frames, while a still's exact duration is set
+    through Resolve's temporary user-preference preset and read back.
+    Both the import and append are judged by what they RETURN
+    (AGENTS.md 5) and refused as `ReelBuildError` rather than skipped:
+    an unplaced segment the record claims is a build the conformance
+    gate (`check`, F21/F22) refuses, so carrying on would only fail later
     with less pointing at the cause.
 
     A segment under scratch/ is refused before anything is imported
@@ -7664,12 +7662,17 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
     import sys
 
     from library.tools import do_not_draw as _dnd
+    from library.tools.reel_otio_placement import RecordingTimeline
     from library.tools.overlay_draw_intent import (
         draw_intent_for_segment,
         segment_canvas,
     )
     from library.tools.overlay_placement import apply_placement_transform
     from library.tools.reel_placed_assets import assert_placeable
+    from library.tools.still_placement import (
+        StillPlacementRefused,
+        place_still_exact,
+    )
 
     rows = ([int(track_rows)] if isinstance(track_rows, int)
             else [int(r) for r in (track_rows or [])])
@@ -7704,6 +7707,15 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
                 f"would hide one of two graphics the plan puts on screen "
                 f"together.")
         track_index = rows[lane]
+        media_type = segment.get("media_type")
+        if media_type is None:
+            extension = os.path.splitext(
+                str(segment["overlay_path"]))[1].lower()
+            media_type = "still" if extension == ".png" else "video"
+        if media_type not in ("still", "video"):
+            raise ReelBuildError(
+                f"{name}: rendered {kind} segment has unsupported media "
+                f"type {media_type!r}; expected 'still' or 'video'")
         if project_folder:
             assert_placeable(segment["overlay_path"], project_folder)
         item = import_pool_item(
@@ -7716,23 +7728,41 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
                 f"{segment['overlay_path']!r}")
         _assert_placing(project, timeline)
         record_frame = int(round(segment["timeline_start"] * fps))
-        placed = pool.AppendToTimeline([{
-            "mediaPoolItem": item,
-            "startFrame": 0,
-            # EXCLUSIVE, the same reading every other placement here
-            # uses. An inclusive endFrame leaves a one-frame gap, which
-            # is a black hole F1 reports.
-            "endFrame": segment["total_frames"],
-            "mediaType": 1,
-            "trackIndex": track_index,
-            "recordFrame": record_frame,
-        }])
-        if not placed:
-            raise ReelBuildError(
-                f"{name}: Resolve would not place the rendered {kind} "
-                f"{segment['overlay_path']!r} on V{track_index} - "
-                f"AppendToTimeline returned nothing, and an unplaced "
-                f"segment the record claims is a build {check} refuses")
+        if media_type == "still" and not isinstance(
+                timeline, RecordingTimeline):
+            if resolve_app is None:
+                raise ReelBuildError(
+                    f"{name}: exact still placement for {kind} needs the "
+                    "active Resolve application handle")
+            try:
+                readback = place_still_exact(
+                    resolve_app, project, pool, timeline, item,
+                    int(segment["total_frames"]), record_frame,
+                    track_index, fps, timeline_name=name)
+            except StillPlacementRefused as exc:
+                raise ReelBuildError(str(exc)) from exc
+            placed = [readback["item"]]
+        else:
+            # Video clips and recorded placements use a source-frame
+            # range. Live stills deliberately omit it: Resolve derives
+            # their duration from the temporary, restored preference.
+            placed = pool.AppendToTimeline([{
+                "mediaPoolItem": item,
+                "startFrame": 0,
+                # EXCLUSIVE, the same reading every other placement here
+                # uses. An inclusive endFrame leaves a one-frame gap, which
+                # is a black hole F1 reports.
+                "endFrame": segment["total_frames"],
+                "mediaType": 1,
+                "trackIndex": track_index,
+                "recordFrame": record_frame,
+            }])
+            if not placed:
+                raise ReelBuildError(
+                    f"{name}: Resolve would not place the rendered {kind} "
+                    f"{segment['overlay_path']!r} on V{track_index} - "
+                    f"AppendToTimeline returned nothing, and an unplaced "
+                    f"segment the record claims is a build {check} refuses")
         # A transform the caller declares for this whole track - today
         # only the TV frame's cover zoom. Judged by what SetProperty
         # RETURNS, because a frame that silently kept zoom 1.0 is the
@@ -8281,7 +8311,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                       prepared: Optional[ReelPlacementPlan] = None,
                       defer_overlay_sweep: bool = False,
                       placement_mode: str = "append",
-                      placement_compatibility_checked: bool = False):
+                      placement_compatibility_checked: bool = False,
+                      resolve_app=None):
     """Place one reel.  `timeline_name` is what Resolve will CALL it.
 
     Defaults to `moment.timeline_name`, which is the plan's own name and
@@ -8875,14 +8906,9 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     def _place_frame():
         """The TV frame, a rendered overlay over every picture run."""
         runs = _look.frame_runs(placements_list, fps)
-        # The frame goes on as a RENDERED overlay, through the same
-        # placer the explainer and the semantic visuals use: a still
-        # cannot be placed for an arbitrary length through Resolve's
-        # API, and one placed as a still came out at the project's
-        # standard five seconds over a sixty-one second run.  The
-        # render is ONE file at the longest run, shared however many
-        # lengths use it - shorter runs trim it here via endFrame, so
-        # one still is one artefact, not one per length.
+        # The frame goes through the shared overlay placer. Pixel-static
+        # frames land as native stills at each run's exact length; an
+        # animated frame keeps the video path.
         #
         # It carries the COVER zoom (`tv_frame.cover_zoom`), which is
         # what turns a landscape bezel conformed into a portrait frame
@@ -8907,7 +8933,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             intent_applied=applied_intent_keys,
             seen_labels=seen_intent_labels,
             sweep_out=_sweep_records,
-            draw_gain=draw_gain))
+            draw_gain=draw_gain,
+            resolve_app=resolve_app))
         return runs
 
     def _hold_and_replay():
@@ -9207,7 +9234,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                 intent_applied=applied_intent_keys,
                 seen_labels=seen_intent_labels,
                 sweep_out=_sweep_records,
-                draw_gain=draw_gain))
+                draw_gain=draw_gain,
+                resolve_app=resolve_app))
 
 
 
@@ -9227,7 +9255,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                 intent_applied=applied_intent_keys,
                 seen_labels=seen_intent_labels,
                 sweep_out=_sweep_records,
-                draw_gain=draw_gain))
+                draw_gain=draw_gain,
+                resolve_app=resolve_app))
 
         # The speaker lower thirds. ADDITIVE, exactly as the two above are:
         # laid over picture that keeps playing, moving no frame of it, so a
@@ -9249,7 +9278,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                 intent_applied=applied_intent_keys,
                 seen_labels=seen_intent_labels,
                 sweep_out=_sweep_records,
-                draw_gain=draw_gain))
+                draw_gain=draw_gain,
+                resolve_app=resolve_app))
 
         # The social-post header, on its own row above everything drawn.
         # A tight canvas like every graphic: its segments carry their own
@@ -9267,7 +9297,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                 intent_applied=applied_intent_keys,
                 seen_labels=seen_intent_labels,
                 sweep_out=_sweep_records,
-                draw_gain=draw_gain))
+                draw_gain=draw_gain,
+                resolve_app=resolve_app))
         return stamped_placements
 
     # The default path places as it goes. A recorded build (`placement_mode
@@ -13529,6 +13560,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                     # "otio" is one import (`reel_otio_placement`).
                     placement_mode=reel_placement_mode,
                     placement_compatibility_checked=True,
+                    resolve_app=resolve,
                 )
                 _header_record = build_result.get("post_header")
                 if isinstance(_header_record, dict):
@@ -15415,6 +15447,7 @@ def build_reel_variants(project_slug: str, reel_number: int,
                 do_not_draw=variant_suppressions,
                 edit_ledger_rows=_ledger_mod.rows_for_reel(
                     edit_ledger_rows, final),
+                resolve_app=resolve,
             )
             if reel_look_decl is not None:
                 manifest = _reel_look.fusion_manifest(

@@ -397,7 +397,8 @@ class _FakeProject:
 
 def _segment(path="/renders/vox_test_00.mov", start=9.092, frames=60):
     return {"overlay_path": path, "timeline_start": start,
-            "timeline_end": start + frames / 23.976, "total_frames": frames}
+            "timeline_end": start + frames / 23.976, "total_frames": frames,
+            "media_type": "video"}
 
 
 def _placer(pool=None, segments=None, track=6):

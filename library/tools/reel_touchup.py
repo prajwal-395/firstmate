@@ -7,12 +7,12 @@ over the old one; this module changes the built reel instead, through
 What the caller states, and what it does not
 --------------------------------------------
 The caller states the change STRUCTURALLY: which reel, which item,
-what changes - one of the nine ops below.  Mapping a captain's
+what changes - one of the ten ops below.  Mapping a captain's
 natural-language note onto such a change is the NEXT task and is
 explicitly not this one; this module is the mechanism that task will
 call.
 
-The nine ops
+The ten ops
 ------------
 The first five delete and re-place through the composition; `add_row`
 makes a declared row; `set_enabled`, `set_properties` and
@@ -63,6 +63,11 @@ the touched passage no longer plays.
 - `retime` - a played-length change with a ripple, planned by
   `composed_edit.plan_ripple` over the full read.  This is the class
   that pays the comp pass.
+- `resize_still` - the duration of one native PNG still on V3+,
+  re-placed at its existing frame with a temporary still-duration
+  preference. It refuses animation/video, any Fusion treatment, a
+  collision, and any second edit in the same request. It does not
+  ripple neighboring items or run the Fusion comp pass.
 - `set_properties` - IN-PLACE.  A property mapping written onto an
   already-placed item with `composed_edit.set_properties` and judged
   by read-back - no delete, no place.  Any row: nothing is vacated
@@ -103,6 +108,12 @@ The qualification gate
   (`ReelLookRederiver` over the recorded fusion manifest) and ONLY with
   its cost said out loud: the comp pass is most of what a rebuild
   costs.  Never presented as a quick refresh.
+- `composed_still_resize` - one untreated native PNG still changes
+  duration. The one still is deleted and re-placed at the requested
+  frame count through Resolve's preference preset API; every preference
+  is restored and compared in `finally`, and the timeline item is read
+  back before promotion. No other item is re-placed and no comp pass
+  runs.
 - refusal - anything the gate cannot classify.  No guess, and no
   silent fallback to a full rebuild: a silent fallback is exactly the
   behaviour this module exists to remove.
@@ -188,6 +199,7 @@ class TouchupError(RuntimeError):
 
 COMPOSED = "composed"
 COMPOSED_WITH_REDERIVATION = "composed_with_rederivation"
+COMPOSED_STILL_RESIZE = "composed_still_resize"
 
 #: Rows whose spans are continuous program.  Vacating one - moving an
 #: item away or removing it - leaves black or silence, so the gate
@@ -608,6 +620,16 @@ def qualify(tracks: Sequence[Mapping], spec: Mapping) -> Qualification:
             "through - it is a caller that failed to say what it wants",
             "pass the change as --edits JSON or --edits-file PATH to "
             "`ren touch`")
+    resize_positions = [index for index, edit in enumerate(edits)
+                        if isinstance(edit, Mapping)
+                        and str(edit.get("op") or "") == "resize_still"]
+    if resize_positions and (len(edits) != 1 or len(resize_positions) != 1):
+        raise TouchupRefused(
+            "`resize_still` must be the only edit in its request",
+            "it re-places one still under one temporary preference state; "
+            "mixing a ripple or a second delete/place would make the "
+            "timeline and preference transaction harder to prove",
+            "resize one still per `ren touch` request")
     exclude = [(str(r), int(i)) for r, i in
                ((spec or {}).get("exclude") or ())]
     # A copy: `add_row` appends the row it will make, so later edits in
@@ -649,7 +671,15 @@ def qualify(tracks: Sequence[Mapping], spec: Mapping) -> Qualification:
                               moves)
     _check_single_claim(changes, removals, moves, in_place)
 
-    if length_changing:
+    if resize_positions:
+        cost = ("composed_still_resize: one untreated native PNG overlay "
+                "is deleted and re-placed at the same record frame with "
+                "the requested frame duration. Resolve preferences are "
+                "snapshotted, restored and read back; no ripple and no "
+                "Fusion comp pass run. The staging copy is still verified "
+                "and promoted through the normal touchup path.")
+        gate_class = COMPOSED_STILL_RESIZE
+    elif length_changing:
         cost = ("composed_with_rederivation: this change alters a "
                 "played length, so the Fusion comp pass runs after "
                 "the composition. That pass measured 17.0-63.7s of "
@@ -1203,6 +1233,93 @@ def _op_retime(edit, position, tracks, spans, changes, insertions,
     return True
 
 
+def _op_resize_still(edit, position, tracks, spans, changes, insertions,
+                     removals, moves, exclude, notes, in_place) -> bool:
+    row = str(edit.get("row") or "").upper()
+    item_index = edit.get("item")
+    duration = edit.get("duration")
+    if not row or item_index is None or duration is None:
+        raise TouchupRefused(
+            f"edit {position} (`resize_still`) needs `row`, `item` and "
+            f"`duration` (got {dict(edit)!r})",
+            "a still resize must name one existing overlay and its new "
+            "frame duration",
+            f"give edit {position} all three keys, then re-run `ren touch`")
+    if (not row.startswith("V") or not row[1:].isdigit()
+            or int(row[1:]) < 3 or _is_continuous_row(row)
+            or row in COMP_ROWS):
+        raise TouchupRefused(
+            f"edit {position} (`resize_still`) targets {row}",
+            "only an overlay on a non-comp-bearing V3+ row can be "
+            "re-placed without a Fusion pass",
+            "name a native still on an untreated overlay row, then "
+            "re-run `ren touch`")
+    clip = _find_clip(tracks, row, int(item_index))
+    source = str(clip.get("source_file") or "")
+    if (clip.get("media_type") != "Still"
+            or not source.lower().endswith(".png")):
+        raise TouchupRefused(
+            f"edit {position} (`resize_still`) targets {row}[{item_index}] "
+            f"with media_type={clip.get('media_type')!r}, "
+            f"source_file={source!r}",
+            "the direct duration route is qualified only for a native "
+            "PNG still; video and animated artwork keep their own timing",
+            "use `resize_still` only for a Resolve `Still` backed by PNG")
+    comp_count = _ce.treatment_comps(clip)
+    if comp_count:
+        raise TouchupRefused(
+            f"edit {position} (`resize_still`) targets {row}[{item_index}] "
+            f"with {comp_count} drawing Fusion comp(s)",
+            "a played-length change invalidates a comp keyed to the old "
+            "window, and the still-resize path deliberately does not run "
+            "the manifest comp pass",
+            "rebuild the reel or remove the treatment through its owning "
+            "plan before resizing")
+    old = int(clip["duration"])
+    new = int(duration)
+    if new <= 0:
+        raise TouchupRefused(
+            f"edit {position} (`resize_still`) asks for {new} frames",
+            "a still must play for at least one frame",
+            "give `duration` a positive frame count")
+    if new == old:
+        raise TouchupRefused(
+            f"edit {position} (`resize_still`) keeps the existing "
+            f"{old}-frame duration",
+            "a same-length delete and re-place would add risk without "
+            "changing the timeline",
+            "state a different positive frame duration")
+    left_offset = clip.get("left_offset")
+    if left_offset is None:
+        raise TouchupRefused(
+            f"edit {position} (`resize_still`) cannot read the source "
+            f"offset of {row}[{item_index}]",
+            "the replacement must preserve the existing media window",
+            "re-read the reel and retry when its source offset is readable")
+    try:
+        left_offset = int(left_offset)
+    except (TypeError, ValueError) as exc:
+        raise TouchupRefused(
+            f"edit {position} (`resize_still`) has invalid source offset "
+            f"{left_offset!r}",
+            "the staged replacement must preserve a whole source frame",
+            "re-read the reel and retry when its source offset is readable") from exc
+    record = int(clip["record_in"])
+    _check_free(spans.get(row, []), row, record, new,
+                ignore=(record, record + old),
+                what=f"edit {position} (`resize_still`)")
+    changes.append(_ce.ItemChange(
+        track_type="video", track_index=int(row[1:]),
+        item_index=int(item_index), record_frame=record,
+        duration=new, left_offset=left_offset,
+        previous_record=record, previous_duration=old,
+        how=_ce.RESIZE_STILL, comp_count=0,
+        right_offset=clip.get("right_offset"), name=clip.get("name", "")))
+    notes.append(f"edit {position}: resize still {row}[{item_index}] "
+                 f"@{record} {old}->{new}f; same item only, no ripple")
+    return True
+
+
 def _op_set_properties(edit, position, tracks, spans, changes,
                          insertions, removals, moves, exclude, notes,
                          in_place) -> bool:
@@ -1433,6 +1550,7 @@ _OP_HANDLERS = {
     "set_enabled": _op_set_enabled,
     "remove_overlay": _op_remove_overlay,
     "retime": _op_retime,
+    "resize_still": _op_resize_still,
     "set_properties": _op_set_properties,
     "entry_motion": _op_entry_motion,
 }
@@ -1489,6 +1607,30 @@ class _NullRederiver(_ce.CompRederiver):
     def rederive(self, changes) -> dict:
         return {"ran": True, "ok": True, "comp_pass": "skipped",
                 "why": self.why}
+
+    def expects_comp(self, row: str, record_frame: int) -> bool | None:
+        return False
+
+
+class _StillResizeRederiver(_ce.CompRederiver):
+    """The no-comp receipt reserved for one untreated native still resize."""
+
+    def reachable_reason(self, changes) -> str | None:
+        invalid = [change for change in changes
+                   if change.how != _ce.RESIZE_STILL
+                   or change.comp_count != 0
+                   or change.track_type != "video"
+                   or change.track_index < 3]
+        if invalid:
+            return ("the no-comp still route accepts only untreated V3+ "
+                    f"stills; got {[f'{c.row}[{c.item_index}]' for c in invalid]}")
+        if len([change for change in changes if change.played_length_changes]) != 1:
+            return "the no-comp still route accepts exactly one length change"
+        return None
+
+    def rederive(self, changes) -> dict:
+        return {"ran": True, "ok": True, "comp_pass": "not_needed",
+                "why": "one native PNG still changed length and carried no drawing comp"}
 
     def expects_comp(self, row: str, record_frame: int) -> bool | None:
         return False
@@ -2001,7 +2143,8 @@ def apply_touchup(project_folder: str, spec: Mapping,
                   supersede=None,
                   connect=None,
                   rederiver_override=None,
-                  accept_editor_changes=None) -> dict:
+                  accept_editor_changes=None,
+                  resolve_app=None) -> dict:
     """Apply a structured change to a built reel's existing timeline.
 
     Stages a DUPLICATE beside the approved reel, conforms it, routes
@@ -2056,13 +2199,14 @@ def apply_touchup(project_folder: str, spec: Mapping,
     return _apply_under_lease(
         project_folder, spec, final, resolve_name, declared_drops,
         declared_supersede, declared_editor_acceptance, connect,
-        rederiver_override, started)
+        rederiver_override, resolve_app, started)
 
 
 def _apply_under_lease(project_folder: str, spec: Mapping, final: str,
                        resolve_name: str, declared_drops,
                        declared_supersede, accept_editor_changes, connect,
-                       rederiver_override, started: float) -> dict:
+                       rederiver_override, resolve_app,
+                       started: float) -> dict:
     from library.tools.resolve_lock import under_lease
 
     @under_lease(f"touch up {final}")
@@ -2070,7 +2214,7 @@ def _apply_under_lease(project_folder: str, spec: Mapping, final: str,
         return _apply_connected(
             project_folder, spec, final, resolve_name,
             declared_drops, declared_supersede, accept_editor_changes, connect,
-            rederiver_override, started)
+            rederiver_override, resolve_app, started)
 
     return _guarded()
 
@@ -2078,7 +2222,8 @@ def _apply_under_lease(project_folder: str, spec: Mapping, final: str,
 def _apply_connected(project_folder: str, spec: Mapping, final: str,
                      resolve_name: str, declared_drops,
                      declared_supersede, accept_editor_changes, connect,
-                     rederiver_override, started: float) -> dict:
+                     rederiver_override, resolve_app,
+                     started: float) -> dict:
     import datetime as _dt
 
     from library.tools import reel_read as _read
@@ -2116,6 +2261,10 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
 
     tracks = _read.read_tracks(source)
     qualification = qualify(tracks, spec)
+    if (qualification.gate_class == COMPOSED_STILL_RESIZE
+            and resolve_app is None):
+        from library.tools.reel_build import _connect_resolve
+        resolve_app = _connect_resolve()
     receipt["gate"] = {
         "class": qualification.gate_class,
         "cost": qualification.cost_statement,
@@ -2148,6 +2297,9 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
             "no played length changes and no comp-bearing row "
             "touched, so there is nothing to re-derive")
         receipt["rederiver"] = "null (nothing to re-derive)"
+    elif qualification.gate_class == COMPOSED_STILL_RESIZE:
+        rederiver = _StillResizeRederiver()
+        receipt["rederiver"] = "no-comp still resize (no Fusion pass)"
     else:
         manifest = recorded_fusion_manifest(project_folder, final)
         if manifest is None:
@@ -2228,7 +2380,8 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
             _edit_staged(project_folder, project, pool, source,
                          staged, staging, qualification, rederiver,
                          receipt, declared_drops, declared_supersede,
-                         accept_editor_changes, final, stage_started, journal)
+                         accept_editor_changes, final, stage_started, journal,
+                         resolve_app=resolve_app)
     except Exception as failed:
         # The approved timeline still stands under its own name; the
         # staging holds the half-done edit for diagnosis.  Delete
@@ -2457,7 +2610,7 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
                  qualification: Qualification, rederiver: Any,
                  receipt: dict, declared_drops, declared_supersede,
                  accept_editor_changes, final: str, stage_started: float,
-                 journal: dict) -> None:
+                 journal: dict, *, resolve_app=None) -> None:
     """Conform, compose, verify and promote the staging copy.
 
     Runs inside the cursor fence: the staging is the cursor for the
@@ -2530,6 +2683,28 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
                                        qualification.moves)
     receipt["grades_carried"] = len(grade_sources)
 
+    still_placer = None
+    if qualification.gate_class == COMPOSED_STILL_RESIZE:
+        if resolve_app is None:
+            raise TouchupError(
+                "the still resize has no active Resolve application handle; "
+                "the approved timeline stands")
+        from library.tools.still_placement import place_still_exact
+        try:
+            fps = float(staged.GetSetting("timelineFrameRate"))
+        except (TypeError, ValueError, AttributeError) as unreadable:
+            raise TouchupError(
+                f"the staging timeline's frame rate is unreadable "
+                f"({unreadable}); the approved timeline stands") from unreadable
+
+        def still_placer(capture):
+            change = capture.change
+            return place_still_exact(
+                resolve_app, project, pool, staged,
+                capture.media_pool_item, int(change.duration),
+                int(change.record_frame), int(change.track_index), fps,
+                timeline_name=final)
+
     edit_started = time.time()
     composed = _ce.apply_composed_edit(
         timeline=staged, media_pool=pool, changes=changes,
@@ -2540,6 +2715,7 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
         grade_sources=grade_sources,
         link_rows={},
         picture_row="V1",
+        still_placer=still_placer,
         write_context={"project_folder": project_folder})
     receipt["composed_seconds"] = round(time.time() - edit_started,
                                         3)
@@ -2907,6 +3083,7 @@ def _write_receipt(project_folder: str, final: str,
 __all__ = [
     "COMPOSED",
     "COMPOSED_WITH_REDERIVATION",
+    "COMPOSED_STILL_RESIZE",
     "Qualification",
     "TouchupError",
     "TouchupRefused",

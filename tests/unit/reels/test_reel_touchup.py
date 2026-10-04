@@ -32,7 +32,7 @@ from tests.composed_edit_harness import (  # noqa: E402
     pool_clip,
 )
 from tests.composed_edit_harness import item as make_item  # noqa: E402
-from tests.resolve_double import FakeProject  # noqa: E402
+from tests.resolve_double import FakeProject, FakeResolve  # noqa: E402
 
 
 def _tracks(timeline):
@@ -45,6 +45,18 @@ def _v4_first_record(timeline):
         if track["type"] == "video" and int(track["index"]) == 4:
             return int(track["clips"][0]["record_in"])
     raise AssertionError("the fixture stopped carrying V4")
+
+
+def _with_still_overlay(tmp_path, *, duration=60, media_type="Still",
+                        path="/lab/overlay.png"):
+    timeline, pool, _media = build_reel(tmp_path)
+    source = pool_clip(path, frames=240, name="overlay.png")
+    source.SetClipProperty("Type", media_type)
+    placed = make_item(source, 1400, duration, 0)
+    row = timeline.add_track("video", "Motion Graphics")
+    assert row == 5
+    timeline.add_item("video", row, placed)
+    return timeline, pool, source, placed
 
 
 def test_live_touchup_read_holds_lease_and_makes_reel_current(monkeypatch):
@@ -170,6 +182,105 @@ def test_a_known_source_trim_rides_into_the_insertion(tmp_path):
         qualification = tu.qualify(_tracks(timeline),
                                    {"reel": 1, "edits": [edit]})
         assert qualification.insertions[0].left_offset == expected
+
+
+def test_resize_still_qualifies_one_native_png_without_a_ripple(tmp_path):
+    timeline, _pool, _source, _placed = _with_still_overlay(tmp_path)
+    qualification = tu.qualify(_tracks(timeline), {"reel": 1, "edits": [{
+        "op": "resize_still", "row": "V5", "item": 0, "duration": 90,
+    }]})
+
+    assert qualification.gate_class == tu.COMPOSED_STILL_RESIZE
+    assert len(qualification.changes) == 1
+    change = qualification.changes[0]
+    assert (change.how, change.record_frame, change.previous_duration,
+            change.duration, change.row) == (
+                ce.RESIZE_STILL, 1400, 60, 90, "V5")
+    assert "no ripple" in qualification.notes[0]
+
+
+@pytest.mark.parametrize("failure", [
+    "video", "fusion", "collision", "comp_row", "mixed",
+])
+def test_resize_still_refuses_unqualified_or_combined_edits(tmp_path, failure):
+    timeline, _pool, _source, _placed = _with_still_overlay(
+        tmp_path, media_type="Video" if failure == "video" else "Still")
+    tracks = _tracks(timeline)
+    edit = {"op": "resize_still", "row": "V5", "item": 0,
+            "duration": 120}
+    edits = [edit]
+    expected = "native PNG"
+    if failure == "fusion":
+        next(track for track in tracks if track["index"] == 5)["clips"][0][
+            "fusion"]["comp_count"] = 1
+        next(track for track in tracks if track["index"] == 5)["clips"][0][
+            "fusion"]["media_windows"] = []
+        expected = "drawing Fusion comp"
+    elif failure == "collision":
+        second_source = pool_clip("/lab/other.png", frames=100)
+        second_source.SetClipProperty("Type", "Still")
+        timeline.add_item("video", 5,
+                          make_item(second_source, 1500, 30, 0))
+        tracks = _tracks(timeline)
+        expected = "collides"
+    elif failure == "comp_row":
+        edit = {"op": "resize_still", "row": "V1", "item": 0,
+                "duration": 120}
+        edits = [edit]
+        expected = "non-comp-bearing V3+"
+    elif failure == "mixed":
+        edits.append({"op": "set_enabled", "row": "V5", "item": 0,
+                      "enabled": False})
+        expected = "must be the only edit"
+    with pytest.raises(tu.TouchupRefused, match=expected):
+        tu.qualify(tracks, {"reel": 1, "edits": edits})
+
+
+def test_composed_edit_resizes_only_the_still_and_restores_preferences(
+        tmp_path):
+    from library.tools.still_placement import place_still_exact
+
+    timeline, pool, source, placed = _with_still_overlay(tmp_path)
+    placed.properties["ZoomX"] = 1.7
+    qualification = tu.qualify(_tracks(timeline), {"reel": 1, "edits": [{
+        "op": "resize_still", "row": "V5", "item": 0, "duration": 90,
+    }]})
+    resolve = FakeResolve(timeline._project)
+    calls = []
+    append = pool.AppendToTimeline
+
+    def capture_specs(specs):
+        calls.extend(dict(spec) for spec in specs)
+        return append(specs)
+
+    pool.AppendToTimeline = capture_specs
+
+    def still_placer(capture):
+        change = capture.change
+        return place_still_exact(
+            resolve, timeline._project, pool, timeline,
+            capture.media_pool_item, change.duration, change.record_frame,
+            change.track_index, 25, timeline_name=timeline.GetName())
+
+    receipt = ce.apply_composed_edit(
+        timeline=timeline, media_pool=pool,
+        changes=qualification.changes,
+        comp_dir=str(tmp_path / "comps"),
+        withheld_dir=str(tmp_path / "withheld"),
+        rederiver=tu._StillResizeRederiver(),
+        still_placer=still_placer,
+        write_context=_write_context(tmp_path, timeline))
+
+    after = timeline.GetItemListInTrack("video", 5)
+    assert len(after) == 1
+    assert (after[0].GetStart(), after[0].GetDuration()) == (1400, 90)
+    assert after[0].GetMediaPoolItem().GetUniqueId() == source.GetUniqueId()
+    assert after[0].GetProperty("ZoomX") == 1.7
+    assert "endFrame" not in calls[0] and "startFrame" not in calls[0]
+    assert resolve.GetUserPreferencesPresetList() == []
+    assert timeline._project._still_duration_frames == 120
+    assert receipt.rederived["comp_pass"] == "not_needed"
+    assert receipt.rederived["verified"]["checked"] == 0
 
 
 # ── Refusals ─────────────────────────────────────────────────────────

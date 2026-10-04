@@ -555,16 +555,45 @@ def _at(rows: Mapping, row: str, frame: int):
     return hits[0] if len(hits) == 1 else None
 
 
-def _change_for(after: Mapping, before: Mapping, index: int) -> _ce.ItemChange:
+def _change_for(after: Mapping, before: Mapping, index: int, *,
+                still_resize: bool = False) -> _ce.ItemChange:
     return _ce.ItemChange(
         track_type=after["track_type"], track_index=int(after["track_index"]),
         item_index=int(index), record_frame=int(before["record_in"]),
         duration=int(before["duration"]),
         left_offset=_source_trim(before, "undo placement"),
         previous_record=int(after["record_in"]),
-        previous_duration=int(after["duration"]), how="undo",
-        comp_count=int((after.get("fusion") or {}).get("comp_count") or 0),
+        previous_duration=int(after["duration"]),
+        how=_ce.RESIZE_STILL if still_resize else "undo",
+        comp_count=(0 if still_resize else
+                    int((after.get("fusion") or {}).get("comp_count") or 0)),
         name=str(after.get("name") or ""))
+
+
+def _is_still_resize_inverse(plan: InversePlan, gate_class: str) -> bool:
+    """Recognize only the journaled one-item native-still duration edit."""
+    if gate_class != "composed_still_resize":
+        return False
+    if (len(plan.restores) != 1 or plan.deletions or plan.reinserts
+            or plan.in_place):
+        return False
+    after, before = plan.restores[0]
+    row = _row(before)
+    source = str(before.get("source_file") or "")
+    if (not row.startswith("V") or int(row[1:]) < 3
+            or before.get("media_type") != "Still"
+            or after.get("media_type") != "Still"
+            or not source.lower().endswith(".png")
+            or str(after.get("source_file") or "") != source
+            or int(before["record_in"]) != int(after["record_in"])
+            or int(before["duration"]) == int(after["duration"])
+            or _ce.treatment_comps(before) or _ce.treatment_comps(after)):
+        return False
+    before_view = item_projection(before)
+    after_view = item_projection(after)
+    before_view.pop("duration")
+    after_view.pop("duration")
+    return before_view == after_view
 
 
 def _index_of(rows: Mapping, detail: Mapping) -> int:
@@ -583,7 +612,8 @@ def _index_of(rows: Mapping, detail: Mapping) -> int:
 def undo_in_place(*, timeline, media_pool, entry: Mapping, entry_root: str,
                   reference, rederiver: _ce.CompRederiver,
                   resolve_media: Callable[[str], Any],
-                  work_dir: str, project_folder: str = "") -> dict:
+                  work_dir: str, project_folder: str = "",
+                  still_resize: bool = False, still_placer=None) -> dict:
     """Reverse one journaled touch on `timeline` itself. Returns a receipt.
 
     `reference` is a duplicate of `timeline` taken before this call -
@@ -666,7 +696,8 @@ def undo_in_place(*, timeline, media_pool, entry: Mapping, entry_root: str,
             properties=dict(capture.get("properties") or {})))
         reinsert_captures.append((detail, capture, mpi))
     rows = _rows_of(timeline)
-    provisional = [_change_for(a, b, _index_of(rows, a))
+    provisional = [_change_for(a, b, _index_of(rows, a),
+                               still_resize=still_resize)
                    for a, b in plan.restores]
     _ce.assert_rederivation_reachable(provisional, rederiver, insertions)
     reference_rows = _rows_of(reference)
@@ -700,6 +731,8 @@ def undo_in_place(*, timeline, media_pool, entry: Mapping, entry_root: str,
         _write_inverse(timeline, media_pool, entry_root, plan,
                        rows, insertions, reinsert_captures,
                        grade_by_frame, rederiver, work_dir, receipt,
+                       still_resize=still_resize,
+                       still_placer=still_placer,
                        write_context={
                            "project_folder": project_folder or None,
                            "project": entry.get("resolve_project"),
@@ -749,7 +782,8 @@ def undo_in_place(*, timeline, media_pool, entry: Mapping, entry_root: str,
 def _write_inverse(timeline, media_pool, entry_root, plan, rows,
                    insertions, reinsert_captures, grade_by_frame,
                    rederiver, work_dir, receipt,
-                   write_context=None) -> None:
+                   write_context=None, *, still_resize=False,
+                   still_placer=None) -> None:
     """Steps 4-6 of the undo: every write, in the one order that works."""
     # 4. In place: transforms and comps the touch changed on items it
     # did not move.
@@ -765,7 +799,8 @@ def _write_inverse(timeline, media_pool, entry_root, plan, rows,
         timeline.DeleteClips(victims, False)
         receipt["deleted"] = len(victims)
     rows = _rows_of(timeline)
-    changes = [_change_for(a, b, _index_of(rows, a))
+    changes = [_change_for(a, b, _index_of(rows, a),
+                           still_resize=still_resize)
                for a, b in plan.restores]
     grade_sources = {(c.row, c.item_index):
                      grade_by_frame[(c.row, c.previous_record)]
@@ -778,6 +813,7 @@ def _write_inverse(timeline, media_pool, entry_root, plan, rows,
             withheld_dir=os.path.join(work_dir, "withheld"),
             rederiver=rederiver, grade_sources=grade_sources,
             link_rows={}, picture_row="V1",
+            still_placer=still_placer,
             write_context=write_context)
         receipt["composed"] = {"plan": composed.plan,
                                "verified": composed.verified,
@@ -954,9 +990,14 @@ def _undo_touch_connected(project_folder, entry, connect,
     plan = plan_inverse(before, entry["after"]["tracks"])
     length_changes = any(int(a["duration"]) != int(b["duration"])
                          for a, b in plan.restores)
+    still_resize = _is_still_resize_inverse(
+        plan, str(entry.get("gate_class") or ""))
     root = entry_dir(project_folder, entry["id"])
     if rederiver_override is not None:
         rederiver = rederiver_override
+    elif still_resize:
+        from library.tools.reel_touchup import _StillResizeRederiver
+        rederiver = _StillResizeRederiver()
     elif not length_changes:
         rederiver = reel_touchup._NullRederiver(
             "the undo changes no played length")
@@ -993,6 +1034,26 @@ def _undo_touch_connected(project_folder, entry, connect,
     work_dir = os.path.join(
         str(ProjectLayout(project_folder).read_dir(Area.SCRATCH)),
         "undo", entry["id"])
+    still_placer = None
+    if still_resize:
+        from library.tools.reel_build import _connect_resolve
+        from library.tools.still_placement import place_still_exact
+        resolve_app = _connect_resolve()
+        try:
+            fps = float(live.GetSetting("timelineFrameRate"))
+        except (TypeError, ValueError, AttributeError) as unreadable:
+            raise UndoRefused(
+                f"the timeline frame rate is unreadable ({unreadable})",
+                "so the still's exact undo duration cannot be placed. "
+                "Nothing was changed",
+                "re-read the reel settings and retry `ren undo`") from unreadable
+
+        def still_placer(capture):
+            change = capture.change
+            return place_still_exact(
+                resolve_app, project, pool, live, capture.media_pool_item,
+                int(change.duration), int(change.record_frame),
+                int(change.track_index), fps, timeline_name=final)
     try:
         with cursor_fence(project, live, f"undo touch on {final}"):
             receipt = undo_in_place(
@@ -1000,7 +1061,8 @@ def _undo_touch_connected(project_folder, entry, connect,
                 entry_root=root, reference=reference, rederiver=rederiver,
                 resolve_media=lambda path: reel_touchup.pool_item_for_path(
                     pool, path),
-                work_dir=work_dir, project_folder=project_folder)
+                work_dir=work_dir, project_folder=project_folder,
+                still_resize=still_resize, still_placer=still_placer)
             rows = snapshot_timeline(live, final, side="staged")
     except UndoRefused:
         # Raised before the first write: the timeline is as the touch

@@ -102,7 +102,7 @@ def _core_spans(edit: Mapping, tracks: Sequence[Mapping],
         return None
     start, end = _clip_span(clip)
     if op in ("set_properties", "swap_pixels", "set_enabled",
-              "entry_motion", "remove_overlay"):
+              "entry_motion", "remove_overlay", "resize_still"):
         return [(start, end, _domain_of(row))]
     if op == "move":
         try:

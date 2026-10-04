@@ -445,10 +445,23 @@ if PROJECT_ROOT not in sys.path:
 
 from library.tools.mg_tight_box import (  # noqa: E402
     check_motion_graphics_files,
+    props_path_for_overlay,
     sidecar_path_for,
     tighten_motion_graphics_props,
     tighten_motion_graphics_props_with_reason,
 )
+
+
+@pytest.mark.parametrize(
+    ("overlay_path", "expected"),
+    [
+        ("/tmp/mg_123_still.png", "/tmp/mg_123_props.json"),
+        ("/tmp/mg_123.mov", "/tmp/mg_123_props.json"),
+    ],
+)
+def test_tightness_guard_finds_props_for_still_and_video(
+        overlay_path, expected):
+    assert props_path_for_overlay(overlay_path) == expected
 
 
 def _el(element, anchor="bottom_centre", row=0,
@@ -858,6 +871,38 @@ def test_measure_crop_verify_roundtrip_on_synthetic_pixels(tmp_path):
     assert report["after"] == [216, 480]
     assert report["offset"] == [42, 414]
     assert report["union"] == [90, 784, 210, 846]
+
+
+def test_crop_of_a_png_still_keeps_its_pixels_and_alpha(tmp_path):
+    """A static full-frame probe becomes a tight PNG without a video encode."""
+    from PIL import Image
+
+    from library.tools.tight_box import TightBox, canvas_offset
+    from library.tools.tight_box import crop_probe_to_tight
+
+    box = TightBox(
+        width=40, height=40, props={},
+        placement={"scaling": 1, "pan": 0.0, "tilt": 0.0},
+        union_w=20, union_h=20, full_width=100, full_height=100,
+        gain=1.0)
+    offset = canvas_offset(box)
+    assert offset == (30, 30)
+
+    source = tmp_path / "full.png"
+    output = tmp_path / "tight.png"
+    pixels = Image.new("RGBA", (100, 100))
+    px = pixels.load()
+    for y in range(100):
+        for x in range(100):
+            px[x, y] = (x, y, (x + y) % 256, (x * 3 + y) % 256)
+    pixels.save(source)
+
+    assert crop_probe_to_tight(str(source), str(output), box) == offset
+    with Image.open(source) as full, Image.open(output) as tight:
+        assert tight.mode == "RGBA"
+        assert tight.size == (40, 40)
+        assert list(tight.get_flattened_data()) == list(full.crop(
+            (30, 30, 70, 70)).get_flattened_data())
 
 
 @pytest.mark.skipif(NEEDS_FFMPEG, reason=FFMPEG_REASON)

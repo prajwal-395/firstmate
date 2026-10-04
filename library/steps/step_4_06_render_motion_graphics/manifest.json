@@ -1,8 +1,8 @@
 {
   "id": "step_4_06_render_motion_graphics",
-  "name": "Render Motion Graphics (Remotion)",
+  "name": "Render Motion Graphics",
   "version": "1.0.0",
-  "description": "Plans the motion-graphics layer with a model, then renders it to overlay segments with alpha using Remotion, carried as QuickTime Animation RGBA (library/tools/overlay_carriage.py). The plan carries its own timebase - an element is timed in timeline seconds and is not tied to a spine block - and several elements may be on screen at once, in rows, composited into one segment. A brand template REFINES the plan by resolving a colour role against its palette; it does not gate the layer. See library/tools/motion_graphics_plan.py.",
+  "description": "Plans the motion-graphics layer with a model, then renders PNG frames and classifies the resulting pixels. A segment whose frames are identical is kept as a PNG still; a changing segment is encoded as QuickTime Animation RGBA (library/tools/overlay_carriage.py). The plan carries its own timebase - an element is timed in timeline seconds and is not tied to a spine block - and several elements may be on screen at once, in rows, composited into one segment. A brand template REFINES the plan by resolving a colour role against its palette; it does not gate the layer. See library/tools/motion_graphics_plan.py.",
   "level": "step",
   "interface": {
     "inputs": [
@@ -70,7 +70,7 @@
       {
         "name": "behind_subject_overlays",
         "type": "object",
-        "description": "Numbered PNG image sequences (RGBA) for entries planned with layer behind_subject, each with overlay_path naming the first frame plus timeline span. The segment renders as a full-canvas .mov (kept as provenance) and is sequenced because compile precomposites each under the subject's tracked matte frame by frame. The precomp joins motion_graphics_overlay as a normal overlay clip on a motion-graphics row; a request with no usable matte refuses at compile. See library/tools/behind_subject.py."
+        "description": "Numbered PNG image sequences (RGBA) for entries planned with layer behind_subject, each with overlay_path naming the first frame plus timeline span. The rendered still or encoded movie is retained as provenance while compile precomposites the full sequence under the subject's tracked matte frame by frame. The precomp joins motion_graphics_overlay as a normal overlay clip on a motion-graphics row; a request with no usable matte refuses at compile. See library/tools/behind_subject.py."
       },
       {
         "name": "timed_text_overlay",

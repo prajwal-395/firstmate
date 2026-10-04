@@ -26,13 +26,12 @@ How it reaches the picture: ``remotion-subtitles``' ``PostHeader``
 composition is rendered ONCE per reel as a transparent still on the
 delivery frame, where it lays out; the still is then cut to a TIGHT
 canvas round its ink (:func:`tight_still`, the house rule for graphics,
-AGENTS.md 10.2), carried as a looped ProRes 4444 movie over the reel's
-picture runs - because a still cannot be placed for an arbitrary length
-through Resolve's API - and placed by Pan/Tilt on its own
-``post_header`` row. So moving the header is a transform on the
-timeline, like every other graphic: the captain, 2026-09-25, "why did
-we render it full frame and not tightly bounded like we do for
-graphics? that way we can just change the positioning freely".
+AGENTS.md 10.2), then placed as a still for each reel picture run on its
+own ``post_header`` row. Its run duration belongs to the timeline, not
+to the image file. So moving the header is a transform on the timeline,
+like every other graphic: the captain, 2026-09-25, "why did we render
+it full frame and not tightly bounded like we do for graphics? that way
+we can just change the positioning freely".
 
 Where it sits is MEASURED after the render, not asserted: the drawn ink
 is read off the still and checked against every platform's UI band
@@ -56,6 +55,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from library.tools.timeline_layout import POST_HEADER_NAME
+from library.tools.overlay_carriage import OVERLAY_STILL_FORMAT_NAME
 
 DECLARATION_KEY = "post_header"
 
@@ -119,6 +119,9 @@ class HeaderPlan:
             "over_picture": (list(self.over_picture)
                              if self.over_picture else None),
             "segments": [{"overlay_path": s.get("overlay_path"),
+                          "media_type": s.get("media_type", "still"),
+                          "format": s.get("format",
+                                          OVERLAY_STILL_FORMAT_NAME),
                           "timeline_start": s.get("timeline_start"),
                           "total_frames": s.get("total_frames"),
                           "tight_box": s.get("tight_box")}
@@ -340,31 +343,9 @@ def render_still(props: dict, out_png: str,
             f"{(result.stderr or '')[-500:]}")
     if ink_box(out_png) is None:
         raise PostHeaderError(f"PostHeader still {out_png} drew nothing")
+    from library.tools.overlay_carriage import premultiply_rgba_png
+    premultiply_rgba_png(out_png)
     return out_png
-
-
-def carry_still(png: str, frames: int, fps: float, out_mov: str) -> str:
-    """The still as a looped ProRes 4444 movie of at least ``frames``.
-
-    The TV frame's carriage (``reel_look.frame_overlay_segments``): ONE
-    file at the longest run, shorter runs trim it at placement.
-    """
-    from library.tools.reel_look import _rendered_frame_count
-
-    if _rendered_frame_count(out_mov) >= frames:
-        return out_mov
-    result = subprocess.run([
-        "ffmpeg", "-y", "-loop", "1", "-i", png,
-        "-t", f"{frames / fps:.5f}", "-r", f"{fps:.6f}",
-        "-c:v", "prores_ks", "-profile:v", "4444",
-        "-pix_fmt", "yuva444p10le", out_mov,
-    ], capture_output=True, encoding="utf-8", check=False)
-    if result.returncode != 0 or not os.path.isfile(out_mov):
-        raise PostHeaderError(
-            f"the post header could not be carried to {frames} frames: "
-            f"ffmpeg exited {result.returncode}. "
-            f"{(result.stderr or '').strip()[-400:]}")
-    return out_mov
 
 
 def tight_still(png: str, frame: tuple[int, int]
@@ -419,14 +400,14 @@ def placement_for(canvas: tuple[int, int, int, int], frame: tuple[int, int],
 
 def _tight_segments(png: str, runs, fps: float, frame: tuple[int, int],
                     draw_gain: float) -> list[dict]:
-    """The header carried over ``runs`` as tight, placed segments."""
+    """The header still placed over ``runs`` at its tight transform."""
     tight, canvas = tight_still(png, frame)
     placement = placement_for(canvas, frame, draw_gain)
-    mov = carry_still(tight, max(b - a for a, b in runs), fps,
-                      tight[:-4] + ".mov")
     size = {"width": canvas[2] - canvas[0], "height": canvas[3] - canvas[1],
             "canvas_box": list(canvas), "placement": placement}
-    return [{"overlay_path": mov, "timeline_start": a / fps,
+    return [{"overlay_path": tight, "media_type": "still",
+             "format": OVERLAY_STILL_FORMAT_NAME,
+             "timeline_start": a / fps,
              "total_frames": b - a, "tight_box": dict(size)}
             for a, b in runs]
 
@@ -437,7 +418,8 @@ def _still_for(declared: dict, hook: str, width: int, height: int,
     from library.tools.project_layout import Area, ProjectLayout
 
     props = props_for(declared, hook, width, height, fps, project_folder)
-    stamp = hashlib.sha1(json.dumps(props, sort_keys=True).encode(
+    key = {"carriage": "png-premultiplied-rgba/1", "props": props}
+    stamp = hashlib.sha1(json.dumps(key, sort_keys=True).encode(
         "utf-8")).hexdigest()[:10]
     out_dir = str(ProjectLayout(project_folder).write_dir(
         Area.REEL_POST_HEADERS))
@@ -700,20 +682,20 @@ def touch_spec(project_folder: str, reel_number: int, tracks, *,
     placement = segments[0]["tight_box"]["placement"]
     properties = {"Scaling": placement["scaling"], "Pan": placement["pan"],
                   "Tilt": placement["tilt"]}
-    mov = segments[0]["overlay_path"]
+    media = segments[0]["overlay_path"]
     edits: list[dict] = []
     if placed:
         row = f"V{int(existing['index'])}"
         edits += [{"op": "swap_pixels", "row": row, "item": index,
-                   "media": mov, "properties": dict(properties)}
+                   "media": media, "properties": dict(properties)}
                   for index in range(len(placed))]
     else:
         row = f"V{len(video) + 1}"
         edits.append({"op": "add_row", "name": TRACK_NAME})
-        edits += [{"op": "add_overlay", "row": row, "media": mov,
+        edits += [{"op": "add_overlay", "row": row, "media": media,
                    "record": a, "duration": b - a,
                    "properties": dict(properties),
-                   "name": os.path.basename(mov)} for a, b in spans]
+                   "name": os.path.basename(media)} for a, b in spans]
     if disable_graphics:
         for t in video:
             name = str(t.get("name") or "")

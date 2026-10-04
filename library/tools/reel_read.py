@@ -483,6 +483,7 @@ def clip_detail(item, track_type: str, track_index: int,
             f"a reel.") from unreadable
     pool_item = _call(item, "GetMediaPoolItem", None)
     source_file = ""
+    media_type = None
     pool_frames = None
     pool_item_id = ""
     if pool_item is not None:
@@ -491,6 +492,7 @@ def clip_detail(item, track_type: str, track_index: int,
             or _call(pool_item, "GetClipProperty", "", "Clip Path"))
         pool_frames = _pool_frames(pool_item)
         pool_item_id = _call(pool_item, "GetMediaId", "")
+        media_type = _call(pool_item, "GetClipProperty", None, "Type")
     return {
         "unique_id": _call(item, "GetUniqueId", ""),
         "name": name or "",
@@ -505,6 +507,7 @@ def clip_detail(item, track_type: str, track_index: int,
         "left_offset": _call(item, "GetLeftOffset", None),
         "right_offset": _call(item, "GetRightOffset", None),
         "source_file": source_file,
+        "media_type": media_type,
         "source_frames": pool_frames,
         "media_pool_item_id": pool_item_id,
         "clip_color": _call(item, "GetClipColor", ""),

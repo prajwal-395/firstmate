@@ -33,7 +33,7 @@ REEL_09 = "Reel 09 - your-website-is-only-20-percent"
 SUB = (f"{PROJECT_ROOT}/pipeline_output/steps/4_05_render_subtitles/"
        "sub_speakerone_x.mov")
 FRAME = (f"{PROJECT_ROOT}/pipeline_output/steps/7_01_build_reels/"
-         "frame_overlays/tv_frame_x.mov")
+         "frame_overlays/tv_frame_x.png")
 FREEZE = (f"{PROJECT_ROOT}/pipeline_output/steps/7_01_build_reels/"
           "reel_cards/reel_freeze_x.mov")
 
@@ -72,13 +72,13 @@ def test_a_production_asset_files_under_the_assets_bin_however_placed():
     production asset a per-reel folder (the category is a path fact),
     and no `Not placed` leaf is invented in the captain's structure."""
     plan = a_plan(base() + [
-        clip("c-frame", "tv_frame_1f8e8d06ff.mov", path=FRAME,
+        clip("c-frame", "tv_frame_1f8e8d06ff.png", path=FRAME,
              placed_by=[REEL_01, REEL_09]),
         clip("c-freeze", "reel_freeze_854a84fdb0.mov", path=FREEZE,
              placed_by=[REEL_09]),
         clip("c-old", "reel_freeze_old.mov", path=FREEZE)])
     dest = {v.name: v.destination for v in plan.verdicts}
-    assert dest["tv_frame_1f8e8d06ff.mov"] == (BIN_ASSETS,)
+    assert dest["tv_frame_1f8e8d06ff.png"] == (BIN_ASSETS,)
     assert dest["reel_freeze_854a84fdb0.mov"] == (BIN_ASSETS,)
     assert dest["reel_freeze_old.mov"] == (BIN_ASSETS,)
 

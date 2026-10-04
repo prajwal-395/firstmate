@@ -152,6 +152,62 @@ class FakeResolve:
 
     def __init__(self, project=None) -> None:
         self._manager = FakeProjectManager(project)
+        self._preferences = {
+            "Name": "Current User Preferences",
+            "Language": "en",
+            "StillDurationType": "DURATION_IN_FRAMES",
+            "StillDurationSecs": "5",
+            "StillDurationFrames": "120",
+        }
+        self._user_preference_presets: dict[str, dict] = {}
+        self._preference_project = project
+
+    def GetUserPreferencesPresetList(self):
+        return sorted(self._user_preference_presets)
+
+    def SaveUserPreferencesPreset(self, preset_name):
+        self._user_preference_presets[preset_name] = dict(self._preferences)
+        return True
+
+    def ExportUserPreferencesPreset(self, preset_name, export_path):
+        import xml.etree.ElementTree as ET
+
+        values = self._user_preference_presets.get(preset_name)
+        if values is None:
+            return False
+        root = ET.Element("SM_UserPrefs", {"DbId": f"id:{preset_name}"})
+        ET.SubElement(root, "FieldsBlob")
+        for key, value in values.items():
+            ET.SubElement(root, key).text = str(value)
+        ET.ElementTree(root).write(
+            export_path, encoding="UTF-8", xml_declaration=True)
+        return True
+
+    def ImportUserPreferencesPreset(self, file_path, preset_name=None):
+        import xml.etree.ElementTree as ET
+
+        root = ET.parse(file_path).getroot()
+        values = {child.tag: child.text or "" for child in root}
+        name = preset_name or values["Name"]
+        values["Name"] = name
+        self._user_preference_presets[name] = values
+        return True
+
+    def LoadUserPreferencesPreset(self, preset_name):
+        values = self._user_preference_presets.get(preset_name)
+        if values is None:
+            return False
+        self._preferences = dict(values)
+        if self._preference_project is not None:
+            self._preference_project._still_duration_frames = int(
+                self._preferences["StillDurationFrames"])
+        return True
+
+    def DeleteUserPreferencesPreset(self, preset_name):
+        if preset_name not in self._user_preference_presets:
+            return False
+        del self._user_preference_presets[preset_name]
+        return True
 
     def GetProjectManager(self):
         return self._manager
@@ -230,6 +286,10 @@ class FakeProject:
         self.deleted: list = []
         self.delete_ok = delete_ok
         self._pool = FakeMediaPool(self)
+        # Resolve Studio 21.0.3 reads still length from a global user
+        # preference. The live qualification on 2026-10-04 placed PNG
+        # stills at 24/60/120/300/1464 frames after setting that value.
+        self._still_duration_frames = 120
         self.render_settings: dict = {}
         self.render_format_codec = {"format": "mov", "codec": "H.264"}
         self.render_jobs: list = []
@@ -430,6 +490,9 @@ class FakeMediaPool:
         #: hands the double a reader of it. ``media_properties`` wins.
         self.probe = None
         self.import_failures: set = set()
+        #: Fault knob: Resolve ignores the requested still preference and
+        #: places the specified number of frames instead.
+        self.still_duration_override = None
         self.next_timeline = None
         #: One entry per `AppendToTimeline` call: how many specs it held.
         self.append_calls: list = []
@@ -657,11 +720,20 @@ class FakeMediaPool:
         placed = []
         for spec in specs:
             pool_item = spec["mediaPoolItem"]
-            start = int(spec["startFrame"])
-            end = int(spec["endFrame"])
             media_type = int(spec.get("mediaType", 1))
             track_index = int(spec.get("trackIndex", 1))
             kind = "video" if media_type == 1 else "audio"
+            if "endFrame" in spec:
+                start = int(spec["startFrame"])
+                duration = int(spec["endFrame"]) - start
+            elif (kind == "video"
+                  and pool_item.GetClipProperty("Type") == "Still"):
+                start = 0
+                duration = (self.still_duration_override
+                            if self.still_duration_override is not None
+                            else self._project._still_duration_frames)
+            else:
+                return False
             channels = self.audio_channels if kind == "audio" else (None,)
             audio_rows = [
                 index
@@ -675,7 +747,7 @@ class FakeMediaPool:
                     # No recordFrame: APPENDED after the row's last item.
                     start=(int(spec["recordFrame"]) if "recordFrame" in spec
                            else _append_end(timeline, kind, track_index)),
-                    duration=end - start,
+                    duration=duration,
                     left_offset=start,
                     pool_item=pool_item,
                     source_audio_channel_mapping=(
@@ -725,6 +797,8 @@ class FakeMediaPool:
                 continue
             clip = FakeMediaPoolItem(path.rsplit("/", 1)[-1])
             clip._props["File Path"] = path
+            if path.lower().endswith(".png"):
+                clip._props["Type"] = "Still"
             read = (self.media_properties.get(path)
                     or (self.probe(path) if self.probe else {}) or {})
             for key, value in read.items():

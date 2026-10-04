@@ -471,7 +471,8 @@ class RouteSelection:
     spec, no track read, a node with no change gate, or a gate
     refusal falling back to the full route).  `gate_class` is the
     `reel_touchup.qualify` verdict (`"composed"`,
-    `"composed_with_rederivation"`, or `"refused"`) and empty when
+    `"composed_with_rederivation"`, `"composed_still_resize"`, or
+    `"refused"`) and empty when
     the gate was never consulted.  `reason` narrates the choice for
     the plan record: which route won, what the other route would
     have done differently, and - when the rebuild is the fallback -
@@ -628,6 +629,8 @@ def _select_build_reels(node_id: str, owned: tuple,
                  f"{MEASURED_TOUCHUP_BASIS['date']}, "
                  f"{MEASURED_TOUCHUP_BASIS['cache']}.")
     elif gate_class == touchup_mod.COMPOSED_WITH_REDERIVATION:
+        basis = (f" {qualification.cost_statement}")
+    elif gate_class == touchup_mod.COMPOSED_STILL_RESIZE:
         basis = (f" {qualification.cost_statement}")
     else:
         basis = (" No measured cost basis is cited for this edit "

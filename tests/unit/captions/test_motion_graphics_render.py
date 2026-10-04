@@ -84,18 +84,31 @@ def _template(name):
 # ── The step ──────────────────────────────────────────────────────────
 
 def _stub_npx(tmp_path: Path) -> Path:
-    """A fake `npx` that records every invocation instead of rendering.
-
-    The assertion is about the SUBPROCESS: an empty render is expensive
-    because Remotion runs, not because a file lands on disk.
-    """
+    """A fake `npx` that records calls and writes static PNG sequences."""
     bindir = tmp_path / "bin"
     bindir.mkdir()
+    renderer = tmp_path / "fake-remotion.py"
+    renderer.write_text(
+        "import json, shutil, sys\n"
+        "from pathlib import Path\n"
+        "from PIL import Image\n"
+        "args = sys.argv[1:]\n"
+        "out = Path(args[3])\n"
+        "props_path = args[args.index('--props') + 1]\n"
+        "props = json.loads(Path(props_path).read_text(encoding='utf-8'))\n"
+        "out.mkdir(parents=True, exist_ok=True)\n"
+        "probe = out / '.probe.png'\n"
+        "Image.new('RGBA', (int(props['width']), int(props['height'])),\n"
+        "          (0, 0, 0, 0)).save(probe)\n"
+        "for i in range(int(props['durationInFrames'])):\n"
+        "    shutil.copyfile(probe, out / f'frame-{i}.png')\n"
+        "probe.unlink()\n",
+        encoding="utf-8")
     npx = bindir / "npx"
     npx.write_text(
         "#!/bin/sh\n"
         f'echo "$@" >> "{tmp_path / "npx.log"}"\n'
-        "exit 0\n"
+        f'exec "{sys.executable}" "{renderer}" "$@"\n'
     )
     npx.chmod(0o755)
     return bindir
@@ -366,14 +379,15 @@ class _StubRun:
     argv[4] and the props path (which carries the canvas the step
     chose) is the value after `--props`.
 
-    `draw` decides what lands there: a real ProRes 4444 clip at that
-    canvas by default, or raw bytes where a test wants the render to
-    succeed without real pixels.
+    `draw` decides whether anything lands there, and `animated`
+    decides whether its rendered pixels change over the declared span.
     """
 
-    def __init__(self, draw=True):
+    def __init__(self, draw=True, animated=True, alpha=255):
         self.calls = []
         self.draw = draw
+        self.animated = animated
+        self.alpha = alpha
         # Patching `post_bridge.subprocess.run` patches the module
         # object itself, so ffmpeg calls made anywhere - the pad, this
         # stub's own drawing - arrive here too. Only `npx` is stubbed.
@@ -384,15 +398,12 @@ class _StubRun:
         if not argv or argv[0] != "npx":
             return self.real_run(*args, **kwargs)
         self.calls.append(argv)
-        overlay_path = argv[4]
-        if not self.draw:
-            with open(overlay_path, "wb") as handle:
-                handle.write(b"pixels")
-        else:
-            props = json.load(open(argv[argv.index("--props") + 1],
-                                   encoding="utf-8"))
-            _draw_clip(overlay_path, props["width"], props["height"],
-                       props["durationInFrames"])
+        frames_dir = argv[4]
+        props = json.load(open(argv[argv.index("--props") + 1],
+                               encoding="utf-8"))
+        _draw_clip(frames_dir, props["width"], props["height"],
+                   props["durationInFrames"], draw=self.draw,
+                   animated=self.animated, alpha=self.alpha)
 
         class Done:
             returncode = 0
@@ -400,30 +411,29 @@ class _StubRun:
         return Done()
 
 
-_REAL_RUN = subprocess.run
+def _draw_clip(frames_dir, width, height, frames, *, draw=True,
+               animated=False, alpha=255):
+    """Write transparent PNG frames with static or changing pixels."""
+    from PIL import Image, ImageDraw
 
-
-def _draw_clip(path, width, height, frames):
-    """A transparent ProRes 4444 clip with one opaque block in it."""
+    os.makedirs(frames_dir, exist_ok=True)
     block_w, block_h = max(width // 2, 2), max(height // 2, 2)
-    _REAL_RUN(
-        ["ffmpeg", "-y", "-v", "error", "-f", "lavfi",
-         "-i", f"color=c=black@0:s={width}x{height}:d=1:r=30,format=rgba",
-         "-f", "lavfi",
-         "-i", f"color=white:s={block_w}x{block_h}:d=1:r=30,format=rgba",
-         "-filter_complex",
-         f"[0][1]overlay={(width - block_w) // 2}:{(height - block_h) // 2},"
-         f"format=rgba",
-         "-frames:v", str(max(frames, 1)),
-         "-c:v", "prores_ks", "-profile:v", "4444",
-         "-pix_fmt", "yuva444p10le", path],
-        check=True,
-    )
-    return path
+    for index in range(max(frames, 1)):
+        image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        if draw:
+            dx = index % 7 if animated else 0
+            x0 = (width - block_w) // 2 + dx
+            y0 = (height - block_h) // 2
+            ImageDraw.Draw(image).rectangle(
+                (x0, y0, x0 + block_w - 1, y0 + block_h - 1),
+                fill=(255, 255, 255, alpha))
+        image.save(os.path.join(frames_dir,
+                                f"frame-{index + 1:06d}.png"))
 
 
-def _render(monkeypatch, planned, out_dir, draw=True, **kwargs):
-    stub = _StubRun(draw=draw)
+def _render(monkeypatch, planned, out_dir, draw=True, animated=True,
+            alpha=255, **kwargs):
+    stub = _StubRun(draw=draw, animated=animated, alpha=alpha)
     monkeypatch.setattr(
         "library.steps.step_4_06_render_motion_graphics.post_bridge.subprocess.run",
         stub,
@@ -452,6 +462,32 @@ def test_explicit_full_path_is_unchanged(tmp_path, monkeypatch):
     assert out["tight_box"] is None
     assert out["placement_label"] == "mg_000"
     assert os.path.isfile(out["overlay_path"])
+
+
+def test_identical_rendered_pixels_are_kept_as_one_still(
+        tmp_path, monkeypatch):
+    from library.tools import hyperframes_render
+
+    def must_not_encode(*_args, **_kwargs):
+        pytest.fail("static pixels must not be encoded as a movie")
+
+    monkeypatch.setattr(hyperframes_render, "encode_frames", must_not_encode)
+    out, stub = _render(
+        monkeypatch, _planned([_el("title_lockup", duration=24)]),
+        str(tmp_path), animated=False, alpha=128)
+
+    assert stub.calls
+    assert out["media_type"] == "still"
+    assert out["overlay_path"].endswith(".png")
+    assert out["total_frames"] == 24
+    assert os.path.isfile(out["overlay_path"])
+    assert not list(tmp_path.glob("*.mov"))
+    from PIL import Image
+    import numpy as np
+    with Image.open(out["overlay_path"]) as still:
+        pixels = np.asarray(still.convert("RGBA"))
+    center = pixels[pixels.shape[0] // 2, pixels.shape[1] // 2]
+    assert tuple(center) == (128, 128, 128, 128)
 
 
 @pytest.mark.skipif(NEEDS_FFMPEG, reason=FFMPEG_REASON)
@@ -669,41 +705,6 @@ def test_progress_bar_progress_still_draws():
     moved["timelineProgressEnd"] = 0.9
     assert (_mg_drawing_digest(_props(base), "full", None)
             != _mg_drawing_digest(_props(moved), "full", None))
-
-
-class _StubRun_2:
-    """Acts like a successful `npx remotion render`, drawing real pixels.
-
-    Same seam as `test_motion_graphics_overlay_modes`: only `npx` is
-    stubbed, so the carriage transcode still runs real ffmpeg.
-    """
-
-    def __init__(self):
-        self.calls = []
-        self.real_run = subprocess.run
-
-    def __call__(self, *args, **kwargs):
-        argv = args[0]
-        if not argv or argv[0] != "npx":
-            return self.real_run(*args, **kwargs)
-        self.calls.append(argv)
-        overlay_path = argv[4]
-        props = json.load(open(argv[argv.index("--props") + 1],
-                               encoding="utf-8"))
-        self.real_run(
-            ["ffmpeg", "-y", "-v", "error", "-f", "lavfi",
-             "-i", f"color=c=black@0:s={props['width']}x{props['height']}"
-                   f":d=1:r=30,format=rgba",
-             "-frames:v", str(max(props["durationInFrames"], 1)),
-             "-c:v", "prores_ks", "-profile:v", "4444",
-             "-pix_fmt", "yuva444p10le", overlay_path],
-            check=True,
-        )
-
-        class Done:
-            returncode = 0
-            stderr = ""
-        return Done()
 
 
 def _planned_2(element, timeline_start=0.0):

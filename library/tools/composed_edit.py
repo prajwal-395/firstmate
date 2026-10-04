@@ -160,6 +160,7 @@ class CompRederivationNotProven(ComposedEditError):
 EXTEND = "extend"
 SHIFT = "shift"
 INSERT = "insert"
+RESIZE_STILL = "resize_still"
 
 #: `AppendClipInfo.endFrame` is EXCLUSIVE.  Named rather than inlined
 #: because passing `left + duration - 1` is the two-black-frames defect
@@ -918,7 +919,7 @@ def placement_order(captures: Sequence[ItemCapture],
     return sorted(rows, key=lambda row: (row[0], row[1]))
 
 
-def place_all(media_pool, ordered: Sequence) -> dict:
+def place_all(media_pool, ordered: Sequence, *, still_placer=None) -> dict:
     """Step 5 - ONE `AppendToTimeline`.
 
     The return value is recorded and is NOT the verdict: step 6 is.
@@ -930,6 +931,21 @@ def place_all(media_pool, ordered: Sequence) -> dict:
     if not ordered:
         return {"asked": 0, "returned_truthy": False, "returned_count": 0,
                 "seconds": 0.0}
+    still_rows = [row for row in ordered
+                  if (getattr(getattr(row[4], "change", None), "how", "")
+                      == RESIZE_STILL)]
+    if still_rows:
+        if len(still_rows) != 1 or len(ordered) != 1 or still_placer is None:
+            raise PlacementNotVerified(
+                "REFUSING to place a still resize without its one-item "
+                "Resolve preference route")
+        still_placer(still_rows[0][4])
+        returned_count = 1
+        returned_truthy = True
+        seconds = round(time.time() - started, 3)
+        return {"asked": 1, "returned_truthy": returned_truthy,
+                "returned_count": returned_count, "seconds": seconds,
+                "route": RESIZE_STILL}
     returned = media_pool.AppendToTimeline([row[3] for row in ordered])
     return {"asked": len(ordered),
             "returned_truthy": bool(returned),
@@ -1441,6 +1457,7 @@ def apply_composed_edit(*, timeline, media_pool,
                         grade_sources: Optional[Mapping] = None,
                         link_rows: Mapping[str, str] = None,
                         picture_row: str = "V1",
+                        still_placer=None,
                         write_context: Mapping[str, Any] | None = None
                         ) -> ComposedEditReceipt:
     """Steps 3 to 7, in the one order that works, on a STAGED timeline.
@@ -1501,7 +1518,8 @@ def apply_composed_edit(*, timeline, media_pool,
     receipt.deleted = delete_all(timeline, victims)
 
     ordered = placement_order(captures, insertions)
-    receipt.placed = place_all(media_pool, ordered)
+    receipt.placed = place_all(media_pool, ordered,
+                               still_placer=still_placer)
 
     rows_after = _rows_of(timeline)
     landed = verify_placement(rows_after, ordered)

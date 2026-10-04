@@ -1,12 +1,10 @@
 """What an overlay artefact IS on disk, and how Resolve must be told to read it.
 
-One enumeration.  Every overlay this engine writes - a caption
-(`step_4_05_render_subtitles`), a motion graphic
-(`step_4_06_render_motion_graphics`) - is an 8-bit RGBA picture with
-PREMULTIPLIED alpha, carried as QuickTime Animation (``qtrle``).  Two
-facts about that carriage live here because neither survives being
-spelled at a call site: the encoder arguments, and the two clip
-attributes Resolve needs before it composites one correctly.
+One enumeration. Every overlay this engine writes is an 8-bit RGBA
+picture with PREMULTIPLIED alpha. Changing overlays use QuickTime
+Animation (``qtrle``); static overlays use a PNG still. The clip
+attribute Resolve needs before it composites either correctly lives
+here; the video encoder arguments do too.
 
 WHY ``qtrle`` AND NOT ProRes 4444
 ─────────────────────────────────
@@ -78,12 +76,13 @@ WHAT ENFORCES IT
 ────────────────
 Two things, because they catch different failures.
 
-`apply_clip_attributes` sets both attributes and READS THEM BACK off
-the pool item, refusing when Resolve did not take them - AGENTS.md 5,
-judge a Resolve call by what it RETURNS.  It runs on every import AND
-on every lookup hit, because a pool item that was imported while the
-file was still ProRes keeps its old attributes after the file is
-transcoded underneath it.
+`apply_clip_attributes` sets the alpha mode for either carriage and
+sets the data level where qtrle needs it, then READS THEM BACK off the
+pool item, refusing when Resolve did not take them - AGENTS.md 5, judge
+a Resolve call by what it RETURNS. It runs on every import AND on every
+lookup hit, because a pool item that was imported while the file was
+still ProRes keeps its old attributes after the file is transcoded
+underneath it.
 
 `assert_transparent_region_unchanged` is the other one, and it is the
 real check: it measures a COMPOSITED FRAME against the plate it was
@@ -123,6 +122,9 @@ record that still said ProRes 4444 would be a step describing its own
 output wrongly - the exact key-name-mismatch shape AGENTS.md 10.1 is
 about, one level up.
 """
+
+OVERLAY_STILL_FORMAT_NAME = "PNG still (RGBA)"
+"""How a duration-independent transparent overlay is named in records."""
 
 OVERLAY_ENCODE_ARGS: tuple[str, ...] = (
     "-c:v", OVERLAY_VIDEO_CODEC, "-pix_fmt", OVERLAY_PIXEL_FORMAT,
@@ -252,6 +254,32 @@ def carries_alpha(codec_name: str = "", pix_fmt: str = "",
                                         "abgr", "bgra", "ya8", "ya16")):
         return True
     return codec == "prores" and "4444" in (profile or "")
+
+
+def premultiply_rgba_png(path: str) -> None:
+    """Store a PNG's RGB already multiplied by its alpha plane.
+
+    Resolve reads the overlays this pipeline writes as premultiplied.
+    PNG itself does not define an alpha association, so raster producers
+    that write straight alpha need this conversion before the pool item
+    is tagged ``Premultiplied``. Keep it beside the carriage contract so
+    stills and movie frames cannot quietly use different arithmetic.
+    """
+    import numpy as np
+    from PIL import Image
+
+    with Image.open(path) as image:
+        info = image.info
+        rgba = np.asarray(image.convert("RGBA"), dtype=np.uint16)
+    alpha = rgba[..., 3:4]
+    rgba[..., :3] = (rgba[..., :3] * alpha + 127) // 255
+    output = Image.fromarray(rgba.astype(np.uint8), mode="RGBA")
+    save_options = {}
+    if info.get("icc_profile"):
+        save_options["icc_profile"] = info["icc_profile"]
+    if info.get("dpi"):
+        save_options["dpi"] = info["dpi"]
+    output.save(path, **save_options)
 
 
 def data_level_for(codec_name: str) -> Optional[str]:

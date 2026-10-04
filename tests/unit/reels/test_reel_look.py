@@ -881,11 +881,11 @@ def test_the_overlay_name_shape_matches_shared_and_legacy_renders():
     from types import SimpleNamespace
     items = [
         SimpleNamespace(track_index=2,
-                        source_file="/s/tv_frame_1f8e8d06ff.mov"),
+                        source_file="/s/tv_frame_1f8e8d06ff.png"),
         SimpleNamespace(track_index=2,
                         source_file="/s/tv_frame_1f8e8d06ff_950f.mov"),
         SimpleNamespace(track_index=1,
-                        source_file="/s/tv_frame_1f8e8d06ff.mov"),
+                        source_file="/s/tv_frame_1f8e8d06ff.png"),
     ]
     found = reel_look.frame_overlay_items(items, {"punch_in": 2.3})
     assert len(found) == 2

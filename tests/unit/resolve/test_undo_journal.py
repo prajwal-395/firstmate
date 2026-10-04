@@ -38,7 +38,10 @@ from tests.composed_edit_harness import (  # noqa: E402
     duplicate,
     frames_of,
     media_pool,
+    pool_clip,
 )
+from tests.composed_edit_harness import item as make_item  # noqa: E402
+from tests.resolve_double import FakeResolve  # noqa: E402
 
 FINAL = "Reel 01 - lab"
 
@@ -100,10 +103,25 @@ def _touch(tmp_path, spec, *, monkeypatch, prepare=None):
                                 qualification)
     if changes:
         from library.tools import composed_edit as ce
+        still_placer = None
+        rederiver = tu._NullRederiver("test")
+        if qualification.gate_class == tu.COMPOSED_STILL_RESIZE:
+            from library.tools.still_placement import place_still_exact
+            resolve = FakeResolve(staged._project)
+            rederiver = tu._StillResizeRederiver()
+
+            def still_placer(capture):
+                change = capture.change
+                return place_still_exact(
+                    resolve, staged._project, pool, staged,
+                    capture.media_pool_item, change.duration,
+                    change.record_frame, change.track_index, 25,
+                    timeline_name=staged.GetName())
+
         ce.apply_composed_edit(
             timeline=staged, media_pool=pool, changes=changes,
             comp_dir=str(tmp_path / "c"), withheld_dir=str(tmp_path / "w"),
-            rederiver=tu._NullRederiver("test"),
+            rederiver=rederiver, still_placer=still_placer,
             write_context={
                 "project": "lab", "project_folder": str(folder),
                 "timeline_name": staged.GetName(),
@@ -121,6 +139,21 @@ def _undo(tmp_path, folder, staged, entry, by_path):
     entry = uj.read_entry(str(folder), entry["id"])
     from library.tools.transform_write_log import write_scope
 
+    still_resize = entry["gate_class"] == tu.COMPOSED_STILL_RESIZE
+    still_placer = None
+    rederiver = tu._NullRederiver("test")
+    if still_resize:
+        from library.tools.still_placement import place_still_exact
+        resolve = FakeResolve(staged._project)
+        rederiver = tu._StillResizeRederiver()
+
+        def still_placer(capture):
+            change = capture.change
+            return place_still_exact(
+                resolve, staged._project, media_pool(staged), staged,
+                capture.media_pool_item, change.duration,
+                change.record_frame, change.track_index, 25,
+                timeline_name=staged.GetName())
     with write_scope(project="lab", project_folder=str(folder),
                      timeline_name=staged.GetName(),
                      timeline_id=staged.GetUniqueId(),
@@ -129,9 +162,20 @@ def _undo(tmp_path, folder, staged, entry, by_path):
             timeline=staged, media_pool=media_pool(staged), entry=entry,
             entry_root=uj.entry_dir(str(folder), entry["id"]),
             reference=duplicate(staged, name="reference"),
-            rederiver=tu._NullRederiver("test"),
+            rederiver=rederiver,
             resolve_media=by_path.get, work_dir=str(tmp_path / "undo"),
-            project_folder=str(folder))
+            project_folder=str(folder), still_resize=still_resize,
+            still_placer=still_placer)
+
+
+def _native_still(approved, _media):
+    still_source = pool_clip("/lab/overlay.png", frames=240,
+                             name="overlay.png")
+    still_source.SetClipProperty("Type", "Still")
+    row = approved.add_track("video", "Motion Graphics")
+    assert row == 5
+    approved.add_item("video", row,
+                      make_item(still_source, 1400, 60, 0))
 
 
 def _card_with_a_look(approved, media):
@@ -152,7 +196,10 @@ def _card_with_a_look(approved, media):
     ({"reel": 1, "edits": [{"op": "set_properties", "row": "V3",
                             "item": 0,
                             "properties": {"ZoomX": 1.25}}]}, None),
-], ids=["move", "remove-with-its-look", "set-properties"])
+    ({"reel": 1, "edits": [{"op": "resize_still", "row": "V5",
+                            "item": 0, "duration": 90}]}, _native_still),
+], ids=["move", "remove-with-its-look", "set-properties",
+        "resize-still"])
 def test_undo_restores_exactly_the_pre_touch_timeline(tmp_path, spec,
                                                       prepare, monkeypatch):
     folder, approved, staged, entry, by_path = _touch(

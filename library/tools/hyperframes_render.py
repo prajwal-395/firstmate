@@ -644,16 +644,13 @@ def premultiply_frames(frames: list) -> int:
     rather than colour-transparent, and the encode that follows carries
     what Resolve will composite.
     """
-    import numpy as np
-    from PIL import Image
-
+    try:
+        from library.tools.overlay_carriage import premultiply_rgba_png
+    except ImportError:  # imported as `tools.*` from inside library/
+        from tools.overlay_carriage import premultiply_rgba_png
     count = 0
     for frame in frames:
-        image = Image.open(frame).convert("RGBA")
-        rgba = np.asarray(image, dtype=np.uint16)
-        alpha = rgba[..., 3:4]
-        rgba[..., :3] = (rgba[..., :3] * alpha + 127) // 255
-        Image.fromarray(rgba.astype(np.uint8), mode="RGBA").save(frame)
+        premultiply_rgba_png(frame)
         count += 1
     return count
 
@@ -809,5 +806,47 @@ def render_one_card(composition: str,
         "composition": composition,
         "asset_path": out_path,
         "bytes": os.path.getsize(out_path),
+        "engine": "hyperframes",
+    }
+
+
+def render_one_card_frames(composition: str,
+                           props: dict,
+                           frames_dir: str,
+                           work_dir: str,
+                           project_folder: str = "",
+                           repo_root: Optional[str | Path] = None) -> dict:
+    """Render one HyperFrames card to its PNG frames without encoding video.
+
+    Callers that must decide whether the artwork changes over time need
+    the renderer's pixels, not an element-name roster. This returns the
+    native frame sequence so the caller can retain one still when every
+    frame is identical, or encode the sequence as video when pixels do
+    change.
+    """
+    template = hyperframes_template(composition)
+    if template is None:
+        raise HyperFramesRenderError(
+            f"composition {composition!r} has no HyperFrames form")
+    card_name = Path(frames_dir).name
+    staging = os.path.join(work_dir, f"hf_{card_name}")
+    shutil.rmtree(staging, ignore_errors=True)
+    shutil.rmtree(frames_dir, ignore_errors=True)
+    try:
+        stage_card_project(template, props, staging, project_folder,
+                           repo_root)
+        frames = render_png_sequence(
+            staging, frames_dir, float(props.get("fps") or 30.0))
+        if composition == "FullFrameCard":
+            flatten_frames(frames, str(props.get("background") or ""))
+        else:
+            premultiply_frames(frames)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+    return {
+        "composition": composition,
+        "frames_dir": frames_dir,
+        "frames": frames,
+        "frame_count": len(frames),
         "engine": "hyperframes",
     }

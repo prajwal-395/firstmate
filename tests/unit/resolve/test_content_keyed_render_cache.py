@@ -353,9 +353,18 @@ def _render_graphic(monkeypatch, planned, out_dir, label, remotion,
     )
 
     def fake_render(props_path, dest_path, remotion_dir, name):
+        from PIL import Image
+
         calls.append(dest_path)
-        with open(dest_path, "wb") as handle:
-            handle.write(b"pixels")
+        props = json.load(open(props_path, encoding="utf-8"))
+        os.makedirs(dest_path, exist_ok=True)
+        width, height = props["width"], props["height"]
+        frames = props["durationInFrames"]
+        for index in range(frames):
+            image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+            image.putpixel((10 + index % 3, 10), (255, 255, 255, 255))
+            image.save(os.path.join(dest_path,
+                                    f"frame-{index + 1:06d}.png"))
         return True
 
     monkeypatch.setattr(mg, "_render_motion_graphics_file", fake_render)
@@ -413,17 +422,24 @@ def test_motion_graphics_asset_bytes_invalidate_and_hits_match_fresh(
     calls = []
 
     def fake_render(props_path, dest_path, _remotion_dir, _name):
+        from PIL import Image
+
         calls.append(dest_path)
         with open(props_path, encoding="utf-8") as handle:
             rendered_props = json.load(handle)
         assert rendered_props["elements"][0]["asset"] == "brand/logo.svg"
-        with open(dest_path, "wb") as handle:
-            handle.write(b"pixels:" + asset.read_bytes())
+        asset_color = tuple(asset.read_bytes()[:3]) + (255,)
+        os.makedirs(dest_path, exist_ok=True)
+        for index in range(int(rendered_props["durationInFrames"])):
+            Image.new("RGBA", (4, 4), asset_color).save(
+                os.path.join(dest_path, f"frame-{index + 1:06d}.png"))
         return True
 
     monkeypatch.setattr(mg, "_render_motion_graphics_file", fake_render)
     monkeypatch.setattr(
-        mg, "transcode_in_place", lambda _path: {"changed": False})
+        mg, "_encode_motion_graphics_video",
+        lambda *_args, **_kwargs: pytest.fail(
+            "static asset pixels must remain a PNG still"))
 
     first = mg.render_one_segment(
         planned, str(out_dir), remotion_dir=remotion,

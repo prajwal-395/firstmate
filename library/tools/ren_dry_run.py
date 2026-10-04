@@ -629,6 +629,7 @@ def dry_run(
     record["go"] = holds and gate["class"] in (
         touchup_mod.COMPOSED,
         touchup_mod.COMPOSED_WITH_REDERIVATION,
+        touchup_mod.COMPOSED_STILL_RESIZE,
     )
     return record
 

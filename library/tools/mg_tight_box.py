@@ -1145,6 +1145,21 @@ def sidecar_path_for(props_path: str) -> str:
     return props_path + TIGHTNESS_SIDECAR_SUFFIX
 
 
+def props_path_for_overlay(overlay_path: str) -> str:
+    """Find the shared props record for a still or video artefact.
+
+    Static renders carry ``<content>_still.png`` while their props and
+    tightness sidecar keep the content stem (``<content>_props.json``).
+    Animated renders use ``<content>.mov`` and already share that stem.
+    """
+    import os as _os
+
+    if overlay_path.lower().endswith("_still.png"):
+        return overlay_path[:-len("_still.png")] + "_props.json"
+    stem, _extension = _os.path.splitext(overlay_path)
+    return stem + "_props.json"
+
+
 def check_motion_graphics_files(props_paths: Sequence[str],
                                 full_w: int, full_h: int,
                                 ) -> tuple[list, dict]:
@@ -1745,7 +1760,10 @@ def bind_probe_tight(name: str, planned: dict, rendered: dict,
 
     stem = full_path[:-len(".mov")] if full_path.endswith(".mov") \
         else full_path
-    tight_path = f"{stem}_tight.mov"
+    suffix = ".png" if full_path.lower().endswith(".png") else ".mov"
+    if suffix == ".png":
+        stem = full_path[:-len(".png")]
+    tight_path = f"{stem}_tight{suffix}"
     tight_props_path = f"{stem}_tight_props.json"
     try:
         crop_probe_to_tight(full_path, tight_path, box)

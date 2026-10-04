@@ -469,6 +469,7 @@ def _segment(label=LABEL, segment_id=SEGMENT_ID, elements=ELEMENTS,
         "timeline_end": 11.595,
         "total_frames": 60,
         "lane": 0,
+        "media_type": "video",
     }
 
 

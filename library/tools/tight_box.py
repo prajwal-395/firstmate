@@ -1277,7 +1277,7 @@ def canvas_offset(box: TightBox) -> tuple[int, int]:
 
 def crop_probe_to_tight(probe_mov: str, overlay_path: str,
                         box: TightBox) -> tuple[int, int]:
-    """Crop the probe render to the tight canvas, as `qtrle` RGBA with alpha.
+    """Crop a probe to the tight canvas without changing its carriage.
 
     The tight output IS the probe crop - by construction, not by a second
     render - so the re-render rasterization difference that failed the
@@ -1294,17 +1294,11 @@ def crop_probe_to_tight(probe_mov: str, overlay_path: str,
     the file and the Resolve transform agree on one origin by
     construction.
 
-    The probe's audio (Remotion's silent track) is copied through
-    untouched; the video rate is the probe's own (no `-r`: no fps
-    conversion). Raises `TightBoxMismatch` where ffmpeg cannot deliver -
-    an undecodable probe, an out-of-frame origin, a failed encode: the
-    caller carries the card full canvas instead, with zero additional
-    renders. A crop that cannot be cut is refused, never approximated.
+    A PNG still stays a PNG still; a changing overlay stays `qtrle`.
+    A crop that cannot be cut is refused, never approximated.
     """
     import os
     import subprocess
-
-    from library.tools.overlay_carriage import OVERLAY_ENCODE_ARGS
 
     ox, oy = canvas_offset(box)
     if ox < 0 or oy < 0 \
@@ -1313,8 +1307,28 @@ def crop_probe_to_tight(probe_mov: str, overlay_path: str,
         raise TightBoxMismatch(
             f"crop of a {box.width}x{box.height} canvas at ({ox},{oy}) "
             f"leaves a {box.full_width}x{box.full_height} probe: the "
-            f"measured layout is unplaceable, so there is no tight "
-            f"carrying of it.")
+            "measured layout is unplaceable, so there is no tight "
+            "carrying of it.")
+
+    if os.path.splitext(probe_mov)[1].lower() == ".png":
+        from PIL import Image
+
+        try:
+            with Image.open(probe_mov) as image:
+                if image.size != (box.full_width, box.full_height):
+                    raise TightBoxMismatch(
+                        f"still probe is {image.width}x{image.height}, not "
+                        f"the declared {box.full_width}x{box.full_height} "
+                        "canvas")
+                image.convert("RGBA").crop(
+                    (ox, oy, ox + box.width, oy + box.height)
+                ).save(overlay_path, format="PNG")
+        except (OSError, ValueError) as exc:
+            raise TightBoxMismatch(
+                f"cannot crop still probe {probe_mov}: {exc}") from exc
+        return ox, oy
+
+    from library.tools.overlay_carriage import OVERLAY_ENCODE_ARGS
     try:
         result = subprocess.run(
             ["ffmpeg", "-y", "-v", "error", "-i", probe_mov,
@@ -1337,4 +1351,3 @@ def crop_probe_to_tight(probe_mov: str, overlay_path: str,
             f"crop of probe {probe_mov} reported success but "
             f"{overlay_path} is not on disk")
     return ox, oy
-

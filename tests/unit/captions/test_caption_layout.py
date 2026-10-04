@@ -1544,6 +1544,30 @@ def test_the_header_is_a_tight_canvas_placed_where_it_laid_out(tmp_path):
         assert all(abs(a - b) < 0.5 for a, b in zip(drawn, (130, 275, 951, 461)))
 
 
+def test_header_still_serves_multiple_run_lengths_without_video_carry(
+        tmp_path):
+    from library.tools import reel_post_header as rph
+    from PIL import ImageDraw
+
+    full = Image.new("RGBA", (1080, 1920), (0, 0, 0, 0))
+    ImageDraw.Draw(full).rectangle((130, 275, 951, 461),
+                                   fill=(255, 255, 255, 255))
+    source = tmp_path / "header.png"
+    full.save(source)
+
+    segments = rph._tight_segments(
+        str(source), [(0, 24), (240, 1488)], 24.0, (1080, 1920), 1.0)
+
+    assert len(segments) == 2
+    assert all(segment["overlay_path"].endswith(".png")
+               for segment in segments)
+    assert all(segment["media_type"] == "still" for segment in segments)
+    assert segments[0]["overlay_path"] == segments[1]["overlay_path"]
+    assert [segment["total_frames"] for segment in segments] == [24, 1248]
+    assert all(os.path.isfile(segment["overlay_path"])
+               for segment in segments)
+
+
 class _Item:
     """A placed item whose switch-off claims success and changes nothing."""
 

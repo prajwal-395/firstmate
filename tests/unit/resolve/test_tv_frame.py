@@ -231,8 +231,6 @@ def test_a_scaled_look_shrinks_bezel_window_and_picture_together(tmp_path):
     # surround is opaque black - zooming the overlay instead left the
     # delivery's edges uncovered and the picture, wider than the window,
     # showed there (the first shrink previews).
-    import subprocess
-
     from PIL import Image
 
     asset = _tv_asset_4k(tmp_path)
@@ -248,19 +246,23 @@ def test_a_scaled_look_shrinks_bezel_window_and_picture_together(tmp_path):
     assert reel_look.frame_properties(small, 1080, 1920, draw_gain=1.0) == \
         reel_look.frame_properties(full, 1080, 1920, draw_gain=1.0)
 
-    (segment,) = reel_look.frame_overlay_segments(
-        small, [(0, 1)], 24.0, 1080, 1920, str(tmp_path))
-    still = tmp_path / "overlay.png"
-    subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i",
-                    segment["overlay_path"], "-frames:v", "1", str(still)],
-                   check=True)
-    with Image.open(still) as image:
+    segment, longer = reel_look.frame_overlay_segments(
+        small, [(0, 1), (24, 1488)], 24.0, 1080, 1920, str(tmp_path))
+    assert segment["overlay_path"].endswith(".png")
+    assert segment["media_type"] == "still"
+    assert longer["overlay_path"] == segment["overlay_path"]
+    assert segment["total_frames"] == 1
+    assert longer["total_frames"] == 1464
+    import numpy as np
+    with Image.open(segment["overlay_path"]) as image:
+        pixels = np.asarray(image.convert("RGBA"))
         alpha = image.convert("RGBA").getchannel("A")
         width, height = image.size
         # Just outside the shrunk bezel, left of centre: black, opaque.
         assert alpha.getpixel((int(width * 0.05), height // 2)) == 255
         # The window itself still shows the picture.
         assert alpha.getpixel((width // 2, height // 2)) == 0
+        assert bool((pixels[..., :3] <= pixels[..., 3:4]).all())
 
 
 # --------------------------------------------------------------------------

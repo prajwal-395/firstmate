@@ -37,7 +37,6 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -51,9 +50,9 @@ from library.tools.delivery_format import resolve_delivery_format  # noqa: E402
 from library.tools.resolve_transform import FALLBACK_DRAW_GAIN  # noqa: E402
 from library.tools.overlay_carriage import (  # noqa: E402
     OVERLAY_FORMAT_NAME,
+    OVERLAY_STILL_FORMAT_NAME,
     OVERLAY_PIXEL_FORMAT,
     OVERLAY_VIDEO_CODEC,
-    transcode_in_place,
 )
 from library.tools.overlay_mode import (  # noqa: E402
     GEOMETRIES,
@@ -147,13 +146,11 @@ def _remotion_dir() -> str:
 
 def _render_motion_graphics_file(props_path: str, dest_path: str,
                                  remotion: str, name: str) -> bool:
-    """One `npx remotion render` of the MotionGraphics composition.
+    """Render the MotionGraphics composition directly to PNG frames."""
+    from pathlib import Path
 
-    Judged by what it RETURNS - True only when the process exited 0.
-    One spelling, because a tight graphic may render twice: once to
-    its own union canvas, and again full canvas where the pad onto the
-    delivery frame could not be proved.
-    """
+    shutil.rmtree(dest_path, ignore_errors=True)
+    Path(dest_path).mkdir(parents=True, exist_ok=True)
     try:
         result = perf_ledger.run(
             "remotion_render",
@@ -161,10 +158,9 @@ def _render_motion_graphics_file(props_path: str, dest_path: str,
              "MotionGraphics",
              dest_path,
              "--props", props_path,
-             "--codec", "prores",
-             "--prores-profile", "4444",
              "--image-format", "png",
-             "--transparent",
+             "--sequence",
+             "--image-sequence-pattern", "frame-[frame].png",
              ],
             cwd=remotion,
             capture_output=True,
@@ -183,33 +179,157 @@ def _render_motion_graphics_file(props_path: str, dest_path: str,
 
 def _render_motion_graphics_hyperframes(render_props: dict, dest_path: str,
                                         remotion: str, name: str,
-                                        project_folder: str) -> bool:
-    """One HyperFrames render of the MotionGraphics composition.
-
-    Judged the same way - False where nothing was drawn, with the
-    reason on stderr. The composition HAS a HyperFrames form
-    (`hyperframes/compositions/MotionGraphics.html`), so under that
-    selection this is the render rather than a fallback. The carriage
-    below treats its output like any overlay file: already `qtrle`
-    passes through, anything else is transcoded bit-exact or refused.
-    """
+                                        project_folder: str) -> list | None:
+    """Render HyperFrames pixels without encoding a video carrier."""
     from library.tools import hyperframes_render as _hf
     try:
-        _hf.render_one_card(
+        result = _hf.render_one_card_frames(
             "MotionGraphics", render_props, dest_path,
-            os.path.dirname(os.path.abspath(dest_path)),
-            project_folder,
+            os.path.dirname(os.path.abspath(dest_path)), project_folder,
             os.path.dirname(os.path.abspath(remotion)))
     except (_hf.HyperFramesUnavailable,
             _hf.HyperFramesRenderError) as exc:
         print(f"    WARN: HyperFrames render failed for {name}: "
               f"{str(exc)[:200]}", file=sys.stderr)
-        return False
-    if not os.path.isfile(dest_path) or os.path.getsize(dest_path) == 0:
+        return None
+    frames = result.get("frames") or []
+    if not frames or any(not os.path.isfile(path) or os.path.getsize(path) == 0
+                         for path in frames):
         print(f"    WARN: HyperFrames render reported success but "
-              f"{dest_path} is missing or empty", file=sys.stderr)
+              f"{dest_path} has missing or empty frames", file=sys.stderr)
+        return None
+    return frames
+
+
+def _ordered_motion_frames(frames_dir: str, engine: str,
+                           expected: int) -> list[str] | None:
+    """Read the renderer's frame sequence and require its declared span."""
+    import re
+    from pathlib import Path
+
+    if engine == "hyperframes":
+        frames = sorted(Path(frames_dir).glob("frame_*.png"))
+    else:
+        frames = sorted(
+            Path(frames_dir).glob("frame-*.png"),
+            key=lambda path: int(re.search(r"frame-(\d+)", path.name)[1]))
+    if len(frames) != expected:
+        print(f"    WARN: {engine} rendered {len(frames)} frame(s), "
+              f"planned {expected}", file=sys.stderr)
+        return None
+    return [str(path) for path in frames]
+
+
+def _canonicalize_motion_frames(frames: list[str]) -> list[str]:
+    """Give either renderer's sequence the shared six-digit frame names."""
+    import os
+
+    directory = os.path.dirname(os.path.abspath(frames[0]))
+    staged = []
+    for path in frames:
+        temporary = f"{path}.canonicalizing"
+        os.replace(path, temporary)
+        staged.append(temporary)
+    canonical = []
+    for index, path in enumerate(staged, 1):
+        destination = os.path.join(directory, f"frame_{index:06d}.png")
+        os.replace(path, destination)
+        canonical.append(destination)
+    return canonical
+
+
+def _motion_frames_are_identical(frames: list[str]) -> bool:
+    """Classify from rendered pixels, not from a hand-maintained roster."""
+    from PIL import Image
+
+    if not frames:
         return False
+    with Image.open(frames[0]) as first:
+        size = first.size
+        pixels = first.convert("RGBA").tobytes()
+    for path in frames[1:]:
+        with Image.open(path) as frame:
+            if frame.size != size or frame.convert("RGBA").tobytes() != pixels:
+                return False
     return True
+
+
+def _encode_motion_graphics_video(frames: list[str], output_path: str, *,
+                                  fps: float, width: int, height: int) -> str:
+    """Publish a video only after its codec, alpha, size and span verify."""
+    import json
+    import tempfile
+
+    from library.tools import hyperframes_render as _hf
+    from library.tools.overlay_carriage import carries_alpha
+
+    directory = os.path.dirname(os.path.abspath(output_path))
+    fd, temporary = tempfile.mkstemp(
+        prefix=f".{os.path.basename(output_path)}.", suffix=".mov",
+        dir=directory)
+    os.close(fd)
+    try:
+        _hf.encode_frames(frames, temporary, fps=fps, opaque=False)
+        try:
+            result = subprocess.run(
+                ["ffprobe", "-v", "error", "-select_streams", "v:0",
+                 "-count_frames", "-show_entries",
+                 "stream=codec_name,pix_fmt,width,height,nb_read_frames,"
+                 "avg_frame_rate",
+                 "-of", "json", temporary],
+                capture_output=True, text=True, encoding="utf-8",
+                errors="replace", timeout=30, check=False)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise _hf.HyperFramesRenderError(
+                f"could not inspect encoded overlay {temporary}: {exc}") \
+                from exc
+        if result.returncode != 0:
+            raise _hf.HyperFramesRenderError(
+                f"ffprobe rejected encoded overlay {temporary}: "
+                f"{(result.stderr or '').strip()[-300:]}")
+        try:
+            streams = json.loads(result.stdout or "{}").get("streams") or []
+            stream = streams[0] if streams else {}
+            actual = {
+                "codec": str(stream.get("codec_name") or ""),
+                "pixel_format": str(stream.get("pix_fmt") or ""),
+                "width": int(stream.get("width") or 0),
+                "height": int(stream.get("height") or 0),
+                "frames": int(stream.get("nb_read_frames") or 0),
+                "rate": str(stream.get("avg_frame_rate") or ""),
+            }
+        except (TypeError, ValueError) as exc:
+            raise _hf.HyperFramesRenderError(
+                f"ffprobe could not read encoded overlay {temporary}: "
+                f"{exc}") from exc
+        expected = {"codec": OVERLAY_VIDEO_CODEC,
+                    "width": int(width), "height": int(height),
+                    "frames": len(frames)}
+        rate_num, _, rate_den = actual["rate"].partition("/")
+        try:
+            actual_fps = float(rate_num) / float(rate_den)
+        except (TypeError, ValueError, ZeroDivisionError):
+            actual_fps = 0.0
+        if (actual["codec"] != expected["codec"]
+                or (actual["width"], actual["height"])
+                != (expected["width"], expected["height"])
+                or actual["frames"] != expected["frames"]
+                or abs(actual_fps - float(fps)) > 0.0001
+                or not carries_alpha(
+                    codec_name=actual["codec"],
+                    pix_fmt=actual["pixel_format"])):
+            raise _hf.HyperFramesRenderError(
+                f"encoded overlay {temporary} read back as {actual}, "
+                f"expected qtrle RGBA at {width}x{height} and "
+                f"{float(fps):.6f} fps for "
+                f"{len(frames)} frame(s)")
+        os.replace(temporary, output_path)
+        return output_path
+    finally:
+        try:
+            os.remove(temporary)
+        except FileNotFoundError:
+            pass
 
 
 # Element props keys that are PLACEMENT or provenance, never pixels.
@@ -317,7 +437,9 @@ def _mg_drawing_digest(render_props: dict, geometry: str,
 
 def _mg_reuse_key(digest: str, remotion_dir: str,
                   engine: str = "remotion",
-                  assets_digest: str | None = None) -> str:
+                  carriage: str = OVERLAY_CARRIAGE,
+                  assets_digest: str | None = None,
+                  codec: str = "") -> str:
     """The three things that have to match for a skip to be safe, or `""`.
 
     The drawing digest, engine and renderer fingerprint, output codec,
@@ -330,9 +452,9 @@ def _mg_reuse_key(digest: str, remotion_dir: str,
             os.path.dirname(os.path.abspath(remotion_dir))))
     else:
         renderer_dir = remotion_dir
+    codec = codec or f"{OVERLAY_VIDEO_CODEC}/{OVERLAY_PIXEL_FORMAT}"
     return _content_key(
-        digest, renderer_dir, OVERLAY_CARRIAGE, engine=engine,
-        codec=f"{OVERLAY_VIDEO_CODEC}/{OVERLAY_PIXEL_FORMAT}",
+        digest, renderer_dir, carriage, engine=engine, codec=codec,
         assets_digest=assets_digest)
 
 
@@ -415,22 +537,16 @@ def _report_palette_state(template_name: str, palette: dict) -> None:
 
 
 def _sequence_behind_segment(rendered: dict) -> dict:
-    """A behind title's .mov as a numbered PNG sequence, in place.
-
-    Rewrites `overlay_path` to the sequence's first frame and records
-    the sequence beside it. Refuses (rather than shipping the .mov a
-    Loader cannot resolve) where ffmpeg fails or the frame count is
-    not what the segment promised.
-    """
+    """A behind title's rendered frames as a numbered PNG sequence."""
     source = str(rendered.get("overlay_path", ""))
     want = int(rendered.get("total_frames", 0) or 0)
-    if not source.endswith(".mov") or want <= 0:
+    if want <= 0:
         raise MotionGraphicsRenderRefused({
             "motion_graphics_overlay": {
                 "available": False,
                 "segments": [],
                 "error": (f"behind_subject segment {rendered.get('segment_id', '?')!r} "
-                          f"has no rendered .mov to sequence "
+                          f"has no rendered frame span to sequence "
                           f"({source!r})."),
             }
         })
@@ -438,19 +554,61 @@ def _sequence_behind_segment(rendered: dict) -> dict:
     pattern = os.path.join(os.path.dirname(source),
                            f"{stem}_behind_%05d.png")
     first = pattern % 0
-    proc = subprocess.run(
-        ["ffmpeg", "-y", "-v", "error", "-i", source,
-         "-frames:v", str(want), "-start_number", "0", pattern],
-        capture_output=True, text=True, encoding="utf-8")
-    if proc.returncode != 0:
-        raise MotionGraphicsRenderRefused({
-            "motion_graphics_overlay": {
-                "available": False,
-                "segments": [],
-                "error": (f"behind_subject segment {rendered.get('segment_id', '?')!r} "
-                          f"would not sequence: {proc.stderr.strip()[:300]}"),
-            }
-        })
+    source_sequence = rendered.get("source_sequence") or {}
+    source_pattern = str(source_sequence.get("pattern") or "")
+    if source_pattern:
+        first_index = int(source_sequence["first_index"])
+        have_frames = int(source_sequence["frame_count"])
+        if have_frames < want:
+            raise MotionGraphicsRenderRefused({
+                "motion_graphics_overlay": {
+                    "available": False,
+                    "segments": [],
+                    "error": (f"behind_subject segment "
+                              f"{rendered.get('segment_id', '?')!r} "
+                              f"has {have_frames} source frame(s), "
+                              f"planned {want}."),
+                }
+            })
+        for index in range(want):
+            source_frame = source_pattern % (first_index + index)
+            destination = pattern % index
+            try:
+                os.remove(destination)
+            except FileNotFoundError:
+                pass
+            try:
+                os.link(source_frame, destination)
+            except FileExistsError:
+                pass
+            except OSError:
+                shutil.copyfile(source_frame, destination)
+    else:
+        if not source.endswith(".mov"):
+            raise MotionGraphicsRenderRefused({
+                "motion_graphics_overlay": {
+                    "available": False,
+                    "segments": [],
+                    "error": (f"behind_subject segment "
+                              f"{rendered.get('segment_id', '?')!r} "
+                              f"has no readable rendered frame sequence "
+                              f"({source!r})."),
+                }
+            })
+        proc = subprocess.run(
+            ["ffmpeg", "-y", "-v", "error", "-i", source,
+             "-frames:v", str(want), "-start_number", "0", pattern],
+            capture_output=True, text=True, encoding="utf-8")
+        if proc.returncode != 0:
+            raise MotionGraphicsRenderRefused({
+                "motion_graphics_overlay": {
+                    "available": False,
+                    "segments": [],
+                    "error": (f"behind_subject segment "
+                              f"{rendered.get('segment_id', '?')!r} "
+                              f"would not sequence: {proc.stderr.strip()[:300]}"),
+                }
+            })
     have = sum(1 for i in range(want)
                if os.path.exists(pattern % i))
     if not os.path.exists(first) or have != want:
@@ -469,6 +627,8 @@ def _sequence_behind_segment(rendered: dict) -> dict:
         "first_frame": first,
         "frame_count": want,
     }
+    rendered.pop("source_sequence", None)
+    rendered["media_type"] = "sequence"
     rendered["format"] = "PNG image sequence (RGBA)"
     return rendered
 
@@ -484,10 +644,10 @@ def render_one_segment(planned: dict, out_dir: str,
                        ) -> Optional[dict]:
     """Render ONE motion-graphics segment, and return what was placed.
 
-    Lifted out of :func:`render_motion_graphics`'s loop unchanged - same
-    composition, same codec, same profile, same `--transparent`, same
-    timeout - so there is ONE `npx remotion render MotionGraphics` call
-    in this repository rather than two.
+    Rendered to PNG frames and classified by the pixels they contain:
+    identical frames stay one PNG still; changing frames use the
+    lossless alpha video carriage. The render remains one
+    `npx remotion render MotionGraphics` call for either outcome.
 
     It exists because the REELS path needs the unit and not the pass:
     `reel_build` plans a graphic on one reel's own timebase and has no
@@ -632,12 +792,24 @@ def render_one_segment(planned: dict, out_dir: str,
             drawn_props, _resolved_geometry(), box,
             assets_digest=assets_digest)
         content_name = motion_segment_name(project_folder, digest)
-        return (content_name,
-                os.path.join(out_dir, f"{content_name}.mov"),
-                os.path.join(out_dir, f"{content_name}_props.json"),
-                os.path.join(out_dir, f"{content_name}_reuse_key.txt"),
-                _mg_reuse_key(digest, remotion, engine,
-                              assets_digest=assets_digest))
+        stem = os.path.join(out_dir, content_name)
+        return {
+            "content_name": content_name,
+            "video_path": stem + ".mov",
+            "still_path": stem + "_still.png",
+            "frames_dir": stem + "_frames",
+            "props_path": stem + "_props.json",
+            "video_key_path": stem + "_video_reuse_key.txt",
+            "still_key_path": stem + "_still_reuse_key.txt",
+            "video_key": _mg_reuse_key(
+                digest, remotion, engine,
+                carriage=f"{OVERLAY_CARRIAGE}:qtrle-video",
+                assets_digest=assets_digest),
+            "still_key": _mg_reuse_key(
+                digest, remotion, engine,
+                carriage="png-still-premultiplied-rgba/1",
+                assets_digest=assets_digest, codec="png/rgba"),
+        }
 
     def _read_recorded_key(key_path):
         try:
@@ -646,12 +818,16 @@ def render_one_segment(planned: dict, out_dir: str,
         except OSError:
             return ""
 
-    def _entry(overlay_path, provenance, reuse_key_value):
-        return {
+    def _entry(overlay_path, provenance, reuse_key_value,
+               media_type):
+        entry = {
             "segment_id": os.path.splitext(
                 os.path.basename(overlay_path))[0],
             "placement_label": placement_label,
             "overlay_path": overlay_path,
+            "media_type": media_type,
+            "format": (OVERLAY_STILL_FORMAT_NAME if media_type == "still"
+                       else OVERLAY_FORMAT_NAME),
             "timeline_start": planned["timeline_start"],
             "timeline_end": planned["timeline_end"],
             "total_frames": planned["total_frames"],
@@ -665,8 +841,8 @@ def render_one_segment(planned: dict, out_dir: str,
             "provenance": provenance,
             "reuse_key": reuse_key_value,
             # The carrying, so a reader knows what the file IS without
-            # re-deriving it: full-canvas video is today's path, and the
-            # tight canvas is the option. A clamp refusal resets the
+            # re-deriving it: either a still PNG or an animated video may
+            # use full or tight geometry. A clamp refusal resets the
             # record to full - the file IS full canvas - exactly as the
             # caption path does when its tight output does not verify.
             "geometry": _resolved_geometry(),
@@ -679,6 +855,15 @@ def render_one_segment(planned: dict, out_dir: str,
             # file needs no transform.
             "tight_box": _tight_record(),
         }
+        if planned.get("layer") == "behind_subject":
+            entry["source_sequence"] = {
+                "pattern": os.path.join(
+                    os.path.splitext(overlay_path)[0] + "_frames",
+                    "frame_%06d.png"),
+                "first_index": 1,
+                "frame_count": int(planned["total_frames"]),
+            }
+        return entry
 
     def _write_tightness_sidecar(props_path):
         """The artefact's own account of its carrying, beside its props.
@@ -705,24 +890,32 @@ def render_one_segment(planned: dict, out_dir: str,
                   f"guard will refuse the artefact without it",
                   file=sys.stderr)
 
-    def _reuse_hit(content_name, overlay_path, key_path, key,
-                   props_path):
-        """A recorded identical render, paired back - or None.
-
-        The two-factor hit: the file AND its recorded key present and
-        matching. Presence alone never hits.
-        """
-        if not reuse or not key:
+    def _reuse_hit(names):
+        """A recorded still or animation, paired back - or None."""
+        if not reuse:
             return None
-        if _read_recorded_key(key_path) != key:
-            return None
-        if not os.path.isfile(overlay_path):
-            return None
-        print(f"  {progress} {placement_label} reused "
-              f"({content_name}, tl:{planned['timeline_start']:.2f}-"
-              f"{planned['timeline_end']:.2f}s)", file=sys.stderr)
-        _write_tightness_sidecar(props_path)
-        return _entry(overlay_path, "reused", key)
+        for media_type, overlay_path, key_path, key in (
+                ("still", names["still_path"],
+                 names["still_key_path"], names["still_key"]),
+                ("video", names["video_path"],
+                 names["video_key_path"], names["video_key"])):
+            if (not key or _read_recorded_key(key_path) != key
+                    or not os.path.isfile(overlay_path)):
+                continue
+            if planned.get("layer") == "behind_subject":
+                sequence = os.path.join(
+                    names["frames_dir"], "frame_%06d.png")
+                count = int(planned["total_frames"])
+                if not all(os.path.isfile(sequence % frame)
+                           for frame in range(1, count + 1)):
+                    continue
+            print(f"  {progress} {placement_label} reused "
+                  f"({os.path.basename(overlay_path)}, "
+                  f"tl:{planned['timeline_start']:.2f}-"
+                  f"{planned['timeline_end']:.2f}s)", file=sys.stderr)
+            _write_tightness_sidecar(names["props_path"])
+            return _entry(overlay_path, "reused", key, media_type)
+        return None
 
     def _maybe_bind_measured(rendered):
         """A predicted refusal, rebound from the render's own pixels.
@@ -760,20 +953,20 @@ def render_one_segment(planned: dict, out_dir: str,
             placement_label, {"props": props}, rendered,
             int(props.get("width", 0)), int(props.get("height", 0)),
             draw_gain=draw_gain)
+        if str(rendered.get("overlay_path", "")).lower().endswith(".png"):
+            rendered["media_type"] = "still"
+            rendered["format"] = OVERLAY_STILL_FORMAT_NAME
         return rendered
 
-    content_name, overlay_path, props_path, key_path, key = \
-        _name_and_key(render_props, _tight_record())
-    # A tight graphic is drawn to its own small canvas and placed with
-    # the Scaling/Pan/Tilt the box computed (`tight_box.placement`),
-    # read back at placement time - see `library/tools/tight_box.py`.
-    render_path = overlay_path
+    names = _name_and_key(render_props, _tight_record())
+    content_name = names["content_name"]
+    props_path = names["props_path"]
+    frames_dir = names["frames_dir"]
 
-    hit = _reuse_hit(content_name, overlay_path, key_path, key,
-                     props_path)
+    hit = _reuse_hit(names)
     if hit is not None:
         return _maybe_bind_measured(hit)
-    if reuse and not key:
+    if reuse and not names["video_key"]:
         print(f"    note: renderer fingerprint unavailable, rendering "
               f"{placement_label} rather than reusing", file=sys.stderr)
 
@@ -792,60 +985,92 @@ def render_one_segment(planned: dict, out_dir: str,
               f"(MotionGraphics has a HyperFrames form; selected by "
               f"{_engines.USER_SETTING_KEY} or the project's "
               f"pipeline.graphics_renderer)", file=sys.stderr)
-        if not _render_motion_graphics_hyperframes(
-                render_props, render_path, remotion, placement_label,
-                project_folder or ""):
+        frames = _render_motion_graphics_hyperframes(
+            render_props, frames_dir, remotion, placement_label,
+            project_folder or "")
+        if frames is None:
+            shutil.rmtree(frames_dir, ignore_errors=True)
             return None
-    elif not _render_motion_graphics_file(props_path, render_path,
-                                          remotion, placement_label):
-        return None
+        frames = _ordered_motion_frames(
+            frames_dir, "hyperframes", int(planned["total_frames"]))
+        if frames is None:
+            shutil.rmtree(frames_dir, ignore_errors=True)
+            return None
+    else:
+        if not _render_motion_graphics_file(
+                props_path, frames_dir, remotion, placement_label):
+            shutil.rmtree(frames_dir, ignore_errors=True)
+            return None
+        frames = _ordered_motion_frames(
+            frames_dir, "remotion", int(planned["total_frames"]))
+        if frames is None:
+            shutil.rmtree(frames_dir, ignore_errors=True)
+            return None
+        # Chromium's PNG output is straight alpha. Resolve reads both
+        # stills and qtrle overlays as premultiplied, so use the shared
+        # carriage conversion before classifying or publishing pixels.
+        from library.tools import hyperframes_render as _hf
+        _hf.premultiply_frames(frames)
 
-    # ── The carriage ──
-    #
-    # Remotion cannot write it. `renderMedia` offers no `qtrle` codec,
-    # and the ffmpeg Remotion bundles is compiled `--disable-encoders`
-    # with an explicit enable list that has no `qtrle` in it, so even
-    # an `ffmpegOverride` rewriting the encoder arguments fails with
-    # `Unknown encoder 'qtrle'` (measured 2026-09-12). Unlike the
-    # caption path - which was already re-encoding, in the tight crop,
-    # and gets the change for free - a motion graphic therefore pays
-    # one transcode after its render. Measured on this project's own
-    # graphics: 0.31 s per file, against a render of several seconds,
-    # for a file 4.35x smaller. It is VERIFIED bit-exact before it
-    # replaces the render, and a failure returns None like every other
-    # failure here: reported and skipped, never substituted.
-    carried = transcode_in_place(render_path)
-    if carried.get("error"):
-        print(f"    WARN: {placement_label} rendered but could not be "
-              f"carried as {OVERLAY_VIDEO_CODEC}: "
-              f"{carried['error'][:300]}", file=sys.stderr)
-        return None
-    if carried.get("changed"):
-        print(f"    carried as {OVERLAY_VIDEO_CODEC}: "
-              f"{carried['before']:,} -> {carried['after']:,} bytes",
+    frames = _canonicalize_motion_frames(frames)
+    identical = _motion_frames_are_identical(frames)
+    if identical:
+        output_path = names["still_path"]
+        shutil.copyfile(frames[0], output_path)
+        media_type = "still"
+        reuse_key = names["still_key"]
+        reuse_key_path = names["still_key_path"]
+        print(f"    static pixels: keeping one PNG still", file=sys.stderr)
+    else:
+        output_path = names["video_path"]
+        try:
+            from library.tools import hyperframes_render as _hf
+            _encode_motion_graphics_video(
+                frames, output_path,
+                fps=float(render_props.get("fps") or 30.0),
+                width=int(render_props["width"]),
+                height=int(render_props["height"]))
+        except (_hf.HyperFramesUnavailable,
+                _hf.HyperFramesRenderError) as exc:
+            print(f"    WARN: {placement_label} animated frames could not "
+                  f"be carried as {OVERLAY_FORMAT_NAME}: "
+                  f"{str(exc)[:300]}", file=sys.stderr)
+            shutil.rmtree(frames_dir, ignore_errors=True)
+            return None
+        media_type = "video"
+        reuse_key = names["video_key"]
+        reuse_key_path = names["video_key_path"]
+        print(f"    changing pixels: carried as {OVERLAY_FORMAT_NAME}",
               file=sys.stderr)
+
+    # Behind-subject rendering consumes every raster frame when it
+    # applies a changing matte. Above-picture placement needs only the
+    # still or encoded movie, so its staging sequence is disposable.
+    if planned.get("layer") != "behind_subject":
+        shutil.rmtree(frames_dir, ignore_errors=True)
 
     if tight is not None:
         print(f"    tight {tight.width}x{tight.height} placed with "
               f"Pan {tight.placement['pan']:.1f} / "
               f"Tilt {tight.placement['tilt']:.1f}", file=sys.stderr)
 
-    print(f"    OK: {overlay_path}", file=sys.stderr)
+    print(f"    OK: {output_path}", file=sys.stderr)
 
     _write_tightness_sidecar(props_path)
 
     # Recorded only after a render that SUCCEEDED, so a failed render
     # leaves no key claiming the file is current.
-    if key:
+    if reuse_key:
         try:
-            with open(key_path, "w", encoding="utf-8") as handle:
-                handle.write(key)
+            with open(reuse_key_path, "w", encoding="utf-8") as handle:
+                handle.write(reuse_key)
         except OSError as exc:
             print(f"    note: could not record the reuse key for "
                   f"{placement_label} ({exc}); it will re-render next time",
                   file=sys.stderr)
 
-    return _maybe_bind_measured(_entry(overlay_path, "rendered", key))
+    return _maybe_bind_measured(
+        _entry(output_path, "rendered", reuse_key, media_type))
 
 
 # The model-plan entry keys `motion_graphics_plan` reads. Anything
@@ -1105,11 +1330,13 @@ def render_motion_graphics(data: dict, reuse: bool = False) -> dict:
     # or silent sidecar is the defect sixteen lower thirds shipped
     # as, so it refuses the step rather than warning past it. Cheap
     # and deterministic - JSON reads only, no renders.
-    from library.tools.mg_tight_box import check_motion_graphics_files
+    from library.tools.mg_tight_box import (
+        check_motion_graphics_files,
+        props_path_for_overlay,
+    )
     guard_errors, tightness_census = check_motion_graphics_files(
-        [str(seg["overlay_path"])[:-len(".mov")] + "_props.json"
-         for seg in segments
-         if str(seg.get("overlay_path", "")).endswith(".mov")],
+        [props_path_for_overlay(str(seg["overlay_path"]))
+         for seg in segments],
         width, height)
     print(f"Motion-graphics tightness: {tightness_census['tight']} "
           f"tight, {tightness_census['full_by_design']} full by design, "
@@ -1169,7 +1396,7 @@ def render_motion_graphics(data: dict, reuse: bool = False) -> dict:
     mg_overlay = {
         "available": len(above_segments) > 0,
         "segments": above_segments,
-        "format": OVERLAY_FORMAT_NAME,
+        "format": "PNG still or " + OVERLAY_FORMAT_NAME,
         "has_alpha": True,
         "fps": fps,
         "total_segments": len(above_segments),
