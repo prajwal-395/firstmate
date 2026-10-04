@@ -43,6 +43,8 @@ VERBS = (
          builtin="doctor"),
     Verb("config", "Setup", "Show where each setting comes from; --init writes a starter file",
          builtin="config"),
+    Verb("support-bundle", "Setup", "Collect a redacted support bundle (version, config, doctor, recent errors; never footage)",
+         builtin="support-bundle"),
     Verb("version", "Setup", "Show the Ren build (version, commit, channel, engine root)",
          builtin="version"),
     Verb("taste", "Setup", "Record an explicit creative preference shared across projects",

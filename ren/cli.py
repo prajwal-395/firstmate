@@ -128,6 +128,14 @@ def main(argv=None) -> int:
         except RenRefusal as refused:
             print(refused.render(), file=sys.stderr)
             return REFUSAL_EXIT_CODE
+    if verb.builtin == "support-bundle":
+        from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
+        from ren import support_bundle
+        try:
+            return support_bundle.main(rest)
+        except RenRefusal as refused:
+            print(refused.render(), file=sys.stderr)
+            return REFUSAL_EXIT_CODE
     if verb.subcommand:
         _exec_vep(vep, engine_root, [str(manage_project), verb.subcommand, *rest])
     _exec_vep(vep, engine_root, ["-m", *verb.module_argv, *rest])

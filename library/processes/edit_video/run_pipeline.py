@@ -2170,7 +2170,7 @@ def _run_step_work(project_dir: str, node_id: str, impl: dict, inputs: dict,
     The process receives a pickled copy of ``inputs``. Only the coordinator
     writes pipeline state, step/run ledgers, and provenance.
     """
-    get_logger(project_dir)
+    get_logger(project_dir, run_id=run_id)
     start_time = time.time()
     # Worker spans inherit REN_PERF_LEDGER in any subprocess they launch.
     # Give each worker a private file and return its rows so only the
@@ -2788,6 +2788,8 @@ def run_pipeline(
     # says whether a run is UP; this says which run a FILE came from,
     # which outlives the run by a lot. See library/tools/provenance.py.
     _run_id = provenance.new_run_id()
+    # From here every structured log line carries the run that wrote it.
+    get_logger(project_dir, run_id=_run_id)
     semantic_stream_expected = (
         "semantic_analysis" in steps_to_run
         and not step_ledger.is_completed(state, "semantic_analysis"))

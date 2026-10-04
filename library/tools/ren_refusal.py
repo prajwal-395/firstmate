@@ -23,9 +23,21 @@ A refusal class for one area (touchups, undos, hooks, ...) subclasses
 it, and every raise site passes all three fields - the constructor
 refuses an empty one, so a refusal without a fix fails loudly at the
 raise site rather than reaching a user.
+
+Every refusal also carries a stable machine-readable CODE
+(`RenRefusal.code`): the support bundle, the structured log and any
+machine reader key off it instead of parsing the prose. The default is
+derived from the class name (`SpliceRefused` -> `REN_SPLICE_REFUSED`)
+so every existing subclass is coded without touching its file; a
+subclass that needs a code that survives a rename sets `CODE`
+explicitly, and a raise site that needs one for this instance passes
+`code=`. The human shape `render()` never carries the code - it stays
+the pinned three lines - and `to_dict()` carries all four fields.
 """
 
 from __future__ import annotations
+
+import re
 
 
 REFUSAL_EXIT_CODE = 4
@@ -54,7 +66,13 @@ class RenRefusal(RuntimeError, ValueError):
     `except` clause keeps catching an adopted refusal - adopting a
     class changes what its message carries, never who catches it."""
 
-    def __init__(self, what: str, why: str, fix: str) -> None:
+    CODE = ""
+    """Explicit machine-readable code for this refusal family. When
+    empty the instance falls back to the class-name derivation
+    (`SpliceRefused` -> `REN_SPLICE_REFUSED`); set this when the code
+    must survive a class rename."""
+
+    def __init__(self, what: str, why: str, fix: str, code: str = "") -> None:
         missing = [name for name, value in
                    (("what", what), ("why", why), ("fix", fix))
                    if not (isinstance(value, str) and value.strip())]
@@ -67,6 +85,8 @@ class RenRefusal(RuntimeError, ValueError):
         self.what = what.strip()
         self.why = why.strip()
         self.fix = fix.strip()
+        self.code = (code.strip() or type(self).CODE.strip()
+                     or _default_code(type(self).__name__))
         super().__init__(self.render())
 
     def render(self) -> str:
@@ -74,3 +94,19 @@ class RenRefusal(RuntimeError, ValueError):
         return (f"ren: refused - {self.what}\n"
                 f"  why: {self.why}\n"
                 f"  fix: {self.fix}")
+
+    def to_dict(self) -> dict:
+        """All four fields, for structured logs and the support bundle."""
+        return {"code": self.code, "what": self.what,
+                "why": self.why, "fix": self.fix}
+
+
+def _default_code(class_name: str) -> str:
+    """`SpliceRefused` -> `REN_SPLICE_REFUSED`. Derived, so every
+    existing subclass is coded without touching its file; a rename
+    changes the code, which is why a family that must not move sets
+    `CODE` explicitly."""
+    if class_name == "RenRefusal":
+        return "REN_REFUSAL"
+    snake = re.sub(r"(?<!^)(?=[A-Z])", "_", class_name).upper()
+    return snake if snake.startswith("REN_") else f"REN_{snake}"
