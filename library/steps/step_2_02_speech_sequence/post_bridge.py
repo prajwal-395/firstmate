@@ -356,6 +356,125 @@ def _clip_regions_after(regions: list, floor: float) -> list:
     return trimmed
 
 
+_SENTENCE_TERMINAL = re.compile(r"[.!?][\"'’”\)\]}]*$")
+
+
+def _ends_sentence(word: str) -> bool:
+    """Whether a transcript token gives us a clear spoken sentence edge."""
+    return bool(_SENTENCE_TERMINAL.search(str(word).strip()))
+
+
+def _extend_passage_to_sentence_edges(
+    enrichment: dict,
+    regions: list,
+    label: str,
+    *,
+    extend_head: bool,
+    extend_tail: bool,
+    prior_claim: tuple = None,
+) -> dict:
+    """Include punctuation-bounded context omitted at a passage edge.
+
+    A word-aligned edit can still begin or end in the middle of a spoken
+    sentence. Where the temporal index gives a clear punctuation boundary,
+    complete that sentence edge so a retained response does not start on a
+    contextless "yep" or lose its closing words. Stay inside the edge's
+    speech region, honor stated trims, and refuse a head expansion that
+    would replay source already claimed by the previous body passage.
+    """
+    words = list(enrichment["word_timestamps"])
+    if not words or not (extend_head or extend_tail):
+        return {"word_timestamps": words, "adjustment": None}
+
+    def _edge(region_words, source_time, edge):
+        for index, word in enumerate(region_words):
+            time = word["start"] if edge == "head" else word["end"]
+            if abs(float(time) - float(source_time)) <= 1e-6:
+                return region_words, index
+        return None, None
+
+    adjustment = {}
+    head_added = []
+    tail_added = []
+
+    if extend_head:
+        head_region = head_index = None
+        for region in regions:
+            head_region, head_index = _edge(
+                region["words"], words[0]["source_start"], "head")
+            if head_region is not None:
+                break
+        if head_region is not None and head_index > 0:
+            boundary = head_index
+            while (boundary > 0
+                   and not _ends_sentence(
+                       head_region[boundary - 1]["word"])):
+                boundary -= 1
+            # A speech region can begin in the middle of a sentence. Do
+            # not mistake that index edge for a sentence boundary: extend
+            # only when the transcript gives us a terminal word, or when
+            # the selected word was already the first word in its region.
+            if (boundary > 0
+                    or _ends_sentence(head_region[boundary]["word"])):
+                head_added = head_region[boundary:head_index]
+            if head_added:
+                new_start = float(head_added[0]["start"])
+                if (prior_claim is not None
+                        and new_start < prior_claim[1]
+                        - SOURCE_OVERLAP_EPSILON):
+                    raise PassageAlignmentError(
+                        f"{label}: starting at the next sentence boundary "
+                        f"({new_start:.3f}s) would overlap the previous "
+                        f"passage on this clip ({prior_claim[0]:.3f}-"
+                        f"{prior_claim[1]:.3f}s). Combine the passages or "
+                        f"choose a self-contained sentence so the edit "
+                        f"does not replay speech."
+                    )
+                adjustment["head"] = {
+                    "from": float(words[0]["source_start"]),
+                    "to": new_start,
+                    "added_words": [word["word"] for word in head_added],
+                }
+
+    if extend_tail:
+        tail_region = tail_index = None
+        for region in regions:
+            tail_region, tail_index = _edge(
+                region["words"], words[-1]["source_end"], "tail")
+            if tail_region is not None:
+                break
+        if tail_region is not None and tail_index < len(tail_region) - 1:
+            boundary = tail_index
+            while (boundary < len(tail_region) - 1
+                   and not _ends_sentence(tail_region[boundary]["word"])):
+                boundary += 1
+            if _ends_sentence(tail_region[boundary]["word"]):
+                tail_added = tail_region[tail_index + 1:boundary + 1]
+                if tail_added:
+                    adjustment["tail"] = {
+                        "from": float(words[-1]["source_end"]),
+                        "to": float(tail_added[-1]["end"]),
+                        "added_words": [word["word"]
+                                        for word in tail_added],
+                    }
+
+    if not adjustment:
+        return {"word_timestamps": words, "adjustment": None}
+
+    expanded = [
+        {"word": word["word"], "source_start": float(word["start"]),
+         "source_end": float(word["end"])}
+        for word in head_added
+    ]
+    expanded.extend(words)
+    expanded.extend(
+        {"word": word["word"], "source_start": float(word["start"]),
+         "source_end": float(word["end"])}
+        for word in tail_added
+    )
+    return {"word_timestamps": expanded, "adjustment": adjustment}
+
+
 def _overlaps(enrichment: dict, claimed: tuple) -> bool:
     """Does an aligned span claim source audio a previous passage took?"""
     if enrichment["start_time"] is None or claimed is None:
@@ -665,6 +784,8 @@ def _report_anchor(label: str, clip_id: str, enrichment: dict,
         "anchors_considered": alignment.get("anchors_considered"),
         "hint_nearest_start": alignment.get("hint_nearest_start"),
         "chosen_start": alignment.get("chosen_start"),
+        "sentence_boundary_adjustment": enrichment.get(
+            "sentence_boundary_adjustment"),
         # Rung 7: the stated trim this passage carried, if any - the
         # durable half of "honored to the frame", read by whoever was
         # not watching the run.
@@ -916,6 +1037,34 @@ def enrich_speech_sequence(
         # the trim left unplayed is free for the next passage.
         trim_head_s, trim_tail_s, trim_note = _resolve_stated_trim(
             passage, label, frame_rate)
+        boundary_result = _extend_passage_to_sentence_edges(
+            enrichment, regions, label,
+            extend_head=not trim_head_s,
+            extend_tail=not trim_tail_s,
+            prior_claim=prior_claim,
+        )
+        if boundary_result["adjustment"]:
+            enrichment["word_timestamps"] = boundary_result["word_timestamps"]
+            enrichment["start_time"] = boundary_result["word_timestamps"][0][
+                "source_start"]
+            enrichment["end_time"] = boundary_result["word_timestamps"][-1][
+                "source_end"]
+            enrichment["sentence_boundary_adjustment"] = (
+                boundary_result["adjustment"])
+            enrichment["expanded_text"] = " ".join(
+                word["word"]
+                for word in boundary_result["word_timestamps"])
+            for edge, change in boundary_result["adjustment"].items():
+                added = " ".join(change["added_words"])
+                direction = "back" if edge == "head" else "forward"
+                print(
+                    f"  {label}: sentence edge expanded {direction} "
+                    f"{edge} from {change['from']:.3f}s to "
+                    f"{change['to']:.3f}s, restoring transcript words "
+                    f"{added!r} - captions will follow these word times",
+                    file=sys.stderr,
+                )
+            words = enrichment["word_timestamps"]
         if trim_head_s or trim_tail_s:
             trimmed_start = enrichment["start_time"] + trim_head_s
             trimmed_end = enrichment["end_time"] - trim_tail_s
@@ -962,6 +1111,8 @@ def enrich_speech_sequence(
     def apply_enrichment(passage: dict, enrichment: dict) -> None:
         """Write resolved timings back onto a passage, in place."""
         passage["word_timestamps"] = enrichment["word_timestamps"]
+        if "expanded_text" in enrichment:
+            passage["text"] = enrichment["expanded_text"]
         passage["alignment_method"] = enrichment["alignment_method"]
         # The aligned times replace the LLM's hint outright - they are the
         # only timings the pipeline is allowed to cut to.

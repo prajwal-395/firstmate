@@ -490,3 +490,101 @@ def test_frames_without_a_timebase_refuse(index_dir_3):
     with pytest.raises(pb.PassageAlignmentError):
         pb.enrich_speech_sequence(
             _passage(trim_head_frames=4), index_dir_3, frame_rate=None)
+
+
+def test_a_partial_sentence_head_expands_to_its_boundary_not_the_prior_sentence(
+        tmp_path, capsys):
+    """A response selected at "yep" keeps its spoken lead-in.
+
+    The previous sentence stays excluded; the new passage opens at the
+    nearest transcript sentence boundary and carries exact word timings
+    for the captions that follow.
+    """
+    words = [
+        ("There's", 10.00, 10.28),
+        ("seven", 10.30, 10.58),
+        ("modules", 10.60, 10.96),
+        ("that", 10.98, 11.14),
+        ("make", 11.16, 11.42),
+        ("up", 11.44, 11.58),
+        ("the", 11.60, 11.72),
+        ("system.", 11.74, 12.12),
+        ("So", 12.40, 12.56),
+        ("it's", 12.58, 12.76),
+        ("like,", 12.78, 13.00),
+        ("yep,", 13.04, 13.28),
+        ("your", 13.30, 13.48),
+        ("website", 13.50, 13.86),
+        ("checks", 13.88, 14.12),
+        ("out.", 14.14, 14.44),
+    ]
+    temporal_index = tmp_path / "temporal_index"
+    temporal_index.mkdir()
+    (temporal_index / "clip_craig.json").write_text(json.dumps({
+        "speech_regions": [{
+            "start": words[0][1],
+            "end": words[-1][2],
+            "words": [
+                {"word": word, "start": start, "end": end}
+                for word, start, end in words
+            ],
+        }],
+    }), encoding="utf-8")
+    sequence = {"body_sequence": [{
+        "clip_id": "clip_craig",
+        "source_start": 13.04,
+        "source_end": 14.44,
+        "text": "yep, your website checks out.",
+        "position": 1,
+    }]}
+
+    result = pb.enrich_speech_sequence(sequence, str(temporal_index))
+
+    (passage,) = result["body_sequence"]
+    assert passage["text"] == "So it's like, yep, your website checks out."
+    assert passage["source_start"] == pytest.approx(12.40)
+    assert passage["source_end"] == pytest.approx(14.44)
+    assert [word["word"] for word in passage["word_timestamps"]] == [
+        "So", "it's", "like,", "yep,", "your", "website", "checks", "out."
+    ]
+    assert result["alignment_report"][0]["sentence_boundary_adjustment"] == {
+        "head": {
+            "from": 13.04,
+            "to": 12.40,
+            "added_words": ["So", "it's", "like,"],
+        },
+    }
+    assert "There\'s seven modules" not in passage["text"]
+    assert "sentence edge expanded back head" in capsys.readouterr().err
+
+
+def test_sentence_expansion_does_not_guess_a_boundary_at_region_start(tmp_path):
+    """A VAD region can itself start mid-sentence; do not treat that as punctuation."""
+    temporal_index = tmp_path / "temporal_index"
+    temporal_index.mkdir()
+    (temporal_index / "clip_craig.json").write_text(json.dumps({
+        "speech_regions": [{
+            "start": 12.40,
+            "end": 14.44,
+            "words": [
+                {"word": "like,", "start": 12.40, "end": 12.62},
+                {"word": "yep,", "start": 12.66, "end": 12.90},
+                {"word": "your", "start": 12.92, "end": 13.10},
+                {"word": "website", "start": 13.12, "end": 13.48},
+                {"word": "checks", "start": 13.50, "end": 13.74},
+                {"word": "out.", "start": 13.76, "end": 14.06},
+            ],
+        }],
+    }), encoding="utf-8")
+    sequence = {"body_sequence": [{
+        "clip_id": "clip_craig",
+        "source_start": 12.66,
+        "source_end": 14.06,
+        "text": "yep, your website checks out.",
+    }]}
+
+    result = pb.enrich_speech_sequence(sequence, str(temporal_index))
+
+    (passage,) = result["body_sequence"]
+    assert passage["source_start"] == pytest.approx(12.66)
+    assert passage["text"] == "yep, your website checks out."

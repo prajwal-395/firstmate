@@ -116,6 +116,82 @@ def test_subtitle_plan_records_the_request_limit_used_by_card_grouping(
         2, 2]
 
 
+def test_restored_speech_leadin_is_captioned_from_its_own_word_times(
+        monkeypatch):
+    """A 2.02 sentence-edge expansion reaches cards at measured onsets."""
+    from library.steps.step_4_01_plan_subtitles import step as subtitles
+
+    class _FitsAll:
+        measured = True
+        usable_width = 1000
+
+        @staticmethod
+        def fits_in_box(_text):
+            return True
+
+        @staticmethod
+        def fit_scale(_text, _emphasis_words=None):
+            return 1.0
+
+    monkeypatch.setattr(subtitles, "resolve_subtitle_style",
+                        lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(subtitles, "resolve_safe_area",
+                        lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(subtitles, "build_caption_fitter",
+                        lambda *_args, **_kwargs: _FitsAll())
+    words = [
+        ("So", 12.40, 12.56),
+        ("it's", 12.58, 12.76),
+        ("like,", 12.78, 13.00),
+        ("yep,", 13.04, 13.28),
+        ("your", 13.30, 13.48),
+        ("website", 13.50, 13.86),
+        ("checks", 13.88, 14.12),
+        ("out.", 14.14, 14.44),
+    ]
+    spine = {
+        "max_words": 3,
+        "structure": [{
+            "position": 1,
+            "block_type": "speech",
+            "content": {"text": "So it's like, yep, your website checks out."},
+            "timeline_start": 0.0,
+            "timeline_end": 2.04,
+            "source_start": 12.40,
+            "source_end": 14.44,
+            "word_timestamps": [
+                {"word": word, "source_start": start, "source_end": end}
+                for word, start, end in words
+            ],
+        }],
+    }
+
+    plan = generate_subtitles(
+        spine, caption_case="as_written", brand_effect={}, brand_style={},
+    )["subtitle_plan"]
+    entries = plan["subtitle_entries"]
+
+    planned_words = [word["word"] for entry in entries
+                     for word in entry["words"]]
+    assert planned_words == [word for word, _, _ in words]
+    assert entries[0]["text"].startswith("So")
+    assert entries[0]["timeline_start"] == pytest.approx(0.0)
+    yep_card = next(entry for entry in entries
+                    if any(word["word"] == "yep," for word in entry["words"]))
+    assert yep_card["timeline_start"] == pytest.approx(0.64), [
+        (entry["text"], entry["timeline_start"],
+         [(word["word"], word["start"]) for word in entry["words"]])
+        for entry in entries
+    ]
+    assert plan["readability_issues"] == []
+    for entry in entries:
+        for word in entry["words"]:
+            assert word["end"] > entry["timeline_start"]
+            assert word["start"] < entry["timeline_end"]
+    assert "There's seven modules" not in " ".join(
+        entry["text"] for entry in entries)
+
+
 def test_two_words_max_groups_pairs():
     """C3.2's shape: no card carries more than the stated 2."""
     groups = split_into_groups(_words(6), fits_fn=_fits_all, max_words=2)

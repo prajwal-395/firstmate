@@ -42,6 +42,14 @@ speech sequence for the video.
 4. **Adjacent passages must logically follow** — no non-sequiturs without
    narrative motivation
 
+The post-bridge checks the aligned head and tail against transcript
+sentence terminals. If a body selection starts or ends mid-sentence, it
+extends that edge to the nearest available sentence boundary and carries
+the restored words with their measured timestamps into the spine. A
+stated trim still owns its edge; no trim is inferred. If extending a head
+would replay source claimed by the preceding body passage, the step
+refuses with the overlap named instead of laying the speech down twice.
+
 ### What to produce:
 
 **Body sequence**: Ordered list of speech passages forming the narrative arc.
@@ -77,6 +85,13 @@ by how much of the passage aligned, then by the shortest span, then by the
 smallest leading gap. Whatever it picks becomes `start_time`/`end_time`,
 and those are what reach the spine. It FAILS THE STEP when your text
 cannot be found in the transcript at all.
+
+At either edge, the post-bridge also completes a partial sentence from
+the temporal index when a terminal punctuation word identifies the
+boundary. The expanded text and exact word timings reach step 4.01, where
+captions group and start from those same timed words. Keep each selected
+passage self-contained so it does not need to borrow words from a prior
+passage.
 
 Your `source_start`/`source_end` are the LAST tie-break in that ranking -
 a proximity hint used only when two equally complete anchors are otherwise

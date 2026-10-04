@@ -551,9 +551,19 @@ def resolve_caption_overlaps(entries: list) -> dict:
         # over it. Same speaker only: one voice mistimed across two
         # blocks is alignment slop, and its card is one voice. A
         # mixed card keeps the later start, and the gates refuse
-        # the collision one track cannot serialize.
-        if (earlier.get("speaker") is not None
-                and earlier.get("speaker") == later.get("speaker")):
+        # the collision one track cannot serialize. Two cards from the
+        # same speech block are one voice even when diarization supplied
+        # no speaker label; preserve the first word's onset in that case.
+        same_block = (
+            earlier.get("spine_block_position") is not None
+            and earlier.get("spine_block_position")
+            == later.get("spine_block_position")
+        )
+        same_speaker = (
+            earlier.get("speaker") is not None
+            and earlier.get("speaker") == later.get("speaker")
+        )
+        if same_block or same_speaker:
             later["timeline_start"] = min(later["timeline_start"],
                                           earlier["timeline_start"])
         doomed.add(id(earlier))
@@ -1486,6 +1496,11 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                 # Offset: V1 source_in → segment's timeline_start
                 offset = seg_tl_start - v1_src_in
 
+                # 2.02 may restore a partial sentence's lead-in at the
+                # source edge. Keep every restored token in this timed
+                # stream: grouping and card starts must follow the same
+                # measured words the spine now plays, rather than timing
+                # the passage text as a separate, untimed string.
                 timeline_words = [
                     {
                         "word": w["word"],
