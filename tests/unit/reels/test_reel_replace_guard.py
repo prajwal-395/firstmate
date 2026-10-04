@@ -7,6 +7,7 @@ import subprocess
 import sys
 import textwrap
 import threading
+from contextlib import nullcontext
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
@@ -130,3 +131,23 @@ def test_inventory_holds_shared_lease_while_count_and_indexes_are_read(
         continue_read.set()
         _release_holder(holder)
         executor.shutdown(wait=True)
+
+
+def test_full_snapshot_records_the_project_transform_unit(monkeypatch):
+    from library.tools import marker_feedback, reel_read
+
+    project = FakeProject(timelines=["Reel 09"])
+    project.SetSettings({"timelineResolutionWidth": 3840,
+                         "timelineResolutionHeight": 2160})
+    timeline = project.GetTimelineByIndex(1)
+    monkeypatch.setattr(
+        resolve_lock, "cursor_excursion",
+        lambda *_args, **_kwargs: nullcontext())
+    monkeypatch.setattr(reel_read, "read_tracks",
+                        lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(marker_feedback, "read_notes",
+                        lambda *_args, **_kwargs: [])
+
+    snapshot = reel_replace_guard.full_timeline_snapshot(timeline, project)
+
+    assert snapshot["metadata"]["transform_unit_resolution"] == [3840, 2160]

@@ -161,6 +161,20 @@ def _timeline_settings(timeline) -> dict:
     return settings
 
 
+def _pan_tilt_unit_resolution(project) -> list[int] | None:
+    """The project resolution under which Resolve stores Pan and Tilt.
+
+    A timeline's output resolution is not this unit. Unknown stays
+    unknown so a later carry can refuse an unprovable comparison.
+    """
+    try:
+        width = int(project.GetSetting("timelineResolutionWidth"))
+        height = int(project.GetSetting("timelineResolutionHeight"))
+    except Exception:  # noqa: BLE001 - an unreadable unit is recorded as unknown
+        return None
+    return [width, height] if width > 0 and height > 0 else None
+
+
 def _plain_setting(value):
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
@@ -266,6 +280,11 @@ def snapshot_items(tracks) -> list[dict]:
                     PRESERVATION_FIELDS if key in detail}
             item["source_identity"] = item_source_identity(detail)
             item["unique_id"] = str(detail.get("unique_id") or "")
+            # Headroom is needed before a source-window extension is
+            # composed. It is not a preservation delta by itself: the
+            # source range already states what the editor changed.
+            item["left_offset"] = detail.get("left_offset")
+            item["right_offset"] = detail.get("right_offset")
             transform = detail.get("transform") or {}
             item["composite"] = {
                 key: transform.get(key)
@@ -331,6 +350,10 @@ def full_timeline_snapshot(timeline, project, project_folder=None) -> dict:
                 add_semantic_graphic_identities(
                     project_folder, timeline.GetName(), items)
             return {
+                "metadata": {
+                    "transform_unit_resolution":
+                        _pan_tilt_unit_resolution(project),
+                },
                 "timeline": {
                     "name": timeline.GetName(),
                     "unique_id": str(unique_id) if unique_id else None,
@@ -615,7 +638,8 @@ def journaled_touch_snapshot(project_folder: str, final: str,
             if key in live_transform:
                 transform[key] = live_transform[key]
         item["transform"] = transform
-    return {"timeline": dict(live.get("timeline") or {}),
+    return {"metadata": dict(live.get("metadata") or {}),
+            "timeline": dict(live.get("timeline") or {}),
             "items": items,
             "markers": list(live.get("markers") or ()),
             "journal": act["journal"]}
@@ -723,8 +747,27 @@ def protect_editor_changes(project_folder: str, final: str, live: dict,
         else:
             carried.append(record)
     if uncarried and not accept:
-        details = [f"  {_change_summary(change)}"
-                   for _record, change in uncarried]
+        reasons = {}
+        carry_report = carried_edits if isinstance(carried_edits, dict) else {}
+        for problem in carry_report.get("uncarried") or ():
+            change = problem.get("change") or {}
+            if not str(change.get("kind") or "").startswith("item_"):
+                continue
+            item = change.get("before") or change.get("after") or {}
+            key = (problem.get("record_id"), change.get("kind"),
+                   _stable_item_key(item))
+            reasons.setdefault(key, []).append(problem["why"])
+        details = []
+        for record, change in uncarried:
+            key = None
+            if str(change.get("kind") or "").startswith("item_"):
+                item = change.get("before") or change.get("after") or {}
+                key = (record.get("id"), change.get("kind"),
+                       _stable_item_key(item))
+            summary = _change_summary(change)
+            if key is not None and reasons.get(key):
+                summary += " - " + "; ".join(reasons[key])
+            details.append(f"  {summary}")
         raise EditorChangeRefused(
             f"REFUSING to replace {final!r}: unattributed editor changes "
             f"are not carried into the staged timeline. Nothing was "

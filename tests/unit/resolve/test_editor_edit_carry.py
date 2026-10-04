@@ -646,6 +646,430 @@ def _item(
     }
 
 
+def _change_record(before_items, after_items, *, before_unit=(3840, 2160),
+                   after_unit=(3840, 2160), after_end=None):
+    before = {"metadata": {"transform_unit_resolution": before_unit},
+              "items": before_items}
+    after_timeline = {}
+    if after_end is not None:
+        after_timeline["end_frame"] = after_end
+    after = {"metadata": {"transform_unit_resolution": after_unit},
+             "timeline": after_timeline, "items": after_items}
+    return {
+        "id": "change-1",
+        "timeline": FINAL,
+        "before_snapshot": before,
+        "after_snapshot": after,
+        "changes": guard.snapshot_diff(before, after),
+    }
+
+
+def test_pan_tilt_rebase_across_unit_epoch_is_refused():
+    before = _item("V1", "speaker", 100, 200, 10, 110)
+    before["transform"] = {"Pan": 100.0, "Tilt": -40.0}
+    after = {**before, "transform": {"Pan": 25.0, "Tilt": -10.0}}
+    record = _change_record([before], [after],
+                            before_unit=(1920, 1080),
+                            after_unit=(3840, 2160))
+
+    edits, uncarried = carry.derive_edits(record)
+
+    assert edits == []
+    assert len(uncarried) == 1
+    assert "Pan, Tilt" in uncarried[0]["why"]
+    assert "project resolution changed from 1920x1080 to 3840x2160" \
+        in uncarried[0]["why"]
+    assert "Confirm the framing on a fresh snapshot" in uncarried[0]["why"]
+
+
+def test_promotion_refusal_explains_the_pan_tilt_epoch(project_dir):
+    before = _item("V1", "speaker", 100, 200, 10, 110)
+    before["transform"] = {"Pan": 100.0, "Tilt": -40.0}
+    after = {**before, "transform": {"Pan": 25.0, "Tilt": -10.0}}
+    record = _change_record([before], [after],
+                            before_unit=(1920, 1080),
+                            after_unit=(3840, 2160))
+    _edits, uncarried = carry.derive_edits(record)
+    detection = {"first_contact": False, "detected": [],
+                 "pending": [record]}
+    report = {"uncarried": [{"record_id": record["id"], **uncarried[0]}]}
+
+    with pytest.raises(guard.EditorChangeRefused,
+                       match="project resolution changed from 1920x1080 to "
+                             "3840x2160"):
+        guard.protect_editor_changes(
+            str(project_dir), FINAL, record["after_snapshot"],
+            record["before_snapshot"], record["before_snapshot"],
+            detection=detection, carried_edits=report)
+
+
+def test_pan_tilt_change_in_one_unit_epoch_remains_carryable():
+    before = _item("V1", "speaker", 100, 200, 10, 110)
+    before["transform"] = {"Pan": 100.0, "Tilt": -40.0}
+    after = {**before, "transform": {"Pan": 80.0, "Tilt": -40.0}}
+    record = _change_record([before], [after])
+
+    edits, uncarried = carry.derive_edits(record)
+
+    assert [edit["field"] for edit in edits] == ["transform.Pan"]
+    assert uncarried == []
+
+
+def test_pan_tilt_change_without_a_recorded_unit_is_refused():
+    before = _item("V1", "speaker", 100, 200, 10, 110)
+    before["transform"] = {"Pan": 100.0, "Tilt": -40.0}
+    after = {**before, "transform": {"Pan": 25.0, "Tilt": -10.0}}
+    record = _change_record([before], [after], before_unit=None)
+
+    edits, uncarried = carry.derive_edits(record)
+
+    assert edits == []
+    assert "no readable project resolution" in uncarried[0]["why"]
+
+
+def test_a_fusion_comp_change_has_a_plain_language_carry_refusal():
+    before = _item("V6", "logo.mov", 0, 71, 0, 71,
+                   track_index=6)
+    before["fusion"] = {"comp_count": 1, "digest": "old-graph"}
+    after = {**before, "fusion": {"comp_count": 0}}
+    record = _change_record([before], [after])
+
+    edits, uncarried = carry.derive_edits(record)
+
+    assert edits == []
+    assert len(uncarried) == 1
+    assert "Fusion comp" in uncarried[0]["why"]
+    assert "cannot reconstruct a comp graph from an item snapshot" \
+        in uncarried[0]["why"]
+    assert "record it in a Ren plan" in uncarried[0]["why"]
+
+
+def test_a_tail_extension_carries_only_with_proven_source_headroom():
+    original = _item("V1", "LC4932.MXF", 47_563, 48_022, 100, 559)
+    following = _item("V1", "next.MXF", 100, 200, 559, 659)
+    extended = {**original, "source_out_frame": 48_028,
+                "record_out": 565, "duration": 465}
+    shifted = {**following, "record_in": 565, "record_out": 665}
+    record = _change_record([original, following], [extended, shifted])
+
+    edits, uncarried = carry.derive_edits(record)
+
+    assert uncarried == []
+    (extension,) = [edit for edit in edits if edit["kind"] == "extend"]
+    assert extension["after"]["tail"] == -6
+    assert extension["ripple"] is True
+    assert extension["wording"].startswith("Extend 'LC4932.MXF'")
+
+    staging_item = {**original, "left_offset": 0, "right_offset": 6}
+    plan = carry.plan_application([extension], {"items": [staging_item]},
+                                  FINAL)
+    assert plan["trim"][0]["edit"]["kind"] == "extend"
+
+    staging_item["right_offset"] = 2
+    with pytest.raises(carry.EditorEditCarryRefused,
+                       match="source headroom cannot be proven"):
+        carry.plan_application([extension], {"items": [staging_item]}, FINAL)
+
+
+def test_a_tail_extension_is_verified_against_its_new_source_window():
+    original = _item("V1", "speaker", 100, 200, 10, 110)
+    extended = {**original, "source_out_frame": 206,
+                "record_out": 116, "duration": 106}
+    record = _change_record([original], [extended])
+
+    edits, uncarried = carry.derive_edits(record)
+    (extension,) = [edit for edit in edits if edit["kind"] == "extend"]
+
+    assert uncarried == []
+    carry.verify_carried_edits(
+        {"edits": [extension]}, {"items": [extended]}, FINAL)
+    with pytest.raises(carry.EditorEditCarryRefused,
+                       match="extend video:V1"):
+        carry.verify_carried_edits(
+            {"edits": [extension]}, {"items": [original]}, FINAL)
+
+
+@pytest.mark.usefixtures("mock_dvr")
+def test_a_tail_extension_and_ripple_are_written_on_the_resolve_double(
+        tmp_path):
+    from library.tools import reel_read
+
+    media = pool_clip("/media/speaker.mov", frames=600)
+    following_media = pool_clip("/media/next.mov", frames=500)
+    staging = rows_timeline(
+        STAGING,
+        {"V1": [item(media, 0, 100, 100),
+                item(following_media, 100, 100, 0)]},
+        track_names={"V1": "Speakers"})
+    project = FakeProject("Mock Project", [staging], current=staging)
+    before_items = guard.snapshot_items(reel_read.read_tracks(staging))
+    extended = {**before_items[0], "source_out_frame": 206,
+                "record_out": 106, "duration": 106}
+    shifted = {**before_items[1], "record_in": 106, "record_out": 206}
+    record = _change_record(before_items, [extended, shifted])
+    edits, uncarried = carry.derive_edits(record)
+    assert uncarried == []
+    extension = next(edit for edit in edits if edit["kind"] == "extend")
+    plan = carry.plan_application(edits, {"items": before_items}, FINAL)
+
+    assert plan["trim"]
+    written = carry._apply_trims(
+        str(tmp_path), project, staging,
+        [step["edit"] for step in plan["trim"]], FINAL)
+    after_items = guard.snapshot_items(reel_read.read_tracks(staging))
+    carry.verify_carried_edits(
+        {"edits": edits},
+        {"timeline": {"end_frame": staging.GetEndFrame()},
+         "items": after_items}, FINAL)
+
+    extended_after = next(candidate for candidate in after_items
+                          if candidate["name"] == "speaker.mov")
+    next_after = next(candidate for candidate in after_items
+                      if candidate["name"] == "next.mov")
+    assert (extended_after["source_in_frame"],
+            extended_after["source_out_frame"],
+            extended_after["record_out"]) == (100, 206, 106)
+    assert next_after["record_in"] == 106
+    assert extension["id"] in written
+
+
+def test_source_partition_splits_overlay_and_defers_its_cut_segments():
+    original = _item("TV Frame", "tv_frame.mov", 0, 1000, 0, 1000,
+                     track_index=3)
+    segments = [
+        _item("TV Frame", "tv_frame.mov", 0, 400, 0, 400,
+              track_index=3),
+        _item("TV Frame", "tv_frame.mov", 500, 800, 400, 700,
+              track_index=3),
+        _item("TV Frame", "tv_frame.mov", 900, 1000, 700, 800,
+              track_index=3),
+    ]
+    record = _change_record([original], segments, after_end=800)
+
+    edits, uncarried = carry.derive_edits(record)
+
+    assert uncarried == []
+    split = next(edit for edit in edits if edit["kind"] == "split")
+    cuts = [edit for edit in edits if edit["kind"] == "cut"]
+    assert [(edit["source_in_frame"], edit["source_out_frame"])
+            for edit in cuts] == [(400, 500), (800, 900)]
+    assert all(edit["ripple"] for edit in cuts)
+
+    staged = {**original, "left_offset": 0, "right_offset": 0}
+    plan = carry.plan_application(edits, {"items": [staged]}, FINAL)
+    assert len(plan["split"]) == 1
+    assert len(plan["deferred_cut"]) == 2
+    assert plan["delete"] == []
+
+    final_items = [dict(item) for item in segments]
+    carry.verify_carried_edits(
+        {"edits": edits},
+        {"timeline": {"end_frame": 800}, "items": final_items}, FINAL)
+
+
+def test_a_split_already_present_on_staging_does_not_require_removed_gaps():
+    original = _item("TV Frame", "tv_frame.mov", 0, 1000, 0, 1000,
+                     track_index=3)
+    segments = [
+        _item("TV Frame", "tv_frame.mov", 0, 400, 0, 400,
+              track_index=3),
+        _item("TV Frame", "tv_frame.mov", 500, 800, 400, 700,
+              track_index=3),
+        _item("TV Frame", "tv_frame.mov", 900, 1000, 700, 800,
+              track_index=3),
+    ]
+    record = _change_record([original], segments, after_end=800)
+    edits, uncarried = carry.derive_edits(record)
+    split = next(edit for edit in edits if edit["kind"] == "split")
+
+    assert uncarried == []
+    plan = carry.plan_application([split], {"items": segments}, FINAL)
+    assert plan["split"] == []
+    assert plan["already_held"] == [split["id"]]
+
+
+def test_overlay_split_and_ripple_cuts_apply_on_the_resolve_double(
+        tmp_path):
+    from library.tools import reel_read
+
+    media = pool_clip("/media/tv_frame.mov", frames=1338)
+    overlay = item(media, 0, 1338, 0)
+    speakers = [pool_clip(f"/media/speaker-{n}.mov", frames=700)
+                for n in range(1, 6)]
+    dialogue = [pool_clip(f"/media/dialogue-{n}.mov", frames=700)
+                for n in range(1, 6)]
+    staging = rows_timeline(
+        STAGING,
+        {"V1": [item(speakers[0], 0, 553, 0),
+                item(speakers[1], 553, 112, 0),
+                item(speakers[2], 665, 421, 0),
+                item(speakers[3], 1086, 233, 0),
+                item(speakers[4], 1319, 19, 0)],
+         "V3": [overlay],
+         "A1": [item(dialogue[0], 0, 553, 0),
+                item(dialogue[1], 553, 112, 0),
+                item(dialogue[2], 665, 421, 0),
+                item(dialogue[3], 1086, 233, 0),
+                item(dialogue[4], 1319, 19, 0)]},
+        track_names={"V1": "Speakers", "V3": "TV Frame",
+                     "A1": "Dialogue"})
+    project = FakeProject("Mock Project", [staging], current=staging)
+    before_items = guard.snapshot_items(reel_read.read_tracks(staging))
+    after_items = []
+    for original in before_items:
+        row = guard.row_key(original["track_type"], original["track_name"])
+        if row == "video:TV Frame":
+            for source_start, source_end, record_start, record_end in (
+                    (0, 553, 0, 553), (665, 1086, 553, 974),
+                    (1319, 1338, 974, 993)):
+                after_items.append({
+                    **original,
+                    "source_in_frame": source_start,
+                    "source_out_frame": source_end,
+                    "left_offset": source_start,
+                    "record_in": record_start,
+                    "record_out": record_end,
+                    "duration": record_end - record_start,
+                })
+            continue
+        if row not in ("video:Speakers", "audio:Dialogue"):
+            continue
+        start = original["record_in"]
+        if start in (553, 1086):
+            continue
+        shift = -345 if start >= 1319 else -112 if start >= 665 else 0
+        after_items.append({**original,
+                            "record_in": start + shift,
+                            "record_out": original["record_out"] + shift})
+    record = _change_record(before_items, after_items, after_end=993)
+    record.update({"id": "split-live", "timeline": FINAL})
+    edits, uncarried = carry.derive_edits(record)
+    assert uncarried == []
+    cuts = [edit for edit in edits if edit["kind"] == "cut"]
+    assert len(cuts) == 6
+    assert all(edit["ripple"] for edit in cuts)
+    initial = carry.plan_application(edits, {"items": before_items}, FINAL)
+
+    assert carry._apply_splits(
+        str(tmp_path), project, staging, initial["split"], FINAL)
+    split_items = guard.snapshot_items(reel_read.read_tracks(staging))
+    overlay_parts = [clip for clip in split_items
+                     if clip["track_name"] == "TV Frame"]
+    assert sorted((clip["source_in_frame"], clip["source_out_frame"])
+                  for clip in overlay_parts) == [
+                      (0, 553), (553, 665), (665, 1086),
+                      (1086, 1319), (1319, 1338)]
+
+    cut_plan = carry.plan_application(cuts, {"items": split_items}, FINAL)
+    carry.apply_plan(staging, project, cut_plan, FINAL,
+                     str(tmp_path), STAGING)
+    final_items = guard.snapshot_items(reel_read.read_tracks(staging))
+    carry.verify_carried_edits(
+        {"edits": edits},
+        {"timeline": {"end_frame": staging.GetEndFrame()},
+         "items": final_items}, FINAL)
+    assert sorted((clip["source_in_frame"], clip["source_out_frame"],
+                   clip["record_in"], clip["record_out"])
+                  for clip in final_items
+                  if clip["track_name"] == "TV Frame") == [
+                      (0, 553, 0, 553), (665, 1086, 553, 974),
+                      (1319, 1338, 974, 993)]
+    assert [clip["record_in"] for clip in final_items
+            if clip["track_name"] == "Speakers"] == [0, 553, 974]
+    assert [clip["record_in"] for clip in final_items
+            if clip["track_name"] == "Dialogue"] == [0, 553, 974]
+
+
+def test_a_retimed_added_overlay_segment_is_reported_for_decision():
+    original = _item("Post Header", "post_header.mov", 0, 968, 0, 968,
+                     track_index=7)
+    segments = [
+        _item("Post Header", "post_header.mov", 0, 553, 0, 553,
+              track_index=7),
+        _item("Post Header", "post_header.mov", 665, 968, 553, 856,
+              track_index=7),
+        _item("Post Header", "post_header.mov", 300, 417, 856, 973,
+              track_index=7),
+        _item("Post Header", "post_header.mov", 968, 969, 856, 875,
+              track_index=7),
+    ]
+    segments[-1]["record_in"] = 974
+    segments[-1]["record_out"] = 993
+    segments[-1]["duration"] = 19
+    record = _change_record([original], segments, after_end=993)
+
+    edits, uncarried = carry.derive_edits(record)
+
+    assert not any(edit["kind"] == "split" for edit in edits)
+    assert any("one-frame-per-record split" in issue["why"]
+               for issue in uncarried)
+    assert any("added by the editor" in issue["why"]
+               and "declare its source, timing and treatment in the Ren plan"
+               in issue["why"]
+               for issue in uncarried)
+
+
+def test_promotion_refusal_surfaces_the_unmappable_overlay_split(tmp_path):
+    original = _item("Post Header", "post_header.mov", 0, 968, 0, 968,
+                     track_index=7)
+    segments = [
+        _item("Post Header", "post_header.mov", 0, 553, 0, 553,
+              track_index=7),
+        _item("Post Header", "post_header.mov", 665, 968, 553, 856,
+              track_index=7),
+        _item("Post Header", "post_header.mov", 300, 417, 856, 973,
+              track_index=7),
+        _item("Post Header", "post_header.mov", 968, 969, 856, 875,
+              track_index=7),
+    ]
+    segments[-1].update(record_in=974, record_out=993, duration=19)
+    record = _change_record([original], segments, after_end=993)
+    record.update({"id": "post-header-split", "timeline": FINAL})
+    _edits, uncarried = carry.derive_edits(record)
+    detection = {"first_contact": False, "detected": [],
+                 "pending": [record]}
+    report = {"uncarried": [{"record_id": record["id"], **issue}
+                             for issue in uncarried]}
+
+    with pytest.raises(guard.EditorChangeRefused) as refused:
+        guard.protect_editor_changes(
+            str(tmp_path), FINAL, record["after_snapshot"],
+            record["before_snapshot"], record["before_snapshot"],
+            detection=detection, carried_edits=report)
+
+    assert "one source-ordered, one-frame-per-record split" in str(refused.value)
+    assert "declare its source, timing and treatment in the Ren plan" \
+        in str(refused.value)
+
+
+def test_an_ending_overlay_move_uses_the_timeline_end_as_its_anchor():
+    before = _item("Logo", "logo.mov", 0, 20, 80, 100,
+                   track_index=6)
+    after = {**before, "record_in": 90, "record_out": 110}
+    record = _change_record([before], [after], after_end=110)
+
+    edits, uncarried = carry.derive_edits(record)
+
+    assert uncarried == []
+    (move,) = [edit for edit in edits if edit["kind"] == "move"]
+    assert move["after"]["anchor_kind"] == "timeline_end"
+    assert move["after"]["anchor_offset"] == -20
+    assert carry._move_target([], move["after"], 210) == 190
+
+
+def test_picture_row_reorder_refuses_with_the_story_mapping_reason():
+    before = _item("Speakers", "speaker", 100, 200, 0, 100)
+    after = {**before, "record_in": 50, "record_out": 150}
+    record = _change_record([before], [after], after_end=150)
+
+    edits, uncarried = carry.derive_edits(record)
+
+    assert edits == []
+    assert "reordering V1 can change linked speech, captions and story order" \
+        in uncarried[0]["why"]
+    assert "approved group reorder mapping" in uncarried[0]["why"]
+
+
 @pytest.mark.usefixtures("mock_dvr")
 def test_reel_7_as_resolve_reads_it_derives_rippled_cuts():
     """The live Reel 7 read, 2026-10-02: each cut passage takes its
