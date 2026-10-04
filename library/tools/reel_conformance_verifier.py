@@ -3749,7 +3749,9 @@ def check_semantic_visuals(reel_name: str,
 def check_speaker_lower_thirds(reel_name: str,
                                lower_third_items: Sequence[TimelineItem],
                                planned: Optional[dict],
-                               fps: float) -> List[Finding]:
+                               fps: float,
+                               caption_items: Sequence[TimelineItem] = (),
+                               ) -> List[Finding]:
     """F24: the speaker lower thirds, against the plan THE BUILD WROTE.
 
     The two directions F21 and F22 carry, for the same reasons - a
@@ -3770,12 +3772,31 @@ def check_speaker_lower_thirds(reel_name: str,
     **read from what the build recorded, never re-derived**, the same
     discipline F21 and F22 keep.  None means this build recorded
     nothing, which is what every reel built before this layer existed
-    looks like, and grading one against an absence would fail a correct
-    reel.
+    looks like. Captions on the timeline still make the absence of every
+    speaker title worth warning about, per the captain's 2026-09-24
+    ruling that every reel with a timeline carries title animations.
     """
     findings: List[Finding] = []
     items = sorted(lower_third_items or [], key=lambda i: i.start_frame)
     track = items[0].track_index if items else 0
+    expected = list(planned.get("segments") or []) if planned else []
+    if caption_items and not items and not expected:
+        plan_state = (
+            "there is no recorded speaker lower-third plan"
+            if planned is None else
+            "the recorded speaker lower-third plan has no segments"
+        )
+        findings.append(Finding(
+            finding_class=FindingClass.F24,
+            reel=reel_name,
+            message=(
+                f"{len(caption_items)} caption item(s) are on the timeline "
+                f"but no speaker lower thirds were placed; {plan_state}"),
+            severity="warning",
+            detail={"caption_items": len(caption_items),
+                    "lower_third_items": 0,
+                    "planned": planned is not None},
+        ))
     if planned is None:
         if items:
             findings.append(Finding(
@@ -3803,7 +3824,6 @@ def check_speaker_lower_thirds(reel_name: str,
                     f"appearance and on no other"),
                 detail={"speaker": label, "introductions": count}))
 
-    expected = list(planned.get("segments") or [])
     if not expected and planned.get("basis") not in (None, ""):
         if items:
             findings.append(Finding(
@@ -5559,10 +5579,12 @@ def verify_reel(plan: ReelPlan,
         plan.reel_name, timeline.semantic_items, semantic_plan, fps))
 
     # F24: the speaker lower thirds, against the plan the build wrote.
-    # Passing None means "no record", which returns nothing rather than
-    # grading a build from before this layer against an absence.
+    # Placed captions with no titles also warn when the build recorded no
+    # plan or no expected segments; the captain requires titles on every
+    # reel with a timeline.
     findings.extend(check_speaker_lower_thirds(
-        plan.reel_name, timeline.lower_third_items, lower_third_plan, fps))
+        plan.reel_name, timeline.lower_third_items, lower_third_plan, fps,
+        caption_items=timeline.caption_items))
 
     # F25: the post header and any guide row, against the build's record.
     findings.extend(check_post_header(

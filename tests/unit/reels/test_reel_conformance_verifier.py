@@ -571,6 +571,62 @@ class TestF7ShortCaptions:
         assert findings[0].detail["duration_seconds"] < 0.5
 
 
+# ── F24: Speaker lower thirds ───────────────────────────────────────
+
+class TestF24SpeakerLowerThirds:
+    """F24 - ENCODING: captioned reels need speaker title animations."""
+
+    @pytest.mark.parametrize(
+        "lower_third_plan", [None, {"segments": []}],
+        ids=["no-recorded-plan", "empty-recorded-plan"],
+    )
+    def test_warns_when_captions_are_placed_without_lower_thirds(
+            self, lower_third_plan):
+        card = PlannedCaption(
+            start_seconds=1.0, end_seconds=2.0, text="Hello",
+            speaker="SpeakerOne", frames=24,
+        )
+        caption_item = _item("video", 3, 24, 48, name="subtitle")
+        result = verify_reel(
+            _plan(captions=(card,)),
+            _timeline(caption_items=(caption_item,), total_frames=48),
+            lower_third_plan=lower_third_plan,
+        )
+
+        findings = [f for f in result.findings
+                    if f.finding_class == FindingClass.F24]
+        assert len(findings) == 1
+        assert findings[0].severity == "warning"
+        assert "caption" in findings[0].message.lower()
+        assert "lower-third" in findings[0].message.lower()
+
+    def test_no_warning_when_reel_has_no_captions(self):
+        result = verify_reel(
+            _plan(), _timeline(), lower_third_plan=None,
+        )
+        assert not [f for f in result.findings
+                    if f.finding_class == FindingClass.F24]
+
+    def test_missing_planned_lower_third_remains_an_error(self):
+        card = PlannedCaption(
+            start_seconds=1.0, end_seconds=2.0, text="Hello",
+            speaker="SpeakerOne", frames=24,
+        )
+        caption_item = _item("video", 3, 24, 48, name="subtitle")
+        result = verify_reel(
+            _plan(captions=(card,)),
+            _timeline(caption_items=(caption_item,), total_frames=48),
+            lower_third_plan={
+                "segments": [{"timeline_start": 1.0, "total_frames": 24}],
+            },
+        )
+
+        findings = [f for f in result.findings
+                    if f.finding_class == FindingClass.F24]
+        assert len(findings) == 1
+        assert findings[0].severity == "error"
+
+
 # ── F8: Boundary speech ─────────────────────────────────────────────
 
 
