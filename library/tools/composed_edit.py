@@ -385,7 +385,8 @@ def drop_passthrough_comps(rows: Mapping[str, Sequence[Any]]) -> list:
 
 def conform_comp_windows(source_rows: Mapping[str, Sequence[Any]],
                          staged_rows: Mapping[str, Sequence[Any]],
-                         comp_dir: Optional[str] = None) -> dict:
+                         comp_dir: Optional[str] = None, *,
+                         preserve_passthrough: bool = False) -> dict:
     """Step 1 - make the staging copy's media windows the source's.
 
     Measured (`comp_media_window`, and again in this lab): copying a
@@ -412,12 +413,18 @@ def conform_comp_windows(source_rows: Mapping[str, Sequence[Any]],
 
     A FRESH RE-READ is the verdict after each, never a return value.
     A window that will not conform RAISES rather than being reported as
-    repaired.
+    repaired. `preserve_passthrough` leaves non-drawing comps on the
+    staged copy intact while still excluding them from window repair.
+    A touchup uses this so staging does not make undeclared changes;
+    its edit operations decide what happens to their target items.
     """
     receipt = {"repaired": [], "absent": [], "rebound": [],
-               "emptied": drop_passthrough_comps(staged_rows)}
-    # A comp that DRAWS NOTHING is not compared, because it has just
-    # been removed from the copy. `drop_passthrough_comps` says why.
+               "emptied": ([] if preserve_passthrough else
+                           drop_passthrough_comps(staged_rows))}
+    # A comp that DRAWS NOTHING is not compared. The default policy
+    # removes it; touchup staging preserves it, since the declared edit
+    # operations decide what happens to targets and the window cannot be
+    # trusted either way.
     source = {key: window for key, window in read_windows(source_rows).items()
               if reel_read.comp_draws_something(
                   {"tools": reel_read._comp_tools(

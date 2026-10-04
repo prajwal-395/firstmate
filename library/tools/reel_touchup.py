@@ -2474,7 +2474,8 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
         "touchup", _safe_slug(final))
     os.makedirs(comp_dir, exist_ok=True)
     conform_receipt = _ce.conform_comp_windows(
-        source_rows, staged_rows, comp_dir=comp_dir)
+        source_rows, staged_rows, comp_dir=comp_dir,
+        preserve_passthrough=True)
     receipt["conform"] = {
         "compared": conform_receipt.get("compared"),
         "repaired": len(conform_receipt.get("repaired") or ()),

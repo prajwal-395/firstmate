@@ -447,6 +447,70 @@ def test_swap_on_an_empty_auto_comp_still_qualifies(tmp_path):
     assert qualification.gate_class == tu.COMPOSED
 
 
+def test_swap_staging_keeps_an_untouched_passthrough_comp(
+        tmp_path, monkeypatch):
+    """A touch swap must not strip a bystander's auto-created comp.
+
+    The target is a permitted passthrough comp, and staging conforms
+    before deleting it. The same conform pass must leave the unrelated
+    V4 item alone so the touch changes only its named target.
+    """
+    source, staged, pool, _media = _staged_pair(tmp_path)
+    target, survivor = staged.rows["V4"][:2]
+    for timeline in (source, staged):
+        for item in timeline.rows["V4"][:2]:
+            item.comps = [FakeComp({
+                "MediaIn1": FakeTool(
+                    "MediaIn", covering_window(
+                        item.GetDuration(), item.GetLeftOffset(),
+                        frames_of(item.GetMediaPoolItem()))),
+                "MediaOut1": FakeTool("MediaOut", {}),
+                "AudioDisplay1": FakeTool("AudioDisplay", {}),
+            })]
+    replacement = tmp_path / "replacement.mov"
+    replacement.write_bytes(b"rendered overlay")
+    qualification = tu.qualify(
+        _tracks(staged),
+        {"reel": 1, "edits": [{"op": "swap_pixels", "row": "V4",
+                                "item": 0, "media": str(replacement)}]})
+    assert qualification.gate_class == tu.COMPOSED
+
+    receipt = ce.conform_comp_windows(
+        tu._live_rows(source), tu._live_rows(staged),
+        comp_dir=str(tmp_path / "conform"), preserve_passthrough=True)
+
+    assert receipt["emptied"] == []
+    assert target.GetFusionCompCount() == 1
+    assert survivor.GetFusionCompCount() == 1
+
+    insertion = qualification.insertions[0]
+    required_frames = insertion.left_offset + insertion.duration
+    pool.GetRootFolder().add_clip(pool_clip(
+        str(replacement), frames=max(required_frames, 2000)))
+    resolved_insertions = tu._resolve_insertions(
+        pool, staged, qualification.insertions)
+
+    _mock_pre_delete_patch(monkeypatch, staged)
+    tu._pre_delete_removed(object(), staged, qualification.removals,
+                           "test-journal")
+
+    assert target not in staged.rows["V4"]
+    assert survivor in staged.rows["V4"]
+
+    ce.apply_composed_edit(
+        timeline=staged, media_pool=pool,
+        changes=tu._rekey_changes(_tracks(staged), qualification),
+        insertions=resolved_insertions,
+        comp_dir=str(tmp_path / "comps"),
+        withheld_dir=str(tmp_path / "withheld"),
+        rederiver=tu._NullRederiver("test swap has no comp pass"),
+        write_context=_write_context(tmp_path, staged))
+
+    assert any(item.GetName() == "replacement.mov"
+               for item in staged.rows["V4"])
+    assert survivor.GetFusionCompCount() == 1
+
+
 def test_graded_swap_refuses_at_resolve(tmp_path):
     """An Insertion cannot take a grade from an item being deleted.
 
