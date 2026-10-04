@@ -214,6 +214,23 @@ def list_projects(
     return configs
 
 
+def _current_ren_version() -> str:
+    """The build string a new project stamps into `project.yaml`.
+
+    `ren --version`'s line, so the project names the exact build that
+    created it. "" when `ren` is not importable - a stamp that cannot
+    be read is left absent rather than invented.
+    """
+    try:
+        from ren.version import version_string
+    except ImportError:
+        return ""
+    try:
+        return version_string()
+    except Exception:
+        return ""
+
+
 def create_project(
     slug: str,
     name: str,
@@ -293,6 +310,7 @@ def create_project(
         ),
         tags=tags or [],
         description=description,
+        ren_version=_current_ren_version(),
     )
     config._project_root = project_dir
 

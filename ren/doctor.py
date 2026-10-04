@@ -43,12 +43,24 @@ import textwrap
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from ren import REPO_ROOT
+from ren.engine_root import find_engine_root, require_engine_root
+from ren.version import PYTHON_VERSION, REQUIRES_PYTHON
 
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+# Best effort at import: `from ren import doctor` must never raise for
+# want of an engine. Every entry point re-resolves fresh below, so an
+# in-process `$REN_ENGINE_ROOT` (tests, a packaged proof) takes effect.
+_FALLBACK_ROOT = find_engine_root()
+if _FALLBACK_ROOT is not None and str(_FALLBACK_ROOT) not in sys.path:
+    sys.path.insert(0, str(_FALLBACK_ROOT))
 
-REQUIRED_PYTHON = (3, 12)
+
+def _engine_root() -> Path:
+    """The live engine root, on `sys.path` for the `library` imports below."""
+    root = require_engine_root()
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+    return root
+
 MIN_NODE_MAJOR = 18
 PROBE_TIMEOUT_S = 30
 
@@ -123,7 +135,7 @@ def probe_resolve(python: str = sys.executable, timeout: float = PROBE_TIMEOUT_S
               "connected": False, "product": "", "version": ""}
     try:
         done = subprocess.run(
-            [python, "-c", _RESOLVE_PROBE, str(REPO_ROOT)],
+            [python, "-c", _RESOLVE_PROBE, str(_engine_root())],
             capture_output=True, encoding="utf-8", timeout=timeout, check=False)
     except subprocess.TimeoutExpired:
         result["error"] = f"the scripting connection did not answer in {timeout:.0f}s"
@@ -227,35 +239,37 @@ FACE_DETECTOR_GROUP = "graphics"
 
 
 def resolve_interpreter() -> tuple:
+    _engine_root()
     from library.tools import shared_environment
-    return shared_environment.python_interpreter(REPO_ROOT)
+    return shared_environment.python_interpreter(_engine_root())
 
 
 def python_checks() -> list:
     """The interpreter, then one line per runtime dependency group."""
     from library.tools.dependency_groups import RUNTIME_GROUPS
+    python_label = f"Python {PYTHON_VERSION[0]}.{PYTHON_VERSION[1]} venv"
     interpreter, why_not = resolve_interpreter()
     ml_doc = "docs/ML_ENVIRONMENT.md"
     if not interpreter:
-        return [Check("Python 3.12 venv", False, why_not.splitlines()[0],
+        return [Check(python_label, False, why_not.splitlines()[0],
                       f"build the venv once per machine: {ml_doc}",
                       need="python.venv")]
     try:
         done = subprocess.run(
-            [interpreter, "-c", _PACKAGES_PROBE, str(REPO_ROOT), *RUNTIME_GROUPS],
+            [interpreter, "-c", _PACKAGES_PROBE, str(_engine_root()), *RUNTIME_GROUPS],
             capture_output=True, encoding="utf-8", timeout=120, check=False)
         report = json.loads(done.stdout.strip().splitlines()[-1])
     except (OSError, subprocess.SubprocessError, ValueError, IndexError) as exc:
-        return [Check("Python 3.12 venv", False,
+        return [Check(python_label, False,
                       f"{interpreter} could not be asked about itself ({exc})",
                       f"rebuild the venv: {ml_doc}", need="python.venv")]
     version = tuple(report["version"])
     shown = ".".join(str(part) for part in version)
     checks = [Check(
-        "Python 3.12 venv", version[:2] == REQUIRED_PYTHON,
+        python_label, version[:2] == PYTHON_VERSION,
         f"{interpreter} is Python {shown}",
-        "" if version[:2] == REQUIRED_PYTHON
-        else f"rebuild the venv on Python 3.12 (requirements.txt says why): {ml_doc}",
+        "" if version[:2] == PYTHON_VERSION
+        else f"rebuild the venv for {REQUIRES_PYTHON}: {ml_doc}",
         need="python.venv")]
 
     for group in RUNTIME_GROUPS:
@@ -311,7 +325,7 @@ def node_checks() -> list:
                     need="node")]
 
     from library.tools import shared_environment
-    remotion = shared_environment.remotion_dir(REPO_ROOT)
+    remotion = shared_environment.remotion_dir(_engine_root())
     if shared_environment.dependencies_present(remotion):
         checks.append(Check("Remotion deps", True,
                             f"{shared_environment.node_modules(remotion)}",
@@ -342,7 +356,7 @@ def graphics_engine_checks() -> list:
     try:
         from library.tools import shared_environment
         remotion_ok = shared_environment.dependencies_present(
-            shared_environment.remotion_dir(REPO_ROOT))
+            shared_environment.remotion_dir(_engine_root()))
     except Exception:  # noqa: BLE001 - doctor must finish
         remotion_ok = False
     checks.append(Check(
@@ -735,9 +749,15 @@ def _line(check: Check, width: int) -> list:
 
 def render(checks: list) -> str:
     from library.tools import machine_needs
+    from ren.version import build_info
+    info = build_info()
     width = max(len(check.name) for check in checks)
-    lines = ["ren doctor - what can this Mac do with Ren? (read-only: changes nothing)",
+    lines = [f"ren doctor {info['version']} "
+             f"({info['sha'] or 'unknown commit'}, {info['channel']}) - "
+             f"what can this Mac do with Ren? (read-only: changes nothing)",
+             f"Python compatibility: {info['requires_python']}",
              "FAIL: every capability needs it.  MISS: limits the capabilities below.",
+             f"Engine: {_engine_root()}",
              ""]
     for check in checks:
         lines += _line(check, width)
@@ -796,7 +816,10 @@ def render_for(capability: str, checks: list) -> str:
 
 
 def main(argv=None, probe=None) -> int:
+    from ren.version import build_info
+    engine_root = _engine_root()
     from library.tools import machine_needs
+    ren_build = {**build_info(), "engine_root": str(engine_root)}
     parser = argparse.ArgumentParser(prog="ren doctor", description=__doc__.splitlines()[0])
     parser.add_argument("--json", action="store_true", help="Print the checks as JSON")
     parser.add_argument(
@@ -814,7 +837,8 @@ def main(argv=None, probe=None) -> int:
         verdict, missing, degraded = machine_needs.availability(
             args.capability, {check.need for check in checks if not check.ok})
         if args.json:
-            print(json.dumps({"capability": args.capability, "verdict": verdict,
+            print(json.dumps({"ren": ren_build,
+                              "capability": args.capability, "verdict": verdict,
                               "missing": list(missing), "degraded": degraded,
                               "checks": [asdict(check) for check in checks]}, indent=1))
         else:
@@ -825,6 +849,7 @@ def main(argv=None, probe=None) -> int:
     failed = required_failures(checks)
     if args.json:
         print(json.dumps({
+            "ren": ren_build,
             "checks": [asdict(check) for check in checks],
             "required_failures": [check.name for check in failed],
             "capabilities": {c: {"verdict": v, "missing": list(m), "degraded": d}

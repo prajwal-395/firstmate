@@ -83,6 +83,7 @@ data/
 /tmp/
 .env
 .venv/
+ren/_build.py
 /pr_body.md
 
 # local convenience launcher, not shared

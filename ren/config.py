@@ -11,7 +11,13 @@ import argparse
 import os
 import sys
 
-from ren import REPO_ROOT
+from ren.engine_root import find_engine_root, require_engine_root
+
+# Best effort at import: importing `ren.config` must never raise for
+# want of an engine. Entry points re-resolve fresh below.
+_FALLBACK_ROOT = find_engine_root()
+if _FALLBACK_ROOT is not None and str(_FALLBACK_ROOT) not in sys.path:
+    sys.path.insert(0, str(_FALLBACK_ROOT))
 
 SETTINGS = (
     ("PIPELINE_PROJECTS_ROOT", "where projects live"),
@@ -75,8 +81,9 @@ STARTER = """\
 
 
 def _paths():
-    if str(REPO_ROOT) not in sys.path:
-        sys.path.insert(0, str(REPO_ROOT))
+    root = require_engine_root()
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
     import library.tools.paths as paths
     return paths
 

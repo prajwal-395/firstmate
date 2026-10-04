@@ -19,15 +19,34 @@ from __future__ import annotations
 import os
 import sys
 
-from ren import REPO_ROOT
 from ren.commands import VERBS
+from ren.engine_root import require_engine_root
 
-MANAGE_PROJECT = REPO_ROOT / "manage_project.py"
-VEP = REPO_ROOT / "bin" / "vep"
 _BY_NAME = {verb.name: verb for verb in VERBS}
 
 
+def _engine_paths():
+    """`(root, manage_project, vep)` off the one engine resolver.
+
+    Resolved fresh on every call - never at import - so `$REN_ENGINE_ROOT`
+    set in-process (tests, a packaged proof) takes effect.
+    """
+    root = require_engine_root()
+    return root, root / "manage_project.py", root / "bin" / "vep"
+
+
+def version_line() -> str:
+    """`ren --version`'s one line: the build, and the engine it runs."""
+    from ren.engine_root import find_engine_root
+    from ren.version import version_string
+    root = find_engine_root()
+    return f"ren {version_string()} (engine {root if root else 'not found'})"
+
+
 def usage() -> str:
+    from ren.engine_root import find_engine_root
+    from ren.version import version_string
+    root = find_engine_root()
     lines = ["usage: ren <verb> [args...]", "",
              ("Ren is the front door to the video editing engine. "
               "`ren <verb> --help` shows a verb's own options."), ""]
@@ -38,28 +57,47 @@ def usage() -> str:
             group = verb.group
             lines.append(f"{group}:")
         lines.append(f"  {verb.name.ljust(width)}  {verb.summary}")
-    lines += ["", f"Engine checkout: {REPO_ROOT}"]
+    lines += ["", f"ren {version_string()}",
+              f"Engine: {root if root else 'not found'}"]
     return "\n".join(lines)
 
 
-def _exec_vep(argv: list) -> None:
+def _exec_vep(vep, engine_root, argv: list) -> None:
     """Replace this process with `bin/vep <argv>` - signals and exit code pass straight through.
 
-    The checkout goes on PYTHONPATH so a `-m library...` verb resolves from
+    The engine root goes on PYTHONPATH so a `-m library...` verb resolves from
     whatever directory the person typed `ren` in.
     """
     env = dict(os.environ)
     env["PYTHONPATH"] = os.pathsep.join(
-        p for p in (str(REPO_ROOT), env.get("PYTHONPATH", "")) if p)
-    os.execve(str(VEP), [str(VEP), *argv], env)
+        p for p in (str(engine_root), env.get("PYTHONPATH", "")) if p)
+    env["REN_ENGINE_ROOT"] = str(engine_root)
+    os.execve(str(vep), [str(vep), *argv], env)
 
 
 def main(argv=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    if not MANAGE_PROJECT.is_file() or not VEP.is_file():
-        print(f"ren: no engine checkout at {REPO_ROOT}.\n"
-              "Install Ren editable from a checkout: "
-              "`pip install -e <checkout>` (README, Quickstart).",
+    # `--version` answers from the package itself: no engine needed,
+    # so a machine with nothing installed still names its build.
+    if argv and argv[0] in ("--version", "-V"):
+        print(version_line())
+        return 0
+    if argv and argv[0] == "version":
+        print(version_line())
+        return 0
+
+    try:
+        engine_root, manage_project, vep = _engine_paths()
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 3
+
+    if not manage_project.is_file() or not vep.is_file():
+        print(f"ren: no engine at {engine_root}.\n"
+              f"Expected manage_project.py and bin/vep beside it - "
+              f"point $REN_ENGINE_ROOT at a built engine tree "
+              f"(`python3 -m ren.package_engine --dest <dir>`) or install "
+              f"Ren editable from a checkout (README, Quickstart).",
               file=sys.stderr)
         return 3
 
@@ -91,8 +129,8 @@ def main(argv=None) -> int:
             print(refused.render(), file=sys.stderr)
             return REFUSAL_EXIT_CODE
     if verb.subcommand:
-        _exec_vep([str(MANAGE_PROJECT), verb.subcommand, *rest])
-    _exec_vep(["-m", *verb.module_argv, *rest])
+        _exec_vep(vep, engine_root, [str(manage_project), verb.subcommand, *rest])
+    _exec_vep(vep, engine_root, ["-m", *verb.module_argv, *rest])
     return 0  # unreachable: exec does not return
 
 

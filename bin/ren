@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Run Ren from this immutable engine tree without installing the checkout.
+# The front door itself needs only Python's standard library; verbs such as
+# `ren new` hand off to bin/vep for the machine's configured engine runtime.
+
+set -uo pipefail
+
+ENGINE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+if [ -n "${PIPELINE_PYTHON:-}" ] && [ -x "${PIPELINE_PYTHON}" ]; then
+  PYTHON="${PIPELINE_PYTHON}"
+else
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "ren: no Python 3 on PATH. Install Python 3.12 and see docs/ML_ENVIRONMENT.md." >&2
+    exit 3
+  fi
+  PYTHON="$(command -v python3)"
+fi
+
+export REN_ENGINE_ROOT="${REN_ENGINE_ROOT:-${ENGINE_ROOT}}"
+export PYTHONPATH="${ENGINE_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
+exec "${PYTHON}" -m ren.cli "$@"

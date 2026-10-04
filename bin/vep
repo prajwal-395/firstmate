@@ -32,7 +32,29 @@
 
 set -uo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "bin/vep: no python3 on PATH to resolve the engine or interpreter ladder." >&2
+  echo "Install a Python 3, then see docs/ML_ENVIRONMENT.md." >&2
+  exit 3
+fi
+
+# Ask the one resolver in ren.engine_root. The adjacent path lets this
+# script bootstrap that module from a checkout; the resolver itself also
+# handles REN_ENGINE_ROOT and the installed current pointer.
+_VEP_PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+if ! REPO_ROOT="$(PYTHONPATH="${_VEP_PACKAGE_ROOT}${PYTHONPATH:+:${PYTHONPATH}}" \
+  python3 -c 'import sys
+try:
+    from ren.engine_root import require_engine_root
+    print(require_engine_root())
+except RuntimeError as exc:
+    print(str(exc), file=sys.stderr)
+    raise SystemExit(3)
+except ImportError as exc:
+    print(f"bin/vep: cannot load ren.engine_root to find the engine ({exc})", file=sys.stderr)
+    raise SystemExit(3)')"; then
+  exit 3
+fi
 
 # The two Resolve variables, exactly as lanes set them (and as
 # `library/tools/paths.py` defaults them). An explicit environment wins:
@@ -51,11 +73,6 @@ if [ -n "${PIPELINE_PYTHON:-}" ] && [ -f "${PIPELINE_PYTHON}" ] \
   && [ -x "${PIPELINE_PYTHON}" ]; then
   PYTHON="${PIPELINE_PYTHON}"
 else
-  if ! command -v python3 >/dev/null 2>&1; then
-    echo "bin/vep: no python3 on PATH to even ask the interpreter ladder." >&2
-    echo "Install a Python 3, then see docs/ML_ENVIRONMENT.md." >&2
-    exit 3
-  fi
   # The query vehicle may be ANY python3 - answering evaluates only
   # stdlib path predicates. PYTHONPATH is scoped to this one command so
   # the exec below inherits nothing extra.

@@ -31,8 +31,20 @@ from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
 from library.tools.resolve_lock import under_lease
 from ren.commands import for_subcommand, manage_project_subcommands
 
-# Add repo root to path
-REPO_ROOT = Path(__file__).resolve().parent
+# The engine root, through the one resolver (`ren/engine_root.py`) -
+# never bare `__file__` arithmetic alone. In a developer checkout the
+# two agree; under a packaged tree (`ren` exec'd from one, or
+# `$REN_ENGINE_ROOT` pointing at one) the resolver names the installed
+# tree. The file's own directory is the fallback, which is today's
+# behaviour when `ren` is not importable.
+try:
+    from ren.engine_root import resolve_engine_root
+    REPO_ROOT = resolve_engine_root(Path(__file__).resolve().parent)
+except RuntimeError as exc:
+    print(str(exc), file=sys.stderr)
+    raise SystemExit(3)
+except ImportError:
+    REPO_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(REPO_ROOT))
 
 

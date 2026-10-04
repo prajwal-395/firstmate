@@ -34,11 +34,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ren"
-version = "0.1.0"
+# One version source: ren/version.py. `ren --version`, `ren doctor`
+# and every created project.yaml report it (P0 "Version the actual
+# product"); nothing else in the repo states a version number.
+dynamic = ["version", "dependencies", "optional-dependencies"]
 description = "Ren: an agent-driven video editor on DaVinci Resolve Studio"
 readme = "README.md"
+# Mirrored in ren/version.py REQUIRES_PYTHON; a test fails when they
+# disagree, so the declaration stays single.
 requires-python = ">=3.12,<3.13"
-dynamic = ["dependencies", "optional-dependencies"]
 
 [project.scripts]
 ren = "ren.cli:main"
@@ -49,6 +53,7 @@ ren-setup-hooks = "ren.setup_hooks:main"
 packages = ["ren", "ren.hooks"]
 
 [tool.setuptools.dynamic]
+version = { attr = "ren.version.__version__" }
 dependencies = { file = ["requirements/core.txt"] }
 
 # Each package is declared in ONE group file; an extra that needs another

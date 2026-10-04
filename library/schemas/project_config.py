@@ -299,6 +299,14 @@ class ProjectConfig:
     tags: list[str] = field(default_factory=list)
     description: str = ""
 
+    # The Ren build that created the project (`ren --version`'s line:
+    # version plus commit/channel metadata). Stamped by
+    # `project_registry.create_project`; every executable, project and
+    # support report then names the same build (P0 "Version the actual
+    # product"). "" means the project predates the stamp - old files
+    # read fine, and the key is omitted when serializing one.
+    ren_version: str = ""
+
     # Runtime - not serialized to YAML
     _project_root: Path | None = field(default=None, repr=False)
 
@@ -343,6 +351,10 @@ class ProjectConfig:
             errors.append("'name' is required")
         if not self.slug:
             errors.append("'slug' is required")
+        if not isinstance(self.ren_version, str):
+            errors.append(
+                f"'ren_version' must be the Ren build string, got "
+                f"{type(self.ren_version).__name__}.")
         if not self.slug.replace("-", "").replace("_", "").isalnum():
             errors.append(f"'slug' must be alphanumeric with dashes/underscores: {self.slug}")
         try:
@@ -608,6 +620,7 @@ def _dict_to_project_config(data: dict,
         resolve=resolve,
         tags=data.get("tags", []),
         description=data.get("description", ""),
+        ren_version=data.get("ren_version", "") or "",
     )
     config._project_root = project_root
     return config
@@ -621,6 +634,10 @@ def project_config_to_dict(config: ProjectConfig) -> dict:
         "client": config.client,
         "created": config.created,
         "status": config.status.value if isinstance(config.status, ProjectStatus) else config.status,
+        # Only when stamped: a project that predates the stamp keeps a
+        # file without the key, and "" and "not declared" read the same.
+        **({} if not config.ren_version
+           else {"ren_version": config.ren_version}),
         "source": {
             "fps": config.source.fps,
             # Only when declared. An empty `footage_root:` in every

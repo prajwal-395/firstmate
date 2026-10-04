@@ -139,11 +139,27 @@ def _load_dotenv(env_path: Path) -> None:
 
 
 # ─── Repo Structure ──────────────────────────────────────────
-# Compute everything relative to this file's location:
-#   paths.py lives at: <repo>/library/tools/paths.py
-#   PILOT_ROOT =        <repo>/
+# Compute everything relative to the ENGINE root, through the one
+# resolver (`ren/engine_root.py`) - never bare `__file__` arithmetic
+# alone. In a developer checkout the two agree; in a packaged tree
+# the resolver names the installed tree (`$REN_ENGINE_ROOT`, then the
+# `<vep_home>/current` pointer). When `ren` is not importable at all
+# (Resolve's own interpreter, before the engine is on the path) the
+# file's own location is the fallback, which is today's behaviour.
+#
+#   paths.py lives at: <engine>/library/tools/paths.py
+#   PILOT_ROOT =        <engine>/
 
-PILOT_ROOT = Path(__file__).resolve().parent.parent.parent
+def _resolve_pilot_root() -> Path:
+    here = Path(__file__).resolve().parent.parent.parent
+    try:
+        from ren.engine_root import resolve_engine_root
+    except ImportError:
+        return here
+    return resolve_engine_root(here)
+
+
+PILOT_ROOT = _resolve_pilot_root()
 LIBRARY_ROOT = PILOT_ROOT / "library"
 PRESETS_ROOT = LIBRARY_ROOT / "presets"
 ASSETS_ROOT = LIBRARY_ROOT / "assets"
