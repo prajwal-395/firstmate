@@ -226,3 +226,95 @@ def test_subtitle_row_merge_requires_sidecar_word_preservation(
                        match="video:Subtitles"):
         reel_replace_guard.check_replacement(
             "final", "unreadable", old, unreadable)
+
+
+def test_empty_node_lut_shapes_do_not_make_a_color_edit():
+    item = {
+        "track_type": "video",
+        "track_index": 1,
+        "track_name": "Speaker",
+        "name": "speaker.mov",
+        "source_identity": "file:/media/speaker.mov",
+        "source_in_frame": 0,
+        "source_out_frame": 100,
+        "record_in": 0,
+        "record_out": 100,
+        "duration": 100,
+        "enabled": True,
+        "transform": {},
+        "composite": {},
+        "fusion": {},
+        "color": {"cdl": {}, "color_group": ""},
+        "clip_color": "",
+        "flags": [],
+        "markers": [],
+    }
+
+    for empty_luts in (None, []):
+        reread = {**item, "color": {**item["color"], "luts": empty_luts}}
+        assert (
+            reel_replace_guard.snapshot_diff({"items": [item]}, {"items": [reread]})
+            == []
+        )
+
+
+def test_legacy_empty_lut_pending_change_is_normalized_before_promotion(tmp_path):
+    from library.tools import plan_provenance
+
+    final = "Reel 01 - legacy no-op LUT change"
+    review_dir = tmp_path / "pipeline_output" / "review"
+    item = {
+        "track_type": "video",
+        "track_index": 1,
+        "track_name": "Speaker",
+        "name": "speaker.mov",
+        "source_identity": "file:/media/speaker.mov",
+        "source_in_frame": 0,
+        "source_out_frame": 100,
+        "record_in": 0,
+        "record_out": 100,
+        "duration": 100,
+        "enabled": True,
+        "transform": {},
+        "composite": {},
+        "fusion": {},
+        "color": {"cdl": {}, "color_group": ""},
+        "clip_color": "",
+        "flags": [],
+        "markers": [],
+    }
+    reread = {**item, "color": {**item["color"], "luts": []}}
+    before = {"items": [item]}
+    after = {"items": [reread]}
+    identity = reel_replace_guard._stable_item_key(item)
+    legacy_change = {
+        "kind": "item_changed",
+        "identity": identity,
+        "before": item,
+        "after": reread,
+        "changed": {"color": {"before": item["color"], "after": reread["color"]}},
+    }
+    record = {
+        "id": "legacy-empty-lut",
+        "timeline": final,
+        "before_snapshot": before,
+        "after_snapshot": after,
+        "changes": [legacy_change],
+        "status": "pending",
+    }
+    plan_provenance.record_timeline_snapshot(
+        str(review_dir), final, before, action="test baseline"
+    )
+    plan_provenance.record_editor_changes(str(review_dir), final, [record])
+
+    detection = reel_replace_guard.detect_editor_changes(
+        str(tmp_path), final, after, before
+    )
+
+    assert detection["detected"] == []
+    assert detection["pending"][0]["id"] == "legacy-empty-lut"
+    assert detection["pending"][0]["changes"] == []
+    promotion = reel_replace_guard.protect_editor_changes(
+        str(tmp_path), final, after, before, after, detection=detection
+    )
+    assert promotion["carried"] == ["legacy-empty-lut"]

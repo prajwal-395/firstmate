@@ -703,6 +703,45 @@ def test_promotion_refusal_explains_the_pan_tilt_epoch(project_dir):
             detection=detection, carried_edits=report)
 
 
+@pytest.mark.parametrize(
+    ("edited_color", "changed_value"),
+    [
+        ({"cdl": {}, "color_group": "", "luts": [
+            {"node": 2, "path": "Film Looks/Soft.cube"}]}, "luts"),
+        ({"cdl": {"slope": [1.1, 1.0, 1.0]},
+          "color_group": ""}, "cdl"),
+    ],
+)
+def test_real_lut_and_grade_changes_still_refuse_promotion(
+    project_dir, edited_color, changed_value
+):
+    before = _item("speaker", "speaker.mov", 0, 100, 0, 100)
+    before["color"] = {"cdl": {}, "color_group": "", "luts": []}
+    after_item = {**before, "color": edited_color}
+    record = _change_record([before], [after_item])
+    record["id"] = "real-color-change"
+    detection = {"first_contact": False, "detected": [], "pending": [record]}
+    _edits, uncarried = carry.derive_edits(record)
+    report = {
+        "uncarried": [{"record_id": record["id"], **entry} for entry in uncarried]
+    }
+
+    with pytest.raises(
+        guard.EditorChangeRefused, match="color on video:speaker"
+    ) as refused:
+        guard.protect_editor_changes(
+            str(project_dir),
+            FINAL,
+            record["after_snapshot"],
+            record["before_snapshot"],
+            record["before_snapshot"],
+            detection=detection,
+            carried_edits=report,
+        )
+
+    assert changed_value in str(refused.value)
+
+
 def test_pan_tilt_change_in_one_unit_epoch_remains_carryable():
     before = _item("V1", "speaker", 100, 200, 10, 110)
     before["transform"] = {"Pan": 100.0, "Tilt": -40.0}

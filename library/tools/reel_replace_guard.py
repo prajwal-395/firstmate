@@ -400,6 +400,59 @@ def _same_value(a, b) -> bool:
     return _canonical(a) == _canonical(b)
 
 
+def _normalized_color(value):
+    """Treat Resolve's empty node-LUT readings as no assigned LUTs.
+
+    Resolve has returned the same ungraded item with `luts` omitted, set to
+    `None`, and set to `[]`. Those shapes carry no color edit. A non-empty
+    node list remains part of the color value and is compared in full.
+    """
+    if not isinstance(value, dict):
+        return value
+    normalized = dict(value)
+    luts = normalized.get("luts")
+    if luts is None or (isinstance(luts, (list, tuple)) and not luts):
+        normalized.pop("luts", None)
+    return normalized
+
+
+def _same_preservation_value(field: str, before, after) -> bool:
+    """Compare one preserved item field using its domain semantics."""
+    if field == "color":
+        before, after = _normalized_color(before), _normalized_color(after)
+    return _same_value(before, after)
+
+
+def _normalize_pending_editor_record(record: dict) -> dict:
+    """Drop legacy empty-LUT color deltas without touching other edits."""
+    normalized_changes = []
+    for change in record.get("changes", ()):
+        if change.get("kind") != "item_changed":
+            normalized_changes.append(change)
+            continue
+        changed = change.get("changed")
+        if not isinstance(changed, dict):
+            normalized_changes.append(change)
+            continue
+        meaningful = {}
+        for field, values in changed.items():
+            no_op_color = (
+                field == "color"
+                and isinstance(values, dict)
+                and "before" in values
+                and "after" in values
+                and _same_preservation_value(field, values["before"], values["after"])
+            )
+            if not no_op_color:
+                meaningful[field] = values
+        if not meaningful:
+            continue
+        normalized_changes.append(
+            change if meaningful == changed else {**change, "changed": meaningful}
+        )
+    return {**record, "changes": normalized_changes}
+
+
 def _stable_item_key(item: dict) -> tuple:
     return (item.get("track_type"), item.get("track_index"),
             item.get("track_name"),
@@ -433,7 +486,8 @@ def snapshot_diff(before: dict, after: dict) -> list[dict]:
             changed = {
                 field: {"before": old.get(field), "after": new.get(field)}
                 for field in PRESERVATION_FIELDS
-                if not _same_value(old.get(field), new.get(field))
+                if not _same_preservation_value(
+                    field, old.get(field), new.get(field))
             }
             if changed:
                 changes.append({"kind": "item_changed", "identity": key,
@@ -504,11 +558,13 @@ def _change_is_carried(change: dict, staged: dict) -> bool:
             return False
         if kind == "item_added":
             wanted = change["after"]
-            return any(all(_same_value(item.get(field), wanted.get(field))
+            return any(all(_same_preservation_value(
+                               field, item.get(field), wanted.get(field))
                            for field in PRESERVATION_FIELDS)
                        for item in candidates)
         wanted = change["changed"]
-        return any(all(_same_value(item.get(field), values["after"])
+        return any(all(_same_preservation_value(
+                           field, item.get(field), values["after"])
                        for field, values in wanted.items())
                    for item in candidates)
     if kind.startswith("marker_"):
@@ -717,10 +773,21 @@ def detect_editor_changes(project_folder: str, final: str, live: dict,
         }]
         plan_provenance.record_editor_changes(review_dir, final, detected)
 
-    return {"first_contact": first_contact, "baseline": baseline,
-            "detected": detected,
-            "pending": plan_provenance.pending_editor_changes(
-                review_dir, final)}
+    pending = plan_provenance.pending_editor_changes(review_dir, final)
+    # Pending records predate the empty-LUT normalization above. Remove
+    # legacy empty-LUT color no-ops in memory so they do not keep refusing a
+    # replacement after this fix ships. Other fields and structural changes
+    # are left exactly as recorded.
+    normalized_pending = [
+        _normalize_pending_editor_record(record) for record in pending
+    ]
+
+    return {
+        "first_contact": first_contact,
+        "baseline": baseline,
+        "detected": detected,
+        "pending": normalized_pending,
+    }
 
 
 def protect_editor_changes(project_folder: str, final: str, live: dict,
