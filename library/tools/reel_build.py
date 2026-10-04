@@ -9788,6 +9788,46 @@ def built_name(moment, name_suffix: str = "") -> str:
     return f"{moment.timeline_name}{name_suffix}"
 
 
+def promotion_target_names(timeline_names, moments,
+                           name_suffix: str = "") -> dict[str, str]:
+    """Map the build's container names to the approved reel names.
+
+    A non-empty build suffix is a scratch container label, not part of
+    the reel's identity. The plan is the only safe source for removing
+    it: hand-made timeline names with parentheses are distinct reels,
+    so stripping text from a name would guess at ownership. Callers
+    record this target on the staging hold, and pass the mapped staging
+    into promotion only after the conformance gate passes. A gate
+    refusal leaves the staging held under its recorded target.
+    """
+    names = [str(name) for name in (timeline_names or ())]
+    suffix = str(name_suffix or "")
+    if not suffix:
+        return {name: name for name in names}
+
+    targets_by_scratch = {}
+    for moment in moments or ():
+        scratch = built_name(moment, suffix)
+        target = built_name(moment)
+        previous = targets_by_scratch.setdefault(scratch, target)
+        if previous != target:
+            raise ReelBuildError(
+                f"the approved plan maps scratch name {scratch!r} to "
+                f"more than one reel")
+    missing = [name for name in names if name not in targets_by_scratch]
+    if missing:
+        raise ReelBuildError(
+            f"the approved plan cannot identify the base reel for "
+            f"scratch build name(s) {sorted(missing)}")
+    mapped = {name: targets_by_scratch[name] for name in names}
+    targets = list(mapped.values())
+    if len(targets) != len(set(targets)):
+        raise ReelBuildError(
+            "the approved plan maps multiple scratch build names to "
+            "one base reel; refusing an ambiguous promotion")
+    return mapped
+
+
 STAGING_SUFFIX = bins.STAGING_TIMELINE_SUFFIX
 """What a rebuild is placed INTO before the gate passes.
 
@@ -10917,11 +10957,11 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             from retirement_failed
 
     # ── COMPARISONS, bounded the way the archive is ──────────────
-    # Suffix verification builds (`name_suffix`, e.g. `... (baseline
-    # scratch)`) promote into suffixed finals that sit pending a human
-    # decision, and nothing ever retired or collected them - the same
-    # accumulation the archive above was built to stop, arriving by
-    # the door it does not watch
+    # Older suffix verification builds (`name_suffix`, e.g. `...
+    # (baseline scratch)`) could leave suffixed comparison finals
+    # pending a human decision, and nothing retired or collected them -
+    # the same accumulation the archive above was built to stop,
+    # arriving by the door it does not watch
     # (`library/tools/comparison_retirement.py`). On the next
     # promotion touching a base reel, its superseded live comparisons
     # retire to the same archive and its archived ones beyond one per
@@ -11000,10 +11040,9 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     # promotion keeps every hold; and BEFORE the organise/sweep
     # below, which is tidying, not promotion. A refused reel's hold
     # stays: its staging is still pending, and the sweep must keep
-    # refusing it loudly rather than sweeping it. A suffix
-    # verification build keeps its suffixed-final hold: that container
-    # still awaits a human promotion decision, and only an explicit
-    # release (or a later promotion naming it as staging) ends it.
+    # refusing it loudly rather than sweeping it. Suffix builds hold
+    # their staging against the plan's unsuffixed target, and a passing
+    # gate promotes that staging directly to the target.
     from library.tools import staging_holds as _holds
     _promoted_staging = [staged_to_final[final] for final in ok_finals]
     _released = _holds.release_holds(project_folder, _promoted_staging)
@@ -11556,7 +11595,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     (`docs/REEL_REBUILD_RUN_20260908_R3.md`). The delete-then-verify
     order made that outcome expressible; the order below makes it not:
 
-    1. STAGE: each reel is placed into `<final>{STAGING_SUFFIX}` and
+    1. STAGE: each reel is placed into
+       `<build-name>{STAGING_SUFFIX}` and
        NOTHING existing is deleted or renamed. The gate grades the
        staging containers, and the sidecar baselines (provenance,
        transition overlays, explainer plans) are filed under the
@@ -11565,8 +11605,9 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
        A refusal deletes the staging containers, drops their sidecar
        entries, and raises - the approved timelines were never named
        and are still there.
-    3. PROMOTE: only a pass renames staging -> final, retiring each
-       approved original to a backup name first and deleting the
+    3. PROMOTE: only a pass renames staging -> the plan's approved
+       timeline name, retiring each approved original to a backup name
+       first and deleting the
        backups by default - retiring them only for reels named in
        `retain` or carrying a sign-off (`promote_staged_reels`).
        Filing the media pool (`organise`) happens here, because filing is about reels that
@@ -11587,14 +11628,12 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     `only` selects WHICH approved moments to build, by reel number.
     `None` is every approved moment, which is what every caller had.
 
-    `name_suffix` is appended to the FINAL name each reel promotes to.
-    `""` is the plan's own name, which is what every caller had. A
-    non-empty suffix builds the same plan toward a different final
-    container, which is the only way to compare a rebuild against an
-    approved timeline instead of overwriting it. It reaches the
-    captions too (`built_name`) - via the STAGING name, so a rebuild
-    never renders into the overlay files the approved timeline still
-    points at.
+    `name_suffix` labels the scratch container and its rendered assets
+    while the approved timeline stays live during the build. After the
+    conformance gate passes, the staging promotes to the plan's exact
+    timeline name; the suffix is not part of the reel's identity.
+    `""` uses the plan name for both scratch and final. A refused or
+    interrupted suffix build stays held awaiting the plan name.
 
     `organise` files the media pool after promotion, so a rebuild
     TIDIES UP rather than accumulating: Current plan means the PLAN -
@@ -12150,6 +12189,9 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # passing gate. See `timelines_to_replace` and
     # `assert_deletion_scope`.
     target_names = {built_name(m, name_suffix) for m in building}
+    promotion_target_by_name = promotion_target_names(
+        target_names, building, name_suffix)
+    approved_target_names = set(promotion_target_by_name.values())
     # The transform baseline is a per-reel read. Keep it on the names
     # this call owns so an `--only-reel` lane does not survey unrelated
     # timelines or serialize another lane's placement.
@@ -12159,7 +12201,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                            exclusive=True):
             _drift_start.check_project(
                 project_folder, when="build start", resolve=resolve,
-                project=project, only_reels=sorted(target_names))
+                project=project, only_reels=sorted(approved_target_names))
     except Exception as exc:  # noqa: BLE001
         print(f"  drift baseline unavailable ({exc!r}) - the build "
               f"continues without a start bracket", flush=True)
@@ -12168,6 +12210,9 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # order, and a run must report reels in the order it built them.
     staged_to_final = {built_name(m, name_suffix): staging_name(built_name(m, name_suffix))
                        for m in building}
+    promotion_staged_to_final = {
+        promotion_target_by_name[final]: staging
+        for final, staging in staged_to_final.items()}
     staged_names = set(staged_to_final.values())
     # The debris refusal reads live state, so it reads under a SHARED
     # hold: no placement renames underneath the enumeration. Fast -
@@ -12177,7 +12222,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     with resolve_lease("build reels debris check", exclusive=False):
         stale_staging = timelines_to_replace(project, staged_names)
         stale_backups = timelines_to_replace(
-            project, {backup_name(final) for final in target_names})
+            project, {backup_name(final)
+                      for final in approved_target_names})
     if stale_staging:
         # A staging this build's own previous run left HELD awaiting
         # the same final - a refused promotion (finding 5), not an
@@ -12192,8 +12238,9 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             _held = _holds.read_holds(project_folder)
         except Exception:  # noqa: BLE001 - unreadable holds refuse
             _held = {}
-        _final_of_staging = {staging: final
-                             for final, staging in staged_to_final.items()}
+        _final_of_staging = {
+            staging: promotion_target_by_name[final]
+            for final, staging in staged_to_final.items()}
         _reclaimable = sorted({
             timeline.GetName() for timeline in stale_staging
             if _final_of_staging.get(timeline.GetName()) is not None
@@ -12239,7 +12286,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     try:
         from library.tools import reel_prebuild_census as _census
         prebuild_census = _census.report_prebuild(
-            project, list(staged_to_final))
+            project, sorted(approved_target_names))
     except Exception as census_failed:  # noqa: BLE001
         import sys as _sys
         print(f"  pre-build census unavailable ({census_failed}) - "
@@ -12250,7 +12297,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # measures only the timelines it owns; project-wide asset
     # declarations remain inputs to the target reel's result.
     from library.tools import reel_divergence as _divergence
-    _approved = [built_name(m, name_suffix) for m in building]
+    _approved = [built_name(m) for m in building]
     try:
         live_snapshots, live_unread = _divergence.snapshots_for(
             project, _approved, snapshot_fn=snapshot_timeline)
@@ -12355,9 +12402,9 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # until promotion or discard releases it - a verified staging
     # that is never promoted must survive tidying, and a timeline
     # with a scratch-shaped name that no plan claims is exactly what
-    # the sweep would otherwise take. On a suffix build the suffixed
-    # final is held too: the build promotes INTO it, and it then sits
-    # pending a human promotion decision no automatic step ends.
+    # the sweep would otherwise take. A suffix is a scratch label for
+    # the candidate; the hold names the approved base reel it will
+    # replace after verification, so no suffixed final is left pending.
     # Approved finals of ordinary builds are never held - no sweep
     # may take them anyway. Taken up front, so even a crash between
     # staging and promotion leaves the protection, not the hole; a
@@ -12365,16 +12412,10 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     from library.tools import staging_holds as _holds
     for _final, _staging in staged_to_final.items():
         _holds.take_hold(
-            project_folder, _staging, awaiting=_final,
+            project_folder, _staging,
+            awaiting=promotion_target_by_name[_final],
             reason="staged rebuild awaiting promotion",
             taken_by="rebuild_reels_in_project")
-    if name_suffix:
-        for _target in sorted(target_names):
-            _holds.take_hold(
-                project_folder, _target, awaiting=None,
-                reason=("suffix verification build - awaiting an "
-                        "explicit promotion decision"),
-                taken_by="rebuild_reels_in_project")
 
     # The project's transition-element declaration, resolved ONCE - the
     # element is measured here rather than per reel, so a declaration
@@ -13756,6 +13797,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # runs inside the loop and the mapping is what the loop iterates.
     for _final in left_alone:
         staged_to_final.pop(_final, None)
+        promotion_staged_to_final.pop(
+            promotion_target_by_name.get(_final, _final), None)
     if left_alone:
         print(f"  {len(left_alone)} reel(s) needed no Resolve pass: "
               + ", ".join(left_alone), flush=True)
@@ -13774,8 +13817,11 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # and so the record says which rows the operator knowingly let go.
     from library.tools import reel_replace_guard as _decl_guard
     try:
-        declared_drops = _decl_guard.parse_specs(
+        declared_drops_by_build_name = _decl_guard.parse_specs(
             allow_drops, list(staged_to_final))
+        declared_drops = {
+            promotion_target_by_name[name]: rows
+            for name, rows in declared_drops_by_build_name.items()}
     except ValueError as bad_declaration:
         raise ReelBuildError(
             f"REFUSING to build: {bad_declaration}") from bad_declaration
@@ -13784,7 +13830,9 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # build was given, never one it re-derives.
     from library.tools import reel_signoff as _decl_signoff
     try:
-        declared_supersede = sorted(_decl_signoff.parse_supersede(supersede))
+        declared_supersede = sorted({
+            promotion_target_by_name.get(name, name)
+            for name in _decl_signoff.parse_supersede(supersede)})
     except ValueError as bad_declaration:
         raise ReelBuildError(
             f"REFUSING to build: {bad_declaration}") from bad_declaration
@@ -13794,12 +13842,15 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # default - one timeline per reel, an empty archive.
     from library.tools import reel_retirement as _decl_retire
     try:
-        declared_retain = sorted(_decl_retire.parse_retain(retain))
+        declared_retain = sorted({
+            promotion_target_by_name.get(name, name)
+            for name in _decl_retire.parse_retain(retain)})
     except ValueError as bad_declaration:
         raise ReelBuildError(
             f"REFUSING to build: {bad_declaration}") from bad_declaration
     declared_accept_editor_changes = sorted({
-        str(value).strip() for value in
+        promotion_target_by_name.get(str(value).strip(),
+                                     str(value).strip()) for value in
         ([accept_editor_changes] if isinstance(
             accept_editor_changes, (str, int))
          else (accept_editor_changes or ()))
@@ -13958,7 +14009,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             pass
         promoted = promote_staged_reels(
             project_folder, resolve_name, master_timeline_name,
-            dict(staged_to_final), organise=organise,
+            dict(promotion_staged_to_final), organise=organise,
             allow_drops=declared_drops,
             supersede=declared_supersede,
             retain=declared_retain,
@@ -13979,35 +14030,40 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             for _final in final_names:
                 _promo_log.log_event(
                     project_folder,
-                    _staged_numbers.get(staged_to_final.get(_final, ""), 0),
+                    _staged_numbers.get(
+                        promotion_staged_to_final.get(_final, ""), 0),
                     _final, _promo_log.CONSOLIDATED,
-                    detail=f"promoted {staged_to_final.get(_final, '')} "
+                    detail=f"promoted "
+                           f"{promotion_staged_to_final.get(_final, '')} "
                            f"onto {_final}")
         except Exception:
             pass
         caption_hashes = {
-            final: caption_hashes[staged_to_final[final]]
-            for final in final_names if staged_to_final[final] in caption_hashes}
+            final: caption_hashes[promotion_staged_to_final[final]]
+            for final in final_names
+            if promotion_staged_to_final[final] in caption_hashes}
         footage_binding_hashes = {
-            final: footage_binding_hashes[staged_to_final[final]]
+            final: footage_binding_hashes[promotion_staged_to_final[final]]
             for final in final_names
-            if staged_to_final[final] in footage_binding_hashes}
+            if promotion_staged_to_final[final] in footage_binding_hashes}
         overlay_records = {
-            final: overlay_records[staged_to_final[final]]
+            final: overlay_records[promotion_staged_to_final[final]]
             for final in final_names
-            if staged_to_final[final] in overlay_records}
+            if promotion_staged_to_final[final] in overlay_records}
         track_plans = {
-            final: track_plans[staged_to_final[final]]
+            final: track_plans[promotion_staged_to_final[final]]
             for final in final_names
-            if staged_to_final[final] in track_plans}
+            if promotion_staged_to_final[final] in track_plans}
         intent_applied_by_reel = {
-            final: intent_applied_by_reel[staged_to_final[final]]
+            final: intent_applied_by_reel[
+                promotion_staged_to_final[final]]
             for final in final_names
-            if staged_to_final[final] in intent_applied_by_reel}
+            if promotion_staged_to_final[final] in intent_applied_by_reel}
         intent_unmatched_by_reel = {
-            final: intent_unmatched_by_reel[staged_to_final[final]]
+            final: intent_unmatched_by_reel[
+                promotion_staged_to_final[final]]
             for final in final_names
-            if staged_to_final[final] in intent_unmatched_by_reel}
+            if promotion_staged_to_final[final] in intent_unmatched_by_reel}
         built_reel_names = list(final_names)
         staged_out = {}
         # ══════════════════════════════════════════════════════
@@ -14046,7 +14102,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                     project_folder,
                     "pipeline_output/scratch/timeline_transcript/"
                     "transcript.json"),
-                only_reels=(sorted(target_names) if only is not None
+                only_reels=(sorted(approved_target_names) if only is not None
                             else None),
                 draw_gain=run_gain)
 
@@ -14097,7 +14153,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             _drift_end_report = _drift_end.check_project(
                 project_folder, when="build end",
                 resolve=resolve, project=project,
-                only_reels=sorted(target_names))
+                only_reels=sorted(approved_target_names))
     except Exception as exc:  # noqa: BLE001
         print(f"  drift end-check unavailable ({exc!r}) - the build "
               f"record stands without an end bracket", flush=True)
@@ -14122,7 +14178,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         _archived = (_retired.get("archived") or {})
         _carried = (_promoted_record.get("markers") or {})
         for _final in _promoted_record.get("promoted") or ():
-            _staging = staged_to_final.get(_final, "")
+            _staging = promotion_staged_to_final.get(_final, "")
             _facts = summary_facts.get(_staging, {})
             _file_reel_summary(
                 project_folder,
@@ -14222,8 +14278,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # (`library/tools/staging_holds.py`), and until this report ran a
     # build that left one said nothing: Reel 16's 2026-09-19 staging
     # sat protected and invisible while its lane's PR read as done.
-    # REPORTED, never a gate (a suffix verification build waits on a
-    # human by design), and carried on the record beside
+    # REPORTED, never a gate (a build whose verification or promotion
+    # did not finish remains held), and carried on the record beside
     # `staged_timelines` so a later reader need not re-derive it.
     # Reconciled against the LIVE project: measured 2026-09-20, two
     # holds named long-deleted Reel 26 stagings and read as pending

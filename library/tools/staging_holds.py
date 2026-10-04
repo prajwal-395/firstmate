@@ -30,11 +30,10 @@ it.
 Lifecycle (owned by `library/tools/reel_build.py`)
 --------------------------------------------------
 - TAKE: `rebuild_reels_in_project` takes a hold for every staging
-  container it stages, plus - on suffix builds only - the suffixed
-  final it stages toward (e.g. `... (baseline scratch)`), which sits
-  pending a human promotion decision after the build promotes into
-  it. Approved finals of ordinary builds are never held: no sweep
-  may take them anyway.
+  container it stages. A suffix build records the approved base reel
+  it will replace as the hold's target; the suffix labels the temporary
+  scratch container only. Approved finals are never held: no sweep may
+  take them anyway.
 - RELEASE: `promote_staged_reels` releases each staging it promotes
   (after the renames, so a failed promotion keeps its holds);
   `discard_staged_reels` releases each staging it discards. A
@@ -243,8 +242,7 @@ def take_hold(project_folder: str, staging_name: str, *,
     """Hold `staging_name` against the sweep until it is promoted.
 
     `awaiting` names the final timeline this staging promotes into,
-    or None where the promotion decision itself is still open (a
-    suffix verification build, which a human promotes explicitly).
+    or None where no promotion target has been recorded.
     Taking is an upsert stamped NOW: a rebuild re-takes the same
     name and the pending window restarts, so a stale entry from a
     crashed run cannot outlive the run that replaced it.
@@ -324,9 +322,7 @@ def refusal_message(staging_name: str, entry: dict) -> str:
     if awaiting:
         waits = f"awaiting promotion to {awaiting!r}"
     else:
-        waits = ("awaiting an explicit promotion decision "
-                 "(a suffix verification build - no automatic "
-                 "promotion will take it)")
+        waits = "has no recorded promotion target"
     reason = (entry or {}).get("reason") or ""
     taken_by = (entry or {}).get("taken_by") or ""
     lines = [
@@ -476,8 +472,8 @@ def report_pending(project_folder: str, *, timeline_names=None,
                 " (another reel's staging; this build does not own it)"
                 if owned is not None and row["staging"] not in owned else "")
             waits = (f"-> {awaiting!r}" if awaiting
-                     else "(no automatic promotion will take it - a human "
-                          "promotes it explicitly or releases the hold)")
+                     else "(no promotion target recorded - choose one "
+                          "explicitly or release the hold)")
             lines.append(f"  {row['staging']!r} {waits} "
                          f"(held {row['age']}, by {row['taken_by'] or '?'})"
                          f"{ownership}")

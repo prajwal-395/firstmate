@@ -1,11 +1,13 @@
-"""Comparison timelines retire like reels do, and end the same way.
+"""Legacy comparison timelines retire like reels do, and end the same way.
 
-A suffix verification build (`rebuild_reels_in_project(name_suffix=...)`,
-e.g. `Reel 13 - ... (baseline scratch)`) promotes into its suffixed
-final and takes a hold on it (`staging_holds`).  This module gives those
-comparison timelines `reel_retirement`'s treatment, reusing its shape
-rather than inventing a second one: the same home-plus-lifecycle split,
-the same scope guard, the same never-collect-a-sign-off rule.
+Older suffix verification builds (`rebuild_reels_in_project(name_suffix=...)`,
+e.g. `Reel 13 - ... (baseline scratch)`) could promote into suffixed
+finals and leave them held (`staging_holds`). Current verified suffix
+builds promote to the approved plan name, but older comparisons may
+remain in project pools. This module gives those timelines
+`reel_retirement`'s treatment, reusing its shape rather than inventing a
+second one: the same home-plus-lifecycle split, the same scope guard,
+the same never-collect-a-sign-off rule.
 
 The home: `05 - Reels/Archive`, the SAME bin
 --------------------------------------------

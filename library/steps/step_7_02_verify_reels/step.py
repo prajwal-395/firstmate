@@ -208,6 +208,24 @@ def verify_reels(data: dict) -> dict:
             "is nothing this node may grade. Grading every reel timeline "
             "instead would re-grade work this build never touched; "
             "re-run build_reels.")
+    name_suffix = str(build.get("name_suffix") or "")
+    promotion_target_by_build_name = {
+        name: name for name in staged}
+    if staged and name_suffix:
+        try:
+            from library.tools.reel_build import promotion_target_names
+            from library.tools.reel_proposal import read_proposal
+            promotion_target_by_build_name = promotion_target_names(
+                staged.keys(), read_proposal(plan_path), name_suffix)
+        except Exception as target_unreadable:  # noqa: BLE001
+            raise ReelVerifyRefused(
+                f"the verified scratch build's base reel cannot be "
+                f"resolved from its recorded plan ({target_unreadable}); "
+                f"its staging remains held and nothing was promoted") \
+                from target_unreadable
+    promotion_staged = {
+        promotion_target_by_build_name[final]: staging
+        for final, staging in staged.items()}
     # Staging/final container -> reel number, read off the plan the
     # build itself recorded (never parsed out of a timeline name), so
     # the phase log names which reel each line belongs to. Unknown is
@@ -217,10 +235,10 @@ def verify_reels(data: dict) -> dict:
     try:
         from library.tools.reel_build import built_name
         from library.tools.reel_proposal import read_proposal
-        _suffix = str(build.get("name_suffix") or "")
         for _m in read_proposal(plan_path):
             try:
-                _final_numbers[built_name(_m, _suffix)] = int(_m.number)
+                _final_numbers[built_name(_m, name_suffix)] = int(_m.number)
+                _final_numbers[built_name(_m)] = int(_m.number)
             except Exception:
                 pass
     except Exception:
@@ -338,8 +356,10 @@ def verify_reels(data: dict) -> dict:
     # Promotion is the build's deferred second half, and it runs HERE -
     # after this gate passed, never before. The build node stages into
     # separate containers and grades nothing; this node grades the
-    # staging and only then moves it onto the final names, retiring
-    # each approved original to a backup first
+    # staging and only then moves it onto the approved plan names,
+    # retiring each approved original to a backup first. A build
+    # suffix labels the scratch candidate; it is never carried onto the
+    # promoted reel name.
     # (`reel_build.promote_staged_reels`).
     #
     # The replace guard's declaration comes off the BUILD'S OWN RECORD
@@ -357,7 +377,12 @@ def verify_reels(data: dict) -> dict:
         recorded = build.get("allow_drops")
         if recorded is None:
             recorded = _guard.parse_specs(
-                (data or {}).get("allow_drops"), list(staged))
+                (data or {}).get("allow_drops"),
+                list(promotion_staged))
+        elif isinstance(recorded, dict):
+            recorded = {
+                promotion_target_by_build_name.get(name, name): rows
+                for name, rows in recorded.items()}
         # The same rule for the sign-off declaration: the build's own
         # record first, this node's input only as the fallback for a
         # record written before declarations existed
@@ -365,20 +390,40 @@ def verify_reels(data: dict) -> dict:
         superseding = build.get("supersede")
         if superseding is None:
             superseding = (data or {}).get("supersede")
+        if isinstance(superseding, str):
+            superseding = [superseding]
+        if isinstance(superseding, list):
+            superseding = [
+                promotion_target_by_build_name.get(name, name)
+                for name in superseding]
         # The same rule for the retain declaration: the build's own
         # record first, this node's input only as the fallback
         # (`library/tools/reel_retirement.py`).
         retaining = build.get("retain")
         if retaining is None:
             retaining = (data or {}).get("retain")
+        if isinstance(retaining, str):
+            retaining = [retaining]
+        if isinstance(retaining, list):
+            retaining = [
+                promotion_target_by_build_name.get(name, name)
+                for name in retaining]
         accepting_editor_changes = build.get("accept_editor_changes")
         if accepting_editor_changes is None:
             accepting_editor_changes = (data or {}).get(
                 "accept_editor_changes")
+        if isinstance(accepting_editor_changes, str):
+            accepting_editor_changes = [accepting_editor_changes]
+        if isinstance(accepting_editor_changes, list):
+            accepting_editor_changes = [
+                promotion_target_by_build_name.get(name, name)
+                if isinstance(name, str) else name
+                for name in accepting_editor_changes]
         try:
             promoted = promote_staged_reels(
                 project_folder, resolve_project_name, master_timeline_name,
-                staged, allow_drops=recorded, supersede=superseding,
+                promotion_staged, allow_drops=recorded,
+                supersede=superseding,
                 retain=retaining,
                 track_plans=build.get("track_plans"),
                 accept_editor_changes=accepting_editor_changes,
@@ -407,7 +452,7 @@ def verify_reels(data: dict) -> dict:
                 _phase_log.log_event(
                     project_folder, _final_numbers.get(_final, 0),
                     _final, _phase_log.CONSOLIDATED,
-                    detail=f"promoted {staged.get(_final, '')} "
+                    detail=f"promoted {promotion_staged.get(_final, '')} "
                            f"onto {_final}")
         except Exception:
             pass

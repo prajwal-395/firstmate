@@ -1429,6 +1429,65 @@ def test_scoped_verification_promotes_its_reel_and_keeps_an_unrelated_hold(
     assert holds.held_names(str(project_dir)) == {staged_b}
 
 
+@pytest.mark.usefixtures("mock_dvr")
+def test_verified_suffix_build_promotes_to_its_approved_base_reel(project_dir):
+    """The DAG grades the suffix staging, then promotes it to the plan name."""
+    from library.tools.reel_proposal import (
+        Approval, ReelMoment, proposal_path, write_proposal)
+    from tests.promotion_test_helpers import no_a_roll_track_plans
+
+    suffix = " (whole-take rebuild)"
+    final = "Reel 03 - moment-3"
+    scratch_final = final + suffix
+    staged = scratch_final + STAGING_SUFFIX
+    plan_path = proposal_path(project_dir)
+    moment = ReelMoment(
+        number=3, slug="moment-3", reason="verified edit",
+        timeline_start=10.0, timeline_end=40.0,
+        approval=Approval.APPROVED)
+    write_proposal(plan_path, [moment], {"derived_from": {}})
+
+    resolve_project = FakeProject([MASTER, final, staged])
+    staged_id = next(
+        timeline.GetUniqueId() for timeline in resolve_project.timelines
+        if timeline.GetName() == staged)
+    holds.take_hold(str(project_dir), staged, awaiting=final,
+                    taken_by="test")
+    (project_dir / "pipeline_output" / "review" / "plan_provenance.json")\
+        .write_text(json.dumps({"built_reels": [staged]}), encoding="utf-8")
+    module = _verify_step_module()
+
+    with patch("library.tools.reel_build.verify_built_reels") as gate, \
+            patch("library.tools.reel_build._connect_resolve_project",
+                  return_value=resolve_project), \
+            patch("library.tools.reel_build.sweep_all_reels_informational"), \
+            patch("library.tools.timeline_transcript.transcript_path",
+                  return_value=str(project_dir / "transcript.json")):
+        result = module.verify_reels({
+            "project_folder": str(project_dir),
+            "only_reels": [3],
+            "timeline_transcript": {"segments": []},
+            "reel_build": {
+                "timelines_built": [staged],
+                "staged_timelines": {scratch_final: staged},
+                "staged_timeline_ids": {staged: staged_id},
+                "track_plans": no_a_roll_track_plans(
+                    {scratch_final: staged}),
+                "name_suffix": suffix,
+                "resolve_project_name": "Mock Project",
+                "master_timeline_name": MASTER,
+                "plan_path": str(plan_path),
+            },
+        })
+
+    assert gate.call_args.kwargs["only_reels"] == [staged]
+    assert result["reel_verification"]["timelines_verified"] == [final]
+    assert final in resolve_project.names()
+    assert staged not in resolve_project.names()
+    assert scratch_final not in resolve_project.names()
+    assert holds.held_names(str(project_dir)) == set()
+
+
 # --------------------------------------------------------------------------
 # From test_verify_scopes_to_built_reels.py
 #
@@ -1554,21 +1613,22 @@ def test_a_full_build_grades_everything_it_placed(project):
 
 
 @pytest.mark.usefixtures("mock_dvr")
-def test_a_suffixed_rebuild_grades_the_new_container_not_the_old(project):
-    """`--only-reel 3 --name-suffix` places a NEW timeline; the old
-    approved one is untouched and must not be what the gate grades."""
+def test_a_suffixed_rebuild_grades_scratch_then_promotes_to_base(project):
+    """A suffixed scratch is graded before it replaces the base reel."""
     resolve_project = FakeProject([MASTER] + APPROVED)
 
     record, gate = _run_build(resolve_project, project, only=[3],
                                name_suffix=" (whole-take rebuild)")
 
-    assert record["timelines_built"] == [
-        "Reel 03 - moment-3 (whole-take rebuild)"]
+    assert record["timelines_built"] == ["Reel 03 - moment-3"]
     assert gate.call_count == 2
     assert gate.call_args_list[0][1]["only_reels"] == [
         _staging("Reel 03 - moment-3 (whole-take rebuild)")]
     assert gate.call_args_list[1][1]["only_reels"] == [
-        "Reel 03 - moment-3 (whole-take rebuild)"]
+        "Reel 03 - moment-3"]
+    assert "Reel 03 - moment-3" in resolve_project.names()
+    assert "Reel 03 - moment-3 (whole-take rebuild)" not in \
+        resolve_project.names()
 
 
 # ── The verifier honours the scope ───────────────────────────────────

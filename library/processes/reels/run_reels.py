@@ -55,9 +55,10 @@ def add_arguments(parser) -> None:
              "about to place, so this touches one timeline.")
     parser.add_argument(
         "--name-suffix", default="", metavar="TEXT",
-        help="Append this to the Resolve timeline name each reel is built "
-             "into, and to its caption filenames. Default: the plan's own "
-             "name, which REPLACES the timeline already called that.")
+        help="Label the temporary Resolve timeline and its caption files. "
+             "After conformance passes, the build promotes to the plan's "
+             "approved name; a failed verification leaves it untouched. "
+             "Default: use the plan name for the temporary timeline too.")
     parser.add_argument(
         "--allow-drop", dest="allow_drop", action="append", default=[],
         metavar="SPEC",

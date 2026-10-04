@@ -148,7 +148,10 @@ path:
 `build-reels` flags (all repeatable except where noted):
 
 - `--only-reel N`: touch one timeline; the build deletes only what it is about to place.
-- `--name-suffix TEXT`: build into a suffixed timeline name instead of REPLACING the plan's own.
+- `--name-suffix TEXT`: label the temporary timeline and caption assets
+  while the approved reel stays live. After conformance passes, the
+  staging automatically promotes to the plan's exact approved name; a
+  refused or interrupted build leaves it held for that target.
 - `--skip-captions`: skip subtitle rendering (saves CPU).
 - `--allow-drop ROW` (or `FINAL::ROW` for one reel): a row the replace guard may let shrink. Absent means any row loss refuses the promotion - by row, never by blanket.
 - `--supersede REEL`: this build may replace a reel carrying the captain's durable sign-off. Absent means it refuses by name and prints this flag.

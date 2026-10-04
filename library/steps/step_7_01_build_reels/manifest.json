@@ -35,7 +35,7 @@
         "name": "timeline_name_suffix",
         "type": "string",
         "required": false,
-        "description": "Appended to the Resolve timeline name each reel is built INTO, and to the `timeline` component of every caption filename so the overlays cannot overwrite another timeline's. Absent means the plan's own name, which REPLACES the existing timeline of that name. The `--name-suffix` flag of `manage_project.py build-reels`."
+        "description": "Appended to the temporary Resolve timeline name each reel is built INTO, and to the `timeline` component of every caption filename so the overlays cannot overwrite another timeline's. After conformance passes, the staging automatically promotes to the approved plan name; a verification failure leaves the approved timeline untouched. Absent means the plan name is also used for the temporary timeline. The `--name-suffix` flag of `manage_project.py build-reels`."
       },
       {
         "name": "allow_drops",
