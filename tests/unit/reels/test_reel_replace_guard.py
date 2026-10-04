@@ -228,6 +228,100 @@ def test_subtitle_row_merge_requires_sidecar_word_preservation(
             "final", "unreadable", old, unreadable)
 
 
+def test_shrinking_subtitle_row_requires_exact_timed_words_and_year_merge(
+        tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from library.tools import reel_read
+
+    def caption_asset(stem, text, words):
+        media = tmp_path / f"{stem}.mov"
+        media.with_name(f"{media.stem}_props.json").write_text(
+            json.dumps({
+                "_source_in_frame": 0,
+                "subtitles": [{"text": text, "words": words}],
+            }),
+            encoding="utf-8")
+        return str(media)
+
+    old_a = caption_asset("old_a", "from 20", [
+        {"word": "from", "startFrame": 0, "endFrame": 5},
+        {"word": "20", "startFrame": 10, "endFrame": 14},
+    ])
+    old_b = caption_asset("old_b", "21 had said different.", [
+        {"word": "21", "startFrame": 0, "endFrame": 4},
+        {"word": "had", "startFrame": 4, "endFrame": 9},
+        {"word": "said", "startFrame": 9, "endFrame": 14},
+        {"word": "different.", "startFrame": 14, "endFrame": 19},
+    ])
+    merged = caption_asset("merged", "from 2021 had said different.", [
+        {"word": "from", "startFrame": 0, "endFrame": 5},
+        {"word": "2021", "startFrame": 10, "endFrame": 18},
+        {"word": "had", "startFrame": 18, "endFrame": 23},
+        {"word": "said", "startFrame": 23, "endFrame": 28},
+        {"word": "different.", "startFrame": 28, "endFrame": 33},
+    ])
+    dropped = caption_asset("dropped", "from 2021 had said", [
+        {"word": "from", "startFrame": 0, "endFrame": 5},
+        {"word": "2021", "startFrame": 10, "endFrame": 18},
+        {"word": "had", "startFrame": 18, "endFrame": 23},
+        {"word": "said", "startFrame": 23, "endFrame": 28},
+    ])
+    moved = caption_asset("moved", "from 2021 had said different.", [
+        {"word": "from", "startFrame": 0, "endFrame": 5},
+        {"word": "2021", "startFrame": 13, "endFrame": 21},
+        {"word": "had", "startFrame": 21, "endFrame": 26},
+        {"word": "said", "startFrame": 26, "endFrame": 31},
+        {"word": "different.", "startFrame": 31, "endFrame": 36},
+    ])
+    unreadable = caption_asset("unreadable",
+                               "from 2021 had said different.", [])
+
+    def track_for(assets, starts, durations):
+        clips = []
+        for path, start, duration in zip(assets, starts, durations):
+            clips.append({
+                "name": Path(path).name,
+                "source_file": path,
+                "record_in": start,
+                "record_out": start + duration,
+                "source_in_frame": 0,
+                "duration": duration,
+                "enabled": True,
+            })
+        return [{"type": "video", "index": 4, "name": "Subtitles",
+                 "clips": clips}]
+
+    tracks = {
+        "retiring": track_for([old_a, old_b], [0, 14], [30, 39]),
+        "merged": track_for([merged], [0], [56]),
+        "dropped": track_for([dropped], [0], [56]),
+        "moved": track_for([moved], [0], [56]),
+        "unreadable": track_for([unreadable], [0], [56]),
+    }
+    monkeypatch.setattr(reel_read, "read_tracks",
+                        lambda timeline: tracks[timeline.GetName()])
+
+    def snapshot(name):
+        timeline = SimpleNamespace(GetName=lambda: name)
+        return reel_replace_guard.snapshot_timeline(timeline, name)
+
+    old = snapshot("retiring")
+    accepted = snapshot("merged")
+    lost_word = snapshot("dropped")
+    moved_word = snapshot("moved")
+    missing_timing = snapshot("unreadable")
+
+    assert accepted["video:Subtitles"]["frames"] < old["video:Subtitles"]["frames"]
+    assert reel_replace_guard.check_replacement(
+        "final", "merged", old, accepted)["joined"] == ["video:Subtitles"]
+    for incoming in (lost_word, moved_word, missing_timing):
+        with pytest.raises(reel_replace_guard.ReplaceGuardRefused,
+                           match="video:Subtitles"):
+            reel_replace_guard.check_replacement("final", "staging", old,
+                                                 incoming)
+
+
 def test_empty_node_lut_shapes_do_not_make_a_color_edit():
     item = {
         "track_type": "video",

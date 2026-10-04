@@ -28,9 +28,12 @@ not):
 
 Frame totals are REPORTED per row, and join the trigger as the join
 half: a shortened cut holds the same items over fewer frames, and
-that must pass. Grain removed and a j-cut deleted likewise move no
-item count, which is why a count trigger is not a nuisance for the
-legitimate reductions the captain actually makes.
+that must pass. The video:Subtitles row has a narrower content proof
+for row reflow: exact visible words and their timed windows may justify
+a shorter row when every word still lands within one frame. Grain
+removed and a j-cut deleted likewise move no item count, which is why a
+count trigger is not a nuisance for the legitimate reductions the
+captain actually makes.
 
 A join is not a loss
 --------------------
@@ -44,13 +47,21 @@ already the diff's whole identity - `reel_read.rows_of` - and reel rows
 carry source names, so two halves of one source share one name while
 a dropped cover like `LC4932 cover` has one nothing else carries).
 
-So a row with fewer incoming items is a JOIN, and passes undeclared,
-exactly when the incoming row holds at least as many frames AND
-every distinct retired name still occurs among the incoming items.
+So a non-subtitle row with fewer incoming items is a JOIN, and passes
+undeclared, exactly when the incoming row holds at least as many frames
+AND every distinct retired name still occurs among the incoming items.
 Both halves are load-bearing, and the round's own cutaway is the
 counter-example that proves frames alone are not enough: that loss
 went 3 items to 2 over EQUAL frames (hole closed), so a frames-only
 rule would have waved a real deletion through. Names refuse it.
+
+Subtitle reflow uses `caption_tokens` from each rendered sidecar and,
+when the row shrinks, `caption_word_windows` reconstructed in timeline
+frames from each timed word and its clip placement. Visible copy must
+match the sidecar's timed words. The complete row token sequence and
+every word's start/end frame must match (one frame of rounding is
+allowed); the only spelling normalization joins adjacent `19`/`20` and
+two-digit year fragments. Missing text or timing evidence refuses.
 
 What this still cannot see, stated plainly: a substitution that keeps
 every name and grows the frames - one same-named item's seconds
@@ -921,31 +932,124 @@ def _match_key(entry: dict) -> tuple:
 _CAPTION_WORD = re.compile(r"[^\W_]+(?:['’][^\W_]+)*", re.UNICODE)
 
 
-def _subtitle_tokens(source_file: str) -> list[str] | None:
-    """Read the visible word sequence from a rendered subtitle's sidecar."""
+def _caption_tokens(text: str) -> list[str]:
+    return [token.casefold() for token in _CAPTION_WORD.findall(text)]
+
+
+def _canonical_caption_tokens(tokens: list[str]) -> list[str]:
+    """Treat adjacent spoken century/two-digit fragments as one year."""
+    normalized = []
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if (token in {"19", "20"} and index + 1 < len(tokens)
+                and re.fullmatch(r"\d{2}", tokens[index + 1])):
+            normalized.append(token + tokens[index + 1])
+            index += 2
+            continue
+        normalized.append(token)
+        index += 1
+    return normalized
+
+
+def _canonical_caption_windows(words: list[dict]) -> list[dict]:
+    """Join adjacent timed century and two-digit year fragments."""
+    normalized = []
+    index = 0
+    while index < len(words):
+        word = words[index]
+        if (word["word"] in {"19", "20"} and index + 1 < len(words)
+                and re.fullmatch(r"\d{2}", words[index + 1]["word"])):
+            next_word = words[index + 1]
+            normalized.append({
+                "word": word["word"] + next_word["word"],
+                "start": min(word["start"], next_word["start"]),
+                "end": max(word["end"], next_word["end"]),
+            })
+            index += 2
+            continue
+        normalized.append(word)
+        index += 1
+    return normalized
+
+
+def _subtitle_snapshot_data(source_file: str, detail: dict
+                            ) -> tuple[list[str] | None,
+                                       list[dict] | None]:
+    """Read visible copy and timed word windows from one subtitle sidecar.
+
+    `caption_word_windows` are in timeline frames. The sidecar's word
+    windows are relative to the rendered overlay, while Resolve reports
+    the source in-point and record in-point of the placed overlay.
+    """
     if not source_file:
-        return None
+        return None, None
     path = Path(source_file)
     props_path = path.with_name(f"{path.stem}_props.json")
     try:
         props = json.loads(props_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return None
+        return None, None
     subtitles = props.get("subtitles") if isinstance(props, dict) else None
     if not isinstance(subtitles, list) or not subtitles:
-        return None
-    words = []
+        return None, None
+    visible_tokens = []
+    timed_words = []
+    timed_evidence_valid = True
     for subtitle in subtitles:
         if not isinstance(subtitle, dict) or not isinstance(
                 subtitle.get("text"), str):
-            return None
-        words.extend(token.casefold() for token in
-                     _CAPTION_WORD.findall(subtitle["text"]))
-    return words or None
+            return None, None
+        visible_tokens.extend(_caption_tokens(subtitle["text"]))
+        word_rows = subtitle.get("words")
+        if not isinstance(word_rows, list) or not word_rows:
+            timed_evidence_valid = False
+            continue
+        for word in word_rows:
+            if not isinstance(word, dict) or not isinstance(
+                    word.get("word"), str):
+                timed_evidence_valid = False
+                continue
+            word_tokens = _caption_tokens(word["word"])
+            start_frame, end_frame = (word.get("startFrame"),
+                                      word.get("endFrame"))
+            if (len(word_tokens) != 1
+                    or isinstance(start_frame, bool)
+                    or not isinstance(start_frame, int)
+                    or isinstance(end_frame, bool)
+                    or not isinstance(end_frame, int)
+                    or end_frame <= start_frame):
+                timed_evidence_valid = False
+                continue
+            timed_words.append((word_tokens[0], start_frame, end_frame))
+    if not visible_tokens:
+        return None, None
+    tokens = _canonical_caption_tokens(visible_tokens)
+    if not timed_evidence_valid:
+        return tokens, None
+
+    timed_tokens = _canonical_caption_tokens(
+        [word for word, _start, _end in timed_words])
+    if timed_tokens != tokens:
+        return tokens, None
+
+    record_in = detail.get("record_in")
+    source_in = detail.get("source_in_frame")
+    if (isinstance(record_in, bool) or not isinstance(record_in, int)
+            or isinstance(source_in, bool) or not isinstance(source_in, int)):
+        return tokens, None
+
+    timeline_words = [
+        {"word": word,
+         "start": record_in + start_frame - source_in,
+         "end": record_in + end_frame - source_in}
+        for word, start_frame, end_frame in timed_words
+    ]
+    return tokens, _canonical_caption_windows(timeline_words)
 
 
 def _attach_subtitle_tokens(rows: dict, tracks: list[dict]) -> None:
-    """Attach readable caption copy to the Subtitles row snapshot only."""
+    """Attach visible copy and timed words to the Subtitles row only."""
     for track in tracks:
         if (track["type"] != "video"
                 or str(track["name"] or "").casefold() != "subtitles"):
@@ -955,26 +1059,30 @@ def _attach_subtitle_tokens(rows: dict, tracks: list[dict]) -> None:
         if len(track["clips"]) != len(row["items"]):
             return
         row["caption_tokens"] = []
+        row["caption_word_windows"] = []
         for detail, item in zip(track["clips"], row["items"]):
-            tokens = (None if item["enabled"] is False else
-                      _subtitle_tokens(
-                          str(detail.get("source_file") or "")))
+            tokens, windows = (
+                (None, None) if item["enabled"] is False else
+                _subtitle_snapshot_data(
+                    str(detail.get("source_file") or ""), detail))
             row["caption_tokens"].append(tokens)
+            row["caption_word_windows"].append(windows)
 
 
 def _is_subtitle_join(old: dict, new: dict) -> bool:
     """Prove a subtitle card merge kept every visible word in order.
 
     Subtitle renders get content-derived filenames, so the ordinary
-    name-presence proxy cannot recognize a merged or reflowed card. The
-    sidecars carry the text actually drawn; the old token sequence must be a
-    subsequence of the new one, and total visible row duration cannot shrink.
-    Missing sidecar evidence keeps the replace guard fail-closed.
+    name-presence proxy cannot recognize a merged or reflowed card. With
+    equal or greater row duration, the old visible token sequence must be
+    a subsequence of the new one. A shorter row needs an exact canonical
+    token sequence and per-word timeline windows within one frame. Missing
+    sidecar or timing evidence keeps the replace guard fail-closed.
     """
     old_items, new_items = old["items"], new["items"]
-    if ((new["frames"] or 0) < (old["frames"] or 0)
-            or not old_items or not new_items):
+    if not old_items or not new_items:
         return False
+    shrinking = (new["frames"] or 0) < (old["frames"] or 0)
     old_rows = old.get("caption_tokens")
     new_rows = new.get("caption_tokens")
     if (not isinstance(old_rows, list) or len(old_rows) != len(old_items)
@@ -993,11 +1101,59 @@ def _is_subtitle_join(old: dict, new: dict) -> bool:
         if not isinstance(tokens, list) or not tokens:
             return False
         new_tokens.extend(tokens)
+    old_tokens = _canonical_caption_tokens(old_tokens)
+    new_tokens = _canonical_caption_tokens(new_tokens)
     if not old_tokens or not new_tokens:
         return False
+    if shrinking:
+        old_windows = old.get("caption_word_windows")
+        new_windows = new.get("caption_word_windows")
+        if (not isinstance(old_windows, list)
+                or len(old_windows) != len(old_items)
+                or not isinstance(new_windows, list)
+                or len(new_windows) != len(new_items)):
+            return False
+        if any(item.get("enabled") is not False
+               and (not isinstance(windows, list) or not windows)
+               for items, rows in ((old_items, old_windows),
+                                   (new_items, new_windows))
+               for item, windows in zip(items, rows)):
+            return False
+        flattened_old = [window for item, windows in
+                         zip(old_items, old_windows)
+                         if item.get("enabled") is not False
+                         for window in (windows or [])]
+        flattened_new = [window for item, windows in
+                         zip(new_items, new_windows)
+                         if item.get("enabled") is not False
+                         for window in (windows or [])]
+        flattened_old = _canonical_caption_windows(flattened_old)
+        flattened_new = _canonical_caption_windows(flattened_new)
+        if not _same_caption_word_windows(flattened_old, flattened_new):
+            return False
+        return old_tokens == new_tokens
     cursor = iter(new_tokens)
     return all(any(candidate == token for candidate in cursor)
                for token in old_tokens)
+
+
+def _same_caption_word_windows(old: list, new: list) -> bool:
+    """Require identical timed words, allowing one frame of rounding."""
+    if not old or len(old) != len(new):
+        return False
+    for before, after in zip(old, new):
+        if not isinstance(before, dict) or not isinstance(after, dict):
+            return False
+        if before.get("word") != after.get("word"):
+            return False
+        for edge in ("start", "end"):
+            old_frame, new_frame = before.get(edge), after.get(edge)
+            if (isinstance(old_frame, bool) or not isinstance(old_frame, int)
+                    or isinstance(new_frame, bool)
+                    or not isinstance(new_frame, int)
+                    or abs(old_frame - new_frame) > 1):
+                return False
+    return True
 
 
 def diff_rows(retired: dict, incoming: dict) -> list:
@@ -1117,7 +1273,10 @@ def _is_join(old: dict, new: dict) -> bool:
     `frames`). A withdrawn take cut merges two adjacent placements
     into one continuous one: fewer items, at least as many frames
     (the restored seconds are back in), every retired name still on
-    the row. All three must hold - the cutaway loss this guard first
+    the row. Subtitle card reflow instead uses visible text and timed
+    word windows, which permit a shorter row only when all spoken copy
+    and word positions match. The generic join's three parts must hold -
+    the cutaway loss this guard first
     caught proves frames alone are not sufficient (3 items to 2 over
     equal frames, with `LC4932 cover` gone), and names alone are not
     either (a shrunken same-named row keeps every name while losing
@@ -1213,7 +1372,9 @@ def check_replacement(final: str, staging: str, retired: dict,
         safe = []
         remaining = []
         remaining_caption_tokens = []
+        remaining_caption_word_windows = []
         old_caption_tokens = old.get("caption_tokens")
+        old_caption_word_windows = old.get("caption_word_windows")
         for index, item in enumerate(old["items"]):
             identity = (verdict["key"], item["name"], item["start"],
                         item["end"])
@@ -1226,6 +1387,10 @@ def check_replacement(final: str, staging: str, retired: dict,
                     remaining_caption_tokens.append(
                         old_caption_tokens[index]
                         if index < len(old_caption_tokens) else None)
+                if isinstance(old_caption_word_windows, list):
+                    remaining_caption_word_windows.append(
+                        old_caption_word_windows[index]
+                        if index < len(old_caption_word_windows) else None)
         effective_old = {
             **old,
             "items": remaining,
@@ -1234,6 +1399,9 @@ def check_replacement(final: str, staging: str, retired: dict,
         }
         if isinstance(old_caption_tokens, list):
             effective_old["caption_tokens"] = remaining_caption_tokens
+        if isinstance(old_caption_word_windows, list):
+            effective_old["caption_word_windows"] = (
+                remaining_caption_word_windows)
         verdict["unchanged_disabled"] = [
             item for item, entry in safe if "replacement_item" not in entry]
         verdict["carried_disabled_replacements"] = [

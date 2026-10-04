@@ -193,6 +193,77 @@ def test_restored_speech_leadin_is_captioned_from_its_own_word_times(
         entry["text"] for entry in entries)
 
 
+def test_sub_frame_word_merges_into_adjacent_same_speaker_block(monkeypatch):
+    """A clipped 28 ms word stays captioned when its block has no other card."""
+    from library.steps.step_4_01_plan_subtitles import step as subtitles
+
+    class _FitsAll:
+        measured = True
+        usable_width = 1000
+
+        @staticmethod
+        def fits_in_box(_text):
+            return True
+
+        @staticmethod
+        def fit_scale(_text, _emphasis_words=None):
+            return 1.0
+
+    monkeypatch.setattr(subtitles, "resolve_subtitle_style",
+                        lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(subtitles, "resolve_safe_area",
+                        lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(subtitles, "build_caption_fitter",
+                        lambda *_args, **_kwargs: _FitsAll())
+    spine = {"max_words": 4, "structure": [
+        {
+            "position": 1,
+            "block_type": "speech",
+            "speaker": "Akshita",
+            "content": {"text": "So"},
+            "timeline_start": 75.923,
+            "timeline_end": 75.951,
+            "source_start": 75.923,
+            "source_end": 75.951,
+            "word_timestamps": [{
+                "word": "So", "source_start": 75.923,
+                "source_end": 75.951,
+            }],
+        },
+        {
+            "position": 2,
+            "block_type": "speech",
+            "speaker": "Akshita",
+            "content": {"text": "we can ship it."},
+            "timeline_start": 75.960,
+            "timeline_end": 77.000,
+            "source_start": 75.960,
+            "source_end": 77.000,
+            "word_timestamps": [
+                {"word": "we", "source_start": 75.960,
+                 "source_end": 76.100},
+                {"word": "can", "source_start": 76.110,
+                 "source_end": 76.260},
+                {"word": "ship", "source_start": 76.280,
+                 "source_end": 76.580},
+                {"word": "it.", "source_start": 76.600,
+                 "source_end": 76.800},
+            ],
+        },
+    ]}
+
+    plan = generate_subtitles(
+        spine, caption_case="as_written", brand_effect={}, brand_style={},
+    )["subtitle_plan"]
+    entries = plan["subtitle_entries"]
+    planned_words = [word["word"] for entry in entries
+                     for word in entry["words"]]
+
+    assert planned_words == ["So", "we", "can", "ship", "it."]
+    assert any(entry["text"].startswith("So we") for entry in entries)
+    assert plan["readability_issues"] == []
+
+
 def test_two_words_max_groups_pairs():
     """C3.2's shape: no card carries more than the stated 2."""
     groups = split_into_groups(_words(6), fits_fn=_fits_all, max_words=2)

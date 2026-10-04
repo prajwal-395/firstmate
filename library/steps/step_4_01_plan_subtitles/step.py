@@ -858,8 +858,10 @@ def _enforce_caption_duration_floor(entries: list, structure: list,
     card. The card may use an uncaptioned gap after that block, but not
     another speech block or caption. If the gap is too short, it joins an
     adjacent same-speaker card in its own block when doing so keeps the
-    sentence boundary intact. An impossible plan fails here instead of
-    emitting a card the F7 gate will reject.
+    sentence boundary intact. A sub-frame word may also join the nearest
+    same-speaker card in the immediately neighboring block when the gap
+    between them is at most one readability floor. An impossible plan
+    fails here instead of emitting a card the F7 gate will reject.
     """
     floor = MIN_CAPTION_FLASH_SECONDS
     fps = float(fps)
@@ -935,10 +937,25 @@ def _enforce_caption_duration_floor(entries: list, structure: list,
         for candidate, is_previous in candidates:
             if candidate is None:
                 continue
-            same_block = candidate["spine_block_position"] == position
+            candidate_position = candidate["spine_block_position"]
+            same_block = candidate_position == position
             same_speaker = candidate.get("speaker") == entry.get("speaker")
-            if not (same_block and same_speaker):
+            cross_block_fragment = (
+                end - start < MIN_VISIBLE_DURATION
+                and abs(candidate_position - position) == 1
+                and entry.get("speaker") is not None
+                and same_speaker
+            )
+            if not (same_block and same_speaker or cross_block_fragment):
                 continue
+            if cross_block_fragment and not same_block:
+                candidate_edge = float(
+                    candidate["timeline_end"] if is_previous
+                    else candidate["timeline_start"])
+                entry_edge = start if is_previous else end
+                gap = max(0.0, entry_edge - candidate_edge)
+                if gap > floor + 1e-9:
+                    continue
             # Keep sentence terminals at the end of a card, as the
             # grouping and overlap passes already require.
             if is_previous and _ends_sentence_text(candidate.get("text", "")):
@@ -1858,13 +1875,12 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                 target = _merge_target(group, entry, kept)
                 if target is None:
                     print(
-                        f"WARNING: dropped subtitle {entry.get('id', '?')} "
-                        f"({entry.get('text', '')!r}) - clamping it to block "
-                        f"{pos} left no visible duration, and it is the "
-                        f"block's only card",
+                        f"NOTE: retained sub-{MIN_VISIBLE_DURATION:.3f}s "
+                        f"subtitle {entry.get('id', '?')} "
+                        f"({entry.get('text', '')!r}) from block {pos} "
+                        f"for the plan-wide duration pass",
                         file=sys.stderr,
                     )
-                    subtitle_entries.remove(entry)
                     continue
                 _merge_entry(entry, target)
                 subtitle_entries.remove(entry)
