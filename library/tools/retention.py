@@ -170,6 +170,24 @@ class Candidate:
     inode: tuple = ()
 
 
+def _reclaimable_bytes(candidates: list[Candidate]) -> int:
+    """Count bytes freed by removing these paths, accounting for hardlinks."""
+    by_inode: dict = {}
+    total = 0
+    for candidate in candidates:
+        if not candidate.inode:
+            total += candidate.size_bytes
+            continue
+        entry = by_inode.setdefault(
+            tuple(candidate.inode[:2]),
+            [candidate.size_bytes, candidate.inode[2], 0])
+        entry[2] += 1
+    for size, links, listed in by_inode.values():
+        if listed >= links:
+            total += size
+    return total
+
+
 @dataclass
 class PurgePlan:
     project_folder: str
@@ -189,19 +207,7 @@ class PurgePlan:
         only when EVERY link to it is in the set: removing one name of
         a file another name still holds frees nothing.
         """
-        by_inode: dict = {}
-        total = 0
-        for c in self.candidates:
-            if not c.inode:
-                total += c.size_bytes
-                continue
-            entry = by_inode.setdefault(tuple(c.inode[:2]),
-                                        [c.size_bytes, c.inode[2], 0])
-            entry[2] += 1
-        for size, links, listed in by_inode.values():
-            if listed >= links:
-                total += size
-        return total
+        return _reclaimable_bytes(self.candidates)
 
     def to_dict(self) -> dict:
         data = asdict(self)
@@ -594,7 +600,7 @@ def apply_purge(manifest_path: str, db_paths,
     record = {"applied_at": datetime.now(UTC).isoformat(),
               "manifest": manifest_path, "removed": removed,
               "removed_count": len(removed),
-              "bytes": sum(by_path[p].size_bytes for p in removed)}
+              "bytes": _reclaimable_bytes([now[p] for p in removed])}
     data = planned.to_dict()
     data["applied"] = record
     Path(_json_path_for(manifest_path)).write_text(

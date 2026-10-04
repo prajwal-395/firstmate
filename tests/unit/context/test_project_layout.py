@@ -735,6 +735,49 @@ def test_a_file_a_live_timeline_places_is_never_removed(tmp_path):
 
 
 @pytest.mark.usefixtures("_lean")
+def test_applied_purge_receipt_counts_hardlinked_bytes_once(tmp_path):
+    root = _project(tmp_path)
+    directory = os.path.join(root, "pipeline_output", "quarantine",
+                             "hardlinks")
+    first = _write(os.path.join(directory, "first.bin"), size=1024)
+    second = os.path.join(directory, "second.bin")
+    os.link(first, second)
+    db = _database(str(tmp_path / "db" / "Project.db"), [], [SIGNED])
+
+    plan = retention.plan_purge(root, [db])
+    manifest = retention.write_plan(plan)
+    record = retention.apply_purge(manifest, [db], project_folder=root)
+
+    assert plan.reclaimable_bytes == 1024
+    assert record["removed_count"] == 2
+    assert record["bytes"] == plan.reclaimable_bytes
+    assert not os.path.exists(first) and not os.path.exists(second)
+
+
+@pytest.mark.usefixtures("_lean")
+def test_applied_purge_receipt_counts_only_links_removed(tmp_path):
+    root = _project(tmp_path)
+    directory = os.path.join(root, "pipeline_output", "quarantine",
+                             "hardlinks")
+    first = _write(os.path.join(directory, "first.bin"), size=1024)
+    second = os.path.join(directory, "second.bin")
+    os.link(first, second)
+    db = _database(str(tmp_path / "db" / "Project.db"), [], [SIGNED])
+
+    manifest = retention.write_plan(retention.plan_purge(root, [db]))
+    lines = Path(manifest).read_text(encoding="utf-8").splitlines()
+    Path(manifest).write_text(
+        "\n".join(line for line in lines if not line.endswith("\t" + second))
+        + "\n", encoding="utf-8")
+
+    record = retention.apply_purge(manifest, [db], project_folder=root)
+
+    assert record["removed"] == [first]
+    assert record["bytes"] == 0
+    assert not os.path.exists(first) and os.path.isfile(second)
+
+
+@pytest.mark.usefixtures("_lean")
 def test_an_unsigned_reels_renders_survive_its_timeline_being_gone(
         tmp_path):
     """Between builds a reel has no timeline, and the ledger stops pinning
