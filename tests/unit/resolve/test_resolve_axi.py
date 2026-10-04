@@ -51,6 +51,7 @@ from library.tools.resolve_axi import (
     cmd_markers_restore,
     cmd_multicam_build,
     cmd_multicam_sync,
+    cmd_ownership_adopt,
     cmd_pool,
     cmd_project,
     cmd_project_set,
@@ -1318,6 +1319,67 @@ def test_cli_dispatch_connects_only_after_taking_exclusive_lease(monkeypatch):
     assert events[0] == ("lease_enter", True)
     assert events[1] == ("connect", None)
     assert events[-1] == ("lease_exit", True)
+
+
+def test_ownership_adoption_is_a_read_lease_and_records_without_timeline_writes(
+        patched, tmp_path, monkeypatch, capsys):
+    from types import SimpleNamespace
+
+    from library.tools.plan_provenance import (
+        adopted_timeline_identities,
+        read_provenance,
+    )
+    from library.tools import project_registry
+
+    config = SimpleNamespace(
+        slug="podcast-field-test",
+        resolve=SimpleNamespace(project_name="Podcast (field test)"),
+        project_root=tmp_path,
+    )
+    monkeypatch.setattr(project_registry, "get_project",
+                        lambda _project: config)
+
+    events = []
+    active = []
+
+    @contextlib.contextmanager
+    def tracked_lease(*, exclusive):
+        events.append(("lease_enter", exclusive))
+        active.append(exclusive)
+        try:
+            yield None
+        finally:
+            active.pop()
+            events.append(("lease_exit", exclusive))
+
+    def connect():
+        assert active and active[-1] is False
+        events.append(("connect", None))
+        return patched["resolve"]
+
+    monkeypatch.setattr(resolve_axi, "_lease", tracked_lease)
+    monkeypatch.setattr(resolve_axi, "_connect", connect)
+
+    result = resolve_axi._dispatch(
+        cmd_ownership_adopt,
+        _ns(project="podcast-field-test", who="Prajwal"))
+
+    assert result == 0
+    output = capsys.readouterr().out
+    assert "ownership_adoption_before:" in output
+    assert "ownership_adoption_after:" in output
+    assert "resolve_timeline_writes: 0" in output
+    assert "adopted_reels[1]" in output
+    reel_id = str(patched["timeline"].GetUniqueId())
+    entry = adopted_timeline_identities(
+        str(tmp_path / "pipeline_output" / "review"))[f"id:{reel_id}"]
+    assert entry["owner"] == "Ren"
+    assert entry["who"] == "Prajwal"
+    assert entry["name"] == "Reel 29 - salvage"
+    assert "ren_timeline_snapshots" not in read_provenance(
+        str(tmp_path / "pipeline_output" / "review"))
+    assert events == [
+        ("lease_enter", False), ("connect", None), ("lease_exit", False)]
 
 
 def test_run_after_report_survives_a_mid_run_project_switch(

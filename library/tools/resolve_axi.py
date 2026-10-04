@@ -2138,6 +2138,126 @@ def cmd_project(args) -> int:
     return 0
 
 
+def cmd_ownership_adopt(args) -> int:
+    """Adopt final reel timelines by exact Resolve id, without editing them."""
+    try:
+        from library.tools.project_registry import get_project
+        config = get_project(args.project)
+        expected_name = str(config.resolve.project_name or "").strip()
+        if not expected_name:
+            return fail(
+                f"project {config.slug!r} has no Resolve project binding.",
+                "ren info <project>")
+        resolve = _connect()
+        project = _project(resolve, expected_name)
+
+        def snapshot(live_project):
+            try:
+                current = live_project.GetCurrentTimeline()
+                if current is None:
+                    raise ValueError("Resolve has no current timeline")
+                current_name = str(current.GetName())
+                current_id = str(current.GetUniqueId() or "").strip()
+                count = int(live_project.GetTimelineCount() or 0)
+                inventory = []
+                for index in range(1, count + 1):
+                    timeline = live_project.GetTimelineByIndex(index)
+                    if timeline is None:
+                        raise ValueError(
+                            f"timeline {index} returned no object")
+                    unique_id = timeline.GetUniqueId()
+                    inventory.append({
+                        "name": str(timeline.GetName()),
+                        "unique_id": str(unique_id) if unique_id else None,
+                    })
+            except Exception as exc:  # noqa: BLE001
+                raise AxiError(
+                    f"the live project inventory could not be read ({exc}).",
+                    f"{TOOL} ownership <project> --who <name>") from exc
+            if not current_id:
+                raise AxiError(
+                    f"the current timeline {current_name!r} has no unique "
+                    "id, so the pre-adoption Resolve state cannot be "
+                    "recorded.",
+                    f"{TOOL} ownership <project> --who <name>")
+            return {
+                "project": str(live_project.GetName()),
+                "current_timeline": {
+                    "name": current_name,
+                    "unique_id": current_id,
+                },
+                "timeline_count": count,
+                "inventory": inventory,
+            }
+
+        before = snapshot(project)
+        if before["project"] != expected_name:
+            raise AxiError(
+                f"the open project is {before['project']!r}, not the exact "
+                f"configured name {expected_name!r}.",
+                f"{TOOL} cursor")
+        # Report the live starting point before writing the local ownership
+        # ledger. Resolve itself remains under a shared read lease.
+        emit([kv_block("ownership_adoption_before", {
+                  "project": before["project"],
+                  "timeline": before["current_timeline"]["name"],
+                  "timeline_id": before["current_timeline"]["unique_id"],
+                  "timeline_count": before["timeline_count"],
+              })])
+        sys.stdout.flush()
+
+        from library.tools.plan_provenance import (
+            adopt_reel_timeline_identities,
+        )
+        review_dir = str(config.project_root / "pipeline_output" / "review")
+        result = adopt_reel_timeline_identities(
+            review_dir, before["inventory"], who=args.who)
+
+        manager = resolve.GetProjectManager()
+        current_project = manager.GetCurrentProject()
+        if current_project is None:
+            raise AxiError(
+                "Resolve no longer has the project open after adoption; "
+                "the local ownership record was written, but live state "
+                "could not be confirmed.",
+                f"{TOOL} cursor")
+        after = snapshot(current_project)
+        if (after["project"] != before["project"]
+                or after["current_timeline"] != before["current_timeline"]
+                or after["timeline_count"] != before["timeline_count"]
+                or after["inventory"] != before["inventory"]):
+            raise AxiError(
+                "Resolve project, current timeline, timeline count, or "
+                "timeline identities changed during adoption. The local "
+                "ownership record was written; no timeline write was "
+                "issued. Inspect the recorded ids before rebuilding.",
+                f"{TOOL} timeline list")
+
+        names = result["adopted"]
+        emit([kv_block("ownership_adoption_after", {
+                  "project": after["project"],
+                  "timeline": after["current_timeline"]["name"],
+                  "timeline_id": after["current_timeline"]["unique_id"],
+                  "timeline_count": after["timeline_count"],
+                  "resolve_timeline_writes": 0,
+              }),
+              table("adopted_reels", [{"name": name} for name in names],
+                    ["name"]) if names else "adopted_reels: 0 new reels",
+              table("already_adopted", [
+                        {"name": name}
+                        for name in result["already_adopted"]], ["name"])
+              if result["already_adopted"]
+              else "already_adopted: 0 reels",
+              help_block([f"{TOOL} ownership <project> --who <name>"])])
+        return 0
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    except Exception as exc:  # noqa: BLE001
+        return fail(
+            f"reel timeline adoption failed ({type(exc).__name__}: {exc}).",
+            f"{TOOL} ownership <project> --who <name>")
+
+
 def _voice_state(value) -> str:
     if isinstance(value, dict):
         if value.get("isEnabled"):
@@ -6352,6 +6472,15 @@ def build_parser() -> Parser:
                    help="write under the Resolve lease (default is a "
                         "dry-run plan)")
     q.set_defaults(func=cmd_project_set)
+
+    p = subs.add_parser(
+        "ownership",
+        help="adopt existing reel timelines by exact Resolve id; "
+             "changes the local ownership ledger, never the timelines")
+    p.add_argument("project", help="Ren project slug or project directory")
+    p.add_argument("--who", required=True,
+                   help="person authorizing this one-time adoption")
+    p.set_defaults(func=cmd_ownership_adopt)
 
     p = subs.add_parser("audio", help="audio tracks: enable state and "
                                       "clip counts (read-only); isolate "

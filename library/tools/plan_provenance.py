@@ -190,6 +190,14 @@ promotion time - the only moment "what the live timeline holds" and
 rather than grading a stale file.
 """
 
+ADOPTED_TIMELINES_KEY = "adopted_ren_timeline_identities"
+"""Per Resolve timeline unique id, who explicitly adopted it and when.
+
+This is an append-only audit table. Adoption removes that exact id from
+``editor_timeline_identities`` so a later Ren build may replace it; the
+id-keyed record remains as the durable explanation for that change.
+"""
+
 CARRIED_EDITS_KEY = "carried_editor_edits"
 """Per final timeline name: the editor's timeline edits every rebuild,
 swap and variant choice re-applies (`library/tools/editor_edit_carry.py`).
@@ -462,6 +470,7 @@ def _write_provenance_unlocked(
     editor_changes = dict(existing.get(EDITOR_CHANGES_KEY) or {})
     inventory_history = list(existing.get(TIMELINE_INVENTORY_KEY) or [])
     editor_timelines = dict(existing.get(EDITOR_TIMELINES_KEY) or {})
+    adopted_timelines = dict(existing.get(ADOPTED_TIMELINES_KEY) or {})
     carried_edits = dict(existing.get(CARRIED_EDITS_KEY) or {})
 
     doc = {
@@ -504,6 +513,7 @@ def _write_provenance_unlocked(
         EDITOR_CHANGES_KEY: editor_changes,
         TIMELINE_INVENTORY_KEY: inventory_history,
         EDITOR_TIMELINES_KEY: editor_timelines,
+        ADOPTED_TIMELINES_KEY: adopted_timelines,
         CARRIED_EDITS_KEY: carried_edits,
     }
     if superseded:
@@ -1140,8 +1150,105 @@ def editor_timeline_identities(review_dir: str) -> dict:
 def protected_timeline_names(review_dir: str,
                              inventory: list[dict]) -> set[str]:
     protected = editor_timeline_identities(review_dir)
+    adopted = adopted_timeline_identities(review_dir)
     return {str(entry["name"]) for entry in inventory
-            if _timeline_identity(entry) in protected}
+            if _timeline_identity(entry) in protected
+            and _timeline_identity(entry) not in adopted}
+
+
+def adopted_timeline_identities(review_dir: str) -> dict:
+    """Return the explicit adoption record keyed by exact live identity."""
+    doc = read_provenance(review_dir) or {}
+    return dict(doc.get(ADOPTED_TIMELINES_KEY) or {})
+
+
+def adopt_reel_timeline_identities(review_dir: str,
+                                   inventory: list[dict], *,
+                                   who: str) -> dict:
+    """Adopt current final reel timelines by their Resolve unique ids.
+
+    The caller supplies a live inventory read from Resolve. Only final
+    ``Reel NN - slug`` timelines are eligible; staging containers,
+    backups and other timelines are not. Every target must have a unique
+    id before the sidecar is changed, so an incomplete read cannot grant
+    name-based replacement rights.
+
+    An id is recorded once. Re-running the operation preserves its
+    original actor and timestamp, while newly found reel ids can still
+    be adopted. The timeline itself is never mutated here.
+
+    This deliberately does not write a Ren timeline snapshot. On the
+    next build, the existing first-contact detector compares the live
+    reel with its staging timeline and sends the detected hand edits
+    through the established carry path.
+    """
+    import re
+
+    actor = str(who or "").strip()
+    if not actor:
+        raise ValueError("timeline adoption requires a non-empty `who`")
+
+    final_reel = re.compile(
+        r"^Reel \d{2} - [a-z0-9]+(?:-[a-z0-9]+)*$")
+    targets = []
+    seen_ids = set()
+    seen_names = set()
+    for entry in inventory:
+        name = str(entry.get("name") or "")
+        if not final_reel.fullmatch(name):
+            continue
+        unique_id = str(entry.get("unique_id") or "").strip()
+        if not unique_id:
+            raise ValueError(
+                f"cannot adopt {name!r}: Resolve returned no unique id")
+        if unique_id in seen_ids:
+            raise ValueError(
+                f"cannot adopt {name!r}: Resolve returned duplicate unique "
+                f"id {unique_id!r}")
+        if name in seen_names:
+            raise ValueError(
+                f"cannot adopt duplicate reel timeline name {name!r}")
+        seen_ids.add(unique_id)
+        seen_names.add(name)
+        targets.append({"name": name, "unique_id": unique_id})
+
+    if not targets:
+        raise ValueError("Resolve inventory has no final Reel NN - slug timelines")
+
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    adopted = []
+    already_adopted = []
+
+    def update(doc):
+        editor_timelines = dict(doc.get(EDITOR_TIMELINES_KEY) or {})
+        adopted_timelines = dict(doc.get(ADOPTED_TIMELINES_KEY) or {})
+        for target in targets:
+            identity = f"id:{target['unique_id']}"
+            prior = adopted_timelines.get(identity)
+            if prior is not None:
+                if str(prior.get("name") or "") != target["name"]:
+                    raise ValueError(
+                        f"Resolve id {target['unique_id']!r} was already "
+                        f"adopted as {prior.get('name')!r}, not "
+                        f"{target['name']!r}")
+                already_adopted.append(target["name"])
+                continue
+            prior_ownership = editor_timelines.pop(identity, None)
+            adopted_timelines[identity] = {
+                "identity": identity,
+                "unique_id": target["unique_id"],
+                "name": target["name"],
+                "owner": "Ren",
+                "who": actor,
+                "adopted_at": now,
+                "previous_ownership": prior_ownership,
+            }
+            adopted.append(target["name"])
+        doc[EDITOR_TIMELINES_KEY] = editor_timelines
+        doc[ADOPTED_TIMELINES_KEY] = adopted_timelines
+
+    _mutate_preservation(review_dir, update)
+    return {"adopted": adopted, "already_adopted": already_adopted}
 
 
 def record_unattributed_timeline_changes(review_dir: str,
@@ -1152,6 +1259,7 @@ def record_unattributed_timeline_changes(review_dir: str,
     """Protect timeline additions or renames not explained by Ren's write."""
     previous = {_timeline_identity(entry): entry for entry in before}
     known_ren_ids = {f"id:{value}" for value in ren_owned_ids or () if value}
+    adopted = adopted_timeline_identities(review_dir)
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     detected = {}
     for current in after:
@@ -1159,7 +1267,8 @@ def record_unattributed_timeline_changes(review_dir: str,
         old = previous.get(identity)
         created = old is None
         renamed = old is not None and old.get("name") != current.get("name")
-        if (created or renamed) and identity not in known_ren_ids:
+        if ((created or renamed) and identity not in known_ren_ids
+                and identity not in adopted):
             detected[identity] = {
                 "identity": identity,
                 "first_seen_at": now,
@@ -1209,6 +1318,7 @@ def begin_timeline_inventory(review_dir: str, operation: str,
         previous = {_timeline_identity(item): item
                     for item in (completed or {}).get("after", ())}
         editor_timelines = dict(doc.get(EDITOR_TIMELINES_KEY) or {})
+        adopted_timelines = dict(doc.get(ADOPTED_TIMELINES_KEY) or {})
         if completed is None:
             # On first contact, every timeline not named as a known Ren
             # target is already present before this operation. Its author
@@ -1219,7 +1329,7 @@ def begin_timeline_inventory(review_dir: str, operation: str,
                 known_ren_target = (
                     identity in ren_created_identities
                     or current.get("name") in ren_created)
-                if not known_ren_target:
+                if not known_ren_target and identity not in adopted_timelines:
                     editor_timelines.setdefault(identity, {
                         "identity": identity,
                         "first_seen_at": entry["started_at"],
@@ -1237,7 +1347,8 @@ def begin_timeline_inventory(review_dir: str, operation: str,
                 is_ren_created = (
                     identity in ren_created_identities
                     or current.get("name") in ren_created)
-                if ((newly_seen or renamed) and not is_ren_created):
+                if ((newly_seen or renamed) and not is_ren_created
+                        and identity not in adopted_timelines):
                     editor_timelines.setdefault(identity, {
                         "identity": identity,
                         "first_seen_at": entry["started_at"],
@@ -1265,6 +1376,8 @@ def assert_not_editor_timeline(review_dir: str, timeline) -> None:
         unique_id = None
     identity = (f"id:{unique_id}" if unique_id else
                 f"name:{timeline.GetName()}")
+    if identity in adopted_timeline_identities(review_dir):
+        return
     entry = editor_timeline_identities(review_dir).get(identity)
     if entry:
         from library.tools.reel_replace_guard import EditorChangeRefused

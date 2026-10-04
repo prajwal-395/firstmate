@@ -12,10 +12,13 @@ import json
 import pytest
 from library.tools.plan_provenance import (
     assert_not_editor_timeline,
+    adopt_reel_timeline_identities,
+    adopted_timeline_identities,
     begin_timeline_inventory,
     check_reels_in_provenance,
     finish_timeline_inventory,
     protected_timeline_names,
+    record_unattributed_timeline_changes,
     record_timeline_snapshot,
     read_provenance,
     write_provenance,
@@ -188,6 +191,111 @@ class _Timeline:
 
     def GetUniqueId(self):
         return self.unique_id
+
+
+class TestReelTimelineAdoption:
+    def test_adoption_records_exact_ids_and_unprotects_only_final_reels(
+            self, tmp_path):
+        review = tmp_path / "review"
+        review.mkdir()
+        inventory = [
+            {"name": "Reel 01 - alpha", "unique_id": "uid-01",
+             "settings": {}},
+            {"name": "Reel 02 - beta", "unique_id": "uid-02",
+             "settings": {}},
+            {"name": "Reel 02 - beta (Ren staging)",
+             "unique_id": "uid-stage", "settings": {}},
+            {"name": "Reel 03 - gamma (archived round 002)",
+             "unique_id": "uid-archive", "settings": {}},
+            {"name": "Captain's selects", "unique_id": "uid-selects",
+             "settings": {}},
+        ]
+        operation = begin_timeline_inventory(str(review), "first build",
+                                             inventory)
+        finish_timeline_inventory(str(review), operation, inventory)
+
+        result = adopt_reel_timeline_identities(
+            str(review), inventory, who="Prajwal")
+
+        assert result["adopted"] == ["Reel 01 - alpha", "Reel 02 - beta"]
+        assert result["already_adopted"] == []
+        recorded = adopted_timeline_identities(str(review))
+        assert set(recorded) == {"id:uid-01", "id:uid-02"}
+        for identity, name in (("id:uid-01", "Reel 01 - alpha"),
+                               ("id:uid-02", "Reel 02 - beta")):
+            entry = recorded[identity]
+            assert entry["unique_id"] == identity.removeprefix("id:")
+            assert entry["name"] == name
+            assert entry["who"] == "Prajwal"
+            assert entry["adopted_at"]
+        editor_ids = read_provenance(str(review))["editor_timeline_identities"]
+        assert "id:uid-01" not in editor_ids
+        assert protected_timeline_names(str(review), inventory) == {
+            "Reel 02 - beta (Ren staging)",
+            "Reel 03 - gamma (archived round 002)",
+            "Captain's selects",
+        }
+        assert_not_editor_timeline(str(review),
+                                   _Timeline("Reel 01 - alpha", "uid-01"))
+        with pytest.raises(RuntimeError,
+                           match="ownership unknown at first inventory"):
+            assert_not_editor_timeline(
+                str(review), _Timeline("Reel 02 - beta (Ren staging)",
+                                       "uid-stage"))
+
+    def test_repeat_preserves_the_first_actor_and_timestamp(self, tmp_path):
+        review = tmp_path / "review"
+        inventory = [{"name": "Reel 01 - alpha", "unique_id": "uid-01"}]
+        first = adopt_reel_timeline_identities(
+            str(review), inventory, who="Prajwal")
+        first_record = adopted_timeline_identities(str(review))["id:uid-01"]
+
+        second = adopt_reel_timeline_identities(
+            str(review), inventory, who="Someone Else")
+        second_record = adopted_timeline_identities(str(review))["id:uid-01"]
+
+        assert first["adopted"] == ["Reel 01 - alpha"]
+        assert second["adopted"] == []
+        assert second["already_adopted"] == ["Reel 01 - alpha"]
+        assert second_record["who"] == first_record["who"] == "Prajwal"
+        assert second_record["adopted_at"] == first_record["adopted_at"]
+
+    def test_plan_provenance_writes_preserve_the_adoption_audit(self,
+                                                               tmp_path):
+        review = tmp_path / "review"
+        plan = _write_plan(tmp_path / "proposal.json")
+        inventory = [{"name": "Reel 01 - alpha", "unique_id": "uid-01"}]
+        adopt_reel_timeline_identities(
+            str(review), inventory, who="Prajwal")
+
+        write_provenance(str(review), str(plan), ["Reel 01 - alpha"])
+
+        recorded = adopted_timeline_identities(str(review))["id:uid-01"]
+        assert recorded["who"] == "Prajwal"
+        assert recorded["owner"] == "Ren"
+
+    def test_missing_target_id_refuses_before_any_ledger_write(self, tmp_path):
+        review = tmp_path / "review"
+        with pytest.raises(ValueError, match="no unique id"):
+            adopt_reel_timeline_identities(
+                str(review), [{"name": "Reel 01 - alpha"}], who="Prajwal")
+        assert not (review / "plan_provenance.json").exists()
+
+    def test_an_adopted_id_stays_ren_owned_if_the_timeline_is_renamed(
+            self, tmp_path):
+        review = tmp_path / "review"
+        original = [{"name": "Reel 01 - alpha", "unique_id": "uid-01"}]
+        adopt_reel_timeline_identities(
+            str(review), original, who="Prajwal")
+        renamed = [{"name": "Reel 01 - captain cut", "unique_id": "uid-01"}]
+
+        changed = record_unattributed_timeline_changes(
+            str(review), original, renamed, operation="inventory check")
+
+        assert changed == set()
+        assert "id:uid-01" not in read_provenance(str(review)).get(
+            "editor_timeline_identities", {})
+        assert set(adopted_timeline_identities(str(review))) == {"id:uid-01"}
 
 
 # ── check_reels_in_provenance ────────────────────────────────────────

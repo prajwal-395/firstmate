@@ -77,6 +77,9 @@ VERBS = (
 
     Verb("propose", "Reels", "Publish the chosen moments as the reel review file", subcommand="propose-reels"),
     Verb("build", "Reels", "Build approved reels in Resolve", subcommand="build-reels"),
+    Verb("adopt", "Reels", "Adopt existing reel timelines as Ren-built by exact Resolve id",
+         module_argv=("library.tools.resolve_axi", "ownership"),
+         detail="Record who adopted each existing final reel timeline by its exact Resolve unique id. Reads the open project and its current timeline, writes only the local ownership ledger, then verifies the live inventory stayed unchanged."),
     Verb("touch", "Reels", "Apply a small change to a built reel (a touch-up, not a rebuild)", subcommand="touch-reel",
          detail="Apply a structured change to a built reel's existing timeline through composed_edit, staged and verified"),
     Verb("undo", "Reels", "Undo the newest touch-up (in place) or rebuild (by version)", subcommand="undo",
