@@ -1,0 +1,509 @@
+THIRD-PARTY NOTICES FOR REN
+============================
+Generated from origin/main by the P0 commercial-dependency/license-audit
+lane (engineering half). It is an INVENTORY, not a EULA: it records what
+Ren ships or downloads, under which upstream license, and the plain
+commercial-use determination for each. Writing the product EULA is a
+separate captain's decision and is NOT done here.
+
+How to read a row
+-----------------
+  component   : what it is
+  pin         : the version or revision Ren resolves (file that states it)
+  source      : upstream project / download origin
+  license     : upstream license of record
+  fetched     : shipped-in-repo | pip-install | downloaded-at-install |
+                downloaded-at-first-use | external-prerequisite
+  commercial  : one of
+      ok                  - permissive terms, commercial use allowed
+      ok-with-attribution - commercial use allowed with attribution/notice
+      needs-paid-license  - commercial use requires a bought license
+      not-permitted       - terms forbid the product use; do not ship
+  hash-verified : yes | no - whether the fetch is checksum/signature
+                checked before use (the download-pinning lane owns
+                closing the "no" rows; this file records them).
+
+Maintenance rule: adding a dependency, model, binary, font or asset
+requires adding its row here in the same change. Transitive pip
+dependencies are NOT enumerated row by row; they are pinned in
+requirements/lock/macos-arm64-py312.txt (scripts/lock_python_env.sh),
+which is the record of what was measured.
+
+A. PYTHON PACKAGES (pip; groups in requirements/*.txt, map in
+   library/tools/dependency_groups.py)
+--------------------------------------------------------------
+component   : jsonschema
+pin         : >=4.0 (requirements/core.txt)
+source      : https://github.com/python-jsonschema/jsonschema
+license     : MIT
+fetched     : pip-install
+commercial  : ok
+hash-verified: n/a (pip transport)
+
+component   : pyyaml
+pin         : >=6.0 (requirements/core.txt)
+source      : https://pyyaml.org/
+license     : MIT
+fetched     : pip-install
+commercial  : ok
+hash-verified: n/a (pip transport)
+
+component   : numpy
+pin         : >=1.24 (requirements/core.txt); measured 2.5.3 in lock
+source      : https://numpy.org
+license     : BSD-3-Clause (plus bundled 0BSD/MIT/Zlib/CC0-1.0 parts)
+fetched     : pip-install
+commercial  : ok
+hash-verified: n/a (pip transport)
+
+component   : scipy
+pin         : >=1.10 (requirements/core.txt)
+source      : https://scipy.org
+license     : BSD-3-Clause
+fetched     : pip-install
+commercial  : ok
+hash-verified: n/a (pip transport)
+
+component   : opencv-python, opencv-python-headless (same cv2 module)
+pin         : >=4.8,<5, both (requirements/graphics.txt; 5.x dropped Haar
+              cascades, see that file)
+source      : https://github.com/opencv/opencv-python
+license     : Apache-2.0
+fetched     : pip-install
+commercial  : ok
+hash-verified: n/a (pip transport)
+
+component   : Pillow
+pin         : >=9.0 (requirements/graphics.txt)
+source      : https://python-pillow.org
+license     : MIT-CMU (HPND variant)
+fetched     : pip-install
+commercial  : ok
+hash-verified: n/a (pip transport)
+
+component   : librosa
+pin         : >=0.10 (requirements/analysis.txt)
+source      : https://librosa.org
+license     : ISC
+fetched     : pip-install
+commercial  : ok
+hash-verified: n/a (pip transport)
+
+component   : beat-this
+pin         : ==1.1.0 (requirements/analysis.txt; code AND published
+              weights MIT per github.com/CPJKU/beat_this README)
+source      : https://github.com/CPJKU/beat_this
+license     : MIT (code and weights)
+fetched     : pip-install (weights: downloaded-at-first-use by the lib)
+commercial  : ok
+hash-verified: no
+
+component   : all-in-one-infer, demucs-infer, madmom-infer
+pin         : ==3.1.0, ==4.2.2, ==0.2.0 (requirements/analysis.txt)
+source      : https://github.com/openmirlab (All-In-One MIT code, MIT
+              weights at huggingface.co/taejunkim/allinone; Demucs MIT
+              code and models; madmom-infer is a from-scratch
+              reimplementation loading no madmom weights)
+license     : MIT (all-in-one-infer), MIT (demucs-infer),
+              BSD-2-Clause (madmom-infer)
+fetched     : pip-install
+commercial  : ok
+hash-verified: no
+note        : stock madmom was deliberately NOT adopted: its RNN
+              processors load CC-BY-NC-SA weights (see
+              requirements/analysis.txt and
+              tests/unit/audio/test_music_bed.py::
+              test_no_noncommercial_weights_in_the_pipeline).
+
+component   : yt-dlp
+pin         : >=2026.08.19 (requirements/analysis.txt)
+source      : https://github.com/yt-dlp/yt-dlp
+license     : The Unlicense (public domain)
+fetched     : pip-install
+commercial  : ok
+hash-verified: n/a (pip transport)
+note        : the tool is unencumbered; TRACKS fetched with it carry
+              their owners' rights (per-project decision, not modelled).
+
+component   : praat-parselmouth
+pin         : >=0.4.3 (requirements/analysis.txt)
+source      : https://github.com/YannickJadoul/Parselmouth
+license     : GPLv3
+fetched     : pip-install
+commercial  : ok-with-attribution
+note        : COPYLEFT FLAG for the EULA lane: GPLv3 applies on
+              distribution of the combined work; the product license
+              must clear this (captain's call).
+
+component   : torch, torchaudio
+pin         : >=2.8, both, kept as a pair (requirements/analysis.txt)
+source      : https://pytorch.org/
+license     : BSD-3-Clause style
+fetched     : pip-install
+commercial  : ok
+hash-verified: n/a (pip transport)
+
+component   : panns-inference, torchlibrosa
+pin         : ==0.1.1, ==0.1.0 (requirements/analysis.txt)
+source      : https://github.com/qiuqiangkong/panns_inference,
+              https://github.com/qiuqiangkong/torchlibrosa
+license     : MIT (both)
+fetched     : pip-install
+commercial  : ok
+hash-verified: n/a (pip transport)
+
+component   : easyocr
+pin         : >=1.7 (requirements/analysis.txt)
+source      : https://github.com/JaidedAI/EasyOCR
+license     : Apache-2.0 (code; recognition/detection weights fetched
+              by the library from its own model hub, no separate
+              non-commercial term stated upstream)
+fetched     : pip-install (weights: downloaded-at-first-use)
+commercial  : ok
+hash-verified: no
+
+component   : sam2
+pin         : >=1.0.0 (requirements/analysis.txt)
+source      : https://github.com/facebookresearch/sam2
+license     : Apache-2.0 (code and weights, per Meta)
+fetched     : pip-install (weights: downloaded-at-first-use)
+commercial  : ok
+hash-verified: no
+
+component   : faiss-cpu
+pin         : >=1.7 (requirements/analysis.txt)
+source      : https://github.com/facebookresearch/faiss
+license     : MIT
+fetched     : pip-install
+commercial  : ok
+hash-verified: n/a (pip transport)
+
+component   : mlx, mlx-lm, mlx-vlm (Apple Silicon only)
+pin         : >=0.32.2, >=0.31.3, >=0.7.2 (requirements/analysis.txt)
+source      : https://github.com/ml-explore/mlx
+license     : MIT (all three)
+fetched     : pip-install
+commercial  : ok
+hash-verified: n/a (pip transport)
+
+component   : speechbrain, scikit-learn
+pin         : >=1.1, >=1.9 (requirements/identity.txt)
+source      : https://github.com/speechbrain/speechbrain (Apache-2.0),
+              https://scikit-learn.org (BSD-3-Clause)
+license     : Apache-2.0 (speechbrain), BSD-3-Clause (scikit-learn)
+fetched     : pip-install
+commercial  : ok
+hash-verified: n/a (pip transport)
+
+component   : insightface (pip package: CODE ONLY)
+pin         : >=0.7 (requirements/identity.txt)
+source      : https://github.com/deepinsight/insightface
+license     : MIT (the code; "no limitation for both academic and
+              commercial usage")
+fetched     : pip-install
+commercial  : ok
+hash-verified: n/a (pip transport)
+note        : the MIT license covers the CODE. The pretrained model
+              packs it downloads (buffalo_l below) are under a
+              SEPARATE non-commercial term. requirements/identity.txt
+              previously stated the bundle was "both MIT"; that was
+              wrong and is fixed (see section E).
+
+component   : onnxruntime
+pin         : >=1.19 (requirements/identity.txt; insightface backend)
+source      : https://onnxruntime.ai
+license     : MIT
+fetched     : pip-install
+commercial  : ok
+hash-verified: n/a (pip transport)
+
+component   : huggingface-hub, transformers (supporting; hub carries
+              the ECAPA/Gemma/CLIP fetches)
+pin         : measured 1.33.0 / 5.17.0 in lock
+source      : https://github.com/huggingface/huggingface_hub,
+              https://github.com/huggingface/transformers
+license     : Apache-2.0 (both)
+fetched     : pip-install (transitive via analysis/identity groups)
+commercial  : ok
+hash-verified: n/a (pip transport)
+
+B. NODE PACKAGES (remotion-subtitles/package.json, pinned 4.0.486;
+   full transitive tree in package-lock.json)
+--------------------------------------------------------------
+component   : remotion, @remotion/bundler, @remotion/cli,
+              @remotion/renderer, @remotion/tailwind-v4,
+              @remotion/eslint-config-flat
+pin         : 4.0.486 (remotion-subtitles/package.json)
+source      : https://www.remotion.dev
+license     : Remotion Company License (source-available; NOT OSI
+              open source). Ren renders video programmatically, which
+              is the "Remotion for Automators" use class:
+              https://www.remotion.dev/docs/license
+fetched     : npm-install (shipped renderer path for subtitles)
+commercial  : needs-paid-license
+note        : Automators is $0.01/render, $100/month minimum; Free
+              License eligibility is a product determination
+              (captain's call). The alternative the audit names -
+              Hyperframes fully replacing Remotion on the shipped
+              path - is likewise a captain's call. Listed here as an
+              open decision, not built.
+
+component   : react, react-dom (19.2.3), tailwindcss (4.0.0), zod
+              (4.3.6), typescript (5.9.3), eslint (9.19.0),
+              prettier (3.8.1)
+source      : https://react.dev (MIT), https://tailwindcss.com (MIT),
+              https://github.com/colinhacks/zod (MIT),
+              https://www.typescriptlang.org (Apache-2.0),
+              https://eslint.org (MIT), https://prettier.io (MIT)
+license     : MIT except typescript Apache-2.0
+fetched     : npm-install
+commercial  : ok
+hash-verified: n/a (npm transport; package-lock.json pins the tree)
+
+C. MODELS AND WEIGHTS (downloaded once per machine; resolvers in
+   library/tools/shared_environment.py, installers in scripts/)
+--------------------------------------------------------------
+component   : insightface buffalo_l pack (det_10g.onnx detector +
+              w600k_r50.onnx ArcFace recognizer, ~281 MB)
+pin         : pack name buffalo_l
+              (shared_environment.INSIGHTFACE_PACK_NAME; required
+              files det_10g.onnx, w600k_r50.onnx); fetched by
+              insightface's own downloader via
+              scripts/install_insightface.sh
+source      : https://github.com/deepinsight/insightface
+              (model zoo: "ALL models are available for non-commercial
+              research purposes only"; README: code MIT, "training
+              data ... and the models trained with these data ... for
+              non-commercial research purposes only ... Both
+              manual-downloading ... and auto-downloading ... follow
+              the above license policy")
+license     : non-commercial research only (NOT MIT)
+fetched     : downloaded-at-install (insightface-managed fetch, no
+              hash check in scripts/install_insightface.sh)
+commercial  : needs-paid-license
+hash-verified: no
+note        : commercial licensing contact per upstream:
+              recognition-oss-pack@insightface.ai. Until licensed,
+              commercial product use is not permitted. Obtaining the
+              license or replacing the backend is a captain's call -
+              listed as an open decision, not built.
+
+component   : ECAPA speaker-encoder checkout
+              (speechbrain/spkrec-ecapa-voxceleb, ~90 MB)
+pin         : revision 0f99f2d0ebe89ac095bcc5903c4dd8f72b367286
+              (shared_environment.ECAPA_REVISION); via
+              scripts/install_ecapa.sh
+source      : https://huggingface.co/speechbrain/spkrec-ecapa-voxceleb
+              (recipe: speechbrain, Apache-2.0; trained on VoxCeleb,
+              whose data is CC-BY-4.0 with copyright remaining with
+              the original owners:
+              https://www.robots.ox.ac.uk/~vgg/data/voxceleb/)
+license     : Apache-2.0 (recipe) + CC-BY-4.0 (training data)
+fetched     : downloaded-at-install (pinned revision)
+commercial  : ok-with-attribution
+hash-verified: no (pinned commit, files presence-checked)
+note        : the install script already says the VoxCeleb terms
+              "govern the weights - check them for the use at hand";
+              carried here unchanged.
+
+component   : PANNs Cnn14_DecisionLevelMax checkpoint (327 MB)
+pin         : Cnn14_DecisionLevelMax_mAP=0.385.pth, md5
+              70539c43c18b6a289b3199c503a82c5a
+              (shared_environment.PANNS_CHECKPOINT_MD5); via
+              scripts/install_panns.sh from Zenodo record 3987831
+source      : https://zenodo.org/records/3987831
+license     : CC-BY-4.0 (commercial use with attribution)
+fetched     : downloaded-at-install
+commercial  : ok-with-attribution
+hash-verified: yes (md5 verified at install)
+
+component   : MFA acoustic/dictionary/G2P models (english_us_arpa
+              v3.0.0, ~105 MB) + montreal-forced-aligner 3.4.*
+pin         : model v3.0.0 pinned
+              (shared_environment.MFA_ACOUSTIC_MODEL_VERSION);
+              aligner from conda-forge montreal-forced-aligner=3.4.*
+              via scripts/install_mfa.sh
+source      : https://github.com/MontrealCorpusTools/
+              Montreal-Forced-Aligner (MIT)
+license     : MIT (aligner; models distributed by the MIT-licensed
+              MFA project for this purpose)
+fetched     : downloaded-at-install
+commercial  : ok
+hash-verified: no for the micromamba bootstrap (fetches
+              https://micro.mamba.pm/api/micromamba/<plat>/latest,
+              unpinned); model versions pinned by mfa itself
+
+component   : micromamba binary (MFA bootstrapper)
+pin         : UNPINNED "latest" per platform
+              (scripts/install_mfa.sh)
+source      : https://github.com/mamba-org/micromamba
+license     : BSD-3-Clause
+fetched     : downloaded-at-install
+commercial  : ok
+hash-verified: no (owned by the download-pinning lane)
+
+component   : DeepFilterNet prebuilt binary 0.5.6 (Apple Silicon)
+              + first-use model weights (~100 MB)
+pin         : v0.5.6 asset deep-filter-0.5.6-aarch64-apple-darwin
+              (shared_environment.DEEPFILTER_DOWNLOAD_URL); via
+              scripts/install_deepfilternet.sh
+source      : https://github.com/Rikorose/DeepFilterNet
+license     : MIT OR Apache-2.0
+fetched     : downloaded-at-install (binary) +
+              downloaded-at-first-use (weights, fetched by the binary)
+commercial  : ok
+hash-verified: no (owned by the download-pinning lane)
+
+component   : Gemma vision weights mlx-community/gemma-4-12b-it-4bit
+              (~6.3 GB; step 1.03 vision, ren/doctor model.vision)
+pin         : mlx-community/gemma-4-12b-it-4bit
+              (library/tools/vision_model.py MODEL_ID)
+source      : https://huggingface.co/mlx-community/gemma-4-12b-it-4bit
+              (community conversion; terms flow from Google:
+              https://ai.google.dev/gemma/terms - commercial use
+              allowed subject to the terms, prohibited-use policy,
+              and redistribution notice)
+license     : Gemma Terms of Use (not OSI open source)
+fetched     : downloaded-at-first-use (HF snapshot)
+commercial  : ok-with-attribution
+hash-verified: no
+note        : redistribution must carry the Gemma notice and the use
+              restrictions; the product license must include them
+              (EULA lane).
+
+component   : CLIP openai/clip-vit-large-patch14 (footage search) +
+              sentence-transformers/all-MiniLM-L6-v2 (footage query)
+pin         : as named in library/tools/analysis/footage_frames.py
+              (CLIP_MODEL) and footage_query.py (EMBED_MODEL)
+source      : https://huggingface.co/openai/clip-vit-large-patch14
+              (MIT), https://sbert.net (Apache-2.0)
+license     : MIT (CLIP), Apache-2.0 (MiniLM)
+fetched     : downloaded-at-first-use (HF snapshots)
+commercial  : ok
+hash-verified: no
+
+component   : Audio Flamingo Next captioner
+              (nvidia/audio-flamingo-next-captioner-hf; SFX library
+              profiling in library/tools/analysis/sfx_pipeline.py,
+              gated: requires HF_TOKEN)
+pin         : processor/model id as named in sfx_pipeline.py
+source      : https://huggingface.co/nvidia/
+              audio-flamingo-next-captioner-hf ("This model is for
+              non-commercial research purposes only ... released
+              under the NVIDIA OneWay Noncommercial License")
+license     : NVIDIA OneWay Noncommercial (research only)
+fetched     : downloaded-at-first-use (gated HF download)
+commercial  : not-permitted
+hash-verified: no
+note        : on the SFX-profiling path, so the SFX index cannot be
+              built commercially as-shipped. Replacement or removal
+              from the shipped path is a captain's call - listed as
+              an open decision, not built.
+
+component   : Desert Ant CLI (`da`) + Voz/Ear models (on-device
+              transcription: `da voz`, language id: `da ear`;
+              contained in library/tools/heard_speech.py)
+pin         : desert-ant-cli 0.1.1 at containment time
+              (heard_speech.py header); external binary on PATH
+source      : https://github.com/Desert-Ant-Labs/desert-ant-cli,
+              https://desertant.com
+license     : Desert Ant Labs Source-Available License ("Free for
+              most apps, and a commercial license is required at
+              scale"; licensing@desertant.com)
+fetched     : external-prerequisite (installed by the operator)
+commercial  : needs-paid-license
+note        : whether Ren-at-product-scale is inside "most apps" or
+              needs the commercial license is a product determination
+              (captain's call). Listed as an open decision, not built.
+
+D. SHIPPED FONTS AND ASSETS (in this repo)
+--------------------------------------------------------------
+component   : Montserrat Variable font (100-900)
+pin         : remotion-subtitles/public/fonts/Montserrat-Variable.ttf
+              + OFL-Montserrat.txt beside it
+source      : https://fonts.google.com/specimen/Montserrat
+license     : SIL Open Font License 1.1 (commercial redistribution
+              allowed; licence text ships beside the font)
+fetched     : shipped-in-repo
+commercial  : ok-with-attribution
+hash-verified: n/a
+note        : enforced by tests/contracts/test_asset_policy.py (no
+              network fonts at render time; licence must ship beside
+              the font; AGENTS.md section 11 must record it).
+
+component   : GSAP 3.14.2 (hyperframes/vendor/gsap.min.js)
+pin         : 3.14.2, pinned vendored file
+source      : https://gsap.com (GSAP Standard License, free tier;
+              header and licence in the file)
+license     : GSAP Standard License (NOT OSI open source; commercial
+              USE allowed under the free tier)
+fetched     : shipped-in-repo
+commercial  : ok
+hash-verified: n/a
+
+component   : library/presets/, platform safe-zone guides,
+              Fusion macros (library/presets/, platform_safe_zones.py)
+pin         : this repo
+source      : first-party
+license     : n/a (engine's own; no third-party licence needed)
+fetched     : shipped-in-repo
+commercial  : ok
+hash-verified: n/a
+note        : VERIFIED ABSENT: no third-party PowerGrade ships in this
+              repo. The Grade Free_1.13.1.drx named in AGENTS.md
+              section 11 is captain-supplied and lives outside the
+              repo (see library/tools/color_page_grade.py).
+
+E. INTERNAL DOC CORRECTIONS MADE WITH THIS INVENTORY
+--------------------------------------------------------------
+1. requirements/identity.txt stated insightface's buffalo_l bundle
+   (detector + ArcFace recognizer) was "both MIT". Upstream: the
+   CODE is MIT; the pretrained packs are non-commercial research
+   only (github.com/deepinsight/insightface README + model_zoo).
+   The comment now states the split and points at
+   scripts/install_insightface.sh, which already said
+   non-commercial. The audit's contradiction claim HELD.
+2. No other file stated a wrong license: shared_environment.py
+   scopes "both MIT/Apache" to the pip packages (correct), and the
+   PANNs/ECAPA/DeepFilterNet/MFA scripts state their terms
+   correctly. The audit's download claims HELD (PANNs md5-verified;
+   DeepFilterNet binary fetched without checksum;
+   micromamba fetched as unpinned latest).
+
+F. EXTERNAL PREREQUISITES (NOT shipped, NOT downloaded by Ren;
+   recorded so packaging cannot miss them)
+--------------------------------------------------------------
+- DaVinci Resolve Studio (+ its scripting module): commercial EULA
+  (Blackmagic Design); customer-supplied. needs-paid-license
+  (Studio); the Free tier exists but the compatibility matrix is
+  another lane's work.
+- ffmpeg/ffprobe: external prerequisite; license depends on the
+  build (GPL/LGPL) - record the shipped build's license at
+  packaging time. ok-with-attribution.
+- Node.js: external prerequisite, MIT. ok.
+- Agent harness (Claude Code / Codex / OpenCode): operator-supplied,
+  each under its own terms; the supported-harness lane owns the
+  matrix. Out of scope here.
+- HF_TOKEN-gated downloads (Gemma, Audio Flamingo Next, ECAPA is
+  public): the token is an operator credential, not a component.
+- PIPELINE_SFX_LIBRARY / PIPELINE_MUSIC_LIBRARY content and
+  yt-dlp-fetched tracks: customer/captain-supplied; track rights
+  stay with their owners (AGENTS.md 10.5: no rights model built).
+- No LICENSE/EULA file exists at the repo root: the product
+  license itself is unwritten (captain's call, out of scope here).
+
+G. OPEN DECISIONS FOR THE CAPTAIN (not built by this lane)
+--------------------------------------------------------------
+1. InsightFace buffalo_l: obtain a commercial license
+   (recognition-oss-pack@insightface.ai) or replace the
+   face-identity backend.
+2. Remotion: cover Ren under Remotion for Automators (paid,
+   $0.01/render, $100/mo minimum) unless the use qualifies for the
+   Free License, or fully replace it with Hyperframes on the
+   shipped path.
+3. Audio Flamingo Next (SFX profiling): research-only license;
+   replace or remove from the shipped path.
+4. Desert Ant / Voz: clarify whether product-scale use needs their
+   commercial license (licensing@desertant.com).
+5. Product EULA: write it (must clear the praat-parselmouth GPLv3
+   copyleft note and carry the Gemma redistribution notice).
