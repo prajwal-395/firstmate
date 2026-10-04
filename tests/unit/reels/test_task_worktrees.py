@@ -50,6 +50,10 @@ def test_task_start_finish_merges_semantics_and_discards_generated_state(
     _write_json(workspace,
                 "pipeline_output/steps/1_03_semantic_analysis/output.json",
                 {"generated": "new path"})
+    recovery_archive = (workspace / "pipeline_output" / "review"
+                       / store.DRT_RECOVERY_DIRNAME / "candidate.drt")
+    recovery_archive.parent.mkdir(parents=True, exist_ok=True)
+    recovery_archive.write_bytes(b"task-side recovery copy")
 
     finished = worktrees.task_finish(str(project), "captions")
     assert finished["finished"], finished
@@ -58,6 +62,7 @@ def test_task_start_finish_merges_semantics_and_discards_generated_state(
         "external/declarations/captain_edits.json"]
     assert finished["merged"]["generated_discarded"] == [
         "pipeline_data.json",
+        "pipeline_output/review/recovery_archives/candidate.drt",
         "pipeline_output/steps/1_03_semantic_analysis/output.json"]
     assert json.loads((project / "external/declarations/captain_edits.json").read_text(
         encoding="utf-8")) == {"edits": ["lower caption 3"]}
@@ -65,6 +70,8 @@ def test_task_start_finish_merges_semantics_and_discards_generated_state(
         encoding="utf-8")) == {"generated": "target"}
     assert not (project / "pipeline_output/steps/1_03_semantic_analysis"
                 / "output.json").exists()
+    assert not (project / "pipeline_output" / "review"
+                / store.DRT_RECOVERY_DIRNAME / "candidate.drt").exists()
     assert store.git(str(project), "symbolic-ref", "--short",
                      "HEAD").stdout.strip() == original_branch
     assert not workspace.exists()
@@ -169,7 +176,8 @@ def test_ren_task_start_and_finish_commands_drive_the_lifecycle(
     start = subprocess.run(
         [str(vep), "-m", "ren.cli", "task", str(project), "start",
          "cli-task", "--claim", "external/declarations/captain_edits.json"],
-        cwd=repo, capture_output=True, text=True, encoding="utf-8", timeout=20)
+        cwd=repo, capture_output=True, text=True, encoding="utf-8", timeout=20,
+        check=False)
     assert start.returncode == 0, start.stderr
     started = json.loads(start.stdout)
     assert started["started"]
@@ -179,7 +187,8 @@ def test_ren_task_start_and_finish_commands_drive_the_lifecycle(
     finish = subprocess.run(
         [str(vep), "-m", "ren.cli", "task", str(project), "finish",
          "cli-task"],
-        cwd=repo, capture_output=True, text=True, encoding="utf-8", timeout=20)
+        cwd=repo, capture_output=True, text=True, encoding="utf-8", timeout=20,
+        check=False)
     assert finish.returncode == 0, finish.stderr
     finished = json.loads(finish.stdout)
     assert finished["finished"]

@@ -372,6 +372,46 @@ def _build_touches_generated(project, stamp):
            json.dumps({"tracks": {"V1": {"clips": []}}, "built": stamp}))
 
 
+def test_variation_merge_discards_source_recovery_archives(tmp_path):
+    """DRTs are committed for safety, but source branches cannot merge them."""
+    default = _base_project(tmp_path)
+    archive_dir = (tmp_path / "pipeline_output" / "review"
+                   / bvc.DRT_RECOVERY_DIRNAME)
+    keep = archive_dir / "approved-reel.drt"
+    discard = archive_dir / "unapproved-reel.drt"
+    keep.parent.mkdir(parents=True)
+    keep.write_bytes(b"base approved archive")
+    assert bvc.commit_build(str(tmp_path), "base recovery archive\n")[
+        "committed"]
+
+    _git(tmp_path, "checkout", "-b", "variant/r09-recovery-test")
+    keep.write_bytes(b"source archive must not win")
+    discard.write_bytes(b"source-only archive must not land")
+    _write(tmp_path, "external/captain_edits.json",
+           json.dumps({"key": "captain_edits", "source": "captain",
+                       "value": ["kept declaration"]}))
+    assert bvc.commit_build(str(tmp_path), "source recovery and edit\n")[
+        "committed"]
+
+    _git(tmp_path, "checkout", default)
+    keep.write_bytes(b"target approved archive")
+    assert bvc.commit_build(str(tmp_path), "target recovery archive\n")[
+        "committed"]
+
+    result = tv.merge_variations(str(tmp_path), "variant/r09-recovery-test")
+
+    assert result["merged"] is True, result
+    assert result["recovery_archives_discarded"] == [
+        "pipeline_output/review/recovery_archives/approved-reel.drt",
+        "pipeline_output/review/recovery_archives/unapproved-reel.drt"]
+    assert keep.read_bytes() == b"target approved archive"
+    assert not discard.exists()
+    assert json.loads((tmp_path / "external" / "captain_edits.json")
+                      .read_text(encoding="utf-8"))["value"] == [
+                          "kept declaration"]
+    assert _git(tmp_path, "status", "--porcelain").strip() == ""
+
+
 # ── merge: the captain's real case ───────────────────────────────────
 
 def test_merge_cutaway_with_cta_and_grade(tmp_path):

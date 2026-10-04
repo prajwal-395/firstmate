@@ -582,7 +582,8 @@ BINARY_DECOYS = [
 #      stopped being static. See tests/unit/context/test_brief.py.
 #   brand_assets/, assets/, compositions/ - the captain's artwork and
 #      source tree. Binary-capable (PNG, .drx, fonts, .mov), and the
-#      allow-list's stated purpose is text-only; the versioned
+#      allow-list's stated purpose is text-first, with a narrow `.drt`
+#      recovery exception; the versioned
 #      project.yaml paths that REFERENCE them survive without the blobs.
 #   subtitle_plans/, subtitle_overlays/ - the captain's standalone
 #      scripts' area (props plus binary .mov renders); the pipeline
@@ -690,14 +691,14 @@ def test_learned_context_crash_tmp_stays_out(tmp_path):
     assert f"{rel}/.learnings.abc123.tmp" not in tracked
 
 
-# ── Text-only store (D7) ─────────────────────────────────────────
+# ── Text-first store with the DRT recovery exception (D7) ─────────
 #
 # The per-project store auto-committed with `git add -A` and tracked
 # 716 MB on geo-podcast, including PNGs, a .drp, .drt and .wav
-# files.  D7 (2026-09-23): text only; binaries recorded by hash and
-# regenerated.  These pin the three halves: a versioned binary is
-# never committed, a binary tracked before the rule leaves the repo
-# with the working tree untouched, and the manifest can be checked.
+# files. D7 (2026-09-23): text-first; other binaries are recorded by
+# hash and regenerated. These pin that ordinary binaries stay out,
+# prior binaries are uncached without touching the working tree, and
+# the hash manifest can be checked.
 
 
 def test_store_never_commits_a_binary(tmp_path):
@@ -717,6 +718,9 @@ def test_store_never_commits_a_binary(tmp_path):
     _write(tmp_path, "marker_feedback/stills/cap1_1.1.1.drx", drx)
     mov = b"\x00\x00\x00\x18ftypqt  " + b"\x00" * 100
     _write(tmp_path, "pipeline_output/review/clip.mov", mov)
+    stray_drt = "pipeline_output/review/not-a-recovery-archive.drt"
+    drt = b"\x00unapproved drt location"
+    _write(tmp_path, stray_drt, drt)
     assert bvc.init_project_repo(str(tmp_path))["initialised"] is True
 
     result = bvc.commit_build(str(tmp_path), message="first\n")
@@ -727,6 +731,7 @@ def test_store_never_commits_a_binary(tmp_path):
     assert "marker_feedback/stills/cap1.png" not in tracked
     assert "marker_feedback/stills/cap1_1.1.1.drx" not in tracked
     assert "pipeline_output/review/clip.mov" not in tracked
+    assert stray_drt not in tracked
     manifest_path = (tmp_path / "pipeline_output" / "provenance"
                      / "binary_manifest.json")
     assert "pipeline_output/provenance/binary_manifest.json" in tracked
@@ -739,6 +744,7 @@ def test_store_never_commits_a_binary(tmp_path):
         hashlib.sha256(drx).hexdigest()
     assert by_path["pipeline_output/review/clip.mov"]["sha256"] == \
         hashlib.sha256(mov).hexdigest()
+    assert by_path[stray_drt]["sha256"] == hashlib.sha256(drt).hexdigest()
 
 
 def test_manifest_skips_ignored_renders_beside_step_records(tmp_path):
@@ -912,6 +918,8 @@ class _FakeManager:
 
 
 class _FakeResolve:
+    EXPORT_DRT = 18
+
     def __init__(self, project):
         self._project = project
 
@@ -933,6 +941,150 @@ def _promotion_project(name="Podcast (field test)"):
         _FakeTimeline("Reel 28 - the-nail-salon-query-google-cant-answer"),
     ])
     return project
+
+
+class _ArchiveTimeline(_FakeTimeline):
+    def __init__(self, name, events, export_result=True):
+        super().__init__(name)
+        self.events = events
+        self.export_result = export_result
+
+    def Export(self, path, export_type):
+        self.events.append(("drt", export_type))
+        if self.export_result:
+            Path(path).write_bytes(b"\x00DRT recovery bytes")
+        return self.export_result
+
+
+def _install_reel_archive_readers(monkeypatch, project, events, comp_errors=()):
+    monkeypatch.setitem(sys.modules, "DaVinciResolveScript",
+                        _FakeDvr(_FakeResolve(project)))
+
+    from library.tools import plan_provenance, reel_fusion_comps, timeline_serializer
+
+    monkeypatch.setattr(
+        timeline_serializer, "serialize_timeline_state",
+        lambda **_kwargs: {"schema_version": "1.0", "tracks": []})
+
+    def export_comps(_project, names, project_folder):
+        events.append("comp_text")
+        reports = {}
+        files = []
+        for name in names:
+            comp_files = []
+            if not comp_errors:
+                safe = "".join(c if c.isalnum() or c in "-_." else "_"
+                               for c in name) or "timeline"
+                path = (Path(project_folder) / "pipeline_output" / "steps"
+                        / "7_01_build_reels" / "fusion_comps"
+                        / f"{safe}__V01_item000_c1.comp")
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("Fusion = true\n", encoding="utf-8")
+                comp_files.append(str(path))
+                files.extend(comp_files)
+            reports[name] = {"files": comp_files, "comp_count": len(comp_files),
+                            "items_with_comps": 1,
+                             "errors": list(comp_errors)}
+        return {"reels": reports, "files": files, "errors": []}
+
+    monkeypatch.setattr(reel_fusion_comps, "export_built_reels", export_comps)
+    monkeypatch.setattr(
+        plan_provenance, "record_snapshot_supersession",
+        lambda *_args: {})
+
+
+def test_promoted_reel_drt_is_committed_after_its_comp_text(tmp_path,
+                                                             monkeypatch):
+    """The approved timeline recovery copy lands only after its diffable comps."""
+    name = "Reel 27 - approved"
+    events = []
+    master = _FakeTimeline("Podcast master")
+    reel = _ArchiveTimeline(name, events)
+    project = _FakeProject("Podcast (field test)", [master, reel])
+    _install_reel_archive_readers(monkeypatch, project, events)
+    bvc.init_project_repo(str(tmp_path))
+
+    report = bvc.record_reel_promotion(
+        str(tmp_path), "Podcast (field test)", [name])
+
+    assert report["committed"] is True
+    assert events.index("comp_text") < next(
+        index for index, event in enumerate(events)
+        if isinstance(event, tuple) and event[0] == "drt")
+    assert events[-1] == ("drt", _FakeResolve.EXPORT_DRT)
+    assert project.GetTimelineCount() == 2
+    assert project.GetCurrentTimeline() is master
+    archived = report["recovery_archives"]["files"][0]
+    rel = str(Path(archived).relative_to(tmp_path))
+    assert rel.startswith("pipeline_output/review/recovery_archives/")
+    assert rel in set(_git_2(tmp_path, "ls-files").splitlines())
+    assert Path(archived).read_bytes() == b"\x00DRT recovery bytes"
+    committed_bytes = subprocess.run(
+        ["git", "show", f"HEAD:{rel}"], cwd=str(tmp_path),
+        capture_output=True, check=True).stdout
+    assert committed_bytes == b"\x00DRT recovery bytes"
+    manifest = json.loads(
+        (tmp_path / bvc.BINARY_MANIFEST_REL).read_text(encoding="utf-8"))
+    assert rel not in {entry["path"] for entry in manifest["files"]}
+
+
+def test_promoted_reel_drt_waits_for_landed_comp_text(tmp_path, monkeypatch):
+    """A missing Fusion-comp text export must not become a recovery record."""
+    name = "Reel 28"
+    events = []
+
+    class _MustNotExport(_ArchiveTimeline):
+        def Export(self, path, export_type):
+            raise AssertionError("DRT export preceded complete comp text")
+
+    project = _FakeProject(
+        "Podcast (field test)",
+        [_FakeTimeline("Podcast master"), _MustNotExport(name, events)])
+    _install_reel_archive_readers(
+        monkeypatch, project, events, comp_errors=("ExportFusionComp failed",))
+    bvc.init_project_repo(str(tmp_path))
+
+    report = bvc.record_reel_promotion(
+        str(tmp_path), "Podcast (field test)", [name])
+
+    assert report["committed"] is True
+    assert report["recovery_archives"]["reels"][name]["archived"] is False
+    assert "Fusion-comp text export was incomplete" in \
+        report["recovery_archives"]["reels"][name]["reason"]
+    assert not list((tmp_path / "pipeline_output" / "review"
+                     / bvc.DRT_RECOVERY_DIRNAME).glob("*.drt"))
+
+
+def test_failed_promoted_reel_drt_export_preserves_previous_archive(
+        tmp_path, monkeypatch):
+    """A declined Resolve export must not replace the last usable archive."""
+    name = "Reel 29"
+    events = []
+    reel = _ArchiveTimeline(name, events, export_result=False)
+    project = _FakeProject(
+        "Podcast (field test)", [_FakeTimeline("Podcast master"), reel])
+    _install_reel_archive_readers(monkeypatch, project, events)
+    bvc.init_project_repo(str(tmp_path))
+    relative = (Path("pipeline_output") / "review"
+                / bvc.DRT_RECOVERY_DIRNAME
+                / f"{bvc._recovery_archive_stem(name)}.drt")
+    previous = b"previous committed DRT"
+    _write(tmp_path, str(relative), previous)
+    assert bvc.commit_build(str(tmp_path), message="prior archive\n")[
+        "committed"]
+
+    report = bvc.record_reel_promotion(
+        str(tmp_path), "Podcast (field test)", [name])
+
+    assert report["committed"] is True
+    assert report["recovery_archives"]["reels"][name]["archived"] is False
+    assert "DRT export failed" in \
+        report["recovery_archives"]["reels"][name]["reason"]
+    assert (tmp_path / relative).read_bytes() == previous
+    committed = subprocess.run(
+        ["git", "show", f"HEAD:{relative.as_posix()}"], cwd=str(tmp_path),
+        capture_output=True, check=True).stdout
+    assert committed == previous
 
 
 def test_reel_promotion_without_repo_declines(tmp_path):

@@ -6,12 +6,15 @@ They are one model, and this package is it.
 
 The model
 ---------
-ONE SUBSTRATE. The project's own git repo, over an allow-list of text
-(`store`). Every build commits into it; every record below that must
-outlive one disk is written under `pipeline_output/review/`, which the
-allow-list versions. The store is the only durable history - the
-Resolve project is a derived artefact, rebuilt from declarations, never
-merged or restored (captain's ruling 2026-09-10).
+ONE SUBSTRATE. The project's own git repo, over an allow-list of the
+diffable text record and one scoped `.drt` recovery archive per promoted
+reel (`store`). Every build commits its text; promotion writes the DRT
+only after the Fusion-comp text exports land, then commits both. Text
+files remain the source for review, diff and merge. DRTs are recovery
+artefacts, never inputs to those decisions. The captain revised the
+2026-09-10 ruling on 2026-09-21 to permit restoring an approved reel
+from its DRT. Timeline-level merge and `.drp` surgery remain closed;
+ordinary version changes still check out the declarations and rebuild.
 
 ONE UNIT: THE REEL VERSION. What a reel's timeline carried, as the row
 snapshot `reel_read.rows_of` returns, with its provenance
@@ -47,8 +50,9 @@ every state a reel's timeline has held, appended and never overwritten
 used to replace the first. A `touch` version names the undo journal
 that reverses it IN PLACE (`library/tools/undo_journal.py`); a `build`
 version carries the plan moment it was built from, so a rebuild rolls
-back by restoring that moment and rebuilding - the one restore route
-the ruling allows. `pipeline_output/review/reel_versions.json`.
+back by restoring that moment and rebuilding - the semantic rollback
+route. A `.drt` remains a separate recovery copy for restoring the
+approved Resolve timeline itself. `pipeline_output/review/reel_versions.json`.
 
 What the model leaves room for
 ------------------------------
@@ -59,8 +63,8 @@ the place a policy attaches.
 Modules
 -------
 - `store`    the git substrate: allow-list, per-build commit, finished
-             timeline and reel-promotion records, the shared `git` and
-             `write_record` helpers.
+             timeline and reel-promotion records, scoped `.drt` recovery
+             archives, the shared `git` and `write_record` helpers.
 - `rounds`   rounds: discover, stamp, backfill, read; and the one diff.
 - `variants` variants: spec, branch, merge; built record, compare, choose.
 - `runs`     the per-run trace archive.

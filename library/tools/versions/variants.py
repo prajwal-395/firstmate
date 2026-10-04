@@ -249,6 +249,10 @@ GENERATED_PATHS = (
     "pipeline_output/review/explainer_plans.json",
     "pipeline_output/review/semantic_visual_plans.json",
     "pipeline_output/review/plan_provenance.json",
+    # Recovery copies belong to the target's approved reels. A branch
+    # may carry an older archive, but merge keeps the target's copy and
+    # a later promotion writes the next one after its comp text lands.
+    "pipeline_output/review/recovery_archives",
     # What variants are ALIVE and what their pictures contain
     # (`record_build`). Rebuilt by every variant build,
     # and it describes RESOLVE's state, which is not per-branch - so
@@ -729,6 +733,13 @@ def _is_generated(rel_path: str) -> bool:
     return False
 
 
+def _is_recovery_archive_path(rel_path: str) -> bool:
+    path = Path(rel_path)
+    return (path.parent == Path("pipeline_output") / "review"
+            / store.DRT_RECOVERY_DIRNAME
+            and path.suffix.lower() == ".drt")
+
+
 def merge_variations(project_folder: str, source_branch: str,
                      target_branch: str | None = None,
                      semantic_only: bool = False) -> dict:
@@ -744,6 +755,9 @@ def merge_variations(project_folder: str, source_branch: str,
     rebuild knows what it must regenerate. `semantic_only=True` is the
     task-worktree path: every generated source change is restored to the
     target, and semantic conflicts abort so task finish can be retried.
+    `.drt` recovery archives are kept out of every merge, including
+    source-only adds that Git would otherwise merge without a conflict.
+    A later promotion writes a fresh archive from its approved timeline.
 
     SAFETY (issue #925): do NOT treat a clean merge as a green build.
     Merging declarations is precisely where a dropped feature hides -
@@ -764,17 +778,19 @@ def merge_variations(project_folder: str, source_branch: str,
                               f"{checkout.stderr.strip()[-200:]}"}
     current = store.git(project_folder, "rev-parse", "--abbrev-ref", "HEAD")
     target = current.stdout.strip()
+    changed = store.git(project_folder, "diff", "--name-only",
+                        f"{target}...{source_branch}")
+    if changed.returncode != 0:
+        return {"merged": False,
+                "reason": "cannot compare source branch with target: "
+                          f"{changed.stderr.strip()[-200:]}"}
+    paths = sorted(p for p in changed.stdout.splitlines() if p.strip())
+    recovery_archive_changes = [p for p in paths
+                                if _is_recovery_archive_path(p)]
     generated_source_changes = []
     semantic_source_changes = []
     target_generated_files = {}
     if semantic_only:
-        changed = store.git(project_folder, "diff", "--name-only",
-                            f"{target}...{source_branch}")
-        if changed.returncode != 0:
-            return {"merged": False,
-                    "reason": "cannot compare task branch with target: "
-                              f"{changed.stderr.strip()[-200:]}"}
-        paths = sorted(p for p in changed.stdout.splitlines() if p.strip())
         generated_source_changes = [p for p in paths if _is_generated(p)]
         semantic_source_changes = [p for p in paths if not _is_generated(p)]
         if not semantic_source_changes:
@@ -793,6 +809,24 @@ def merge_variations(project_folder: str, source_branch: str,
                    (root / path).exists())
             for path in generated_source_changes
         }
+    else:
+        diffable_changes = [p for p in paths
+                            if not _is_recovery_archive_path(p)]
+        if paths and not diffable_changes:
+            rev = store.git(project_folder, "rev-parse", "--short", "HEAD")
+            return {"merged": True, "target": target,
+                    "source": source_branch, "commit": rev.stdout.strip(),
+                    "auto_resolved": [], "conflicts": [],
+                    "recovery_archives_discarded": recovery_archive_changes,
+                    "note": "no diffable changes; recovery archives were "
+                            "kept out of the merge"}
+        root = Path(project_folder)
+        target_generated_files = {
+            path: (store.git(project_folder, "cat-file", "-e",
+                             f"HEAD:{path}").returncode == 0,
+                   (root / path).exists())
+            for path in recovery_archive_changes
+        }
     merged = store.git(project_folder, "merge", "--no-commit", "--no-ff",
                   source_branch)
     if semantic_only:
@@ -803,6 +837,15 @@ def merge_variations(project_folder: str, source_branch: str,
             return {"merged": False,
                     "reason": "could not discard generated task state: "
                               + restored}
+    elif recovery_archive_changes:
+        restored = _restore_generated_changes(
+            project_folder, recovery_archive_changes, target_generated_files)
+        if restored:
+            store.git(project_folder, "merge", "--abort")
+            return {"merged": False,
+                    "reason": "could not keep source recovery archives out "
+                              "of the merge: " + restored,
+                    "recovery_archives_discarded": recovery_archive_changes}
     if merged.returncode == 0:
         if "Already up to date" in (merged.stdout or ""):
             rev = store.git(project_folder, "rev-parse", "--short", "HEAD")
@@ -835,6 +878,9 @@ def merge_variations(project_folder: str, source_branch: str,
                           generated_discarded=generated_source_changes,
                           note="semantic state merged; generated task "
                                "state was kept out of the target")
+        elif recovery_archive_changes:
+            result["recovery_archives_discarded"] = \
+                recovery_archive_changes
         return result
     unmerged = store.git(project_folder, "diff", "--name-only",
                     "--diff-filter=U")
@@ -863,7 +909,7 @@ def merge_variations(project_folder: str, source_branch: str,
                     "reason": f"cannot auto-resolve {path}; merge aborted"}
         store.git(project_folder, "add", "--", path)
     if human:
-        return {"merged": False, "target": target,
+        result = {"merged": False, "target": target,
                 "source": source_branch, "auto_resolved": sorted(auto),
                 "conflicts": sorted(human),
                 "reason": "declaration conflicts need a human - the "
@@ -871,6 +917,10 @@ def merge_variations(project_folder: str, source_branch: str,
                           "paths already resolved to the target side; "
                           "resolve, rebuild, read back both variations, "
                           "then commit"}
+        if recovery_archive_changes:
+            result["recovery_archives_discarded"] = \
+                recovery_archive_changes
+        return result
     commit = store.git(project_folder, "commit", "--no-edit")
     if commit.returncode != 0:
         store.git(project_folder, "merge", "--abort")
@@ -891,6 +941,8 @@ def merge_variations(project_folder: str, source_branch: str,
                       generated_discarded=generated_source_changes,
                       note="semantic state merged; generated task state "
                            "was kept out of the target")
+    elif recovery_archive_changes:
+        result["recovery_archives_discarded"] = recovery_archive_changes
     return result
 
 
