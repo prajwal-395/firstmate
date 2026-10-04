@@ -1083,6 +1083,21 @@ def test_a_qualification_job_aimed_at_a_user_project_is_refused():
                      qualification=True)
 
 
+def test_broker_refuses_resolve_axi_run_without_developer_opt_in(monkeypatch):
+    """The broker is customer runtime: a queued `run` script would be
+    caller-supplied Python on the shared Resolve connection, so
+    `prepare` refuses it before it is queued unless the broker process
+    itself carries the developer opt-in. With the opt-in the shape
+    still prepares (developers keep their escape hatch)."""
+    from library.tools import resolve_axi
+    monkeypatch.delenv(resolve_axi.RUN_OPT_IN_ENV, raising=False)
+    with pytest.raises(jobs.JobRefused, match="opt-in"):
+        jobs.prepare("resolve_axi", {"argv": ["run", "result = 1"]})
+    monkeypatch.setenv(resolve_axi.RUN_OPT_IN_ENV, "1")
+    shape = jobs.prepare("resolve_axi", {"argv": ["run", "result = 1"]})
+    assert shape["executed"] is True
+
+
 def test_patch_job_uses_its_capability_execution_contract():
     shape = jobs.prepare("timeline.apply_patch", {"patch": {
         "id": "p1", "capability": "reel.touchup", "project": "Podcast",

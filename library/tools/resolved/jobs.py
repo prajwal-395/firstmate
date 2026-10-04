@@ -120,6 +120,16 @@ def _resolve_axi_shape(params: dict) -> dict:
     if func is None or name in resolve_axi._LOCAL_COMMANDS:
         raise JobRefused(f"resolve-axi {argv[0]!r} does not reach Resolve; "
                          "run it locally")
+    if name == "cmd_run" and not resolve_axi.run_script_enabled():
+        # The broker is customer runtime: a queued `run` script would be
+        # caller-supplied Python on the shared Resolve connection. The
+        # developer opt-in lives on the broker process, and without it
+        # the job is refused before it is queued (cmd_run refuses again
+        # at execution, fail-closed on both sides).
+        raise JobRefused(
+            f"resolve-axi run is developer tooling and needs explicit "
+            f"opt-in ({resolve_axi.RUN_OPT_IN_ENV}=1 on the broker) - "
+            f"normal Ren operation never runs caller-supplied Python")
     exclusive = bool(getattr(args, "unsafe", False)
                      or getattr(args, "apply", False))
     if name.startswith("cmd_render"):

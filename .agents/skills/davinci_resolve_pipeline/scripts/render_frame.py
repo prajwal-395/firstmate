@@ -9,6 +9,7 @@ Usage:
     path = render_frame_to_png(resolve, project, frame_num=45, output_dir="/tmp/screenshots")
 """
 import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -83,7 +84,15 @@ def render_frame_to_png(resolve, project, frame_num,
         resolve.OpenPage("edit")
         return None
 
-    os.system(f'ffmpeg -y -i "{mov_path}" -frames:v 1 "{png_path}" 2>/dev/null')
+    # Convert .mov to .png as an argv subprocess: paths reach ffmpeg as
+    # separate arguments, never interpolated into a shell word, so a
+    # hostile output_dir or name_prefix cannot inject shell syntax.
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", mov_path, "-frames:v", "1", png_path],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
 
     resolve.OpenPage("edit")
     print(f"  ✓ Frame {frame_num}: {file_size} bytes → {png_path}")

@@ -1213,6 +1213,36 @@ def test_audit_replies_finds_a_drifted_reply(patched, monkeypatch, capsys):
 # ── run: the cheap escape hatch ────────────────────────────────────
 
 
+@pytest.fixture()
+def run_opt_in(monkeypatch):
+    """The developer opt-in `resolve-axi run` requires: these tests
+    exercise the runner itself, so they declare a developer shell."""
+    monkeypatch.setenv(resolve_axi.RUN_OPT_IN_ENV, "1")
+
+
+def test_run_refuses_without_developer_opt_in(patched, monkeypatch, capsys):
+    """`run` is developer tooling: without RESOLVE_AXI_ALLOW_RUN=1 it
+    refuses before doing anything else - no script runs, and a --file
+    script is not even read (the refusal names the opt-in, not the
+    file). Customer runtime therefore cannot reach caller Python."""
+    monkeypatch.delenv(resolve_axi.RUN_OPT_IN_ENV, raising=False)
+    assert cmd_run(_run_ns(script="result = {'a': 1}")) == 1
+    out = capsys.readouterr().out
+    assert resolve_axi.RUN_OPT_IN_ENV in out
+    assert cmd_run(_run_ns(
+        script="timeline.AddMarker(1, 'Blue', 'n', 'w', 1, '')\n"
+               "result = {'placed': True}",
+        unsafe=True)) == 1
+    assert resolve_axi.RUN_OPT_IN_ENV in capsys.readouterr().out
+    assert patched["timeline"].added == []
+    # The gate sits before script-file reads: a missing file still
+    # answers with the opt-in refusal, never a file error.
+    assert cmd_run(_run_ns(file="/nonexistent/run-script.py")) == 1
+    out = capsys.readouterr().out
+    assert resolve_axi.RUN_OPT_IN_ENV in out
+    assert "cannot read script file" not in out
+
+
 def _run_ns(**over):
     base = {"project": "", "timeline": "Reel 29 - salvage",
             "script": "", "script_pos": "", "file": "", "full": False,
@@ -1222,7 +1252,7 @@ def _run_ns(**over):
     return _ns(**base)
 
 
-def test_run_truncation_names_escape_hatch(patched, capsys):
+def test_run_truncation_names_escape_hatch(patched, run_opt_in, capsys):
     assert cmd_run(_run_ns(
         script="result = [{\"note\": \"x\" * 600}]")) == 0
     out = capsys.readouterr().out
@@ -1234,7 +1264,8 @@ def test_run_truncation_names_escape_hatch(patched, capsys):
     assert "x" * 100 in out
 
 
-def test_run_refuses_every_writer_without_its_flag(patched, capsys):
+def test_run_refuses_every_writer_without_its_flag(patched, run_opt_in,
+                                                  capsys):
     """`run` refuses a mutator without --unsafe: the classic writers and
     the 21.1 Perform/Transcribe/Auto/Assign/Smart/Detect/Generate/Analyze
     calls alike. `--unsafe` declares a write, not CopyGrades: that one
@@ -1262,14 +1293,15 @@ def test_run_refuses_every_writer_without_its_flag(patched, capsys):
     assert patched["timeline"].added == []
 
 
-def test_run_mention_is_not_a_call(patched, capsys):
+def test_run_mention_is_not_a_call(patched, run_opt_in, capsys):
     """A string that NAMES a writer is not a writer call."""
     assert cmd_run(_run_ns(
         script="result = [{'note': 'AddMarker is mentioned'}]")) == 0
     assert "AddMarker is mentioned" in capsys.readouterr().out
 
 
-def test_run_unsafe_writes_under_exclusive_lease(patched, capsys):
+def test_run_unsafe_writes_under_exclusive_lease(patched, run_opt_in,
+                                                  capsys):
     assert cmd_run(_run_ns(
         script="timeline.AddMarker(20, 'Blue', 'note', 'new words', 1, '')\n"
                "result = {'placed': True}",
@@ -1383,7 +1415,7 @@ def test_ownership_adoption_is_a_read_lease_and_records_without_timeline_writes(
 
 
 def test_run_after_report_survives_a_mid_run_project_switch(
-        patched, monkeypatch, capsys):
+        patched, run_opt_in, monkeypatch, capsys):
     """A script that switches projects (setup/teardown scripts
     legitimately do) leaves the held timeline proxy stale - GetName
     reads None. The after-report must read the cursor fresh rather
@@ -1602,7 +1634,7 @@ def test_renders_derives_state_without_reading_english(render_patched,
 # ── run: the grade-destroying call ───────────────────────────────
 
 
-def test_run_unsafe_runs_copygrades_once_named(patched, capsys):
+def test_run_unsafe_runs_copygrades_once_named(patched, run_opt_in, capsys):
     assert cmd_run(_run_ns(
         script="timeline.CopyGrades([])\nresult = {'copied': True}",
         unsafe=True, acknowledge_copy_grades=True)) == 0
@@ -1613,8 +1645,8 @@ def test_run_unsafe_runs_copygrades_once_named(patched, capsys):
 # ── The positional rule ──────────────────────────────────────────
 
 
-def test_positional_primary_args(patched, notes, canned, shelf, capsys,
-                                tmp_path, monkeypatch):
+def test_positional_primary_args(patched, run_opt_in, notes, canned, shelf,
+                                 capsys, tmp_path, monkeypatch):
     """The class, not the instances: every command taking one obvious
     primary argument - a reel name for the reads, a script for `run`,
     a pattern for `api search`, a file for `luts delete` - accepts it

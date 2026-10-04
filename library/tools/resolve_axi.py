@@ -62,6 +62,9 @@ Safety shape, stated once:
   (a prefix rule over mutator verbs, stated at `_RUN_WRITE_PREFIXES`).
   Reads must still never move the cursor, and the AST test still holds
   for everything that is not a declared write.
+- `run` is developer tooling behind `RESOLVE_AXI_ALLOW_RUN=1`: without
+  that opt-in the verb refuses before reading any script, so pipeline
+  steps and broker jobs (customer runtime) never run caller Python.
 - `run --unsafe` still refuses `CopyGrades` unless
   `--acknowledge-copy-grades` names it out loud: the call replaces
   the target's whole grade, reports success, and versions nothing
@@ -2449,6 +2452,29 @@ RUN_SCOPE = ("resolve", "manager", "project", "project_name",
 #: columns is not cheaper than the JSON it replaces.
 RUN_MAX_COLUMNS = 12
 
+#: `run` executes caller-supplied Python, so it is developer tooling,
+#: not customer runtime: normal Ren operation (pipeline steps, broker
+#: jobs) never reaches it. The gate is explicit opt-in - set
+#: `RESOLVE_AXI_ALLOW_RUN=1` in the developer's shell before invoking
+#: `resolve-axi run` (directly or through `ren-resolved`).
+RUN_OPT_IN_ENV = "RESOLVE_AXI_ALLOW_RUN"
+
+
+def run_script_enabled() -> bool:
+    """Whether the developer opted into the raw `run` script runner."""
+    return os.environ.get(RUN_OPT_IN_ENV) == "1"
+
+
+def _run_opt_in_refusal() -> tuple:
+    """The refusal `cmd_run` and the broker answer without opt-in."""
+    return (
+        f"`run` is developer tooling and needs explicit opt-in "
+        f"({RUN_OPT_IN_ENV}=1) - normal Ren operation never runs "
+        f"caller-supplied Python.",
+        f"export {RUN_OPT_IN_ENV}=1 to declare this shell a "
+        f"developer shell, then re-run `{TOOL} run --help`",
+    )
+
 
 def _refused_resolve_writes(script: str) -> list:
     """Mutator attribute names in a `run` script, in first-seen order.
@@ -2589,7 +2615,13 @@ def cmd_run(args) -> int:
     - `--unsafe` still refuses `CopyGrades` without
       `--acknowledge-copy-grades`: that call destroys the target's
       grade while reporting success.
+    - `run` itself needs developer opt-in (`RESOLVE_AXI_ALLOW_RUN=1`):
+      without it the verb refuses before reading any script file, so
+      customer runtime cannot reach caller-supplied Python.
     """
+    if not run_script_enabled():
+        message, fix = _run_opt_in_refusal()
+        return fail(message, fix)
     if args.script and args.file:
         return fail("pass --script or --file, not both.",
                     f"{TOOL} run --help")
@@ -6721,11 +6753,14 @@ def build_parser() -> Parser:
 
     p = subs.add_parser(
         "run",
-        help="execute a caller script with ready Resolve names; "
-             "`result` renders as TOON (read-only unless --unsafe)",
+        help="developer-only: execute a caller script (needs "
+             "RESOLVE_AXI_ALLOW_RUN=1)",
         description=(
-            "The cheap escape hatch: the script runs with exactly "
-            "these names in scope - resolve, manager, project, "
+            "The cheap escape hatch, and developer-only tooling: set "
+            "RESOLVE_AXI_ALLOW_RUN=1 in a developer shell first - "
+            "without it the verb refuses and normal Ren operation "
+            "never runs caller-supplied Python. The script runs with "
+            "exactly these names in scope - resolve, manager, project, "
             "project_name, timeline, timeline_name, is_current, "
             "timeline_names, by_index, read_notes - and whatever it "
             "leaves in `result` renders as TOON rows under the same "
