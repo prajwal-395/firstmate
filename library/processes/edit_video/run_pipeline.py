@@ -2325,6 +2325,9 @@ def run_pipeline(
     # before the split is folded into the two ledgers once, here.
     manifests = _manifest_map(nodes)
     stage_by_node = _stage_map(manifests)
+    from library.tools import planning_reuse
+    planning_reuse_nodes = planning_reuse.planning_nodes(
+        dag, stage_by_node)
     migrated = step_ledger.migrate_legacy(state, stage_by_node)
     if migrated:
         print(f"  Migrated {len(migrated)} steps from the single "
@@ -2734,6 +2737,15 @@ def run_pipeline(
     paused_at_gate = None
     held_before_step = None
 
+    force_planning_recompute = set()
+    for raw_target in rerun or ():
+        kind, value = step_ledger.parse_rerun_target(
+            raw_target, stage_by_node)
+        if kind == "step":
+            force_planning_recompute.add(value)
+        elif kind == "clip":
+            force_planning_recompute.add(value.partition(":")[0])
+
     run_mode = run_control.describe_mode(
         full_auto=full_auto, auto_mode=auto_mode, review_mode=review_mode,
         resume_mode=resume_mode, single_step=single_step, from_step=from_step,
@@ -2906,6 +2918,45 @@ def run_pipeline(
                     for prefix in prefixes)
         }
 
+    def planning_cache_candidate(node_id, identity, output=None):
+        """Find and verify a reusable planner result after a stage reset."""
+        if node_id in force_planning_recompute:
+            return False, "explicit step rerun", None
+        if not identity:
+            return False, "input identity unavailable", None
+        candidate_output = output or capability_outputs.node_output(
+            state, node_id)
+        try:
+            if not candidate_output:
+                candidate_output = planning_reuse.recorded_output(
+                    project_dir, node_id)
+            reusable, why = planning_reuse.reusable(
+                state, node_id, identity, candidate_output, project_dir)
+        except Exception as exc:  # noqa: BLE001 - a miss is safe
+            return False, f"cache witness unavailable: {exc}", None
+        if reusable:
+            from library.tools.review_gate import get_gate_status
+            gate_status = get_gate_status(project_dir, node_id)
+            if gate_status not in ("none", "approved"):
+                return False, f"review gate is {gate_status}", None
+        return reusable, why, candidate_output
+
+    def finish_reused_planning_step(node_id, output):
+        """Restore the state witnesses so downstream readers see the result."""
+        capability_outputs.record(state, node_id, output)
+        step_ledger.record(
+            state, stage_by_node[node_id], node_id,
+            {"completed_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+             "reused": True},
+        )
+        save_pipeline_state(project_dir, state)
+        run_control.record_step_timing(project_dir, node_id, reused=True)
+        perf_ledger.record_reused(project_dir, node_id, _run_id, node=node_id)
+        completed.append(node_id)
+        dependency_complete.add(node_id)
+        run_control.write_run_status(
+            project_dir, last_completed_step=node_id, **active_run_fields())
+
     def coordinated_order():
         """Yield one node for the runner to commit, then replan readiness.
 
@@ -2987,6 +3038,33 @@ def run_pipeline(
                     baseline = _provenance.snapshot()
                     worker_impl = dict(candidate_impl)
                     worker_impl["node"] = candidate_node
+                    candidate_identity = None
+                    if candidate in planning_reuse_nodes:
+                        try:
+                            candidate_identity = planning_reuse.cache_identity(
+                                candidate, dag, candidate_inputs,
+                                {
+                                    "full_auto": normalize_full_auto(full_auto),
+                                    "auto_mode": bool(auto_mode),
+                                },
+                                candidate_dir, project_dir,
+                                LIBRARY_ROOT.parent,
+                                state.get(
+                                    step_ledger.SOURCE_FINGERPRINTS_KEY, {}))
+                        except Exception as exc:  # noqa: BLE001 - miss is safe
+                            print(f"     Planning cache identity unavailable "
+                                  f"for {candidate}: {exc}", file=sys.stderr)
+                        cached, why, cached_output = planning_cache_candidate(
+                            candidate, candidate_identity)
+                        if cached:
+                            pending.remove(candidate)
+                            finish_reused_planning_step(
+                                candidate, cached_output)
+                            print(f"     ♻  {candidate}: planning output "
+                                  "reused", file=sys.stderr)
+                            continue
+                        print(f"     ↻  {candidate}: planning cache miss - "
+                              f"{why}", file=sys.stderr)
                     future = executor.submit(
                         _run_step_work, project_dir, candidate, worker_impl,
                         copy.deepcopy(candidate_inputs), auto_mode,
@@ -2994,6 +3072,7 @@ def run_pipeline(
                     in_flight[candidate] = {
                         "future": future,
                         "inputs": candidate_inputs,
+                        "planning_identity": candidate_identity,
                         "artifacts_before": baseline,
                         "impl": candidate_impl,
                     }
@@ -3067,6 +3146,9 @@ def run_pipeline(
                     )
 
         node = nodes[node_id]
+        _worker_record = in_flight.get(node_id) or {}
+        planning_inputs = _worker_record.get("inputs")
+        planning_identity = _worker_record.get("planning_identity")
 
         # Free the loaded ML models when the run crosses a phase boundary.
         #
@@ -3160,21 +3242,54 @@ def run_pipeline(
                         state, node_id)
                     merged = apply_feedback_to_output(step_output, feedback)
                     capability_outputs.record(state, node_id, merged)
+                    if node_id in planning_reuse_nodes:
+                        planning_reuse.refresh_output(state, node_id, merged)
                     save_pipeline_state(project_dir, state)
                     print(f"  ⏭  {node_id}: revised output applied", file=sys.stderr)
 
-            print(f"  ⏭  {node_id}: already completed", file=sys.stderr)
-            # Reused, not rebuilt: the run's own record says so, with no
-            # duration, because there is nothing honest to time on a step
-            # that did not run. Best-effort; never fails the run.
-            run_control.record_step_timing(project_dir, node_id, reused=True)
-            perf_ledger.record_reused(project_dir, node_id, _run_id, node=node_id)
-            completed.append(node_id)
-            dependency_complete.add(node_id)
-            run_control.write_run_status(
-                project_dir, last_completed_step=node_id,
-                **active_run_fields())
-            continue
+            if node_id in planning_reuse_nodes:
+                planning_inputs = gather_step_inputs(
+                    node_id, dag, state, manifest=impl.get("manifest"),
+                    step_type=impl.get("type", "unknown"), external=external)
+                try:
+                    planning_identity = planning_reuse.cache_identity(
+                        node_id, dag, planning_inputs,
+                        {
+                            "full_auto": normalize_full_auto(full_auto),
+                            "auto_mode": bool(auto_mode),
+                        },
+                        step_dir, project_dir, LIBRARY_ROOT.parent,
+                        state.get(step_ledger.SOURCE_FINGERPRINTS_KEY, {}))
+                    previous_output = capability_outputs.node_output(
+                        state, node_id)
+                    reusable, why = planning_reuse.reusable(
+                        state, node_id, planning_identity, previous_output,
+                        project_dir)
+                except Exception as exc:  # noqa: BLE001 - miss is safe
+                    reusable = False
+                    why = f"identity unavailable: {exc}"
+            else:
+                reusable = True
+
+            if node_id in planning_reuse_nodes:
+                status = "output reused" if reusable else f"cache miss - {why}"
+                symbol = "♻" if reusable else "↻"
+                print(f"  {symbol}  {node_id}: planning {status}",
+                      file=sys.stderr)
+
+            if reusable:
+                print(f"  ⏭  {node_id}: already completed", file=sys.stderr)
+                # Reused, not rebuilt: the run's own record says so, with no
+                # duration, because there is nothing honest to time on a step
+                # that did not run. Best-effort; never fails the run.
+                run_control.record_step_timing(project_dir, node_id, reused=True)
+                perf_ledger.record_reused(project_dir, node_id, _run_id, node=node_id)
+                completed.append(node_id)
+                dependency_complete.add(node_id)
+                run_control.write_run_status(
+                    project_dir, last_completed_step=node_id,
+                    **active_run_fields())
+                continue
         
         run_control.write_run_status(
             project_dir, current_step=node_id,
@@ -3187,12 +3302,40 @@ def run_pipeline(
 
         
         # Gather inputs from upstream (pass manifest for optional-input checking)
-        if node_id in in_flight:
+        if planning_inputs is not None:
+            inputs = planning_inputs
+        elif node_id in in_flight:
             inputs = in_flight[node_id]["inputs"]
         else:
             inputs = gather_step_inputs(
                 node_id, dag, state, manifest=impl.get("manifest"),
                 step_type=impl.get("type", "unknown"), external=external)
+        if (node_id in planning_reuse_nodes and planning_identity is None):
+            try:
+                planning_identity = planning_reuse.cache_identity(
+                    node_id, dag, inputs,
+                    {
+                        "full_auto": normalize_full_auto(full_auto),
+                        "auto_mode": bool(auto_mode),
+                    },
+                    step_dir, project_dir, LIBRARY_ROOT.parent,
+                    state.get(step_ledger.SOURCE_FINGERPRINTS_KEY, {}))
+            except Exception as exc:  # noqa: BLE001 - miss is safe
+                print(f"     Planning cache identity unavailable for "
+                      f"{node_id}: {exc}", file=sys.stderr)
+        if (node_id in planning_reuse_nodes
+                and not step_ledger.is_completed(state, node_id)
+                and node_id not in in_flight):
+            cached, why, cached_output = planning_cache_candidate(
+                node_id, planning_identity, capability_outputs.node_output(
+                    state, node_id))
+            if cached:
+                finish_reused_planning_step(node_id, cached_output)
+                print(f"     ♻  {node_id}: planning output reused",
+                      file=sys.stderr)
+                continue
+            print(f"     ↻  {node_id}: planning cache miss - {why}",
+                  file=sys.stderr)
         print(f"     Inputs: {list(inputs.keys())}", file=sys.stderr)
 
         # A delivery is a thing that happened, so it is recorded where a
@@ -3431,6 +3574,41 @@ def run_pipeline(
                     logger.warning(f"Mesh spine duration ({total_duration:.1f}s) below minimum ({MIN_DURATION}s). Consider using more footage.")
             
             _export_step_for_review(project_dir, node_id, node["name"], output, state)
+
+            if node_id in planning_reuse_nodes:
+                try:
+                    current_identity = planning_reuse.cache_identity(
+                        node_id, dag, inputs,
+                        {
+                            "full_auto": normalize_full_auto(full_auto),
+                            "auto_mode": bool(auto_mode),
+                        },
+                        step_dir, project_dir, LIBRARY_ROOT.parent,
+                        state.get(step_ledger.SOURCE_FINGERPRINTS_KEY, {}))
+                    if (planning_identity is not None
+                            and planning_identity.get("key")
+                            != current_identity.get("key")):
+                        reason = "effective planning inputs changed while the step ran"
+                    elif planning_identity is None:
+                        reason = "input identity was unavailable before execution"
+                    else:
+                        reason = planning_reuse.record_success(
+                            state, node_id, current_identity, output,
+                            project_dir)
+                    if reason:
+                        (state.get(planning_reuse.STATE_KEY) or {}).pop(
+                            node_id, None)
+                        print(f"     Planning cache not recorded for "
+                              f"{node_id}: {reason}", file=sys.stderr)
+                    else:
+                        save_pipeline_state(project_dir, state)
+                        print(f"     Planning cache recorded for {node_id}",
+                              file=sys.stderr)
+                except Exception as exc:  # noqa: BLE001 - bookkeeping only
+                    (state.get(planning_reuse.STATE_KEY) or {}).pop(
+                        node_id, None)
+                    print(f"     Planning cache not recorded for "
+                          f"{node_id}: {exc}", file=sys.stderr)
 
             # Now, and not before the export: `_export_step_for_review`
             # writes <step_id>.json and <step_id>.summary.md, and a

@@ -73,14 +73,14 @@ One enumeration, `library/tools/processes.py`. [why](docs/REEL_BUILD_HAS_NO_OWNI
 
 ### Scoping a run
 
-One enumeration, `library/tools/run_scope.py`, and both CLIs register its flags from it.
+One enumeration: `library/tools/run_scope.py` registers both CLIs' flags.
 
 ### Configuring a run
 
-**A run shape is DECLARED as data, and it has no power `run_scope` does not already have.**
+**Profiles declare run shapes; they add nothing to `run_scope`.**
 Detail: `library/tools/run_profile.py`.
 
-**A breakpoint is armed PER STEP, and `--review` is the every-step case.**
+**Breakpoints arm per step; `--review` arms every step.**
 Detail: `library/tools/breakpoints.py`.
 
 ### State the pipeline did not produce
@@ -97,6 +97,8 @@ Detail: `library/tools/requirements.py`, `library/tools/input_contract.py`.
 ### Two ledgers, two lifetimes
 
 One enumeration: `library/tools/step_ledger.py`.
+
+Planning cache: `library/tools/planning_reuse.py`.
 
 ### Run status
 
