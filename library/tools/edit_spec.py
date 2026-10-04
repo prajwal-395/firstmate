@@ -571,7 +571,7 @@ def prepare_intent(project_folder: str, spec_id: str,
         if not _matches_recorded_rows(spec, recorded):
             raise EditSpecError(
                 "intent review requires the current resolved edit spec to "
-                "match every row in external/edit_ledger.json")
+                "match every row in external/declarations/edit_ledger.json")
     artifacts = {
         "timeline_readback": _intent_artifact(
             timeline_readback, "built timeline readback"),

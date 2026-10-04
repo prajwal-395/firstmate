@@ -155,7 +155,7 @@ def main(argv=None) -> int:
         print(f"REFUSED\n\n{exc}\n")
         return 1
     if not rows:
-        print(f"No edit-ledger rows in {args.project}/external/.")
+        print(f"No edit-ledger rows in {args.project}/external/declarations/.")
         return 0
     sys.stdout.write(render_enumeration(
         rows, reel_prefixes=tuple(args.reel)))

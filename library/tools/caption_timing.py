@@ -38,7 +38,7 @@ rows.
 
 What a declaration says
 -----------------------
-`<project>/external/caption_timing.json`, checked and never asserted::
+`<project>/external/declarations/caption_timing.json`, checked and never asserted::
 
     {"version": 1,
      "pins": [{"scope": {"speaker": "akshita",
@@ -209,8 +209,9 @@ def validate_pins(value) -> list:
 
 def pins_path(project_folder: str) -> str:
     """Where a project's declared caption timing lives."""
-    return os.path.join(project_folder, "external",
-                        CAPTION_TIMING_FILENAME)
+    from library.tools.external_inputs import declaration_path
+
+    return str(declaration_path(project_folder, CAPTION_TIMING_FILENAME))
 
 
 def load_pins(project_folder: str) -> list:

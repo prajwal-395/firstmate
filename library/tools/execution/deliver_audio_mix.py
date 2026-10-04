@@ -192,7 +192,7 @@ def deliver_mix(resolve, project, media_pool, timeline, manifest, *,
             "to write the OTIO")
         return report
 
-    # The captain's declared levels (`external/mix_intent.json`,
+    # The captain's declared levels (`external/declarations/mix_intent.json`,
     # `library/tools/mix_intent.py`): held post-plan and stamped
     # declared, through the one applier every path shares. No
     # declaration and the targets below are the plan's own, exactly as

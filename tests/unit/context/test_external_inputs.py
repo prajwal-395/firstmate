@@ -493,7 +493,8 @@ def test_naming_a_supplied_step_on_the_command_line_is_refused(tmp_path):
                           state={}, external=external)
     message = str(exc.value)
     assert "would overwrite what you supplied" in message
-    assert "external/music_selection.json" in message
+    assert "music_selection" in message
+    assert "supplied file" in message
 
 
 def test_not_naming_it_runs_without_a_word_of_complaint(tmp_path):
@@ -528,11 +529,11 @@ def test_a_step_that_hands_nothing_to_anybody_is_never_read_as_supplied():
     assert not (silent & set(run_scope.supplied_producers(dag, everything)))
 
 
-# ── Declarations share the directory and are NOT supplied state ────
+# ── Declarations are separate from supplied state ───────────────────
 
 def test_a_declaration_is_checked_by_its_owner_and_not_supplied(tmp_path):
     """Measured 2026-09-11 on `lucie/geo-podcast`: the moment the
-    captain's `overlay_intent.json` was written into `external/`, every
+    captain's `overlay_intent.json` was written into `external/declarations/`, every
     `build-reels` on that project refused at input gathering with
     "declares key None" - a message about a contract that file was
     never written to. A declaration is read by its OWNER."""
@@ -541,7 +542,7 @@ def test_a_declaration_is_checked_by_its_owner_and_not_supplied(tmp_path):
     from library.tools import external_inputs
 
     root = tmp_path / "project"
-    external = root / "external"
+    external = root / "external" / "declarations"
     external.mkdir(parents=True)
     (external / "reel_ending.json").write_text(_json.dumps({
         "version": 1,
@@ -565,6 +566,33 @@ def test_a_declaration_is_checked_by_its_owner_and_not_supplied(tmp_path):
     assert external_inputs.checked_declarations(root) == {
         "reel_ending": "1 entry", "reel_post_header": "1 entry"}
     assert external_inputs.load(root, {}) == {}
+
+
+def test_supplied_state_in_declarations_area_refuses(tmp_path):
+    project = _project(tmp_path)
+    declarations = project / "external" / "declarations"
+    declarations.mkdir(parents=True)
+    (declarations / "music_selection.json").write_text(
+        json.dumps({"key": "music_selection", "source": "captain",
+                    "value": _selection(tmp_path)}), encoding="utf-8")
+
+    with pytest.raises(ExternalStateError, match="external/declarations"):
+        external_inputs.load(project)
+
+
+def test_canonical_state_area_is_loaded(tmp_path):
+    project = _project(tmp_path)
+    state = project / "external" / "state"
+    state.mkdir(parents=True)
+    path = state / "music_selection.json"
+    path.write_text(json.dumps({
+        "key": "music_selection", "source": "captain",
+        "value": _selection(tmp_path),
+    }), encoding="utf-8")
+
+    supplied = external_inputs.load(project)
+
+    assert supplied["music_selection"].path == path
 
 
 def test_a_malformed_declaration_still_refuses_in_its_owners_words(tmp_path):

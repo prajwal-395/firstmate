@@ -82,13 +82,70 @@ def test_input_areas_refuse_every_write(tmp_path):
         layout.write_dir(Area.RAW)
     assert not (tmp_path / "raw").exists()
     for area in (Area.RAW, Area("subtitle_plans"), Area("subtitle_overlays"),
-                 Area.RUN_PROFILES):
+                 Area.RUN_PROFILES, Area.EXTERNAL_STATE,
+                 Area.EXTERNAL_DECLARATIONS):
         with pytest.raises(ProjectLayoutViolation):
             layout.write_dir(area)
         with pytest.raises(ProjectLayoutViolation):
             layout.write_path(area, "anything.json")
         with pytest.raises(ProjectLayoutViolation):
             layout.assert_writable(layout.read_dir(area) / "x.json")
+
+
+def test_legacy_external_files_migrate_into_separate_input_areas(tmp_path):
+    from library.tools.project_layout import Kind
+
+    layout = ProjectLayout(tmp_path)
+    layout.ensure()
+    legacy = tmp_path / "external"
+    legacy.mkdir()
+    files = {
+        "assembly_manifest.json": b'{"legacy": "state"}',
+        "overlay_intent.json": b'{"legacy": "declaration"}',
+        "captain_edits.json": b'{"legacy": "keyed declaration"}',
+        "unknown.json": b'{"legacy": "unknown"}',
+    }
+    for name, body in files.items():
+        (legacy / name).write_bytes(body)
+
+    plan = plan_organization(tmp_path)
+    destinations = {
+        Path(action.src).name: Path(action.dest).relative_to(tmp_path).as_posix()
+        for action in plan.actions
+        if action.src.startswith(str(legacy))
+    }
+    assert destinations == {
+        "assembly_manifest.json": "external/state/assembly_manifest.json",
+        "overlay_intent.json": "external/declarations/overlay_intent.json",
+        "captain_edits.json": "external/declarations/captain_edits.json",
+    }
+    assert any(entry["path"] == "external/unknown.json"
+               for entry in plan.left_in_place)
+
+    manifest = organize_project(tmp_path, apply=True)
+    expected_areas = {
+        Area.EXTERNAL_STATE: "external/state",
+        Area.EXTERNAL_DECLARATIONS: "external/declarations",
+    }
+    for area, relpath in expected_areas.items():
+        assert AREAS[area].relpath == relpath
+        assert AREAS[area].kind is Kind.INPUT
+    for name in ("assembly_manifest.json", "overlay_intent.json",
+                 "captain_edits.json"):
+        path = tmp_path / destinations[name]
+        assert path.read_bytes() == files[name]
+        assert not (legacy / name).exists()
+        with pytest.raises(ProjectLayoutViolation, match="input"):
+            layout.assert_writable(path)
+    assert (legacy / "unknown.json").read_bytes() == files["unknown.json"]
+    moved = [action for action in manifest["actions"]
+             if action["src"].startswith(str(legacy))]
+    assert len(moved) == 3
+    assert manifest["policy"]["external_input_relocation"]
+
+    revert_from_manifest(manifest["manifest_path"], apply=True)
+    for name, body in files.items():
+        assert (legacy / name).read_bytes() == body
 
 
 def test_writes_outside_the_layout_are_refused(tmp_path):
@@ -948,8 +1005,8 @@ def project(tmp_path, monkeypatch):
     folder.mkdir()
     assert store.init_project_repo(str(folder))["initialised"]
     (folder / "project.yaml").write_text("name: p\n", encoding="utf-8")
-    _write_2(folder, "external/captain_edits.json", {"edits": []})
-    _write_2(folder, "external/reel_ending.json", {"ending": "cut"})
+    _write_2(folder, "external/declarations/captain_edits.json", {"edits": []})
+    _write_2(folder, "external/declarations/reel_ending.json", {"ending": "cut"})
     assert store.commit_build(str(folder), "base")["committed"]
     return folder
 
@@ -962,16 +1019,16 @@ def test_two_tasks_hold_separate_states_and_both_merge(project):
     assert b["branch"] == "ren/reel-07-ending"
 
     # Each task edits a different declaration in its own checkout.
-    _write_2(Path(a["path"]), "external/captain_edits.json",
+    _write_2(Path(a["path"]), "external/declarations/captain_edits.json",
            {"edits": ["caption 3 lower"]})
-    _write_2(Path(b["path"]), "external/reel_ending.json",
+    _write_2(Path(b["path"]), "external/declarations/reel_ending.json",
            {"ending": "hold"})
     assert worktrees.commit(str(project), "captions", "a")["committed"]
     assert worktrees.commit(str(project), "reel 07 ending", "b")["committed"]
 
     # Neither task moved the project checkout or wrote into it.
     assert _branch(project) == home
-    assert json.loads((project / "external/reel_ending.json").read_text())[
+    assert json.loads((project / "external/declarations/reel_ending.json").read_text())[
         "ending"] == "cut"
     assert {t["task"] for t in worktrees.list_tasks(str(project))} == {
         "captions", "reel-07-ending"}
@@ -981,9 +1038,9 @@ def test_two_tasks_hold_separate_states_and_both_merge(project):
         assert merged["merged"], merged
         assert worktrees.remove(str(project), task)["branch_deleted"]
     assert _branch(project) == home
-    assert json.loads((project / "external/captain_edits.json").read_text())[
+    assert json.loads((project / "external/declarations/captain_edits.json").read_text())[
         "edits"] == ["caption 3 lower"]
-    assert json.loads((project / "external/reel_ending.json").read_text())[
+    assert json.loads((project / "external/declarations/reel_ending.json").read_text())[
         "ending"] == "hold"
     assert worktrees.list_tasks(str(project)) == []
 
@@ -992,7 +1049,7 @@ def test_conflicting_declarations_reach_a_human_and_uncommitted_work_stays(
         project):
     for task, ending in (("one", "hold"), ("two", "fade")):
         opened = worktrees.add(str(project), task)
-        _write_2(Path(opened["path"]), "external/reel_ending.json",
+        _write_2(Path(opened["path"]), "external/declarations/reel_ending.json",
                {"ending": ending})
         if task == "two":
             # Uncommitted work is never merged and never removed.
@@ -1003,7 +1060,7 @@ def test_conflicting_declarations_reach_a_human_and_uncommitted_work_stays(
     assert worktrees.merge(str(project), "one")["merged"]
     second = worktrees.merge(str(project), "two")
     assert not second["merged"]
-    assert second["conflicts"] == ["external/reel_ending.json"]
+    assert second["conflicts"] == ["external/declarations/reel_ending.json"]
 
 
 # --------------------------------------------------------------------------

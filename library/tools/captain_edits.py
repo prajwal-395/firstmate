@@ -1,7 +1,7 @@
 """The captain's edits, as small readable deltas that survive a rebuild.
 
 An edit here is a DELTA - one anchor, one decision, in the captain's own
-words - stored in `<project>/external/captain_edits.json` and applied
+words - stored in `<project>/external/declarations/captain_edits.json` and applied
 where the decision lands (spine blocks, caption cards, placed spans).
 Whole-value supply (`library/tools/external_inputs.py`) stays available
 for handing over an entire output; an edit is the readable alternative.
@@ -130,7 +130,7 @@ from library.tools.resolve_lock import under_lease
 from library.tools import reel_clock as _reel_clock
 
 CAPTAIN_EDITS_KEY = "captain_edits"
-"""The state key, and the file name: `<project>/external/captain_edits.json`."""
+"""The state key and file name: `<project>/external/declarations/captain_edits.json`."""
 
 KINDS = ("caption_fix", "drop_fragment", "redraw_closer",
           "transform_override", "span_retime")
@@ -338,10 +338,10 @@ def validate_edits(value) -> list:
 # ── Reading: the file the captain writes ─────────────────────────────
 
 def edits_path(project_folder) -> Path:
-    from library.tools.project_layout import Area, ProjectLayout
+    from library.tools.external_inputs import declaration_path
 
-    return Path(ProjectLayout(str(project_folder)).read_dir(
-        Area.EXTERNAL_STATE)) / f"{CAPTAIN_EDITS_KEY}.json"
+    return Path(declaration_path(
+        project_folder, f"{CAPTAIN_EDITS_KEY}.json"))
 
 
 def load_edits(project_folder) -> list:
@@ -1667,7 +1667,7 @@ def record_edit(project_folder, edit: dict, source: str = "") -> tuple:
     REFUSED as already in force, a re-ruling of the same decision
     REPLACES it, anything else appends. Returns `(edit, action)` with
     action one of `"recorded"`, `"superseded"`. The store is created
-    (with its `external/` directory) where nothing was ever written -
+    (with its `external/declarations/` directory) where nothing was ever written -
     that absence was the whole defect."""
     validate_edits([edit])
     transcript = load_transcript(project_folder)

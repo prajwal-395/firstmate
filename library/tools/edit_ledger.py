@@ -14,7 +14,7 @@ What it generalises, and what it does not
 -----------------------------------------
 `captain_edits` (`library/tools/captain_edits.py`) already holds
 word-anchored deltas - `drop_fragment` and the rest - that survive a
-rebuild at the plan level. The `external/*.json` pins
+rebuild at the plan level. The `external/declarations/*.json` pins
 (`mix_intent`, `overlay_intent`, `reel_ending`, `caption_timing`,
 `placed_assets`, `do_not_draw`, `reel_cta`,
 `tail_extend_authorizations`) hold standing decisions each owned by
@@ -32,9 +32,9 @@ here; the legacy file stays readable.
 
 Where it lives, and on which side of the split
 ----------------------------------------------
-`<project>/external/edit_ledger.json`, a DECLARATION - `version`
+`<project>/external/declarations/edit_ledger.json`, a DECLARATION - `version`
 plus the owner's own field - on the declarations side of the
-`external/` split (`library/tools/external_inputs.py`): checked by
+`external/declarations/` split (`library/tools/external_inputs.py`): checked by
 its owner's reader, never asserted, never a step output. Per reel:
 a row may carry `reel` (the timeline-name prefix convention from
 `reel_ending`), so one reel's edits revert alone. Declarations are
@@ -539,10 +539,9 @@ def _validate_params(label: str, row: dict, anchor: dict) -> None:
 # ── Reading: the file the captain writes ─────────────────────────────
 
 def ledger_path(project_folder) -> Path:
-    from library.tools.project_layout import Area, ProjectLayout
+    from library.tools.external_inputs import declaration_path
 
-    return Path(ProjectLayout(str(project_folder)).read_dir(
-        Area.EXTERNAL_STATE)) / EDIT_LEDGER_FILENAME
+    return Path(declaration_path(project_folder, EDIT_LEDGER_FILENAME))
 
 
 def load_rows(project_folder=None) -> list:
@@ -1430,7 +1429,7 @@ def main(argv=None) -> int:
         print(f"REFUSED\n\n{exc}\n")
         return 1
     if not rows:
-        print(f"No edit-ledger rows in {project_folder}/external/.")
+        print(f"No edit-ledger rows in {project_folder}/external/declarations/.")
         return 0
     describe_rows(rows)
     return 0

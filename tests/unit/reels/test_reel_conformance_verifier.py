@@ -1107,8 +1107,8 @@ class TestClosingCallToAction:
                       "if", "your", "brand", "is", "mentioned", "here",
                       "today"], 600.0)),
         ]}
-        external = tmp_path / "external"
-        external.mkdir(exist_ok=True)
+        external = tmp_path / "external" / "declarations"
+        external.mkdir(parents=True, exist_ok=True)
         (external / "captain_edits.json").write_text(
             json.dumps({"key": "captain_edits", "source": "test",
                         "value": [{

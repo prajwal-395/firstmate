@@ -11,7 +11,7 @@ a deletion with no store is not a weaker hold, it is no hold.
 
 What a declaration says
 -----------------------
-`<project>/external/do_not_draw.json`, checked and never asserted (the
+`<project>/external/declarations/do_not_draw.json`, checked and never asserted (the
 `overlay_intent.json` / `reel_ending.json` precedent)::
 
     {"version": 1,
@@ -172,9 +172,9 @@ def parse_rules(body: dict, source: str = RULES_FILENAME) -> list:
 
 def rules_path(project_folder) -> str:
     """The file a project's suppressions live in, whether present or not."""
-    from library.tools.external_inputs import external_dir
+    from library.tools.external_inputs import declaration_path
 
-    return os.path.join(str(external_dir(project_folder)), RULES_FILENAME)
+    return str(declaration_path(project_folder, RULES_FILENAME))
 
 
 def load_rules(project_folder=None) -> list:

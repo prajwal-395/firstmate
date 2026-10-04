@@ -3,8 +3,8 @@
 The other shared resource
 -------------------------
 Resolve is one instance, but it is not the only thing two agents write
-at once. The keyed JSON stores - `external/captain_edits.json`, the
-five `external/` DECLARATIONS, and the reel-keyed records under
+at once. The keyed JSON stores - `external/declarations/captain_edits.json`, the
+`external/declarations/` stores, and the reel-keyed records under
 `pipeline_output/review/` - are ordinary files, which is what makes a
 real answer possible here where Resolve only allows a convention.
 
@@ -57,7 +57,7 @@ the cheapest thing that cannot lose an update:
 4. **An atomic write.** Temp plus `os.replace` in the same directory,
    so a reader never sees half a file - the rest of this repo's keyed
    stores already do this (`stable_json.write_stable`), and the two
-   `external/` writers did not.
+   `external/declarations/` writers did not.
 
 A short exclusive `flock` is held across the read-merge-write so two
 cooperating writers do not interleave. It does NOT depend on
@@ -125,7 +125,7 @@ class KeyedStore:
 
     def __init__(self, stem: str, container: str, envelope: dict,
                  key_of: Optional[Callable[[dict], str]],
-                 relative_dir: str = "external"):
+                 relative_dir: str = "external/declarations"):
         self.stem = stem
         self.container = container
         self.envelope = envelope
@@ -233,16 +233,15 @@ def store_path(project_folder, stem: str) -> Path:
     """Where the store lives, asked of the LAYOUT rather than guessed.
 
     `project_layout` owns the project-side layout (AGENTS.md 8), and
-    `external_inputs.external_dir` is its reading of the external area -
-    the same directory the owner's reader opens. Composing the path here
-    would be a second answer to where a file lives, and the two would
-    drift the first time the layout moved.
+    `external_inputs.declaration_path` resolves its declaration area,
+    including the read-through for legacy projects. Composing the path
+    here would be a second answer to where a file lives.
     """
     store = store_for(stem)
-    if store.relative_dir == "external":
-        from library.tools.external_inputs import external_dir
+    if store.relative_dir == "external/declarations":
+        from library.tools.external_inputs import declaration_path
         try:
-            return Path(external_dir(project_folder)) / store.filename()
+            return Path(declaration_path(project_folder, store.filename()))
         except (KeyError, ValueError):
             pass
     return Path(project_folder) / store.relative_dir / store.filename()

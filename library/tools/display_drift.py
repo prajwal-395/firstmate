@@ -130,9 +130,9 @@ def _classes_for(relpath: str) -> list:
         return ["mg_content"]
     if relpath.endswith(".comp") or "carrier" in relpath:
         return ["look_grade"]
-    # Owner stores (`external/overlay_intent.json`,
-    # `external/captain_edits.json`, `external/mix_intent.json`,
-    # `external/placed_assets.json`) are deliberately unmapped: they
+    # Owner stores (`external/declarations/overlay_intent.json`,
+    # `external/declarations/captain_edits.json`, `external/declarations/mix_intent.json`,
+    # `external/declarations/placed_assets.json`) are deliberately unmapped: they
     # are the declarations the pipeline READS, and flagging the
     # captain's own deep-path edit as drift would punish the fix this
     # witness exists to route toward. This function only ever sees

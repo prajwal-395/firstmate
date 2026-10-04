@@ -302,7 +302,7 @@ def check_pin_anchors(project_folder: str) -> list:
         edits = captain_edits.load_edits(project_folder)
     except captain_edits.CaptainEditError as exc:
         return [{"class": "pins",
-                 "layer_file": "external/captain_edits.json",
+                 "layer_file": "external/declarations/captain_edits.json",
                  "location": "store",
                  "found": f"unreadable: {exc}",
                  "should_be": "a readable decision store",
@@ -320,7 +320,7 @@ def check_pin_anchors(project_folder: str) -> list:
                               in ("redraw_closer", "drop_fragment")
                               else "clip_timing" if edit.get("kind")
                               == "span_retime" else "picture_position"),
-                    "layer_file": "external/captain_edits.json",
+                    "layer_file": "external/declarations/captain_edits.json",
                     "location": edit.get("kind", "?"),
                     "found": f"anchor {phrase!r} matches nothing",
                     "should_be": "words the transcript still speaks",
@@ -331,7 +331,7 @@ def check_pin_anchors(project_folder: str) -> list:
     except mix_intent.MixIntentError as exc:
         divergences.append({
             "class": "audio_levels",
-            "layer_file": "external/mix_intent.json",
+            "layer_file": "external/declarations/mix_intent.json",
             "location": "store",
             "found": f"unreadable: {exc}",
             "should_be": "a readable intent file",
@@ -342,7 +342,7 @@ def check_pin_anchors(project_folder: str) -> list:
     for pin in stale:
         divergences.append({
             "class": "audio_levels",
-            "layer_file": "external/mix_intent.json",
+            "layer_file": "external/declarations/mix_intent.json",
             "location": "pin",
             "found": f"anchor {pin.get('anchor_phrase')!r} matches "
                      f"nothing",
@@ -407,7 +407,7 @@ def check_declared_assets(project_folder: str) -> list:
     except placed_assets.PlacedAssetError as exc:
         return [{
             "class": "assets",
-            "layer_file": "external/placed_assets.json",
+            "layer_file": "external/declarations/placed_assets.json",
             "location": "store",
             "found": f"unreadable: {exc}",
             "should_be": "a readable declaration",
@@ -429,7 +429,7 @@ def check_declared_assets(project_folder: str) -> list:
         if not os.path.isfile(path):
             divergences.append({
                 "class": "assets",
-                "layer_file": "external/placed_assets.json",
+                "layer_file": "external/declarations/placed_assets.json",
                 "location": asset.get("label", path),
                 "found": f"media {path!r} not on disk",
                 "should_be": "a file the compile can place",

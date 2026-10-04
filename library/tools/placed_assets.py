@@ -8,7 +8,7 @@ is declared per project, not per template - and a rebuild that cannot
 see it rebuilds without it, which is exactly how the tail card kept
 vanishing.
 
-The declaration lives at `<project>/external/placed_assets.json`
+The declaration lives at `<project>/external/declarations/placed_assets.json`
 (the `overlay_intent.json` precedent: checked, never asserted)::
 
     {"version": 1,
@@ -149,9 +149,9 @@ def load_assets(project_folder=None,
         return parse_assets(body, source=assets_file)
     if not project_folder:
         return []
-    from library.tools.external_inputs import external_dir
+    from library.tools.external_inputs import declaration_path
 
-    path = os.path.join(str(external_dir(project_folder)), ASSETS_FILENAME)
+    path = str(declaration_path(project_folder, ASSETS_FILENAME))
     if not os.path.isfile(path):
         return []
     with open(path, encoding="utf-8") as handle:

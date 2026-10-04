@@ -21,8 +21,8 @@ def _project(tmp_path: Path, monkeypatch) -> Path:
     root.mkdir()
     assert store.init_project_repo(str(root))["initialised"]
     (root / "project.yaml").write_text("name: p\nslug: p\n", encoding="utf-8")
-    _write_json(root, "external/captain_edits.json", {"edits": []})
-    _write_json(root, "external/reel_ending.json", {"ending": "cut"})
+    _write_json(root, "external/declarations/captain_edits.json", {"edits": []})
+    _write_json(root, "external/declarations/reel_ending.json", {"ending": "cut"})
     _write_json(root, "pipeline_data.json", {"generated": "target"})
     assert store.commit_build(str(root), "base")["committed"]
     return root
@@ -35,7 +35,7 @@ def test_task_start_finish_merges_semantics_and_discards_generated_state(
                                 "HEAD").stdout.strip()
 
     started = worktrees.task_start(
-        str(project), "captions", ["external/captain_edits.json"])
+        str(project), "captions", ["external/declarations/captain_edits.json"])
     assert started["started"], started
     workspace = Path(started["path"])
     assert started["branch"] == "ren/captions"
@@ -43,7 +43,7 @@ def test_task_start_finish_merges_semantics_and_discards_generated_state(
     assert store.git(str(project), "symbolic-ref", "--short",
                      "HEAD").stdout.strip() == original_branch
 
-    _write_json(workspace, "external/captain_edits.json",
+    _write_json(workspace, "external/declarations/captain_edits.json",
                 {"edits": ["lower caption 3"]})
     _write_json(workspace, "pipeline_data.json",
                 {"generated": "from task"})
@@ -55,11 +55,11 @@ def test_task_start_finish_merges_semantics_and_discards_generated_state(
     assert finished["finished"], finished
     assert finished["resolve_rebuild_required"]
     assert finished["merged"]["semantic_changes"] == [
-        "external/captain_edits.json"]
+        "external/declarations/captain_edits.json"]
     assert finished["merged"]["generated_discarded"] == [
         "pipeline_data.json",
         "pipeline_output/steps/1_03_semantic_analysis/output.json"]
-    assert json.loads((project / "external/captain_edits.json").read_text(
+    assert json.loads((project / "external/declarations/captain_edits.json").read_text(
         encoding="utf-8")) == {"edits": ["lower caption 3"]}
     assert json.loads((project / "pipeline_data.json").read_text(
         encoding="utf-8")) == {"generated": "target"}
@@ -75,11 +75,11 @@ def test_task_start_refuses_overlapping_write_claims_and_allows_disjoint(
         tmp_path, monkeypatch):
     project = _project(tmp_path, monkeypatch)
     first = worktrees.task_start(
-        str(project), "captions", ["external/captain_edits.json"])
+        str(project), "captions", ["external/declarations/captain_edits.json"])
     assert first["started"], first
 
     overlap = worktrees.task_start(
-        str(project), "caption-followup", ["external/captain_edits.json"])
+        str(project), "caption-followup", ["external/declarations/captain_edits.json"])
     assert not overlap["started"]
     assert "overlapping write claims" in overlap["reason"]
 
@@ -88,7 +88,7 @@ def test_task_start_refuses_overlapping_write_claims_and_allows_disjoint(
     assert "overlapping write claims" in default_claim["reason"]
 
     second = worktrees.task_start(
-        str(project), "ending", ["external/reel_ending.json"])
+        str(project), "ending", ["external/declarations/reel_ending.json"])
     assert second["started"], second
 
     assert worktrees.task_finish(str(project), "captions")["finished"]
@@ -99,30 +99,30 @@ def test_task_finish_aborts_semantic_conflict_and_keeps_task_workspace(
         tmp_path, monkeypatch):
     project = _project(tmp_path, monkeypatch)
     started = worktrees.task_start(
-        str(project), "ending", ["external/reel_ending.json"])
+        str(project), "ending", ["external/declarations/reel_ending.json"])
     assert started["started"], started
     workspace = Path(started["path"])
-    _write_json(workspace, "external/reel_ending.json",
+    _write_json(workspace, "external/declarations/reel_ending.json",
                 {"ending": "task version"})
 
-    _write_json(project, "external/reel_ending.json",
+    _write_json(project, "external/declarations/reel_ending.json",
                 {"ending": "project version"})
     assert store.commit_build(str(project), "project edit")["committed"]
 
     finished = worktrees.task_finish(str(project), "ending")
     assert not finished["finished"]
-    assert finished["conflicts"] == ["external/reel_ending.json"]
+    assert finished["conflicts"] == ["external/declarations/reel_ending.json"]
     assert "merge was aborted" in finished["reason"]
     assert workspace.is_dir()
     assert store.git(str(project), "status", "--porcelain").stdout == ""
-    assert json.loads((project / "external/reel_ending.json").read_text(
+    assert json.loads((project / "external/declarations/reel_ending.json").read_text(
         encoding="utf-8")) == {"ending": "project version"}
 
 
 def test_task_start_refuses_dirty_project_store_and_unclaimed_semantic_edits(
         tmp_path, monkeypatch):
     project = _project(tmp_path, monkeypatch)
-    (project / "external/reel_ending.json").write_text(
+    (project / "external/declarations/reel_ending.json").write_text(
         '{"ending": "uncommitted"}\n', encoding="utf-8")
     dirty = worktrees.task_start(str(project), "ending")
     assert not dirty["started"]
@@ -130,10 +130,10 @@ def test_task_start_refuses_dirty_project_store_and_unclaimed_semantic_edits(
 
     assert store.commit_build(str(project), "clean target")["committed"]
     started = worktrees.task_start(
-        str(project), "ending", ["external/captain_edits.json"])
+        str(project), "ending", ["external/declarations/captain_edits.json"])
     assert started["started"], started
     workspace = Path(started["path"])
-    _write_json(workspace, "external/reel_ending.json",
+    _write_json(workspace, "external/declarations/reel_ending.json",
                 {"ending": "outside claim"})
 
     finished = worktrees.task_finish(str(project), "ending")
@@ -146,7 +146,7 @@ def test_generated_only_task_finishes_without_resolve_rebuild(
         tmp_path, monkeypatch):
     project = _project(tmp_path, monkeypatch)
     started = worktrees.task_start(
-        str(project), "analysis", ["external/captain_edits.json"])
+        str(project), "analysis", ["external/declarations/captain_edits.json"])
     assert started["started"], started
     workspace = Path(started["path"])
     _write_json(workspace, "pipeline_data.json", {"generated": "task"})
@@ -168,12 +168,12 @@ def test_ren_task_start_and_finish_commands_drive_the_lifecycle(
     vep = repo / "bin" / "vep"
     start = subprocess.run(
         [str(vep), "-m", "ren.cli", "task", str(project), "start",
-         "cli-task", "--claim", "external/captain_edits.json"],
+         "cli-task", "--claim", "external/declarations/captain_edits.json"],
         cwd=repo, capture_output=True, text=True, encoding="utf-8", timeout=20)
     assert start.returncode == 0, start.stderr
     started = json.loads(start.stdout)
     assert started["started"]
-    _write_json(Path(started["path"]), "external/captain_edits.json",
+    _write_json(Path(started["path"]), "external/declarations/captain_edits.json",
                 {"edits": ["from cli"]})
 
     finish = subprocess.run(

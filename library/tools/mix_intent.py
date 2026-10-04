@@ -9,7 +9,7 @@ that class had no owning layer - the plan owns the curve, nothing owns
 the overrule.
 
 The pin lives where other captain-supplied state lives,
-`<project>/external/mix_intent.json` (the `overlay_intent.json`
+`<project>/external/declarations/mix_intent.json` (the `overlay_intent.json`
 precedent: checked, never asserted), anchored the way every durable
 decision here is anchored - to SPOKEN WORDS, never to a timecode or a
 frame::
@@ -166,9 +166,9 @@ def load_intent(project_folder=None,
         return parse_intent(body, source=intent_file)
     if not project_folder:
         return []
-    from library.tools.external_inputs import external_dir
+    from library.tools.external_inputs import declaration_path
 
-    path = os.path.join(str(external_dir(project_folder)), INTENT_FILENAME)
+    path = str(declaration_path(project_folder, INTENT_FILENAME))
     if not os.path.isfile(path):
         return []
     with open(path, encoding="utf-8") as handle:

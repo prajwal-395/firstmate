@@ -32,7 +32,7 @@ because it survives a re-render that changes the canvas width - a
 centred caption is `540` whatever its box measures.
 
 The file lives where other captain-supplied state lives,
-`<project>/external/overlay_intent.json` (AGENTS.md 3 - checked, never
+`<project>/external/declarations/overlay_intent.json` (AGENTS.md 3 - checked, never
 asserted), and looks like this::
 
     {"version": 2,
@@ -239,7 +239,7 @@ def load_intent(project_folder=None,
 
     `intent_file` names the file outright (a missing one is refused -
     the caller asked for it). Otherwise the project's external-inputs
-    area is read (`external/overlay_intent.json`); an absent file is
+    area is read (`external/declarations/overlay_intent.json`); an absent file is
     the normal "nothing pinned" answer. A present-but-malformed file
     raises `OverlayIntentError` rather than rebuilding past it.
     """
@@ -258,9 +258,9 @@ def load_intent(project_folder=None,
         return parse_intent(body, source=intent_file)
     if not project_folder:
         return {}
-    from library.tools.external_inputs import external_dir
+    from library.tools.external_inputs import declaration_path
 
-    path = os.path.join(str(external_dir(project_folder)), INTENT_FILENAME)
+    path = str(declaration_path(project_folder, INTENT_FILENAME))
     if not os.path.isfile(path):
         return {}
     with open(path, encoding="utf-8") as handle:
@@ -791,16 +791,15 @@ def main(argv=None) -> int:
                     "records, or re-key stale digest pins onto placing "
                     "labels.")
     parser.add_argument("project_folder",
-                        help="project root (reads external/overlay_intent.json"
+                        help="project root (reads external/declarations/overlay_intent.json"
                              " and pipeline_output/review/)")
     parser.add_argument("--rekey", action="store_true",
                         help="rewrite mapped digest pins as label pins")
     args = parser.parse_args(argv)
 
-    from library.tools.external_inputs import external_dir
+    from library.tools.external_inputs import declaration_path
 
-    path = os.path.join(str(external_dir(args.project_folder)),
-                        INTENT_FILENAME)
+    path = str(declaration_path(args.project_folder, INTENT_FILENAME))
     if not os.path.isfile(path):
         print(f"{path}: no intent file - nothing pinned.", flush=True)
         return 0

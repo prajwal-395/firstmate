@@ -57,7 +57,7 @@ keeps the headline and points here.
 - `exports/` is the one area TWO steps legitimately write: 6.01 the render and 6.02 the QA report. `produced_by` names both, and provenance leaves `step_id` None rather than picking one.
 - Every place inside a project folder is a row in `AREAS`, keyed by `Area`. A place that is not a row does not exist, and asking for one raises.
 - **A step never composes a project path.** It names an `Area` and gets a path via `write_dir`/`write_path`/`read_dir`/`read_path`. `write_dir`/`write_path` to write, `read_dir`/`read_path` to read, `resolve_project_relative` for a path recorded in state.
-- **Inputs are structurally protected.** `raw/`, `music/`, `assets/`, `brand_assets/`, `compositions/`, `external/` and `profiles/` are `Kind.INPUT`: `write_dir`/`write_path` raise for them, `ensure()` does not create them, and `assert_writable` refuses any path underneath.  Outside the project, at the bare project root, or inside an input area all raise.
+- **Inputs are structurally protected.** `raw/`, `music/`, `assets/`, `brand_assets/`, `compositions/`, `external/state/`, `external/declarations/` and `profiles/` are `Kind.INPUT`: `write_dir`/`write_path` raise for them, `ensure()` does not create them, and `assert_writable` refuses any path underneath. Outside the project, at the bare project root, or inside an input area all raise.
 - **A project explains itself.** `ensure()` renders `README-LAYOUT.md` from the same table the code reads - the steps in run order, what each reads and what each writes - and runs on `manage_project.py new` and at step 1.01 of every run.
 - **`classification.per_clip_artifacts` names an AREA, not a directory**: `{area:temporal_index}/{clip_id}.json`.
 - The scaffold is not a second list.
@@ -319,6 +319,7 @@ class Area(str, Enum):
     BRAND_ASSETS = "brand_assets"
     COMPOSITIONS = "compositions"
     EXTERNAL_STATE = "external_state"
+    EXTERNAL_DECLARATIONS = "external_declarations"
     RUN_PROFILES = "run_profiles"
     CONTEXT = "context"
     LEARNED_CONTEXT = "learned_context"
@@ -410,12 +411,18 @@ AREAS: dict[Area, AreaSpec] = {
         "Project-owned Remotion compositions, staged verbatim. The engine "
         "renders them and never edits one."),
     Area.EXTERNAL_STATE: AreaSpec(
-        "external", Kind.INPUT,
+        "external/state", Kind.INPUT,
         "State the captain produced OUTSIDE the pipeline, offered to a "
         "step that would otherwise need the step that makes it. One "
         "file per state key, each CHECKED before it satisfies anything - "
-        "see library/tools/external_inputs.py. Written by hand, never by "
-        "a step."),
+        "see library/tools/external_inputs.py. Rebuildable state does not "
+        "merge with the declarations that control it."),
+    Area.EXTERNAL_DECLARATIONS: AreaSpec(
+        "external/declarations", Kind.INPUT,
+        "Standing project declarations anchored to words or other stable "
+        "decisions. They outlive builds and are the source a branch merge "
+        "must reconcile. Read by their owning modules; see "
+        "library/tools/external_inputs.py."),
     Area.RUN_PROFILES: AreaSpec(
         "profiles", Kind.INPUT,
         "This project's own run profiles - which steps a run fires and "

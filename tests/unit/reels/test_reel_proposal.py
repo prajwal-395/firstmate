@@ -942,8 +942,8 @@ def test_a_decided_pin_is_recorded_with_provenance_and_applied(tmp_path):
         "snap preview")
     assert action == "recorded"
     stored = json.loads(
-        (project / "external" / "captain_edits.json").read_text(
-            encoding="utf-8"))
+        (project / "external" / "declarations" / "captain_edits.json")
+        .read_text(encoding="utf-8"))
     assert stored["source"] == "snap preview"
     assert captain_edits.load_edits(str(project)) == [edit]
 

@@ -525,7 +525,7 @@ def placement_box(project_folder: Optional[str], width: int, height: int,
     wider one.
 
     ``reel_name`` prefers that reel's declared caption row
-    (``external/reel_caption_row.json``) over the project value, so a
+    (``external/declarations/reel_caption_row.json``) over the project value, so a
     reel whose captions moved clears its own row rather than the
     project's.  None reads today's answer exactly.
 

@@ -91,7 +91,7 @@ def _base_project(project):
     """A versioned project at its first commit, production file shapes."""
     assert bvc.init_project_repo(str(project))["initialised"] is True
     _write(project, "project.yaml", "name: demo\n")
-    _write(project, "external/captain_edits.json", json.dumps(
+    _write(project, "external/declarations/captain_edits.json", json.dumps(
         {"key": "captain_edits", "source": "captain", "value": []}))
     _write(project, "pipeline_data.json", json.dumps(
         {"last_updated": "2026-09-10T11:00:00",
@@ -308,7 +308,7 @@ def test_create_refuses_without_a_repo_or_on_a_dirty_tree(tmp_path):
 
 def test_a_declaring_variant_builds_only_from_its_own_branch(tmp_path):
     """A seam offset is IN the spec, so it builds anywhere; a declaring
-    variant's difference is the CONTENT of `external/<store>.json` on its
+    variant's difference is the CONTENT of `external/declarations/<store>.json` on its
     own branch, so off that branch it would differ from the approved
     reel NOWHERE and be reported as a comparison."""
     _base_project(tmp_path)
@@ -396,7 +396,7 @@ def test_merge_cutaway_with_cta_and_grade(tmp_path):
     _git(tmp_path, "checkout", default)
     _git(tmp_path, "checkout", "-b", "variant/r09-cta-and-grade")
     branch_b = "variant/r09-cta-and-grade"
-    _write(tmp_path, "external/captain_edits.json",
+    _write(tmp_path, "external/declarations/captain_edits.json",
            json.dumps(CTA_EDIT, indent=2))
     _build_touches_generated(tmp_path, "2026-09-10T12:33:00")
     _write(tmp_path, "marker_feedback/Reel_09.20260910T123300Z.markers.json",
@@ -418,7 +418,8 @@ def test_merge_cutaway_with_cta_and_grade(tmp_path):
     specs = tv.read_variant_specs(str(tmp_path))
     assert specs["variants"]["9"][0]["cover"]["source_file"] == \
         "/footage/LC4932.MXF"
-    edits = json.loads((tmp_path / "external" / "captain_edits.json")
+    edits = json.loads((tmp_path / "external" / "declarations" /
+                        "captain_edits.json")
                        .read_text(encoding="utf-8"))
     assert edits["value"][0]["kind"] == "redraw_closer"
     # Marker pulls union-merged: both files present, neither touched.
@@ -437,20 +438,20 @@ def test_merge_cutaway_with_cta_and_grade(tmp_path):
 def test_merge_leaves_declaration_conflicts_for_a_human(tmp_path):
     default = _base_project(tmp_path)
     _git(tmp_path, "checkout", "-b", "variant/r09-cta-and-grade")
-    _write(tmp_path, "external/captain_edits.json",
+    _write(tmp_path, "external/declarations/captain_edits.json",
            json.dumps(dict(CTA_EDIT, source="lane-b"), indent=2))
     _build_touches_generated(tmp_path, "2026-09-10T11:45:00")
     bvc.commit_build(str(tmp_path), message="B\n")
     _git(tmp_path, "checkout", default)
     _git(tmp_path, "checkout", "-b", "variant/r09-other-edit")
-    _write(tmp_path, "external/captain_edits.json",
+    _write(tmp_path, "external/declarations/captain_edits.json",
            json.dumps(dict(CTA_EDIT, source="lane-c"), indent=2))
     _build_touches_generated(tmp_path, "2026-09-10T12:33:00")
     bvc.commit_build(str(tmp_path), message="C\n")
 
     result = tv.merge_variations(str(tmp_path), "variant/r09-cta-and-grade")
     assert result["merged"] is False
-    assert result["conflicts"] == ["external/captain_edits.json"]
+    assert result["conflicts"] == ["external/declarations/captain_edits.json"]
     # Generated state resolved itself away; only the declaration waits.
     assert "pipeline_data.json" in result["auto_resolved"]
     assert "pipeline_output/steps/5_04_compile_manifest/" \

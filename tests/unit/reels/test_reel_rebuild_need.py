@@ -166,6 +166,26 @@ def test_a_per_reel_pin_store_is_not_in_the_project_wide_digest(tmp_path):
         assert need.project_wide_digest(tmp_path) == first, stem
 
 
+def test_external_split_preserves_declaration_digest_and_ignores_state(
+        tmp_path):
+    legacy = tmp_path / "external"
+    legacy.mkdir()
+    old = legacy / "overlay_intent.json"
+    old.write_text('{"version": 2, "targets": {}}\n', encoding="utf-8")
+    before = need.project_wide_digest(tmp_path)
+
+    declarations = legacy / "declarations"
+    declarations.mkdir()
+    old.rename(declarations / old.name)
+    assert need.project_wide_digest(tmp_path) == before
+
+    state = legacy / "state"
+    state.mkdir()
+    (state / "music_selection.json").write_text(
+        '{"key": "music_selection", "value": {}}\n', encoding="utf-8")
+    assert need.project_wide_digest(tmp_path) == before
+
+
 # ── The carried half ─────────────────────────────────────────────────
 
 class FakeClip:
@@ -289,5 +309,4 @@ def test_a_rendered_segment_that_changed_pixels_changes_the_derivation(
     first = _derivation(caption_segments=[segment])
     artefact.write_bytes(b"two")
     assert _derivation(caption_segments=[segment]) != first
-
 

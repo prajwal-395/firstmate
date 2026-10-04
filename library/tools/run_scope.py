@@ -63,7 +63,7 @@ the ledger's business (source fingerprints, `--rerun`), not this module's.
 
 What the captain already has is not made again
 ----------------------------------------------
-A value under `<project>/external/` is a REQUEST, not a record.  A step
+A value in the project's external input areas is a REQUEST, not a record. A step
 every one of whose routed outputs (`routed_state_keys`) has been SUPPLIED
 does not run, on any run shape: `supplied_producers` names them and
 `resolve` takes them out of the universe the way `DESELECTED_BY_DEFAULT`
@@ -104,7 +104,7 @@ One enumeration, `library/tools/run_scope.py`, and both CLIs register its flags 
 - **An edge is HARD when it carries a key the consumer does not declare optional** - the same condition `gather_step_inputs` raises on. Soft parents are not pulled in by a target.
 - **Excluding a producer REFUSES its consumers; it never drops them silently.** There is no "let downstream cope": a required input has no absent-value code path (section 10.1). Say "I just want the rough cut" by naming a GOAL, not by excluding twelve steps.
 - **A recorded output satisfies an excluded dependency** - ledger entry, a recorded output, AND the KEY inside it.   A `--rerun` target is about to be discarded, so it satisfies nothing.
-- **A recorded output does not remove a step from the run; a SUPPLIED one does.** History is not a request. The captain putting a value under `external/` is saying "do not make this", so the closure stops at that producer.
+- **A recorded output does not remove a step from the run; a SUPPLIED one does.** History is not a request. The captain supplying a value is saying "do not make this", so the closure stops at that producer.
 - **A target names its GOAL steps and nothing else.** The step list is walked off the DAG every run, so inserting a step upstream keeps the target right without anybody editing it. `rough_cut_subtitles` is the one target; add another only on evidence.
 - **A step that is off by default is reported on every run**, including a plain full one, and is not counted as never-completed - a step that exists and silently never runs is the trap this file's step-directory check exists to stop.
 - `tests/unit/context/test_run_scope.py`.
@@ -374,7 +374,7 @@ def supplied_producers(dag: dict,
                        ) -> Dict[str, Tuple[str, ...]]:
     """`{node: the keys}` for every node whose ENTIRE output was supplied.
 
-    The captain put those values under `external/` so the pipeline would
+    The captain supplied those values so the pipeline would
     not make them again (see the module docstring), and the check that
     they are real has already run - `external` only ever holds values
     `external_inputs.verify` accepted.
@@ -382,7 +382,7 @@ def supplied_producers(dag: dict,
     A node emitting nothing onto an edge is never here: there is no set
     of keys to satisfy, so "all of them are supplied" would be vacuously
     true and the step would disappear from every run that happened to
-    have an `external/` directory.  That is the empty-side-passes shape
+    have external input files. That is the empty-side-passes shape
     (AGENTS.md 10.4), and it is refused by construction rather than
     tested for.
     """
@@ -584,7 +584,7 @@ def resolve(selection: Selection,
     output will be gone.
 
     `project_folder` is read for VERIFIED external state - values the
-    captain produced outside the pipeline and put under `external/`.
+    captain produced outside the pipeline and supplied to a run.
     Each is checked at the moment this asks, and a file that does not
     check out raises here rather than being ignored
     (`library/tools/external_inputs.py`).  `external` passes an already
@@ -930,7 +930,7 @@ def _assert_dependencies_met(run_set: Set[str],
         fixes.append(
             f"or supply the state yourself, if you already have it: "
             f"{', '.join(suppliable)} can be put under "
-            f"<project>/external/ and is CHECKED before it counts. See "
+            f"<project>/external/state/ and is CHECKED before it counts. See "
             f"library/tools/external_inputs.py.")
     raise ScopeError(
         "this selection cannot run",
@@ -947,8 +947,8 @@ def _reject_supplied_and_selected(supplied: Mapping[str, Tuple[str, ...]],
 
     The two are contradictory REQUESTS, not a request and a default.
     `--with ocr_extraction` outranks `DESELECTED_BY_DEFAULT` because a
-    default is what happens when nobody said anything; a file under
-    `external/` is somebody saying something.  Letting the flag win would
+    default is what happens when nobody said anything; a supplied file is
+    somebody saying something. Letting the flag win would
     run the step, record the node's output, and shadow the supplied
     value for every later reader - `gather_step_inputs` reads the step's
     own output before it reads `external` - so the captain's hand-made
@@ -969,7 +969,7 @@ def _reject_supplied_and_selected(supplied: Mapping[str, Tuple[str, ...]],
             f"supplies its whole output from outside the pipeline "
             f"({keys}). Running it would overwrite what you supplied: a "
             f"step's own output is read before external state, so the "
-            f"file under external/ would still be on disk and nothing "
+            f"file under external/state/ would still be on disk and nothing "
             f"would read it again.")
     raise ScopeError(
         "this selection cannot run",
@@ -979,9 +979,9 @@ def _reject_supplied_and_selected(supplied: Mapping[str, Tuple[str, ...]],
         "either:\n"
         f"  - drop the flag naming "
         f"{', '.join(clash)}, and the supplied value stands;\n"
-        f"  - or remove "
-        f"{', '.join(f'external/{key}.json' for node in clash for key in supplied[node])}"
-        f" and let the pipeline make it.")
+        f"  - or remove the supplied file for each of these keys: "
+        f"{', '.join(key for node in clash for key in supplied[node])}, "
+        f"and let the pipeline make it.")
 
 
 def _checkable_keys() -> Set[str]:
@@ -1009,7 +1009,8 @@ def describe(scope: ResolvedScope) -> List[str]:
                      f"{DESELECTED_BY_DEFAULT[node_id]}")
     for node_id, keys in scope.supplied.items():
         lines.append(f"  Not run, its output was supplied: {node_id} - "
-                     f"{', '.join(keys)} came from <project>/external/ "
+                     f"{', '.join(keys)} came from the project's external "
+                     f"input areas "
                      f"and was verified, so this step is not asked to "
                      f"make it again")
     for node_id in scope.pulled_in:

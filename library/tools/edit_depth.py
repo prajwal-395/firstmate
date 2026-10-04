@@ -33,10 +33,10 @@ The twelve classes, and where each lives
    items.
 3. `overlay_position` - OWNS, shared: computed
    (`tight_box`/`overlay_placement`) vs declared
-   (`external/overlay_intent.json`, provenance recorded per item).  A
+   (`external/declarations/overlay_intent.json`, provenance recorded per item).  A
    pin may carry a `zoom` beside the place (Resolve's `ZoomX`/`ZoomY`),
    and a reel may declare its own caption row
-   (`external/reel_caption_row.json`).  DISPLAYS: timeline Transform.
+   (`external/declarations/reel_caption_row.json`).  DISPLAYS: timeline Transform.
    No capture route: a hand move is transcribed into the JSON by hand.
 4. `picture_position` - OWNS, shared: computed punch-in aim
    (`subject_framing`) vs declared (`captain_edits`
@@ -59,7 +59,7 @@ The twelve classes, and where each lives
 7. `assets` - OWNS: template-declared bookends (`content.bookends`,
    staged verbatim); model-chosen SFX (`sfx_library`), music (2.04)
    and b-roll (3.02); captain-placed cards
-   (`external/placed_assets.json`, carried into the manifest as
+   (`external/declarations/placed_assets.json`, carried into the manifest as
    `placed_assets`).  A hand-laid asset with no declaration is rebuilt
    without.  DISPLAYS: pool and timeline items.
 8. `audio_levels` - OWNS, shared: `mesh_spine` declares the
@@ -69,7 +69,7 @@ The twelve classes, and where each lives
    Fairlight levels, timeline markers.
 9. `mg_content` - OWNS: the 4.06 plan (model-authored) plus
    project-declared timed text (`effect.timed_text_overlay`) and a
-   captain's deletion (`external/do_not_draw.json`), which suppresses
+   captain's deletion (`external/declarations/do_not_draw.json`), which suppresses
    the placement while the plan keeps the record.  DISPLAYS: rendered
    segments, V6 timeline items.
 10. `marker_feedback` - OWNS: `marker_feedback` reads the typed notes
@@ -77,11 +77,11 @@ The twelve classes, and where each lives
     decision (ambiguous/unrouted reported, never forced);
     `marker_resolution` records the answer.  DISPLAYS: marker files,
     ROUTED-NOTES.md.
-11. `ending` - OWNS: `external/reel_ending.json`, read by
+11. `ending` - OWNS: `external/declarations/reel_ending.json`, read by
     `library/tools/reel_ending.py` and applied at the reel's RANGES
     seam.  An ending TRUNCATES and never extends.  DISPLAYS: the
     reel's last timeline items, the tail comp.
-12. `caption_timing` - OWNS: `external/caption_timing.json`, read by
+12. `caption_timing` - OWNS: `external/declarations/caption_timing.json`, read by
     `library/tools/caption_timing.py` and applied to the rendered
     caption segments before they are placed - beside `clip_timing`,
     which is PICTURE timing, rather than inside it.  DISPLAYS: caption
@@ -118,19 +118,19 @@ OWNERS = {
     },
     "clip_timing": {
         "layer": "captain_edits span_retime pins, applied post-placement",
-        "store": "external/captain_edits.json",
+        "store": "external/declarations/captain_edits.json",
         "module": "library/tools/captain_edits.py",
         "shared": False,
     },
     "overlay_position": {
         "layer": "declared overlay_intent vs computed tight_box",
-        "store": "external/overlay_intent.json",
+        "store": "external/declarations/overlay_intent.json",
         "module": "library/tools/overlay_intent.py",
         "shared": True,
     },
     "picture_position": {
         "layer": "declared transform_override vs computed punch-in aim",
-        "store": "external/captain_edits.json",
+        "store": "external/declarations/captain_edits.json",
         "module": "library/tools/captain_edits.py",
         "shared": True,
     },
@@ -142,19 +142,19 @@ OWNERS = {
     },
     "structure": {
         "layer": "select_reels proposal + approval + keep/delta pins",
-        "store": "learned_context + external/captain_edits.json",
+        "store": "learned_context + external/declarations/captain_edits.json",
         "module": "library/tools/transcript_corrections.py",
         "shared": True,
     },
     "assets": {
         "layer": "template bookends + external placed_assets pins",
-        "store": "brand template / external/placed_assets.json",
+        "store": "brand template / external/declarations/placed_assets.json",
         "module": "library/tools/placed_assets.py",
         "shared": True,
     },
     "audio_levels": {
         "layer": "music_behavior words + audio_mix dB + mix_intent pins",
-        "store": "spine plan / external/mix_intent.json",
+        "store": "spine plan / external/declarations/mix_intent.json",
         "module": "library/tools/mix_intent.py",
         "shared": True,
     },
@@ -172,13 +172,13 @@ OWNERS = {
     },
     "ending": {
         "layer": "declared reel_ending, applied at the ranges seam",
-        "store": "external/reel_ending.json",
+        "store": "external/declarations/reel_ending.json",
         "module": "library/tools/reel_ending.py",
         "shared": False,
     },
     "caption_timing": {
         "layer": "declared caption_timing pins, applied pre-placement",
-        "store": "external/caption_timing.json",
+        "store": "external/declarations/caption_timing.json",
         "module": "library/tools/caption_timing.py",
         "shared": False,
     },
@@ -215,12 +215,12 @@ DEEP_PATH = {
     "clip_timing": "record a span_retime pin (captain_edits "
                    "record-retime --anchor ... --edge head|tail); "
                    "retime_placements moves the edge and closes up.",
-    "overlay_position": "declare it in external/overlay_intent.json "
+    "overlay_position": "declare it in external/declarations/overlay_intent.json "
                         "(segment id, or kind default for captions; a "
                         "`zoom` beside the place holds a hand-set "
                         "magnification, which `scaling` cannot say); a "
                         "reel's own caption row goes in "
-                        "external/reel_caption_row.json, over the "
+                        "external/declarations/reel_caption_row.json, over the "
                         "project fraction. The placer honours declared "
                         "over computed.",
     "picture_position": "capture it from the live timeline "
@@ -236,26 +236,26 @@ DEEP_PATH = {
                  "redraw_closer or span_retime pin; approve the reel "
                  "so the guard freezes it.",
     "assets": "declare template cards in content.bookends; declare "
-              "hand-placed cards in external/placed_assets.json; the "
+              "hand-placed cards in external/declarations/placed_assets.json; the "
               "compile carries both onto V1.",
     "audio_levels": "change the spine's music_behavior word, or pin "
-                    "the hand level in external/mix_intent.json; "
+                    "the hand level in external/declarations/mix_intent.json; "
                     "apply_mix_intent holds it post-plan.",
     "mg_content": "re-plan 4.06 (the wording correction's prompt half "
                   "reaches authored copy); declare timed text in "
                   "effect.timed_text_overlay; declare a deletion in "
-                  "external/do_not_draw.json - it suppresses the "
+                  "external/declarations/do_not_draw.json - it suppresses the "
                   "placement, never the plan; never edit the render.",
     "marker_feedback": "type the note on the timeline and let "
                        "marker_routing deliver it to the owning step; "
                        "never hand-apply what a step decides.",
-    "ending": "declare it in external/reel_ending.json (ends_on "
+    "ending": "declare it in external/declarations/reel_ending.json (ends_on "
               "anchor_phrase plus the tail_element that draws over "
               "it); the build truncates the last range to that shot "
               "and refuses when the shot cannot hold the element. "
               "Never extend a keep range to make tail room - that is "
               "what admitted the next speaker.",
-    "caption_timing": "declare it in external/caption_timing.json "
+    "caption_timing": "declare it in external/declarations/caption_timing.json "
                       "(scope by the source audio the card captions, "
                       "adjust with offset_frames/head_frames/"
                       "tail_frames); span_retime holds picture spans "
@@ -297,7 +297,7 @@ REFUSAL_REACHABILITY = {
                  "timeline Transform itself is UNREACHABLE (no file "
                  "carrier): the placer recomputes from the probe and the "
                  "move dies silently on rebuild unless transcribed into "
-                 "external/overlay_intent.json by hand first.",
+                 "external/declarations/overlay_intent.json by hand first.",
     },
     "picture_position": {
         "reachable": False,
@@ -344,7 +344,7 @@ REFUSAL_REACHABILITY = {
                  "coherence pin-anchor check + the post-plan hold report "
                  "at delivery time. A moved Fairlight fader itself is "
                  "UNREACHABLE (no file carrier): it dies on the next OTIO "
-                 "delivery unless pinned in external/mix_intent.json.",
+                 "delivery unless pinned in external/declarations/mix_intent.json.",
     },
     "mg_content": {
         "reachable": True,

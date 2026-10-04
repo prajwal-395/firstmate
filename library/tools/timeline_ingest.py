@@ -696,7 +696,7 @@ def compare_structure(left: TimelineSnapshot,
 # ── Writing the artifacts ────────────────────────────────────────────
 
 def external_payload(key: str, value, snapshot: TimelineSnapshot) -> dict:
-    """One `<project>/external/<key>.json` body.
+    """One `<project>/external/state/<key>.json` body.
 
     `source` is a sentence a reader of `RUN-TRACEBACK.md` needs in order
     to know the value did not come from a step.  It is RECORDED, never
@@ -857,7 +857,7 @@ def main(argv=None) -> int:
     parser.add_argument("--timeline", default="",
                         help="timeline name; default from project.yaml")
     parser.add_argument("--write", action="store_true",
-                        help="write the supplied values into <project>/external/")
+        help="write supplied state into <project>/external/state/")
     args = parser.parse_args(argv)
 
     project_name, timeline_name = resolve_binding(args.project_folder)

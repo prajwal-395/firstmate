@@ -1383,7 +1383,7 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
     REGION scope until now.
 
     `reel_name` prefers that reel's declared caption row
-    (`external/reel_caption_row.json`) over the project value when the
+    (`external/declarations/reel_caption_row.json`) over the project value when the
     style is resolved below - the reel path passes the timeline name it
     builds; every other caller leaves it empty and reads today's
     answer exactly.

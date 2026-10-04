@@ -3324,7 +3324,7 @@ def compile_manifest(out_dir: str, *, object_segmentation=None,
         "tv_frame": tv_look,
     }
 
-    # ── Captain-placed cards (external/placed_assets.json) ──
+    # ── Captain-placed cards (external/declarations/placed_assets.json) ──
     # A card the captain laid by hand is a decision about THIS video, so
     # it is declared per project and carried here - after assembly, so
     # the card rides the same V1 clip shape a declared bookend rides,

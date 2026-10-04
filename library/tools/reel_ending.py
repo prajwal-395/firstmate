@@ -18,7 +18,7 @@ through untouched and nothing is reported.
 
 What a declaration says
 -----------------------
-`<project>/external/reel_ending.json` (`ENDING_FILENAME`), checked and
+`<project>/external/declarations/reel_ending.json` (`ENDING_FILENAME`), checked and
 never asserted (`validate_endings`, raising `ReelEndingError`)::
 
     {"version": 1,
@@ -132,7 +132,7 @@ TAIL_HOLDS = ("none", "freeze")
 
 #: What a reel INHERITS from the call to action it closes on, and the
 #: only place these two values are stated. A per-reel declaration in
-#: `external/reel_ending.json` OVERRIDES them; it does not supply them.
+#: `external/declarations/reel_ending.json` OVERRIDES them; it does not supply them.
 CTA_TAIL_ELEMENT = "tv_power_tail"
 CTA_TAIL_HOLD = "freeze"
 
@@ -250,7 +250,9 @@ def validate_endings(value) -> list:
 
 def endings_path(project_folder: str) -> str:
     """Where a project's declared endings live."""
-    return os.path.join(project_folder, "external", ENDING_FILENAME)
+    from library.tools.external_inputs import declaration_path
+
+    return str(declaration_path(project_folder, ENDING_FILENAME))
 
 
 def load_endings(project_folder: str) -> list:
@@ -375,7 +377,7 @@ def cta_default_ending(reel_name: str, moment, transcript=None):
     """The ending a reel INHERITS from the call to action it closes on.
 
     This is the shape the captain asked for on 2026-09-11 and the
-    reason this is not four entries in `external/reel_ending.json`:
+    reason this is not four entries in `external/declarations/reel_ending.json`:
     *"this change needs to be applied to all other reels that
     currently also use this CTA or will be using this CTA"*.  A reel
     that is planned tomorrow, on a CTA nobody has recorded a pin for,
@@ -434,7 +436,7 @@ def resolve_ending(project_folder: str, reel_name: str, moment=None,
                    transcript=None):
     """The ending for one reel: the DECLARED one, else the INHERITED one.
 
-    A per-reel entry in `external/reel_ending.json` wins outright.
+    A per-reel entry in `external/declarations/reel_ending.json` wins outright.
     That is the whole relationship between the two: the declaration
     exists to OVERRIDE what closing on a call to action already gives
     a reel, never to supply it.  Reel 13's entry is the example - it

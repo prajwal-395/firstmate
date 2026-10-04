@@ -461,8 +461,8 @@ def test_check_names_each_pin_state_and_rekey_rewrites_mapped(tmp_path,
     rest byte-identical."""
     from library.tools.overlay_intent import main
 
-    from library.tools.external_inputs import external_dir
-    intent_dir = external_dir(str(tmp_path))
+    from library.tools.external_inputs import declarations_dir
+    intent_dir = declarations_dir(str(tmp_path))
     os.makedirs(intent_dir, exist_ok=True)
     path = os.path.join(intent_dir, "overlay_intent.json")
     label = _reel_26_label(0)

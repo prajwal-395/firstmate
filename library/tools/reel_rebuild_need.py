@@ -45,7 +45,7 @@ So:
   through the operation registry by NAME.
 * :data:`DECLARATION_SOURCES` digests each project-wide declaration file
   whole rather than the fields a reel happens to read.
-* An `external/` declaration that :data:`PER_REEL_DECLARATION_STEMS` does
+* An `external/declarations/` declaration that :data:`PER_REEL_DECLARATION_STEMS` does
   not claim is folded into the project-wide half, so a new declaration
   over-covers from the day it lands.
 
@@ -148,7 +148,7 @@ PER_REEL_DECLARATION_STEMS = {
         "- the reel's own rows ride the derivation digest in `extra`, "
         "so a row on one reel rebuilds that reel alone"),
 }
-"""Declarations under `external/` whose effect on ONE reel is already
+"""Declarations under `external/declarations/` whose effect on ONE reel is already
 carried by that reel's derivation digest.
 
 This is what makes the saving reach the case the profile priced - *"a
@@ -158,7 +158,7 @@ keyed by reel: folding the whole file into the project-wide half would
 mean a pin on Reel 13 rebuilding Reel 23 as well, which is the saving
 gone in exactly the case it exists for.
 
-**An `external/` declaration NOT listed here is folded into the
+**An `external/declarations/` declaration NOT listed here is folded into the
 project-wide half**, so a new declaration file over-covers from the day
 it lands rather than being silently ignored.  That is the fail-closed
 direction and it needs no enumeration to stay true: the classification
@@ -247,15 +247,36 @@ def project_wide_digest(project_folder, brand_template=None,
     found = 0
     for rel in DECLARATION_SOURCES:
         found += _digest_tree(digest, base / rel, base, None)
-    # Every `external/` declaration this module does not claim is
-    # per-reel. Unknown means project-wide, which over-covers.
-    external = base / "external"
-    if external.is_dir():
-        for path in sorted(external.glob("*.json")):
-            if path.stem in PER_REEL_DECLARATION_STEMS:
-                continue
-            if _digest_file(digest, str(path.relative_to(base)), path):
-                found += 1
+    # Every declaration this module does not claim is project-wide.
+    # Unknown means project-wide, which over-covers. A legacy flat file
+    # is excluded only when it is a registered supplied state key.
+    from library.tools.external_inputs import (
+        CHECKS,
+        declaration_stems,
+        declarations_dir,
+    )
+
+    declared_stems = declaration_stems()
+    legacy_state_stems = set(CHECKS) - declared_stems
+    current = declarations_dir(project_folder)
+    legacy = base / "external"
+    sources = []
+    if current.is_dir():
+        sources.extend(current.glob("*.json"))
+    if legacy.is_dir():
+        sources.extend(path for path in legacy.glob("*.json")
+                       if path.stem not in legacy_state_stems)
+    for path in sorted(set(sources)):
+        if path.stem in PER_REEL_DECLARATION_STEMS:
+            continue
+        label = str(path.relative_to(base))
+        if path.parent == legacy and path.stem in declared_stems:
+            # A registered declaration keeps the same identity across
+            # the flat-to-split migration, so relocating it alone does
+            # not invalidate every reel's project-wide digest.
+            label = f"external/declarations/{path.name}"
+        if _digest_file(digest, label, path):
+            found += 1
     if brand_template is not None:
         digest.update(b"brand_template\0")
         digest.update(dumps_stable(brand_template).encode("utf-8"))

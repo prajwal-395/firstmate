@@ -17,7 +17,7 @@ Two halves, and neither lives in engine code:
 * **The hook** is one line written FOR THAT REEL, from its own words, by
   the model - never a template and never a summary the engine composes
   (AGENTS.md 10.5).  It is stored per reel in
-  ``external/reel_post_header.json`` under the reel's number, with the
+  ``external/declarations/reel_post_header.json`` under the reel's number, with the
   basis it was written from.  A declared header on a reel with no hook
   draws NOTHING and says so: a header with an invented or empty hook is
   a post nobody wrote.
@@ -212,7 +212,9 @@ def project_declaration(project_folder: str | None) -> dict | None:
 # ── The hooks ────────────────────────────────────────────────────────
 
 def hooks_path(project_folder: str) -> str:
-    return os.path.join(project_folder, "external", HOOKS_FILE)
+    from library.tools.external_inputs import declaration_path
+
+    return str(declaration_path(project_folder, HOOKS_FILE))
 
 
 def read_hooks(project_folder: str) -> dict[str, dict]:
@@ -492,7 +494,7 @@ def plan_for_reel(reel_name: str, reel_number, runs: Sequence[tuple[int, int]],
     if hook is None:
         plan.basis = NO_HOOK_WRITTEN
         print(f"  {reel_name}: NO POST HEADER - no hook written for reel "
-              f"{reel_number} in external/{HOOKS_FILE}; the header is "
+              f"{reel_number} in external/declarations/{HOOKS_FILE}; the header is "
               f"declared, and a hook is the model's to write, never the "
               f"engine's", file=sys.stderr)
         return plan
@@ -680,7 +682,7 @@ def touch_spec(project_folder: str, reel_number: int, tracks, *,
     hook = hook_for(project_folder, reel_number)
     if hook is None:
         raise PostHeaderError(
-            f"no hook written for reel {reel_number} in external/"
+            f"no hook written for reel {reel_number} in external/declarations/"
             f"{HOOKS_FILE}; the hook is the model's to write")
     runs = picture_runs(tracks)
     if not runs:

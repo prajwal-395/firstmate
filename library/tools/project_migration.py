@@ -15,10 +15,13 @@ they are not negotiable:
     under a subdirectory that says why it is there.  An admitted unknown
     beats a confident wrong guess, and both beat a deletion.
 
-    INPUT DIRECTORIES ARE NEVER MODIFIED.  `raw/`, `music/`, `assets/`,
-    `brand_assets/` and `compositions/` are the captain's.  Pipeline
-    output found inside one is COPIED out, not moved, so the input
-    directory is left exactly as it was found.
+    INPUT CONTENT IS NEVER CHANGED. `raw/`, `music/`, `assets/`,
+    `brand_assets/` and `compositions/` are left exactly as found;
+    pipeline output inside one is COPIED out. The one path-only
+    exception is the legacy flat `external/*.json` layout: registered
+    state and declaration files are moved unchanged into their new
+    `external/state/` or `external/declarations/` areas, and every move
+    is recorded so it can be reverted.
 
     EVERY ACTION IS RECORDED.  A manifest lands in
     `pipeline_output/migrations/`, listing each action with its source,
@@ -42,7 +45,7 @@ keeps the headline and points here.
 `library/tools/project_migration.py`.
 - **It never deletes.** Every action is a move or a copy, and a file whose purpose cannot be established goes to `pipeline_output/unsorted/<bucket>/` with a stated reason, never a guess. Measure what you can - `media_facts` records a file's duration, format and encoder - so an admitted unknown is an examined one.
 - **It never deletes.** Unidentifiable files go to `pipeline_output/unsorted/` with a stated reason.
-- **It never modifies an input directory.** Pipeline output found inside one is COPIED out.
+- **Input contents stay intact.** Pipeline output found inside raw/, music/, assets/, brand_assets/ or compositions/ is COPIED out. The legacy external/ split is the one path-only exception: registered JSON files move unchanged, with each move recorded and revertible.
 - Every run writes a manifest to `pipeline_output/migrations/`.
 - `tests/unit/context/test_project_layout.py`.
 """
@@ -263,6 +266,18 @@ def plan_organization(project_folder) -> Plan:
                 "reason": KEEP_AT_ROOT[name]})
             continue
 
+        # `external/` remains the container for two protected input
+        # areas. Its old flat JSON files are classified and moved below;
+        # treating the whole directory as unknown would bury declarations
+        # in pipeline_output/unsorted/.
+        if entry.is_dir() and name == "external":
+            plan.left_in_place.append({
+                "path": "external/", "bytes": tree_bytes(entry),
+                "reason": "container for external/state/ and "
+                          "external/declarations/; registered legacy JSON "
+                          "files are split below"})
+            continue
+
         if entry.is_dir() and name in known_dirs:
             area, spec = known_dirs[name]
             plan.left_in_place.append({
@@ -285,6 +300,11 @@ def plan_organization(project_folder) -> Plan:
                     "why_unknown": act.reason,
                 })
 
+    external_relocations, external_left = (
+        _plan_legacy_external_relocations(layout))
+    plan.actions.extend(external_relocations)
+    plan.left_in_place.extend(external_left)
+
     relocations = _plan_legacy_relocations(layout)
     plan.actions.extend(relocations)
     plan.actions.extend(_plan_input_dir_rescues(layout))
@@ -294,6 +314,64 @@ def plan_organization(project_folder) -> Plan:
         layout, moving=[a.src for a in relocations if a.action == "move"]))
     plan.actions.extend(_plan_scaffold_empty_cleanup(layout))
     return plan
+
+
+def _plan_legacy_external_relocations(layout: ProjectLayout) -> tuple[list, list]:
+    """Split recognized files from the old flat external input directory.
+
+    Classification comes from the state checks and declaration owners,
+    not from file contents or a guessed filename shape. Unknown JSON and
+    non-JSON files stay where they are for a human to classify.
+    """
+    from library.tools.external_inputs import CHECKS, declaration_stems
+
+    legacy = layout.root / "external"
+    if not legacy.is_dir():
+        return [], []
+
+    declarations = declaration_stems()
+    actions, left = [], []
+    for src in sorted(legacy.glob("*.json")):
+        if src.stem in declarations:
+            area = Area.EXTERNAL_DECLARATIONS
+        elif src.stem in CHECKS:
+            area = Area.EXTERNAL_STATE
+        else:
+            left.append({
+                "path": src.relative_to(layout.root).as_posix(),
+                "bytes": tree_bytes(src),
+                "reason": "not a registered external state key or "
+                          "declaration; left in place rather than guessed"})
+            continue
+
+        dest = layout.read_path(area, src.name)
+        if dest.exists():
+            left.append({
+                "path": src.relative_to(layout.root).as_posix(),
+                "bytes": tree_bytes(src),
+                "reason": f"{dest.relative_to(layout.root).as_posix()} "
+                          "already exists; resolve the two files before "
+                          "finishing this migration"})
+            continue
+        actions.append(Action(
+            "move", str(src), str(dest), "file", tree_bytes(src),
+            digest(src),
+            f"legacy external input; classified as {area.value} by its "
+            "registered key and moved unchanged into "
+            f"{AREAS[area].relpath}/. The manifest can restore its old path."))
+    return actions, left
+
+
+def _is_external_split_move(root: Path, src: Path, dest: Path) -> bool:
+    """The narrow input-area relocation authorized by this migration."""
+    legacy = (root / "external").resolve()
+    destinations = {
+        (root / AREAS[Area.EXTERNAL_STATE].relpath).resolve(),
+        (root / AREAS[Area.EXTERNAL_DECLARATIONS].relpath).resolve(),
+    }
+    return (src.parent.resolve() == legacy
+            and dest.parent.resolve() in destinations
+            and src.suffix.lower() == ".json")
 
 
 def _classify(layout: ProjectLayout, entry: Path):
@@ -670,11 +748,20 @@ def organize_project(project_folder, apply: bool = False) -> dict:
                 shutil.rmtree(src)
                 performed.append(act)
                 continue
-            dest = _unique(Path(act.dest))
+            planned_dest = Path(act.dest)
+            external_split = _is_external_split_move(root, src, planned_dest)
+            if external_split and planned_dest.exists():
+                raise FileExistsError(
+                    f"external layout destination appeared after planning: "
+                    f"{planned_dest}. Nothing there was overwritten.")
+            dest = planned_dest if external_split else _unique(planned_dest)
             dest.parent.mkdir(parents=True, exist_ok=True)
             # The guard, applied to every destination: a migration that
-            # can write into an input directory is not a migration.
-            layout.assert_writable(dest)
+            # can write into an input directory is not a migration. The
+            # one exception is a manifest-recorded path-only move from
+            # legacy external/ into its two new input subareas.
+            if not external_split:
+                layout.assert_writable(dest)
             if act.action == "copy":
                 shutil.copy2(src, dest)
             else:
@@ -713,7 +800,15 @@ def organize_project(project_folder, apply: bool = False) -> dict:
             f"{REMOVE_EMPTY!r} action below."),
             "input_dirs_unmodified": sorted(
                 spec.relpath for spec in AREAS.values()
-                if spec.kind is Kind.INPUT and spec.relpath != "."),
+                if spec.kind is Kind.INPUT and spec.relpath != "."
+                and spec.relpath not in {
+                    AREAS[Area.EXTERNAL_STATE].relpath,
+                    AREAS[Area.EXTERNAL_DECLARATIONS].relpath}),
+            "external_input_relocation": (
+                "Registered external/*.json files move unchanged from the "
+                "legacy flat layout into external/state/ or "
+                "external/declarations/. Every move is recorded and "
+                "revertible; unrecognized files stay in place."),
             "unsorted_buckets": UNSORTED_BUCKETS,
         },
         "totals": {

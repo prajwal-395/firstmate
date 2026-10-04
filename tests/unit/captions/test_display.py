@@ -426,7 +426,8 @@ def test_edge_punctuation_survives_a_word_level_respell():
 # 2026-09-13, wipe and rebuild: the captain had deleted the planned
 # graphic `mg_geo-podcast_a072b160.mov` from Reel 01's timeline by hand
 # and the fresh build placed it again - nothing recorded the act at
-# all. `external/do_not_draw.json` (`library/tools/do_not_draw.py`) is
+# all. `external/declarations/do_not_draw.json`
+# (`library/tools/do_not_draw.py`) is
 # the store, enforced at placement: the plan keeps the record of what
 # was intended, the timeline does not play it, and a rebuild that
 # re-renders under a new content hash holds the same deletion without

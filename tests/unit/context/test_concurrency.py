@@ -241,7 +241,8 @@ def test_record_edit_goes_through_the_key_scheme(project, monkeypatch):
     ce.record_edit(project, second, source="lane B")
 
     stored = json.loads(
-        (project / "external" / "captain_edits.json").read_text("utf-8"))
+        (project / "external" / "declarations" / "captain_edits.json")
+        .read_text("utf-8"))
     assert sorted(e["anchor_phrase"] for e in stored["value"]) == ["one", "two"]
     assert stored["key"] == ce.CAPTAIN_EDITS_KEY
 
@@ -257,7 +258,8 @@ def test_record_edit_still_supersedes_the_same_decision(project, monkeypatch):
     _, action = ce.record_edit(project, dict(edit, reason="second ruling"))
     assert action == "superseded"
     stored = json.loads(
-        (project / "external" / "captain_edits.json").read_text("utf-8"))
+        (project / "external" / "declarations" / "captain_edits.json")
+        .read_text("utf-8"))
     assert [e["reason"] for e in stored["value"]] == ["second ruling"]
 
 

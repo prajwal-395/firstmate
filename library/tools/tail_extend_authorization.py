@@ -23,7 +23,7 @@ instead of applying a stale yes to new seconds.
 
 What it records
 ---------------
-`<project>/external/tail_extend_authorizations.json`:
+`<project>/external/declarations/tail_extend_authorizations.json`:
 
     {"authorizations": [{"reel": 28,
                          "reason": "captain 2026-09-21: extend it",
@@ -62,7 +62,7 @@ import json
 import os
 
 FILENAME = "tail_extend_authorizations.json"
-"""The authorisation store, under the project's `external/` declarations."""
+"""The authorisation store, under the project's `external/declarations/` declarations."""
 
 TOLERANCE_SECONDS = 0.5
 """How far the applied tail end may sit from the recorded one.
@@ -80,7 +80,9 @@ class AuthorizationError(ValueError):
 
 def authorizations_path(project_folder: str) -> str:
     """Where this project's authorisations live (may not exist)."""
-    return os.path.join(str(project_folder), "external", FILENAME)
+    from library.tools.external_inputs import declaration_path
+
+    return str(declaration_path(project_folder, FILENAME))
 
 
 def load_authorizations(project_folder: str) -> dict:

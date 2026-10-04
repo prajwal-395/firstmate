@@ -920,7 +920,8 @@ def test_reel24_build_uses_one_units_conversion_for_punches_and_override(
         project_folder = tmp_path / suffix
         project_folder.mkdir()
         ProjectLayout(str(project_folder)).ensure()
-        edit_path = project_folder / "external" / "captain_edits.json"
+        edit_path = (project_folder / "external" / "declarations" /
+                     "captain_edits.json")
         edit_path.parent.mkdir(parents=True, exist_ok=True)
         edits = [
             {

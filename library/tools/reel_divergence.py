@@ -396,7 +396,7 @@ def _template_content(project_folder) -> dict:
     """The `content` slots of whatever brand template this adopts.
 
     `{}` where it adopts none or the registry cannot be read - the
-    project-file declarations (`project.yaml`, `external/`) are still
+    project-file declarations (`project.yaml`, `external/declarations/`) are still
     collected, so a missing template narrows the survey rather than
     emptying it.
     """
@@ -423,7 +423,7 @@ def declared_asset_paths(project_folder, brand_effect=None,
     * `content.bookends` - an asset-mode card IS its file, and a
       composition-mode card's `source` is the input its rendered
       pixels are staged verbatim from;
-    * `external/placed_assets.json` - the captain's hand-placed cards.
+    * `external/declarations/placed_assets.json` - the captain's hand-placed cards.
 
     Best-effort and never raising: a malformed declaration is the
     plan-time reader's to refuse, and a collector that raised would
@@ -499,7 +499,7 @@ def declared_asset_paths(project_folder, brand_effect=None,
         for asset in _placed.load_assets(str(project_folder)):
             if isinstance(asset, dict):
                 add(str(asset.get("asset") or ""),
-                    "external/placed_assets.json")
+                    "external/declarations/placed_assets.json")
     except Exception:                               # noqa: BLE001
         pass
 

@@ -94,10 +94,12 @@ from pathlib import Path
 ALLOW_LIST = [
     # The allow-list itself, so a change to what is versioned is reviewed.
     "/.gitignore",
-    # Declarations the captain owns.
+    # Stable declarations the captain owns. Rebuildable supplied state
+    # under external/state/ is intentionally ignored and never merged.
     "/project.yaml",
     "/external/",
-    "/external/**",
+    "/external/declarations/",
+    "/external/declarations/**",
     "/context/",
     "/context/**",
     "/profiles/",
@@ -378,6 +380,13 @@ def stage_for_commit(project_folder: str) -> dict:
     root = Path(project_folder)
     report: dict = {"staged": True, "binaries_recorded": [],
                     "untracked": []}
+    # Existing project repos were initialized with a broader external/
+    # allow-list. Refresh it before collecting files so new state paths
+    # stay out and declarations remain versioned.
+    ignore = root / ".gitignore"
+    body = gitignore_body()
+    if not ignore.is_file() or ignore.read_text(encoding="utf-8") != body:
+        ignore.write_text(body, encoding="utf-8")
     try:
         entries = binary_manifest_entries(project_folder)
     except RuntimeError as exc:
@@ -391,6 +400,33 @@ def stage_for_commit(project_folder: str) -> dict:
         report["staged"] = False
         report["reason"] = f"git add failed: {add.stderr.strip()[-400:]}"
         return report
+    from library.tools.external_inputs import CHECKS, declaration_stems
+
+    listed = git(project_folder, "ls-files", "-z", "--", "external")
+    if listed.returncode != 0:
+        report["staged"] = False
+        report["reason"] = ("git ls-files failed while excluding external "
+                            f"state: {listed.stderr.strip()[-400:]}")
+        return report
+    declarations = declaration_stems()
+    state_keys = set(CHECKS) - declarations
+    state_paths = [
+        path for path in listed.stdout.split("\x00") if path
+        and (path.startswith("external/state/")
+             or (path.startswith("external/")
+                 and path.count("/") == 1
+                 and Path(path).suffix.lower() == ".json"
+                 and Path(path).stem in state_keys))
+    ]
+    if state_paths:
+        untrack = git(project_folder, "rm", "--cached", "-q", "-f", "--",
+                      *state_paths)
+        if untrack.returncode != 0:
+            report["staged"] = False
+            report["reason"] = ("git rm --cached failed while excluding "
+                                f"external state: {untrack.stderr.strip()[-400:]}")
+            return report
+        report["external_state_untracked"] = sorted(state_paths)
     staged = git(project_folder, "diff", "--cached", "--name-only",
                  "-z", "--diff-filter=AM")
     staged_paths = [p for p in staged.stdout.split("\x00") if p.strip()]

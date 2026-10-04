@@ -501,7 +501,7 @@ TEXT_FILES = [
     "pipeline_data.json",
     "pipeline_run.json",
     "learned_context/learnings.json",
-    "external/captain_edits.json",
+    "external/declarations/captain_edits.json",
     "context/look.md",
     "profiles/tight.json",
     "pipeline_output/steps/4_05_render_subtitles/output.json",
@@ -554,7 +554,7 @@ BINARY_DECOYS = [
 # module's own constants, never copied out of ALLOW_LIST, so deleting
 # an allow-list entry breaks the assertion that names its reader):
 #   project.yaml                       <- brand_registry, schemas
-#   external/<key>.json                <- external_inputs, captain_edits
+#   external/declarations/<key>.json    <- declaration owners
 #   context/                           <- project_context
 #   profiles/                          <- run_profile
 #   learned_context/learnings.json     <- transcript_corrections,
@@ -612,8 +612,8 @@ def _declaration_stores():
     return [
         # project.yaml: read by brand_registry and the config schema.
         (PROJECT_CONFIG_FILE, "project.yaml readers"),
-        # external/: read by external_inputs (CHECKS) and captain_edits.
-        (f"{_rel(Area.EXTERNAL_STATE)}/{captain_edits.CAPTAIN_EDITS_KEY}.json",
+        # Stable external declarations: read by external_inputs and owners.
+        (f"{_rel(Area.EXTERNAL_DECLARATIONS)}/{captain_edits.CAPTAIN_EDITS_KEY}.json",
          "external_inputs / captain_edits"),
         # context/: read by project_context on every planning step.
         (f"{_rel(Area.CONTEXT)}/look.md", "project_context"),
@@ -632,6 +632,41 @@ def _declaration_stores():
          f"{marker_resolution.RESOLUTIONS_SUBDIR}/x.json",
          "marker_resolution"),
     ]
+
+
+def test_version_store_tracks_declarations_but_not_external_state(tmp_path):
+    declaration = "external/declarations/reel_ending.json"
+    state = "external/state/assembly_manifest.json"
+    _write(tmp_path, declaration, '{"version": 1, "endings": []}\n')
+    _write(tmp_path, state, '{"key": "assembly_manifest"}\n')
+    assert bvc.init_project_repo(str(tmp_path))["initialised"] is True
+
+    report = bvc.stage_for_commit(str(tmp_path))
+
+    assert report["staged"] is True
+    staged = set(_git_2(tmp_path, "diff", "--cached", "--name-only")
+                 .splitlines())
+    assert declaration in staged
+    assert state not in staged
+    assert (tmp_path / state).is_file()
+
+
+def test_previously_tracked_external_state_is_untracked_without_deleting(
+        tmp_path):
+    state = "external/state/assembly_manifest.json"
+    assert bvc.init_project_repo(str(tmp_path))["initialised"] is True
+    _write(tmp_path, state, '{"key": "assembly_manifest"}\n')
+    _git_2(tmp_path, "add", "-f", state)
+    _git_2(tmp_path, "commit", "-m", "legacy state")
+    _write(tmp_path, state, '{"key": "assembly_manifest", "new": true}\n')
+
+    report = bvc.stage_for_commit(str(tmp_path))
+
+    assert report["staged"] is True
+    assert state in report["external_state_untracked"]
+    assert state not in _git_2(tmp_path, "ls-files").splitlines()
+    assert (tmp_path / state).read_text(encoding="utf-8").endswith(
+        '"new": true}\n')
 
 
 def test_learned_context_crash_tmp_stays_out(tmp_path):
@@ -919,8 +954,8 @@ def test_reel_promotion_commits_the_declarations_when_the_snapshot_fails(
     the file, which is the failure this whole store exists to stop.
     """
     bvc.init_project_repo(str(tmp_path))
-    (tmp_path / "external").mkdir()
-    (tmp_path / "external" / "reel_ending.json").write_text(
+    (tmp_path / "external" / "declarations").mkdir(parents=True)
+    (tmp_path / "external" / "declarations" / "reel_ending.json").write_text(
         '{"version": 1, "endings": []}', encoding="utf-8")
     project = _promotion_project(name="Something else")
     monkeypatch.setitem(sys.modules, "DaVinciResolveScript",
@@ -940,7 +975,7 @@ def test_reel_promotion_commits_the_declarations_when_the_snapshot_fails(
                          cwd=str(tmp_path), capture_output=True,
                          text=True, encoding="utf-8", check=False)
     assert "NO TIMELINE SNAPSHOT" in log.stdout
-    assert "external/reel_ending.json" in report["files"]
+    assert "external/declarations/reel_ending.json" in report["files"]
 
 
 # --------------------------------------------------------------------------

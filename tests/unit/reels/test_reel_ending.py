@@ -62,7 +62,7 @@ def _ending(**over):
 
 
 def _declare(root, endings):
-    external = os.path.join(root, "external")
+    external = os.path.join(root, "external", "declarations")
     os.makedirs(external, exist_ok=True)
     with open(os.path.join(external, "reel_ending.json"), "w",
               encoding="utf-8") as handle:

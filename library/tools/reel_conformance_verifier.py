@@ -2550,7 +2550,7 @@ def check_short_captions(reel_name: str,
     calls a flash acceptable because nothing could lengthen it.
 
     There is ONE exemption and it is not a grouping fact: a card the
-    project DECLARED short in `external/caption_timing.json`. The
+    project DECLARED short in `external/declarations/caption_timing.json`. The
     captain trimmed Reel 13's last closer card to three frames himself
     and recorded why, and a gate that FAILS correct output is no more
     coverage than one that cannot fail (AGENTS.md 10.4). Such a card is
@@ -2588,7 +2588,7 @@ def check_short_captions(reel_name: str,
                 f"{min_duration_seconds}s readability floor "
                 f"({floor_frames} frames at {fps:.3f}fps)"
                 + (" - DECLARED that length in "
-                   "external/caption_timing.json, so it is reported "
+                   "external/declarations/caption_timing.json, so it is reported "
                    "rather than failed" if was_declared else "")),
             severity="warning" if was_declared else "error",
             detail={

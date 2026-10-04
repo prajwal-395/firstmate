@@ -4907,7 +4907,7 @@ def reel_subtitle_segments(moment, transcript: dict, ranges, project_folder: str
     plan = operations.get("subtitles.plan").run(
         spine, brand_effect={}, brand_style={}, project_folder=project_folder,
         fps=fps,
-        # This reel's declared caption row (`external/reel_caption_row.json`)
+        # This reel's declared caption row (`external/declarations/reel_caption_row.json`)
         # reaches the plan here, where the style is resolved - a reel that
         # declares none plans exactly as before, on the project value.
         reel_name=name)
@@ -7632,7 +7632,7 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
     the delivery frame, nowhere near the union it was computed from.
 
     Where the project declares intent (`overlay_intent` - loaded from
-    `external/overlay_intent.json` by the caller), a pinned segment
+    `external/declarations/overlay_intent.json` by the caller), a pinned segment
     lands on the declared position instead of the computed one; the
     pin is selected by the segment's id, then its placing label, then
     `kind`. `seen_ids`, where given, collects every placed segment's
@@ -8022,7 +8022,7 @@ def prepare_reel_timeline(moment, master_clips, subtitle_segments, fps,
             f"{name}: edit_ledger grade cannot be resolved before the "
             f"timeline is created: {exc}") from exc
 
-    # The graphics the captain deleted (`external/do_not_draw.json`,
+    # The graphics the captain deleted (`external/declarations/do_not_draw.json`,
     # loaded by the caller - [] where they declared none). Read once
     # here so every placer below - TV frame, captions, explainer,
     # semantic visuals, lower thirds - holds the same deletions, and
@@ -8932,7 +8932,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
 
         # ── The edit ledger's hands rows ──
         # A direct edit made with Ren's hands (resolve-axi) or recorded
-        # from the captain lives in `external/edit_ledger.json`, and this
+        # from the captain lives in `external/declarations/edit_ledger.json`, and this
         # derived timeline would otherwise paint it over: the build
         # deletes and rebuilds from declarations, so anything that lives
         # only on the old timeline is gone. Hands rows replay AFTER the
@@ -11621,7 +11621,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
 
     `intent_file` names an overlay-intent file outright
     (`library/tools/overlay_intent.py`); empty reads the project's own
-    `external/overlay_intent.json` when the captain declared one, and
+    `external/declarations/overlay_intent.json` when the captain declared one, and
     builds purely computed placements otherwise. A declared position
     wins over the computed one, so a rebuild lands where the captain
     put things - Reel 09's hand corrections survive the next build
@@ -12405,7 +12405,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     )
     _engine_code = _need.engine_code_digest()
     # The PROJECT-WIDE half: `project.yaml`, the brand template's
-    # content, the project's artwork trees, every `external/`
+    # content, the project's artwork trees, every `external/declarations/`
     # declaration that is not a per-reel pin store, and the digests of
     # the assets a declaration names by absolute path. Changing any of
     # them can change every reel, so any of them changing costs a full
@@ -14953,7 +14953,7 @@ def build_reel_variants(project_slug: str, reel_number: int,
             "builds OVER the captain's timeline - refused.")
 
     # A variant that DECLARES is built from its own branch, because a
-    # declaration lives in `external/<store>.json` and nowhere else
+    # declaration lives in `external/declarations/<store>.json` and nowhere else
     # (`versions.variants.branch_requirement`). Asked before anything
     # is placed: built from the wrong branch it would carry the other
     # version's declaration and differ nowhere, reported as a
@@ -15069,7 +15069,7 @@ def build_reel_variants(project_slug: str, reel_number: int,
     # differences from the approved reel on top of the one it was
     # built to show. They are also the stores a variant may now DIFFER
     # in (`versions.variants.declarable`): the declaration lives in
-    # `external/<store>.json` on the variant's own branch, so reading
+    # `external/declarations/<store>.json` on the variant's own branch, so reading
     # it here IS how a declaring variant differs, with no second
     # builder anywhere.
     from library.tools.overlay_intent import OverlayIntentError, load_intent

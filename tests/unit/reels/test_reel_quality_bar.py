@@ -851,8 +851,8 @@ def test_a_recorded_body_ending_removes_a_planned_cta_from_the_batch_check(
     moment = _moment_with_cta()
     transcript = _transcript_with_cta()
     ending = _thesis("and AI really likes that")
-    external = tmp_path / "external"
-    external.mkdir()
+    external = tmp_path / "external" / "declarations"
+    external.mkdir(parents=True)
     (external / "reel_ending.json").write_text(json.dumps({
         "version": 1,
         "endings": [ending],
@@ -872,8 +872,8 @@ def test_preview_phrase_inside_body_does_not_remove_a_planned_cta(tmp_path):
             "clearly saying why you're better than your competitor. "
             "A follow-up thought comes after it."))
     ending = _thesis("clearly saying why you're better than your competitor")
-    external = tmp_path / "external"
-    external.mkdir()
+    external = tmp_path / "external" / "declarations"
+    external.mkdir(parents=True)
     (external / "reel_ending.json").write_text(json.dumps({
         "version": 1,
         "endings": [ending],

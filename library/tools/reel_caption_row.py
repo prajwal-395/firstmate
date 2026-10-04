@@ -8,12 +8,12 @@ The caption row is one project-level fraction
 row on one reel and there was nowhere to say it. A project-level
 declaration is the series look; a reel that needs its own band is a
 standing per-reel decision, and per-reel decisions live in
-`external/` beside `reel_ending.json` - not as a special case in code
+`external/declarations/` beside `reel_ending.json` - not as a special case in code
 (the captain, 2026-08-28: no hardcoded values).
 
 What a declaration says
 -----------------------
-`<project>/external/reel_caption_row.json`, checked and never
+`<project>/external/declarations/reel_caption_row.json`, checked and never
 asserted::
 
     {"version": 1,
@@ -133,9 +133,9 @@ def parse_rows(body: dict, source: str = ROWS_FILENAME) -> list:
 
 def rows_path(project_folder) -> str:
     """The file a project's per-reel rows live in, present or not."""
-    from library.tools.external_inputs import external_dir
+    from library.tools.external_inputs import declaration_path
 
-    return os.path.join(str(external_dir(project_folder)), ROWS_FILENAME)
+    return str(declaration_path(project_folder, ROWS_FILENAME))
 
 
 def load_rows(project_folder=None) -> list:

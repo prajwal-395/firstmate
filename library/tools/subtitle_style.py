@@ -112,7 +112,7 @@ VALID_POSITIONS = ("bottom", "center", "top")
 #: +11 row keep their live timelines - nothing here rebuilds them -
 #: but a future rebuild of one moves its captions 10px down onto the
 #: corrected row; a reel that must keep its old band pins it per
-#: segment in `external/overlay_intent.json` instead.
+#: segment in `external/declarations/overlay_intent.json` instead.
 #:
 #: Applied to the BOTTOM inset only, and only to the props captions
 #: render from: `safe_area.py`'s own insets are platform facts (the
@@ -431,7 +431,7 @@ def project_caption_row(project_folder: Optional[str],
     none and the engine's own row applies exactly as before.
 
     `reel_name` prefers that reel's declared row
-    (`external/reel_caption_row.json`, `reel_caption_row.declared_row`)
+    (`external/declarations/reel_caption_row.json`, `reel_caption_row.declared_row`)
     over the project value: one reel's band is a standing per-reel
     decision, not a special case in code.  None everywhere means
     today's behaviour exactly.
@@ -574,7 +574,7 @@ def resolve_subtitle_style(
     changes nothing - see `SPEAKER_STYLE_KEYS`.
 
     `reel_name` prefers that reel's declared caption row
-    (`external/reel_caption_row.json`) over the project value, falling
+    (`external/declarations/reel_caption_row.json`) over the project value, falling
     back to it where the reel declares none. The reel path passes the
     timeline name it builds; every other caller passes nothing and
     reads today's answer exactly.

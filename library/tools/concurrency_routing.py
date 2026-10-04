@@ -25,7 +25,7 @@ The four classes
                    because a foreign writer can delete the timeline the
                    handle points at halfway through.
 
-`DECLARATION`      Writes a keyed file under `external/` or
+`DECLARATION`      Writes a keyed file under `external/declarations/` or
                    `pipeline_output/review/`. No Resolve. Serialises
                    only against another writer of the SAME FILE, and
                    conflicts only against the same ENTRY KEY -
@@ -203,7 +203,7 @@ AUXILIARY_OPERATIONS: Tuple[Operation, ...] = (
         entry_point="library.tools.timeline_ingest.write_external",
         exclusion=DECLARATION,
         declaration="timeline_ingest",
-        why="Writes supplied state into `external/`, whole-file."),
+        why="Writes supplied state into `external/state/`, whole-file."),
     Operation(
         name="reset the qualification project",
         entry_point="library.tools.qualification_project.reset",

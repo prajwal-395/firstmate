@@ -48,7 +48,7 @@ else, because anything wider would need a SECOND BUILDER.
 `validate_variant_spec` refuses the rest.
 
 The declaration itself is never in the spec.  It is the CONTENT of
-`external/<store>.json` on the variant's own branch, the only place the
+`external/declarations/<store>.json` on the variant's own branch, the only place the
 rebuild reads it from - so `branch_requirement` refuses, by name, a
 declaring variant built from any other branch.  A seam variant builds
 from anywhere.
@@ -167,7 +167,7 @@ def declarable() -> tuple:
 
     `external_inputs.DECLARATIONS` is the engine's own enumeration of
     what a per-project DECLARATION is - a standing decision read by the
-    module that owns it, carried in `external/<stem>.json`, checked by
+    module that owns it, carried in `external/declarations/<stem>.json`, checked by
     its owner's own reader. Deriving from it rather than listing the
     stems again is the point: a declaration added there becomes
     variant-expressible with no second edit, and one removed stops
@@ -234,6 +234,7 @@ OUT_OF_VOCABULARY = {
 # conflict. Requests stay listed: they are rewritten (with a fresh
 # timestamp) on every build.
 GENERATED_PATHS = (
+    "external/state",
     "pipeline_data.json",
     "pipeline_run.json",
     "pipeline_output/steps",
@@ -580,7 +581,8 @@ def branch_requirement(project_folder: str, reel_number: int,
     side by side in ONE atomic call.
 
     A variant that `declares` is different in kind. Its difference is
-    not in the spec at all: it is the CONTENT of `external/<store>.json`
+    not in the spec at all: it is the CONTENT of
+    `external/declarations/<store>.json`
     on its own branch, because that is the only place the rebuild reads
     a declaration from. Built from the wrong branch it would carry the
     other version's declaration and differ from the approved reel
@@ -601,7 +603,7 @@ def branch_requirement(project_folder: str, reel_number: int,
     if not have:
         return (f"{spec['suffix'].strip()} differs in "
                 f"{sorted(spec['declares'])}, which lives in "
-                f"external/<store>.json on branch {want} - and this "
+                f"external/declarations/<store>.json on branch {want} - and this "
                 f"project has no git repo to hold it. Run "
                 f"init_project_repo (library/tools/"
                 f"versions/store.py) first.")
@@ -713,8 +715,18 @@ def create_variation(project_folder: str, reel_number: int,
 
 
 def _is_generated(rel_path: str) -> bool:
-    return any(rel_path == g or rel_path.startswith(g + "/")
-               for g in GENERATED_PATHS)
+    if any(rel_path == g or rel_path.startswith(g + "/")
+           for g in GENERATED_PATHS):
+        return True
+    # Old projects can still have flat external files before `organize`
+    # moves them. Treat registered state as generated there too, while
+    # declaration files remain ordinary merge conflicts.
+    if rel_path.startswith("external/") and rel_path.count("/") == 1:
+        from library.tools.external_inputs import CHECKS, declaration_stems
+
+        stem = Path(rel_path).stem
+        return stem in CHECKS and stem not in declaration_stems()
+    return False
 
 
 def merge_variations(project_folder: str, source_branch: str,

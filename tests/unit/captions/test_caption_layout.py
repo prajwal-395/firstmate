@@ -510,7 +510,7 @@ def test_compile_refuses_only_a_tight_segment_with_no_placement():
 #
 # The caption row was one project-level fraction
 # (`pipeline.subtitle_position.caption_row`): a reel that needed its
-# own band had nowhere to say it. `external/reel_caption_row.json`
+# own band had nowhere to say it. `external/declarations/reel_caption_row.json`
 # (`library/tools/reel_caption_row.py`) is the per-reel override,
 # preferred over the project value wherever the row is read and falling
 # back to it where the reel declares none.

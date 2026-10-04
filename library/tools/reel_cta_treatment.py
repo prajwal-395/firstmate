@@ -205,7 +205,9 @@ def validate_treatment(value: Any) -> dict:
 
 def treatment_path(project_folder: str) -> str:
     """Where a project's declared CTA treatment lives."""
-    return os.path.join(project_folder or "", "external", TREATMENT_FILENAME)
+    from library.tools.external_inputs import declaration_path
+
+    return str(declaration_path(project_folder or "", TREATMENT_FILENAME))
 
 
 def load_treatment(project_folder: str) -> Optional[dict]:

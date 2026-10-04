@@ -901,7 +901,7 @@ def thesis_reading(moment, transcript: dict,
     play - so "ends on a call to action" would fail a reel that ends
     exactly where it was told to.
 
-    - `thesis` - a HAND-WRITTEN entry from `external/reel_ending.json`
+    - `thesis` - a HAND-WRITTEN entry from `external/declarations/reel_ending.json`
       (`library/tools/reel_ending.py`: word-anchored, reasoned, one
       reel), matched by the same prefix rule the build honours. An
       inherited ending never reaches here: `cta_default_ending`
@@ -1143,7 +1143,7 @@ def cta_reading(moment, transcript: dict,
                for range_start, range_end in ranges)]
     if not contained:
         # No closer anywhere in what the reel plays. A project-declared
-        # ending (`external/reel_ending.json`, captain-authorised re-cut)
+        # ending (`external/declarations/reel_ending.json`, captain-authorised re-cut)
         # is the fourth answer. Prefer timed-word evidence; a corrected
         # ending absent from the transcript can still be confirmed by
         # the approved moment preview. A declaration represented in
@@ -1869,7 +1869,7 @@ def judge(moments: Sequence, transcript: dict,
     holding whether or not anyone has been asked to read the reels yet.
 
     `project_folder` supplies the project's hand-written thesis
-    endings (`external/reel_ending.json`): a closer-less reel one
+    endings (`external/declarations/reel_ending.json`): a closer-less reel one
     declares and honours reads `thesis`, never ABSENT. Absent (every
     existing caller without a project in hand) reads exactly what it
     read before - an unreadable endings file REFUSES rather than

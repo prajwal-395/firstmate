@@ -420,7 +420,7 @@ def build_for_reel(moment, transcript: dict, ranges, project_folder: str,
                        for r in (ranges or []))
     brand_style, brand_effect = _brand_slots(project_folder)
     from library.tools import reel_cta_treatment as cta_rx
-    # The captain's declared CTA treatment (external/reel_cta.json),
+    # The captain's declared CTA treatment (external/declarations/reel_cta.json),
     # normalised into the answer BEFORE resolve_plan times and validates
     # it - so a re-rendered card keeps the plan's own copy and timing
     # and only the treatment is unified. No declaration, no CTA, an

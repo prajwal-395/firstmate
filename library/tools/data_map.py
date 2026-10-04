@@ -132,9 +132,9 @@ class Document:
     under: str = ""
     """A path fragment a file must be under to count as this document.
 
-    Only for the names a filename cannot decide.  `external_state` files
+    Only for the names a filename cannot decide. `external_state` files
     are named for the state key they stand in for, so the only thing
-    that identifies one is that it is in `external/`; without this it
+    that identifies one is that it is in `external/state/`; without this it
     matched every `.json` in the project and swallowed 968 of
     geo-podcast's 1,640 observed field paths."""
 
@@ -205,9 +205,17 @@ DOCUMENTS: Tuple[Document, ...] = (
         "external_state", (".json",),
         "State a producer outside the pipeline supplied, verified before "
         "it is believed (AGENTS.md 3). Named for the state key it stands "
-        "in for, so only its directory identifies it.",
+        "in for, so only its directory identifies it. Kept apart from "
+        "stable project declarations because state is rebuilt, not merged.",
         "the captain, checked by `library/tools/external_inputs.py`",
-        "declaration", "Area.EXTERNAL_STATE", under="/external/"),
+        "state", "Area.EXTERNAL_STATE", under="/external/state/"),
+    Document(
+        "external_declarations", (".json",),
+        "Stable project decisions under `external/declarations/`, read "
+        "by their owning modules and reconciled by branch merges.",
+        "the captain, checked by each declaration's owner",
+        "declaration", "Area.EXTERNAL_DECLARATIONS",
+        under="/external/declarations/"),
 
     # ── what the footage was measured to be ──────────────────────────
     Document(
@@ -737,7 +745,7 @@ def analysed_world() -> field_flow.World:
                  for name in context_views.CONTEXT_VIEWS}
         seeds = field_flow.Seeds(
             # A document identified by its DIRECTORY contributes no
-            # literal.  `external_state`'s files are named for the state
+            # literal. `external_state` files are named for the state
             # key they stand in for - its literal is `.json` - and the
             # archives' is `*.json`, so seeding on those made every
             # `"<anything>.json"` in the tree name three documents at
@@ -1659,6 +1667,9 @@ NOT_OBSERVED: Dict[str, str] = {
     "external_state":
         "Neither snapshot project supplies state from outside the "
         "pipeline (AGENTS.md 3).",
+    "external_declarations":
+        "Neither snapshot project has external declaration files in the "
+        "new external/declarations/ area.",
     "prosody":
         "1.05's per-clip files survive only in 001's `backups/`, which "
         "`observe` skips; the live 1.05 directory has `output.json` "

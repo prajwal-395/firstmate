@@ -43,7 +43,7 @@ while the artifact describing it is.
 
 Where it lives
 --------------
-`<project>/external/<state_key>.json`, an `Area.EXTERNAL_STATE` input
+`<project>/external/state/<state_key>.json`, an `Area.EXTERNAL_STATE` input
 area: `write_dir` raises for it, `ensure()` does not create it, and no
 step may write there.  Each file is:
 
@@ -71,7 +71,7 @@ and points here.
 
 **A prerequisite may be satisfied from outside the pipeline, and it is CHECKED, never asserted.**
 One enumeration, `library/tools/external_inputs.py`.
-- The value is SUPPLIED, in `<project>/external/<state_key>.json` carrying `key`, `source` and `value` - not claimed by a flag. The same verified value is what `gather_step_inputs` hands the step, so the resolver can never believe something the run cannot use.
+- The value is SUPPLIED, in `<project>/external/state/<state_key>.json` carrying `key`, `source` and `value` - not claimed by a flag. The same verified value is what `gather_step_inputs` hands the step, so the resolver can never believe something the run cannot use.
 - **The file is named for the STATE key, which is the PRODUCER's name for it.** Step 6.01 records `render_output`; step 6.02 calls the same value `rendered_output`. Offering the consumer's name is refused, naming the producer's.
 - **`CHECKS` is the whole of what can be supplied. A key that is not in it is refused by name**, because a check that does not exist is not a check that passes.
 - **A SUPPLIED value is a request; a recorded one is history.** A step every one of whose routed outputs is supplied does not run, on any run shape - `run_scope.supplied_producers` derives which, and naming such a step on the command line is REFUSED rather than silently overwriting what was handed in.
@@ -97,7 +97,7 @@ class ExternalStateError(RenRefusal):
 
     Every site raises with the message alone; the fix is uniform across
     all of them because every one validates a value the project
-    supplies under `external/*.json`: correct that file and re-run. A
+    supplies under `external/state/*.json`: correct that file and re-run. A
     site with a more specific fix passes `fix=` explicitly.
     """
 
@@ -106,7 +106,7 @@ class ExternalStateError(RenRefusal):
             what=message,
             why=("a value supplied from outside the pipeline must check "
                  "out before the run trusts it"),
-            fix=(fix or "correct the value in the external/*.json file "
+            fix=(fix or "correct the value in the external/state/*.json file "
                         "this message names, then re-run"))
 
 
@@ -927,10 +927,34 @@ WITHDRAWN: Dict[str, str] = {
 # ── Reading a project's external state ───────────────────────────────
 
 def external_dir(project_folder) -> Path:
-    """Where a project's supplied values live. Never created here: an
-    INPUT area exists because the captain made it."""
+    """Where a project's supplied state lives. Never created here."""
     return Path(ProjectLayout(str(project_folder)).read_dir(
         Area.EXTERNAL_STATE))
+
+
+def declarations_dir(project_folder) -> Path:
+    """Where standing external declarations live. Never created here."""
+    return Path(ProjectLayout(str(project_folder)).read_dir(
+        Area.EXTERNAL_DECLARATIONS))
+
+
+def declaration_path(project_folder, filename: str) -> Path:
+    """Resolve a declaration path, with a read-through for old projects.
+
+    `manage_project.py organize --apply` moves flat `external/*.json`
+    files into one of the two named areas. Until that migration is run,
+    readers continue to see the old file. If both paths exist, refuse:
+    choosing one would hide a captain's different declaration.
+    """
+    layout = ProjectLayout(str(project_folder))
+    current = layout.read_path(Area.EXTERNAL_DECLARATIONS, filename)
+    legacy = layout.root / "external" / filename
+    if current.exists() and legacy.exists():
+        raise ExternalStateError(
+            f"{current} and legacy {legacy} both exist. Resolve the two "
+            "declarations, then run `manage_project.py organize --apply` "
+            "to finish the external layout migration.")
+    return current if current.exists() or not legacy.exists() else legacy
 
 
 def _alias_hint(key: str) -> str:
@@ -954,10 +978,9 @@ def _alias_hint(key: str) -> str:
     return ""
 
 
-#: Files under `external/` that are DECLARATIONS, not supplied state.
+#: Files under `external/declarations/` that are declarations, not state.
 #:
-#: Two conventions share this one directory and they are different
-#: things. Supplied STATE stands in for a step's output and carries
+#: Supplied STATE stands in for a step's output and carries
 #: `key`/`source`/`value`, so `CHECKS` above can judge it against the
 #: run. A DECLARATION is a standing decision about the project - where
 #: the captain's overlays sit, where a reel ends, how a caption card is
@@ -965,7 +988,7 @@ def _alias_hint(key: str) -> str:
 #: step, and it carries `version` plus that owner's own field.
 #:
 #: Measured 2026-09-11 on `lucie/geo-podcast`: `external_inputs.load`
-#: globs the whole directory, so the moment the captain's
+#: used to glob the mixed directory, so the moment the captain's
 #: `overlay_intent.json` was written there every `build-reels` on that
 #: project refused at input gathering with "declares key None" - a
 #: message about a contract that file was never written to. Three
@@ -1008,22 +1031,29 @@ def check_declaration(stem: str, project_folder) -> str:
     return f"{len(value)} entr{'y' if len(value) == 1 else 'ies'}"
 
 
+def declaration_stems() -> frozenset[str]:
+    """Every known declaration file, including keyed stores with state envelopes."""
+    from library.tools.declaration_keys import stores
+
+    return frozenset(DECLARATIONS) | frozenset(stores())
+
+
 def checked_declarations(project_folder) -> Dict[str, str]:
-    """Every declaration in the project's external area, checked.
+    """Every owner-checked declaration in the project's declaration area.
 
     `{stem: what was checked}`. Raises the OWNER's error for a
     malformed one, unchanged: the owner wrote the clearest available
     message about its own file and this module must not restate it.
     """
     try:
-        directory = external_dir(project_folder)
+        paths = {
+            stem: declaration_path(project_folder, f"{stem}{SUFFIX}")
+            for stem in DECLARATIONS
+        }
     except (KeyError, ValueError):
         return {}
-    if not directory.is_dir():
-        return {}
-    return {path.stem: check_declaration(path.stem, project_folder)
-            for path in sorted(directory.glob(f"*{SUFFIX}"))
-            if path.stem in DECLARATIONS}
+    return {stem: check_declaration(stem, project_folder)
+            for stem, path in sorted(paths.items()) if path.is_file()}
 
 
 def verify(path: Path, context: Context) -> Supplied:
@@ -1038,7 +1068,8 @@ def verify(path: Path, context: Context) -> Supplied:
     if path.stem in DECLARATIONS:
         module_name, reader = DECLARATIONS[path.stem]
         raise ExternalStateError(
-            f"{path.name} is a DECLARATION, not supplied state: it is "
+            f"{path.name} is a DECLARATION, not supplied state: it belongs "
+            f"under external/declarations/ and is "
             f"read by {module_name} ({reader}) and carries 'version' "
             f"plus that owner's own field, never 'key'/'source'/"
             f"'value'. Check it with `check_declaration`; `load` does "
@@ -1102,20 +1133,61 @@ def load(project_folder, state: Optional[Mapping] = None
         return {}
     try:
         directory = external_dir(project_folder)
+        declared_directory = declarations_dir(project_folder)
     except (KeyError, ValueError):
         return {}
-    if not directory.is_dir():
-        return {}
+    checked_declarations(project_folder)
 
     context = Context(project_folder=Path(project_folder),
                       state=state or {})
+    declared = declaration_stems()
+    candidates: Dict[str, Path] = {}
+
+    def add(path: Path) -> None:
+        prior = candidates.get(path.stem)
+        if prior is not None and prior.resolve() != path.resolve():
+            raise ExternalStateError(
+                f"{prior} and {path} both supply {path.stem!r}. Resolve "
+                "the duplicate, then run `manage_project.py organize "
+                "--apply` to finish the external layout migration.")
+        candidates[path.stem] = path
+
+    if directory.is_dir():
+        for path in sorted(directory.glob(f"*{SUFFIX}")):
+            if path.stem in declared:
+                raise ExternalStateError(
+                    f"{path} is a declaration stored under external/state/. "
+                    "Move it to external/declarations/ with "
+                    "`manage_project.py organize --apply`.")
+            add(path)
+
+    # captain_edits is a declaration with a checked state envelope. It
+    # stays in declarations/ but still satisfies the external state key.
+    if declared_directory.is_dir():
+        for path in sorted(declared_directory.glob(f"*{SUFFIX}")):
+            if path.stem in CHECKS and path.stem in declared:
+                add(path)
+            elif path.stem in CHECKS:
+                raise ExternalStateError(
+                    f"{path} is supplied state stored under "
+                    "external/declarations/. Move it to external/state/ "
+                    "with `manage_project.py organize --apply`.")
+            elif path.stem not in declared:
+                # Unknown JSON remains a refusal, never an ignored file.
+                add(path)
+
+    # Read the flat legacy area until its files have been reorganized.
+    legacy = ProjectLayout(str(project_folder)).root / "external"
+    if legacy.is_dir():
+        for path in sorted(legacy.glob(f"*{SUFFIX}")):
+            if path.stem in DECLARATIONS:
+                continue
+            if path.stem in declared and path.stem not in CHECKS:
+                continue
+            add(path)
+
     supplied: Dict[str, Supplied] = {}
-    for path in sorted(directory.glob(f"*{SUFFIX}")):
-        if path.stem in DECLARATIONS:
-            # Checked by its owner, and then NOT supplied: a standing
-            # decision about the project is not a step's output.
-            check_declaration(path.stem, project_folder)
-            continue
+    for path in sorted(candidates.values()):
         entry = verify(path, context)
         supplied[entry.key] = entry
     return supplied
