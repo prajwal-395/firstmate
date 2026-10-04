@@ -97,10 +97,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from collections import Counter, defaultdict
 from dataclasses import asdict, is_dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
+from pathlib import Path
 
 from library.tools.resolve_lock import under_lease
 
@@ -821,7 +823,9 @@ def snapshot_timeline(timeline, timeline_name: str,
                 f"the enabled state of {clip['name']!r} on "
                 f"{track['type']}:{track['name'] or track['index']} "
                 f"could not be read")
-        return reel_read.rows_of({"tracks": tracks})
+        rows = reel_read.rows_of({"tracks": tracks})
+        _attach_subtitle_tokens(rows, tracks)
+        return rows
     except ReplaceGuardUnreadable as unreadable:
         raise ReplaceGuardUnreadable(
             f"the {side} timeline {timeline_name!r} could not be read "
@@ -845,6 +849,88 @@ def _span(entry: dict) -> str:
 
 def _match_key(entry: dict) -> tuple:
     return (entry["name"], entry["start"], entry["end"])
+
+
+_CAPTION_WORD = re.compile(r"[^\W_]+(?:['’][^\W_]+)*", re.UNICODE)
+
+
+def _subtitle_tokens(source_file: str) -> list[str] | None:
+    """Read the visible word sequence from a rendered subtitle's sidecar."""
+    if not source_file:
+        return None
+    path = Path(source_file)
+    props_path = path.with_name(f"{path.stem}_props.json")
+    try:
+        props = json.loads(props_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    subtitles = props.get("subtitles") if isinstance(props, dict) else None
+    if not isinstance(subtitles, list) or not subtitles:
+        return None
+    words = []
+    for subtitle in subtitles:
+        if not isinstance(subtitle, dict) or not isinstance(
+                subtitle.get("text"), str):
+            return None
+        words.extend(token.casefold() for token in
+                     _CAPTION_WORD.findall(subtitle["text"]))
+    return words or None
+
+
+def _attach_subtitle_tokens(rows: dict, tracks: list[dict]) -> None:
+    """Attach readable caption copy to the Subtitles row snapshot only."""
+    for track in tracks:
+        if (track["type"] != "video"
+                or str(track["name"] or "").casefold() != "subtitles"):
+            continue
+        key = row_key(track["type"], track["name"])
+        row = rows[key]
+        if len(track["clips"]) != len(row["items"]):
+            return
+        row["caption_tokens"] = []
+        for detail, item in zip(track["clips"], row["items"]):
+            tokens = (None if item["enabled"] is False else
+                      _subtitle_tokens(
+                          str(detail.get("source_file") or "")))
+            row["caption_tokens"].append(tokens)
+
+
+def _is_subtitle_join(old: dict, new: dict) -> bool:
+    """Prove a subtitle card merge kept every visible word in order.
+
+    Subtitle renders get content-derived filenames, so the ordinary
+    name-presence proxy cannot recognize a merged or reflowed card. The
+    sidecars carry the text actually drawn; the old token sequence must be a
+    subsequence of the new one, and total visible row duration cannot shrink.
+    Missing sidecar evidence keeps the replace guard fail-closed.
+    """
+    old_items, new_items = old["items"], new["items"]
+    if ((new["frames"] or 0) < (old["frames"] or 0)
+            or not old_items or not new_items):
+        return False
+    old_rows = old.get("caption_tokens")
+    new_rows = new.get("caption_tokens")
+    if (not isinstance(old_rows, list) or len(old_rows) != len(old_items)
+            or not isinstance(new_rows, list) or len(new_rows) != len(new_items)):
+        return False
+    old_tokens, new_tokens = [], []
+    for item, tokens in zip(old_items, old_rows):
+        if item.get("enabled") is False:
+            continue
+        if not isinstance(tokens, list) or not tokens:
+            return False
+        old_tokens.extend(tokens)
+    for item, tokens in zip(new_items, new_rows):
+        if item.get("enabled") is False:
+            continue
+        if not isinstance(tokens, list) or not tokens:
+            return False
+        new_tokens.extend(tokens)
+    if not old_tokens or not new_tokens:
+        return False
+    cursor = iter(new_tokens)
+    return all(any(candidate == token for candidate in cursor)
+               for token in old_tokens)
 
 
 def diff_rows(retired: dict, incoming: dict) -> list:
@@ -968,10 +1054,15 @@ def _is_join(old: dict, new: dict) -> bool:
     caught proves frames alone are not sufficient (3 items to 2 over
     equal frames, with `LC4932 cover` gone), and names alone are not
     either (a shrunken same-named row keeps every name while losing
-    seconds).
+    seconds). Subtitle rows use their rendered sidecar word sequences
+    instead of filenames, which are content-derived and change on a merge.
     """
     if new["count"] >= old["count"]:
         return False
+    if (old["media_type"] == new["media_type"] == "video"
+            and str(old["name"] or "").casefold() == "subtitles"
+            and str(new["name"] or "").casefold() == "subtitles"):
+        return _is_subtitle_join(old, new)
     if (new["frames"] or 0) < (old["frames"] or 0):
         return False
     incoming_names = {entry["name"] for entry in new["items"]}
@@ -1054,7 +1145,9 @@ def check_replacement(final: str, staging: str, retired: dict,
         old, new = retired[verdict["key"]], incoming.get(verdict["key"])
         safe = []
         remaining = []
-        for item in old["items"]:
+        remaining_caption_tokens = []
+        old_caption_tokens = old.get("caption_tokens")
+        for index, item in enumerate(old["items"]):
             identity = (verdict["key"], item["name"], item["start"],
                         item["end"])
             if safe_drop_counts[identity]:
@@ -1062,12 +1155,18 @@ def check_replacement(final: str, staging: str, retired: dict,
                 safe.append((item, safe_drop_entries[identity].pop(0)))
             else:
                 remaining.append(item)
+                if isinstance(old_caption_tokens, list):
+                    remaining_caption_tokens.append(
+                        old_caption_tokens[index]
+                        if index < len(old_caption_tokens) else None)
         effective_old = {
             **old,
             "items": remaining,
             "count": len(remaining),
             "frames": sum((item["duration"] or 0) for item in remaining),
         }
+        if isinstance(old_caption_tokens, list):
+            effective_old["caption_tokens"] = remaining_caption_tokens
         verdict["unchanged_disabled"] = [
             item for item, entry in safe if "replacement_item" not in entry]
         verdict["carried_disabled_replacements"] = [

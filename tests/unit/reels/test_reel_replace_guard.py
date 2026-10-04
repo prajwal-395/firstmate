@@ -1,6 +1,7 @@
 """Timeline inventories stay stable against concurrent Resolve writers."""
 from __future__ import annotations
 
+import json
 import os
 import select
 import subprocess
@@ -9,6 +10,7 @@ import textwrap
 import threading
 from contextlib import nullcontext
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import pytest
 
@@ -151,3 +153,76 @@ def test_full_snapshot_records_the_project_transform_unit(monkeypatch):
     snapshot = reel_replace_guard.full_timeline_snapshot(timeline, project)
 
     assert snapshot["metadata"]["transform_unit_resolution"] == [3840, 2160]
+
+
+def test_subtitle_row_merge_requires_sidecar_word_preservation(
+        tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from library.tools import reel_read
+
+    def caption_asset(stem, text):
+        media = tmp_path / f"{stem}.mov"
+        media.with_name(f"{media.stem}_props.json").write_text(
+            json.dumps({"subtitles": [{"text": text}]}),
+            encoding="utf-8")
+        return str(media)
+
+    old_assets = [
+        caption_asset("old_a", "the link's bio."),
+        caption_asset("old_b", "you should go check it out."),
+    ]
+    merged_asset = caption_asset(
+        "merged", "the link's in our bio, you should go check it out.")
+    lossy_asset = caption_asset(
+        "lossy", "the link's in our bio, you should go check it.")
+    unreadable_asset = tmp_path / "unreadable.mov"
+
+    def track_for(assets):
+        clips = []
+        cursor = 0
+        for index, path in enumerate(assets):
+            duration = (180 if len(assets) == 1
+                        else 100 if index == 0 else 80)
+            clips.append({
+                "name": Path(path).name,
+                "source_file": path,
+                "record_in": cursor,
+                "record_out": cursor + duration,
+                "duration": duration,
+                "enabled": True,
+            })
+            cursor += duration
+        return [{"type": "video", "index": 4, "name": "Subtitles",
+                 "clips": clips}]
+
+    tracks = {
+        "retiring": track_for(old_assets),
+        "merged": track_for([merged_asset]),
+        "lossy": track_for([lossy_asset]),
+        "unreadable": track_for([str(unreadable_asset)]),
+    }
+    monkeypatch.setattr(
+        reel_read, "read_tracks", lambda timeline: tracks[timeline.GetName()])
+
+    def snapshot(name):
+        timeline = SimpleNamespace(GetName=lambda: name)
+        return reel_replace_guard.snapshot_timeline(timeline, name)
+
+    old = snapshot("retiring")
+    merged = snapshot("merged")
+    lossy = snapshot("lossy")
+    unreadable = snapshot("unreadable")
+    assert old["video:Subtitles"]["caption_tokens"][0]
+
+    accepted = reel_replace_guard.check_replacement(
+        "final", "merged", old, merged)
+    assert accepted["joined"] == ["video:Subtitles"]
+
+    with pytest.raises(reel_replace_guard.ReplaceGuardRefused,
+                       match="video:Subtitles"):
+        reel_replace_guard.check_replacement("final", "lossy", old, lossy)
+    with pytest.raises(reel_replace_guard.ReplaceGuardRefused,
+                       match="video:Subtitles"):
+        reel_replace_guard.check_replacement(
+            "final", "unreadable", old, unreadable)

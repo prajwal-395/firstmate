@@ -6,8 +6,9 @@ staged item. Text-bearing Semantic graphics use element type, displayed copy,
 and any attached asset or data for an exact match. If the element type changed,
 one overlapping staged graphic with the same displayed copy is a safe fallback:
 the staged item is disabled and the change is reported. Other Semantic
-elements retain their complete non-timing identity. Other clips use their
-source path and source-frame range.
+elements match on rendered visual properties and behavior data, without
+planner rationale or color provenance. Other clips use their source path and
+source-frame range.
 """
 
 from __future__ import annotations
@@ -27,6 +28,16 @@ _TIMING_FIELDS = frozenset({
     "startFrame", "durationFrames", "endFrame",
     "timelineProgressStart", "timelineProgressEnd",
 })
+_DESCRIPTIVE_FIELDS = frozenset({"subject", "why", "colorBasis"})
+_DATA_PROVENANCE_FIELDS = frozenset({"colour_basis", "color_basis"})
+
+
+def _visual_data(element: dict):
+    data = element.get("data", {})
+    if not isinstance(data, dict):
+        return data
+    return {key: value for key, value in data.items()
+            if key not in _DATA_PROVENANCE_FIELDS}
 
 
 def semantic_graphic_identity(elements) -> list[dict]:
@@ -37,9 +48,11 @@ def semantic_graphic_identity(elements) -> list[dict]:
     rationale are presentation details that can be re-resolved on a rerender.
     Timeline position is omitted so an opening shift does not change the key;
     occurrence order distinguishes repeated identical graphics. Explicit
-    asset and data values remain part of the key. Elements without text retain
-    every non-timing property, so a graphic with no copy is only carried when
-    its actual visual intent stays the same.
+    assets and behavior data remain part of the key. Descriptive rationale
+    and color provenance do not: the rendered color itself is preserved,
+    while planner wording and expression formatting can change between builds.
+    Elements without text retain every other visual property, so a graphic
+    with no copy is only carried when its rendered intent stays the same.
     """
     normalized = []
     for element in elements or ():
@@ -58,13 +71,16 @@ def semantic_graphic_identity(elements) -> list[dict]:
                     "element": element_type,
                     "copy": copy,
                     "asset": element.get("asset", ""),
-                    "data": element.get("data", {}),
+                    "data": _visual_data(element),
                 })
                 continue
         normalized.append({
             key: value for key, value in element.items()
-            if key not in _TIMING_FIELDS
+            if key not in _TIMING_FIELDS | _DESCRIPTIVE_FIELDS
+            and key != "data"
         })
+        if "data" in element:
+            normalized[-1]["data"] = _visual_data(element)
     return sorted(normalized, key=_canonical)
 
 
@@ -457,9 +473,10 @@ def carry_disabled_state(project_folder: str, final: str, staging: str,
     assets or data. One overlapping same-copy graphic with a changed element
     type is a fallback and is disabled with the change recorded. Occurrence
     order distinguishes repeated identical graphics. Other elements use their
-    complete non-timing identity, and media clips use source identity. An
-    unmatched disabled Semantic graphic is recorded when staging leaves its
-    place invisible; an enabled different-copy graphic there refuses promotion.
+    rendered visual properties and behavior data, and media clips use source
+    identity. An unmatched disabled Semantic graphic is recorded when staging
+    leaves its place invisible; an enabled different-copy graphic there refuses
+    promotion.
     `apply=False` reads and reports the intended carry without changing staged
     enabled state, so callers can account for invisible removals before running
     other promotion guards.

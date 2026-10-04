@@ -397,6 +397,53 @@ def test_semantic_identity_ignores_timing_but_keeps_content():
             != semantic_graphic_identity(changed_asset))
 
 
+def test_semantic_identity_ignores_rationale_and_color_provenance():
+    from library.tools.reel_disabled_clip_carry import semantic_graphic_identity
+
+    old_accent = [{
+        "element": "beat_accent", "anchor": "centre", "layer": "above",
+        "row": 0, "runs": [], "color": "#aabbcc",
+        "colorBasis": "brand palette role 'text' of 'cinematic_narrative'",
+        "entrance": "cut", "exit": "fade", "asset": "", "footprint": 0.5,
+        "subject": "fragment handoff ends, restated thesis begins",
+        "why": "marks the speaker change without emphasizing a word",
+        "data": {},
+    }]
+    rebuilt_accent = [{
+        **old_accent[0],
+        "subject": "question ends, audit story begins",
+        "why": "marks the speaker change without emphasizing a spoken word",
+    }]
+    changed_color = [{**rebuilt_accent[0], "color": "#ffffff"}]
+
+    old_title = [{
+        "element": "lower_third", "runs": [
+            {"text": "Akshita Gorti"}, {"text": "AI @ Lucie Content"}],
+        "color": "#68AEE0",
+        "data": {"speaker": "Akshita", "colour_basis":
+                 'pipeline.speaker_subtitle_styles["Akshita"].accentColor'},
+    }]
+    rebuilt_title = [{
+        **old_title[0],
+        "data": {"speaker": "Akshita", "colour_basis":
+                 "pipeline.speaker_subtitle_styles['Akshita'].accentColor"},
+    }]
+    different_speaker = [{
+        **rebuilt_title[0],
+        "data": {"speaker": "Craig", "colour_basis":
+                 "pipeline.speaker_subtitle_styles['Akshita'].accentColor"},
+    }]
+
+    assert semantic_graphic_identity(old_accent) == semantic_graphic_identity(
+        rebuilt_accent)
+    assert semantic_graphic_identity(old_accent) != semantic_graphic_identity(
+        changed_color)
+    assert semantic_graphic_identity(old_title) == semantic_graphic_identity(
+        rebuilt_title)
+    assert semantic_graphic_identity(old_title) != semantic_graphic_identity(
+        different_speaker)
+
+
 def test_build_reels_carries_reel15_restyled_rerenders(
         tmp_path, monkeypatch, stub_resolve_script):
     """Same-copy rerenders carry across restyling and a one-frame shift.
