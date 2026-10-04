@@ -682,6 +682,10 @@ def test_quantities_ratings_versions_measures_read_as_digits():
          "5-star reviews, AI does see that."),
         ("their press release from twenty twenty",
          "their press release from 2020"),
+        ("their press release from twenty twenty-one",
+         "their press release from 2021"),
+        ("their press release from twenty twenty one",
+         "their press release from 2021"),
         ("maybe you're a hundred person shop,",
          "maybe you're a 100 person shop,"),
     ]:
@@ -693,6 +697,8 @@ def test_reading_is_idempotent():
         "seo two point oh",
         "five-star reviews, ai does see that.",
         "their press release from twenty twenty",
+        "their press release from twenty twenty-one",
+        "their press release from twenty twenty one",
         "it really likes, especially youtube.",
     ]:
         once = apply_caption_reading_text(surface)
@@ -707,6 +713,13 @@ def test_every_emitted_word_carries_a_span_and_output_never_grows():
         assert entry["end"] is not None
     entries = _words("seo", "two", "point", "oh", "and", "geo")
     assert len(apply_caption_reading(entries)) <= len(entries)
+
+
+def test_year_formatting_merges_hyphenated_components_with_their_span():
+    out = apply_caption_reading(_words("their", "press", "release", "from",
+                                       "twenty", "twenty-one"))
+    year = out[-1]
+    assert year == {"word": "2021", "start": 4.0, "end": 5.4}
 
 
 def _corrections(*pairs):

@@ -145,6 +145,11 @@ def _core(token: str) -> str:
 
 def _affixes(token: str) -> tuple[str, str]:
     """The (prefix, suffix) around `_core`, preserved verbatim."""
+    if "-" in token and _read_hyphenated_token(token) is not None:
+        prefix = re.match(r"^[^A-Za-z0-9]+", token)
+        suffix = re.search(r"[^A-Za-z0-9]+$", token)
+        return (prefix.group(0) if prefix else "",
+                suffix.group(0) if suffix else "")
     lowered = token.lower()
     match = _WORD_RE.search(lowered)
     if not match:
@@ -301,6 +306,16 @@ def _read_hyphenated_token(token: str) -> str | None:
     return f"{pre}{read}{suf}" if read is not None else None
 
 
+def _hyphenated_number(token: str) -> int | None:
+    """A numeric hyphenated token's value, without outer punctuation."""
+    prefix = re.match(r"^[^A-Za-z0-9]+", token)
+    suffix = re.search(r"[^A-Za-z0-9]+$", token)
+    start = prefix.end() if prefix else 0
+    end = suffix.start() if suffix else len(token)
+    value = _read_hyphenated(token[start:end])
+    return int(value) if value is not None and value.isdigit() else None
+
+
 def _read_hyphenated(token: str) -> str | None:
     """A hyphenated token's reading, or None to leave it alone.
 
@@ -325,7 +340,8 @@ def _read_hyphenated(token: str) -> str | None:
     return None
 
 
-def _plan_tokens(cores: list[str], corrections=None) -> list[tuple[str, int]]:
+def _plan_tokens(cores: list[str], corrections=None,
+                 surfaces: list[str] | None = None) -> list[tuple[str, int]]:
     """The caption's tokens, read. Each is (output, words consumed).
 
     The single decision procedure both entry points share: the word-list
@@ -376,12 +392,23 @@ def _plan_tokens(cores: list[str], corrections=None) -> list[tuple[str, int]]:
                 out.append((f"{value}.{digits}", consumed))
                 i += consumed
                 continue
-        # A year: two two-digit readings side by side ("twenty twenty").
+        # A year: two two-digit readings side by side ("twenty twenty",
+        # "twenty twenty one", or "twenty twenty-one"). The latter forms
+        # reaches the word aligner as one hyphenated token; read that token
+        # as a unit before emitting two detached numbers (Reel 10's
+        # caption rendered "20 21").
         if 20 <= value <= 99 and length == 1 and i + 1 < len(cores):
-            following = parse_number(cores, i + 1)
-            if following is not None and following[1] == 1 and 1 <= following[0] <= 99:
-                out.append((f"{value:02d}{following[0]:02d}", 2))
-                i += 2
+            following = None
+            if surfaces and "-" in surfaces[i + 1]:
+                hyphenated = _hyphenated_number(surfaces[i + 1])
+                if hyphenated is not None:
+                    following = (hyphenated, 1)
+            else:
+                following = parse_number(cores, i + 1)
+            if following is not None and 1 <= following[0] <= 99:
+                out.append((f"{value:02d}{following[0]:02d}",
+                            1 + following[1]))
+                i += 1 + following[1]
                 continue
         if after == "percent":
             out.append((f"{value} percent", length + 1))
@@ -428,7 +455,7 @@ def apply_caption_reading_text(text: str, corrections=None) -> str:
     if not tokens:
         return text
     cores = [_core(token) for token in tokens]
-    planned = _plan_tokens(cores, corrections)
+    planned = _plan_tokens(cores, corrections, surfaces=tokens)
     rebuilt = []
     cursor = 0
     for output, consumed in planned:
@@ -461,7 +488,7 @@ def apply_caption_reading(words: list[dict], corrections=None) -> list[dict]:
         return words
     surfaces = [str(entry.get("word", "")) for entry in words]
     cores = [_core(surface) for surface in surfaces]
-    planned = _plan_tokens(cores, corrections)
+    planned = _plan_tokens(cores, corrections, surfaces=surfaces)
     hyphenated = [
         _read_hyphenated_token(surface) if "-" in surface else None
         for surface in surfaces

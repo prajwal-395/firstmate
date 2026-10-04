@@ -2,7 +2,7 @@
   "id": "step_4_01_plan_subtitles",
   "name": "Plan Subtitles",
   "version": "1.0.0",
-  "description": "Plans subtitle timing and placement based on the timed spine.",
+  "description": "Plans caption timing and placement deterministically, and checks routed caption wording notes against timed speech before recording supported fixes.",
   "level": "step",
   "interface": {
     "inputs": [
@@ -29,6 +29,18 @@
         "type": "object",
         "required": false,
         "description": "Brand template style slots (injected by pipeline runner). Reads typography and color_palette to resolve the caption style; see library/tools/subtitle_style.py."
+      },
+      {
+        "name": "timeline_notes",
+        "type": "object",
+        "required": false,
+        "description": "The captain's notes routed to subtitle planning. The bridge pairs each note with timed speech and the caption entries generated from that same spine; the feedback handoff checks only those words. See library/tools/caption_feedback.py."
+      },
+      {
+        "name": "project_folder",
+        "type": "string",
+        "required": false,
+        "description": "Project path used to record speech-grounded caption fixes in the project's edit ledger."
       }
     ],
     "outputs": [
@@ -43,6 +55,28 @@
           "max_words": "int",
           "readability_issues": "list"
         }
+      },
+      {
+        "name": "caption_feedback_context",
+        "type": "object",
+        "description": "Bridge output: each routed note with up to three matching timed speech blocks, exact word times and the current caption entries on those blocks. Projected to the feedback handoff instead of the full spine."
+      },
+      {
+        "name": "caption_feedback_report",
+        "type": "object",
+        "description": "State output: whether caption feedback was reviewed, skipped because no notes arrived, and the outcome for each note. Supported caption corrections are recorded in the project's edit ledger and applied to this plan."
+      }
+    ],
+    "llm_outputs": [
+      {
+        "name": "caption_feedback",
+        "type": "list",
+        "required": true,
+        "may_be_empty": true,
+        "description": "One result per note id shown in caption_feedback_context. Each result: note_id, action (caption_fix | already_correct | upstream_transcript_needed | outside_scope), reason. already_correct and upstream_transcript_needed require requested_phrase. caption_fix requires anchor_phrase and replacement, both quoted from the shown speech and current caption evidence. The post-bridge validates coverage and checks claims against timed speech before it records anything.",
+        "expected_schema": {
+          "caption_feedback": "list"
+        }
       }
     ],
     "requirements": [
@@ -52,9 +86,9 @@
   },
   "classification": {
     "stage": "edit",
-    "determinism": "deterministic",
+    "determinism": "hybrid",
     "archetype": "data_transformation",
-    "idempotent": true
+    "idempotent": false
   },
   "dependencies": [
     "step_2_05_mesh_spine",
@@ -63,13 +97,14 @@
   "tags": [
     "data_transformation",
     "video-editing",
-    "deterministic"
+    "nondeterministic"
   ],
   "domain": "video-editing",
   "implementation": {
     "default": {
-      "runtime": "python",
-      "entry_point": "step.py"
+      "runtime": "hybrid",
+      "entry_point": "handoff.md",
+      "mechanical_checks": "step.py"
     },
     "variants": {},
     "test_entry_point": ""
@@ -77,7 +112,10 @@
   "metadata": {
     "author": "prajwal",
     "created": "2026-07-20",
-    "last_modified": "2026-07-20",
+    "last_modified": "2026-10-03",
     "source_process": "video_editing_pipeline"
-  }
+  },
+  "context_fields": [
+    "caption_feedback_context"
+  ]
 }

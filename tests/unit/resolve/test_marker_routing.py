@@ -16,7 +16,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirna
 from library.tools import marker_routing  # noqa: E402
 from library.tools.marker_feedback import PULL_FILE_SUFFIX  # noqa: E402
 from library.tools.marker_routing import (  # noqa: E402
-    DELIVERY_REPORT,
     OUTCOME_AMBIGUOUS,
     OUTCOME_ROUTED,
     OUTCOME_UNKNOWN_STEP,
@@ -519,18 +518,7 @@ def test_the_projection_cannot_drop_it(tmp_path):
 # ── A note that reaches nobody is SAID, not silently dropped ──────────
 
 def test_the_run_summary_names_every_note_that_reached_nobody(tmp_path):
-    """Two of 001's three notes reached no model and nothing said so.
-
-    Of the three real notes, one prompt delivery; the other two are
-    accounted for by name, not absent from the accounting.
-
-    *"why are the subtitles so big?"* routes to 4.01 `plan_subtitles`,
-    which is deterministic with no `handoff.md`, so it is delivered as a
-    `report` and reaches no model at all. *"why is this fully blurry, is
-    it the zoom blur applied wrong?"* is AMBIGUOUS between
-    `plan_transitions` and `plan_vfx` and therefore reaches neither.
-    Both were in `ROUTED-NOTES.md`; neither was in a run.
-    """
+    """Subtitle feedback reaches its prompt; only ambiguity reaches nobody."""
     n1 = marker_routing.route_note(dict(
         MOMENT_NOTE, note="why are the subtitles so big?",
         text="why are the subtitles so big?"))
@@ -541,19 +529,18 @@ def test_the_run_summary_names_every_note_that_reached_nobody(tmp_path):
     real = [marker_routing.route_note(n) for n in REAL_NOTES]
     assert {(n.note_id, why) for n, why, _ in
             marker_routing.undelivered(real)} == {
-        ("timeline:timeline_marker:26", DELIVERY_REPORT),
         ("timeline:clip_marker:1196", OUTCOME_AMBIGUOUS),
     }
 
     notes = [n1, n2]
     left = marker_routing.undelivered(notes)
-    assert len(left) == 2
+    assert len(left) == 1
     outcomes = {why for _n, why, _d in left}
-    assert marker_routing.OUTCOME_AMBIGUOUS in outcomes
+    assert outcomes == {OUTCOME_AMBIGUOUS}
 
     lines = "\n".join(marker_routing.undelivered_summary_lines(notes))
     assert "reached NOBODY" in lines
-    assert n1.note_id in lines and n2.note_id in lines
+    assert n2.note_id in lines and n1.note_id not in lines
     # The reason travels with the note, not just the count.
     for _note, _why, detail in left:
         assert detail and detail in lines

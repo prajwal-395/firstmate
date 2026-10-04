@@ -334,7 +334,7 @@ STEP_DECISIONS = (
         "plan_subtitles", "4.01",
         "how the words are grouped into caption cards, at the caption "
         "style the project and the template resolve to",
-        DELIVERY_REPORT, _NO_PROMPT,
+        DELIVERY_PROMPT,
         terms=("subtitle", "subtitles", "caption", "captions",
                "caption card", "caption cards",
                # Seven of his 2026-09-19 notes are about the words on

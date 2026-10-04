@@ -129,6 +129,14 @@ CLASSIFIERS = (
 # STALE entry too - one whose output has since found a reader.
 
 REPORTED_NOT_CONSUMED = {
+    ("plan_subtitles", "caption_feedback_report"):
+        "4.01's per-note caption feedback outcome. DECISION: it stays unread "
+        "by another step and is rendered in the run summary as the record "
+        "of how each routed note was handled. Supported wording corrections "
+        "also have an effectful reader: they are applied to `subtitle_plan` "
+        "and recorded in the project's edit ledger. The report itself is "
+        "traceability, not an input to subtitle rendering.",
+
     ("build_reels", "reel_ask"):
         "`reel.ask`'s receipt: one row per approved reel naming the three "
         "request files it wrote under `llm_requests/`. DECISION: it stays "
