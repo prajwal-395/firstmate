@@ -486,22 +486,13 @@ def _resolve_live_project(project_folder: str):
     failure this refusal exists to stop. Mirrors the connect-and-check
     in `library/steps/step_4_05_render_subtitles/step.py`.
     """
-    import os as _os
-    import sys as _sys
     try:
-        import DaVinciResolveScript as dvr
-    except ImportError:
-        _os.environ.setdefault(
-            "RESOLVE_SCRIPT_API",
-            "/Library/Application Support/Blackmagic Design/"
-            "DaVinci Resolve/Developer/Scripting/Modules")
-        _sys.path.insert(0, _os.environ["RESOLVE_SCRIPT_API"])
-        try:
-            import DaVinciResolveScript as dvr
-        except ImportError as exc:
-            raise GateStillsRefused(
-                "Resolve scripting is unavailable - open Resolve first, "
-                "or run with no frames to check the refusal") from exc
+        from library.tools.resolve_locale import load_resolve_script
+        dvr = load_resolve_script()
+    except ImportError as exc:
+        raise GateStillsRefused(
+            "Resolve scripting is unavailable - open Resolve first, "
+            "or run with no frames to check the refusal") from exc
     from library.tools.resolve_locale import scriptapp_preserving_locale
     app = scriptapp_preserving_locale(dvr, "Resolve")
     if app is None:

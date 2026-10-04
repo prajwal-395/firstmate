@@ -1924,7 +1924,7 @@ def _focused_f12_result(plan, timeline, **kwargs):
 
 
 def test_reel_verify_operation_corrects_noncurrent_transform_read(
-        tmp_path, capsys):
+        tmp_path, capsys, stub_resolve_script):
     """A quarter-size current timeline used to turn a valid aim into F12."""
     properties = reel_look.punch_in_properties(
         LOOK, SimpleNamespace(center_x=0.5023, center_y=0.3132),

@@ -152,15 +152,8 @@ except ImportError as _e:
 
 def _connect_resolve():
     """Connect to running DaVinci Resolve instance."""
-    api_path = "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting"
-    lib_path = "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript.so"
-
-    if api_path not in sys.path:
-        sys.path.append(os.path.join(api_path, "Modules"))
-    os.environ["RESOLVE_SCRIPT_API"] = api_path
-    os.environ["RESOLVE_SCRIPT_LIB"] = lib_path
-
-    import DaVinciResolveScript as dvr
+    from library.tools.resolve_locale import load_resolve_script
+    dvr = load_resolve_script()
     # Through the wrapper: `scriptapp` leaves LC_CTYPE on `C`, and this
     # step reads UTF-8 manifests and writes UTF-8 logs afterwards.
     resolve = scriptapp_preserving_locale(dvr)

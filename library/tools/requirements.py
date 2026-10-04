@@ -92,6 +92,7 @@ import importlib.util
 import json
 import os
 import shutil
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
@@ -721,6 +722,11 @@ def _resolve_scripting_importable() -> bool:
     already importable, or sitting under the `Modules` directory
     `RESOLVE_SCRIPT_API` names (AGENTS.md 9).
     """
+    # Tests and callers can inject an already-loaded scripting module,
+    # including a Resolve double without an import spec. It is usable by
+    # the loader and therefore satisfies this presence-only prerequisite.
+    if sys.modules.get("DaVinciResolveScript") is not None:
+        return True
     if _importable("DaVinciResolveScript"):
         return True
     api = os.environ.get("RESOLVE_SCRIPT_API", "")

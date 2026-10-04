@@ -9903,20 +9903,8 @@ def _connect_resolve():
     `_connect_resolve_project`) and never loads the real bindings
     (tests/conftest.py fails one that does).
     """
-    import sys
-
-    try:
-        import DaVinciResolveScript as dvr
-    except ImportError:
-        import os as _os
-        _os.environ["RESOLVE_SCRIPT_API"] = "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting"
-        _os.environ["RESOLVE_SCRIPT_LIB"] = "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/libfusionscript.dylib"
-        if "PYTHONPATH" not in _os.environ:
-            _os.environ["PYTHONPATH"] = ""
-        _os.environ["PYTHONPATH"] += ":" + _os.environ["RESOLVE_SCRIPT_API"] + "/Modules"
-        sys.path.insert(0, _os.environ["RESOLVE_SCRIPT_API"] + "/Modules")
-        import DaVinciResolveScript as dvr
-
+    from library.tools.resolve_locale import load_resolve_script
+    dvr = load_resolve_script()
     from library.tools import resolve_locale as _locale_mod
     return _locale_mod.scriptapp_preserving_locale(dvr, "Resolve")
 
@@ -14808,17 +14796,8 @@ def build_reel_variants(project_slug: str, reel_number: int,
     import json
     import yaml
 
-    try:
-        import DaVinciResolveScript as dvr
-    except ImportError:
-        os.environ["RESOLVE_SCRIPT_API"] = "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting"
-        os.environ["RESOLVE_SCRIPT_LIB"] = "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/libfusionscript.dylib"
-        if "PYTHONPATH" not in os.environ:
-            os.environ["PYTHONPATH"] = ""
-        os.environ["PYTHONPATH"] += ":" + os.environ["RESOLVE_SCRIPT_API"] + "/Modules"
-        sys.path.insert(0, os.environ["RESOLVE_SCRIPT_API"] + "/Modules")
-        import DaVinciResolveScript as dvr
-
+    from library.tools.resolve_locale import load_resolve_script
+    dvr = load_resolve_script()
     from library.tools.resolve_locale import scriptapp_preserving_locale
     from library.tools.reel_proposal import read_proposal
     from library.tools.timeline_ingest import snapshot_timeline

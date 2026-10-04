@@ -35,11 +35,6 @@ import os
 import json
 import argparse
 
-sys.path.append("/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting/Modules")
-os.environ["RESOLVE_SCRIPT_API"] = "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting"
-os.environ["RESOLVE_SCRIPT_LIB"] = "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript.so"
-
-
 # This module runs both as a script (launched by resolve_build_timeline in
 # its own process) and as `library.tools.execution.apply_fusion_comps`, so
 # put library/tools on the path rather than assume either entry point.

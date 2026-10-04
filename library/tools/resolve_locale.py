@@ -42,6 +42,89 @@ from __future__ import annotations
 import locale
 
 
+def _configured_script_paths():
+    """The Scripting, Modules and fusionscript paths for this machine."""
+    import os
+    from pathlib import Path
+
+    from library.tools.paths import RESOLVE_SCRIPT_API, RESOLVE_SCRIPT_LIB
+
+    api_value = os.environ.get("RESOLVE_SCRIPT_API", "").strip()
+    api_path = Path(api_value or RESOLVE_SCRIPT_API).expanduser()
+    if api_path.name == "Modules":
+        modules_path = api_path
+        api_path = api_path.parent
+    else:
+        modules_path = api_path / "Modules"
+
+    lib_value = os.environ.get("RESOLVE_SCRIPT_LIB", "").strip()
+    lib_path = lib_value or os.fspath(RESOLVE_SCRIPT_LIB)
+    return api_path, modules_path, lib_path
+
+
+def resolve_script_modules_path() -> str:
+    """The configured directory containing DaVinciResolveScript.py."""
+    import os
+
+    return os.fspath(_configured_script_paths()[1])
+
+
+def load_resolve_script():
+    """Import DaVinciResolveScript from the configured Resolve install.
+
+    `RESOLVE_SCRIPT_API` and `RESOLVE_SCRIPT_LIB` may be supplied by the
+    caller or by `library.tools.paths`' user/checkout configuration. When
+    neither supplies them, the standard macOS paths declared there are
+    used. Resolve's Python module lives in the API directory's `Modules`
+    child, which must be on `sys.path` before import.
+
+    Keep this import lazy: many callers also run on machines without
+    Resolve, and importing their module must not load Blackmagic's native
+    library.
+    """
+    import importlib
+    import os
+    import sys
+
+    # A caller may have installed a Resolve double (or already imported
+    # the bindings). In that case the module is the connection boundary;
+    # resolving machine paths first would turn a usable double into an
+    # installation prerequisite.
+    loaded = sys.modules.get("DaVinciResolveScript")
+    if loaded is not None:
+        return loaded
+
+    api_path, modules_path, lib_path = _configured_script_paths()
+
+    # fusionscript reads these during import. Set them before loading the
+    # module, even when they came from the standard path configuration, then
+    # restore the caller's environment after import.
+    env_keys = ("RESOLVE_SCRIPT_API", "RESOLVE_SCRIPT_LIB")
+    prior_environment = {key: os.environ.get(key) for key in env_keys}
+    modules = os.fspath(modules_path)
+    added_modules_path = modules not in sys.path
+    if added_modules_path:
+        sys.path.insert(0, modules)
+    try:
+        os.environ["RESOLVE_SCRIPT_API"] = os.fspath(api_path)
+        os.environ["RESOLVE_SCRIPT_LIB"] = lib_path
+        importlib.invalidate_caches()
+        return importlib.import_module("DaVinciResolveScript")
+    finally:
+        try:
+            for key, value in prior_environment.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+        finally:
+            if added_modules_path:
+                try:
+                    sys.path.remove(modules)
+                except ValueError:  # pragma: no cover - changed by another thread
+                    pass
+
+
 def scriptapp_preserving_locale(dvr, name: str = "Resolve"):
     """`dvr.scriptapp(name)`, with `LC_CTYPE` put back afterwards.
 
@@ -83,9 +166,9 @@ class LazyResolveScript:
 
     def scriptapp(self, name: str = "Resolve"):
         try:
-            import DaVinciResolveScript as dvr
+            dvr = load_resolve_script()
         except ImportError as exc:
             raise RuntimeError(
                 "DaVinciResolveScript is not installed or not found on "
-                f"PYTHONPATH: {exc}") from exc
+                f"the configured Resolve scripting path: {exc}") from exc
         return dvr.scriptapp(name)

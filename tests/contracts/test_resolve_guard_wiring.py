@@ -200,6 +200,28 @@ def test_every_scriptapp_call_uses_the_guarded_connection_boundary():
         "locale-preserving boundary: " + ", ".join(direct))
 
 
+def test_resolve_script_binding_import_is_centralized():
+    direct = []
+    for path in _library_files():
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except SyntaxError:  # pragma: no cover - invalid owned source
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name == "DaVinciResolveScript":
+                        direct.append(
+                            f"{path.relative_to(REPO_ROOT)}:{node.lineno}")
+            elif (isinstance(node, ast.ImportFrom)
+                  and node.module == "DaVinciResolveScript"):
+                direct.append(
+                    f"{path.relative_to(REPO_ROOT)}:{node.lineno}")
+    assert not direct, (
+        "Resolve bindings must be imported through "
+        "resolve_locale.load_resolve_script: " + ", ".join(direct))
+
+
 def test_resolve_axi_connecting_commands_enter_the_cli_lease_first():
     path = LIBRARY / "tools" / "resolve_axi.py"
     tree = ast.parse(path.read_text(encoding="utf-8"))

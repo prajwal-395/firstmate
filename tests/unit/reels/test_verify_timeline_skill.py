@@ -9,9 +9,12 @@ exception and never a pass. Fake Resolve only. Why the 6.02 half exists:
 docs/evidence/verify_timeline.md.
 """
 
+import importlib
 import json
+import os
 import sys
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
@@ -80,6 +83,77 @@ def _conforming_timeline():
     speech = timeline.GetItemListInTrack("audio", 1)[0]
     timeline.SetClipsLinked([picture, speech], True)
     return timeline
+
+
+def test_injected_resolve_double_bypasses_installation_prerequisite(
+        monkeypatch):
+    from library.tools import requirements, resolve_locale
+
+    double = ModuleType("DaVinciResolveScript")
+    monkeypatch.setitem(sys.modules, "DaVinciResolveScript", double)
+    for name in ("RESOLVE_SCRIPT_API", "RESOLVE_SCRIPT_LIB", "PYTHONPATH"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(
+        resolve_locale, "_configured_script_paths",
+        lambda: pytest.fail("an injected module must not need machine paths"))
+
+    requirement = next(
+        item for item in requirements.ENVIRONMENT
+        if item.name == "env.resolve_scripting")
+    assert requirement.check(requirements.Context()).satisfied
+    assert resolve_locale.load_resolve_script() is double
+
+
+def test_verify_run_connects_from_configured_paths_without_resolve_env(
+        tmp_path, monkeypatch):
+    """The normal verifier needs no hand-exported Resolve variables."""
+    from library.tools import paths
+
+    api_path = tmp_path / "Developer" / "Scripting"
+    modules_path = api_path / "Modules"
+    modules_path.mkdir(parents=True)
+    library_path = tmp_path / "fusionscript.so"
+    (modules_path / "DaVinciResolveScript.py").write_text(
+        "import os\n"
+        f"assert os.environ['RESOLVE_SCRIPT_API'] == {str(api_path)!r}\n"
+        f"assert os.environ['RESOLVE_SCRIPT_LIB'] == {str(library_path)!r}\n"
+        "assert 'PYTHONPATH' not in os.environ\n"
+        "from tests.resolve_double import FakeProject, FakeResolve\n"
+        "_resolve = FakeResolve(FakeProject(\n"
+        "    'Exact Project', timelines=['Reel 09']))\n"
+        "connect_calls = []\n"
+        "def scriptapp(name):\n"
+        "    connect_calls.append(name)\n"
+        "    return _resolve if name == 'Resolve' else None\n",
+        encoding="utf-8",
+    )
+    prior_module = sys.modules.pop("DaVinciResolveScript", None)
+    try:
+        with monkeypatch.context() as isolated_environment:
+            isolated_environment.setattr(paths, "RESOLVE_SCRIPT_API", api_path)
+            isolated_environment.setattr(paths, "RESOLVE_SCRIPT_LIB", library_path)
+            for name in (
+                "RESOLVE_SCRIPT_API",
+                "RESOLVE_SCRIPT_LIB",
+                "PYTHONPATH",
+            ):
+                isolated_environment.delenv(name, raising=False)
+
+            verdict = skill.run(
+                "Reel 09", str(tmp_path), "build", project="Exact Project")
+
+            assert "RESOLVE_SCRIPT_API" not in os.environ
+            assert "RESOLVE_SCRIPT_LIB" not in os.environ
+            assert "PYTHONPATH" not in os.environ
+            assert str(modules_path) not in sys.path
+            resolve_script = importlib.import_module("DaVinciResolveScript")
+            assert resolve_script.connect_calls == ["Resolve"]
+            assert verdict["passed"] is True, verdict["issues"]
+            assert verdict["receipt"].endswith("verify_timeline.json")
+    finally:
+        sys.modules.pop("DaVinciResolveScript", None)
+        if prior_module is not None:
+            sys.modules["DaVinciResolveScript"] = prior_module
 
 
 @pytest.fixture()

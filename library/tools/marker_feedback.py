@@ -143,15 +143,6 @@ from library.tools.resolve_locale import (  # noqa: E402
     scriptapp_preserving_locale,
 )
 
-RESOLVE_SCRIPT_API = (
-    "/Library/Application Support/Blackmagic Design/DaVinci Resolve/"
-    "Developer/Scripting"
-)
-RESOLVE_SCRIPT_LIB = (
-    "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/"
-    "Libraries/Fusion/fusionscript.so"
-)
-
 PULL_FILE_SUFFIX = ".markers.json"
 PULL_FORMAT = "marker_feedback/1"
 
@@ -191,18 +182,14 @@ class TimelineUnreadableError(RuntimeError):
 
 def connect_resolve():
     """The running Resolve, or raise.  See `ResolveUnavailable`."""
-    modules = os.path.join(RESOLVE_SCRIPT_API, "Modules")
-    if modules not in sys.path:
-        sys.path.append(modules)
-    os.environ.setdefault("RESOLVE_SCRIPT_API", RESOLVE_SCRIPT_API)
-    os.environ.setdefault("RESOLVE_SCRIPT_LIB", RESOLVE_SCRIPT_LIB)
     try:
-        import DaVinciResolveScript as dvr
+        from library.tools.resolve_locale import load_resolve_script
+        dvr = load_resolve_script()
     except ImportError as exc:
         raise ResolveUnavailable(
-            f"DaVinci Resolve's scripting module is not importable from "
-            f"{modules}. Install Resolve, or set RESOLVE_SCRIPT_API and "
-            f"RESOLVE_SCRIPT_LIB (AGENTS.md 9)."
+            "DaVinci Resolve's scripting module is not importable from "
+            "the configured Resolve scripting path. Install Resolve, or "
+            "configure its scripting paths (AGENTS.md 9)."
         ) from exc
     # Through the wrapper, never `dvr.scriptapp` directly: the call
     # resets LC_CTYPE and every later read of a UTF-8 file without an

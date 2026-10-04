@@ -23,11 +23,6 @@ from library.tools.resolve_lock import assert_current_timeline, under_lease
 from library.tools.heavy_work_lock import heavy_work_locked
 from library.tools import perf_ledger
 
-# Resolve's Python API is not importable until these are set - see
-# AGENTS.md section 5.
-RESOLVE_API = "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting"
-RESOLVE_LIB = "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript.so"
-
 # Poll interval and ceiling for a render. A 60s vertical edit renders in
 # well under a minute; the ceiling exists so a wedged Resolve fails the
 # step instead of hanging the pipeline.
@@ -43,12 +38,8 @@ class RenderError(RuntimeError):
 
 
 def _connect():
-    if RESOLVE_API not in sys.path:
-        sys.path.append(os.path.join(RESOLVE_API, "Modules"))
-    os.environ["RESOLVE_SCRIPT_API"] = RESOLVE_API
-    os.environ["RESOLVE_SCRIPT_LIB"] = RESOLVE_LIB
-    import DaVinciResolveScript as dvr
-
+    from library.tools.resolve_locale import load_resolve_script
+    dvr = load_resolve_script()
     from library.tools.resolve_locale import scriptapp_preserving_locale
     resolve = scriptapp_preserving_locale(dvr, "Resolve")
     if not resolve:

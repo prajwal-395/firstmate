@@ -1,6 +1,3 @@
-import os
-import sys
-
 from library.tools.resolve_lock import under_lease
 
 @under_lease("check Resolve connection", exclusive=False)
@@ -12,20 +9,9 @@ def check_resolve_connection():
         error (str): Diagnostic message on failure
         resolve (object): The Resolve scriptapp object if successful
     """
-    api_path = os.environ.get("RESOLVE_SCRIPT_API")
-    lib_path = os.environ.get("RESOLVE_SCRIPT_LIB")
-    
-    if not api_path or not lib_path:
-        return {
-            "success": False,
-            "error": "RESOLVE_SCRIPT_API or RESOLVE_SCRIPT_LIB environment variables are not set."
-        }
-        
     try:
-        if api_path not in sys.path and os.path.join(api_path, "Modules") not in sys.path:
-            sys.path.append(os.path.join(api_path, "Modules"))
-            
-        import DaVinciResolveScript as dvr
+        from library.tools.resolve_locale import load_resolve_script
+        dvr = load_resolve_script()
         from library.tools.resolve_locale import scriptapp_preserving_locale
         resolve = scriptapp_preserving_locale(dvr, "Resolve")
         

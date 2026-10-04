@@ -46,12 +46,6 @@ from datetime import datetime
 
 from library.tools.resolve_lock import under_lease
 
-# ─── Resolve API Setup ────────────────────────────────────────
-RESOLVE_SCRIPT_API = "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting"
-sys.path.append(os.path.join(RESOLVE_SCRIPT_API, "Modules"))
-os.environ["RESOLVE_SCRIPT_API"] = RESOLVE_SCRIPT_API
-os.environ["RESOLVE_SCRIPT_LIB"] = "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript.so"
-
 COMP_DIR = "/tmp/resolve_test_comps"
 os.makedirs(COMP_DIR, exist_ok=True)
 
@@ -112,7 +106,8 @@ def main():
     results.section("0. API Connection")
 
     try:
-        import DaVinciResolveScript as dvr
+        from library.tools.resolve_locale import load_resolve_script
+        dvr = load_resolve_script()
         from library.tools.resolve_locale import scriptapp_preserving_locale
         resolve = scriptapp_preserving_locale(dvr, "Resolve")
         assert resolve is not None, "resolve is None"

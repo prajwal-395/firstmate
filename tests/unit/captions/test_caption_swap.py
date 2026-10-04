@@ -158,16 +158,12 @@ def test_a_missing_new_file_refuses_before_anything_moves(no_lease):
 # --------------------------------------------------------------------------
 # From test_caption_swap_resolve_modules.py
 #
-# The caption swap reaches Resolve through the environment's Scripting dir.
+# The caption swap reaches Resolve through the configured Scripting dir.
 #
 # `_resolve_live_project` imports `DaVinciResolveScript` when the swap half
 # of `rerender_and_swap` runs. `RESOLVE_SCRIPT_API` names the Scripting
-# directory (AGENTS.md 9) and the module lives in `Modules` beneath it -
-# every other consumer in the tree appends it. This step used the value
-# verbatim, so with the injected environment the import was attempted in a
-# directory holding no module and the swap reported "Resolve scripting is
-# unavailable" while Resolve was open (caption-text wave, 2026-09-20).
-# These tests pin the directory resolution without Resolve: the injected
+# directory (AGENTS.md 9) and the module lives in `Modules` beneath it.
+# These tests pin the shared path resolver without Resolve: the injected
 # value, an explicit modules value, and an end-to-end import off a stub
 # module through the resolved path.
 
@@ -177,9 +173,11 @@ SCRIPTING = ("/Library/Application Support/Blackmagic Design/"
 
 def test_the_scripting_dir_gains_modules_and_a_stub_imports_through_it(
         tmp_path, monkeypatch):
+    from library.tools.resolve_locale import resolve_script_modules_path
+
     # The vep-env value: the Scripting directory, not the module.
     monkeypatch.setenv("RESOLVE_SCRIPT_API", SCRIPTING)
-    assert r405._script_modules_dir() == SCRIPTING + "/Modules"
+    assert resolve_script_modules_path() == SCRIPTING + "/Modules"
 
     scripting = tmp_path / "Scripting"
     modules = scripting / "Modules"
@@ -187,7 +185,7 @@ def test_the_scripting_dir_gains_modules_and_a_stub_imports_through_it(
     (modules / "DaVinciResolveScript.py").write_text(
         "MARKER = 'stub'\n", encoding="utf-8")
     monkeypatch.setenv("RESOLVE_SCRIPT_API", str(scripting))
-    monkeypatch.syspath_prepend(r405._script_modules_dir())
+    monkeypatch.syspath_prepend(resolve_script_modules_path())
     monkeypatch.delitem(sys.modules, "DaVinciResolveScript",
                         raising=False)
     try:

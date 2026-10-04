@@ -344,20 +344,9 @@ def check_project(project_folder: str, *, when: str = "",
     if project is None:
         if resolve is None:
             try:
-                import os
-                import sys
-
                 from library.tools.resolve_locale import scriptapp_preserving_locale
-                sys.path.append(os.path.join(
-                    os.environ.get(
-                        "RESOLVE_SCRIPT_API",
-                        "/Library/Application Support/Blackmagic Design/"
-                        "DaVinci Resolve/Developer/Scripting"), "Modules"))
-                os.environ.setdefault(
-                    "RESOLVE_SCRIPT_LIB",
-                    "/Applications/DaVinci Resolve/DaVinci Resolve.app/"
-                    "Contents/Libraries/Fusion/fusionscript.so")
-                import DaVinciResolveScript as dvr
+                from library.tools.resolve_locale import load_resolve_script
+                dvr = load_resolve_script()
                 resolve = scriptapp_preserving_locale(dvr, "Resolve")
             except Exception as exc:                    # noqa: BLE001
                 report["error"] = f"cannot reach Resolve: {exc!r}"

@@ -1982,21 +1982,8 @@ def _capture_transform(args) -> tuple:
         raise CaptainEditError(
             f"reel {number}'s played ranges cannot be derived: "
             f"{exc}") from exc
-    try:
-        import DaVinciResolveScript as dvr
-    except ImportError:
-        import os as _os
-        _os.environ["RESOLVE_SCRIPT_API"] = (
-            "/Library/Application Support/Blackmagic Design/"
-            "DaVinci Resolve/Developer/Scripting")
-        _os.environ["RESOLVE_SCRIPT_LIB"] = (
-            "/Applications/DaVinci Resolve/DaVinci Resolve.app/"
-            "Contents/Libraries/Fusion/libfusionscript.dylib")
-        if "PYTHONPATH" not in _os.environ:
-            _os.environ["PYTHONPATH"] = ""
-        _os.environ["PYTHONPATH"] += ":" + _os.environ["RESOLVE_SCRIPT_API"] + "/Modules"
-        sys.path.insert(0, _os.environ["RESOLVE_SCRIPT_API"] + "/Modules")
-        import DaVinciResolveScript as dvr
+    from library.tools.resolve_locale import load_resolve_script
+    dvr = load_resolve_script()
     import yaml as _yaml
     with open(Path(str(args.project_folder)) / "project.yaml",
               encoding="utf-8") as handle:

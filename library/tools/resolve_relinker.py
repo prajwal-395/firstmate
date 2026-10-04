@@ -41,10 +41,8 @@ class DestinationMismatchError(RuntimeError):
 def _get_resolve():
     """Connect to DaVinci Resolve."""
     try:
-        sys.path.append("/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting/Modules")
-        os.environ.setdefault("RESOLVE_SCRIPT_API", "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting")
-        os.environ.setdefault("RESOLVE_SCRIPT_LIB", "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript.so")
-        import DaVinciResolveScript as dvr
+        from library.tools.resolve_locale import load_resolve_script
+        dvr = load_resolve_script()
         from library.tools.resolve_locale import scriptapp_preserving_locale
         return scriptapp_preserving_locale(dvr, "Resolve")
     except Exception:

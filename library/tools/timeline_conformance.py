@@ -397,10 +397,8 @@ def main(argv=None) -> int:
                              "checks are skipped openly")
     args = parser.parse_args(argv)
 
-    sys.path.insert(
-        0, "/Library/Application Support/Blackmagic Design/"
-           "DaVinci Resolve/Developer/Scripting/Modules")
-    import DaVinciResolveScript as dvr
+    from library.tools.resolve_locale import load_resolve_script
+    dvr = load_resolve_script()
     from library.tools.resolve_locale import scriptapp_preserving_locale
 
     resolve = scriptapp_preserving_locale(dvr)

@@ -2040,28 +2040,6 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
     return overlay_payload
 
 
-def _script_modules_dir() -> str:
-    """Where `DaVinciResolveScript` imports from, honouring the environment.
-
-    `RESOLVE_SCRIPT_API` names the Scripting directory (AGENTS.md 9) -
-    the module lives in `Modules` beneath it, the way every other
-    consumer in this tree reads it (`marker_feedback.connect_resolve`,
-    `reel_build`, `captain_edits`). A value already naming `Modules`
-    passes through, so an explicit modules path keeps working. Without
-    this, the `setdefault` below keeps the injected Scripting path and
-    the import is attempted in a directory that holds no module - the
-    swap reports "Resolve scripting is unavailable" while Resolve is
-    open (caption-text wave, 2026-09-20).
-    """
-    api = (os.environ.get("RESOLVE_SCRIPT_API") or "").strip()
-    if not api:
-        api = ("/Library/Application Support/Blackmagic Design/"
-               "DaVinci Resolve/Developer/Scripting")
-    if os.path.basename(api.rstrip("/")) == "Modules":
-        return api
-    return os.path.join(api, "Modules")
-
-
 @under_lease("check project for caption swap", exclusive=False)
 def _resolve_live_project(project_folder: str):
     """The open Resolve project, refused unless it is this project's own.
@@ -2074,15 +2052,12 @@ def _resolve_live_project(project_folder: str):
     connect-and-check in `library/tools/versions/store.py`.
     """
     try:
-        import DaVinciResolveScript as dvr
-    except ImportError:
-        sys.path.insert(0, _script_modules_dir())
-        try:
-            import DaVinciResolveScript as dvr
-        except ImportError as exc:
-            raise CaptionSwapError(
-                "Resolve scripting is unavailable - render-only with "
-                "swap=False, or open Resolve first") from exc
+        from library.tools.resolve_locale import load_resolve_script
+        dvr = load_resolve_script()
+    except ImportError as exc:
+        raise CaptionSwapError(
+            "Resolve scripting is unavailable - render-only with "
+            "swap=False, or open Resolve first") from exc
     from library.tools.resolve_locale import scriptapp_preserving_locale
     app = scriptapp_preserving_locale(dvr, "Resolve")
     if app is None:

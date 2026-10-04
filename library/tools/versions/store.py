@@ -725,16 +725,8 @@ def record_reel_promotion(project_folder: str, resolve_project_name: str,
             sys.path.insert(0, str(repo))
         from library.tools.resolve_locale import (
             scriptapp_preserving_locale)
-        sys.path.append(os.path.join(
-            os.environ.get(
-                "RESOLVE_SCRIPT_API",
-                "/Library/Application Support/Blackmagic Design/"
-                "DaVinci Resolve/Developer/Scripting"), "Modules"))
-        os.environ.setdefault(
-            "RESOLVE_SCRIPT_LIB",
-            "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/"
-            "Libraries/Fusion/fusionscript.so")
-        import DaVinciResolveScript as dvr
+        from library.tools.resolve_locale import load_resolve_script
+        dvr = load_resolve_script()
         resolve = scriptapp_preserving_locale(dvr, "Resolve")
         if not resolve:
             raise RuntimeError("Resolve is not running")

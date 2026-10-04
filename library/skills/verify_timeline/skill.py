@@ -88,7 +88,8 @@ def open_timeline(project_name: str, timeline_name: str):
     worse than one that says it cannot run.
     """
     try:
-        import DaVinciResolveScript as dvr
+        from library.tools.resolve_locale import load_resolve_script
+        dvr = load_resolve_script()
     except ImportError as exc:
         raise TimelineUnreachable(
             "Resolve scripting is not on this machine "
