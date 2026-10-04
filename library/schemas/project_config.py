@@ -10,6 +10,9 @@ each video project's assets. These configs connect the three layers:
 Usage:
     from library.schemas.project_config import ProjectConfig, load_project_config
     config = load_project_config("/path/to/project/project.yaml")
+
+Product format versioning lives in `library/tools/project_format.py`:
+this schema carries the `project_format_version` key it defines.
 """
 
 import os
@@ -17,6 +20,11 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
+
+from library.tools.project_format import (
+    FORMAT_VERSION_KEY,
+    PROJECT_FORMAT_VERSION,
+)
 
 # A language code: two or three letters, optional region (`en`,
 # `es`, `pt-BR`). Permissive on purpose - the transcriber, not the
@@ -292,6 +300,15 @@ class ProjectConfig:
     created: str = ""             # ISO date string
     status: ProjectStatus = ProjectStatus.DRAFT
 
+    # Product format version (`library/tools/project_format.py`).
+    # Read off `project.yaml` (absent means 0, the unversioned legacy)
+    # and always written back, so every project file names the format
+    # it is in.  A value outside the engine's supported range never
+    # reaches here: `_dict_to_project_config` refuses it first.  The
+    # default is the constant, not a literal, so the schema can never
+    # disagree with the registry about what this engine writes.
+    project_format_version: int = PROJECT_FORMAT_VERSION
+
     source: SourceConfig = field(default_factory=SourceConfig)
     pipeline: PipelineConfig = field(default_factory=PipelineConfig)
     resolve: ResolveConfig = field(default_factory=ResolveConfig)
@@ -347,6 +364,11 @@ class ProjectConfig:
     def validate(self) -> list[str]:
         """Return a list of validation errors (empty = valid)."""
         errors = []
+        if (isinstance(self.project_format_version, bool)
+                or not isinstance(self.project_format_version, int)):
+            errors.append(
+                "project_format_version must be an integer, got "
+                f"{self.project_format_version!r}.")
         if not self.name:
             errors.append("'name' is required")
         if not self.slug:
@@ -540,12 +562,28 @@ def _parse_speakers(raw) -> object:
     return raw
 
 
+def _parse_format_version(data: dict, where) -> object:
+    """The format version off a raw `project.yaml` mapping.
+
+    Absent reads as 0, the unversioned legacy - every project that
+    predates versioning opens rather than failing on a key it never
+    declared.  A non-integer passes through untouched so `validate`
+    refuses it by name; an out-of-range integer refuses here.
+    """
+    raw = data.get(FORMAT_VERSION_KEY, 0)
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        return raw
+    from library.tools.project_format import validate_format_version
+    return validate_format_version(raw, where)
+
+
 def _dict_to_project_config(data: dict,
                             project_root: Path | None = None) -> ProjectConfig:
     """Convert a raw dict (from YAML) to a ProjectConfig dataclass."""
     source_data = data.get("source", {})
     pipeline_data = data.get("pipeline", {})
     resolve_data = data.get("resolve", {})
+    format_version = _parse_format_version(data, project_root)
 
     source = SourceConfig(
         fps=source_data.get("fps", 30),
@@ -615,6 +653,7 @@ def _dict_to_project_config(data: dict,
         client=data.get("client", ""),
         created=data.get("created", ""),
         status=status,
+        project_format_version=format_version,
         source=source,
         pipeline=pipeline,
         resolve=resolve,
@@ -629,6 +668,11 @@ def _dict_to_project_config(data: dict,
 def project_config_to_dict(config: ProjectConfig) -> dict:
     """Serialize a ProjectConfig to a dict suitable for YAML output."""
     return {
+        # First, and always: the product format version is a fact
+        # about the file, not a declaration anyone chose.  Omitting it
+        # on defaults would unstamp every project the next write
+        # touches.
+        FORMAT_VERSION_KEY: config.project_format_version,
         "name": config.name,
         "slug": config.slug,
         "client": config.client,
@@ -746,7 +790,8 @@ def project_config_to_dict(config: ProjectConfig) -> dict:
     }
 
 
-def load_project_config(yaml_path: str | Path) -> ProjectConfig:
+def load_project_config(yaml_path: str | Path, *,
+                        migrate_format: bool = True) -> ProjectConfig:
     """Load and validate a project.yaml file.
 
     Uses PyYAML if available, falls back to a simple parser for basic YAML.
@@ -755,9 +800,13 @@ def load_project_config(yaml_path: str | Path) -> ProjectConfig:
     if not yaml_path.exists():
         raise FileNotFoundError(f"Project config not found: {yaml_path}")
 
+    if migrate_format:
+        from library.tools.project_format import ensure_project_format
+        ensure_project_format(yaml_path.parent)
+
     try:
         import yaml
-        with open(yaml_path) as f:
+        with open(yaml_path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
     except ImportError:
         # Minimal fallback - just parse key: value pairs

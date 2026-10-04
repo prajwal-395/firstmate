@@ -105,6 +105,10 @@ STEP_IMPLEMENTATION_DEPS = {
         # root decides what the scan sees.  Scan is seconds, so a rare
         # schema edit re-scanning is the cheap, correct trade.
         "library/schemas/project_config.py",
+        # Imported by project_config: the project_format_version key
+        # and the supported format range the open refuses outside of,
+        # so a fix here changes what the scan accepts.
+        "library/tools/project_format.py",
         # Imported by project_config: the subtitle_overlay_geometry /
         # subtitle_overlay_container vocabularies the scan's declaration
         # parsing validates against, so a fix here changes what the scan
@@ -130,6 +134,10 @@ STEP_IMPLEMENTATION_DEPS = {
         # Its declaration parsing: the source block is read through the
         # project config schema.
         "library/schemas/project_config.py",
+        # Imported by project_config: the project_format_version key
+        # and the supported format range the open refuses outside of
+        # (same chain as the scan row above).
+        "library/tools/project_format.py",
         # Imported by project_config: the subtitle_overlay_geometry /
         # subtitle_overlay_container vocabularies declaration parsing
         # validates against (same chain as the scan row above).
@@ -179,6 +187,7 @@ STEP_IMPLEMENTATION_DEPS = {
         # Imported by footage_identity: its declaration parsing (same
         # chain as the scan row above).
         "library/schemas/project_config.py",
+        "library/tools/project_format.py",
         "library/tools/overlay_mode.py",
         "library/tools/graphics_renderer.py",
         "library/tools/safe_zone_policy.py",
@@ -199,6 +208,9 @@ STEP_IMPLEMENTATION_DEPS = {
         # the language and footage-root reads, so a schema fix changes
         # what the step accepts.
         "library/schemas/project_config.py",
+        # Imported by project_config: the project_format_version key
+        # and the supported format range (same chain as the scan row).
+        "library/tools/project_format.py",
         # Imported by project_config: the subtitle_overlay_geometry /
         # subtitle_overlay_container vocabularies the declaration
         # parsing validates against (same chain as the scan entry).
@@ -328,6 +340,11 @@ STEP_IMPLEMENTATION_DEPS = {
 EXEMPT_IMPORTS = {
     # Directory plumbing: moving an area does not change a measured value.
     "library/tools/project_layout.py",
+    # Project-format migration bookkeeping and refusal rendering. The
+    # actual format transform is declared per preflight step; backup,
+    # revert and error-display behavior cannot change a measured value.
+    "library/tools/project_migration.py",
+    "library/tools/ren_refusal.py",
     # Cache-identity plumbing: hashing a step's sources and stamping
     # which code wrote a cache. A fix here can only invalidate good
     # cache (a re-analysis, the safe direction) - never silently bless

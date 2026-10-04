@@ -125,6 +125,17 @@ def run(project_folder: str, args) -> int:
     refused on, and makes no closing commit: nothing after it ran.
     4 is the refusal code (`library/tools/ren_refusal.py`).
     """
+    # The format gate, before any capability reads project state: a
+    # project outside the supported range refuses here, and an older
+    # supported one migrates with a backup.  This runner takes a raw
+    # folder, never `get_project`, so it asks for the gate itself.
+    from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
+    try:
+        from library.tools import project_format
+        project_format.ensure_project_format(project_folder)
+    except RenRefusal as refused:
+        print(refused.render(), file=sys.stderr)
+        return REFUSAL_EXIT_CODE
     from library.tools import capabilities, operations, processes, provenance
 
     for spec in capabilities.run_order(processes.REELS):

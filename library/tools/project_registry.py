@@ -98,7 +98,8 @@ def scan_projects(root: Path = None) -> list[ProjectConfig]:
         yaml_path = entry / "project.yaml"
         if yaml_path.exists():
             try:
-                configs.append(load_project_config(yaml_path))
+                configs.append(load_project_config(
+                    yaml_path, migrate_format=False))
             except (ValueError, FileNotFoundError) as e:
                 print(f"  Warning: skipping {yaml_path}: {e}", file=sys.stderr)
             continue
@@ -110,7 +111,8 @@ def scan_projects(root: Path = None) -> list[ProjectConfig]:
             sub_yaml = sub_entry / "project.yaml"
             if sub_yaml.exists():
                 try:
-                    configs.append(load_project_config(sub_yaml))
+                    configs.append(load_project_config(
+                        sub_yaml, migrate_format=False))
                 except (ValueError, FileNotFoundError) as e:
                     print(f"  Warning: skipping {sub_yaml}: {e}", file=sys.stderr)
 
@@ -150,6 +152,17 @@ def resolve_project_path(ref: str) -> Optional[Path]:
     return None
 
 
+def _open_project(yaml_path: Path) -> ProjectConfig:
+    """Load one project THROUGH the format gate.
+
+    `load_project_config` refuses a project outside the engine's
+    supported format range. An older supported project migrates with
+    a backup before its config is returned. Listing (`scan_projects`)
+    calls the loader in read-only mode instead.
+    """
+    return load_project_config(yaml_path)
+
+
 def get_project(slug: str, root: Path = None) -> ProjectConfig:
     """Load a project by slug or by filesystem path.
 
@@ -157,29 +170,34 @@ def get_project(slug: str, root: Path = None) -> ProjectConfig:
     *slug* instead names a directory (or project.yaml) on disk, that
     project is loaded in place - it does not need to live under
     PROJECTS_ROOT.  Raises FileNotFoundError if not found.
+
+    Every project returned here passed through `_open_project`: a
+    project outside the supported format range refuses, and an older
+    supported one migrates with a backup.  Listing (`scan_projects`)
+    stays read-only and never migrates.
     """
     direct_path = resolve_project_path(slug)
     if direct_path:
-        return load_project_config(direct_path)
+        return _open_project(direct_path)
 
     root = root or PROJECTS_ROOT
     configs = scan_projects(root)
 
     for config in configs:
         if config.slug == slug:
-            return config
+            return _open_project(config.project_root / "project.yaml")
 
     # Also try direct path lookup: root/slug/project.yaml
     direct = root / slug / "project.yaml"
     if direct.exists():
-        return load_project_config(direct)
+        return _open_project(direct)
 
     # Try client-grouped: root/*/slug/project.yaml
     for entry in root.iterdir():
         if entry.is_dir():
             grouped = entry / slug / "project.yaml"
             if grouped.exists():
-                return load_project_config(grouped)
+                return _open_project(grouped)
 
     # Say which root was searched and what was in it. PROJECTS_ROOT is
     # not exclusive by design - resolve_project_path above loads a

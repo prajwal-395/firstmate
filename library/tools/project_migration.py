@@ -58,6 +58,7 @@ import os
 import shutil
 import struct
 import subprocess
+import tempfile
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -925,7 +926,10 @@ def revert_from_manifest(manifest_path, apply: bool = False) -> list:
 
     Moves go back to where they came from.  Copies are left alone: the
     source they were copied FROM was never touched, so undoing a copy
-    would mean deleting something, and this tool does not delete.
+    would mean deleting something, and this tool does not delete. A
+    format migration may add `revert_actions` with an explicit
+    `restore_backup` action; it is digest-checked and refuses to replace
+    a project file changed since that migration.
     """
     data = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
     undone = []
@@ -945,4 +949,47 @@ def revert_from_manifest(manifest_path, apply: bool = False) -> list:
             src.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(dest), str(src))
         undone.append({"from": str(dest), "to": str(src), "bytes": a["bytes"]})
+
+    for action in data.get("revert_actions", []):
+        if action.get("action") != "restore_backup":
+            raise ValueError(
+                f"Unsupported migration revert action: "
+                f"{action.get('action')!r}")
+        src, backup = Path(action["src"]), Path(action["dest"])
+        if not backup.is_file():
+            raise FileNotFoundError(
+                f"Migration backup is missing: {backup}. Without it the "
+                f"original file cannot be restored.")
+        if digest(backup) != action["digest"]:
+            raise ValueError(
+                f"Migration backup changed since it was recorded: {backup}")
+        if src.is_file():
+            source_digest = digest(src)
+            if source_digest == action["digest"]:
+                # The migration manifest is written before the atomic
+                # project-file replace. A crash in that window leaves
+                # the original in place, which is already the desired
+                # reverted state.
+                undone.append({"from": str(backup), "to": str(src),
+                               "bytes": action["bytes"]})
+                continue
+            if source_digest != action["expected_src_digest"]:
+                raise ValueError(
+                    f"Refusing to replace {src}: it changed after migration. "
+                    f"Preserve or reconcile those edits before reverting.")
+        if apply:
+            src.parent.mkdir(parents=True, exist_ok=True)
+            temp_path = None
+            try:
+                with tempfile.NamedTemporaryFile(
+                        dir=src.parent, prefix=f".{src.name}.",
+                        suffix=".restore", delete=False) as temp_file:
+                    temp_path = Path(temp_file.name)
+                shutil.copy2(backup, temp_path)
+                os.replace(temp_path, src)
+            finally:
+                if temp_path is not None and temp_path.exists():
+                    temp_path.unlink()
+        undone.append({"from": str(backup), "to": str(src),
+                       "bytes": action["bytes"]})
     return undone

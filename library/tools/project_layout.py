@@ -253,10 +253,11 @@ ORGANIZE = "organize"
 MARKER_PULL = "marker_feedback"
 MARKER_CAPTURE = "marker_capture"
 FOOTAGE_ANALYSIS_RUN = "footage_analysis"
+PROJECT_FORMAT = "project_format"
 """`ren analyze` (library/tools/footage_analysis.py) - not a step: it
 orchestrates steps and the per-source memory lanes."""
-NON_STEP_PRODUCERS = (RUNNER, REVIEW_CHANNEL, ORGANIZE, MARKER_PULL, MARKER_CAPTURE,
-                      FOOTAGE_ANALYSIS_RUN)
+NON_STEP_PRODUCERS = (RUNNER, REVIEW_CHANNEL, ORGANIZE, MARKER_PULL,
+                      MARKER_CAPTURE, FOOTAGE_ANALYSIS_RUN, PROJECT_FORMAT)
 
 _OUT = "pipeline_output"
 _STEPS_DIRNAME = "steps"
@@ -664,10 +665,10 @@ AREAS: dict[Area, AreaSpec] = {
         produced_by=(FOOTAGE_ANALYSIS_RUN,)),
     Area.MIGRATIONS: AreaSpec(
         f"{_OUT}/migrations", Kind.OUTPUT,
-        "One record per time this folder was reorganised onto the layout: "
-        "what moved, from where, to where, and how big it was. Reading one "
-        "of these is how a reorganisation is undone.",
-        produced_by=(ORGANIZE,)),
+        "Reversible records of project migrations: layout reorganisations "
+        "and product-format upgrades. Reading one is how the change is "
+        "undone.",
+        produced_by=(ORGANIZE, PROJECT_FORMAT)),
     Area.EXPORTS: AreaSpec(
         "exports", Kind.DELIVERABLE,
         "Finished renders and their QA reports. This is what the run is for, "
@@ -682,10 +683,11 @@ AREAS: dict[Area, AreaSpec] = {
     Area.BACKUPS: AreaSpec(
         f"{_OUT}/backups", Kind.BACKUP,
         "Automatic, bounded copies of pipeline_data.json - one per run, a "
-        "fixed number kept (MAX_PIPELINE_DATA_BACKUPS). Hand-made backups "
-        "from before this policy are in backups/pipeline_data/legacy/ and "
-        "are never pruned.",
-        produced_by=(RUNNER, ORGANIZE)),
+        "fixed number kept (MAX_PIPELINE_DATA_BACKUPS) - plus migration "
+        "snapshots in their own named buckets. The state pruner only "
+        "considers its pipeline_data filename pattern, so migration "
+        "snapshots are never pruned.",
+        produced_by=(RUNNER, ORGANIZE, PROJECT_FORMAT)),
     Area.SCRATCH: AreaSpec(
         f"{_OUT}/scratch", Kind.SCRATCH,
         "Working files with no reader after the step that wrote them. Safe to "
@@ -1071,6 +1073,30 @@ class ProjectLayout:
         d.mkdir(parents=True, exist_ok=True)
         return d
 
+    def backup_file(self, source, *parts) -> Path:
+        """Copy one project file into the named, never-pruned backup bucket.
+
+        The automatic retention policy is intentionally specific to
+        pipeline_data.json. Migration backups use an explicit bucket and
+        lifetime instead, while still getting a project-layout-owned path.
+        """
+        src = Path(source)
+        try:
+            src.resolve().relative_to(self.root.resolve())
+        except ValueError:
+            raise ValueError(
+                f"project backup source must be inside {self.root}: {src}") \
+                from None
+        if not src.is_file():
+            raise FileNotFoundError(
+                f"Cannot back up a missing project file: {src}")
+        dest = self.write_path(Area.BACKUPS, *parts)
+        if dest.exists():
+            raise FileExistsError(
+                f"Refusing to overwrite an existing project backup: {dest}")
+        shutil.copy2(src, dest)
+        return dest
+
     def legacy_backup_dir(self) -> Path:
         d = self.write_path(Area.BACKUPS, BACKUP_SUBDIR, LEGACY_BACKUP_SUBDIR)
         d.mkdir(parents=True, exist_ok=True)
@@ -1267,6 +1293,9 @@ class ProjectLayout:
             f"  `pipeline_data.json` per run, newest {MAX_PIPELINE_DATA_BACKUPS} kept,",
             "  pruned automatically. Hand-made backups from before that policy are in",
             f"  `{LEGACY_BACKUP_SUBDIR}/` beside them and are never pruned.",
+            f"- `{_OUT}/migrations/` records reversible project changes.",
+            f"  Product-format upgrades keep their original `project.yaml` under",
+            f"  `{_OUT}/backups/format/`; those snapshots are never pruned.",
             f"- `{AREAS[Area.MARKER_FEEDBACK].relpath}/` is the captain's own typed",
             "  notes, pulled off a Resolve timeline. It is the one computed thing a",
             "  re-run must never delete, which is why it is not under",

@@ -4212,6 +4212,14 @@ def main():
     from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
     summary = None
     try:
+        # The format gate, before anything reads project state: a
+        # project outside the supported range refuses here (the
+        # refusal below renders it), and an older supported one
+        # migrates with a backup.  This process takes a raw folder,
+        # never `get_project`, so it asks for the gate itself.
+        if project_dir:
+            from library.tools import project_format
+            project_format.ensure_project_format(project_dir)
         summary = run_pipeline(
             project_dir=project_dir,
             from_step=args.from_step,

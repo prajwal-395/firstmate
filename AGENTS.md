@@ -302,9 +302,9 @@ Steps read inputs over `data_mapping` edges; output is recorded by CAPABILITY ID
 ## 8. Project management
 
 - Create with `ren new <slug> --name "Project Name"`.
-- Project configuration is `project.yaml` inside each project directory; the `ProjectConfig` schema defines source settings, pipeline options and Resolve bindings.
-- The project registry scans the root directory to list and manage available projects.
-- A project outside `PIPELINE_PROJECTS_ROOT` is addressed by passing its absolute path in place of the slug to `run`, `status` and `info`. 
+- `project.yaml` carries source, pipeline and Resolve settings; `ProjectConfig` defines them. `library/tools/project_format.py` owns `project_format_version`, its supported range and reversible migrations.
+- The registry discovers projects under its root.
+- Outside `PIPELINE_PROJECTS_ROOT`, pass an absolute path to `run`, `status` or `info`.
 
 ### Where a project's files go
 
