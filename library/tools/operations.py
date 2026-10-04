@@ -1236,11 +1236,10 @@ _REGISTRY: tuple[Operation, ...] = (
             "audio_indices",
             "source",
         ),
-        consumes=(
-            "raw_footage_files",
-            "semantic_analysis_documents",
-            "clip_catalog",
-        ),
+        # Semantic profiles reach the coordinated temporal pass through
+        # per-clip stream records, not a DAG state edge. Keep the optional
+        # semantic_analysis_documents argument for direct/legacy callers.
+        consumes=("raw_footage_files", "clip_catalog"),
     ),
     Operation(
         name="prosody.analyse",

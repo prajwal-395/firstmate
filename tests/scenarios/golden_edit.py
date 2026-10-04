@@ -228,10 +228,13 @@ def install_seams(monkeypatch, recipe: Monologue, folder: Path) -> dict:
 
     by_stem = {clip.name: clip for clip in recipe.clips}
 
-    def analyse(paths, base_cmd, analysis_dir, run=None):
+    def analyse(paths, base_cmd, analysis_dir, run=None, on_profile=None,
+                on_clip_failure=None):
         for path in paths:
             write_profile(recipe, by_stem[Path(path).stem], path,
                           analysis_dir)
+            if on_profile:
+                on_profile()
 
     vision = load_step_module("step_1_03_semantic_analysis", "step.py")
     monkeypatch.setattr(vision, "_analyse_missing", analyse)

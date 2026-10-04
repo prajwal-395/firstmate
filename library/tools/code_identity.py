@@ -188,6 +188,13 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/graphics_renderer.py",
         "library/tools/safe_zone_policy.py",
         "library/tools/platform_safe_zones.py",
+        # Publishes the completed profile records that temporal indexing
+        # consumes, so changing its join or serialized profile shape moves
+        # this step's cached output.
+        "library/tools/semantic_profile_stream.py",
+        "library/tools/run_control.py",
+        "library/tools/run_restart.py",
+        "library/tools/stable_json.py",
     ),
     "step_1_04_temporal_index": (
         # The project's declared transcription language: a fix here
@@ -239,6 +246,12 @@ STEP_IMPLEMENTATION_DEPS = {
         # box that reaches the seeder, so a fix here changes the cached
         # face_boxes.
         "library/tools/analysis/object_segmentation.py",
+        # Reads the versioned semantic records and their readiness status
+        # before regional motion is composed into each cached index.
+        "library/tools/semantic_profile_stream.py",
+        "library/tools/run_control.py",
+        "library/tools/run_restart.py",
+        "library/tools/stable_json.py",
         # Imported by timeline_transcript: the hybrid transcriber is the
         # primary arm that hears each clip, so a fix here changes the
         # cached segments.

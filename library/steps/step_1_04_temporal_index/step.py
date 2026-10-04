@@ -3,9 +3,10 @@
 Step 1.04: Temporal Event Index
 
 Deterministic pre-processing step that extracts timestamped events from
-each video clip using signal-processing tools. It runs after step 1.03
-because regional motion is restricted to Gemma's time-bounded action
-labels; the other temporal measurements retain their existing methods.
+each video clip using signal-processing tools. It runs beside step 1.03,
+then consumes each clip's completed semantic profile after batch
+pretranscription because regional motion is restricted to time-bounded
+action labels.
 
 Produces a per-clip JSON index containing:
   - scene_boundaries: visual cut/change points (ffmpeg scene detection)
@@ -109,6 +110,23 @@ def _raw_frame_bytes(path: str, np):
     if size == 0:
         return np.empty(0, dtype=np.uint8)
     return np.memmap(path, dtype=np.uint8, mode="r")
+
+
+def _atomic_json_write(path, value) -> None:
+    """Replace one per-clip index only after its complete JSON is staged."""
+    target = Path(path)
+    fd, staged_name = tempfile.mkstemp(
+        prefix=f".{target.name}.", suffix=".tmp", dir=target.parent)
+    staged = Path(staged_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(value, handle, indent=2)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(staged, target)
+    except BaseException:
+        staged.unlink(missing_ok=True)
+        raise
 
 
 # ── Audio extraction ─────────────────────────────────────────────────
@@ -3101,8 +3119,7 @@ def _load_cached_index(index_path: str, expected_language=None,
             index["detected_language"] = (
                 index.get("transcription_language") or "en")
             try:
-                with open(index_path, "w", encoding="utf-8") as f:
-                    json.dump(index, f, indent=2)
+                _atomic_json_write(index_path, index)
             except OSError as e:
                 print(f"  WARNING: index {index_path} could not be "
                       f"stamped ({e}); serving unstamped",
@@ -3282,8 +3299,7 @@ def _index_audio_files(
                     filepath, audio_id, layout, whisper_model_size,
                     language=language,
                     pretranscribed=pretranscribed.get(audio_id))
-                with open(index_path, "w", encoding="utf-8") as f:
-                    json.dump(index, f, indent=2)
+                _atomic_json_write(index_path, index)
             else:
                 print(f"  reusing {os.path.basename(index_path)}",
                       file=sys.stderr)
@@ -3346,12 +3362,19 @@ def build_temporal_index(
     # other consumers, so a visual document can never attach to the wrong
     # temporal index by list position.
     from library.tools.semantic_index import build_semantic_lookup
+    from library.tools import semantic_profile_stream
     from library.tools.regional_motion import (
         build_analysis as build_regional_motion_analysis,
         compact_analysis as compact_regional_motion_analysis,
     )
     semantic_by_clip = build_semantic_lookup(
         semantic_analysis_documents or [], clip_catalog or [])
+    stream_context = semantic_profile_stream.current_run_context(
+        str(layout.root))
+    if stream_context["expected"] and not stream_context["run_id"]:
+        raise semantic_profile_stream.StreamRecordError(
+            "Coordinator selected semantic_analysis but did not publish a "
+            "semantic profile stream run id")
 
     results = []
     reused = 0
@@ -3389,6 +3412,30 @@ def build_temporal_index(
             print(f"  WARNING: file not found, skipping", file=sys.stderr)
             continue
 
+        # Batch transcription remains the first temporal-index stage. Once
+        # it has completed, wait only for this clip's atomic semantic record;
+        # the coordinator marks producer completion or failure in
+        # pipeline_run.json, so an absent profile cannot strand this worker.
+        if stream_context["expected"] and stream_context["run_id"]:
+            streamed = semantic_profile_stream.wait_for_record(
+                str(layout.root), clip_id=clip_id, source_path=filepath,
+                run_id=stream_context["run_id"])
+            semantic_document = (
+                streamed["profile"] if streamed is not None
+                and streamed["status"] == "complete" else None)
+        else:
+            streamed = semantic_profile_stream.read_record(
+                str(layout.root), clip_id=clip_id, source_path=filepath)
+            semantic_document = (
+                streamed["profile"] if streamed is not None
+                and streamed["status"] == "complete" else None)
+            if streamed is None and semantic_document is None:
+                semantic_document = semantic_profile_stream.read_legacy_profile(
+                    str(layout.root), clip_id=clip_id, source_path=filepath,
+                    clip_catalog=clip_catalog)
+            if streamed is None and semantic_document is None:
+                semantic_document = semantic_by_clip.get(clip_id)
+
         index_path = os.path.join(index_dir, f"{clip_id}.json")
 
         try:
@@ -3405,8 +3452,7 @@ def build_temporal_index(
                           f"{os.path.basename(index_path)}",
                           file=sys.stderr)
                     if backfill_motion_measurement(index, filepath):
-                        with open(index_path, "w", encoding="utf-8") as f:
-                            json.dump(index, f, indent=2)
+                        _atomic_json_write(index_path, index)
                     else:
                         print(f"  motion backfill yielded nothing; "
                               f"serving cached measurement",
@@ -3422,8 +3468,7 @@ def build_temporal_index(
                           f"{os.path.basename(index_path)}",
                           file=sys.stderr)
                     if backfill_sound_events(index, filepath, layout):
-                        with open(index_path, "w", encoding="utf-8") as f:
-                            json.dump(index, f, indent=2)
+                        _atomic_json_write(index_path, index)
                     else:
                         print(f"  sound-event backfill yielded nothing; "
                               f"serving cached measurement",
@@ -3440,8 +3485,7 @@ def build_temporal_index(
                           f"{os.path.basename(index_path)}",
                           file=sys.stderr)
                     if backfill_vision_measurement(index, filepath):
-                        with open(index_path, "w", encoding="utf-8") as f:
-                            json.dump(index, f, indent=2)
+                        _atomic_json_write(index_path, index)
                     else:
                         print(f"  vision backfill yielded nothing; "
                               f"serving cached measurement",
@@ -3456,15 +3500,13 @@ def build_temporal_index(
                     pretranscribed=pretranscribed.get(clip_id),
                 )
                 # Write per-clip JSON
-                with open(index_path, "w", encoding="utf-8") as f:
-                    json.dump(index, f, indent=2)
+                _atomic_json_write(index_path, index)
 
             # Regional flow is deliberately different from the clip-wide
             # curves above: only time-bounded Gemma actions select a span.
             # Existing face boxes and this step's existing scene boundaries
             # provide the fusion inputs; the cut detector itself is untouched.
             previous_regional = index.get("regional_motion")
-            semantic_document = semantic_by_clip.get(clip_id)
             # A direct caller without semantic inputs cannot select a span,
             # so duration is immaterial in that case. Keep the promised
             # duration key strict whenever a document could select motion.
@@ -3480,8 +3522,7 @@ def build_temporal_index(
             )
             if regional != previous_regional:
                 index["regional_motion"] = regional
-                with open(index_path, "w", encoding="utf-8") as f:
-                    json.dump(index, f, indent=2)
+                _atomic_json_write(index_path, index)
             print(
                 f"  regional motion: {len(regional['spans'])} selected span(s), "
                 f"{regional['measurement_status']}",
@@ -3765,12 +3806,7 @@ def main():
         })
         sys.exit(1)
 
-    semantic_documents = input_data.get("semantic_analysis_documents")
     clip_catalog = input_data.get("clip_catalog")
-    if not isinstance(semantic_documents, list):
-        _emit({"error": "Missing required input: semantic_analysis_documents",
-               "step": "1.04_temporal_index"})
-        sys.exit(1)
     if not isinstance(clip_catalog, list):
         _emit({"error": "Missing required input: clip_catalog",
                "step": "1.04_temporal_index"})
@@ -3786,7 +3822,7 @@ def main():
             sys.exit(1)
 
     result = index_project(
-        raw_files, semantic_documents, clip_catalog,
+        raw_files, [], clip_catalog,
         project_folder=input_data.get("project_folder", ""),
         audio_catalog=input_data.get("audio_catalog"),
         whisper_model=args.whisper_model, output_dir=args.output_dir)

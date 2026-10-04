@@ -85,7 +85,8 @@ def _run_clip_vision(cmd, progress=None, poll_s=_PROGRESS_POLL_S):
     return returncode
 
 
-def _analyse_missing(missing_paths, base_cmd, analysis_dir, run=None):
+def _analyse_missing(missing_paths, base_cmd, analysis_dir, run=None,
+                     on_profile=None, on_clip_failure=None):
     """Analyse `missing_paths` in as few vision children as possible.
 
     One child takes the whole batch, so Gemma is loaded once per run
@@ -104,6 +105,8 @@ def _analyse_missing(missing_paths, base_cmd, analysis_dir, run=None):
     pending = list(missing_paths)
 
     def _profiles_on_disk():
+        if on_profile:
+            on_profile()
         return len(_profile_stems(analysis_dir))
 
     while pending:
@@ -122,6 +125,9 @@ def _analyse_missing(missing_paths, base_cmd, analysis_dir, run=None):
                      if os.path.splitext(os.path.basename(p))[0] not in done]
         if not remaining:
             return
+        failed_path = remaining[0]
+        if on_clip_failure:
+            on_clip_failure(failed_path, failure)
         print(f"  ⚠ {failure} on {os.path.basename(remaining[0])}, skipping",
               file=sys.stderr)
         pending = remaining[1:]
@@ -200,7 +206,19 @@ class VisionPipelineMissing(Exception):
     """The v3 analyser is not on disk, so nothing can be measured."""
 
 
-def analyse_semantics(raw_footage_files: list, project_folder: str = "") -> dict:
+def _read_semantic_profile(path):
+    with open(path, encoding="utf-8") as fp:
+        profile_data = json.load(fp)
+    was_v3 = is_v3_profile(profile_data)
+    profile_data = adapt_semantic_document(profile_data)
+    profile_data["clip_id"] = os.path.basename(path).replace(
+        "clip_profile_", "").replace(".json", "")
+    return profile_data, was_v3
+
+
+def analyse_semantics(raw_footage_files: list, project_folder: str = "",
+                      clip_catalog: list | None = None,
+                      stream_run_id: str = "") -> dict:
     """Run the v3 vision pass over any clip without a profile, then collect all.
 
     Returns `{"semantic_analysis_documents": [...], "total_clips_analyzed": n}`.
@@ -285,6 +303,80 @@ def analyse_semantics(raw_footage_files: list, project_folder: str = "") -> dict
                         f"against a cache written by older code") from exc
         existing_profiles = set()
 
+    stream_source_index = None
+    published_stems = set()
+    published_clip_ids = set()
+    if clip_catalog is not None and stream_run_id:
+        from library.tools import semantic_profile_stream
+        stream_source_index = semantic_profile_stream.catalog_source_index(
+            clip_catalog)
+
+    def publish_completed_profiles():
+        if stream_source_index is None:
+            return
+        from library.tools import semantic_profile_stream
+
+        completed_stems = _profile_stems(analysis_dir)
+        for profile_path in sorted(glob.glob(
+                os.path.join(analysis_dir, "clip_profile_*.json"))):
+            basename = os.path.basename(profile_path)
+            if "_video_only" in basename or _is_collision_duplicate(basename):
+                continue
+            filename_stem = basename[len("clip_profile_"):-len(".json")]
+            if filename_stem.endswith("_v3"):
+                filename_stem = filename_stem[:-3]
+            if filename_stem not in completed_stems:
+                continue
+            if filename_stem in published_stems:
+                continue
+            try:
+                profile_data, _was_v3 = _read_semantic_profile(profile_path)
+            except json.JSONDecodeError:
+                # The child profile itself is atomic. A damaged legacy cache
+                # is left for the next semantic run to invalidate or replace.
+                print(f"  ⚠ Invalid JSON in {profile_path}, not publishing",
+                      file=sys.stderr)
+                published_stems.add(filename_stem)
+                continue
+            joined = semantic_profile_stream.clip_for_profile(
+                profile_data, basename, stream_source_index)
+            if joined is None:
+                print(f"  ⚠ No catalog clip_id for semantic profile "
+                      f"{basename}; it remains in the aggregate only",
+                      file=sys.stderr)
+                published_stems.add(filename_stem)
+                continue
+            clip_id, source_path = joined
+            semantic_profile_stream.publish_record(
+                project_folder,
+                clip_id=clip_id,
+                source_path=source_path,
+                source_stem=filename_stem,
+                profile=profile_data,
+                run_id=stream_run_id,
+                producer_code_hash=step_code_hash or "",
+            )
+            published_stems.add(filename_stem)
+            published_clip_ids.add(clip_id)
+
+    def mark_clip_missing(source_path, reason):
+        if stream_source_index is None:
+            return
+        from library.tools import semantic_profile_stream
+
+        clip_id = stream_source_index[0].get(os.path.realpath(source_path))
+        if clip_id is None:
+            return
+        semantic_profile_stream.publish_missing_record(
+            project_folder,
+            clip_id=clip_id,
+            source_path=source_path,
+            source_stem=os.path.splitext(os.path.basename(source_path))[0],
+            run_id=stream_run_id,
+            producer_code_hash=step_code_hash or "",
+            reason=reason,
+        )
+
     # Find clips that need analysis
     all_clips = []
     missing_clips = []
@@ -302,6 +394,10 @@ def analyse_semantics(raw_footage_files: list, project_folder: str = "") -> dict
             missing_clips.append({"path": fpath, "clip_id": clip_id})
 
     print(f"Semantic Analysis: {len(all_clips)} total clips, {len(existing_profiles)} already analyzed, {len(missing_clips)} remaining", file=sys.stderr)
+
+    # Cached profiles are durable too. Publish them before launching the
+    # child so a consumer can use the first clip while later clips run.
+    publish_completed_profiles()
     
     # Only run vision pipeline on missing clips
     if missing_clips:
@@ -318,7 +414,10 @@ def analyse_semantics(raw_footage_files: list, project_folder: str = "") -> dict
         if project_folder:
             base_cmd += ['--project-folder', project_folder]
         _analyse_missing([clip["path"] for clip in missing_clips],
-                         base_cmd, analysis_dir)
+                         base_cmd, analysis_dir,
+                         on_profile=publish_completed_profiles,
+                         on_clip_failure=mark_clip_missing)
+        publish_completed_profiles()
     else:
         print("All clips already have vision profiles, skipping analysis.", file=sys.stderr)
     
@@ -339,21 +438,23 @@ def analyse_semantics(raw_footage_files: list, project_folder: str = "") -> dict
             continue  # Skip partial profiles
         if _is_collision_duplicate(os.path.basename(f)):
             continue  # Skip __N collision-avoidance duplicates
-        with open(f) as fp:
-            try:
-                profile_data = json.load(fp)
-                if is_v3_profile(profile_data):
-                    adapted_count += 1
-                profile_data = adapt_semantic_document(profile_data)
-                # Inject clip_id for downstream synchronization
-                clip_id = os.path.basename(f).replace('clip_profile_', '').replace('.json', '')
-                profile_data["clip_id"] = clip_id
-                profiles.append(profile_data)
-            except json.JSONDecodeError:
-                print(f"  ⚠ Invalid JSON in {f}, skipping", file=sys.stderr)
+        try:
+            profile_data, was_v3 = _read_semantic_profile(f)
+            if was_v3:
+                adapted_count += 1
+            profiles.append(profile_data)
+        except json.JSONDecodeError:
+            print(f"  ⚠ Invalid JSON in {f}, skipping", file=sys.stderr)
 
     print(f"Collected {len(profiles)} clip profiles "
           f"({adapted_count} adapted from the v3 vision schema)", file=sys.stderr)
+
+    if stream_source_index is not None:
+        for clip in clip_catalog:
+            if clip["clip_id"] not in published_clip_ids:
+                mark_clip_missing(
+                    clip["path"],
+                    "semantic analysis completed without a usable profile")
 
     # Stamp what this run's profiles were written under, so the next run
     # can tell its own method's output from an older one's. Written even
@@ -374,9 +475,14 @@ def main():
         raise ValueError("Input data must be a dictionary")
 
     try:
+        from library.tools.semantic_profile_stream import current_run_context
+        stream_context = current_run_context(data.get("project_folder", ""))
         result = analyse_semantics(
             raw_footage_files=data.get('raw_footage_files', []),
             project_folder=data.get('project_folder', ''),
+            clip_catalog=data["clip_catalog"],
+            stream_run_id=(stream_context["run_id"]
+                           if stream_context["expected"] else ""),
         )
     except VisionPipelineMissing:
         sys.exit(1)

@@ -2776,6 +2776,23 @@ def run_pipeline(
     # says whether a run is UP; this says which run a FILE came from,
     # which outlives the run by a lot. See library/tools/provenance.py.
     _run_id = provenance.new_run_id()
+    semantic_stream_expected = (
+        "semantic_analysis" in steps_to_run
+        and not step_ledger.is_completed(state, "semantic_analysis"))
+    run_control.write_run_status(
+        project_dir,
+        semantic_profile_stream={
+            "run_id": _run_id,
+            "expected": semantic_stream_expected,
+            "status": "pending" if semantic_stream_expected else "idle",
+        },
+    )
+
+    def settle_semantic_stream(node_id, status):
+        if node_id == "semantic_analysis":
+            run_control.set_semantic_profile_stream_status(
+                project_dir, _run_id, status)
+
     # BUILT WITH BOTH DECLARATIONS, and the reason is not the one it
     # looks like.
     #
@@ -3237,6 +3254,7 @@ def run_pipeline(
                                        error=message)
                     _record_step_failure(state, node_id, message)
                     save_pipeline_state(project_dir, state)
+                    settle_semantic_stream(node_id, "failed")
                     failed.append(node_id)
                     print("     Dependents are blocked; completing "
                           "independent siblings.", file=sys.stderr)
@@ -3283,6 +3301,7 @@ def run_pipeline(
                                        error=message)
                     _record_step_failure(state, node_id, message)
                     save_pipeline_state(project_dir, state)
+                    settle_semantic_stream(node_id, "failed")
                     failed.append(node_id)
                     print("     Dependents are blocked; completing "
                           "independent siblings.", file=sys.stderr)
@@ -3355,6 +3374,7 @@ def run_pipeline(
                                    error=message)
                 _record_step_failure(state, node_id, message)
                 save_pipeline_state(project_dir, state)
+                settle_semantic_stream(node_id, "failed")
                 failed.append(node_id)
                 print("     Stopping pipeline due to failure.", file=sys.stderr)
                 continue
@@ -3372,6 +3392,7 @@ def run_pipeline(
                                    error=message)
                 _record_step_failure(state, node_id, message)
                 save_pipeline_state(project_dir, state)
+                settle_semantic_stream(node_id, "failed")
                 failed.append(node_id)
                 print("     Stopping pipeline due to failure.", file=sys.stderr)
                 continue
@@ -3391,6 +3412,7 @@ def run_pipeline(
             run_control.record_step_timing(
                 project_dir, node_id, duration_s=elapsed)
             save_pipeline_state(project_dir, state)
+            settle_semantic_stream(node_id, "complete")
 
             # What this step ran on, stamped into the run record and
             # compared against the last completed run. REPORTS ONLY -

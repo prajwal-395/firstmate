@@ -1,7 +1,7 @@
 {
   "id": "step_1_03_semantic_analysis",
   "name": "Semantic Analysis",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Performs semantic analysis on raw footage to understand visual and narrative content.",
   "level": "step",
   "interface": {
@@ -11,6 +11,12 @@
         "type": "array",
         "required": true,
         "description": "State input: raw_footage_files"
+      },
+      {
+        "name": "clip_catalog",
+        "type": "array",
+        "required": true,
+        "description": "Catalog clip ids and source paths used to key the durable per-clip semantic handoff."
       },
       {
         "name": "timeline_notes",
@@ -40,7 +46,8 @@
     "per_clip_artifacts": [
       "{area:vision_analysis}/clip_profile_{stem}.json",
       "{area:vision_analysis}/clip_profile_{stem}_v3.json",
-      "{area:vision_analysis}/clip_profile_{stem}_video_only.json"
+      "{area:vision_analysis}/clip_profile_{stem}_video_only.json",
+      "{area:vision_analysis}/temporal_profile_stream_v1/{clip_id}.json"
     ]
   },
   "dependencies": [

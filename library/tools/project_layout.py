@@ -472,7 +472,8 @@ AREAS: dict[Area, AreaSpec] = {
     Area.VISION_ANALYSIS: AreaSpec(
         _step_path("semantic_analysis"), Kind.OUTPUT,
         "Per-clip vision profiles from the v3 pipeline. Each names the clip "
-        "it describes in its `file_path`.",
+        "it describes in its `file_path`. Versioned, clip_id-keyed records "
+        "for temporal indexing are in `temporal_profile_stream_v1/`.",
         step="semantic_analysis"),
     Area.TEMPORAL_INDEX: AreaSpec(
         _step_path("temporal_index", "index"), Kind.OUTPUT,

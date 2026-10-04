@@ -171,6 +171,19 @@ def write_run_status(project_dir: str, **fields: Any) -> Dict[str, Any]:
         return {}
 
 
+def set_semantic_profile_stream_status(project_dir: str, run_id: str,
+                                       status: str) -> bool:
+    """Record semantic stream readiness through the coordinator-owned ledger."""
+    current = read_run_status(project_dir)
+    stream = dict(current.get("semantic_profile_stream") or {})
+    if stream.get("run_id") != run_id:
+        return False
+    stream["status"] = status
+    stream["updated_at"] = _now()
+    return bool(write_run_status(
+        project_dir, semantic_profile_stream=stream))
+
+
 def begin_run_status(project_dir: str, mode: str, steps_to_run: List[str],
                      argv: Optional[List[str]] = None,
                      profile: Any = None,

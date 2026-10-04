@@ -235,17 +235,17 @@
       }
     },
     {
+      "from": "catalog",
+      "to": "semantic_analysis",
+      "data_mapping": {
+        "clip_catalog": "clip_catalog"
+      }
+    },
+    {
       "from": "scan",
       "to": "temporal_index",
       "data_mapping": {
         "raw_footage_files": "raw_footage_files"
-      }
-    },
-    {
-      "from": "semantic_analysis",
-      "to": "temporal_index",
-      "data_mapping": {
-        "semantic_analysis_documents": "semantic_analysis_documents"
       }
     },
     {
@@ -1149,9 +1149,7 @@
       "join_node": "creative_direction",
       "branches": [
         [
-          "catalog"
-        ],
-        [
+          "catalog",
           "semantic_analysis"
         ],
         [

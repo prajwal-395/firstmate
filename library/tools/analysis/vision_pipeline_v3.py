@@ -29,6 +29,7 @@ import argparse
 from contextlib import contextmanager
 import json
 import math
+import os
 import queue
 import subprocess
 import sys
@@ -122,6 +123,23 @@ OUTPUT_DIR = Path("pipeline_output")
 
 # Action windows
 ACTION_WINDOW_S = 10
+
+
+def _write_profile_atomically(path: Path, profile: dict) -> None:
+    """Publish a complete per-clip profile with one atomic rename."""
+    path = Path(path)
+    fd, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(profile, handle, indent=2)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
 
 # A window shorter than this is not handed to a pass. The tail sliver
 # of a clip whose duration is not a multiple of `ACTION_WINDOW_S`
@@ -3867,8 +3885,7 @@ def _run_host_semantic_pipeline(analyzer, clips, cache_dir, output_dir,
                     context["window_extraction_ffprobe_spawns"]),
             })
             entries[context["clip_order_in_input"]] = profile
-            with open(context["out_path"], "w", encoding="utf-8") as handle:
-                json.dump(profile, handle, indent=2)
+            _write_profile_atomically(context["out_path"], profile)
             print(f"  Saved: {context['out_path']}")
 
     return [entry for entry in entries if entry is not None], skipped
@@ -4097,8 +4114,7 @@ def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
             all_profiles.append(profile)
 
             # Save individual profile
-            with open(out_path, "w") as f:
-                json.dump(profile, f, indent=2)
+            _write_profile_atomically(out_path, profile)
             print(f"  Saved: {out_path}")
 
     return _write_vision_index(all_profiles, skipped, total_start, output_dir)

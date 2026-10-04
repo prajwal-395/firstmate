@@ -260,8 +260,9 @@ def test_replacing_one_clip_invalidates_only_its_own_analysis(project):
 
     # Vision profiles are keyed by file STEM, not clip id, so the
     # translation has to work or the wrong profile is deleted.
-    profiles = sorted(p.name for p in
-                      ProjectLayout(root).read_dir(Area.VISION_ANALYSIS).iterdir())
+    profiles = sorted(
+        p.name for p in ProjectLayout(root).read_dir(
+            Area.VISION_ANALYSIS).iterdir() if p.is_file())
     assert profiles == [
         "clip_profile_a_first.json",
         "clip_profile_a_first_v3.json",
@@ -270,6 +271,11 @@ def test_replacing_one_clip_invalidates_only_its_own_analysis(project):
         "clip_profile_c_third_v3.json",
         "clip_profile_c_third_video_only.json",
     ]
+    stream_records = sorted(
+        p.name for p in
+        (ProjectLayout(root).read_dir(Area.VISION_ANALYSIS)
+         / "temporal_profile_stream_v1").glob("*.json"))
+    assert stream_records == ["clip_001.json", "clip_003.json"]
 
     # Every preflight step re-runs (they all have to re-emit their output),
     # and the edit ledger is untouched by an identity check.
