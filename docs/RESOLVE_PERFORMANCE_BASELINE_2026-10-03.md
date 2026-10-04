@@ -59,7 +59,7 @@ The Reel 01 output shows a concrete QA change consistent with PR [1622](https://
 
 The single Reel 01 promotion refusal was reproduced on a scratch clone. A read-only inspection of the captain's live `Podcast (field test)` project also found the same disabled asset, `mg_geo-podcast_e1b5df7a.mov`, on video track 6 at frames 577-587 with `enabled=false`. This confirms the condition exists on the captain's actual Reel 01; promotion was not attempted there, so the refusal itself was only observed on the clone.
 
-For master 001, the 55-minute vision analysis, 9-minute temporal index, and 42-minute LLM planning figures are carried forward unchanged and were not rerun. That gives 106 minutes before the render phase. Since the current build/render/QA phase did not complete, the after end-to-end total is **106 minutes plus an unmeasured render phase**; there is no supported single-number after total yet. The previous approximately 1h52m total remains the only complete end-to-end figure.
+For the earlier `d5cc5732` after-fixes run, the 55-minute vision analysis, 9-minute temporal index, and 42-minute LLM planning figures were carried forward unchanged and not rerun. That gives 106 minutes before its render phase. Since that build/render/QA phase did not complete, its end-to-end total is **106 minutes plus an unmeasured render phase**. The current-head `d254af4` run below separately reached final QA.
 
 ## Reproduction
 
@@ -72,3 +72,20 @@ A project tree's `pipeline_data.json` records its own absolute `project_folder`,
 ### Master 001 subtitle follow-up
 
 The eight missing V3 captions were not a clone-only gap. Read-only inspection of the source project's `pipeline_data.json` and a fresh copy-on-write clone found the same eight `render_subtitles` and `compile_manifest` rows, with neither `geometry` nor `tight_box`; the source state dates to 2026-08-30. All eight MOVs are 1080x1920, matching the manifest's 1080x1920 frame. The builder treated these legacy, full-frame overlays as unknown tight canvases and skipped them. It now accepts an unannotated legacy caption only when Resolve reports media dimensions exactly equal to the requested frame, so it places these overlays without a transform while still refusing unknown or mismatched dimensions. An offline Resolve double reproduced all eight V3 timeline-sync misses from the clone before the fix; the regression test exercises those names through placement and timeline-sync QA.
+
+## Master 001 current-head benchmark snapshot
+
+The master 001 benchmark at measured commit `d254af4` reached final QA. Fresh
+analysis/planning took 3h04m through manifest compilation (7,748.333s semantic,
+469.338s temporal, 2,834.782s planning), versus the prior complete run's
+rounded 106m for those phases. Fresh placement refused an iPhone clip with no
+declared program audio stream. The corrected warm clone changed its stream
+declaration, so it is not a strict same-input comparison; its analysis/planning
+took 33m23s, placement/render 114.579s, and validation 255.782s. Render
+completed, but final validation failed on persistent black matte around the
+picture and seven subtitles above 25 characters/second. `verify_render` and
+`verify_timeline` passed. The validate shell needed Resolve scripting variables
+set by hand; no product fix was made. `origin/main` later advanced through PRs
+1635-1638 and 1641, so these are not measurements of those commits. Full
+results, grant windows, caveats and raw records are in
+[the benchmark report](benchmarks/2026-10-03-current-head.md).

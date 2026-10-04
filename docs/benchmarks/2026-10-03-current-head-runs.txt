@@ -1,0 +1,576 @@
+No brand template: this project's project.yaml declares no `pipeline.brand_template`, so no brand style, effect or content slot is in play. It is NOT rendering under default_brand.yaml. What that changes in the finished video: no look at all: no CDL, no contrast, no glow, no grain and no vignette, and no exposure normalisation either.  Step 5.01 measures each clip's luma, records it, and applies nothing (look_notes says so).  A clip only gets a Fusion comp if the VFX plan or the subject-safe conform put one there; no palette, so captions and motion graphics keep their own colours; no transition duration bound, so a drawn transition is held for as long as the plan's own duration_feel says; no bookends, so no intro, outro or end card. Name a template under `pipeline.brand_template` to declare any of them. See ABSENT_SLOT_READINGS in library/tools/brand_registry.py for every slot.
+
+  PENDING EDIT SPEC (dry run only)
+the edit pipeline is held because a natural-language note has no fully resolved, recorded edit spec:
+note Pipeline_Edit:clip_marker:1196~0193045c92: this collected natural-language note has not been translated into typed operations; keyword routing is not used to plan an edit
+  translate it with: ren spec prepare /private/tmp/vep-benchmark-current-head.q3obr_9g/001 --note-id 'Pipeline_Edit:clip_marker:1196~0193045c92' --request 'Marker 1
+
+why is this fully blurry, is it the zoom blur applied wrong? i think we already fixed this right?'
+note Pipeline_Edit:clip_marker:744~dc19918e93: this collected natural-language note has not been translated into typed operations; keyword routing is not used to plan an edit
+  translate it with: ren spec prepare /private/tmp/vep-benchmark-current-head.q3obr_9g/001 --note-id 'Pipeline_Edit:clip_marker:744~dc19918e93' --request 'Marker 1
+
+this clip is honestly like broll of nothing, im confused why it was chosen and added here'
+note Pipeline_Edit:timeline_marker:26~f38639693d: this collected natural-language note has not been translated into typed operations; keyword routing is not used to plan an edit
+  translate it with: ren spec prepare /private/tmp/vep-benchmark-current-head.q3obr_9g/001 --note-id 'Pipeline_Edit:timeline_marker:26~f38639693d' --request 'Marker 1
+
+why are the subtitles so big?'
+Translate or resolve every listed note, then rerun `ren edit`.
+
+LAYER COHERENCE: 1 owned-layer divergence(s) stand - run `python3 -m library.tools.layer_coherence <project>` for both values of each.
+  ↻ would re-run (stage): preflight
+  ↻ would re-run (step): semantic_analysis
+  ↻ would re-run (step): temporal_index
+  ↻ would re-run (stage): edit
+
+════════════════════════════════════════════════════════════
+  Pipeline: edit_video
+  Project: /private/tmp/vep-benchmark-current-head.q3obr_9g/001
+  Steps: 27
+  Order: validate_sfx_library → scan → catalog → semantic_analysis → temporal_index → prosody_analysis → creative_direction → music_selection → speech_sequence → music_analysis → mesh_spine → assign_aroll → select_broll → audio_mix → review_rough_cut → color_grade → plan_subtitles → plan_transitions → plan_vfx → render_subtitles → plan_sfx → render_motion_graphics → creative_cohesion → object_segmentation → compile_manifest → render → validate
+  Selected: 25 of 27 steps
+  Off by default: ocr_extraction - Costs 445s on 001 and no step consumes its `ocr_extraction` output. The vision model already reads signage sparsely (10 of 159 objects on 001's 2026-08-26 run), so the 445s buys little until something reads the key. Captain's ruling on #245, 2026-08-28. Turn on with --with ocr_extraction.
+  Off by default: select_reels - Requires a timeline_transcript produced outside the pipeline (needs Resolve open and WhisperX). Running it by default would crash on the missing transcript. Build the transcript first, then turn on with --with select_reels.
+  Off by default: judge_reels - Reads the reels select_reels chose, from the same timeline_transcript produced outside the pipeline. A default run has neither. Turn on with --with judge_reels beside --with select_reels, or --only judge_reels, which pulls the selector in with it.
+  Skipped:  2 steps
+    - render: excluded by --skip
+    - validate: excluded by --skip
+════════════════════════════════════════════════════════════
+
+  Steps to run: ['validate_sfx_library', 'scan', 'catalog', 'semantic_analysis', 'temporal_index', 'prosody_analysis', 'creative_direction', 'music_selection', 'speech_sequence', 'music_analysis', 'mesh_spine', 'assign_aroll', 'select_broll', 'audio_mix', 'review_rough_cut', 'color_grade', 'plan_subtitles', 'plan_transitions', 'plan_vfx', 'render_subtitles', 'plan_sfx', 'render_motion_graphics', 'creative_cohesion', 'object_segmentation', 'compile_manifest']
+  Breakpoints: none - this run does not stop for review
+    [done] validate_sfx_library (deterministic, edit)
+    [done] scan (deterministic, preflight)
+    [done] catalog (deterministic, preflight)
+    [done] semantic_analysis (deterministic_with_llm, preflight)
+    [done] temporal_index (deterministic, preflight)
+           prosody_analysis (deterministic, preflight)
+    [done] creative_direction (llm_only, edit)
+    [done] music_selection (hybrid, edit)
+    [done] speech_sequence (hybrid, edit)
+    [done] music_analysis (deterministic, edit)
+    [done] mesh_spine (hybrid, edit)
+    [done] assign_aroll (deterministic, edit)
+    [done] select_broll (hybrid, edit)
+    [done] audio_mix (hybrid, edit)
+    [done] review_rough_cut (deterministic_with_llm, edit)
+    [done] color_grade (hybrid, edit)
+    [done] plan_subtitles (deterministic, edit)
+    [done] plan_transitions (hybrid, edit)
+    [done] plan_vfx (hybrid, edit)
+    [done] render_subtitles (deterministic, edit)
+    [done] plan_sfx (hybrid, edit)
+    [done] render_motion_graphics (hybrid, edit)
+    [done] creative_cohesion (deterministic, edit)
+           object_segmentation (deterministic, preflight)
+    [done] compile_manifest (deterministic, edit)
+    (1589s of estimated work selected, 330s skipped)
+{
+  "status": "DRY_RUN",
+  "profile": "",
+  "profile_path": "",
+  "breakpoints": {
+    "every_step": false,
+    "steps": [],
+    "basis": [],
+    "unreachable": []
+  },
+  "steps_to_run": [
+    "validate_sfx_library",
+    "scan",
+    "catalog",
+    "semantic_analysis",
+    "temporal_index",
+    "prosody_analysis",
+    "creative_direction",
+    "music_selection",
+    "speech_sequence",
+    "music_analysis",
+    "mesh_spine",
+    "assign_aroll",
+    "select_broll",
+    "audio_mix",
+    "review_rough_cut",
+    "color_grade",
+    "plan_subtitles",
+    "plan_transitions",
+    "plan_vfx",
+    "render_subtitles",
+    "plan_sfx",
+    "render_motion_graphics",
+    "creative_cohesion",
+    "object_segmentation",
+    "compile_manifest"
+  ],
+  "skipped": [
+    "render",
+    "validate"
+  ],
+  "skip_reasons": {
+    "render": "excluded by --skip",
+    "validate": "excluded by --skip"
+  },
+  "satisfied_from_previous_run": {},
+  "satisfied_from_outside": {},
+  "not_run_because_supplied": {},
+  "estimated_seconds": {
+    "selected": 1589,
+    "skipped": 330
+  }
+}  Running pipeline for: Apple 001
+  Project: /private/tmp/vep-benchmark-current-head.q3obr_9g/001
+  Command: /Users/prajwal/.local/share/vep/venv-py312/bin/python3 /Users/prajwal/.treehouse/video-editing-pilot-9487f5/1/video-editing-pilot/library/processes/edit_video/run_pipeline.py --project /private/tmp/vep-benchmark-current-head.q3obr_9g/001 --dry-run --rerun preflight --rerun semantic_analysis --rerun temporal_index --rerun edit --skip render --skip validate --full-auto agent --llm-timeout 300
+
+
+=== FRESH FULL PIPELINE ATTEMPT (expected gate check) ===
+command: bin/vep -m ren.cli edit /tmp/vep-benchmark-current-head.q3obr_9g/001 --full-auto agent --rerun preflight --rerun semantic_analysis --rerun temporal_index --rerun edit --skip render --skip validate
+started_epoch: 1791054076.981918; ended_epoch: 1791054080.206093; wall_seconds: 3.224175; exit: 4
+{
+  "status": "REFUSED",
+  "reason": "the edit pipeline is held because a natural-language note has no fully resolved, recorded edit spec:\nnote Pipeline_Edit:clip_marker:1196~0193045c92: this collected natural-language note has not been translated into typed operations; keyword routing is not used to plan an edit\n  translate it with: ren spec prepare /private/tmp/vep-benchmark-current-head.q3obr_9g/001 --note-id 'Pipeline_Edit:clip_marker:1196~0193045c92' --request 'Marker 1\n\nwhy is this fully blurry, is it the zoom blur applied wrong? i think we already fixed this right?'\nnote Pipeline_Edit:clip_marker:744~dc19918e93: this collected natural-language note has not been translated into typed operations; keyword routing is not used to plan an edit\n  translate it with: ren spec prepare /private/tmp/vep-benchmark-current-head.q3obr_9g/001 --note-id 'Pipeline_Edit:clip_marker:744~dc19918e93' --request 'Marker 1\n\nthis clip is honestly like broll of nothing, im confused why it was chosen and added here'\nnote Pipeline_Edit:timeline_marker:26~f38639693d: this collected natural-language note has not been translated into typed operations; keyword routing is not used to plan an edit\n  translate it with: ren spec prepare /private/tmp/vep-benchmark-current-head.q3obr_9g/001 --note-id 'Pipeline_Edit:timeline_marker:26~f38639693d' --request 'Marker 1\n\nwhy are the subtitles so big?'\nTranslate or resolve every listed note, then rerun `ren edit`."
+}  Running pipeline for: Apple 001
+  Project: /private/tmp/vep-benchmark-current-head.q3obr_9g/001
+  Command: /Users/prajwal/.local/share/vep/venv-py312/bin/python3 /Users/prajwal/.treehouse/video-editing-pilot-9487f5/1/video-editing-pilot/library/processes/edit_video/run_pipeline.py --project /private/tmp/vep-benchmark-current-head.q3obr_9g/001 --rerun preflight --rerun semantic_analysis --rerun temporal_index --rerun edit --skip render --skip validate --full-auto agent --llm-timeout 300
+
+No brand template: this project's project.yaml declares no `pipeline.brand_template`, so no brand style, effect or content slot is in play. It is NOT rendering under default_brand.yaml. What that changes in the finished video: no look at all: no CDL, no contrast, no glow, no grain and no vignette, and no exposure normalisation either.  Step 5.01 measures each clip's luma, records it, and applies nothing (look_notes says so).  A clip only gets a Fusion comp if the VFX plan or the subject-safe conform put one there; no palette, so captions and motion graphics keep their own colours; no transition duration bound, so a drawn transition is held for as long as the plan's own duration_feel says; no bookends, so no intro, outro or end card. Name a template under `pipeline.brand_template` to declare any of them. See ABSENT_SLOT_READINGS in library/tools/brand_registry.py for every slot.
+
+  ✗ REFUSED - pending edit spec
+the edit pipeline is held because a natural-language note has no fully resolved, recorded edit spec:
+note Pipeline_Edit:clip_marker:1196~0193045c92: this collected natural-language note has not been translated into typed operations; keyword routing is not used to plan an edit
+  translate it with: ren spec prepare /private/tmp/vep-benchmark-current-head.q3obr_9g/001 --note-id 'Pipeline_Edit:clip_marker:1196~0193045c92' --request 'Marker 1
+
+why is this fully blurry, is it the zoom blur applied wrong? i think we already fixed this right?'
+note Pipeline_Edit:clip_marker:744~dc19918e93: this collected natural-language note has not been translated into typed operations; keyword routing is not used to plan an edit
+  translate it with: ren spec prepare /private/tmp/vep-benchmark-current-head.q3obr_9g/001 --note-id 'Pipeline_Edit:clip_marker:744~dc19918e93' --request 'Marker 1
+
+this clip is honestly like broll of nothing, im confused why it was chosen and added here'
+note Pipeline_Edit:timeline_marker:26~f38639693d: this collected natural-language note has not been translated into typed operations; keyword routing is not used to plan an edit
+  translate it with: ren spec prepare /private/tmp/vep-benchmark-current-head.q3obr_9g/001 --note-id 'Pipeline_Edit:timeline_marker:26~f38639693d' --request 'Marker 1
+
+why are the subtitles so big?'
+Translate or resolve every listed note, then rerun `ren edit`.
+
+
+=== FIRSTMATE CLONE-ONLY ANSWER CHECK ===
+current main route: marker_resolution.answer; no timeline or source-project writes
+note: Pipeline_Edit:timeline_marker:26~f38639693d
+check: caption_size_matches_declaration
+measurement: declared_size=85; rendered_sizes={}
+result: FAIL - the edit places no caption segment
+records written: no; stopped at first failed check as instructed
+
+=== FRESH semantics.analyse stderr ===
+Semantic Analysis: 17 total clips, 0 already analyzed, 17 remaining
+Running vision pipeline on 17 new clips...
+  Analyzing 17 clip(s) in one vision run: IMG_1806.MOV, IMG_1807.MOV, IMG_1808.MOV, IMG_1809.MOV, IMG_1810.MOV, IMG_1811.MOV, IMG_1812.MOV, IMG_1813.MOV, IMG_1814.MOV, IMG_1815.MOV, IMG_1816.MOV, IMG_1817.MOV, IMG_1818.MOV, IMG_1819.MOV, IMG_1820.MOV, IMG_1821.MOV, IMG_1822.MOV
+[gemma-4] Loading model into memory...
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Clip 1/17: IMG_1806.MOV
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Duration: 3.6s | 1920x1080 @ 30.0fps
+  Temporal index: not found
+  Transcript: (none)
+  Frames extracted: 2 (every 5s)
+  Video window cuts queued: 1 × 10s; extraction overlaps inference
+
+════════════════════════════════════════════════════════════
+  Analyzing: IMG_1806 (3.6s)
+  Estimated model calls: 3+ (1 folded windows + 1 obj coarse + detail)
+════════════════════════════════════════════════════════════
+  [Windows] 1 windows × 10s (video+audio clips)...
+
+Fetching 9 files:   0%|          | 0/9 [00:00<?, ?it/s]
+Fetching 9 files: 100%|██████████| 9/9 [00:00<00:00, 3473.38it/s]
+  Model loaded/bound in 0.0s
+    [0-4s] 1 action(s), 1 scene(s), 1 mode(s) (13.8s)
+  [Scene] → 1 scene(s), 100% of 3.6s described
+  [Camera] → 1 mode(s)
+  [Objects] Coarse sweep (2 frames, 1 batch(es))...   [still-vision] objects: no host drives this run - gemma4 fallback.
+  [still-vision] gemma4 fallback answering 2 still(s) locally.
+GEMMA SERVER unreachable at http://127.0.0.1:8080 (<urlopen error [Errno 61] Connection refused>); falling back to in-process mlx-community/gemma-4-12b-it-4bit (full model load, ~6s, ~7GB resident).
+Loading mlx-community/gemma-4-12b-it-4bit...
+
+Fetching 9 files:   0%|          | 0/9 [00:00<?, ?it/s]
+Fetching 9 files: 100%|██████████| 9/9 [00:00<00:00, 5959.70it/s]
+Model loaded in 5.5s
+(75.2s) → 14 entities
+    (detail ranges cover 100% of clip — skipping, coarse is sufficient)
+  [Objects] Detail pass skipped (no transient entities)
+  [Picture] Sharpness at 5Hz... (0.5s) → 0 soft range(s), 0.0s
+  [Assessment] Hybrid (votes from 1 window(s) + deterministic)... (0.0s) → scenery
+
+  ✓ Complete in 89.0s (2 model calls)
+    Scene: 1 | Camera: 1 | Actions: 1 across 1 windows | Objects: 14
+    Type: scenery | Speech: unmeasured coverage | Stability: unknown
+    Usable: deterministic_v1 (picture_sharpness) → 1 range(s), 0 excluded
+  Video clips extracted: 1 × 10s (1 with audio) [0.2s extraction, 2 ffprobe spawns]
+  Timing: extraction 0.2s vs inference 17.0s (1 windows, 2 ffprobe spawns)
+  Saved: /private/tmp/vep-benchmark-current-head.q3obr_9g/001/pipeline_output/steps/1_03_semantic_analysis/clip_profile_IMG_1806_v3.json
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Clip 2/17: IMG_1807.MOV
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Duration: 17.1s | 1920x1080 @ 30.0fps
+  Temporal index: not found
+  Transcript: (none)
+  Frames extracted: 5 (every 5s)
+  Video window cuts queued: 2 × 10s; extraction overlaps inference
+
+════════════════════════════════════════════════════════════
+  Analyzing: IMG_1807 (17.1s)
+  Estimated model calls: 4+ (2 folded windows + 1 obj coarse + detail)
+════════════════════════════════════════════════════════════
+  [Windows] 2 windows × 10s (video+audio clips)...
+    [0-10s] 1 action(s), 1 scene(s), 1 mode(s) (19.9s)
+    [10-17s] 1 action(s), 1 scene(s), 1 mode(s) (15.8s)
+  [Scene] → 2 scene(s), 100% of 17.1s described
+  [Camera] → 2 mode(s)
+  [Objects] Coarse sweep (5 frames, 1 batch(es))...   [still-vision] objects: no host drives this run - gemma4 fallback.
+  [still-vision] gemma4 fallback answering 5 still(s) locally.
+GEMMA SERVER unreachable at http://127.0.0.1:8080 (<urlopen error [Errno 61] Connection refused>); falling back to in-process mlx-community/gemma-4-12b-it-4bit (full model load, ~6s, ~7GB resident).
+(36.9s) → 8 entities
+    (detail ranges cover 70% of clip — skipping, coarse is sufficient)
+  [Objects] Detail pass skipped (no transient entities)
+  [Picture] Sharpness at 5Hz... (1.0s) → 3 soft range(s), 3.8s
+  [Assessment] Hybrid (votes from 2 window(s) + deterministic)... (0.0s) → action_sequence
+
+  ✓ Complete in 72.7s (3 model calls)
+    Scene: 2 | Camera: 2 | Actions: 2 across 2 windows | Objects: 8
+    Type: action_sequence | Speech: unmeasured coverage | Stability: unknown
+    Usable: deterministic_v1 (picture_sharpness) → 3 range(s), 3 excluded
+  Video clips extracted: 2 × 10s (2 with audio) [0.2s extraction, 3 ffprobe spawns]
+  Timing: extraction 0.2s vs inference 35.9s (2 windows, 3 ffprobe spawns)
+  Saved: /private/tmp/vep-benchmark-current-head.q3obr_9g/001/pipeline_output/steps/1_03_semantic_analysis/clip_profile_IMG_1807_v3.json
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Clip 3/17: IMG_1808.MOV
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Duration: 27.8s | 1920x1080 @ 30.0fps
+  Temporal index: not found
+  Transcript: (none)
+  Frames extracted: 7 (every 5s)
+  Video window cuts queued: 3 × 10s; extraction overlaps inference
+
+════════════════════════════════════════════════════════════
+  Analyzing: IMG_1808 (27.8s)
+  Estimated model calls: 5+ (3 folded windows + 1 obj coarse + detail)
+════════════════════════════════════════════════════════════
+  [Windows] 3 windows × 10s (video+audio clips)...
+    [0-10s] 1 action(s), 1 scene(s), 1 mode(s) (59.1s)
+    [10-20s] 1 action(s), 1 scene(s), 1 mode(s) (92.9s)
+    [20-28s] 1 action(s), 1 scene(s), 1 mode(s) (21.4s)
+  [Scene] → 3 scene(s), 100% of 27.8s described
+  [Camera] → 2 mode(s)
+  [Objects] Coarse sweep (7 frames, 1 batch(es))...   [still-vision] objects: no host drives this run - gemma4 fallback.
+  [still-vision] gemma4 fallback answering 7 still(s) locally.
+GEMMA SERVER unreachable at http://127.0.0.1:8080 (<urlopen error [Errno 61] Connection refused>); falling back to in-process mlx-community/gemma-4-12b-it-4bit (full model load, ~6s, ~7GB resident).
+(33.7s) → 7 entities
+  [Objects] Detail pass (1 range(s))...   [still-vision] objects: no host drives this run - gemma4 fallback.
+  [still-vision] gemma4 fallback answering 3 still(s) locally.
+GEMMA SERVER unreachable at http://127.0.0.1:8080 (<urlopen error [Errno 61] Connection refused>); falling back to in-process mlx-community/gemma-4-12b-it-4bit (full model load, ~6s, ~7GB resident).
+(18.0s) → 7 entities (refined)
+  [Picture] Sharpness at 5Hz... (1.2s) → 3 soft range(s), 2.6s
+  [Assessment] Hybrid (votes from 3 window(s) + deterministic)... (0.0s) → person_talking_to_camera
+
+  ✓ Complete in 225.1s (5 model calls)
+    Scene: 3 | Camera: 2 | Actions: 3 across 3 windows | Objects: 7
+    Type: person_talking_to_camera | Speech: unmeasured coverage | Stability: unknown
+    Usable: deterministic_v1 (picture_sharpness) → 1 range(s), 3 excluded
+  Video clips extracted: 3 × 10s (3 with audio) [59.3s extraction, 4 ffprobe spawns]
+  Timing: extraction 59.3s vs inference 173.6s (3 windows, 4 ffprobe spawns)
+  Saved: /private/tmp/vep-benchmark-current-head.q3obr_9g/001/pipeline_output/steps/1_03_semantic_analysis/clip_profile_IMG_1808_v3.json
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Clip 4/17: IMG_1809.MOV
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Duration: 26.8s | 1920x1080 @ 30.0fps
+  Temporal index: not found
+  Transcript: (none)
+  Frames extracted: 7 (every 5s)
+  Video window cuts queued: 3 × 10s; extraction overlaps inference
+
+════════════════════════════════════════════════════════════
+  Analyzing: IMG_1809 (26.8s)
+  Estimated model calls: 5+ (3 folded windows + 1 obj coarse + detail)
+════════════════════════════════════════════════════════════
+  [Windows] 3 windows × 10s (video+audio clips)...
+    [0-10s] 1 action(s), 1 scene(s), 1 mode(s) (20.4s)
+    [10-20s] 1 action(s), 1 scene(s), 1 mode(s) (21.5s)
+    [20-27s] 1 action(s), 1 scene(s), 1 mode(s) (16.4s)
+  [Scene] → 3 scene(s), 100% of 26.8s described
+  [Camera] → 2 mode(s)
+  [Objects] Coarse sweep (7 frames, 1 batch(es))...   [still-vision] objects: no host drives this run - gemma4 fallback.
+  [still-vision] gemma4 fallback answering 7 still(s) locally.
+GEMMA SERVER unreachable at http://127.0.0.1:8080 (<urlopen error [Errno 61] Connection refused>); falling back to in-process mlx-community/gemma-4-12b-it-4bit (full model load, ~6s, ~7GB resident).
+(57.3s) → 15 entities
+  [Objects] Detail pass skipped (no transient entities)
+  [Picture] Sharpness at 5Hz... (1.5s) → 0 soft range(s), 0.0s
+  [Assessment] Hybrid (votes from 3 window(s) + deterministic)...     ⚠ Window [0-8s]: dropped out-of-window segment [0.0, 8.0]
+    ⚠ Window [0-8s]: dropped out-of-window segment [0.0, 8.0]
+(0.0s) → scenery
+
+  ✓ Complete in 115.6s (4 model calls)
+    Scene: 3 | Camera: 2 | Actions: 3 across 3 windows | Objects: 15
+    Type: scenery | Speech: unmeasured coverage | Stability: unknown
+    Usable: deterministic_v1 (picture_sharpness) → 1 range(s), 0 excluded
+  Video clips extracted: 3 × 10s (3 with audio) [21.6s extraction, 4 ffprobe spawns]
+  Timing: extraction 21.6s vs inference 59.6s (3 windows, 4 ffprobe spawns)
+  Saved: /private/tmp/vep-benchmark-current-head.q3obr_9g/001/pipeline_output/steps/1_03_semantic_analysis/clip_profile_IMG_1809_v3.json
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Clip 5/17: IMG_1810.MOV
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Duration: 7.9s | 1920x1080 @ 30.0fps
+  Temporal index: not found
+  Transcript: (none)
+  Frames extracted: 3 (every 5s)
+  Video window cuts queued: 1 × 10s; extraction overlaps inference
+
+════════════════════════════════════════════════════════════
+  Analyzing: IMG_1810 (7.9s)
+  Estimated model calls: 3+ (1 folded windows + 1 obj coarse + detail)
+════════════════════════════════════════════════════════════
+  [Windows] 1 windows × 10s (video+audio clips)...
+    [0-8s] 1 action(s), 0 scene(s), 0 mode(s) (19.3s)
+  [Scene] → 0 scene(s), 0% of 7.9s described
+  [Camera] → 0 mode(s)
+  [Objects] Coarse sweep (3 frames, 1 batch(es))...   [still-vision] objects: no host drives this run - gemma4 fallback.
+  [still-vision] gemma4 fallback answering 3 still(s) locally.
+GEMMA SERVER unreachable at http://127.0.0.1:8080 (<urlopen error [Errno 61] Connection refused>); falling back to in-process mlx-community/gemma-4-12b-it-4bit (full model load, ~6s, ~7GB resident).
+(42.7s) → 10 entities
+    (detail ranges cover 100% of clip — skipping, coarse is sufficient)
+  [Objects] Detail pass skipped (no transient entities)
+  [Picture] Sharpness at 5Hz... (0.7s) → 0 soft range(s), 0.0s
+  [Assessment] Hybrid (votes from 1 window(s) + deterministic)... (0.0s) → scenery
+
+  ✓ Complete in 61.9s (2 model calls)
+    Scene: 0 | Camera: 0 | Actions: 1 across 1 windows | Objects: 10
+    Type: scenery | Speech: unmeasured coverage | Stability: unknown
+    Usable: deterministic_v1 (picture_sharpness) → 1 range(s), 0 excluded
+  Video clips extracted: 1 × 10s (1 with audio) [0.2s extraction, 2 ffprobe spawns]
+  Timing: extraction 0.2s vs inference 19.5s (1 windows, 2 ffprobe spawns)
+  Saved: /private/tmp/vep-benchmark-current-head.q3obr_9g/001/pipeline_output/steps/1_03_semantic_analysis/clip_profile_IMG_1810_v3.json
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Clip 6/17: IMG_1811.MOV
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Duration: 22.9s | 1920x1080 @ 30.0fps
+  Temporal index: not found
+  Transcript: (none)
+  Frames extracted: 6 (every 5s)
+  Video window cuts queued: 3 × 10s; extraction overlaps inference
+
+════════════════════════════════════════════════════════════
+  Analyzing: IMG_1811 (22.9s)
+  Estimated model calls: 5+ (3 folded windows + 1 obj coarse + detail)
+════════════════════════════════════════════════════════════
+  [Windows] 3 windows × 10s (video+audio clips)...
+    [0-10s] 1 action(s), 1 scene(s), 1 mode(s) (41.6s)
+    [10-20s] 1 action(s), 1 scene(s), 1 mode(s) (16.7s)
+    [20-23s] 1 action(s), 1 scene(s), 1 mode(s) (11.5s)
+  [Scene] → 3 scene(s), 100% of 22.9s described
+  [Camera] → 2 mode(s)
+  [Objects] Coarse sweep (6 frames, 1 batch(es))...   [still-vision] objects: no host drives this run - gemma4 fallback.
+  [still-vision] gemma4 fallback answering 6 still(s) locally.
+GEMMA SERVER unreachable at http://127.0.0.1:8080 (<urlopen error [Errno 61] Connection refused>); falling back to in-process mlx-community/gemma-4-12b-it-4bit (full model load, ~6s, ~7GB resident).
+(41.9s) → 12 entities
+    (detail ranges cover 87% of clip — skipping, coarse is sufficient)
+  [Objects] Detail pass skipped (no transient entities)
+  [Picture] Sharpness at 5Hz... (1.5s) → 3 soft range(s), 3.8s
+  [Assessment] Hybrid (votes from 3 window(s) + deterministic)...
+=== CLONE-ONLY NOTE INPUT SETUP ===
+file: /tmp/vep-benchmark-current-head.q3obr_9g/001/marker_feedback/Pipeline_Edit.20260828T221238Z.markers.json
+removed from clone notes[]: Pipeline_Edit:clip_marker:1196~0193045c92 (blur); Pipeline_Edit:clip_marker:744~dc19918e93 (B-roll); Pipeline_Edit:timeline_marker:26~f38639693d (caption size)
+notes before/after: 3/0; source project written: no
+
+=== SUPERSEDED STANDALONE SEMANTIC ATTEMPT ===
+command: bin/vep -m library.tools.operations semantics.analyse --project /private/tmp/vep-benchmark-current-head.q3obr_9g/001
+started: 2026-10-03T19:09:29.928468Z; stopped: 2026-10-03T19:23:04.346871Z; wall_seconds: 814.418404; exit: -15
+exact stopped PIDs: 56714 57060 84247
+excluded from benchmark because the requested fresh end-to-end runner replaces this partial direct-operation measurement
+
+=== FRESH END-TO-END RUN STARTED ===
+run_id: 20261003T152705-40063; run_group: rg-e71fcc7b986d; pid: 40063
+command: bin/vep -m ren.cli edit /tmp/vep-benchmark-current-head.q3obr_9g/001 --full-auto agent --rerun preflight --rerun semantic_analysis --rerun temporal_index --rerun edit --skip render --skip validate
+selected: 25/27 through compile_manifest; render and validate are skipped until the Resolve window is granted
+estimate from dry-run: 1589 selected seconds (not a measured duration)
+cache: semantic and temporal artifact caches cleared; 23 edit nodes reset; clone-private source-memory cache cleared
+still vision request answered from all five IMG_1807 frames: 11 entities; response validated by llm_handshake
+
+IMG_1808 detail still request: inspected both frames at 0s and 2s; answered with 7 entities. Response validated by llm_handshake; SHA256 5ae827cb335adf47ec8c9a3fef3530697abb8f84267d30f142392553168f3d20. The earlier main-stills response had already been consumed before its response bytes could be hashed; runner output confirms it accepted 8 entities.
+
+IMG_1809 main still request: inspected all seven frames (0.0-26.7s); answered with 17 entities. Response validated by llm_handshake; SHA256 fef8d6cea4ef4dcb72f451210a626cf0f9c1c6b74afd5019e522c19d6b8c9cc4.
+
+IMG_1810 main still request: inspected all three frames (0.0-7.8s); answered with 18 entities. Response validated by llm_handshake; SHA256 581d8ad29d91661ed94f35635d53781040981184b5601e0e21140e645ba415e3.
+
+IMG_1811 main still request: inspected all six frames (0.0-22.8s); answered with 21 entities. Response validated by llm_handshake; SHA256 c8de27a6f0d2edf4079bba52b54fd721de1376ad331fded1986049229aadc131.
+
+IMG_1812 main still request: inspected all 15 frames (0.0-70s of the 139s clip); answered with 11 entities. Response validated by llm_handshake; SHA256 911b5dca662a581a0e51b8568eb198af4c68d14e301aa63746044a2199b8e84e.
+
+IMG_1812 second still batch: inspected all 14 frames (75-139s); answered with 12 entities. Response validated by llm_handshake; SHA256 b28e2aa23aa68b24c19cbf8ad77b01ac0e037ebe39a341d96e4473808c8d87ce.
+
+IMG_1812 detail still request: inspected both frames at 0-2s; answered with 4 refined/new entities. Response validated by llm_handshake; SHA256 57175c22ffab9027638378fccbd5e8d89aa99d1c9b6e42c2d6e099fdb3b1bcd7.
+
+IMG_1812 detail still batch (38-57s): inspected all six frames; answered with 11 refined/new entities. Response validated by llm_handshake; SHA256 7ee245c4987fcd431b560fcb27bad554b8c1854056fba9e0c7713d8568c29be4.
+
+IMG_1812 detail still batch (38-57s): inspected all six frames; answered with 14 refined/new entities, including readable event-poster text. Response validated by llm_handshake; SHA256 1f0344428c5ed29ff83a877923252de022312877b444da24b0cca0340da328ca.
+
+IMG_1812 detail still follow-up (frames 14-19, requested span 38-57s): inspected all six frames; answered with 10 refined/new entities, including two signs with unreadable lettering. Response validated by llm_handshake; SHA256 16f7a92343081e66ceb1e20b2bf0f71e86d1daaa3e182cb1ef17c39e65152d45.
+
+IMG_1812 detail still single frame (20; requested span 38-57s): inspected; refined six visible entities. Response validated by llm_handshake; SHA256 07b7f198f3ef69dc36db9fa7f9db1cd0769e289f84c286864b2d1d8e7a606d12.
+
+IMG_1812 detail still batch (68-77s): inspected all six frames; answered with 11 refined/new entities, leaving mirrored facade lettering unreadable. Response validated by llm_handshake; SHA256 ce23058d524a6b8db5fb3a7a76eda4b1b502a73bdcc1fac76684ac69eaa43309.
+
+IMG_1812 detail still follow-up (68-77s, frames 27-29): inspected all three frames; answered with 5 visible entities, leaving mirrored lettering unreadable. Response validated by llm_handshake; SHA256 5a70eb4a6beebc5827ebaa095080b8957608a3029cf25e7e117c736656c990ce.
+
+IMG_1812 detail still batch (93-97s): inspected all four frames; answered with 7 refined/new entities. Response validated by llm_handshake; SHA256 0411167aed3b71802e9d49d464a2aaabaeff45c054e7c17f40fced5a22ecb565.
+
+IMG_1812 detail still batch (108-122s): inspected all six frames; answered with 8 refined/new entities, including the circular building logo and sunset. Response validated by llm_handshake; SHA256 e7bdf35b73ec9ad7ecb8e3eeccaaf2348241738fa70d22dc1ae873034f3363fb.
+
+IMG_1812 detail still follow-up (108-122s, frames 40-45): inspected all six frames; answered with 10 refined/new entities, including the red patio wall and string lights. Response validated by llm_handshake; SHA256 64f8a5c48952248ba1c1ef511e21de4c1b09e18937962d946a3d65001369d294.
+
+IMG_1812 detail still follow-up (108-122s, frames 46-47): inspected both frames; answered with 5 visible entities. Response validated by llm_handshake; SHA256 16a267374da3fb2ddefd8e44b4be1354534c96127ac35cad23707cbdeb36c683.
+
+IMG_1812 detail still batch (128-139s): inspected all six frames; answered with 10 refined/new entities, including the dome camera. Response validated by llm_handshake; SHA256 bee73aa80f8af043c5313b71167b21fc9ec798eabfc69b1869f7fcd022733ace.
+
+IMG_1812 detail still follow-up (128-139s, frames 54-58): inspected all five frames; answered with 9 visible entities, including the dome camera. Response validated by llm_handshake; SHA256 74c238acff69b3c90c1c4a851442f244229819c0b6da8f8a8608bea69216ac7c.
+
+IMG_1813 still request (frames at 0, 5, 9s): inspected all three frames; answered with 13 entities, transcribing only the clearly legible word “AMERICAN” from the window sign. Response validated by llm_handshake; SHA256 c792ca02b9fe88d5f6e6226a7354d078fbcbf1d92c410280eeab5280876b1b67.
+
+IMG_1814 still request (frames at 0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 45.8s): inspected all 11 frames; answered with 12 entities and left the mirrored neon, kiosk copy, A-frame lettering and parking placards unreadable. Response validated by llm_handshake; SHA256 0f023494ccdf503eddfe5b16a392feabac75a962bc69f5d709a59b5580a0c146.
+
+IMG_1815 still request (frames at 0, 5, 6.2s): inspected all three frames; answered with 16 entities, including brief white SUV and motorcyclist in the background. No small sign text was reliably legible. Response validated by llm_handshake; SHA256 3b4fce2b7f183c510184b03b8ede8c8381116cdf2a1b8f2618e02dff3b8aec02.
+
+IMG_1816 still request (frames at 0-70s in 5s increments): inspected all 15 frames; answered with 15 entities and transcribed the mirrored storefront name as THE WORKS after orientation inspection. Response validated by llm_handshake; SHA256 7eb1d0a737aa0768e539fc961af2217956731f3cd3073bb54f2aa5279331dd63.
+
+IMG_1816 still request (frames at 75-145s in 5s increments): inspected all 15 frames; answered with 18 entities, including one passing vehicle, a pedestrian, and the colorful storefront mural. Transcribed the venue name as THE WORKS; small ad copy and poster text remain unreadable. Response validated by llm_handshake; SHA256 8baa16d6c1eb5d1f3b3d4ef03d7420ba687e73a61c8fef1a220e056c478e1b3d.
+
+IMG_1816 still request (frames at 150, 155, 160, 165, 170, 175, 180, 185, 188.5s): inspected all nine frames; answered with 14 entities, including the subject's backpack, changed streetscape, parked vehicles, ad kiosk and multicolor wall mural. THE WORKS remains the only confidently readable sign text. Response validated by llm_handshake; SHA256 021792c3c9487781c31e86710a888d0bcb2f04e8ba6143ca2d88a63200d95e06.
+
+IMG_1816 detail still request (3-7s): inspected all four frames; refined 15 known entities, narrowing the background pedestrian to 4.3-7s and confirming the mirrored venue sign reads THE WORKS. Response validated by llm_handshake; SHA256 ea7956c72974c8af64e5c24dbade2c744fd4bf53135d5b3534a112dc8fad3248.
+
+IMG_1816 detail still request (103-127s): inspected all six frames; refined 16 known entities, narrowed the moving black sedan to this span, and confirmed THE WORKS lettering. Response validated by llm_handshake; SHA256 7e881788eef45c617850878a21d9b92492c9f6574116ea6a0737bbe2dbc82e97.
+
+IMG_1816 detail still follow-up (103-127s): inspected all six frames; refined 16 known entities, placing the black sedan passage at approximately 103-113s and confirming THE WORKS lettering. Response validated by llm_handshake; SHA256 18a4a76ecb78461fce9353065d501057a37a5171799cb83672df1be74569c131.
+
+IMG_1816 detail still follow-up (103-127s, frames 16-21): inspected all six frames; refined 16 entities, narrowed the pedestrian to approximately 115-125s, and confirmed THE WORKS lettering. Response validated by llm_handshake; SHA256 7189c13f81e17028b446c1739ee18e2705319595ae85fe6cc6ca092983886bab.
+
+IMG_1816 detail still follow-up (103-127s, frames 22-27): inspected all six frames; confirmed the existing plaza, vehicles, venue sign, kiosk and pedestrian. No additional entity; THE WORKS is the only confidently readable text. Response validated by llm_handshake; SHA256 fb640aded957a783212aaf1ac742b4babe7e9825aa3f364a632f18c3c24e5a2d.
+
+IMG_1816 detail stills (138-189s): inspected all six frames; placed the vehicles and plaza at the earlier end of the interval, and the colorful mural and backpack in the final walking frames. THE WORKS is the only confidently readable text. Response validated by llm_handshake; SHA256 8f444117d8f9c90a7551d6c0f97628554d26c08488885c96b77ce637618f2256.
+
+IMG_1816 detail still follow-up (138-189s, frames 34-39): inspected all six close walking frames; refined the mural, venue lettering and gray backpack appearances. No additional entity or legible small copy. Response validated by llm_handshake; SHA256 623ddf26ba9ed6f9f337c57078a0526dff11bb7b264ccaaf8ec438f9aa25cd89.
+
+IMG_1816 detail still follow-up (138-189s, frames 40-45): inspected all six close frames; confirmed the mural, A-frame, venue lettering and a clearly legible NIKE backpack patch. Response validated by llm_handshake; SHA256 386d9a68d76ffd8cc2774e5e2dd8ff1a09be8ea8994eaae87420a00eae1c173e.
+
+IMG_1816 detail still follow-up (138-189s, frames 46-51): inspected all six frames; confirmed NIKE backpack patch, mural and THE WORKS sign, and refined the late street/apartment, parked vehicles and streetlamps. Response validated by llm_handshake; SHA256 f4991d28549271b1167a094048641bc4f3ebeeb6f745329fcc15b885b4da3343.
+
+IMG_1816 detail still follow-up (138-189s, frames 52-57): inspected all six street-side frames; confirmed the apartment and brick buildings, parked vehicles, directory sign, landscaped beds, streetlamps, venue lighting and Nike backpack patch. Response validated by llm_handshake; SHA256 b9b4c5bc119b691f251ae8c85e8661d5c3b3c3f8a1e94c7f4844c7bf9bda76ac.
+
+IMG_1816 detail still follow-up (138-189s, frames 58-63): inspected all six street-side frames; refined apartment, brick building, vehicles, directory sign, handrails, landscaping and the Nike backpack patch. THE WORKS is the only confidently readable venue text. Response validated by llm_handshake; SHA256 f7d5bf6c6295ea90b2e82e932b7dde671fd5205a7fcd5d732903488de8dd3c5f.
+
+IMG_1816 detail still follow-up (138-189s, frames 64-69): inspected all six late walking frames; refined the parked dark Nissan, white SUV and white sedan, while confirming the street buildings, lights, landscaping, mural and Nike backpack patch. Response validated by llm_handshake; SHA256 a97a42a1503d5118833aeb9be0fd5bde1522016ea52cd56b9fb95458a1fc3654.
+
+IMG_1816 detail still follow-up (138-189s, frames 70-75): inspected all six late walking frames; confirmed the adjacent residential and commercial buildings, parked vehicles, lit streetlamps, landscaping and Nike patch. Response validated by llm_handshake; SHA256 e0e31fb46caf2494b1946b33ce4dbd79bf5a9dd3f98a62bee9c53e6a5e33be67.
+
+IMG_1816 detail still follow-up (138-189s, frames 76-77): inspected both closing frames; no additional entity, and confirmed the last close view against the apartment, commercial facade, curbside vehicles and backpack. Response validated by llm_handshake; SHA256 e305a5b84e83f9fb8db733bd6c518423522673f6013ac2d32006faf8e14be655.
+
+IMG_1817 main still request (frames at 0, 5, 10, 15, 20, 25, 30, 35, 40, 41.4s): inspected all 10 frames; answered with 8 entities. Mirrored storefront lettering and small street-banner text are not reliably legible. Response validated by llm_handshake; SHA256 435f541594daa751c90e513a08a5f4aa6377a40c5230fbcc2a6a902c7505d21a.
+
+IMG_1818 main still request (frames 0-70s in 5s steps): inspected all 15 frames; answered with 9 entities. Mirrored storefront lettering and small banner print were not confidently legible. Response validated by llm_handshake; SHA256 f425ccb9245b5381f855c53432a5424ba0162f0ad62a62dea1c160be10ee0523.
+
+IMG_1818 closing still follow-up (frames at 75, 80, 85, 85.4s): inspected all four frames; answered with 8 visible entities, including bollards, dumpsters, street sign, illuminated patio and a brief pedestrian. Small sign text remains unreadable. Response validated by llm_handshake; SHA256 6dbe000e691626095be6b9c5589220515d0ff9bc270906efa238179bbcc1027c.
+
+IMG_1818 detail still request (0-12s): inspected all six frames; refined 9 entities and transcribed the mirrored roadside sign as SPEED LIMIT 5. Response validated by llm_handshake; SHA256 0038d0c0e31177615676a8feba8b78455afd89e483845b9f1a6eb2b5ea59c0c0.
+
+IMG_1818 detail still follow-up (0-12s): inspected all six frames; refined 10 entities, transcribed the mirrored Clipper wordmark and the roadside SPEED LIMIT 5 sign, and identified a passing car and patio sandwich board. Response validated by llm_handshake; SHA256 9e597584558deb3e44f92d72f6bda63aba4617ca46984f84ce1cb5d2aa6b5d63.
+
+IMG_1818 detail still request (53-62s): inspected all six frames; refined the subject, storefronts and approaching silver SUV; confirmed the mirrored Clipper wordmark and SPEED LIMIT 5 sign. Response validated by llm_handshake; SHA256 2c4b8e40e4f60583c11837d2bf172a53e6e8970b3baa8f5076df464ffac4052f.
+
+IMG_1818 detail still follow-up (53-62s, final three images): inspected all three frames; identified a passing black sedan separately from the silver SUV and white car. Response validated by llm_handshake; SHA256 3888e9030d290ffe2ff93fa277f4b366afb08f840a09caa181047b9023ec5557.
+
+IMG_1818 closing detail still request (73-86s): inspected all six frames; refined the garage/driveway scene and transcribed PARKING and SPEED LIMIT 5 from mirrored signs. Response validated by llm_handshake; SHA256 32fa57a2ba572508743db6a0e73c8db3031503dd5eab026094cea735f864f4ab.
+
+IMG_1818 closing detail follow-up (73-86s, frames 27-32): inspected all six frames; refined parking garage facade and road markings, reconfirmed PARKING and SPEED LIMIT 5. Response validated by llm_handshake; SHA256 a37eeaada93e2a8a7358d0f9b98a8c1f3523a2af1b831610d7c6adeb41ba9337.
+
+IMG_1819 coarse still request (0-5s): inspected both frames; recorded the reflected subject, brick building, planting bed, dusk street, storefronts and blurred cars; no readable text. Response validated by llm_handshake; SHA256 98acdb0b8950be512f0280910eb2f4fd958de49b19e22bce8f89588728a0858d.
+
+IMG_1820 coarse still request (0-52.4s): inspected all 12 frames; logged the selfie subject, retail plaza, crosswalk, cars and landscaping. The mirrored green street sign reads Chattahoochee Row; the final frame is fully obscured by a finger. Response validated by llm_handshake; SHA256 9a7e6720adcc5679baec47d0df8f583b7b45f43304eeec18aa5d7cd130c98a9b.
+
+IMG_1820 detail still request (38-53s): inspected all six frames; refined the plaza and vehicle spans, added a red fire hydrant and streetlamp, and retained Chattahoochee Row as the only confidently readable text. Response validated by llm_handshake; SHA256 c28610df6de2a719c734ea3da01e85f122400d09e0e364c27da63e6b1d5ba763.
+
+IMG_1820 detail still follow-up (38-53s, frames 6-11): confirmed mirrored Scofflaw Brewing Co. lettering and Chattahoochee Row; a red STOP sign and the same gray SUV also appear in the closing street views. Response validated by llm_handshake; SHA256 ea63c2474d56642f437e45481c647dedd1fe6490b095c00402d0f3549725eaf0.
+
+IMG_1820 detail still follow-up (38-53s, frames 12-13): final frames show the subject raise a hand wearing a silver-faced dark-band watch before the lens is obscured. Response validated by llm_handshake; SHA256 3012ee87eae87f64cd79e5eda28e8ab69bcc83a3796dea25e92f1510445ef214.
+
+IMG_1821 coarse still request (0-41.8s): inspected all ten frames; logged the subject in a concrete parking garage, overhead lights and directional sign, cars, and column banners. A semantic video window at 10-20s failed JSON parsing after retry; retained as a benchmark failure with no fix. Still response validated by llm_handshake; SHA256 0d8ade000a3518e25eb97cdeb8a2242fdae91f91dfca2fae884a0a11b6ee151c.
+
+IMG_1821 detail still request (3-12s): inspected all six frames; refined garage/vehicle spans and read EXIT, 7 and an upward arrow on the green parking sign. Lettering on promotional banners remains unreadable. Response validated by llm_handshake; SHA256 87d3d4d313743c43c65f09f8326cc2b370c4294dcba1b7586dd223bacc9ad7f0.
+
+IMG_1821 detail still follow-up (3-12s, frames 6-8): inspected all three frames; confirmed EXIT, level 7 and the upward arrow, the striped entry barrier, and close parked cars. Response validated by llm_handshake; SHA256 00b7dcfd4911bb7f38e7f68805b96bc008297fea283f6a025bdae64f19a17c93.
+
+IMG_1821 detail still request (18-32s): inspected all six frames; refined spans for the black SUV and parked cars and added the dark mural with illegible writing. Response validated by llm_handshake; SHA256 f2ea3254b90d2ce71d4109228460031cfc49c642556c7db658a09a0b01ff8ce0.
+
+IMG_1821 detail still follow-up (18-32s, frames 15-20): inspected all six frames; confirmed parked black SUV and deeper light-colored cars; EXIT 7 sign reappears at the far end of the aisle. Response validated by llm_handshake; SHA256 8d68916a1b7bd16a2fa5b1ee60ae40a35fc6b4787d44a533d30b502e006272e9.
+
+IMG_1821 detail still follow-up (18-32s, frames 21-22): inspected both final frames in this detail range; no new entities, the subject remains in the garage scene. Response validated by llm_handshake; SHA256 8d68916a1b7bd16a2fa5b1ee60ae40a35fc6b4787d44a533d30b502e006272e9.
+IMG_1822 coarse still follow-up (75-85.7s): inspected all four remaining frames; the man, nearby car and concrete parking structure continue, with no new entities or readable text. Response validated by llm_handshake; SHA256 6e93da88e44529fdb318d404dea96e190df3ab665427800bdf3960ea036ba1d3.
+
+IMG_1822 detail still pass (0-2s): refined the speaker and car/garage descriptions; added the partly visible second person at the far-right edge and a red vehicle behind the car. No readable text. Response validated by llm_handshake; SHA256 00555bd8d4174bc5657e7a14d9e0676cdfb355b75f05b6074b12e258e2a78635.
+
+IMG_1822 coarse still pass (0-70s): inspected all 15 frames; identified the young man in a black cap and gray patterned shirt, a partially visible person at the far-right edge of the first frame, a black key fob and keys, a nearby dark car, and the concrete parking structure. No readable text. Response validated by llm_handshake; SHA256 12332bb62dc144d1fe41e40afa16df61dcd26d93f6a6b279125e63177fbeac10.
+
+IMG_1822 semantic window 60-70s returned a JSON parse failure after retry; no structured result was produced for that window. Recorded as observed, with no pipeline changes.
+
+Fresh semantic_analysis completed for 17 clips: vision child 7744.9s, step 7748.4s, 127 model calls, no profile skips. temporal_index began immediately after.
+
+
+
+## Fresh run checkpoint: preflight through current planning
+
+Run `20261003T152705-40063`, clone `/private/tmp/vep-benchmark-current-head.q3obr_9g/001`; measurements copied from its perf ledger and step outputs.
+
+- Semantic analysis: 7,748.333 s wall (7,744.9 s vision child), 17 clips, 127 model calls. Two video windows (IMG_1821 10-20s and IMG_1822 60-70s) returned JSON parse failures after retry; the step still completed.
+- Temporal index: 469.338 s; 17 clips indexed fresh, 0 failed, 0 reused. Saturation sampling emitted repeated NumPy invalid-divide warnings.
+- Prosody analysis: 6.294 s. Creative direction: 154.804 s.
+- Speech sequence: 373.622 s total, including one logged 300s agent-response timeout before retry; one host-model response took 70.610 s. Five passages total 58.123 s by selected source ranges; four anchors were `ok`, one was `held` with a 0.72s leading gap and 66.7% voiced fraction.
+- Music selection: 899.949 s total; two host responses took 86.662 s and 92.673 s, with two agent-response timeouts logged before completion. One measured-envelope second pass compared 60-120s and 120-180s of the selected instrumental; the 120-180s span was chosen. Music search returned 0 results in 0.94s.
+- Resolve remains untouched. `ren profile` at this checkpoint reports 0 leases, 0 refused, 0 blocked seconds, and null broker wait/hold percentiles because placement has not begun.
+
+
+
+=== CORRECTED WARM PRE-RESOLVE RUN ===
+run_id: 20261003T193708-77783
+command: bin/vep -m ren.cli edit /private/tmp/vep-benchmark-current-head.q3obr_9g/001 --full-auto agent --rerun preflight --rerun edit --skip render --skip validate
+started_utc: 2026-10-03T23:37:08.222Z (first capability)
+ended_utc: 2026-10-04T00:10:30.730Z (last capability)
+pre_resolve_wall_s: 2002.508
+phase spans from perf_ledger.jsonl:
+  semantic_analysis: 0.064 s; 17 clips; no model-attempt spans
+  temporal_index: 15.986 s; 17 indexed, 14 reused, 3 reindexed
+  planning: 1984.064 s (33m 4.064s), concurrent capability wall counted once
+  placement/render/final validate QA: intentionally skipped pending the next granted Resolve window
+run summary: PARTIAL by explicit skip; 25 capabilities completed, 0 failed, 0 outstanding failures; manifest compiled
+assets: subtitle renderer produced 32/32 overlays, 0 render failures; sampled subtitle visual QA PASS
+observations: main LLM handshakes for plan_transitions and color_grade timed out on their first 300s wait and succeeded on retry after responses; planning span includes those waits. Subtitle plan reports seven cards above the 25 chars/s reading target and one under 0.5s. Empty object_segmentation output emitted its expected-shape/semantic-empty warning. Final rendered-output QA has not run.
+input caveat: after the fresh placement refusal, project.yaml in the clone only was corrected to source.program_stream: 1 and the actual catalog step selected stereo AAC stream 1 for all 17 MOVs. The source project was unchanged. This warm run is not a strict identical-input rerun.
+raw source: clone pipeline_output/logs/perf_ledger.jsonl and current-head.jsonl warm_pre_resolve_phase_checkpoint
+
+=== Warm Resolve placement, render and final validation ===
+Measured checkout: d254af447c8c81e7afb0a84bb08bc7bc3cb0cb94
+Clone: /private/tmp/vep-benchmark-current-head.q3obr_9g/001
+Resolve project: VEP Benchmark 001 current-head disposable 20261003
+Warm render run: 20261003T204454-99183
+Command: bin/vep -m ren.cli edit <clone> --full-auto agent --rerun render --rerun validate
+Render capability: 114.579s wall; 37 pool items imported; H.264 MP4, 103,636,909 bytes, 59.967s, 1080x1920 at 30fps.
+Mastering: -14.39 LUFS, -1.31 dBTP. Resolve profile: 3 leases; wait p50/p95 0.002s/0.007s; hold p50/p95 10.916s/13.934s; 24.901s total hold; 9.202s broker render span.
+Broker KPI window 00:39:25Z-00:52:01Z, PID 26925: 10 jobs, 10 done, 0 failed; hold 26.787s (26.718s exclusive); wait p50/p95 0s/0.001s; hold p50/p95 0.018s/13.935s; broker render_s 0.
+Grant observation: queued notice at 00:12:14Z; grant at 00:28:43Z; 989s notice-to-grant, exact request-write time unavailable. Later setup errors delayed the actual Resolve work window; see JSONL.
+
+Validation run: 20261003T205935-78948
+Command: bin/vep -m ren.cli edit <clone> --full-auto agent --rerun validate --llm-timeout 240
+Environment for validation shell: RESOLVE_SCRIPT_API='/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting'; RESOLVE_SCRIPT_LIB='/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript.so'; PYTHONPATH had $RESOLVE_SCRIPT_API/Modules prepended.
+The first verify_timeline invocation lacked those variables and refused with no DaVinciResolveScript module. Retry passed all six timeline checks at 00:56:37Z. verify_render passed all eight file checks at 00:58:21Z; 59.967s duration against 60s target, 1080x1920, 30fps, -14.39 LUFS and -1.31 dBTP.
+Validate wall: 255.782s, of which 235.147s was host-model wait. The step returned FAILED after its visual review identified broad black matte above and below the central picture band in all eight strips; text was inside the frame, faces remained in frame, and no within-shot jumps were visible. Deterministic validation reported seven subtitle segments above 25 characters/second. Audio was measured but not auditioned. No product code was changed.
+
+Restore: loaded Podcast (field test), confirmed Reel 15 - the-3d-nail-art-salon-beats-the-chains, UID 11e9a51e-b19b-4adf-b9ce-99bcf0fe08bb, 33 timelines; deleted VEP Benchmark 001 current-head disposable 20261003 and confirmed it was absent from the project list. Broker PID 35560 stopped by exact PID; resolved status reported serving false.
