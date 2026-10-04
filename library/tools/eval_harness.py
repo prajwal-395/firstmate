@@ -5,6 +5,9 @@ firstmate's data dir): the 120 corpus requests (`eval_corpus`, board data
 verbatim) as fixtures; each run clones a pristine base (analysis done,
 paths rewritten), injects the request as a collected-style note, runs the
 edit stage, builds under the Resolve driver lock, and reads back.
+The default `edit-video` track reads the master; `reel-build` also runs
+the reels process in the same disposable Resolve project and reads its
+verified reel timelines.
 
 Two tracks are scored APART and three questions are never blended:
 
@@ -70,6 +73,9 @@ EDIT_RERUN_CHAIN = (
 EVAL_NOTE_SOURCE = "timeline_marker"
 
 OUTCOMES = ("followed", "part", "missed")
+TRACK_EDIT_VIDEO = "edit-video"
+TRACK_REEL_BUILD = "reel-build"
+REEL_EVAL_SUFFIX = "__REN_EVAL"
 
 
 # ── selection ────────────────────────────────────────────────────────
@@ -184,12 +190,21 @@ def normalise_readback(text: str, run_dir: str, timeline: str) -> str:
 
     Timeline names (`EVAL_<batch>`) and the run directory path differ by
     construction; without normalising, every line is a hunk and
-    broke-nothing can never be clean.
+    broke-nothing can never be clean. Resolve timeline ids, shadow
+    generations and capture timestamps also differ between disposable
+    projects without describing a reel change.
     """
     if run_dir:
         text = text.replace(run_dir, "<rundir>")
     text = re.sub(r"EVAL_[A-Za-z0-9_.-]+", "<evaltimeline>", text)
     text = re.sub(r"ren-eval-scratch-[A-Za-z0-9_.-]+", "<scratch>", text)
+    text = re.sub(
+        r"(?m)^(\s*(?:timeline_id|generation|verified_at):)\s*.*$",
+        r"\1 <evalmetadata>", text)
+    text = re.sub(
+        r'(?m)^(\s*"(?:timeline_id|generation|verified_at|unique_id|'
+        r'media_pool_item_id)"\s*:\s*).*(,?)$',
+        r'\1"<evalmetadata>"\2', text)
     return text
 
 
@@ -458,6 +473,8 @@ def render_request_report(request: dict, run_ledger: dict, measures: dict,
     lines += ["", (f"Run: {run_ledger.get('batch')} "
                    f"{run_ledger.get('timeline', '')} "
                    f"{run_ledger.get('finished_at', '')}.")]
+    if run_ledger.get("track"):
+        lines += [f"Eval track: {run_ledger['track']}."]
     return "\n".join(lines) + "\n"
 
 
@@ -662,8 +679,9 @@ def resolve_bracket_start(scratch: str) -> dict:
     Refuses a scratch name outside the eval prefix: the bracket deletes
     this project at the end, and it must never be the captain's. If
     opening or saving the scratch project fails after the captain was
-    saved, restore the captain and remove any partially created scratch
-    before raising the original failure.
+    saved, restore the captain's exact timeline identity, check the
+    timeline count, and remove any partially created scratch before
+    raising the original failure.
     """
     if not scratch.startswith(SCRATCH_PREFIX):
         raise ValueError(f"scratch project must start with "
@@ -694,12 +712,23 @@ def resolve_bracket_start(scratch: str) -> dict:
             raise RuntimeError(
                 "eval: the open captain project has no current timeline "
                 "to restore")
+        timeline_id = _timeline_unique_id(timeline)
+        if not timeline_id:
+            raise RuntimeError(
+                "eval: Resolve did not return a unique id for the open "
+                "captain timeline")
+        timeline_count = int(current.GetTimelineCount() or 0)
+        if timeline_count < 1:
+            raise RuntimeError(
+                "eval: the open captain project reports no timelines")
         if not manager.SaveProject():
             raise RuntimeError(
                 f"eval: could not save open project {current.GetName()!r}")
         state = {
             "project": current.GetName(),
             "timeline": timeline.GetName(),
+            "timeline_id": timeline_id,
+            "timeline_count": timeline_count,
             "saved": True,
         }
         listed = manager.GetProjectListInCurrentFolder() or []
@@ -725,6 +754,7 @@ def resolve_bracket_start(scratch: str) -> dict:
                 from start_error
         if (not restored.get("project_restored")
                 or not restored.get("timeline_restored")
+                or not restored.get("timeline_count_restored")
                 or restored.get("scratch_deleted") is False):
             raise RuntimeError(
                 f"eval: opening scratch project {scratch} failed with "
@@ -738,7 +768,7 @@ def resolve_bracket_start(scratch: str) -> dict:
 
 
 def resolve_bracket_end(scratch: str, state: dict) -> dict:
-    """Restore the captain's project and timeline, delete the scratch."""
+    """Restore the exact captain timeline, verify its count, delete scratch."""
     if not scratch.startswith(SCRATCH_PREFIX):
         raise ValueError(f"refusing to delete non-scratch project: {scratch}")
     from library.tools.marker_feedback import connect_resolve
@@ -751,28 +781,63 @@ def resolve_bracket_end(scratch: str, state: dict) -> dict:
         if current and current.GetName() == scratch:
             manager.SaveProject()
         project_name = state.get("project")
-        if not project_name or not state.get("timeline"):
+        timeline_name = state.get("timeline")
+        timeline_id = state.get("timeline_id")
+        timeline_count = state.get("timeline_count")
+        if not project_name or not timeline_name or not timeline_id:
             raise RuntimeError(
-                "eval: no saved captain project and timeline to restore")
+                "eval: no saved captain project and timeline identity to "
+                "restore")
         back = (current if current and current.GetName() == project_name
                 else manager.LoadProject(project_name))
+        project_restored = bool(
+            back and back.GetName() == project_name)
         timeline_ok = False
-        if back:
+        restored_timeline = None
+        restored_timeline_id = ""
+        restored_timeline_count = None
+        timeline_count_ok = False
+        if project_restored:
+            restored_timeline_count = int(back.GetTimelineCount() or 0)
+            timeline_count_ok = restored_timeline_count == int(timeline_count)
             for index in range(1, (back.GetTimelineCount() or 0) + 1):
                 candidate = back.GetTimelineByIndex(index)
-                if candidate.GetName() == state["timeline"]:
+                if _timeline_unique_id(candidate) == timeline_id:
                     with cursor_fence(
                             back, candidate,
-                            f"restore eval timeline {state['timeline']}"):
+                            f"restore eval timeline {timeline_name}"):
                         pass
-                    timeline_ok = True
+                    restored_timeline = back.GetCurrentTimeline()
+                    restored_timeline_id = _timeline_unique_id(
+                        restored_timeline) if restored_timeline else ""
+                    timeline_ok = (bool(restored_timeline)
+                                   and restored_timeline.GetName()
+                                   == timeline_name
+                                   and restored_timeline_id == timeline_id)
                     break
         deleted = (manager.DeleteProject(scratch)
                    if scratch in (manager.GetProjectListInCurrentFolder()
                                   or [])
                    else "absent")
-    return {"project_restored": bool(back), "timeline_restored": timeline_ok,
-            "scratch_deleted": deleted}
+    return {
+        "project_restored": project_restored,
+        "timeline_restored": timeline_ok,
+        "timeline_count_restored": timeline_count_ok,
+        "scratch_deleted": deleted,
+        "restored_project": (back.GetName() if project_restored else ""),
+        "restored_timeline": (restored_timeline.GetName()
+                              if restored_timeline else ""),
+        "restored_timeline_id": restored_timeline_id,
+        "restored_timeline_count": restored_timeline_count,
+    }
+
+
+def _timeline_unique_id(timeline) -> str:
+    """Return Resolve's unique timeline identity, or an empty string."""
+    try:
+        return str(timeline.GetUniqueId() or "")
+    except Exception:  # noqa: BLE001 - Resolve proxy errors are not typed
+        return ""
 
 
 # ── the run loop ─────────────────────────────────────────────────────
@@ -1405,6 +1470,100 @@ def run_pipeline_render(project_dir: str, log_path: str,
     return {"process_exit": proc.returncode, **ledger, **checked}
 
 
+def run_pipeline_reel_build(project_dir: str, log_path: str,
+                            only_reels=()) -> dict:
+    """Build approved reels into the eval's disposable Resolve project.
+
+    The master is already rendered by `run_pipeline_render`. A fixed
+    name suffix keeps this replay separate from a project's approved
+    timeline names, and `--rebuild-all` makes each baseline/request pair
+    exercise the reel placer instead of inheriting a freshness decision.
+    """
+    argv = [str(VEP), str(MANAGE_PROJECT), "build-reels", project_dir,
+            "--rebuild-all", "--name-suffix", REEL_EVAL_SUFFIX]
+    for number in only_reels:
+        argv += ["--only-reel", str(int(number))]
+    try:
+        proc = subprocess.run(
+            argv, capture_output=True, check=False, encoding="utf-8",
+            stdin=subprocess.DEVNULL, timeout=3600, cwd=str(REPO_ROOT))
+    except subprocess.TimeoutExpired as exc:
+        log = Path(log_path)
+        stdout = exc.stdout or ""
+        stderr = exc.stderr or ""
+        if isinstance(stdout, bytes):
+            stdout = stdout.decode("utf-8", errors="replace")
+        if isinstance(stderr, bytes):
+            stderr = stderr.decode("utf-8", errors="replace")
+        log.write_text(stdout + stderr, encoding="utf-8")
+        raise RuntimeError(
+            f"eval: reel-build stage timed out after 3600 seconds; "
+            f"see {log}") from exc
+    log = Path(log_path)
+    log.write_text(proc.stdout + proc.stderr, encoding="utf-8")
+    if proc.returncode:
+        raise RuntimeError(
+            f"eval: reel-build stage exited {proc.returncode}; see {log}")
+    return {"process_exit": proc.returncode,
+            "rebuild_all": True,
+            "only_reels": [int(number) for number in only_reels]}
+
+
+def verified_reel_timeline_names(project_dir: str) -> list[str]:
+    """Read the reel process's own verified timeline names from its ledger."""
+    from library.tools import capability_outputs
+    from library.tools.project_layout import ProjectLayout
+
+    state_path = ProjectLayout(project_dir).pipeline_data_path
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    verification = capability_outputs.read(state, "reel.verify")[
+        "reel_verification"]
+    return sorted(verification["timelines_verified"])
+
+
+def readback_reel_timelines(scratch: str, timelines: list[str],
+                            out_dir: Path, project_dir: str) -> str:
+    """Read each verified reel and write one comparable eval readback.
+
+    Reel structure comes from the single reader (`reel_read`), including
+    its clip CDL and node LUT state; Resolve's audio reader adds the
+    voice-isolation state that reader does not expose.
+    """
+    sections = []
+    for index, timeline in enumerate(timelines, start=1):
+        path = out_dir / f"readback.reel-{index:03d}.txt"
+        reel = subprocess.run(
+            [str(VEP), "-m", "library.tools.reel_read",
+             "--timeline", timeline, "--project", scratch,
+             "--project-folder", project_dir, "--out", str(path)],
+            capture_output=True, check=False, encoding="utf-8",
+            stdin=subprocess.DEVNULL, timeout=600, cwd=str(REPO_ROOT))
+        if reel.returncode:
+            diagnostic = reel.stdout + reel.stderr
+            path.write_text(diagnostic, encoding="utf-8")
+            raise RuntimeError(
+                f"eval: reel_read failed for {timeline!r} "
+                f"({reel.returncode}); see {path}: {diagnostic.strip()}")
+        audio = subprocess.run(
+            [str(RESOLVE_AXI), "audio", "--project", scratch,
+             "--timeline", timeline, "--full"],
+            capture_output=True, check=False, encoding="utf-8",
+            stdin=subprocess.DEVNULL, timeout=600, cwd=str(REPO_ROOT))
+        audio_path = out_dir / f"readback.reel-{index:03d}.audio.txt"
+        audio_path.write_text(audio.stdout + audio.stderr, encoding="utf-8")
+        if audio.returncode:
+            raise RuntimeError(
+                f"eval: audio readback failed for {timeline!r} "
+                f"({audio.returncode}); see {audio_path}")
+        sections.append(
+            f"## Timeline {json.dumps(timeline, ensure_ascii=False)}\n"
+            f"{path.read_text(encoding='utf-8')}\n"
+            f"## Audio\n{audio.stdout}{audio.stderr}\n")
+    combined = out_dir / "readback.txt"
+    combined.write_text("\n".join(sections), encoding="utf-8")
+    return str(combined)
+
+
 def readback_timeline(scratch: str, timeline: str, out_path: str) -> str:
     """Read the built timeline back: items, fusion, audio, markers."""
     out: list = []
@@ -1855,13 +2014,22 @@ def run_request(request: dict | None, base: str, out_dir: str, batch: str,
                 base_readback: str = "", base_export: str = "",
                 answers_src: str = "", extra_rewrites: tuple = (),
                 force: bool = False,
-                answer_timeout_seconds: int = 3 * 3600) -> dict:
+                answer_timeout_seconds: int = 3 * 3600,
+                track: str = TRACK_EDIT_VIDEO,
+                only_reels=()) -> dict:
     """One request end to end. Returns the run ledger; writes measures plus
     the judgement template. The judgement itself is the operator's.
 
     `request=None` builds the base reference: no note is injected and no
     judgement template is written.
     """
+    if track not in {TRACK_EDIT_VIDEO, TRACK_REEL_BUILD}:
+        raise ValueError(f"unknown eval track: {track!r}")
+    if track == TRACK_EDIT_VIDEO and only_reels:
+        raise ValueError("--only-reel requires the reel-build track")
+    if track == TRACK_REEL_BUILD and not only_reels:
+        raise ValueError(
+            "--track reel-build requires at least one --only-reel")
     request_id = request["id"] if request else "BASE"
     out = Path(out_dir) / request_id
     if out.exists():
@@ -1870,6 +2038,7 @@ def run_request(request: dict | None, base: str, out_dir: str, batch: str,
         shutil.rmtree(out)
     out.mkdir(parents=True)
     ledger: dict = {"request_id": request_id, "batch": batch,
+                    "track": track,
                     "started_at": _dt.datetime.now(
                         _dt.UTC).isoformat()}
     clone = clone_base(base, str(out / "run"), batch,
@@ -1938,22 +2107,43 @@ def run_request(request: dict | None, base: str, out_dir: str, batch: str,
                     ledger["invalidated_cached_answers"] = sorted(set(
                         ledger["invalidated_cached_answers"])
                         | set(build.get("invalidated_cached_answers", [])))
-                    timeline = _built_timeline_name(
-                        out / "build.log", clone["timeline"])
-                    ledger["timeline"] = timeline
-                    readback_timeline(scratch, timeline,
-                                      str(out / "readback.txt"))
-                    ledger["export"] = find_export(clone["dest"])
+                    if track == TRACK_REEL_BUILD:
+                        ledger["reel_build"] = run_pipeline_reel_build(
+                            clone["dest"], str(out / "reel-build.log"),
+                            only_reels=only_reels)
+                        timelines = verified_reel_timeline_names(
+                            clone["dest"])
+                        if not timelines:
+                            raise RuntimeError(
+                                "eval: reel-build stage verified no reel "
+                                "timelines")
+                        ledger["timelines"] = timelines
+                        ledger["timeline"] = ", ".join(timelines)
+                        readback_reel_timelines(
+                            scratch, timelines, out, clone["dest"])
+                        # Reel builds land Resolve timelines; `deliver-reel`
+                        # owns export creation. Do not score the master
+                        # export as if it represented the reel track.
+                        ledger["export"] = ""
+                    else:
+                        timeline = _built_timeline_name(
+                            out / "build.log", clone["timeline"])
+                        ledger["timeline"] = timeline
+                        readback_timeline(scratch, timeline,
+                                          str(out / "readback.txt"))
+                        ledger["export"] = find_export(clone["dest"])
                 finally:
                     ledger["restore"] = resolve_bracket_end(scratch,
                                                             captain)
                     restore = ledger["restore"]
                     if (not restore.get("project_restored")
                             or not restore.get("timeline_restored")
+                            or not restore.get("timeline_count_restored")
                             or restore.get("scratch_deleted") is False):
                         raise RuntimeError(
                             "eval: Resolve session did not restore the "
-                            "captain's project and timeline cleanly: "
+                            "captain's project, timeline identity and "
+                            "timeline count cleanly: "
                             f"{restore}")
             finally:
                 release_resolve_lock()
@@ -2015,7 +2205,11 @@ def build_measures(request_id: str, out: Path, base_readback: str,
     else:
         measures["frames"] = {
             "measured": False,
-            "reason": "no base export: pass --base-export or build it first"}
+            "reason": (
+                "reel-build track compares Resolve timeline readbacks; "
+                "it does not deliver reel exports"
+                if ledger.get("track") == TRACK_REEL_BUILD else
+                "no base export: pass --base-export or build it first")}
         measures["lufs"] = measures["frames"]
     return measures
 
@@ -2084,11 +2278,17 @@ def howto_text() -> str:
 
 Per rung (after the rung lands, on a machine with Resolve standing by):
   ren eval run --base <pristine-base> --out <eval-dir> --rung 7
+  ren eval run --track reel-build --base <podcast-base> \
+    --out <podcast-rung8-eval> --rung 8 --only-reel 1
   # The host model answers each NEEDS BRAIN request from that request's
   # prompt and context. Without --answers, every model step is asked.
   # Optional: --answers <base-answers-dir> reuses stored answers. Answers
   # for translated edit owners and their dependents are invalidated
   # automatically; remove another answer file to force it to be fresh.
+  # reel-build also renders the master, builds approved reels with a
+  # disposable name suffix, and compares their verified timeline readbacks.
+  # --only-reel is required on this track to bound Resolve/media work;
+  # repeat it to include more approved reels.
   ren eval finalize --out <eval-dir> --request <id>   # per request, after judging
   ren eval report --out <eval-dir>                    # REPORT.md + domain x level
 
@@ -2129,6 +2329,15 @@ def build_parser() -> argparse.ArgumentParser:
     _add_filters(runner)
     runner.add_argument("--base", required=True,
                         help="pristine base project (analysis done)")
+    runner.add_argument(
+        "--track", choices=(TRACK_EDIT_VIDEO, TRACK_REEL_BUILD),
+        default=TRACK_EDIT_VIDEO,
+        help="what to build and read back (default: edit-video; "
+             "reel-build runs the reels process after the master build)")
+    runner.add_argument(
+        "--only-reel", type=int, action="append", default=[], metavar="N",
+        help="with --track reel-build, build only this approved reel; "
+             "repeatable. Required with that track")
     runner.add_argument("--out", required=True, help="eval dir (new)")
     runner.add_argument("--batch", default="",
                         help="batch tag (default: UTC stamp)")
@@ -2224,6 +2433,25 @@ def main(argv=None) -> int:
         if not requests and not args.base_only:
             print("eval: filter selects nothing", file=sys.stderr)
             return 2
+        if args.track == TRACK_EDIT_VIDEO and args.only_reel:
+            print("eval: --only-reel requires --track reel-build",
+                  file=sys.stderr)
+            return 2
+        if args.track == TRACK_REEL_BUILD and not args.only_reel:
+            print("eval: --track reel-build requires at least one "
+                  "--only-reel to bound Resolve/media work",
+                  file=sys.stderr)
+            return 2
+        stored_base = Path(args.out) / "base.json"
+        if stored_base.is_file():
+            stored_track = json.loads(
+                stored_base.read_text(encoding="utf-8")).get(
+                    "track", TRACK_EDIT_VIDEO)
+            if stored_track != args.track:
+                print(f"eval: --out already contains a {stored_track} "
+                      f"base reference; use another --out for "
+                      f"{args.track}", file=sys.stderr)
+                return 2
         batch = args.batch or _dt.datetime.now(
             _dt.UTC).strftime("%Y%m%dT%H%M%S")
         out = Path(args.out)
@@ -2244,19 +2472,22 @@ def main(argv=None) -> int:
             ledger = run_request(None, args.base, str(out), batch,
                                  answers_src=args.answers,
                                  extra_rewrites=tuple(rewrites),
-                                 force=args.force)
+                                 force=args.force, track=args.track,
+                                 only_reels=args.only_reel)
             base_readback = str(out / "BASE" / "readback.txt")
             base_export = ledger.get("export", "")
             (out / "base.json").write_text(json.dumps(
                 {"readback": base_readback,
-                 "export": base_export}, indent=2) + "\n",
+                 "export": base_export, "track": args.track},
+                indent=2) + "\n",
                 encoding="utf-8")
         else:
             stored = out / "base.json"
             if not stored.is_file():
                 stored.write_text(json.dumps(
                     {"readback": base_readback,
-                     "export": base_export}, indent=2) + "\n",
+                     "export": base_export, "track": args.track},
+                    indent=2) + "\n",
                     encoding="utf-8")
         if args.base_only:
             print(f"eval: base reference ready: {base_readback} "
@@ -2270,7 +2501,8 @@ def main(argv=None) -> int:
                             base_export=base_export,
                             answers_src=args.answers,
                             extra_rewrites=tuple(rewrites),
-                            force=args.force)
+                            force=args.force, track=args.track,
+                            only_reels=args.only_reel)
             except Exception as exc:  # noqa: BLE001 - keep running other selected requests
                 print(f"eval: {request['id']} FAILED: {exc}",
                       file=sys.stderr)

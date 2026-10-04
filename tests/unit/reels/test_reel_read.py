@@ -258,10 +258,52 @@ def test_one_read_carries_every_marker_level_and_the_clips(tmp_path):
     assert (clip["record_in"], clip["record_out"]) == (108100, 108300)
     assert clip["source_file"] == "/footage/speakertwo.mov"
     assert clip["transform"]["ZoomX"] == 1.0
+    assert clip["color"]["luts"] is None
     assert clip["fusion"] == {"comp_count": 0, "comp_names": [],
                               "media_windows": []}
     assert result["fps"] == 24
     assert (result["width"], result["height"]) == (1080, 1920)
+
+
+def test_one_read_records_assigned_node_luts(tmp_path):
+    timeline, project_folder = _reel(tmp_path)
+    clip = timeline._tracks["video"]["V1"][0]
+
+    class NodeGraph:
+        def GetNumNodes(self):
+            return 3
+
+        def GetLUT(self, node):
+            return {2: "Film Looks/Soft.cube"}.get(node, "")
+
+    clip.GetNodeGraph = lambda: NodeGraph()
+    result = reel_read.read_reel(
+        timeline, "Pipeline_Edit", project_folder=project_folder,
+        resolve_project=_Project(timeline))
+
+    assert reel_read.clips_of(result)[0]["color"]["luts"] == [
+        {"node": 2, "path": "Film Looks/Soft.cube"}]
+
+
+def test_one_read_refuses_a_partial_node_lut_read(tmp_path):
+    timeline, project_folder = _reel(tmp_path)
+    clip = timeline._tracks["video"]["V1"][0]
+
+    class BrokenNodeGraph:
+        def GetNumNodes(self):
+            return 2
+
+        def GetLUT(self, node):
+            if node == 2:
+                raise RuntimeError("node graph went away")
+            return ""
+
+    clip.GetNodeGraph = lambda: BrokenNodeGraph()
+    with pytest.raises(reel_read.ReelReadError,
+                       match="refusing to report partial color state"):
+        reel_read.read_reel(
+            timeline, "Pipeline_Edit", project_folder=project_folder,
+            resolve_project=_Project(timeline))
 
 
 def test_noncurrent_transform_read_restores_each_axis_to_target_units():

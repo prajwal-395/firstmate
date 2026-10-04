@@ -27,9 +27,9 @@ because six overlapping ways to read one reel's state exist:
 Nothing answered "tell me everything true about this reel right now" in
 one call. This module is that call: `read_reel` returns the timeline and
 its bin, every clip on every track with ranges, source ranges and
-transforms, every marker at every level, the Fusion elements present,
-and where overlay ink actually lands. Where a caller needs a slice, it
-takes a slice of this result - see `clips_of`, `markers_of`,
+transforms, CDL and node LUTs, every marker at every level, the Fusion
+elements present, and where overlay ink actually lands. Where a caller
+needs a slice, it takes a slice of this result - see `clips_of`, `markers_of`,
 `fusion_of`, `rows_of`, `overlays_of`.
 
 Consolidation, not a seventh reader: the marker half IS
@@ -432,6 +432,35 @@ def _call(obj, name: str, default, *args):
     return _safe(default, fn, *args)
 
 
+def _node_luts(item) -> list[dict] | None:
+    """Read every assigned node LUT; `None` means Resolve did not expose it."""
+    graph = _call(item, "GetNodeGraph", None)
+    if graph is None:
+        return None
+    try:
+        count = int(graph.GetNumNodes())
+    except Exception as unreadable:
+        raise ReelReadError(
+            f"the node graph on {item.GetName()!r} could not be counted "
+            f"({unreadable}); refusing to report partial color state.") \
+            from unreadable
+    if count < 0:
+        raise ReelReadError(
+            f"the node graph on {item.GetName()!r} reported {count} nodes.")
+    luts = []
+    for node in range(1, count + 1):
+        try:
+            path = graph.GetLUT(node)
+        except Exception as unreadable:
+            raise ReelReadError(
+                f"the LUT on node {node} of {item.GetName()!r} could not "
+                f"be read ({unreadable}); refusing to report partial "
+                f"color state.") from unreadable
+        if path:
+            luts.append({"node": node, "path": str(path)})
+    return luts
+
+
 def clip_detail(item, track_type: str, track_index: int,
                 track_name: str = "") -> dict:
     """Everything true about one timeline item, as plain data.
@@ -499,6 +528,7 @@ def clip_detail(item, track_type: str, track_index: int,
         "color": {
             "cdl": dict(_call(item, "GetCDL", {}) or {}),
             "color_group": _call(item, "GetColorGroup", ""),
+            "luts": _node_luts(item),
         },
         "markers": [
             {

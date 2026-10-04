@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 from contextlib import contextmanager
 from pathlib import Path
@@ -181,6 +182,73 @@ def test_readback_normalisation_compares_two_clones(tmp_path):
         {"clone": {"base": str(tmp_path / "pristine-base"),
                    "dest": str(run_project)}})
     assert measures["hunks"] == []
+
+
+def test_readback_normalisation_drops_resolve_capture_identity():
+    """Disposable reel timelines do not diff on generated identity fields."""
+    base = ("timeline_id: reel-id-base\n"
+            "generation: 2\n"
+            "verified_at: 2026-10-04T12:00:00+00:00\n"
+            "V1 clip_017 987-1204\n")
+    run = ("timeline_id: reel-id-run\n"
+           "generation: 5\n"
+           "verified_at: 2026-10-04T12:14:00+00:00\n"
+           "V1 clip_017 987-1204\n")
+    base_normalised = eval_harness.normalise_readback(base, "", "")
+    run_normalised = eval_harness.normalise_readback(run, "", "")
+    assert base_normalised == run_normalised
+    assert "V1 clip_017 987-1204" in run_normalised
+    json_base = ('{\n  "timeline_id": "timeline-base",\n'
+                 '  "unique_id": "clip-base",\n'
+                 '  "generation": 2,\n'
+                 '  "verified_at": "12:00",\n'
+                 '  "media_pool_item_id": "pool-base",\n'
+                 '  "record_in": 12\n}\n')
+    json_run = ('{\n  "timeline_id": "timeline-run",\n'
+                '  "unique_id": "clip-run",\n'
+                '  "generation": 8,\n'
+                '  "verified_at": "12:14",\n'
+                '  "media_pool_item_id": "pool-run",\n'
+                '  "record_in": 12\n}\n')
+    assert eval_harness.normalise_readback(json_base, "", "") == \
+        eval_harness.normalise_readback(json_run, "", "")
+
+
+def test_reel_readback_uses_one_reel_reader_and_audio_isolation(
+        tmp_path, monkeypatch):
+    """Reel evidence includes the canonical snapshot and audio isolation."""
+    calls = []
+
+    def fake_run(argv, **kwargs):
+        calls.append((argv, kwargs))
+        if argv[0] == str(eval_harness.VEP):
+            output = Path(argv[argv.index("--out") + 1])
+            output.write_text(json.dumps({
+                "timeline": "Reel 02__REN_EVAL",
+                "tracks": [{"clips": [{"color": {"cdl": {
+                    "saturation": 0.9}}}]}],
+                "timeline_id": "volatile-id",
+            }, indent=2) + "\n", encoding="utf-8")
+            return subprocess.CompletedProcess(
+                argv, 0, "", "")
+        return subprocess.CompletedProcess(
+            argv, 0, "voice_isolation: 40\n", "")
+
+    monkeypatch.setattr(eval_harness.subprocess, "run", fake_run)
+    readback = eval_harness.readback_reel_timelines(
+        "ren-eval-scratch-T1", ["Reel 02__REN_EVAL"], tmp_path,
+        str(tmp_path / "project"))
+
+    text = Path(readback).read_text(encoding="utf-8")
+    assert '"saturation": 0.9' in text
+    assert "voice_isolation: 40" in text
+    assert calls[0][0][1:3] == ["-m", "library.tools.reel_read"]
+    assert calls[0][0][calls[0][0].index("--project-folder") + 1] == \
+        str(tmp_path / "project")
+    assert calls[1][0][1:2] == ["audio"]
+    assert calls[1][0][-1] == "--full"
+    assert all(call[1]["timeout"] == 600 for call in calls)
+    assert all(call[1]["encoding"] == "utf-8" for call in calls)
 
 
 def test_frame_stats_selects_video_dimensions_from_ffprobe_json(monkeypatch):
@@ -871,6 +939,9 @@ def test_eval_bracket_switch_and_timeline_restore_use_resolve_guards(
         def GetName(self):
             return self.name
 
+        def GetUniqueId(self):
+            return "timeline-id-1"
+
     class Project:
         def __init__(self, name, timeline=None):
             self.name = name
@@ -944,7 +1015,9 @@ def test_eval_bracket_switch_and_timeline_restore_use_resolve_guards(
 
     saved = eval_harness.resolve_bracket_start(scratch)
     assert saved == {"project": "captain project",
-                     "timeline": "captain timeline", "saved": True}
+                     "timeline": "captain timeline",
+                     "timeline_id": "timeline-id-1",
+                     "timeline_count": 1, "saved": True}
     assert events.index("save:captain project") < events.index(
         f"create:{scratch}")
     assert events.index(f"lease:open eval scratch {scratch}") < events.index(
@@ -953,7 +1026,12 @@ def test_eval_bracket_switch_and_timeline_restore_use_resolve_guards(
     restored = eval_harness.resolve_bracket_end(scratch, saved)
     assert restored == {"project_restored": True,
                         "timeline_restored": True,
-                        "scratch_deleted": True}
+                        "timeline_count_restored": True,
+                        "scratch_deleted": True,
+                        "restored_project": "captain project",
+                        "restored_timeline": "captain timeline",
+                        "restored_timeline_id": "timeline-id-1",
+                        "restored_timeline_count": 1}
     assert manager.current is captain
     assert captain.current_timeline is timeline
     assert "fence:restore eval timeline captain timeline" in events
@@ -981,6 +1059,9 @@ def test_eval_bracket_start_failure_restores_captain_and_removes_scratch(
 
         def GetName(self):
             return self.name
+
+        def GetUniqueId(self):
+            return "timeline-id-1"
 
     class Project:
         def __init__(self, name, timeline=None):
@@ -1184,6 +1265,7 @@ def test_run_serializes_model_decisions_and_resolve_build(
     monkeypatch.setattr(eval_harness, "resolve_bracket_end",
                         lambda *args: events.append("restore-and-delete") or {
                             "project_restored": True, "timeline_restored": True,
+                            "timeline_count_restored": True,
                             "scratch_deleted": True})
     monkeypatch.setattr(eval_harness, "release_resolve_lock",
                         lambda: events.append("unlock"))
@@ -1214,6 +1296,174 @@ def test_run_serializes_model_decisions_and_resolve_build(
                                  "T1")
     assert events == ["note", "quiet", "heavy-lock", "translate", "edit",
                       "heavy-unlock"]
+
+
+def test_reel_build_track_builds_and_reads_verified_reels(
+        tmp_path, monkeypatch):
+    """The reel track must score the verified reels, not the master.
+
+    Catches: `ren eval --track reel-build` stopping after the edit-video
+    master render or measuring the master's export as reel evidence.
+    """
+    events = []
+    out = tmp_path / "eval"
+    base = tmp_path / "base"
+    dest = out / "BASE" / "run"
+
+    def clone(base_arg, dest_arg, batch, extra_rewrites=()):
+        Path(dest_arg).mkdir(parents=True)
+        return {"base": str(base), "dest": str(dest),
+                "timeline": "EVAL_T1", "answers": str(dest / "eval_answers")}
+
+    monkeypatch.setattr(eval_harness, "clone_base", clone)
+    monkeypatch.setattr(eval_harness, "wait_for_quiet",
+                        lambda: events.append("quiet"))
+    monkeypatch.setattr(eval_harness, "take_heavy_lock",
+                        lambda *args: events.append("heavy-lock"))
+    monkeypatch.setattr(eval_harness, "release_heavy_lock",
+                        lambda: events.append("heavy-unlock"))
+    monkeypatch.setattr(eval_harness, "run_pipeline_edit",
+                        lambda *args, **kwargs: events.append("edit") or {
+                            "run_status": "SUCCESS"})
+    monkeypatch.setattr(eval_harness, "take_resolve_lock",
+                        lambda *args: events.append("resolve-lock"))
+    monkeypatch.setattr(eval_harness, "release_resolve_lock",
+                        lambda: events.append("resolve-unlock"))
+
+    @contextmanager
+    def resolve_lease(*args, **kwargs):
+        events.append("resolve-lease")
+        try:
+            yield None
+        finally:
+            events.append("resolve-release")
+
+    monkeypatch.setattr(eval_harness, "resolve_lease", resolve_lease)
+    monkeypatch.setattr(eval_harness, "resolve_bracket_start",
+                        lambda *args: events.append("open-scratch") or {
+                            "project": "captain", "timeline": "master"})
+    monkeypatch.setattr(eval_harness, "run_pipeline_render",
+                        lambda *args: events.append("master-build") or {
+                            "run_status": "SUCCESS"})
+    monkeypatch.setattr(
+        eval_harness, "run_pipeline_reel_build",
+        lambda *args, **kwargs: events.append("reel-build") or {
+            "process_exit": 0, "only_reels": [2]})
+    monkeypatch.setattr(eval_harness, "verified_reel_timeline_names",
+                        lambda *args: ["Reel 02__REN_EVAL"])
+
+    def readback(scratch, timelines, out_dir, project_dir):
+        events.append(("readback-reels", timelines))
+        assert project_dir == str(dest)
+        (out_dir / "readback.txt").write_text("reel pixels/effects\n",
+                                               encoding="utf-8")
+
+    monkeypatch.setattr(eval_harness, "readback_reel_timelines", readback)
+    monkeypatch.setattr(eval_harness, "find_export",
+                        lambda *args: pytest.fail(
+                            "reel-build track must not score master export"))
+    monkeypatch.setattr(eval_harness, "resolve_bracket_end",
+                        lambda *args: events.append("restore-scratch") or {
+                            "project_restored": True,
+                            "timeline_restored": True,
+                            "timeline_count_restored": True,
+                            "scratch_deleted": True})
+    monkeypatch.setattr(eval_harness, "build_measures",
+                        lambda request_id, out_dir, base_readback,
+                        base_export, ledger: events.append(
+                            ("measures", ledger["track"], base_export)) or {
+                                "hunks": []})
+
+    ledger = eval_harness.run_request(
+        None, str(base), str(out), "T1", track=eval_harness.TRACK_REEL_BUILD,
+        only_reels=[2])
+
+    assert events.index("master-build") < events.index("reel-build")
+    assert ("readback-reels", ["Reel 02__REN_EVAL"]) in events
+    assert ("measures", "reel-build", "") in events
+    assert ledger["track"] == "reel-build"
+    assert ledger["timelines"] == ["Reel 02__REN_EVAL"]
+
+
+def test_reel_build_command_rebuilds_selected_reels_in_eval_names(
+        tmp_path, monkeypatch):
+    """Reel eval cannot inherit production names or skip unchanged reels.
+
+    Catches: the new track placing over an approved reel name or allowing
+    rebuild freshness to hide what the current reel builder produces.
+    """
+    calls = []
+
+    def subprocess_run(argv, **kwargs):
+        calls.append((argv, kwargs))
+        return subprocess.CompletedProcess(
+            argv, 0, "built\n", "")
+
+    monkeypatch.setattr(eval_harness.subprocess, "run", subprocess_run)
+    log = tmp_path / "reel-build.log"
+    result = eval_harness.run_pipeline_reel_build(
+        str(tmp_path / "project"), str(log), only_reels=[2, 4])
+
+    argv, kwargs = calls[0]
+    assert argv[2:4] == ["build-reels", str(tmp_path / "project")]
+    assert "--rebuild-all" in argv
+    suffix_index = argv.index("--name-suffix")
+    assert argv[suffix_index + 1] == eval_harness.REEL_EVAL_SUFFIX
+    assert [argv[index + 1] for index, value in enumerate(argv)
+            if value == "--only-reel"] == ["2", "4"]
+    assert kwargs["timeout"] == 3600
+    assert kwargs["encoding"] == "utf-8"
+    assert result["only_reels"] == [2, 4]
+    assert log.read_text(encoding="utf-8") == "built\n"
+
+
+def test_eval_track_cli_and_track_specific_measurement(tmp_path):
+    """The reel-build track is selectable and never mislabels master pixels."""
+    args = eval_harness.build_parser().parse_args([
+        "run", "--track", "reel-build", "--base", str(tmp_path / "base"),
+        "--out", str(tmp_path / "out"), "--rung", "8", "--only-reel", "2"])
+    assert args.track == "reel-build"
+    assert args.only_reel == [2]
+
+    ledger = {"clone": {"dest": str(tmp_path / "run"),
+                        "base": str(tmp_path / "base")},
+              "track": "reel-build", "export": ""}
+    measures = eval_harness.build_measures(
+        "PA2.3", tmp_path / "run", "", "", ledger)
+    assert measures["frames"] == {
+        "measured": False,
+        "reason": "reel-build track compares Resolve timeline readbacks; "
+                  "it does not deliver reel exports"}
+
+
+def test_reel_build_track_requires_explicit_reel_scope(tmp_path, capsys):
+    """A rung run must not accidentally rebuild every approved reel."""
+    code = eval_harness.main([
+        "run", "--track", "reel-build", "--base", str(tmp_path / "base"),
+        "--out", str(tmp_path / "out"), "--request", "PA2.3"])
+    assert code == 2
+    assert "requires at least one --only-reel" in capsys.readouterr().err
+    with pytest.raises(ValueError, match="requires at least one --only-reel"):
+        eval_harness.run_request(
+            None, str(tmp_path / "base"), str(tmp_path / "out"), "T1",
+            track=eval_harness.TRACK_REEL_BUILD)
+
+
+def test_eval_reads_verified_reel_names_from_capability_record(tmp_path):
+    """The readback targets the verifier's actual names, not guessed labels."""
+    from library.tools.project_layout import ProjectLayout
+
+    layout = ProjectLayout(str(tmp_path / "project"))
+    layout.pipeline_data_path.parent.mkdir(parents=True)
+    layout.pipeline_data_path.write_text(json.dumps({
+        "capability_outputs": {
+            "reel.verify": {"reel_verification": {
+                "timelines_verified": ["Reel 02__REN_EVAL"]}}
+        }
+    }), encoding="utf-8")
+
+    assert eval_harness.verified_reel_timeline_names(
+        str(tmp_path / "project")) == ["Reel 02__REN_EVAL"]
 
 
 def test_eval_translation_records_typed_rows_before_pipeline_edit(
