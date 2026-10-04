@@ -764,7 +764,7 @@ class VisionAnalyzer:
 
         Routes through `library/tools/still_vision.py` and returns
         (text, elapsed) in exactly the gemma shape, so
-        `analyze_with_retry`'s parse-and-retry reads a host answer
+        `analyze_with_retry`'s parse-and-retry reads a Codex answer
         byte-for-byte the way it read gemma's. Which stills are
         extracted, and how, is untouched - only who looks at them.
         """
@@ -800,23 +800,24 @@ class VisionAnalyzer:
             if executor not in (None, "cloud"):
                 raise ValueError(f"unknown still executor: {executor!r}")
             if executor == "cloud":
-                route["executor"] = "cloud_host"
+                route["executor"] = "cloud_codex"
             text = inspect_stills(
                 prompt, list(images), harness=self.harness,
                 project_folder=self.project_folder, step_id=self.step_id,
                 label="objects", max_tokens=max_tokens,
                 route_metadata=route,
                 inference_admission=_semantic_inference_admission)
-            if executor == "cloud" and route.get("backend") != "host":
+            if (executor == "cloud"
+                    and route.get("backend") != "codex_exec"):
                 raise RuntimeError(
-                    "cloud still executor did not receive a host answer")
+                    "cloud still executor did not receive a Codex answer")
         return text, time.time() - t0
 
     def analyze_with_retry(self, prompt, parse_fn, images=None, video=None,
                            max_tokens=512, label="pass", audio=None,
                            request_kind=None, request_id=None,
                            still_executor=None):
-        """Run analysis with one retry on parse failure.
+        """Run analysis with one retry on direct-call or parse failure.
 
         Args:
             prompt: The text prompt.
@@ -856,7 +857,18 @@ class VisionAnalyzer:
                 route, elapsed, started_at)
             return result, text, elapsed
 
-        result, text, elapsed = run_attempt(prompt, 1)
+        from library.tools.still_vision import StillVisionCallError
+
+        try:
+            result, text, elapsed = run_attempt(prompt, 1)
+        except StillVisionCallError:
+            # Retry a failed direct call once through the same route. If it
+            # still fails, let the step refuse the profile instead of
+            # silently replacing the driver's answer with a Gemma answer.
+            result, text, elapsed = run_attempt(prompt, 2)
+            if not result:
+                print(f"    ⚠ {label}: JSON parse failed after retry")
+            return result, text.strip(), elapsed
 
         # Retry once if parse produced empty result
         if not result:
@@ -877,7 +889,7 @@ class VisionAnalyzer:
                         parser_outcome, route, elapsed, started_at,
         error=None):
         backend = route.get("backend", "unknown")
-        if backend == "host":
+        if backend in {"host", "codex_exec"}:
             layer = "host_model"
         elif backend in {"mlx_vlm", "gemma_server"}:
             layer = "gemma_inference"
@@ -965,9 +977,9 @@ def extract_frames(clip_path, duration, cache_dir, interval_s=COARSE_FRAME_INTER
     cache for every later one.
 
     The cache resolves to an absolute directory first: these paths are
-    handed to the driving host as the still-vision request's `images`,
-    and `llm_handshake._checked_images` refuses a relative one (`not an
-    absolute path`). The default cache (`.vision_cache`) is relative to
+    handed to still_vision as the request's `images`, and still_vision
+    refuses a relative one (`not an absolute path`). The default cache
+    (`.vision_cache`) is relative to
     wherever the pipeline was launched, which is nowhere the host can
     open. See tests/unit/context/test_vision_pipeline.py (finding 2).
     """
@@ -2915,17 +2927,19 @@ def _merge_assessment_votes(window_entries):
 
 
 def _uses_image_capable_still_host(analyzer):
-    """Whether object stills are answered by a declared image host.
+    """Whether object stills have a declared, installed direct CLI.
 
     Unknown harnesses remain on the existing serial path so the still
-    router keeps owning its established refusal and message. The helper
-    only opts into overlap for a host the router explicitly declares
-    image-capable.
+    router keeps owning its established refusal and fallback. The helper
+    only opts into overlap when the router declares image capability and
+    the matching direct CLI is installed.
     """
-    from library.tools.still_vision import HOST_SEES_IMAGES, resolve_harness
+    from library.tools.still_vision import (
+        HOST_SEES_IMAGES, direct_cli_for_harness, resolve_harness)
 
     harness = resolve_harness(getattr(analyzer, "harness", None))
-    return HOST_SEES_IMAGES.get(harness) is True
+    return (HOST_SEES_IMAGES.get(harness) is True
+            and direct_cli_for_harness(harness) is not None)
 
 
 def _iter_checking_worker(video_clips, future):
@@ -3407,16 +3421,22 @@ class _LazyAnalyzer:
 def _run_semantic_work(window_tasks, coarse_tasks, on_complete, *,
                        executor_factory=None, wait_for=wait,
                        clock=time.perf_counter):
-    """Run ready semantic work on one local and one cloud lane.
+    """Run ready semantic work on the local lane and bounded cloud lane.
 
     Window and coarse tasks are available at startup. A completion may
     enqueue detail tasks; the coordinator alone receives results and
     releases those dependencies. Queue order is stable within each kind,
     and cloud details always precede unstarted coarse batches.
     """
+    from library.tools.still_vision import max_concurrent_calls
+
+    cloud_workers = max_concurrent_calls()
     if executor_factory is None:
-        executor_factory = lambda lane: ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix=f"semantic-{lane}")
+        def default_executor_factory(lane):
+            return ThreadPoolExecutor(
+                max_workers=cloud_workers if lane == "cloud" else 1,
+                thread_name_prefix=f"semantic-{lane}")
+        executor_factory = default_executor_factory
 
     queues = {"window": [], "detail": [], "coarse": []}
     serial = 0
@@ -3436,6 +3456,7 @@ def _run_semantic_work(window_tasks, coarse_tasks, on_complete, *,
     local = executor_factory("local")
     cloud = executor_factory("cloud")
     executors = {"local": local, "cloud": cloud}
+    lane_capacity = {"local": 1, "cloud": cloud_workers}
     running = {}
 
     def next_task(lane):
@@ -3458,18 +3479,18 @@ def _run_semantic_work(window_tasks, coarse_tasks, on_complete, *,
 
     try:
         while any(queues.values()) or running:
-            active_lanes = {entry["lane"] for entry in running.values()}
             for lane in ("cloud", "local"):
-                if lane in active_lanes:
-                    continue
-                task = next_task(lane)
-                if task is None:
-                    continue
-                started = clock()
-                future = executors[lane].submit(task["run"], lane)
-                running[future] = {
-                    "task": task, "lane": lane, "started": started}
-                active_lanes.add(lane)
+                active_count = sum(
+                    entry["lane"] == lane for entry in running.values())
+                while active_count < lane_capacity[lane]:
+                    task = next_task(lane)
+                    if task is None:
+                        break
+                    started = clock()
+                    future = executors[lane].submit(task["run"], lane)
+                    running[future] = {
+                        "task": task, "lane": lane, "started": started}
+                    active_count += 1
 
             if not running:
                 raise RuntimeError(
@@ -3936,19 +3957,19 @@ def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
         output_dir: Directory for output profiles.
         force: If True, re-analyze clips even if profile exists.
         harness: Driving harness for the STILL passes (object
-            coarse/detail) - a host with vision answers first, else
-            gemma. None reads `PIPELINE_HOST_HARNESS`, so standalone
-            runs keep the gemma behaviour. VIDEO passes never read
-            this; they stay on gemma.
-        project_folder: Project the still-vision handshake files under
-            when a host answers. Required when `harness` declares
-            vision; unused otherwise.
+            coarse/detail) - Codex answers through its direct CLI when
+            installed, else gemma. None reads `PIPELINE_HOST_HARNESS`,
+            so standalone runs keep the gemma behaviour. VIDEO passes
+            never read this; they stay on gemma.
+        project_folder: Project folder retained for the analyzer's other
+            project-scoped context; still-image calls no longer file a
+            handshake.
     """
-    # Absolute before anything joins them: the still-vision handshake
-    # carries frame paths to a host that opens them with its own file
-    # tools, and it refuses a relative one (measured 2026-09-24: a
-    # host-driven run failed every clip on `.vision_cache/...`
-    # relative paths). Same directory as before - `resolve` only
+    # Absolute before anything joins them: the direct still call carries
+    # frame paths to Codex, and it refuses a relative one. The default
+    # cache (`.vision_cache`) is relative to the launch directory, so
+    # `resolve` keeps the path usable by the child CLI. Same directory as
+    # before - `resolve` only
     # spells it absolutely - so no cache is orphaned by this.
     cache_dir = Path(cache_dir).resolve()
     output_dir = Path(output_dir).resolve()
@@ -3965,10 +3986,12 @@ def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
         layer: measurement_layers.method_digest(__file__, entry_points)
         for layer, entry_points in MEASUREMENT_LAYERS.items()
     }
-    from library.tools.still_vision import HOST_SEES_IMAGES, resolve_harness
+    from library.tools.still_vision import (
+        HOST_SEES_IMAGES, direct_cli_for_harness, resolve_harness)
     still_viewer = resolve_harness(harness)
 
-    if HOST_SEES_IMAGES.get(still_viewer) is True:
+    if (HOST_SEES_IMAGES.get(still_viewer) is True
+            and direct_cli_for_harness(still_viewer) is not None):
         with _LazyAnalyzer(harness, project_folder) as analyzer:
             all_profiles, skipped = _run_host_semantic_pipeline(
                 analyzer, clips, cache_dir, output_dir, layer_methods,
@@ -4146,8 +4169,8 @@ def main():
                              "PIPELINE_HOST_HARNESS, and with no host "
                              "the still passes stay on gemma")
     parser.add_argument("--project-folder", type=str, default=None,
-                        help="Project the still-vision handshake files "
-                             "under when a host answers")
+                        help="Project folder passed through to still-vision "
+                             "callers")
     args = parser.parse_args()
 
     if args.clip:

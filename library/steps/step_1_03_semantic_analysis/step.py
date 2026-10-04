@@ -403,12 +403,9 @@ def analyse_semantics(raw_footage_files: list, project_folder: str = "",
     if missing_clips:
         print(f"Running vision pipeline on {len(missing_clips)} new clips...", file=sys.stderr)
         
-        # --project-folder gives the still-vision handshake a project to
-        # file under when a host drives (the captain's 2026-09-24 ruling:
-        # stills to the driver first, gemma fallback). The harness itself
-        # travels via PIPELINE_HOST_HARNESS, set by the runner from
-        # --full-auto - this step never guesses it, and with no host the
-        # still passes stay on gemma.
+        # The harness travels via PIPELINE_HOST_HARNESS, set by the runner
+        # from --full-auto. Codex answers stills through its subscription
+        # CLI when available; otherwise the router uses gemma.
         base_cmd = [sys.executable, VISION_PIPELINE,
                     '--output-dir', analysis_dir]
         if project_folder:

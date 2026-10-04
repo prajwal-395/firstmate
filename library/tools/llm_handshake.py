@@ -33,16 +33,12 @@ A request file carries:
 * `kind` (optional): `llm_step` (default) or `briefing_interview` -
   the chat interview the host conducts with the user
   (`library/tools/briefing_chat.py`).
-* `images` (optional): absolute paths of still images the host must
-  look at with its own vision before answering. Present ONLY on
-  still-vision requests filed by `library/tools/still_vision.py` -
-  still-frame inspection the driving host answers first (the
-  captain's 2026-09-24 ruling: the driving LLM's own vision first,
-  gemma4 only when the host cannot see images). LLM-step requests
-  carry no `images` key: their pictures travel as frame strips
-  referenced inside `context`, which the host opens with its own
-  file tools per the `ren-co-editor` skill. Whole-video passes
-  never carry it either: they stay on gemma.
+* `images` (optional): absolute paths of still images a file-handoff
+  caller asks the host to inspect. `still_vision.py` now uses a direct
+  Codex CLI call, so its requests no longer use this field. LLM-step
+  requests carry no `images` key: their pictures travel as frame strips
+  referenced inside `context`, which the host opens with its own file
+  tools per the `ren-co-editor` skill.
 
 A valid response file is a UTF-8 JSON object (`{...}`) written at the
 response path above, satisfying the request's `expected_schema`. Arrays,

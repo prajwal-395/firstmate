@@ -882,6 +882,7 @@ def test_host_schedule_profiles_and_cache_commits_ignore_completion_order(
     import copy
     import threading
 
+    monkeypatch.setenv("PIPELINE_STILL_VISION_MAX_CONCURRENCY", "1")
     monkeypatch.setattr(vp.picture_quality, "measure_soft_picture",
                         lambda *_args: [])
     monkeypatch.setattr(vp, "find_detail_ranges",
@@ -1043,6 +1044,52 @@ def test_host_schedule_profiles_and_cache_commits_ignore_completion_order(
     assert forward == reverse
 
 
+def test_semantic_cloud_lane_is_bounded_and_overlaps_local_windows(
+        monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+
+    monkeypatch.setenv("PIPELINE_STILL_VISION_MAX_CONCURRENCY", "2")
+    lock = threading.Lock()
+    active_cloud = 0
+    peak_cloud = 0
+    spans = []
+
+    def task(kind, index):
+        def run(lane):
+            nonlocal active_cloud, peak_cloud
+            started = time.perf_counter()
+            if lane == "cloud":
+                with lock:
+                    active_cloud += 1
+                    peak_cloud = max(peak_cloud, active_cloud)
+            time.sleep(0.08 if kind == "window" else 0.12)
+            finished = time.perf_counter()
+            if lane == "cloud":
+                with lock:
+                    active_cloud -= 1
+            return lane, started, finished
+        return {"kind": kind, "order": (index,), "key": (kind, index),
+                "run": run}
+
+    def complete(_task, result, lane, _started, _finished, _enqueue):
+        result_lane, started, finished = result
+        assert result_lane == lane
+        spans.append((lane, started, finished))
+
+    vp._run_semantic_work(
+        [task("window", 0)], [task("coarse", i) for i in range(4)],
+        complete,
+        executor_factory=lambda lane: ThreadPoolExecutor(
+            max_workers=2 if lane == "cloud" else 1),
+    )
+
+    assert peak_cloud == 2
+    window = next(span for span in spans if span[0] == "local")
+    cloud_spans = [span for span in spans if span[0] == "cloud"]
+    assert any(start < window[2] and finish > window[1]
+               for _lane, start, finish in cloud_spans)
+
+
 @pytest.mark.usefixtures("mock_mlx_functions")
 def test_scheduled_still_attempt_records_selected_executor(tmp_path, monkeypatch):
     from library.tools import still_vision
@@ -1054,7 +1101,8 @@ def test_scheduled_still_attempt_records_selected_executor(tmp_path, monkeypatch
 
     def host_answer(_prompt, _images, *, route_metadata, **_kwargs):
         route_metadata.update(
-            backend="host", model="host:agent", model_version="unknown",
+            backend="codex_exec", model="codex-test",
+            model_version="cli-default",
             fallback_causes=[])
         return "[]"
 
@@ -1072,8 +1120,49 @@ def test_scheduled_still_attempt_records_selected_executor(tmp_path, monkeypatch
     attempts = [row for row in rows if "attempt_number" in row]
     assert result == []
     assert len(attempts) == 2
-    assert all(row["backend"] == "host" for row in attempts)
-    assert all(row["executor"] == "cloud_host" for row in attempts)
+    assert all(row["backend"] == "codex_exec" for row in attempts)
+    assert all(row["executor"] == "cloud_codex" for row in attempts)
+
+
+@pytest.mark.usefixtures("mock_mlx_functions")
+def test_failed_direct_still_call_retries_once_on_the_same_route(
+        tmp_path, monkeypatch):
+    from library.tools import still_vision
+
+    ledger = tmp_path / "perf_ledger.jsonl"
+    monkeypatch.setenv(vp.perf_ledger.LEDGER_ENV, str(ledger))
+    monkeypatch.setenv(vp.perf_ledger.RUN_ENV, "run-test")
+    monkeypatch.setenv(vp.perf_ledger.CAPABILITY_ENV, "semantic_analysis")
+    calls = []
+
+    def codex_answer(prompt, images, *, route_metadata, **_kwargs):
+        route_metadata.update(
+            backend="codex_exec", model="codex-test",
+            model_version="cli-default", fallback_causes=[])
+        calls.append((prompt, list(images)))
+        if len(calls) == 1:
+            raise still_vision.StillVisionCallError("temporary CLI failure")
+        return '[{"label": "visible object"}]'
+
+    monkeypatch.setattr(still_vision, "inspect_stills", codex_answer)
+    analyzer = vp.VisionAnalyzer(
+        SimpleNamespace(config=SimpleNamespace(_commit_hash="abc123")),
+        object(), harness="agent")
+
+    result, _raw, _elapsed = analyzer.analyze_with_retry(
+        "Describe these frames.", vp.parse_json_array,
+        images=["/tmp/frame.jpg"], request_kind="object-coarse",
+        request_id="clip:object-coarse:batch:1/1", still_executor="cloud")
+
+    rows = [json.loads(line) for line in ledger.read_text().splitlines()]
+    attempts = [row for row in rows if "attempt_number" in row]
+    assert result == [{"label": "visible object"}]
+    assert len(calls) == 2
+    assert calls[0] == calls[1]
+    assert [row["attempt_number"] for row in attempts] == [1, 2]
+    assert [row["parser_outcome"] for row in attempts] == ["error", "parsed"]
+    assert all(row["backend"] == "codex_exec" for row in attempts)
+    assert all(row["executor"] == "cloud_codex" for row in attempts)
 
 
 @pytest.mark.usefixtures("mock_mlx_functions")
@@ -2294,7 +2383,9 @@ def test_lazy_semantic_model_holds_ram_but_not_gpu_during_host_wait(
     monkeypatch.setattr(vp, "apply_chat_template", lambda *_a, **_k: "prompt")
     monkeypatch.setattr(vp, "generate", fake_generate)
     from library.tools import still_vision
-    monkeypatch.setattr(still_vision, "request_host_answer", wait_for_host)
+    monkeypatch.setattr(still_vision, "direct_cli_for_harness",
+                        lambda _harness: "codex")
+    monkeypatch.setattr(still_vision, "request_direct_answer", wait_for_host)
 
     with vp._LazyAnalyzer("agent", str(tmp_path)) as analyzer:
         local_text, _elapsed = analyzer.analyze("local", video="clip.mov")

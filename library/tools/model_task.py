@@ -20,9 +20,9 @@ Two adapters build a `ModelTask` and nothing else does: the runner's
 service nor a task imports the runner.
 
 What lives elsewhere and is reached, never restated here: the handshake
-contract (`library/tools/llm_handshake.py`), still-frame inspection the
-host answers (`library/tools/still_vision.py`, which speaks the same
-handshake from inside a bridge), the QA loop
+contract (`library/tools/llm_handshake.py`), still-frame inspection
+through the driving Codex CLI or Gemma fallback
+(`library/tools/still_vision.py`), the QA loop
 (`library/tools/qa_feedback_loop.py`), and the guards' own registries
 (`craft_role`, `undetermined`, `direction_contradiction`,
 `briefing_interview`, `decided_value`, `pipeline_skills`).

@@ -163,16 +163,11 @@ STEP_IMPLEMENTATION_DEPS = {
         # consumer reads, so a fix here changes the cached documents.
         "library/tools/segment_coverage.py",
         # Imported by vision_pipeline_v3: routes the object passes to
-        # the driver's vision or the gemma fallback, so a fix here
+        # Codex's subscription CLI or the gemma fallback, so a fix here
         # changes what the cached objects[] were seen by.
         "library/tools/still_vision.py",
-        # Imported by still_vision: the handshake contract the host
-        # answers through, and the gemma fallback itself.
-        "library/tools/llm_handshake.py",
+        # Imported by still_vision for the unchanged local fallback.
         "library/tools/vision_model.py",
-        # Imported by llm_handshake: shapes the refusal a malformed
-        # host answer fails with.
-        "library/tools/ren_refusal.py",
         # Imported by vision_pipeline_v3: the per-layer measurement
         # cache. Its keys decide which stored layers a compose reuses,
         # so a fix here must recompose; a recompose re-measures only

@@ -94,9 +94,9 @@ def ask_vision(still_paths: List[str], question: str,
             step_id=step_id or "ask_the_footage",
             label=f"ask_the_footage:{check_type}", max_tokens=512)
     except Exception as e:  # noqa: BLE001 - availability, not a failure
-        from library.tools.still_vision import StillVisionTimeout
+        from library.tools.still_vision import StillVisionCallError
         from library.tools.llm_handshake import HandshakeRefusal
-        if isinstance(e, (StillVisionTimeout, HandshakeRefusal)):
+        if isinstance(e, (StillVisionCallError, HandshakeRefusal)):
             raise
         return {"available": False,
                 "reason": f"{type(e).__name__}: {e}",
