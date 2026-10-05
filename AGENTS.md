@@ -202,6 +202,8 @@ Never create a timeline and use `ImportFusionComp` in one Python process: `libra
 
 **Timeline reads use recorded generations; writes use EditPatch.**: `library/tools/timeline_shadow.py`, `library/tools/edit_patch.py`.
 
+**Continuous edit detection watches the shadow on a schedule.**: `library/tools/shadow_watcher.py`.
+
 **What runs in parallel is a TABLE**: `library/tools/concurrency_routing.py`; declarations contend per KEY: `library/tools/declaration_keys.py`.
 
 **The broker is a STANDALONE service any client starts on demand, never a worker's child**: `client.ensure` starts it detached; the lease path, `resolve-axi` and `client.call` ensure first. Starter lock = single instance; `ren resolved stop` stops clean. `library/tools/resolved/client.py`.

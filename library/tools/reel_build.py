@@ -142,6 +142,7 @@ from library.tools import resolve_bin_layout as bins
 from library.tools.ren_refusal import RenRefusal
 from library.tools.resolve_lock import (
     assert_current_timeline, resolve_lease, under_lease)
+from library.tools import shadow_watcher
 from library.tools.timeline_ingest import resolve_project_exactly
 from library.tools.timeline_layout import (
     EXPLAINER,
@@ -13973,6 +13974,21 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                         project_folder, name, moment, transcript),
                     locked_closing_positions=motion_record[
                         "locked_closing_positions"])
+            # When the watcher's soft flag says the captain may be
+            # editing this reel, refuse before placement: a build must
+            # not write beside a live hand edit.
+            _editing = shadow_watcher.captain_editing_reel()
+            if _editing and _editing["timeline"] == name:
+                raise RenRefusal(
+                    what=(f"refusing to place {name}: the captain may be "
+                          f"editing (watcher observed generation "
+                          f"{_editing['generation']} on "
+                          f"{_editing['timeline']})"),
+                    why=("the shadow watcher saw an observed generation "
+                          "that no Ren act explains - a hand edit is live "
+                          "on this reel"),
+                    fix=("let the captain finish, then rebuild: "
+                         "`ren build-reels`"))
             # Keep the global order: Resolve lease first, machine-wide
             # heavy-work lock second. A Resolve waiter must not reserve
             # heavy work while it queues behind another lane.
