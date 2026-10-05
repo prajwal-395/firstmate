@@ -112,6 +112,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import contextlib
 import csv
 import io
 import json
@@ -3148,26 +3149,35 @@ def cmd_edit_place(args) -> int:
             len(timeline.GetItemListInTrack(t, i) or [])
             for t in ("video", "audio", "subtitle")
             for i in range(1, (timeline.GetTrackCount(t) or 0) + 1))
-        try:
-            placed = project.GetMediaPool().AppendToTimeline([payload])
-        except Exception as exc:
-            return fail(f"append answered with an exception ({exc}) - "
-                        f"nothing was re-read, so verify by hand.",
-                        f"{TOOL} items --timeline "
-                        f"\"{timeline.GetName()}\"")
-        after = sum(
-            len(timeline.GetItemListInTrack(t, i) or [])
-            for t in ("video", "audio", "subtitle")
-            for i in range(1, (timeline.GetTrackCount(t) or 0) + 1))
-        delta = after - before
-        new_items = list(placed or []) if placed else []
-        if delta == 0:
-            return fail(f"append reported "
-                        f"{'success' if placed else 'nothing'} but the "
-                        f"item count did not move ({before} -> {after}) "
-                        f"- nothing landed.",
-                        f"{TOOL} items --timeline "
-                        f"\"{timeline.GetName()}\"")
+        with _journal_write(
+                args, timeline=timeline, project=project,
+                spec={"verb": "edit_place", "timeline": timeline.GetName(),
+                      "clip": args.clip, "media": args.media,
+                      "source_in": args.source_in,
+                      "source_out": args.source_out,
+                      "track": args.track, "record": args.record},
+                gate_class="edit_place") as (journal, journal_state):
+            try:
+                placed = project.GetMediaPool().AppendToTimeline([payload])
+            except Exception as exc:
+                return fail(f"append answered with an exception ({exc}) - "
+                            f"nothing was re-read, so verify by hand.",
+                            f"{TOOL} items --timeline "
+                            f"\"{timeline.GetName()}\"")
+            after = sum(
+                len(timeline.GetItemListInTrack(t, i) or [])
+                for t in ("video", "audio", "subtitle")
+                for i in range(1, (timeline.GetTrackCount(t) or 0) + 1))
+            delta = after - before
+            new_items = list(placed or []) if placed else []
+            if delta == 0:
+                return fail(f"append reported "
+                            f"{'success' if placed else 'nothing'} but the "
+                            f"item count did not move ({before} -> {after}) "
+                            f"- nothing landed.",
+                            f"{TOOL} items --timeline "
+                            f"\"{timeline.GetName()}\"")
+            journal_state["success"] = True
         spans = [_item_span(item) for item in new_items] or [
             {"name": args.clip, "record_in": "", "record_out": "",
              "source_in": "", "source_out": "", "uid": ""}]
@@ -3181,6 +3191,7 @@ def cmd_edit_place(args) -> int:
               table("new", spans,
                     ["name", "record_in", "record_out", "source_in",
                      "source_out", "uid"]),
+              _journal_block(journal),
               help_block([f"{TOOL} items --timeline "
                           f"\"{timeline.GetName()}\""])])
         return 0
@@ -3290,53 +3301,62 @@ def cmd_edit_delete(args) -> int:
                       f"{track_type}{track_index} --index {args.index}"
                       f"{' --ripple' if args.ripple else ''} --apply"])])
             return 0
-        if not args.ripple:
-            if not uid:
-                return fail("the item has no unique id, so EditPatch cannot "
-                            "address this local delete.",
-                            f"{TOOL} items --timeline "
-                            f"\"{timeline.GetName()}\"")
-            from library.tools import edit_patch
-            try:
-                receipt = edit_patch.apply_live_patch(
-                    project=project, timeline=timeline,
-                    capability="reel.touchup",
-                    operations=[{"op": "clip.delete", "unique_id": uid}],
-                    conflict_domains=("timeline_structure",),
-                    idempotency_key=(
-                        f"resolve-axi.edit-delete:{uuid.uuid4().hex}"))
-            except Exception as exc:
-                return fail(f"EditPatch refused or failed the delete ({exc}).",
-                            f"{TOOL} items --timeline "
-                            f"\"{timeline.GetName()}\"")
-            if receipt["status"] != "committed":
-                return fail(
-                    f"the local-delete EditPatch did not verify: {receipt}.",
-                    f"{TOOL} items --timeline "
-                    f"\"{timeline.GetName()}\"")
-        else:
-            try:
-                first = bool(timeline.DeleteClips([item], True))
-            except Exception as exc:
-                return fail(f"delete raised ({exc}) - verify by hand.",
-                            f"{TOOL} items --timeline "
-                            f"\"{timeline.GetName()}\"")
-            if _presence(timeline, uid):
+        with _journal_write(
+                args, timeline=timeline, project=project,
+                spec={"verb": "edit_delete", "timeline": timeline.GetName(),
+                      "name": span["name"], "unique_id": uid,
+                      "ripple": args.ripple},
+                gate_class="edit_delete") as (journal, journal_state):
+            if not args.ripple:
+                if not uid:
+                    return fail("the item has no unique id, so EditPatch "
+                                "cannot address this local delete.",
+                                f"{TOOL} items --timeline "
+                                f"\"{timeline.GetName()}\"")
+                from library.tools import edit_patch
                 try:
-                    second = bool(timeline.DeleteClips([item], True))
+                    receipt = edit_patch.apply_live_patch(
+                        project=project, timeline=timeline,
+                        capability="reel.touchup",
+                        operations=[{"op": "clip.delete", "unique_id": uid}],
+                        conflict_domains=("timeline_structure",),
+                        idempotency_key=(
+                            f"resolve-axi.edit-delete:{uuid.uuid4().hex}"))
                 except Exception as exc:
                     return fail(
-                        f"delete raised on retry ({exc}) and the item is "
-                        f"still there - verify by hand.",
+                        f"EditPatch refused or failed the delete ({exc}).",
                         f"{TOOL} items --timeline "
                         f"\"{timeline.GetName()}\"")
-                if _presence(timeline, uid):
+                if receipt["status"] != "committed":
                     return fail(
-                        f"delete reports {second} and the item is still "
-                        f"there - the write needs the Edit page open, and "
-                        f"nothing was retried past once.",
+                        f"the local-delete EditPatch did not verify: "
+                        f"{receipt}.",
                         f"{TOOL} items --timeline "
                         f"\"{timeline.GetName()}\"")
+            else:
+                try:
+                    first = bool(timeline.DeleteClips([item], True))
+                except Exception as exc:
+                    return fail(f"delete raised ({exc}) - verify by hand.",
+                                f"{TOOL} items --timeline "
+                                f"\"{timeline.GetName()}\"")
+                if _presence(timeline, uid):
+                    try:
+                        second = bool(timeline.DeleteClips([item], True))
+                    except Exception as exc:
+                        return fail(
+                            f"delete raised on retry ({exc}) and the item "
+                            f"is still there - verify by hand.",
+                            f"{TOOL} items --timeline "
+                            f"\"{timeline.GetName()}\"")
+                    if _presence(timeline, uid):
+                        return fail(
+                            f"delete reports {second} and the item is still "
+                            f"there - the write needs the Edit page open, "
+                            f"and nothing was retried past once.",
+                            f"{TOOL} items --timeline "
+                            f"\"{timeline.GetName()}\"")
+            journal_state["success"] = True
         emit([kv_block("deleted", {
                   "timeline": timeline.GetName(),
                   "name": span["name"],
@@ -3346,6 +3366,7 @@ def cmd_edit_delete(args) -> int:
                   f"{first})",
               }),
               note,
+              _journal_block(journal),
               help_block([f"{TOOL} items --timeline "
                           f"\"{timeline.GetName()}\""])])
         return 0
@@ -3411,16 +3432,23 @@ def cmd_edit_move(args) -> int:
                 f"{span['name']!r} would not report its source range "
                 f"- the move cannot be re-placed faithfully.",
                 f"{TOOL} items --timeline \"{timeline.GetName()}\"")
-        new_item, error = _replace_item(
-            timeline, project.GetMediaPool(), item, src_in, src_out,
-            args.to, dest_index)
-        if error:
-            return fail(error, f"{TOOL} items --timeline "
-                               f"\"{timeline.GetName()}\"")
-        drop_error = _drop_original(project, timeline, uid)
-        if drop_error:
-            return fail(drop_error, f"{TOOL} items --timeline "
-                                    f"\"{timeline.GetName()}\"")
+        with _journal_write(
+                args, timeline=timeline, project=project,
+                spec={"verb": "edit_move", "timeline": timeline.GetName(),
+                      "name": span["name"], "from": f"{track_type}{track_index}",
+                      "to": dest_track, "record_frame": args.to},
+                gate_class="edit_move") as (journal, journal_state):
+            new_item, error = _replace_item(
+                timeline, project.GetMediaPool(), item, src_in, src_out,
+                args.to, dest_index)
+            if error:
+                return fail(error, f"{TOOL} items --timeline "
+                                   f"\"{timeline.GetName()}\"")
+            drop_error = _drop_original(project, timeline, uid)
+            if drop_error:
+                return fail(drop_error, f"{TOOL} items --timeline "
+                                         f"\"{timeline.GetName()}\"")
+            journal_state["success"] = True
         new_span = _item_span(new_item)
         emit([kv_block("moved", {
                   "timeline": timeline.GetName(),
@@ -3431,6 +3459,7 @@ def cmd_edit_move(args) -> int:
                   "absent)",
               }),
               note,
+              _journal_block(journal),
               help_block([f"{TOOL} items --timeline "
                           f"\"{timeline.GetName()}\""])])
         return 0
@@ -3503,16 +3532,23 @@ def cmd_edit_trim(args) -> int:
                       f"--source-in {new_in} --source-out {new_out} "
                       f"--apply"])])
             return 0
-        new_item, error = _replace_item(
-            timeline, project.GetMediaPool(), item, new_in, new_out,
-            new_rec, track_index)
-        if error:
-            return fail(error, f"{TOOL} items --timeline "
-                               f"\"{timeline.GetName()}\"")
-        drop_error = _drop_original(project, timeline, uid)
-        if drop_error:
-            return fail(drop_error, f"{TOOL} items --timeline "
-                                    f"\"{timeline.GetName()}\"")
+        with _journal_write(
+                args, timeline=timeline, project=project,
+                spec={"verb": "edit_trim", "timeline": timeline.GetName(),
+                      "name": span["name"], "source_in": new_in,
+                      "source_out": new_out, "record_in": new_rec},
+                gate_class="edit_trim") as (journal, journal_state):
+            new_item, error = _replace_item(
+                timeline, project.GetMediaPool(), item, new_in, new_out,
+                new_rec, track_index)
+            if error:
+                return fail(error, f"{TOOL} items --timeline "
+                                   f"\"{timeline.GetName()}\"")
+            drop_error = _drop_original(project, timeline, uid)
+            if drop_error:
+                return fail(drop_error, f"{TOOL} items --timeline "
+                                         f"\"{timeline.GetName()}\"")
+            journal_state["success"] = True
         new_span = _item_span(new_item)
         emit([kv_block("trimmed", {
                   "timeline": timeline.GetName(),
@@ -3524,6 +3560,7 @@ def cmd_edit_trim(args) -> int:
                   "absent)",
               }),
               note,
+              _journal_block(journal),
               help_block([f"{TOOL} items --timeline "
                           f"\"{timeline.GetName()}\""])])
         return 0
@@ -3746,99 +3783,106 @@ def cmd_edit_speed(args) -> int:
                       f"{track_type}{track_index} --index {args.index} "
                       f"--percent {percent} --apply"])])
             return 0
-        try:
-            wrote = bool(item.SetSpeed({"Percentage": percent,
-                                        "RippleTimeline": ripple}))
-        except Exception as exc:
-            return fail(f"SetSpeed raised ({exc}) - verify by hand.",
-                        f"{TOOL} items --timeline "
-                        f"\"{timeline.GetName()}\"")
-        if not wrote:
-            return fail(
-                f"SetSpeed({percent}%) answered False on "
-                f"{span['name']!r} - nothing was claimed.",
-                f"{TOOL} items --timeline \"{timeline.GetName()}\"")
-        try:
-            back_opts = item.GetSpeed()
-        except AttributeError:
-            return fail(
-                f"SetSpeed answered True but this build has no "
-                f"GetSpeed to re-read - refusing to claim it.",
-                f"{TOOL} items --timeline \"{timeline.GetName()}\"")
-        except Exception as exc:
-            return fail(f"the speed re-read raised ({exc}) - verify "
-                        f"by hand.",
-                        f"{TOOL} items --timeline "
-                        f"\"{timeline.GetName()}\"")
-        try:
-            back = float((back_opts or {}).get("Percentage"))
-        except (TypeError, ValueError):
-            return fail(
-                f"SetSpeed answered True but GetSpeed re-reads "
-                f"{back_opts!r} - refusing to claim it.",
-                f"{TOOL} items --timeline \"{timeline.GetName()}\"")
-        if abs(back - percent) > 1e-6:
-            return fail(
-                f"SetSpeed reports True and re-reads {back} for "
-                f"{percent} - refusing to claim it.",
-                f"{TOOL} items --timeline \"{timeline.GetName()}\"")
-        # Finding 17: a retimed talking shot without its dialogue
-        # loses sync, so the linked audio rides the same write -
-        # selected by `_linked_audio_for_speed` (same span, same
-        # source), each judged by its own `GetSpeed` re-read. An
-        # audio refusal fails the verb AND puts the video item back
-        # to its pre-op speed rather than leave the pair split.
-        _linked, _skipped, _refused, _unchecked = \
-            _linked_audio_for_speed(timeline, item, span)
-        if _refused:
-            return fail(
-                f"SetSpeed({percent}%) on {span['name']!r} verified, "
-                f"but {_refused}.",
-                f"{TOOL} items --timeline \"{timeline.GetName()}\"")
-        if _unchecked:
-            audio_note = f"linkage unchecked - {_unchecked}"
-        elif _linked:
+        with _journal_write(
+                args, timeline=timeline, project=project,
+                spec={"verb": "edit_speed", "timeline": timeline.GetName(),
+                      "name": span["name"], "percent": percent,
+                      "ripple": ripple},
+                gate_class="edit_speed") as (journal, journal_state):
             try:
-                _fps = float(timeline.GetSetting("timelineFrameRate"))
-            except Exception:
+                wrote = bool(item.SetSpeed({"Percentage": percent,
+                                            "RippleTimeline": ripple}))
+            except Exception as exc:
+                return fail(f"SetSpeed raised ({exc}) - verify by hand.",
+                            f"{TOOL} items --timeline "
+                            f"\"{timeline.GetName()}\"")
+            if not wrote:
                 return fail(
-                    f"SetSpeed({percent}%) on {span['name']!r} "
-                    f"verified, but the timeline rate will not "
-                    f"read and {len(_linked)} linked audio "
-                    f"item(s) need retiming - refusing to "
-                    f"judge them.",
-                    f"{TOOL} items --timeline "
-                    f"\"{timeline.GetName()}\"")
-            from library.tools import native_ops_apply as _apply
-            _audio_ok, _audio_bad = _apply.retime_linked_audio(
-                item, span["name"], percent, _fps, _linked, set())
-            if _audio_bad is not None:
-                _restored = ""
+                    f"SetSpeed({percent}%) answered False on "
+                    f"{span['name']!r} - nothing was claimed.",
+                    f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+            try:
+                back_opts = item.GetSpeed()
+            except AttributeError:
+                return fail(
+                    f"SetSpeed answered True but this build has no "
+                    f"GetSpeed to re-read - refusing to claim it.",
+                    f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+            except Exception as exc:
+                return fail(f"the speed re-read raised ({exc}) - verify "
+                            f"by hand.",
+                            f"{TOOL} items --timeline "
+                            f"\"{timeline.GetName()}\"")
+            try:
+                back = float((back_opts or {}).get("Percentage"))
+            except (TypeError, ValueError):
+                return fail(
+                    f"SetSpeed answered True but GetSpeed re-reads "
+                    f"{back_opts!r} - refusing to claim it.",
+                    f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+            if abs(back - percent) > 1e-6:
+                return fail(
+                    f"SetSpeed reports True and re-reads {back} for "
+                    f"{percent} - refusing to claim it.",
+                    f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+            # Finding 17: a retimed talking shot without its dialogue
+            # loses sync, so the linked audio rides the same write -
+            # selected by `_linked_audio_for_speed` (same span, same
+            # source), each judged by its own `GetSpeed` re-read. An
+            # audio refusal fails the verb AND puts the video item back
+            # to its pre-op speed rather than leave the pair split.
+            _linked, _skipped, _refused, _unchecked = \
+                _linked_audio_for_speed(timeline, item, span)
+            if _refused:
+                return fail(
+                    f"SetSpeed({percent}%) on {span['name']!r} verified, "
+                    f"but {_refused}.",
+                    f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+            if _unchecked:
+                audio_note = f"linkage unchecked - {_unchecked}"
+            elif _linked:
                 try:
-                    _pre = float(current)
-                    if bool(item.SetSpeed({"Percentage": _pre,
-                                           "RippleTimeline": ripple})):
-                        _restored = (f" the video item was put "
-                                     f"back to {_pre:g}%")
+                    _fps = float(timeline.GetSetting("timelineFrameRate"))
                 except Exception:
-                    pass
-                return fail(
-                    f"SetSpeed({percent}%) on {span['name']!r} "
-                    f"verified, but its linked audio refused - "
-                    f"{_audio_bad['what']}."
-                    f"{_restored or ' the video item could not be put back - verify the pair by hand'}",
-                    f"{TOOL} items --timeline "
-                    f"\"{timeline.GetName()}\"")
-            audio_note = ("retimed with the picture: "
-                          + ", ".join(r["item"] for r in _audio_ok))
-            if _skipped:
-                audio_note += (" (left at full speed, different "
-                               "source: " + ", ".join(_skipped) + ")")
-        elif _skipped:
-            audio_note = ("left at full speed, different source: "
-                          + ", ".join(_skipped))
-        else:
-            audio_note = "video only - no same-span audio"
+                    return fail(
+                        f"SetSpeed({percent}%) on {span['name']!r} "
+                        f"verified, but the timeline rate will not "
+                        f"read and {len(_linked)} linked audio "
+                        f"item(s) need retiming - refusing to "
+                        f"judge them.",
+                        f"{TOOL} items --timeline "
+                        f"\"{timeline.GetName()}\"")
+                from library.tools import native_ops_apply as _apply
+                _audio_ok, _audio_bad = _apply.retime_linked_audio(
+                    item, span["name"], percent, _fps, _linked, set())
+                if _audio_bad is not None:
+                    _restored = ""
+                    try:
+                        _pre = float(current)
+                        if bool(item.SetSpeed({"Percentage": _pre,
+                                               "RippleTimeline": ripple})):
+                            _restored = (f" the video item was put "
+                                         f"back to {_pre:g}%")
+                    except Exception:
+                        pass
+                    return fail(
+                        f"SetSpeed({percent}%) on {span['name']!r} "
+                        f"verified, but its linked audio refused - "
+                        f"{_audio_bad['what']}."
+                        f"{_restored or ' the video item could not be put back - verify the pair by hand'}",
+                        f"{TOOL} items --timeline "
+                        f"\"{timeline.GetName()}\"")
+                audio_note = ("retimed with the picture: "
+                              + ", ".join(r["item"] for r in _audio_ok))
+                if _skipped:
+                    audio_note += (" (left at full speed, different "
+                                   "source: " + ", ".join(_skipped) + ")")
+            elif _skipped:
+                audio_note = ("left at full speed, different source: "
+                              + ", ".join(_skipped))
+            else:
+                audio_note = "video only - no same-span audio"
+            journal_state["success"] = True
         emit([kv_block("speed", {
                   "timeline": timeline.GetName(),
                   "name": span["name"],
@@ -3848,6 +3892,7 @@ def cmd_edit_speed(args) -> int:
                   "audio": audio_note,
               }),
               note,
+              _journal_block(journal),
               help_block([f"{TOOL} items --timeline "
                           f"\"{timeline.GetName()}\""])])
         return 0
@@ -4005,33 +4050,42 @@ def cmd_edit_transition(args) -> int:
             _assert_cursor_on(resolve, timeline.GetName())
         except AxiError as exc:
             return fail(str(exc), exc.fix)
-        try:
-            placed = item.AddTransition(dict(payload))
-        except Exception as exc:
-            return fail(f"AddTransition raised ({exc}) - verify by "
-                        f"hand.",
-                        f"{TOOL} items --timeline "
-                        f"\"{timeline.GetName()}\"")
-        if placed is None or placed is False:
-            return fail(
-                f"AddTransition({want_type!r}, {category!r}) answered "
-                f"empty on {item_name!r} - the type or category took "
-                f"nothing on this build (Cross Dissolve in simple and "
-                f"fusion is the proven pair; a clip starting at "
-                f"source 0 has no head handles for a centered "
-                f"transition).",
-                f"{TOOL} items --timeline \"{timeline.GetName()}\"")
-        try:
-            tr_span = {"name": placed.GetName(),
-                       "record_in": placed.GetStart(),
-                       "record_out": placed.GetEnd(),
-                       "duration": placed.GetDuration()}
-        except Exception as exc:
-            return fail(
-                f"AddTransition answered, but the transition item "
-                f"would not read its span ({exc}) - refusing to "
-                f"claim it.",
-                f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+        with _journal_write(
+                args, timeline=timeline, project=project,
+                spec={"verb": "edit_transition",
+                      "timeline": timeline.GetName(), "cut": cut,
+                      "type": want_type, "category": category,
+                      "position": position, "alignment": alignment,
+                      "duration": duration},
+                gate_class="edit_transition") as (journal, journal_state):
+            try:
+                placed = item.AddTransition(dict(payload))
+            except Exception as exc:
+                return fail(f"AddTransition raised ({exc}) - verify by "
+                            f"hand.",
+                            f"{TOOL} items --timeline "
+                            f"\"{timeline.GetName()}\"")
+            if placed is None or placed is False:
+                return fail(
+                    f"AddTransition({want_type!r}, {category!r}) answered "
+                    f"empty on {item_name!r} - the type or category took "
+                    f"nothing on this build (Cross Dissolve in simple and "
+                    f"fusion is the proven pair; a clip starting at "
+                    f"source 0 has no head handles for a centered "
+                    f"transition).",
+                    f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+            try:
+                tr_span = {"name": placed.GetName(),
+                           "record_in": placed.GetStart(),
+                           "record_out": placed.GetEnd(),
+                           "duration": placed.GetDuration()}
+            except Exception as exc:
+                return fail(
+                    f"AddTransition answered, but the transition item "
+                    f"would not read its span ({exc}) - refusing to "
+                    f"claim it.",
+                    f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+            journal_state["success"] = True
         emit([kv_block("transition", {
                   "timeline": timeline.GetName(),
                   "cut": cut,
@@ -4043,6 +4097,7 @@ def cmd_edit_transition(args) -> int:
                   "whose span reads)",
               }),
               note,
+              _journal_block(journal),
               help_block([f"{TOOL} items --timeline "
                           f"\"{timeline.GetName()}\""])])
         return 0
@@ -4828,6 +4883,73 @@ def _ledger_block(args, row: dict, why_missing: str = "") -> str:
     })
 
 
+def _reel_number(name: str) -> int:
+    """The reel number in a timeline name like 'Reel 29 - salvage', or 0."""
+    import re
+    match = re.match(r"Reel\s+(\d+)", name)
+    return int(match.group(1)) if match else 0
+
+
+@contextlib.contextmanager
+def _journal_write(args, *, timeline, project, spec, gate_class):
+    """Journal a direct resolve-axi write through the undo journal.
+
+    Opens an entry BEFORE the write (capturing the before-tracks) and
+    closes it AFTER (capturing the after-tracks, recording a version and
+    a history entry). The caller sets ``state["success"] = True`` once the
+    write has verified; an unverified write leaves the entry FAILED, never
+    applied. A journal failure never fails the verb: the ACT is what the
+    exit judges (it already verified), and the block judges the
+    durability - but it says so loudly, because an unjournaled hands edit
+    is invisible to `ren undo` and the next build's carry.
+    """
+    from library.tools import undo_journal as _journal
+
+    project_folder = getattr(args, "project_folder", "") or ""
+    if not project_folder:
+        yield None, {"success": False}
+        return
+    entry = _journal.open_entry(
+        project_folder,
+        final=timeline.GetName(),
+        reel=_reel_number(timeline.GetName()),
+        resolve_project=project.GetName(),
+        spec=spec,
+        gate_class=gate_class,
+        source_timeline=timeline,
+        removals=[],
+        project=project,
+    )
+    state = {"success": False}
+    try:
+        yield entry, state
+    except Exception as exc:
+        _journal.fail_entry(project_folder, entry, repr(exc))
+        raise
+    if state["success"]:
+        _journal.close_entry(
+            project_folder, entry, after_timeline=timeline, rows={},
+            project=project)
+    else:
+        _journal.fail_entry(project_folder, entry,
+                             "the write did not verify")
+
+
+def _journal_block(entry) -> str:
+    """The `journal` TOON block for a completed journal entry."""
+    if entry is None:
+        return kv_block("journal", {
+            "entry": "not-journaled",
+            "why": ("no --project-folder: acted, not undone - `ren undo` "
+                    "cannot reverse it. Re-run with --project-folder "
+                    "<pipeline project> to journal it."),
+        })
+    return kv_block("journal", {
+        "entry": entry["id"],
+        "status": entry.get("status", ""),
+    })
+
+
 def cmd_color_lut(args) -> int:
     """Set a node LUT on one item, verified by re-read.
 
@@ -4916,31 +5038,37 @@ def cmd_color_lut(args) -> int:
                       f"{track_type}{track_index} --index {args.index} "
                       f"--lut \"{args.lut}\" --apply"])])
             return 0
-        try:
-            wrote = bool(graph.SetLUT(node, args.lut))
-        except Exception as exc:
-            return fail(f"SetLUT raised ({exc}) - verify by hand.",
-                        f"{TOOL} items --timeline "
-                        f"\"{timeline.GetName()}\"")
-        if not wrote:
-            return fail(f"SetLUT(node {node}, {args.lut!r}) answered "
-                        f"False on {span['name']!r} - nothing was "
-                        f"claimed.",
-                        f"{TOOL} items --timeline "
-                        f"\"{timeline.GetName()}\"")
-        try:
-            back = graph.GetLUT(node)
-        except Exception as exc:
-            return fail(f"the LUT re-read raised ({exc}) - verify by "
-                        f"hand.",
-                        f"{TOOL} items --timeline "
-                        f"\"{timeline.GetName()}\"")
-        if not back or (back != args.lut
-                        and not args.lut.endswith("/" + str(back))):
-            return fail(
-                f"SetLUT reports True and re-reads {back!r} for "
-                f"{args.lut!r} - refusing to claim it.",
-                f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+        with _journal_write(
+                args, timeline=timeline, project=project,
+                spec={"verb": "color_lut", "timeline": timeline.GetName(),
+                      "name": span["name"], "node": node, "lut": args.lut},
+                gate_class="color_lut") as (journal, state):
+            try:
+                wrote = bool(graph.SetLUT(node, args.lut))
+            except Exception as exc:
+                return fail(f"SetLUT raised ({exc}) - verify by hand.",
+                            f"{TOOL} items --timeline "
+                            f"\"{timeline.GetName()}\"")
+            if not wrote:
+                return fail(f"SetLUT(node {node}, {args.lut!r}) answered "
+                            f"False on {span['name']!r} - nothing was "
+                            f"claimed.",
+                            f"{TOOL} items --timeline "
+                            f"\"{timeline.GetName()}\"")
+            try:
+                back = graph.GetLUT(node)
+            except Exception as exc:
+                return fail(f"the LUT re-read raised ({exc}) - verify by "
+                            f"hand.",
+                            f"{TOOL} items --timeline "
+                            f"\"{timeline.GetName()}\"")
+            if not back or (back != args.lut
+                            and not args.lut.endswith("/" + str(back))):
+                return fail(
+                    f"SetLUT reports True and re-reads {back!r} for "
+                    f"{args.lut!r} - refusing to claim it.",
+                    f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+            state["success"] = True
         anchor = (getattr(args, "anchor", "") or "").strip()
         ledger_row = {
             "op": "clip_lut",
@@ -4971,6 +5099,7 @@ def cmd_color_lut(args) -> int:
               }),
               note,
               _ledger_block(args, ledger_row, ledger_note),
+              _journal_block(journal),
               help_block([f"{TOOL} items --timeline "
                           f"\"{timeline.GetName()}\""])])
         return 0
@@ -5190,36 +5319,42 @@ def cmd_audio_isolate(args) -> int:
                       f"\"{timeline.GetName()}\" --track {track} "
                       f"--amount {amount} --apply"])])
             return 0
-        try:
-            wrote = bool(timeline.SetVoiceIsolationState(track,
-                                                         dict(state)))
-        except Exception as exc:
-            return fail(f"SetVoiceIsolationState raised ({exc}) - "
-                        f"verify by hand.",
-                        f"{TOOL} audio --timeline "
-                        f"\"{timeline.GetName()}\" --full")
-        if not wrote:
-            return fail(
-                f"SetVoiceIsolationState(audio{track}) answered "
-                f"False - nothing was claimed.",
-                f"{TOOL} audio --timeline "
-                f"\"{timeline.GetName()}\" --full")
-        try:
-            back = timeline.GetVoiceIsolationState(track) or {}
-        except Exception as exc:
-            return fail(f"the isolation re-read raised ({exc}) - "
-                        f"verify by hand.",
-                        f"{TOOL} audio --timeline "
-                        f"\"{timeline.GetName()}\" --full")
-        want_enabled = bool(state.get("isEnabled"))
-        if (bool(back.get("isEnabled")) != want_enabled
-                or (want_enabled
-                    and back.get("amount") != state["amount"])):
-            return fail(
-                f"SetVoiceIsolationState reports True and re-reads "
-                f"{back!r} for {state!r} - refusing to claim it.",
-                f"{TOOL} audio --timeline "
-                f"\"{timeline.GetName()}\" --full")
+        with _journal_write(
+                args, timeline=timeline, project=project,
+                spec={"verb": "audio_isolate", "timeline": timeline.GetName(),
+                      "track": track, "state": state},
+                gate_class="audio_isolate") as (journal, state_journal):
+            try:
+                wrote = bool(timeline.SetVoiceIsolationState(
+                    track, dict(state)))
+            except Exception as exc:
+                return fail(f"SetVoiceIsolationState raised ({exc}) - "
+                            f"verify by hand.",
+                            f"{TOOL} audio --timeline "
+                            f"\"{timeline.GetName()}\" --full")
+            if not wrote:
+                return fail(
+                    f"SetVoiceIsolationState(audio{track}) answered "
+                    f"False - nothing was claimed.",
+                    f"{TOOL} audio --timeline "
+                    f"\"{timeline.GetName()}\" --full")
+            try:
+                back = timeline.GetVoiceIsolationState(track) or {}
+            except Exception as exc:
+                return fail(f"the isolation re-read raised ({exc}) - "
+                            f"verify by hand.",
+                            f"{TOOL} audio --timeline "
+                            f"\"{timeline.GetName()}\" --full")
+            want_enabled = bool(state.get("isEnabled"))
+            if (bool(back.get("isEnabled")) != want_enabled
+                    or (want_enabled
+                        and back.get("amount") != state["amount"])):
+                return fail(
+                    f"SetVoiceIsolationState reports True and re-reads "
+                    f"{back!r} for {state!r} - refusing to claim it.",
+                    f"{TOOL} audio --timeline "
+                    f"\"{timeline.GetName()}\" --full")
+            state_journal["success"] = True
         ledger_row = {
             "op": "voice_isolation",
             "anchor": {"kind": "reel"},
@@ -5249,6 +5384,7 @@ def cmd_audio_isolate(args) -> int:
               }),
               note,
               _ledger_block(args, ledger_row, ledger_note),
+              _journal_block(journal),
               help_block([f"{TOOL} audio --timeline "
                           f"\"{timeline.GetName()}\" --full"])])
         return 0
@@ -5749,33 +5885,40 @@ def cmd_sense_reframe(args) -> int:
                         "address Smart Reframe.",
                         f"{TOOL} items --timeline "
                         f"\"{timeline.GetName()}\"")
-        from library.tools import edit_patch
-        try:
-            receipt = edit_patch.apply_live_patch(
-                project=project, timeline=timeline,
-                capability="reel.touchup",
-                operations=[{
-                    "op": "clip.smart_reframe", "unique_id": uid,
-                    "keys": list(_REFRAME_KEYS), "before": before,
-                }],
-                conflict_domains=("picture_transform",),
-                idempotency_key=(
-                    f"resolve-axi.sense-reframe:{uuid.uuid4().hex}"),
-                preconditions=[{
-                    "kind": "clip_transform_equals",
-                    "unique_id": uid, "properties": before,
-                }])
-        except Exception as exc:
-            return fail(f"Smart Reframe EditPatch failed ({exc}).",
-                        f"{TOOL} items --timeline "
-                        f"\"{timeline.GetName()}\" --transforms")
-        if receipt["status"] != "committed":
-            return fail(
-                f"Smart Reframe did not verify from its EditPatch: "
-                f"{receipt} - no verifiable effect; judged on pixels, "
-                "not here.",
-                f"{TOOL} items --timeline "
-                f"\"{timeline.GetName()}\" --transforms")
+        with _journal_write(
+                args, timeline=timeline, project=project,
+                spec={"verb": "sense_reframe", "timeline": timeline.GetName(),
+                      "name": span["name"], "unique_id": uid,
+                      "keys": list(_REFRAME_KEYS)},
+                gate_class="sense_reframe") as (journal, journal_state):
+            from library.tools import edit_patch
+            try:
+                receipt = edit_patch.apply_live_patch(
+                    project=project, timeline=timeline,
+                    capability="reel.touchup",
+                    operations=[{
+                        "op": "clip.smart_reframe", "unique_id": uid,
+                        "keys": list(_REFRAME_KEYS), "before": before,
+                    }],
+                    conflict_domains=("picture_transform",),
+                    idempotency_key=(
+                        f"resolve-axi.sense-reframe:{uuid.uuid4().hex}"),
+                    preconditions=[{
+                        "kind": "clip_transform_equals",
+                        "unique_id": uid, "properties": before,
+                    }])
+            except Exception as exc:
+                return fail(f"Smart Reframe EditPatch failed ({exc}).",
+                            f"{TOOL} items --timeline "
+                            f"\"{timeline.GetName()}\" --transforms")
+            if receipt["status"] != "committed":
+                return fail(
+                    f"Smart Reframe did not verify from its EditPatch: "
+                    f"{receipt} - no verifiable effect; judged on pixels, "
+                    "not here.",
+                    f"{TOOL} items --timeline "
+                    f"\"{timeline.GetName()}\" --transforms")
+            journal_state["success"] = True
         after = _reframe_state(item)
         emit([kv_block("reframed", {
                     "timeline": timeline.GetName(),
@@ -5786,7 +5929,8 @@ def cmd_sense_reframe(args) -> int:
                     [{"key": k, "before": before[k], "after": after[k]}
                      for k in _REFRAME_KEYS],
                     ["key", "before", "after"]),
-              note])
+              note,
+              _journal_block(journal)])
         return 0
 
 
@@ -5845,33 +5989,39 @@ def cmd_sense_mask(args) -> int:
                             else None)
         except Exception:
             nodes_before = None
-        try:
-            masked = bool(item.CreateMagicMask(args.mode))
-        except Exception as exc:
-            return fail(f"CreateMagicMask raised ({exc}) - verify "
-                        f"by hand.",
-                        f"{TOOL} items --timeline "
-                        f"\"{timeline.GetName()}\"")
-        if not masked:
-            return fail(
-                f"CreateMagicMask({args.mode}) answered False on "
-                f"{span['name']!r} (nodes {nodes_before}) - no mask "
-                f"started, nothing claimed.",
-                f"{TOOL} items --timeline "
-                f"\"{timeline.GetName()}\"")
-        try:
-            graph = item.GetNodeGraph()
-            nodes_after = (graph.GetNumNodes() if graph is not None
-                           else None)
-        except Exception:
-            nodes_after = None
-        if nodes_after == nodes_before:
-            return fail(
-                f"CreateMagicMask reports True but the node count "
-                f"reads back unchanged ({nodes_before}) - "
-                f"unverified, refusing to claim it.",
-                f"{TOOL} items --timeline "
-                f"\"{timeline.GetName()}\"")
+        with _journal_write(
+                args, timeline=timeline, project=project,
+                spec={"verb": "sense_mask", "timeline": timeline.GetName(),
+                      "name": span["name"], "mode": args.mode},
+                gate_class="sense_mask") as (journal, journal_state):
+            try:
+                masked = bool(item.CreateMagicMask(args.mode))
+            except Exception as exc:
+                return fail(f"CreateMagicMask raised ({exc}) - verify "
+                            f"by hand.",
+                            f"{TOOL} items --timeline "
+                            f"\"{timeline.GetName()}\"")
+            if not masked:
+                return fail(
+                    f"CreateMagicMask({args.mode}) answered False on "
+                    f"{span['name']!r} (nodes {nodes_before}) - no mask "
+                    f"started, nothing claimed.",
+                    f"{TOOL} items --timeline "
+                    f"\"{timeline.GetName()}\"")
+            try:
+                graph = item.GetNodeGraph()
+                nodes_after = (graph.GetNumNodes() if graph is not None
+                               else None)
+            except Exception:
+                nodes_after = None
+            if nodes_after == nodes_before:
+                return fail(
+                    f"CreateMagicMask reports True but the node count "
+                    f"reads back unchanged ({nodes_before}) - "
+                    f"unverified, refusing to claim it.",
+                    f"{TOOL} items --timeline "
+                    f"\"{timeline.GetName()}\"")
+            journal_state["success"] = True
         emit([kv_block("masked", {
                     "timeline": timeline.GetName(),
                     "item": span["name"],
@@ -5880,7 +6030,8 @@ def cmd_sense_mask(args) -> int:
                     "nodes_after": nodes_after,
                     "verified": "yes (node gained)",
                 }),
-              note])
+              note,
+              _journal_block(journal)])
         return 0
 
 
@@ -5943,28 +6094,34 @@ def cmd_sense_switch(args) -> int:
                         f"read {track_type}{track_index} ({exc}).",
                         f"{TOOL} items --timeline "
                         f"\"{timeline.GetName()}\"")
-        try:
-            switched = bool(item.PerformMulticamSmartSwitch(
-                {"minEditDuration": window}))
-        except Exception as exc:
-            return fail(f"PerformMulticamSmartSwitch raised ({exc}) - "
-                        f"verify by hand.",
-                        f"{TOOL} items --timeline "
-                        f"\"{timeline.GetName()}\"")
-        if not switched:
-            return fail(f"PerformMulticamSmartSwitch answered False on "
-                        f"{span['name']!r} - nothing switched.",
-                        f"{TOOL} items --timeline "
-                        f"\"{timeline.GetName()}\"")
-        try:
-            items_after = len(timeline.GetItemListInTrack(
-                track_type, track_index) or [])
-        except Exception as exc:
-            return fail(f"timeline {timeline.GetName()!r} would not "
-                        f"re-read {track_type}{track_index} ({exc}) - "
-                        f"verify by hand.",
-                        f"{TOOL} items --timeline "
-                        f"\"{timeline.GetName()}\"")
+        with _journal_write(
+                args, timeline=timeline, project=project,
+                spec={"verb": "sense_switch", "timeline": timeline.GetName(),
+                      "name": span["name"], "min_edit": window},
+                gate_class="sense_switch") as (journal, journal_state):
+            try:
+                switched = bool(item.PerformMulticamSmartSwitch(
+                    {"minEditDuration": window}))
+            except Exception as exc:
+                return fail(f"PerformMulticamSmartSwitch raised ({exc}) - "
+                            f"verify by hand.",
+                            f"{TOOL} items --timeline "
+                            f"\"{timeline.GetName()}\"")
+            if not switched:
+                return fail(f"PerformMulticamSmartSwitch answered False on "
+                            f"{span['name']!r} - nothing switched.",
+                            f"{TOOL} items --timeline "
+                            f"\"{timeline.GetName()}\"")
+            try:
+                items_after = len(timeline.GetItemListInTrack(
+                    track_type, track_index) or [])
+            except Exception as exc:
+                return fail(f"timeline {timeline.GetName()!r} would not "
+                            f"re-read {track_type}{track_index} ({exc}) - "
+                            f"verify by hand.",
+                            f"{TOOL} items --timeline "
+                            f"\"{timeline.GetName()}\"")
+            journal_state["success"] = True
         emit([kv_block("switched", {
                     "timeline": timeline.GetName(),
                     "item": span["name"],
@@ -5973,6 +6130,7 @@ def cmd_sense_switch(args) -> int:
                     "verified": "yes (returned True; count re-read)",
                 }),
               note,
+              _journal_block(journal),
               help_block([f"{TOOL} items --timeline "
                           f"\"{timeline.GetName()}\""])])
         return 0
@@ -6140,6 +6298,11 @@ def build_parser() -> Parser:
                        help="write under the Resolve lease with the "
                             "cursor asserted (default is a dry-run "
                             "plan)")
+        q.add_argument("--project-folder", default="",
+                       help="pipeline project folder: with --apply, "
+                            "journal the write through the undo journal "
+                            "so `ren undo` can reverse it (without this "
+                            "the write acts but is not undone)")
 
     q = esubs.add_parser("place", help="append a pool clip onto the "
                                         "reel; --apply writes")
@@ -6674,6 +6837,11 @@ def build_parser() -> Parser:
                        help="write under the Resolve lease with the "
                             "cursor asserted (default is a dry-run "
                             "plan)")
+        q.add_argument("--project-folder", default="",
+                       help="pipeline project folder: with --apply, "
+                            "journal the write through the undo journal "
+                            "so `ren undo` can reverse it (without this "
+                            "the write acts but is not undone)")
 
     q = ssubs.add_parser("transcribe", help="Resolve's transcription "
                                             "with speakers, words with "

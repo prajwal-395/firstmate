@@ -471,7 +471,9 @@ class _Timeline:
         return self._end
 
     def GetSetting(self, key):
-        return {"timelineFrameRate": "23.976"}.get(key, "")
+        return {"timelineFrameRate": "23.976",
+                "timelineResolutionWidth": "1920",
+                "timelineResolutionHeight": "1080"}.get(key, "")
 
     def GetMarkers(self):
         return dict(self._markers)
@@ -2696,3 +2698,293 @@ def test_delete_dry_run_names_the_clip_it_will_touch(edit_patched,
         index=0, ripple=False, apply=False)) == 0
     out = capsys.readouterr().out
     assert items[0].GetName() in out
+
+
+# ── C-15: writes are journalled through the undo journal ──────────────
+#
+# A direct resolve-axi write is a projection of a C-01 algebra op: it
+# produces the same ledger row, undo entry and read-back discipline as a
+# pipeline-driven edit. The defect: a write through resolve-axi was
+# invisible to `ren undo` - no journal entry, no version, no history.
+
+
+def _journal_entries(project_folder):
+    from library.tools import undo_journal
+    return undo_journal.list_entries(str(project_folder))
+
+
+def _ledger_rows(project_folder):
+    from library.tools import edit_ledger
+    return edit_ledger.load_rows(str(project_folder))
+
+
+def test_color_lut_apply_journals(edit_patched, tmp_path, capsys):
+    """A verified LUT write with --project-folder produces an undo journal
+    entry - the same durability a pipeline-driven edit carries. Without
+    --project-folder it acts but is not journalled."""
+    project_folder = tmp_path / "lut-project"
+    project_folder.mkdir()
+    args = _lut_ns(project_folder=str(project_folder))
+    assert cmd_color_lut(args) == 0
+    out = capsys.readouterr().out
+    assert "journal:" in out
+    assert "entry:" in out
+    assert "not-journaled" not in out
+    entries = _journal_entries(project_folder)
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry["status"] == "applied"
+    assert entry["final"] == "Reel 29 - salvage"
+    assert entry["gate_class"] == "color_lut"
+    assert "tracks" in entry["before"]
+    assert "tracks" in entry["after"]
+
+
+def test_color_lut_without_project_folder_acts_but_does_not_journal(
+        edit_patched, tmp_path, capsys):
+    """Without --project-folder the write still verifies and acts, but it
+    is invisible to `ren undo` - no journal entry, no ledger row."""
+    args = _lut_ns(project_folder="")
+    assert cmd_color_lut(args) == 0
+    out = capsys.readouterr().out
+    assert "not-journaled" in out
+    assert "no --project-folder" in out
+    assert _journal_entries(tmp_path) == []
+    assert _ledger_rows(tmp_path) == []
+
+
+def test_audio_isolate_apply_journals_and_ledgers(edit_patched, tmp_path,
+                                                  capsys):
+    """Voice isolation is a REPLAYED ledger op: the write journals AND
+    ledgers, so the next build replays it and `ren undo` can reverse it."""
+    project_folder = tmp_path / "isolate-project"
+    project_folder.mkdir()
+    args = _isolate_ns(project_folder=str(project_folder))
+    assert cmd_audio_isolate(args) == 0
+    out = capsys.readouterr().out
+    assert "journal:" in out
+    assert "entry:" in out
+    entries = _journal_entries(project_folder)
+    assert len(entries) == 1
+    assert entries[0]["status"] == "applied"
+    assert entries[0]["gate_class"] == "audio_isolate"
+    rows = _ledger_rows(project_folder)
+    assert len(rows) == 1
+    assert rows[0]["op"] == "voice_isolation"
+
+
+def test_edit_trim_apply_journals(edit_patched, tmp_path, capsys):
+    """A structural edit (trim) journals through the undo journal so the
+    write is reversible, even though the build does not replay it."""
+    project_folder = tmp_path / "trim-project"
+    project_folder.mkdir()
+    args = _at(source_in=1010, source_out=1049, apply=True,
+               project_folder=str(project_folder))
+    assert cmd_edit_trim(args) == 0
+    out = capsys.readouterr().out
+    assert "journal:" in out
+    assert "entry:" in out
+    entries = _journal_entries(project_folder)
+    assert len(entries) == 1
+    assert entries[0]["status"] == "applied"
+    assert entries[0]["gate_class"] == "edit_trim"
+    assert entries[0]["final"] == "Reel 29 - salvage"
+
+
+def test_edit_speed_apply_journals(edit_patched, tmp_path, capsys):
+    """A speed change journals through the undo journal."""
+    project_folder = tmp_path / "speed-project"
+    project_folder.mkdir()
+    args = _speed_ns(apply=True, project_folder=str(project_folder))
+    assert cmd_edit_speed(args) == 0
+    out = capsys.readouterr().out
+    assert "journal:" in out
+    assert "entry:" in out
+    entries = _journal_entries(project_folder)
+    assert len(entries) == 1
+    assert entries[0]["status"] == "applied"
+    assert entries[0]["gate_class"] == "edit_speed"
+
+
+def test_edit_delete_apply_journals(edit_patched, tmp_path, capsys):
+    """A delete journals through the undo journal so `ren undo` can
+    restore the deleted item."""
+    project_folder = tmp_path / "delete-project"
+    project_folder.mkdir()
+    args = _item_ns(apply=True, project_folder=str(project_folder))
+    assert cmd_edit_delete(args) == 0
+    out = capsys.readouterr().out
+    assert "journal:" in out
+    assert "entry:" in out
+    entries = _journal_entries(project_folder)
+    assert len(entries) == 1
+    assert entries[0]["status"] == "applied"
+    assert entries[0]["gate_class"] == "edit_delete"
+
+
+def test_edit_place_apply_journals(edit_patched, tmp_path, capsys):
+    """An append journals through the undo journal."""
+    project_folder = tmp_path / "place-project"
+    project_folder.mkdir()
+    args = _place_ns(apply=True, project_folder=str(project_folder))
+    assert cmd_edit_place(args) == 0
+    out = capsys.readouterr().out
+    assert "journal:" in out
+    assert "entry:" in out
+    entries = _journal_entries(project_folder)
+    assert len(entries) == 1
+    assert entries[0]["status"] == "applied"
+    assert entries[0]["gate_class"] == "edit_place"
+
+
+def test_edit_move_apply_journals(edit_patched, tmp_path, capsys):
+    """A move journals through the undo journal."""
+    project_folder = tmp_path / "move-project"
+    project_folder.mkdir()
+    args = _item_ns(to=200, track_to="", apply=True,
+                    project_folder=str(project_folder))
+    assert cmd_edit_move(args) == 0
+    out = capsys.readouterr().out
+    assert "journal:" in out
+    assert "entry:" in out
+    entries = _journal_entries(project_folder)
+    assert len(entries) == 1
+    assert entries[0]["status"] == "applied"
+    assert entries[0]["gate_class"] == "edit_move"
+
+
+def test_edit_transition_apply_journals(edit_patched, tmp_path, capsys):
+    """A transition placement journals through the undo journal."""
+    project_folder = tmp_path / "transition-project"
+    project_folder.mkdir()
+    args = _transition_ns(apply=True, duration=12,
+                          project_folder=str(project_folder))
+    assert cmd_edit_transition(args) == 0
+    out = capsys.readouterr().out
+    assert "journal:" in out
+    assert "entry:" in out
+    entries = _journal_entries(project_folder)
+    assert len(entries) == 1
+    assert entries[0]["status"] == "applied"
+    assert entries[0]["gate_class"] == "edit_transition"
+
+
+def test_sense_reframe_apply_journals(edit_patched, tmp_path, capsys,
+                                       monkeypatch):
+    """Smart Reframe journals through the undo journal."""
+    from library.tools.transform_write_log import write_scope
+    _set(_item0, _reframe_moves=True)(edit_patched, monkeypatch)
+    project_folder = tmp_path / "reframe-project"
+    project_folder.mkdir()
+    args = _at(apply=True, project_folder=str(project_folder))
+    with write_scope(project_folder=str(project_folder)):
+        assert cmd_sense_reframe(args) == 0
+    out = capsys.readouterr().out
+    assert "journal:" in out
+    assert "entry:" in out
+    entries = _journal_entries(project_folder)
+    assert len(entries) == 1
+    assert entries[0]["status"] == "applied"
+    assert entries[0]["gate_class"] == "sense_reframe"
+
+
+def test_sense_mask_apply_journals(edit_patched, tmp_path, capsys,
+                                    monkeypatch):
+    """Magic Mask journals through the undo journal."""
+    _set(_item0, _mask_ok=True)(edit_patched, monkeypatch)
+    project_folder = tmp_path / "mask-project"
+    project_folder.mkdir()
+    args = _at(mode="BI", apply=True, project_folder=str(project_folder))
+    assert cmd_sense_mask(args) == 0
+    out = capsys.readouterr().out
+    assert "journal:" in out
+    assert "entry:" in out
+    entries = _journal_entries(project_folder)
+    assert len(entries) == 1
+    assert entries[0]["status"] == "applied"
+    assert entries[0]["gate_class"] == "sense_mask"
+
+
+def test_sense_switch_apply_journals(edit_patched, tmp_path, capsys):
+    """Smart Switch journals through the undo journal."""
+    project_folder = tmp_path / "switch-project"
+    project_folder.mkdir()
+    args = _at(min_edit=1.0, apply=True, project_folder=str(project_folder))
+    assert cmd_sense_switch(args) == 0
+    out = capsys.readouterr().out
+    assert "journal:" in out
+    assert "entry:" in out
+    entries = _journal_entries(project_folder)
+    assert len(entries) == 1
+    assert entries[0]["status"] == "applied"
+    assert entries[0]["gate_class"] == "sense_switch"
+
+
+def test_journal_entry_carries_before_and_after_tracks(edit_patched,
+                                                       tmp_path, capsys):
+    """The journal entry holds both sides: before-tracks (what the timeline
+    was) and after-tracks (what the write left), so `ren undo` can plan
+    the inverse by diff."""
+    project_folder = tmp_path / "before-after-project"
+    project_folder.mkdir()
+    args = _lut_ns(project_folder=str(project_folder))
+    assert cmd_color_lut(args) == 0
+    capsys.readouterr()
+    entries = _journal_entries(project_folder)
+    assert len(entries) == 1
+    entry = entries[0]
+    assert len(entry["before"]["tracks"]) > 0
+    assert len(entry["after"]["tracks"]) > 0
+    before_clips = entry["before"]["tracks"][0]["clips"]
+    after_clips = entry["after"]["tracks"][0]["clips"]
+    assert len(before_clips) == len(after_clips)
+    assert before_clips[0]["name"] == after_clips[0]["name"]
+
+
+def test_journaled_write_records_a_reel_version(edit_patched, tmp_path,
+                                                capsys):
+    """A journalled write is an ACT: it records a reel version, so
+    `ren undo` can reverse it by address."""
+    from library.tools.versions import reel_versions
+    project_folder = tmp_path / "version-project"
+    project_folder.mkdir()
+    args = _lut_ns(project_folder=str(project_folder))
+    assert cmd_color_lut(args) == 0
+    capsys.readouterr()
+    versions = reel_versions.versions_of(project_folder,
+                                          "Reel 29 - salvage")
+    assert len(versions) == 1
+    assert versions[0]["kind"] == "touch"
+
+
+def test_failed_write_marks_journal_entry_failed(edit_patched, tmp_path,
+                                                 capsys):
+    """A write that does not verify leaves the journal entry FAILED,
+    never applied - so `ren undo` never tries to reverse a write that
+    did not land."""
+    project_folder = tmp_path / "failed-project"
+    project_folder.mkdir()
+
+    class _RefusingGraph:
+        def GetNumNodes(self):
+            return 1
+
+        def GetLUT(self, node):
+            return ""
+
+        def SetLUT(self, node, lut):
+            return False
+
+    item = _item0(edit_patched)
+    original_graph = item.GetNodeGraph
+    item.GetNodeGraph = lambda: _RefusingGraph()
+    try:
+        args = _lut_ns(project_folder=str(project_folder))
+        assert cmd_color_lut(args) == 1
+    finally:
+        item.GetNodeGraph = original_graph
+    out = capsys.readouterr().out
+    assert "nothing was claimed" in out
+    entries = _journal_entries(project_folder)
+    assert len(entries) == 1
+    assert entries[0]["status"] == "failed"
