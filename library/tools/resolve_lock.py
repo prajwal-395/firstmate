@@ -1010,7 +1010,8 @@ def current_fence() -> Optional[_FenceRecord]:
 
 @contextmanager
 def cursor_excursion(project, timeline, purpose: str = "read",
-                    timeout: Optional[float] = None):
+                    timeout: Optional[float] = None,
+                    honor_captain: bool = True):
     """Move the cursor, do something, and put it back - under the guard.
 
     The holder sometimes has to READ a timeline that is not the one its
@@ -1019,6 +1020,9 @@ def cursor_excursion(project, timeline, purpose: str = "read",
     timeline is current, so the only comparable reading of a reel is
     taken with that reel current (`reel_rebuild_need.carried_digest_live`,
     `docs/READING_A_TRANSFORM.md`).
+
+    `honor_captain=False` is the health-check case: a probe that must
+    not queue behind the captain's signal.
 
     Both moves are real writes and go through `assert_current_timeline`,
     so this helper takes an EXCLUSIVE lease across the move, read and
@@ -1042,7 +1046,7 @@ def cursor_excursion(project, timeline, purpose: str = "read",
     still catches it, which is the property worth keeping.
     """
     with resolve_lease(f"cursor excursion: {purpose}", exclusive=True,
-                       timeout=timeout):
+                       timeout=timeout, honor_captain=honor_captain):
         previous = None
         try:
             previous = project.GetCurrentTimeline()

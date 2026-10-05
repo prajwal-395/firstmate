@@ -7,10 +7,12 @@ import pytest
 
 from library.tools import resolve_lock
 from library.tools import resolve_watchdog as wd
+from library.tools import timeline_shadow as shadow
 from library.tools.resolved import jobs as job_kinds
 from library.tools.resolved.server import Broker
 from library.tools.resolved.store import JobStore
-from tests.resolve_double import FakeResolve, make_project
+from tests.resolve_double import (FakeResolve, FakeTimeline, make_pool_clip,
+                                 make_project, place_clip)
 
 
 @pytest.fixture
@@ -145,6 +147,78 @@ def test_post_restart_check_never_returns():
     result = wd.post_restart_check(StuckResolve(), budget_s=0.01)
     assert result["ok"] is False
     assert "did not return" in result["error"]
+
+
+def test_post_restart_check_reports_corrupted_timeline(tmp_path):
+    """A restart that corrupts a timeline's contents is detected.
+
+    The defect this prevents: the post-restart check only verified
+    project/timeline/count, so a restart that corrupted a timeline's
+    contents was not detected.
+    """
+    from library.tools.resolve_lock import assume_sole_writer
+
+    project = make_project("Test Project")
+    timeline = project.adopt(FakeTimeline("Reel 01", project=project))
+    place_clip(timeline, make_pool_clip("a.mov"), 0, 47)
+    project.SetCurrentTimeline(timeline)
+
+    store = shadow.ShadowStore(tmp_path / "shadow.db")
+    resolve = FakeResolve(project)
+
+    with assume_sole_writer("canonical Resolve double"):
+        shadow.observe(project, timeline, store)
+        timeline.AddMarker(99, "Red", "corruption", "", 1)
+        result = wd.post_restart_check(resolve, store=store)
+
+    assert result["ok"] is True
+    assert result["timelines_intact"] == []
+    assert len(result["timelines_stale"]) == 1
+    assert result["timelines_stale"][0]["timeline"] == "Reel 01"
+    assert "expected_hash" in result["timelines_stale"][0]
+    assert "actual_hash" in result["timelines_stale"][0]
+
+
+def test_post_restart_check_intact_timeline(tmp_path):
+    """An intact timeline is reported as matching the shadow store."""
+    from library.tools.resolve_lock import assume_sole_writer
+
+    project = make_project("Test Project")
+    timeline = project.adopt(FakeTimeline("Reel 01", project=project))
+    place_clip(timeline, make_pool_clip("a.mov"), 0, 47)
+    project.SetCurrentTimeline(timeline)
+
+    store = shadow.ShadowStore(tmp_path / "shadow.db")
+    resolve = FakeResolve(project)
+
+    with assume_sole_writer("canonical Resolve double"):
+        shadow.observe(project, timeline, store)
+        result = wd.post_restart_check(resolve, store=store)
+
+    assert result["ok"] is True
+    assert result["timelines_intact"] == ["Reel 01"]
+    assert result["timelines_stale"] == []
+
+
+def test_post_restart_check_reobserves_stale_shadow(tmp_path):
+    """A stale shadow is re-observed after a mismatch."""
+    from library.tools.resolve_lock import assume_sole_writer
+
+    project = make_project("Test Project")
+    timeline = project.adopt(FakeTimeline("Reel 01", project=project))
+    place_clip(timeline, make_pool_clip("a.mov"), 0, 47)
+    project.SetCurrentTimeline(timeline)
+
+    store = shadow.ShadowStore(tmp_path / "shadow.db")
+    resolve = FakeResolve(project)
+
+    with assume_sole_writer("canonical Resolve double"):
+        shadow.observe(project, timeline, store)
+        timeline.AddMarker(99, "Red", "corruption", "", 1)
+        wd.post_restart_check(resolve, store=store)
+        heads = store.heads("Test Project")
+        assert len(heads) == 1
+        assert heads[0].generation == 2
 
 
 def test_broker_rejects_submissions_when_degraded(tmp_path):

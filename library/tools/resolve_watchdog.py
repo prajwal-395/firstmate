@@ -52,6 +52,9 @@ PROBE_INTERVAL_S = 30.0
 #: How long the post-restart check may take.
 POST_RESTART_BUDGET_S = 10.0
 
+#: How long each timeline content check may take.
+POST_RESTART_PER_TIMELINE_S = 1.0
+
 
 class ResolveDegraded(RuntimeError):
     """Resolve is marked unresponsive; new work is refused."""
@@ -244,16 +247,23 @@ def health_status(resolve) -> dict:
         return {"connected": True, "responsive": False}
 
 
-def post_restart_check(resolve, budget_s: float = POST_RESTART_BUDGET_S
-                       ) -> dict:
+def post_restart_check(resolve, budget_s: float = POST_RESTART_BUDGET_S,
+                       per_timeline_s: float = POST_RESTART_PER_TIMELINE_S,
+                       store=None) -> dict:
     """A short read-only project/timeline/count check after a restart.
 
     Runs before builds resume after an operator restart. Reads the
     project name, current timeline name, and timeline count, and verifies
-    they are readable. Never writes anything.
+    they are readable. Then, for each timeline the shadow store knows,
+    does a quick live read and compares the hash against the recorded
+    head hash. A mismatch is reported as a stale shadow, not a failure -
+    the shadow is re-observed.
+
+    Never writes anything to Resolve.
     """
     result = {"ok": False, "project": "", "timeline": "",
-              "timeline_count": 0, "error": ""}
+              "timeline_count": 0, "error": "",
+              "timelines_intact": [], "timelines_stale": []}
     try:
         project = _deadline_call(
             "post-restart project",
@@ -275,4 +285,86 @@ def post_restart_check(resolve, budget_s: float = POST_RESTART_BUDGET_S
         result["ok"] = True
     except Exception as exc:  # noqa: BLE001 - report, don't raise
         result["error"] = f"{type(exc).__name__}: {exc}"
+        return result
+
+    _verify_timeline_contents(project, result, per_timeline_s, store)
     return result
+
+
+def _verify_timeline_contents(project, result: dict,
+                              per_timeline_s: float, store) -> None:
+    """Compare each known timeline's live contents against the shadow store.
+
+    For each timeline the shadow store knows about in this project,
+    do a quick live read and compare the hash against the recorded head
+    hash. A mismatch is reported as a stale shadow and the shadow is
+    re-observed. Read-only with respect to Resolve.
+    """
+    from library.tools.timeline_shadow import (OBSERVED, ShadowStore,
+                                             read_live, snapshot_hash)
+
+    store = store or ShadowStore()
+    project_name = result["project"]
+
+    try:
+        heads = store.heads(project_name)
+    except Exception:  # noqa: BLE001 - shadow store unavailable
+        return
+
+    if not heads:
+        return
+
+    from library.tools.resolve_lock import cursor_excursion
+
+    for head in heads:
+        timeline = _find_timeline_by_id(project, head.timeline_id)
+        if timeline is None:
+            result["timelines_stale"].append({
+                "timeline": head.timeline_name,
+                "error": "timeline not found",
+            })
+            continue
+
+        try:
+            with cursor_excursion(project, timeline, "post-restart check",
+                                  timeout=per_timeline_s,
+                                  honor_captain=False):
+                snapshot = read_live(project, timeline)
+            live_hash = snapshot_hash(snapshot)
+            if live_hash == head.hash:
+                result["timelines_intact"].append(head.timeline_name)
+            else:
+                result["timelines_stale"].append({
+                    "timeline": head.timeline_name,
+                    "expected_hash": head.hash,
+                    "actual_hash": live_hash,
+                })
+                store.record(
+                    project=project_name,
+                    timeline_id=head.timeline_id,
+                    timeline_name=head.timeline_name,
+                    snapshot=snapshot,
+                    source=OBSERVED,
+                    expected_head=head.generation,
+                )
+        except Exception as exc:  # noqa: BLE001 - report, don't raise
+            result["timelines_stale"].append({
+                "timeline": head.timeline_name,
+                "error": f"{type(exc).__name__}: {exc}",
+            })
+
+
+def _find_timeline_by_id(project, timeline_id: str):
+    """Find a timeline by its unique ID."""
+    try:
+        count = project.GetTimelineCount()
+    except Exception:  # noqa: BLE001
+        return None
+    for i in range(1, count + 1):
+        try:
+            timeline = project.GetTimelineByIndex(i)
+        except Exception:  # noqa: BLE001
+            continue
+        if timeline and timeline.GetUniqueId() == timeline_id:
+            return timeline
+    return None
