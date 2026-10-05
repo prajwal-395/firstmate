@@ -347,18 +347,111 @@ def _verify_track_reorder(op, after):
     return None
 
 
-def _verify_fusion_comps(expected_names):
-    def verify(op, after):
-        clip = _clip(after, op["unique_id"])
-        if clip is None:
-            return f"clip {op['unique_id']!r} is not on the timeline"
-        names = (clip.get("fusion") or {}).get("comp_names") or []
-        missing = [n for n in expected_names if n not in names]
-        if missing:
-            return (f"clip {op['unique_id']!r} carries no Fusion comp "
-                    f"{missing}")
+def _matte_read(op, after):
+    """(state, failure): the op's matte as the after-read reports it."""
+    clip = _clip(after, op["unique_id"])
+    if clip is None:
+        return None, f"clip {op['unique_id']!r} is not on the timeline"
+    fusion = clip.get("fusion") or {}
+    names = fusion.get("comp_names") or []
+    if op["matte"] not in names:
+        return None, (f"clip {op['unique_id']!r} carries no matte "
+                      f"{op['matte']!r}; reads {names}")
+    state = (fusion.get("mattes") or {}).get(op["matte"])
+    if state is None:
+        return None, (f"matte {op['matte']!r} carries no readable "
+                      f"RectangleMask")
+    return state, None
+
+
+def _matte_value_failure(label, got, expected):
+    """None when a read matte value matches the declared one."""
+    if isinstance(expected, dict):
+        for axis, want in expected.items():
+            have = got.get(axis) if isinstance(got, dict) else None
+            failure = _matte_value_failure(f"{label}.{axis}", have, want)
+            if failure:
+                return failure
         return None
-    return verify
+    if isinstance(expected, (int, float)) and isinstance(got, (int, float)):
+        if abs(float(got) - float(expected)) <= FLOAT_TOLERANCE:
+            return None
+    elif got == expected:
+        return None
+    return f"{label} reads {got!r}, not {expected!r}"
+
+
+def _verify_mask_create(op, after):
+    """The matte comp reads back on the clip with a RectangleMask."""
+    _state, failure = _matte_read(op, after)
+    return failure
+
+
+def _verify_mask_delete(op, after):
+    """The matte comp no longer reads back on the clip."""
+    clip = _clip(after, op["unique_id"])
+    if clip is None:
+        return f"clip {op['unique_id']!r} is not on the timeline"
+    names = (clip.get("fusion") or {}).get("comp_names") or []
+    if op["matte"] in names:
+        return f"clip {op['unique_id']!r} still carries matte {op['matte']!r}"
+    return None
+
+
+def _verify_mask_edit(op, after):
+    """The matte reads back with the declared static geometry."""
+    state, failure = _matte_read(op, after)
+    if failure:
+        return failure
+    for key, expected in op["geometry"].items():
+        failure = _matte_value_failure(
+            f"matte {op['matte']!r} {key}", state["geometry"].get(key),
+            expected)
+        if failure:
+            return failure
+    return None
+
+
+def _verify_mask_track(op, after):
+    """The matte's keyframes read back exactly at the declared frames.
+
+    Every declared frame carries every declared value, and no frame is
+    keyed that was not declared - an empty track reads back unkeyed,
+    which is what the inverse of a first track relies on.
+    """
+    from library.tools.reel_read import MATTE_PARAMS
+
+    state, failure = _matte_read(op, after)
+    if failure:
+        return failure
+    got = {k["frame"]: k for k in state["keyframes"]}
+    declared = op["track"]["keyframes"]
+    extra = sorted(set(got) - {k["frame"] for k in declared})
+    if extra:
+        return f"matte {op['matte']!r} is keyed at undeclared frames {extra}"
+    for keyframe in declared:
+        frame = keyframe["frame"]
+        if frame not in got:
+            return (f"matte {op['matte']!r} has no keyframe at frame "
+                    f"{frame}; keyed at {sorted(got)}")
+        for param in MATTE_PARAMS:
+            if param not in keyframe:
+                continue
+            failure = _matte_value_failure(
+                f"matte {op['matte']!r} frame {frame} {param}",
+                got[frame].get(param), keyframe[param])
+            if failure:
+                return failure
+    keyed = {param for k in declared for param in k if param != "frame"}
+    for key, expected in op.get("geometry", {}).items():
+        if key in keyed:
+            continue
+        failure = _matte_value_failure(
+            f"matte {op['matte']!r} {key}", state["geometry"].get(key),
+            expected)
+        if failure:
+            return failure
+    return None
 
 
 # ── Apply helpers (the native writes) ──────────────────────────────────
@@ -503,6 +596,292 @@ def _apply_picture_keyframe(op, _timeline, item, _project=None):
             item, op["param"], keyframe["frame"], keyframe["value"],
             keyframe.get("interpolation", "linear"),
             item_identity={"resolve_unique_id": str(op["unique_id"])})
+    return True
+
+
+def _call(item, method, default):
+    try:
+        return getattr(item, method)()
+    except Exception:
+        return default
+
+
+def _build_matte_comp(item, matte_name, geometry, keyframes=()):
+    """Build a real Fusion matte comp and return its path.
+
+    The matte is a RectangleMask comp: MediaIn -> Merge -> MediaOut. The
+    Merge takes the picture as Foreground and the RectangleMask as
+    EffectMask, so the output is the picture masked by the rectangle. A
+    RectangleMask carries no image Input (probed: 57 inputs, none of
+    them Input) - it is a mask generator, and the Merge is the node that
+    applies it. The comp is built by the same CompEngine that builds
+    every other comp in this pipeline, so it serializes to the Lua-table
+    format Resolve reads.
+
+    `keyframes` are BAKED into the comp: Width/Height keys become a
+    BezierSpline, Center keys an XYPath over an X and a Y spline (the
+    engine's own shake idiom - an XYPath, never the `Path {}` the Merge
+    rule forbids). Keying through the live API does not take: measured
+    on Resolve 21.1, `SetInput(name, value, time)` on an input that is
+    not already animated sets the STATIC value. An input with no keys
+    takes its `geometry` value.
+
+    The comp is written to a temp directory: it is a vehicle for the
+    import, not a persistent artifact - the matte lives in the comp's
+    inputs, which the shadow reads back.
+    """
+    import os
+    import tempfile
+
+    from library.tools.fusion.engine import CompEngine
+    from library.tools.fusion.nodes import BezierSpline, FusionNode
+
+    pool_item = _call(item, "GetMediaPoolItem", None)
+
+    def pool_int(key, default):
+        try:
+            return int(pool_item.GetClipProperty(key)) or default
+        except Exception:
+            return default
+
+    engine = CompEngine(clip_dur=pool_int("Frames", 100),
+                        width=pool_int("Width", 1920),
+                        height=pool_int("Height", 1080))
+
+    def spline(name, pairs):
+        curve = BezierSpline(name)
+        for frame, value in pairs:
+            curve.add_key(int(frame), float(value), flags={"Linear": True})
+        engine.comp.add_node(curve)
+        return curve
+
+    mask = FusionNode("RectangleMask1", "RectangleMask")
+    for param in ("Width", "Height"):
+        keyed = [(k["frame"], k[param]) for k in keyframes if param in k]
+        static = geometry.get(param)
+        mask.set_input(param, spline(f"RectangleMask1{param}", keyed)
+                       if keyed else 1.0 if static is None else static)
+    keyed = [(k["frame"], k["Center"]) for k in keyframes if "Center" in k]
+    if keyed:
+        path = FusionNode("RectangleMask1Path", "XYPath")
+        for axis in ("X", "Y"):
+            path.set_input(axis, spline(
+                f"RectangleMask1Center{axis}",
+                [(frame, point[axis]) for frame, point in keyed]))
+        engine.comp.add_node(path)
+        mask.set_input("Center", "RectangleMask1Path", source="Value")
+    else:
+        center = geometry.get("Center") or {"X": 0.5, "Y": 0.5}
+        mask.set_input("Center", (center["X"], center["Y"]))
+    mask.set_input("Invert", geometry.get("Invert") or 0)
+    mask.set_input("PixelAspect", (1, 1))
+    mask.pos = (110, 0)
+    engine.comp.add_node(mask)
+
+    merge = FusionNode("Merge1", "Merge")
+    merge.set_input("Foreground", "MediaIn1")
+    merge.set_input("EffectMask", "RectangleMask1", source="Mask")
+    merge.pos = (220, 0)
+    engine.comp.add_node(merge)
+
+    engine._last_output = "Merge1"
+    content = engine.serialize()
+
+    comp_dir = tempfile.mkdtemp(prefix="matte_")
+    comp_path = os.path.join(comp_dir, f"{matte_name}.comp")
+    with open(comp_path, "w", encoding="utf-8") as handle:
+        handle.write(content)
+    return comp_path
+
+
+def _import_matte(item, matte_name, geometry, keyframes, label):
+    """Put a matte comp on the item as a NEW comp; return its name.
+
+    Measured on Resolve 21.1 (the C-11 live smoke): `ImportFusionComp`
+    ADDS a comp only to an item that has none. On an item that already
+    carries comps it OVERWRITES the current one in place and returns a
+    comp all the same - so a bare import onto the captain's clip would
+    replace whichever comp was current. `AddFusionComp` adds an empty
+    comp and makes it current, so the import lands in that. The new
+    comp is the one name the after-list has and the before-list did not;
+    anything but exactly one refuses, and a new comp that does not read
+    back as a matte is removed before refusing.
+    """
+    from library.tools.reel_read import matte_state
+
+    comp_path = _build_matte_comp(item, matte_name, geometry, keyframes)
+    before = list(item.GetFusionCompNameList() or [])
+    added = item.AddFusionComp()
+    after = list(item.GetFusionCompNameList() or [])
+    new = [name for name in after if name not in before]
+    if not added or len(new) != 1:
+        raise RuntimeError(
+            f"{label}: AddFusionComp returned {added!r}; expected exactly 1 "
+            f"new comp, found {new} (before={before}, after={after})")
+    new_name = new[0]
+    imported = item.ImportFusionComp(comp_path)
+    if not imported or matte_state(item, after.index(new_name) + 1) is None:
+        # Resolve keeps a clip's last comp, so on a clip that had none
+        # the empty comp stays; say which.
+        removed = item.DeleteFusionCompByName(new_name)
+        raise RuntimeError(
+            f"{label}: ImportFusionComp returned {imported!r} and comp "
+            f"{new_name!r} does not read back as a matte; "
+            f"{'it was removed' if removed else 'it could not be removed'}")
+    return new_name
+
+
+def _rename_matte(item, old_name, matte_name, label):
+    renamed = item.RenameFusionCompByName(old_name, matte_name)
+    names = list(item.GetFusionCompNameList() or [])
+    if matte_name not in names:
+        raise RuntimeError(
+            f"{label}: RenameFusionCompByName({old_name!r}, "
+            f"{matte_name!r}) returned {renamed!r}; comps read {names}")
+
+
+def _refuse_unmarked_matte(op, label):
+    from library.tools import reel_read
+
+    if not reel_read.is_matte_comp(op["matte"]):
+        raise RuntimeError(
+            f"{label}: matte name {op['matte']!r} does not carry "
+            f"{reel_read.MATTE_MARK!r}; the read only opens comps whose "
+            f"name marks them as mattes, so it could never verify this one")
+
+
+def _current_matte(item, matte_name, label):
+    """The named matte's read-back state; refuses when there is none."""
+    from library.tools.reel_read import matte_state
+
+    names = list(item.GetFusionCompNameList() or [])
+    if matte_name not in names:
+        raise RuntimeError(
+            f"{label}: clip carries no matte {matte_name!r}; reads {names}")
+    state = matte_state(item, names.index(matte_name) + 1)
+    if state is None:
+        raise RuntimeError(
+            f"{label}: matte {matte_name!r} carries no readable "
+            f"RectangleMask")
+    return state
+
+
+def _replace_matte(item, matte_name, geometry, keyframes, label):
+    """Replace a matte comp: import the new one, THEN delete the old.
+
+    The order is the point - a failed import must never lose the
+    captain's matte, so the old comp is only deleted once its
+    replacement is on the clip.
+    """
+    new_name = _import_matte(item, matte_name, geometry, keyframes, label)
+    if not item.DeleteFusionCompByName(matte_name):
+        item.DeleteFusionCompByName(new_name)
+        raise RuntimeError(
+            f"{label}: DeleteFusionCompByName({matte_name!r}) failed; "
+            f"the replacement was removed and the matte left as it was")
+    _rename_matte(item, new_name, matte_name, label)
+
+
+def _apply_mask_create(op, _timeline, item, project=None):
+    """Import a static, full-frame matte comp and give it the matte's name."""
+    _refuse_unmarked_matte(op, "mask.create")
+    if op["matte"] in (item.GetFusionCompNameList() or []):
+        raise RuntimeError(
+            f"mask.create: clip already carries matte {op['matte']!r}")
+    new_name = _import_matte(item, op["matte"], {}, (), "mask.create")
+    _rename_matte(item, new_name, op["matte"], "mask.create")
+    return True
+
+
+def _passthrough_comp_path(item):
+    """A comp that draws nothing: MediaIn -> MediaOut."""
+    import os
+    import tempfile
+
+    from library.tools.fusion.engine import CompEngine
+
+    pool_item = _call(item, "GetMediaPoolItem", None)
+
+    def pool_int(key, default):
+        try:
+            return int(pool_item.GetClipProperty(key)) or default
+        except Exception:
+            return default
+
+    content = CompEngine(clip_dur=pool_int("Frames", 100),
+                         width=pool_int("Width", 1920),
+                         height=pool_int("Height", 1080)).serialize()
+    path = os.path.join(tempfile.mkdtemp(prefix="matte_"), "passthrough.comp")
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(content)
+    return path
+
+
+def _apply_mask_delete(op, _timeline, item, project=None):
+    """Remove the named matte comp - the inverse of mask.create.
+
+    Measured on Resolve 21.1: `DeleteFusionCompByName` refuses a clip's
+    LAST comp (returns False, the count stays 1). A matte that is the
+    only comp is therefore reset instead: made current, overwritten with
+    a passthrough comp (MediaIn -> MediaOut, which draws nothing) and
+    renamed to the name Resolve gives a clip's first comp. The matte is
+    gone either way, which is what the verify reads.
+    """
+    names = list(item.GetFusionCompNameList() or [])
+    if op["matte"] not in names:
+        raise RuntimeError(
+            f"mask.delete: clip carries no matte {op['matte']!r}; "
+            f"reads {names}")
+    if len(names) > 1:
+        return item.DeleteFusionCompByName(op["matte"])
+    item.LoadFusionCompByName(op["matte"])
+    if not item.ImportFusionComp(_passthrough_comp_path(item)):
+        raise RuntimeError(
+            f"mask.delete: {op['matte']!r} is the clip's only comp, which "
+            f"Resolve will not delete, and resetting it to a passthrough "
+            f"failed")
+    _rename_matte(item, op["matte"], "Composition 1", "mask.delete")
+    return True
+
+
+def _apply_mask_edit(op, _timeline, item, project=None):
+    """Set the matte's static geometry, keeping every key it carries.
+
+    A declared input that is keyed loses its keys (it is now static); an
+    input the edit does not name keeps its value and its keys.
+    """
+    _refuse_unmarked_matte(op, "mask.edit")
+    state = _current_matte(item, op["matte"], "mask.edit")
+    geometry = {**state["geometry"], **op["geometry"]}
+    keyframes = []
+    for keyframe in state["keyframes"]:
+        kept = {k: v for k, v in keyframe.items() if k not in op["geometry"]}
+        if set(kept) - {"frame"}:
+            keyframes.append(kept)
+    _replace_matte(item, op["matte"], geometry, keyframes, "mask.edit")
+    return True
+
+
+def _apply_mask_track(op, _timeline, item, project=None):
+    """Replace the matte's keyframes with the declared track.
+
+    The provider must be fusion_matte (the only provider implemented);
+    any other is refused by name. Keys are clip-relative comp frames.
+    An input the track does not key takes `geometry`'s value when the op
+    carries one, else its current value. Baking keys loses an input's
+    static value (Fusion keeps none beside a spline), so the inverse of
+    a first track is an EMPTY track carrying the previous geometry.
+    """
+    provider = op.get("provider", "fusion_matte")
+    if provider != "fusion_matte":
+        raise RuntimeError(
+            f"mask.track: provider {provider!r} is not implemented; "
+            f"only 'fusion_matte' is supported")
+    _refuse_unmarked_matte(op, "mask.track")
+    state = _current_matte(item, op["matte"], "mask.track")
+    _replace_matte(item, op["matte"],
+                   {**state["geometry"], **op.get("geometry", {})},
+                   op["track"]["keyframes"], "mask.track")
     return True
 
 
@@ -1024,27 +1403,42 @@ ALGEBRA: dict[str, AlgebraOp] = {
         id="mask.create", domain="fusion",
         required=("unique_id", "matte"),
         span=_item_span, item=True,
-        verify=lambda op, after: _verify_fusion_comps([op["matte"]]),
-        key=lambda op: ("clip", op["unique_id"], "mask"),
+        apply=_apply_mask_create,
+        verify=_verify_mask_create,
+        key=lambda op: ("clip", op["unique_id"], "mask", op["matte"]),
         merge="exclusive",
-        inverse=_pair("mask.edit", "the inverse removes the matte"),
-        note="Place a matte; the Fusion comp list verifies."),
+        inverse=_pair("mask.delete"),
+        note="Place a full-frame matte comp; the matte read verifies."),
+    "mask.delete": AlgebraOp(
+        id="mask.delete", domain="fusion",
+        required=("unique_id", "matte"),
+        span=_item_span, item=True,
+        apply=_apply_mask_delete,
+        verify=_verify_mask_delete,
+        key=lambda op: ("clip", op["unique_id"], "mask", op["matte"]),
+        merge="exclusive",
+        inverse=_pair("mask.create",
+                      "then mask.edit and mask.track restore its geometry "
+                      "and keys")),
     "mask.edit": AlgebraOp(
         id="mask.edit", domain="fusion",
         required=("unique_id", "matte", "geometry"),
         span=_item_span, item=True,
-        verify=lambda op, after: _verify_fusion_comps([op["matte"]]),
-        key=lambda op: ("clip", op["unique_id"], "mask"),
+        apply=_apply_mask_edit,
+        verify=_verify_mask_edit,
+        key=lambda op: ("clip", op["unique_id"], "mask", op["matte"]),
         merge="replace",
         inverse=_self("the inverse carries the previous geometry")),
     "mask.track": AlgebraOp(
         id="mask.track", domain="fusion",
-        required=("unique_id", "transform"),
+        required=("unique_id", "matte", "track"),
         span=_item_span, item=True,
-        verify=lambda op, after: _verify_fusion_comps([op["matte"]]),
-        key=lambda op: ("clip", op["unique_id"], "mask"),
+        apply=_apply_mask_track,
+        verify=_verify_mask_track,
+        key=lambda op: ("clip", op["unique_id"], "mask", op["matte"]),
         merge="replace",
-        inverse=_self("the inverse carries the previous transform")),
+        inverse=_self("the inverse carries the previous keyframes "
+                      "(empty means none) and the previous geometry")),
 
     # ── multicam (domain: picture_transform) ────────────────────────
     "multicam.angle": AlgebraOp(

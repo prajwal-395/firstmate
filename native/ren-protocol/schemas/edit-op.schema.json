@@ -881,6 +881,28 @@
       ]
     },
     {
+      "description": "Remove a matte comp: the inverse of `mask.create`.",
+      "type": "object",
+      "properties": {
+        "matte": {
+          "type": "string"
+        },
+        "op": {
+          "type": "string",
+          "const": "mask.delete"
+        },
+        "unique_id": {
+          "$ref": "#/$defs/ClipId"
+        }
+      },
+      "required": [
+        "op",
+        "unique_id",
+        "matte"
+      ]
+    },
+    {
+      "description": "Set a matte's static geometry; inputs it does not name keep their keys.",
       "type": "object",
       "properties": {
         "geometry": true,
@@ -903,13 +925,28 @@
       ]
     },
     {
+      "description": "Replace a matte's keyframes; an empty track unkeys it.",
       "type": "object",
       "properties": {
+        "geometry": {
+          "description": "Static values for the inputs the track does not key.",
+          "default": null
+        },
+        "matte": {
+          "type": "string"
+        },
         "op": {
           "type": "string",
           "const": "mask.track"
         },
-        "transform": true,
+        "provider": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "track": true,
         "unique_id": {
           "$ref": "#/$defs/ClipId"
         }
@@ -917,7 +954,8 @@
       "required": [
         "op",
         "unique_id",
-        "transform"
+        "matte",
+        "track"
       ]
     },
     {

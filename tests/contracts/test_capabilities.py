@@ -251,13 +251,19 @@ def test_the_structural_ops_verify_detects_the_absent_write():
         ("mask.create", {"unique_id": "a", "matte": "matte-1"}),
         ("mask.edit", {"unique_id": "a", "matte": "matte-1",
                        "geometry": {"x": 1}}),
+        ("mask.track", {"unique_id": "a", "matte": "matte-1",
+                        "track": {"keyframes": [{"frame": 0, "Width": 0.5}]}}),
     ]
     for op_id, params in cases:
         op = edit_algebra.get(op_id)
         assert op is not None, op_id
         failure = op.verify(params, base)
-        assert failure, (
-            f"{op_id}: verifier passed on a timeline the op did not change")
+        # A verdict is a reason string. Anything else truthy - a judge
+        # FUNCTION returned uncalled, as mask.create's verify once did -
+        # is no verdict at all, yet passed a bare truthiness check.
+        assert isinstance(failure, str) and failure, (
+            f"{op_id}: verifier returned {failure!r} on a timeline the op "
+            f"did not change")
 
 
 def test_the_structural_ops_span_covers_what_they_touch():

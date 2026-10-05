@@ -8,7 +8,9 @@ from library.tools import capabilities, edit_patch, patch_algebra
 from library.tools import timeline_shadow as shadow
 from library.tools.resolve_lock import assume_sole_writer
 from tests.resolve_double import (
+    FakeComp,
     FakeResolve,
+    FakeTool,
     FakeTimeline,
     make_pool_clip,
     make_project,
@@ -1234,3 +1236,246 @@ def test_picture_keyframe_wrong_value_fails_verification(world):
         type(item).SetKeyframe = original_set_keyframe
     assert receipt["status"] == "verification_failed"
     assert "value=99.0" in receipt["operations"][0]["failure"]
+
+
+def _mask(world, pid, operations):
+    """Apply mask ops as one patch on the world's current head."""
+    project, timeline, item, store, base = world
+    # Resolve 21.1 refuses to delete a clip's last comp (measured, see
+    # `FakeTimelineItem.DeleteFusionCompByName`).
+    item.keeps_last_comp = True
+    head = store.head("Podcast", base.timeline_id)
+    ops = [{"unique_id": item.GetUniqueId(), "matte": "logo-matte", **op}
+           for op in operations]
+    return _apply(_patch(pid, head.generation, ops, ["fusion"], [[0, 48]]),
+                  project, timeline, store)
+
+
+def _matte_tool(item, name="logo-matte"):
+    comp = item.GetFusionCompByIndex(item.GetFusionCompNameList().index(name) + 1)
+    return comp.GetToolList(False)["RectangleMask1"]
+
+
+TRACK = [
+    {"frame": 0, "Center": {"X": 0.4, "Y": 0.5}, "Width": 0.3},
+    {"frame": 24, "Center": {"X": 0.6, "Y": 0.5}, "Width": 0.5},
+]
+
+
+def test_mask_create_places_matte_and_reads_back(world):
+    receipt = _mask(world, "mask-create", [{"op": "mask.create"}])
+    assert receipt["status"] == "committed", receipt
+    assert "logo-matte" in world[2].GetFusionCompNameList()
+
+
+def test_mask_create_leaves_the_clips_own_comp_alone(world):
+    """Defect (live smoke, Resolve 21.1): ImportFusionComp onto a clip
+    that already carries a comp OVERWRITES the current one, so a bare
+    import replaced the captain's comp with the matte."""
+    item = world[2]
+    captain = FakeComp({"Glow1": FakeTool("Glow", {"Gain": 0.4})})
+    item.comps = [captain]
+    shadow.observe(world[0], world[1], world[3])
+    receipt = _mask(world, "mask-create-beside", [{"op": "mask.create"}])
+    assert receipt["status"] == "committed", receipt
+    assert item.GetFusionCompNameList() == ["Comp 1", "logo-matte"]
+    assert item.GetFusionCompByIndex(1) is captain
+
+
+def test_mask_create_failed_import_fails_the_patch(world):
+    item = world[2]
+    original_import = type(item).ImportFusionComp
+    type(item).ImportFusionComp = lambda self, path: False
+    try:
+        receipt = _mask(world, "mask-create-bad", [{"op": "mask.create"}])
+    finally:
+        type(item).ImportFusionComp = original_import
+    assert receipt["status"] == "verification_failed"
+    assert "ImportFusionComp" in receipt["stopped"]["raised"]
+
+
+def test_mask_create_refuses_a_name_the_read_cannot_see(world):
+    """Defect: the read only opens comps whose name marks them as
+    mattes, so a matte named "logo" would be placed and then fail
+    verification with nothing saying why."""
+    receipt = _mask(world, "mask-create-unmarked",
+                    [{"op": "mask.create", "matte": "logo"}])
+    assert receipt["status"] == "verification_failed"
+    assert "does not carry 'matte'" in receipt["stopped"]["raised"]
+    assert world[2].GetFusionCompNameList() == []
+
+
+def test_mask_delete_undoes_mask_create(world):
+    item = world[2]
+    item.comps = [FakeComp({"Glow1": FakeTool("Glow", {"Gain": 0.4})})]
+    shadow.observe(world[0], world[1], world[3])
+    _mask(world, "mask-create-d", [{"op": "mask.create"}])
+    receipt = _mask(world, "mask-delete", [{"op": "mask.delete"}])
+    assert receipt["status"] == "committed", receipt
+    assert item.GetFusionCompNameList() == ["Comp 1"]
+
+
+def test_mask_delete_of_a_clips_only_comp_leaves_a_passthrough(world):
+    """Defect (live smoke, Resolve 21.1): DeleteFusionCompByName refuses
+    a clip's LAST comp, so deleting a matte that is the only comp left
+    the matte on the clip."""
+    item = world[2]
+    _mask(world, "mask-create-only", [{"op": "mask.create"}])
+    receipt = _mask(world, "mask-delete-only", [{"op": "mask.delete"}])
+    assert receipt["status"] == "committed", receipt
+    assert item.GetFusionCompNameList() == ["Composition 1"]
+    assert set(item.GetFusionCompByIndex(1).GetToolList()) == {"MediaIn1"}
+
+
+def test_mask_edit_changes_geometry_and_reads_back(world):
+    _mask(world, "mask-create-2", [{"op": "mask.create"}])
+    receipt = _mask(world, "mask-edit", [{
+        "op": "mask.edit",
+        "geometry": {"Width": 0.5, "Center": {"X": 0.25, "Y": 0.75}}}])
+    assert receipt["status"] == "committed", receipt
+    tool = _matte_tool(world[2])
+    assert tool.GetInput("Width") == 0.5
+    assert tool.GetInput("Center")[1] == 0.25
+    assert world[2].GetFusionCompNameList() == ["logo-matte"]
+
+
+def test_mask_edit_keeps_the_captains_matte_when_the_import_fails(world):
+    """Defect: deleting the old comp before importing the new one loses
+    the captain's matte when the import fails."""
+    item = world[2]
+    _mask(world, "mask-create-3", [{"op": "mask.create"}])
+    _mask(world, "mask-edit-1", [{"op": "mask.edit",
+                                  "geometry": {"Width": 0.4}}])
+    original_import = type(item).ImportFusionComp
+    type(item).ImportFusionComp = lambda self, path: False
+    try:
+        receipt = _mask(world, "mask-edit-bad", [{
+            "op": "mask.edit", "geometry": {"Width": 0.9}}])
+    finally:
+        type(item).ImportFusionComp = original_import
+    assert receipt["status"] == "verification_failed"
+    assert item.GetFusionCompNameList() == ["logo-matte"]
+    assert _matte_tool(item).GetInput("Width") == 0.4
+
+
+def test_mask_edit_wrong_geometry_fails_verification(world):
+    item = world[2]
+    _mask(world, "mask-create-4", [{"op": "mask.create"}])
+    original_import = type(item).ImportFusionComp
+
+    def wrong_geometry_import(self, path):
+        result = original_import(self, path)
+        self._fusion_comps[-1].GetToolList()["RectangleMask1"].SetInput(
+            "Width", 0.9)
+        return result
+
+    type(item).ImportFusionComp = wrong_geometry_import
+    try:
+        receipt = _mask(world, "mask-edit-bad", [{
+            "op": "mask.edit", "geometry": {"Width": 0.5}}])
+    finally:
+        type(item).ImportFusionComp = original_import
+    assert receipt["status"] == "verification_failed"
+    assert "Width reads 0.9, not 0.5" in receipt["operations"][0]["failure"]
+
+
+def test_mask_track_keys_the_matte_and_leaves_the_clip_still(world):
+    """The C-11 fidelity test: the matte moves with the declared keys,
+    in between them as well, and the clip's own transform does not."""
+    item = world[2]
+    _mask(world, "mask-create-5", [{"op": "mask.create"}])
+    transform = {k: item.GetProperty(k) for k in ("Pan", "Tilt", "ZoomX")}
+    receipt = _mask(world, "mask-track", [{
+        "op": "mask.track", "track": {"keyframes": TRACK}}])
+    assert receipt["status"] == "committed", receipt
+    tool = _matte_tool(item)
+    assert tool.GetInput("Center", 24)[1] == 0.6
+    assert tool.GetInput("Center", 12)[1] == pytest.approx(0.5)
+    assert tool.GetInput("Width", 12) == pytest.approx(0.4)
+    assert {k: item.GetProperty(k) for k in transform} == transform
+
+
+def test_mask_track_keyed_only_through_set_input_does_not_take(world):
+    """Defect (measured live on Resolve 21.1): SetInput(name, value,
+    frame) on an input that is not animated sets its STATIC value, so a
+    track written that way commits nothing it declared. The double holds
+    that behaviour and the verifier must catch it."""
+    item = world[2]
+    _mask(world, "mask-create-6", [{"op": "mask.create"}])
+    original_import = type(item).ImportFusionComp
+
+    def static_import(self, path):
+        result = original_import(self, path)
+        tool = self._fusion_comps[-1].GetToolList()["RectangleMask1"]
+        tool._sources.pop("Center", None)
+        for key in TRACK:
+            tool.SetInput("Center", (key["Center"]["X"], 0.5), key["frame"])
+        return result
+
+    type(item).ImportFusionComp = static_import
+    try:
+        receipt = _mask(world, "mask-track-static", [{
+            "op": "mask.track", "track": {"keyframes": TRACK}}])
+    finally:
+        type(item).ImportFusionComp = original_import
+    assert receipt["status"] == "verification_failed"
+    assert "Center" in receipt["operations"][0]["failure"]
+
+
+def test_an_untrack_carrying_the_previous_geometry_restores_it(world):
+    """Defect (live smoke, Resolve 21.1): baking keys loses the static
+    value, so an empty track alone left the matte at the track's
+    frame-0 position instead of where it was before the track."""
+    item = world[2]
+    _mask(world, "mask-create-g", [{"op": "mask.create"}])
+    before = {"Center": {"X": 0.25, "Y": 0.75}, "Width": 0.2}
+    _mask(world, "mask-edit-g", [{"op": "mask.edit", "geometry": before}])
+    _mask(world, "mask-track-g", [{"op": "mask.track",
+                                   "track": {"keyframes": TRACK}}])
+    receipt = _mask(world, "mask-untrack-g", [{
+        "op": "mask.track", "track": {"keyframes": []}, "geometry": before}])
+    assert receipt["status"] == "committed", receipt
+    tool = _matte_tool(item)
+    assert tool.GetInput("Center")[1] == 0.25
+    assert tool.GetInput("Width") == 0.2
+
+
+def test_an_empty_track_unkeys_the_matte(world):
+    """Defect: the inverse of a first mask.track is an empty track; an
+    apply that only ever ADDS keys would leave the matte moving after
+    an undo."""
+    item = world[2]
+    _mask(world, "mask-create-7", [{"op": "mask.create"}])
+    _mask(world, "mask-track-1", [{"op": "mask.track",
+                                   "track": {"keyframes": TRACK}}])
+    receipt = _mask(world, "mask-untrack", [{
+        "op": "mask.track", "track": {"keyframes": []}}])
+    assert receipt["status"] == "committed", receipt
+    tool = _matte_tool(item)
+    assert tool.GetInput("Center", 0) == tool.GetInput("Center", 24)
+    assert item.GetFusionCompNameList() == ["logo-matte"]
+
+
+def test_mask_edit_keeps_the_keys_of_inputs_it_does_not_name(world):
+    """Defect: rebuilding the matte from static geometry alone would
+    silently drop the track whenever its size was edited."""
+    item = world[2]
+    _mask(world, "mask-create-8", [{"op": "mask.create"}])
+    _mask(world, "mask-track-2", [{"op": "mask.track",
+                                   "track": {"keyframes": TRACK}}])
+    receipt = _mask(world, "mask-edit-2", [{
+        "op": "mask.edit", "geometry": {"Height": 0.2}}])
+    assert receipt["status"] == "committed", receipt
+    tool = _matte_tool(item)
+    assert tool.GetInput("Height", 24) == 0.2
+    assert tool.GetInput("Center", 24)[1] == 0.6
+    assert tool.GetInput("Width", 24) == 0.5
+
+
+def test_mask_track_refuses_unknown_provider(world):
+    _mask(world, "mask-create-9", [{"op": "mask.create"}])
+    receipt = _mask(world, "mask-track-bad-provider", [{
+        "op": "mask.track", "provider": "resolve_magic_mask_api",
+        "track": {"keyframes": TRACK}}])
+    assert receipt["status"] == "verification_failed"
+    assert "not implemented" in receipt["stopped"]["raised"]

@@ -35,6 +35,10 @@ pub struct Marker {
 pub struct FusionInfo {
     #[serde(default)]
     pub comp_names: Vec<String>,
+    /// Each matte comp's read-back (`reel_read.mattes_of`): `geometry`
+    /// and `keyframes`, by comp name; null when the clip carries none.
+    #[serde(default)]
+    pub mattes: Option<Map<String, Value>>,
 }
 
 /// The `color` sub-dict of a clip (`cdl` is what `grade.node_set`

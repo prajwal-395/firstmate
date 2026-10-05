@@ -1547,6 +1547,140 @@ class FakeComp:
         return self.tools["MediaIn1"]
 
 
+class _FakeInput:
+    """A Fusion Input object: what `tool.Width` is, as opposed to the
+    value `tool.GetInput("Width")` returns. Its `GetKeyFrames()` is the
+    measured Resolve 21.1 shape: a 1-indexed table of times, bounded by
+    a -1e9 sentinel when a path modifier drives the input."""
+
+    def __init__(self, source):
+        self._source = source
+
+    def GetKeyFrames(self):
+        source = self._source
+        if source is None:
+            return {}
+        if isinstance(source, FakeSpline):
+            times = list(source.keys)
+        else:
+            times = [-1e9] + sorted(set(source._sources["X"].keys)
+                                    | set(source._sources["Y"].keys))
+        return {i: float(t) for i, t in enumerate(times, start=1)}
+
+
+class FakeSpline(FakeTool):
+    """A BezierSpline modifier, interpolated linearly between its keys."""
+
+    def __init__(self, keys):
+        super().__init__("BezierSpline")
+        self.keys = dict(sorted(keys.items()))
+
+    def GetKeyFrames(self):
+        # Measured: a spline TOOL keys its table by time.
+        return {float(f): {1: v} for f, v in self.keys.items()}
+
+    def value_at(self, frame):
+        frames = list(self.keys)
+        if frame <= frames[0]:
+            return self.keys[frames[0]]
+        for left, right in zip(frames, frames[1:]):
+            if left <= frame <= right:
+                t = (frame - left) / (right - left)
+                return self.keys[left] + t * (self.keys[right] - self.keys[left])
+        return self.keys[frames[-1]]
+
+
+class FakeAnimatedTool(FakeTool):
+    """A tool whose inputs may be connected to modifiers.
+
+    `GetInput(name, frame)` evaluates a connected input at that frame (at
+    0 with no frame), and a point reads back as `{1: x, 2: y, 3: 0}` -
+    the shape Resolve 21.1 returns. `SetInput(name, value, frame)` on an
+    UNconnected input sets its static value, which is what Resolve does
+    (measured): a frame argument alone does not key anything.
+    """
+
+    def __init__(self, reg_id, inputs, sources):
+        super().__init__(reg_id, inputs)
+        self._sources = dict(sources)
+
+    def __getattr__(self, name):
+        if name[:1].isupper() and (name in self.__dict__.get("_inputs", {})
+                                   or name in self.__dict__.get("_sources", {})):
+            return _FakeInput(self._sources.get(name))
+        raise AttributeError(name)
+
+    def _evaluate(self, key, frame):
+        source = self._sources[key]
+        if isinstance(source, FakeSpline):
+            return source.value_at(frame)
+        return {1: source._evaluate("X", frame),
+                2: source._evaluate("Y", frame), 3: 0.0}
+
+    def GetInput(self, key, *frame):
+        if key in self._sources:
+            source = self._sources[key]
+            if not frame and not isinstance(source, FakeSpline):
+                return None  # measured: a path-driven input, no time given
+            return self._evaluate(key, frame[0] if frame else 0)
+        value = self._inputs.get(key)
+        if isinstance(value, tuple):
+            return {1: value[0], 2: value[1], 3: 0.0}
+        return value
+
+
+def is_passthrough_text(text):
+    """Comp text whose only tools are a MediaIn and a MediaOut."""
+    from library.tools.fusion.parser import parse_comp
+
+    try:
+        kinds = {getattr(n, "tool_type", None) for n in parse_comp(text).nodes}
+    except Exception:
+        return False
+    return kinds == {"MediaIn", "MediaOut"}
+
+
+def matte_comp_from_text(text, media_in):
+    """A matte comp, as Resolve would load it from comp text.
+
+    Parsed by the pipeline's own comp parser, so a builder that wires an
+    input to a spline or a path - or forgets to - reads back exactly
+    that way.
+    """
+    from library.tools.fusion.nodes import BezierSpline
+    from library.tools.fusion.parser import parse_comp
+
+    parsed = parse_comp(text)
+    splines = {n.name: FakeSpline({k.frame: k.value for k in n.keyframes})
+               for n in parsed.nodes if isinstance(n, BezierSpline)}
+    tools = {}
+
+    def build(node):
+        if node.name in tools:
+            return tools[node.name]
+        inputs, sources = {}, {}
+        for name, spec in node.inputs.items():
+            if spec.get("_type") == "sourceop":
+                op = spec["SourceOp"]
+                if op in splines:
+                    sources[name] = splines[op]
+                elif spec.get("Source") == "Value":
+                    sources[name] = build(parsed.find_node(op))
+                else:
+                    inputs[name] = op
+            elif "value" in spec:
+                inputs[name] = spec["value"]
+        tools[node.name] = FakeAnimatedTool(node.tool_type, inputs, sources)
+        return tools[node.name]
+
+    for node in parsed.nodes:
+        if not isinstance(node, BezierSpline) and node.tool_type != "MediaIn":
+            build(node)
+    tools.update(splines)
+    tools["MediaIn1"] = media_in
+    return FakeComp(tools)
+
+
 class _FakeNodeGraph:
     """Minimal node-graph double: node count and per-node LUT/CDL state."""
 
@@ -1832,15 +1966,50 @@ class FakeTimelineItem:
         return len(self._fusion_comps)
 
     def GetFusionCompNameList(self):
-        return [f"Comp {index}" for index in range(1, len(self._fusion_comps) + 1)]
+        # A comp keeps the name it was given (an import or a rename);
+        # one handed in without a name reads by its position.
+        # Keyed by id, holding the comp itself so the id cannot be reused.
+        names = self.__dict__.get("_comp_names", {})
+        out = []
+        for index, comp in enumerate(self._fusion_comps, start=1):
+            held, name = names.get(id(comp), (None, None))
+            out.append(name if held is comp else f"Comp {index}")
+        return out
+
+    def _name_comp(self, comp, name):
+        self.__dict__.setdefault("_comp_names", {})[id(comp)] = (comp, name)
+
+    def RenameFusionCompByName(self, old_name, new_name):
+        names = self.GetFusionCompNameList()
+        if old_name not in names or new_name in names:
+            return False
+        self._name_comp(self._fusion_comps[names.index(old_name)], new_name)
+        return True
 
     def GetFusionCompByIndex(self, index):
         if 1 <= index <= len(self._fusion_comps):
             return self._fusion_comps[index - 1]
         return None
 
+    def LoadFusionCompByName(self, name):
+        names = self.GetFusionCompNameList()
+        if name not in names:
+            return None
+        self.__dict__["_current"] = self._fusion_comps[names.index(name)]
+        return self._fusion_comps[names.index(name)]
+
     def DeleteFusionCompByName(self, name):
-        index = int(str(name).split()[-1]) - 1
+        names = self.GetFusionCompNameList()
+        # Measured 2026-10-05 (C-11 live smoke, Resolve 21.1): deleting an
+        # imported, renamed comp that is the clip's LAST one returns False
+        # and the count stays 1. `composed_edit`'s tests expect the last
+        # passthrough comp to delete (a 2026-09-12 claim), so the rule is
+        # per item until both are measured side by side.
+        if len(names) == 1 and self.__dict__.get("keeps_last_comp"):
+            return False
+        if name not in names:
+            return False
+        index = names.index(name)
         if 0 <= index < len(self._fusion_comps):
             self._fusion_comps.pop(index)
             return True
@@ -1891,11 +2060,52 @@ class FakeTimelineItem:
                                                      "_keys": payload["keys"]}),
             })]
         else:
-            self._fusion_comps.append(FakeComp({
-                "MediaIn1": media_in,
-                "EntryFade1": FakeTool("Merge", {"Blend": 1.0}),
-            }))
+            text = Path(path).read_text(encoding="utf-8")
+            if "RectangleMask" in text:
+                comp = matte_comp_from_text(text, media_in)
+            elif is_passthrough_text(text):
+                comp = FakeComp({"MediaIn1": media_in})
+            else:
+                comp = FakeComp({
+                    "MediaIn1": media_in,
+                    "EntryFade1": FakeTool("Merge", {"Blend": 1.0}),
+                })
+            # Measured on Resolve 21.1 (the C-11 live smoke): an import
+            # ADDS a comp only to an item with none; onto an item that
+            # carries comps it OVERWRITES the current one in place, name
+            # kept, and still returns a comp.
+            current = self._current_comp()
+            if current is None:
+                self._add_comp(comp)
+            else:
+                index = self._fusion_comps.index(current)
+                name = self.GetFusionCompNameList()[index]
+                self._fusion_comps[index] = comp
+                self._name_comp(comp, name)
+                self.__dict__["_current"] = comp
         return True
+
+    def AddFusionComp(self):
+        """An empty comp, added and made current (measured)."""
+        return self._add_comp(FakeComp({}))
+
+    def _add_comp(self, comp):
+        self._fusion_comps.append(comp)
+        taken = set(self.GetFusionCompNameList())
+        number = len(self._fusion_comps)
+        while f"Composition {number}" in taken:
+            number += 1
+        self._name_comp(comp, f"Composition {number}")
+        self.__dict__["_current"] = comp
+        return comp
+
+    def _current_comp(self):
+        """The current comp: the last added or imported one while it is
+        still on the item, else the last comp, else None."""
+        current = self.__dict__.get("_current")
+        if any(current is comp for comp in self._fusion_comps):
+            return current
+        return self._fusion_comps[-1] if self._fusion_comps else None
 
     # ── grade ──
     def GetNodeGraph(self):

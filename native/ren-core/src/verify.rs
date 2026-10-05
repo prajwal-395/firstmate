@@ -543,22 +543,124 @@ fn verify_track_reorder(op: &EditOp, after: &Snapshot) -> Option<String> {
     None
 }
 
-fn verify_fusion_comps(op: &EditOp, after: &Snapshot, matte: &str) -> Option<String> {
-    let unique_id = match op {
-        EditOp::MaskCreate { unique_id, .. } => unique_id,
-        EditOp::MaskEdit { unique_id, .. } => unique_id,
-        _ => return None,
-    };
-    let clip = match after.clip(&unique_id.0) {
-        Some(clip) => clip,
-        None => return Some(format!("clip {unique_id:?} is not on the timeline")),
-    };
+/// The inputs a matte op declares (`reel_read.MATTE_PARAMS`).
+const MATTE_PARAMS: [&str; 3] = ["Center", "Width", "Height"];
+
+/// `_matte_read`: the op's matte as the after-read reports it.
+fn matte_read<'a>(after: &'a Snapshot, unique_id: &str, matte: &str) -> Result<&'a Value, String> {
+    let clip = after
+        .clip(unique_id)
+        .ok_or_else(|| format!("clip {unique_id:?} is not on the timeline"))?;
     if !clip.fusion.comp_names.iter().any(|n| n == matte) {
-        return Some(format!(
-            "clip {unique_id:?} carries no Fusion comp [{matte:?}]"
+        return Err(format!(
+            "clip {unique_id:?} carries no matte {matte:?}; reads {:?}",
+            clip.fusion.comp_names
         ));
     }
+    match clip.fusion.mattes.as_ref().and_then(|m| m.get(matte)) {
+        Some(state) if !state.is_null() => Ok(state),
+        _ => Err(format!("matte {matte:?} carries no readable RectangleMask")),
+    }
+}
+
+/// `_matte_value_failure`: a declared value against what reads back;
+/// a point recurses per axis.
+fn matte_value_failure(label: &str, got: Option<&Value>, want: &Value) -> Option<String> {
+    if let Value::Object(axes) = want {
+        for (axis, axis_want) in axes {
+            let axis_got = got.and_then(|g| g.as_object()).and_then(|g| g.get(axis));
+            if let Some(failure) = matte_value_failure(&format!("{label}.{axis}"), axis_got, axis_want) {
+                return Some(failure);
+            }
+        }
+        return None;
+    }
+    match got {
+        Some(got) if same_value(got, want) => None,
+        got => Some(format!(
+            "{label} reads {}, not {}",
+            got.map(py_repr).unwrap_or_else(|| "None".to_string()),
+            py_repr(want)
+        )),
+    }
+}
+
+fn geometry_failure(matte: &str, state: &Value, geometry: &Value, skip: &[String]) -> Option<String> {
+    let declared = geometry.as_object()?;
+    for (key, want) in declared {
+        if skip.iter().any(|s| s == key) {
+            continue;
+        }
+        let got = state.get("geometry").and_then(|g| g.get(key));
+        if let Some(failure) = matte_value_failure(&format!("matte {matte:?} {key}"), got, want) {
+            return Some(failure);
+        }
+    }
     None
+}
+
+fn frame_of(value: &Value) -> Option<f64> {
+    value.get("frame").and_then(Value::as_f64)
+}
+
+fn verify_mask(op: &EditOp, after: &Snapshot) -> Option<String> {
+    match op {
+        EditOp::MaskCreate { unique_id, matte } => matte_read(after, &unique_id.0, matte).err(),
+        EditOp::MaskDelete { unique_id, matte } => {
+            let Some(clip) = after.clip(&unique_id.0) else {
+                return Some(format!("clip {:?} is not on the timeline", unique_id.0));
+            };
+            if clip.fusion.comp_names.iter().any(|n| n == matte) {
+                return Some(format!("clip {:?} still carries matte {matte:?}", unique_id.0));
+            }
+            None
+        }
+        EditOp::MaskEdit { unique_id, matte, geometry } => match matte_read(after, &unique_id.0, matte) {
+            Err(failure) => Some(failure),
+            Ok(state) => geometry_failure(matte, state, geometry, &[]),
+        },
+        EditOp::MaskTrack { unique_id, matte, track, geometry, .. } => {
+            let state = match matte_read(after, &unique_id.0, matte) {
+                Err(failure) => return Some(failure),
+                Ok(state) => state,
+            };
+            let got: Vec<&Value> = state
+                .get("keyframes")
+                .and_then(Value::as_array)
+                .map(|keys| keys.iter().collect())
+                .unwrap_or_default();
+            let declared: Vec<&Value> = track
+                .get("keyframes")
+                .and_then(Value::as_array)
+                .map(|keys| keys.iter().collect())
+                .unwrap_or_default();
+            let declared_frames: Vec<f64> = declared.iter().filter_map(|k| frame_of(k)).collect();
+            if got.iter().filter_map(|k| frame_of(k)).any(|f| !declared_frames.contains(&f)) {
+                return Some(format!("matte {matte:?} is keyed at undeclared frames"));
+            }
+            for keyframe in &declared {
+                let frame = frame_of(keyframe)?;
+                let Some(entry) = got.iter().find(|k| frame_of(k) == Some(frame)) else {
+                    return Some(format!("matte {matte:?} has no keyframe at frame {frame}"));
+                };
+                for param in MATTE_PARAMS {
+                    if let Some(want) = keyframe.get(param) {
+                        let label = format!("matte {matte:?} frame {frame} {param}");
+                        if let Some(failure) = matte_value_failure(&label, entry.get(param), want) {
+                            return Some(failure);
+                        }
+                    }
+                }
+            }
+            let keyed: Vec<String> = declared
+                .iter()
+                .filter_map(|k| k.as_object())
+                .flat_map(|k| k.keys().filter(|key| *key != "frame").cloned())
+                .collect();
+            geometry.as_ref().and_then(|g| geometry_failure(matte, state, g, &keyed))
+        }
+        _ => None,
+    }
 }
 
 fn verify_grade_node_set(op: &EditOp, after: &Snapshot) -> Option<String> {
@@ -648,14 +750,10 @@ pub fn verify(op: &EditOp, after: &Snapshot) -> Option<String> {
         EditOp::GradeNodeRemove { .. } => None,
         EditOp::GradeNodeReorder { .. } => None,
         EditOp::GradeNodeSet { .. } => verify_grade_node_set(op, after),
-        EditOp::MaskCreate { matte, .. } => verify_fusion_comps(op, after, matte),
-        EditOp::MaskEdit { matte, .. } => verify_fusion_comps(op, after, matte),
-        // FINDING: Python's `mask.track` verify reads `op["matte"]`, a
-        // field the op does not carry - a latent KeyError, unreachable
-        // only because `mask.track` has no native apply and so is never
-        // scheduled. The Rust side defines it as no-read-back rather
-        // than copying a bug.
-        EditOp::MaskTrack { .. } => None,
+        EditOp::MaskCreate { .. }
+        | EditOp::MaskDelete { .. }
+        | EditOp::MaskEdit { .. }
+        | EditOp::MaskTrack { .. } => verify_mask(op, after),
         EditOp::MulticamAngle { .. } => None,
         EditOp::CompoundCreate { .. } => verify_presence(op, after, true, "compound"),
         EditOp::CompoundFlatten { .. } => verify_presence(op, after, false, "compound"),

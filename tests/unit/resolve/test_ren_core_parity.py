@@ -21,9 +21,8 @@ Python implementation unchanged, and there is nothing to compare.
 One Python bug this harness caught, fixed rather than copied: the
 `mask.create`/`mask.edit` verify returned the `_verify_fusion_comps`
 judge factory without calling it (a truthy function object where a
-verdict belongs). PR 1786 owns those ops and is rewriting them, so
-their verify is skipped here (see `MASK_OPS`) rather than encoding
-today's mask code.
+verdict belongs). PR 1786 rewrote the mask ops; their verdicts are
+compared like every other op's.
 """
 
 from __future__ import annotations
@@ -45,13 +44,6 @@ ren_native = pytest.importorskip(
 
 BASE = "Podcast"
 TIMELINE = "Reel 09"
-
-#: The mask ops PR 1786 is rewriting (mask.track takes a `track`
-#: keyframe param and is verified against the comp's keyframes). Their
-#: verify is skipped here rather than encoding today's mask code - the
-#: Python side still carries the judge-factory bug PR 1786 owns.
-MASK_OPS = frozenset({"mask.create", "mask.edit", "mask.track"})
-
 
 # ── The corpus ─────────────────────────────────────────────────────────
 #
@@ -225,6 +217,14 @@ def _with_fusion(base, uid, comp_names):
     return snap
 
 
+def _with_matte(base, uid, name, geometry, keyframes=()):
+    """The clip carries matte `name`, read back as `reel_read` does."""
+    snap = _with_fusion(base, uid, [name])
+    _find_clip(snap, uid)["fusion"]["mattes"] = {
+        name: {"geometry": dict(geometry), "keyframes": list(keyframes)}}
+    return snap
+
+
 def _with_cdl(base, uid, cdl):
     snap = copy.deepcopy(base)
     clip = _find_clip(snap, uid)
@@ -316,10 +316,18 @@ def _op_cases():
                     "Saturation": "1.0000"}
     mask_create = {"op": "mask.create", "unique_id": "a",
                    "matte": "matte-1"}
+    mask_delete = {"op": "mask.delete", "unique_id": "a",
+                   "matte": "matte-1"}
     mask_edit = {"op": "mask.edit", "unique_id": "a", "matte": "matte-1",
-                 "geometry": {"x": 10}}
-    mask_track = {"op": "mask.track", "unique_id": "a",
-                  "transform": {"x": 10}}
+                 "geometry": {"Width": 0.5, "Center": {"X": 0.4, "Y": 0.6}}}
+    mask_keys = [{"frame": 0, "Center": {"X": 0.3, "Y": 0.3}, "Width": 0.3},
+                 {"frame": 48, "Center": {"X": 0.7, "Y": 0.7}, "Width": 0.5}]
+    mask_track = {"op": "mask.track", "unique_id": "a", "matte": "matte-1",
+                  "track": {"keyframes": mask_keys},
+                  "geometry": {"Height": 0.2, "Width": 0.9}}
+    full = {"Center": {"X": 0.5, "Y": 0.5}, "Width": 1.0, "Height": 1.0}
+    edited = {**full, "Width": 0.5, "Center": {"X": 0.4, "Y": 0.6}}
+    tracked = {**full, "Height": 0.2}
     compound_create = {"op": "compound.create", "unique_id": "comp:1",
                       "child_unique_ids": ["a", "b"]}
     track_add = {"op": "track.add", "track_type": "video",
@@ -448,11 +456,30 @@ def _op_cases():
         ("grade.node_set-wrong", node_set, base),
 
         # ── mask ────────────────────────────────────────────────
-        ("mask.create", mask_create, _with_fusion(base, "a", ["matte-1"])),
+        ("mask.create", mask_create, _with_matte(base, "a", "matte-1", full)),
         ("mask.create-missing", mask_create, base),
-        ("mask.edit", mask_edit, _with_fusion(base, "a", ["matte-1"])),
-        # Skipped in test_verify: PR 1786 is rewriting the mask ops.
-        ("mask.track", mask_track, base),
+        ("mask.create-unreadable", mask_create,
+         _with_fusion(base, "a", ["matte-1"])),
+        ("mask.delete", mask_delete, base),
+        ("mask.delete-still-there", mask_delete,
+         _with_matte(base, "a", "matte-1", full)),
+        ("mask.edit", mask_edit, _with_matte(base, "a", "matte-1", edited)),
+        ("mask.edit-wrong", mask_edit,
+         _with_matte(base, "a", "matte-1", {**edited, "Width": 0.9})),
+        ("mask.track", mask_track,
+         _with_matte(base, "a", "matte-1", tracked, mask_keys)),
+        ("mask.track-missing-key", mask_track,
+         _with_matte(base, "a", "matte-1", tracked, mask_keys[:1])),
+        ("mask.track-extra-key", mask_track,
+         _with_matte(base, "a", "matte-1", tracked,
+                     mask_keys + [{"frame": 96, "Width": 0.1}])),
+        ("mask.track-wrong-center", mask_track,
+         _with_matte(base, "a", "matte-1", tracked,
+                     [mask_keys[0], {**mask_keys[1],
+                                     "Center": {"X": 0.7, "Y": 0.1}}])),
+        ("mask.track-wrong-geometry", mask_track,
+         _with_matte(base, "a", "matte-1", {**tracked, "Height": 0.8},
+                     mask_keys)),
 
         # ── multicam ────────────────────────────────────────────
         ("multicam.angle", {"op": "multicam.angle", "unique_id": "a",
@@ -629,8 +656,6 @@ def test_verify_parity():
     mismatches = []
     counts = {"landed": 0, "failed": 0}
     for label, op, after in _op_cases():
-        if op["op"] in MASK_OPS:
-            continue
         spec = _py_declaration(op["op"])
         py = spec.verify(op, after)
         rust = ren_native.verify(op, after)

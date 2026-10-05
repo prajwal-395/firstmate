@@ -2934,8 +2934,9 @@ def test_a_mask_track_instruction_routes_through_the_program_to_the_algebra(
         "reel": "Reel 09 - hook",
         "ops": [
             {"op": "mask.track",
-             "params": {"unique_id": "clip_017",
-                        "transform": {"Pan": 0, "Tilt": 0}},
+             "params": {"unique_id": "clip_017", "matte": "logo-matte",
+                        "track": {"keyframes": [
+                            {"frame": 0, "Center": {"X": 0.4, "Y": 0.5}}]}},
              "text": "track the mask"},
         ],
     }
@@ -2945,8 +2946,8 @@ def test_a_mask_track_instruction_routes_through_the_program_to_the_algebra(
     assert len(rows) == 1
     assert rows[0]["op"] == "edit_program"
     assert rows[0]["params"]["ops"][0]["op"] == "mask.track"
-    assert rows[0]["params"]["ops"][0]["params"]["transform"] == {
-        "Pan": 0, "Tilt": 0}
+    assert rows[0]["params"]["ops"][0]["params"]["track"] == {
+        "keyframes": [{"frame": 0, "Center": {"X": 0.4, "Y": 0.5}}]}
     assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
 def test_an_audio_fades_instruction_routes_through_the_program_to_the_algebra(
         tmp_path):

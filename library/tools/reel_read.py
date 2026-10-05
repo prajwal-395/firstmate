@@ -552,6 +552,7 @@ def clip_detail(item, track_type: str, track_index: int,
         pool_frames = _pool_frames(pool_item)
         pool_item_id = _call(pool_item, "GetMediaId", "")
         media_type = _call(pool_item, "GetClipProperty", None, "Type")
+    comp_names = list(_call(item, "GetFusionCompNameList", []) or [])
     return {
         "unique_id": _call(item, "GetUniqueId", ""),
         "name": name or "",
@@ -580,14 +581,19 @@ def clip_detail(item, track_type: str, track_index: int,
         "transform": _item_transform(item),
         "fusion": {
             "comp_count": _call(item, "GetFusionCompCount", 0),
-            "comp_names": list(
-                _call(item, "GetFusionCompNameList", []) or []),
+            "comp_names": comp_names,
             # Where each comp's MediaIn reads from, and whether it
             # covers the frames this item PLAYS. A comp that does not
             # is why six of the captain's eight reels could not render
             # their own endings, and nothing could see it without
             # rendering - `library/tools/comp_media_window.py`.
             "media_windows": _comp_windows(item, duration),
+            # Each matte comp's geometry and keyframes, by comp name,
+            # read ONLY for comps whose name marks them as mattes: a
+            # clip with none costs nothing, a clip with one costs a
+            # GetToolList plus a few GetInput calls. The mask ops'
+            # verifiers judge this against what they declared.
+            "mattes": mattes_of(item, comp_names),
         },
         "color": {
             "cdl": dict(_call(item, "GetCDL", {}) or {}),
@@ -909,6 +915,129 @@ def _comp_tools(item, index: int):
         except Exception:
             return None
     return sorted(out)
+
+
+#: A comp is read as a matte only when its name says so - reel_read is on
+#: every read path, and reading a comp's tools costs a GetToolList call.
+#: `edit_algebra`'s mask ops refuse a matte name that lacks the mark, so
+#: a matte they place is always one this read can see.
+MATTE_MARK = "matte"
+
+#: The RectangleMask inputs a matte op declares and this read reports.
+MATTE_PARAMS = ("Center", "Width", "Height")
+
+
+def is_matte_comp(name) -> bool:
+    """Whether a Fusion comp name marks the comp as a matte."""
+    return MATTE_MARK in str(name).lower()
+
+
+#: Fusion bounds an input's key list with these times (measured: a
+#: path-driven Center reads `{1: -1e9, 2: 0.0, 3: 48.0}`); they are not
+#: keys anyone set.
+_KEY_SENTINEL = 1e9
+
+
+def _input_key_times(tool, param: str) -> list:
+    """The keyed frames of one input, as sorted frames.
+
+    Asked of the Input OBJECT (`tool.Width`, not `GetInput`), whose
+    `GetKeyFrames()` returns the times as a Lua table `{1: t0, 2: t1}`
+    whether a spline or a path modifier carries the keys (measured on
+    Resolve 21.1). A static input reads none. Integral times read as
+    ints.
+    """
+    inp = _safe(None, getattr, tool, param)
+    if inp is None or isinstance(inp, (int, float, str, dict, tuple, list)):
+        return []
+    table = _call(inp, "GetKeyFrames", None)
+    if not isinstance(table, dict):
+        return []
+    out = set()
+    for key in sorted(table):
+        try:
+            time = float(table[key])
+        except (TypeError, ValueError):
+            continue
+        if abs(time) < _KEY_SENTINEL:
+            out.add(int(time) if time.is_integer() else time)
+    return sorted(out)
+
+
+def _point(value):
+    """A Fusion point as `{"X", "Y"}`, or None.
+
+    Resolve returns a point input as `{1: x, 2: y, 3: z}` (measured);
+    `{"X": x, "Y": y}` and an `(x, y)` tuple are accepted too.
+    """
+    if isinstance(value, dict):
+        x = value.get(1, value.get(1.0, value.get("X")))
+        y = value.get(2, value.get(2.0, value.get("Y")))
+    elif isinstance(value, (tuple, list)) and len(value) >= 2:
+        x, y = value[0], value[1]
+    else:
+        return None
+    if x is None or y is None:
+        return None
+    return {"X": x, "Y": y}
+
+
+def _matte_tool(comp):
+    """The comp's RectangleMask tool, or None."""
+    tools = _call(comp, "GetToolList", None, False)
+    if not isinstance(tools, dict):
+        return None
+    for _key, tool in sorted(tools.items(), key=lambda kv: str(kv[0])):
+        if _call(tool, "GetAttrs", None, "TOOLS_RegID") == "RectangleMask":
+            return tool
+    return None
+
+
+def _matte_value(tool, param, *frame):
+    """One input's value. With no time, an input driven by a path reads
+    None (measured), so it reads at comp frame 0 instead."""
+    value = _call(tool, "GetInput", None, param, *frame)
+    if value is None and not frame:
+        value = _call(tool, "GetInput", None, param, 0)
+    return _point(value) if param == "Center" else value
+
+
+def matte_state(item, index: int):
+    """One matte comp's RectangleMask, read back: geometry and keyframes.
+
+    `geometry` is each input's value with no time given (frame 0 for an
+    input that reads none without one). `keyframes` is
+    one entry per keyed frame, carrying ONLY the inputs keyed there, at
+    the value they read at that frame. None when the comp has no
+    RectangleMask - a matte that cannot be read is not an empty one.
+    """
+    comp = _call(item, "GetFusionCompByIndex", None, index)
+    if comp is None or isinstance(comp, str):
+        return None
+    tool = _matte_tool(comp)
+    if tool is None:
+        return None
+    geometry = {param: _matte_value(tool, param) for param in MATTE_PARAMS}
+    geometry["Invert"] = _call(tool, "GetInput", None, "Invert")
+    by_frame: dict = {}
+    for param in MATTE_PARAMS:
+        for frame in _input_key_times(tool, param):
+            entry = by_frame.setdefault(frame, {"frame": frame})
+            entry[param] = _matte_value(tool, param, frame)
+    return {"geometry": geometry,
+            "keyframes": [by_frame[f] for f in sorted(by_frame)]}
+
+
+def mattes_of(item, comp_names):
+    """Every matte comp on the item, by name, or None when it has none.
+
+    Only comps whose name carries `MATTE_MARK` are opened (see there).
+    """
+    out = {}
+    for index, name in enumerate(comp_names, start=1):
+        if is_matte_comp(name):
+            out[name] = matte_state(item, index)
+    return out or None
 
 
 def comp_draws_something(row) -> Optional[bool]:

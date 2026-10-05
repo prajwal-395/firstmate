@@ -372,22 +372,29 @@ pub(crate) fn algebra() -> &'static [OpDeclaration] {
         id: "mask.create", domain: "fusion",
         required: &["unique_id", "matte"],
         merge: MergeSemantics::Exclusive, temporal: TemporalEffect::Local,
-        item: true, has_apply: false,
-        inverse: Inverse { op: Some(String::from("mask.edit")), self_inverse: false, reason: String::from("the inverse removes the matte") },
+        item: true, has_apply: true,
+        inverse: Inverse { op: Some(String::from("mask.delete")), self_inverse: false, reason: String::new() },
+    },
+    OpDeclaration {
+        id: "mask.delete", domain: "fusion",
+        required: &["unique_id", "matte"],
+        merge: MergeSemantics::Exclusive, temporal: TemporalEffect::Local,
+        item: true, has_apply: true,
+        inverse: Inverse { op: Some(String::from("mask.create")), self_inverse: false, reason: String::from("then mask.edit and mask.track restore its geometry and keys") },
     },
     OpDeclaration {
         id: "mask.edit", domain: "fusion",
         required: &["unique_id", "matte", "geometry"],
         merge: MergeSemantics::Replace, temporal: TemporalEffect::Local,
-        item: true, has_apply: false,
+        item: true, has_apply: true,
         inverse: Inverse { op: None, self_inverse: true, reason: String::from("the inverse carries the previous geometry") },
     },
     OpDeclaration {
         id: "mask.track", domain: "fusion",
-        required: &["unique_id", "transform"],
+        required: &["unique_id", "matte", "track"],
         merge: MergeSemantics::Replace, temporal: TemporalEffect::Local,
-        item: true, has_apply: false,
-        inverse: Inverse { op: None, self_inverse: true, reason: String::from("the inverse carries the previous transform") },
+        item: true, has_apply: true,
+        inverse: Inverse { op: None, self_inverse: true, reason: String::from("the inverse carries the previous keyframes (empty means none) and the previous geometry") },
     },
     // ── multicam (domain: picture_transform) ────────────────────────
     OpDeclaration {
@@ -767,6 +774,7 @@ pub fn span(op: &EditOp, base: &Snapshot) -> Option<(i64, i64)> {
 
         // ── mask ────────────────────────────────────────────────
         EditOp::MaskCreate { unique_id, .. } => item_span(base, &unique_id.0),
+        EditOp::MaskDelete { unique_id, .. } => item_span(base, &unique_id.0),
         EditOp::MaskEdit { unique_id, .. } => item_span(base, &unique_id.0),
         EditOp::MaskTrack { unique_id, .. } => item_span(base, &unique_id.0),
 
@@ -1073,20 +1081,14 @@ pub fn key(op: &EditOp) -> Vec<KeyPart> {
         ],
 
         // ── mask ────────────────────────────────────────────────
-        EditOp::MaskCreate { unique_id, .. } => vec![
+        EditOp::MaskCreate { unique_id, matte }
+        | EditOp::MaskDelete { unique_id, matte }
+        | EditOp::MaskEdit { unique_id, matte, .. }
+        | EditOp::MaskTrack { unique_id, matte, .. } => vec![
             KeyPart::Text("clip".to_string()),
             KeyPart::Text(unique_id.0.clone()),
             KeyPart::Text("mask".to_string()),
-        ],
-        EditOp::MaskEdit { unique_id, .. } => vec![
-            KeyPart::Text("clip".to_string()),
-            KeyPart::Text(unique_id.0.clone()),
-            KeyPart::Text("mask".to_string()),
-        ],
-        EditOp::MaskTrack { unique_id, .. } => vec![
-            KeyPart::Text("clip".to_string()),
-            KeyPart::Text(unique_id.0.clone()),
-            KeyPart::Text("mask".to_string()),
+            KeyPart::Text(matte.clone()),
         ],
 
         // ── multicam ────────────────────────────────────────────
@@ -1280,6 +1282,7 @@ pub fn op_unique_id(op: &EditOp) -> Option<String> {
         EditOp::GradeNodeReorder { unique_id, .. } => Some(unique_id.0.clone()),
         EditOp::GradeNodeSet { unique_id, .. } => Some(unique_id.0.clone()),
         EditOp::MaskCreate { unique_id, .. } => Some(unique_id.0.clone()),
+        EditOp::MaskDelete { unique_id, .. } => Some(unique_id.0.clone()),
         EditOp::MaskEdit { unique_id, .. } => Some(unique_id.0.clone()),
         EditOp::MaskTrack { unique_id, .. } => Some(unique_id.0.clone()),
         EditOp::MulticamAngle { unique_id, .. } => Some(unique_id.0.clone()),
@@ -1358,6 +1361,7 @@ pub fn op_frame(op: &EditOp) -> Option<i64> {
         EditOp::GradeNodeReorder { .. } => None,
         EditOp::GradeNodeSet { .. } => None,
         EditOp::MaskCreate { .. } => None,
+        EditOp::MaskDelete { .. } => None,
         EditOp::MaskEdit { .. } => None,
         EditOp::MaskTrack { .. } => None,
         EditOp::MulticamAngle { .. } => None,

@@ -276,16 +276,30 @@ pub enum EditOp {
         unique_id: ClipId,
         matte: String,
     },
+    /// Remove a matte comp: the inverse of `mask.create`.
+    #[serde(rename = "mask.delete")]
+    MaskDelete {
+        unique_id: ClipId,
+        matte: String,
+    },
+    /// Set a matte's static geometry; inputs it does not name keep their keys.
     #[serde(rename = "mask.edit")]
     MaskEdit {
         unique_id: ClipId,
         matte: String,
         geometry: Value,
     },
+    /// Replace a matte's keyframes; an empty track unkeys it.
     #[serde(rename = "mask.track")]
     MaskTrack {
         unique_id: ClipId,
-        transform: Value,
+        matte: String,
+        #[serde(default)]
+        provider: Option<String>,
+        track: Value,
+        /// Static values for the inputs the track does not key.
+        #[serde(default)]
+        geometry: Option<Value>,
     },
 
     // ── multicam (domain: picture_transform) ────────────────────────
@@ -476,6 +490,7 @@ impl EditOp {
             EditOp::GradeNodeReorder { .. } => "grade.node_reorder",
             EditOp::GradeNodeSet { .. } => "grade.node_set",
             EditOp::MaskCreate { .. } => "mask.create",
+            EditOp::MaskDelete { .. } => "mask.delete",
             EditOp::MaskEdit { .. } => "mask.edit",
             EditOp::MaskTrack { .. } => "mask.track",
             EditOp::MulticamAngle { .. } => "multicam.angle",

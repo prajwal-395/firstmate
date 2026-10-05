@@ -260,7 +260,8 @@ def test_one_read_carries_every_marker_level_and_the_clips(tmp_path):
     assert clip["transform"]["ZoomX"] == 1.0
     assert clip["color"]["luts"] is None
     assert clip["fusion"] == {"comp_count": 0, "comp_names": [],
-                              "media_windows": []}
+                              "media_windows": [],
+                              "mattes": None}
     assert result["fps"] == 24
     assert (result["width"], result["height"]) == (1080, 1920)
 
@@ -661,3 +662,65 @@ def test_build_with_none_records_none(tmp_path):
     assert report["comp_count"] == 0
     assert report["files"] == []
     assert out["files"] == []
+
+
+# --------------------------------------------------------------------------
+# Matte reads (C-11)
+
+
+class _MatteItem(_Item):
+    def __init__(self, name, comps):
+        super().__init__(name, 0, 100, 0, None, fusion=len(comps))
+        self._named = comps
+        self.opened = []
+
+    def GetFusionCompNameList(self):
+        return list(self._named)
+
+    def GetFusionCompByIndex(self, index):
+        self.opened.append(index)
+        return list(self._named.values())[index - 1]
+
+
+def _matte_comp(keyframes, geometry=None):
+    from library.tools import edit_algebra
+    from tests.resolve_double import FakeTool, matte_comp_from_text
+
+    item = _Item("c", 0, 100, 0, None)
+    path = edit_algebra._build_matte_comp(item, "m-matte", geometry or {},
+                                          keyframes)
+    with open(path, encoding="utf-8") as handle:
+        return matte_comp_from_text(handle.read(), FakeTool("MediaIn"))
+
+
+def test_matte_read_reads_keys_through_a_path_driven_point_input():
+    """Defect (live smoke, Resolve 21.1): a tracked matte read back
+    unkeyed. Keys are read off the Input object, whose table for a
+    path-driven Center opens with a -1e9 sentinel; Resolve returns the
+    point as {1: x, 2: y, 3: z}; and with no time given the Center reads
+    None, so its geometry comes from frame 0."""
+    comp = _matte_comp([{"frame": 10, "Center": {"X": 0.2, "Y": 0.3}},
+                        {"frame": 50, "Center": {"X": 0.6, "Y": 0.7},
+                         "Width": 0.4}])
+    item = _MatteItem("clip", {"logo-matte": comp})
+
+    state = reel_read.mattes_of(item, ["logo-matte"])["logo-matte"]
+
+    assert state["keyframes"] == [
+        {"frame": 10, "Center": {"X": 0.2, "Y": 0.3}},
+        {"frame": 50, "Center": {"X": 0.6, "Y": 0.7}, "Width": 0.4},
+    ]
+    assert state["geometry"]["Center"] == {"X": 0.2, "Y": 0.3}
+
+
+def test_matte_read_opens_only_comps_named_as_mattes():
+    """Defect: reading geometry for every comp costs a GetToolList per
+    comp on every read of every reel."""
+    comp = _matte_comp([])
+    item = _MatteItem("clip", {"Entry Fade": comp, "logo-matte": comp})
+
+    mattes = reel_read.mattes_of(item, ["Entry Fade", "logo-matte"])
+
+    assert list(mattes) == ["logo-matte"]
+    assert item.opened == [2]
+    assert mattes["logo-matte"]["keyframes"] == []

@@ -489,38 +489,42 @@ def _effect_grade_node_set(op, state):
     return (before, after)
 
 
-def _effect_mask_create(op, state):
-    uid = op["unique_id"]
-    clip = _clip_state(state, uid)
+def _effect_mask(op, state, change):
+    """One matte's (before, after), each `None` where it is absent."""
+    clip = _clip_state(state, op["unique_id"])
     if clip is None:
         return (None, None)
-    before = {"matte": clip.get("matte")}
-    clip["matte"] = op["matte"]
-    after = {"matte": clip["matte"]}
+    mattes = clip.setdefault("mattes", {})
+    before = mattes.get(op["matte"])
+    after = change(dict(before) if before is not None else None)
+    if after is None:
+        mattes.pop(op["matte"], None)
+    else:
+        mattes[op["matte"]] = after
     return (before, after)
+
+
+def _effect_mask_create(op, state):
+    return _effect_mask(op, state, lambda _m: {"geometry": {},
+                                               "keyframes": []})
+
+
+def _effect_mask_delete(op, state):
+    return _effect_mask(op, state, lambda _m: None)
 
 
 def _effect_mask_edit(op, state):
-    uid = op["unique_id"]
-    clip = _clip_state(state, uid)
-    if clip is None:
-        return (None, None)
-    before = {"matte": clip.get("matte"), "geometry": clip.get("mask_geometry")}
-    clip["matte"] = op["matte"]
-    clip["mask_geometry"] = op["geometry"]
-    after = {"matte": clip["matte"], "geometry": clip["mask_geometry"]}
-    return (before, after)
+    def change(matte):
+        matte = matte or {"geometry": {}, "keyframes": []}
+        return {**matte, "geometry": {**matte["geometry"], **op["geometry"]}}
+    return _effect_mask(op, state, change)
 
 
 def _effect_mask_track(op, state):
-    uid = op["unique_id"]
-    clip = _clip_state(state, uid)
-    if clip is None:
-        return (None, None)
-    before = {"transform": clip.get("mask_transform")}
-    clip["mask_transform"] = op["transform"]
-    after = {"transform": clip["mask_transform"]}
-    return (before, after)
+    def change(matte):
+        matte = matte or {"geometry": {}, "keyframes": []}
+        return {**matte, "keyframes": list(op["track"]["keyframes"])}
+    return _effect_mask(op, state, change)
 
 
 def _effect_multicam_angle(op, state):
@@ -739,6 +743,7 @@ _EFFECTS = {
     "grade": _effect_grade,
     "grade.node_set": _effect_grade_node_set,
     "mask.create": _effect_mask_create,
+    "mask.delete": _effect_mask_delete,
     "mask.edit": _effect_mask_edit,
     "mask.track": _effect_mask_track,
     "multicam.angle": _effect_multicam_angle,

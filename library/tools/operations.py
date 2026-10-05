@@ -1577,9 +1577,13 @@ _REGISTRY: tuple[Operation, ...] = (
                             # no AddNode/RemoveNode, so only node_set is
                             # executable; add/remove/reorder are declared
                             # in the algebra but have no native apply.
-                            "grade.node_set"),
+                            "grade.node_set",
+                            # Mask/track ops: place or remove a matte
+                            # comp, set its geometry, key its track.
+                            "mask.create", "mask.delete", "mask.edit",
+                            "mask.track"),
                 conflict_domains=("markers", "timeline_structure",
-                                  "picture_transform", "color"),
+                                  "picture_transform", "color", "fusion"),
                 temporal_effect="ripple", merge_semantics="exclusive")),
     ),
     Operation(
