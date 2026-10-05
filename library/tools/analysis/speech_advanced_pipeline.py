@@ -5,10 +5,12 @@ Advanced Speech Analysis — Prosody
 Supplements WhisperX transcription (step 1.04) with prosodic features
 that no other pipeline component captures:
 
-- Pitch (F0) contour at 10ms resolution
-- Speaking rate (from voicing regions)
+- Pitch (F0) contour at 10ms resolution, full clip
+- Speaking rate (from voicing regions), per passage and per clip
 - Voice quality (jitter, shimmer, HNR)
-- Intensity (loudness) contour at 50ms resolution
+- Intensity (loudness) contour at 50ms resolution, full clip
+- Per-passage aggregates: pitch stats, speaking rate and median
+  intensity for each speech region, measured over its own span
 
 Uses parselmouth (Python wrapper for Praat), the gold standard in
 phonetics research. Signal processing, not a neural model — deterministic
@@ -228,6 +230,84 @@ def measure_word_prosody(speech_regions, pitch_samples,
     }
 
 
+def measure_passage_prosody(speech_regions, pitch_samples,
+                             intensity_samples) -> list:
+    """One aggregate row per passage, measured over the passage's own span.
+
+    The clip-level `pitch_stats` and `speaking_rate` answer "how does
+    this speaker sound"; every editorial question is about ONE passage -
+    "which of two restatements does he land better"
+    (docs/PROSODY_MEASURED.md section 2b). One WPM for a 188 s clip of
+    which the edit used 27 s answers neither.
+
+    Each row carries the same shapes as the clip-level aggregates,
+    computed over this passage's span: pitch stats from the voiced
+    frames inside it, speaking rate from its own words, and the median
+    intensity inside it. A passage with no voiced frames carries an
+    empty `pitch_stats`, exactly as the clip-level one does; a passage
+    with no words carries no speaking rate. Pure: no parselmouth, no
+    disk, and no numpy beyond the clip-level stats' own helpers.
+    """
+    rows = []
+    for region in speech_regions or []:
+        if not isinstance(region, dict):
+            continue
+        try:
+            start = float(region.get("start", 0))
+            end = float(region.get("end", 0))
+        except (TypeError, ValueError):
+            continue
+
+        f0_in = []
+        db_in = []
+        frames_in_span = 0
+        for time, f in pitch_samples or []:
+            if start <= time < end:
+                frames_in_span += 1
+                if f is not None:
+                    f0_in.append(f)
+        for time, db in intensity_samples or []:
+            if db is not None and start <= time < end:
+                db_in.append(db)
+
+        pitch_stats = {}
+        if f0_in:
+            pitch_stats = {
+                "mean_f0_hz": round(float(np.mean(f0_in)), 1),
+                "median_f0_hz": round(float(np.median(f0_in)), 1),
+                "min_f0_hz": round(float(np.min(f0_in)), 1),
+                "max_f0_hz": round(float(np.max(f0_in)), 1),
+                "std_f0_hz": round(float(np.std(f0_in)), 1),
+                "range_semitones": round(float(
+                    12 * np.log2(max(f0_in) / min(f0_in))
+                ), 1) if min(f0_in) > 0 else 0,
+                "voicing_percentage": round(
+                    len(f0_in) / frames_in_span * 100, 1
+                ) if frames_in_span else 0,
+            }
+
+        words = [w for w in region.get("words", []) or []
+                 if isinstance(w, dict)]
+        speaking_rate = None
+        if end > start and words:
+            speaking_rate = {
+                "words_per_minute": round(
+                    len(words) / (end - start) * 60, 1),
+                "total_words": len(words),
+                "total_speech_seconds": round(end - start, 2),
+            }
+
+        rows.append({
+            "start": round(start, 3),
+            "end": round(end, 3),
+            "pitch_stats": pitch_stats,
+            "speaking_rate": speaking_rate,
+            "median_intensity_db": (round(_median(db_in), 1)
+                                    if db_in else None),
+        })
+    return rows
+
+
 def analyze_prosody(audio_path: str, speech_regions: list = None) -> dict:
     """Extract prosodic features using Praat via parselmouth.
 
@@ -237,10 +317,13 @@ def analyze_prosody(audio_path: str, speech_regions: list = None) -> dict:
     All metrics are deterministic (signal processing, not a neural model).
 
     Features:
-    - Pitch (F0) contour at 10ms resolution
-    - Speaking rate (estimated from voicing regions)
+    - Pitch (F0) contour at 10ms resolution, full clip
+    - Speaking rate (estimated from voicing regions), per passage
+      and per clip
     - Voice quality metrics (jitter, shimmer, HNR)
-    - Intensity (loudness) contour at 50ms resolution
+    - Intensity (loudness) contour at 50ms resolution, full clip
+    - Per-passage aggregates: pitch stats, speaking rate and median
+      intensity for each speech region
     """
     from ren.edition import EditionError, require_component, select_component
 
@@ -376,18 +459,25 @@ def analyze_prosody(audio_path: str, speech_regions: list = None) -> dict:
             "method": "parselmouth-praat",
             "accuracy": "high — gold standard, ±1-2Hz F0",
             "pitch_stats": pitch_stats,
-            "pitch_contour_10ms": pitch_values[:3000],  # Cap at 30s
+            # No cap: the saved contours cover the whole clip. The old
+            # 30 s/60 s truncations stopped before the footage the edit
+            # uses - over 001's chosen passages the pitch contour covered
+            # 22.1% and the intensity contour 51.7%, so every passage past
+            # the caps read as unvoiced against them
+            # (docs/PROSODY_MEASURED.md section 2a). The loops above
+            # already measured the full duration; the caps only truncated
+            # the saved copy of a complete measurement.
+            "pitch_contour_10ms": pitch_values,
             "voice_quality": voice_quality,
             "speaking_rate": speaking_rate,
-            "intensity_contour_50ms": intensity_values[:1200],  # Cap at 60s
+            "intensity_contour_50ms": intensity_values,
             "duration_s": round(duration, 2),
         }
 
         # Per-word emphasis from the Voz+MFA stamps, measured on the
-        # FULL in-memory contours - the saved contours above are capped
-        # at 30/60 s and a word past the cap would read as unvoiced
-        # against them. A clip with no speech regions still profiles:
-        # an empty table, not a missing one.
+        # full in-memory contours - the same contours that are saved
+        # above, now uncapped. A clip with no speech regions still
+        # profiles: an empty table, not a missing one.
         word_rows = [
             (p["time"], p["f0_hz"]) for p in pitch_values
         ]
@@ -406,6 +496,12 @@ def analyze_prosody(audio_path: str, speech_regions: list = None) -> dict:
                 1 for row in word_prosody["words"]
                 if row.get("emphasis") is not None),
         }
+        # Per-passage aggregates, measured on the same full contours:
+        # the clip-level pitch_stats and speaking_rate above describe
+        # the whole clip, and every question asked of them is about one
+        # passage. A clip with no speech regions yields an empty list.
+        result["passage_prosody"] = measure_passage_prosody(
+            speech_regions, word_rows, word_db)
 
         print(f"  prosody: F0 mean={pitch_stats.get('mean_f0_hz', '?')}Hz, "
               f"voicing={pitch_stats.get('voicing_percentage', '?')}%, "
