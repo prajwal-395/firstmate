@@ -68,6 +68,9 @@ CHECKS = {
     "render_file": (RESOLVE_COMPOSITE, "library/tools/render_qa.py"),
     "render_watch": (RESOLVE_COMPOSITE, "library/tools/render_watch.py"),
     "gate_stills": (RESOLVE_COMPOSITE, "library/tools/gate_stills.py"),
+    # B-roll correspondence: does the cutaway's picture illustrate the
+    # speech it covers? VLM check on placed cutaways, report-only.
+    "broll_correspondence": (RESOLVE_COMPOSITE, "library/tools/broll_correspondence.py"),
 }
 
 

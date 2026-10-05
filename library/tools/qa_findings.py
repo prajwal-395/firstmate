@@ -289,6 +289,15 @@ FINDING_READERS: Dict[str, FindingReader] = _rows(
         "the step that can re-plan the binding or re-place the card; "
         "needs no render, no audio and no model, only the filename "
         "against the placement."),
+    # ── broll_correspondence.py ──
+    FindingReader(
+        "broll_correspondence", "select_broll",
+        "A placed cutaway whose visual content does not illustrate the "
+        "speech it covers. The B-roll selection step (3.02) chose the "
+        "cutaway to illustrate the spoken words; a non-illustrating "
+        "cutaway means the choice was wrong - either the wrong clip or "
+        "the wrong window. REPORTED, not gated: promoting it is "
+        "broll_correspondence.BROLL_CORRESPONDENCE_GATES."),
 )
 
 

@@ -111,6 +111,11 @@ _CHECK_TYPE_INSTRUCTIONS = {
         "including black frames, frozen frames, visual artifacts, incorrect "
         "framing, poor exposure, or anything that looks wrong."
     ),
+    "broll_correspondence": (
+        "Focus on B-roll correspondence: Does the cutaway's visual content "
+        "illustrate what is being said? Check if the picture matches the "
+        "spoken words' referents, or if it shows something unrelated."
+    ),
 }
 
 

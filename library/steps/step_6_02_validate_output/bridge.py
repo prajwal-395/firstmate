@@ -36,8 +36,10 @@ from library.tools.render_qa import (
     run_full_render_qa,
 )
 from library.tools import render_qa, render_watch
+from library.tools.broll_correspondence import measure_broll_correspondence
 from library.tools.spine_contract import declared_black_beat_ranges
 from library.tools.subtitle_qa import verify_subtitle_timing
+from library.tools.timeline_transcript import transcript_path as transcript_path_for
 from library.tools.transition_vocabulary import CUT_TYPES
 
 
@@ -639,6 +641,49 @@ def validate_output(rendered_output: dict, assembly_manifest: dict,
                 "subtitle_qa", False, str(e), None, "error",
                 f"Subtitle QA did not run ({type(e).__name__}: {e}) - no "
                 f"subtitle check measured this render"))
+    # B-roll correspondence (gap E3): does each placed cutaway's picture
+    # illustrate the speech it covers? VLM check, report-only.
+    try:
+        from library.tools.broll_correspondence import placed_cutaways
+        if placed_cutaways(assembly_manifest):
+            timeline_doc = None
+            review_dir = os.path.join(project_folder, "pipeline_output",
+                                      "review")
+            if os.path.isdir(review_dir):
+                import glob
+                candidates = sorted(
+                    glob.glob(os.path.join(review_dir, "*.timeline.json")),
+                    key=os.path.getmtime, reverse=True)
+                if candidates:
+                    with open(candidates[0], encoding="utf-8") as handle:
+                        timeline_doc = json.load(handle)
+            transcript_file = transcript_path_for(project_folder)
+            transcript_doc = None
+            if os.path.exists(str(transcript_file)):
+                with open(str(transcript_file), encoding="utf-8") as handle:
+                    transcript_doc = json.load(handle)
+            if timeline_doc is not None and transcript_doc is not None:
+                qa_results.append(measure_broll_correspondence(
+                    video_path, assembly_manifest,
+                    timeline_doc, transcript_doc,
+                    project_folder=project_folder))
+            else:
+                qa_results.append(RenderQAResult(
+                    "broll_correspondence", True, {"cutaways": 0},
+                    {"gates": False}, "info",
+                    "B-roll correspondence not measured: "
+                    + ("no timeline" if timeline_doc is None else "")
+                    + (" or" if timeline_doc is None
+                       and transcript_doc is None else "")
+                    + (" no transcript" if transcript_doc is None else "")
+                    + " found"))
+    except Exception as e:
+        print(f"Error running broll_correspondence: {e}", file=sys.stderr)
+        traceback.print_exc()
+        qa_results.append(RenderQAResult(
+            "broll_correspondence", True, str(e), None, "warning",
+            f"B-roll correspondence did not run ({type(e).__name__}: {e})"))
+
     # Process QA Results into existing checks format for compatibility
     tech_check = {"pass": True, "issues": []}
     framing_check = {"pass": True, "issues": []}
