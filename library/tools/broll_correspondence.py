@@ -93,8 +93,8 @@ def placed_cutaways(assembly_manifest: dict) -> List[Cutaway]:
             source_file=source_file,
             source_in=float(clip.get("source_in", 0)),
             source_out=float(clip.get("source_out", 0)),
-            timeline_in=float(clip.get("timeline_in_frame", 0)),
-            timeline_out=float(clip.get("timeline_out_frame", 0)),
+            timeline_in=float(clip.get("timeline_in", 0)),
+            timeline_out=float(clip.get("timeline_out", 0)),
         ))
     return cutaways
 
@@ -169,7 +169,8 @@ def measure_broll_correspondence(
         transcript: Dict[str, Any],
         model=None,
         project_folder: str = "",
-        gate: bool = BROLL_CORRESPONDENCE_GATES) -> RenderQAResult:
+        gate: bool = BROLL_CORRESPONDENCE_GATES,
+        cutaways: Optional[List[Cutaway]] = None) -> RenderQAResult:
     """Measure B-roll-to-speech correspondence for each placed cutaway.
 
     For each V2 cutaway in the manifest, takes the spoken words at its
@@ -182,8 +183,13 @@ def measure_broll_correspondence(
 
     `model` is the VLM to call. None uses the default
     (`vision_model.get_model()`). Tests pass a stub.
+
+    `cutaways` scopes the check to a named subset (a dirty-region
+    re-check passes only the cutaways a touch could have broken). None
+    reads every V2 cutaway in the manifest.
     """
-    cutaways = placed_cutaways(assembly_manifest)
+    if cutaways is None:
+        cutaways = placed_cutaways(assembly_manifest)
     if not cutaways:
         return RenderQAResult(
             METRIC, True, {"cutaways": 0, "verdicts": []},
