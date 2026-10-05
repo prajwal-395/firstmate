@@ -359,7 +359,10 @@ Any other value, or an unreadable file, refuses every spawn from that home, whic
 `bin/fm-spawn.sh` reads the file on every spawn and relaunch, so a change takes effect at the next launch without a restart.
 Fresh Claude launches carry the resolved posture in their CLI flag and inline `--settings` JSON.
 Claude Code 2.1.257 and later ignore settings-file `permissions.defaultMode` on resume, and a terminal-manager restore that runs bare `claude --resume` does not reapply the launch flag.
-The watcher detects that restore shape and, once the worker is idle, resumes the same Claude session in its existing pane with the configured flag through `bin/fm-control.sh repair-posture`.
+The watcher repairs verified bare Claude, Codex, OpenCode, Grok, Gemini, Muse, and Rovo restores in the existing pane with the same session and each adapter's launch posture through `bin/fm-control.sh repair-posture`.
+Before it exits a worker, the repair proves the composer is empty and the endpoint has no extra foreground-tty process group, because a background shell can make Claude show a modal instead of exiting.
+It verifies the pane's current directory against the recorded task worktree and changes to that worktree before resuming when they differ.
+Muse repair also requires its recorded `state/<id>.muse-session` binding to include the original config home and sessions root, so a missing profile binding is skipped before the worker exits.
 The file is a captain-wide safety preference, so it is inherited into secondmate homes under the [`secondmate-provisioning`](../.agents/skills/secondmate-provisioning/SKILL.md) inherited-local-material contract; a secondmate's own Claude crewmates then launch on the same posture.
 The [Claude adapter reference](../.agents/skills/harness-adapters/references/harness/claude.md) records the verified shape of both launches and which once-per-machine dialog each one can meet.
 

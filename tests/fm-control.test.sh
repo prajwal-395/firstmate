@@ -27,7 +27,7 @@ set -u
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-control-lib.sh"
 # shellcheck source=/dev/null
-. "$ROOT/bin/fm-claude-posture-lib.sh"
+. "$ROOT/bin/fm-posture-lib.sh"
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-marker-lib.sh"
 
@@ -102,15 +102,50 @@ case "${1:-}" in
       if [ -z "${FM_FAKE_NEVER_DIES:-}" ] \
          && { [ "$payload" = /exit ] || [ "$payload" = /quit ]; }; then
         printf 'zsh' > "$D/command"
+        rm -f "$D/process-args"
       fi
       case "$payload" in
         *'Read the brief at '*) cat "$D/becomes" > "$D/command" ;;
-        'claude --resume '*--dangerously-skip-permissions|'claude --resume '*--permission-mode=auto)
+        *'claude --resume '*)
           printf 'claude\n' > "$D/command"
-          if [ -n "${FM_CLAUDE_POSTURE_TEST_ARGS_FILE:-}" ]; then
-            printf '%s\n' "$payload" > "$FM_CLAUDE_POSTURE_TEST_ARGS_FILE"
+          [ -z "${FM_POSTURE_TEST_ARGS_FILE:-}" ] || printf 'claude %s\n' "${payload#*'claude '}" > "$FM_POSTURE_TEST_ARGS_FILE"
+          ;;
+        *'codex resume '*)
+          printf 'codex\n' > "$D/command"
+          [ -z "${FM_POSTURE_TEST_ARGS_FILE:-}" ] || printf 'codex %s\n' "${payload#*'codex '}" > "$FM_POSTURE_TEST_ARGS_FILE"
+          ;;
+        *' opencode --session '*)
+          printf 'opencode\n' > "$D/command"
+          if [ -n "${FM_POSTURE_TEST_ARGS_FILE:-}" ]; then
+            printf '101\topencode%s\n' "${payload#* opencode}" > "$FM_POSTURE_TEST_ARGS_FILE"
+          fi
+          [ -z "${FM_POSTURE_TEST_ENV_FILE:-}" ] \
+            || printf '%s\n' '{"permission":{"*":"allow"}}' > "$FM_POSTURE_TEST_ENV_FILE"
+          ;;
+        *'grok --resume '*|*'gemini --resume '*|*muse*' --yolo '*|*rovo*' --restore '*)
+          harness=${payload##* }
+          case "$payload" in
+            *' grok --resume '*) printf 'grok\n' > "$D/command"; harness=grok ;;
+            *' gemini --resume '*)
+              printf 'gemini\n' > "$D/command"
+              printf 'node /tmp/bin/gemini -y\n' > "$D/process-args"
+              harness=gemini
+              ;;
+            *muse*' --yolo '*) printf 'muse\n' > "$D/command"; harness=muse ;;
+            *' --restore '*) printf 'rovo\n' > "$D/command"; harness=rovo ;;
+          esac
+          if [ -n "${FM_POSTURE_TEST_ARGS_FILE:-}" ]; then
+            case "$harness" in
+              muse) printf 'muse --yolo resume %s\n' "${payload##* }" > "$FM_POSTURE_TEST_ARGS_FILE" ;;
+              rovo)
+                session=$(printf '%s\n' "$payload" | sed -n 's/.* --restore \([^ ]*\).*/\1/p')
+                printf 'rovo --restore %s --yolo\n' "$session" > "$FM_POSTURE_TEST_ARGS_FILE"
+                ;;
+              *) printf '%s\n' "${payload#* $harness }" | sed "s/^/$harness /" > "$FM_POSTURE_TEST_ARGS_FILE" ;;
+            esac
           fi
           ;;
+        'cd -- '*) cat "$D/expected-cwd" > "$D/cwd" ;;
       esac
     else
       printf '%s\n' "$payload" >> "$D/keys"
@@ -131,6 +166,8 @@ case "${1:-}" in
     for a in "$@"; do
       case "$a" in
         *cursor_y*) printf '0\n'; exit 0 ;;
+        *pane_tty*) printf '/dev/ttys999\n'; exit 0 ;;
+        *pane_pid*) printf '100\n'; exit 0 ;;
         *pane_current_command*) cat "$D/command"; printf '\n'; exit 0 ;;
         *pane_current_path*) cat "$D/cwd"; printf '\n'; exit 0 ;;
       esac
@@ -146,6 +183,30 @@ esac
 exit 0
 SH
   chmod +x "$fb/tmux"
+  cat > "$fb/ps" <<'SH'
+#!/usr/bin/env bash
+set -u
+if [ "${FM_POSTURE_TEST_PROCESS_GROUPS:-}" = 1 ]; then
+  case " $* " in
+    *' -p 100 -o pgid='*) printf '100\n'; exit 0 ;;
+    *' -p 101 -o etime='*) printf '00:00:30\n'; exit 0 ;;
+    *' -p 101 -o args='*)
+      if [ -r "$FM_FAKE_DIR/process-args" ]; then
+        cat "$FM_FAKE_DIR/process-args"
+        printf '\n'
+        exit 0
+      fi
+      ;;
+    *' -t ttys999 -o pid=,pgid=,tpgid=,comm='*)
+      printf '100 100 101 zsh\n101 101 101 %s\n' "$(cat "$FM_FAKE_DIR/command")"
+      if [ -f "$FM_FAKE_DIR/background-pgid" ]; then printf '102 102 101 bash\n'; fi
+      exit 0 ;;
+    *' -t ttys999 -o state=,pid=,comm='*) exit 0 ;;
+  esac
+fi
+exec /bin/ps "$@"
+SH
+  chmod +x "$fb/ps"
   cat > "$fb/sleep" <<'SH'
 #!/usr/bin/env bash
 if [ -n "${FM_FAKE_MUSE_DISAPPEAR_BEFORE_ACK:-}" ] \
@@ -157,6 +218,9 @@ fi
 exit 0
 SH
   chmod +x "$fb/sleep"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$fb/muse"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$fb/rovo"
+  chmod +x "$fb/muse" "$fb/rovo"
   printf '%s\n' "$fb"
 }
 
@@ -197,6 +261,7 @@ add_task() {
   } > "$home/state/$id.meta"
   printf '%s\n' "fm-$id" > "$dir/fake/windows"
   printf '%s' "$wt" > "$dir/fake/cwd"
+  printf '%s' "$wt" > "$dir/fake/expected-cwd"
 }
 
 # run_control <case-dir> <args...>: run fm-control against the case's home with
@@ -209,12 +274,17 @@ run_control() {
     FM_FAKE_MUSE_LOG="${FM_FAKE_MUSE_LOG:-}" \
     FM_FAKE_MUSE_DISAPPEAR_BEFORE_ACK="${FM_FAKE_MUSE_DISAPPEAR_BEFORE_ACK:-}" \
     FM_FAKE_INTERRUPT_STOPS_AGENT="${FM_FAKE_INTERRUPT_STOPS_AGENT:-}" \
-    FM_CLAUDE_POSTURE_TEST_ARGS_FILE="${FM_CLAUDE_POSTURE_TEST_ARGS_FILE:-}" \
+    FM_POSTURE_TEST_ARGS_FILE="${FM_POSTURE_TEST_ARGS_FILE:-}" \
+    FM_POSTURE_TEST_ENV_FILE="${FM_POSTURE_TEST_ENV_FILE:-}" \
+    FM_POSTURE_TEST_PROCESS_GROUPS="${FM_POSTURE_TEST_PROCESS_GROUPS:-}" \
     "$CONTROL" "$@" 2>&1
 }
 
 alive_as() {  # <case-dir> <command-name>
   printf '%s' "$2" > "$1/fake/command"
+  case "$2" in
+    gemini) printf 'node /tmp/bin/gemini -y\n' > "$1/fake/process-args" ;;
+  esac
 }
 
 literals() {  # <case-dir>
@@ -622,7 +692,7 @@ test_resume_is_refused_with_its_reason() {
 }
 
 test_claude_bare_resume_repair_keeps_the_same_session_and_task_record() {
-  local dir out rc args_file meta_before expected
+  local dir out rc args_file meta_before expected settings
   dir=$(new_case claude-posture-repair)
   add_task "$dir" t1 claude
   alive_as "$dir" claude
@@ -631,30 +701,214 @@ test_claude_bare_resume_repair_keeps_the_same_session_and_task_record() {
   printf 'claude --resume session-123\n' > "$args_file"
   cp "$dir/home/state/t1.meta" "$dir/meta-before"
   meta_before=$(cat "$dir/meta-before")
-  out=$(FM_CLAUDE_POSTURE_TEST_ARGS_FILE="$args_file" run_control "$dir" t1 repair-posture)
+  out=$(FM_POSTURE_TEST_ARGS_FILE="$args_file" FM_POSTURE_TEST_PROCESS_GROUPS=1 run_control "$dir" t1 repair-posture)
   rc=$?
   expect_code 0 "$rc" "bare Claude resume should repair through fm-control"$'\n'"$out"
   assert_contains "$out" 'posture-repaired t1 session=session-123 posture=bypass' \
     "repair should report the restored session and configured posture"
-  expected=$'/exit\nclaude --resume session-123 --dangerously-skip-permissions'
+  settings='{"permissions":{"defaultMode":"bypassPermissions"},"feedbackDrafts":"off","attribution":{"commit":"","pr":"","sessionUrl":false}}'
+  expected=$(printf '/exit\nenv -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude --resume session-123 --dangerously-skip-permissions --settings %s\n' \
+    "$(fm_posture_shell_quote "$settings")")
   [ "$(literals "$dir")" = "$expected" ] \
     || fail "repair must exit the idle CLI and resume the same transcript with bypass, got: $(literals "$dir")"
-  [ "$(cat "$args_file")" = 'claude --resume session-123 --dangerously-skip-permissions' ] \
+  [ "$(cat "$args_file")" = "claude --resume session-123 --dangerously-skip-permissions --settings $(fm_posture_shell_quote "$settings")" ] \
     || fail "repair postcondition did not observe Claude running with the configured flag"
   [ "$(cat "$dir/home/state/t1.meta")" = "$meta_before" ] \
     || fail "posture repair must preserve the task record"
   pass "fm-control repair-posture: same-session bare restores get the configured flag in place"
 }
 
+test_claude_bare_resume_repair_respects_auto_mode() {
+  local dir out rc args_file settings expected
+  dir=$(new_case claude-posture-auto)
+  add_task "$dir" t1 claude
+  mkdir -p "$dir/home/config"
+  printf 'auto\n' > "$dir/home/config/claude-permission-mode"
+  alive_as "$dir" claude
+  printf '❯\n' > "$dir/fake/pane"
+  args_file="$dir/fake/claude-args"
+  printf 'claude --resume session-auto\n' > "$args_file"
+  out=$(FM_POSTURE_TEST_ARGS_FILE="$args_file" FM_POSTURE_TEST_PROCESS_GROUPS=1 run_control "$dir" t1 repair-posture)
+  rc=$?
+  expect_code 0 "$rc" "Claude repair should use the configured auto mode"$'\n'"$out"
+  settings='{"permissions":{"defaultMode":"auto"},"feedbackDrafts":"off","attribution":{"commit":"","pr":"","sessionUrl":false}}'
+  expected=$(printf '/exit\nenv -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude --resume session-auto --permission-mode auto --settings %s\n' \
+    "$(fm_posture_shell_quote "$settings")")
+  [ "$(literals "$dir")" = "$expected" ] \
+    || fail "Claude repair must respect config/claude-permission-mode=auto"
+  assert_contains "$out" 'posture-repaired t1 session=session-auto posture=auto' \
+    "the result should report the configured auto mode"
+  pass "fm-control repair-posture: Claude restores keep the configured auto mode"
+}
+
+test_codex_bare_resume_repair_preserves_session_and_repairs_worktree() {
+  local dir out rc args_file worktree expected turnend notify
+  dir=$(new_case codex-posture-repair)
+  add_task "$dir" t1 codex
+  alive_as "$dir" codex
+  printf '❯\n' > "$dir/fake/pane"
+  args_file="$dir/fake/codex-args"
+  printf 'codex resume session_codex-123\n' > "$args_file"
+  worktree=$(sed -n 's/^worktree=//p' "$dir/home/state/t1.meta")
+  printf '%s' "$dir/proj-t1" > "$dir/fake/cwd"
+  out=$(FM_POSTURE_TEST_ARGS_FILE="$args_file" FM_POSTURE_TEST_PROCESS_GROUPS=1 run_control "$dir" t1 repair-posture)
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    printf 'captured Codex process args:\n' >&2
+    cat "$args_file" >&2
+    printf 'sent text:\n' >&2
+    literals "$dir" >&2
+  fi
+  expect_code 0 "$rc" "Codex bare resume should repair posture and cwd"$'\n'"$out"
+  assert_contains "$out" 'posture-repaired t1 session=session_codex-123 posture=--dangerously-bypass-approvals-and-sandbox worktree=verified' \
+    "repair should report Codex posture and verified task worktree"
+  turnend="$dir/home/state/t1.turn-ended"
+  notify=$(fm_posture_shell_quote "notify=[\"bash\",\"-c\",\"touch $turnend\"]")
+  expected=$(printf '/quit\ncd -- %s\nenv -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI codex resume session_codex-123 --dangerously-bypass-approvals-and-sandbox -c %s\n' \
+    "$(fm_posture_shell_quote "$worktree")" "$notify")
+  [ "$(literals "$dir")" = "$expected" ] \
+    || fail "Codex repair must retain the session, apply bypass, and cd to the recorded worktree; got: $(literals "$dir")"
+  [ "$(cat "$dir/fake/cwd")" = "$worktree" ] \
+    || fail "Codex repair did not leave the pane in the recorded worktree"
+  pass "fm-control repair-posture: Codex bare restores keep the session, bypass posture, and task worktree"
+}
+
+test_opencode_bare_resume_repairs_environment_and_worktree() {
+  local dir out rc args_file env_file worktree expected
+  dir=$(new_case opencode-posture-repair)
+  add_task "$dir" t1 opencode
+  alive_as "$dir" opencode
+  printf '❯\n' > "$dir/fake/pane"
+  args_file="$dir/fake/opencode-args"
+  env_file="$dir/fake/opencode-env"
+  printf '101\topencode --session ses_123\n' > "$args_file"
+  : > "$env_file"
+  worktree=$(sed -n 's/^worktree=//p' "$dir/home/state/t1.meta")
+  printf '%s' "$dir/proj-t1" > "$dir/fake/cwd"
+  out=$(FM_POSTURE_TEST_ARGS_FILE="$args_file" FM_POSTURE_TEST_ENV_FILE="$env_file" \
+    FM_POSTURE_TEST_PROCESS_GROUPS=1 run_control "$dir" t1 repair-posture)
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    printf 'captured OpenCode process args:\n' >&2
+    cat "$args_file" >&2
+    printf 'captured OpenCode environment:\n' >&2
+    cat "$env_file" >&2
+    printf 'sent text:\n' >&2
+    literals "$dir" >&2
+  fi
+  expect_code 0 "$rc" "OpenCode bare resume should restore its permission environment and cwd"$'\n'"$out"
+  assert_contains "$out" 'posture-repaired t1 session=ses_123 posture=OPENCODE_CONFIG_CONTENT={"permission":{"*":"allow"}} worktree=verified' \
+    "repair should report the OpenCode permission environment and verified task worktree"
+  expected=$(printf "/exit\ncd -- %s\nenv -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI OPENCODE_CONFIG_CONTENT='{\"permission\":{\"*\":\"allow\"}}' opencode --session ses_123\n" \
+    "$(fm_posture_shell_quote "$worktree")")
+  [ "$(literals "$dir")" = "$expected" ] \
+    || fail "OpenCode repair must retain its exact session, allow-all environment, and task worktree; got: $(literals "$dir")"
+  [ "$(cat "$dir/fake/cwd")" = "$worktree" ] \
+    || fail "OpenCode repair did not leave the pane in the recorded worktree"
+  [ "$(cat "$env_file")" = '{"permission":{"*":"allow"}}' ] \
+    || fail "OpenCode resume did not carry its spawn-time permission environment"
+  pass "fm-control repair-posture: OpenCode bare restores keep the session, allow-all environment, and task worktree"
+}
+
+test_background_process_defers_repair_without_submitting_exit() {
+  local dir out rc args_file
+  dir=$(new_case posture-background-shell)
+  add_task "$dir" t1 claude
+  alive_as "$dir" claude
+  printf '❯\n' > "$dir/fake/pane"
+  args_file="$dir/fake/claude-args"
+  printf 'claude --resume session-background\n' > "$args_file"
+  : > "$dir/fake/background-pgid"
+  out=$(FM_POSTURE_TEST_ARGS_FILE="$args_file" FM_POSTURE_TEST_PROCESS_GROUPS=1 run_control "$dir" t1 repair-posture)
+  rc=$?
+  expect_code 0 "$rc" "a worker with a background process should defer posture repair"$'\n'"$out"
+  assert_contains "$out" 'posture-deferred t1 reason=background-process' \
+    "an extra tty process group should defer before sending /exit"
+  [ -z "$(literals "$dir")" ] || fail "repair must not submit an exit command while background work is present"
+  pass "fm-control repair-posture: an extra tty process group defers exit and preserves background work"
+}
+
 test_claude_posture_classifier_accepts_spawn_flags_and_requires_bare_resume_shape() {
   local got
-  got=$(fm_claude_posture_parse_cmdline 'CLAUDE_CODE_SEND_FEEDBACK=0 env -u CURSOR_AGENT claude --dangerously-skip-permissions')
-  [ "$got" = 'clean bypass' ] || fail "a normal spawn with its env prefix should be clean, got '$got'"
-  got=$(fm_claude_posture_parse_cmdline 'claude --resume session-123')
+  got=$(fm_posture_parse_cmdline claude 'claude --resume session-123')
   [ "$got" = 'drifted session-123' ] || fail "a bare Claude resume should be classified drifted, got '$got'"
-  got=$(fm_claude_posture_parse_cmdline 'claude --resume session-123 --settings {"a":1}')
+  got=$(fm_posture_parse_cmdline claude 'claude --resume session-123 --settings {"a":1}')
   [ "$got" = 'skip extra-args' ] || fail "a custom resumed command must not be auto-repaired, got '$got'"
-  pass "Claude posture classifier accepts launch flags and limits repair to bare session resumes"
+  got=$(fm_posture_parse_cmdline codex 'codex resume session-123')
+  [ "$got" = 'drifted session-123' ] || fail "a bare Codex resume should be classified drifted, got '$got'"
+  got=$(fm_posture_parse_cmdline opencode 'opencode --session ses_123')
+  [ "$got" = 'drifted ses_123' ] || fail "a bare OpenCode session should be classified drifted, got '$got'"
+  got=$(fm_posture_parse_cmdline codex 'codex resume session-123 --dangerously-bypass-approvals-and-sandbox')
+  [ "$got" = 'clean session-123' ] || fail "a Codex resume carrying spawn posture should be clean, got '$got'"
+  got=$(fm_posture_parse_cmdline codex 'codex resume session-123 --dangerously-bypass-approvals-and-sandbox -c notify=["bash","-c","touch /tmp/t1.turn-ended"]')
+  [ "$got" = 'clean session-123' ] || fail "Codex's turn-end notification should not hide its posture, got '$got'"
+  got=$(fm_posture_parse_cmdline codex "codex resume session-123 --dangerously-bypass-approvals-and-sandbox -c 'notify=[\"bash\",\"-c\",\"touch /tmp/task directory/t1.turn-ended\"]'")
+  [ "$got" = 'clean session-123' ] || fail "Codex's quoted turn-end notification with a spaced path should not hide its posture, got '$got'"
+  got=$(fm_posture_parse_cmdline grok 'grok --resume grok-123')
+  [ "$got" = 'drifted grok-123' ] || fail "a bare Grok restore should be classified drifted, got '$got'"
+  got=$(fm_posture_parse_cmdline grok 'grok --resume grok-123 --always-approve')
+  [ "$got" = 'clean grok-123' ] || fail "a Grok restore carrying spawn posture should be clean, got '$got'"
+  got=$(fm_posture_parse_cmdline gemini 'gemini --resume gemini-123')
+  [ "$got" = 'drifted gemini-123' ] || fail "a bare Gemini restore should be classified drifted, got '$got'"
+  got=$(fm_posture_parse_cmdline gemini 'gemini --resume gemini-123 -y')
+  [ "$got" = 'clean gemini-123' ] || fail "a Gemini restore carrying spawn posture should be clean, got '$got'"
+  got=$(fm_posture_parse_cmdline muse 'muse --yolo resume muse-123')
+  [ "$got" = 'clean muse-123' ] || fail "a Muse restore carrying spawn posture should be clean, got '$got'"
+  got=$(fm_posture_parse_cmdline rovo 'rovo --restore rovo-123')
+  [ "$got" = 'drifted rovo-123' ] || fail "a bare Rovo restore should be classified drifted, got '$got'"
+  got=$(fm_posture_parse_cmdline rovo 'rovo --restore rovo-123 --yolo --config-override {"toolPermissions":{"allowedExternalPaths":[]}}')
+  [ "$got" = 'clean rovo-123' ] || fail "a Rovo restore carrying spawn posture should be clean, got '$got'"
+  got=$(fm_posture_parse_cmdline pi 'pi --resume pi-123')
+  [ "$got" = 'skip not-pi' ] || fail "Pi has no verified pane-resume contract, got '$got'"
+  pass "worker posture classifier recognizes every documented same-session restore shape"
+}
+
+test_documented_harness_restores_reapply_their_permission_posture() {
+  local harness dir out rc args_file session expected_posture data_dir sent
+  for harness in grok gemini muse rovo; do
+    dir=$(new_case "posture-$harness")
+    add_task "$dir" t1 "$harness"
+    alive_as "$dir" "$harness"
+    printf '❯\n' > "$dir/fake/pane"
+    args_file="$dir/fake/$harness-args"
+    session="$harness-123"
+    case "$harness" in
+      grok) printf 'grok --resume %s\n' "$session" > "$args_file"; expected_posture=--always-approve ;;
+      gemini)
+        printf 'gemini --resume %s\n' "$session" > "$args_file"
+        : > "$dir/home/state/t1.gemini-settings.json"
+        expected_posture=-y
+        ;;
+      muse)
+        printf 'muse resume %s\n' "$session" > "$args_file"
+        mkdir -p "$dir/muse-config" "$dir/muse-data/muse/sessions"
+        printf 'sessions_root=%s\nconfig_home=%s\nworkspace_root=%s\nbinding_id=test\n' \
+          "$dir/muse-data/muse/sessions" "$dir/muse-config" "$dir/wt-t1" \
+          > "$dir/home/state/t1.muse-session"
+        expected_posture=--yolo
+        ;;
+      rovo) printf 'rovo --restore %s\n' "$session" > "$args_file"; expected_posture=--yolo ;;
+    esac
+    out=$(FM_POSTURE_TEST_ARGS_FILE="$args_file" FM_POSTURE_TEST_PROCESS_GROUPS=1 \
+      run_control "$dir" t1 repair-posture)
+    rc=$?
+    expect_code 0 "$rc" "$harness bare restore should reapply its permission posture"$'\n'"$out"
+    assert_contains "$out" "posture-repaired t1 session=$session posture=$expected_posture worktree=verified" \
+      "$harness repair should report same-session restoration with its configured posture"
+    case "$harness" in
+      grok) assert_contains "$(literals "$dir")" "grok --resume $session --always-approve" "Grok repair should restore always-approve" ;;
+      gemini) assert_contains "$(literals "$dir")" "gemini --resume $session -y" "Gemini repair should restore YOLO" ;;
+      muse) assert_contains "$(literals "$dir")" "resume $session" "Muse repair should restore the recorded session" ;;
+      rovo)
+        sent=$(literals "$dir")
+        assert_contains "$sent" "--restore $session --yolo" "Rovo repair should restore YOLO"
+        data_dir=$(cd "$dir/home/data/t1" && pwd -P)
+        assert_contains "$sent" "$data_dir" "Rovo repair should preserve the spawn-time task data access grant"
+        assert_not_contains "$sent" "$data_dir/t1" "Rovo repair must not add the task id twice to its data access grant"
+        ;;
+    esac
+  done
+  pass "fm-control repair-posture: Grok, Gemini, Muse, and Rovo bare restores regain spawn posture"
 }
 
 test_relaunch_only_flags_are_rejected_on_other_verbs() {
@@ -1031,7 +1285,12 @@ test_interrupt_and_exit_lock_before_task_state_resolution
 test_verb_allowlist_is_closed
 test_resume_is_refused_with_its_reason
 test_claude_bare_resume_repair_keeps_the_same_session_and_task_record
+test_claude_bare_resume_repair_respects_auto_mode
+test_codex_bare_resume_repair_preserves_session_and_repairs_worktree
+test_opencode_bare_resume_repairs_environment_and_worktree
+test_background_process_defers_repair_without_submitting_exit
 test_claude_posture_classifier_accepts_spawn_flags_and_requires_bare_resume_shape
+test_documented_harness_restores_reapply_their_permission_posture
 test_relaunch_only_flags_are_rejected_on_other_verbs
 test_already_stopped_exit_is_idempotent
 test_missing_endpoint_refuses

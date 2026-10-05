@@ -1952,6 +1952,25 @@ A throwaway scout was spawned through `bin/fm-spawn.sh --scout --harness omp --m
 
 `FM_OMP_LIVE_E2E=1 tests/fm-omp-primary-live-e2e.test.sh` refreshes the primary evidence; the worker path above is refreshed by repeating the scout dispatch after any omp upgrade.
 
+## Worker posture repair across same-session restores
+
+Verified on 2026-10-05 with Claude Code 2.1.289, Codex CLI 0.159.3, OpenCode 1.18.34, and Herdr 0.9.1 (protocol 22).
+`bin/fm-posture-sweep.sh` now covers Claude, Codex, OpenCode, Grok, Gemini, Muse, and Rovo when their live command proves a resumable session and a missing launch posture.
+The repair rebuilds the same permission source as `fm-spawn.sh`, checks the composer and tty before sending `/exit`, corrects the pane cwd to the recorded task worktree, then resumes the recorded session.
+Claude still follows `config/claude-permission-mode`; Codex, OpenCode, Grok, Gemini, Muse, and Rovo use their adapter-specific launch posture.
+
+OpenCode 1.18.34 `--help` identifies `--session` as an explicit session-id selector, and its empty TUI rendered `Ask anything…` in a named Herdr lab without receiving a prompt or starting a model turn.
+The live tty probe saw an actual background process group on that pane while the TUI was open, and the cwd probe matched the test worktree; after `/exit`, the pane returned to its shell and the exact background process ended.
+This live run verifies OpenCode startup, tty safety, and cleanup. It does not claim to have reattached a prior OpenCode conversation; explicit session-id construction is covered by the portable repair test.
+
+```sh
+FM_POSTURE_REPAIR_LIVE_E2E=1 bin/fm-test-run.sh tests/fm-posture-repair-live-e2e.test.sh
+bin/fm-test-run.sh --family backend-dispatch
+```
+
+`tests/fm-control.test.sh` covers all seven adapters' bare-resume classification and reconstructed same-session commands, and proves a background tty process defers before any exit key is sent.
+The live guard uses only the named lab session and submits no model turn.
+
 ## Launch brief delivery by file pointer
 
 Since 2026-10-01, supervised launches pass a fixed instruction that points to the canonical absolute brief path rather than embedding brief contents in harness argv.

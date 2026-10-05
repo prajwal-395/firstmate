@@ -84,8 +84,9 @@
 #              aim every later lifecycle command at a stranger. Postcondition:
 #              the rewritten record passes endpoint-identity validation and
 #              resolves to a positively classified endpoint.
-#   repair-posture Resume an idle Claude session in the same pane with the
-#              configured permission flag after a bare terminal-manager restore.
+#   repair-posture Resume an idle Claude, Codex, OpenCode, Grok, Gemini, Muse,
+#              or Rovo session in the same pane with its launch posture after
+#              a bare terminal-manager restore.
 #
 # Teardown and discard are NOT verbs here and never will be. `exit` stops an
 # agent and preserves everything else; removing a worktree, killing an
@@ -94,10 +95,11 @@
 #
 # `resume` is not a general verb: it is not deterministic across the verified
 # adapters (bin/fm-control-lib.sh's header owns that reasoning). The narrow
-# `repair-posture` exception resumes only an already-live Claude session whose
-# bare-resume command line proves that Herdr restored it without its flag.
-# `relaunch` remains the general replacement path because the brief on disk,
-# not a harness-private session, is the durable instruction.
+# `repair-posture` resumes only an already-live Claude, Codex, OpenCode, Grok,
+# Gemini, Muse, or Rovo session whose restored command line proves that the
+# launch posture was lost. `relaunch` remains the general replacement path
+# because the brief on disk, not a harness-private session, is the durable
+# instruction.
 #
 # Targeting is EXACT: only a bare task id with a state/<id>.meta record in
 # THIS home is accepted, and the record must pass the shared endpoint-identity
@@ -178,8 +180,8 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-busy-lib.sh"
 # shellcheck source=bin/fm-control-lib.sh
 . "$SCRIPT_DIR/fm-control-lib.sh"
-# shellcheck source=bin/fm-claude-posture-lib.sh
-. "$SCRIPT_DIR/fm-claude-posture-lib.sh"
+# shellcheck source=bin/fm-posture-lib.sh
+. "$SCRIPT_DIR/fm-posture-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-wake-lib.sh
@@ -1081,41 +1083,80 @@ do_rebind() {
 # --- verbs ------------------------------------------------------------------
 
 do_repair_posture() {
-  local observed ready session flag expected command send_result state after
-  [ "$HARNESS" = claude ] || die "task $ID is not a Claude worker; permission-posture repair is Claude-only"
+  local observed ready session posture expected command resume_command send_result state after
+  local current_path path_matches cwd_command posture_drift
+  fm_posture_harness_supported "$HARNESS" \
+    || { echo "posture-skipped $ID reason=unsupported-harness harness=$HARNESS"; return 0; }
   case "$BACKEND" in
     tmux|herdr) ;;
-    *) die "task $ID runs on $BACKEND, which has no verified Claude process and same-pane resume contract" ;;
+    *) echo "posture-skipped $ID reason=unverified-backend backend=$BACKEND"; return 0 ;;
   esac
   require_state_verified_backend repair-posture
-  observed=$(fm_claude_posture_drift "$META" "$STATE" "$FM_HOME/config")
+  observed=$(fm_posture_drift "$META" "$STATE" "$FM_HOME/config")
   case "$observed" in
-    'drifted '*) ;;
-    'clean '*) echo "posture-clean $ID $observed"; return 0 ;;
+    'drifted '*)
+      read -r _ session posture <<< "$observed"
+      posture_drift=1
+      ;;
+    'clean '*)
+      read -r _ expected session <<< "$observed"
+      posture=$(fm_posture_flag "$HARNESS" "$FM_HOME/config") \
+        || { echo "posture-skipped $ID reason=bad-posture-config"; return 0; }
+      posture_drift=0
+      ;;
     *) echo "posture-skipped $ID $observed"; return 0 ;;
   esac
-  read -r _ session flag <<< "$observed"
-  expected=bypass
-  [ "$flag" = '--permission-mode=auto' ] && expected=auto
-  ready=$(fm_claude_posture_idle_ready "$META" "$STATE" 2>/dev/null || true)
+  current_path=$(fm_backend_current_path "$BACKEND" "$T" 2>/dev/null) || current_path=
+  [ -n "$current_path" ] || { echo "posture-deferred $ID reason=worktree-unverified"; return 0; }
+  if fm_posture_path_matches "$current_path" "$WT"; then
+    path_matches=1
+  else
+    path_matches=0
+  fi
+  if [ "$posture_drift" -eq 0 ] && [ "$path_matches" -eq 1 ]; then
+    echo "posture-clean $ID posture=$expected worktree=verified"
+    return 0
+  fi
+
+  if [ "$HARNESS" = claude ]; then
+    expected=bypass
+    [ "$posture" = '--permission-mode auto' ] && expected=auto
+  else
+    expected=$posture
+  fi
+  resume_command=$(fm_posture_resume_command "$HARNESS" "$session" "$posture" "$META" "$STATE" 2>/dev/null) \
+    || { echo "posture-skipped $ID reason=resume-command-unavailable"; return 0; }
+  ready=$(fm_posture_idle_ready "$META" "$STATE" 2>/dev/null || true)
   [ "$ready" = ready ] || { echo "posture-deferred $ID reason=${ready:-unknown}"; return 0; }
 
-  # The empty composer is the positive idle proof. Exit the CLI without
-  # interrupting a turn, then attach the exact transcript again from its id.
+  # A positive tty process-group check precedes this point. It prevents an
+  # idle-looking composer from sending /exit while a background shell is live.
   command=$(fm_control_exit_command "$HARNESS")
   send_result=$(fm_backend_send_text_submit "$BACKEND" "$T" "$command" "$EXIT_RETRIES" "$POLL" 1.2 "$LABEL") \
-    || die "Claude posture repair could not submit /exit to task $ID"
-  [ "$send_result" != send-failed ] || die "Claude posture repair could not submit /exit to task $ID"
-  state=$(wait_agent_state "$EXIT_WAIT" dead) || die "Claude posture repair requested an idle exit, but task $ID remained $state"
-  command=$(fm_claude_posture_repair_command "$session" "$flag")
+    || die "$HARNESS posture repair could not submit $command to task $ID"
+  [ "$send_result" != send-failed ] || die "$HARNESS posture repair could not submit $command to task $ID"
+  state=$(wait_agent_state "$EXIT_WAIT" dead) || die "$HARNESS posture repair requested an idle exit, but task $ID remained $state"
+  if [ "$path_matches" -eq 0 ]; then
+    cwd_command="cd -- $(fm_posture_shell_quote "$WT")"
+    send_result=$(fm_backend_send_text_submit "$BACKEND" "$T" "$cwd_command" "$EXIT_RETRIES" "$POLL" 1.2 "$LABEL") \
+      || die "$HARNESS posture repair could not correct task $ID's restored worktree"
+    [ "$send_result" != send-failed ] \
+      || die "$HARNESS posture repair could not correct task $ID's restored worktree"
+    fm_posture_current_path_matches "$BACKEND" "$T" "$WT" \
+      || die "$HARNESS posture repair ran cd for task $ID, but the endpoint still does not prove worktree $WT"
+  fi
+  command=$resume_command
   send_result=$(fm_backend_send_text_submit "$BACKEND" "$T" "$command" "$EXIT_RETRIES" "$POLL" 1.2 "$LABEL") \
-    || die "Claude posture repair could not resume session $session in task $ID's pane"
-  [ "$send_result" != send-failed ] || die "Claude posture repair could not resume session $session in task $ID's pane"
-  state=$(wait_agent_state "$LAUNCH_WAIT" alive) || die "Claude posture repair submitted the same-session resume, but task $ID reads $state"
-  after=$(fm_claude_posture_drift "$META" "$STATE" "$FM_HOME/config")
+    || die "$HARNESS posture repair could not resume session $session in task $ID's pane"
+  [ "$send_result" != send-failed ] || die "$HARNESS posture repair could not resume session $session in task $ID's pane"
+  state=$(wait_agent_state "$LAUNCH_WAIT" alive) \
+    || die "$HARNESS posture repair submitted the same-session resume, but task $ID reads $state"
+  after=$(fm_posture_drift "$META" "$STATE" "$FM_HOME/config")
   [ "$after" = "clean $expected $session" ] \
-    || die "Claude posture repair resumed task $ID, but the live process does not prove configured posture '$expected' (observed: $after)"
-  echo "posture-repaired $ID session=$session posture=$expected backend=$BACKEND endpoint=$T worktree=$WT"
+    || die "$HARNESS posture repair resumed task $ID, but the live process does not prove configured posture '$expected' (observed: $after)"
+  fm_posture_current_path_matches "$BACKEND" "$T" "$WT" \
+    || die "$HARNESS posture repair resumed task $ID, but the endpoint does not prove its recorded worktree $WT"
+  echo "posture-repaired $ID session=$session posture=$expected worktree=verified backend=$BACKEND endpoint=$T"
 }
 
 case "$VERB" in

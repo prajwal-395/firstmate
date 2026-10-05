@@ -959,6 +959,72 @@ fm_backend_endpoint_tty() {  # <backend> <target>
   esac
 }
 
+# fm_backend_endpoint_shell_pid: the long-lived shell process for <target>, or
+# empty when the backend cannot prove it.
+fm_backend_endpoint_shell_pid() {  # <backend> <target>
+  local backend=$1 target=$2
+  fm_backend_source "$backend" || return 1
+  case "$backend" in
+    tmux) fm_backend_tmux_shell_pid "$target" ;;
+    herdr) fm_backend_herdr_shell_pid "$target" ;;
+    *) return 1 ;;
+  esac
+}
+
+# fm_backend_tty_background_process_group: 0 only when the endpoint tty has no
+# process group beyond its pane shell and its current foreground group. A
+# distinct process group is a live background job; return 2 for that positive
+# finding and 1 when any part of the probe is unreadable or inconsistent.
+fm_backend_tty_background_process_group() {  # <backend> <target>
+  local backend=$1 target=$2 tty shell_pid shell_pgid rows pid pgid tpgid comm
+  local foreground_pgid='' shell_seen=0 background=0
+  tty=$(fm_backend_endpoint_tty "$backend" "$target" 2>/dev/null) || return 1
+  [ -n "$tty" ] || return 1
+  tty=${tty#/dev/}
+  shell_pid=$(fm_backend_endpoint_shell_pid "$backend" "$target" 2>/dev/null) || return 1
+  case "$shell_pid" in ''|*[!0-9]*) return 1 ;; esac
+  shell_pgid=$(LC_ALL=C ps -p "$shell_pid" -o pgid= 2>/dev/null | tr -d '[:space:]') || return 1
+  case "$shell_pgid" in ''|*[!0-9]*) return 1 ;; esac
+  rows=$(LC_ALL=C ps -t "$tty" -o pid=,pgid=,tpgid=,comm= 2>/dev/null) || return 1
+  [ -n "$rows" ] || return 1
+  while read -r pid pgid tpgid comm; do
+    [ -n "$pid" ] || continue
+    case "$pid:$pgid:$tpgid" in *[!0-9:]*) return 1 ;; esac
+    if [ "$pid" = "$shell_pid" ]; then
+      shell_seen=1
+      foreground_pgid=$tpgid
+    fi
+  done <<EOF
+$rows
+EOF
+  [ "$shell_seen" -eq 1 ] || return 1
+  case "$foreground_pgid" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$foreground_pgid" != "$shell_pgid" ] || return 1
+  while read -r pid pgid tpgid comm; do
+    [ -n "$pid" ] || continue
+    [ "$pid" = "$shell_pid" ] && continue
+    [ "$tpgid" = "$foreground_pgid" ] || return 1
+    if [ "$pgid" != "$shell_pgid" ] && [ "$pgid" != "$foreground_pgid" ]; then
+      background=1
+    fi
+  done <<EOF
+$rows
+EOF
+  [ "$background" -eq 0 ] || return 2
+  return 0
+}
+
+# fm_backend_current_path: the live foreground process's working directory.
+fm_backend_current_path() {  # <backend> <target>
+  local backend=$1 target=$2
+  fm_backend_source "$backend" || return 1
+  case "$backend" in
+    tmux) fm_backend_tmux_current_path "$target" ;;
+    herdr) fm_backend_herdr_current_path "$target" ;;
+    *) return 1 ;;
+  esac
+}
+
 # fm_backend_tty_suspended_agent: 0 when <tty> hosts a STOPPED process that
 # the shared name classifier recognizes as a verified harness agent.
 #

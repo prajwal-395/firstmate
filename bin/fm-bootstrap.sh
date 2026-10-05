@@ -108,7 +108,7 @@
 #          Set FM_BOOTSTRAP_DETECT_ONLY=1 to skip the seven MUTATING sweeps
 #          (backlog_record_reconcile, secondmate_sync,
 #          secondmate_liveness_sweep, secondmate_handoff_resume, x_mode_setup,
-#          fleet_sync, and the local Claude permission-posture repair sweep) while still
+#          fleet_sync, and the local worker permission-posture repair sweep) while still
 #          printing every read-only detect line
 #          above; the TANGLE line switches to advisory-only wording with no
 #          checkout command. Used by
@@ -1777,10 +1777,10 @@ if [ "${FM_BOOTSTRAP_DETECT_ONLY:-0}" != 1 ]; then
   if local_phase; then
     posture_rc=0
     posture_out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
-      "$SCRIPT_DIR/fm-claude-posture-sweep.sh" 2>&1) || posture_rc=$?
+      "$SCRIPT_DIR/fm-posture-sweep.sh" 2>&1) || posture_rc=$?
     [ -z "$posture_out" ] || printf '%s\n' "$posture_out"
     if [ "$posture_rc" -ne 0 ]; then
-      echo "CLAUDE_POSTURE_SWEEP: one or more repairs failed; inspect the preceding POSTURE_REPAIR_FAILED lines"
+      echo "POSTURE_SWEEP: one or more repairs failed; inspect the preceding POSTURE_REPAIR_FAILED lines"
     fi
     unset posture_rc posture_out
   fi

@@ -2418,6 +2418,21 @@ fm_backend_herdr_endpoint_tty() {  # <target>
   printf '%s' "$tty"
 }
 
+# fm_backend_herdr_shell_pid: the exact persistent shell pid for <target>.
+fm_backend_herdr_shell_pid() {  # <target>
+  local target=$1 session pane info shell_pid
+  session=${target%%:*}
+  pane=${target#*:}
+  [ -n "$session" ] && [ -n "$pane" ] && [ "$pane" != "$target" ] || return 1
+  info=$(fm_backend_herdr_cli "$session" pane process-info --pane "$pane" 2>/dev/null) || return 1
+  shell_pid=$(printf '%s' "$info" | jq -er --arg pane "$pane" '
+    select(.result.type == "pane_process_info" and .result.process_info.pane_id == $pane)
+    | .result.process_info.shell_pid
+    | select(type == "number" and . > 1) | floor
+  ' 2>/dev/null) || return 1
+  printf '%s\n' "$shell_pid"
+}
+
 # fm_backend_herdr_identity_claimants: every live pane in <target>'s SESSION
 # whose owning tab is labeled <expected-label> and whose directory is
 # <expected-cwd>. One `<session>:<pane_id>` target per line.
