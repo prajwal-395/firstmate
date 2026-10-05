@@ -1,0 +1,51 @@
+[
+  {
+    "kind": "project",
+    "region_span": null,
+    "clip_id": null,
+    "reel_ranges": null
+  },
+  {
+    "kind": "clip",
+    "region_span": null,
+    "clip_id": "clip_007",
+    "reel_ranges": null
+  },
+  {
+    "kind": "region",
+    "region_span": {
+      "timeline": null,
+      "start": 45.0,
+      "end": 72.0
+    },
+    "clip_id": null,
+    "reel_ranges": null
+  },
+  {
+    "kind": "region",
+    "region_span": {
+      "timeline": "Reel03",
+      "start": 0.0,
+      "end": 12.5
+    },
+    "clip_id": null,
+    "reel_ranges": null
+  },
+  {
+    "kind": "reel",
+    "region_span": null,
+    "clip_id": null,
+    "reel_ranges": [
+      {
+        "timeline": "Reel03",
+        "start": 0.0,
+        "end": 12.5
+      },
+      {
+        "timeline": "Reel03",
+        "start": 20.0,
+        "end": 30.0
+      }
+    ]
+  }
+]

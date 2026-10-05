@@ -187,6 +187,70 @@ def _cost_of(execution, needs_model_answer: bool) -> tuple:
     return LIGHT, "holds no heavy-work lock and needs no model answer"
 
 
+def spec_to_dict(spec: CapabilitySpec) -> dict:
+    """The JSON projection of one capability spec - the protocol schema form.
+
+    Field-for-field the shape `native/ren-protocol`'s `CapabilitySpec`
+    deserializes, so a spec crossing the process boundary (the registry
+    export, a worker's capability answer) is the same data the Rust type
+    holds. The conformance helper validates this against
+    `capability-spec.schema.json` at the export boundary.
+    """
+    execution = spec.execution
+    return {
+        "id": spec.id,
+        "summary": spec.summary,
+        "scopes": list(spec.scopes),
+        "executor": {
+            "kind": spec.executor.kind,
+            "path": spec.executor.path,
+            "attr": spec.executor.attr,
+        },
+        "requires": list(spec.requires),
+        "effects": list(spec.effects),
+        "produces": list(spec.produces),
+        "consumes": list(spec.consumes),
+        "assumes_machine": list(spec.assumes_machine),
+        "assumes_outside": list(spec.assumes_outside),
+        "needs_model_answer": spec.needs_model_answer,
+        "caller_supplied": spec.caller_supplied,
+        "execution": {
+            "phases": [
+                {
+                    "name": phase.name,
+                    "resolve_mode": phase.resolve_mode,
+                    "locality": phase.locality,
+                    "freshness": phase.freshness,
+                    "resources": [[name, amount]
+                                 for name, amount in phase.resources],
+                    "lock_sites": list(phase.lock_sites),
+                    "entry_points": list(phase.entry_points),
+                    "why": phase.why,
+                    "resource_basis": phase.resource_basis,
+                }
+                for phase in execution.phases
+            ],
+            "patch": (
+                {
+                    "operations": list(execution.patch.operations),
+                    "conflict_domains": list(execution.patch.conflict_domains),
+                    "temporal_effect": execution.patch.temporal_effect,
+                    "merge_semantics": execution.patch.merge_semantics,
+                }
+                if execution.patch is not None else None
+            ),
+        },
+        "artifact_areas": list(spec.artifact_areas),
+        "legacy": (
+            {"node_id": spec.legacy.node_id, "process": spec.legacy.process}
+            if spec.legacy is not None else None
+        ),
+        "cost_class": spec.cost_class,
+        "cost_basis": spec.cost_basis,
+        "creative_policy": spec.creative_policy,
+    }
+
+
 def spec_of(op) -> CapabilitySpec:
     """The capability a registry entry IS."""
     from library.tools import processes

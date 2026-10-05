@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Freshness",
+  "description": "A phase's freshness requirement (`operations.FRESHNESS_REQUIREMENTS`).",
+  "type": "string",
+  "enum": [
+    "none",
+    "timeline_generation"
+  ]
+}

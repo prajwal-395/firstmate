@@ -717,9 +717,11 @@ One enumeration, `library/tools/marker_payload.py`.
 
 ## 17. Rust
 
-**One workspace, boring Rust.** Every Rust crate is a member of the ONE Cargo workspace at `native/Cargo.toml`; the shared target dir is `native/target` (gitignored, never committed). Captain's rule for every crate: concrete structs and enums, limited generics, simple traits, explicit ownership, no async trait hierarchies.
+**One workspace, boring Rust over clever Rust.** Every crate is a member of the ONE Cargo workspace at `native/Cargo.toml`; the shared target dir is `native/target` (gitignored, never committed). Captain's rule for every crate: concrete structs and enums, limited generics, simple traits, explicit ownership, no async trait hierarchies.
 
 **The first crate is `ren-cli`, the native front door** - what it does, how it is built and what it refuses, live with it: `native/ren-cli/README.md`.
+
+**`ren-protocol` is the typed worker protocol.** JSON Schemas are generated from the Serde types (`cargo run --bin emit-schemas`, `--check` fails when stale); Python conforms via `library/tools/protocol_conformance.py` at the boundaries: EditPatch serialization, broker job submission, capability registry export.
 
 ## Maintaining this file
 

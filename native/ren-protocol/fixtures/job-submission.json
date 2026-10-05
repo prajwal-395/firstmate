@@ -1,0 +1,86 @@
+[
+  {
+    "op": "submit",
+    "kind": "lease",
+    "params": {
+      "exclusive": true,
+      "interactive": true,
+      "project": "Ren Qualification",
+      "timeline": "Timeline 1"
+    },
+    "owner": "capture",
+    "qualification": false,
+    "shape": {
+      "mode": "exclusive",
+      "priority": "interactive",
+      "executed": false,
+      "project": "Ren Qualification",
+      "timeline": "Timeline 1",
+      "locality": "timeline",
+      "coalesce_key": null,
+      "qualification": false
+    }
+  },
+  {
+    "op": "submit",
+    "kind": "timeline.snapshot",
+    "params": {
+      "project": "Ren Qualification",
+      "timeline": "Timeline 1"
+    },
+    "owner": "capture",
+    "qualification": false,
+    "shape": {
+      "mode": "exclusive",
+      "priority": "read",
+      "executed": true,
+      "project": "Ren Qualification",
+      "timeline": "Timeline 1",
+      "locality": "timeline",
+      "coalesce_key": "6f6e2778d52da54702aabe37fa8936dbd048fb6e3f70c9805ab6a497e36b51be",
+      "qualification": false
+    }
+  },
+  {
+    "op": "submit",
+    "kind": "timeline.apply_patch",
+    "params": {
+      "patch": {
+        "id": "ren-trim-0000000000000001",
+        "project": "Ren Qualification",
+        "timeline": "Timeline 1",
+        "base_generation": 7,
+        "capability": "reel.touchup",
+        "affected_spans": [
+          [
+            4312,
+            4342
+          ]
+        ],
+        "conflict_domains": [
+          "markers"
+        ],
+        "operations": [
+          {
+            "op": "marker.add",
+            "frame": 4312,
+            "color": "Blue",
+            "name": "anchor"
+          }
+        ]
+      }
+    },
+    "owner": "capture",
+    "qualification": false,
+    "shape": {
+      "mode": "exclusive",
+      "priority": "mutation",
+      "executed": true,
+      "project": "Ren Qualification",
+      "timeline": "Timeline 1",
+      "locality": "timeline",
+      "coalesce_key": "b620a823e4f8b37338c8626321e737bf472ac19fe601fac81d50d8e685921a34",
+      "qualification": false
+    }
+  }
+]

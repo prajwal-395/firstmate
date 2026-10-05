@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ScopeKind",
+  "description": "The scope kinds an operation runs against (`scope.KINDS`).",
+  "type": "string",
+  "enum": [
+    "project",
+    "clip",
+    "region",
+    "reel"
+  ]
+}

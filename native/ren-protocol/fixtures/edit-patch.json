@@ -1,0 +1,321 @@
+[
+  {
+    "id": "ren-trim-0000000000000001",
+    "project": "Ren Qualification",
+    "timeline": "Timeline 1",
+    "base_generation": 7,
+    "capability": "timeline.write",
+    "affected_spans": [
+      [
+        120,
+        4312
+      ]
+    ],
+    "conflict_domains": [
+      "timeline_structure"
+    ],
+    "operations": [
+      {
+        "op": "clip.trim",
+        "unique_id": "clip_007",
+        "in_frame": 120,
+        "out_frame": 4312
+      }
+    ],
+    "preconditions": [],
+    "postconditions": [],
+    "base_git_sha": ""
+  },
+  {
+    "id": "ren-marker-0000000000000002",
+    "project": "Ren Qualification",
+    "timeline": "Timeline 1",
+    "base_generation": 7,
+    "capability": "timeline.write",
+    "affected_spans": [
+      [
+        4312,
+        4342
+      ]
+    ],
+    "conflict_domains": [
+      "markers"
+    ],
+    "operations": [
+      {
+        "op": "marker.add",
+        "frame": 4312,
+        "color": "Blue",
+        "name": "anchor",
+        "note": "the turn",
+        "duration": 30,
+        "custom_data": "take-2"
+      }
+    ],
+    "preconditions": [],
+    "postconditions": [],
+    "base_git_sha": ""
+  },
+  {
+    "id": "ren-insert-0000000000000003",
+    "project": "Ren Qualification",
+    "timeline": "Timeline 1",
+    "base_generation": 7,
+    "capability": "timeline.write",
+    "affected_spans": [
+      [
+        0,
+        240
+      ]
+    ],
+    "conflict_domains": [
+      "timeline_structure",
+      "picture_transform"
+    ],
+    "operations": [
+      {
+        "op": "clip.insert",
+        "unique_id": "clip_new",
+        "track_type": "video",
+        "track_index": 1,
+        "record_in": 0,
+        "record_out": 240,
+        "media_pool_item": "pool_abc",
+        "source_in": 100,
+        "source_out": 340
+      },
+      {
+        "op": "clip.set_property",
+        "unique_id": "clip_new",
+        "key": "Pan",
+        "value": 0.5
+      },
+      {
+        "op": "clip.delete",
+        "unique_id": "clip_old"
+      }
+    ],
+    "preconditions": [
+      {
+        "kind": "clip_absent",
+        "unique_id": "clip_new"
+      }
+    ],
+    "postconditions": [
+      {
+        "kind": "clip_present",
+        "unique_id": "clip_new"
+      },
+      {
+        "kind": "duration_unchanged"
+      }
+    ],
+    "base_git_sha": ""
+  },
+  {
+    "id": "ren-retime-0000000000000004",
+    "project": "Ren Qualification",
+    "timeline": "Timeline 1",
+    "base_generation": 7,
+    "capability": "timeline.write",
+    "affected_spans": [
+      [
+        0,
+        3600
+      ]
+    ],
+    "conflict_domains": [
+      "timeline_structure"
+    ],
+    "operations": [
+      {
+        "op": "retime",
+        "unique_id": "clip_010",
+        "percent": 1.5
+      }
+    ],
+    "preconditions": [],
+    "postconditions": [],
+    "base_git_sha": ""
+  },
+  {
+    "id": "ren-segments-0000000000000005",
+    "project": "Ren Qualification",
+    "timeline": "Timeline 1",
+    "base_generation": 7,
+    "capability": "timeline.write",
+    "affected_spans": [
+      [
+        0,
+        3600
+      ]
+    ],
+    "conflict_domains": [
+      "timeline_structure"
+    ],
+    "operations": [
+      {
+        "op": "retime.segments",
+        "unique_id": "clip_011",
+        "segments": [
+          {
+            "record_frame": 0,
+            "percent": 1.0
+          },
+          {
+            "record_frame": 120,
+            "percent": 2.0
+          }
+        ]
+      }
+    ],
+    "preconditions": [],
+    "postconditions": [],
+    "base_git_sha": ""
+  },
+  {
+    "id": "ren-track-0000000000000006",
+    "project": "Ren Qualification",
+    "timeline": "Timeline 1",
+    "base_generation": 7,
+    "capability": "timeline.write",
+    "affected_spans": [
+      [
+        0,
+        3600
+      ]
+    ],
+    "conflict_domains": [
+      "timeline_structure"
+    ],
+    "operations": [
+      {
+        "op": "track.add",
+        "track_type": "video",
+        "name": "V3"
+      }
+    ],
+    "preconditions": [],
+    "postconditions": [],
+    "base_git_sha": ""
+  },
+  {
+    "id": "ren-grade-0000000000000007",
+    "project": "Ren Qualification",
+    "timeline": "Timeline 1",
+    "base_generation": 7,
+    "capability": "color_grade.write",
+    "affected_spans": [
+      [
+        0,
+        3600
+      ]
+    ],
+    "conflict_domains": [
+      "color"
+    ],
+    "operations": [
+      {
+        "op": "grade.node_set",
+        "unique_id": "clip_012",
+        "node_index": 1,
+        "params": {
+          "slope_r": 1.1,
+          "slope_g": 1.0,
+          "slope_b": 0.9,
+          "offset_r": 0.0,
+          "offset_g": 0.01,
+          "offset_b": -0.01,
+          "power_r": 1.0,
+          "power_g": 1.0,
+          "power_b": 1.0,
+          "saturation": 1.2
+        }
+      }
+    ],
+    "preconditions": [],
+    "postconditions": [],
+    "base_git_sha": ""
+  },
+  {
+    "id": "ren-plan-0000000000000008",
+    "project": "Ren Qualification",
+    "timeline": "Timeline 1",
+    "base_generation": 7,
+    "capability": "transitions.resolve",
+    "affected_spans": [
+      [
+        0,
+        3600
+      ]
+    ],
+    "conflict_domains": [
+      "fusion"
+    ],
+    "operations": [
+      {
+        "op": "transition",
+        "carrier": {
+          "clip": "clip_013"
+        },
+        "transition": {
+          "type": "dissolve",
+          "duration": 12
+        }
+      }
+    ],
+    "preconditions": [],
+    "postconditions": [],
+    "base_git_sha": ""
+  },
+  {
+    "id": "ren-conditions-0000000000000009",
+    "project": "Ren Qualification",
+    "timeline": "Timeline 1",
+    "base_generation": 7,
+    "capability": "timeline.write",
+    "affected_spans": [
+      [
+        0,
+        3600
+      ]
+    ],
+    "conflict_domains": [
+      "timeline_structure"
+    ],
+    "operations": [
+      {
+        "op": "clip.ripple",
+        "unique_id": "clip_014",
+        "delta_frames": -30
+      }
+    ],
+    "preconditions": [
+      {
+        "kind": "clip_present",
+        "unique_id": "clip_014"
+      },
+      {
+        "kind": "marker_absent",
+        "frame": 100
+      }
+    ],
+    "postconditions": [
+      {
+        "kind": "clip_count",
+        "track_type": "video",
+        "track_index": 1,
+        "count": 3
+      },
+      {
+        "kind": "clip_transform_equals",
+        "unique_id": "clip_014",
+        "properties": {
+          "Pan": 0.5,
+          "Tilt": -0.25
+        }
+      }
+    ],
+    "base_git_sha": "01755778"
+  }
+]

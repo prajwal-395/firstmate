@@ -1,0 +1,6 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CapabilityId",
+  "description": "A capability's stable id (`speech.enrich`, `spine.mesh`). The registry\nrefuses an empty id, one with spaces, or a duplicate\n(`capabilities.problems`).",
+  "type": "string"
+}

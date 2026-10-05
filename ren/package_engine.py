@@ -68,6 +68,9 @@ COPY_DIRS = (
     "hyperframes",
     ".agents/skills",
     "docs",
+    # The generated protocol schemas, not the crate: an installed engine
+    # validates broker jobs against them (protocol_conformance.py).
+    "native/ren-protocol/schemas",
 )
 
 #: Single files copied beside them.

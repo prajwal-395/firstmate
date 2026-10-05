@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ReceiptStatus",
+  "description": "The receipt's status. Every operation is JUDGED BY THE READ-BACK,\nnever by its return value; a failed judgement is\n`verification_failed` and the generation still records what Resolve\nreally holds.",
+  "type": "string",
+  "enum": [
+    "committed",
+    "verification_failed"
+  ]
+}

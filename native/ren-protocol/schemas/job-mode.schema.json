@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "JobMode",
+  "description": "The scheduler's modes (`scheduler.EXCLUSIVE`/`SHARED`).",
+  "type": "string",
+  "enum": [
+    "exclusive",
+    "shared"
+  ]
+}

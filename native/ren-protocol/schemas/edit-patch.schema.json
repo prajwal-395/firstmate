@@ -1,0 +1,1858 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EditPatch",
+  "description": "The unit of work a Resolve timeline accepts.\n\nA declaration must be true (AGENTS.md 3): every operation's conflict\ndomain must be declared, and every frame an operation touches must sit\ninside a declared span. `validate` refuses a patch that says less than\nit does, checked against the BASE snapshot before Resolve is touched.",
+  "type": "object",
+  "properties": {
+    "affected_spans": {
+      "description": "`[[start, end), ...]` in timeline frames.",
+      "type": "array",
+      "items": {
+        "type": "array",
+        "maxItems": 2,
+        "minItems": 2,
+        "prefixItems": [
+          {
+            "type": "integer",
+            "format": "int64"
+          },
+          {
+            "type": "integer",
+            "format": "int64"
+          }
+        ]
+      }
+    },
+    "base_generation": {
+      "description": "The shadow generation the patch was planned against; 0 is never\nvalid.",
+      "$ref": "#/$defs/Generation"
+    },
+    "base_git_sha": {
+      "description": "The plan's commit.",
+      "type": "string",
+      "default": ""
+    },
+    "capability": {
+      "description": "A capability id (`capabilities.get` must know it).",
+      "$ref": "#/$defs/CapabilityId"
+    },
+    "conflict_domains": {
+      "description": "A subset of `edit_patch.CONFLICT_DOMAINS`.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "id": {
+      "description": "Idempotency key, chosen by the author.",
+      "type": "string"
+    },
+    "operations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/EditOp"
+      }
+    },
+    "postconditions": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Condition"
+      }
+    },
+    "preconditions": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Condition"
+      }
+    },
+    "project": {
+      "description": "The Resolve project's EXACT name (the open one).",
+      "type": "string"
+    },
+    "timeline": {
+      "description": "The timeline's EXACT name.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "project",
+    "timeline",
+    "base_generation",
+    "capability",
+    "affected_spans",
+    "conflict_domains",
+    "operations"
+  ],
+  "$defs": {
+    "CapabilityId": {
+      "description": "A capability's stable id (`speech.enrich`, `spine.mesh`). The registry\nrefuses an empty id, one with spaces, or a duplicate\n(`capabilities.problems`).",
+      "type": "string"
+    },
+    "ClipId": {
+      "description": "A Resolve clip's unique id (the edit algebra's `unique_id`).",
+      "type": "string"
+    },
+    "Condition": {
+      "description": "A condition on a snapshot, judged before (preconditions) or after\n(postconditions) the write. One of a fixed vocabulary, with its keys.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "clip_present"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "kind",
+            "unique_id"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "clip_absent"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "kind",
+            "unique_id"
+          ]
+        },
+        {
+          "description": "The optional fields are matched only when present\n(`edit_algebra._matches`).",
+          "type": "object",
+          "properties": {
+            "color": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "custom_data": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "duration": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            },
+            "frame": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "kind": {
+              "type": "string",
+              "const": "marker_present"
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "note": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "frame"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "frame": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "kind": {
+              "type": "string",
+              "const": "marker_absent"
+            }
+          },
+          "required": [
+            "kind",
+            "frame"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "color": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "custom_data": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "duration": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            },
+            "frame": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "kind": {
+              "type": "string",
+              "const": "clip_marker_present"
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "note": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "kind",
+            "unique_id",
+            "frame"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "frame": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "kind": {
+              "type": "string",
+              "const": "clip_marker_absent"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "kind",
+            "unique_id",
+            "frame"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "clip_transform_equals"
+            },
+            "properties": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "kind",
+            "unique_id",
+            "properties"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "duration_unchanged"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "count": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "kind": {
+              "type": "string",
+              "const": "clip_count"
+            },
+            "track_index": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "track_type": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "track_type",
+            "track_index",
+            "count"
+          ]
+        }
+      ]
+    },
+    "EditOp": {
+      "description": "One operation in the union vocabulary. The wire form is the algebra\nid under `\"op\"` with the op's fields beside it, exactly as\n`edit_algebra.ALGEBRA` declares them.\n\nRequired fields are the op's `required` tuple; optional fields are\nthe ones the algebra reads with `.get(...)` and are omitted when\nabsent, as Python's `to_dict` omits them.",
+      "oneOf": [
+        {
+          "description": "One marker per frame: a second add there replaces the first.",
+          "type": "object",
+          "properties": {
+            "color": {
+              "type": "string"
+            },
+            "custom_data": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "duration": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            },
+            "frame": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "name": {
+              "type": "string"
+            },
+            "note": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "op": {
+              "type": "string",
+              "const": "marker.add"
+            }
+          },
+          "required": [
+            "op",
+            "frame",
+            "color",
+            "name"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "frame": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "op": {
+              "type": "string",
+              "const": "marker.delete"
+            }
+          },
+          "required": [
+            "op",
+            "frame"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "color": {
+              "type": "string"
+            },
+            "custom_data": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "duration": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            },
+            "frame": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "name": {
+              "type": "string"
+            },
+            "note": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "op": {
+              "type": "string",
+              "const": "clip_marker.add"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "frame",
+            "color",
+            "name"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "frame": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "op": {
+              "type": "string",
+              "const": "clip_marker.delete"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "frame"
+          ]
+        },
+        {
+          "description": "A local delete leaves a gap; `clip.ripple` closes it.",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "clip.delete"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id"
+          ]
+        },
+        {
+          "description": "Places a pool clip at a stated span; the inverse deletes it.",
+          "type": "object",
+          "properties": {
+            "client_unique_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "media_pool_item": {
+              "type": "string"
+            },
+            "op": {
+              "type": "string",
+              "const": "clip.insert"
+            },
+            "record_in": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "record_out": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "source_in": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            },
+            "source_out": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            },
+            "track_index": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "track_type": {
+              "type": "string"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "track_type",
+            "track_index",
+            "record_in",
+            "record_out",
+            "media_pool_item"
+          ]
+        },
+        {
+          "description": "One clip into two at a source frame; join restores it.",
+          "type": "object",
+          "properties": {
+            "at_frame": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "op": {
+              "type": "string",
+              "const": "clip.split"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "at_frame"
+          ]
+        },
+        {
+          "description": "Two adjacent clips into one; split restores them.",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "clip.join"
+            },
+            "other_unique_id": {
+              "type": "string"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "other_unique_id"
+          ]
+        },
+        {
+          "description": "New in/out points on one clip; the gap is the caller's.",
+          "type": "object",
+          "properties": {
+            "in_frame": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "op": {
+              "type": "string",
+              "const": "clip.trim"
+            },
+            "out_frame": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "in_frame",
+            "out_frame"
+          ]
+        },
+        {
+          "description": "Shift every later clip on the track by delta frames.",
+          "type": "object",
+          "properties": {
+            "delta_frames": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "op": {
+              "type": "string",
+              "const": "clip.ripple"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "delta_frames"
+          ]
+        },
+        {
+          "description": "Roll the source window; duration and position unchanged.",
+          "type": "object",
+          "properties": {
+            "delta_frames": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "op": {
+              "type": "string",
+              "const": "clip.roll"
+            },
+            "source_in": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            },
+            "source_out": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "delta_frames"
+          ]
+        },
+        {
+          "description": "Slip the source under a fixed timeline window.",
+          "type": "object",
+          "properties": {
+            "delta_frames": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "op": {
+              "type": "string",
+              "const": "clip.slip"
+            },
+            "source_in": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            },
+            "source_out": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "delta_frames"
+          ]
+        },
+        {
+          "description": "Move the clip, rolling its neighbours to close the gaps.",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "clip.slide"
+            },
+            "to_frame": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "to_frame"
+          ]
+        },
+        {
+          "description": "An item to a different record position on the same row.",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "clip.move"
+            },
+            "to_frame": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "to_frame"
+          ]
+        },
+        {
+          "description": "A clip's source for another pool clip at the same span.",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "clip.replace"
+            },
+            "source_file": {
+              "type": "string"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "source_file"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "op": {
+              "type": "string",
+              "const": "clip.set_enabled"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "enabled"
+          ]
+        },
+        {
+          "description": "Link clips so later edits move them together.",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "clip.link"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            },
+            "with_unique_ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "with_unique_ids"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "clip.unlink"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id"
+          ]
+        },
+        {
+          "description": "Resolve's SmartReframe; judged on its framing properties.",
+          "type": "object",
+          "properties": {
+            "before": true,
+            "keys": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "op": {
+              "type": "string",
+              "const": "clip.smart_reframe"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "keys",
+            "before"
+          ]
+        },
+        {
+          "description": "One transform property; the inverse restores the old value.",
+          "type": "object",
+          "properties": {
+            "key": {
+              "type": "string"
+            },
+            "op": {
+              "type": "string",
+              "const": "clip.set_property"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            },
+            "value": true
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "key",
+            "value"
+          ]
+        },
+        {
+          "description": "Constant-percent speed; a ramp reaches the timeline as stepped\nsegments, never as a curve.",
+          "type": "object",
+          "properties": {
+            "duration": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            },
+            "op": {
+              "type": "string",
+              "const": "retime"
+            },
+            "percent": {
+              "type": "number",
+              "format": "double"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "percent"
+          ]
+        },
+        {
+          "description": "Stepped constant-speed segments; the measured form of a speed ramp.",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "retime.segments"
+            },
+            "segments": true,
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "segments"
+          ]
+        },
+        {
+          "description": "A keyframed picture parameter, written through the transform\nwrite log.",
+          "type": "object",
+          "properties": {
+            "keyframes": true,
+            "op": {
+              "type": "string",
+              "const": "picture.keyframe"
+            },
+            "param": {
+              "type": "string"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "param",
+            "keyframes"
+          ]
+        },
+        {
+          "description": "Per-track voice isolation, replayed by the build.",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "voice_isolation"
+            },
+            "track_index": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          "required": [
+            "op",
+            "track_index"
+          ]
+        },
+        {
+          "description": "Per-clip gain in dB. No live-Resolve apply; the OTIO mix path\nwrites it.",
+          "type": "object",
+          "properties": {
+            "db": {
+              "type": "number",
+              "format": "double"
+            },
+            "op": {
+              "type": "string",
+              "const": "audio.gain"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "db"
+          ]
+        },
+        {
+          "description": "Refuses by name: Resolve's OTIO carries no measured audio-pan\nparameter.",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "audio.pan"
+            },
+            "pan": {
+              "type": "number",
+              "format": "double"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "pan"
+          ]
+        },
+        {
+          "description": "Fade in/out with curve. No live-Resolve apply.",
+          "type": "object",
+          "properties": {
+            "fade_in": true,
+            "fade_out": true,
+            "op": {
+              "type": "string",
+              "const": "audio.fade"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "fade_in",
+            "fade_out"
+          ]
+        },
+        {
+          "description": "A keyframed audio lane. No live-Resolve apply.",
+          "type": "object",
+          "properties": {
+            "keyframes": true,
+            "op": {
+              "type": "string",
+              "const": "audio.automation"
+            },
+            "param": {
+              "type": "string"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "param",
+            "keyframes"
+          ]
+        },
+        {
+          "description": "A node LUT on anchored clips, replayed by the build.",
+          "type": "object",
+          "properties": {
+            "lut": true,
+            "op": {
+              "type": "string",
+              "const": "clip_lut"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "lut"
+          ]
+        },
+        {
+          "description": "A declared LUT/PowerGrade, replayed by the build.",
+          "type": "object",
+          "properties": {
+            "grade": true,
+            "op": {
+              "type": "string",
+              "const": "grade"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "grade"
+          ]
+        },
+        {
+          "description": "Declared, NOT executable: the Graph API has no AddNode.",
+          "type": "object",
+          "properties": {
+            "node_index": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "op": {
+              "type": "string",
+              "const": "grade.node_add"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "node_index"
+          ]
+        },
+        {
+          "description": "Declared, NOT executable: the Graph API has no RemoveNode.",
+          "type": "object",
+          "properties": {
+            "node_index": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "op": {
+              "type": "string",
+              "const": "grade.node_remove"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "node_index"
+          ]
+        },
+        {
+          "description": "Declared, NOT executable: the Graph API has no ReorderNode.",
+          "type": "object",
+          "properties": {
+            "from_index": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "op": {
+              "type": "string",
+              "const": "grade.node_reorder"
+            },
+            "to_index": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "from_index",
+            "to_index"
+          ]
+        },
+        {
+          "description": "SetCDL the four terms onto one named node; judged by GetCDL\nre-read. The only node-grade op the Resolve API can execute.",
+          "type": "object",
+          "properties": {
+            "node_index": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "op": {
+              "type": "string",
+              "const": "grade.node_set"
+            },
+            "params": true,
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "node_index",
+            "params"
+          ]
+        },
+        {
+          "description": "Place a matte; the Fusion comp list verifies.",
+          "type": "object",
+          "properties": {
+            "matte": {
+              "type": "string"
+            },
+            "op": {
+              "type": "string",
+              "const": "mask.create"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "matte"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "geometry": true,
+            "matte": {
+              "type": "string"
+            },
+            "op": {
+              "type": "string",
+              "const": "mask.edit"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "matte",
+            "geometry"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "mask.track"
+            },
+            "transform": true,
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "transform"
+          ]
+        },
+        {
+          "description": "A multicam angle change; the angle list re-read verifies.",
+          "type": "object",
+          "properties": {
+            "angle_index": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "op": {
+              "type": "string",
+              "const": "multicam.angle"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "angle_index"
+          ]
+        },
+        {
+          "description": "Nest clips into one compound item; flatten restores them.",
+          "type": "object",
+          "properties": {
+            "child_unique_ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "op": {
+              "type": "string",
+              "const": "compound.create"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "child_unique_ids"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "compound.flatten"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id"
+          ]
+        },
+        {
+          "description": "A new named row; the touch-up's `add_row` views here.",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "op": {
+              "type": "string",
+              "const": "track.add"
+            },
+            "track_type": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "track_type",
+            "name"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "track.delete"
+            },
+            "track_index": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "track_type": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "track_type",
+            "track_index"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "op": {
+              "type": "string",
+              "const": "track.rename"
+            },
+            "track_index": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "track_type": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "track_type",
+            "track_index",
+            "name"
+          ]
+        },
+        {
+          "description": "Move a row to a new index. A row carrying clips is refused:\nResolve has no move-track call, and DeleteTrack destroys them.",
+          "type": "object",
+          "properties": {
+            "from_index": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "name": {
+              "type": "string"
+            },
+            "op": {
+              "type": "string",
+              "const": "track.reorder"
+            },
+            "to_index": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "track_type": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "track_type",
+            "from_index",
+            "to_index",
+            "name"
+          ]
+        },
+        {
+          "description": "A new overlay item on an overlay row.",
+          "type": "object",
+          "properties": {
+            "duration": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            },
+            "op": {
+              "type": "string",
+              "const": "overlay.add"
+            },
+            "record_frame": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "row": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "row",
+            "record_frame"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "overlay.remove"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id"
+          ]
+        },
+        {
+          "description": "An overlay's pixels for a re-rendered file.",
+          "type": "object",
+          "properties": {
+            "file": {
+              "type": "string"
+            },
+            "op": {
+              "type": "string",
+              "const": "overlay.swap_pixels"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "file"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "height": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "op": {
+              "type": "string",
+              "const": "overlay.resize"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            },
+            "width": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "width",
+            "height"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "frames": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "op": {
+              "type": "string",
+              "const": "overlay.entry_motion"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "frames"
+          ]
+        },
+        {
+          "description": "Hold one Edit-page transform property.",
+          "type": "object",
+          "properties": {
+            "key": {
+              "type": "string"
+            },
+            "op": {
+              "type": "string",
+              "const": "transform_override"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            },
+            "value": true
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "key",
+            "value"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "span_retime"
+            },
+            "percent": {
+              "type": "number",
+              "format": "double"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "percent"
+          ]
+        },
+        {
+          "description": "Remove the speech (and so the picture) that says it.",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "drop_fragment"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id"
+          ]
+        },
+        {
+          "description": "Rewrite caption text.",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "caption_fix"
+            },
+            "text": {
+              "type": "string"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "text"
+          ]
+        },
+        {
+          "description": "Move a shared closer's start to the anchor's words.",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "redraw_closer"
+            },
+            "start": {
+              "type": "number",
+              "format": "double"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "start"
+          ]
+        },
+        {
+          "description": "Shapes the picture rows; delivered to the planner.",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "angle_plan"
+            },
+            "plan": true
+          },
+          "required": [
+            "op",
+            "plan"
+          ]
+        },
+        {
+          "description": "A plan-level change delivered to its owning step.",
+          "type": "object",
+          "properties": {
+            "node": {
+              "type": "string"
+            },
+            "note": {
+              "type": "string"
+            },
+            "op": {
+              "type": "string",
+              "const": "plan_change"
+            }
+          },
+          "required": [
+            "op",
+            "node",
+            "note"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "carrier": true,
+            "op": {
+              "type": "string",
+              "const": "transition"
+            },
+            "transition": true
+          },
+          "required": [
+            "op",
+            "carrier",
+            "transition"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "shot_selection"
+            },
+            "plan": true
+          },
+          "required": [
+            "op",
+            "plan"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "speech_selection"
+            },
+            "plan": true
+          },
+          "required": [
+            "op",
+            "plan"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "story_pacing"
+            },
+            "plan": true
+          },
+          "required": [
+            "op",
+            "plan"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "music_selection"
+            },
+            "plan": true
+          },
+          "required": [
+            "op",
+            "plan"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "audio_mix"
+            },
+            "plan": true
+          },
+          "required": [
+            "op",
+            "plan"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "look"
+            },
+            "plan": true
+          },
+          "required": [
+            "op",
+            "plan"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "visual_effect"
+            },
+            "plan": true
+          },
+          "required": [
+            "op",
+            "plan"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "sound_effect"
+            },
+            "plan": true
+          },
+          "required": [
+            "op",
+            "plan"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "subject_effect"
+            },
+            "plan": true
+          },
+          "required": [
+            "op",
+            "plan"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "motion_graphic"
+            },
+            "plan": true
+          },
+          "required": [
+            "op",
+            "plan"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "brand_asset"
+            },
+            "plan": true
+          },
+          "required": [
+            "op",
+            "plan"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "end_card"
+            },
+            "plan": true
+          },
+          "required": [
+            "op",
+            "plan"
+          ]
+        }
+      ]
+    },
+    "Generation": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    }
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "StoppedOperation",
+  "description": "Where an operation raised and the patch stopped. The receipt says\nwhich ran; nothing is rolled back.",
+  "type": "object",
+  "properties": {
+    "index": {
+      "type": "integer",
+      "format": "int64"
+    },
+    "op": {
+      "type": "string"
+    },
+    "raised": {
+      "description": "`f\"{type(raised).__name__}: {raised}\"`.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "index",
+    "op",
+    "raised"
+  ]
+}

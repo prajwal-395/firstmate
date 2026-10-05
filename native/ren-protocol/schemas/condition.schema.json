@@ -1,0 +1,243 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Condition",
+  "description": "A condition on a snapshot, judged before (preconditions) or after\n(postconditions) the write. One of a fixed vocabulary, with its keys.",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "clip_present"
+        },
+        "unique_id": {
+          "$ref": "#/$defs/ClipId"
+        }
+      },
+      "required": [
+        "kind",
+        "unique_id"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "clip_absent"
+        },
+        "unique_id": {
+          "$ref": "#/$defs/ClipId"
+        }
+      },
+      "required": [
+        "kind",
+        "unique_id"
+      ]
+    },
+    {
+      "description": "The optional fields are matched only when present\n(`edit_algebra._matches`).",
+      "type": "object",
+      "properties": {
+        "color": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "custom_data": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "duration": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "frame": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "kind": {
+          "type": "string",
+          "const": "marker_present"
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "frame"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "frame": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "kind": {
+          "type": "string",
+          "const": "marker_absent"
+        }
+      },
+      "required": [
+        "kind",
+        "frame"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "color": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "custom_data": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "duration": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "frame": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "kind": {
+          "type": "string",
+          "const": "clip_marker_present"
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "unique_id": {
+          "$ref": "#/$defs/ClipId"
+        }
+      },
+      "required": [
+        "kind",
+        "unique_id",
+        "frame"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "frame": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "kind": {
+          "type": "string",
+          "const": "clip_marker_absent"
+        },
+        "unique_id": {
+          "$ref": "#/$defs/ClipId"
+        }
+      },
+      "required": [
+        "kind",
+        "unique_id",
+        "frame"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "clip_transform_equals"
+        },
+        "properties": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "unique_id": {
+          "$ref": "#/$defs/ClipId"
+        }
+      },
+      "required": [
+        "kind",
+        "unique_id",
+        "properties"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "duration_unchanged"
+        }
+      },
+      "required": [
+        "kind"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "count": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "kind": {
+          "type": "string",
+          "const": "clip_count"
+        },
+        "track_index": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "track_type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "track_type",
+        "track_index",
+        "count"
+      ]
+    }
+  ],
+  "$defs": {
+    "ClipId": {
+      "description": "A Resolve clip's unique id (the edit algebra's `unique_id`).",
+      "type": "string"
+    }
+  }
+}

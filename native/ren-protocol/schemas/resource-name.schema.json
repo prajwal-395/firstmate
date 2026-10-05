@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ResourceName",
+  "description": "The machine's resources (`resource_scheduler.RESOURCES`). Complete:\nthe scheduler admits a job only while every resource stays within its\ncapacity.",
+  "oneOf": [
+    {
+      "description": "The Resolve instance cursor (capacity 1). The Resolve lease stays\nthe authority over it and is always taken first.",
+      "type": "string",
+      "const": "resolve_cursor"
+    },
+    {
+      "description": "Resolve's render engine (capacity 1).",
+      "type": "string",
+      "const": "resolve_render"
+    },
+    {
+      "description": "CPU cores.",
+      "type": "string",
+      "const": "cpu"
+    },
+    {
+      "description": "The GPU as one tenant: local model inference and a Resolve render\neach take all of it (capacity 1).",
+      "type": "string",
+      "const": "gpu"
+    },
+    {
+      "description": "Physical memory less the OS reserve.",
+      "type": "string",
+      "const": "ram_gb"
+    },
+    {
+      "description": "I/O weight.",
+      "type": "string",
+      "const": "disk"
+    }
+  ]
+}

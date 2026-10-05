@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GenerationRecord",
+  "description": "A recorded generation of one timeline (`timeline_shadow.Generation`).",
+  "type": "object",
+  "properties": {
+    "generation": {
+      "$ref": "#/$defs/Generation"
+    },
+    "hash": {
+      "$ref": "#/$defs/SnapshotHash"
+    },
+    "patch": {
+      "default": null
+    },
+    "project": {
+      "type": "string"
+    },
+    "receipt": {
+      "default": null
+    },
+    "recorded_at": {
+      "type": "number",
+      "format": "double"
+    },
+    "source": {
+      "description": "`patch` | `observed` (`timeline_shadow.SOURCES`).",
+      "type": "string"
+    },
+    "timeline_id": {
+      "$ref": "#/$defs/TimelineId"
+    },
+    "timeline_name": {
+      "type": "string"
+    },
+    "verified_at": {
+      "type": "number",
+      "format": "double"
+    }
+  },
+  "required": [
+    "project",
+    "timeline_id",
+    "generation",
+    "timeline_name",
+    "hash",
+    "source",
+    "recorded_at",
+    "verified_at"
+  ],
+  "$defs": {
+    "Generation": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "SnapshotHash": {
+      "type": "string"
+    },
+    "TimelineId": {
+      "description": "The shadow store's timeline identity, not its display name.",
+      "type": "string"
+    }
+  }
+}

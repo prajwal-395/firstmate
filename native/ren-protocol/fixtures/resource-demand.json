@@ -1,0 +1,18 @@
+[
+  {
+    "resolve_cursor": 1,
+    "resolve_render": 1,
+    "cpu": 10,
+    "gpu": 1,
+    "ram_gb": 16,
+    "disk": 4
+  },
+  {
+    "cpu": 8,
+    "ram_gb": 6,
+    "disk": 2
+  },
+  {
+    "ram_gb": 8
+  }
+]

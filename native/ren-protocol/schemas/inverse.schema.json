@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Inverse",
+  "description": "What undoes an op: an algebra id, or an explicit irreversible reason.\n\n`op` names the algebra id that undoes this one (paired ops name each\nother). `self_inverse` marks a value setter: the inverse is the same\nop carrying the previous value. An irreversible op carries a reason.",
+  "type": "object",
+  "properties": {
+    "op": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null
+    },
+    "reason": {
+      "type": "string",
+      "default": ""
+    },
+    "self_inverse": {
+      "type": "boolean",
+      "default": false
+    }
+  }
+}

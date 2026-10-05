@@ -1,0 +1,101 @@
+[
+  {
+    "patch_id": "ren-trim-0000000000000001",
+    "status": "committed",
+    "base_generation": 7,
+    "operations": [
+      {
+        "index": 0,
+        "op": "clip.trim",
+        "returned": true,
+        "failure": null
+      }
+    ],
+    "stopped": null,
+    "postcondition_failures": [],
+    "exclusive_hold_seconds": 0.1234,
+    "generation": 8,
+    "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "readback": {
+      "project": "Ren Qualification",
+      "timeline": "Timeline 1",
+      "timeline_id": "tl_1",
+      "generation": 8,
+      "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "source": "patch",
+      "patch_id": null,
+      "recorded_at": 1700000000.5,
+      "verified_at": 1700000001.5
+    }
+  },
+  {
+    "patch_id": "ren-insert-0000000000000003",
+    "status": "verification_failed",
+    "base_generation": 7,
+    "operations": [
+      {
+        "index": 0,
+        "op": "clip.insert",
+        "returned": true,
+        "failure": null
+      },
+      {
+        "index": 1,
+        "op": "clip.set_property",
+        "returned": true,
+        "failure": "clip 'clip_new' reads Pan=None, not 0.5"
+      }
+    ],
+    "stopped": null,
+    "postcondition_failures": [
+      "clip_present: clip 'clip_new' is not on the timeline"
+    ],
+    "exclusive_hold_seconds": 0.1234,
+    "generation": 8,
+    "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "readback": {
+      "project": "Ren Qualification",
+      "timeline": "Timeline 1",
+      "timeline_id": "tl_1",
+      "generation": 8,
+      "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "source": "patch",
+      "patch_id": null,
+      "recorded_at": 1700000000.5,
+      "verified_at": 1700000001.5
+    }
+  },
+  {
+    "patch_id": "ren-conditions-0000000000000009",
+    "status": "verification_failed",
+    "base_generation": 7,
+    "operations": [
+      {
+        "index": 0,
+        "op": "clip.ripple",
+        "returned": true,
+        "failure": null
+      }
+    ],
+    "stopped": {
+      "index": 1,
+      "op": "clip.delete",
+      "raised": "RuntimeError: clip 'clip_015' is not uniquely present"
+    },
+    "postcondition_failures": [],
+    "exclusive_hold_seconds": 0.1234,
+    "generation": 8,
+    "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "readback": {
+      "project": "Ren Qualification",
+      "timeline": "Timeline 1",
+      "timeline_id": "tl_1",
+      "generation": 8,
+      "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "source": "patch",
+      "patch_id": null,
+      "recorded_at": 1700000000.5,
+      "verified_at": 1700000001.5
+    }
+  }
+]

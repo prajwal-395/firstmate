@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Receipt",
+  "description": "The patch receipt, as `edit_patch.apply_patch` returns it (with\n`_receipt_of`'s three additions).",
+  "type": "object",
+  "properties": {
+    "base_generation": {
+      "$ref": "#/$defs/Generation"
+    },
+    "exclusive_hold_seconds": {
+      "type": "number",
+      "format": "double"
+    },
+    "fingerprint": {
+      "description": "`_receipt_of`: the fingerprint (snapshot hash) of the read-back.",
+      "$ref": "#/$defs/SnapshotHash"
+    },
+    "generation": {
+      "description": "`_receipt_of`: the generation this receipt recorded.",
+      "$ref": "#/$defs/Generation"
+    },
+    "operations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/JudgedOperation"
+      }
+    },
+    "patch_id": {
+      "type": "string"
+    },
+    "postcondition_failures": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "string"
+      }
+    },
+    "readback": {
+      "description": "`_receipt_of`: the generation's summary."
+    },
+    "status": {
+      "$ref": "#/$defs/ReceiptStatus"
+    },
+    "stopped": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/StoppedOperation"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "patch_id",
+    "status",
+    "base_generation",
+    "operations",
+    "exclusive_hold_seconds",
+    "generation",
+    "fingerprint",
+    "readback"
+  ],
+  "$defs": {
+    "Generation": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "JudgedOperation": {
+      "description": "One operation's read-back judgement.",
+      "type": "object",
+      "properties": {
+        "failure": {
+          "description": "The read-back's failure text, or None when it reads back true.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "index": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "op": {
+          "type": "string"
+        },
+        "returned": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "index",
+        "op",
+        "returned"
+      ]
+    },
+    "ReceiptStatus": {
+      "description": "The receipt's status. Every operation is JUDGED BY THE READ-BACK,\nnever by its return value; a failed judgement is\n`verification_failed` and the generation still records what Resolve\nreally holds.",
+      "type": "string",
+      "enum": [
+        "committed",
+        "verification_failed"
+      ]
+    },
+    "SnapshotHash": {
+      "type": "string"
+    },
+    "StoppedOperation": {
+      "description": "Where an operation raised and the patch stopped. The receipt says\nwhich ran; nothing is rolled back.",
+      "type": "object",
+      "properties": {
+        "index": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "op": {
+          "type": "string"
+        },
+        "raised": {
+          "description": "`f\"{type(raised).__name__}: {raised}\"`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "index",
+        "op",
+        "raised"
+      ]
+    }
+  }
+}

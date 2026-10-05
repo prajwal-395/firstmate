@@ -1,0 +1,20 @@
+[
+  {
+    "code": "REN_PATCH_REFUSED",
+    "what": "patch 'ren-x' names capability 'nope', which is not registered",
+    "why": "a capability's id is its identity (AGENTS.md 3)",
+    "fix": "name one of `capabilities.ids()`"
+  },
+  {
+    "code": "REN_STALE_PATCH",
+    "what": "patch 'ren-x' was planned on generation 3 of 't', and the head is 7",
+    "why": "it composes with every generation since",
+    "fix": "re-plan the patch against generation 7 (`python3 -m library.tools.timeline_shadow show --project 'p' --timeline 't'`)"
+  },
+  {
+    "code": "REN_REFUSAL",
+    "what": "what happened",
+    "why": "why",
+    "fix": "the fix"
+  }
+]

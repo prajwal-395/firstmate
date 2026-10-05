@@ -101,6 +101,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from library.tools import protocol_conformance
 from library.tools import scope as scope_mod
 from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
 from library.tools.scope import PROJECT, REGION, Scope
@@ -2300,6 +2301,15 @@ def emit_skill() -> str:
     for op in _REGISTRY:
         out.append(f"| `{op.name}` | `{op.legacy_node}` | "
                    f"{', '.join(op.scopes)} | {op.summary} |")
+    # The registry export boundary: every capability's protocol
+    # projection is validated against the generated schema. Refuse
+    # always - the export is a read-only projection, so a
+    # non-conforming export is a bug to surface, never a live path.
+    from library.tools import capabilities
+    for op in _REGISTRY:
+        protocol_conformance.validate(
+            capabilities.spec_to_dict(capabilities.spec_of(op)),
+            "capability-spec", force_refuse=True)
     out += ["", "## Calling one", "",
             "```",
             "python3 -m library.tools.operations --list",

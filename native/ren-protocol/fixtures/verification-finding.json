@@ -1,0 +1,34 @@
+[
+  {
+    "metric": "lufs",
+    "passed": false,
+    "severity": "error",
+    "detail": "Integrated loudness -20.94 LUFS, target -14.14",
+    "value": -20.94,
+    "threshold": -14.14
+  },
+  {
+    "metric": "black_frames",
+    "passed": true,
+    "severity": "info",
+    "detail": "No undeclared black",
+    "value": 0,
+    "threshold": 0
+  },
+  {
+    "metric": "chroma_presence",
+    "passed": true,
+    "severity": "warning",
+    "detail": "Chroma present in 41 of 45 clips",
+    "value": 41,
+    "threshold": 45
+  },
+  {
+    "metric": "subtitle_gaps",
+    "passed": false,
+    "severity": "error",
+    "detail": "3 uncaptioned seconds inside a speech block",
+    "value": 3.2,
+    "threshold": 0.0
+  }
+]

@@ -5,5 +5,5 @@
 # source. Crates land here as the Rust-core migrations ship them; the
 # first is `ren-cli`, the native front door.
 [workspace]
-members = ["ren-cli"]
+members = ["ren-cli", "ren-protocol"]
 resolver = "2"

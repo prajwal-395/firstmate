@@ -1,0 +1,184 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ExecutionPolicy",
+  "description": "Resource, Resolve, locality, freshness and patch policy for a\ncapability. The sole execution-policy declaration: routing and\nscheduler profiles are computed from it.",
+  "type": "object",
+  "properties": {
+    "patch": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PatchSemantics"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "phases": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ExecutionPhase"
+      }
+    }
+  },
+  "$defs": {
+    "ExecutionPhase": {
+      "description": "One schedulable phase of a capability's execution contract.\n\n`resources` are maximum amounts, clamped to the machine's capacity by\nthe scheduler. An exclusive Resolve phase also reserves the\nscheduler's `resolve_cursor` resource, so the two schedulers share one\ndeclaration.",
+      "type": "object",
+      "properties": {
+        "entry_points": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "freshness": {
+          "$ref": "#/$defs/Freshness",
+          "default": "none"
+        },
+        "locality": {
+          "$ref": "#/$defs/Locality",
+          "default": "none"
+        },
+        "lock_sites": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "name": {
+          "type": "string"
+        },
+        "resolve_mode": {
+          "$ref": "#/$defs/ResolveMode",
+          "default": "none"
+        },
+        "resource_basis": {
+          "type": "string",
+          "default": ""
+        },
+        "resources": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "array",
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "$ref": "#/$defs/ResourceName"
+              },
+              {
+                "type": "integer",
+                "format": "uint64",
+                "minimum": 0
+              }
+            ]
+          }
+        },
+        "why": {
+          "type": "string",
+          "default": ""
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "Freshness": {
+      "description": "A phase's freshness requirement (`operations.FRESHNESS_REQUIREMENTS`).",
+      "type": "string",
+      "enum": [
+        "none",
+        "timeline_generation"
+      ]
+    },
+    "Locality": {
+      "description": "A phase's locality (`operations.LOCALITIES`).",
+      "type": "string",
+      "enum": [
+        "none",
+        "project",
+        "timeline"
+      ]
+    },
+    "PatchSemantics": {
+      "description": "The EditPatch operations and composition a capability permits.",
+      "type": "object",
+      "properties": {
+        "conflict_domains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "merge_semantics": {
+          "type": "string"
+        },
+        "operations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "temporal_effect": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operations",
+        "conflict_domains",
+        "temporal_effect",
+        "merge_semantics"
+      ]
+    },
+    "ResolveMode": {
+      "description": "A phase's Resolve access mode (`operations.RESOLVE_MODES`).",
+      "type": "string",
+      "enum": [
+        "none",
+        "shared",
+        "exclusive"
+      ]
+    },
+    "ResourceName": {
+      "description": "The machine's resources (`resource_scheduler.RESOURCES`). Complete:\nthe scheduler admits a job only while every resource stays within its\ncapacity.",
+      "oneOf": [
+        {
+          "description": "The Resolve instance cursor (capacity 1). The Resolve lease stays\nthe authority over it and is always taken first.",
+          "type": "string",
+          "const": "resolve_cursor"
+        },
+        {
+          "description": "Resolve's render engine (capacity 1).",
+          "type": "string",
+          "const": "resolve_render"
+        },
+        {
+          "description": "CPU cores.",
+          "type": "string",
+          "const": "cpu"
+        },
+        {
+          "description": "The GPU as one tenant: local model inference and a Resolve render\neach take all of it (capacity 1).",
+          "type": "string",
+          "const": "gpu"
+        },
+        {
+          "description": "Physical memory less the OS reserve.",
+          "type": "string",
+          "const": "ram_gb"
+        },
+        {
+          "description": "I/O weight.",
+          "type": "string",
+          "const": "disk"
+        }
+      ]
+    }
+  }
+}

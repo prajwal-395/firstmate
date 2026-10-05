@@ -1,0 +1,375 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CapabilitySpec",
+  "description": "One capability: the derived view of one registry entry.",
+  "type": "object",
+  "properties": {
+    "artifact_areas": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "string"
+      }
+    },
+    "assumes_machine": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "string"
+      }
+    },
+    "assumes_outside": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "string"
+      }
+    },
+    "caller_supplied": {
+      "type": "boolean",
+      "default": false
+    },
+    "consumes": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "string"
+      }
+    },
+    "cost_basis": {
+      "type": "string",
+      "default": ""
+    },
+    "cost_class": {
+      "$ref": "#/$defs/CostClass",
+      "default": "light"
+    },
+    "creative_policy": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null
+    },
+    "effects": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "string"
+      }
+    },
+    "execution": {
+      "$ref": "#/$defs/ExecutionPolicy",
+      "default": {
+        "patch": null,
+        "phases": []
+      }
+    },
+    "executor": {
+      "$ref": "#/$defs/Executor"
+    },
+    "id": {
+      "$ref": "#/$defs/CapabilityId"
+    },
+    "legacy": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LegacyNode"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "needs_model_answer": {
+      "type": "boolean",
+      "default": false
+    },
+    "produces": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "string"
+      }
+    },
+    "requires": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "string"
+      }
+    },
+    "scopes": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ScopeKind"
+      }
+    },
+    "summary": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "summary",
+    "executor"
+  ],
+  "$defs": {
+    "CapabilityId": {
+      "description": "A capability's stable id (`speech.enrich`, `spine.mesh`). The registry\nrefuses an empty id, one with spaces, or a duplicate\n(`capabilities.problems`).",
+      "type": "string"
+    },
+    "CostClass": {
+      "description": "The cost class (`capabilities.COST_CLASSES`), decided by the module's\ncost rule: HEAVY holds the machine-wide heavy-work lock, MODEL needs a\nhost model's answer, LIGHT is local Python on files and state.",
+      "type": "string",
+      "enum": [
+        "heavy",
+        "model",
+        "light"
+      ]
+    },
+    "ExecutionPhase": {
+      "description": "One schedulable phase of a capability's execution contract.\n\n`resources` are maximum amounts, clamped to the machine's capacity by\nthe scheduler. An exclusive Resolve phase also reserves the\nscheduler's `resolve_cursor` resource, so the two schedulers share one\ndeclaration.",
+      "type": "object",
+      "properties": {
+        "entry_points": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "freshness": {
+          "$ref": "#/$defs/Freshness",
+          "default": "none"
+        },
+        "locality": {
+          "$ref": "#/$defs/Locality",
+          "default": "none"
+        },
+        "lock_sites": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "name": {
+          "type": "string"
+        },
+        "resolve_mode": {
+          "$ref": "#/$defs/ResolveMode",
+          "default": "none"
+        },
+        "resource_basis": {
+          "type": "string",
+          "default": ""
+        },
+        "resources": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "array",
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "$ref": "#/$defs/ResourceName"
+              },
+              {
+                "type": "integer",
+                "format": "uint64",
+                "minimum": 0
+              }
+            ]
+          }
+        },
+        "why": {
+          "type": "string",
+          "default": ""
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "ExecutionPolicy": {
+      "description": "Resource, Resolve, locality, freshness and patch policy for a\ncapability. The sole execution-policy declaration: routing and\nscheduler profiles are computed from it.",
+      "type": "object",
+      "properties": {
+        "patch": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PatchSemantics"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "phases": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ExecutionPhase"
+          }
+        }
+      }
+    },
+    "Executor": {
+      "description": "The executor: a repo-relative file under `library/steps/` and the\nfunction's name (empty for a prompt).",
+      "type": "object",
+      "properties": {
+        "attr": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ExecutorKind"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "path",
+        "attr"
+      ]
+    },
+    "ExecutorKind": {
+      "description": "What runs when the capability is executed.",
+      "oneOf": [
+        {
+          "description": "A Python function in the owning step's body.",
+          "type": "string",
+          "const": "function"
+        },
+        {
+          "description": "A prompt the runner asks a model for; `attr` is empty.",
+          "type": "string",
+          "const": "prompt"
+        }
+      ]
+    },
+    "Freshness": {
+      "description": "A phase's freshness requirement (`operations.FRESHNESS_REQUIREMENTS`).",
+      "type": "string",
+      "enum": [
+        "none",
+        "timeline_generation"
+      ]
+    },
+    "LegacyNode": {
+      "description": "The DAG node a capability is attributed to, kept for compatibility.\nThe step ledgers, review gates and provenance are still keyed by it.",
+      "type": "object",
+      "properties": {
+        "node_id": {
+          "type": "string"
+        },
+        "process": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "node_id",
+        "process"
+      ]
+    },
+    "Locality": {
+      "description": "A phase's locality (`operations.LOCALITIES`).",
+      "type": "string",
+      "enum": [
+        "none",
+        "project",
+        "timeline"
+      ]
+    },
+    "PatchSemantics": {
+      "description": "The EditPatch operations and composition a capability permits.",
+      "type": "object",
+      "properties": {
+        "conflict_domains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "merge_semantics": {
+          "type": "string"
+        },
+        "operations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "temporal_effect": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operations",
+        "conflict_domains",
+        "temporal_effect",
+        "merge_semantics"
+      ]
+    },
+    "ResolveMode": {
+      "description": "A phase's Resolve access mode (`operations.RESOLVE_MODES`).",
+      "type": "string",
+      "enum": [
+        "none",
+        "shared",
+        "exclusive"
+      ]
+    },
+    "ResourceName": {
+      "description": "The machine's resources (`resource_scheduler.RESOURCES`). Complete:\nthe scheduler admits a job only while every resource stays within its\ncapacity.",
+      "oneOf": [
+        {
+          "description": "The Resolve instance cursor (capacity 1). The Resolve lease stays\nthe authority over it and is always taken first.",
+          "type": "string",
+          "const": "resolve_cursor"
+        },
+        {
+          "description": "Resolve's render engine (capacity 1).",
+          "type": "string",
+          "const": "resolve_render"
+        },
+        {
+          "description": "CPU cores.",
+          "type": "string",
+          "const": "cpu"
+        },
+        {
+          "description": "The GPU as one tenant: local model inference and a Resolve render\neach take all of it (capacity 1).",
+          "type": "string",
+          "const": "gpu"
+        },
+        {
+          "description": "Physical memory less the OS reserve.",
+          "type": "string",
+          "const": "ram_gb"
+        },
+        {
+          "description": "I/O weight.",
+          "type": "string",
+          "const": "disk"
+        }
+      ]
+    },
+    "ScopeKind": {
+      "description": "The scope kinds an operation runs against (`scope.KINDS`).",
+      "type": "string",
+      "enum": [
+        "project",
+        "clip",
+        "region",
+        "reel"
+      ]
+    }
+  }
+}

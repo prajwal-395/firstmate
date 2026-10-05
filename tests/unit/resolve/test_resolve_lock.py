@@ -1255,7 +1255,10 @@ def test_a_stale_patch_is_rejected_with_what_a_rebase_needs(
     broker, resolve = serving
     patch = {"id": "patch_1", "capability": "reel.touchup",
              "project": "Podcast", "timeline": "Reel 01",
-             "base_generation": 104}
+             "base_generation": 104, "affected_spans": [[0, 48]],
+             "conflict_domains": ["markers"], "operations": [
+                 {"op": "marker.add", "frame": 10, "color": "Blue",
+                  "name": "c"}]}
 
     def apply_patch(patch, *, resolve, project, timeline):
         assert project.GetCurrentTimeline() is timeline

@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "JudgedOperation",
+  "description": "One operation's read-back judgement.",
+  "type": "object",
+  "properties": {
+    "failure": {
+      "description": "The read-back's failure text, or None when it reads back true.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null
+    },
+    "index": {
+      "type": "integer",
+      "format": "int64"
+    },
+    "op": {
+      "type": "string"
+    },
+    "returned": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "index",
+    "op",
+    "returned"
+  ]
+}

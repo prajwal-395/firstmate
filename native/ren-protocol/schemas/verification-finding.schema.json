@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "VerificationFinding",
+  "description": "One row of `qa_report.json`, as the reader sees it.",
+  "type": "object",
+  "properties": {
+    "detail": {
+      "type": "string"
+    },
+    "metric": {
+      "type": "string"
+    },
+    "passed": {
+      "type": "boolean"
+    },
+    "severity": {
+      "type": "string"
+    },
+    "threshold": {
+      "default": null
+    },
+    "value": {
+      "default": null
+    }
+  },
+  "required": [
+    "metric",
+    "passed",
+    "severity",
+    "detail"
+  ]
+}

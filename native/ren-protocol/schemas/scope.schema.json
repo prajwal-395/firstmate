@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Scope",
+  "description": "The address an operation runs against: the whole project, one clip,\nor a region.\n\nField-for-field the shape of `scope.Scope`: a kind and the payload\nthat kind carries. The constructors refuse the combinations\nPython's `Scope.__post_init__` refuses - a REGION scope with no\nregion would read as \"the whole project\" and silently redo\neverything.",
+  "type": "object",
+  "properties": {
+    "clip_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null
+    },
+    "kind": {
+      "$ref": "#/$defs/ScopeKind"
+    },
+    "reel_ranges": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "default": null,
+      "items": {
+        "$ref": "#/$defs/Region"
+      }
+    },
+    "region_span": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Region"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "kind"
+  ],
+  "$defs": {
+    "Region": {
+      "description": "An interval of ONE named timeline, in seconds. Always TIMELINE\nseconds - the type has one time domain and carries no flag saying\nwhich, because a flag is a thing a caller can set wrongly.\n\n`timeline` is `None` for the project's own master timeline\n(`region.MASTER`), or the timeline's declared name. Half-open,\n`[start, end)`.",
+      "type": "object",
+      "properties": {
+        "end": {
+          "type": "number",
+          "format": "double"
+        },
+        "start": {
+          "type": "number",
+          "format": "double"
+        },
+        "timeline": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "start",
+        "end"
+      ]
+    },
+    "ScopeKind": {
+      "description": "The scope kinds an operation runs against (`scope.KINDS`).",
+      "type": "string",
+      "enum": [
+        "project",
+        "clip",
+        "region",
+        "reel"
+      ]
+    }
+  }
+}

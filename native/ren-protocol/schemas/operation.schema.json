@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Operation",
+  "description": "The patch-layer view of an algebra op (`edit_algebra.Operation`): what\nEditPatch schedules and judges. The callables (`span`, `apply`,\n`verify`, `key`) are Python-side and do not cross the wire; the\ndeclarative fields do.",
+  "type": "object",
+  "properties": {
+    "domain": {
+      "description": "The conflict domain (`edit_patch.CONFLICT_DOMAINS`).",
+      "type": "string"
+    },
+    "item": {
+      "type": "boolean",
+      "default": false
+    },
+    "merge": {
+      "description": "`replace` | `commutative` | `exclusive` | `ordered`.",
+      "type": "string"
+    },
+    "required": {
+      "description": "The op's `required` tuple.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "temporal": {
+      "type": "string",
+      "default": "local"
+    }
+  },
+  "required": [
+    "domain",
+    "required",
+    "merge"
+  ]
+}

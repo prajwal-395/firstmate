@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CostClass",
+  "description": "The cost class (`capabilities.COST_CLASSES`), decided by the module's\ncost rule: HEAVY holds the machine-wide heavy-work lock, MODEL needs a\nhost model's answer, LIGHT is local Python on files and state.",
+  "type": "string",
+  "enum": [
+    "heavy",
+    "model",
+    "light"
+  ]
+}

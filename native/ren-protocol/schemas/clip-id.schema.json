@@ -1,0 +1,6 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ClipId",
+  "description": "A Resolve clip's unique id (the edit algebra's `unique_id`).",
+  "type": "string"
+}

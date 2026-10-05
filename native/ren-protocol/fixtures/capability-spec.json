@@ -1,0 +1,564 @@
+[
+  {
+    "id": "sfx_library.validate",
+    "summary": "Check the SFX library can actually serve a run",
+    "scopes": [
+      "project"
+    ],
+    "executor": {
+      "kind": "function",
+      "path": "library/steps/step_0_01_validate_sfx_library/step.py",
+      "attr": "validate_sfx_library"
+    },
+    "requires": [
+      "env.sfx_library"
+    ],
+    "effects": [
+      "verdict.validate_sfx_library.sfx_library_status"
+    ],
+    "produces": [
+      "sfx_library_status"
+    ],
+    "consumes": [],
+    "assumes_machine": [
+      "env.sfx_library"
+    ],
+    "assumes_outside": [],
+    "needs_model_answer": false,
+    "caller_supplied": false,
+    "execution": {
+      "phases": [],
+      "patch": null
+    },
+    "artifact_areas": [],
+    "legacy": {
+      "node_id": "validate_sfx_library",
+      "process": "edit_video"
+    },
+    "cost_class": "light",
+    "cost_basis": "holds no heavy-work lock and needs no model answer",
+    "creative_policy": null
+  },
+  {
+    "id": "semantics.analyse",
+    "summary": "Run the v3 vision pass over clips without a profile",
+    "scopes": [
+      "project"
+    ],
+    "executor": {
+      "kind": "function",
+      "path": "library/steps/step_1_03_semantic_analysis/step.py",
+      "attr": "analyse_semantics"
+    },
+    "requires": [
+      "state.semantic_analysis.raw_footage_files"
+    ],
+    "effects": [
+      "state.creative_direction.semantic_analysis_documents",
+      "state.speech_sequence.semantic_analysis_documents",
+      "state.select_broll.semantic_analysis_documents",
+      "state.compile_manifest.semantic_analysis_documents",
+      "state.mesh_spine.semantic_analysis_documents",
+      "state.plan_vfx.semantic_analysis_documents",
+      "state.plan_sfx.semantic_analysis_documents",
+      "state.color_grade.semantic_analysis_documents"
+    ],
+    "produces": [
+      "semantic_analysis_documents",
+      "total_clips_analyzed"
+    ],
+    "consumes": [
+      "raw_footage_files"
+    ],
+    "assumes_machine": [],
+    "assumes_outside": [],
+    "needs_model_answer": false,
+    "caller_supplied": false,
+    "execution": {
+      "phases": [
+        {
+          "name": "dispatch",
+          "resolve_mode": "none",
+          "locality": "none",
+          "freshness": "none",
+          "resources": [],
+          "lock_sites": [],
+          "entry_points": [
+            "library.steps.step_1_03_semantic_analysis"
+          ],
+          "why": "Vision reads source files and does not touch Resolve.",
+          "resource_basis": ""
+        },
+        {
+          "name": "model_memory",
+          "resolve_mode": "none",
+          "locality": "none",
+          "freshness": "none",
+          "resources": [
+            [
+              "ram_gb",
+              8
+            ]
+          ],
+          "lock_sites": [
+            "library.tools.analysis.vision_pipeline_v3:_semantic_model_memory_reservation"
+          ],
+          "entry_points": [],
+          "why": "Keep loaded Gemma weights accounted for even while the local inference lane yields to host work.",
+          "resource_basis": "RAM 8 GB is the measured resident ceiling: Gemma 4 12B 4-bit used 7.3-7.9 GB resident (docs/GEMMA_SERVER.md 5)."
+        },
+        {
+          "name": "inference",
+          "resolve_mode": "none",
+          "locality": "none",
+          "freshness": "none",
+          "resources": [
+            [
+              "cpu",
+              2
+            ],
+            [
+              "gpu",
+              1
+            ]
+          ],
+          "lock_sites": [
+            "library.tools.analysis.vision_pipeline_v3:_semantic_inference_admission"
+          ],
+          "entry_points": [],
+          "why": "Admit CPU and GPU only while local Gemma loads, unloads or generates an answer.",
+          "resource_basis": "CPU 2 is declared; the local Gemma model takes the GPU as one tenant."
+        }
+      ],
+      "patch": null
+    },
+    "artifact_areas": [
+      "pipeline_output/steps/1_03_semantic_analysis"
+    ],
+    "legacy": {
+      "node_id": "semantic_analysis",
+      "process": "edit_video"
+    },
+    "cost_class": "heavy",
+    "cost_basis": "holds the heavy-work lock at library.tools.analysis.vision_pipeline_v3:_semantic_model_memory_reservation, library.tools.analysis.vision_pipeline_v3:_semantic_inference_admission",
+    "creative_policy": null
+  },
+  {
+    "id": "creative.direct",
+    "summary": "Decide the video's creative direction from the preflight reads",
+    "scopes": [
+      "project"
+    ],
+    "executor": {
+      "kind": "prompt",
+      "path": "library/steps/step_2_01_creative_direction/handoff.md",
+      "attr": ""
+    },
+    "requires": [
+      "state.creative_direction.semantic_analysis_documents",
+      "state.creative_direction.temporal_event_indices",
+      "state.creative_direction.clip_catalog"
+    ],
+    "effects": [
+      "state.music_selection.creative_direction",
+      "state.render_motion_graphics.creative_direction",
+      "state.creative_cohesion.creative_direction",
+      "state.speech_sequence.creative_direction",
+      "state.mesh_spine.creative_direction",
+      "state.select_broll.creative_direction",
+      "state.review_rough_cut.creative_direction",
+      "state.plan_transitions.creative_direction",
+      "state.plan_vfx.creative_direction",
+      "state.plan_sfx.creative_direction",
+      "state.color_grade.creative_direction"
+    ],
+    "produces": [
+      "creative_direction"
+    ],
+    "consumes": [
+      "semantic_analysis_documents",
+      "temporal_event_indices",
+      "clip_catalog"
+    ],
+    "assumes_machine": [],
+    "assumes_outside": [],
+    "needs_model_answer": true,
+    "caller_supplied": false,
+    "execution": {
+      "phases": [],
+      "patch": null
+    },
+    "artifact_areas": [],
+    "legacy": {
+      "node_id": "creative_direction",
+      "process": "edit_video"
+    },
+    "cost_class": "model",
+    "cost_basis": "needs a host model's answer",
+    "creative_policy": null
+  },
+  {
+    "id": "reel.build",
+    "summary": "Cut every APPROVED moment onto its own Resolve timeline, bad takes removed",
+    "scopes": [
+      "project"
+    ],
+    "executor": {
+      "kind": "function",
+      "path": "library/steps/step_7_01_build_reels/step.py",
+      "attr": "build_reels"
+    },
+    "requires": [
+      "timeline_transcript.on_file",
+      "env.resolve_scripting",
+      "env.face_detector",
+      "env.reel_build_libraries",
+      "reel_plan.approved",
+      "resolve.timeline_binding"
+    ],
+    "effects": [
+      "state.verify_reels.reel_build"
+    ],
+    "produces": [
+      "reel_build"
+    ],
+    "consumes": [
+      "timeline_transcript"
+    ],
+    "assumes_machine": [
+      "env.resolve_scripting",
+      "env.face_detector",
+      "env.reel_build_libraries"
+    ],
+    "assumes_outside": [
+      "timeline_transcript.on_file",
+      "reel_plan.approved",
+      "resolve.timeline_binding"
+    ],
+    "needs_model_answer": false,
+    "caller_supplied": false,
+    "execution": {
+      "phases": [
+        {
+          "name": "dispatch",
+          "resolve_mode": "none",
+          "locality": "none",
+          "freshness": "none",
+          "resources": [],
+          "lock_sites": [],
+          "entry_points": [
+            "library.tools.reel_build.rebuild_reels_in_project"
+          ],
+          "why": "Derivation is free; Resolve holds are taken around placement.",
+          "resource_basis": ""
+        },
+        {
+          "name": "apply",
+          "resolve_mode": "exclusive",
+          "locality": "timeline",
+          "freshness": "timeline_generation",
+          "resources": [
+            [
+              "cpu",
+              2
+            ],
+            [
+              "ram_gb",
+              2
+            ]
+          ],
+          "lock_sites": [
+            "library.tools.reel_build:rebuild_reels_in_project"
+          ],
+          "entry_points": [],
+          "why": "One reel is placed under an exclusive cursor lease.",
+          "resource_basis": "Resolve's placement CPU and RAM demand is declared, not measured; sample Resolve itself during a scratch-project placement."
+        }
+      ],
+      "patch": {
+        "operations": [
+          "clip.insert"
+        ],
+        "conflict_domains": [
+          "timeline_structure"
+        ],
+        "temporal_effect": "local",
+        "merge_semantics": "exclusive"
+      }
+    },
+    "artifact_areas": [
+      "pipeline_output/steps/7_01_build_reels/frame_overlays",
+      "pipeline_output/steps/7_01_build_reels/post_headers",
+      "pipeline_output/steps/7_01_build_reels/safe_zone_guides",
+      "pipeline_output/steps/7_01_build_reels/reel_cards"
+    ],
+    "legacy": {
+      "node_id": "build_reels",
+      "process": "reels"
+    },
+    "cost_class": "heavy",
+    "cost_basis": "holds the heavy-work lock at library.tools.reel_build:rebuild_reels_in_project",
+    "creative_policy": null
+  },
+  {
+    "id": "reel.touchup",
+    "summary": "Change one built reel's own timeline in place, instead of rebuilding it",
+    "scopes": [
+      "project"
+    ],
+    "executor": {
+      "kind": "function",
+      "path": "library/steps/step_7_01_build_reels/step.py",
+      "attr": "touch_reel"
+    },
+    "requires": [
+      "env.resolve_scripting",
+      "env.face_detector",
+      "env.reel_build_libraries",
+      "reel_plan.approved",
+      "resolve.timeline_binding"
+    ],
+    "effects": [],
+    "produces": [],
+    "consumes": [],
+    "assumes_machine": [
+      "env.resolve_scripting",
+      "env.face_detector",
+      "env.reel_build_libraries"
+    ],
+    "assumes_outside": [
+      "reel_plan.approved",
+      "resolve.timeline_binding"
+    ],
+    "needs_model_answer": false,
+    "caller_supplied": true,
+    "execution": {
+      "phases": [
+        {
+          "name": "apply",
+          "resolve_mode": "exclusive",
+          "locality": "timeline",
+          "freshness": "timeline_generation",
+          "resources": [],
+          "lock_sites": [],
+          "entry_points": [],
+          "why": "A touch-up is committed against one named timeline generation.",
+          "resource_basis": ""
+        }
+      ],
+      "patch": {
+        "operations": [
+          "marker.add",
+          "marker.delete",
+          "clip_marker.add",
+          "clip_marker.delete",
+          "clip.set_enabled",
+          "clip.set_property",
+          "clip.smart_reframe",
+          "clip.delete",
+          "clip.link",
+          "clip.unlink",
+          "track.add",
+          "track.delete",
+          "track.rename",
+          "track.reorder",
+          "retime.segments",
+          "picture.keyframe",
+          "grade.node_set"
+        ],
+        "conflict_domains": [
+          "markers",
+          "timeline_structure",
+          "picture_transform",
+          "color"
+        ],
+        "temporal_effect": "ripple",
+        "merge_semantics": "exclusive"
+      }
+    },
+    "artifact_areas": [
+      "pipeline_output/steps/7_01_build_reels/frame_overlays",
+      "pipeline_output/steps/7_01_build_reels/post_headers",
+      "pipeline_output/steps/7_01_build_reels/safe_zone_guides",
+      "pipeline_output/steps/7_01_build_reels/reel_cards"
+    ],
+    "legacy": {
+      "node_id": "build_reels",
+      "process": "reels"
+    },
+    "cost_class": "light",
+    "cost_basis": "holds no heavy-work lock and needs no model answer",
+    "creative_policy": null
+  },
+  {
+    "id": "reel.set_properties",
+    "summary": "Change properties on an already-placed clip in place, without deleting and re-placing it",
+    "scopes": [
+      "project"
+    ],
+    "executor": {
+      "kind": "function",
+      "path": "library/steps/step_7_01_build_reels/step.py",
+      "attr": "set_clip_properties"
+    },
+    "requires": [
+      "env.resolve_scripting",
+      "env.face_detector",
+      "env.reel_build_libraries",
+      "reel_plan.approved",
+      "resolve.timeline_binding"
+    ],
+    "effects": [],
+    "produces": [],
+    "consumes": [],
+    "assumes_machine": [
+      "env.resolve_scripting",
+      "env.face_detector",
+      "env.reel_build_libraries"
+    ],
+    "assumes_outside": [
+      "reel_plan.approved",
+      "resolve.timeline_binding"
+    ],
+    "needs_model_answer": false,
+    "caller_supplied": true,
+    "execution": {
+      "phases": [
+        {
+          "name": "apply",
+          "resolve_mode": "exclusive",
+          "locality": "timeline",
+          "freshness": "timeline_generation",
+          "resources": [],
+          "lock_sites": [],
+          "entry_points": [],
+          "why": "Clip properties are committed against one named timeline generation.",
+          "resource_basis": ""
+        }
+      ],
+      "patch": {
+        "operations": [
+          "clip.set_property"
+        ],
+        "conflict_domains": [
+          "picture_transform"
+        ],
+        "temporal_effect": "local",
+        "merge_semantics": "replace"
+      }
+    },
+    "artifact_areas": [
+      "pipeline_output/steps/7_01_build_reels/frame_overlays",
+      "pipeline_output/steps/7_01_build_reels/post_headers",
+      "pipeline_output/steps/7_01_build_reels/safe_zone_guides",
+      "pipeline_output/steps/7_01_build_reels/reel_cards"
+    ],
+    "legacy": {
+      "node_id": "build_reels",
+      "process": "reels"
+    },
+    "cost_class": "light",
+    "cost_basis": "holds no heavy-work lock and needs no model answer",
+    "creative_policy": null
+  },
+  {
+    "id": "render.build",
+    "summary": "Build the final timeline in DaVinci Resolve and export the finished video",
+    "scopes": [
+      "project"
+    ],
+    "executor": {
+      "kind": "function",
+      "path": "library/steps/step_6_01_render/step.py",
+      "attr": "run"
+    },
+    "requires": [
+      "state.render.assembly_manifest"
+    ],
+    "effects": [
+      "state.validate.render_output"
+    ],
+    "produces": [
+      "render_output"
+    ],
+    "consumes": [
+      "assembly_manifest"
+    ],
+    "assumes_machine": [],
+    "assumes_outside": [],
+    "needs_model_answer": false,
+    "caller_supplied": false,
+    "execution": {
+      "phases": [
+        {
+          "name": "apply",
+          "resolve_mode": "exclusive",
+          "locality": "timeline",
+          "freshness": "timeline_generation",
+          "resources": [
+            [
+              "cpu",
+              2
+            ],
+            [
+              "ram_gb",
+              2
+            ]
+          ],
+          "lock_sites": [
+            "library.steps.step_6_01_render.resolve_build_timeline:_build_timeline_under_lease"
+          ],
+          "entry_points": [
+            "library.steps.step_6_01_render.resolve_build_timeline"
+          ],
+          "why": "The edit timeline is built under the exclusive cursor lease.",
+          "resource_basis": "Resolve's placement CPU and RAM demand is declared, not measured; sample Resolve itself during a scratch-project placement."
+        },
+        {
+          "name": "render",
+          "resolve_mode": "exclusive",
+          "locality": "timeline",
+          "freshness": "none",
+          "resources": [
+            [
+              "resolve_render",
+              1
+            ]
+          ],
+          "lock_sites": [
+            "library.tools.execution.resolve_render:_render_timeline_under_lease"
+          ],
+          "entry_points": [
+            "library.tools.execution.resolve_render"
+          ],
+          "why": "Resolve has one global render queue and render engine.",
+          "resource_basis": "Only Resolve's one render engine. The CPU, GPU, RAM and disk this phase used to declare were never measured, and on 2026-10-03 they queued a master render 249 s behind test gates while it held the Resolve lease (measured in https://github.com/prajwal-395/video_editing_pilot/pull/1620). The captain ruled not to hardcode CPU/GPU balancing for it."
+        }
+      ],
+      "patch": {
+        "operations": [
+          "clip.insert",
+          "clip.set_property"
+        ],
+        "conflict_domains": [
+          "timeline_structure",
+          "picture_transform"
+        ],
+        "temporal_effect": "local",
+        "merge_semantics": "exclusive"
+      }
+    },
+    "artifact_areas": [
+      "pipeline_output/steps/6_01_render/fusion_comps",
+      "pipeline_output/steps/6_01_render/carriers",
+      "pipeline_output/steps/6_01_render/otio"
+    ],
+    "legacy": {
+      "node_id": "render",
+      "process": "edit_video"
+    },
+    "cost_class": "heavy",
+    "cost_basis": "holds the heavy-work lock at library.steps.step_6_01_render.resolve_build_timeline:_build_timeline_under_lease, library.tools.execution.resolve_render:_render_timeline_under_lease",
+    "creative_policy": null
+  }
+]

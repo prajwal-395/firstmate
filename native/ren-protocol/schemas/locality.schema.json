@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Locality",
+  "description": "A phase's locality (`operations.LOCALITIES`).",
+  "type": "string",
+  "enum": [
+    "none",
+    "project",
+    "timeline"
+  ]
+}

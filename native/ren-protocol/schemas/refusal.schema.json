@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Refusal",
+  "description": "One refusal's outcome. A refusal is not a failure: nothing ran,\nnothing is half-written, and the next step is known.",
+  "type": "object",
+  "properties": {
+    "code": {
+      "description": "Stable machine-readable code (`RenRefusal.code`), keyed off by\nthe support bundle and structured logs instead of parsing prose.",
+      "type": "string"
+    },
+    "fix": {
+      "description": "The exact next command or edit.",
+      "type": "string"
+    },
+    "what": {
+      "description": "What happened.",
+      "type": "string"
+    },
+    "why": {
+      "description": "Why it refused.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "code",
+    "what",
+    "why",
+    "fix"
+  ]
+}

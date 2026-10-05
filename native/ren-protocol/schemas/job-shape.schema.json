@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "JobShape",
+  "description": "The schedulable fields of one submission (`jobs.prepare`'s shape):\nwhat the queue and the scheduler need to know.",
+  "type": "object",
+  "properties": {
+    "coalesce_key": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null
+    },
+    "executed": {
+      "type": "boolean"
+    },
+    "locality": {
+      "type": "string",
+      "default": ""
+    },
+    "mode": {
+      "$ref": "#/$defs/JobMode"
+    },
+    "priority": {
+      "$ref": "#/$defs/JobPriority"
+    },
+    "project": {
+      "type": "string",
+      "default": ""
+    },
+    "qualification": {
+      "type": "boolean",
+      "default": false
+    },
+    "timeline": {
+      "type": "string",
+      "default": ""
+    }
+  },
+  "required": [
+    "mode",
+    "priority",
+    "executed"
+  ],
+  "$defs": {
+    "JobMode": {
+      "description": "The scheduler's modes (`scheduler.EXCLUSIVE`/`SHARED`).",
+      "type": "string",
+      "enum": [
+        "exclusive",
+        "shared"
+      ]
+    },
+    "JobPriority": {
+      "description": "The priority bands, most urgent first (`scheduler.PRIORITIES`): a\nperson waiting outranks a read, a read outranks a write, a write\noutranks a render.",
+      "type": "string",
+      "enum": [
+        "interactive",
+        "read",
+        "mutation",
+        "build",
+        "qa_render",
+        "qualification",
+        "export"
+      ]
+    }
+  }
+}

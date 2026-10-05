@@ -93,6 +93,7 @@ from library.tools.edit_algebra import (
     _matches,
     _timeline_marker,
 )
+from library.tools import protocol_conformance
 from library.tools.ren_refusal import RenRefusal
 
 #: What a patch may declare it touches. An operation's domain is fixed by
@@ -187,6 +188,10 @@ class EditPatch:
         for key in ("conflict_domains", "operations", "preconditions",
                     "postconditions"):
             out[key] = list(out[key])
+        # The serialization boundary: the patch is about to be written or
+        # sent. Log in production (refusing would abort a live render
+        # mid-apply), refuse in tests/dev.
+        protocol_conformance.validate(out, "edit-patch")
         return out
 
 

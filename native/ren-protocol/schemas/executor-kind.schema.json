@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ExecutorKind",
+  "description": "What runs when the capability is executed.",
+  "oneOf": [
+    {
+      "description": "A Python function in the owning step's body.",
+      "type": "string",
+      "const": "function"
+    },
+    {
+      "description": "A prompt the runner asks a model for; `attr` is empty.",
+      "type": "string",
+      "const": "prompt"
+    }
+  ]
+}

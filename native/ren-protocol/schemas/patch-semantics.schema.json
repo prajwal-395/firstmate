@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PatchSemantics",
+  "description": "The EditPatch operations and composition a capability permits.",
+  "type": "object",
+  "properties": {
+    "conflict_domains": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "merge_semantics": {
+      "type": "string"
+    },
+    "operations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "temporal_effect": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "operations",
+    "conflict_domains",
+    "temporal_effect",
+    "merge_semantics"
+  ]
+}

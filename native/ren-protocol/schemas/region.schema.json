@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Region",
+  "description": "An interval of ONE named timeline, in seconds. Always TIMELINE\nseconds - the type has one time domain and carries no flag saying\nwhich, because a flag is a thing a caller can set wrongly.\n\n`timeline` is `None` for the project's own master timeline\n(`region.MASTER`), or the timeline's declared name. Half-open,\n`[start, end)`.",
+  "type": "object",
+  "properties": {
+    "end": {
+      "type": "number",
+      "format": "double"
+    },
+    "start": {
+      "type": "number",
+      "format": "double"
+    },
+    "timeline": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "start",
+    "end"
+  ]
+}

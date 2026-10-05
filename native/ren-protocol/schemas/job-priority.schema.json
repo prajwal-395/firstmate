@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "JobPriority",
+  "description": "The priority bands, most urgent first (`scheduler.PRIORITIES`): a\nperson waiting outranks a read, a read outranks a write, a write\noutranks a render.",
+  "type": "string",
+  "enum": [
+    "interactive",
+    "read",
+    "mutation",
+    "build",
+    "qa_render",
+    "qualification",
+    "export"
+  ]
+}

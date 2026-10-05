@@ -40,6 +40,7 @@ import json
 import os
 from typing import Optional
 
+from library.tools import protocol_conformance
 from library.tools.resolved.scheduler import EXCLUSIVE, PRIORITIES, SHARED
 
 #: The ONE project a test or qualification job may touch. Live-Resolve
@@ -266,6 +267,10 @@ def prepare(kind: str, params: dict, qualification: bool = False) -> dict:
         if requested is None and shape["priority"] != "interactive":
             shape["priority"] = "qualification"
     shape["qualification"] = qualification
+    # The submission boundary: the schedulable shape is about to be
+    # queued. The mode decides - log in production (a hard refusal here
+    # needs live evidence first), refuse in tests/dev.
+    protocol_conformance.validate(shape, "job-shape")
     return shape
 
 
@@ -316,6 +321,11 @@ def run(job: dict, resolve) -> Optional[dict]:
                 project=job.get("project"), timeline_name=job.get("timeline"),
                 run_id=job.get("id")):
             return _run_resolve_axi(params)
+    if kind == "timeline.apply_patch":
+        # The external boundary: the patch arrives from the socket. The
+        # mode decides - log in production (a hard refusal on the live
+        # edit path needs live evidence first), refuse in tests/dev.
+        protocol_conformance.validate(params["patch"], "edit-patch")
     project = _open_project(resolve, job["project"])
     timeline = _timeline(project, job["timeline"])
     if kind == "timeline.snapshot":

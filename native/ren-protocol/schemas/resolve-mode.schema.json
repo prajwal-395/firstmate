@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ResolveMode",
+  "description": "A phase's Resolve access mode (`operations.RESOLVE_MODES`).",
+  "type": "string",
+  "enum": [
+    "none",
+    "shared",
+    "exclusive"
+  ]
+}

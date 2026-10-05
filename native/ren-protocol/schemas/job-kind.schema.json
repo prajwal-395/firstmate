@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "JobKind",
+  "description": "The job kinds the broker accepts (`jobs.KINDS`).",
+  "oneOf": [
+    {
+      "description": "A grant: the CALLER runs its own critical section. Never executed\nby the broker.",
+      "type": "string",
+      "const": "lease"
+    },
+    {
+      "description": "Observe one named timeline into the shadow store. Exclusive\n(the timeline must be current to read true); identical snapshots\ncoalesce.",
+      "type": "string",
+      "const": "timeline.snapshot"
+    },
+    {
+      "description": "Commit one prepared EditPatch. Exclusive. Two submissions of one\npatch id coalesce.",
+      "type": "string",
+      "const": "timeline.apply_patch"
+    },
+    {
+      "description": "One `resolve-axi` command line, run inside the broker so its reads\ncoalesce across agents. Reads only, and only the named allowlist.",
+      "type": "string",
+      "const": "resolve_axi"
+    }
+  ]
+}

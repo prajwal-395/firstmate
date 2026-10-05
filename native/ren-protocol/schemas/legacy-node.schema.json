@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LegacyNode",
+  "description": "The DAG node a capability is attributed to, kept for compatibility.\nThe step ledgers, review gates and provenance are still keyed by it.",
+  "type": "object",
+  "properties": {
+    "node_id": {
+      "type": "string"
+    },
+    "process": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "node_id",
+    "process"
+  ]
+}
