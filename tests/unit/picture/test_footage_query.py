@@ -11,6 +11,7 @@ real project (§8).
 """
 import json
 import re
+import sys
 from pathlib import Path
 import numpy as np
 import pytest
@@ -453,6 +454,116 @@ def test_search_report_with_person_filter_answers_who_says_okay(
                                filters={"person": "person_001"})
     assert report["results"]
     assert report["results"][0]["clip_id"] == "clip_002"
+
+
+# --------------------------------------------------------------------------
+# Sound-event search (the M5 lane)
+#
+# `ren search --sound <label>`: PANNs sound events, measured by step 1.04
+# and stored in the M5 slot, joined into search by label.  The defect this
+# guards: "where does laughter happen" was unanswerable from search - the
+# events were measured but no query could reach them.
+#
+# --------------------------------------------------------------------------
+
+@pytest.fixture
+def sound_index(project_2, memory_root, tmp_path, monkeypatch):
+    """An index over a project whose M5 sound lane has measured events."""
+    root, digest_1, digest_2 = project_2
+    source_memory.write_sound(
+        digest_1, str(root / "raw" / "IMG_0001.MOV"), "measured",
+        [{"label": "Laughter", "start": 2.0, "end": 4.5, "confidence": 0.87},
+         {"label": "Speech", "start": 6.0, "end": 8.0, "confidence": 0.92}],
+        "PANNs Cnn14")
+    source_memory.write_sound(
+        digest_2, str(root / "raw" / "IMG_0002.MOV"), "measured",
+        [{"label": "Applause", "start": 1.0, "end": 3.0, "confidence": 0.78}],
+        "PANNs Cnn14")
+
+    def fake_loader():
+        def encode(texts):
+            rows = []
+            for text in texts:
+                vector = np.zeros(26, dtype="float32")
+                for char in (text or "").lower():
+                    if "a" <= char <= "z":
+                        vector[ord(char) - 97] += 1.0
+                norm = np.linalg.norm(vector) or 1.0
+                rows.append(vector / norm)
+            return np.vstack(rows) if rows else np.zeros((0, 26), dtype="float32")
+        return encode, "test-stub"
+
+    monkeypatch.setattr(footage_query, "_load_embedder", fake_loader)
+    index_dir = tmp_path / "index"
+    build_index(root, index_dir=index_dir)
+    return FootageIndex(root, index_dir=index_dir)
+
+
+def test_sound_search_finds_the_measured_label(sound_index):
+    """The defect: 'where does laughter happen' was unanswerable.
+
+    PANNs measured the events and step 1.04 stored them in the M5 slot,
+    but no query could reach them - search had no sound lane.  This pins
+    that the measured label now returns its spans.
+    """
+    report = sound_index.sound_search("laughter")
+    assert report["abstained"] is False
+    assert len(report["hits"]) == 1
+    hit = report["hits"][0]
+    assert hit["clip_id"] == "clip_001"
+    assert hit["label"] == "Laughter"
+    assert hit["start"] == 2.0
+    assert hit["end"] == 4.5
+    assert hit["confidence"] == 0.87
+
+
+def test_sound_search_matches_across_clips_and_says_what_is_there(
+        sound_index):
+    """A label in more than one clip returns every span, and a label that
+    is not there returns an honest empty naming the labels this footage
+    has - never a silent 'nowhere' that reads as 'not measured'."""
+    both = sound_index.sound_search("applause")
+    assert [h["clip_id"] for h in both["hits"]] == ["clip_002"]
+
+    missing = sound_index.sound_search("dog barking")
+    assert missing["abstained"] is True
+    assert missing["hits"] == []
+    assert "Laughter" in missing["available_labels"]
+    assert "Applause" in missing["available_labels"]
+
+
+def test_sound_search_with_no_events_says_the_lane_was_never_written(
+        offline_index):
+    """An index whose project has no M5 slot says so, rather than
+    answering 'nowhere' to a question that was never measured."""
+    idx, _stats = offline_index
+    report = idx.sound_search("laughter")
+    assert report["abstained"] is True
+    assert "no sound events" in report["error"]
+
+
+def test_sound_search_cli_reaches_the_index(sound_index, project_2, monkeypatch):
+    """`ren search --sound <label>` is the person's route to the same
+    answer - the flag must reach the module and refuse without a query."""
+    root = project_2[0]
+    from library.tools.analysis import footage_query as fq
+
+    calls = []
+
+    def fake_sound_search(self, query, top_k=5):
+        calls.append((query, top_k))
+        return {"query": query, "hits": [], "abstained": True,
+                "considered": 0, "matched": 0, "available_labels": [],
+                "error": None}
+
+    monkeypatch.setattr(FootageIndex, "sound_search", fake_sound_search)
+    monkeypatch.setattr(sys, "argv", [
+        "footage_query", "search", str(root), "--sound", "laughter"])
+    assert fq.main(["search", str(root), "--sound", "laughter"]) == 0
+    assert calls == [("laughter", 5)]
+
+    with pytest.raises(RenRefusal):
+        fq.main(["search", str(root), "--sound"])
 
 
 # --------------------------------------------------------------------------

@@ -31,6 +31,7 @@ Usage from the CLI:
 
     python3 -m library.tools.analysis.footage_query build   <project>
     python3 -m library.tools.analysis.footage_query search  <project> "the parking lot"
+    python3 -m library.tools.analysis.footage_query search  <project> --sound laughter
     python3 -m library.tools.analysis.footage_query filter  <project> --kind speech --framing close-up
     python3 -m library.tools.analysis.footage_query hybrid  <project> "cars" --kind scene
     python3 -m library.tools.analysis.footage_query detail  <project> clip_012#speech#003
@@ -87,8 +88,9 @@ from library.tools.analysis.footage_segments import (
     build_segments,
     coverage_report,
     ingest_fingerprint,
+    load_catalog,
 )
-from library.tools import person_entity
+from library.tools import person_entity, source_memory
 
 EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 INDEX_SUBDIR = os.path.join("pipeline_output", "scratch", "footage_index")
@@ -296,6 +298,37 @@ def _normalize(scores: np.ndarray) -> np.ndarray:
 # ─── Building ─────────────────────────────────────────────────────
 
 
+def sound_events_for_project(project_folder) -> tuple:
+    """PANNs sound events per clip, from the M5 slot (`sound.json`).
+
+    Returns ``({clip_id: [events]}, {clip_id: method})``.  A clip with no
+    measured events is ABSENT from both maps, not present and empty: an
+    unmeasured clip is not a silent one, and the two must stay
+    distinguishable at query time.  Events are the `[{label, start, end,
+    confidence}]` list `source_memory.write_sound` stores, unchanged.
+    """
+    catalog = load_catalog(project_folder)
+    recorded = source_memory.load_recorded_fingerprints(project_folder)
+    events_by_clip: dict = {}
+    methods: dict = {}
+    for clip in catalog:
+        clip_id = clip.get("clip_id")
+        if not clip_id:
+            continue
+        digest, _basis = source_memory.digest_for_clip(
+            project_folder, clip, recorded)
+        if digest is None:
+            continue
+        doc = source_memory.read_sound(digest)
+        if not doc:
+            continue
+        events = doc.get("sound_events") or []
+        if events:
+            events_by_clip[clip_id] = events
+            methods[clip_id] = doc.get("method")
+    return events_by_clip, methods
+
+
 def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=False) -> dict:
     """Cut, embed and store the index.  Returns build statistics.
 
@@ -323,6 +356,8 @@ def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=Fal
         if embeddings_path.exists():
             embeddings_path.unlink()
 
+    sound_events, sound_methods = sound_events_for_project(project_folder)
+
     payload = {
         "project_folder": str(project_folder),
         "embed_model": EMBED_MODEL if dimension else None,
@@ -336,6 +371,9 @@ def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=Fal
         "ingest_fingerprint": ingest_fingerprint(project_folder),
         "coverage": coverage_report(project_folder),
         "segments": [s.to_dict() for s in segments],
+        # The M5 sound lane: PANNs labels per clip, reachable from search.
+        "sound_events": sound_events,
+        "sound_event_methods": sound_methods,
     }
     index_path = target / SEGMENTS_FILE
     with open(index_path, "w", encoding="utf-8") as f:
@@ -683,6 +721,94 @@ class FootageIndex:
         report["abstained"] = not report["results"]
         return report
 
+    # ── sound events (the M5 lane) ──────────────────────────────────
+
+    @staticmethod
+    def _sound_label_matches(query_tokens: list, label: str) -> bool:
+        """Whether a query token and a PANNs label refer to the same sound.
+
+        Both directions of substring, case-insensitive: "laughter" matches
+        "Laughter", and "barking" matches "Bark" because the label is a
+        substring of the query token.  A full sentence still works - the
+        token "laughter" in "where does laughter happen" is what matches.
+        """
+        lowered = (label or "").lower()
+        if not lowered:
+            return False
+        return any(
+            token and (token in lowered or lowered in token)
+            for token in query_tokens
+        )
+
+    def sound_search(self, query: str, top_k: int = 5) -> dict:
+        """Find the spans where a PANNs sound-event label was measured.
+
+        Answers "where does laughter happen" (or applause, music, impacts)
+        from the M5 sound lane - the labels step 1.04 already measured and
+        `source_memory.write_sound` already stored, joined here by label.
+
+        The match is by label, not by text: there is no embedding and no
+        transcript for a sound, so a query that matches no label is an
+        honest empty that NAMES the labels this footage actually has, the
+        same way `search_report` names its near miss.  An index with no
+        sound events at all says that too, rather than answering "nowhere"
+        to a question that was never measured.
+        """
+        events_by_clip = self.payload.get("sound_events") or {}
+        report = {
+            "query": query,
+            "mode": "sound",
+            "hits": [],
+            "considered": 0,
+            "matched": 0,
+            "available_labels": [],
+            "abstained": False,
+            "error": None,
+        }
+        if not events_by_clip:
+            report["abstained"] = True
+            report["error"] = (
+                "no sound events in this index - the M5 sound lane "
+                "(sound.json) was never written for any clip, so there is "
+                "no PANNs label to search")
+            return report
+
+        tokens = _tokenize(query)
+        if not tokens:
+            report["abstained"] = True
+            report["error"] = "no sound label to look for"
+            return report
+
+        labels = sorted({
+            event.get("label", "")
+            for events in events_by_clip.values()
+            for event in events
+            if event.get("label")
+        })
+        report["available_labels"] = labels
+
+        hits = []
+        for clip_id in sorted(events_by_clip):
+            for event in events_by_clip[clip_id]:
+                report["considered"] += 1
+                if not self._sound_label_matches(tokens, event.get("label", "")):
+                    continue
+                start = event.get("start")
+                end = event.get("end")
+                hits.append({
+                    "clip_id": clip_id,
+                    "label": event.get("label"),
+                    "start": start,
+                    "end": end,
+                    "timecode": f"{self._timecode(start)}-{self._timecode(end)}",
+                    "confidence": event.get("confidence"),
+                })
+        hits.sort(key=lambda h: (h["clip_id"], h["start"] or 0.0))
+        report["hits"] = hits[:max(0, top_k)]
+        report["matched"] = len(hits)
+        report["abstained"] = not hits
+        return report
+
     def _person_windows(self, person: str) -> list:
         """`[(clip_id, start, end)]` the entity store measured for one
         person - face spans (seen) union voice spans (heard), from
@@ -901,6 +1027,7 @@ class FootageIndex:
             s.get("facets", {}).get("framing", "unknown") for s in segments
         )
         speech = [s for s in segments if s["kind"] == "speech"]
+        sound_events = self.payload.get("sound_events") or {}
         return {
             "project_folder": self.payload.get("project_folder"),
             "segment_count": len(segments),
@@ -910,6 +1037,8 @@ class FootageIndex:
             "framings": dict(framings),
             "spoken_seconds": round(sum(s["duration"] for s in speech), 1),
             "spoken_words": sum(len(s.get("words") or []) for s in speech),
+            "sound_event_clips": len(sound_events),
+            "sound_event_count": sum(len(v) for v in sound_events.values()),
             "embed_model": self.payload.get("embed_model"),
             "embed_backend": self.payload.get("embed_backend"),
             "built_at": self.payload.get("built_at"),
@@ -1181,6 +1310,26 @@ def _print_structured(answer):
                   f"{os.path.basename(p['source_file'])}, {p['via']})")
 
 
+def _print_sound_report(report):
+    """A sound-event search as a person reads it: spans, or what IS there."""
+    print(f"query: {report['query']!r}  mode=sound  "
+          f"{report['considered']} sound event(s) considered")
+    if report.get("error"):
+        print(report["error"])
+        return
+    if report["hits"]:
+        for i, hit in enumerate(report["hits"]):
+            confidence = hit.get("confidence")
+            conf = f"  conf {confidence:.2f}" if isinstance(confidence, (int, float)) else ""
+            print(f"\n{i + 1}. {hit['clip_id']}  {hit['timecode']}  "
+                  f"({hit['label']}){conf}")
+        return
+    print(f"\nNo sound event labelled {report['query']!r} - that is the answer, "
+          f"not an empty result set.")
+    if report["available_labels"]:
+        print(f"  labels this footage has: {', '.join(report['available_labels'])}")
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="footage_query",
@@ -1205,6 +1354,11 @@ def main(argv=None):
                           help="Search the sampled FRAMES with CLIP instead of the text "
                                "index: top time ranges per clip, every hit unverified, "
                                "absence never concluded")
+    p_search.add_argument("--sound", action="store_true",
+                          help="Search the PANNs SOUND-EVENT labels (the M5 sound lane) "
+                               "instead of text: 'ren search --sound laughter' returns "
+                               "the spans where laughter, applause, music or impacts "
+                               "was heard")
     p_search.add_argument("--include-actions", action="store_true",
                           help="Rank even an action/gesture query against the frames "
                                "(the frame index refuses those by default: it cannot "
@@ -1333,6 +1487,24 @@ def main(argv=None):
             print(json.dumps(answer, indent=2))
         else:
             _print_structured(answer)
+            print(f"\n{elapsed * 1000:.1f} ms")
+        return 0
+
+    if args.command == "search" and args.sound:
+        if not args.query:
+            raise RenRefusal(
+                "--sound needs a label to look for",
+                "a sound query asks what was HEARD; it has no text to rank",
+                f"ren search {args.project} --sound \"<label>\" "
+                f"(e.g. --sound laughter)")
+        idx = FootageIndex(args.project, index_dir=args.index_dir)
+        started = time.perf_counter()
+        answer = idx.sound_search(args.query, top_k=args.top_k)
+        elapsed = time.perf_counter() - started
+        if args.json:
+            print(json.dumps(answer, indent=2))
+        else:
+            _print_sound_report(answer)
             print(f"\n{elapsed * 1000:.1f} ms")
         return 0
 
