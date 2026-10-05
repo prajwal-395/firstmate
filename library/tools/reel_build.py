@@ -12300,7 +12300,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             "probe": {},
         }
     _gain_probe.log_record(gain_record)
-    if gain_record.get("source") != "measured":
+    if gain_record.get("source") not in ("measured", "calibration_record"):
         raise ReelBuildError(
             "REFUSING to build: the draw-gain probe could not calibrate "
             "the renderer "
@@ -15237,7 +15237,8 @@ def build_reel_variants(project_slug: str, reel_number: int,
             "probe": {},
         }
     _variant_gain_probe.log_record(_variant_gain_record)
-    if _variant_gain_record.get("source") != "measured":
+    if _variant_gain_record.get("source") not in ("measured",
+                                                  "calibration_record"):
         raise ReelBuildError(
             "REFUSING to build: the draw-gain probe could not calibrate "
             "the renderer "

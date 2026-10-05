@@ -438,9 +438,9 @@ def test_measured_gain_comes_back_from_rendered_pixels(monkeypatch,
     import library.tools.marker_capture as mc_mod
     monkeypatch.setattr(mc_mod, "grab_still",
                         _make_grab_proxy(plate_holder))
-    record = probe_mod.calibrate(resolve, project, FRAME_WH,
-                                 workdir=str(tmp_path),
-                                 project_folder=str(tmp_path))
+    record = probe_mod._calibrate_live(resolve, project, FRAME_WH,
+                                       workdir=str(tmp_path),
+                                       project_folder=str(tmp_path))
     assert record["source"] == "measured"
     assert record["gain"] == pytest.approx(SIM_GAIN, abs=0.05)
     assert record["disagrees_with_fallback"] == (
@@ -464,9 +464,9 @@ def test_a_refused_grab_falls_back_loud(monkeypatch, tmp_path):
 
     import library.tools.marker_capture as mc_mod
     monkeypatch.setattr(mc_mod, "grab_still", boom)
-    record = probe_mod.calibrate(resolve, project, FRAME_WH,
-                                 workdir=str(tmp_path),
-                                 project_folder=str(tmp_path))
+    record = probe_mod._calibrate_live(resolve, project, FRAME_WH,
+                                       workdir=str(tmp_path),
+                                       project_folder=str(tmp_path))
     assert record["source"] == "fallback"
     assert record["gain"] == FALLBACK_DRAW_GAIN
     assert record["warnings"], "a silent fallback is the defect"
@@ -506,9 +506,9 @@ def test_a_past_the_end_entry_playhead_still_measures(monkeypatch,
     import library.tools.marker_capture as mc_mod
     monkeypatch.setattr(mc_mod, "grab_still",
                         _make_grab_proxy(plate_holder))
-    record = probe_mod.calibrate(resolve, project, FRAME_WH,
-                                 workdir=str(tmp_path),
-                                 project_folder=str(tmp_path))
+    record = probe_mod._calibrate_live(resolve, project, FRAME_WH,
+                                       workdir=str(tmp_path),
+                                       project_folder=str(tmp_path))
     assert record["source"] == "measured"
     assert record["gain"] == pytest.approx(SIM_GAIN, abs=0.05)
     assert any("entry playhead unreadable" in warning
@@ -520,6 +520,49 @@ def test_a_past_the_end_entry_playhead_still_measures(monkeypatch,
     assert entry.key == 500
     assert probe_mod.PROBE_TIMELINE_NAME not in [
         tl.GetName() for tl in project.timelines]
+
+
+@pytest.mark.usefixtures("_sole_writer")
+def test_calibration_record_matches_live_probe(monkeypatch, tmp_path):
+    """Prove the calibration record holds what the live probe measured.
+
+    The live probe measures a gain from rendered pixels; the calibration
+    record stores that measured gain; the routine ``calibrate`` returns
+    the same value from the record. This test runs the live probe with a
+    known simulated gain, stores the result, and verifies the routine
+    path returns the identical value.
+    """
+    import library.tools.draw_gain_calibration as cal_mod
+    monkeypatch.setattr(cal_mod, "calibration_path",
+                        lambda: tmp_path / "cal.json")
+
+    project = _Project()
+    resolve = _Resolve(project)
+    plate_holder = {}
+
+    real_build = probe.build_plate
+
+    def spy_build(path, width=1080, height=1920):
+        out = real_build(path, width, height)
+        plate_holder["path"] = out
+        return out
+
+    monkeypatch.setattr(probe, "build_plate", spy_build)
+    import library.tools.marker_capture as mc_mod
+    monkeypatch.setattr(mc_mod, "grab_still",
+                        _make_grab_proxy(plate_holder))
+
+    live_record = probe._calibrate_live(resolve, project, FRAME_WH,
+                                        workdir=str(tmp_path),
+                                        project_folder=str(tmp_path))
+    assert live_record["source"] == "measured"
+    measured_gain = live_record["gain"]
+
+    cal_mod.store(resolve, FRAME_WH[0], FRAME_WH[1], measured_gain)
+
+    routine_record = probe.calibrate(resolve, project, FRAME_WH)
+    assert routine_record["source"] == "calibration_record"
+    assert routine_record["gain"] == measured_gain
 
 
 # --------------------------------------------------------------------------

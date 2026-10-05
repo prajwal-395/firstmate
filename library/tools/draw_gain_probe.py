@@ -176,18 +176,94 @@ def _fallback_record(warnings, probe=None) -> dict:
     }
 
 
+class DrawGainCalibrationMissing(RuntimeError):
+    """No qualified draw-gain calibration exists for this format.
+
+    Raised by `calibrate` where the record has no entry for this exact
+    (Resolve version, width, height). The gain is renderer state that
+    can move between Resolve versions and delivery geometries, so a
+    missing entry is never filled with a guessed value - the run refuses
+    and names the fix: measure in a disposable project.
+    """
+
+
 def calibrate(resolve, project, frame_wh: tuple,
               workdir: str = "", project_folder: str = "") -> dict:
-    """Measure the draw gain off the live renderer, or fall back loud.
+    """Look up the qualified draw-gain calibration for this format.
 
     `frame_wh` is the geometry placements are computed for (the reel
     delivery frame). Returns the record - `gain`, `source`
-    (`"measured"` or `"fallback"`), `disagrees_with_fallback`, the
-    `probe` detail and `warnings`. Never raises; never leaves Resolve
-    changed (entry timeline restored and read back, the entry playhead
-    restored where it was readable and left alone where it was not,
-    the scratch timeline and the imported plate removed, temp files
-    gone).
+    (`"calibration_record"`), `disagrees_with_fallback`, the `probe`
+    detail and `warnings`. Never leaves Resolve changed (no timeline is
+    created, no setting is written).
+
+    Raises `DrawGainCalibrationMissing` where no qualified calibration
+    exists for this exact (Resolve version, width, height) - a missing
+    entry is never filled with a guessed gain, because an unmeasured gain
+    silently changes every caption and overlay transform the build
+    computes. The caller refuses the build and names the fix.
+
+    2026-10-04: the live probe used to write timeline resolution settings
+    on a scratch timeline in the captain's open project. That is the same
+    ``SetSetting`` / ``FusionApp::SyncProjectSettings`` ->
+    ``RenderTask::ObtainRenderLock`` deadlock seen in the 2026-10-01 and
+    2026-10-02 Resolve crash reports. The routine path no longer mutates
+    resolution on the live project; it reads a qualified calibration record
+    instead (``library/tools/draw_gain_calibration.py``). The live probe
+    remains as ``_calibrate_live`` for testing and calibration-population.
+    """
+    from library.tools import draw_gain_calibration as cal
+    from library.tools.draw_gain_calibration import lookup
+    from library.tools.resolve_transform import FALLBACK_DRAW_GAIN
+
+    width, height = int(frame_wh[0]), int(frame_wh[1])
+    gain = lookup(resolve, width, height)
+    if gain is not None:
+        disagrees = abs(gain - FALLBACK_DRAW_GAIN) > 0.05
+        record = {
+            "gain": gain,
+            "source": "calibration_record",
+            "disagrees_with_fallback": disagrees,
+            "warnings": [],
+            "probe": {
+                "frame_wh": [width, height],
+                "fallback_gain": FALLBACK_DRAW_GAIN,
+            },
+        }
+        _say(f"run uses CALIBRATED gain {gain:.4f} "
+              f"({width}x{height})")
+        if disagrees:
+            _say(f"DISAGREEMENT: calibrated {gain:.4f} differs from "
+                  f"fallback {FALLBACK_DRAW_GAIN}: the renderer state "
+                  f"moved again")
+        return record
+    _say(f"REFUSING: no qualified calibration for {width}x{height}")
+    raise DrawGainCalibrationMissing(
+        f"no qualified draw-gain calibration for {width}x{height} "
+        f"(resolve {cal.resolve_version(resolve)}). Every caption, "
+        f"motion-graphic and overlay transform is computed at the "
+        f"measured gain, and placing them at an unmeasured one is how a "
+        f"build halves every overlay transform. Fix: measure in a "
+        f"disposable project with "
+        f"bin/vep scripts/populate_calibration.py --width {width} "
+        f"--height {height}")
+
+
+def _calibrate_live(resolve, project, frame_wh: tuple,
+                    workdir: str = "", project_folder: str = "") -> dict:
+    """The live probe, kept for testing and calibration-population only.
+
+    This is the pre-2026-10-04 probe that created a scratch timeline,
+    wrote resolution settings on it, and measured the gain from rendered
+    pixels. It is NO LONGER the routine path - ``calibrate`` reads the
+    qualified calibration record instead. This function remains so the
+    measurement mechanism can be tested and so a calibration can be
+    populated by running it once in a controlled setting.
+
+    Never raises; never leaves Resolve changed (entry timeline restored
+    and read back, the entry playhead restored where it was readable and
+    left alone where it was not, the scratch timeline and the imported
+    plate removed, temp files gone).
     """
     from library.tools import marker_capture as mc
     from library.tools.marker_capture import grab_still

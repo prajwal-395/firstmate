@@ -64,10 +64,12 @@ class Broker:
     """
 
     def __init__(self, store: JobStore,
-                 connect: Optional[Callable[[], object]] = None):
+                 connect: Optional[Callable[[], object]] = None,
+                 watchdog: Optional[object] = None):
         self.store = store
         self._connect = connect or _default_connect
         self._resolve = None
+        self._watchdog = watchdog
         self._cond = threading.Condition()
         self._queued: dict = {}       # id -> scheduler.Pending
         self._running: dict = {}      # id -> scheduler.Pending
@@ -89,6 +91,13 @@ class Broker:
     def submit(self, kind: str, params: dict, owner: str = "",
                qualification: bool = False,
                idempotency_key: str | None = None) -> dict:
+        if self._watchdog is not None and self._watchdog.is_degraded():
+            status = self._watchdog.status()
+            raise job_kinds.JobRefused(
+                f"Resolve is unresponsive: {status['degraded_reason']} "
+                f"(holder: {status['holder'] or 'none'}, "
+                f"job: {status['job_id'] or 'none'}). "
+                "Restart Resolve, then retry.")
         shape = job_kinds.prepare(kind, params, qualification=qualification)
         idempotency = job_kinds.idempotency_request(
             kind, params, idempotency_key)
@@ -337,6 +346,18 @@ class _Handler(socketserver.StreamRequestHandler):
         if op == "list":
             return {"jobs": broker.store.recent(int(request.get("limit", 20))),
                     "running": broker.running()}
+        if op == "health":
+            from library.tools import resolve_watchdog
+            resolve = broker._resolve_handle()
+            return resolve_watchdog.health_status(resolve)
+        if op == "post_restart_check":
+            from library.tools import resolve_watchdog
+            resolve = broker._resolve_handle()
+            return resolve_watchdog.post_restart_check(resolve)
+        if op == "watchdog_status":
+            if broker._watchdog is None:
+                return {"watchdog": False}
+            return {"watchdog": True, **broker._watchdog.status()}
         if op == "acquire":
             submitted = broker.submit("lease", request.get("params", {}),
                                       owner=request.get("owner", ""),
@@ -378,6 +399,10 @@ def serve(path: Optional[Path] = None, connect=None) -> None:
         path.unlink()           # a dead broker's socket: nobody answers it
     store = JobStore(path.parent / DB_NAME)
     broker = Broker(store, connect=connect)
+    from library.tools import resolve_watchdog
+    watchdog = resolve_watchdog.ResolveWatchdog(connect=broker._connect)
+    broker._watchdog = watchdog
+    watchdog.start()
     server = _Server(str(path), _Handler)
     server.broker = broker
     os.chmod(path, 0o600)
@@ -387,6 +412,7 @@ def serve(path: Optional[Path] = None, connect=None) -> None:
         # asked to stop should be gone by the time `stop` returns.
         server.serve_forever(poll_interval=0.05)
     finally:
+        watchdog.stop()
         broker.stop()
         server.server_close()
         try:

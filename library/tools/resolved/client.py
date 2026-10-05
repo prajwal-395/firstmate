@@ -126,6 +126,25 @@ def serving(path=None) -> bool:
     return not in_broker() and ping(path) is not None
 
 
+def health(path=None) -> dict:
+    """Health status: separate `connected` from `responsive`.
+
+    `connected` is True where a non-null Resolve handle exists.
+    `responsive` is True where a short, harmless API round trip succeeds.
+    """
+    return call({"op": "health"}, path)
+
+
+def post_restart_check(path=None) -> dict:
+    """A short read-only project/timeline/count check after a restart."""
+    return call({"op": "post_restart_check"}, path)
+
+
+def watchdog_status(path=None) -> dict:
+    """The watchdog's current state, for health reporting."""
+    return call({"op": "watchdog_status"}, path)
+
+
 def _in_pytest() -> bool:
     """True when running under pytest (a test process)."""
     return "pytest" in sys.modules

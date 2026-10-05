@@ -215,6 +215,9 @@ class FakeResolve:
     def GetProductName(self):
         return "DaVinci Resolve (canonical test double)"
 
+    def GetVersionString(self):
+        return "21.1.0.14"
+
     def GetFairlightPresets(self):
         """No presets: the captain's limiter preset is not installed."""
         return {}
