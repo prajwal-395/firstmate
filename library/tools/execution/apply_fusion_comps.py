@@ -1100,6 +1100,7 @@ def apply_fusion_comps_with_resolve(resolve, manifest, project_folder,
     return True
 
 
+@under_lease("apply fusion comps")
 def apply_fusion_comps_batch(entries, project_folder,
                              expected_project=None, step_id="render"):
     """Apply comps for multiple reels in ONE Resolve connection.
@@ -1108,6 +1109,14 @@ def apply_fusion_comps_batch(entries, project_folder,
     subprocess connects to Resolve once and applies every reel's comps,
     amortizing the per-reel fixed overhead (17.0-63.7s measured) across
     the whole build. Returns a dict of ``{timeline_name: success}``.
+
+    The lease is the per-reel path's, not a new one: this runs in the
+    subprocess `reel_look.apply_comps_batch` launches inside the rebuild
+    worker's exclusive hold, and `@under_lease` adopts the parent's
+    lease from the inherited environment rather than taking a flock
+    of its own. Without it the handshake refuses - the batch pass
+    raised "refusing Resolve scriptapp handshake outside the instance
+    lease" on the live Reel 10 rebuild (2026-10-05).
     """
     from library.tools.resolve_locale import scriptapp_preserving_locale
     resolve = scriptapp_preserving_locale(dvr, "Resolve")
