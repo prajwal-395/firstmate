@@ -36,16 +36,20 @@ from pathlib import Path
 
 from library.tools import source_memory
 
-PROMPT_VERSION = 1
+PROMPT_VERSION = 2
 PROMPT = (
     "These are {n} frames of one person from a video, about half a second "
     "apart, in time order. Statement: \"the person {statement}\". Is the "
-    "statement true in at least one of these frames? Judge only what is "
-    "visible. Reply with JSON only: {{\"answer\": \"yes\" or \"no\", "
+    "statement true in these frames - in at least one frame, or across "
+    "the sequence of frames? Judge only what is visible. Reply with JSON "
+    "only: {{\"answer\": \"yes\" or \"no\", "
     "\"frame\": <1-based number of the clearest frame, or null>, "
     "\"reason\": \"<one short sentence>\"}}")
 """Pre-registered verbatim (eval plan §4). Changing a word is a new
-PROMPT_VERSION: cached verdicts were given to the old wording."""
+PROMPT_VERSION: cached verdicts were given to the old wording. v2 asks
+about the sequence too - the event predicates (person enters/leaves,
+object pickup) are transitions no single frame contains, which v1's
+"in at least one of these frames" could not judge."""
 
 MAX_FRAMES_PER_SPAN = 4
 """Frames shown per span: all of a short span, else the four the

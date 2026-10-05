@@ -40,6 +40,17 @@ candidate span to the local VLM (`span_verification`): measured 14/17
 events at span precision 14/15 for "covers his mouth with his hand",
 `data/vep-query-hit-verification/eval/` in firstmate's home.
 
+**Action, gesture and event CANDIDATES.** `hand_raise`, `nod`,
+`object_pickup`, `person_enters` and `person_leaves` are candidate
+generators too: a cheap geometric rule over M3 hand/face geometry or
+M3b face-track runs proposes spans for the same VLM verifier. None is
+answered alone - a rule that cannot clear the bar by itself proposes, and
+the verifier disposes. The thresholds are geometric priors calibrated
+on the four Craig angles' geo-podcast M3
+(`data/vep-structured-footage-query/eval/diag_720_m3.json` in
+firstmate's home), not a measured recall bar: hand_raise 33 spans,
+object_pickup 81 and nod 33 per 1.51 h, against hand_near_mouth's 257.
+
 **Names.** A person is named by the project's declaration
 (`source.person_names`, `person_entity.declared_person_names`) when it
 makes one; otherwise by the speaker label the saved timeline transcript
@@ -100,6 +111,19 @@ silent empty answer would read as "this never happens in the footage"."""
 CANDIDATE_PREDICATES = {
     "hand_near_mouth": "M3 hand joint within HAND_CANDIDATE_MAX_DISTANCE "
                        "face widths of the lips (a candidate, not an answer)",
+    "hand_raise": "M3 hand joint risen HAND_RAISE_MIN_RISE face heights "
+                  "within HAND_RAISE_WINDOW frames, ending above the face's "
+                  "centre (a candidate, not an answer)",
+    "nod": "M3 face centre's vertical peak-to-peak displacement of "
+           "NOD_MIN_DISPLACEMENT face heights within NOD_WINDOW frames, "
+           "reversing direction (a candidate, not an answer)",
+    "object_pickup": "M3 hand joint risen PICKUP_MIN_RISE face heights "
+                     "within PICKUP_WINDOW frames, from below the face's "
+                     "bottom to above it (a candidate, not an answer)",
+    "person_enters": "an M3b face track's first frames, with the frame "
+                     "before them (a candidate, not an answer)",
+    "person_leaves": "an M3b face track's last frames, with the frame "
+                     "after them (a candidate, not an answer)",
 }
 """Predicates M7 records as CANDIDATES: too imprecise to answer alone,
 cheap enough to propose spans that `--verify` puts to the local VLM."""
@@ -139,6 +163,41 @@ the four Craig angles (17 labelled events): <= 1.25 reaches 14/17
 events, 1.5 reaches 16/17 at 257 spans, 2.0 adds none - a looser cutoff
 than any rule that answers alone, because the verifier throws the false
 ones away. `data/vep-query-hit-verification/eval/` (firstmate's home)."""
+
+HAND_RAISE_MIN_RISE = 0.25
+"""A hand_raise CANDIDATE: the highest confident hand joint rises at
+least this many face heights within HAND_RAISE_WINDOW frames and ends
+above the face's vertical centre - a hand lifted into the air, not one
+that merely moved. A geometric prior calibrated on the four Craig
+angles' geo-podcast M3 (33 spans per 1.51 h,
+`data/vep-structured-footage-query/eval/diag_720_m3.json` in firstmate's
+home), not a measured recall bar - the verifier throws the false ones."""
+
+HAND_RAISE_WINDOW = 4
+"""Frames a hand_raise spans at the M2 cadence (~2 s)."""
+
+NOD_MIN_DISPLACEMENT = 0.4
+"""A nod CANDIDATE: the face centre's vertical peak-to-peak displacement
+within NOD_WINDOW consecutive frames of the same track reaches this
+many face heights, with the motion reversing direction - a nod is
+down-then-up, not a one-way lean. 33 spans per 1.51 h on the Craig
+angles."""
+
+NOD_WINDOW = 4
+"""Frames a nod spans at the M2 cadence."""
+
+PICKUP_MIN_RISE = 0.45
+"""An object_pickup CANDIDATE: a hand rises at least this many face
+heights within PICKUP_WINDOW frames, from below the face's bottom to
+above it - the arc of lifting something up from a table or lap. 81
+spans per 1.51 h on the Craig angles."""
+
+PICKUP_WINDOW = 6
+"""Frames an object_pickup spans at the M2 cadence (~3 s)."""
+
+ENTER_LEAVE_FRAMES = 3
+"""Run frames a person_enters/person_leaves span shows the VLM, beside
+the frame on the far side of the boundary - the transition it judges."""
 
 STATUS_BUILT = "built"
 
@@ -247,16 +306,84 @@ def assign_face_tracks(m3: dict, identity: dict) -> List[List[Optional[str]]]:
     return out
 
 
+def _track_runs(assignment: List[List[Optional[str]]]
+                ) -> Dict[str, List[Tuple[int, int, int]]]:
+    """{track_id: [(first_index, last_index, hit_count), ...]} - the runs
+    of frames each track is present, bridging SPAN_GAP_FRAMES."""
+    out: Dict[str, List[Tuple[int, int, int]]] = {}
+    for track_id in _all_tracks(assignment):
+        hits = [track_id in row for row in assignment]
+        out[track_id] = runs(hits)
+    return out
+
+
 def on_screen_spans(m3: dict, assignment: List[List[Optional[str]]]) -> List[dict]:
     """Per face track, the runs of frames that track's face is in."""
     times = [f["t"] for f in m3["frames"]]
     spans = []
-    for track_id in sorted({t for row in assignment for t in row if t}):
-        hits = [track_id in row for row in assignment]
-        for first, last, count in runs(hits):
+    for track_id, track_runs in _track_runs(assignment).items():
+        for first, last, count in track_runs:
             start, end = span_bounds(times, first, last)
             spans.append({"face_track": track_id, "start": start, "end": end,
                           "frames": count})
+    return spans
+
+
+def person_enters_candidates(m3: dict, assignment: List[List[Optional[str]]]
+                              ) -> List[dict]:
+    """Per face track, a CANDIDATE at each run's first frame: the track
+    appears, so the person may have entered. The span shows the VLM the
+    frame before the run (the scene without them) plus the run's first
+    ENTER_LEAVE_FRAMES frames - the transition it judges. Never an
+    answer: a re-detection after occlusion or a cut proposes the same
+    span, and the VLM disposes."""
+    times = [f["t"] for f in m3["frames"]]
+    half = frame_spacing(times) / 2.0
+    spans = []
+    for track_id, track_runs in _track_runs(assignment).items():
+        for first, last, _count in track_runs:
+            shown = ([first - 1] if first > 0 else [])
+            shown += list(range(first, min(first + ENTER_LEAVE_FRAMES, last + 1)))
+            frames = []
+            for d, i in enumerate(shown):
+                face = _face_of_track(m3["frames"][i], assignment[i], track_id)
+                frames.append({"index": i, "t": times[i], "d": float(d),
+                               "box": face["box"] if face else None})
+            spans.append({"face_track": track_id,
+                          "start": round(max(0.0, times[shown[0]] - half), 3),
+                          "end": round(times[shown[-1]] + half, 3),
+                          "frames": frames})
+    return spans
+
+
+def person_leaves_candidates(m3: dict, assignment: List[List[Optional[str]]]
+                             ) -> List[dict]:
+    """Per face track, a CANDIDATE at each run's last frame: the track
+    disappears, so the person may have left. The span shows the VLM the
+    run's last ENTER_LEAVE_FRAMES frames plus the frame after them (the
+    scene without them) - the transition it judges. Never an answer: a
+    brief occlusion or a cut proposes the same span, and the VLM
+    disposes."""
+    times = [f["t"] for f in m3["frames"]]
+    half = frame_spacing(times) / 2.0
+    last_index = len(times) - 1
+    spans = []
+    for track_id, track_runs in _track_runs(assignment).items():
+        for first, last, _count in track_runs:
+            shown = list(range(max(first, last - ENTER_LEAVE_FRAMES + 1),
+                               last + 1))
+            if last < last_index:
+                shown.append(last + 1)
+            frames = []
+            for i in shown:
+                face = _face_of_track(m3["frames"][i], assignment[i], track_id)
+                d = 0.0 if i == last + 1 else float(last - i + 1)
+                frames.append({"index": i, "t": times[i], "d": d,
+                               "box": face["box"] if face else None})
+            spans.append({"face_track": track_id,
+                          "start": round(max(0.0, times[shown[0]] - half), 3),
+                          "end": round(times[shown[-1]] + half, 3),
+                          "frames": frames})
     return spans
 
 
@@ -366,6 +493,90 @@ def hand_mouth_distance(face: dict, hands: Sequence[dict],
     return best
 
 
+def _spans_from_hits(per_track: Dict[str, Dict[int, dict]],
+                     times: Sequence[float]) -> List[dict]:
+    """Candidate spans out of per-track hit frames: runs of frames (see
+    `runs`), each carrying its per-frame evidence (`d`, `box`)."""
+    spans = []
+    for track_id, frames in sorted(per_track.items()):
+        hits = [i in frames for i in range(len(times))]
+        for first, last, _count in runs(hits):
+            start, end = span_bounds(times, first, last)
+            spans.append({"face_track": track_id, "start": start, "end": end,
+                          "frames": [frames[i] for i in range(first, last + 1)
+                                     if i in frames]})
+    return spans
+
+
+def _face_of_track(frame: dict, row: List[Optional[str]],
+                   track_id: str) -> Optional[dict]:
+    """The face a track is assigned to in one frame, or None."""
+    for face, assigned in zip(frame["faces"], row):
+        if assigned == track_id:
+            return face
+    return None
+
+
+def _face_verticals(face: dict) -> Tuple[float, float, float]:
+    """(top, centre, bottom) of a face box, image-normalised."""
+    x1, y1, x2, y2 = face["box"]
+    return y1, (y1 + y2) / 2.0, y2
+
+
+def _hand_top_y(frame: dict) -> Optional[float]:
+    """The highest confident hand joint's y (smallest y is highest), or
+    None with no confident joint. M3 does not link hands to faces, so
+    every hand in the frame is evidence for every face track in it - the
+    verifier throws the false ones away."""
+    ys = [y for hand in frame["hands"] for x, y, c in hand["joints"].values()
+          if c >= HAND_JOINT_MIN_CONFIDENCE]
+    return min(ys) if ys else None
+
+
+def _hand_rises(m3: dict, window: int) -> List[Optional[float]]:
+    """Per frame index, the rise of the highest hand joint over the
+    previous `window` frames (positive is up), None without a confident
+    hand at both ends."""
+    frames = m3["frames"]
+    rises: List[Optional[float]] = [None] * len(frames)
+    for i in range(window, len(frames)):
+        before = _hand_top_y(frames[i - window])
+        now = _hand_top_y(frames[i])
+        if before is not None and now is not None:
+            rises[i] = before - now
+    return rises
+
+
+def _motion_spans(m3: dict, assignment: List[List[Optional[str]]],
+                  hit_flags: Dict[str, List[bool]], window: int) -> List[dict]:
+    """Candidate spans for a motion predicate. `hit_flags[track]` marks
+    the frames where the motion completed; each run of hits becomes a
+    span covering `window` lead-in frames before the run's first hit
+    (the motion's start) through its last hit, every frame carrying
+    `d = |i - first_hit|` so the verifier is shown the transition the
+    motion is, not only its end state."""
+    times = [f["t"] for f in m3["frames"]]
+    spans = []
+    for track_id in sorted(hit_flags):
+        flags = hit_flags[track_id]
+        for first, last, _count in runs(flags):
+            lo = max(0, first - window)
+            frames = []
+            for i in range(lo, last + 1):
+                face = _face_of_track(m3["frames"][i], assignment[i], track_id)
+                frames.append({"index": i, "t": times[i],
+                               "d": float(abs(i - first)),
+                               "box": face["box"] if face else None})
+            start, end = span_bounds(times, lo, last)
+            spans.append({"face_track": track_id, "start": start, "end": end,
+                          "frames": frames})
+    return spans
+
+
+def _all_tracks(assignment: List[List[Optional[str]]]) -> List[str]:
+    return sorted({t for row in assignment for t in row if t})
+
+
 def hand_at_mouth_candidates(m3: dict, assignment: List[List[Optional[str]]]
                              ) -> List[dict]:
     """Per face track, runs of frames whose hand-to-lips distance is under
@@ -386,15 +597,109 @@ def hand_at_mouth_candidates(m3: dict, assignment: List[List[Optional[str]]]
             if held is None or d < held["d"]:
                 per_track[track_id][i] = {"index": i, "t": times[i],
                                           "d": round(d, 3), "box": face["box"]}
-    spans = []
-    for track_id, frames in sorted(per_track.items()):
-        hits = [i in frames for i in range(len(times))]
-        for first, last, _count in runs(hits):
-            start, end = span_bounds(times, first, last)
-            spans.append({"face_track": track_id, "start": start, "end": end,
-                          "frames": [frames[i] for i in range(first, last + 1)
-                                     if i in frames]})
-    return spans
+    return _spans_from_hits(per_track, times)
+
+
+def hand_raise_candidates(m3: dict, assignment: List[List[Optional[str]]]
+                          ) -> List[dict]:
+    """Per face track, runs of frames where a hand rose
+    `HAND_RAISE_MIN_RISE` face heights within `HAND_RAISE_WINDOW` frames
+    and ended above the face's vertical centre - a hand lifted into the
+    air, not one that merely moved. A CANDIDATE for `--verify`, never an
+    answer: the rule proposes, the VLM disposes."""
+    times = [f["t"] for f in m3["frames"]]
+    rises = _hand_rises(m3, HAND_RAISE_WINDOW)
+    hit_flags: Dict[str, List[bool]] = {t: [False] * len(times)
+                                        for t in _all_tracks(assignment)}
+    for i, (frame, row) in enumerate(zip(m3["frames"], assignment)):
+        rise = rises[i]
+        if rise is None:
+            continue
+        top_now = _hand_top_y(frame)
+        for face, track_id in zip(frame["faces"], row):
+            if track_id is None:
+                continue
+            top, centre, bottom = _face_verticals(face)
+            face_height = bottom - top
+            if face_height <= 0 or rise < HAND_RAISE_MIN_RISE * face_height:
+                continue
+            if top_now >= centre:
+                continue
+            hit_flags[track_id][i] = True
+    return _motion_spans(m3, assignment, hit_flags, HAND_RAISE_WINDOW)
+
+
+def nod_candidates(m3: dict, assignment: List[List[Optional[str]]]
+                   ) -> List[dict]:
+    """Per face track, runs of frames where the face centre's vertical
+    peak-to-peak displacement within `NOD_WINDOW` consecutive frames of
+    the same track reaches `NOD_MIN_DISPLACEMENT` face heights, with the
+    motion reversing direction - a nod is down-then-up, not a one-way
+    lean. A CANDIDATE for `--verify`, never an answer."""
+    times = [f["t"] for f in m3["frames"]]
+    per_track: Dict[str, Dict[int, dict]] = {}
+    for i, (frame, row) in enumerate(zip(m3["frames"], assignment)):
+        for face, track_id in zip(frame["faces"], row):
+            if track_id is None:
+                continue
+            top, centre, bottom = _face_verticals(face)
+            per_track.setdefault(track_id, {})[i] = {
+                "cy": centre, "h": bottom - top, "box": face["box"]}
+    hit_flags: Dict[str, List[bool]] = {t: [False] * len(times)
+                                        for t in _all_tracks(assignment)}
+    for track_id, frames in per_track.items():
+        for i in sorted(frames):
+            window = list(range(i - NOD_WINDOW, i + 1))
+            if any(j not in frames for j in window):
+                continue
+            values = [frames[j]["cy"] for j in window]
+            mean_h = sum(frames[j]["h"] for j in window) / len(window)
+            if mean_h <= 0:
+                continue
+            p2p = max(values) - min(values)
+            if p2p < NOD_MIN_DISPLACEMENT * mean_h:
+                continue
+            steps = [values[k + 1] - values[k] for k in range(len(values) - 1)]
+            if not (any(s > 0 for s in steps) and any(s < 0 for s in steps)):
+                continue
+            hit_flags[track_id][i] = True
+    return _motion_spans(m3, assignment, hit_flags, NOD_WINDOW)
+
+
+def object_pickup_candidates(m3: dict, assignment: List[List[Optional[str]]]
+                             ) -> List[dict]:
+    """Per face track, runs of frames where a hand rose
+    `PICKUP_MIN_RISE` face heights within `PICKUP_WINDOW` frames, from
+    below the face's bottom to above it - the arc of lifting something
+    up from a table or lap. A CANDIDATE for `--verify`, never an answer:
+    the rule proposes, the VLM disposes."""
+    times = [f["t"] for f in m3["frames"]]
+    rises = _hand_rises(m3, PICKUP_WINDOW)
+    hit_flags: Dict[str, List[bool]] = {t: [False] * len(times)
+                                        for t in _all_tracks(assignment)}
+    for i, (frame, row) in enumerate(zip(m3["frames"], assignment)):
+        rise = rises[i]
+        if rise is None:
+            continue
+        before = m3["frames"][i - PICKUP_WINDOW]
+        top_before = _hand_top_y(before)
+        top_now = _hand_top_y(frame)
+        for face, track_id in zip(frame["faces"], row):
+            if track_id is None:
+                continue
+            top, centre, bottom = _face_verticals(face)
+            face_height = bottom - top
+            if face_height <= 0 or rise < PICKUP_MIN_RISE * face_height:
+                continue
+            face_before = _face_of_track(before, assignment[i - PICKUP_WINDOW],
+                                         track_id)
+            if face_before is None:
+                continue
+            before_bottom = _face_verticals(face_before)[2]
+            if top_before <= before_bottom or top_now >= bottom:
+                continue
+            hit_flags[track_id][i] = True
+    return _motion_spans(m3, assignment, hit_flags, PICKUP_WINDOW)
 
 
 # ── building M7 ─────────────────────────────────────────────────────
@@ -441,7 +746,28 @@ def build_source_events(content_digest: str, source_file: str,
                 "basis": f"M3 hand joint within {HAND_CANDIDATE_MAX_DISTANCE} "
                          f"face widths of the lips; a CANDIDATE for "
                          f"`--verify`, never an answer",
-                "spans": hand_at_mouth_candidates(m3, assignment)},
+                "spans": hand_at_mouth_candidates(m3, assignment),
+            },
+            "hand_raise": {
+                "basis": CANDIDATE_PREDICATES["hand_raise"],
+                "spans": hand_raise_candidates(m3, assignment),
+            },
+            "nod": {
+                "basis": CANDIDATE_PREDICATES["nod"],
+                "spans": nod_candidates(m3, assignment),
+            },
+            "object_pickup": {
+                "basis": CANDIDATE_PREDICATES["object_pickup"],
+                "spans": object_pickup_candidates(m3, assignment),
+            },
+            "person_enters": {
+                "basis": CANDIDATE_PREDICATES["person_enters"],
+                "spans": person_enters_candidates(m3, assignment),
+            },
+            "person_leaves": {
+                "basis": CANDIDATE_PREDICATES["person_leaves"],
+                "spans": person_leaves_candidates(m3, assignment),
+            },
         },
         "built_at": datetime.datetime.now(datetime.timezone.utc).isoformat(
             timespec="seconds"),
@@ -454,8 +780,8 @@ def build_source_events(content_digest: str, source_file: str,
             "faces_unassigned": faces_total - faces_assigned,
             **{name: len(body["spans"])
                for name, body in record["predicates"].items()},
-            "hand_near_mouth_candidates": len(
-                record["candidates"]["hand_near_mouth"]["spans"]),
+            **{f"{name}_candidates": len(body["spans"])
+               for name, body in record["candidates"].items()},
             "voice_face_links": {link["voice_track"]: link["face_track"]
                                  for link in links}}
 
@@ -779,6 +1105,13 @@ def query(project_folder: str, person_query: str, predicate: str,
                          f"ren search <project> --person <name> --predicate "
                          f"{predicate} --verify \"<what you see>\"; or "
                          f"answerable alone: {', '.join(PREDICATES)}")
+    if predicate in CANDIDATE_PREDICATES:
+        raise RenRefusal(
+            f"predicate {predicate!r} is a candidate, not an answer",
+            CANDIDATE_PREDICATES[predicate],
+            f"ren search <project> --person <name> --predicate "
+            f"{predicate} --verify \"<what you see>\"; answerable alone: "
+            f"{', '.join(PREDICATES)}")
     if predicate not in PREDICATES:
         raise RenRefusal(f"unknown predicate {predicate!r}",
                          f"M7 measures: {', '.join(PREDICATES)}",

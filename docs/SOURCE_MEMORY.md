@@ -343,6 +343,20 @@ decode, no model, no lock.
   the lips, with each frame's distance `d` and face box - a looser cutoff
   that reaches 16/17 events at 257 spans on the Craig angles, for the
   VLM to verify (M8). Candidates are never an answer.
+- `hand_raise`, `nod`, `object_pickup`, `person_enters` and
+  `person_leaves` are candidates too, each a cheap geometric rule over
+  M3 hand/face geometry or M3b face-track runs: a hand risen
+  `HAND_RAISE_MIN_RISE` face heights within `HAND_RAISE_WINDOW` frames
+  and ending above the face's centre; a face centre's vertical
+  peak-to-peak displacement of `NOD_MIN_DISPLACEMENT` face heights that
+  reverses direction; a hand risen `PICKUP_MIN_RISE` face heights from
+  below the face's bottom to above it; a face track's first frames (with
+  the frame before them) and last frames (with the frame after them).
+  The thresholds are geometric priors calibrated on the Craig angles'
+  geo-podcast M3 (`data/vep-structured-footage-query/eval/diag_720_m3.json`
+  in firstmate's home), not a measured recall bar - the VLM disposes.
+  Motion and boundary spans carry `d` relative to the transition so the
+  verifier is shown the transition, not only its end state.
 
 ```sh
 python3 -m library.tools.event_spans build <project>
@@ -367,6 +381,9 @@ candidate spans - never on a whole episode. One VLM call per span: up to
 `MAX_FRAMES_PER_SPAN` (4) whole M2 frames (all of a short span, else the
 four with the smallest candidate distance), a fixed prompt
 (`PROMPT_VERSION`) stating the caller's statement about "the person".
+The statement may describe a state (a hand near the mouth) or an event (a
+person entering); v2 of the prompt asks about the sequence of frames
+too, because an event is a transition no single frame contains.
 
 ```json
 {"content_digest": "sha256 hex",
