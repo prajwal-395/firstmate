@@ -348,6 +348,27 @@ def close_entry(project_folder, entry: dict, *, after_timeline: Any,
     entry["status"] = STATUS_APPLIED
     entry["applied_at"] = _now()
     write_entry(project_folder, entry)
+    # The touch half of the per-reel edit history
+    # (`library/tools/reel_edit_history.py`): a touch-up promoted in
+    # place, with the journal that can reverse it. Never-fail
+    # instrumentation - a history write cannot fail the touch it
+    # instruments, and the touch's own journal stays the way back.
+    try:
+        from library.tools import reel_edit_history as _history
+
+        _history.try_record_ren_act(
+            os.path.join(project_folder, "pipeline_output", "review"),
+            entry["final"], act=_history.ACT_TOUCH,
+            summary=(f"Ren touch-up on {entry['final']} "
+                     f"(version {version['version']}, "
+                     f"journal {entry['id']})"),
+            refs={"version": version["version"],
+                  "journal": entry["id"],
+                  "rows_digest_after": version.get("rows_digest"),
+                  **({"batch": entry["batch"]} if entry.get("batch")
+                     else {})})
+    except Exception:  # noqa: BLE001 - history never fails a touch
+        pass
     return entry
 
 
@@ -1150,6 +1171,26 @@ def _undo_touch_connected(project_folder, entry, connect,
     receipt["version"] = version["version"]
     receipt["signature_closed"] = reel_touchup.close_signature(
         project_folder, project, final)
+    # The undo half of the per-reel edit history
+    # (`library/tools/reel_edit_history.py`): the touch reversed in
+    # place, naming the version it reversed. Never-fail
+    # instrumentation, like every other history hook.
+    try:
+        from library.tools import reel_edit_history as _history
+
+        _history.try_record_ren_act(
+            os.path.join(project_folder, "pipeline_output", "review"),
+            final, act=_history.ACT_UNDO,
+            summary=(f"Ren undo on {final} "
+                     f"(version {version['version']} reverses "
+                     f"version {entry.get('version')}, "
+                     f"journal {entry['id']})"),
+            refs={"version": version["version"],
+                  "undoes": entry.get("version"),
+                  "journal": entry["id"],
+                  "rows_digest_after": version.get("rows_digest")})
+    except Exception:  # noqa: BLE001 - history never fails an undo
+        pass
     entry["status"] = STATUS_UNDONE
     entry["undo"] = {**receipt, "at": _now()}
     write_entry(project_folder, entry)

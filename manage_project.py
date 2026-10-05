@@ -1910,6 +1910,19 @@ def cmd_drift(args):
     if report.get("error"):
         print(f"drift: {report['error']}", file=sys.stderr)
         sys.exit(2)
+    # A drift detection without a trace is the gap this history
+    # exists to close: file one manual-edit entry per reel the
+    # comparison proves moved (`library/tools/reel_edit_history.py`).
+    # This writes project history, never Resolve - the REPORTS/never
+    # repairs contract above still holds.
+    try:
+        from library.tools import reel_edit_history as _history
+
+        _history.record_drift_findings(
+            str((Path(project_folder) / "pipeline_output" / "review")),
+            report)
+    except Exception:  # noqa: BLE001 - history never fails drift
+        pass
     if report.get("drifted") or report.get("unreadable"):
         sys.exit(1)
 

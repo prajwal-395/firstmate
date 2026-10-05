@@ -1326,8 +1326,32 @@ def test_provenance_rewrite_differs_only_in_built_at(tmp_path):
     first_built, second_built = first.pop("built_at"), second.pop("built_at")
     first_reel_built = first.pop("built_at_reels")
     second_reel_built = second.pop("built_at_reels")
+    # The per-reel edit history is the one record that MUST grow: a
+    # rebuild is a new build act, filed append-only
+    # (`library/tools/reel_edit_history.py`). Everything else stands
+    # still, because the verifier grades the staging against it.
+    first_history = first.pop("reel_edit_history")
+    second_history = second.pop("reel_edit_history")
     assert first == second, (
         "provenance moved more than its timestamp across a rebuild")
+    assert first_built != second_built, (
+        "expected the cosmetic built_at re-stamp; without it this test "
+        "proves nothing about what differs")
+    assert first_reel_built != second_reel_built, (
+        "the rebuilt reel's own stamp must refresh too - a per-reel "
+        "stamp that stood still would be the file-level one wearing "
+        "per-reel clothes")
+    first_entries = first_history["Reel 09 - test"]
+    second_entries = second_history["Reel 09 - test"]
+    assert len(second_entries) == len(first_entries) + 1, (
+        "a rebuild files exactly one new build entry - anything else "
+        "is an overwrite wearing append-only clothes")
+    assert second_entries[:len(first_entries)] == first_entries, (
+        "the rebuild must not rewrite the entries already filed")
+    newcomer = second_entries[-1]
+    assert (newcomer["actor"], newcomer["act"]) == ("ren", "build")
+    assert (newcomer["plan_version"]["plan_content_hash"]
+            == second["plan_content_hash"])
     assert first_built != second_built, (
         "expected the cosmetic built_at re-stamp; without it this test "
         "proves nothing about what differs")

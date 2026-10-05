@@ -10090,9 +10090,10 @@ def _record_reel_versions(project_folder: str, rows_by_final: dict,
     plan = proposal_path(project_folder)
     moments = ({moment.timeline_name: moment.as_dict() for moment in
                 read_proposal(str(plan))} if plan.exists() else {})
-    built_with = dict((read_provenance(os.path.join(
-        project_folder, "pipeline_output", "review")) or {}).get(
-            "built_with") or {})
+    provenance = (read_provenance(os.path.join(
+        project_folder, "pipeline_output", "review")) or {})
+    built_with = dict(provenance.get("built_with") or {})
+    review_dir = os.path.join(project_folder, "pipeline_output", "review")
     written = []
     for final, rows in sorted(rows_by_final.items()):
         undoes = _versions.take_pending_rollback(project_folder, final)
@@ -10106,6 +10107,44 @@ def _record_reel_versions(project_folder: str, rows_by_final: dict,
         if undoes is not None:
             _versions.mark_undone(project_folder, final, undoes,
                                   entry["version"])
+        # The promotion half of the per-reel edit history
+        # (`library/tools/reel_edit_history.py`): the build entry was
+        # filed at build time under the staging name and moved here by
+        # the promotion rename; this files the promotion itself, with
+        # the version number and rows digest that prove what landed.
+        # Never-fail instrumentation: a history write cannot fail the
+        # promotion it instruments.
+        try:
+            from library.tools import reel_edit_history as _history
+
+            act = (_history.ACT_ROLLBACK if undoes is not None
+                   else _history.ACT_PROMOTION)
+            _history.try_record_ren_act(
+                review_dir, final, act=act,
+                summary=(f"Ren {'rollback' if undoes is not None
+                                          else 'promotion'} of {final} "
+                         f"(version {entry['version']}"
+                         + (f", round {round_number}"
+                            if round_number is not None else "")
+                         + (f", rolls back version {undoes}"
+                            if undoes is not None else "") + ")"),
+                plan_version={
+                    "plan_content_hash": provenance.get(
+                        "plan_content_hash"),
+                    "caption_hash": (provenance.get("caption_hashes")
+                                     or {}).get(final),
+                    "footage_binding_hash": (
+                        provenance.get("footage_binding_hashes")
+                        or {}).get(final),
+                    "built_with": built_with.get(final),
+                },
+                refs={"version": entry["version"],
+                      "round": round_number,
+                      "rows_digest_after": entry.get("rows_digest"),
+                      **({"undoes": undoes} if undoes is not None
+                         else {})})
+        except Exception:  # noqa: BLE001 - history never fails promotion
+            pass
         written.append(entry)
     return written
 

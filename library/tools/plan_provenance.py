@@ -472,6 +472,34 @@ def _write_provenance_unlocked(
     editor_timelines = dict(existing.get(EDITOR_TIMELINES_KEY) or {})
     adopted_timelines = dict(existing.get(ADOPTED_TIMELINES_KEY) or {})
     carried_edits = dict(existing.get(CARRIED_EDITS_KEY) or {})
+    # The per-reel edit history (`library/tools/reel_edit_history.py`)
+    # is orthogonal to the plan the same way the snapshot table is: a
+    # plan change drops the plan-scoped entries above, but a reel's
+    # history is carried whole in both branches. A build that dropped
+    # it would delete the change account as a side effect of recording
+    # anything else. This build's own act is appended per reel below,
+    # merged like every other per-reel map here.
+    from library.tools import reel_edit_history as _history
+
+    history_doc = {_history.HISTORY_KEY: dict(
+        existing.get(_history.HISTORY_KEY) or {})}
+    for name in reel_names:
+        _history.append_entries(
+            history_doc, name,
+            [_history.make_entry(
+                name, actor=_history.ACTOR_REN, act=_history.ACT_BUILD,
+                summary=(f"Ren build from plan {content_hash[:16]}..."),
+                plan_version={
+                    "plan_content_hash": content_hash,
+                    "caption_hash": captions.get(name),
+                    "footage_binding_hash": bindings.get(name),
+                    "built_with": code_hash,
+                    "built_at": now,
+                },
+                refs={"plan_content_hash": content_hash},
+                at=now)],
+        )
+    history_table = history_doc[_history.HISTORY_KEY]
 
     doc = {
         "plan_path": os.path.abspath(plan_path),
@@ -515,6 +543,12 @@ def _write_provenance_unlocked(
         EDITOR_TIMELINES_KEY: editor_timelines,
         ADOPTED_TIMELINES_KEY: adopted_timelines,
         CARRIED_EDITS_KEY: carried_edits,
+        # Per reel, oldest first, append-only: every Ren build,
+        # promotion and touch plus the captain's recorded manual edits
+        # (`library/tools/reel_edit_history.py`). Carried whole across
+        # plan changes like the snapshot table - a plan change does not
+        # un-build a timeline, and must not delete its history either.
+        _history.HISTORY_KEY: history_table,
     }
     if superseded:
         doc["superseded_plan_hash"] = superseded
@@ -568,6 +602,31 @@ def rename_reel_entries(review_dir: str, mapping: dict[str, str]) -> None:
             if old in snapshots_table:
                 snapshots_table[new] = snapshots_table.pop(old)
         doc[SNAPSHOT_PROVENANCE_KEY] = snapshots_table
+    # The edit history is keyed by live timeline name too: the build
+    # entries filed under the staging container move with the
+    # promotion, so the reel's history follows it to its final name.
+    # Entries filed under a final name that is itself renamed move the
+    # same way; entries for reels outside `mapping` stay exactly as
+    # they are. Histories that collide under one final name (a staging
+    # and an older final generation) are concatenated oldest-first -
+    # both happened to this reel, and dropping either would be the
+    # overwrite this history exists to end.
+    from library.tools import reel_edit_history as _history
+
+    if _history.HISTORY_KEY in doc:
+        history_table = dict(doc.get(_history.HISTORY_KEY) or {})
+        for old, new in mapping.items():
+            if old == new or old not in history_table:
+                continue
+            moved = list(history_table.pop(old))
+            existing = list(history_table.get(new) or [])
+            merged = existing + [e for e in moved
+                                 if e.get("id") not in
+                                 {x.get("id") for x in existing}]
+            merged.sort(key=lambda e: (str(e.get("at") or ""),
+                                        str(e.get("id") or "")))
+            history_table[new] = merged
+        doc[_history.HISTORY_KEY] = history_table
     path.write_text(json.dumps(doc, indent=2), encoding="utf-8")
 
 

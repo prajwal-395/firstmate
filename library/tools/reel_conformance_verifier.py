@@ -5208,6 +5208,64 @@ def _derive_word_coverage(reel_snapshot,
             "currency": currency}
 
 
+def _attribute_plan_mismatch_to_recorded_edit(
+        reel_name: str, mismatch: List[Finding],
+        edit_history) -> List[Finding]:
+    """Report a recorded manual edit AS the edit, not as a PLAN-MISMATCH.
+
+    The captain, 2026-10-05 (Reel 28: plan 1978 frames vs timeline 1403;
+    Reel 26: plan 1022 vs 1104): a timeline the captain edited by hand
+    after the plan no longer matches the plan Ren derives, and nothing
+    could tell that from an unexplained divergence. `edit_history` is
+    that reel's ordered history
+    (`library/tools/reel_edit_history.py::history_for`); when its
+    newest manual edit after Ren's last act explains the frame delta,
+    the error finding is replaced by a WARNING naming the edit - its
+    time, what it changed, and which history entry filed it. The
+    timeline is as the captain left it, so it does not fail the gate;
+    it stays visible, so it is never silent. What nothing recorded
+    explains keeps its error unchanged.
+    """
+    if not mismatch or not edit_history:
+        return mismatch
+    from library.tools import reel_edit_history as _history
+
+    delta = None
+    try:
+        detail = (mismatch[0].detail or {})
+        delta = (detail.get("delta_frames")
+                 if detail.get("delta_frames") is not None else None)
+    except Exception:  # noqa: BLE001 - unattributed without a delta
+        delta = None
+    edit = _history.attribute_plan_mismatch(edit_history, delta)
+    if edit is None:
+        return mismatch
+    planned = (mismatch[0].detail or {}).get("planned_frames")
+    carried = (mismatch[0].detail or {}).get("timeline_frames")
+    delta_words = (f"{delta:+d} frames" if delta is not None
+                   else "a different frame count")
+    return [Finding(
+        finding_class=FindingClass.PLAN_MISMATCH,
+        reel=reel_name,
+        message=(
+            f"the plan re-derived for this reel lays down {planned} "
+            f"frames and the picture on the timeline carries {carried} "
+            f"({delta_words}): this is the captain's recorded manual "
+            f"edit, not an unexplained divergence - {edit['at']}, "
+            f"{edit['summary']} (history entry {edit['id']}). The "
+            f"timeline is as the captain left it; Ren did not place "
+            f"these frames, and nothing here reverts them."),
+        severity="warning",
+        detail={
+            **(mismatch[0].detail or {}),
+            "attributed_to": edit["id"],
+            "edit_at": edit["at"],
+            "edit_actor": edit["actor"],
+            "edit_summary": edit["summary"],
+        },
+    )]
+
+
 def verify_reel(plan: ReelPlan,
                 timeline: ReelTimeline,
                 transcript_segments: Optional[Sequence[dict]] = None,
@@ -5229,11 +5287,18 @@ def verify_reel(plan: ReelPlan,
                  draw_gain: float = None,
                  word_coverage: Optional[dict] = None,
                  expected_speakers: Optional[int] = None,
+                 edit_history=None,
                  ) -> ReelResult:
     from library.tools.resolve_transform import FALLBACK_DRAW_GAIN
     if draw_gain is None:
         draw_gain = FALLBACK_DRAW_GAIN
     """Run all checks on one reel and return the result.
+
+    `edit_history` is this reel's ordered edit history
+    (`library/tools/reel_edit_history.py::history_for`) or None. When
+    given, a PLAN-MISMATCH frame disagreement a recorded manual edit
+    explains is reported AS that edit (naming it) instead of as an
+    unexplained error. None grades exactly as before.
 
     `master_video_items` is what `check_plan_picture_continuity` measures
     against - every video item on the MASTER, as dicts. It returns
@@ -5287,6 +5352,10 @@ def verify_reel(plan: ReelPlan,
         card_frames=(0 if span_present
                      else sum(c.duration_frames for c in plan.cards)),
         held_frames=plan.held_frames)
+    # A mismatch a recorded manual edit explains is reported AS that
+    # edit - naming it - instead of as an unexplained PLAN-MISMATCH.
+    not_this_plan = _attribute_plan_mismatch_to_recorded_edit(
+        plan.reel_name, not_this_plan, edit_history)
     findings.extend(not_this_plan)
     if not not_this_plan:
         findings.extend(check_item_count(
@@ -7270,6 +7339,21 @@ def run_verification(
         print("  REFUSED: skipping all reel checks (plan mismatch).",
               file=err)
     else:
+        # One read of every reel's edit history, before the loop: a
+        # plan-versus-timeline mismatch a recorded manual edit explains
+        # is reported AS that edit (naming it) instead of as an
+        # unexplained PLAN-MISMATCH. Best-effort - an unreadable
+        # history grades exactly as before, never a refusal.
+        edit_histories: dict = {}
+        try:
+            from library.tools import reel_edit_history as _history
+
+            for _reel in [t.GetName() for t in reel_timelines]:
+                edit_histories[_reel] = _history.history_for(
+                    effective_review_dir, _reel)
+        except Exception:  # noqa: BLE001 - history never fails verify
+            edit_histories = {}
+
         def grade_one(name, snap):
             """Grade one timeline snapshot against the matched moment.
 
@@ -7366,7 +7450,8 @@ def run_verification(
                 expected_frame=expected_frame,
                 draw_gain=draw_gain,
                 word_coverage=word_coverage,
-                expected_speakers=declared_speaker_count)
+                expected_speakers=declared_speaker_count,
+                edit_history=edit_histories.get(name))
 
         for tl in reel_timelines:
             name = tl.GetName()
