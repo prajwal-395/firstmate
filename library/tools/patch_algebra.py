@@ -38,10 +38,14 @@ concurrency - never looser, because a scheduler that trusts the looser
 one lets a lost update through. `problems()` is that check, run by
 `library/tools/contract_audit.py`.
 
-Today no operation ripples and none is `ordered`, so `serialize` and
-`rebase` are reached only through a capability that declares them; the
-verdicts exist so the operation that needs one does not have to invent
-its own.
+The algebra's ripple ops (`clip.ripple`, `clip.slide`, `retime`,
+`retime.segments`, `span_retime`) are declared `ripple`, and a
+capability that owns one declares `temporal_effect="ripple"` on its
+`PatchSemantics` - `reel.touchup` does, so `rebase` is reachable
+through a real declaration and `carry` re-spans a later patch onto the
+head. No operation is `ordered`, so `serialize` is still reached only
+through a capability that declares it; the verdicts exist so the
+operation that needs one does not have to invent its own.
 
 `tests/unit/resolve/test_edit_patch.py`.
 """
@@ -156,11 +160,15 @@ def carry(patch: edit_patch.EditPatch, store: shadow.ShadowStore,
     on the head and its preconditions hold there.
     """
     moved = patch
-    base_snap = store.snapshot(store.get(project, timeline_id,
-                                         patch.base_generation))
+    rows = store.since_with_snapshots(project, timeline_id,
+                                      since=patch.base_generation)
+    if not rows:
+        raise shadow.ShadowError(
+            f"no generation {patch.base_generation} of timeline "
+            f"{timeline_id!r} in project {project!r}")
+    base_snap = rows[0][1]
     head = None
-    for gen in store.history(project, timeline_id,
-                             after=patch.base_generation):
+    for gen, head_snap in rows[1:]:
         head = gen
         if gen.source == shadow.OBSERVED:
             return None, (f"generation {gen.generation} is a change nobody "
@@ -170,7 +178,6 @@ def carry(patch: edit_patch.EditPatch, store: shadow.ShadowStore,
         if found.verdict == CONFLICT:
             return None, (f"generation {gen.generation} (patch "
                           f"{gen.patch['id']!r}): {found.reason}")
-        head_snap = store.snapshot(gen)
         if found.verdict == REBASE:
             moved = _respan(moved, gen.patch, base_snap, head_snap)
         moved = replace(moved, base_generation=gen.generation)

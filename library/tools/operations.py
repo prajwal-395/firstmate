@@ -1546,6 +1546,11 @@ _REGISTRY: tuple[Operation, ...] = (
                 freshness=FRESHNESS_TIMELINE_GENERATION,
                 why="A touch-up is committed against one named timeline generation."),),
             patch=PatchSemantics(
+                # `retime.segments` changes a clip's duration, so it
+                # shifts every later clip on the row: it is the one
+                # ripple op with a native apply, and the capability
+                # declares ripple - so a later patch addressing a moved
+                # clip rebases onto the head instead of conflicting.
                 operations=("marker.add", "marker.delete", "clip_marker.add",
                             "clip_marker.delete", "clip.set_enabled",
                             "clip.set_property", "clip.smart_reframe",
@@ -1553,7 +1558,7 @@ _REGISTRY: tuple[Operation, ...] = (
                             # The edit algebra's patch-executor ops: link
                             # and unlink move linked items together, and the
                             # track rows are added, deleted, renamed and
-                            # reordered in place. All local: none ripples.
+                            # reordered in place.
                             "clip.link", "clip.unlink",
                             "track.add", "track.delete", "track.rename",
                             "track.reorder",
@@ -1569,7 +1574,7 @@ _REGISTRY: tuple[Operation, ...] = (
                             "grade.node_set"),
                 conflict_domains=("markers", "timeline_structure",
                                   "picture_transform", "color"),
-                temporal_effect="local", merge_semantics="exclusive")),
+                temporal_effect="ripple", merge_semantics="exclusive")),
     ),
     Operation(
         name="reel.entry_motion",

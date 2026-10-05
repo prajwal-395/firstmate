@@ -234,6 +234,29 @@ class ShadowStore:
                 (project, timeline_id, after)).fetchall()
         return [_row_to_generation(r) for r in rows]
 
+    def since_with_snapshots(self, project: str, timeline_id: str,
+                             since: int = 0) -> list[tuple]:
+        """Every generation `since` or newer, oldest first, with bodies.
+
+        One joined read, the `current_snapshots` pattern: a generation
+        row and its body share the same query view, so a concurrent
+        append cannot pair a generation with another's snapshot. A
+        generation whose body is missing raises, as `snapshot` does.
+        """
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT g.*, s.body FROM generations g LEFT JOIN snapshots"
+                " s ON s.hash=g.hash WHERE g.project=? AND g.timeline_id=?"
+                " AND g.generation>=? ORDER BY g.generation",
+                (project, timeline_id, since)).fetchall()
+        out = []
+        for row in rows:
+            if row["body"] is None:
+                raise ShadowError(
+                    f"snapshot {row['hash']} is missing")
+            out.append((_row_to_generation(row), json.loads(row["body"])))
+        return out
+
     def current_snapshots(self, project: str | None = None) -> list[tuple]:
         """Heads and bodies from one SQLite read snapshot.
 

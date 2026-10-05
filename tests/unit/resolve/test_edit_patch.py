@@ -3,6 +3,7 @@
 from __future__ import annotations
 from dataclasses import replace
 import pytest
+import time
 from library.tools import capabilities, edit_patch, patch_algebra
 from library.tools import timeline_shadow as shadow
 from library.tools.resolve_lock import assume_sole_writer
@@ -268,8 +269,11 @@ def test_a_stale_patch_rebases_past_patches_whose_writes_do_not_meet(world):
 
     meeting = _patch("marker-too", base.generation, [
         {"op": "marker.delete", "frame": 40}], ["markers"], [[40, 41]])
+    # The pair also meets on ('marker', 40) under `exclusive`, but the
+    # ripple branch is the temporal pre-check and answers first: the
+    # delete's frame address is past where the add's patch ripples from.
     with pytest.raises(edit_patch.StalePatch,
-                       match=r"both write \['marker', 40\]"):
+                       match=r"a frame does not move with the cut"):
         edit_patch.rebase(meeting, store)
 
 
@@ -312,6 +316,73 @@ def test_a_frame_addressed_write_past_a_ripple_conflicts(world, monkeypatch):
         patch_algebra.CONFLICT
     assert patch_algebra.compose(ripple, by_id, snap).verdict == \
         patch_algebra.REBASE
+
+
+def test_a_clip_addressed_write_past_a_ripple_rebases_through_carry(world):
+    """Defect: a ripple edit composed with a later frame-addressed edit
+    conflicts even when the later edit's target is a clip that did move
+    - `rebase` was dead code, reachable only by monkeypatching the
+    registry, because no capability declared ripple. Now `reel.touchup`
+    declares it and `carry` re-spans the later patch onto the head.
+    """
+    project, timeline, item, store, base = world
+    ripple = _patch("cut", base.generation, [
+        {"op": "marker.add", "frame": 10, "color": "Blue", "name": "c"}],
+        ["markers"], [[10, 20]])
+    receipt = _apply(ripple, project, timeline, store)
+    assert receipt["status"] == "committed", receipt
+
+    by_id = _patch("z", base.generation, [
+        {"op": "clip.set_property", "unique_id": item.GetUniqueId(),
+         "key": "ZoomX", "value": 1.2}], ["picture_transform"], [[0, 48]])
+    moved, reason = patch_algebra.carry(
+        edit_patch.EditPatch.from_dict(by_id), store, "Podcast",
+        base.timeline_id)
+    assert moved is not None, reason
+    assert moved.affected_spans == ((0, 48),)
+    assert _apply(moved, project, timeline, store)["status"] == "committed"
+    assert item.GetProperty("ZoomX") == 1.2
+
+    marker = _patch("m", base.generation, [
+        {"op": "marker.add", "frame": 30, "color": "Red", "name": "m"}],
+        ["markers"], [[30, 31]])
+    moved, reason = patch_algebra.carry(
+        edit_patch.EditPatch.from_dict(marker), store, "Podcast",
+        base.timeline_id)
+    assert moved is None
+    assert "a frame does not move with the cut" in reason
+
+
+def test_compose_and_carry_stay_under_a_millisecond_per_op_pair(world):
+    """Defect: the scheduler's critical path - `compose` and `carry` -
+    costing more than the Resolve hold they plan. The gap's performance
+    requirement: < 1 ms per op pair, pure Python, 1000 composed pairs.
+    """
+    project, timeline, item, store, base = world
+    snap = store.snapshot(base)
+    ripple = _patch("cut", base.generation, [
+        {"op": "marker.add", "frame": 10, "color": "Blue", "name": "c"}],
+        ["markers"], [[10, 20]])
+    laters = [_patch(f"m{i}", base.generation, [
+        {"op": "clip.set_property", "unique_id": item.GetUniqueId(),
+         "key": "ZoomX", "value": 1.2}], ["picture_transform"], [[0, 48]])
+        for i in range(1000)]
+
+    start = time.monotonic()
+    for later in laters:
+        patch_algebra.compose(ripple, later, snap)
+    per_compose = (time.monotonic() - start) / len(laters)
+    assert per_compose < 0.001, per_compose
+
+    assert _apply(ripple, project, timeline, store)["status"] == "committed"
+    start = time.monotonic()
+    for later in laters:
+        moved, reason = patch_algebra.carry(
+            edit_patch.EditPatch.from_dict(later), store, "Podcast",
+            base.timeline_id)
+        assert moved is not None, reason
+    per_carry = (time.monotonic() - start) / len(laters)
+    assert per_carry < 0.001, per_carry
 
 
 def test_a_declaration_looser_than_its_operations_is_caught():
