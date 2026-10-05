@@ -1,0 +1,939 @@
+{
+  "$defs": {
+    "Animation": {
+      "description": "One renderer-neutral animation.\n\n``target`` is the node id. ``property`` is a dot-separated path into\nthe node's state (``opacity``, ``transform.scale``, ``color``,\n``transform.translate``, ``blur``, ``clip``, ``width``, ``height``,\n``shader.<uniform>``, ``camera.<parameter>``). ``start`` and\n``duration`` are seconds on the scene clock.",
+      "properties": {
+        "target": {
+          "title": "Target",
+          "type": "string"
+        },
+        "property": {
+          "title": "Property",
+          "type": "string"
+        },
+        "from_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "title": "From Value"
+        },
+        "to_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "title": "To Value"
+        },
+        "start": {
+          "title": "Start",
+          "type": "number"
+        },
+        "duration": {
+          "title": "Duration",
+          "type": "number"
+        },
+        "easing": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LinearEasing"
+            },
+            {
+              "$ref": "#/$defs/EaseEasing"
+            },
+            {
+              "$ref": "#/$defs/CubicBezierEasing"
+            },
+            {
+              "$ref": "#/$defs/SpringEasing"
+            },
+            {
+              "$ref": "#/$defs/StepsEasing"
+            }
+          ],
+          "title": "Easing"
+        }
+      },
+      "required": [
+        "target",
+        "property",
+        "from_value",
+        "to_value",
+        "start",
+        "duration",
+        "easing"
+      ],
+      "title": "Animation",
+      "type": "object"
+    },
+    "AudioContent": {
+      "description": "The content of an Audio reference node.",
+      "properties": {
+        "src": {
+          "title": "Src",
+          "type": "string"
+        },
+        "start": {
+          "default": 0.0,
+          "title": "Start",
+          "type": "number"
+        },
+        "duration": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duration"
+        }
+      },
+      "required": [
+        "src"
+      ],
+      "title": "AudioContent",
+      "type": "object"
+    },
+    "Bounds": {
+      "description": "A node's bounding box in delivery-frame pixels.",
+      "properties": {
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        },
+        "width": {
+          "title": "Width",
+          "type": "number"
+        },
+        "height": {
+          "title": "Height",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "width",
+        "height"
+      ],
+      "title": "Bounds",
+      "type": "object"
+    },
+    "CubicBezierEasing": {
+      "description": "A cubic bezier easing, the CSS ``cubic-bezier()`` function.",
+      "properties": {
+        "kind": {
+          "const": "cubic_bezier",
+          "default": "cubic_bezier",
+          "title": "Kind",
+          "type": "string"
+        },
+        "x1": {
+          "title": "X1",
+          "type": "number"
+        },
+        "y1": {
+          "title": "Y1",
+          "type": "number"
+        },
+        "x2": {
+          "title": "X2",
+          "type": "number"
+        },
+        "y2": {
+          "title": "Y2",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x1",
+        "y1",
+        "x2",
+        "y2"
+      ],
+      "title": "CubicBezierEasing",
+      "type": "object"
+    },
+    "EaseEasing": {
+      "description": "Power ease-out: ``1 - (1 - t) ** power``.\n\n``power=1`` is linear. ``power=2`` is the quadratic out the subtitle\nentry scale draws (GSAP ``power1.out``). ``power=3`` is the cubic out\nthe word-cue rise draws (GSAP ``power2.out``).",
+      "properties": {
+        "kind": {
+          "const": "ease",
+          "default": "ease",
+          "title": "Kind",
+          "type": "string"
+        },
+        "power": {
+          "default": 2.0,
+          "title": "Power",
+          "type": "number"
+        }
+      },
+      "title": "EaseEasing",
+      "type": "object"
+    },
+    "EffectContent": {
+      "description": "The content of an Effect node.",
+      "properties": {
+        "effect": {
+          "title": "Effect",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": true,
+          "title": "Params",
+          "type": "object"
+        }
+      },
+      "required": [
+        "effect"
+      ],
+      "title": "EffectContent",
+      "type": "object"
+    },
+    "FilterContent": {
+      "description": "The content of a Filter node.",
+      "properties": {
+        "filter": {
+          "title": "Filter",
+          "type": "string"
+        },
+        "amount": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Amount"
+        }
+      },
+      "required": [
+        "filter"
+      ],
+      "title": "FilterContent",
+      "type": "object"
+    },
+    "ImageContent": {
+      "description": "The content of an Image node. ``src`` is a file path or URL.",
+      "properties": {
+        "src": {
+          "title": "Src",
+          "type": "string"
+        },
+        "alt": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Alt"
+        }
+      },
+      "required": [
+        "src"
+      ],
+      "title": "ImageContent",
+      "type": "object"
+    },
+    "LinearEasing": {
+      "description": "No easing: progress equals time.",
+      "properties": {
+        "kind": {
+          "const": "linear",
+          "default": "linear",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "title": "LinearEasing",
+      "type": "object"
+    },
+    "Node": {
+      "description": "One node in the scene graph.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/$defs/NodeType"
+        },
+        "transform": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Transform"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "opacity": {
+          "default": 1.0,
+          "title": "Opacity",
+          "type": "number"
+        },
+        "bounds": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Bounds"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "z_index": {
+          "default": 0,
+          "title": "Z Index",
+          "type": "integer"
+        },
+        "mask": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mask"
+        },
+        "clip": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Clip"
+        },
+        "blend": {
+          "default": "normal",
+          "title": "Blend",
+          "type": "string"
+        },
+        "timing": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Timing"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "animations": {
+          "items": {
+            "$ref": "#/$defs/Animation"
+          },
+          "title": "Animations",
+          "type": "array"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TextContent"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "shape": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ShapeContent"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "image": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ImageContent"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "svg": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SVGContent"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "shader": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ShaderContent"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "filter": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FilterContent"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "effect": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EffectContent"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "audio": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AudioContent"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "children": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Children",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "type"
+      ],
+      "title": "Node",
+      "type": "object"
+    },
+    "NodeType": {
+      "description": "The node types the IR can express.\n\nThe five standard compositions exercise Scene, Ground, Group, Text,\nShape, Image and SVG. Camera, Video, Shader, Mask, Filter, Effect and\nAudio are modelled so a future composition needs no IR extension.",
+      "enum": [
+        "scene",
+        "camera",
+        "ground",
+        "group",
+        "text",
+        "shape",
+        "image",
+        "video",
+        "svg",
+        "shader",
+        "mask",
+        "filter",
+        "effect",
+        "audio"
+      ],
+      "title": "NodeType",
+      "type": "string"
+    },
+    "SVGContent": {
+      "description": "The content of an SVG node.",
+      "properties": {
+        "viewBox": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Viewbox"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "fill": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fill"
+        }
+      },
+      "title": "SVGContent",
+      "type": "object"
+    },
+    "ShaderContent": {
+      "description": "The content of a Shader node. Uniforms are renderer-neutral names.",
+      "properties": {
+        "uniforms": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Uniforms",
+          "type": "object"
+        }
+      },
+      "title": "ShaderContent",
+      "type": "object"
+    },
+    "ShapeContent": {
+      "description": "The content of a Shape node.",
+      "properties": {
+        "shape": {
+          "title": "Shape",
+          "type": "string"
+        },
+        "fill": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fill"
+        },
+        "stroke": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stroke"
+        },
+        "stroke_width": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stroke Width"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        }
+      },
+      "required": [
+        "shape"
+      ],
+      "title": "ShapeContent",
+      "type": "object"
+    },
+    "SpringEasing": {
+      "description": "Spring physics easing.\n\nThe same analytic damped-harmonic-oscillator integrator Remotion's\n``spring()`` and HyperFrames' ``_spring_calculation`` use, so every\nengine draws the same curve from the same parameters.",
+      "properties": {
+        "kind": {
+          "const": "spring",
+          "default": "spring",
+          "title": "Kind",
+          "type": "string"
+        },
+        "stiffness": {
+          "title": "Stiffness",
+          "type": "number"
+        },
+        "damping": {
+          "title": "Damping",
+          "type": "number"
+        },
+        "mass": {
+          "title": "Mass",
+          "type": "number"
+        }
+      },
+      "required": [
+        "stiffness",
+        "damping",
+        "mass"
+      ],
+      "title": "SpringEasing",
+      "type": "object"
+    },
+    "StepsEasing": {
+      "description": "Stepped easing: the value holds for ``steps`` equal intervals.\n\n``direction=\"end\"`` steps at the end of each interval (the value\nchanges on the frame). ``direction=\"start\"`` steps at the beginning.",
+      "properties": {
+        "kind": {
+          "const": "steps",
+          "default": "steps",
+          "title": "Kind",
+          "type": "string"
+        },
+        "steps": {
+          "title": "Steps",
+          "type": "integer"
+        },
+        "direction": {
+          "default": "end",
+          "enum": [
+            "start",
+            "end"
+          ],
+          "title": "Direction",
+          "type": "string"
+        }
+      },
+      "required": [
+        "steps"
+      ],
+      "title": "StepsEasing",
+      "type": "object"
+    },
+    "TextContent": {
+      "description": "The content of a Text node.\n\n``font_file`` is the path to the font file, so every engine draws the\nsame face. ``font_family`` is the family name for engines that need\none. Colours are project data, never defaults.",
+      "properties": {
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "font_family": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Font Family"
+        },
+        "font_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Font File"
+        },
+        "font_size": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Font Size"
+        },
+        "font_weight": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Font Weight"
+        },
+        "color": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Color"
+        },
+        "text_align": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text Align"
+        },
+        "line_height": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Line Height"
+        },
+        "letter_spacing": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Letter Spacing"
+        },
+        "text_transform": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text Transform"
+        },
+        "text_shadow": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text Shadow"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "TextContent",
+      "type": "object"
+    },
+    "Timing": {
+      "description": "A node's visibility window on the scene clock.\n\nThe engine's ``.clip`` mechanism in the HyperFrames compositions and\nthe ``isLive`` filter in the Remotion compositions both window a node\nto ``[start, start + duration)``. Outside the window the node draws\nnothing.",
+      "properties": {
+        "start": {
+          "default": 0.0,
+          "title": "Start",
+          "type": "number"
+        },
+        "duration": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duration"
+        }
+      },
+      "title": "Timing",
+      "type": "object"
+    },
+    "Transform": {
+      "description": "A 2D transform, renderer-neutral.\n\nTranslate is in pixels of the delivery frame. Rotate is degrees.\nScale is a multiplier (1.0 is rest). Skew is degrees.",
+      "properties": {
+        "translate": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Translate"
+        },
+        "rotate": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rotate"
+        },
+        "scale": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scale"
+        },
+        "skew": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Skew"
+        }
+      },
+      "title": "Transform",
+      "type": "object"
+    }
+  },
+  "description": "A complete scene: the renderer-neutral description of one composition.",
+  "properties": {
+    "version": {
+      "default": 1,
+      "title": "Version",
+      "type": "integer"
+    },
+    "fps": {
+      "title": "Fps",
+      "type": "number"
+    },
+    "width": {
+      "title": "Width",
+      "type": "integer"
+    },
+    "height": {
+      "title": "Height",
+      "type": "integer"
+    },
+    "duration": {
+      "title": "Duration",
+      "type": "number"
+    },
+    "nodes": {
+      "items": {
+        "$ref": "#/$defs/Node"
+      },
+      "title": "Nodes",
+      "type": "array"
+    }
+  },
+  "required": [
+    "fps",
+    "width",
+    "height",
+    "duration"
+  ],
+  "title": "Scene",
+  "type": "object"
+}
