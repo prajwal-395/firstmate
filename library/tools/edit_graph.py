@@ -557,9 +557,23 @@ def _emit_aroll_nodes(graph: dict, state: dict) -> None:
         })
 
 
+def _broll_entries(state: dict, key: str) -> list:
+    """One B-roll list a capability's record holds, in either spelling.
+
+    Step 3.02 emits the two lists bare (`{"b_roll_assignments": [...]}`);
+    a record written before that, or a hand-built state, may wrap the
+    list under its own key. Both spellings are read, so a B-roll decision
+    is never invisible because of the shape it arrived in - the same
+    pattern `_transitions` uses for `transition_spec`.
+    """
+    value = capability_outputs.value(state, BROLL_RESOLVE, key, None)
+    if isinstance(value, list):
+        return value
+    return _as_list(_as_dict(value).get(key))
+
+
 def _emit_broll_nodes(graph: dict, state: dict) -> None:
-    broll = capability_outputs.value(state, BROLL_RESOLVE, "b_roll_assignments", None)
-    for assignment in _as_list(_as_dict(broll).get("b_roll_assignments")):
+    for assignment in _broll_entries(state, "b_roll_assignments"):
         position = _block_position(assignment)
         if not position:
             continue
@@ -581,9 +595,7 @@ def _emit_broll_nodes(graph: dict, state: dict) -> None:
                 "timeline_end": assignment.get("timeline_end"),
             },
         })
-    interjections = capability_outputs.value(
-        state, BROLL_RESOLVE, "b_roll_interjections", None)
-    for index, interjection in enumerate(_as_list(_as_dict(interjections).get("b_roll_interjections"))):
+    for index, interjection in enumerate(_broll_entries(state, "b_roll_interjections")):
         assigned = _as_dict(interjection.get("assigned_clip"))
         add_node(graph, {
             "node_id": f"broll_interjection:{index}",
@@ -595,7 +607,15 @@ def _emit_broll_nodes(graph: dict, state: dict) -> None:
             "constraints": {},
             "depends_on": [],
             "payload": {
-                "spine_block_position": interjection.get("spine_block_position"),
+                # Step 3.02 keys the block an interjection covers
+                # `over_spine_block_position`; a record written before
+                # that, or a hand-built state, may use the assignment
+                # spelling. Both are read, so an interjection is never
+                # orphaned from its block because of the key it arrived
+                # under.
+                "spine_block_position": interjection.get(
+                    "over_spine_block_position",
+                    interjection.get("spine_block_position")),
                 "clip_id": assigned.get("clip_id"),
                 "video_in": assigned.get("video_in"),
                 "video_out": assigned.get("video_out"),

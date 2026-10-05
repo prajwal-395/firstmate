@@ -96,6 +96,7 @@ from library.tools.music_bed import describe as describe_music_bed
 from library.tools.music_bed import resolve_bed
 from tools.bookends import block_bookend
 from library.tools import cohesion_scope
+from library.tools import cross_department, edit_graph
 from library.tools.music_behavior import resolve_music_behavior
 from library.tools.transition_carriers import block_reaches_v1, v2_pair_at
 from library.tools.vfx_plan_basis import (
@@ -515,6 +516,29 @@ def load(out_dir, filename):
             return _read_json(legacy_path)
 
     return {}
+
+
+def _cross_department_conflicts(out_dir: str) -> list:
+    """The cross-department conflicts the edit graph finds in this run.
+
+    The graph is derived from the same `pipeline_data.json` every other
+    read comes from, so the constraints are checked against the run's
+    recorded decisions - the graph's nodes, edges and payloads - not
+    against raw specs. A run with no state, or no spine, has no graph
+    and no conflicts; that is an empty list, never an error.
+    """
+    state_path = str(ProjectLayout(
+        os.path.dirname(os.path.abspath(out_dir))).pipeline_data_path)
+    if not os.path.exists(state_path):
+        return []
+    try:
+        with open(state_path) as f:
+            state = json.load(f)
+    except (json.JSONDecodeError, IOError) as e:
+        print(f"  WARNING: could not read {state_path}: {e}", file=sys.stderr)
+        return []
+    graph = edit_graph.build_graph(state)
+    return cross_department.check_cross_department(graph)
 
 
 def _read_json(path: str):
@@ -1478,6 +1502,21 @@ def compile_manifest(out_dir: str, *, object_segmentation=None,
     
     # Cohesion review
     cohesion_data = load(out_dir, "creative_cohesion.json") or load(out_dir, "step_5_03.json")
+
+    # ── Cross-department constraints, checked against the edit graph ──
+    # Departments plan independently and merge here; this is the one
+    # pass that reads their decisions against each other. Each conflict
+    # is reported with the node that yields - the resolution the graph's
+    # dependency edges name - so a reader can tell which decision gave
+    # way, not just that two specs disagreed.
+    cross_department_conflicts = _cross_department_conflicts(out_dir)
+    for _conflict in cross_department_conflicts:
+        print(f"  Cross-department: {_conflict.reason}", file=sys.stderr)
+    _boundary_conflicts = {
+        str(_conflict.yields).rsplit(":", 1)[-1]: _conflict
+        for _conflict in cross_department_conflicts
+        if _conflict.constraint == cross_department.TRANSITION_BOUNDARY
+    }
 
     spine = spine_data.get("audio_spine", {})
     structure = spine.get("structure", [])
@@ -2620,6 +2659,29 @@ def compile_manifest(out_dir: str, *, object_segmentation=None,
     transitions_downgraded = []
     for t in transitions:
         raw_type = t.get("transition_type", "hard_cut")
+        # A drawn transition whose cut a B-roll interjection covers is
+        # invalidated by the picture, not by the track list: the graph
+        # names the interjection that covers the cut, and the transition
+        # yields to it. This is the cross-department resolution acting -
+        # the reason names the node that caused the yield, which the
+        # pairwise track check below cannot.
+        _boundary = _boundary_conflicts.get(str(t.get("cut_point_position", "")))
+        if _boundary is not None and not is_cut(raw_type):
+            transitions_downgraded.append({
+                "transition_id": t.get("transition_id", "?"),
+                "requested_type": raw_type,
+                "shipped_type": "hard_cut",
+                "reason": _boundary.reason,
+            })
+            print(
+                f"  Transition {t.get('transition_id', '?')} requested "
+                f"{raw_type!r}, shipping a hard cut: {_boundary.reason}",
+                file=sys.stderr,
+            )
+            t["transition_type"] = "hard_cut"
+            t["duration_frames"] = 0
+            _stamp_downgrade(t, raw_type, _boundary.reason)
+            continue
         native_type = native_canonical_type(raw_type)
         if native_type is not None:
             # A drawn-by-Resolve transition. It still needs a hold
@@ -3254,6 +3316,20 @@ def compile_manifest(out_dir: str, *, object_segmentation=None,
         # instead. Empty on any run whose plan came from step_4_02 at or
         # after the vocabulary was unified.
         "transitions_downgraded": transitions_downgraded,
+        # Cross-department constraints the edit graph found in this run's
+        # recorded decisions, each with the node that yields. Read by the
+        # run log and the reviewer; the transition loop acts on the
+        # transition_boundary conflicts (the yielding transition ships as
+        # a hard cut), the rest are reported, never a gate.
+        "cross_department_conflicts": [
+            {
+                "constraint": conflict.constraint,
+                "nodes": list(conflict.names),
+                "yields": conflict.yields,
+                "reason": conflict.reason,
+            }
+            for conflict in cross_department_conflicts
+        ],
         # Native Resolve operations (fidelity rung 3b): speed ops and
         # Resolve's own transitions, applied by the build's native
         # applicator (`library/tools/native_ops_apply.py`) and judged by
