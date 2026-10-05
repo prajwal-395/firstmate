@@ -2705,6 +2705,57 @@ def cmd_touch_master(args):
     print(f"  receipt: {receipt['receipt_path']}")
 
 
+def cmd_replay_ledger(args):
+    """Apply a recorded edit ledger to a timeline directly, without a build.
+
+    The standalone replay's verb: reads the project's edit ledger and
+    applies each row to the target timeline through the edit algebra,
+    journaled so `ren undo` can reverse it in place. The target is the
+    reel `--reel` names (or the master timeline with `--master`).
+    """
+    from library.tools import replay_ledger as _replay
+    from library.tools import run_control as _hold
+
+    project_folder = _reel_project_folder(args.project)
+    hold = _hold.hold_requested(project_folder)
+    if hold is not None:
+        raise RenRefusal(
+            f"the handbrake is engaged on this project "
+            f"({hold.get('requested_by', 'unknown')}: "
+            f"{hold.get('reason', '')})",
+            "a ledger replay under a held project could fight the holder",
+            "delete pipeline.hold at the project root (it records who "
+            "asked for it - check with them), then re-run "
+            "`ren replay-ledger`") from None
+
+    reel_name = ""
+    if getattr(args, "master", False):
+        from library.tools import master_touchup as _master
+        reel_name = _master.master_timeline_name(project_folder)
+    elif getattr(args, "reel", ""):
+        reel_name = str(args.reel)
+
+    try:
+        receipt = _replay.replay_ledger(
+            project_folder, reel_name=reel_name)
+    except _replay.ReplayLedgerRefused as refused:
+        print(refused.render(), file=sys.stderr)
+        sys.exit(REFUSAL_EXIT_CODE)
+    except _replay.ReplayLedgerError as failed:
+        print(f"FAILED: {failed}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"Replayed {receipt['reel']!r} "
+          f"({len(receipt['applied'])} row(s) applied)")
+    for applied in receipt.get("applied", []):
+        print(f"  - {applied.get('name', applied.get('op', ''))}")
+    for row in receipt.get("unreplayable", []):
+        print(f"  UNREPLAYABLE: {row.get('name', '')} - "
+              f"{row.get('reason', '')}")
+    print(f"  journal: {receipt.get('journal', '')}")
+    print(f"  seconds: {receipt.get('seconds', '?')}")
+
+
 def cmd_undo(args):
     """Reverse a Ren act on a reel: a touch IN PLACE, a rebuild by version.
 
@@ -3266,6 +3317,19 @@ def main():
              "timeline. An uncarried edit otherwise refuses promotion "
              "with its source and record ranges. Repeatable")
     touch_master_parser.set_defaults(func=cmd_touch_master)
+
+    replay_ledger_parser = _add_command(sub, "replay-ledger")
+    replay_ledger_parser.add_argument(
+        "project", help="Project slug, or an absolute path "
+                        "to the project directory")
+    replay_ledger_parser.add_argument(
+        "--reel", default="",
+        help="The reel timeline to replay onto (e.g. 'Reel 09 - hook'). "
+             "Omit to replay onto every reel in scope")
+    replay_ledger_parser.add_argument(
+        "--master", action="store_true",
+        help="Replay onto the master timeline instead of a reel")
+    replay_ledger_parser.set_defaults(func=cmd_replay_ledger)
 
     undo_parser = _add_command(sub, "undo")
     undo_parser.add_argument(

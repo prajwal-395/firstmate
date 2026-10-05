@@ -103,6 +103,8 @@ VERBS = (
           detail="Apply a structured change to a built reel's existing timeline through composed_edit, staged and verified"),
     Verb("touch-master", "Reels", "Apply a small change to the master timeline (a touch-up, not a rebuild)", subcommand="touch-master",
           detail="Apply a structured change to the master timeline's existing timeline through composed_edit, staged and verified"),
+    Verb("replay-ledger", "Reels", "Apply a recorded edit ledger to a timeline directly, without a build", subcommand="replay-ledger",
+          detail="Read the project's edit ledger and apply each row to the target timeline through the edit algebra, journaled so `ren undo` can reverse it"),
     Verb("undo", "Reels", "Undo a touch-up (in place) or rebuild (by version)", subcommand="undo",
           detail="Reverse a Ren act: a touch-up in place from its journal, a rebuild by rolling back to the version before it. "
                  "--act addresses any recorded act by id, not just the newest"),
