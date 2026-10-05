@@ -18,8 +18,11 @@ from ren import edition
 RESTRICTED = {
     "model.audio_flamingo_next",
     "model.insightface_buffalo_l",
-    "python.praat_parselmouth",
     "renderer.remotion",
+}
+
+PUBLIC_OPTIONAL = {
+    "python.praat_parselmouth",
 }
 
 
@@ -31,7 +34,10 @@ def test_each_inventory_component_has_one_stable_edition_tag():
     assert set(components) == {entry.id for entry in components.values()}
     assert {key for key, entry in components.items()
             if entry.edition == edition.PERSONAL_ONLY} == RESTRICTED
-    assert all(entry.edition in {edition.PUBLIC, edition.PERSONAL_ONLY}
+    assert {key for key, entry in components.items()
+            if entry.edition == edition.PUBLIC_OPTIONAL} == PUBLIC_OPTIONAL
+    assert all(entry.edition in {edition.PUBLIC, edition.PERSONAL_ONLY,
+                                 edition.PUBLIC_OPTIONAL}
                for entry in components.values())
 
 
@@ -121,7 +127,7 @@ def test_public_build_excludes_personal_only_components(tmp_path, monkeypatch):
         "renderer.remotion", root=built)
     assert not edition.component_allowed(
         "model.insightface_buffalo_l", root=built)
-    assert not edition.component_allowed(
+    assert edition.component_allowed(
         "python.praat_parselmouth", root=built)
     assert not edition.component_allowed(
         "model.audio_flamingo_next", root=built)
@@ -189,11 +195,13 @@ def test_runtime_loaders_refuse_personal_models_in_public(monkeypatch):
 
     with pytest.raises(FaceIdentityUnavailable, match="public edition"):
         _face_app()
-    with pytest.raises(speech_advanced_pipeline.ProsodyUnavailable,
-                       match="public edition"):
-        speech_advanced_pipeline.analyze_prosody("no-audio-read")
-    with pytest.raises(RuntimeError, match="public edition"):
-        sfx_pipeline.load_afnext_model()
+    assert edition.component_allowed(
+        "python.praat_parselmouth", root=ROOT)
+    assert edition.select_component(
+        "SFX profiling",
+        personal_component="model.audio_flamingo_next",
+        public_component="model.laion_clap",
+        root=ROOT) == "model.laion_clap"
 
 
 def test_public_graphics_select_hyperframes_and_refuse_remotion(monkeypatch):

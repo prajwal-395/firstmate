@@ -9,12 +9,17 @@ cannot change an installed build.
 ## Component policy
 
 `THIRD_PARTY_NOTICES` is the component registry. Every component row has a
-stable `component-id` and an `edition` value of `public` or
-`personal-only`. A public build omits personal-only `package-path` and
-`installer-path` entries and filters personal-only `requirement-ref`
-packages from the shipped requirements and lock files. Public asset
-`package-copy` rows describe files that must be staged outside a renderer
-directory that the public build omits.
+stable `component-id` and an `edition` value of `public`, `personal-only`, or
+`public-optional`. A public build omits personal-only `package-path` and
+`installer-path` entries and filters personal-only and public-optional
+`requirement-ref` packages from the shipped requirements and lock files.
+Public asset `package-copy` rows describe files that must be staged outside a
+renderer directory that the public build omits.
+
+`public-optional` marks a component whose engine code is shipped in both
+editions but whose pip dependency is not bundled in a public build. The user
+fetches and installs it separately; when absent, the capability reports
+unavailable and the pipeline continues without it.
 
 Runtime code calls `ren.edition.require_component` before a component is
 loaded or fetched. Providers that have both implementations call
@@ -29,20 +34,20 @@ name rather than touching the personal component.
 
 The alternatives being qualified plug in at these call sites:
 
-| Capability | Personal provider | Selector / loader |
-| --- | --- | --- |
-| Face identity | `model.insightface_buffalo_l` | `person_entity._face_app` |
-| Graphics rendering | `renderer.remotion` | `graphics_renderer.resolve_engine`; HyperFrames is already the public renderer |
-| SFX profiling | `model.audio_flamingo_next` | `sfx_pipeline.load_afnext_model` |
-| Prosody | `python.praat_parselmouth` | `speech_advanced_pipeline.analyze_prosody` |
+| Capability | Personal provider | Public provider | Selector / loader |
+| --- | --- | --- | --- |
+| Face identity | `model.insightface_buffalo_l` | (none qualified) | `person_entity._face_app` |
+| Graphics rendering | `renderer.remotion` | `renderer.hyperframes` | `graphics_renderer.resolve_engine` |
+| SFX profiling | `model.audio_flamingo_next` | `model.laion_clap` | `sfx_pipeline.load_afnext_model` |
+| Prosody | `python.praat_parselmouth` | `python.praat_parselmouth` (public-optional) | `speech_advanced_pipeline.analyze_prosody` |
 
-For the face, SFX and prosody alternatives, register the qualified public
-component in `THIRD_PARTY_NOTICES`, replace the `public_component=None`
-argument at the named selector, and dispatch to its loader. Keep the
-personal provider first in the personal edition. The Remotion gates in
-`remotion_batch`, subtitle rendering, motion graphics, bookends, timed text
-and reel headers prevent a public build from reaching an unsupported
-personal-only renderer fallback.
+For the face alternative, no public provider has qualified. For SFX, LAION-CLAP
+(Apache-2.0) is the public provider: it outputs AudioSet-style labels rather
+than free-text captions, qualified in
+`docs/evidence/public_audio_alternatives.md`. For prosody, praat-parselmouth
+(GPLv3) is public-optional: the public build does not bundle it, the user
+installs it separately, and the pipeline continues without prosody when it is
+absent.
 
 `ren doctor` reports the selected edition and the renderer route. It remains
 read-only: HyperFrames is fetched by the public render path after checking

@@ -26,6 +26,7 @@ from pathlib import Path
 PUBLIC = "public"
 PERSONAL = "personal"
 PERSONAL_ONLY = "personal-only"
+PUBLIC_OPTIONAL = "public-optional"
 EDITIONS = (PUBLIC, PERSONAL)
 EDITION_ENV = "REN_EDITION"
 NOTICE_FILE = "THIRD_PARTY_NOTICES"
@@ -136,7 +137,7 @@ def read_components(root: str | Path | None = None) -> dict[str, Component]:
         if _COMPONENT_ID.fullmatch(component_id) is None:
             raise EditionError(f"invalid component id {component_id!r} in {path}")
         edition = _one(fields, "edition", path)
-        if edition not in (PUBLIC, PERSONAL_ONLY):
+        if edition not in (PUBLIC, PERSONAL_ONLY, PUBLIC_OPTIONAL):
             raise EditionError(
                 f"component {component_id} has invalid edition {edition!r} in {path}")
         labels = fields.get("component", [])
@@ -203,7 +204,7 @@ def component_allowed(component_id: str, edition: str | None = None,
     """Whether an inventoried component can be used in the selected edition."""
     selected = _normalise_edition(edition) if edition is not None else current_edition(root)
     entry = component(component_id, root)
-    return selected == PERSONAL or entry.edition == PUBLIC
+    return selected == PERSONAL or entry.edition in (PUBLIC, PUBLIC_OPTIONAL)
 
 
 def require_component(component_id: str, *, action: str = "load",

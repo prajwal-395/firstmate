@@ -216,7 +216,7 @@ def _edition_policy(src: Path, edition: str) -> tuple[set[str], set[str], dict[s
     dependencies are personal-only. A public build filters those entries
     before writing its immutable tree.
     """
-    from ren.edition import PERSONAL_ONLY, read_components
+    from ren.edition import PERSONAL_ONLY, PUBLIC_OPTIONAL, read_components
 
     components = read_components(src)
     blocked_paths: set[str] = set()
@@ -230,6 +230,7 @@ def _edition_policy(src: Path, edition: str) -> tuple[set[str], set[str], dict[s
             for value in entry.installer_paths:
                 blocked_installers.add(
                     _safe_path(value, field="installer-path").as_posix())
+        if edition == "public" and entry.edition in (PERSONAL_ONLY, PUBLIC_OPTIONAL):
             for requirement_file, package in entry.requirement_refs:
                 requirement_path = _safe_path(
                     requirement_file, field="requirement-ref").as_posix()

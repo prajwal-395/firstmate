@@ -135,13 +135,15 @@ def load_afnext_model():
         provider = select_component(
             "SFX profiling",
             personal_component="model.audio_flamingo_next",
-            public_component=None)
+            public_component="model.laion_clap")
     except EditionError as exc:
         raise RuntimeError(str(exc)) from exc
+    require_component(provider, action="fetch or load")
+    if provider == "model.laion_clap":
+        return (*load_clap_model(), provider)
     if provider != "model.audio_flamingo_next":
         raise RuntimeError(
             f"SFX profiler {provider!r} has no model loader registered")
-    require_component(provider, action="fetch or load")
     from transformers import MusicFlamingoForConditionalGeneration, AutoProcessor, QuantoConfig
     import transformers.models.musicflamingo.modeling_musicflamingo as mf_module
 
@@ -183,7 +185,74 @@ def load_afnext_model():
 
     print("Skipping warmup (first file will be warmup).")
 
+    return model, processor, provider
+
+
+def load_clap_model():
+    """Load LAION-CLAP for the public edition's SFX profiling."""
+    import torch.nn.functional as F
+    from transformers import AutoProcessor, ClapModel
+
+    print("Loading LAION-CLAP model...")
+    model = ClapModel.from_pretrained("laion/clap-htsat-unfused")
+    model.eval()
+    if torch.backends.mps.is_available():
+        model = model.to("mps")
+    processor = AutoProcessor.from_pretrained("laion/clap-htsat-unfused")
+    print("LAION-CLAP loaded.")
     return model, processor
+
+
+def analyze_clap(audio_path, model, processor):
+    """Profile one SFX asset with CLAP; return a label-string description."""
+    import torch
+    import torch.nn.functional as F
+
+    try:
+        y, sr = librosa.load(audio_path, sr=48000)
+        inputs = processor(audio=[y], sampling_rate=48000, return_tensors="pt", padding=True)
+        device = next(model.parameters()).device
+        input_values = inputs["input_features"].to(device)
+        attention_mask = inputs.get("attention_mask")
+        if attention_mask is not None:
+            attention_mask = attention_mask.to(device)
+        with torch.no_grad():
+            audio_out = model.get_audio_features(input_values, attention_mask=attention_mask)
+            audio_embeds = audio_out.pooler_output if hasattr(audio_out, "pooler_output") else audio_out
+            audio_embeds = F.normalize(audio_embeds, dim=-1)
+
+        labels = _clap_candidate_labels()
+        text_inputs = processor(
+            text=[f"This is a sound of {label}." for label in labels],
+            return_tensors="pt", padding=True, truncation=True,
+        )
+        text_inputs = {k: v.to(device) for k, v in text_inputs.items()}
+        with torch.no_grad():
+            text_out = model.get_text_features(**text_inputs)
+            text_embeds = text_out.pooler_output if hasattr(text_out, "pooler_output") else text_out
+            text_embeds = F.normalize(text_embeds, dim=-1)
+        sims = (audio_embeds @ text_embeds.T)[0]
+        topk = torch.topk(sims, 5)
+        tags = [labels[int(i)] for i in topk.indices]
+        return ", ".join(tags)
+    except Exception as e:
+        print(f"Error in CLAP analysis for {audio_path}: {e}")
+        import traceback; traceback.print_exc()
+        return ""
+
+
+_CLAP_LABELS = None
+
+
+def _clap_candidate_labels():
+    """AudioSet label set used as CLAP zero-shot candidates (lazy-loaded)."""
+    global _CLAP_LABELS
+    if _CLAP_LABELS is None:
+        from transformers import AutoModelForAudioClassification
+        ast = AutoModelForAudioClassification.from_pretrained(
+            "MIT/ast-finetuned-audioset-10-10-0.4593")
+        _CLAP_LABELS = [ast.config.id2label[i] for i in sorted(ast.config.id2label)]
+    return _CLAP_LABELS
 
 def build_index(profiles_dir):
     from sentence_transformers import SentenceTransformer
@@ -282,9 +351,10 @@ def main():
     
     model = None
     processor = None
+    provider = None
     if not args.fast:
         try:
-            model, processor = load_afnext_model()
+            model, processor, provider = load_afnext_model()
         except RuntimeError as exc:
             print(f"SFX profiling refused: {exc}", file=__import__('sys').stderr)
             return 2
@@ -337,7 +407,10 @@ def main():
             
         description = ""
         if not args.fast:
-            description = analyze_afnext(file_path, model, processor)
+            if provider == "model.laion_clap":
+                description = analyze_clap(file_path, model, processor)
+            else:
+                description = analyze_afnext(file_path, model, processor)
             
         folder_category = os.path.basename(os.path.dirname(file_path))
         

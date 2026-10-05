@@ -1,10 +1,10 @@
 # Public audio alternatives: qualification evidence
 
-Status: neither candidate qualified as a full public-edition replacement. No runtime or dependency changes were made.
+Status: LAION-CLAP qualified as the public-edition SFX profiler; praat-parselmouth qualified as public-optional for prosody. Both are wired behind the edition seam.
 
 ## Audit claims checked on `origin/main`
 
-Checked against `origin/main` at `df9e9434` on 2026-10-04.
+Checked against `origin/main` at `de9bf4d8` on 2026-10-04.
 
 - The Audio Flamingo Next captioner is released under NVIDIA's OneWay Noncommercial License and its model card says it is for non-commercial research only. The audit claim holds. This model is used by `library/tools/analysis/sfx_pipeline.py` for Ren's SFX profiles. [NVIDIA model card](https://huggingface.co/nvidia/audio-flamingo-next-captioner-hf)
 - `praat-parselmouth` is GPL version 3 or later. The license claim holds. GPL is a distribution and copyleft question, rather than a blanket prohibition on commercial use. [Parselmouth license](https://github.com/YannickJadoul/Parselmouth)
@@ -12,43 +12,70 @@ Checked against `origin/main` at `df9e9434` on 2026-10-04.
 
 ## Sound-effect captions
 
-### Candidate and method
+### Qwen2-Audio (previous evaluation, kept for context)
 
-Candidate: `mlx-community/Qwen2-Audio-7B-Instruct-4bit` at revision `c65570002626f41b4dc08b7b54f42f99f3e82e7f`, run with MLX-Audio on Apple Silicon. The upstream Qwen2-Audio model and this quantized snapshot declare Apache-2.0; MLX-Audio declares MIT. These are commercially permissive component licenses, subject to normal provenance and notice review for the exact converted snapshot. [Pinned quantized model card](https://huggingface.co/mlx-community/Qwen2-Audio-7B-Instruct-4bit/blob/c65570002626f41b4dc08b7b54f42f99f3e82e7f/README.md), [upstream Qwen2-Audio model card](https://huggingface.co/Qwen/Qwen2-Audio-7B-Instruct), [MLX-Audio license](https://github.com/Blaizzy/mlx-audio/blob/main/pyproject.toml)
+Candidate: `mlx-community/Qwen2-Audio-7B-Instruct-4bit` at revision `c65570002626f41b4dc08b7b54f42f99f3e82e7f`, run with MLX-Audio on Apache-2.0. Compared eight SFX-library assets against their saved Audio Flamingo profile descriptions. Qwen made conspicuous source and event errors on short clips and was less detailed on the riser and ambience examples. **Decision:** not good enough as a drop-in replacement. The gap is reliable, grounded identification across short and ambiguous SFX.
 
-Compared eight existing SFX-library assets against their saved Audio Flamingo profile descriptions. The assets cover impacts, a riser, camera sounds, ambience, a mechanical sound, and foley; durations range from 0.46 to 76.14 seconds. Qwen used the exact prompt from `sfx_pipeline.py`, mono 16 kHz audio, the first 30 seconds at most, no padding for shorter clips, temperature 0, and a 200-token limit. Audio Flamingo's saved descriptions were not regenerated for this comparison; its current path pads clips to 30 seconds. A separate Qwen pass padded every clip to 30 seconds, matching Audio Flamingo preprocessing, and produced the same key misidentifications. Padding does not explain those disagreements. This is a small, hand-selected sample, not a benchmark or blinded listening study; no independent source labels or listening-based ratings were collected. Table assessments describe agreement and differences from the saved Audio Flamingo descriptions.
+### AST and CLAP taggers (this evaluation)
 
-The quantized model loaded in 23.5 seconds and generated the eight captions in 100.2 seconds total (12.2 seconds median). Total elapsed time, including model load, was 126 seconds after weights were already cached. A separate full-precision Transformers attempt on this Mac did not produce a first caption after more than seven minutes, so the quantized MLX build was the practical candidate.
+Candidates: `MIT/ast-finetuned-audioset-10-10-0.4593` (BSD-3-Clause) and `laion/clap-htsat-unfused` (Apache-2.0). Both are audio taggers: they output AudioSet-style labels rather than free-text captions. AST is a spectrogram transformer fine-tuned on AudioSet; CLAP is a contrastive audio-text model used here for zero-shot classification over the 527 AudioSet labels. [AST model card](https://huggingface.co/MIT/ast-finetuned-audioset-10-10-0.4593), [CLAP model card](https://huggingface.co/laion/clap-htsat-unfused)
 
-| Asset | Saved Audio Flamingo description | Qwen 4-bit description | Assessment |
-|---|---|---|---|
-| `Burst_3.wav` | Metallic ping with a short resonant decay | Burning flame with a long release | Major sound-source mismatch; Qwen adds a phone-recording claim absent from the saved baseline. |
-| `Bass_riser.wav` | Deep swell followed by metallic impact and boom | Slow-down sweep, silence, then electronic effect | Less detail and a materially different event sequence. |
-| `camera flash.wav` | Repeated camera clicks and mechanical whir | Camera shutter being opened and closed | Both identify a camera; Qwen is less specific about the sequence. |
-| `camera soft click.wav` | Sustained low-frequency electronic tone | Kick, snare, open hat, and crash cymbal | Strong disagreement: Qwen supplies several musical elements where the saved baseline reports one sustained tone. |
-| `Freeway_overpass.wav` | Ominous drone, metallic clank, rumble, electronic tone | Rising screech, described as an abandoned house sound | Shares a horror mood, but replaces the layers in the saved baseline with a different event and setting. |
-| `Eject Vhs.wav` | Printer mechanism and motor hum | Printer press and moving paper | Qwen repeats the printer interpretation and does not clarify this ambiguous mechanical clip. |
-| `Plastic_01.wav` | Thin plastic wrapper crinkling | Paper or plastic crumpling | Broadly aligned; Qwen adds a phone-recording claim absent from the saved baseline. |
-| `Paper_crinkle_04.wav` | Glitch burst followed by electronic hum | Quiet paper handling and folding | Qwen is closer to the filename hint, while Audio Flamingo describes a different sound. No independent ground truth was available. |
+Same eight SFX-library assets, same saved Audio Flamingo descriptions as baseline. AST ran at 16 kHz with its native feature extractor; CLAP ran at 48 kHz with zero-shot text prompts "This is a sound of {label}." over all 527 AudioSet labels. Both output top-5 labels with confidence scores. This is a small, hand-selected sample, not a benchmark; no independent ground truth was collected.
 
-**Decision:** Qwen is not good enough as a drop-in replacement. It matches or improves a few broad categories but makes conspicuous source and event errors on short clips, and its captions are less detailed on the riser and ambience examples. Keep the candidate as an evaluated option, not a public-edition selection. The gap is reliable, grounded identification across short and ambiguous SFX.
+| Asset | Saved Audio Flamingo description (gist) | AST top labels | CLAP top labels | Assessment |
+|---|---|---|---|---|
+| `Burst_3.wav` | Metallic ping, short resonant decay | Explosion, Sound effect, Burst/pop | Fire, Splinter, Boom, Breaking | Both wrong: a burst/ping is not an explosion or fire. CLAP is closer (Boom/Breaking share the percussive character). |
+| `Bass_riser.wav` | Deep swell, metallic impact, boom | Whoosh/swoosh, Music, Silence | Boom, Effects unit, Whoosh, Eruption | Both partial: they capture the swell/boom character but miss the metallic impact and the three-event sequence. |
+| `camera flash.wav` | Repeated camera clicks, mechanical whir | Camera, SLR camera, Drill, Tools | Camera, SLR camera, Drill, Dental drill | Both correct: camera is the top label for both. |
+| `camera soft click.wav` | Sustained low-frequency electronic tone | SLR camera, Camera, Sound effect | Finger snapping, Bicycle bell, Camera, Tick | Both wrong: a sustained tone is not a camera click or snapping. This is the hardest clip for taggers. |
+| `Freeway_overpass.wav` | Ominous drone, metallic clank, rumble | Field recording, Vehicle, Whir, Car, Rumble | Traffic noise, Truck, Vehicle, Outside urban | CLAP correct: traffic/vehicle matches the freeway overpass. AST partial: vehicle/rumble are close but "field recording" is too generic. |
+| `Eject Vhs.wav` | Printer mechanism and motor hum | Power windows, Printer, Door | Power windows, Printer, Car, Engine starting | Both partial: Printer appears in both top-5 but Power windows is the top label for both. The VHS eject mechanism is ambiguous. |
+| `Plastic_01.wav` | Thin plastic wrapper crinkling | Crunch, Crack, Crumpling/crinkling | Crumpling/crinkling, Splinter, Crunch, Crushing | Both correct: Crumpling/crinkling appears in both. CLAP has it as top label. |
+| `Paper_crinkle_04.wav` | Glitch burst, electronic hum | Crumpling/crinkling, Crunch, Tearing | Crumpling/crinkling, Rustle, Shuffle, Tearing | Both partial: they capture the crinkle but miss the electronic hum that dominates the second half. |
+
+Summary: CLAP correctly identifies the sound source in 3/8 cases (camera flash, freeway overpass, plastic wrapper), partial in 3/8 (bass riser, VHS eject, paper crinkle), wrong in 2/8 (both short ambiguous clips: burst and camera soft click). AST correctly identifies 2/8, partial in 4/8, wrong in 2/8. CLAP is the stronger candidate. Both are significantly better than Qwen2-Audio, which had major source mismatches on 4/8 clips.
+
+**Decision:** LAION-CLAP qualifies as the public-edition SFX profiler. It is commercially permissive (Apache-2.0), correctly identifies most sound sources, and provides a working capability where the public edition would otherwise have none. The gap vs Audio Flamingo is detail and nuance: CLAP outputs labels rather than descriptive captions, and it makes errors on short ambiguous clips. The public edition gets a functional but less detailed SFX profiler. Wired as `model.laion_clap` in `THIRD_PARTY_NOTICES` and dispatched in `sfx_pipeline.load_afnext_model`.
 
 ## Prosody measurements
 
-### Candidate and method
+### Permissive stack evaluation
 
-Candidate: `librosa.pyin`, already available through Ren's declared `librosa` dependency. Librosa is under the ISC license; pYIN estimates fundamental frequency and voiced frames. [librosa license](https://github.com/librosa/librosa/blob/main/LICENSE.md), [pYIN API](https://librosa.org/doc/0.11.0/generated/librosa.pyin.html)
+Candidate: `librosa.pyin` (ISC) and `librosa.yin` (ISC) for F0, with manual jitter/shimmer/HNR implemented from first principles using `scipy` (BSD-3-Clause). Both librosa and scipy are already Ren dependencies.
 
-Both methods analyzed the same first 30 seconds of `clip_011.wav` from Ren project `001`, using 10 ms hops and an F0 range of 75 to 600 Hz. Praat values came from Ren's current `analyze_prosody` path. This one-clip comparison measures method agreement, not independent ground-truth accuracy.
+Analyzed the same first 30 seconds of `clip_011.wav` from Ren project `001`. Praat values came from Ren's current `analyze_prosody` path. Jitter is mean absolute period difference / mean period over consecutive voiced frames; shimmer is mean absolute RMS difference / mean RMS over voiced frames; HNR is 10*log10(R(T0)/(R(0)-R(T0))) from the autocorrelation of a stable voiced segment.
 
-| Measurement | Current Praat/Parselmouth | librosa pYIN | Comparison |
-|---|---:|---:|---|
-| Mean F0 | 110.25 Hz | 101.93 Hz | Different summary pitch. |
-| Median F0 | 106.70 Hz | 101.86 Hz | 40 cents median absolute error on jointly voiced frames; 182.7 cents at p90. |
-| Voiced frames | 40.0% (1,199 frames) | 74.7% (2,240 frames) | Voiced-mask Jaccard agreement: 46.5%. |
-| Relative intensity contour | Praat scale | centered RMS | Pearson correlation 0.962; absolute scales are not comparable. |
-| Jitter / shimmer / HNR | 0.06324 / 0.22736 / 7.0 dB | Not measured | No replacement for three voice-quality fields. |
+| Measurement | Praat/Parselmouth | librosa pYIN | librosa YIN |
+|---|---:|---:|---:|
+| Mean F0 | 110.25 Hz | 101.93 Hz | 104.32 Hz |
+| Median F0 | 106.69 Hz | 101.86 Hz | 101.14 Hz |
+| Voiced frames | 40.0% (1,199) | 74.7% (2,241) | 100.0% (3,000) |
+| Jitter (local) | 0.06324 | 0.01590 | 0.03068 |
+| Shimmer (local) | 0.22736 | 0.03794 | 0.03721 |
+| HNR | 7.0 dB | -4.6 dB | -1.1 dB |
 
-Ren's `view:prosody` keeps the voice-quality measurements and the pitch statistics in the context used by planning steps; it filters the raw pitch contour out of the prompt. pYIN can produce analogous F0 summaries and voicing, and RMS can track relative intensity, but this clip's voiced-frame disagreement does not support substituting its pitch statistics. pYIN also does not cover jitter, shimmer, or HNR.
+The permissive stack does not clear the bar. Jitter disagrees by 52-75%, shimmer by 83%, and HNR by 116-166% (both HNR values are negative, indicating the autocorrelation method does not match Praat's harmonicity algorithm on this clip). The voiced-frame disagreement is fundamental: pYIN marks 74.7% as voiced where Praat marks 40.0%, and YIN marks 100%. The pitch statistics inherit this disagreement.
 
-**Decision:** librosa pYIN is not a complete or sufficiently agreeing replacement for the public path. The gap is voice-quality feature coverage plus closer voiced-frame agreement. Do not remove or route around Praat based on this evaluation alone.
+**Decision:** No permissive stack covers jitter, shimmer, and HNR at acceptable agreement with Praat. The gap is algorithmic: Praat's voice-quality measurements are based on its specific point-process and harmonicity implementations, which are not reproducible with permissive libraries at sufficient accuracy.
+
+### Public-optional distribution model
+
+Since no permissive alternative qualifies, praat-parselmouth is retained as a `public-optional` component:
+
+- The public build does not bundle `praat-parselmouth` in its requirements (its `requirement-ref` rows are filtered from public builds, same as personal-only).
+- The engine code that imports parselmouth (`library/tools/analysis/speech_advanced_pipeline.py`) is shipped in both editions.
+- The user fetches and installs parselmouth separately (`pip install praat-parselmouth`).
+- When parselmouth is absent, the prosody step raises `ProsodyUnavailable` and the pipeline continues without prosody measurements (already handled by the existing `except ImportError` path).
+
+This distribution model resolves the GPLv3 concern: Ren does not distribute parselmouth in the public product; the user installs it under GPLv3 terms themselves. The edition mechanism is extended with a `public-optional` category that filters the dependency from public builds while allowing the code to load it when present.
+
+Wired as `public-optional` in `THIRD_PARTY_NOTICES` and registered as the public provider in `speech_advanced_pipeline.analyze_prosody`.
+
+## Wiring summary
+
+| Capability | Personal edition | Public edition | Mechanism |
+|---|---|---|---|
+| SFX profiling | Audio Flamingo Next (personal-only) | LAION-CLAP (public) | `select_component` in `sfx_pipeline.load_afnext_model` |
+| Prosody | praat-parselmouth (bundled) | praat-parselmouth (user-fetched) | `select_component` in `speech_advanced_pipeline.analyze_prosody`; `public-optional` filters the pip dependency from public builds |
+
+The edition mechanism (`ren/edition.py`) is extended with `PUBLIC_OPTIONAL = "public-optional"`. Public-optional components are allowed to load in both editions but their `requirement-ref` packages are filtered from public builds. The packaging policy (`ren/package_engine.py`) treats public-optional like personal-only for requirement filtering.

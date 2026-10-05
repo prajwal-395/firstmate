@@ -154,7 +154,7 @@ note        : the tool is unencumbered; TRACKS fetched with it carry
               their owners' rights (per-project decision, not modelled).
 
 component-id : python.praat_parselmouth
-edition      : personal-only
+edition      : public-optional
 requirement-ref : requirements/analysis.txt:praat-parselmouth
 requirement-ref : requirements/lock/macos-arm64-py312.txt:praat-parselmouth
 component   : praat-parselmouth
@@ -164,10 +164,13 @@ license     : GPLv3
 fetched     : pip-install
 commercial  : ok-with-attribution
 note        : COPYLEFT FLAG for the EULA lane: GPLv3 applies on
-              distribution of the combined work. It is personal-only
-              because GPLv3 does not fit the public product's
-              proprietary relicensing; the public prosody provider
-              uses the `select_component` seam in `ren.edition`.
+              distribution of the combined work. Public-optional: the
+              public build does not bundle this dependency (its
+              requirement-ref rows are filtered from public builds);
+              the user fetches and installs it separately. The engine
+              code that imports it is shipped in both editions. When
+              absent, the prosody step reports ProsodyUnavailable and
+              the pipeline continues without prosody measurements.
 
 component-id : python.torch_audio
 edition      : public
@@ -474,6 +477,22 @@ hash-verified: no
 note        : personal-only for the personal edition. The public
               SFX-profiling provider will be plugged into the
               `select_component` seam in `ren.edition`.
+
+component-id : model.laion_clap
+edition      : public
+component   : LAION-CLAP (laion/clap-htsat-unfused; public-edition
+              SFX library profiling in
+              library/tools/analysis/sfx_pipeline.py)
+pin         : laion/clap-htsat-unfused @ 8fa0f1c6d0433df6e97c127f64b2a1d6c0dcda8a
+source      : https://huggingface.co/laion/clap-htsat-unfused
+license     : Apache-2.0
+fetched     : downloaded-at-first-use (HF snapshot)
+commercial  : ok
+hash-verified: yes
+hash        : SHA-256 1cd3c601bc4afe0fa87be3de4c13dd2cfadd249fac1e29acf74a9b296c3219bb
+note        : Public-edition SFX profiler. Outputs AudioSet-style
+              labels rather than free-text captions; qualified in
+              docs/evidence/public_audio_alternatives.md.
 
 component-id : tool.voz
 edition      : public

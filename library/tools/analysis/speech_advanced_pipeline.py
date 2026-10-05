@@ -248,7 +248,7 @@ def analyze_prosody(audio_path: str, speech_regions: list = None) -> dict:
         provider = select_component(
             "prosody analysis",
             personal_component="python.praat_parselmouth",
-            public_component=None)
+            public_component="python.praat_parselmouth")
     except EditionError as exc:
         raise ProsodyUnavailable(str(exc)) from exc
     if provider != "python.praat_parselmouth":
@@ -416,9 +416,9 @@ def analyze_prosody(audio_path: str, speech_regions: list = None) -> dict:
     except ImportError as exc:
         raise ProsodyUnavailable(
             "praat-parselmouth is not installed, so no prosodic feature can "
-            "be measured. It is declared in requirements.txt and as step "
-            f"1.05's `env.parselmouth` requirement, which now refuses "
-            f"before the run starts rather than here: pip install "
+            "be measured. In the personal edition it is bundled in "
+            "requirements; in the public edition it is a user-fetched "
+            "optional component (public-optional): pip install "
             f"praat-parselmouth ({exc})"
         ) from exc
     except Exception as e:
