@@ -858,10 +858,11 @@ def _enforce_caption_duration_floor(entries: list, structure: list,
     card. The card may use an uncaptioned gap after that block, but not
     another speech block or caption. If the gap is too short, it joins an
     adjacent same-speaker card in its own block when doing so keeps the
-    sentence boundary intact. A sub-frame word may also join the nearest
-    same-speaker card in the immediately neighboring block when the gap
-    between them is at most one readability floor. An impossible plan
-    fails here instead of emitting a card the F7 gate will reject.
+    sentence boundary intact. A short boundary fragment may also join the
+    nearest same-speaker card in the immediately neighboring speech block,
+    even when non-speech structure rows make their numeric positions skip.
+    An impossible plan fails here instead of emitting a card the F7 gate
+    will reject.
     """
     floor = MIN_CAPTION_FLASH_SECONDS
     fps = float(fps)
@@ -875,6 +876,10 @@ def _enforce_caption_duration_floor(entries: list, structure: list,
         block for block in structure
         if block["block_type"] in ("hook", "speech")
     ]
+    speech_index_by_position = {
+        block["position"]: block_index
+        for block_index, block in enumerate(speech_blocks)
+    }
     plan_end = max(
         (float(block["timeline_end"]) for block in structure),
         default=float("inf"),
@@ -940,9 +945,33 @@ def _enforce_caption_duration_floor(entries: list, structure: list,
             candidate_position = candidate["spine_block_position"]
             same_block = candidate_position == position
             same_speaker = candidate.get("speaker") == entry.get("speaker")
+            entry_block_index = speech_index_by_position.get(position)
+            candidate_block_index = speech_index_by_position.get(
+                candidate_position)
+            neighboring_speech_block = (
+                entry_block_index is not None
+                and candidate_block_index is not None
+                and abs(candidate_block_index - entry_block_index) == 1
+            )
+            current_block = (
+                speech_blocks[entry_block_index]
+                if entry_block_index is not None else None
+            )
+            at_block_edge = (
+                current_block is not None
+                and (
+                    (is_previous and abs(
+                        start - float(current_block["timeline_start"])
+                    ) <= 1 / fps + 1e-9)
+                    or (not is_previous and abs(
+                        end - float(current_block["timeline_end"])
+                    ) <= 1 / fps + 1e-9)
+                )
+            )
             cross_block_fragment = (
                 end - start < MIN_VISIBLE_DURATION
-                and abs(candidate_position - position) == 1
+                and neighboring_speech_block
+                and at_block_edge
                 and entry.get("speaker") is not None
                 and same_speaker
             )
@@ -980,8 +1009,9 @@ def _enforce_caption_duration_floor(entries: list, structure: list,
             f"would remain under the {floor:.3f}s readability floor "
             f"({end - start:.3f}s, {duration_frames} frames; needs "
             f"{floor_frames} at {fps:.3f}fps): the next safe hold ends at "
-            f"{safe_end:.3f}s, and no adjacent same-block, same-speaker "
-            f"card can absorb it without moving a sentence boundary"
+            f"{safe_end:.3f}s, and no adjacent same-speaker card in this "
+            f"or a neighboring speech block can absorb it without moving "
+            f"a sentence boundary"
         )
 
     return {"extended": extended, "merged": merged}
@@ -1813,7 +1843,7 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
     # Each block's subtitles are extended independently so one block
     # never pushes another block's caption. The clamp can leave a short
     # final card; the plan-wide floor pass below handles it after overlap
-    # repair, using only a safe gap or a same-block merge.
+    # repair, using only a safe gap or a sentence-safe same-speaker merge.
     if subtitle_entries:
         # Group entries by spine block position
         block_groups = {}
@@ -1918,7 +1948,7 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
         print(
             f"NOTE: held {duration_fix['extended']} short caption card(s) "
             f"through a safe gap and merged {duration_fix['merged']} into "
-            f"same-block neighbours to meet the "
+            f"compatible same-speaker card(s) to meet the "
             f"{MIN_CAPTION_FLASH_SECONDS:.1f}s readability floor",
             file=sys.stderr,
         )

@@ -313,6 +313,120 @@ def test_the_freeze_placement_is_a_picture_clip_that_speaks_nothing():
     assert place["freeze"] is True
 
 
+class _FreezeAppendItem:
+    def __init__(self, path, start, end):
+        self.path = path
+        self.start = start
+        self.end = end
+
+    def GetStart(self):
+        return self.start
+
+    def GetEnd(self):
+        return self.end
+
+    def GetMediaPoolItem(self):
+        return self
+
+    def GetClipProperty(self, key):
+        return self.path if key == "File Path" else ""
+
+
+class _FreezeAppendTimeline:
+    def __init__(self):
+        self.items = []
+
+    def GetItemListInTrack(self, media_type, row):
+        assert (media_type, row) == ("video", 1)
+        return list(self.items)
+
+
+class _FreezeAppendPool:
+    def __init__(self, timeline, outcomes):
+        self.timeline = timeline
+        self.outcomes = iter(outcomes)
+        self.calls = 0
+
+    def AppendToTimeline(self, specs):
+        self.calls += 1
+        outcome = next(self.outcomes)
+        if outcome in ("placed", "placed-empty-return"):
+            spec = specs[0]
+            item = _FreezeAppendItem(
+                spec["mediaPoolItem"].path,
+                spec["recordFrame"],
+                spec["recordFrame"] + spec["endFrame"]
+                - spec["startFrame"])
+            self.timeline.items.append(item)
+            return [] if outcome == "placed-empty-return" else [item]
+        return []
+
+
+def _freeze_append_spec(path):
+    from types import SimpleNamespace
+
+    return {"mediaPoolItem": SimpleNamespace(path=path),
+            "startFrame": 0, "endFrame": 19, "mediaType": 1,
+            "trackIndex": 1, "recordFrame": 1365}
+
+
+def test_freeze_append_retries_only_after_empty_return_and_readback(
+        monkeypatch):
+    from library.tools import reel_build
+
+    monkeypatch.setattr(reel_build, "_assert_placing",
+                        lambda project, timeline: None)
+    path = "/project/reel_freeze_test.mov"
+    timeline = _FreezeAppendTimeline()
+    pool = _FreezeAppendPool(timeline, ["declined", "placed"])
+
+    placed = reel_build._append_freeze_tail(
+        pool, object(), timeline, "Reel 10", path,
+        _freeze_append_spec(path))
+
+    assert pool.calls == 2
+    assert len(timeline.items) == 1
+    assert placed == timeline.items
+
+
+def test_freeze_append_does_not_retry_when_readback_proves_it_landed(
+        monkeypatch):
+    from library.tools import reel_build
+
+    monkeypatch.setattr(reel_build, "_assert_placing",
+                        lambda project, timeline: None)
+    path = "/project/reel_freeze_test.mov"
+    timeline = _FreezeAppendTimeline()
+    pool = _FreezeAppendPool(timeline, ["placed-empty-return", "placed"])
+
+    placed = reel_build._append_freeze_tail(
+        pool, object(), timeline, "Reel 10", path,
+        _freeze_append_spec(path))
+
+    assert pool.calls == 1
+    assert len(timeline.items) == 1
+    assert placed == []
+
+
+def test_freeze_append_refuses_when_one_retry_leaves_the_tail_unplaced(
+        monkeypatch):
+    from library.tools import reel_build
+
+    monkeypatch.setattr(reel_build, "_assert_placing",
+                        lambda project, timeline: None)
+    path = "/project/reel_freeze_test.mov"
+    timeline = _FreezeAppendTimeline()
+    pool = _FreezeAppendPool(timeline, ["declined", "declined"])
+
+    with pytest.raises(reel_build.ReelBuildError,
+                       match="frames 1365-1384 after one retry"):
+        reel_build._append_freeze_tail(
+            pool, object(), timeline, "Reel 10", path,
+            _freeze_append_spec(path))
+
+    assert pool.calls == 2
+
+
 # --------------------------------------------------------------------------
 # From test_reel_ending_cta_default.py
 #

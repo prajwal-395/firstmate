@@ -6784,6 +6784,86 @@ def _with_freeze(placements_list, freeze, fps: float) -> list:
         _ending_owner.freeze_placement(freeze, fps)]
 
 
+def _append_freeze_tail(pool, project, timeline, name: str, path: str,
+                        spec: dict, *, recording: bool = False):
+    """Place the declared hold and prove it occupies its planned frames.
+
+    Reel 10's declared 19-frame close was present in the plan and the tail
+    card began after those 19 frames, but conformance found no picture on
+    any row in that interval. The ordinary picture loop ignored the return
+    from AppendToTimeline, so a declined hold could become a late generic
+    black hole. A missing return gets one retry only after an exact row read-back
+    proves that the first call left no hold behind. The recorded OTIO path
+    has no live row to read here; its compiler verifies every recorded span
+    after import.
+    """
+    import os
+
+    start = int(spec["recordFrame"])
+    end = start + int(spec["endFrame"]) - int(spec["startFrame"])
+    row = int(spec["trackIndex"])
+
+    def readback():
+        items = timeline.GetItemListInTrack("video", row) or []
+        matches = []
+        for item in items:
+            if _timeline_span(item) != (start, end):
+                continue
+            try:
+                pool_item = item.GetMediaPoolItem()
+                item_path = (pool_item.GetClipProperty("File Path")
+                             if pool_item else "")
+            except Exception:
+                item_path = ""
+            if item_path and os.path.normcase(os.path.normpath(
+                    item_path)) == os.path.normcase(os.path.normpath(path)):
+                matches.append(item)
+        return matches
+
+    _assert_placing(project, timeline)
+    placed = pool.AppendToTimeline([spec])
+    if recording:
+        if not placed:
+            raise ReelBuildError(
+                f"{name}: OTIO recorder declined the freeze tail "
+                f"{os.path.basename(path)} at V{row} frames {start}-{end}; "
+                "the declared TV close cannot be compiled")
+        return placed
+
+    matches = readback()
+    if len(matches) == 1:
+        return placed
+    if len(matches) > 1:
+        raise ReelBuildError(
+            f"{name}: freeze tail {os.path.basename(path)} appears "
+            f"{len(matches)} times on V{row} at frames {start}-{end}; "
+            "the declared close is ambiguous")
+    if placed:
+        raise ReelBuildError(
+            f"{name}: AppendToTimeline returned an item for freeze tail "
+            f"{os.path.basename(path)}, but V{row} has no matching item "
+            f"at frames {start}-{end}; refusing an unverified TV close")
+
+    # Resolve returned no placed item, and the exact row read-back confirms
+    # it did not land. One guarded retry handles a transient refusal without
+    # duplicating a hold that actually made it onto the timeline.
+    _assert_placing(project, timeline)
+    retried = pool.AppendToTimeline([spec])
+    matches = readback()
+    if len(matches) == 1:
+        return retried
+    if len(matches) > 1:
+        detail = f"{len(matches)} matching items landed"
+    elif retried:
+        detail = "Resolve returned an item but the row read-back did not find it"
+    else:
+        detail = "Resolve returned no item"
+    raise ReelBuildError(
+        f"{name}: the freeze tail {os.path.basename(path)} was not placed "
+        f"on V{row} at frames {start}-{end} after one retry ({detail}); "
+        "refusing to leave the declared TV close as black")
+
+
 def _inherit_freeze_treatment(name: str, timeline, track_plan,
                               video_row_by_angle: dict, freeze,
                               project_folder: str = "") -> dict:
@@ -8706,7 +8786,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     # misplaced: a reel plays its angles' picture and speech.
     for p in placements_list:
         c = p["clip"]
-        if span_present and c.track_type == "video":
+        is_freeze_tail = bool(p.get("freeze"))
+        if span_present and c.track_type == "video" and not is_freeze_tail:
             continue
         angle_key = _angle_key(c)
         if c.track_type == "video":
@@ -8716,6 +8797,11 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             dest_row = speech_row_by_angle.get(angle_key)
             kind = "speech"
         if dest_row is None:
+            if is_freeze_tail:
+                raise ReelBuildError(
+                    f"{name}: the declared freeze tail names master angle "
+                    f"{angle_key!r}, which has no planned picture row; "
+                    "refusing a black ending")
             note = (f"{name}: skipping {kind} from master "
                     f"{c.track_type}{getattr(c, 'track_index', '?')} "
                     f"({getattr(c, 'source_file', '?').rsplit('/', 1)[-1]}) "
@@ -8726,6 +8812,11 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             continue
         pool_item = pool_item_for(pool, c.source_file)
         if not pool_item:
+            if is_freeze_tail:
+                raise ReelBuildError(
+                    f"{name}: the rendered freeze tail "
+                    f"{c.source_file!r} is not in the media pool; "
+                    "refusing a black ending")
             print(f"Source file {c.source_file} not in media pool", file=sys.stderr)
             continue
 
@@ -8750,14 +8841,20 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         # instead, and places no spill to sweep.
         before = None if recording else _speech_row_uids(timeline,
                                                          track_plan)
-        pool.AppendToTimeline([{
+        append_spec = {
             "mediaPoolItem": pool_item,
             "startFrame": source_start_frame,
             "endFrame": source_end_frame,
             "mediaType": 1 if c.track_type == "video" else 2,
             "trackIndex": dest_row,
             "recordFrame": p["snapped_record"]
-        }])
+        }
+        if is_freeze_tail:
+            _append_freeze_tail(
+                pool, project, timeline, name, c.source_file, append_spec,
+                recording=recording)
+        else:
+            pool.AppendToTimeline([append_spec])
         if c.track_type != "video":
             expected = resolved_channels.get(angle_key, 1)
             if recording:

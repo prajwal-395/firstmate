@@ -1300,6 +1300,110 @@ def test_short_tail_can_merge_across_long_pause_to_keep_date_readable():
     assert plan["readability_issues"] == []
 
 
+def test_block_tail_fragment_merges_with_next_speech_across_nonspeech_row():
+    spine = {"structure": [
+        {
+            "position": 14,
+            "block_type": "speech",
+            "timeline_start": 0.0,
+            "timeline_end": 0.05,
+            "source_start": 100.0,
+            "source_end": 100.05,
+            "speaker": "SpeakerOne",
+            "content": {"text": "So"},
+            "word_timestamps": [{
+                "word": "So", "source_start": 100.0,
+                "source_end": 100.05,
+            }],
+        },
+        {"position": 15, "block_type": "broll",
+         "timeline_start": 0.05, "timeline_end": 0.07},
+        {
+            "position": 16,
+            "block_type": "speech",
+            "timeline_start": 0.07,
+            "timeline_end": 1.07,
+            "source_start": 101.0,
+            "source_end": 101.60,
+            "speaker": "SpeakerOne",
+            "content": {"text": "and that's right."},
+            "word_timestamps": [
+                {"word": "and", "source_start": 101.07,
+                 "source_end": 101.22},
+                {"word": "that's", "source_start": 101.22,
+                 "source_end": 101.40},
+                {"word": "right.", "source_start": 101.40,
+                 "source_end": 101.60},
+            ],
+        },
+    ]}
+
+    plan = generate_subtitles(
+        spine, caption_case="as_written", brand_effect={}, brand_style={},
+    )["subtitle_plan"]
+    entries = plan["subtitle_entries"]
+
+    assert len(entries) == 1
+    assert entries[0]["text"] == "So and that's right."
+    assert [word["word"] for word in entries[0]["words"]] == [
+        "So", "and", "that's", "right."
+    ]
+    assert plan["readability_issues"] == []
+
+
+def test_cut_word_fragment_merges_with_previous_speech_across_nonspeech_row():
+    # The 0.500s word crosses the first clip's 1.050s source out. Only
+    # 0.050s is visible in that block, so its card must join its neighbor.
+    spine = {"structure": [
+        {
+            "position": 16,
+            "block_type": "speech",
+            "timeline_start": 0.0,
+            "timeline_end": 1.05,
+            "source_start": 99.0,
+            "source_end": 100.05,
+            "speaker": "SpeakerOne",
+            "content": {"text": "I've"},
+            "word_timestamps": [{
+                "word": "I've", "source_start": 100.0,
+                "source_end": 100.5,
+            }],
+        },
+        {"position": 17, "block_type": "broll",
+         "timeline_start": 1.05, "timeline_end": 1.07},
+        {
+            "position": 18,
+            "block_type": "speech",
+            "timeline_start": 1.07,
+            "timeline_end": 1.77,
+            "source_start": 100.07,
+            "source_end": 100.77,
+            "speaker": "SpeakerOne",
+            "content": {"text": "thought I did."},
+            "word_timestamps": [
+                {"word": "thought", "source_start": 100.14,
+                 "source_end": 100.40},
+                {"word": "I", "source_start": 100.40,
+                 "source_end": 100.50},
+                {"word": "did.", "source_start": 100.50,
+                 "source_end": 100.77},
+            ],
+        },
+    ]}
+
+    plan = generate_subtitles(
+        spine, caption_case="as_written", brand_effect={}, brand_style={},
+    )["subtitle_plan"]
+    entries = plan["subtitle_entries"]
+
+    assert len(entries) == 1
+    assert entries[0]["text"] == "I've thought I did."
+    assert [word["word"] for word in entries[0]["words"]] == [
+        "I've", "thought", "I", "did."
+    ]
+    assert plan["readability_issues"] == []
+
+
 def test_unfixably_fast_single_word_stays_in_plan_for_qa():
     spine = _speech_spine([
         {"word": "unreadablefastcaption", "source_start": 0.0,
