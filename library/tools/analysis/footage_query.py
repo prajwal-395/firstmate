@@ -329,6 +329,39 @@ def sound_events_for_project(project_folder) -> tuple:
     return events_by_clip, methods
 
 
+def ocr_texts_for_project(project_folder) -> tuple:
+    """On-screen text per clip, from step 1.07's `ocr_result.json` files.
+
+    Returns ``({clip_id: [tracked_texts]}, {clip_id: method})``.  A clip
+    with no extraction on disk is ABSENT from both maps, not present and
+    empty: an unextracted clip is not a text-free one, and the two must
+    stay distinguishable at query time.  Texts are the `detections` list
+    `OCRExtractor` stores - each a `{text, confidence, appearances,
+    bbox, ...}` tracked string with the source spans it appeared at.
+    """
+    catalog = load_catalog(project_folder)
+    texts_by_clip: dict = {}
+    methods: dict = {}
+    for clip in catalog:
+        clip_id = clip.get("clip_id")
+        if not clip_id:
+            continue
+        result_path = (Path(project_folder) / "pipeline_output" / "steps"
+                       / "1_07_ocr_extraction" / clip_id / "ocr_result.json")
+        if not result_path.exists():
+            continue
+        try:
+            with open(result_path, encoding="utf-8") as f:
+                doc = json.load(f)
+        except (OSError, ValueError):
+            continue
+        detections = doc.get("detections") or []
+        if detections:
+            texts_by_clip[clip_id] = detections
+            methods[clip_id] = doc.get("method") or "EasyOCR"
+    return texts_by_clip, methods
+
+
 def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=False) -> dict:
     """Cut, embed and store the index.  Returns build statistics.
 
@@ -357,6 +390,7 @@ def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=Fal
             embeddings_path.unlink()
 
     sound_events, sound_methods = sound_events_for_project(project_folder)
+    ocr_texts, ocr_methods = ocr_texts_for_project(project_folder)
 
     payload = {
         "project_folder": str(project_folder),
@@ -374,6 +408,10 @@ def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=Fal
         # The M5 sound lane: PANNs labels per clip, reachable from search.
         "sound_events": sound_events,
         "sound_event_methods": sound_methods,
+        # The on-screen text lane: step 1.07's tracked strings per clip,
+        # reachable from search.  Absent entirely when the step never ran.
+        "ocr_texts": ocr_texts,
+        "ocr_methods": ocr_methods,
     }
     index_path = target / SEGMENTS_FILE
     with open(index_path, "w", encoding="utf-8") as f:
@@ -809,6 +847,93 @@ class FootageIndex:
         report["abstained"] = not hits
         return report
 
+    @staticmethod
+    def _text_matches(query_tokens: list, text: str) -> bool:
+        """Whether a query token and an on-screen string refer to the same text.
+
+        Both directions of substring, case-insensitive, the same rule as
+        `_sound_label_matches`: "SCUFFLEWA" matches "SCUFFLEWA BREWING
+        CO" because the label is a substring of the query token, and a
+        full sentence still works - the token "brewing" in "where does the
+        brewing sign appear" is what matches.
+        """
+        lowered = (text or "").lower()
+        if not lowered:
+            return False
+        return any(
+            token and (token in lowered or lowered in token)
+            for token in query_tokens
+        )
+
+    def ocr_search(self, query: str, top_k: int = 5) -> dict:
+        """Find the spans where an on-screen string was read off the footage.
+
+        Answers "where does the SCUFFLEWA sign appear" (or any tracked
+        on-screen text) from step 1.07's extraction - the tracked strings
+        EasyOCR read at 1 fps and `OCRExtractor` stored per clip, joined
+        here by text.
+
+        The match is by text, not by embedding: there is no embedding for
+        an on-screen string, so a query that matches no tracked text is an
+        honest empty that NAMES the strings this footage actually carries,
+        the same way `sound_search` names its labels.  An index with no OCR
+        at all says that too, rather than answering "nowhere" to a question
+        that was never measured.
+        """
+        texts_by_clip = self.payload.get("ocr_texts") or {}
+        report = {
+            "query": query,
+            "mode": "ocr",
+            "hits": [],
+            "considered": 0,
+            "matched": 0,
+            "available_texts": [],
+            "abstained": False,
+            "error": None,
+        }
+        if not texts_by_clip:
+            report["abstained"] = True
+            report["error"] = (
+                "no on-screen text in this index - step 1.07 "
+                "(ocr_extraction) never ran for any clip, so there is "
+                "no tracked text to search")
+            return report
+
+        tokens = _tokenize(query)
+        if not tokens:
+            report["abstained"] = True
+            report["error"] = "no on-screen text to look for"
+            return report
+
+        texts = sorted({
+            detection.get("text", "")
+            for detections in texts_by_clip.values()
+            for detection in detections
+            if detection.get("text")
+        })
+        report["available_texts"] = texts
+
+        hits = []
+        for clip_id in sorted(texts_by_clip):
+            for detection in texts_by_clip[clip_id]:
+                report["considered"] += 1
+                if not self._text_matches(tokens, detection.get("text", "")):
+                    continue
+                for start, end in detection.get("appearances") or []:
+                    hits.append({
+                        "clip_id": clip_id,
+                        "text": detection.get("text"),
+                        "start": start,
+                        "end": end,
+                        "timecode": f"{self._timecode(start)}-{self._timecode(end)}",
+                        "confidence": detection.get("confidence"),
+                    })
+        hits.sort(key=lambda h: (h["clip_id"], h["start"] or 0.0))
+        report["hits"] = hits[:max(0, top_k)]
+        report["matched"] = len(hits)
+        report["abstained"] = not hits
+        return report
+
     def _person_windows(self, person: str) -> list:
         """`[(clip_id, start, end)]` the entity store measured for one
         person - face spans (seen) union voice spans (heard), from
@@ -1028,6 +1153,7 @@ class FootageIndex:
         )
         speech = [s for s in segments if s["kind"] == "speech"]
         sound_events = self.payload.get("sound_events") or {}
+        ocr_texts = self.payload.get("ocr_texts") or {}
         return {
             "project_folder": self.payload.get("project_folder"),
             "segment_count": len(segments),
@@ -1039,6 +1165,8 @@ class FootageIndex:
             "spoken_words": sum(len(s.get("words") or []) for s in speech),
             "sound_event_clips": len(sound_events),
             "sound_event_count": sum(len(v) for v in sound_events.values()),
+            "ocr_text_clips": len(ocr_texts),
+            "ocr_text_count": sum(len(v) for v in ocr_texts.values()),
             "embed_model": self.payload.get("embed_model"),
             "embed_backend": self.payload.get("embed_backend"),
             "built_at": self.payload.get("built_at"),
@@ -1330,6 +1458,26 @@ def _print_sound_report(report):
         print(f"  labels this footage has: {', '.join(report['available_labels'])}")
 
 
+def _print_ocr_report(report):
+    """An on-screen text search as a person reads it: spans, or what IS there."""
+    print(f"query: {report['query']!r}  mode=ocr  "
+          f"{report['considered']} tracked text(s) considered")
+    if report.get("error"):
+        print(report["error"])
+        return
+    if report["hits"]:
+        for i, hit in enumerate(report["hits"]):
+            confidence = hit.get("confidence")
+            conf = f"  conf {confidence:.2f}" if isinstance(confidence, (int, float)) else ""
+            print(f"\n{i + 1}. {hit['clip_id']}  {hit['timecode']}  "
+                  f"({hit['text']}){conf}")
+        return
+    print(f"\nNo on-screen text matching {report['query']!r} - that is the answer, "
+          f"not an empty result set.")
+    if report["available_texts"]:
+        print(f"  text this footage carries: {', '.join(report['available_texts'])}")
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="footage_query",
@@ -1359,6 +1507,12 @@ def main(argv=None):
                                "instead of text: 'ren search --sound laughter' returns "
                                "the spans where laughter, applause, music or impacts "
                                "was heard")
+    p_search.add_argument("--ocr", action="store_true",
+                          help="Search the ON-SCREEN TEXT read by step 1.07 (OCR "
+                               "extraction) instead of speech: 'ren search --ocr "
+                               "\"SCUFFLEWA\"' returns the spans where that text "
+                               "appeared. The step is deselected by default, so this "
+                               "answers only for a project whose run included it")
     p_search.add_argument("--include-actions", action="store_true",
                           help="Rank even an action/gesture query against the frames "
                                "(the frame index refuses those by default: it cannot "
@@ -1505,6 +1659,24 @@ def main(argv=None):
             print(json.dumps(answer, indent=2))
         else:
             _print_sound_report(answer)
+            print(f"\n{elapsed * 1000:.1f} ms")
+        return 0
+
+    if args.command == "search" and args.ocr:
+        if not args.query:
+            raise RenRefusal(
+                "--ocr needs a string to look for",
+                "an OCR query asks what was ON SCREEN; it has no text to rank",
+                f"ren search {args.project} --ocr \"<on-screen text>\" "
+                f"(e.g. --ocr \"SCUFFLEWA BREWING CO\")")
+        idx = FootageIndex(args.project, index_dir=args.index_dir)
+        started = time.perf_counter()
+        answer = idx.ocr_search(args.query, top_k=args.top_k)
+        elapsed = time.perf_counter() - started
+        if args.json:
+            print(json.dumps(answer, indent=2))
+        else:
+            _print_ocr_report(answer)
             print(f"\n{elapsed * 1000:.1f} ms")
         return 0
 

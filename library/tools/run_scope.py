@@ -179,26 +179,24 @@ DESELECTED_BY_DEFAULT: Dict[str, str] = {
     # The step works.  Measured on 001 (17 clips, 807s of footage) it
     # costs 445 seconds and returns 367 tracked texts across 15 of 17
     # clips, 83 of them above 0.5 confidence, including street names and
-    # storefront signs.  It is off because NOTHING READS IT: the step
-    # writes `ocr_extraction`, and the field the vision documents leave
-    # empty is `objects[].readable_text`, owned by step 1.03.  Two keys,
-    # never designed to meet.
+    # storefront signs.  It is off because it is EXPENSIVE: 445s buys
+    # on-screen text that the vision model already reads sparsely (10 of
+    # 159 objects on 001's 2026-08-26 run - `Chattahoochee Ave NW`,
+    # `SCUFFLEWA BREWING CO` and eight more, 149 left null).
     #
-    # The vision model reads on-screen text SPARSELY, not never: on the
-    # 2026-08-26 run of 001 it filled `readable_text` on 10 of 159
-    # objects - `Chattahoochee Ave NW`, `SCUFFLEWA BREWING CO` and eight
-    # more - and left 149 null.  A recorded claim that it "provably
-    # cannot" read text was wrong and is corrected here and in
-    # `project_layout.STEPS`.
-    #
-    # Turn it on for a project whose footage has signage worth reading:
+    # The output is no longer a dead end: the footage search indexes the
+    # tracked strings (`ren search --ocr "<text>"` finds the spans where
+    # an on-screen string appeared).  The step stays off by default
+    # because most projects do not need exact on-screen text - turn it
+    # on for footage whose signage is worth reading.
     #     manage_project.py run <slug> --with ocr_extraction
     "ocr_extraction": (
-        "Costs 445s on 001 and no step consumes its `ocr_extraction` "
-        "output. The vision model already reads signage sparsely "
-        "(10 of 159 objects on 001's 2026-08-26 run), so the 445s buys "
-        "little until something reads the key. Captain's ruling on "
-        "#245, 2026-08-28. Turn on with --with ocr_extraction."
+        "Costs 445s on 001. The vision model already reads signage "
+        "sparsely (10 of 159 objects on 001's 2026-08-26 run), so the "
+        "445s buys little for most projects. When it runs, its tracked "
+        "on-screen strings are searchable: ren search --ocr \"<text>\". "
+        "Captain's ruling on #245, 2026-08-28. Turn on with --with "
+        "ocr_extraction."
     ),
 
     # select_reels requires a timeline_transcript, which is produced

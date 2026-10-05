@@ -1570,17 +1570,19 @@ OPTIONALS: Tuple[Requirement, ...] = (
     _optional_requirement(
         "compile_manifest", "creative_cohesion", "cohesion_review",
         "creative_cohesion wrote the review compile_manifest may take"),
-    # The degenerate case: production without take-up.
-    # `library/steps/step_1_07_ocr_extraction/manifest.json` declares
-    # the `ocr_extraction` output and NO edge leaves the node, no code
-    # reader and no tool consumer take it (`output_contract`
-    # `UNREAD_FINDINGS`), and the step is DESELECTED BY DEFAULT.  The
-    # consumer slot names the producer because there is no consumer -
-    # the requirement says the state exists as a goal, never that
-    # anyone takes it.
+    # The degenerate case: production without take-up by a PIPELINE
+    # step.  `library/steps/step_1_07_ocr_extraction/manifest.json`
+    # declares the `ocr_extraction` output and NO edge leaves the node;
+    # the step is DESELECTED BY DEFAULT.  The footage search reads the
+    # per-clip files from disk (`footage_query.ocr_texts_for_project`),
+    # but that is a capability and not a step, so the edge survey
+    # cannot see it - `output_contract.REPORTED_NOT_CONSUMED` carries
+    # the decision.  The consumer slot names the producer because there
+    # is no step consumer - the requirement says the state exists as a
+    # goal, never that anyone takes it.
     _optional_requirement(
         "ocr_extraction", "ocr_extraction", "ocr_extraction",
-        "ocr_extraction read the on-screen text nothing takes yet"),
+        "ocr_extraction read the on-screen text no step takes yet"),
     # MECHANISM B.
     # `library/steps/step_5_04_compile_manifest/manifest.json`
     # declares `transition_spec` OPTIONAL; the DAG maps

@@ -678,6 +678,131 @@ def test_sound_search_cli_reaches_the_index(sound_index, project_2, monkeypatch)
         fq.main(["search", str(root), "--sound"])
 
 
+# On-screen text search (step 1.07's output)
+#
+# `ren search --ocr <text>`: on-screen strings tracked by step 1.07's
+# EasyOCR extraction, joined into search by text.  The defect this
+# guards: "where does the SCUFFLEWA sign appear" was unanswerable from
+# search - the text was measured and stored on disk but no query could
+# reach it, so the 445s extraction bought nothing.
+#
+
+def _write_ocr_result(root: Path, clip_id: str, detections: list):
+    """Write one clip's `ocr_result.json` where step 1.07 leaves it."""
+    out = root / "pipeline_output" / "steps" / "1_07_ocr_extraction" / clip_id
+    _write(out / "ocr_result.json", {
+        "video_path": str(root / "raw" / f"{clip_id}.MOV"),
+        "frame_count": 100,
+        "resolution": [1920, 1080],
+        "sample_fps": 1.0,
+        "detections": detections,
+        "raw_frame_detections": {},
+    })
+
+
+@pytest.fixture
+def ocr_index(project_2, tmp_path, monkeypatch):
+    """An index over a project whose step 1.07 extraction is on disk."""
+    root, _digest_1, _digest_2 = project_2
+    _write_ocr_result(root, "clip_001", [
+        {"text": "SCUFFLEWA BREWING CO", "confidence": 0.91,
+         "appearances": [[2.0, 5.5]], "bbox": [100, 200, 300, 40],
+         "bbox_normalized": [0.05, 0.18, 0.16, 0.04], "is_static": True},
+        {"text": "Chattahoochee Ave NW", "confidence": 0.87,
+         "appearances": [[8.0, 12.0]], "bbox": [50, 400, 250, 30],
+         "bbox_normalized": [0.03, 0.37, 0.13, 0.03], "is_static": True},
+    ])
+    _write_ocr_result(root, "clip_002", [
+        {"text": "EXIT", "confidence": 0.95,
+         "appearances": [[1.0, 4.0]], "bbox": [800, 50, 120, 60],
+         "bbox_normalized": [0.42, 0.05, 0.06, 0.06], "is_static": True},
+    ])
+
+    def fake_loader():
+        def encode(texts):
+            rows = []
+            for text in texts:
+                vector = np.zeros(26, dtype="float32")
+                for char in (text or "").lower():
+                    if "a" <= char <= "z":
+                        vector[ord(char) - 97] += 1.0
+                norm = np.linalg.norm(vector) or 1.0
+                rows.append(vector / norm)
+            return np.vstack(rows) if rows else np.zeros((0, 26), dtype="float32")
+        return encode, "test-stub"
+
+    monkeypatch.setattr(footage_query, "_load_embedder", fake_loader)
+    index_dir = tmp_path / "index"
+    build_index(root, index_dir=index_dir)
+    return FootageIndex(root, index_dir=index_dir)
+
+
+def test_ocr_search_finds_the_measured_text(ocr_index):
+    """The defect: 'where does the SCUFFLEWA sign appear' was unanswerable.
+
+    Step 1.07 measured the on-screen text and stored it on disk, but no
+    query could reach it - search had no OCR lane.  This pins that the
+    measured text now returns its spans.
+    """
+    report = ocr_index.ocr_search("SCUFFLEWA")
+    assert report["abstained"] is False
+    assert len(report["hits"]) == 1
+    hit = report["hits"][0]
+    assert hit["clip_id"] == "clip_001"
+    assert hit["text"] == "SCUFFLEWA BREWING CO"
+    assert hit["start"] == 2.0
+    assert hit["end"] == 5.5
+    assert hit["confidence"] == 0.91
+
+
+def test_ocr_search_matches_across_clips_and_says_what_is_there(ocr_index):
+    """A string in more than one clip returns every span, and a string
+    that is not there returns an honest empty naming the text this
+    footage carries - never a silent 'nowhere' that reads as 'not
+    measured'."""
+    both = ocr_index.ocr_search("Chattahoochee")
+    assert [h["clip_id"] for h in both["hits"]] == ["clip_001"]
+
+    missing = ocr_index.ocr_search("STOP sign")
+    assert missing["abstained"] is True
+    assert missing["hits"] == []
+    assert "SCUFFLEWA BREWING CO" in missing["available_texts"]
+    assert "EXIT" in missing["available_texts"]
+
+
+def test_ocr_search_with_no_texts_says_the_step_never_ran(offline_index):
+    """An index whose project has no OCR extraction says so, rather than
+    answering 'nowhere' to a question that was never measured."""
+    idx, _stats = offline_index
+    report = idx.ocr_search("SCUFFLEWA")
+    assert report["abstained"] is True
+    assert "no on-screen text" in report["error"]
+
+
+def test_ocr_search_cli_reaches_the_index(ocr_index, project_2, monkeypatch):
+    """`ren search --ocr <text>` is the person's route to the same
+    answer - the flag must reach the module and refuse without a query."""
+    root = project_2[0]
+    from library.tools.analysis import footage_query as fq
+
+    calls = []
+
+    def fake_ocr_search(self, query, top_k=5):
+        calls.append((query, top_k))
+        return {"query": query, "hits": [], "abstained": True,
+                "considered": 0, "matched": 0, "available_texts": [],
+                "error": None}
+
+    monkeypatch.setattr(FootageIndex, "ocr_search", fake_ocr_search)
+    monkeypatch.setattr(sys, "argv", [
+        "footage_query", "search", str(root), "--ocr", "SCUFFLEWA"])
+    assert fq.main(["search", str(root), "--ocr", "SCUFFLEWA"]) == 0
+    assert calls == [("SCUFFLEWA", 5)]
+
+    with pytest.raises(RenRefusal):
+        fq.main(["search", str(root), "--ocr"])
+
+
 # --------------------------------------------------------------------------
 # From test_footage_frames.py
 #
