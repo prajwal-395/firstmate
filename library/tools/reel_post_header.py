@@ -320,6 +320,9 @@ def props_for(declared: dict, hook: str, width: int, height: int,
 def render_still(props: dict, out_png: str,
                  remotion_dir: str | None = None) -> str:
     """One transparent still of ``PostHeader``, judged by its result."""
+    from ren.edition import require_component
+
+    require_component("renderer.remotion", action="load")
     from library.tools.paths import REMOTION_DIR
 
     remotion_dir = str(remotion_dir or REMOTION_DIR)

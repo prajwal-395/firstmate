@@ -22,6 +22,14 @@ How to read a row
   hash-verified : yes | no - whether the fetch is checksum/signature
                 checked before use (the download-pinning lane owns
                 closing the "no" rows; this file records them).
+  component-id  : stable key read by edition policy and runtime gates.
+  edition       : public | personal-only. A public build cannot package,
+                fetch or load a personal-only component.
+  package-path  : source-tree path excluded from a public engine build.
+  installer-path: personal-only installer omitted from a public build.
+  requirement-ref: requirements file and package token filtered from a
+                public build.
+  package-copy  : source path -> destination path copied into a build.
 
 Maintenance rule: adding a dependency, model, binary, font or asset
 requires adding its row here in the same change. Transitive pip
@@ -32,6 +40,8 @@ which is the record of what was measured.
 A. PYTHON PACKAGES (pip; groups in requirements/*.txt, map in
    library/tools/dependency_groups.py)
 --------------------------------------------------------------
+component-id : python.jsonschema
+edition      : public
 component   : jsonschema
 pin         : >=4.0 (requirements/core.txt)
 source      : https://github.com/python-jsonschema/jsonschema
@@ -40,6 +50,8 @@ fetched     : pip-install
 commercial  : ok
 hash-verified: n/a (pip transport)
 
+component-id : python.pyyaml
+edition      : public
 component   : pyyaml
 pin         : >=6.0 (requirements/core.txt)
 source      : https://pyyaml.org/
@@ -48,6 +60,8 @@ fetched     : pip-install
 commercial  : ok
 hash-verified: n/a (pip transport)
 
+component-id : python.numpy
+edition      : public
 component   : numpy
 pin         : >=1.24 (requirements/core.txt); measured 2.5.3 in lock
 source      : https://numpy.org
@@ -56,6 +70,8 @@ fetched     : pip-install
 commercial  : ok
 hash-verified: n/a (pip transport)
 
+component-id : python.scipy
+edition      : public
 component   : scipy
 pin         : >=1.10 (requirements/core.txt)
 source      : https://scipy.org
@@ -64,6 +80,8 @@ fetched     : pip-install
 commercial  : ok
 hash-verified: n/a (pip transport)
 
+component-id : python.opencv
+edition      : public
 component   : opencv-python, opencv-python-headless (same cv2 module)
 pin         : >=4.8,<5, both (requirements/graphics.txt; 5.x dropped Haar
               cascades, see that file)
@@ -73,6 +91,8 @@ fetched     : pip-install
 commercial  : ok
 hash-verified: n/a (pip transport)
 
+component-id : python.pillow
+edition      : public
 component   : Pillow
 pin         : >=9.0 (requirements/graphics.txt)
 source      : https://python-pillow.org
@@ -81,6 +101,8 @@ fetched     : pip-install
 commercial  : ok
 hash-verified: n/a (pip transport)
 
+component-id : python.librosa
+edition      : public
 component   : librosa
 pin         : >=0.10 (requirements/analysis.txt)
 source      : https://librosa.org
@@ -89,6 +111,8 @@ fetched     : pip-install
 commercial  : ok
 hash-verified: n/a (pip transport)
 
+component-id : python.beat_this
+edition      : public
 component   : beat-this
 pin         : ==1.1.0 (requirements/analysis.txt; code AND published
               weights MIT per github.com/CPJKU/beat_this README)
@@ -98,6 +122,8 @@ fetched     : pip-install (weights: downloaded-at-first-use by the lib)
 commercial  : ok
 hash-verified: no
 
+component-id : python.music_models
+edition      : public
 component   : all-in-one-infer, demucs-infer, madmom-infer
 pin         : ==3.1.0, ==4.2.2, ==0.2.0 (requirements/analysis.txt)
 source      : https://github.com/openmirlab (All-In-One MIT code, MIT
@@ -115,6 +141,8 @@ note        : stock madmom was deliberately NOT adopted: its RNN
               tests/unit/audio/test_music_bed.py::
               test_no_noncommercial_weights_in_the_pipeline).
 
+component-id : python.yt_dlp
+edition      : public
 component   : yt-dlp
 pin         : >=2026.08.19 (requirements/analysis.txt)
 source      : https://github.com/yt-dlp/yt-dlp
@@ -125,6 +153,10 @@ hash-verified: n/a (pip transport)
 note        : the tool is unencumbered; TRACKS fetched with it carry
               their owners' rights (per-project decision, not modelled).
 
+component-id : python.praat_parselmouth
+edition      : personal-only
+requirement-ref : requirements/analysis.txt:praat-parselmouth
+requirement-ref : requirements/lock/macos-arm64-py312.txt:praat-parselmouth
 component   : praat-parselmouth
 pin         : >=0.4.3 (requirements/analysis.txt)
 source      : https://github.com/YannickJadoul/Parselmouth
@@ -132,9 +164,13 @@ license     : GPLv3
 fetched     : pip-install
 commercial  : ok-with-attribution
 note        : COPYLEFT FLAG for the EULA lane: GPLv3 applies on
-              distribution of the combined work; the product license
-              must clear this (captain's call).
+              distribution of the combined work. It is personal-only
+              because GPLv3 does not fit the public product's
+              proprietary relicensing; the public prosody provider
+              uses the `select_component` seam in `ren.edition`.
 
+component-id : python.torch_audio
+edition      : public
 component   : torch, torchaudio
 pin         : >=2.8, both, kept as a pair (requirements/analysis.txt)
 source      : https://pytorch.org/
@@ -143,6 +179,8 @@ fetched     : pip-install
 commercial  : ok
 hash-verified: n/a (pip transport)
 
+component-id : python.panns
+edition      : public
 component   : panns-inference, torchlibrosa
 pin         : ==0.1.1, ==0.1.0 (requirements/analysis.txt)
 source      : https://github.com/qiuqiangkong/panns_inference,
@@ -152,6 +190,8 @@ fetched     : pip-install
 commercial  : ok
 hash-verified: n/a (pip transport)
 
+component-id : python.easyocr
+edition      : public
 component   : easyocr
 pin         : >=1.7 (requirements/analysis.txt)
 source      : https://github.com/JaidedAI/EasyOCR
@@ -162,6 +202,8 @@ fetched     : pip-install (weights: downloaded-at-first-use)
 commercial  : ok
 hash-verified: no
 
+component-id : python.sam2
+edition      : public
 component   : sam2
 pin         : >=1.0.0 (requirements/analysis.txt)
 source      : https://github.com/facebookresearch/sam2
@@ -170,6 +212,8 @@ fetched     : pip-install (weights: downloaded-at-first-use)
 commercial  : ok
 hash-verified: no
 
+component-id : python.faiss
+edition      : public
 component   : faiss-cpu
 pin         : >=1.7 (requirements/analysis.txt)
 source      : https://github.com/facebookresearch/faiss
@@ -178,6 +222,8 @@ fetched     : pip-install
 commercial  : ok
 hash-verified: n/a (pip transport)
 
+component-id : python.mlx
+edition      : public
 component   : mlx, mlx-lm, mlx-vlm (Apple Silicon only)
 pin         : >=0.32.2, >=0.31.3, >=0.7.2 (requirements/analysis.txt)
 source      : https://github.com/ml-explore/mlx
@@ -186,6 +232,8 @@ fetched     : pip-install
 commercial  : ok
 hash-verified: n/a (pip transport)
 
+component-id : python.speechbrain
+edition      : public
 component   : speechbrain, scikit-learn
 pin         : >=1.1, >=1.9 (requirements/identity.txt)
 source      : https://github.com/speechbrain/speechbrain (Apache-2.0),
@@ -195,6 +243,8 @@ fetched     : pip-install
 commercial  : ok
 hash-verified: n/a (pip transport)
 
+component-id : python.insightface
+edition      : public
 component   : insightface (pip package: CODE ONLY)
 pin         : >=0.7 (requirements/identity.txt)
 source      : https://github.com/deepinsight/insightface
@@ -209,6 +259,8 @@ note        : the MIT license covers the CODE. The pretrained model
               previously stated the bundle was "both MIT"; that was
               wrong and is fixed (see section E).
 
+component-id : python.onnxruntime
+edition      : public
 component   : onnxruntime
 pin         : >=1.19 (requirements/identity.txt; insightface backend)
 source      : https://onnxruntime.ai
@@ -217,6 +269,8 @@ fetched     : pip-install
 commercial  : ok
 hash-verified: n/a (pip transport)
 
+component-id : python.huggingface
+edition      : public
 component   : huggingface-hub, transformers (supporting; hub carries
               the ECAPA/Gemma/CLIP fetches)
 pin         : measured 1.33.0 / 5.17.0 in lock
@@ -230,6 +284,10 @@ hash-verified: n/a (pip transport)
 B. NODE PACKAGES (remotion-subtitles/package.json, pinned 4.0.486;
    full transitive tree in package-lock.json)
 --------------------------------------------------------------
+component-id : renderer.remotion
+edition      : personal-only
+package-path : remotion-subtitles
+installer-path : scripts/install_node_deps.sh
 component   : remotion, @remotion/bundler, @remotion/cli,
               @remotion/renderer, @remotion/tailwind-v4,
               @remotion/eslint-config-flat
@@ -241,13 +299,12 @@ license     : Remotion Company License (source-available; NOT OSI
               https://www.remotion.dev/docs/license
 fetched     : npm-install (shipped renderer path for subtitles)
 commercial  : needs-paid-license
-note        : Automators is $0.01/render, $100/month minimum; Free
-              License eligibility is a product determination
-              (captain's call). The alternative the audit names -
-              Hyperframes fully replacing Remotion on the shipped
-              path - is likewise a captain's call. Listed here as an
-              open decision, not built.
+note        : personal-only for the personal edition. The public
+              edition selects HyperFrames; unsupported project-owned
+              Remotion compositions refuse through the renderer gate.
 
+component-id : renderer.web_dependencies
+edition      : public
 component   : react, react-dom (19.2.3), tailwindcss (4.0.0), zod
               (4.3.6), typescript (5.9.3), eslint (9.19.0),
               prettier (3.8.1)
@@ -263,6 +320,9 @@ hash-verified: n/a (npm transport; package-lock.json pins the tree)
 C. MODELS AND WEIGHTS (downloaded once per machine; resolvers in
    library/tools/shared_environment.py, installers in scripts/)
 --------------------------------------------------------------
+component-id : model.insightface_buffalo_l
+edition      : personal-only
+installer-path : scripts/install_insightface.sh
 component   : insightface buffalo_l pack (det_10g.onnx detector +
               w600k_r50.onnx ArcFace recognizer, ~281 MB)
 pin         : pack name buffalo_l
@@ -282,12 +342,14 @@ fetched     : downloaded-at-install (insightface-managed fetch, no
               hash check in scripts/install_insightface.sh)
 commercial  : needs-paid-license
 hash-verified: no
-note        : commercial licensing contact per upstream:
-              recognition-oss-pack@insightface.ai. Until licensed,
-              commercial product use is not permitted. Obtaining the
-              license or replacing the backend is a captain's call -
-              listed as an open decision, not built.
+note        : personal-only for the personal edition. Commercial
+              licensing contact per upstream:
+              recognition-oss-pack@insightface.ai. The public
+              face-identity provider will be plugged into the
+              `select_component` seam in `ren.edition`.
 
+component-id : model.ecapa
+edition      : public
 component   : ECAPA speaker-encoder checkout
               (speechbrain/spkrec-ecapa-voxceleb, ~90 MB)
 pin         : revision 0f99f2d0ebe89ac095bcc5903c4dd8f72b367286
@@ -306,6 +368,8 @@ note        : the install script already says the VoxCeleb terms
               "govern the weights - check them for the use at hand";
               carried here unchanged.
 
+component-id : model.panns
+edition      : public
 component   : PANNs Cnn14_DecisionLevelMax checkpoint (327 MB)
 pin         : Cnn14_DecisionLevelMax_mAP=0.385.pth, md5
               70539c43c18b6a289b3199c503a82c5a
@@ -317,6 +381,8 @@ fetched     : downloaded-at-install
 commercial  : ok-with-attribution
 hash-verified: yes (md5 verified at install)
 
+component-id : model.mfa
+edition      : public
 component   : MFA acoustic/dictionary/G2P models (english_us_arpa
               v3.0.0, ~105 MB) + montreal-forced-aligner 3.4.*
 pin         : model v3.0.0 pinned
@@ -333,6 +399,8 @@ hash-verified: no for the micromamba bootstrap (fetches
               https://micro.mamba.pm/api/micromamba/<plat>/latest,
               unpinned); model versions pinned by mfa itself
 
+component-id : tool.micromamba
+edition      : public
 component   : micromamba binary (MFA bootstrapper)
 pin         : UNPINNED "latest" per platform
               (scripts/install_mfa.sh)
@@ -342,6 +410,8 @@ fetched     : downloaded-at-install
 commercial  : ok
 hash-verified: no (owned by the download-pinning lane)
 
+component-id : model.deepfilternet
+edition      : public
 component   : DeepFilterNet prebuilt binary 0.5.6 (Apple Silicon)
               + first-use model weights (~100 MB)
 pin         : v0.5.6 asset deep-filter-0.5.6-aarch64-apple-darwin
@@ -354,6 +424,8 @@ fetched     : downloaded-at-install (binary) +
 commercial  : ok
 hash-verified: no (owned by the download-pinning lane)
 
+component-id : model.gemma_vision
+edition      : public
 component   : Gemma vision weights mlx-community/gemma-4-12b-it-4bit
               (~6.3 GB; step 1.03 vision, ren/doctor model.vision)
 pin         : mlx-community/gemma-4-12b-it-4bit
@@ -371,6 +443,8 @@ note        : redistribution must carry the Gemma notice and the use
               restrictions; the product license must include them
               (EULA lane).
 
+component-id : model.clip_search
+edition      : public
 component   : CLIP openai/clip-vit-large-patch14 (footage search) +
               sentence-transformers/all-MiniLM-L6-v2 (footage query)
 pin         : as named in library/tools/analysis/footage_frames.py
@@ -382,6 +456,8 @@ fetched     : downloaded-at-first-use (HF snapshots)
 commercial  : ok
 hash-verified: no
 
+component-id : model.audio_flamingo_next
+edition      : personal-only
 component   : Audio Flamingo Next captioner
               (nvidia/audio-flamingo-next-captioner-hf; SFX library
               profiling in library/tools/analysis/sfx_pipeline.py,
@@ -395,11 +471,12 @@ license     : NVIDIA OneWay Noncommercial (research only)
 fetched     : downloaded-at-first-use (gated HF download)
 commercial  : not-permitted
 hash-verified: no
-note        : on the SFX-profiling path, so the SFX index cannot be
-              built commercially as-shipped. Replacement or removal
-              from the shipped path is a captain's call - listed as
-              an open decision, not built.
+note        : personal-only for the personal edition. The public
+              SFX-profiling provider will be plugged into the
+              `select_component` seam in `ren.edition`.
 
+component-id : tool.voz
+edition      : public
 component   : Desert Ant CLI (`da`) + Voz/Ear models (on-device
               transcription: `da voz`, language id: `da ear`;
               contained in library/tools/heard_speech.py)
@@ -412,12 +489,16 @@ license     : Desert Ant Labs Source-Available License ("Free for
               scale"; licensing@desertant.com)
 fetched     : external-prerequisite (installed by the operator)
 commercial  : needs-paid-license
-note        : whether Ren-at-product-scale is inside "most apps" or
-              needs the commercial license is a product determination
-              (captain's call). Listed as an open decision, not built.
+note        : captain's 2026-10-04 edition decision treats Voz as
+              public for now. The vendor's paid-at-scale term remains
+              a release obligation if Ren usage crosses that threshold.
 
 D. SHIPPED FONTS AND ASSETS (in this repo)
 --------------------------------------------------------------
+component-id : asset.montserrat
+edition      : public
+package-copy : remotion-subtitles/public/fonts/Montserrat-Variable.ttf -> hyperframes/compositions/Montserrat-Variable.ttf
+package-copy : remotion-subtitles/public/fonts/OFL-Montserrat.txt -> hyperframes/compositions/OFL-Montserrat.txt
 component   : Montserrat Variable font (100-900)
 pin         : remotion-subtitles/public/fonts/Montserrat-Variable.ttf
               + OFL-Montserrat.txt beside it
@@ -431,6 +512,8 @@ note        : enforced by tests/contracts/test_asset_policy.py (no
               network fonts at render time; licence must ship beside
               the font; AGENTS.md section 11 must record it).
 
+component-id : renderer.gsap
+edition      : public
 component   : GSAP 3.14.2 (hyperframes/vendor/gsap.min.js)
 pin         : 3.14.2, pinned vendored file
 source      : https://gsap.com (GSAP Standard License, free tier;
@@ -441,6 +524,19 @@ fetched     : shipped-in-repo
 commercial  : ok
 hash-verified: n/a
 
+component-id : renderer.hyperframes
+edition      : public
+package-path : hyperframes
+component   : HyperFrames renderer CLI
+pin         : 0.8.70 (library/tools/hyperframes_render.py)
+source      : https://github.com/heygen-com/hyperframes
+license     : Apache-2.0
+fetched     : downloaded-at-first-use (npx hyperframes@0.8.70)
+commercial  : ok
+hash-verified: no (pinned npm release; npm transport)
+
+component-id : asset.ren_presets
+edition      : public
 component   : library/presets/, platform safe-zone guides,
               Fusion macros (library/presets/, platform_safe_zones.py)
 pin         : this repo
@@ -473,37 +569,31 @@ E. INTERNAL DOC CORRECTIONS MADE WITH THIS INVENTORY
 F. EXTERNAL PREREQUISITES (NOT shipped, NOT downloaded by Ren;
    recorded so packaging cannot miss them)
 --------------------------------------------------------------
-- DaVinci Resolve Studio (+ its scripting module): commercial EULA
+- [edition: public] DaVinci Resolve Studio (+ its scripting module): commercial EULA
   (Blackmagic Design); customer-supplied. needs-paid-license
   (Studio); the Free tier exists but the compatibility matrix is
   another lane's work.
-- ffmpeg/ffprobe: external prerequisite; license depends on the
+- [edition: public] ffmpeg/ffprobe: external prerequisite; license depends on the
   build (GPL/LGPL) - record the shipped build's license at
   packaging time. ok-with-attribution.
-- Node.js: external prerequisite, MIT. ok.
-- Agent harness (Claude Code / Codex / OpenCode): operator-supplied,
+- [edition: public] Node.js: external prerequisite, MIT. ok.
+- [edition: public] Agent harness (Claude Code / Codex / OpenCode): operator-supplied,
   each under its own terms; the supported-harness lane owns the
   matrix. Out of scope here.
-- HF_TOKEN-gated downloads (Gemma, Audio Flamingo Next, ECAPA is
-  public): the token is an operator credential, not a component.
-- PIPELINE_SFX_LIBRARY / PIPELINE_MUSIC_LIBRARY content and
+- HF_TOKEN-gated downloads (Gemma and ECAPA): the token is an operator
+  credential, not a component. Audio Flamingo Next is personal-only and
+  is checked before its first-use model fetch.
+- [edition: public] PIPELINE_SFX_LIBRARY / PIPELINE_MUSIC_LIBRARY content and
   yt-dlp-fetched tracks: customer/captain-supplied; track rights
   stay with their owners (AGENTS.md 10.5: no rights model built).
 - No LICENSE/EULA file exists at the repo root: the product
   license itself is unwritten (captain's call, out of scope here).
 
-G. OPEN DECISIONS FOR THE CAPTAIN (not built by this lane)
+G. EDITION DECISIONS APPLIED
 --------------------------------------------------------------
-1. InsightFace buffalo_l: obtain a commercial license
-   (recognition-oss-pack@insightface.ai) or replace the
-   face-identity backend.
-2. Remotion: cover Ren under Remotion for Automators (paid,
-   $0.01/render, $100/mo minimum) unless the use qualifies for the
-   Free License, or fully replace it with Hyperframes on the
-   shipped path.
-3. Audio Flamingo Next (SFX profiling): research-only license;
-   replace or remove from the shipped path.
-4. Desert Ant / Voz: clarify whether product-scale use needs their
-   commercial license (licensing@desertant.com).
-5. Product EULA: write it (must clear the praat-parselmouth GPLv3
-   copyleft note and carry the Gemma redistribution notice).
+The captain's 2026-10-04 decision keeps non-commercial or otherwise
+restricted components in the personal edition and selects public
+alternatives for the public edition. `ren.edition.select_component` is
+the provider seam for face identity, SFX profiling and prosody. Public
+graphics select HyperFrames and refuse a Remotion fallback. The EULA
+and the paid-at-scale Voz term remain separate release obligations.

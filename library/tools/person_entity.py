@@ -164,6 +164,18 @@ def _face_app():
     global _FACE_APP
     if _FACE_APP is not None:
         return _FACE_APP
+    from ren.edition import EditionError, select_component
+
+    try:
+        provider = select_component(
+            "face identity",
+            personal_component="model.insightface_buffalo_l",
+            public_component=None)
+    except EditionError as exc:
+        raise FaceIdentityUnavailable(str(exc)) from exc
+    if provider != "model.insightface_buffalo_l":
+        raise FaceIdentityUnavailable(
+            f"face identity provider {provider!r} has no loader registered")
     model_dir = shared_environment.require_insightface()
     from insightface.app import FaceAnalysis
 

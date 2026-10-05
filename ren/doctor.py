@@ -307,12 +307,21 @@ def ffmpeg_check() -> Check:
 
 
 def node_checks() -> list:
+    from ren.edition import PUBLIC, current_edition
+
+    public = current_edition() == PUBLIC
     node = shutil.which("node")
     if not node:
-        return [Check("Node.js", False, "node is not on PATH", "brew install node",
-                      need="node"),
-                Check("Remotion deps", False, "needs Node.js first", "brew install node",
-                      need="remotion")]
+        checks = [Check("Node.js", False, "node is not on PATH", "brew install node",
+                        need="node")]
+        if public:
+            checks.append(Check("HyperFrames renderer", False,
+                                "needs Node.js and npx first", "brew install node",
+                                need="remotion"))
+        else:
+            checks.append(Check("Remotion deps", False, "needs Node.js first",
+                                "brew install node", need="remotion"))
+        return checks
     try:
         version = subprocess.run([node, "--version"], capture_output=True,
                                  encoding="utf-8", timeout=10, check=False).stdout.strip()
@@ -324,17 +333,29 @@ def node_checks() -> list:
                     else f"install Node {MIN_NODE_MAJOR}+: brew install node",
                     need="node")]
 
-    from library.tools import shared_environment
-    remotion = shared_environment.remotion_dir(_engine_root())
-    if shared_environment.dependencies_present(remotion):
-        checks.append(Check("Remotion deps", True,
-                            f"{shared_environment.node_modules(remotion)}",
-                            need="remotion"))
+    if public:
+        npx = shutil.which("npx")
+        from library.tools.hyperframes_render import HYPERFRAMES_VERSION_PIN
+
+        checks.append(Check(
+            "HyperFrames renderer", bool(npx),
+            (f"public provider; npx fetches hyperframes@"
+             f"{HYPERFRAMES_VERSION_PIN} on the first render")
+            if npx else "npx is not on PATH",
+            "install Node.js (includes npx): brew install node" if not npx else "",
+            need="remotion"))
     else:
-        checks.append(Check("Remotion deps", False,
-                            f"no node_modules bound at {remotion}",
-                            f"bash {shared_environment.INSTALL_SCRIPT}",
-                            need="remotion"))
+        from library.tools import shared_environment
+        remotion = shared_environment.remotion_dir(_engine_root())
+        if shared_environment.dependencies_present(remotion):
+            checks.append(Check("Remotion deps", True,
+                                f"{shared_environment.node_modules(remotion)}",
+                                need="remotion"))
+        else:
+            checks.append(Check("Remotion deps", False,
+                                f"no node_modules bound at {remotion}",
+                                f"bash {shared_environment.INSTALL_SCRIPT}",
+                                need="remotion"))
     return checks
 
 
@@ -352,7 +373,32 @@ def graphics_engine_checks() -> list:
     """
     from library.tools import graphics_renderer as engines
     from library.tools import hyperframes_render as hf
+    from ren.edition import PUBLIC, current_edition
     checks = []
+    if current_edition() == PUBLIC:
+        try:
+            selected = engines.resolve_engine()
+            checks.append(Check("graphics Remotion policy", True,
+                                "personal-only; excluded from the public engine",
+                                need="remotion"))
+            npx = shutil.which("npx")
+            checks.append(Check(
+                "graphics HyperFrames", bool(npx),
+                (f"selected public renderer; npx fetches the pinned CLI "
+                 f"on the first render ({selected})") if npx else
+                "selected public renderer, but npx is not on PATH",
+                "install Node.js (includes npx): brew install node" if not npx else "",
+                need="remotion"))
+            checks.append(Check("graphics selected", selected == "hyperframes",
+                                f"{selected} (public edition)",
+                                "fix the public renderer selection",
+                                need="remotion"))
+        except Exception as exc:  # noqa: BLE001 - doctor must finish
+            checks.append(Check("graphics selected", False,
+                                f"the public renderer cannot be selected: {exc}",
+                                "select the public HyperFrames provider",
+                                need="remotion"))
+        return checks
     try:
         from library.tools import shared_environment
         remotion_ok = shared_environment.dependencies_present(
@@ -669,8 +715,25 @@ def macos_check() -> Check:
                  need="macos")
 
 
+def edition_check() -> Check:
+    """Report the immutable product edition and restricted-component count."""
+    from ren.edition import current_edition, read_components
+
+    edition = current_edition()
+    restricted = [entry for entry in read_components().values()
+                  if entry.edition == "personal-only"]
+    if edition == "public":
+        detail = (f"public; {len(restricted)} personal-only components are "
+                  "blocked from packaging, fetching, and loading")
+    else:
+        detail = (f"personal; personal-only components remain available "
+                  f"({len(restricted)} inventoried)")
+    return Check("Ren edition", True, detail)
+
+
 GROUPS = (
     # (name, the function that checks it, the needs its lines check)
+    ("edition", "edition_check", ()),
     ("macOS", "macos_check", ("macos",)),
     ("Resolve scripting", "resolve_checks", ("resolve.scripting", "resolve.studio")),
     ("Python 3.12 venv", "python_checks",
@@ -753,7 +816,8 @@ def render(checks: list) -> str:
     info = build_info()
     width = max(len(check.name) for check in checks)
     lines = [f"ren doctor {info['version']} "
-             f"({info['sha'] or 'unknown commit'}, {info['channel']}) - "
+             f"({info['edition']} edition; {info['sha'] or 'unknown commit'}, "
+             f"{info['channel']}) - "
              f"what can this Mac do with Ren? (read-only: changes nothing)",
              f"Python compatibility: {info['requires_python']}",
              "FAIL: every capability needs it.  MISS: limits the capabilities below.",

@@ -60,7 +60,7 @@ NEEDS: dict = {n.id: n for n in (
          "insightface (requirements/identity.txt)"),
     Need("ffmpeg", "ffmpeg and ffprobe on PATH"),
     Need("node", "Node.js on PATH"),
-    Need("remotion", "the Remotion dependencies bound to this checkout"),
+    Need("remotion", "the selected graphics renderer runtime is available"),
     Need("resolve.scripting", "a scripting connection to a running "
          "DaVinci Resolve"),
     Need("resolve.studio", "DaVinci Resolve Studio - the free edition "

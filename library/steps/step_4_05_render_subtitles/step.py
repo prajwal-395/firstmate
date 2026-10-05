@@ -375,6 +375,9 @@ class SubprocessRenderer:
         no intermediate video is rendered first. Video (the default) is
         today's stitched ProRes path, unchanged.
         """
+        from ren.edition import require_component
+
+        require_component("renderer.remotion", action="load")
         args = ["npx", "remotion", "render",
                 "SubtitleOverlay",
                 overlay_path,

@@ -129,6 +129,19 @@ def analyze_afnext(audio_path, model, processor):
         return ""
 
 def load_afnext_model():
+    from ren.edition import EditionError, require_component, select_component
+
+    try:
+        provider = select_component(
+            "SFX profiling",
+            personal_component="model.audio_flamingo_next",
+            public_component=None)
+    except EditionError as exc:
+        raise RuntimeError(str(exc)) from exc
+    if provider != "model.audio_flamingo_next":
+        raise RuntimeError(
+            f"SFX profiler {provider!r} has no model loader registered")
+    require_component(provider, action="fetch or load")
     from transformers import MusicFlamingoForConditionalGeneration, AutoProcessor, QuantoConfig
     import transformers.models.musicflamingo.modeling_musicflamingo as mf_module
 
@@ -270,7 +283,11 @@ def main():
     model = None
     processor = None
     if not args.fast:
-        model, processor = load_afnext_model()
+        try:
+            model, processor = load_afnext_model()
+        except RuntimeError as exc:
+            print(f"SFX profiling refused: {exc}", file=__import__('sys').stderr)
+            return 2
         
     if args.file:
         files = [args.file]

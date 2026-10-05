@@ -51,10 +51,15 @@ def _generated_build() -> dict:
         from ren._build import BUILD_CHANNEL, BUILD_DATE, BUILD_SHA
     except ImportError:
         return {}
+    try:
+        from ren._build import BUILD_EDITION
+    except ImportError:  # trees built before editions were introduced
+        BUILD_EDITION = "personal"
     return {
         "sha": BUILD_SHA,
         "built_at": BUILD_DATE,
         "channel": BUILD_CHANNEL,
+        "edition": BUILD_EDITION,
     }
 
 
@@ -81,11 +86,14 @@ def build_info() -> dict:
     if generated:
         return {"version": __version__, **generated,
                 "requires_python": REQUIRES_PYTHON}
+    from ren.edition import current_edition
+
     return {
         "version": __version__,
         "sha": _git_sha(),
         "built_at": "",
         "channel": "dev",
+        "edition": current_edition(),
         "requires_python": REQUIRES_PYTHON,
     }
 
@@ -93,8 +101,8 @@ def build_info() -> dict:
 def version_string() -> str:
     """`ren --version`'s one line: SemVer plus build metadata.
 
-    `0.1.0+abc123def456.dev` off a checkout at that commit,
-    `0.1.0+abc123def456.stable.2026-10-04` off a packaged build.
+    `0.1.0+abc123def456.dev.personal` off a checkout at that commit,
+    `0.1.0+abc123def456.stable.personal.2026-10-04` off a packaged build.
     """
     return format_version(build_info())
 
@@ -106,8 +114,8 @@ def format_version(info: dict) -> str:
         raise ValueError(f"Ren version is not SemVer: {version!r}")
     parts = [version]
     metadata = []
-    for field in ("sha", "channel", "built_at"):
-        value = info[field]
+    for field in ("sha", "channel", "edition", "built_at"):
+        value = info.get(field, "personal" if field == "edition" else "")
         if not value:
             continue
         if not isinstance(value, str) or _BUILD_PART.fullmatch(value) is None:

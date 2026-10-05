@@ -42,6 +42,12 @@ for arg in "$@"; do
     esac
 done
 
+if ! (cd "$REPO_ROOT" && REN_ENGINE_ROOT="$REPO_ROOT" \
+    PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
+    "$PYTHON" -m ren.edition check renderer.remotion --action fetch); then
+    exit 1
+fi
+
 # Every path below comes from shared_environment. This script decides none
 # of them.
 ask() {

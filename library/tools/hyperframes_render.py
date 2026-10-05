@@ -177,12 +177,14 @@ def hyperframes_available(timeout: int = 30) -> tuple:
 
 def require_hyperframes() -> None:
     """Refuse by name when this machine cannot render HyperFrames."""
+    from ren.edition import require_component
+
+    require_component("renderer.hyperframes", action="load")
     usable, detail = hyperframes_available()
     if not usable:
         raise HyperFramesUnavailable(
             f"HyperFrames cannot render here: {detail}. "
-            f"Remotion stays the default engine; select HyperFrames only "
-            f"where it is installed.")
+            f"Install the pinned HyperFrames CLI and retry.")
 
 
 # ── Frame-rate spelling ──────────────────────────────────────────
@@ -218,6 +220,10 @@ def duration_seconds(duration_frames: int, fps: float) -> float:
 
 def bundled_font_file() -> Path:
     """The bundled Montserrat variable file both engines draw from."""
+    packaged = (_PILOT_ROOT / "hyperframes" / "compositions"
+                / BUNDLED_FONT_FILENAME)
+    if packaged.is_file():
+        return packaged
     return (_PILOT_ROOT / "remotion-subtitles" / "public" / "fonts"
             / BUNDLED_FONT_FILENAME)
 
@@ -598,11 +604,14 @@ def render_png_sequence(project_dir: str,
     23.98 rounded), because a rounded rate drifts the frame count the
     manifest already planned.
     """
-    usable, detail = hyperframes_available()
-    if not usable:
+    from ren.edition import require_component
+
+    require_component("renderer.hyperframes", action="fetch or load")
+    npx = shutil.which("npx")
+    if not npx:
         raise HyperFramesUnavailable(
-            f"HyperFrames cannot render here: {detail}")
-    npx = shutil.which("npx") or "npx"
+            "HyperFrames needs Node.js and npx on PATH; install Node.js "
+            "and retry. The public edition does not use Remotion.")
     os.makedirs(frames_dir, exist_ok=True)
     command = [
         npx, "--yes", f"hyperframes@{HYPERFRAMES_VERSION_PIN}", "render",
@@ -618,6 +627,9 @@ def render_png_sequence(project_dir: str,
             text=True, encoding="utf-8", errors="replace",
             timeout=timeout,
         )
+    except OSError as exc:
+        raise HyperFramesRenderError(
+            f"HyperFrames renderer could not start for {project_dir}: {exc}") from exc
     except subprocess.TimeoutExpired as exc:
         raise HyperFramesRenderError(
             f"HyperFrames render of {project_dir} timed out after "

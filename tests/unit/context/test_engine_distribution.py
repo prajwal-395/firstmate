@@ -188,7 +188,7 @@ def test_the_built_tree_holds_every_entry_a_verb_reads(tmp_path):
 def test_rebuilding_a_version_directory_refuses(tmp_path):
     from ren import package_engine
     home = tmp_path / "vep"
-    build_id = f"{__version__}+abc123.test.2026-10-04"
+    build_id = f"{__version__}+abc123.test.personal.2026-10-04"
     first = package_engine.install_versioned(
         home, REPO_ROOT, channel="test", sha="abc123",
         built_at="2026-10-04")
@@ -223,7 +223,7 @@ def test_failed_version_build_keeps_the_active_tree(tmp_path, monkeypatch):
             built_at="2026-10-04")
 
     assert os.readlink(home / "current") == "versions/old"
-    build_id = f"{__version__}+abc123.test.2026-10-04"
+    build_id = f"{__version__}+abc123.test.personal.2026-10-04"
     assert not (home / "versions" / build_id).exists()
     assert not list((home / "versions").glob(".*.staging"))
 

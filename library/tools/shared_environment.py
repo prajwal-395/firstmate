@@ -1104,6 +1104,10 @@ def insightface_available(explicit: Optional[str | Path] = None) -> tuple:
     package, and every clip of a geo-podcast build then failed on a
     bare `ModuleNotFoundError` instead of this refusal.
     """
+    from ren.edition import component_allowed
+
+    if not component_allowed("model.insightface_buffalo_l"):
+        return False, insightface_missing_message(explicit)
     directory = _insightface_pack_dir(explicit)
     missing = [name for name in INSIGHTFACE_REQUIRED_FILES
                if not (directory / name).is_file()]
@@ -1124,6 +1128,13 @@ def insightface_available(explicit: Optional[str | Path] = None) -> tuple:
 
 def insightface_missing_message(explicit: Optional[str | Path] = None) -> str:
     """Why buffalo_l is not reachable, and the command that fixes it."""
+    from ren.edition import current_edition
+
+    if current_edition() == "public":
+        return (
+            "The public edition excludes the personal-only InsightFace "
+            "buffalo_l weights. Use the public face-identity provider when "
+            "it is registered in THIRD_PARTY_NOTICES.")
     return (
         f"The insightface {INSIGHTFACE_PACK_NAME} checkout is not "
         f"reachable ({_insightface_pack_dir(explicit)}).\n"
@@ -1137,6 +1148,9 @@ def insightface_missing_message(explicit: Optional[str | Path] = None) -> str:
 
 def require_insightface(explicit: Optional[str | Path] = None) -> Path:
     """Return the insightface model root, or REFUSE by name."""
+    from ren.edition import require_component
+
+    require_component("model.insightface_buffalo_l", action="load")
     usable, detail = insightface_available(explicit)
     if not usable:
         raise InsightfaceEnvironmentMissing(detail)

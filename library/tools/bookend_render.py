@@ -268,6 +268,9 @@ def _render_one_cli(bookend: dict, composition: str, remotion_dir: str,
     Remotion BY NAME rather than approximately or not at all.
     """
     from library.tools import graphics_renderer as _engines
+    from ren.edition import require_component
+
+    require_component("renderer.remotion", action="load")
     if _engines.is_hyperframes(project_folder or None):
         print(f"    engine: Remotion for '{bookend['slot']}' "
               f"({composition} is a project-owned .tsx with no "

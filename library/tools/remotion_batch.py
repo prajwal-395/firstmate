@@ -366,6 +366,10 @@ def render_batch(jobs: Sequence[RenderJob],
     if not jobs:
         return []
 
+    from ren.edition import require_component
+
+    require_component("renderer.remotion", action="load")
+
     directory = remotion_dir(repo_root)
     script = directory / BATCH_SCRIPT
     if not script.exists():
@@ -514,6 +518,9 @@ class PersistentRenderer:
     def _start_locked(self) -> "PersistentRenderer":
         if self._proc is not None:
             return self
+        from ren.edition import require_component
+
+        require_component("renderer.remotion", action="load")
         directory = remotion_dir(self.repo_root)
         script = directory / BATCH_SCRIPT
         if not script.exists():

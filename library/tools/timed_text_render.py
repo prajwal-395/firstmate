@@ -136,6 +136,9 @@ def _render_one(name: str, out_path: str, props_path: str,
             name, out_path, props_path, remotion_dir,
             project_folder=project_folder or "", stream=stream)
         return
+    from ren.edition import require_component
+
+    require_component("renderer.remotion", action="load")
     command = [
         "npx", "remotion", "render",
         TIMED_TEXT_COMPOSITION, out_path,

@@ -242,6 +242,19 @@ def analyze_prosody(audio_path: str, speech_regions: list = None) -> dict:
     - Voice quality metrics (jitter, shimmer, HNR)
     - Intensity (loudness) contour at 50ms resolution
     """
+    from ren.edition import EditionError, require_component, select_component
+
+    try:
+        provider = select_component(
+            "prosody analysis",
+            personal_component="python.praat_parselmouth",
+            public_component=None)
+    except EditionError as exc:
+        raise ProsodyUnavailable(str(exc)) from exc
+    if provider != "python.praat_parselmouth":
+        raise ProsodyUnavailable(
+            f"prosody provider {provider!r} has no analyzer registered")
+    require_component(provider, action="load")
     try:
         import parselmouth
         from parselmouth.praat import call

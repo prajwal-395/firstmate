@@ -55,6 +55,12 @@ for arg in "$@"; do
     esac
 done
 
+if ! (cd "$REPO_ROOT" && REN_ENGINE_ROOT="$REPO_ROOT" \
+    PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
+    "$PYTHON" -m ren.edition check model.insightface_buffalo_l --action fetch); then
+    exit 1
+fi
+
 ask() {
     ( cd "$REPO_ROOT" && "$PYTHON" -c "
 import sys

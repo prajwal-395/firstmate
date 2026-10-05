@@ -5,11 +5,11 @@ motion graphics, the timed-text segments, the bookend cards and the
 full-frame reel cards - asks this module which engine draws, and the
 answer is one of two names:
 
-* ``remotion`` - the default. Nothing changes unless something is
-  selected: every existing run resolves here.
-* ``hyperframes`` - the fully open-source (Apache 2.0) second renderer
-  (captain, 2026-09-24), drawn from ``hyperframes/compositions/`` and
-  rendered through ``library/tools/hyperframes_render.py``.
+* ``remotion`` - the personal edition's default. Public builds exclude
+  it because of its commercial license terms.
+* ``hyperframes`` - the public edition's default and an optional personal
+  renderer, drawn from ``hyperframes/compositions/`` and rendered through
+  ``library/tools/hyperframes_render.py``.
 
 Precedence is project over user over default. The per-user setting lives
 in the file ``library/tools/paths.py`` already loads -
@@ -39,7 +39,7 @@ ENGINES = (ENGINE_REMOTION, ENGINE_HYPERFRAMES)
 """Every graphics engine, complete. A port that adds one edits this tuple."""
 
 DEFAULT_ENGINE = ENGINE_REMOTION
-"""Remotion draws unless something is selected. Nothing he sees changes."""
+"""Personal checkouts keep their historical Remotion default."""
 
 USER_SETTING_KEY = "PIPELINE_GRAPHICS_RENDERER"
 """The per-user key, read from the process environment.
@@ -149,13 +149,30 @@ def resolve_engine(project_folder: Optional[str] = None) -> str:
     """Which engine draws: the project, else the user, else the default.
 
     Project wins over user - the video's declaration over the machine's -
-    and both lose to nothing: an undeclared project on an unconfigured
-    machine draws with Remotion, which is today's path exactly.
+    and both lose to the edition default: personal builds resolve to
+    Remotion, while public builds resolve to HyperFrames. An explicit
+    personal-only renderer refuses in a public build.
     """
+    from ren.edition import PUBLIC, current_edition, require_component, select_component
+
     project = project_engine(project_folder)
+    user = user_engine()
+    explicit = project or user
+    if current_edition() == PUBLIC:
+        if explicit:
+            selected = normalise(explicit, where="graphics renderer setting")
+            component_id = ("renderer.remotion" if selected == ENGINE_REMOTION
+                            else "renderer.hyperframes")
+            require_component(component_id, action="select")
+            return selected
+        component_id = select_component(
+            "graphics rendering",
+            personal_component="renderer.remotion",
+            public_component="renderer.hyperframes")
+        return (ENGINE_REMOTION if component_id == "renderer.remotion"
+                else ENGINE_HYPERFRAMES)
     if project:
         return project
-    user = user_engine()
     if user:
         return user
     return DEFAULT_ENGINE

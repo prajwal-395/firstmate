@@ -91,12 +91,14 @@ def static_font_path(font_file: str) -> str:
     return f"{PROJECT_FONT_DIR}/{font_file}"
 
 
-# Where the bundled family's file lives, relative to the repository root.
-# `remotion-subtitles/public/fonts/` is served to the render by
-# `staticFile()`; the same file is what a Python-side measurement must
-# open, because measuring in one face and drawing in another is the
-# webfont race again with an extra step.
-BUNDLED_FONT_FILE = "remotion-subtitles/public/fonts/Montserrat-Variable.ttf"
+# Where the bundled family's file lives, relative to the engine root.
+# Public builds stage the licensed file beside the HyperFrames templates;
+# personal checkouts keep the historical Remotion source copy as fallback.
+BUNDLED_FONT_FILES = (
+    "hyperframes/compositions/Montserrat-Variable.ttf",
+    "remotion-subtitles/public/fonts/Montserrat-Variable.ttf",
+)
+BUNDLED_FONT_FILE = BUNDLED_FONT_FILES[0]
 
 # Where a project keeps its own typefaces before `prep_remotion` stages
 # them into Remotion's `public/brand/`. Step 4.01 measures captions long
@@ -143,14 +145,21 @@ def measurable_font_path(declared: str,
                 return resolve_project_asset(candidate, project_folder)
             except ProjectAssetNotFoundError:
                 pass
-        staged = os.path.join(
-            _repo_root(), "remotion-subtitles", "public",
-            static_font_path(name))
-        if os.path.exists(staged):
-            return staged
+        root = _repo_root()
+        relative = static_font_path(name)
+        candidates = [
+            os.path.join(root, "remotion-subtitles", "public", relative),
+            os.path.join(root, "hyperframes", "compositions", name),
+        ]
+        for staged in candidates:
+            if os.path.exists(staged):
+                return staged
         return None
 
     if primary_family(declared) == BUNDLED_FONT_FAMILY:
-        path = os.path.join(_repo_root(), BUNDLED_FONT_FILE)
-        return path if os.path.exists(path) else None
+        root = _repo_root()
+        for relative in BUNDLED_FONT_FILES:
+            path = os.path.join(root, relative)
+            if os.path.exists(path):
+                return path
     return None

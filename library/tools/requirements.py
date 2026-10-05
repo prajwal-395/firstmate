@@ -653,8 +653,26 @@ def _remotion_installed() -> bool:
     True, and a DANGLING one answers False - which is the truth, because
     node would fail on it.
     """
+    from library.tools.graphics_renderer import (
+        ENGINE_HYPERFRAMES, resolve_engine)
+
+    if resolve_engine() == ENGINE_HYPERFRAMES:
+        return bool(shutil.which("node") and shutil.which("npx"))
     return ((REMOTION_DIR / "package.json").is_file()
             and _node_env.dependencies_present(REMOTION_DIR))
+
+
+def _renderer_install_remedy() -> str:
+    from ren.edition import PUBLIC, current_edition
+
+    if current_edition() == PUBLIC:
+        return "install Node.js (includes npx) so the pinned HyperFrames CLI can run"
+    return (
+        f"run `{_node_env.INSTALL_SCRIPT}` - package.json is in git and is "
+        f"always present, so it is the dependencies that are missing. They "
+        f"install ONCE PER MACHINE into the store under "
+        f"`{_node_env.store_root()}` and this checkout is bound to them; "
+        f"see docs/SHARED_ENVIRONMENT.md")
 
 
 def _env_requirement(name: str, describe: str, consumers: Tuple[str, ...],
@@ -836,14 +854,10 @@ ENVIRONMENT: Tuple[Requirement, ...] = (
         "npx"),
     _env_requirement(
         "env.remotion_installed",
-        "the Remotion project in remotion-subtitles/ is installed",
+        "the selected graphics renderer can run",
         _SUBTITLE_RENDERERS,
         _remotion_installed,
-        f"run `{_node_env.INSTALL_SCRIPT}` - package.json is in git and is "
-        f"always present, so it is the dependencies that are missing. They "
-        f"install ONCE PER MACHINE into the store under "
-        f"`{_node_env.store_root()}` and this checkout is bound to them; "
-        f"see docs/SHARED_ENVIRONMENT.md",
+        _renderer_install_remedy(),
         "remotion"),
     _env_requirement(
         "env.parselmouth",

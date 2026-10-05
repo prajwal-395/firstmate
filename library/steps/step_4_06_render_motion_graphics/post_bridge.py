@@ -147,6 +147,9 @@ def _remotion_dir() -> str:
 def _render_motion_graphics_file(props_path: str, dest_path: str,
                                  remotion: str, name: str) -> bool:
     """Render the MotionGraphics composition directly to PNG frames."""
+    from ren.edition import require_component
+
+    require_component("renderer.remotion", action="load")
     from pathlib import Path
 
     shutil.rmtree(dest_path, ignore_errors=True)
