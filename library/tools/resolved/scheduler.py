@@ -11,9 +11,13 @@ Order is (priority band after aging, locality, arrival):
   timeline the cursor already sits on goes first, so five requests on
   Reel03 do not bounce the cursor through Reel09 between them.
 
-Strict head-of-line: only the top job may start. If it cannot start yet
-(a writer behind running readers), nothing behind it starts either -
-that is what keeps readers from starving a writer.
+Head-of-line within a band: the top job in a band starts if it can. A
+blocked head (a writer behind running readers) is skipped only by jobs
+in the SAME band that can start, so an unrelated read is not stuck
+behind a writer that cannot run. The skip is bounded by aging: the
+blocked head is lifted one band per `AGING_SECONDS`, and once it is in
+a more urgent band than the jobs that would skip it, strict head-of-line
+protects it - readers cannot starve a writer it outranks.
 """
 
 from __future__ import annotations
@@ -81,10 +85,27 @@ def can_start(job: Pending, running: Iterable[Pending]) -> bool:
 
 
 def next_job(queued: Iterable[Pending], running: Iterable[Pending],
-             cursor: Tuple[str, str], now: float) -> Optional[Pending]:
-    """The job to start now, or None - strict head-of-line."""
+              cursor: Tuple[str, str], now: float) -> Optional[Pending]:
+    """The job to start now, or None.
+
+    The head of the queue starts if it can. If it cannot (a writer
+    behind running readers), the next job in the SAME priority band that
+    can start is skipped to, so a blocked head does not stall unrelated
+    work. The skip is bounded: aging lifts the blocked head out of the
+    skippers' band within `AGING_SECONDS`, after which strict head-of-line
+    applies and the head cannot be overtaken by jobs it outranks.
+    """
     queued = list(queued)
     if not queued:
         return None
-    head = min(queued, key=lambda job: order_key(job, now, cursor))
-    return head if can_start(head, running) else None
+    ordered = sorted(queued, key=lambda job: order_key(job, now, cursor))
+    head = ordered[0]
+    if can_start(head, running):
+        return head
+    head_band = math.floor(effective_rank(head, now))
+    for job in ordered[1:]:
+        if math.floor(effective_rank(job, now)) != head_band:
+            break
+        if can_start(job, running):
+            return job
+    return None

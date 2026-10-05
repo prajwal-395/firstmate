@@ -854,12 +854,61 @@ def test_an_old_export_is_not_starved_by_fresh_interactive_work():
     assert scheduler.next_job([old, fresh], [], ("", ""), now).id == "export"
 
 
-def test_readers_arriving_after_a_writer_do_not_overtake_it():
+def test_a_blocked_writer_does_not_stall_an_unrelated_read():
+    """Defect: strict head-of-line stalled unrelated reads behind a
+    writer that could not start. The read now starts ahead of the
+    blocked writer (same band)."""
     writer = _pending("write", priority="read", mode="exclusive",
                       submitted=0.0)
     reader = _pending("read2", priority="read", submitted=1.0)
     running = [_pending("read1", priority="read")]
-    assert scheduler.next_job([writer, reader], running, ("", ""), 2.0) is None
+    assert scheduler.next_job([writer, reader], running, ("", ""), 2.0).id == "read2"
+
+
+def test_a_startable_writer_is_not_overtaken_by_a_later_reader():
+    """The no-starvation guarantee still holds for a writer that CAN
+    start: a later reader in the same band waits its turn."""
+    writer = _pending("write", priority="read", mode="exclusive",
+                      submitted=0.0)
+    reader = _pending("read2", priority="read", submitted=1.0)
+    assert scheduler.next_job([writer, reader], [], ("", ""), 2.0).id == "write"
+
+
+def test_a_blocked_head_is_not_skipped_by_a_lower_band_job():
+    """A blocked head is skipped only within its own band. A less urgent
+    job (higher band number) cannot jump ahead, preserving priority."""
+    writer = _pending("write", priority="read", mode="exclusive",
+                      submitted=0.0)
+    build = _pending("build", priority="build", submitted=1.0)
+    running = [_pending("read1", priority="read")]
+    assert scheduler.next_job([writer, build], running, ("", ""), 2.0) is None
+
+
+def test_a_blocked_head_is_not_skipped_by_a_less_aged_job():
+    """No-starvation bound: a same-priority job that arrived later has
+    aged less and sits in a less urgent band, so it cannot skip the
+    blocked head. The head is protected until the catch-up job ages into
+    its band."""
+    writer = _pending("write", priority="read", mode="exclusive",
+                      submitted=0.0)
+    reader = _pending("read2", priority="read", submitted=29.0)
+    running = [_pending("read1", priority="read")]
+    now = 45.0
+    # writer: effective_rank = 1 - 45/30 = -0.5 -> band -1
+    # reader: effective_rank = 1 - 16/30 = 0.467 -> band 0
+    assert scheduler.next_job([writer, reader], running, ("", ""), now) is None
+
+
+def test_a_blocked_head_is_skipped_by_multiple_same_band_readers():
+    """Each same-band reader that can start is skipped to in arrival
+    order while the head remains blocked."""
+    writer = _pending("write", priority="read", mode="exclusive",
+                      submitted=0.0)
+    read2 = _pending("read2", priority="read", submitted=1.0)
+    read3 = _pending("read3", priority="read", submitted=2.0)
+    running = [_pending("read1", priority="read")]
+    assert scheduler.next_job(
+        [writer, read2, read3], running, ("", ""), 3.0).id == "read2"
 
 
 def test_a_job_on_the_current_timeline_goes_before_one_elsewhere():

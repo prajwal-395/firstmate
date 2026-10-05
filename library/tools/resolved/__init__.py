@@ -8,8 +8,9 @@ Unix-socket daemon that owns the QUEUE in front of that engine:
   `result` read it back - so a worker that wants a read or a prepared
   write does not sit blocked on Resolve itself (`client.py`).
 * ORDER, not FIFO: priority with aging, then project/timeline locality,
-  then arrival (`scheduler.py`). Strict head-of-line, so a stream of
-  readers cannot starve a writer and aging means nothing starves.
+  then arrival (`scheduler.py`). Head-of-line within a band: a blocked
+  head is skipped only by same-band jobs, so a stream of readers cannot
+  starve a writer and aging means nothing starves.
 * SINGLE-FLIGHT: an identical read already queued or running is joined,
   not repeated, and its receipt counts who joined (`jobs.coalesce_key`).
 * A RECEIPT per job - who asked, what, how long it waited, how long it
