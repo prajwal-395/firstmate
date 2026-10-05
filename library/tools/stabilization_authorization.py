@@ -4,6 +4,11 @@ The planner may propose a ``stabilize`` effect, but neither that proposal
 nor a stability measurement grants permission.  Only an explicit request
 in a routed timeline note/edit request creates one of these records.  The
 record travels with the plan and is copied onto every compiled directive.
+
+This module is the first instance of the generalized effect authorization
+pattern in ``effect_authorization.py``.  It delegates validation and scope
+matching to that module while keeping the ``stabilization_authorization/1``
+format for backward compatibility.
 """
 
 from __future__ import annotations
@@ -12,7 +17,14 @@ import os
 import re
 from pathlib import Path
 
-FORMAT = "stabilization_authorization/1"
+from library.tools.effect_authorization import (
+    STABILIZATION_FORMAT as FORMAT,
+    EffectAuthorizationError as StabilizationAuthorizationError,
+    authorizations_from_timeline_notes as _effect_authorizations_from_notes,
+    scope_matches_effect as _scope_matches_effect,
+    validate_authorizations as _validate_authorizations,
+)
+
 SCOPE_KINDS = {"whole_video", "shaky_footage", "clip", "span"}
 SOURCES = {"timeline_note", "edit_request"}
 
@@ -58,16 +70,11 @@ _SPECIFIC_SELECTOR = re.compile(
 )
 
 
-class StabilizationAuthorizationError(ValueError):
-    """A stabilization request or planned treatment has no valid scope."""
-
-
 def _note_text(note: dict) -> str:
     return str(note.get("typed") or note.get("text") or "").strip()
 
 
 def _request_text(text: str) -> str:
-    """Drop the marker title; only the user's note body grants permission."""
     if "\n\n" in text:
         return text.split("\n\n", 1)[1].strip()
     return text.strip()
@@ -190,8 +197,6 @@ def _scope_for_note(note: dict, clip_catalog) -> dict:
             scope["timeline"] = str(note["timeline"])
         return scope
 
-    # An attached item, explicit filename or demonstrative ("this clip")
-    # is narrower than nearby descriptive words such as "shaky".
     clip = _clip_scope(note, clip_catalog)
     specifically_named = bool(_SPECIFIC_SELECTOR.search(text)
                               or _catalog_mentions(text, clip_catalog or []))
@@ -238,6 +243,7 @@ def authorizations_from_timeline_notes(timeline_notes, clip_catalog=None):
                 "an explicit stabilization instruction has no note_id")
         records.append({
             "format": FORMAT,
+            "family": "vfx",
             "authorization_id": note_id,
             "source": "edit_request" if _edit_request(note)
                      else "timeline_note",
@@ -249,60 +255,7 @@ def authorizations_from_timeline_notes(timeline_notes, clip_catalog=None):
 
 def validate_authorizations(records) -> list[dict]:
     """Validate typed records read from a prior plan output."""
-    if records is None:
-        return []
-    if not isinstance(records, list):
-        raise StabilizationAuthorizationError(
-            "stabilization_authorizations must be a list")
-    validated = []
-    for index, record in enumerate(records):
-        if not isinstance(record, dict):
-            raise StabilizationAuthorizationError(
-                f"stabilization authorization {index} must be an object")
-        if record.get("format") != FORMAT:
-            raise StabilizationAuthorizationError(
-                f"stabilization authorization {index} has no supported "
-                f"format {FORMAT!r}")
-        authorization_id = str(record.get("authorization_id") or "").strip()
-        instruction = str(record.get("instruction") or "").strip()
-        source = record.get("source")
-        scope = record.get("scope")
-        if not authorization_id or not instruction:
-            raise StabilizationAuthorizationError(
-                f"stabilization authorization {index} needs an id and the "
-                "original instruction")
-        if source not in SOURCES:
-            raise StabilizationAuthorizationError(
-                f"stabilization authorization {authorization_id!r} has "
-                f"unsupported source {source!r}")
-        if not _explicit_request(_request_text(instruction)):
-            raise StabilizationAuthorizationError(
-                f"stabilization authorization {authorization_id!r} does "
-                "not contain an explicit user request")
-        if not isinstance(scope, dict) or scope.get("kind") not in SCOPE_KINDS:
-            raise StabilizationAuthorizationError(
-                f"stabilization authorization {authorization_id!r} has "
-                "no supported scope")
-        kind = scope["kind"]
-        if kind == "clip" and not any(scope.get(k) for k in (
-                "clip_id", "source_file", "clip_name")):
-            raise StabilizationAuthorizationError(
-                f"clip-scoped authorization {authorization_id!r} has no "
-                "clip identity")
-        if kind == "span":
-            try:
-                start = float(scope["start_seconds"])
-                end = float(scope["end_seconds"])
-            except (KeyError, TypeError, ValueError) as exc:
-                raise StabilizationAuthorizationError(
-                    f"span authorization {authorization_id!r} needs "
-                    "start_seconds and end_seconds") from exc
-            if end <= start:
-                raise StabilizationAuthorizationError(
-                    f"span authorization {authorization_id!r} has an "
-                    "empty or reversed range")
-        validated.append(record)
-    return validated
+    return _validate_authorizations(records, family="vfx")
 
 
 def _same_file(left: str, right: str) -> bool:
@@ -335,45 +288,9 @@ def scope_matches_clip(authorization: dict, clip: dict, *, clip_id="",
                        timeline_frame_rate=30.0,
                        timeline_name="") -> bool:
     """Whether a placed manifest item lies wholly inside this authorization."""
-    scope = authorization["scope"]
-    kind = scope["kind"]
-    authorized_timeline = str(scope.get("timeline") or "")
-    if (authorized_timeline
-            and authorized_timeline != "(the master timeline)"
-            and (not timeline_name or authorized_timeline.casefold()
-                 != timeline_name.casefold())):
-        return False
-    if kind == "whole_video":
-        return True
-    if kind == "shaky_footage":
-        return _measured_shaky(semantic_document)
-    if kind == "clip":
-        if scope.get("clip_id") and clip_id:
-            identity_matches = str(scope["clip_id"]).casefold() == str(
-                clip_id).casefold()
-        else:
-            identity_matches = _same_file(
-                str(scope.get("source_file") or ""),
-                str(clip.get("source_file") or ""))
-        if not identity_matches:
-            return False
-        start_frame = scope.get("source_start_frame")
-        end_frame = scope.get("source_end_frame")
-        source_fps = float(scope.get("source_frame_rate")
-                           or source_frame_rate or 0)
-        if start_frame is not None and end_frame is not None:
-            if source_fps <= 0:
-                return False
-            start = float(start_frame) / source_fps
-            end = float(end_frame) / source_fps
-            tolerance = 1.0 / source_fps
-            return (float(clip.get("source_in", 0)) >= start - tolerance
-                    and float(clip.get("source_out", 0)) <= end + tolerance)
-        return True
-    if kind == "span":
-        start = float(scope["start_seconds"])
-        end = float(scope["end_seconds"])
-        tolerance = 0.5 / float(timeline_frame_rate or 30.0)
-        return (float(clip.get("timeline_in", 0)) >= start - tolerance
-                and float(clip.get("timeline_out", 0)) <= end + tolerance)
-    return False
+    return _scope_matches_effect(
+        authorization, clip, family="vfx", clip_id=clip_id,
+        semantic_document=semantic_document,
+        source_frame_rate=source_frame_rate,
+        timeline_frame_rate=timeline_frame_rate,
+        timeline_name=timeline_name)

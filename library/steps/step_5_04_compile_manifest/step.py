@@ -142,6 +142,10 @@ from library.tools.stabilization_authorization import (
     scope_matches_clip,
     validate_authorizations,
 )
+from library.tools.effect_authorization import (
+    EffectAuthorizationError,
+    gate_effect_authorizations,
+)
 from tools.project_layout import (
     STEP_OUTPUT_FILE, Area, ProjectLayout, ProjectLayoutViolation,
 )
@@ -2243,6 +2247,54 @@ def compile_manifest(out_dir: str, *, object_segmentation=None,
         for clip_id, path in clip_lookup.items()
     }
     target_timeline_name = project_timeline_name(_project_root)
+
+    # ── Effect authorization gate (all families) ──
+    # Every effect family follows the stabilization model: measurement
+    # detects, recommendation may propose, only explicit editor instruction
+    # authorizes.  The gate checks all planned effects against all
+    # authorizations and refuses unauthorized effects by name.
+    _all_authorizations = list(stabilization_authorizations)
+    if isinstance(sfx_container, dict):
+        _all_authorizations.extend(
+            sfx_container.get("effect_authorizations", []) or [])
+    if isinstance(audio_mix_data, dict):
+        _all_authorizations.extend(
+            (audio_mix_data.get("audio_mix_spec", {}) or {}).get(
+                "effect_authorizations", []) or [])
+    if isinstance(motion_graphics_overlay_data, dict):
+        _all_authorizations.extend(
+            motion_graphics_overlay_data.get("effect_authorizations", []) or [])
+    if isinstance(color_data, dict):
+        _all_authorizations.extend(
+            (color_data.get("color_grade_spec", {}) or {}).get(
+                "effect_authorizations", []) or [])
+    try:
+        _all_authorizations = validate_authorizations(_all_authorizations)
+    except EffectAuthorizationError as exc:
+        raise ValueError(f"Effect authorization refused: {exc}") from exc
+    _effect_plans = {
+        "vfx": list(vfx),
+        "audio": list(sfx_list),
+        "graphics": list(
+            (motion_graphics_overlay_data.get("motion_graphics_overlay", {}) or {}
+             ).get("segments", []) or []),
+        "color": list(
+            (color_data.get("color_grade_spec", {}) or {}).get(
+                "per_clip_adjustments", []) or []),
+    }
+    _semantic_lookup = {}
+    if isinstance(semantic_data, dict):
+        for _clip in catalog_data.get("clip_catalog", []) or []:
+            if isinstance(_clip, dict) and _clip.get("clip_id"):
+                _semantic_lookup[_clip["clip_id"]] = semantic_data
+    gate_effect_authorizations(
+        _effect_plans, _all_authorizations,
+        semantic_lookup=_semantic_lookup,
+        clip_metadata=clip_metadata,
+        timeline_name=target_timeline_name,
+        timeline_frame_rate=fps,
+    )
+
     authorized_stabilization_by_label = {}
     picture_clips = [*v1_clips, *v2_clips]
     for authorization in stabilization_authorizations:
