@@ -721,74 +721,19 @@ def config_checks() -> list:
 
 # ── The chat harness ─────────────────────────────────────────────────
 
-_OAUTH_CLAUDE_METHODS = ("claude.ai", "oauth", "oauth_token")
 
+def harness_check() -> list:
+    """One line per detected chat harness, or the install fix.
 
-def harness_check() -> Check:
-    """Is a chat harness signed in with a SUBSCRIPTION (OAuth)?
-
-    OAuth only: Ren is driven from a chat harness the person is signed in
-    to, never through an API key (captain's phase-one scope: no direct
-    API calls). Each harness reports its own sign-in; no request is sent
-    to any model.
+    The records live in `ren/hosts.py` - one adapter per supported host
+    with its minimum version, its detection, its read-only auth check and
+    where Ren installs its skills and marker hook. OAuth only: Ren is
+    driven from a chat harness the person is signed in to, never through
+    an API key (captain's phase-one scope: no direct API calls).
     """
-    found = []
-    oauth = []
+    from ren.hosts import harness_checks
 
-    claude = shutil.which("claude")
-    if claude:
-        try:
-            done = subprocess.run([claude, "auth", "status"], capture_output=True,
-                                  encoding="utf-8", timeout=30, check=False)
-            status = json.loads(done.stdout)
-            method = status.get("authMethod", "") if status.get("loggedIn") else ""
-        except (OSError, subprocess.SubprocessError, ValueError):
-            method = ""
-        if method in _OAUTH_CLAUDE_METHODS:
-            plan = status.get("subscriptionType", "")
-            oauth.append(f"Claude Code ({method} OAuth{', ' + plan if plan else ''})")
-        else:
-            found.append(f"Claude Code ({method or 'not signed in'})")
-
-    opencode = shutil.which("opencode")
-    if opencode:
-        auth = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share") \
-            / "opencode" / "auth.json"
-        try:
-            kinds = {name: (entry or {}).get("type", "")
-                     for name, entry in json.loads(auth.read_text(encoding="utf-8")).items()}
-        except (OSError, ValueError, AttributeError):
-            kinds = {}
-        oauth_providers = sorted(name for name, kind in kinds.items() if kind == "oauth")
-        if oauth_providers:
-            oauth.append(f"OpenCode (OAuth: {', '.join(oauth_providers)})")
-        else:
-            found.append("OpenCode (" + (", ".join(f"{n}: {k}" for n, k in sorted(kinds.items()))
-                                          or "not signed in") + ")")
-
-    codex = shutil.which("codex")
-    if codex:
-        try:
-            said = subprocess.run([codex, "login", "status"], capture_output=True,
-                                  encoding="utf-8", timeout=30, check=False)
-            text = (said.stdout + said.stderr).strip()
-        except (OSError, subprocess.SubprocessError):
-            text = ""
-        if "ChatGPT" in text:
-            oauth.append("Codex (ChatGPT sign-in)")
-        else:
-            found.append(f"Codex ({text.splitlines()[0] if text else 'not signed in'})")
-
-    others = f"; not counted: {', '.join(found)}" if found else ""
-    if oauth:
-        return Check("chat harness", True, ", ".join(oauth) + others,
-                     need="chat_harness")
-    return Check("chat harness", False,
-                 ("no harness signed in with a subscription" + others)
-                 if (found or claude or opencode or codex)
-                 else "no chat harness installed (Claude Code, OpenCode or Codex)",
-                 "install Claude Code and run `claude` to sign in with your Claude account "
-                 "(an API key does not count)", need="chat_harness")
+    return harness_checks()
 
 
 # ── Hardware ─────────────────────────────────────────────────────────

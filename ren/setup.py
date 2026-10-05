@@ -330,6 +330,31 @@ def _run_packs(engine: Path, packs: list[str], python: Path, env: dict) -> None:
         )
 
 
+def _configure_host() -> None:
+    """Install the marker hook for every detected chat harness.
+
+    The hook is disk-only and idempotent, so configuring a detected
+    host is safe to do during setup: it lists pulled Resolve marker
+    notes at session start and never probes a closed app. With no host
+    detected, setup says so and stops - guessing a host would write a
+    hook into a config the person never opens.
+    """
+    from ren import hosts, setup_hooks
+
+    found = hosts.detected()
+    if not found:
+        print("\n==> no chat harness detected")
+        print("    install Claude Code, OpenCode or Codex and sign in, then "
+              "run `ren setup-hooks --list`")
+        return
+    print("\n==> configure the detected chat harness")
+    for adapter in found:
+        code = setup_hooks.install(adapter.name, write=True)
+        if code:
+            print(f"    {adapter.label}: re-run `ren setup-hooks "
+                  f"--app {adapter.name} --write`")
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         prog="ren setup",
@@ -399,6 +424,7 @@ def main(argv=None) -> int:
 
         _make_user_folders(engine)
         _run_packs(engine, args.packs or [], venv_python, env)
+        _configure_host()
 
         launcher = home / "bin" / "ren"
         print("\n==> verify the installed machine", flush=True)

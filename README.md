@@ -4,7 +4,7 @@ Ren is an agent-driven video editor. It takes the raw footage from a shoot and
 builds the edit on a real DaVinci Resolve timeline - selects and orders what is
 said, cuts the A-roll and B-roll, subtitles, sound, music, grade and motion
 graphics - and cuts reels from it. You drive it from a chat harness (Claude
-Code), which calls the `ren` command.
+Code, OpenCode or Codex), which calls the `ren` command.
 
 The repository is the engine. Projects - footage, pipeline output, exports -
 live outside it, in the projects root.
@@ -18,6 +18,8 @@ live outside it, in the projects root.
   **Local**. The free edition does not accept external scripts.
 - To have an agent make creative decisions, use a supported chat harness
   signed in with its subscription account. An API key does not count.
+  Ren supports Claude Code, OpenCode and Codex - each has an onboarding
+  page under [docs/customer/](docs/customer/).
 
 ## Quickstart
 
@@ -116,6 +118,8 @@ kept outside the projects root is addressed by its path instead of its slug.
 
 ## Where to read next
 
+- [docs/customer/](docs/customer/) - operator onboarding for each supported
+  chat harness: install, sign in, what Ren installs, troubleshooting.
 - [AGENTS.md](AGENTS.md) - how the engine works and the rules that govern it.
 - [docs/](docs/) - design notes and the measurements behind them.
 - `library/processes/edit_video/dag.json` - the pipeline's steps and their order.
