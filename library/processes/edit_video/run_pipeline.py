@@ -3830,6 +3830,30 @@ def run_pipeline(
         print(f"  WARNING: could not read the render QA findings: {exc}",
               file=sys.stderr)
 
+    # The intent receipt: one end-to-end proof that the render satisfies
+    # the creative direction (gap E12, scaffold).
+    #
+    # The intent checks (E1a-E1d) each measure one creative goal and each
+    # reports its verdict on its own row of exports/qa_report.json. This
+    # composes them into a single receipt: a verdict per creative goal,
+    # and an overall verdict that names what failed. It reads through the
+    # ONE reader (qa_findings), so it cannot develop a private opinion
+    # about which findings matter. Reading is not gating: `status` is
+    # decided above and this block runs after it.
+    # See library/tools/intent_receipt.py.
+    intent_receipt_summary = {}
+    try:
+        from library.tools import qa_findings as _qa_ir
+        from library.tools import intent_receipt as _ir
+        _receipt = _ir.compose_receipt(
+            _qa_ir.load_findings(project_dir, state))
+        for _line in _ir.summary_lines(_receipt):
+            print(_line, file=sys.stderr)
+        intent_receipt_summary = _receipt.as_dict()
+    except Exception as exc:  # noqa: BLE001 - a report must not fail a run
+        print(f"  WARNING: could not compose the intent receipt: {exc}",
+              file=sys.stderr)
+
     # What the rough-cut review found and could not hand to anyone.
     #
     # Step 3.03 is asked for `cut_decisions` on every run.  Its per-cut
@@ -4060,6 +4084,7 @@ def run_pipeline(
         "restart": (run_restart.as_record(_restart)
                     if _restart.is_restart else None),
         "qa_findings": qa_summary,
+        "intent_receipt": intent_receipt_summary,
         "rough_cut_review_findings": review_findings,
         "passage_alignment": alignment_summary,
         "notes_reaching_nobody": notes_reaching_nobody,

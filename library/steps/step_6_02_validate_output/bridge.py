@@ -647,9 +647,8 @@ def validate_output(rendered_output: dict, assembly_manifest: dict,
         from library.tools.broll_correspondence import placed_cutaways
         if placed_cutaways(assembly_manifest):
             timeline_doc = None
-            review_dir = os.path.join(project_folder, "pipeline_output",
-                                      "review")
-            if os.path.isdir(review_dir):
+            review_dir = ProjectLayout(project_folder).read_dir(Area.REVIEW)
+            if review_dir.is_dir():
                 import glob
                 candidates = sorted(
                     glob.glob(os.path.join(review_dir, "*.timeline.json")),
