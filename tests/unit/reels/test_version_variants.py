@@ -23,6 +23,7 @@ fixture files with the production shapes.
 from __future__ import annotations
 import json
 import subprocess
+import time
 import pytest
 from library.tools.versions import store as bvc
 from library.tools.versions import variants as tv
@@ -36,6 +37,8 @@ import ast
 from pathlib import Path
 from unittest.mock import patch
 from library.tools import capability_outputs
+from library.tools import reel_hearing
+from library.tools.heard_speech import HeardSpeech, HeardWord
 from library.processes.edit_video.run_pipeline import (
     load_pipeline_state,
     run_pipeline,
@@ -631,6 +634,129 @@ def test_two_variants_are_compared_without_resolve(project_folder):
     with pytest.raises(choice.ChoiceRefused) as refusal:
         choice.compare(project_folder, 9, " (j-cut)", " (never-built)")
     assert "never-built" in str(refusal.value)
+
+
+# ── Compared, semantically ─────────────────────────────────────────
+#
+# The row diff says which rows moved. It cannot say what the viewer
+# experiences: two variants with identical rows but different captions
+# compare as equal, and two with different rows but the same editorial
+# effect compare as different. The semantic comparison layers on top -
+# it runs `reel_hearing.hear` on both variants and diffs the heard
+# scripts. Report, not a gate.
+
+
+def _semantic_timeline(caption_record_in, caption_record_out, caption_span_ms):
+    """A minimal serialized timeline: one speech clip, one caption card.
+
+    `caption_span_ms` is the declared source span in the card's own
+    filename (`<start>-<end>`), which is what the pairing check reads.
+    """
+    return {
+        "metadata": {"name": "Reel 09 - test (final)", "fps": 24,
+                     "start_frame": 0, "end_frame": 1440,
+                     "resolution": [1080, 1920]},
+        "tracks": [
+            {"type": "audio", "name": "A-roll", "clips": [
+                {"file_path": "/footage/talk.mov", "record_in": 0,
+                 "record_out": 1440, "source_in": 0, "source_out": 1440},
+            ]},
+            {"type": "video", "name": "Subtitles", "clips": [
+                {"file_path": f"/footage/sub_speakerone_clip1_"
+                              f"{caption_span_ms}_abcd1234.mov",
+                 "record_in": caption_record_in,
+                 "record_out": caption_record_out,
+                 "source_in": 0,
+                 "source_out": caption_record_out - caption_record_in},
+            ]},
+        ],
+    }
+
+
+def _semantic_transcript():
+    return {
+        "segments": [
+            {"source_file": "/footage/talk.mov", "source_start": 0,
+             "source_end": 60, "timeline_start": 0, "speaker": "speakerone",
+             "words": [{"word": "hello", "start": 0.1, "end": 0.5},
+                       {"word": "world", "start": 0.6, "end": 1.0}]},
+        ]
+    }
+
+
+def _semantic_spoken():
+    return HeardSpeech(
+        words=[HeardWord("hello", 0.1, 0.5), HeardWord("world", 0.6, 1.0)],
+        engine={"name": "test"},
+    )
+
+
+def test_identical_rows_but_different_captions_compare_as_different():
+    """THE fidelity case: two variants with identical rows but different
+    caption text. The row diff is empty; the semantic diff is not - the
+    row diff says which rows moved, not what the viewer sees."""
+    timeline_a = _semantic_timeline(2, 12, "100-500")    # caption over "hello"
+    timeline_b = _semantic_timeline(14, 24, "600-1000")  # caption over "world"
+    transcript = _semantic_transcript()
+    spoken = _semantic_spoken()
+    hearing_a = reel_hearing.hear(timeline_a, transcript, spoken)
+    hearing_b = reel_hearing.hear(timeline_b, transcript, spoken)
+
+    row_diff = choice.rounds.diff_reel(rows(2), rows(2))
+    assert not row_diff["changed"], "identical rows compare as equal"
+
+    semantic = choice.compare_semantic(hearing_a.as_dict(), hearing_b.as_dict())
+    assert semantic["non_empty"], "different captions must compare as different"
+    assert not semantic["hearing"]["caption_coverage"]["equal"]
+
+
+def test_different_rows_but_same_heard_script_compare_as_equal_semantically():
+    """THE other fidelity case: two variants with different rows but the
+    same heard script. The row diff is non-empty; the hearing diff is
+    empty - the hearing is about what is heard, not which rows carry it."""
+    timeline = _semantic_timeline(2, 12, "100-500")
+    transcript = _semantic_transcript()
+    spoken = _semantic_spoken()
+    hearing_a = reel_hearing.hear(timeline, transcript, spoken)
+    hearing_b = reel_hearing.hear(timeline, transcript, spoken)
+
+    row_diff = choice.rounds.diff_reel(rows(2), rows(4))
+    assert row_diff["changed"], "different rows compare as different"
+
+    semantic = choice.compare_semantic(hearing_a.as_dict(), hearing_b.as_dict())
+    assert not semantic["hearing"]["non_empty"], (
+        "the same heard script compares as equal")
+
+
+def test_semantic_comparison_is_two_hear_passes_outside_the_build_critical_section(
+        monkeypatch):
+    """THE performance case: a semantic comparison is two hear passes
+    (transcribe + align). It must complete <30 s on a 60 s reel and run
+    outside the build critical section - a comparison is a report, and a
+    report must not block the next build."""
+    from library.tools import resolve_lock
+
+    timeline = _semantic_timeline(2, 12, "100-500")
+    transcript = _semantic_transcript()
+    spoken = _semantic_spoken()
+
+    taken = []
+    original = resolve_lock.resolve_lease
+
+    def spy(*args, **kwargs):
+        taken.append(args)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(resolve_lock, "resolve_lease", spy)
+
+    started = time.time()
+    choice.hear_comparison(
+        timeline, timeline, transcript,
+        "/renders/a.mp4", "/renders/b.mp4", lambda _path: spoken)
+    elapsed = time.time() - started
+
+    assert elapsed < 30.0, f"took {elapsed:.1f}s, must be <30s"
+    assert not taken, "the comparison must not take the resolve lease"
 
 
 # ── The choice, planned ──────────────────────────────────────────

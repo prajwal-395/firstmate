@@ -1173,9 +1173,173 @@ def render_comparison(diff: Mapping, show_items: int = 3) -> str:
                          f"({item['duration']}f)")
         if len(row.get("gained") or []) > show_items:
             lines.append(f"      ... and "
-                         f"{len(row['gained']) - show_items} more only "
-                         f"in B")
+                          f"{len(row['gained']) - show_items} more only "
+                          f"in B")
     return "\n".join(lines)
+
+
+# ── Compared, semantically ─────────────────────────────────────────
+#
+# The row diff (`compare` above) says which ROWS moved. It cannot say
+# what the viewer experiences: two variants with identical rows but
+# different captions compare as equal, and two with different rows but
+# the same editorial effect compare as different. The semantic
+# comparison layers on top of the row diff - it runs `reel_hearing.hear`
+# on both variants and diffs the heard scripts, and diffs the watch
+# answers. The row diff stays the mechanical substrate; this is the
+# choice surface. Report, not a gate (both modules already report).
+
+_DRIFT_COMPARED = ("matched_words", "median_seconds", "mean_seconds",
+                   "mean_absolute_seconds", "max_absolute_seconds")
+"""The measured drift values a hearing carries, and this diff compares.
+
+Read off `reel_hearing.Hearing.drift` directly (AGENTS.md 10.1 - key-name
+mismatches are the dominant bug class). The settings echoes
+(`noise_floor_seconds`, `run_min_words`) are not measurements and are
+not compared: two hearings of the same reel with the same settings
+would otherwise compare as different for a reason that is not the
+reel."""
+
+
+def diff_hearings(earlier: Mapping, later: Mapping) -> dict:
+    """What the viewer HEARS differs between two hearings.
+
+    Pure: two hearing records (`reel_hearing.Hearing.as_dict()` forms) in,
+    a diff out. The row diff says which rows moved; this says what the
+    story, the pacing and the captions do differently. Two variants with
+    identical rows but different captions compare as different here, and
+    two with different rows but the same heard script compare as equal.
+
+    Compares the keys a hearing record carries, read directly:
+    `heard_script`, `divergences`, `drift`, `caption_coverage`,
+    `caption_pairing`. Report, not a gate - `reel_hearing` already
+    reports, and this adds no verdict of its own.
+    """
+    earlier_script = str(earlier.get("heard_script") or "")
+    later_script = str(later.get("heard_script") or "")
+    earlier_divergences = list(earlier.get("divergences") or [])
+    later_divergences = list(later.get("divergences") or [])
+    earlier_drift = dict(earlier.get("drift") or {})
+    later_drift = dict(later.get("drift") or {})
+    earlier_coverage = dict(earlier.get("caption_coverage") or {})
+    later_coverage = dict(later.get("caption_coverage") or {})
+    earlier_pairing = dict(earlier.get("caption_pairing") or {})
+    later_pairing = dict(later.get("caption_pairing") or {})
+
+    script_equal = earlier_script == later_script
+    divergences_equal = earlier_divergences == later_divergences
+    drift_equal = all(earlier_drift.get(key) == later_drift.get(key)
+                      for key in _DRIFT_COMPARED)
+    coverage_equal = (
+        earlier_coverage.get("caption_cards")
+        == later_coverage.get("caption_cards")
+        and earlier_coverage.get("uncaptioned_words")
+        == later_coverage.get("uncaptioned_words")
+        and earlier_coverage.get("half_captioned_words")
+        == later_coverage.get("half_captioned_words"))
+    pairing_equal = (
+        earlier_pairing.get("mispaired") == later_pairing.get("mispaired")
+        and earlier_pairing.get("unestablished")
+        == later_pairing.get("unestablished")
+        and earlier_pairing.get("max_edge_offset_seconds")
+        == later_pairing.get("max_edge_offset_seconds")
+        and earlier_pairing.get("mean_edge_offset_seconds")
+        == later_pairing.get("mean_edge_offset_seconds"))
+    return {
+        "non_empty": not (script_equal and divergences_equal and drift_equal
+                          and coverage_equal and pairing_equal),
+        "heard_script_equal": script_equal,
+        "earlier_heard_script": earlier_script,
+        "later_heard_script": later_script,
+        "divergences": {
+            "equal": divergences_equal,
+            "earlier_count": len(earlier_divergences),
+            "later_count": len(later_divergences),
+        },
+        "drift": {
+            "equal": drift_equal,
+            "earlier": {key: earlier_drift.get(key)
+                        for key in _DRIFT_COMPARED},
+            "later": {key: later_drift.get(key) for key in _DRIFT_COMPARED},
+        },
+        "caption_coverage": {
+            "equal": coverage_equal,
+            "earlier_caption_cards": earlier_coverage.get("caption_cards"),
+            "later_caption_cards": later_coverage.get("caption_cards"),
+        },
+        "caption_pairing": {
+            "equal": pairing_equal,
+            "earlier_mispaired": len(earlier_pairing.get("mispaired") or []),
+            "later_mispaired": len(later_pairing.get("mispaired") or []),
+        },
+    }
+
+
+def diff_watch_answers(earlier_watch: str, later_watch: str) -> dict:
+    """Diff two watch answers - the free-text viewing notes on each variant.
+
+    Pure: two strings in, a diff out. The watch is a report (it gates
+    nothing), so this is a report of a report - what the viewer SAW
+    differs, in the captain's own words.
+    """
+    earlier = str(earlier_watch or "").strip()
+    later = str(later_watch or "").strip()
+    return {
+        "non_empty": earlier != later,
+        "earlier": earlier,
+        "later": later,
+    }
+
+
+def compare_semantic(earlier: Mapping, later: Mapping,
+                     earlier_watch: str = "", later_watch: str = "") -> dict:
+    """The semantic diff between two variants - what the viewer experiences.
+
+    Pure: two hearing records and two watch answers in, a diff out.
+    Layers on top of the row diff (`compare`): the row diff says which
+    rows moved, this says what the story, the pacing and the captions do
+    differently. The row diff is the mechanical substrate; this is the
+    choice surface.
+
+    Report, not a gate - both `reel_hearing` and `render_watch` already
+    report, and this adds no verdict of its own.
+    """
+    hearing = diff_hearings(earlier, later)
+    watch = diff_watch_answers(earlier_watch, later_watch)
+    return {
+        "non_empty": hearing["non_empty"] or watch["non_empty"],
+        "hearing": hearing,
+        "watch": watch,
+    }
+
+
+def hear_comparison(earlier_timeline: Mapping, later_timeline: Mapping,
+                    transcript: Mapping, earlier_video_path: str,
+                    later_video_path: str, transcriber,
+                    project_folder: str = "") -> dict:
+    """Run the hearing pass on both variants and the semantic diff.
+
+    `transcriber` maps a video path to a `heard_speech.HeardSpeech` - the
+    model pass, injectable so a test doubles it. Two hear passes, one per
+    variant; the diff is `compare_semantic`'s.
+
+    Runs OUTSIDE the build critical section: no resolve lease is taken,
+    because a comparison is a report and a report must not block the next
+    build. The transcriber is the slow part and it runs unlocked.
+    """
+    from library.tools import reel_hearing
+
+    earlier_spoken = transcriber(earlier_video_path)
+    later_spoken = transcriber(later_video_path)
+    earlier_hearing = reel_hearing.hear(
+        earlier_timeline, transcript, earlier_spoken,
+        project_folder=project_folder or None,
+        video_path=earlier_video_path)
+    later_hearing = reel_hearing.hear(
+        later_timeline, transcript, later_spoken,
+        project_folder=project_folder or None,
+        video_path=later_video_path)
+    return compare_semantic(earlier_hearing.as_dict(), later_hearing.as_dict())
 
 
 # ── The choice, planned purely ───────────────────────────────────
