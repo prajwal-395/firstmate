@@ -74,6 +74,7 @@ try:
     from library.tools import (
         conversation_clock,
         event_spans,
+        expression_classifier,
         person_entity,
         person_measurements,
         source_memory,
@@ -122,8 +123,10 @@ def _speaker_at(m7: Optional[dict], lo: float, hi: float) -> Optional[dict]:
 
 
 def _faces_at(m3: Optional[dict], assignment: Optional[List[List[Optional[str]]]],
-              lo: float, hi: float) -> List[dict]:
-    """M3 faces within [lo, hi), each with its track_id from the assignment."""
+               lo: float, hi: float,
+               m3c: Optional[dict] = None) -> List[dict]:
+    """M3 faces within [lo, hi), each with its track_id from the assignment
+    and its expression label from M3c when present."""
     if not m3:
         return []
     faces = []
@@ -132,16 +135,22 @@ def _faces_at(m3: Optional[dict], assignment: Optional[List[List[Optional[str]]]
         if not (lo <= t < hi):
             continue
         row = assignment[i] if assignment and i < len(assignment) else []
+        m3c_frames = (m3c or {}).get("frames") or []
+        m3c_faces = m3c_frames[i].get("faces") if i < len(m3c_frames) else []
         for j, face in enumerate(frame.get("faces") or []):
             track_id = row[j] if j < len(row) else None
-            faces.append({
+            entry = {
                 "t": t,
                 "track_id": track_id,
                 "box": face.get("box"),
                 "lips": {"outer": face.get("outer_lips"),
                          "inner": face.get("inner_lips")},
                 "hands": frame.get("hands") or [],
-            })
+            }
+            if j < len(m3c_faces):
+                entry["expression"] = m3c_faces[j].get("expression")
+                entry["expression_confidence"] = m3c_faces[j].get("confidence")
+            faces.append(entry)
     return faces
 
 
@@ -240,7 +249,8 @@ def _build_multicam(m6: Optional[dict]) -> Optional[dict]:
 def build_timeline(duration: float, m1: Optional[dict], m3: Optional[dict],
                    m3b: Optional[dict], m4: Optional[dict],
                    m5: Optional[dict], m7: Optional[dict],
-                   m8: Optional[dict]) -> list:
+                   m8: Optional[dict],
+                   m3c: Optional[dict] = None) -> list:
     """Join the lanes into a per-second timeline.
 
     One entry per second from 0 to floor(duration). Each entry carries
@@ -258,7 +268,7 @@ def build_timeline(duration: float, m1: Optional[dict], m3: Optional[dict],
             "t": t,
             "speech": {"words": _words_at(m1, lo, hi),
                        "speaker": _speaker_at(m7, lo, hi)},
-            "faces": _faces_at(m3, assignment, lo, hi),
+            "faces": _faces_at(m3, assignment, lo, hi, m3c),
             "scene": _scene_at(m4, lo),
             "sound": {"events": _sound_at(m5, lo, hi)},
             "events": _events_at(m7, m8, lo, hi),
@@ -281,13 +291,14 @@ def build_source_world_model(content_digest: str, source_file: str,
     m6 = conversation_clock.read_clock(content_digest, root)
     m7 = event_spans.read_m7(content_digest, root)
     m8 = span_verification.read_verdicts(content_digest, root)
+    m3c = expression_classifier.read_m3c(content_digest, root)
 
     duration = (m0 or {}).get("duration_seconds") or 0.0
-    timeline = build_timeline(duration, m1_doc, m3, m3b, m4, m5, m7, m8)
+    timeline = build_timeline(duration, m1_doc, m3, m3b, m4, m5, m7, m8, m3c)
 
     lanes = [name for name, doc in (
         ("m0", m0), ("m1", m1_doc), ("m3", m3), ("m3b", m3b),
-        ("m4", m4), ("m5", m5), ("m6", m6), ("m7", m7),
+        ("m3c", m3c), ("m4", m4), ("m5", m5), ("m6", m6), ("m7", m7),
     ) if doc is not None]
 
     record = {

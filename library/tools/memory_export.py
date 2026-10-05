@@ -74,6 +74,7 @@ WRITERS = {
     source_memory.SLOT_FRAMES_INDEX: "library/tools/source_memory.py (M2)",
     source_memory.SLOT_PERSONS: "library/tools/person_measurements.py (M3)",
     source_memory.SLOT_IDENTITY: "library/tools/person_entity.py (M3b)",
+    source_memory.SLOT_EXPRESSIONS: "library/tools/expression_classifier.py (M3c)",
     source_memory.SLOT_CLOCK: "library/tools/conversation_clock.py (M6)",
     source_memory.SLOT_EVENTS: "library/tools/event_spans.py (M7)",
     source_memory.SLOT_VERDICTS: "library/tools/span_verification.py (M8)",
@@ -82,8 +83,8 @@ WRITERS = {
 # Lane name (footage_analysis.LANES) behind each exported section.
 SECTION_LANE = {
     "media": "transcript", "transcript": "transcript", "frames": "frames",
-    "persons": "persons", "identity": "identity", "clock": "clock",
-    "events": "events",
+    "persons": "persons", "identity": "identity", "expressions": "expressions",
+    "clock": "clock", "events": "events",
 }
 
 
@@ -304,6 +305,30 @@ def _identity(digest, root, embeddings):
     }
 
 
+def _expressions(digest, root, full):
+    doc = _load(digest, source_memory.SLOT_EXPRESSIONS, root)
+    state = _current(doc, digest, None)
+    if state != "present":
+        return {"status": state}
+    frames = doc.get("frames", [])
+    faces = [f for fr in frames for f in fr.get("faces", [])]
+    conf = [f.get("confidence") for f in faces
+            if f.get("confidence") is not None]
+    out = {
+        "status": doc.get("status"),
+        "frame_count": len(frames),
+        "faces_classified": doc.get("faces_classified"),
+        "expression_counts": doc.get("expression_counts", {}),
+        "confidence": {"mean": (_r(sum(conf) / len(conf), 4) if conf else None),
+                       "basis": "classifier confidence per face"},
+        "provenance": _provenance(digest, source_memory.SLOT_EXPRESSIONS,
+                                  root, doc.get("instrument")),
+    }
+    if full:
+        out["frames"] = frames
+    return out
+
+
 def _clock(digest, root):
     doc = _load(digest, source_memory.SLOT_CLOCK, root)
     if doc is None:
@@ -426,6 +451,7 @@ def _asset(src: dict, run_outcomes: Dict[str, dict], root: Optional[Path],
         "frames": _frames(digest, root, size, duration),
         "persons": _persons(digest, root, size, full_frames),
         "identity": _identity(digest, root, embeddings),
+        "expressions": _expressions(digest, root, full_frames),
         "clock": _clock(digest, root),
         "events": _events(digest, root, size),
         "verdicts": _verdicts(digest, root),
@@ -441,7 +467,8 @@ def _asset(src: dict, run_outcomes: Dict[str, dict], root: Optional[Path],
 
     # Clock and verdicts are legitimately absent (no multicam partner, no
     # question asked yet); every other section is a lane the run owes.
-    owed = ("media", "transcript", "frames", "persons", "identity", "events")
+    owed = ("media", "transcript", "frames", "persons", "identity",
+            "expressions", "events")
     missing = [s for s in owed if sections[s]["status"] in ("absent", "stale")]
     if failures:
         asset["status"] = "failed"

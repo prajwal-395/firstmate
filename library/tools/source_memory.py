@@ -147,6 +147,7 @@ SLOT_FRAMES_DIR = "frames"                     # M2
 SLOT_FRAMES_INDEX = "frames.index.json"        # M2
 SLOT_PERSONS = "persons.json"                  # M3 - written by person_measurements.py
 SLOT_IDENTITY = "identity.json"                # M3b - written by person_entity.py
+SLOT_EXPRESSIONS = "expressions.json"          # M3c - written by expression_classifier.py
 SLOT_SCENES = "scenes.json"                    # M4 - written by vision_pipeline_v3.py
 SLOT_SOUND = "sound.json"                      # M5 - written by step_1_04
 SLOT_CLOCK = "clock.json"                      # M6 - written by conversation_clock.py
@@ -161,6 +162,7 @@ SLOT_WORLD_MODEL = "world_model.json"          # M9 - written by world_model.py
 # SLOT_PERSONS (M3) (`person_measurements.py`), SLOT_EVENTS (M7)
 # (`event_spans.py`), SLOT_SCENES (M4) (`vision_pipeline_v3.py`),
 # SLOT_SOUND (M5) (`step_1_04_temporal_index/step.py`) and
+# SLOT_EXPRESSIONS (M3c) (`expression_classifier.py`) and
 # SLOT_WORLD_MODEL (M9) (`world_model.py`).
 
 SILENCE_DB = -60.0

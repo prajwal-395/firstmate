@@ -116,6 +116,11 @@ def _build_identity(project, clip_ids, root):
     return person_entity.build_project_identity(project, clip_ids, root)
 
 
+def _build_expressions(project, clip_ids, root):
+    from library.tools import expression_classifier
+    return expression_classifier.build_project_expressions(project, clip_ids, root)
+
+
 def _build_clock(project, _clip_ids, root):
     from library.tools import conversation_clock
     return conversation_clock.build_project(project, root)
@@ -149,6 +154,9 @@ LANES: tuple = (
     Lane("identity", "M3b", "face and voice tracks within the source",
          (SM.SLOT_IDENTITY,), (SM.SLOT_FRAMES_INDEX,), True, True,
          _build_identity),
+    Lane("expressions", "M3c", "expression labels per face per frame",
+         (SM.SLOT_EXPRESSIONS,), (SM.SLOT_PERSONS,), True, True,
+         _build_expressions),
     Lane("clock", "M6", "multicam offsets measured between transcripts",
          (SM.SLOT_CLOCK,), (SM.SLOT_TRANSCRIPT,), False, False, _build_clock),
     Lane("events", "M7", "on-screen and speaking spans per person",

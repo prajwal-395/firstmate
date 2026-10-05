@@ -22,6 +22,7 @@ copy it; nothing goes into `pipeline_data.json`.
   frames/ + frames.index.json    # M2  - written
   persons.json                   # M3  - written (library/tools/person_measurements.py)
   identity.json                  # M3b - entity lane (library/tools/person_entity.py)
+  expressions.json               # M3c - written (library/tools/expression_classifier.py)
   scenes.json                    # M4  - CLIP lane (RESERVED)
   sound.json                     # M5  - SoundAnalysis lane (RESERVED)
   clock.json                     # M6  - written
@@ -290,10 +291,65 @@ embeddings are NOT matched across sources - only the diarization DER
 cross-file identity claim would be exactly the unmeasured leap the rigor
 gate exists to catch. A source's voice spans travel with whichever
 person their speech-face link (within that same source) attaches them
-to. `ren search --person <name-or-id>` and `filter --person` read this
-resolution; a project may declare `source.person_names: {person_001:
-"Craig"}` to give a measured cluster a human name (a label, never a
-substitute for the embedding match that assigned the id).
+  to. `ren search --person <name-or-id>` and `filter --person` read this
+  resolution; a project may declare `source.person_names: {person_001:
+  "Craig"}` to give a measured cluster a human name (a label, never a
+  substitute for the embedding match that assigned the id).
+
+## M3c `expressions.json` (written)
+
+Owner: `library/tools/expression_classifier.py`. A lightweight expression
+classifier on M3 face crops. Reads M3 face bounding boxes and lip
+landmarks, extracts face crops from source video at the M2 cadence,
+classifies expressions, and writes expression labels to this slot.
+
+The classifier uses geometric features from M3 lip landmarks (mouth
+curvature, openness) and image features from the face crop (edge density
+in eye/nose regions). It outputs one of seven expressions: neutral, happy,
+sad, angry, surprised, fearful, disgusted.
+
+```json
+{
+  "content_digest": "sha256 hex",
+  "source_file": "<absolute path>",
+  "status": "measured",
+  "frame_count": 100,
+  "faces_total": 500,
+  "faces_classified": 480,
+  "expression_counts": {"neutral": 300, "happy": 120, "surprised": 60},
+  "frames": [{"t": 0.521,
+               "faces": [{"box": [x1, y1, x2, y2],
+                          "expression": "happy", "confidence": 0.85,
+                          "features": {"mouth_curvature": 0.03,
+                                       "mouth_openness": 0.1,
+                                       "eye_edge_density": 0.05,
+                                       "nose_edge_density": 0.02}}]}],
+  "instrument": {"method": "expression-classifier-v1",
+                 "expressions": ["neutral", "happy", "sad", "angry",
+                                 "surprised", "fearful", "disgusted"],
+                 "thresholds": {"smile_curvature": 0.015,
+                                "frown_curvature": -0.015,
+                                "surprise_openness": 0.35,
+                                "anger_eye_density": 0.15,
+                                "fear_eye_density": 0.20,
+                                "disgust_nose_density": 0.18},
+                 "crop_padding": 0.2, "crop_min_size": 32,
+                 "ms_per_face": 1.2}
+}
+```
+
+**Real-footage measurement.** The classifier is wired and tested on
+fixtures. Running it on real footage requires: (1) a fresh M3
+(`python3 -m library.tools.person_measurements build`), (2) the heavy-work
+lock (`bin/vep -m library.tools.heavy_work_lock run --owner expressions`),
+and (3) ffmpeg for face crop extraction. The measurement is per-frame at
+the M2 cadence (~2 Hz), classifying every face in every sampled frame.
+
+```sh
+bin/vep -m library.tools.heavy_work_lock run \
+  --owner expressions -- python3 -m library.tools.expression_classifier build <project>
+python3 -m library.tools.expression_classifier status <project>
+```
 
 ## M7 `events.json` (written)
 
