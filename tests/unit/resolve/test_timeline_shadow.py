@@ -125,6 +125,39 @@ def test_structural_read_miss_is_counted_without_falling_back_live(tmp_path):
         "shadow_hits": 0, "live_refreshes": 0, "misses": 1}
 
 
+def test_a_transform_question_is_answered_from_the_shadow_with_the_timeline_not_current(
+        tmp_path):
+    # Defect: a transform question with the timeline not current was answered
+    # by a live read under the lease (`read_live` requires the timeline to be
+    # current), so it counted as a live_refresh, not a shadow_hit. The shadow
+    # stores transforms in canonical form, so the question is answerable
+    # without a live read.
+    project = make_project("Podcast")
+    reel_a = project.adopt(FakeTimeline("Reel A", project=project))
+    reel_b = project.adopt(FakeTimeline("Reel B", project=project))
+    item = place_clip(reel_b, make_pool_clip("a.mov"), 0, 47)
+    item.properties = {"Pan": -24.0, "Tilt": -1728.0, "ZoomX": 1.0,
+                       "ZoomY": 1.0}
+    store = shadow.ShadowStore(tmp_path / "shadow.db")
+
+    project.SetCurrentTimeline(reel_b)
+    with assume_sole_writer("canonical Resolve double"):
+        shadow.observe(project, reel_b, store)
+    assert store.read_requests_since(0) == {
+        "shadow_hits": 0, "live_refreshes": 1, "misses": 0}
+
+    project.SetCurrentTimeline(reel_a)
+    assert project.GetCurrentTimeline() is reel_a
+
+    transform = timeline_read.read_transform(
+        "Podcast", "Reel B", item.GetUniqueId(), store=store)
+
+    assert transform == {"Pan": -24.0, "Tilt": -1728.0,
+                         "ZoomX": 1.0, "ZoomY": 1.0}
+    assert store.read_requests_since(0) == {
+        "shadow_hits": 1, "live_refreshes": 1, "misses": 0}
+
+
 def test_read_any_accepts_a_unique_timeline_id(tmp_path):
     store = shadow.ShadowStore(tmp_path / "shadow.db")
     store.record(project="Podcast", timeline_id="timeline-09",

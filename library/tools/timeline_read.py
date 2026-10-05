@@ -10,10 +10,13 @@ count.
 A timeline QUESTION is answered from its recorded GENERATION; a write is
 an EditPatch on one.
 
-This module is deliberately structural. Writes still validate their
-preconditions against Resolve inside the edit lease (`edit_patch`), and
-live-only measurements such as the timeline oracle keep their own
-explicit live read when they need to observe unrecorded hand edits.
+This module is deliberately structural. Transform questions are answered
+from the shadow too: the stored transform is in canonical form (the form
+read when the timeline IS current), so `read_transform` needs no live
+read and no cursor move. Writes still validate their preconditions
+against Resolve inside the edit lease (`edit_patch`), and live-only
+measurements such as the timeline oracle keep their own explicit live
+read when they need to observe unrecorded hand edits.
 """
 
 from __future__ import annotations
@@ -100,6 +103,33 @@ def read(project: str, timeline: str, *, generation: int | None = None,
     store.answered(caller, project, timeline_id)
     store.record_read_request(caller, project, timeline_id, "shadow_hit")
     return result
+
+
+def read_transform(project: str, timeline: str, unique_id: str, *,
+                   generation: int | None = None,
+                   allow_prefix: bool = False,
+                   caller: str = "timeline_read.read_transform",
+                   store: ShadowStore | None = None) -> dict:
+    """Answer a transform question from the shadow, never from Resolve.
+
+    The shadow stores transforms in canonical form - the form read when
+    the timeline IS current (`read_reel` refuses a non-current read
+    because a transform read through a non-current handle is scaled) -
+    so a transform question is answered from the recorded generation
+    without a live read and without moving the cursor, even when the
+    timeline is not the project's current one.
+
+    Raises `ShadowError` when the timeline has no recorded generation or
+    the clip is not on it.
+    """
+    view = read(project, timeline, generation=generation,
+                allow_prefix=allow_prefix, caller=caller, store=store)
+    for clip in timeline_shadow.clips(view.snapshot):
+        if clip.get("unique_id") == unique_id:
+            return dict(clip.get("transform") or {})
+    raise ShadowError(
+        f"clip {unique_id!r} is not on timeline {timeline!r} in project "
+        f"{project!r} at generation {view.generation.generation}")
 
 
 def read_any(timeline: str, *, allow_prefix: bool = False,
