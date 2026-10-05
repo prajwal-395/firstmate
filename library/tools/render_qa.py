@@ -114,6 +114,9 @@ two. [why](docs/RULE_EVIDENCE.md#the-mix-target-is-not-a-separation)
 **Caption quality (gap E4) reports two numbers and passes, and promoting them is one boolean.**
 `measure_caption_legibility` reads each subtitle overlay's own alpha and judges the smallest card's delivered ink height against a fraction of the frame; `measure_caption_obscuring` intersects each caption's delivered box against the faces `measure_face_intact`'s Haar path detects over its span. Both run only on `subtitle_overlay` segments, and both REPORT unless `CAPTION_QUALITY_GATES` is True - whether an illegible or obscuring caption blocks delivery is a pending captain call, the same ruling P2 and P3 carry. [why](docs/RULE_EVIDENCE.md#baseline-craft-properties)
 
+**Pixel-level rendering (gap E9) reports three numbers and passes, and promoting each is one boolean.**
+`measure_transition_render` samples frames across each drawn transition's boundary and verifies the blend is intermediate (not a hard cut, not a freeze); `measure_vfx_render` samples each VFX's window and verifies the pixels differ from the untreated source; `measure_graphics_render` verifies each overlay's ink is present in the rendered frame. All three REPORT unless their `*_GATES` boolean is True - whether a misrendered transition, a VFX that drew nothing, or an overlay that failed to composite blocks delivery is a pending captain call, the same ruling P2 and P3 carry.
+
 **The bed is fitted at the SECTION that plays, and the offset is a REQUIRED argument.**
 `measure_speech_above_bed` takes `music_offset_seconds` positionally with no default; `run_full_render_qa` declines P3 when it is None. [why](docs/RULE_EVIDENCE.md#the-bed-was-fitted-from-the-wrong-second)
 """
@@ -3822,6 +3825,511 @@ def sample_key_frames(video_path: str, output_dir: str, timestamps: List[float] 
             
     return extracted
 
+
+# ── E9: pixel-level rendering checks (transitions, VFX, graphics) ──────
+#
+# The plan-side checks prove intent was placed: a transition comp exists
+# on the timeline, a VFX comp was written, an overlay asset has alpha.
+# None of them prove the effect reached the exported pixels.  A dissolve
+# that renders as a hard cut, a Fusion comp that draws nothing, and an
+# overlay that fails to composite all pass every gate today.
+#
+# These three checks measure the RENDERED file:
+# - transitions: sample frames across the boundary, verify the blend is
+#   intermediate (not a hard cut, not a freeze);
+# - VFX: sample the effect's window, verify the pixels differ from the
+#   untreated source (the `treatment_verify` before/after pattern);
+# - motion graphics: verify the overlay's ink is present in the rendered
+#   frame at its placed position.
+#
+# All three REPORT and do not gate - promoting each is one boolean, the
+# same ruling P2/P3/P11 carry.
+
+TRANSITION_RENDER_GATES = False
+"""Whether a transition that rendered as a hard cut or freeze fails the render."""
+
+VFX_RENDER_GATES = False
+"""Whether a VFX whose window matches the untreated source fails the render."""
+
+GRAPHICS_RENDER_GATES = False
+"""Whether an overlay whose ink is absent from the rendered frame fails the render."""
+
+#: Mean absolute luma difference below which two frames are "the same".
+#: Encoding noise on a 0-255 luma scale is ~1 unit; 2.0 gives it room.
+_EPSILON = 2.0
+
+#: If one step accounts for more than this fraction of the total change,
+#: the transition is a hard cut, not a blend.  A linear dissolve over N
+#: samples spreads the change evenly: max_step / total = 1/(N-1).
+_HARD_CUT_RATIO = 0.8
+
+
+class TransitionSpan(NamedTuple):
+    """One drawn transition's position on the timeline, in seconds.
+
+    `cut_point_timeline` is the second the cut sits at;
+    `duration_seconds` is how long the transition holds.  The window
+    sampled is centred on the cut, half the duration each side - the
+    same geometry `native_ops_apply` uses to place a centred transition.
+    """
+
+    transition_type: str
+    cut_point_timeline: float
+    duration_seconds: float
+
+
+class VfxSpan(NamedTuple):
+    """One VFX's window on the export and the untreated source it covers.
+
+    `timeline_start`/`timeline_end` bound the effect on the export;
+    `source_path` is the footage the clip was cut from (the ungraded,
+    uneffected reference); `source_start`/`source_end` bound the played
+    range inside that source, in seconds.
+    """
+
+    label: str
+    effect_type: str
+    timeline_start: float
+    timeline_end: float
+    source_path: str
+    source_start: float
+    source_end: float
+
+
+class GraphicsSpan(NamedTuple):
+    """One overlay's window on the export and the picture underneath.
+
+    `source_path`/`source_start`/`source_end` identify the untreated
+    picture the overlay was composited over, so the check asks whether
+    the render at the overlay's ink differs from that picture - the
+    overlay drew, or it did not.
+    """
+
+    label: str
+    kind: str
+    timeline_start: float
+    timeline_end: float
+    source_path: str
+    source_start: float
+    source_end: float
+    overlay_path: str
+    source_in: float = 0.0
+
+
+def _consecutive_luma_diffs(video_path: str, start: float, end: float,
+                            sample_fps: float,
+                            width: int, height: int) -> List[float]:
+    """Mean absolute luma difference between consecutive sampled frames.
+
+    Sampled at `sample_fps` over [start, end], each frame in gray at
+    ``width``x``height``.  The first frame has no predecessor, so the
+    list is one shorter than the frame count.
+    """
+    import numpy as np
+
+    diffs: List[float] = []
+    prev = None
+    for frame in _stream_raw_frames(video_path, 'gray', 1, width, height,
+                                    sample_fps, scaled=True,
+                                    start_seconds=start,
+                                    duration_seconds=end - start):
+        cur = frame[0].astype(np.float32)
+        if prev is not None:
+            diffs.append(float(np.mean(np.abs(cur - prev))))
+        prev = cur
+    return diffs
+
+
+def _render_vs_source_max_diff(video_path: str, source_path: str,
+                               tl_start: float, tl_end: float,
+                               src_start: float, src_end: float,
+                               sample_fps: float,
+                               width: int, height: int) -> Optional[float]:
+    """Max mean absolute luma difference between render and source frames.
+
+    Both files are sampled at `sample_fps` over their respective windows
+    and resized to ``width``x``height``.  Returns None when either window
+    yields no frames (unreadable file, empty window).
+    """
+    import numpy as np
+
+    render_frames = list(_stream_raw_frames(
+        video_path, 'gray', 1, width, height, sample_fps, scaled=True,
+        start_seconds=tl_start, duration_seconds=tl_end - tl_start))
+    source_frames = list(_stream_raw_frames(
+        source_path, 'gray', 1, width, height, sample_fps, scaled=True,
+        start_seconds=src_start, duration_seconds=src_end - src_start))
+    if not render_frames or not source_frames:
+        return None
+    count = min(len(render_frames), len(source_frames))
+    diffs = []
+    for i in range(count):
+        r = render_frames[i][0].astype(np.float32)
+        s = source_frames[i][0].astype(np.float32)
+        diffs.append(float(np.mean(np.abs(r - s))))
+    return max(diffs) if diffs else None
+
+
+def measure_transition_render(
+        video_path: str,
+        transition_spans: Optional[Sequence["TransitionSpan"]] = None,
+        sample_fps: float = 10.0,
+        gate: bool = TRANSITION_RENDER_GATES) -> RenderQAResult:
+    """Each drawn transition's blend is intermediate in the exported pixels.
+
+    For each transition, samples frames across the boundary (half the
+    duration each side of the cut) and asks how the picture changes:
+
+    - **freeze**: every consecutive frame pair is within `_EPSILON` - the
+      transition drew nothing, the picture holds on one frame;
+    - **hard cut**: one step accounts for more than `_HARD_CUT_RATIO` of
+      the total change - the blend never happened, the picture jumps;
+    - **rendered**: the change is spread across the window - the blend is
+      intermediate, which is what a dissolve/fade/zoom promises.
+
+    **This reports and does not fail** (`TRANSITION_RENDER_GATES` is
+    False).  The measurement is the output; whether a misrendered
+    transition blocks delivery is a captain's call.
+
+    `transition_spans` None means nobody established the transitions,
+    which is reported and is not the same claim as `[]` (declared: no
+    transitions to check).
+    """
+    if transition_spans is None:
+        return RenderQAResult(
+            "transition_render", True, None, None, "info",
+            "No transition spans were declared to the checker - whether "
+            "the planned transitions rendered was not measured. Pass "
+            "transition_spans: the drawn transitions the manifest "
+            "carries (native_transitions).")
+
+    spans = list(transition_spans)
+    if not spans:
+        return RenderQAResult(
+            "transition_render", True,
+            {"transitions": 0, "total_transitions": 0,
+             "misrendered_transitions": 0},
+            {"epsilon": _EPSILON, "hard_cut_ratio": _HARD_CUT_RATIO,
+             "gates": gate},
+            "info",
+            "No transition spans declared - nothing to measure.")
+
+    try:
+        size = _probe_video_size(video_path)
+        if not size:
+            return RenderQAResult("transition_render", False, None, None,
+                                  "error", "No video stream found")
+        width, height = size
+
+        per_transition = []
+        misrendered = 0
+        for span in spans:
+            cut = float(span.cut_point_timeline)
+            dur = float(span.duration_seconds)
+            if dur <= 0:
+                per_transition.append({
+                    "transition_type": span.transition_type,
+                    "cut_point_timeline": round(cut, 3),
+                    "duration_seconds": round(dur, 3),
+                    "samples": 0, "total_change": 0.0, "max_step": 0.0,
+                    "verdict": "skipped",
+                    "note": "zero-duration transition (a cut draws nothing)",
+                })
+                continue
+            start = max(0.0, cut - dur / 2.0)
+            end = cut + dur / 2.0
+            diffs = _consecutive_luma_diffs(video_path, start, end,
+                                            sample_fps, width, height)
+            if not diffs:
+                per_transition.append({
+                    "transition_type": span.transition_type,
+                    "cut_point_timeline": round(cut, 3),
+                    "duration_seconds": round(dur, 3),
+                    "samples": 0, "total_change": 0.0, "max_step": 0.0,
+                    "verdict": "skipped",
+                    "note": "no frames decoded across the window",
+                })
+                continue
+            total_change = sum(diffs)
+            max_step = max(diffs)
+            if total_change < _EPSILON:
+                verdict = "freeze"
+            elif max_step / total_change > _HARD_CUT_RATIO:
+                verdict = "hard_cut"
+            else:
+                verdict = "rendered"
+            if verdict != "rendered":
+                misrendered += 1
+            per_transition.append({
+                "transition_type": span.transition_type,
+                "cut_point_timeline": round(cut, 3),
+                "duration_seconds": round(dur, 3),
+                "samples": len(diffs) + 1,
+                "total_change": round(total_change, 3),
+                "max_step": round(max_step, 3),
+                "verdict": verdict,
+            })
+
+        failed = bool(gate and misrendered)
+        detail = (f"{misrendered} of {len(per_transition)} transition(s) "
+                  f"did not render as a blend (freeze or hard cut)")
+        if failed:
+            detail += " - the transition did not reach the exported pixels"
+        elif misrendered:
+            detail += (" - REPORTED ONLY; see TRANSITION_RENDER_GATES for "
+                       "why this is not a build failure yet")
+
+        return RenderQAResult(
+            metric="transition_render",
+            passed=not failed,
+            value={
+                "transitions": per_transition,
+                "total_transitions": len(per_transition),
+                "misrendered_transitions": misrendered,
+            },
+            threshold={"epsilon": _EPSILON,
+                       "hard_cut_ratio": _HARD_CUT_RATIO,
+                       "gates": gate},
+            severity=("error" if gate else "warning") if misrendered else "info",
+            detail=detail,
+        )
+    except Exception as e:
+        return RenderQAResult("transition_render", True, str(e), None,
+                              "warning",
+                              f"Error measuring transition render: {e}")
+
+
+def measure_vfx_render(
+        video_path: str,
+        vfx_spans: Optional[Sequence["VfxSpan"]] = None,
+        sample_fps: float = DEFAULT_SAMPLE_FPS,
+        gate: bool = VFX_RENDER_GATES) -> RenderQAResult:
+    """Each VFX's window differs from the untreated source in the export.
+
+    For each VFX span, samples the render at the effect's timeline
+    window and the source footage at the range that plays there, and
+    takes the max mean absolute luma difference across the window.  A
+    VFX whose window matches the source within `_EPSILON` drew nothing -
+    the comp was written but never reached the picture (the defect
+    `treatment_verify`'s `drew_nothing` names, judged here on the render
+    rather than on the comp).
+
+    **This reports and does not fail** (`VFX_RENDER_GATES` is False).
+    The measurement is the output; whether a VFX that drew nothing
+    blocks delivery is a captain's call.
+
+    `vfx_spans` None means nobody established the VFX windows, which is
+    reported and is not the same claim as `[]` (declared: no VFX).
+    """
+    if vfx_spans is None:
+        return RenderQAResult(
+            "vfx_render", True, None, None, "info",
+            "No VFX spans were declared to the checker - whether the "
+            "planned VFX rendered was not measured. Pass vfx_spans: "
+            "the per-clip effects the manifest carries (vfx).")
+
+    spans = list(vfx_spans)
+    if not spans:
+        return RenderQAResult(
+            "vfx_render", True,
+            {"effects": 0, "total_effects": 0, "drew_nothing": 0},
+            {"epsilon": _EPSILON, "gates": gate},
+            "info",
+            "No VFX spans declared - nothing to measure.")
+
+    try:
+        size = _probe_video_size(video_path)
+        if not size:
+            return RenderQAResult("vfx_render", False, None, None,
+                                  "error", "No video stream found")
+        width, height = size
+
+        per_effect = []
+        drew_nothing = 0
+        for span in spans:
+            tl_start = float(span.timeline_start)
+            tl_end = float(span.timeline_end)
+            src_start = float(span.source_start)
+            src_end = float(span.source_end)
+            if tl_end <= tl_start:
+                per_effect.append({
+                    "label": span.label, "effect_type": span.effect_type,
+                    "timeline_window": [round(tl_start, 3), round(tl_end, 3)],
+                    "verdict": "skipped", "note": "empty window",
+                })
+                continue
+            if not span.source_path or not os.path.exists(span.source_path):
+                per_effect.append({
+                    "label": span.label, "effect_type": span.effect_type,
+                    "timeline_window": [round(tl_start, 3), round(tl_end, 3)],
+                    "verdict": "skipped",
+                    "note": "source footage not found",
+                })
+                continue
+            max_diff = _render_vs_source_max_diff(
+                video_path, span.source_path, tl_start, tl_end,
+                src_start, src_end, sample_fps, width, height)
+            if max_diff is None:
+                per_effect.append({
+                    "label": span.label, "effect_type": span.effect_type,
+                    "timeline_window": [round(tl_start, 3), round(tl_end, 3)],
+                    "verdict": "skipped",
+                    "note": "no frames decoded",
+                })
+                continue
+            verdict = "drew_nothing" if max_diff < _EPSILON else "rendered"
+            if verdict == "drew_nothing":
+                drew_nothing += 1
+            per_effect.append({
+                "label": span.label, "effect_type": span.effect_type,
+                "timeline_window": [round(tl_start, 3), round(tl_end, 3)],
+                "max_luma_diff": round(max_diff, 3),
+                "verdict": verdict,
+            })
+
+        failed = bool(gate and drew_nothing)
+        detail = (f"{drew_nothing} of {len(per_effect)} VFX effect(s) drew "
+                  f"nothing (window matches the untreated source)")
+        if failed:
+            detail += " - the effect did not reach the exported pixels"
+        elif drew_nothing:
+            detail += (" - REPORTED ONLY; see VFX_RENDER_GATES for why this "
+                       "is not a build failure yet")
+
+        return RenderQAResult(
+            metric="vfx_render",
+            passed=not failed,
+            value={
+                "effects": per_effect,
+                "total_effects": len(per_effect),
+                "drew_nothing": drew_nothing,
+            },
+            threshold={"epsilon": _EPSILON, "gates": gate},
+            severity=("error" if gate else "warning") if drew_nothing else "info",
+            detail=detail,
+        )
+    except Exception as e:
+        return RenderQAResult("vfx_render", True, str(e), None,
+                              "warning",
+                              f"Error measuring VFX render: {e}")
+
+
+def measure_graphics_render(
+        video_path: str,
+        graphics_spans: Optional[Sequence["GraphicsSpan"]] = None,
+        sample_fps: float = DEFAULT_SAMPLE_FPS,
+        gate: bool = GRAPHICS_RENDER_GATES) -> RenderQAResult:
+    """Each overlay's ink is present in the rendered frame.
+
+    For each overlay span, samples the render at the overlay's timeline
+    window and the picture underneath at the range that plays there,
+    and takes the max mean absolute luma difference.  An overlay whose
+    window matches the picture within `_EPSILON` did not composite - the
+    asset was placed on the timeline but never reached the export (the
+    defect `overlay_verify.verify_pixels` catches on the timeline, judged
+    here on the render).
+
+    **This reports and does not fail** (`GRAPHICS_RENDER_GATES` is
+    False).  The measurement is the output; whether an overlay that
+    failed to composite blocks delivery is a captain's call.
+
+    `graphics_spans` None means nobody established the overlays, which
+    is reported and is not the same claim as `[]` (declared: no
+    overlays to check).
+    """
+    if graphics_spans is None:
+        return RenderQAResult(
+            "graphics_render", True, None, None, "info",
+            "No graphics spans were declared to the checker - whether "
+            "the planned overlays composited was not measured. Pass "
+            "graphics_spans: the overlay segments the manifest carries.")
+
+    spans = list(graphics_spans)
+    if not spans:
+        return RenderQAResult(
+            "graphics_render", True,
+            {"overlays": 0, "total_overlays": 0, "not_composited": 0},
+            {"epsilon": _EPSILON, "gates": gate},
+            "info",
+            "No graphics spans declared - nothing to measure.")
+
+    try:
+        size = _probe_video_size(video_path)
+        if not size:
+            return RenderQAResult("graphics_render", False, None, None,
+                                  "error", "No video stream found")
+        width, height = size
+
+        per_overlay = []
+        not_composited = 0
+        for span in spans:
+            tl_start = float(span.timeline_start)
+            tl_end = float(span.timeline_end)
+            src_start = float(span.source_start)
+            src_end = float(span.source_end)
+            if tl_end <= tl_start:
+                per_overlay.append({
+                    "label": span.label, "kind": span.kind,
+                    "timeline_window": [round(tl_start, 3), round(tl_end, 3)],
+                    "verdict": "skipped", "note": "empty window",
+                })
+                continue
+            if not span.source_path or not os.path.exists(span.source_path):
+                per_overlay.append({
+                    "label": span.label, "kind": span.kind,
+                    "timeline_window": [round(tl_start, 3), round(tl_end, 3)],
+                    "verdict": "skipped",
+                    "note": "picture underneath not found",
+                })
+                continue
+            max_diff = _render_vs_source_max_diff(
+                video_path, span.source_path, tl_start, tl_end,
+                src_start, src_end, sample_fps, width, height)
+            if max_diff is None:
+                per_overlay.append({
+                    "label": span.label, "kind": span.kind,
+                    "timeline_window": [round(tl_start, 3), round(tl_end, 3)],
+                    "verdict": "skipped",
+                    "note": "no frames decoded",
+                })
+                continue
+            verdict = ("not_composited" if max_diff < _EPSILON
+                       else "composited")
+            if verdict == "not_composited":
+                not_composited += 1
+            per_overlay.append({
+                "label": span.label, "kind": span.kind,
+                "timeline_window": [round(tl_start, 3), round(tl_end, 3)],
+                "max_luma_diff": round(max_diff, 3),
+                "verdict": verdict,
+            })
+
+        failed = bool(gate and not_composited)
+        detail = (f"{not_composited} of {len(per_overlay)} overlay(s) did "
+                  f"not composite (window matches the picture underneath)")
+        if failed:
+            detail += " - the overlay's ink is absent from the render"
+        elif not_composited:
+            detail += (" - REPORTED ONLY; see GRAPHICS_RENDER_GATES for "
+                       "why this is not a build failure yet")
+
+        return RenderQAResult(
+            metric="graphics_render",
+            passed=not failed,
+            value={
+                "overlays": per_overlay,
+                "total_overlays": len(per_overlay),
+                "not_composited": not_composited,
+            },
+            threshold={"epsilon": _EPSILON, "gates": gate},
+            severity=("error" if gate else "warning") if not_composited else "info",
+            detail=detail,
+        )
+    except Exception as e:
+        return RenderQAResult("graphics_render", True, str(e), None,
+                              "warning",
+                              f"Error measuring graphics render: {e}")
+
 def run_full_render_qa(video_path: str, expected_duration: float = None,
                        target_lufs: float = DEFAULT_LUFS_TARGET,
                        declared_black_beats: Optional[List] = None,
@@ -3836,10 +4344,13 @@ def run_full_render_qa(video_path: str, expected_duration: float = None,
                        overlay_segments: Optional[Sequence["OverlaySegment"]] = None,
                        grade_spans: Optional[Sequence["GradeSpan"]] = None,
                        true_peak_ceiling: float = DEFAULT_TRUE_PEAK_CEILING_DBTP,
-                       declared_ending_black_spans: Optional[List] = None,
-                       declared_silence_spans: Optional[List] = None,
-                       punch_in_windows: Optional[Sequence["PunchInWindow"]] = None
-                       ) -> List[RenderQAResult]:
+                        declared_ending_black_spans: Optional[List] = None,
+                        declared_silence_spans: Optional[List] = None,
+                        punch_in_windows: Optional[Sequence["PunchInWindow"]] = None,
+                        transition_spans: Optional[Sequence["TransitionSpan"]] = None,
+                        vfx_spans: Optional[Sequence["VfxSpan"]] = None,
+                        graphics_spans: Optional[Sequence["GraphicsSpan"]] = None
+                        ) -> List[RenderQAResult]:
     """Run every render QA check.
 
     `declared_black_beats` carries the black beats the plan declared, as
@@ -3897,6 +4408,15 @@ def run_full_render_qa(video_path: str, expected_duration: float = None,
     applied, so `measure_punch_in_face` can judge the rendered pixels at
     the zoom itself rather than over the whole file.  None means nobody
     established the windows, which is reported rather than guessed at.
+
+    `transition_spans`, `vfx_spans` and `graphics_spans` are the
+    pixel-level rendering checks (gap E9): the drawn transitions, the
+    per-clip VFX windows, and the overlay segments, each with the
+    untreated source they cover.  All three REPORT and do not gate -
+    see `measure_transition_render`, `measure_vfx_render` and
+    `measure_graphics_render` and their `*_GATES` booleans.  None for
+    any of them means nobody established that layer, which is reported
+    rather than guessed at.
     """
     results = []
 
@@ -3964,6 +4484,13 @@ def run_full_render_qa(video_path: str, expected_duration: float = None,
             video_path, overlay_segments))
         results.append(measure_caption_obscuring(
             video_path, overlay_segments))
+
+    # Pixel-level rendering checks (gap E9): transitions, VFX, and motion
+    # graphics.  All three REPORT and do not gate - see the three
+    # functions and their *_GATES booleans.
+    results.append(measure_transition_render(video_path, transition_spans))
+    results.append(measure_vfx_render(video_path, vfx_spans))
+    results.append(measure_graphics_render(video_path, graphics_spans))
 
     return results
 
