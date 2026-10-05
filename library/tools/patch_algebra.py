@@ -52,8 +52,9 @@ operation that needs one does not have to invent its own.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 
+from library.tools import edit_backend
 from library.tools import edit_patch
 from library.tools import timeline_shadow as shadow
 
@@ -81,17 +82,66 @@ def semantics_of(patch: edit_patch.EditPatch):
         return None
 
 
-def _meet(a: tuple, b: tuple) -> bool:
+def _semantics_dict(patch):
+    """The capability's declared patch semantics as a dict, for the Rust
+    backend. `compose` reads `temporal_effect`/`merge_semantics`; the
+    carry's `validate_patch` reads `operations`/`conflict_domains` - one
+    dict carries all four, and each reader ignores the rest. Accepts an
+    `EditPatch` or its dict form."""
+    if isinstance(patch, dict):
+        capability = patch.get("capability")
+    else:
+        capability = patch.capability
+    from library.tools import operations
+    try:
+        sem = operations.get(capability).execution.patch
+    except operations.UnknownOperation:
+        return None
+    if sem is None:
+        return None
+    return {"operations": list(sem.operations),
+            "conflict_domains": list(sem.conflict_domains),
+            "temporal_effect": sem.temporal_effect,
+            "merge_semantics": sem.merge_semantics}
+
+
+def _as_dict(patch):
+    """The patch as a plain dict for the Rust boundary (which reads JSON
+    shapes). An `EditPatch` is converted; a dict passes through."""
+    if isinstance(patch, dict):
+        return patch
+    return asdict(patch)
+
+
+def _meet(a, b) -> bool:
+    rust = edit_backend.rust()
+    if rust is not None:
+        return rust.meet(a, b)
     n = min(len(a), len(b))
     return a[:n] == b[:n]
 
 
 def _strictest(*semantics: str) -> str:
+    rust = edit_backend.rust()
+    if rust is not None:
+        return rust.strictest(list(semantics))
     return max(semantics, key=MERGE_SEMANTICS.index)
 
 
 def compose(earlier, later, base: dict) -> Composition:
     """How `later` lands once `earlier` has; both planned on `base`."""
+    rust = edit_backend.rust()
+    if rust is not None:
+        a_sem = _semantics_dict(earlier)
+        b_sem = _semantics_dict(later)
+        result = rust.compose(_as_dict(earlier), _as_dict(later),
+                              base, a_sem, b_sem)
+        return Composition(result["verdict"], result["reason"])
+    return _compose_python(earlier, later, base)
+
+
+def _compose_python(earlier, later, base: dict) -> Composition:
+    """The composition, in Python (the default and the fallback)."""
     earlier = edit_patch.EditPatch.from_dict(earlier)
     later = edit_patch.EditPatch.from_dict(later)
     if (earlier.project, earlier.timeline) != (later.project, later.timeline):
@@ -159,6 +209,35 @@ def carry(patch: edit_patch.EditPatch, store: shadow.ShadowStore,
     so nothing can say what it meets. The moved patch must then validate
     on the head and its preconditions hold there.
     """
+    rust = edit_backend.rust()
+    if rust is not None:
+        rows = store.since_with_snapshots(project, timeline_id,
+                                          since=patch.base_generation)
+        if not rows:
+            raise shadow.ShadowError(
+                f"no generation {patch.base_generation} of timeline "
+                f"{timeline_id!r} in project {project!r}")
+        row_dicts = [
+            {"generation": gen.generation, "source": gen.source,
+             "patch": gen.patch, "snapshot": snap,
+             "semantics": _semantics_dict(gen.patch)
+             if gen.patch else None}
+            for gen, snap in rows
+        ]
+        semantics = _semantics_dict(patch)
+        try:
+            moved_dict = rust.carry(
+                _as_dict(edit_patch.EditPatch.from_dict(patch)),
+                row_dicts, semantics)
+        except ValueError as exc:
+            return None, str(exc)
+        return edit_patch.EditPatch.from_dict(moved_dict), None
+    return _carry_python(patch, store, project, timeline_id)
+
+
+def _carry_python(patch: edit_patch.EditPatch, store: shadow.ShadowStore,
+                  project: str, timeline_id: str) -> tuple:
+    """The carry, in Python (the default and the fallback)."""
     moved = patch
     rows = store.since_with_snapshots(project, timeline_id,
                                       since=patch.base_generation)
@@ -196,6 +275,10 @@ def carry(patch: edit_patch.EditPatch, store: shadow.ShadowStore,
 
 def _respan(patch, earlier: dict, base: dict, head: dict):
     """`patch` with every span past `earlier`'s ripple re-measured."""
+    rust = edit_backend.rust()
+    if rust is not None:
+        return edit_patch.EditPatch.from_dict(
+            rust.respan(patch.to_dict(), earlier, base, head))
     point = min(span[0] for span in earlier["affected_spans"])
     kept = [s for s in patch.affected_spans if s[1] <= point]
     for op in patch.operations:
@@ -210,6 +293,34 @@ def _respan(patch, earlier: dict, base: dict, head: dict):
 def problems(declarations: dict | None = None,
              capability_ids=None) -> list:
     """Every capability declaration its own operations break."""
+    from library.tools import capabilities
+
+    rust = edit_backend.rust()
+    if rust is not None:
+        if declarations is None:
+            declarations = {
+                spec.id: spec.execution.patch
+                for spec in capabilities.all()
+                if spec.execution.patch is not None
+            }
+        if capability_ids is None:
+            capability_ids = capabilities.ids()
+        decl_dicts = {
+            cap_id: {
+                "operations": list(sem.operations),
+                "conflict_domains": list(sem.conflict_domains),
+                "temporal_effect": sem.temporal_effect,
+                "merge_semantics": sem.merge_semantics,
+            }
+            for cap_id, sem in declarations.items()
+        }
+        return rust.problems(decl_dicts, list(capability_ids))
+    return _problems_python(declarations, capability_ids)
+
+
+def _problems_python(declarations: dict | None = None,
+                     capability_ids=None) -> list:
+    """The declaration check, in Python (the default and the fallback)."""
     from library.tools import capabilities
 
     if declarations is None:

@@ -1,0 +1,25 @@
+[package]
+name = "ren-core"
+version = "0.1.0"
+edition = "2021"
+description = "Ren's editorial correctness core: the edit algebra, patch validation and conflict detection over ren-protocol's types."
+license = "MIT"
+publish = false
+
+# The library is named `ren_native` so the Python extension module is
+# `import ren_native` (the captain's named hot-function entry point),
+# while Rust callers and tests use the `ren_core` crate name.
+[lib]
+name = "ren_native"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# maturin enables this feature when it builds the wheel; a plain
+# `cargo test` leaves it off so the test binary links libpython.
+extension-module = ["pyo3/extension-module"]
+
+[dependencies]
+ren-protocol = { path = "../ren-protocol" }
+pyo3 = "0.29"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

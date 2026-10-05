@@ -1,0 +1,31 @@
+# The `ren_native` Python extension module, built with maturin.
+#
+# The crate is a member of the ONE Cargo workspace at native/; maturin
+# reads that workspace and builds the cdylib whose lib name is
+# `ren_native`, so the module Python imports is `import ren_native`.
+# The `extension-module` feature is maturin's own convention and is
+# enabled by the build automatically.
+#
+#     scripts/build_ren_native.sh <venv-bin-dir>
+#
+# A wheel (`maturin build`) works too; the script installs into the
+# pipeline's venv with `maturin develop`. No binary is ever committed:
+# native/target/ is gitignored and the wheel lands in dist/ (ignored).
+
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "ren-native"
+version = "0.1.0"
+description = "Ren's editorial correctness core: the edit algebra, patch validation and conflict detection over ren-protocol's types."
+requires-python = ">=3.12"
+license = { text = "MIT" }
+
+[tool.maturin]
+manifest-path = "Cargo.toml"
+# Without this feature the crate builds with no `#[pymodule]` (the
+# python module is gated on it) and the wheel carries a library with
+# no PyInit_ren_native - Python then fails to import the module.
+features = ["extension-module"]

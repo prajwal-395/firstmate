@@ -54,6 +54,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from library.tools import edit_backend
 from library.tools import timeline_shadow as shadow
 
 #: How close a re-read float must be to what was written.
@@ -1680,3 +1681,45 @@ def patch_op_ids() -> tuple[str, ...]:
     """The ids EditPatch may schedule: every op with a native apply."""
     return tuple(op_id for op_id, op in ALGEBRA.items()
                  if op.apply is not None)
+
+
+# ── The backend switch ──────────────────────────────────────────────
+#
+# The computational core (span, key, verify) is ported to Rust
+# (`native/ren-core`, the `ren_native` extension). One switch
+# (`library/tools/edit_backend.py`) routes these through it; Python is
+# the default and the fallback. The declarations above (`ALGEBRA`) stay
+# the Python source of truth - the parity harness compares the two.
+
+
+def span(op, base):
+    """The frames an op touches over a base snapshot, on the active backend."""
+    rust = edit_backend.rust()
+    if rust is not None:
+        return rust.span(op, base)
+    spec = ALGEBRA.get(op.get("op"))
+    if spec is None:
+        return None
+    return spec.span(op, base)
+
+
+def key(op):
+    """What an op writes, as a key, on the active backend."""
+    rust = edit_backend.rust()
+    if rust is not None:
+        return rust.key(op)
+    spec = ALGEBRA.get(op.get("op"))
+    if spec is None:
+        return ()
+    return spec.key(op)
+
+
+def verify(op, after):
+    """The read-back judgement of one op, on the active backend."""
+    rust = edit_backend.rust()
+    if rust is not None:
+        return rust.verify(op, after)
+    spec = ALGEBRA.get(op.get("op"))
+    if spec is None:
+        return None
+    return spec.verify(op, after)

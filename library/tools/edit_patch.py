@@ -82,6 +82,7 @@ import time
 from dataclasses import asdict, dataclass
 
 from library.tools import edit_algebra
+from library.tools import edit_backend
 from library.tools import resolve_lock
 from library.tools import timeline_shadow as shadow
 from library.tools.edit_algebra import (
@@ -306,6 +307,9 @@ CONDITIONS = {
 
 
 def _judge(conditions, snap: dict, base: dict) -> list:
+    rust = edit_backend.rust()
+    if rust is not None:
+        return rust.judge_conditions(conditions, snap, base)
     return [f"{c['kind']}: {failure}" for c in conditions
             for failure in [CONDITIONS[c["kind"]][1](c, snap, base)]
             if failure]
@@ -319,7 +323,12 @@ def _covered(span, spans) -> bool:
 
 
 def validate(patch: EditPatch, base: dict) -> None:
-    """Refuse a patch whose declarations are not true of what it does."""
+    """Refuse a patch whose declarations are not true of what it does.
+
+    The capability-registry checks stay Python (they read the registry);
+    the semantic checks - domains, declared operations, transform keys,
+    smart-reframe keys, span coverage - go through the backend switch.
+    """
     from library.tools import capabilities
     from library.tools.operations import UnknownOperation
 
@@ -354,6 +363,24 @@ def validate(patch: EditPatch, base: dict) -> None:
                 "and a recorded timeline generation",
                 "declare those requirements in the capability's execution "
                 "phase")
+    rust = edit_backend.rust()
+    if rust is not None:
+        semantics = {
+            "operations": list(declared.operations),
+            "conflict_domains": list(declared.conflict_domains),
+        }
+        reason = rust.validate_patch(patch.to_dict(), base, semantics)
+        if reason is not None:
+            _refuse(patch, reason,
+                    "a declaration must be true (AGENTS.md 3)",
+                    "widen affected_spans to cover the frames the "
+                    "operations touch")
+        return
+    _validate_python(patch, base, declared)
+
+
+def _validate_python(patch: EditPatch, base: dict, declared) -> None:
+    """The semantic checks, in Python (the default and the fallback)."""
     beyond = set(patch.conflict_domains) - set(declared.conflict_domains)
     if beyond:
         _refuse(patch, f"declares domains {sorted(beyond)}, beyond what "
@@ -548,12 +575,12 @@ def apply_live_patch(*, project, timeline, capability: str,
                     "only measured, read-back-judged writes are operations",
                     f"use one of {sorted(OPERATIONS)}")
             if operation.get("op") == "clip.insert":
-                span = spec.span(operation, snapshot)
+                span = edit_algebra.span(operation, snapshot)
                 insert_spans[operation["unique_id"]] = span
             elif (operation.get("unique_id") in insert_spans):
                 span = insert_spans[operation["unique_id"]]
             else:
-                span = spec.span(operation, snapshot)
+                span = edit_algebra.span(operation, snapshot)
             if span is None:
                 _refuse(EditPatch(
                     patch_id, project_name, timeline_name, base.generation,
@@ -740,8 +767,7 @@ def apply_patch(patch, *, resolve, project, timeline,
             verify_op = {**op, "unique_id": id_map[op["unique_id"]]}
         judged.append({"index": r["index"], "op": r["op"],
                        "returned": r["returned"],
-                       "failure": OPERATIONS[r["op"]].verify(
-                           verify_op, after)})
+                       "failure": edit_algebra.verify(verify_op, after)})
     post_failures = _judge(patch.postconditions, after, base)
     ok = (stopped is None and not post_failures
           and not any(j["failure"] for j in judged))

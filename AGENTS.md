@@ -717,11 +717,13 @@ One enumeration, `library/tools/marker_payload.py`.
 
 ## 17. Rust
 
-**One workspace, boring Rust over clever Rust.** Every crate is a member of the ONE Cargo workspace at `native/Cargo.toml`; the shared target dir is `native/target` (gitignored, never committed). Captain's rule for every crate: concrete structs and enums, limited generics, simple traits, explicit ownership, no async trait hierarchies.
+**One workspace, boring Rust over clever Rust.** Every crate is a member of the ONE Cargo workspace at `native/Cargo.toml` (shared target dir `native/target`, gitignored). Captain's rule: concrete structs and enums, limited generics, simple traits, explicit ownership, no async trait hierarchies.
 
-**The first crate is `ren-cli`, the native front door** - what it does, how it is built and what it refuses, live with it: `native/ren-cli/README.md`.
+**`ren-cli`** is the native front door: `native/ren-cli/README.md`.
 
-**`ren-protocol` is the typed worker protocol.** JSON Schemas are generated from the Serde types (`cargo run --bin emit-schemas`, `--check` fails when stale); Python conforms via `library/tools/protocol_conformance.py` at the boundaries: EditPatch serialization, broker job submission, capability registry export.
+**`ren-protocol`** is the typed worker protocol - JSON Schemas from the Serde types, Python conforms via `library/tools/protocol_conformance.py`: `native/ren-protocol/README.md`.
+
+**`ren-core`** is the editorial correctness core (edit algebra, patch validation, conflict detection) over `ren-protocol`'s types, exposed to Python as `ren_native` behind one switch (`REN_EDIT_BACKEND=rust`), Python the default: `native/ren-core/README.md`.
 
 ## Maintaining this file
 
