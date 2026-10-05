@@ -34,8 +34,9 @@ from typing import Optional
 
 ENGINE_REMOTION = "remotion"
 ENGINE_HYPERFRAMES = "hyperframes"
+ENGINE_FFRAMES = "fframes"
 
-ENGINES = (ENGINE_REMOTION, ENGINE_HYPERFRAMES)
+ENGINES = (ENGINE_REMOTION, ENGINE_HYPERFRAMES, ENGINE_FFRAMES)
 """Every graphics engine, complete. A port that adds one edits this tuple."""
 
 DEFAULT_ENGINE = ENGINE_REMOTION
@@ -161,16 +162,22 @@ def resolve_engine(project_folder: Optional[str] = None) -> str:
     if current_edition() == PUBLIC:
         if explicit:
             selected = normalise(explicit, where="graphics renderer setting")
-            component_id = ("renderer.remotion" if selected == ENGINE_REMOTION
-                            else "renderer.hyperframes")
+            component_id = {
+                ENGINE_REMOTION: "renderer.remotion",
+                ENGINE_HYPERFRAMES: "renderer.hyperframes",
+                ENGINE_FFRAMES: "renderer.fframes",
+            }[selected]
             require_component(component_id, action="select")
             return selected
         component_id = select_component(
             "graphics rendering",
             personal_component="renderer.remotion",
             public_component="renderer.hyperframes")
-        return (ENGINE_REMOTION if component_id == "renderer.remotion"
-                else ENGINE_HYPERFRAMES)
+        if component_id == "renderer.remotion":
+            return ENGINE_REMOTION
+        if component_id == "renderer.fframes":
+            return ENGINE_FFRAMES
+        return ENGINE_HYPERFRAMES
     if project:
         return project
     if user:
@@ -181,3 +188,8 @@ def resolve_engine(project_folder: Optional[str] = None) -> str:
 def is_hyperframes(project_folder: Optional[str] = None) -> bool:
     """True when the resolved engine is HyperFrames. The call-site branch."""
     return resolve_engine(project_folder) == ENGINE_HYPERFRAMES
+
+
+def is_fframes(project_folder: Optional[str] = None) -> bool:
+    """True when the resolved engine is FFrames. The call-site branch."""
+    return resolve_engine(project_folder) == ENGINE_FFRAMES

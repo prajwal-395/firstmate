@@ -301,7 +301,11 @@ def _still_renderer_identity(project_folder: str) -> tuple[str, str]:
     from library.tools import render_cache as _cache
 
     engine = _engines.resolve_engine(project_folder or None)
-    if engine == _engines.ENGINE_HYPERFRAMES:
+    if engine == _engines.ENGINE_FFRAMES:
+        from library.tools.fframes_render import fframes_binary
+
+        fingerprint = _cache.renderer_fingerprint(fframes_binary())
+    elif engine == _engines.ENGINE_HYPERFRAMES:
         from library.tools import hyperframes_render as _hf
 
         fingerprint = _cache.hyperframes_fingerprint(
@@ -346,6 +350,38 @@ def render_still(props: dict, out_png: str,
     """
     from library.tools import graphics_renderer as _engines
 
+    if _engines.is_fframes(project_folder or None):
+        import os as _os
+        import shutil as _shutil
+        import tempfile as _tempfile
+
+        from library.tools import fframes_render as _ff
+
+        work_dir = _os.path.dirname(_os.path.abspath(out_png))
+        _os.makedirs(work_dir, exist_ok=True)
+        try:
+            with _tempfile.TemporaryDirectory(
+                    prefix=".fframes-post-header-", dir=work_dir) as scratch:
+                frames_dir = _os.path.join(scratch, "frames")
+                rendered = _ff.render_one_card_frames(
+                    COMPOSITION, props, frames_dir, scratch,
+                    project_folder or "",
+                    (remotion_dir if remotion_dir else
+                     str(_os.path.dirname(_os.path.abspath(__file__)))))
+                frames = rendered["frames"]
+                if not frames:
+                    raise PostHeaderError(
+                        "FFrames reported no frames for PostHeader")
+                _shutil.copyfile(frames[0], out_png)
+        except (_ff.FFramesUnavailable,
+                _ff.FFramesRenderError) as exc:
+            raise PostHeaderError(
+                f"PostHeader FFrames still failed: {exc}") from exc
+        if not _os.path.isfile(out_png):
+            raise PostHeaderError(
+                f"PostHeader FFrames reported success but wrote no file "
+                f"at {out_png}")
+        return out_png
     if _engines.is_hyperframes(project_folder or None):
         import shutil
         import tempfile

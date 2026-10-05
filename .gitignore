@@ -92,3 +92,7 @@ ren/_build.py
 # local convenience launcher, not shared
 /dash
 scripts/.resolve_memory_trial_state.json
+
+# Rust build artifacts
+native/target
+native/*/target

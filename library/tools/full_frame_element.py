@@ -2168,6 +2168,14 @@ def render_reel_cards(cards: Sequence[PlannedCard],
         return list(cards)
     os.makedirs(output_dir, exist_ok=True)
     from library.tools import graphics_renderer as _engines
+    if _engines.is_fframes(project_folder or None):
+        print(f"    engine: FFrames for {len(to_render)} full-frame "
+              f"card(s) (selected by {_engines.USER_SETTING_KEY} or the "
+              f"project's pipeline.graphics_renderer; {FULL_FRAME_COMPOSITION} "
+              f"has an FFrames form)", file=stream)
+        return _render_reel_cards_fframes(
+            to_render, cards, remotion_dir, output_dir, stream,
+            project_folder or "")
     if _engines.is_hyperframes(project_folder or None):
         print(f"    engine: HyperFrames for {len(to_render)} full-frame "
               f"card(s) (selected by {_engines.USER_SETTING_KEY} or the "
@@ -2266,6 +2274,55 @@ def _render_reel_cards_hyperframes(to_render: Sequence[PlannedCard],
             raise FullFrameRenderError(
                 f"render of {card.render_name} "
                 f"({FULL_FRAME_COMPOSITION}) through HyperFrames failed: "
+                f"{exc}") from exc
+        if not os.path.isfile(out_path) or os.path.getsize(out_path) == 0:
+            raise FullFrameRenderError(
+                f"render reported success but {out_path} is missing "
+                f"or empty")
+        drawn[id(card)] = replace(card, rendered_path=out_path)
+        print(f"      OK: {out_path} "
+              f"({os.path.getsize(out_path)} bytes)",
+              file=stream)
+    return [drawn.get(id(card), card) for card in cards]
+
+
+def _render_reel_cards_fframes(to_render: Sequence[PlannedCard],
+                               cards: Sequence[PlannedCard],
+                               remotion_dir: str,
+                               output_dir: str,
+                               stream,
+                               project_folder: str) -> list[PlannedCard]:
+    """Draw every planned card through its FFrames form, opaque.
+
+    Phase 2 entry point: when the IR lowering lands, this stages the
+    scene.json, renders the PNG sequence, flattens over the declared
+    ground, and encodes. For now it refuses - the composition has no
+    FFrames form until the IR lane lands.
+    """
+    from library.tools import fframes_render as _ff
+
+    drawn: dict[int, PlannedCard] = {}
+    for card in to_render:
+        out_path = os.path.join(output_dir, f"{card.render_name}.mov")
+        props_path = os.path.join(output_dir, f"{card.render_name}_props.json")
+        with open(props_path, "w", encoding="utf-8") as handle:
+            json.dump(card.props, handle, indent=2, sort_keys=True)
+        fps = float(card.props.get("fps") or 1.0)
+        print(f"    [{card.index}] {card.render_name}: {card.placement}, "
+              f"{card.duration_frames}f, reel:{card.reel_start(fps):.2f}-"
+              f"{card.reel_end(fps):.2f}s "
+              f"(frames {card.reel_start_frame}..{card.reel_end_frame})",
+              file=stream)
+        try:
+            _ff.render_one_card(
+                FULL_FRAME_COMPOSITION, card.props, out_path, output_dir,
+                project_folder,
+                os.path.dirname(os.path.abspath(remotion_dir)))
+        except (_ff.FFramesUnavailable,
+                _ff.FFramesRenderError) as exc:
+            raise FullFrameRenderError(
+                f"render of {card.render_name} "
+                f"({FULL_FRAME_COMPOSITION}) through FFrames failed: "
                 f"{exc}") from exc
         if not os.path.isfile(out_path) or os.path.getsize(out_path) == 0:
             raise FullFrameRenderError(

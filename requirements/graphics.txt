@@ -17,3 +17,7 @@ opencv-python>=4.8,<5
 # 2026-08-17 while rebuilding this environment.
 opencv-python-headless>=4.8,<5
 Pillow>=9.0
+# The graphics IR cuts weight-pinned static faces from variable fonts and
+# measures kerned advances (library/graphics_ir/fonts.py); the varLib
+# instancer is what a non-browser renderer needs to draw a declared weight.
+fonttools>=4.40

@@ -5,5 +5,13 @@
 # source. Crates land here as the Rust-core migrations ship them; the
 # first is `ren-cli`, the native front door.
 [workspace]
-members = ["ren-cli", "ren-core", "ren-protocol"]
+members = ["ren-cli", "ren-core", "ren-protocol", "ren-graphics-fframes"]
 resolver = "2"
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+
+[profile.release]
+opt-level = 3
+lto = true

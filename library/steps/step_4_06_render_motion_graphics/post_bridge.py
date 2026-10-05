@@ -982,6 +982,22 @@ def render_one_segment(planned: dict, out_dir: str,
           f"tl:{planned['timeline_start']:.2f}-"
           f"{planned['timeline_end']:.2f}s)", file=sys.stderr)
     from library.tools import graphics_renderer as _engines
+    use_fframes = _engines.is_fframes(project_folder or None)
+    if use_fframes:
+        print(f"    engine: FFrames for {placement_label} "
+              f"(MotionGraphics has an FFrames form; selected by "
+              f"{_engines.USER_SETTING_KEY} or the project's "
+              f"pipeline.graphics_renderer)", file=sys.stderr)
+        from library.tools import fframes_render as _ff
+        _ff.render_one_card_frames(
+            "MotionGraphics", render_props, frames_dir,
+            os.path.dirname(os.path.abspath(frames_dir)),
+            project_folder or "")
+        frames = _ordered_motion_frames(
+            frames_dir, "fframes", int(planned["total_frames"]))
+        if frames is None:
+            shutil.rmtree(frames_dir, ignore_errors=True)
+            return None
     use_hyperframes = _engines.is_hyperframes(project_folder or None)
     if use_hyperframes:
         print(f"    engine: HyperFrames for {placement_label} "

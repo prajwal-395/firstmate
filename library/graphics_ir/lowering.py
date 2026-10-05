@@ -2,21 +2,35 @@
 
 Each function takes the same props the steps already build for the
 HyperFrames and Remotion compositions and produces an IR scene whose
-timing and easing match what the HyperFrames composition's GSAP timeline
-does today.
+timing, easing, layout and style match what the HyperFrames composition
+draws today.
 
 The lowering is deliberately mechanical: every tween in the HyperFrames
 composition becomes an Animation, every ``.clip`` window becomes a
-Timing, every styled element becomes a Node. Where a composition has
-behaviour the IR cannot yet express, the gap is listed in the PR body
-rather than approximated.
+Timing, every styled element becomes a Node, and every CSS box the
+template lays out becomes ``Bounds`` computed here with the same numbers
+(``layout``). A value the template states - a gap, a line height, an
+outline built from shadows - is stated here once more with the template
+named, because the template is what this must draw like. Where a
+composition has behaviour the IR cannot yet express, the gap is listed
+in the PR body rather than approximated.
+
+Font files arrive as paths the caller resolved (a project's brand face,
+or the bundled one); the lowering measures with them and never resolves
+a project file itself.
 """
 
 from __future__ import annotations
 
 import math
-from typing import Any
+from typing import Any, Optional
 
+from .layout import (
+    block_width,
+    line_box_height,
+    measure_text,
+    wrap_text,
+)
 from .model import (
     Animation,
     Bounds,
@@ -31,7 +45,6 @@ from .model import (
     SVGContent,
     TextContent,
     Timing,
-    Transform,
 )
 
 EPS = 0.001
@@ -57,6 +70,75 @@ TYPE_WEIGHT: dict[str, float] = {"display": 900, "supporting": 700, "micro": 600
 STAGE_STAGGER = 5
 STAGED_PARTS = 3
 
+CAPTION_LINE_HEIGHT = 1.2
+"""SubtitleOverlay's ``.box`` line height."""
+CAPTION_WORD_GAP_EM = 0.24
+"""SubtitleOverlay's ``.word`` trailing margin, in the word's own ems."""
+CAPTION_PAD_Y = 24
+"""SubtitleOverlay's ``.box`` vertical padding."""
+CAPTION_EMPHASIS_EM = 1.14
+"""SubtitleOverlay's emphasis-word size."""
+CAPTION_DROP_SHADOW = "0 10px 20px rgba(0,0,0,0.8)"
+"""The drop shadow SubtitleOverlay appends after its eight outline shadows."""
+
+DEFAULT_TEXT_SHADOW = "0px 4px 12px rgba(0,0,0,0.6)"
+"""The shadow TimedTextOverlay and MotionGraphics runs draw."""
+
+CARD_LINE_HEIGHT = 1.18
+CARD_RUN_GAP = 20
+"""FullFrameCard's ``.run`` line height and ``#motion`` gap."""
+
+MG_LINE_HEIGHT = 1.1
+MG_STACK_GAP = 24
+MG_DISPLAY_LETTER_SPACING = 3.0
+MG_ELEMENT_GAPS = {"title_lockup": 12, "quote_card": 16, "lower_third": 12}
+"""MotionGraphics: run line height, anchor-stack gap, the display role's
+tracking, and each text arm's run gap."""
+
+POST_NAME_COLOR = "#FFFFFF"
+POST_HANDLE_COLOR = "#8B98A5"
+POST_BADGE_FILL = "#1D9BF0"
+POST_BADGE_CHECK_FILL = "#FFFFFF"
+POST_BADGE_PATH = (
+    "M22.25 12c0-1.43-.88-2.67-2.19-3.34.46-1.39.2-2.9-.81-3.91s-2.52-1.27-3.91-.81"
+    "c-.66-1.31-1.91-2.19-3.34-2.19s-2.67.88-3.33 2.19c-1.4-.46-2.91-.2-3.92.81"
+    "s-1.26 2.52-.8 3.91C2.63 9.33 1.75 10.57 1.75 12s.88 2.67 2.19 3.34"
+    "c-.46 1.39-.2 2.9.81 3.91s2.52 1.26 3.91.81c.67 1.31 1.91 2.19 3.34 2.19"
+    "s2.68-.88 3.34-2.19c1.39.46 2.9.2 3.91-.81s1.27-2.52.81-3.91"
+    "c1.31-.67 2.19-1.91 2.19-3.34z"
+)
+POST_BADGE_CHECK_PATH = "M10.54 16.2l-3.74-3.74 1.41-1.41 2.33 2.33 5.66-5.66 1.41 1.41z"
+"""PostHeader's template constants: the header's text colours and the
+verified seal, two paths in a 24-unit viewBox."""
+
+
+def _outline_shadow(width: float, colour: str) -> str:
+    """SubtitleOverlay's eight-direction outline plus its drop shadow."""
+    w = float(width)
+    offsets = [(-w, -w), (0, -w), (w, -w), (w, 0), (w, w), (0, w), (-w, w), (-w, 0)]
+    parts = [f"{_num(dx)}px {_num(dy)}px 0 {colour}" for dx, dy in offsets]
+    return ", ".join(parts + [CAPTION_DROP_SHADOW])
+
+
+def _num(value: float) -> str:
+    return f"{value:g}"
+
+
+def _greedy_rows(widths: list[float], limit: Optional[float]) -> list[list[int]]:
+    """Flex-wrap: items fill a row until the next would overflow *limit*."""
+    rows: list[list[int]] = []
+    current: list[int] = []
+    used = 0.0
+    for i, width in enumerate(widths):
+        if current and limit is not None and used + width > limit + 0.01:
+            rows.append(current)
+            current, used = [], 0.0
+        current.append(i)
+        used += width
+    if current:
+        rows.append(current)
+    return rows
+
 
 def lower_subtitle_overlay(props: dict[str, Any]) -> Scene:
     """Lower SubtitleOverlay props to an IR scene.
@@ -64,7 +146,9 @@ def lower_subtitle_overlay(props: dict[str, Any]) -> Scene:
     Each subtitle block becomes a Group windowed to its span. Each word
     with timing becomes a Text node carrying the accent sweep (two
     stepped colour tweens) and the entry scale (0.95 to 1 over 4 frames,
-    power1.out).
+    power1.out). Words flow the way the template's flex-wrap box flows
+    them: each word an inline-block with a 0.24em trailing margin, rows
+    centred on the card, the box's bottom on the safe area.
     """
     fps = float(props["fps"])
     width = int(props["width"])
@@ -76,12 +160,31 @@ def lower_subtitle_overlay(props: dict[str, Any]) -> Scene:
     font_color = style.get("fontColor", "#FFFFFF")
     accent_color = style.get("accentColor", "#FBF0B8")
     font_family = style.get("fontFamily", "Montserrat")
-    font_file = style.get("fontFile")
+    font_file = style.get("fontFile") or props.get("fontFile")
     base_size = float(style.get("fontSize", 58))
     font_weight = float(style.get("fontWeight", 800))
+    outline_width = float(style.get("outlineWidth") or 4)
+    outline_color = style.get("outlineColor", "#000000")
     position = style.get("position", "bottom")
     safe_area = style.get("safeArea", {"top": 0, "right": 0, "bottom": 0, "left": 0})
     max_width = float(style.get("captionMaxWidth", width))
+    shadow = _outline_shadow(outline_width, outline_color)
+    content_limit = max_width - 2 * outline_width
+
+    def text_content(text: str, size: float, align: str) -> TextContent:
+        return TextContent(
+            text=text, font_family=font_family, font_file=font_file,
+            font_size=size, font_weight=font_weight, color=font_color,
+            text_align=align, line_height=CAPTION_LINE_HEIGHT,
+            text_shadow=shadow,
+        )
+
+    def box_top(box_height: float) -> float:
+        if position == "top":
+            return float(safe_area.get("top", 0))
+        if position == "center":
+            return (height - box_height) / 2.0
+        return height - float(safe_area.get("bottom", 0)) - box_height
 
     nodes: list[Node] = []
 
@@ -89,134 +192,105 @@ def lower_subtitle_overlay(props: dict[str, Any]) -> Scene:
         card_id = f"subtitle_{i}"
         start_frame = int(sub["startFrame"])
         end_frame = int(sub["endFrame"])
-        card_start = start_frame / fps
-        card_duration = max(1, end_frame - start_frame) / fps
+        card_timing = Timing(start=start_frame / fps,
+                             duration=max(1, end_frame - start_frame) / fps)
 
-        card_timing = Timing(start=card_start, duration=card_duration)
-        card_bounds = Bounds(
-            x=0,
-            y=0,
-            width=width,
-            height=height,
-        )
-
-        children: list[str] = []
+        fit_scale = sub.get("fitScale")
+        px = round(base_size * fit_scale) if fit_scale is not None and fit_scale < 1 else base_size
         words = sub.get("words", [])
         emphasis_words = sub.get("emphasisWords", [])
-        fit_scale = sub.get("fitScale")
+        children: list[str] = []
 
         if words:
+            sizes = [px * (CAPTION_EMPHASIS_EM if _is_emphasis(w["word"], emphasis_words) else 1.0)
+                     for w in words]
+            advances = [measure_text(w["word"], size, font_file, font_weight)
+                        for w, size in zip(words, sizes)]
+            outers = [adv + CAPTION_WORD_GAP_EM * size for adv, size in zip(advances, sizes)]
+            rows = _greedy_rows(outers, content_limit)
+            row_heights = [max(CAPTION_LINE_HEIGHT * sizes[j] for j in row) for row in rows]
+            box_height = sum(row_heights) + 2 * CAPTION_PAD_Y
+            top = box_top(box_height)
+            card_bounds = Bounds(x=0, y=top, width=width, height=box_height)
+            y = top + CAPTION_PAD_Y
+            placed: dict[int, Bounds] = {}
+            for row, row_height in zip(rows, row_heights):
+                x = width / 2.0 - sum(outers[j] for j in row) / 2.0
+                for j in row:
+                    item_height = CAPTION_LINE_HEIGHT * sizes[j]
+                    placed[j] = Bounds(x=x, y=y + (row_height - item_height) / 2.0,
+                                       width=advances[j], height=item_height)
+                    x += outers[j]
+                y += row_height
+
             for j, word_timing in enumerate(words):
                 word_id = f"{card_id}_word_{j}"
                 ws = int(word_timing["startFrame"]) / fps
                 we = int(word_timing["endFrame"]) / fps
-                word_text = word_timing["word"]
-
-                is_emphasis = _is_emphasis(word_text, emphasis_words)
-                word_size = base_size * (1.14 if is_emphasis else 1.0)
-                if fit_scale is not None and fit_scale < 1:
-                    word_size = round(base_size * fit_scale) * (1.14 if is_emphasis else 1.0)
-
                 animations: list[Animation] = []
-
                 if we > ws:
                     animations.append(Animation(
-                        target=word_id,
-                        property="color",
-                        from_value=font_color,
-                        to_value=accent_color,
-                        start=max(0.0, ws - EPS),
-                        duration=EPS,
-                        easing=LinearEasing(),
+                        target=word_id, property="color",
+                        from_value=font_color, to_value=accent_color,
+                        start=max(0.0, ws - EPS), duration=EPS, easing=LinearEasing(),
                     ))
                     animations.append(Animation(
-                        target=word_id,
-                        property="color",
-                        from_value=accent_color,
-                        to_value=font_color,
-                        start=max(0.0, we - EPS),
-                        duration=EPS,
-                        easing=LinearEasing(),
+                        target=word_id, property="color",
+                        from_value=accent_color, to_value=font_color,
+                        start=max(0.0, we - EPS), duration=EPS, easing=LinearEasing(),
                     ))
                     animations.append(Animation(
-                        target=word_id,
-                        property="transform.scale",
-                        from_value=[0.95, 0.95],
-                        to_value=[1.0, 1.0],
-                        start=ws,
-                        duration=4.0 / fps,
-                        easing=EaseEasing(power=2),
+                        target=word_id, property="transform.scale",
+                        from_value=[0.95, 0.95], to_value=[1.0, 1.0],
+                        start=ws, duration=4.0 / fps, easing=EaseEasing(power=2),
                     ))
                 else:
                     animations.append(Animation(
-                        target=word_id,
-                        property="transform.scale",
-                        from_value=[0.95, 0.95],
-                        to_value=[1.0, 1.0],
-                        start=max(0.0, we - EPS),
-                        duration=EPS,
-                        easing=LinearEasing(),
+                        target=word_id, property="transform.scale",
+                        from_value=[0.95, 0.95], to_value=[1.0, 1.0],
+                        start=max(0.0, we - EPS), duration=EPS, easing=LinearEasing(),
                     ))
-
-                word_node = Node(
-                    id=word_id,
-                    type=NodeType.TEXT,
-                    text=TextContent(
-                        text=word_text,
-                        font_family=font_family,
-                        font_file=font_file,
-                        font_size=word_size,
-                        font_weight=font_weight,
-                        color=font_color,
-                    ),
-                    animations=animations,
-                )
-                nodes.append(word_node)
+                nodes.append(Node(
+                    id=word_id, type=NodeType.TEXT,
+                    text=text_content(word_timing["word"], sizes[j], "left"),
+                    bounds=placed[j], animations=animations,
+                ))
                 children.append(word_id)
         else:
+            text = sub.get("text", "")
+            lines = wrap_text(text, content_limit, font_size=px,
+                              font_file=font_file, font_weight=font_weight)
+            text_width = min(content_limit, block_width(lines, font_size=px, font_file=font_file,
+                                                        font_weight=font_weight))
+            text_height = len(lines) * CAPTION_LINE_HEIGHT * px
+            box_height = text_height + 2 * CAPTION_PAD_Y
+            top = box_top(box_height)
+            card_bounds = Bounds(x=0, y=top, width=width, height=box_height)
             text_id = f"{card_id}_text"
-            text_size = base_size
-            if fit_scale is not None and fit_scale < 1:
-                text_size = round(base_size * fit_scale)
-            text_node = Node(
-                id=text_id,
-                type=NodeType.TEXT,
-                text=TextContent(
-                    text=sub.get("text", ""),
-                    font_family=font_family,
-                    font_file=font_file,
-                    font_size=text_size,
-                    font_weight=font_weight,
-                    color=font_color,
-                ),
-            )
-            nodes.append(text_node)
+            nodes.append(Node(
+                id=text_id, type=NodeType.TEXT,
+                text=text_content("\n".join(lines), px, "center"),
+                bounds=Bounds(x=(width - text_width) / 2.0, y=top + CAPTION_PAD_Y,
+                              width=text_width, height=text_height),
+            ))
             children.append(text_id)
 
-        card_node = Node(
-            id=card_id,
-            type=NodeType.GROUP,
-            bounds=card_bounds,
-            timing=card_timing,
-            children=children,
-        )
-        nodes.append(card_node)
+        nodes.append(Node(
+            id=card_id, type=NodeType.GROUP, bounds=card_bounds,
+            timing=card_timing, children=children,
+        ))
 
-    return Scene(
-        version=1,
-        fps=fps,
-        width=width,
-        height=height,
-        duration=duration_in_frames / fps,
-        nodes=nodes,
-    )
+    return Scene(version=1, fps=fps, width=width, height=height,
+                 duration=duration_in_frames / fps, nodes=nodes)
 
 
 def lower_timed_text_overlay(props: dict[str, Any]) -> Scene:
     """Lower TimedTextOverlay props to an IR scene.
 
     Each moment becomes a Text node windowed to its span, carrying the
-    fade-in and fade-out opacity ramps (linear, clamped to fit).
+    fade-in and fade-out opacity ramps (linear, clamped to fit). The box
+    is the template's: ``max-content`` wide up to the safe-area-bounded
+    max width, ``pre-line``, centred on ``(x, y)``, ``line-height: normal``.
     """
     fps = float(props["fps"])
     width = int(props["width"])
@@ -225,6 +299,7 @@ def lower_timed_text_overlay(props: dict[str, Any]) -> Scene:
     moments = props.get("moments", [])
     font_family = props.get("fontFamily", "Helvetica")
     font_file = props.get("fontFile")
+    safe_area = props.get("safeArea", {"top": 0, "right": 0, "bottom": 0, "left": 0})
 
     nodes: list[Node] = []
 
@@ -234,73 +309,84 @@ def lower_timed_text_overlay(props: dict[str, Any]) -> Scene:
             continue
 
         moment_id = f"moment_{i}"
-        start_frame = int(moment["startFrame"])
-        t0 = start_frame / fps
-        dur_seconds = dur / fps
-
+        t0 = int(moment["startFrame"]) / fps
         fade_in = max(0, min(int(moment.get("fadeInFrames", 0)), dur))
         fade_out = max(0, min(int(moment.get("fadeOutFrames", 0)), dur - fade_in))
 
         animations: list[Animation] = []
         if fade_in > 0:
             animations.append(Animation(
-                target=moment_id,
-                property="opacity",
-                from_value=0.0,
-                to_value=1.0,
-                start=t0,
-                duration=fade_in / fps,
-                easing=LinearEasing(),
+                target=moment_id, property="opacity", from_value=0.0, to_value=1.0,
+                start=t0, duration=fade_in / fps, easing=LinearEasing(),
             ))
         if fade_out > 0:
             animations.append(Animation(
-                target=moment_id,
-                property="opacity",
-                from_value=1.0,
-                to_value=0.0,
-                start=t0 + (dur - fade_out) / fps,
-                duration=fade_out / fps,
+                target=moment_id, property="opacity", from_value=1.0, to_value=0.0,
+                start=t0 + (dur - fade_out) / fps, duration=fade_out / fps,
                 easing=LinearEasing(),
             ))
 
-        x = float(moment.get("x", 0.5))
-        y = float(moment.get("y", 0.5))
+        cx = float(moment.get("x", 0.5)) * width
+        cy = float(moment.get("y", 0.5)) * height
+        size = float(moment.get("fontSize", 48))
+        weight = float(moment.get("fontWeight", 400))
+        text = str(moment.get("text", ""))
+        limit = max(0.0, 2 * min(cx - safe_area.get("left", 0),
+                                 width - safe_area.get("right", 0) - cx))
+        measure = dict(font_size=size, font_file=font_file, font_weight=weight)
+        lines = wrap_text(text, limit, **measure)
+        natural = block_width(text.split("\n"), **measure)
+        box_width = min(natural, limit)
+        box_height = len(lines) * line_box_height(size, None, font_file)
 
-        node = Node(
-            id=moment_id,
-            type=NodeType.TEXT,
+        nodes.append(Node(
+            id=moment_id, type=NodeType.TEXT,
             text=TextContent(
-                text=moment.get("text", ""),
-                font_family=font_family,
-                font_file=font_file,
-                font_size=float(moment.get("fontSize", 48)),
-                font_weight=float(moment.get("fontWeight", 400)),
+                text="\n".join(lines), font_family=font_family, font_file=font_file,
+                font_size=size, font_weight=weight,
                 color=moment.get("color", "#FFFFFF"),
                 text_align=moment.get("textAlign", "center"),
-                text_shadow=moment.get("textShadow", "0px 4px 12px rgba(0,0,0,0.6)"),
+                text_shadow=moment.get("textShadow") or DEFAULT_TEXT_SHADOW,
             ),
-            transform=Transform(translate=[x * width, y * height]),
-            timing=Timing(start=t0, duration=dur_seconds),
+            bounds=Bounds(x=cx - box_width / 2.0, y=cy - box_height / 2.0,
+                          width=box_width, height=box_height),
+            timing=Timing(start=t0, duration=dur / fps),
             animations=animations,
-        )
-        nodes.append(node)
+        ))
 
-    return Scene(
-        version=1,
-        fps=fps,
-        width=width,
-        height=height,
-        duration=duration_in_frames / fps,
-        nodes=nodes,
-    )
+    return Scene(version=1, fps=fps, width=width, height=height,
+                 duration=duration_in_frames / fps, nodes=nodes)
+
+
+def _run_size(run: dict[str, Any]) -> float:
+    """FullFrameCard's ``sizeOf``: the run's own size, else its role's."""
+    return float(run.get("font_size") or TYPE_SIZE.get(run.get("type_role"), TYPE_SIZE["supporting"]))
+
+
+def _run_weight(run: dict[str, Any]) -> float:
+    return float(TYPE_WEIGHT.get(run.get("type_role"), TYPE_WEIGHT["supporting"]))
+
+
+def _image_height(src: str, box_width: float) -> float:
+    """``height: auto`` of an image drawn *box_width* wide."""
+    try:
+        from PIL import Image
+
+        with Image.open(src) as image:
+            w, h = image.size
+    except (OSError, ValueError, ImportError):
+        return 0.0
+    return box_width * h / w if w else 0.0
 
 
 def lower_full_frame_card(props: dict[str, Any]) -> Scene:
     """Lower FullFrameCard props to an IR scene.
 
     The card becomes a Ground with a Group carrying the opacity ramp and
-    the entrance/exit character. Runs become Text nodes. Word cues become
-    per-word animations on masked or drawn spans.
+    the entrance/exit character. Runs become Text nodes stacked the way
+    the template's ``#motion`` column stacks them (20px gap, 1.18 line
+    height, each run centred and wrapped in the safe column). Word cues
+    become per-word animations on words placed inside their run's lines.
     """
     fps = float(props["fps"])
     width = int(props["width"])
@@ -308,13 +394,11 @@ def lower_full_frame_card(props: dict[str, Any]) -> Scene:
     duration_in_frames = int(props["durationInFrames"])
     duration = duration_in_frames / fps
     runs = props.get("runs", [])
-    background = props["background"]
     entrance = props.get("entrance", "cut")
     exit_char = props.get("exit", "cut")
     font_family = props.get("fontFamily", "Montserrat")
     font_file = props.get("fontFile")
     safe_area = props.get("safeArea", {"top": 0, "right": 0, "bottom": 0, "left": 0})
-    y = props.get("y")
     image = props.get("image")
     image_width = props.get("imageWidth")
     word_cues = props.get("wordCues", [])
@@ -330,38 +414,68 @@ def lower_full_frame_card(props: dict[str, Any]) -> Scene:
     if hold_frames is not None and hold_frames > 1:
         hold_ease = StepsEasing(steps=math.ceil(duration_in_frames / hold_frames), direction="end")
 
-    nodes: list[Node] = []
+    column_x = float(safe_area["left"])
+    column_width = float(width - safe_area["left"] - safe_area["right"])
 
-    ground = Node(
-        id="ground",
-        type=NodeType.GROUND,
+    def run_lines(text: str, run: dict[str, Any]) -> list[str]:
+        return wrap_text(text, column_width, font_size=_run_size(run),
+                         font_file=font_file, font_weight=_run_weight(run))
+
+    def run_height(lines: list[str], run: dict[str, Any]) -> float:
+        return len(lines) * CARD_LINE_HEIGHT * _run_size(run)
+
+    def run_text(text: str, run: dict[str, Any]) -> TextContent:
+        return TextContent(
+            text=text, font_family=font_family, font_file=font_file,
+            font_size=_run_size(run), font_weight=_run_weight(run),
+            color=run.get("colour", "#FFFFFF"), text_align="center",
+            line_height=CARD_LINE_HEIGHT,
+        )
+
+    image_height = 0.0
+    image_box_width = 0.0
+    if image:
+        image_box_width = min(column_width, float(image_width)) if image_width else column_width
+        image_height = _image_height(image, image_box_width)
+
+    # The column's height decides where it starts; it is laid out from
+    # the WHOLE runs, the way the block-level template lays them out.
+    full_lines = [run_lines(run.get("text", ""), run) for run in runs]
+    items = ([image_height] if image else []) + [run_height(lines, run)
+                                                 for lines, run in zip(full_lines, runs)]
+    content_height = sum(items) + CARD_RUN_GAP * max(0, len(items) - 1)
+    y_prop = props.get("y")
+    if y_prop is None:
+        top = safe_area["top"] + (height - safe_area["top"] - safe_area["bottom"] - content_height) / 2.0
+    else:
+        # The template pads the full-height stack down by H*y, then
+        # shifts the stack up by half its own (full) height.
+        top = max(0.0, height * float(y_prop)) - height / 2.0
+
+    run_tops: list[float] = []
+    cursor = top
+    if image:
+        cursor += image_height + CARD_RUN_GAP
+    for lines, run in zip(full_lines, runs):
+        run_tops.append(cursor)
+        cursor += run_height(lines, run) + CARD_RUN_GAP
+
+    nodes: list[Node] = [Node(
+        id="ground", type=NodeType.GROUND,
         bounds=Bounds(x=0, y=0, width=width, height=height),
-    )
-    nodes.append(ground)
+    )]
 
     card_animations: list[Animation] = []
-
     if in_frames > 0:
         card_animations.append(Animation(
-            target="card",
-            property="opacity",
-            from_value=0.0,
-            to_value=1.0,
-            start=0.0,
-            duration=t_in,
-            easing=hold_ease,
+            target="card", property="opacity", from_value=0.0, to_value=1.0,
+            start=0.0, duration=t_in, easing=hold_ease,
         ))
     if out_frames > 0:
         card_animations.append(Animation(
-            target="card",
-            property="opacity",
-            from_value=1.0,
-            to_value=0.0,
-            start=max(0.0, duration - t_out),
-            duration=t_out,
-            easing=hold_ease,
+            target="card", property="opacity", from_value=1.0, to_value=0.0,
+            start=max(0.0, duration - t_out), duration=t_out, easing=hold_ease,
         ))
-
     if in_frames > 0 and t_in > 0:
         card_animations.extend(_entrance_animations("card", entrance, t_in, hold_ease))
     if out_frames > 0 and t_out > 0:
@@ -371,40 +485,29 @@ def lower_full_frame_card(props: dict[str, Any]) -> Scene:
 
     if image:
         image_id = "card_image"
-        image_node = Node(
-            id=image_id,
-            type=NodeType.IMAGE,
-            image=ImageContent(src=image),
-            bounds=Bounds(
-                x=safe_area["left"],
-                y=safe_area["top"],
-                width=float(image_width) if image_width else width - safe_area["left"] - safe_area["right"],
-                height=0,
-            ),
-        )
-        nodes.append(image_node)
+        nodes.append(Node(
+            id=image_id, type=NodeType.IMAGE, image=ImageContent(src=image),
+            bounds=Bounds(x=column_x + (column_width - image_box_width) / 2.0, y=top,
+                          width=image_box_width, height=image_height),
+        ))
         card_children.append(image_id)
+
+    def whole_run(node_id: str, text: str, ri: int) -> Node:
+        run = runs[ri]
+        lines = run_lines(text, run)
+        return Node(
+            id=node_id, type=NodeType.TEXT, text=run_text("\n".join(lines), run),
+            bounds=Bounds(x=column_x, y=run_tops[ri], width=column_width,
+                          height=run_height(lines, run)),
+        )
 
     cued = word_cues and len(word_cues) > 0 and entrance in ("typewriter", "mask", "draw")
 
     if not cued and entrance != "typewriter":
         for i, run in enumerate(runs):
-            run_id = f"run_{i}"
-            run_node = Node(
-                id=run_id,
-                type=NodeType.TEXT,
-                text=TextContent(
-                    text=run.get("text", ""),
-                    font_family=font_family,
-                    font_file=font_file,
-                    font_size=float(run.get("fontSize", TYPE_SIZE.get(run.get("typeRole", "supporting"), 36))),
-                    font_weight=TYPE_WEIGHT.get(run.get("typeRole", "supporting"), 700),
-                    color=run.get("colour", "#FFFFFF"),
-                    line_height=1.18,
-                ),
-            )
-            nodes.append(run_node)
-            card_children.append(run_id)
+            node = whole_run(f"run_{i}", run.get("text", ""), i)
+            nodes.append(node)
+            card_children.append(node.id)
     elif entrance == "typewriter":
         run_lengths = [len(r.get("text", "")) for r in runs]
         total = sum(run_lengths)
@@ -419,29 +522,14 @@ def lower_full_frame_card(props: dict[str, Any]) -> Scene:
                     shown = st["shown"][ri]
                     if shown == 0 and st["cursor_run"] != ri:
                         continue
-                    run_id = f"{layer_id}_run_{ri}"
-                    run_node = Node(
-                        id=run_id,
-                        type=NodeType.TEXT,
-                        text=TextContent(
-                            text=run.get("text", "")[:shown],
-                            font_family=font_family,
-                            font_file=font_file,
-                            font_size=float(run.get("fontSize", TYPE_SIZE.get(run.get("typeRole", "supporting"), 36))),
-                            font_weight=TYPE_WEIGHT.get(run.get("typeRole", "supporting"), 700),
-                            color=run.get("colour", "#FFFFFF"),
-                            line_height=1.18,
-                        ),
-                    )
-                    nodes.append(run_node)
-                    layer_children.append(run_id)
-                layer_node = Node(
-                    id=layer_id,
-                    type=NodeType.GROUP,
+                    node = whole_run(f"{layer_id}_run_{ri}", run.get("text", "")[:shown], ri)
+                    nodes.append(node)
+                    layer_children.append(node.id)
+                nodes.append(Node(
+                    id=layer_id, type=NodeType.GROUP,
                     timing=Timing(start=f0 / fps, duration=(f1 - f0) / fps),
                     children=layer_children,
-                )
-                nodes.append(layer_node)
+                ))
                 card_children.append(layer_id)
     else:
         joined = "".join(r.get("text", "") for r in runs)
@@ -456,24 +544,13 @@ def lower_full_frame_card(props: dict[str, Any]) -> Scene:
 
         if not ok:
             for i, run in enumerate(runs):
-                run_id = f"run_{i}"
-                run_node = Node(
-                    id=run_id,
-                    type=NodeType.TEXT,
-                    text=TextContent(
-                        text=run.get("text", ""),
-                        font_family=font_family,
-                        font_file=font_file,
-                        font_size=float(run.get("fontSize", TYPE_SIZE.get(run.get("typeRole", "supporting"), 36))),
-                        font_weight=TYPE_WEIGHT.get(run.get("typeRole", "supporting"), 700),
-                        color=run.get("colour", "#FFFFFF"),
-                        line_height=1.18,
-                    ),
-                )
-                nodes.append(run_node)
-                card_children.append(run_id)
+                node = whole_run(f"run_{i}", run.get("text", ""), i)
+                nodes.append(node)
+                card_children.append(node.id)
         else:
             texts = [r.get("text", "") for r in runs]
+            word_boxes = _word_boxes_in_runs(
+                texts, full_lines, runs, run_tops, column_x, column_width, font_file)
             for wi, word in enumerate(words):
                 at = word["at"]
                 run_index = len(texts) - 1
@@ -492,103 +569,76 @@ def lower_full_frame_card(props: dict[str, Any]) -> Scene:
 
                 word_animations: list[Animation] = []
                 if entrance == "draw":
-                    word_animations.append(Animation(
-                        target=word_id,
-                        property="transform.scale",
-                        from_value=[0.85, 0.85],
-                        to_value=[1.0, 1.0],
-                        start=t0,
-                        duration=max(EPS, t1 - t0),
-                        easing=EaseEasing(power=3),
-                    ))
-                    word_animations.append(Animation(
-                        target=word_id,
-                        property="blur",
-                        from_value=4.0,
-                        to_value=0.0,
-                        start=t0,
-                        duration=max(EPS, t1 - t0),
-                        easing=EaseEasing(power=3),
-                    ))
-                    word_animations.append(Animation(
-                        target=word_id,
-                        property="opacity",
-                        from_value=0.0,
-                        to_value=1.0,
-                        start=t0,
-                        duration=max(EPS, t1 - t0),
-                        easing=EaseEasing(power=3),
-                    ))
+                    for prop, frm, to in (("transform.scale", [0.85, 0.85], [1.0, 1.0]),
+                                          ("blur", 4.0, 0.0), ("opacity", 0.0, 1.0)):
+                        word_animations.append(Animation(
+                            target=word_id, property=prop, from_value=frm, to_value=to,
+                            start=t0, duration=max(EPS, t1 - t0), easing=EaseEasing(power=3),
+                        ))
                 else:
                     word_animations.append(Animation(
-                        target=word_id,
-                        property="transform.translate",
-                        from_value=[0.0, 120.0],
-                        to_value=[0.0, 0.0],
-                        start=t0,
-                        duration=max(EPS, t1 - t0),
-                        easing=EaseEasing(power=3),
+                        target=word_id, property="transform.translate",
+                        from_value=[0.0, 120.0], to_value=[0.0, 0.0],
+                        start=t0, duration=max(EPS, t1 - t0), easing=EaseEasing(power=3),
                     ))
 
                 if emphasis_colour:
                     word_animations.append(Animation(
-                        target=word_id,
-                        property="color",
-                        from_value=run.get("colour", "#FFFFFF"),
-                        to_value=emphasis_colour,
-                        start=max(0.0, cue.get("start", 0) - EPS),
-                        duration=EPS,
+                        target=word_id, property="color",
+                        from_value=run.get("colour", "#FFFFFF"), to_value=emphasis_colour,
+                        start=max(0.0, cue.get("start", 0) - EPS), duration=EPS,
                         easing=LinearEasing(),
                     ))
                     word_animations.append(Animation(
-                        target=word_id,
-                        property="color",
-                        from_value=emphasis_colour,
-                        to_value=run.get("colour", "#FFFFFF"),
-                        start=max(0.0, cue.get("end", 0) - EPS),
-                        duration=EPS,
+                        target=word_id, property="color",
+                        from_value=emphasis_colour, to_value=run.get("colour", "#FFFFFF"),
+                        start=max(0.0, cue.get("end", 0) - EPS), duration=EPS,
                         easing=LinearEasing(),
                     ))
 
-                word_node = Node(
-                    id=word_id,
-                    type=NodeType.TEXT,
-                    text=TextContent(
-                        text=word["text"],
-                        font_family=font_family,
-                        font_file=font_file,
-                        font_size=float(run.get("fontSize", TYPE_SIZE.get(run.get("typeRole", "supporting"), 36))),
-                        font_weight=TYPE_WEIGHT.get(run.get("typeRole", "supporting"), 700),
-                        color=run.get("colour", "#FFFFFF"),
-                        line_height=1.18,
-                    ),
+                content = run_text(word["text"], run)
+                content.text_align = "left"
+                nodes.append(Node(
+                    id=word_id, type=NodeType.TEXT, text=content,
+                    bounds=word_boxes[wi] if wi < len(word_boxes) else None,
                     animations=word_animations,
-                )
-                nodes.append(word_node)
+                ))
                 card_children.append(word_id)
 
-    card_node = Node(
-        id="card",
-        type=NodeType.GROUP,
-        bounds=Bounds(
-            x=safe_area["left"],
-            y=safe_area["top"],
-            width=width - safe_area["left"] - safe_area["right"],
-            height=height - safe_area["top"] - safe_area["bottom"],
-        ),
-        animations=card_animations,
-        children=card_children,
-    )
-    nodes.append(card_node)
+    nodes.append(Node(
+        id="card", type=NodeType.GROUP,
+        bounds=Bounds(x=column_x, y=top, width=column_width, height=content_height),
+        animations=card_animations, children=card_children,
+    ))
 
-    return Scene(
-        version=1,
-        fps=fps,
-        width=width,
-        height=height,
-        duration=duration,
-        nodes=nodes,
-    )
+    return Scene(version=1, fps=fps, width=width, height=height,
+                 duration=duration, nodes=nodes)
+
+
+def _word_boxes_in_runs(texts, full_lines, runs, run_tops, column_x, column_width,
+                        font_file) -> list[Bounds]:
+    """Each word's box where the whole run's centred lines put it."""
+    boxes: list[Bounds] = []
+    for ri, (lines, run) in enumerate(zip(full_lines, runs)):
+        size = _run_size(run)
+        measure = dict(font_size=size, font_file=font_file, font_weight=_run_weight(run))
+        line_height = CARD_LINE_HEIGHT * size
+        for li, line in enumerate(lines):
+            line_x = column_x + (column_width - measure_text(line, **measure)) / 2.0
+            y = run_tops[ri] + li * line_height
+            offset = 0
+            for word in line.split():
+                at = line.index(word, offset)
+                x = line_x + measure_text(line[:at], **measure)
+                boxes.append(Bounds(x=x, y=y, width=measure_text(word, **measure),
+                                    height=line_height))
+                offset = at + len(word)
+    return boxes
+
+
+def _element_window(el: dict[str, Any]) -> tuple[int, int]:
+    start = int(el.get("startFrame", 0))
+    return start, start + int(el.get("durationFrames", 1))
 
 
 def lower_motion_graphics(props: dict[str, Any]) -> Scene:
@@ -596,7 +646,10 @@ def lower_motion_graphics(props: dict[str, Any]) -> Scene:
 
     Each element becomes a Group windowed to its span, carrying the
     opacity ramp and the entrance/exit character. Child nodes depend on
-    the element's arm (title_lockup, quote_card, progress_bar, etc.).
+    the element's arm (title_lockup, quote_card, lower_third, channel_bug).
+    Text arms sit in their anchor's stack the way the template stacks
+    them: a 24px-gap column at the safe area's edge, rows ordered, and
+    only the elements live together laid out together.
     """
     fps = float(props["fps"])
     width = int(props["width"])
@@ -605,14 +658,16 @@ def lower_motion_graphics(props: dict[str, Any]) -> Scene:
     elements = props.get("elements", [])
     safe_area = props.get("safeArea", {"top": 0, "right": 0, "bottom": 0, "left": 0})
     layout_width = props.get("layoutWidth")
+    font_family = props.get("fontFamily", "Montserrat")
+    font_file = props.get("fontFile")
+    context = _MGContext(fps, width, height, safe_area, layout_width, font_family, font_file)
 
     nodes: list[Node] = []
-
     self_positioning = {"progress_bar", "frame_accents"}
 
     for el in elements:
         if el.get("element") in self_positioning:
-            built = _build_mg_element(el, fps, width, height, safe_area, layout_width)
+            built = _build_mg_element(el, context, None)
             if built:
                 group_node, child_nodes = built
                 nodes.append(group_node)
@@ -627,43 +682,38 @@ def lower_motion_graphics(props: dict[str, Any]) -> Scene:
             anchors.append(anchor)
 
     for anchor in anchors:
-        stack_id = f"stack_{anchor}"
         stack_children: list[str] = []
         anchor_elements = sorted(
-            [el for el in elements if el.get("element") not in self_positioning and el.get("anchor", "centre") == anchor],
+            [el for el in elements
+             if el.get("element") not in self_positioning and el.get("anchor", "centre") == anchor],
             key=lambda e: e.get("row", 0),
         )
         for el in anchor_elements:
-            built = _build_mg_element(el, fps, width, height, safe_area, layout_width)
+            start, _ = _element_window(el)
+            live = [other for other in anchor_elements
+                    if _element_window(other)[0] <= start < _element_window(other)[1]]
+            boxes = _stack_boxes(live, anchor, context)
+            built = _build_mg_element(el, context, boxes.get(id(el)))
             if built:
                 group_node, child_nodes = built
                 nodes.append(group_node)
                 nodes.extend(child_nodes)
                 stack_children.append(group_node.id)
 
-        stack_node = Node(
-            id=stack_id,
-            type=NodeType.GROUP,
-            children=stack_children,
-        )
-        nodes.append(stack_node)
+        nodes.append(Node(id=f"stack_{anchor}", type=NodeType.GROUP, children=stack_children))
 
-    return Scene(
-        version=1,
-        fps=fps,
-        width=width,
-        height=height,
-        duration=duration_in_frames / fps,
-        nodes=nodes,
-    )
+    return Scene(version=1, fps=fps, width=width, height=height,
+                 duration=duration_in_frames / fps, nodes=nodes)
 
 
 def lower_post_header(props: dict[str, Any]) -> Scene:
     """Lower PostHeader props to an IR scene.
 
-    A static composition: a Group with the header layout, Text nodes for
-    name/handle/hook, an Image for the avatar and an SVG for the verified
-    badge. No animations.
+    A static composition laid out the way the template's flexbox lays it
+    out: the avatar (a filled, rounded box with the image contained at
+    72%), the identity column centred beside it (name and verified seal
+    on one row, handle under it), and the hook wrapped across the box
+    below. No animations.
     """
     fps = float(props["fps"])
     width = int(props["width"])
@@ -677,116 +727,95 @@ def lower_post_header(props: dict[str, Any]) -> Scene:
     hook_size = float(props.get("hookSize", 28))
     avatar_size = round(name_size * 1.3 + handle_size * 1.3)
     gap = round(name_size * 0.55)
+    left, top, box_width = float(box["left"]), float(box["top"]), float(box["width"])
+
+    def text(value: str, size: float, weight: float, colour: str, line_height: float,
+             align: str = "left") -> TextContent:
+        return TextContent(text=value, font_family=font_family, font_file=font_file,
+                           font_size=size, font_weight=weight, color=colour,
+                           text_align=align, line_height=line_height)
+
+    name_row = max(1.2 * name_size, round(name_size * 1.05) if props.get("verified") else 0)
+    identity_height = name_row + 1.25 * handle_size
+    account_height = max(avatar_size, identity_height)
+    identity_x = left + avatar_size + gap
+    identity_y = top + (account_height - identity_height) / 2.0
+    avatar_y = top + (account_height - avatar_size) / 2.0
 
     nodes: list[Node] = []
     children: list[str] = []
 
-    avatar_id = "avatar"
-    avatar_node = Node(
-        id=avatar_id,
-        type=NodeType.IMAGE,
+    radius = avatar_size / 2.0 if props.get("avatarShape") == "round" else avatar_size * 0.08
+    if props.get("avatarBackground"):
+        nodes.append(Node(
+            id="avatar_ground", type=NodeType.SHAPE,
+            shape=ShapeContent(shape="rect", fill=props["avatarBackground"], corner_radius=radius),
+            bounds=Bounds(x=left, y=avatar_y, width=avatar_size, height=avatar_size),
+        ))
+        children.append("avatar_ground")
+    inner = avatar_size * 0.72
+    nodes.append(Node(
+        id="avatar", type=NodeType.IMAGE,
         image=ImageContent(src=props.get("avatarSrc", "")),
-        bounds=Bounds(
-            x=box["left"],
-            y=box["top"],
-            width=avatar_size,
-            height=avatar_size,
-        ),
-    )
-    nodes.append(avatar_node)
-    children.append(avatar_id)
+        bounds=Bounds(x=left + (avatar_size - inner) / 2.0, y=avatar_y + (avatar_size - inner) / 2.0,
+                      width=inner, height=inner),
+    ))
+    children.append("avatar")
 
-    name_id = "name"
-    name_node = Node(
-        id=name_id,
-        type=NodeType.TEXT,
-        text=TextContent(
-            text=props.get("displayName", ""),
-            font_family=font_family,
-            font_file=font_file,
-            font_size=name_size,
-            font_weight=700,
-            color="#FFFFFF",
-            line_height=1.2,
-        ),
-        transform=Transform(translate=[box["left"] + avatar_size + gap, box["top"]]),
-    )
-    nodes.append(name_node)
-    children.append(name_id)
+    name_value = props.get("displayName", "")
+    name_width = measure_text(name_value, name_size, font_file, 700)
+    nodes.append(Node(
+        id="name", type=NodeType.TEXT,
+        text=text(name_value, name_size, 700, POST_NAME_COLOR, 1.2),
+        bounds=Bounds(x=identity_x, y=identity_y + (name_row - 1.2 * name_size) / 2.0,
+                      width=name_width, height=1.2 * name_size),
+    ))
+    children.append("name")
 
     if props.get("verified"):
-        badge_id = "badge"
         badge_size = round(name_size * 1.05)
-        badge_node = Node(
-            id=badge_id,
-            type=NodeType.SVG,
-            svg=SVGContent(
-                viewBox="0 0 24 24",
-                path="M22.25 12c0-1.43-.88-2.67-2.19-3.34.46-1.39.2-2.9-.81-3.91s-2.52-1.27-3.91-.81c-.66-1.31-1.91-2.19-3.34-2.19s-2.67.88-3.33 2.19c-1.4-.46-2.91-.2-3.92.81s-1.26 2.52-.8 3.91C2.63 9.33 1.75 10.57 1.75 12s.88 2.67 2.19 3.34c-.46 1.39-.2 2.9.81 3.91s2.52 1.26 3.91.81c.67 1.31 1.91 2.19 3.34 2.19s2.68-.88 3.34-2.19c1.39.46 2.9.2 3.91-.81s1.27-2.52.81-3.91c1.31-.67 2.19-1.91 2.19-3.34z",
-                fill="#1D9BF0",
-            ),
-            bounds=Bounds(
-                x=box["left"] + avatar_size + gap + name_size * 0.25,
-                y=box["top"],
-                width=badge_size,
-                height=badge_size,
-            ),
-        )
-        nodes.append(badge_node)
-        children.append(badge_id)
+        badge_bounds = Bounds(x=identity_x + name_width + name_size * 0.25,
+                              y=identity_y + (name_row - badge_size) / 2.0,
+                              width=badge_size, height=badge_size)
+        for badge_id, path, fill in (("badge", POST_BADGE_PATH, POST_BADGE_FILL),
+                                     ("badge_check", POST_BADGE_CHECK_PATH, POST_BADGE_CHECK_FILL)):
+            nodes.append(Node(
+                id=badge_id, type=NodeType.SVG,
+                svg=SVGContent(viewBox="0 0 24 24", path=path, fill=fill),
+                bounds=badge_bounds,
+            ))
+            children.append(badge_id)
 
-    handle_id = "handle"
-    handle_node = Node(
-        id=handle_id,
-        type=NodeType.TEXT,
-        text=TextContent(
-            text="@" + props.get("handle", ""),
-            font_family=font_family,
-            font_file=font_file,
-            font_size=handle_size,
-            font_weight=500,
-            color="#8B98A5",
-            line_height=1.25,
-        ),
-        transform=Transform(translate=[box["left"] + avatar_size + gap, box["top"] + name_size * 1.2]),
-    )
-    nodes.append(handle_node)
-    children.append(handle_id)
+    handle_value = "@" + props.get("handle", "")
+    nodes.append(Node(
+        id="handle", type=NodeType.TEXT,
+        text=text(handle_value, handle_size, 500, POST_HANDLE_COLOR, 1.25),
+        bounds=Bounds(x=identity_x, y=identity_y + name_row,
+                      width=measure_text(handle_value, handle_size, font_file, 500),
+                      height=1.25 * handle_size),
+    ))
+    children.append("handle")
 
-    hook_id = "hook"
-    hook_node = Node(
-        id=hook_id,
-        type=NodeType.TEXT,
-        text=TextContent(
-            text=props.get("hook", ""),
-            font_family=font_family,
-            font_file=font_file,
-            font_size=hook_size,
-            font_weight=600,
-            color="#FFFFFF",
-            line_height=1.3,
-        ),
-        transform=Transform(translate=[box["left"], box["top"] + avatar_size + round(hook_size * 0.6)]),
-    )
-    nodes.append(hook_node)
-    children.append(hook_id)
+    hook_lines = wrap_text(props.get("hook", ""), box_width, font_size=hook_size,
+                           font_file=font_file, font_weight=600)
+    hook_top = top + account_height + round(hook_size * 0.6)
+    nodes.append(Node(
+        id="hook", type=NodeType.TEXT,
+        text=text("\n".join(hook_lines), hook_size, 600, POST_NAME_COLOR, 1.3),
+        bounds=Bounds(x=left, y=hook_top, width=box_width,
+                      height=len(hook_lines) * 1.3 * hook_size),
+    ))
+    children.append("hook")
 
-    header_node = Node(
-        id="header",
-        type=NodeType.GROUP,
-        bounds=Bounds(x=box["left"], y=box["top"], width=box["width"], height=avatar_size + hook_size * 2),
+    nodes.append(Node(
+        id="header", type=NodeType.GROUP,
+        bounds=Bounds(x=left, y=top, width=box_width,
+                      height=hook_top + len(hook_lines) * 1.3 * hook_size - top),
         children=children,
-    )
-    nodes.append(header_node)
+    ))
 
-    return Scene(
-        version=1,
-        fps=fps,
-        width=width,
-        height=height,
-        duration=duration_in_frames / fps,
-        nodes=nodes,
-    )
+    return Scene(version=1, fps=fps, width=width, height=height,
+                 duration=duration_in_frames / fps, nodes=nodes)
 
 
 def _is_emphasis(word: str, emphasis_words: list[str]) -> bool:
@@ -977,19 +1006,131 @@ def _split_words(text: str) -> list[dict[str, Any]]:
     return words
 
 
+
+
+class _MGContext:
+    """What every MotionGraphics element is laid out against."""
+
+    def __init__(self, fps, width, height, safe_area, layout_width, font_family, font_file):
+        self.fps = fps
+        self.width = width
+        self.height = height
+        self.safe_area = safe_area
+        self.layout_width = layout_width
+        self.font_family = font_family
+        self.font_file = font_file
+
+
+_MG_TEXT_ARMS = ("title_lockup", "quote_card", "lower_third")
+
+
+def _anchor_parts(anchor: str) -> tuple[str, str]:
+    """The template's ``anchorParts``: (vertical, horizontal)."""
+    return {
+        "top_left": ("top", "left"), "top_centre": ("top", "centre"),
+        "top_right": ("top", "right"), "middle_left": ("middle", "left"),
+        "middle_right": ("middle", "right"), "bottom_left": ("bottom", "left"),
+        "bottom_centre": ("bottom", "centre"), "bottom_right": ("bottom", "right"),
+    }.get(anchor, ("middle", "centre"))
+
+
+def _mg_scale(el: dict[str, Any]) -> float:
+    footprint = el.get("footprint")
+    return footprint if footprint and footprint > 0 else 1.0
+
+
+def _mg_run_style(run: dict[str, Any], scale: float, ctx: _MGContext) -> dict[str, Any]:
+    """The template's ``runStyle``, as measurement arguments."""
+    role = run.get("type_role", "supporting")
+    display = role == "display"
+    return dict(
+        font_size=TYPE_SIZE.get(role, TYPE_SIZE["supporting"]) * scale,
+        font_file=ctx.font_file,
+        font_weight=TYPE_WEIGHT.get(role, TYPE_WEIGHT["supporting"]),
+        letter_spacing=MG_DISPLAY_LETTER_SPACING if display else 0.0,
+        text_transform="uppercase" if display else None,
+    )
+
+
+def _mg_inset(el: dict[str, Any]) -> float:
+    """The quote card's left border plus padding; zero for other arms."""
+    if el.get("element") != "quote_card":
+        return 0.0
+    scale = _mg_scale(el)
+    return float(round(8 * scale) + round(28 * scale))
+
+
+def _mg_run_lines(el: dict[str, Any], box_width: float, ctx: _MGContext) -> list[tuple]:
+    """``(run, style, lines, height)`` for each run, wrapped in *box_width*."""
+    scale = _mg_scale(el)
+    text_width = box_width - _mg_inset(el)
+    out = []
+    for run in el.get("runs", []):
+        style = _mg_run_style(run, scale, ctx)
+        lines = wrap_text(run.get("text", ""), text_width, **style)
+        out.append((run, style, lines, len(lines) * MG_LINE_HEIGHT * style["font_size"]))
+    return out
+
+
+def _mg_natural_width(el: dict[str, Any], ctx: _MGContext) -> float:
+    if el.get("element") not in _MG_TEXT_ARMS:
+        return 0.0
+    scale = _mg_scale(el)
+    widest = 0.0
+    for run in el.get("runs", []):
+        style = _mg_run_style(run, scale, ctx)
+        widest = max(widest, block_width(run.get("text", "").split("\n"), **style))
+    return widest + _mg_inset(el)
+
+
+def _mg_height(el: dict[str, Any], box_width: float, ctx: _MGContext) -> float:
+    if el.get("element") not in _MG_TEXT_ARMS:
+        return 0.0
+    heights = [h for *_, h in _mg_run_lines(el, box_width, ctx)]
+    gap = MG_ELEMENT_GAPS.get(el.get("element"), 12)
+    return sum(heights) + gap * max(0, len(heights) - 1)
+
+
+def _stack_boxes(live: list[dict[str, Any]], anchor: str, ctx: _MGContext) -> dict[int, Bounds]:
+    """Each live element's box inside its anchor's stack."""
+    vertical, horizontal = _anchor_parts(anchor)
+    left = float(ctx.safe_area.get("left", 0))
+    right = float(ctx.safe_area.get("right", 0))
+    available = max(0.0, ctx.width - left - right)
+    if horizontal == "centre":
+        stack_width = min(available, float(ctx.layout_width)) if ctx.layout_width is not None else available
+        stack_x = left + (available - stack_width) / 2.0
+    else:
+        stack_width = min(available, max((_mg_natural_width(el, ctx) for el in live), default=0.0))
+        stack_x = left if horizontal == "left" else ctx.width - right - stack_width
+
+    heights = [_mg_height(el, stack_width, ctx) for el in live]
+    total = sum(heights) + MG_STACK_GAP * max(0, len(heights) - 1)
+    boxes: dict[int, Bounds] = {}
+    if vertical == "bottom":
+        bottom = ctx.height - float(ctx.safe_area.get("bottom", 0))
+        for el, h in zip(live, heights):
+            boxes[id(el)] = Bounds(x=stack_x, y=bottom - h, width=stack_width, height=h)
+            bottom -= h + MG_STACK_GAP
+        return boxes
+    y = float(ctx.safe_area.get("top", 0)) if vertical == "top" else (ctx.height - total) / 2.0
+    for el, h in zip(live, heights):
+        boxes[id(el)] = Bounds(x=stack_x, y=y, width=stack_width, height=h)
+        y += h + MG_STACK_GAP
+    return boxes
+
+
 def _build_mg_element(
     el: dict[str, Any],
-    fps: float,
-    width: int,
-    height: int,
-    safe_area: dict[str, float],
-    layout_width: float | None,
+    ctx: _MGContext,
+    box: Optional[Bounds],
 ) -> tuple[Node, list[Node]] | None:
     """Build one MotionGraphics element as an IR node tree.
 
     Returns the group node and its child nodes, or None when the element
-    has no asset the IR can draw.
+    has no arm the IR can draw yet.
     """
+    fps = ctx.fps
     kind = el.get("element", "")
     start_frame = int(el.get("startFrame", 0))
     duration_frames = int(el.get("durationFrames", 1))
@@ -1024,37 +1165,46 @@ def _build_mg_element(
 
     children: list[str] = []
     child_nodes: list[Node] = []
-    runs = el.get("runs", [])
     color = el.get("color", "#FFFFFF")
-    footprint = el.get("footprint")
-    scale = footprint if footprint and footprint > 0 else 1.0
 
-    if kind in ("title_lockup", "quote_card", "lower_third"):
-        for i, run in enumerate(runs):
+    if kind in _MG_TEXT_ARMS and box is not None:
+        _, horizontal = _anchor_parts(str(el.get("anchor", "centre")))
+        align = {"left": "left", "right": "right"}.get(horizontal, "center")
+        inset = _mg_inset(el)
+        if inset:
+            bar_id = f"{element_id}_rule"
+            child_nodes.append(Node(
+                id=bar_id, type=NodeType.SHAPE,
+                shape=ShapeContent(shape="rect", fill=color),
+                bounds=Bounds(x=box.x, y=box.y, width=round(8 * _mg_scale(el)), height=box.height),
+            ))
+            children.append(bar_id)
+        gap = MG_ELEMENT_GAPS.get(kind, 12)
+        y = box.y
+        for i, (run, style, lines, run_height) in enumerate(_mg_run_lines(el, box.width, ctx)):
             run_id = f"{element_id}_run_{i}"
-            run_node = Node(
-                id=run_id,
-                type=NodeType.TEXT,
+            child_nodes.append(Node(
+                id=run_id, type=NodeType.TEXT,
                 text=TextContent(
-                    text=run.get("text", ""),
-                    font_size=TYPE_SIZE.get(run.get("type_role", "supporting"), 36) * scale,
-                    font_weight=TYPE_WEIGHT.get(run.get("type_role", "supporting"), 700),
-                    color=color,
-                    line_height=1.1,
+                    text="\n".join(lines),
+                    font_family=ctx.font_family, font_file=ctx.font_file,
+                    font_size=style["font_size"], font_weight=style["font_weight"],
+                    color=color, text_align=align, line_height=MG_LINE_HEIGHT,
+                    letter_spacing=style["letter_spacing"],
+                    text_transform=style["text_transform"],
+                    text_shadow=DEFAULT_TEXT_SHADOW,
                 ),
-            )
-            child_nodes.append(run_node)
+                bounds=Bounds(x=box.x + inset, y=y, width=box.width - inset, height=run_height),
+            ))
             children.append(run_id)
+            y += run_height + gap
     elif kind == "channel_bug":
         if not el.get("asset"):
             return None
         image_id = f"{element_id}_image"
-        image_node = Node(
-            id=image_id,
-            type=NodeType.IMAGE,
-            image=ImageContent(src=el["asset"]),
-        )
-        child_nodes.append(image_node)
+        child_nodes.append(Node(
+            id=image_id, type=NodeType.IMAGE, image=ImageContent(src=el["asset"]),
+        ))
         children.append(image_id)
     else:
         return None
@@ -1062,6 +1212,7 @@ def _build_mg_element(
     group_node = Node(
         id=element_id,
         type=NodeType.GROUP,
+        bounds=box,
         timing=Timing(start=t0, duration=tt),
         animations=animations,
         children=children,

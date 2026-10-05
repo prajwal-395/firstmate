@@ -245,7 +245,7 @@
       "type": "object"
     },
     "ImageContent": {
-      "description": "The content of an Image node. ``src`` is a file path or URL.",
+      "description": "The content of an Image node. ``src`` is a file path or data URI.\n\nThe image is contained in the node's bounds, centred, aspect kept\n(CSS ``object-fit: contain``).",
       "properties": {
         "src": {
           "title": "Src",
@@ -497,7 +497,7 @@
       "type": "string"
     },
     "SVGContent": {
-      "description": "The content of an SVG node.",
+      "description": "The content of an SVG node: one path in ``viewBox`` units, scaled\nto fill the node's bounds.",
       "properties": {
         "viewBox": {
           "anyOf": [
@@ -607,6 +607,18 @@
           ],
           "default": null,
           "title": "Path"
+        },
+        "corner_radius": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Corner Radius"
         }
       },
       "required": [
@@ -675,7 +687,7 @@
       "type": "object"
     },
     "TextContent": {
-      "description": "The content of a Text node.\n\n``font_file`` is the path to the font file, so every engine draws the\nsame face. ``font_family`` is the family name for engines that need\none. Colours are project data, never defaults.",
+      "description": "The content of a Text node.\n\n``font_file`` is the path to the font file, so every engine draws the\nsame face, at ``font_weight``. ``font_family`` is the family name for\nengines that need one. Colours are project data, never defaults.\n\n``text`` is already broken into lines (``\\n``) by the lowering; the\nnode's ``bounds`` is its CSS box and each line is aligned inside its\nwidth per ``text_align``. ``line_height`` is in ems; ``None`` is CSS\n``normal``. ``text_transform`` and ``letter_spacing`` (pixels) are\nCSS's. ``text_shadow`` is a CSS ``text-shadow`` list - an outline is\nexpressed the way the compositions express it, as zero-blur offset\nshadows.",
       "properties": {
         "text": {
           "title": "Text",

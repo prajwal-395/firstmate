@@ -146,8 +146,16 @@ class TextContent(BaseModel):
     """The content of a Text node.
 
     ``font_file`` is the path to the font file, so every engine draws the
-    same face. ``font_family`` is the family name for engines that need
-    one. Colours are project data, never defaults.
+    same face, at ``font_weight``. ``font_family`` is the family name for
+    engines that need one. Colours are project data, never defaults.
+
+    ``text`` is already broken into lines (``\\n``) by the lowering; the
+    node's ``bounds`` is its CSS box and each line is aligned inside its
+    width per ``text_align``. ``line_height`` is in ems; ``None`` is CSS
+    ``normal``. ``text_transform`` and ``letter_spacing`` (pixels) are
+    CSS's. ``text_shadow`` is a CSS ``text-shadow`` list - an outline is
+    expressed the way the compositions express it, as zero-blur offset
+    shadows.
     """
 
     text: str
@@ -171,17 +179,23 @@ class ShapeContent(BaseModel):
     stroke: str | None = None
     stroke_width: float | None = None
     path: str | None = None
+    corner_radius: float | None = None
 
 
 class ImageContent(BaseModel):
-    """The content of an Image node. ``src`` is a file path or URL."""
+    """The content of an Image node. ``src`` is a file path or data URI.
+
+    The image is contained in the node's bounds, centred, aspect kept
+    (CSS ``object-fit: contain``).
+    """
 
     src: str
     alt: str | None = None
 
 
 class SVGContent(BaseModel):
-    """The content of an SVG node."""
+    """The content of an SVG node: one path in ``viewBox`` units, scaled
+    to fill the node's bounds."""
 
     viewBox: str | None = None
     path: str | None = None

@@ -1,0 +1,312 @@
+{
+ "SubtitleOverlay": [
+  {
+   "frame": "_f3",
+   "hf_words": 9,
+   "ff_words": 9,
+   "word_offset_max_px": 1.0,
+   "word_order_match": true,
+   "word_iou_min": 0.898,
+   "word_iou_mean": 0.923,
+   "hf_bbox": [
+    186,
+    1351,
+    874,
+    1570
+   ],
+   "ff_bbox": [
+    185,
+    1352,
+    873,
+    1571
+   ],
+   "coverage_hf": 0.196,
+   "coverage_ff": 0.191,
+   "outline_hf": 24381,
+   "outline_ff": 23250,
+   "shadow_hf": 40118,
+   "shadow_ff": 41825,
+   "accent_hf": 2430,
+   "accent_ff": 2461,
+   "ink_iou": 0.966,
+   "opacity_ratio": 1.001,
+   "alpha_premultiplied_hf": true,
+   "alpha_premultiplied_ff": true
+  },
+  {
+   "frame": "_f45",
+   "hf_words": 9,
+   "ff_words": 9,
+   "word_offset_max_px": 0.5,
+   "word_order_match": true,
+   "word_iou_min": 0.87,
+   "word_iou_mean": 0.923,
+   "hf_bbox": [
+    185,
+    1350,
+    877,
+    1570
+   ],
+   "ff_bbox": [
+    185,
+    1350,
+    876,
+    1571
+   ],
+   "coverage_hf": 0.21,
+   "coverage_ff": 0.204,
+   "outline_hf": 26010,
+   "outline_ff": 25326,
+   "shadow_hf": 41732,
+   "shadow_ff": 43626,
+   "accent_hf": 2430,
+   "accent_ff": 2489,
+   "ink_iou": 0.966,
+   "opacity_ratio": 1.001,
+   "alpha_premultiplied_hf": true,
+   "alpha_premultiplied_ff": true
+  }
+ ],
+ "TimedTextOverlay": [
+  {
+   "frame": "_f3",
+   "hf_words": 5,
+   "ff_words": 5,
+   "word_offset_max_px": 0.5,
+   "word_order_match": true,
+   "word_iou_min": 0.958,
+   "word_iou_mean": 0.965,
+   "hf_bbox": null,
+   "ff_bbox": null,
+   "coverage_hf": 0.0,
+   "coverage_ff": 0.0,
+   "outline_hf": 0,
+   "outline_ff": 0,
+   "shadow_hf": 18370,
+   "shadow_ff": 19373,
+   "accent_hf": 0,
+   "accent_ff": 0,
+   "ink_iou": null,
+   "opacity_ratio": 1.006,
+   "alpha_premultiplied_hf": true,
+   "alpha_premultiplied_ff": true
+  },
+  {
+   "frame": "_f45",
+   "hf_words": 5,
+   "ff_words": 5,
+   "word_offset_max_px": 0.5,
+   "word_order_match": true,
+   "word_iou_min": 0.966,
+   "word_iou_mean": 0.979,
+   "hf_bbox": [
+    325,
+    796,
+    751,
+    933
+   ],
+   "ff_bbox": [
+    325,
+    796,
+    751,
+    933
+   ],
+   "coverage_hf": 0.261,
+   "coverage_ff": 0.264,
+   "outline_hf": 0,
+   "outline_ff": 0,
+   "shadow_hf": 22527,
+   "shadow_ff": 24136,
+   "accent_hf": 0,
+   "accent_ff": 0,
+   "ink_iou": 0.971,
+   "opacity_ratio": 1.007,
+   "alpha_premultiplied_hf": true,
+   "alpha_premultiplied_ff": true
+  }
+ ],
+ "FullFrameCard": [
+  {
+   "frame": "_f3",
+   "hf_words": 3,
+   "ff_words": 3,
+   "word_offset_max_px": 0.0,
+   "word_order_match": true,
+   "word_iou_min": 0.953,
+   "word_iou_mean": 0.962,
+   "hf_bbox": null,
+   "ff_bbox": null,
+   "coverage_hf": 0.0,
+   "coverage_ff": 0.0,
+   "outline_hf": 372,
+   "outline_ff": 0,
+   "shadow_hf": 2054,
+   "shadow_ff": 1243,
+   "accent_hf": 0,
+   "accent_ff": 0,
+   "ink_iou": 0.972,
+   "opacity_ratio": 1.004,
+   "alpha_premultiplied_hf": true,
+   "alpha_premultiplied_ff": true
+  },
+  {
+   "frame": "_f45",
+   "hf_words": 10,
+   "ff_words": 10,
+   "word_offset_max_px": 0.5,
+   "word_order_match": true,
+   "word_iou_min": 0.904,
+   "word_iou_mean": 0.945,
+   "hf_bbox": [
+    205,
+    857,
+    872,
+    972
+   ],
+   "ff_bbox": [
+    205,
+    857,
+    872,
+    972
+   ],
+   "coverage_hf": 0.23,
+   "coverage_ff": 0.235,
+   "outline_hf": 155,
+   "outline_ff": 0,
+   "shadow_hf": 840,
+   "shadow_ff": 0,
+   "accent_hf": 0,
+   "accent_ff": 0,
+   "ink_iou": 0.983,
+   "opacity_ratio": 0.992,
+   "alpha_premultiplied_hf": true,
+   "alpha_premultiplied_ff": true
+  }
+ ],
+ "MotionGraphics": [
+  {
+   "frame": "_f3",
+   "hf_words": 0,
+   "ff_words": 0,
+   "word_offset_max_px": null,
+   "word_order_match": false,
+   "word_iou_min": null,
+   "word_iou_mean": null,
+   "hf_bbox": null,
+   "ff_bbox": null,
+   "coverage_hf": 0.0,
+   "coverage_ff": 0.0,
+   "outline_hf": 0,
+   "outline_ff": 0,
+   "shadow_hf": 10491,
+   "shadow_ff": 11130,
+   "accent_hf": 0,
+   "accent_ff": 0,
+   "ink_iou": null,
+   "opacity_ratio": 1.004,
+   "alpha_premultiplied_hf": true,
+   "alpha_premultiplied_ff": true
+  },
+  {
+   "frame": "_f45",
+   "hf_words": 6,
+   "ff_words": 6,
+   "word_offset_max_px": 1.5,
+   "word_order_match": true,
+   "word_iou_min": 0.815,
+   "word_iou_mean": 0.852,
+   "hf_bbox": [
+    301,
+    914,
+    779,
+    1015
+   ],
+   "ff_bbox": [
+    301,
+    915,
+    779,
+    1016
+   ],
+   "coverage_hf": 0.17,
+   "coverage_ff": 0.172,
+   "outline_hf": 0,
+   "outline_ff": 0,
+   "shadow_hf": 16477,
+   "shadow_ff": 17525,
+   "accent_hf": 0,
+   "accent_ff": 0,
+   "ink_iou": 0.872,
+   "opacity_ratio": 1.007,
+   "alpha_premultiplied_hf": true,
+   "alpha_premultiplied_ff": true
+  }
+ ],
+ "PostHeader": [
+  {
+   "frame": "_f3",
+   "hf_words": 17,
+   "ff_words": 16,
+   "word_offset_max_px": null,
+   "word_order_match": false,
+   "word_iou_min": 0.802,
+   "word_iou_mean": 0.934,
+   "hf_bbox": [
+    64,
+    120,
+    936,
+    302
+   ],
+   "ff_bbox": [
+    64,
+    120,
+    936,
+    302
+   ],
+   "coverage_hf": 0.103,
+   "coverage_ff": 0.098,
+   "outline_hf": 0,
+   "outline_ff": 0,
+   "shadow_hf": 0,
+   "shadow_ff": 0,
+   "accent_hf": 0,
+   "accent_ff": 0,
+   "ink_iou": 0.906,
+   "opacity_ratio": 0.998,
+   "alpha_premultiplied_hf": true,
+   "alpha_premultiplied_ff": true
+  },
+  {
+   "frame": "_f45",
+   "hf_words": 17,
+   "ff_words": 16,
+   "word_offset_max_px": null,
+   "word_order_match": false,
+   "word_iou_min": 0.802,
+   "word_iou_mean": 0.934,
+   "hf_bbox": [
+    64,
+    120,
+    936,
+    302
+   ],
+   "ff_bbox": [
+    64,
+    120,
+    936,
+    302
+   ],
+   "coverage_hf": 0.103,
+   "coverage_ff": 0.098,
+   "outline_hf": 0,
+   "outline_ff": 0,
+   "shadow_hf": 0,
+   "shadow_ff": 0,
+   "accent_hf": 0,
+   "accent_ff": 0,
+   "ink_iou": 0.906,
+   "opacity_ratio": 0.998,
+   "alpha_premultiplied_hf": true,
+   "alpha_premultiplied_ff": true
+  }
+ ]
+}

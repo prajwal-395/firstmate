@@ -654,9 +654,13 @@ def _remotion_installed() -> bool:
     node would fail on it.
     """
     from library.tools.graphics_renderer import (
-        ENGINE_HYPERFRAMES, resolve_engine)
+        ENGINE_FFRAMES, ENGINE_HYPERFRAMES, resolve_engine)
 
-    if resolve_engine() == ENGINE_HYPERFRAMES:
+    engine = resolve_engine()
+    if engine == ENGINE_FFRAMES:
+        from library.tools.fframes_render import fframes_available
+        return fframes_available()[0]
+    if engine == ENGINE_HYPERFRAMES:
         return bool(shutil.which("node") and shutil.which("npx"))
     return ((REMOTION_DIR / "package.json").is_file()
             and _node_env.dependencies_present(REMOTION_DIR))

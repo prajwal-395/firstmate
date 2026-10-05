@@ -694,6 +694,16 @@ def _default_unit_engine(remotion_dir: str, container: str,
     it draws frame sequences natively, so the `frames` carrying takes
     the same path rather than the per-card subprocess one.
     """
+    if _engines.is_fframes(project_folder or None):
+        _note_once(
+            "fframes-caption",
+            "caption renderer: FFrames "
+            f"(selected by {_engines.USER_SETTING_KEY} or the project's "
+            "pipeline.graphics_renderer); each card renders through the "
+            "precompiled ren-graphics-fframes binary.")
+        from library.tools.fframes_render import FFramesCaptionRenderer
+        return FFramesCaptionRenderer(project_folder or "",
+                                      remotion_dir=remotion_dir)
     if _engines.is_hyperframes(project_folder or None):
         _note_once(
             "hyperframes-caption",
@@ -1058,7 +1068,10 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
         # `[frame]` token against a Remotion directory, HyperFrames'
         # `%06d` against a HyperFrames one. Recording one for the other
         # would send a reader formatting names no file carries.
-        if engine_name == _engines.ENGINE_HYPERFRAMES:
+        if engine_name == _engines.ENGINE_FFRAMES:
+            from library.tools import fframes_render as _ff
+            pattern = _ff.SEQUENCE_PATTERN
+        elif engine_name == _engines.ENGINE_HYPERFRAMES:
             from library.tools import hyperframes_render as _hf
             pattern = _hf.SEQUENCE_PATTERN
         else:
@@ -1596,13 +1609,23 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
     # frames natively, so the selected engine exempts this refusal.
     if renderer is None and renderer_kind == "persistent" \
             and container == "frames" \
-            and engine_name != _engines.ENGINE_HYPERFRAMES:
+            and engine_name not in (_engines.ENGINE_HYPERFRAMES,
+                                    _engines.ENGINE_FFRAMES):
         raise ValueError(
             "renderer_kind='persistent' cannot render a 'frames' "
             "container: the persistent renderer stitches video and "
             "refuses sequences. Pass renderer_kind='subprocess' "
             "explicitly for frame sequences.")
 
+    if engine_name == _engines.ENGINE_FFRAMES and renderer is None:
+        from library.tools.fframes_render import fframes_has_form
+        if not fframes_has_form("SubtitleOverlay"):
+            raise SubtitleRenderRefused({
+                "subtitle_overlay": {
+                    "available": False,
+                    "error": "FFrames has no form for SubtitleOverlay"
+                }
+            })
     if engine_name == _engines.ENGINE_HYPERFRAMES and renderer is None:
         from library.tools import hyperframes_render as _hf
         if not _hf.template_path("SubtitleOverlay").is_file():
@@ -1634,7 +1657,8 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
     # (`hyperframes_render.stage_card_project`), so there is nothing to
     # link here - and linking Remotion's public dir on a HyperFrames run
     # would stage files no render reads.
-    if not (engine_name == _engines.ENGINE_HYPERFRAMES and renderer is None):
+    if not (engine_name in (_engines.ENGINE_HYPERFRAMES,
+                             _engines.ENGINE_FFRAMES) and renderer is None):
         try:
             sys.path.insert(0, os.path.join(PILOT_ROOT, "library"))
             from tools.remotion_brand_linker import prep_remotion
@@ -1783,6 +1807,14 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
     if renderer is not None:
         engine = renderer
         owns_engine = False
+    elif _engines.is_fframes(project_folder or None):
+        print("caption renderer: FFrames "
+              f"(selected by {_engines.USER_SETTING_KEY} or the project's "
+              "pipeline.graphics_renderer)", file=sys.stderr)
+        from library.tools.fframes_render import FFramesCaptionRenderer
+        engine = FFramesCaptionRenderer(project_folder or "",
+                                        remotion_dir=remotion_dir)
+        owns_engine = True
     elif _engines.is_hyperframes(project_folder or None):
         # The selected graphics engine draws, whatever renderer_kind
         # says: the engine is the project's (or the user's) word, and
@@ -1823,7 +1855,8 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
         """
         parallel = (
             renderer is None and renderer_kind == "persistent"
-            and engine_name != _engines.ENGINE_HYPERFRAMES)
+            and engine_name not in (_engines.ENGINE_HYPERFRAMES,
+                                    _engines.ENGINE_FFRAMES))
         results = {}
 
         def render_at(index, props):
@@ -2221,7 +2254,14 @@ def rerender_and_swap(project_folder: str, pairs: list,
     # selection's word, not the batch helper's: under HyperFrames the
     # cards draw through the HyperFrames caption renderer instead of
     # the bundle-once Remotion one.
-    if _engines.is_hyperframes(project_folder or None):
+    if _engines.is_fframes(project_folder or None):
+        print("caption renderer: FFrames "
+              f"(selected by {_engines.USER_SETTING_KEY} or the project's "
+              "pipeline.graphics_renderer)", file=sys.stderr)
+        from library.tools.fframes_render import FFramesCaptionRenderer
+        engine = FFramesCaptionRenderer(
+            project_folder, remotion_dir=remotion_dir)
+    elif _engines.is_hyperframes(project_folder or None):
         print("caption renderer: HyperFrames "
               f"(selected by {_engines.USER_SETTING_KEY} or the project's "
               "pipeline.graphics_renderer)", file=sys.stderr)

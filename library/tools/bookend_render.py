@@ -193,6 +193,9 @@ def render_bookend(bookend: dict, remotion_dir: str, fps: int = 30,
     if bookend.get("source_path"):
         _render_one_cli(bookend, composition, remotion_dir, out_path,
                         props_path, project_folder=project_folder)
+    elif _fframes_draws(composition, project_folder):
+        _render_engine_fframes(bookend, composition, remotion_dir,
+                               out_path, props, project_folder)
     elif _hyperframes_draws(composition, project_folder):
         _render_engine_hyperframes(bookend, composition, remotion_dir,
                                    out_path, props, project_folder)
@@ -221,6 +224,22 @@ def _hyperframes_draws(composition: str, project_folder: str) -> bool:
     if not _engines.is_hyperframes(project_folder or None):
         return False
     return _hf.hyperframes_template(composition) is not None
+
+
+def _fframes_draws(composition: str, project_folder: str) -> bool:
+    """True when the selected engine draws this composition via FFrames.
+
+    Two gates: the engine is selected, AND the composition has an
+    FFrames form. Either one failing means the next engine draws.
+    """
+    from library.tools import graphics_renderer as _engines
+    if not _engines.is_fframes(project_folder or None):
+        return False
+    from library.tools import fframes_render as _ff
+    try:
+        return _ff.fframes_has_form(composition)
+    except Exception:
+        return False
 
 
 def _render_engine_hyperframes(bookend: dict, composition: str,
@@ -252,6 +271,39 @@ def _render_engine_hyperframes(bookend: dict, composition: str,
             f"bookend '{bookend['slot']}' ({composition}) HyperFrames "
             f"render failed: {exc}") from exc
     if not os.path.exists(out_path):
+        raise BookendRenderError(
+            f"bookend '{bookend['slot']}' ({composition}) reported "
+            f"success but wrote no file at {out_path}")
+
+
+def _render_engine_fframes(bookend: dict, composition: str,
+                           remotion_dir: str, out_path: str,
+                           props: dict, project_folder: str) -> None:
+    """Render one engine-composition bookend through FFrames.
+
+    Lowers the composition to an IR scene, renders PNG frames through
+    the precompiled binary, adapts the alpha, and encodes.
+    """
+    import sys as _sys
+
+    from library.tools import fframes_render as _ff
+    from library.tools import graphics_renderer as _engines
+    print(f"    engine: FFrames for '{bookend['slot']}' "
+          f"({composition} has an FFrames form; selected by "
+          f"{_engines.USER_SETTING_KEY} or the project's "
+          f"pipeline.graphics_renderer)", file=_sys.stderr)
+    try:
+        _ff.render_one_card(
+            composition, props, out_path,
+            _os.path.dirname(_os.path.abspath(out_path)),
+            project_folder or "",
+            _os.path.dirname(_os.path.abspath(remotion_dir)))
+    except (_ff.FFramesUnavailable,
+            _ff.FFramesRenderError) as exc:
+        raise BookendRenderError(
+            f"bookend '{bookend['slot']}' ({composition}) FFrames "
+            f"render failed: {exc}") from exc
+    if not _os.path.exists(out_path):
         raise BookendRenderError(
             f"bookend '{bookend['slot']}' ({composition}) reported "
             f"success but wrote no file at {out_path}")

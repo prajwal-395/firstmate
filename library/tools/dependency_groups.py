@@ -7,7 +7,7 @@ too (pyproject.toml `[tool.setuptools.dynamic]`), so a floor is never
 stated twice.
 
     core      the engine, the CLI, every step's orchestration
-    graphics  picture measurement and drawing (cv2, Pillow)
+    graphics  picture measurement and drawing (cv2, Pillow, fontTools)
     analysis  the preflight's ML instruments (torch, mlx-vlm, ...)
     identity  speaker and face identity (speechbrain, insightface)
     dev       pytest and the test gate's xdist

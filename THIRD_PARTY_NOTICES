@@ -101,6 +101,16 @@ fetched     : pip-install
 commercial  : ok
 hash-verified: n/a (pip transport)
 
+component-id : python.fonttools
+edition      : public
+component   : fontTools
+pin         : >=4.40 (requirements/graphics.txt)
+source      : https://github.com/fonttools/fonttools
+license     : MIT
+fetched     : pip-install
+commercial  : ok
+hash-verified: n/a (pip transport)
+
 component-id : python.librosa
 edition      : public
 component   : librosa
@@ -553,6 +563,26 @@ license     : Apache-2.0
 fetched     : downloaded-at-first-use (npx hyperframes@0.8.70)
 commercial  : ok
 hash-verified: no (pinned npm release; npm transport)
+
+component-id : renderer.fframes
+edition      : public
+package-path : native/ren-graphics-fframes
+component   : ren-graphics-fframes precompiled binary
+pin         : fframes 1.2.0, fframes_skia_renderer 1.2.0
+               (native/ren-graphics-fframes/Cargo.toml)
+source      : https://github.com/dmtrKovalenko/fframes
+license     : MIT (code)
+fetched     : shipped-in-repo (precompiled binary)
+commercial  : ok
+hash-verified: no (cargo transport)
+features    : fframes = ["cpu_renderer"], fframes_skia_renderer =
+               ["metal"]; nothing else.
+note        : NO codec features enabled (no h264, h265, mp3lame,
+               vpx, libav-agree-gpl, libav-agree-nonfree). The
+               binary renders PNG frames only; the overlay
+               carriage's own encoder produces what Resolve
+               consumes. This keeps GPL/nonfree FFmpeg
+               components out of the binary entirely.
 
 component-id : asset.ren_presets
 edition      : public

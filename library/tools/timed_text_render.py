@@ -131,6 +131,11 @@ def _render_one(name: str, out_path: str, props_path: str,
     with the carriage transcode below.
     """
     from library.tools import graphics_renderer as _engines
+    if _engines.is_fframes(project_folder or None):
+        _render_one_fframes(
+            name, out_path, props_path, remotion_dir,
+            project_folder=project_folder or "", stream=stream)
+        return
     if _engines.is_hyperframes(project_folder or None):
         _render_one_hyperframes(
             name, out_path, props_path, remotion_dir,
@@ -237,6 +242,47 @@ def _render_one_hyperframes(name: str, out_path: str, props_path: str,
             _hf.HyperFramesRenderError) as exc:
         raise TimedTextRenderError(
             f"timed text segment '{name}' HyperFrames render failed: "
+            f"{exc}") from exc
+    if not _os.path.isfile(out_path):
+        raise TimedTextRenderError(
+            f"timed text segment '{name}' reported success but wrote no "
+            f"file at {out_path}")
+
+
+def _render_one_fframes(name: str, out_path: str, props_path: str,
+                         remotion_dir: str, *,
+                         project_folder: str = "",
+                         stream=sys.stderr) -> None:
+    """One FFrames render of TimedTextOverlay, judged by its result.
+
+    Lowers the composition to an IR scene, renders PNG frames through
+    the precompiled binary, premultiplies into the overlay carriage and
+    stitches `qtrle` itself.
+    """
+    import json as _json
+    import os as _os
+
+    from library.tools import fframes_render as _ff
+    try:
+        with open(props_path, encoding="utf-8") as handle:
+            props = _json.load(handle)
+    except (OSError, ValueError) as exc:
+        raise TimedTextRenderError(
+            f"timed text segment '{name}' carries no readable props at "
+            f"{props_path}: {exc}") from exc
+    print(f"      engine: FFrames "
+          f"(selected by graphics_renderer; {TIMED_TEXT_COMPOSITION} "
+          f"has an FFrames form)", file=stream)
+    try:
+        _ff.render_one_card(
+            TIMED_TEXT_COMPOSITION, props, out_path,
+            _os.path.dirname(_os.path.abspath(out_path)),
+            project_folder,
+            _os.path.dirname(_os.path.abspath(remotion_dir)))
+    except (_ff.FFramesUnavailable,
+            _ff.FFramesRenderError) as exc:
+        raise TimedTextRenderError(
+            f"timed text segment '{name}' FFrames render failed: "
             f"{exc}") from exc
     if not _os.path.isfile(out_path):
         raise TimedTextRenderError(
