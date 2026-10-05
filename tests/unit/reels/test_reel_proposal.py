@@ -1213,8 +1213,8 @@ def test_boundary_guard_does_not_leave_a_cut_inside_the_first_word():
 
 
 def test_build_reel_timeline_places_audio_at_or_after_the_measured_edge(
-        tmp_path):
-    """The Resolve append path must not round a repaired word edge back.
+        tmp_path, monkeypatch):
+    """The placement path must not round a repaired word edge back.
 
     The stored proposal starts at 213.26, so the build-time repair first
     moves it to the shared edge at 212.9. That edge maps to source
@@ -1223,10 +1223,15 @@ def test_build_reel_timeline_places_audio_at_or_after_the_measured_edge(
     makes the old append conversion choose frame 3020. That readback is
     62ms before the edge and plays the ends of "about that." although
     the proposal and subtitle plan both start on "If".
+
+    The placement is an EditPatch `clip.insert` now, so the source span
+    the build computes is read off the operation the patch carries - the
+    same frames the append would have been handed.
     """
     from types import SimpleNamespace
     from unittest.mock import MagicMock
 
+    from library.tools import edit_patch
     from library.tools.reel_build import build_reel_timeline
 
     transcript = _transcript_2()
@@ -1276,20 +1281,26 @@ def test_build_reel_timeline_places_audio_at_or_after_the_measured_edge(
         SOURCE if prop == "File Path" else str(FPS) if prop == "FPS" else "")
     root.GetClipList.return_value = [source_item]
 
+    placed = []
+
+    def _capture_patch(**kwargs):
+        placed.extend(kwargs["operations"])
+        return {"status": "committed"}
+
+    monkeypatch.setattr(edit_patch, "apply_live_patch", _capture_patch)
+
     build_reel_timeline(
         project, moment, clips, [], FPS, 1080, 1920,
         str(tmp_path), transcript, program_channels={"1": 1},
     )
 
-    audio_append = next(
-        call.args[0][0] for call in pool.AppendToTimeline.call_args_list
-        if call.args[0][0]["mediaType"] == 2)
-    assert audio_append["startFrame"] == 3022
-    assert audio_append["endFrame"] - audio_append["startFrame"] == 129
+    audio_append = next(op for op in placed if op["track_type"] == "audio")
+    assert audio_append["source_in"] == 3022
+    assert audio_append["source_out"] - audio_append["source_in"] == 129
 
-    # F25 reads the source frames Resolve was actually asked to place.
-    source_start = audio_append["startFrame"] / float(FPS)
-    source_end = audio_append["endFrame"] / float(FPS)
+    # F25 reads the source frames the placement was asked to play.
+    source_start = audio_append["source_in"] / float(FPS)
+    source_end = audio_append["source_out"] / float(FPS)
     played = subtitle_coverage.played_words_from_transcript(
         transcript["segments"], [{
             "source_file": SOURCE,

@@ -51,6 +51,7 @@ passing against a shrug.
 from __future__ import annotations
 
 import json
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -1039,8 +1040,12 @@ class FakeTimeline:
         self._media_pool_item._props["Type"] = "Timeline"
         self._deleted = False
         # Stable across renames, like Resolve's own id (a rename must
-        # not read as a new timeline).
-        self._unique_id = uid or f"timeline:{name}"
+        # not read as a new timeline) - and unique per INSTANCE: two
+        # timelines that share a name are two timelines, and the shadow
+        # store keys on this id, so a name-derived default let a second
+        # build read the first build's patch receipts off an empty
+        # timeline (measured: the reel24 gain-scaling build, 2026-10-05).
+        self._unique_id = uid or f"timeline:{name}:{uuid.uuid4().hex[:12]}"
         self._project = project
         self._start_frame = start_frame
         self._frame_rate = str(frame_rate) if frame_rate is not None else None

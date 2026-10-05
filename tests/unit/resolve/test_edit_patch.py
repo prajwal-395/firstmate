@@ -150,6 +150,45 @@ def test_a_clip_insert_places_a_pool_clip_and_commits_as_a_generation(world):
     assert len(placed) == 1
 
 
+def test_a_clip_insert_retry_is_idempotent(world):
+    """Defect: the `clip.insert` apply overwrites the op's `unique_id`
+    with the Resolve-assigned id, and that mutated op is what the
+    generation records. A retry of the same idempotency key - a reel
+    rebuild after an unchanged plan - then compares the fresh intent
+    (client unique_id) against the recorded mutated intent and refuses
+    with "already used with different contents", so identical work
+    cannot replay. The record must hold the operations as submitted."""
+    project, timeline, _item, store, base = world
+    pool_clip = make_pool_clip("footage.mov")
+    project.GetMediaPool().GetRootFolder()._clips.append(pool_clip)
+
+    def operation():
+        return {
+            "op": "clip.insert",
+            "unique_id": "footage:Reel 09:/m/speakerone.MXF:0",
+            "track_type": "video",
+            "track_index": 1,
+            "record_in": 200,
+            "record_out": 248,
+            "media_pool_item": str(pool_clip.GetUniqueId()),
+            "source_in": 0,
+            "source_out": 48,
+        }
+
+    kwargs = {
+        "project": project, "timeline": timeline,
+        "capability": "reel.build", "operations": [operation()],
+        "conflict_domains": ("timeline_structure",),
+        "idempotency_key": "reel-build:Reel 09:footage:/m/speakerone.MXF:0",
+        "store": store,
+    }
+    first = edit_patch.apply_live_patch(**kwargs)
+    assert first["status"] == "committed", first
+    retry = edit_patch.apply_live_patch(**{
+        **kwargs, "operations": [operation()]})
+    assert retry == first
+
+
 def test_a_clip_set_property_addresses_a_just_placed_clip_by_its_client_id(world):
     """Defect: a caption's `clip.set_property` follows its `clip.insert` in
     one patch, but the caller cannot know the Resolve-assigned unique id

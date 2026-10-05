@@ -645,6 +645,11 @@ def apply_patch(patch, *, resolve, project, timeline,
         handles = (_live_handles(timeline)
                    if any(OPERATIONS[op["op"]].item
                           for op in patch.operations) else {})
+        # The record holds the operations AS SUBMITTED. An apply may
+        # learn and write back a Resolve-assigned id (`clip.insert`),
+        # and a mutated record makes an idempotent retry of the same key
+        # refuse - the fresh intent no longer matches the recorded one.
+        submitted = [dict(op) for op in patch.operations]
         id_map: dict = {}
         ran = []
         stopped = None
@@ -752,7 +757,8 @@ def apply_patch(patch, *, resolve, project, timeline,
     return _receipt_of(store.record(
         project=project_name, timeline_id=timeline_id,
         timeline_name=timeline_name, snapshot=after, source=shadow.PATCH,
-        expected_head=head.generation, patch=patch.to_dict(),
+        expected_head=head.generation,
+        patch={**patch.to_dict(), "operations": submitted},
         receipt=receipt))
 
 

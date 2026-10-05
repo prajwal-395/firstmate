@@ -9128,8 +9128,47 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                 pool, project, timeline, name, c.source_file, append_spec,
                 recording=recording,
                 trace=build_record["freeze_placement"])
-        else:
+        elif recording:
+            # OTIO recording: the placement is captured as a spec, not
+            # patched onto a live Resolve - the recorder's pool items
+            # are path-only and carry no Resolve unique id to patch by.
             pool.AppendToTimeline([append_spec])
+        else:
+            from library.tools import edit_patch
+            if "rate" in p:
+                record_duration = p["record_frames"]
+            else:
+                record_duration = int(round(
+                    (p["source_out"] - p["source_in"]) * fps))
+            _receipt = edit_patch.apply_live_patch(
+                project=project, timeline=timeline,
+                capability="reel.build",
+                operations=[{
+                    "op": "clip.insert",
+                    # The track type is part of the identity: one source
+                    # file rides both a picture and a speech row, and the
+                    # two placements share a record position - a key
+                    # without it collides the audio onto the picture.
+                    "unique_id": (
+                        f"footage:{name}:{c.track_type}"
+                        f":{c.source_file}:{p['snapped_record']}"),
+                    "track_type": c.track_type,
+                    "track_index": dest_row,
+                    "record_in": p["snapped_record"],
+                    "record_out": p["snapped_record"] + record_duration,
+                    "media_pool_item": str(pool_item.GetUniqueId()),
+                    "source_in": source_start_frame,
+                    "source_out": source_end_frame,
+                }],
+                conflict_domains=("timeline_structure",),
+                idempotency_key=(
+                    f"reel-build:{name}:footage:{c.track_type}"
+                    f":{c.source_file}:{p['snapped_record']}"),
+                project_folder=project_folder)
+            if _receipt["status"] != "committed":
+                raise ReelBuildError(
+                    f"{name}: the footage {c.source_file!r} did not "
+                    f"verify: {_receipt}")
         if c.track_type != "video":
             expected = resolved_channels.get(angle_key, 1)
             if recording:
