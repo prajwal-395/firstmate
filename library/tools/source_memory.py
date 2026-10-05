@@ -18,9 +18,9 @@ read the same memory for free. Projects REFERENCE it and never copy
 it. Nothing here goes into `pipeline_data.json` (rewritten after every
 step; the memory is per source, not per run).
 
-**The slots.** M0, M1, M2, M3, M3b, M1b, M4, M5, M6 and M7 are written now;
-every later lane writes into its named slot without inventing its own
-shape:
+**The slots.** M0, M1, M2, M3, M3b, M1b, M4, M5, M6, M7 and M9 are
+written now; every later lane writes into its named slot without
+inventing its own shape:
 
 ======== ============================ ============================= ==========
 slot     file                         what                          producer
@@ -50,7 +50,9 @@ M5       `sound.json`                 sound-event labels (PANNs)    `library/ste
                                                                 step.py`
 M6       `clock.json`                 per-source multicam offset    conversation_clock.py
 M7       `events.json`                DERIVED per-person spans      `library/tools/
-                                      (speaking, on_screen)         event_spans.py`
+                                       (speaking, on_screen)         event_spans.py`
+M9       `world_model.json`           joined per-second timeline   `library/tools/
+                                       (M0-M8 in, one model out)     world_model.py`
 ======== ============================ ============================= ==========
 
 A slot a lane has not written yet is ABSENT, never a default: an
@@ -150,14 +152,16 @@ SLOT_SOUND = "sound.json"                      # M5 - written by step_1_04
 SLOT_CLOCK = "clock.json"                      # M6 - written by conversation_clock.py
 SLOT_EVENTS = "events.json"                    # M7 - written by event_spans.py
 SLOT_VERDICTS = "verdicts.json"                # M8 - written by span_verification.py
+SLOT_WORLD_MODEL = "world_model.json"          # M9 - written by world_model.py
 
 # No slot is reserved now. SLOT_CLOCK (M6) was the first to gain a writer
 # (`library/tools/conversation_clock.py`); SLOT_FRAMES_DIR/SLOT_FRAMES_INDEX
 # (M2) followed (`extract_iframes`/`build_frames` below), then SLOT_IDENTITY
 # (M3b) and SLOT_SPEAKERS (M1b) (`library/tools/person_entity.py`),
 # SLOT_PERSONS (M3) (`person_measurements.py`), SLOT_EVENTS (M7)
-# (`event_spans.py`), SLOT_SCENES (M4) (`vision_pipeline_v3.py`) and
-# SLOT_SOUND (M5) (`step_1_04_temporal_index/step.py`).
+# (`event_spans.py`), SLOT_SCENES (M4) (`vision_pipeline_v3.py`),
+# SLOT_SOUND (M5) (`step_1_04_temporal_index/step.py`) and
+# SLOT_WORLD_MODEL (M9) (`world_model.py`).
 
 SILENCE_DB = -60.0
 """Below this a track is room tone off, not a candidate for anything.
@@ -779,6 +783,24 @@ def read_sound(content_digest: str,
                root: Optional[Path] = None) -> Optional[dict]:
     """The M5 sound lane for a digest, or None when never written."""
     doc = _load_json(source_dir(content_digest, root) / SLOT_SOUND)
+    return doc if isinstance(doc, dict) else None
+
+
+def write_world_model(content_digest: str, record: dict,
+                      root: Optional[Path] = None) -> None:
+    """M9 `world_model.json`: the joined per-second timeline.
+
+    `record` is the full world model document `world_model.py` builds
+    from M0-M8 - the timeline, the entities and the multicam context.
+    Written atomically like every other slot.
+    """
+    write_json(source_dir(content_digest, root) / SLOT_WORLD_MODEL, record)
+
+
+def read_world_model(content_digest: str,
+                     root: Optional[Path] = None) -> Optional[dict]:
+    """The M9 world model for a digest, or None when never built."""
+    doc = _load_json(source_dir(content_digest, root) / SLOT_WORLD_MODEL)
     return doc if isinstance(doc, dict) else None
 
 
