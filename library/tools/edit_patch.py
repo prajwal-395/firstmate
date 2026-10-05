@@ -668,7 +668,7 @@ def apply_patch(patch, *, resolve, project, timeline,
                             timeline_id=timeline_id,
                             project_folder=project_folder,
                             old_value=old_value):
-                        returned = spec.apply(op, timeline, item)
+                        returned = spec.apply(op, timeline, item, project)
                 elif op["op"] == "clip.smart_reframe":
                     from library.tools.transform_write_log import (
                         validate_transform_write_context, write_scope)
@@ -680,9 +680,9 @@ def apply_patch(patch, *, resolve, project, timeline,
                         timeline_id=timeline_id,
                         project_folder=project_folder)
                     with write_scope(**context):
-                        returned = spec.apply(op, timeline, item)
+                        returned = spec.apply(op, timeline, item, project)
                 else:
-                    returned = spec.apply(op, timeline, item)
+                    returned = spec.apply(op, timeline, item, project)
             except Exception as raised:  # noqa: BLE001 - recorded, then stop
                 stopped = {"index": index, "op": op["op"],
                            "raised": f"{type(raised).__name__}: {raised}"}

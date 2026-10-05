@@ -183,6 +183,48 @@ def test_a_clip_set_property_addresses_a_just_placed_clip_by_its_client_id(world
     assert placed[0]["transform"]["Tilt"] == -870.0
 
 
+def test_a_clip_insert_replays_through_the_ledger_with_the_project(world):
+    """Defect: the ledger replay called the algebra apply with no project
+    handle, so a `clip.insert` inside a recorded edit program failed - the
+    apply reaches the media pool `project.GetMediaPool()`, and a Timeline
+    carries no such route. The replay must thread the open project the way
+    `edit_patch.apply_patch` does."""
+    from library.tools import edit_ledger
+    project, timeline, _item, store, base = world
+    pool_clip = make_pool_clip("card.mov")
+    project.GetMediaPool().GetRootFolder()._clips.append(pool_clip)
+    row = {
+        "op": "edit_program",
+        "anchor": {"kind": "reel"},
+        "reel": "Reel 09",
+        "params": {
+            "base_generation": str(base.generation),
+            "idempotency_key": "req-insert-card",
+            "ops": [{
+                "op": "clip.insert",
+                "params": {
+                    "unique_id": "card:Reel 09:head-card",
+                    "track_type": "video",
+                    "track_index": 1,
+                    "record_in": 100,
+                    "record_out": 148,
+                    "media_pool_item": str(pool_clip.GetUniqueId()),
+                    "source_in": 0,
+                    "source_out": 48,
+                },
+            }],
+        },
+    }
+    report = edit_ledger.replay_on_timeline(
+        "Reel 09", [row], [], {}, timeline,
+        reel_name="Reel 09", project=project)
+    assert report["unreplayable"] == [], report
+    assert any(a["op"] == "clip.insert" for a in report["applied"])
+    placed = [c for c in timeline.GetItemListInTrack("video", 1)
+              if c.GetStart() == 100]
+    assert len(placed) == 1
+
+
 def test_a_write_that_answers_true_and_changes_nothing_fails_by_readback(
         world, monkeypatch):
     project, timeline, item, store, base = world

@@ -15,7 +15,10 @@ is `Operation` (re-exported by `edit_patch`); the algebra entry itself
 is `AlgebraOp`, which adds the inverse.
 
     span    (op, base_snapshot) -> (start, end) | None  the frames it touches
-    apply   (op, timeline, item_handle | None) -> returned   the native write
+    apply   (op, timeline, item_handle | None, project=None) -> returned
+            the native write. `project` is the OPEN Resolve project handle:
+            the media pool is reached `project.GetMediaPool()` (a Timeline
+            carries no such route - measured, the Reel 13 card build).
     verify  (op, after_snapshot) -> failure text | None   the read-back judge
     key     (op) -> what it writes; keys MEET on a prefix
 
@@ -220,7 +223,7 @@ class AlgebraOp:
             merge=self.merge, item=self.item, temporal=self.temporal)
 
 
-def _unapplied(op, _timeline, _item):
+def _unapplied(op, _timeline, _item, _project=None):
     raise RuntimeError(
         f"algebra op {op.get('op')!r} has no native apply yet - its "
         f"executor lands with the gap that owns it")
@@ -360,7 +363,7 @@ def _verify_fusion_comps(expected_names):
 # ── Apply helpers (the native writes) ──────────────────────────────────
 
 
-def _apply_grade_node_set(op, _timeline, item):
+def _apply_grade_node_set(op, _timeline, item, _project=None):
     """`SetCDL` the four terms onto ONE named node, judged by re-read.
 
     The node index is validated against `GetNumNodes` before the write:
@@ -446,7 +449,7 @@ def _verify_grade_node_set(op, after):
     return None
 
 
-def _apply_set_property(op, _timeline, item):
+def _apply_set_property(op, _timeline, item, _project=None):
     from library.tools.transform_write_log import set_property
 
     return set_property(
@@ -454,14 +457,14 @@ def _apply_set_property(op, _timeline, item):
         item_identity={"resolve_unique_id": str(op["unique_id"])})
 
 
-def _apply_smart_reframe(op, _timeline, item):
+def _apply_smart_reframe(op, _timeline, item, _project=None):
     returned = item.SmartReframe()
     if not returned:
         raise RuntimeError("SmartReframe answered False")
     return returned
 
 
-def _apply_retime_segments(op, _timeline, item):
+def _apply_retime_segments(op, _timeline, item, _project=None):
     """Split the clip at each segment boundary, then SetSpeed each piece.
 
     Resolve carries no speed-curve API (measured 2026-09-24, PR 1376):
@@ -490,7 +493,7 @@ def _apply_retime_segments(op, _timeline, item):
     return True
 
 
-def _apply_picture_keyframe(op, _timeline, item):
+def _apply_picture_keyframe(op, _timeline, item, _project=None):
     """Write keyframed transform parameters through the write log."""
     from library.tools.transform_write_log import set_keyframe
 
@@ -502,7 +505,7 @@ def _apply_picture_keyframe(op, _timeline, item):
     return True
 
 
-def _delete_clip_with_measured_retry(op, timeline, item):
+def _delete_clip_with_measured_retry(op, timeline, item, _project=None):
     """Retry one local delete only when its unique id still reads back.
 
     `ren edit delete` measured the first call flopping on some Resolve
@@ -535,7 +538,7 @@ def _find_pool_item_by_id(pool, unique_id):
     return None
 
 
-def _apply_clip_insert(op, timeline, _item):
+def _apply_clip_insert(op, timeline, _item, project=None):
     """Place a pool clip at a stated span; the read-back names the item.
 
     The op carries the pool item's unique id (`media_pool_item`) and the
@@ -543,8 +546,17 @@ def _apply_clip_insert(op, timeline, _item):
     reads back the new item's Resolve-assigned unique id, and writes it
     onto the op so the verify (`_verify_presence`) and any later op can
     address the placed item.
+
+    The media pool is reached `project.GetMediaPool()` - the route every
+    other placement in the engine takes. A Timeline carries no such
+    method (measured, the Reel 13 card build: `timeline.GetMediaPool`
+    answered None on live Resolve and the call raised TypeError).
     """
-    pool = timeline.GetMediaPool()
+    if project is None:
+        raise RuntimeError(
+            "clip.insert: no project handle - the media pool is reached "
+            "project.GetMediaPool(), and a Timeline carries no such route")
+    pool = project.GetMediaPool()
     pool_item = _find_pool_item_by_id(pool, op.get("media_pool_item"))
     if pool_item is None:
         raise RuntimeError(
@@ -594,7 +606,7 @@ def _live_handles(timeline):
     return handles
 
 
-def _apply_track_reorder(op, tl, _item):
+def _apply_track_reorder(op, tl, _item, _project=None):
     """Move a track row to a new index; the row's name follows.
 
     Resolve has no move-track call. The measured route is delete and
@@ -636,7 +648,7 @@ ALGEBRA: dict[str, AlgebraOp] = {
         required=("frame", "color", "name"),
         span=lambda op, base: (int(op["frame"]),
                                int(op["frame"]) + int(op.get("duration", 1))),
-        apply=lambda op, tl, _item: tl.AddMarker(
+        apply=lambda op, tl, _item, _project=None: tl.AddMarker(
             int(op["frame"]), op["color"], op["name"], op.get("note", ""),
             int(op.get("duration", 1)), op.get("custom_data", "")),
         verify=lambda op, after: _verify_marker_add(op, after),
@@ -647,7 +659,8 @@ ALGEBRA: dict[str, AlgebraOp] = {
         id="marker.delete", domain="markers",
         required=("frame",),
         span=lambda op, base: (int(op["frame"]), int(op["frame"]) + 1),
-        apply=lambda op, tl, _item: tl.DeleteMarkerAtFrame(int(op["frame"])),
+        apply=lambda op, tl, _item, _project=None: tl.DeleteMarkerAtFrame(
+            int(op["frame"])),
         verify=lambda op, after: _verify_marker_delete(op, after),
         key=lambda op: ("marker", int(op["frame"])), merge="commutative",
         inverse=_pair("marker.add", "re-adds the deleted marker's fields"),
@@ -656,7 +669,7 @@ ALGEBRA: dict[str, AlgebraOp] = {
         id="clip_marker.add", domain="markers",
         required=("unique_id", "frame", "color", "name"),
         span=_item_span, item=True,
-        apply=lambda op, _tl, item: (
+        apply=lambda op, _tl, item, _project=None: (
             item.AddMarker(int(op["frame"]), op["color"], op["name"],
                            op.get("note", ""),
                            int(op.get("duration", 1)), op["custom_data"])
@@ -672,7 +685,7 @@ ALGEBRA: dict[str, AlgebraOp] = {
         id="clip_marker.delete", domain="markers",
         required=("unique_id", "frame"),
         span=_item_span, item=True,
-        apply=lambda op, _tl, item: item.DeleteMarkerAtFrame(
+        apply=lambda op, _tl, item, _project=None: item.DeleteMarkerAtFrame(
             int(op["frame"])),
         verify=lambda op, after: _verify_clip_marker_delete(op, after),
         key=lambda op: ("clip", op["unique_id"], "marker",
@@ -786,7 +799,8 @@ ALGEBRA: dict[str, AlgebraOp] = {
         id="clip.set_enabled", domain="timeline_structure",
         required=("unique_id", "enabled"),
         span=_item_span, item=True,
-        apply=lambda op, tl, item: item.SetClipEnabled(bool(op["enabled"])),
+        apply=lambda op, tl, item, _project=None: item.SetClipEnabled(
+            bool(op["enabled"])),
         verify=lambda op, after: _verify_enabled(op, after),
         key=lambda op: ("clip", op["unique_id"], "enabled"),
         merge="replace",
@@ -798,7 +812,7 @@ ALGEBRA: dict[str, AlgebraOp] = {
             [_item_span(op, base)] +
             [_item_span({"unique_id": uid}, base)
              for uid in op["with_unique_ids"]]),
-        apply=lambda op, tl, item: tl.SetClipsLinked(
+        apply=lambda op, tl, item, _project=None: tl.SetClipsLinked(
             [item] + [_live_item(tl, uid) for uid in op["with_unique_ids"]
                       if _live_item(tl, uid) is not None], True),
         verify=lambda op, after: None,
@@ -812,7 +826,8 @@ ALGEBRA: dict[str, AlgebraOp] = {
         id="clip.unlink", domain="timeline_structure",
         required=("unique_id",),
         span=_item_span, item=True,
-        apply=lambda op, tl, item: tl.SetClipsLinked([item], False),
+        apply=lambda op, tl, item, _project=None: tl.SetClipsLinked(
+            [item], False),
         verify=lambda op, after: None,
         key=lambda op: ("link", op["unique_id"]), merge="exclusive",
         inverse=_pair("clip.link")),
@@ -1066,8 +1081,8 @@ ALGEBRA: dict[str, AlgebraOp] = {
         id="track.add", domain="timeline_structure",
         required=("track_type", "name"),
         span=_timeline_span,
-        apply=lambda op, tl, _item: tl.AddTrack(op["track_type"],
-                                                 op["name"]),
+        apply=lambda op, tl, _item, _project=None: tl.AddTrack(
+            op["track_type"], op["name"]),
         verify=lambda op, after: _verify_track_named(op["name"])(op, after),
         key=lambda op: ("track", op["track_type"], -1), merge="exclusive",
         inverse=_pair("track.delete"),
@@ -1076,8 +1091,8 @@ ALGEBRA: dict[str, AlgebraOp] = {
         id="track.delete", domain="timeline_structure",
         required=("track_type", "track_index"),
         span=_track_span,
-        apply=lambda op, tl, _item: tl.DeleteTrack(op["track_type"],
-                                                    int(op["track_index"])),
+        apply=lambda op, tl, _item, _project=None: tl.DeleteTrack(
+            op["track_type"], int(op["track_index"])),
         verify=_verify_track_present(False),
         key=lambda op: ("track", op["track_type"],
                         int(op["track_index"])), merge="exclusive",
@@ -1086,7 +1101,7 @@ ALGEBRA: dict[str, AlgebraOp] = {
         id="track.rename", domain="timeline_structure",
         required=("track_type", "track_index", "name"),
         span=_track_span,
-        apply=lambda op, tl, _item: tl.SetTrackName(
+        apply=lambda op, tl, _item, _project=None: tl.SetTrackName(
             op["track_type"], int(op["track_index"]), op["name"]),
         verify=lambda op, after: _verify_track_name(op["name"])(op, after),
         key=lambda op: ("track", op["track_type"],

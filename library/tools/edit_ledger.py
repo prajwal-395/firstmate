@@ -1355,7 +1355,8 @@ def match_grade_rows(spans: list, transcript: dict, rows: list,
 
 
 def _replay_program(row: dict, timeline, applied: list,
-                    unreplayable: list) -> tuple[list, list]:
+                    unreplayable: list,
+                    project=None) -> tuple[list, list]:
     """Replay one program's ops onto the timeline, in order.
 
     A program is one atomic entry; its ops replay in declaration order.
@@ -1363,6 +1364,11 @@ def _replay_program(row: dict, timeline, applied: list,
     shaped placements before the build and is skipped here; an op with no
     native apply on this build is REPORTED BY NAME, never dropped - the
     executor for it lands with the gap that owns it.
+
+    `project` is the OPEN Resolve project handle, threaded to the algebra
+    apply the way `edit_patch.apply_patch` threads it: `clip.insert`
+    reaches the media pool `project.GetMediaPool()`, and a Timeline
+    carries no such route.
     """
     from library.tools import edit_algebra
 
@@ -1396,7 +1402,7 @@ def _replay_program(row: dict, timeline, applied: list,
                                f"on the timeline.")})
                 continue
         try:
-            algebra_op.apply(op_params, timeline, item)
+            algebra_op.apply(op_params, timeline, item, project)
         except Exception as exc:
             unreplayable.append({
                 "name": name, "scope": "timeline",
@@ -1409,7 +1415,8 @@ def _replay_program(row: dict, timeline, applied: list,
 def replay_on_timeline(name: str, rows: list, spans: list,
                        transcript: dict, timeline,
                        item_for_span=None,
-                       reel_name: str = "") -> dict:
+                       reel_name: str = "",
+                       project=None) -> dict:
     """Replay this reel's hands rows onto its freshly built timeline.
 
     Runs AFTER the build's own passes - the held value is the
@@ -1427,6 +1434,10 @@ def replay_on_timeline(name: str, rows: list, spans: list,
     owning planner, which writes the normal step outputs for the build. An
     `edit_program` row replays its ops in order through the algebra - one
     atomic entry, so a multi-op instruction lands as one decision.
+
+    `project` is the OPEN Resolve project handle, forwarded to the
+    algebra apply (`clip.insert` reaches the media pool
+    `project.GetMediaPool()`).
     """
     from library.tools import dialogue_cleanup as _dclean
 
@@ -1471,7 +1482,7 @@ def replay_on_timeline(name: str, rows: list, spans: list,
                            f"for it. Stored, reported, not applied.")})
         elif op == "edit_program":
             applied_p, unreplayable_p = _replay_program(
-                row, timeline, applied, unreplayable)
+                row, timeline, applied, unreplayable, project)
             applied.extend(applied_p)
             unreplayable.extend(unreplayable_p)
         else:  # pragma: no cover - validation refuses unknown ops

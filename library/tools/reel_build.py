@@ -9371,7 +9371,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                         id(_row_places[_index]), -1)] = _item
             _replay = _ledger.replay_on_timeline(
                 name, ledger_rows, _video_places, transcript, timeline,
-                item_for_span=_span_items.get, reel_name=name)
+                item_for_span=_span_items.get, reel_name=name,
+                project=project)
             build_record["edit_ledger"] = {
                 "applied": _replay["applied"],
                 "planned": _replay["planned"],

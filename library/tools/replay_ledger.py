@@ -75,8 +75,10 @@ def replay_ledger(project_folder, *, reel_name="", timeline=None,
                 "seconds": 0.0, "reel": reel_name}
 
     if timeline is None:
-        timeline = _resolve_timeline(project_folder, reel_name,
-                                     connect, resolve_project_name)
+        timeline, project = _resolve_timeline(project_folder, reel_name,
+                                              connect, resolve_project_name)
+    else:
+        project = None
 
     if transcript is None:
         transcript = _load_transcript(project_folder)
@@ -112,7 +114,8 @@ def replay_ledger(project_folder, *, reel_name="", timeline=None,
     try:
         report = edit_ledger.replay_on_timeline(
             final, scoped, spans, transcript, timeline,
-            item_for_span=item_for_span, reel_name=reel_name)
+            item_for_span=item_for_span, reel_name=reel_name,
+            project=project)
     except Exception as failed:
         _journal.fail_entry(project_folder, journal, repr(failed))
         raise ReplayLedgerError(
@@ -170,7 +173,7 @@ def _resolve_timeline(project_folder, reel_name, connect,
             "none to edit",
             "build it first (`ren build <project>`), then replay the "
             "ledger onto it")
-    return found[reel_name]
+    return found[reel_name], project
 
 
 def _resolve_name(project_folder: str) -> str:
