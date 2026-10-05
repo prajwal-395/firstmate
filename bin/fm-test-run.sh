@@ -426,6 +426,7 @@ fm-pi-primary-live-e2e.test.sh live-harness-optin
 fm-pi-primary-types.test.sh pure-contract-unit
 fm-pi-watch-extension.test.sh watcher-wake-lock
 fm-pi-windows-shell-invocation.test.sh windows-gated
+fm-posture-repair-live-e2e.test.sh live-harness-optin
 fm-pr-check-security.test.sh pr-forge
 fm-pr-merge.test.sh pr-forge
 fm-procevent-quota.test.sh standalone
@@ -898,6 +899,7 @@ tests/fm-pi-codex-native.test.sh 120
 tests/fm-pi-primary-live-e2e.test.sh 49
 tests/fm-pi-watch-extension.test.sh 98956
 tests/fm-pi-windows-shell-invocation.test.sh 5121
+tests/fm-posture-repair-live-e2e.test.sh 103
 tests/fm-pr-check-security.test.sh 221315
 tests/fm-procevent-quota.test.sh 2067
 tests/fm-procevent-when.test.sh 24055

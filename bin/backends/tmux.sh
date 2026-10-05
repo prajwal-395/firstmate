@@ -162,6 +162,11 @@ fm_backend_tmux_endpoint_tty() {  # <target>
   tmux display-message -p -t "$1" '#{pane_tty}' 2>/dev/null
 }
 
+# fm_backend_tmux_shell_pid: the pane's persistent shell pid.
+fm_backend_tmux_shell_pid() {  # <target>
+  tmux display-message -p -t "$1" '#{pane_pid}' 2>/dev/null
+}
+
 # The process-name classifier every liveness signal below feeds
 # (fm_agent_process_classify_name) is owned by bin/fm-agent-process-lib.sh,
 # shared with the Herdr adapter so both backends mean the same thing by

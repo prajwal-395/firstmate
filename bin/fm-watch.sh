@@ -2400,11 +2400,11 @@ while :; do
   posture_out=
   posture_rc=0
   posture_out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
-    "$SCRIPT_DIR/fm-claude-posture-sweep.sh" 2>&1) || posture_rc=$?
+    "$SCRIPT_DIR/fm-posture-sweep.sh" 2>&1) || posture_rc=$?
   if [ -n "$posture_out" ]; then
     while IFS= read -r posture_line; do
       case "$posture_line" in
-        POSTURE_REPAIR_FAILED:*) wake "check: Claude permission-posture repair failed: ${posture_line#POSTURE_REPAIR_FAILED: }" ;;
+        POSTURE_REPAIR_FAILED:*) wake "check: worker permission-posture repair failed: ${posture_line#POSTURE_REPAIR_FAILED: }" ;;
         *) triage_log "$posture_line" ;;
       esac
     done <<EOF
@@ -2412,7 +2412,7 @@ $posture_out
 EOF
   fi
   if [ "$posture_rc" -ne 0 ] && [ -z "$posture_out" ]; then
-    triage_log "Claude permission-posture sweep exited $posture_rc without a diagnostic"
+    triage_log "worker permission-posture sweep exited $posture_rc without a diagnostic"
   fi
 
   # Process-to-event liveness repair. This never discovers a result by polling:

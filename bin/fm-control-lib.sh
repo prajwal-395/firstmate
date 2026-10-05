@@ -40,10 +40,11 @@
 # and pi, pi-signed, omp, and kimi have no verified pane-resume contract at
 # all. `relaunch` covers the same need deterministically for every adapter,
 # because the brief on disk - not a harness-private session - is the durable
-# instruction. The one exception is Claude's same-session posture repair
-# (bin/fm-claude-posture-lib.sh): `claude --resume <id>` reattaches its
-# session with the conversation intact, which the repair-posture verb below
-# relies on for that adapter only.
+# instruction. The one exception is same-session posture repair
+# (bin/fm-posture-lib.sh): Claude, Codex, OpenCode, Grok, Gemini, Muse, and Rovo
+# have documented same-session restore commands that the repair-posture verb
+# uses with their recorded launch posture. Other adapters keep deterministic
+# relaunch as the recovery path.
 
 # `rebind` IS a verb, and it is the one that acts on the RECORD rather than on
 # the agent. It exists because a backend whose endpoint identifiers are

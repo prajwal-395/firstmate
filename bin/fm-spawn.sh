@@ -268,9 +268,10 @@
 #   worktree, or record exists and names the accepted values. The file is read
 #   on every spawn and relaunch, so a change reaches the next launch without a
 #   restart, and it is inherited into secondmate homes (bin/fm-config-inherit-lib.sh).
-#   A terminal-manager restore that runs bare `claude --resume` loses this
-#   command-line posture. bin/fm-claude-posture-sweep.sh detects that live shape
-#   and asks fm-control to reattach the same session with the configured flag.
+#   A terminal-manager restore that runs a bare same-session command loses the
+#   worker's command-line permission posture. bin/fm-posture-sweep.sh detects
+#   verified restore shapes and asks fm-control to reattach the same session
+#   with the configured flags and recorded worktree.
 #   Launch templates live in launch_template() below; placeholders replaced before launch:
 #     __BRIEFPOINTER__ shell-quoted instruction naming only the absolute brief path
 #     __CLAUDEPERMFLAG__ the claude permission flag selected by config/claude-permission-mode
@@ -4598,6 +4599,7 @@ EOF
       rm -f "$STATE/$ID.muse-session-current"
       {
         printf 'sessions_root=%s\n' "$MUSE_SESSIONS_ROOT"
+        printf 'config_home=%s\n' "$MUSE_CONFIG_HOME"
         printf 'workspace_root=%s\n' "$WT"
         printf 'binding_id=%s\n' "$MUSE_BINDING_ID"
         while IFS= read -r MUSE_PRIOR_LOG; do

@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Scan local task records for a Claude terminal-manager bare-resume and repair
-# it through fm-control's verified lifecycle transaction.
-# Usage: FM_HOME=<home> fm-claude-posture-sweep.sh
-# Prints only completed repairs and actionable failures; clean and busy workers
-# are silent. The startup bootstrap and watcher own its cadence.
+# Scan local task records for a restored Claude, Codex, OpenCode, Grok, Gemini,
+# Muse, or Rovo session missing its configured permission posture or running
+# outside its worktree.
+# Usage: FM_HOME=<home> fm-posture-sweep.sh
+# Prints completed repairs and actionable failures; clean and deferred workers
+# stay silent. The startup bootstrap and watcher own its cadence.
 set -u
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -16,6 +17,8 @@ STATE=${FM_STATE_OVERRIDE:-$FM_HOME/state}
 
 # shellcheck source=bin/fm-control-lib.sh
 . "$SCRIPT_DIR/fm-control-lib.sh"
+# shellcheck source=bin/fm-posture-lib.sh
+. "$SCRIPT_DIR/fm-posture-lib.sh"
 # shellcheck source=bin/fm-backend.sh
 . "$SCRIPT_DIR/fm-backend.sh"
 
@@ -25,12 +28,8 @@ for meta in "$STATE"/*.meta; do
   [ -z "$(fm_meta_get "$meta" remote_host)" ] || continue
   harness=$(fm_meta_get "$meta" harness)
   family=$(fm_control_harness_family "$harness") || continue
-  [ "$family" = claude ] || continue
+  fm_posture_harness_supported "$family" || continue
   id=$(basename "$meta" .meta)
-  # A malformed or incomplete record cannot identify a live worker. Leave
-  # those records to the existing metadata-reconciliation path; asking the
-  # lifecycle plane to repair one would turn an unrelated stale record into
-  # a watcher failure wake.
   fm_backend_validate_task_endpoint "$meta" "$id" >/dev/null 2>&1 || continue
   output=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
     "$SCRIPT_DIR/fm-control.sh" "$id" repair-posture 2>&1)
