@@ -2264,3 +2264,103 @@ def test_a_program_with_missing_required_params_is_refused(tmp_path):
     with pytest.raises(edit_spec.EditSpecError,
                        match="missing required params"):
         _prepare_and_load(project, request, program)
+
+
+def test_a_split_instruction_routes_through_the_program_to_the_algebra(
+        tmp_path):
+    """A split instruction routes through the edit program to clip.split.
+
+    Defect: a split instruction that does not route through the edit
+    program and algebra cannot be executed as a precise reversible
+    operation - it would be a note that reaches a planner as free text.
+    """
+    from library.tools import edit_ledger, edit_spec
+    project = _program_project(tmp_path)
+    request = "split the clip at 30 seconds"
+    program = {
+        "kind": "edit_program",
+        "base_generation": "42",
+        "idempotency_key": "req-split-30s",
+        "anchor": {"kind": "reel"},
+        "reel": "Reel 09 - hook",
+        "ops": [
+            {"op": "clip.split",
+             "params": {"unique_id": "clip_017", "at_frame": 30},
+             "text": "split the clip at 30 seconds"},
+        ],
+    }
+    spec = _prepare_and_load(project, request, program)
+    edit_spec.record_spec(str(project), spec)
+    rows = edit_ledger.load_rows(str(project))
+    assert len(rows) == 1
+    assert rows[0]["op"] == "edit_program"
+    assert rows[0]["params"]["ops"][0]["op"] == "clip.split"
+    assert rows[0]["params"]["ops"][0]["params"]["at_frame"] == 30
+    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+
+
+def test_a_trim_instruction_routes_through_the_program_to_the_algebra(
+        tmp_path):
+    """A trim instruction routes through the edit program to clip.trim.
+
+    Defect: a trim instruction that does not route through the edit
+    program and algebra cannot be executed as a precise reversible
+    operation - it would be a note that reaches a planner as free text.
+    """
+    from library.tools import edit_ledger, edit_spec
+    project = _program_project(tmp_path)
+    request = "trim the clip from 10 to 50 seconds"
+    program = {
+        "kind": "edit_program",
+        "base_generation": "42",
+        "idempotency_key": "req-trim-10-50",
+        "anchor": {"kind": "reel"},
+        "reel": "Reel 09 - hook",
+        "ops": [
+            {"op": "clip.trim",
+             "params": {"unique_id": "clip_017", "in_frame": 10,
+                        "out_frame": 50},
+             "text": "trim the clip from 10 to 50 seconds"},
+        ],
+    }
+    spec = _prepare_and_load(project, request, program)
+    edit_spec.record_spec(str(project), spec)
+    rows = edit_ledger.load_rows(str(project))
+    assert len(rows) == 1
+    assert rows[0]["op"] == "edit_program"
+    assert rows[0]["params"]["ops"][0]["op"] == "clip.trim"
+    assert rows[0]["params"]["ops"][0]["params"]["in_frame"] == 10
+    assert rows[0]["params"]["ops"][0]["params"]["out_frame"] == 50
+    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+
+
+def test_a_delete_instruction_routes_through_the_program_to_the_algebra(
+        tmp_path):
+    """A delete instruction routes through the edit program to clip.delete.
+
+    Defect: a delete instruction that does not route through the edit
+    program and algebra cannot be executed as a precise reversible
+    operation - it would be a note that reaches a planner as free text.
+    """
+    from library.tools import edit_ledger, edit_spec
+    project = _program_project(tmp_path)
+    request = "delete the clip"
+    program = {
+        "kind": "edit_program",
+        "base_generation": "42",
+        "idempotency_key": "req-delete-clip",
+        "anchor": {"kind": "reel"},
+        "reel": "Reel 09 - hook",
+        "ops": [
+            {"op": "clip.delete",
+             "params": {"unique_id": "clip_017"},
+             "text": "delete the clip"},
+        ],
+    }
+    spec = _prepare_and_load(project, request, program)
+    edit_spec.record_spec(str(project), spec)
+    rows = edit_ledger.load_rows(str(project))
+    assert len(rows) == 1
+    assert rows[0]["op"] == "edit_program"
+    assert rows[0]["params"]["ops"][0]["op"] == "clip.delete"
+    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
