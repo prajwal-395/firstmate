@@ -261,6 +261,22 @@ def review_creative_cohesion(inputs: dict) -> dict:
     # that is then quietly dropped.
     adjustments, observations = cohesion_scope.split(proposals)
 
+    # 4b. Emit a re-plan request for every upstream-owned finding.
+    #
+    # A finding that names an upstream owner is delivered to that planner
+    # as a typed input (not a note), the planner re-runs for the affected
+    # region, and the finding is re-checked.  The loop is bounded: one
+    # re-plan per finding per run.  See library/tools/cohesion_replan.py.
+    from library.tools.cohesion_replan import ReplanRequest
+    replan_requests = []
+    for obs in observations:
+        replan_requests.append(ReplanRequest(
+            finding=obs.get("finding", ""),
+            state_key=obs.get("state_key", ""),
+            field=obs.get("field", ""),
+            owner_step=obs.get("owner_step", ""),
+        ))
+
     # `cohesion_score` used to be reported here. It is REMOVED (#238), and
     # not because it was hard to compute:
     #
@@ -318,6 +334,19 @@ def review_creative_cohesion(inputs: dict) -> dict:
         # Findings a step upstream owns: stated, with who owns them and
         # what re-run would act on them. Never presented as changes.
         "observations": observations,
+        # Typed re-plan requests for every upstream-owned finding.  The
+        # pipeline runner picks these up and re-runs the owning step for
+        # the affected region.  Bounded: one re-plan per finding per run.
+        "replan_requests": [
+            {
+                "finding": r.finding,
+                "state_key": r.state_key,
+                "field": r.field,
+                "owner_step": r.owner_step,
+                "region": r.region,
+            }
+            for r in replan_requests
+        ],
         # The authoritative record of what happened to each adjustment is
         # assembly_manifest.cohesion_adjustments, written by the applier.
         "applied_by": "step_5_04_compile_manifest",
