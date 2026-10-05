@@ -518,6 +518,58 @@ def _delete_clip_with_measured_retry(op, timeline, item):
     return second if second else first
 
 
+def _find_pool_item_by_id(pool, unique_id):
+    """The pool item holding *unique_id*, searched through every folder.
+
+    A placement addresses its source by the pool item's unique id - the
+    same identity `pool_item_for` matches on, so a reel's overlay never
+    pairs with another reel's file of the same name.
+    """
+    stack = [pool.GetRootFolder()]
+    while stack:
+        folder = stack.pop()
+        for item in folder.GetClipList() or ():
+            if str(item.GetUniqueId()) == str(unique_id):
+                return item
+        stack.extend(folder.GetSubFolderList() or ())
+    return None
+
+
+def _apply_clip_insert(op, timeline, _item):
+    """Place a pool clip at a stated span; the read-back names the item.
+
+    The op carries the pool item's unique id (`media_pool_item`) and the
+    source span (`source_in`/`source_out`). The apply places the clip,
+    reads back the new item's Resolve-assigned unique id, and writes it
+    onto the op so the verify (`_verify_presence`) and any later op can
+    address the placed item.
+    """
+    pool = timeline.GetMediaPool()
+    pool_item = _find_pool_item_by_id(pool, op.get("media_pool_item"))
+    if pool_item is None:
+        raise RuntimeError(
+            f"clip.insert: pool item {op.get('media_pool_item')!r} "
+            "is not in the media pool")
+    source_in = int(op.get("source_in", 0))
+    source_out = int(op.get("source_out", 0))
+    if source_out <= source_in:
+        frames = pool_item.GetClipProperty("Frames")
+        source_out = source_in + (int(frames) if frames else 1)
+    placed = pool.AppendToTimeline([{
+        "mediaPoolItem": pool_item,
+        "startFrame": source_in,
+        "endFrame": source_out,
+        "mediaType": 1 if op["track_type"] == "video" else 2,
+        "trackIndex": int(op["track_index"]),
+        "recordFrame": int(op["record_in"]),
+    }])
+    if not placed:
+        raise RuntimeError("clip.insert: AppendToTimeline placed nothing")
+    new_item = placed[0]
+    op["unique_id"] = str(new_item.GetUniqueId())
+    return new_item
+
+
 def _live_handles(timeline):
     from library.tools.reel_read import live_items
 
@@ -644,8 +696,9 @@ ALGEBRA: dict[str, AlgebraOp] = {
     "clip.insert": AlgebraOp(
         id="clip.insert", domain="timeline_structure",
         required=("unique_id", "track_type", "track_index",
-                  "record_in", "record_out"),
+                  "record_in", "record_out", "media_pool_item"),
         span=lambda op, base: (int(op["record_in"]), int(op["record_out"])),
+        apply=_apply_clip_insert,
         verify=_verify_presence(True),
         key=lambda op: ("clip", op["unique_id"]), merge="exclusive",
         inverse=_pair("clip.delete"),

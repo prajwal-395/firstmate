@@ -9007,28 +9007,41 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         else:
             # A span IS the body's picture, on the picture row.
             dest_row = track_plan.aroll_rows()[0].index
-        pool.AppendToTimeline([{
-            "mediaPoolItem": card_item,
-            "startFrame": 0,
-            # EXCLUSIVE, and this is MEASURED rather than assumed
-            # (AGENTS.md 5: judge a Resolve call by what it RETURNS).
-            # Written `duration_frames - 1` on the first build, the card
-            # came back off the timeline as [0..52) - 52 frames for a
-            # 53-frame plan - and the first clip started at 53, leaving a
-            # one-frame black hole that F1 reported and F13 named. It is
-            # the same exclusive reading the footage placement below uses
-            # for `source_out`.
-            # SOURCE frames, which is only the same number for a card
-            # this engine rendered at the reel's own fps. A project's
-            # own clip (`full_frame_clip`) was authored at whatever
-            # rate it chose, and `source_frames` is what was measured
-            # off the file.
-            "endFrame": card.source_frames or card.duration_frames,
-            "mediaType": 1,
-            "trackIndex": dest_row,
-            # The card's own integer frame, never `round(seconds * fps)`.
-            "recordFrame": card.reel_start_frame,
-        }])
+        # EXCLUSIVE, and this is MEASURED rather than assumed
+        # (AGENTS.md 5: judge a Resolve call by what it RETURNS).
+        # Written `duration_frames - 1` on the first build, the card
+        # came back off the timeline as [0..52) - 52 frames for a
+        # 53-frame plan - and the first clip started at 53, leaving a
+        # one-frame black hole that F1 reported and F13 named. It is
+        # the same exclusive reading the footage placement below uses
+        # for `source_out`.
+        # SOURCE frames, which is only the same number for a card
+        # this engine rendered at the reel's own fps. A project's
+        # own clip (`full_frame_clip`) was authored at whatever
+        # rate it chose, and `source_frames` is what was measured
+        # off the file.
+        _card_frames = card.source_frames or card.duration_frames
+        from library.tools import edit_patch
+        _receipt = edit_patch.apply_live_patch(
+            project=project, timeline=timeline, capability="reel.build",
+            operations=[{
+                "op": "clip.insert",
+                "unique_id": f"card:{name}:{card.render_name}",
+                "track_type": "video",
+                "track_index": dest_row,
+                "record_in": card.reel_start_frame,
+                "record_out": card.reel_start_frame + _card_frames,
+                "media_pool_item": str(card_item.GetUniqueId()),
+                "source_in": 0,
+                "source_out": _card_frames,
+            }],
+            conflict_domains=("timeline_structure",),
+            idempotency_key=f"reel-build:{name}:card:{card.render_name}",
+            project_folder=project_folder)
+        if _receipt["status"] != "committed":
+            raise ReelBuildError(
+                f"{name}: the card {card.render_name!r} did not verify: "
+                f"{_receipt}")
 
     # The footage lookup is `pool_item_for` now, module level, because
     # every import in this module has to ask the same question and a
@@ -13994,10 +14007,10 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             # heavy work while it queues behind another lane.
             with resolve_lease(
                     f"place {name}", capability="reel.build",
-                    phase="placement", project=project.GetName(),
+                    phase="apply", project=project.GetName(),
                     timeline=name) as _lease, \
                     heavy_work_lock(f"reel placement {name}",
-                                    "reel.build:placement"):
+                                    "reel.build:apply"):
                 placement_hold_started = (
                     time.perf_counter()
                     if placement_mode == "otio" else None)

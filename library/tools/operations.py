@@ -1512,15 +1512,20 @@ _REGISTRY: tuple[Operation, ...] = (
                 entry_points=("library.tools.reel_build.rebuild_reels_in_project",),
                 why="Derivation is free; Resolve holds are taken around placement."),
             ExecutionPhase(
-                name="placement", resolve_mode=RESOLVE_EXCLUSIVE,
+                name="apply", resolve_mode=RESOLVE_EXCLUSIVE,
                 locality=LOCALITY_TIMELINE,
+                freshness=FRESHNESS_TIMELINE_GENERATION,
                 resources=(("cpu", 2), ("ram_gb", 2)),
                 lock_sites=("library.tools.reel_build:rebuild_reels_in_project",),
                 why="One reel is placed under an exclusive cursor lease.",
                 resource_basis=("Resolve's placement CPU and RAM demand is "
                                 "declared, not measured; sample Resolve itself "
                                 "during a scratch-project placement.")),
-        )),
+        ),
+        patch=PatchSemantics(
+            operations=("clip.insert",),
+            conflict_domains=("timeline_structure",),
+            temporal_effect="local", merge_semantics="exclusive")),
     ),
     Operation(
         name="reel.touchup",

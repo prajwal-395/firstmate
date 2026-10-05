@@ -118,6 +118,38 @@ def test_live_patch_retry_is_idempotent_and_changed_reuse_refuses(world):
     assert 12 in timeline.markers and 13 not in timeline.markers
 
 
+def test_a_clip_insert_places_a_pool_clip_and_commits_as_a_generation(world):
+    """Defect: the reel build's placement bypassed EditPatch, so the most
+    common edit Ren makes produced no generation receipt and could not be
+    rebased. A `clip.insert` through `apply_live_patch` places the clip and
+    commits a verified generation."""
+    project, timeline, _item, store, base = world
+    pool_clip = make_pool_clip("card.mov")
+    project.GetMediaPool().GetRootFolder()._clips.append(pool_clip)
+    operation = {
+        "op": "clip.insert",
+        "unique_id": "card:Reel 09:head-card",
+        "track_type": "video",
+        "track_index": 1,
+        "record_in": 100,
+        "record_out": 148,
+        "media_pool_item": str(pool_clip.GetUniqueId()),
+        "source_in": 0,
+        "source_out": 48,
+    }
+    receipt = edit_patch.apply_live_patch(
+        project=project, timeline=timeline, capability="reel.build",
+        operations=[operation], conflict_domains=("timeline_structure",),
+        idempotency_key="reel-build:Reel 09:card:head-card",
+        store=store)
+    assert receipt["status"] == "committed", receipt
+    assert receipt["generation"] == base.generation + 1
+    head = store.head("Podcast", receipt["readback"]["timeline_id"])
+    placed = [c for c in shadow.clips(store.snapshot(head))
+              if c["record_in"] == 100 and c["record_out"] == 148]
+    assert len(placed) == 1
+
+
 def test_a_write_that_answers_true_and_changes_nothing_fails_by_readback(
         world, monkeypatch):
     project, timeline, item, store, base = world

@@ -1083,6 +1083,13 @@ class FakeTimeline:
     def GetMediaPoolItem(self):
         return self._media_pool_item
 
+    def GetMediaPool(self):
+        """The project's media pool - a timeline's clips come from it."""
+        if self._project is None:
+            raise ResolveDoubleError(
+                "FakeTimeline has no project - adopt it first")
+        return self._project.GetMediaPool()
+
     def GetUniqueId(self):
         return self._unique_id
 

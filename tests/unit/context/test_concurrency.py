@@ -404,7 +404,7 @@ def test_placement_runs_beside_a_gate_and_a_second_gate_waits(scheduler):
     gate = scheduler.acquire(
         "gate", resource_scheduler.demand_for("full_suite_gate"))
     placement = scheduler.acquire(
-        "placement", resource_scheduler.demand_for("reel.build:placement"))
+        "placement", resource_scheduler.demand_for("reel.build:apply"))
     second_gate, box = _acquire_in_thread(scheduler, "gate 2",
                                           "full_suite_gate")
 
@@ -446,7 +446,7 @@ def test_old_code_lock_dir_and_scheduler_exclude_each_other(scheduler):
     (legacy / "owner").write_text(json.dumps(
         {"owner": "scripts/full_suite_gate.sh", "pid": 1}), encoding="utf-8")
     admitted, box = _acquire_in_thread(scheduler, "placement",
-                                       "reel.build:placement")
+                                       "reel.build:apply")
     assert not admitted.wait(0.3)
 
     (legacy / "owner").unlink()
@@ -467,7 +467,7 @@ def test_a_queued_large_job_is_not_starved_by_later_small_ones(scheduler):
         scheduler, "gemma 2", "semantics.analyse:inference")
     time.sleep(0.1)  # the second model run queues first, on the gpu
     placement, box = _acquire_in_thread(scheduler, "placement",
-                                        "reel.build:placement")
+                                        "reel.build:apply")
 
     assert not placement.wait(0.3)
     scheduler.release(vlm)
@@ -494,7 +494,7 @@ def test_a_nested_section_cannot_grow_its_grant(tmp_path, monkeypatch):
     which needs the gpu it never reserved."""
     monkeypatch.setattr(heavy_work_lock, "HEAVY_LOCK_DIR",
                         tmp_path / "heavy-work.lock")
-    with heavy_work_lock.heavy_work_lock("outer", "reel.build:placement"):
+    with heavy_work_lock.heavy_work_lock("outer", "reel.build:apply"):
         with pytest.raises(heavy_work_lock.GrantTooSmall):
             heavy_work_lock.take_heavy_lock("render", "render.build:render")
 
