@@ -1006,3 +1006,245 @@ def test_a_value_that_did_not_take_is_still_refused(tmp_path):
         _Item(0.5), {"Tilt": 1844.0},
         write_context=_bare_write_context(tmp_path),
         item_identity={"test_item": "one"})
+
+
+# --------------------------------------------------------------------------
+# The master touch-up path (C-03)
+#
+# A small instruction on the master timeline ("make the captions a
+# little less aggressive") changes only the affected region in place,
+# without a rebuild - the same guarantee the reel touch-up path gives
+# reels.  Driven against the fake Resolve; nothing reaches a real
+# project.
+
+MASTER = "Main Edit"
+
+
+def _pass_lease(purpose, **kwargs):
+    def decorator(func):
+        return func
+    return decorator
+
+
+class _Fence:
+    def __init__(self):
+        self.drift_seen = []
+
+
+from contextlib import contextmanager
+
+
+@contextmanager
+def _pass_fence(project, timeline, purpose):
+    yield _Fence()
+
+
+@contextmanager
+def _pass_excursion(project, timeline, purpose):
+    """Move the cursor to `timeline` and restore it, as the real one does."""
+    previous = project.GetCurrentTimeline()
+    project.SetCurrentTimeline(timeline)
+    try:
+        yield
+    finally:
+        project.SetCurrentTimeline(previous)
+
+
+def _mock_edit_patch(monkeypatch):
+    """Apply touchup EditPatch operations against the Resolve double."""
+    from library.tools import edit_patch
+
+    def apply_live_patch(*, project, timeline, operations, **_kwargs):
+        for operation in operations:
+            matches = [item for row in reel_read.live_items(timeline)
+                       for item in row["items"]
+                       if item.GetUniqueId() == operation["unique_id"]]
+            assert len(matches) == 1
+            item = matches[0]
+            if operation["op"] == "clip.set_property":
+                item.SetProperty(operation["key"], operation["value"])
+                if item.GetProperty(operation["key"]) != operation["value"]:
+                    return {"status": "refused",
+                            "reason": "property read-back differed"}
+            else:
+                raise AssertionError(operation)
+        return {"status": "committed", "generation": 1}
+
+    monkeypatch.setattr(edit_patch, "apply_live_patch", apply_live_patch)
+
+
+def _mock_shadow(monkeypatch):
+    from library.tools import timeline_shadow
+
+    class _Head:
+        def summary(self):
+            return {"generation": 1}
+
+    monkeypatch.setattr(timeline_shadow, "observe",
+                        lambda *a, **k: _Head())
+
+
+def _master_project(tmp_path, monkeypatch):
+    """A fake project holding the master timeline, with a project.yaml."""
+    from library.tools import resolve_lock
+
+    timeline, _pool, _media = build_reel(tmp_path)
+    timeline.SetName(MASTER)
+    project = timeline._project
+    project.SetCurrentTimeline(timeline)
+    monkeypatch.setattr(resolve_lock, "under_lease", _pass_lease)
+    monkeypatch.setattr(resolve_lock, "cursor_fence", _pass_fence)
+    monkeypatch.setattr(resolve_lock, "cursor_excursion", _pass_excursion)
+    _mock_edit_patch(monkeypatch)
+    _mock_shadow(monkeypatch)
+
+    folder = tmp_path / "project"
+    folder.mkdir()
+    (folder / "project.yaml").write_text(
+        "resolve:\n"
+        f"  project_name: {project.GetName()}\n"
+        f"  timeline_name: {MASTER}\n",
+        encoding="utf-8")
+    return project, folder
+
+
+def _live_master(project):
+    return next(t for t in project.timelines if t.GetName() == MASTER)
+
+
+def _v3_opacity(project):
+    tracks = reel_read.read_tracks(_live_master(project))
+    v3 = next(t for t in tracks
+              if t["type"] == "video" and int(t["index"]) == 3)
+    return [c["transform"]["Opacity"] for c in v3["clips"]]
+
+
+def test_a_one_op_master_touchup_changes_only_the_touched_item(
+        tmp_path, monkeypatch):
+    """A 1-op master touch-up changes only that item's read-back, is
+    reversed by the undo journal, and is carried by editor_edit_carry.
+
+    The defect this names: a master-timeline instruction that re-ran
+    the whole pipeline (changing things the instruction did not touch)
+    or wrote ad hoc through resolve-axi (no ledger row, no undo journal
+    entry).  The touch-up stages a copy, writes in place, verifies by
+    re-reading, and promotes - and the undo journal reverses it.
+    """
+    from library.tools import master_touchup, plan_provenance
+    from library.tools import undo_journal as uj
+
+    project, folder = _master_project(tmp_path, monkeypatch)
+
+    spec = {"edits": [
+        {"op": "set_properties", "row": "V3", "item": 0,
+         "properties": {"Opacity": 50}}]}
+    receipt = master_touchup.apply_master_touchup(
+        str(folder), spec, connect=lambda _name: project)
+
+    assert receipt["master"] == MASTER
+    assert receipt["gate"]["class"] == "composed"
+
+    # Only the touched item's read-back changed.
+    assert _v3_opacity(project) == [50]
+
+    # The next build's editor_edit_carry carries it.
+    review_dir = str(folder / "pipeline_output" / "review")
+    carried = plan_provenance.carried_editor_edits(review_dir, MASTER)
+    assert len(carried) == 1
+    assert carried[0]["kind"] == "transform"
+    assert carried[0]["field"] == "transform.Opacity"
+    assert carried[0]["after"] == 50
+    assert carried[0]["source"].startswith("ren_touch:")
+
+    # The undo journal reverses it in place.
+    entry = uj.read_entry(str(folder), receipt["journal"])
+    assert entry["status"] == "applied"
+    live = _live_master(project)
+    pool = media_pool(live)
+    by_path = {m.GetClipProperty("File Path"): m
+               for m in pool.GetRootFolder().GetClipList()}
+    from library.tools.transform_write_log import write_scope
+    with write_scope(project="lab", project_folder=str(folder),
+                     timeline_name=live.GetName(),
+                     timeline_id=live.GetUniqueId(),
+                     run_id="master-touchup-test"):
+        undo_receipt = uj.undo_in_place(
+            timeline=live, media_pool=pool, entry=entry,
+            entry_root=uj.entry_dir(str(folder), entry["id"]),
+            reference=duplicate(live, name="reference"),
+            rederiver=master_touchup._reel_touchup._NullRederiver("test"),
+            resolve_media=by_path.get,
+            work_dir=str(tmp_path / "undo"),
+            project_folder=str(folder))
+    assert undo_receipt["verified"] is True
+    assert _v3_opacity(project) == [100.0]
+
+
+def test_a_set_properties_on_an_uncarryable_item_refuses_by_name(
+        tmp_path, monkeypatch):
+    """An in-place write on an item that plays the same source as another
+    item on its row refuses: the carry ledger states edits in source
+    terms, and the next build could not know which item to apply it to.
+
+    The defect this names: the write landing but the carry silently
+    superseding it, so the next rebuild drops the change with no
+    refusal and no reader.
+    """
+    from library.tools import master_touchup
+
+    _project, folder = _master_project(tmp_path, monkeypatch)
+
+    spec = {"edits": [
+        {"op": "set_properties", "row": "V4", "item": 0,
+         "properties": {"Opacity": 50}}]}
+    with pytest.raises(master_touchup.TouchupRefused) as refusal:
+        master_touchup.apply_master_touchup(
+            str(folder), spec, connect=lambda _name: _project)
+    message = str(refusal.value)
+    assert "carry ledger cannot address" in message
+    assert "3 items" in message
+
+
+def test_a_played_length_change_on_the_master_refuses_with_rebuild(
+        tmp_path, monkeypatch):
+    """A retime on the master refuses: it desyncs every reel cut from the
+    master, and the master's comps are the pipeline's, not a recorded
+    manifest's.
+
+    The defect this names: a length-changing edit reaching the master
+    timeline without re-deriving its comps, rendering wrong on most of
+    the clip's frames while looking right - or silently desyncing every
+    reel cut from it.
+    """
+    from library.tools import master_touchup
+
+    _project, folder = _master_project(tmp_path, monkeypatch)
+
+    spec = {"edits": [
+        {"op": "retime", "row": "V1", "item": 0, "duration": 492}]}
+    with pytest.raises(master_touchup.TouchupRefused) as refusal:
+        master_touchup.apply_master_touchup(
+            str(folder), spec, connect=lambda _name: _project)
+    message = str(refusal.value)
+    assert "composed_with_rederivation" in message
+    assert "rebuild" in message
+
+
+def test_the_master_timeline_name_comes_from_the_projects_declaration(
+        tmp_path):
+    """The master touch-up edits the timeline the project declares, not
+    a reel number.
+
+    The defect this names: a touch-up that guessed the master's name
+    (or required a reel number) would edit the wrong timeline or refuse
+    the only timeline that has no reel number.
+    """
+    from library.tools import master_touchup
+
+    folder = tmp_path / "project"
+    folder.mkdir()
+    (folder / "project.yaml").write_text(
+        "resolve:\n  project_name: Fixture Project\n"
+        "  timeline_name: Rough Cut\n",
+        encoding="utf-8")
+    assert master_touchup.master_timeline_name(str(folder)) == "Rough Cut"

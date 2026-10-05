@@ -82,12 +82,18 @@ a ripple that would change another row's item) refuses by name with
 the source ranges, nothing written. It then writes in phases, each
 re-planned off a fresh read because a re-placed item is a new object:
 splits, trims, cuts, moves, then the in-place enabled and transform
-writes. `verify_carried_edits` judges the result on a fresh read of
-staging, in source ranges, never in row counts. A write's return value
-is never the verdict.
+ writes. `verify_carried_edits` judges the result on a fresh read of
+ staging, in source ranges, never in row counts. A write's return value
+ is never the verdict.
 
-`tests/unit/resolve/test_editor_edit_carry.py`.
-"""
+ The ledger is keyed by timeline NAME, so it serves every timeline
+ that is promoted in place: a built reel (`reel_touchup`) and the
+ master timeline (`master_touchup`) alike. A master touch-up's
+ in-place writes are filed here under the master's name at promotion
+ time, so the next rebuild carries them exactly like the editor's own.
+
+ `tests/unit/resolve/test_editor_edit_carry.py`.
+ """
 from __future__ import annotations
 
 import os

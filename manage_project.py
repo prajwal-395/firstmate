@@ -2621,6 +2621,90 @@ def cmd_touch_reel(args):
         print(f"  {receipt['retirement']}")
 
 
+def cmd_touch_master(args):
+    """Apply a structured change to the master timeline's existing timeline.
+
+    The master touch-up's verb: instead of re-running the whole
+    pipeline (`ren edit`), this duplicates the master timeline into a
+    staging copy, routes the change through
+    `composed_edit.apply_composed_edit`, verifies by re-reading the
+    track, and promotes by rename.  The master timeline is never
+    edited directly.
+
+    The change is stated structurally as JSON - which item, what
+    changes - via `--edits` or `--edits-file`.  The ops and the
+    qualification gate that refuses what it cannot classify are
+    `reel_touchup`'s; see library/tools/master_touchup.py for what
+    is different about the master target.
+    """
+    from library.tools import master_touchup as _master_touchup
+    from library.tools import run_control as _hold
+
+    project_folder = _reel_project_folder(args.project)
+    hold = _hold.hold_requested(project_folder)
+    if hold is not None:
+        raise RenRefusal(
+            f"the handbrake is engaged on this project "
+            f"({hold.get('requested_by', 'unknown')}: "
+            f"{hold.get('reason', '')})",
+            "a touch-up under a held project could fight the holder",
+            "delete pipeline.hold at the project root (it records who "
+            "asked for it - check with them), then re-run "
+            "`ren touch-master`") from None
+
+    if args.edits_file:
+        try:
+            with open(args.edits_file, encoding="utf-8") as handle:
+                edits = json.load(handle)
+        except (OSError, ValueError) as bad:
+            print(f"Error: cannot read edits file {args.edits_file}: "
+                  f"{bad}", file=sys.stderr)
+            sys.exit(2)
+    elif args.edits:
+        try:
+            edits = json.loads(args.edits)
+        except ValueError as bad:
+            print(f"Error: --edits is not JSON: {bad}", file=sys.stderr)
+            sys.exit(2)
+    else:
+        print("Error: pass the change with --edits JSON or "
+              "--edits-file PATH.", file=sys.stderr)
+        sys.exit(2)
+    if isinstance(edits, dict) and "edits" not in edits:
+        edits = {"edits": [edits]}
+    spec = {"edits": edits["edits"]
+            if isinstance(edits, dict) else edits}
+
+    try:
+        receipt = _master_touchup.apply_master_touchup(
+            project_folder, spec,
+            accept_editor_changes=args.accept_editor_changes or None)
+    except _master_touchup.TouchupRefused as refused:
+        print(refused.render(), file=sys.stderr)
+        sys.exit(REFUSAL_EXIT_CODE)
+    except (_master_touchup.TouchupError,
+            _master_touchup.MasterTouchupError) as failed:
+        print(f"FAILED: {failed}", file=sys.stderr)
+        sys.exit(1)
+
+    gate = receipt.get("gate", {})
+    print(f"Touched {receipt['master']!r} "
+          f"({gate.get('class', 'unqualified')})")
+    print(f"  cost: {gate.get('cost', '')}")
+    for note in gate.get("notes", ()):
+        print(f"  - {note}")
+    composed = receipt.get("composed", {})
+    print(f"  staged+composed+verified in "
+          f"{receipt.get('seconds', '?')}s wall clock "
+          f"(stage {receipt.get('stage_seconds', '?')}s, composed "
+          f"{receipt.get('composed_seconds', '?')}s, verify "
+          f"{receipt.get('verify_seconds', '?')}s)")
+    print(f"  placed {composed.get('placed', {}).get('asked', '?')} "
+          f"item(s), verified {composed.get('verified', {}).get('landed', '?')}")
+    print(f"  verification read: {json.dumps(receipt.get('verification_read', {}))}")
+    print(f"  receipt: {receipt['receipt_path']}")
+
+
 def cmd_undo(args):
     """Reverse the newest Ren act on a reel: a touch IN PLACE, a rebuild by version.
 
@@ -3108,6 +3192,27 @@ def main():
         help="With --all-reels: narrow the clip search to this row "
              "(default: search every video row)")
     touch_reel_parser.set_defaults(func=cmd_touch_reel)
+
+    touch_master_parser = _add_command(sub, "touch-master")
+    touch_master_parser.add_argument(
+        "project", help="Project slug, or an absolute path "
+                        "to the project directory")
+    touch_master_parser.add_argument(
+        "--edits", default="",
+        help="The change as JSON: a list of edit objects (move, "
+             "swap_pixels, add_overlay, remove_overlay, "
+             "set_properties, set_enabled) or an object holding one "
+             "under 'edits'. See library/tools/master_touchup.py")
+    touch_master_parser.add_argument(
+        "--edits-file", default="",
+        help="Read the change JSON from this file instead of --edits")
+    touch_master_parser.add_argument(
+        "--accept-editor-changes", action="append", default=[],
+        metavar="TIMELINE",
+        help="Explicitly supersede detected manual edits on the master "
+             "timeline. An uncarried edit otherwise refuses promotion "
+             "with its source and record ranges. Repeatable")
+    touch_master_parser.set_defaults(func=cmd_touch_master)
 
     undo_parser = _add_command(sub, "undo")
     undo_parser.add_argument(
