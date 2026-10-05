@@ -42,6 +42,29 @@ def _write(path: Path, payload):
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
+def _flow_values():
+    """A 5 Hz optical-flow series for clip_001: four phases of 5 s each.
+
+    A sample at time t covers the interval ending at t, so the phases
+    tile the 20 s clip with no gap: pan right [0,5], static [5,10],
+    tilt up [10,15], mixed [15,20].
+    """
+    values = []
+    phases = [("right", 0.0, 5.0, 0.5, 0.0, 0.5),
+              ("static", 5.0, 10.0, 0.0, 0.0, 0.0),
+              ("up", 10.0, 15.0, 0.0, -0.5, 0.5),
+              ("mixed", 15.0, 20.0, 0.0, 0.0, 0.4)]
+    for direction, lo, hi, dx, dy, mag in phases:
+        t = lo + 0.2
+        while t <= hi + 1e-9:
+            values.append({"time": round(t, 3), "dx": dx, "dy": dy,
+                           "magnitude": mag, "direction": direction,
+                           "camera_tx": dx, "camera_ty": dy,
+                           "method": "farneback"})
+            t += 0.2
+    return values
+
+
 @pytest.fixture
 def project(tmp_path) -> Path:
     """A two-clip project carrying the ingest shapes 1.02/1.03/1.04 emit."""
@@ -78,6 +101,17 @@ def project(tmp_path) -> Path:
         "color_curves": {"sample_rate_hz": 1,
                          "brightness_values": [0.4] * 20,
                          "saturation_values": [0.2] * 20},
+        # 1.04 optical flow: the deterministic 5 Hz camera movement
+        # classification (Gap 13). clip_002 carries none, so it keeps the
+        # VLM description as the only measurement.
+        "optical_flow_direction": {
+            "sample_rate_hz": 5,
+            "values": _flow_values(),
+            "dominant_motion": "mixed",
+            "dominant_direction": "unknown",
+            "method": "farneback",
+            "motion_peaks": [],
+        },
     })
     _write(steps / "1_04_temporal_index" / "index" / "clip_002.json", {
         "clip_id": "clip_002", "duration": 10.0, "speech_regions": [],
@@ -194,6 +228,80 @@ def test_an_unmeasured_curve_is_absent_not_zero(project):
     assert facets["motion"] == 0.9
 
 
+# ─── Camera movement is the deterministic measurement ───────────────
+#
+# Gap 13: the search index used the VLM's 10 s window description, so the
+# finer-grained 5 Hz optical-flow classification was unqueryable. A query
+# for camera movement returned VLM windows, not the measured spans.
+
+
+def test_camera_movement_is_cut_from_the_deterministic_measurement(project):
+    """The 5 Hz optical-flow classification is the primary camera segment.
+
+    The defect this prevents: with only the VLM description indexed, a
+    camera-movement query returned one 10 s window per clip no matter how
+    often the measured direction changed. The deterministic runs are the
+    finest boundary the measurement made, so they are the segments.
+    """
+    segments = [s for s in build_segments(project)
+                if s.kind == "camera" and s.clip_id == "clip_001"]
+    # Four runs of constant direction at 5 Hz, not one 20 s VLM window.
+    assert [(s.start, s.end) for s in segments] == [
+        (0.0, 5.0), (5.0, 10.0), (10.0, 15.0), (15.0, 20.0)]
+    assert [s.facets["movement"] for s in segments] == [
+        "right", "static", "up", "mixed"]
+    assert all(s.facets["movement_method"] == "optical_flow"
+               for s in segments)
+    # The VLM window enriches each run at the window level.
+    assert all(s.facets["vlm_mode"] == "selfie" for s in segments)
+    assert all(s.facets["vlm_framing"] == "close-up" for s in segments)
+    assert all(s.facets["vlm_movement"] == "walking" for s in segments)
+    # The deterministic clip-level summary is queryable too.
+    assert all(s.facets["dominant_motion"] == "mixed" for s in segments)
+    # The text leads with the deterministic measurement, then the VLM words.
+    assert segments[0].text.startswith("panning right shot")
+    assert "selfie" in segments[0].text
+
+
+def test_camera_movement_falls_back_to_vlm_when_unmeasured(project):
+    """A clip with no optical flow measurement keeps the VLM description.
+
+    The defect this prevents: a clip whose flow was never measured would
+    have had no camera segments at all if the index required the
+    deterministic signal. The VLM windows are the only measurement there,
+    and ``movement_method`` says which signal produced the facet.
+    """
+    segments = [s for s in build_segments(project)
+                if s.kind == "camera" and s.clip_id == "clip_002"]
+    assert len(segments) == 1
+    assert segments[0].start == 0.0 and segments[0].end == 10.0
+    assert segments[0].facets["movement"] == "static"
+    assert segments[0].facets["movement_method"] == "vision_vlm"
+    assert "vlm_mode" not in segments[0].facets
+
+
+def test_a_gap_in_the_flow_series_breaks_the_run(project):
+    """An unmeasured pair is not evidence the direction held across it.
+
+    The defect this prevents: treating the series as continuous would
+    bridge a gap where nothing was measured and present a span the
+    instrument never classified. A time gap starts a new run.
+    """
+    doc = {
+        "optical_flow_direction": {
+            "sample_rate_hz": 5,
+            "values": [
+                {"time": 0.2, "direction": "right", "method": "farneback"},
+                {"time": 0.4, "direction": "right", "method": "farneback"},
+                # 0.6 and 0.8 unmeasured: a gap, not a continuation.
+                {"time": 1.0, "direction": "right", "method": "farneback"},
+            ],
+        }
+    }
+    runs = footage_segments._flow_runs(doc)
+    assert [(r["start"], r["end"]) for r in runs] == [(0.0, 0.4), (0.8, 1.0)]
+
+
 # ─── Building and querying ────────────────────────────────────────
 
 
@@ -242,7 +350,11 @@ def test_a_query_nothing_clears_returns_nothing_and_says_why(offline_index):
     """
     idx, _ = offline_index
     unfloored = idx.search_report("parking", top_k=5, floor=0)
-    best = unfloored["results"][0]["dense_score"]
+    # The best DENSE score, not the top combined row: the hybrid ranking
+    # blends dense with lexical, so the first result is not necessarily the
+    # highest cosine. The floor is set above the best cosine any segment
+    # actually reached.
+    best = max(r["dense_score"] for r in unfloored["results"])
 
     report = idx.search_report("parking", top_k=5, floor=best + 0.01)
     assert report["results"] == [], "nothing cleared the floor, so nothing comes back"

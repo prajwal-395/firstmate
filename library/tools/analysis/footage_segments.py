@@ -14,12 +14,14 @@ sit side by side in one corpus:
 ======== ======================== ===================== =================
 kind     boundary                 source                typical span
 ======== ======================== ===================== =================
-speech   one whole-source         source memory M1 when   1 - 8 s
+ speech   one whole-source         source memory M1 when   1 - 8 s
          utterance                fresh, else 1.04
                                   speech_regions
 action   one vision action window 1.03 actions[]        ~10 s
 scene    one scene observation    1.03 scene[]          clip or part
-camera   one camera observation   1.03 camera[]         clip or part
+camera   one run of constant      1.04 optical_flow_    0.2 s - clip
+         direction at 5 Hz        direction.values[],
+                                  enriched by 1.03 camera[]
 object   one object appearance    1.03 objects[]        seconds to clip
 ======== ======================== ===================== =================
 
@@ -34,6 +36,12 @@ The dense 30 Hz / 5 Hz curves from step 1.04 are NOT cut into segments.
 They are REDUCED over each segment's span into facets (how much speech,
 how much motion, how present the face is, how bright).  A curve is a
 thing to filter by, never a thing to retrieve.
+
+The camera movement CLASSIFICATION is the exception.  It is a per-sample
+label, not a numeric curve, and its runs of constant direction are cut
+into ``camera`` segments at the 5 Hz boundary the measurement actually
+made - the deterministic measurement is the primary one, enriched by the
+VLM's per-window description where they overlap (Gap 13).
 """
 
 from __future__ import annotations
@@ -234,6 +242,23 @@ def _vision_facets(vision_doc) -> dict:
     return facets
 
 
+def _deterministic_facets(temporal_doc) -> dict:
+    """Clip-level deterministic camera facts, when step 1.04 measured them.
+
+    ``dominant_motion`` is the clip-level optical-flow classification, in
+    the same vocabulary the per-run ``movement`` facet uses at 5 Hz.  It is
+    absent when unmeasured: "no flow" and "no dominant motion" are
+    different answers, and a filter must be able to tell them apart.
+    """
+    if not isinstance(temporal_doc, dict):
+        return {}
+    flow = temporal_doc.get("optical_flow_direction") or {}
+    dominant = flow.get("dominant_motion")
+    if not dominant or dominant == "unknown":
+        return {}
+    return {"dominant_motion": dominant}
+
+
 # ─── Cutting each source ──────────────────────────────────────────
 
 
@@ -374,7 +399,158 @@ def _scene_segments(clip, vision_doc, temporal_doc, base_facets) -> list:
     return out
 
 
+# Which signal produced a segment's ``movement`` facet.  A method travels
+# with the number it qualifies, so a query can tell a deterministic span
+# from a VLM-described one.
+FLOW_MOVEMENT_METHOD = "optical_flow"
+VLM_MOVEMENT_METHOD = "vision_vlm"
+
+# Human-readable rendering of one per-sample direction, for the segment
+# TEXT (lexical search).  The ``movement`` facet keeps the verbatim
+# measurement; this only words it for a person reading the hit.
+_DIRECTION_TEXT = {
+    "right": "panning right",
+    "up-right": "panning up-right",
+    "up": "tilting up",
+    "up-left": "panning up-left",
+    "left": "panning left",
+    "down-left": "panning down-left",
+    "down": "tilting down",
+    "down-right": "panning down-right",
+    "static": "static",
+    "mixed": "mixed motion",
+}
+
+
+def _flow_runs(temporal_doc) -> list:
+    """Runs of constant direction in the 5 Hz optical-flow series.
+
+    Step 1.04 writes one classified sample per frame pair.  A run is a
+    maximal stretch of consecutive samples with the SAME direction and no
+    time gap: an unmeasured pair leaves a gap, and a gap is not evidence
+    the direction held across it.  Each run is the finest boundary the
+    deterministic camera-movement measurement made, so each run is one
+    segment's span.
+    """
+    flow = temporal_doc.get("optical_flow_direction") or {}
+    values = flow.get("values") or []
+    rate = flow.get("sample_rate_hz") or 5
+    period = 1.0 / rate
+    runs = []
+    for sample in values:
+        if not isinstance(sample, dict):
+            continue
+        direction = sample.get("direction")
+        time = sample.get("time")
+        if not direction or not isinstance(time, (int, float)):
+            continue
+        method = sample.get("method") or "unmeasured"
+        if (runs and runs[-1]["direction"] == direction
+                and abs(time - runs[-1]["last_time"] - period) < 1e-6):
+            runs[-1]["last_time"] = time
+            runs[-1]["methods"].add(method)
+        else:
+            runs.append({"direction": direction, "first_time": time,
+                         "last_time": time, "methods": {method}})
+    out = []
+    for run in runs:
+        methods = run["methods"]
+        # The same name step 1.04 gives the clip-level method, so a run and
+        # its clip read as one vocabulary.
+        if methods == {"farneback"}:
+            flow_method = "farneback"
+        elif methods == {"block_match"}:
+            flow_method = "block_match"
+        else:
+            flow_method = "farneback+block_match"
+        out.append({
+            "direction": run["direction"],
+            # A sample at time t covers the interval ending at t, so the
+            # run starts one period before its first sample.
+            "start": round(max(0.0, run["first_time"] - period), 3),
+            "end": round(run["last_time"], 3),
+            "flow_method": flow_method,
+        })
+    return out
+
+
+def _overlapping_vlm(windows, start: float, end: float):
+    """The VLM camera window with the largest overlap of ``[start, end]``.
+
+    The VLM describes the shot at 10 s window granularity; a deterministic
+    run is enriched by the window it mostly falls in, never by merging
+    windows the run only touches.
+    """
+    best, best_overlap = None, 0.0
+    for window in windows:
+        if not isinstance(window, dict):
+            continue
+        try:
+            w_start = float(window.get("start", 0.0))
+            w_end = float(window.get("end", w_start))
+        except (TypeError, ValueError):
+            continue
+        overlap = min(end, w_end) - max(start, w_start)
+        if overlap > best_overlap:
+            best, best_overlap = window, overlap
+    return best
+
+
 def _camera_segments(clip, vision_doc, temporal_doc, base_facets) -> list:
+    """Camera movement, primarily the deterministic 5 Hz measurement.
+
+    Step 1.04 classifies camera movement per frame pair at 5 Hz
+    (``optical_flow_direction.values[].direction``).  Its runs of
+    constant direction are the finest boundary that measurement made, so
+    they are the ``camera`` segments - the deterministic measurement is the
+    primary one (Gap 13).  The VLM's per-window description enriches each
+    run where they overlap.  A clip with no optical flow measurement falls
+    back to the VLM windows alone, and says so via ``movement_method``.
+    """
+    runs = _flow_runs(temporal_doc)
+    if runs:
+        windows = [w for w in (vision_doc.get("camera") or [])
+                   if isinstance(w, dict)]
+        out = []
+        for i, run in enumerate(runs):
+            start, end = run["start"], run["end"]
+            words = _DIRECTION_TEXT.get(run["direction"],
+                                        run["direction"])
+            vlm = _overlapping_vlm(windows, start, end)
+            facets = {
+                **base_facets,
+                "movement": run["direction"],
+                "movement_method": FLOW_MOVEMENT_METHOD,
+                "flow_method": run["flow_method"],
+                **curve_facets(temporal_doc, start, end),
+            }
+            text = f"{words} shot"
+            if vlm:
+                facets.update({
+                    "vlm_mode": vlm.get("mode"),
+                    "vlm_framing": vlm.get("framing"),
+                    "vlm_stability": vlm.get("stability"),
+                    "vlm_movement": vlm.get("movement"),
+                })
+                enrichment = " ".join(
+                    _clean(vlm.get(k)) for k in ("framing", "mode",
+                                                 "movement", "stability"))
+                if enrichment:
+                    text = f"{text} - {enrichment}"
+            out.append(Segment(
+                segment_id=f"{clip['clip_id']}#camera#{i:03d}",
+                clip_id=clip["clip_id"],
+                filename=clip.get("filename", ""),
+                source_file=clip.get("source_file") or clip.get("path", ""),
+                kind="camera",
+                start=start,
+                end=end,
+                text=text,
+                facets=facets,
+            ))
+        return out
+
+    # No deterministic measurement: the VLM windows are all there is.
     out = []
     for i, cam in enumerate(vision_doc.get("camera") or []):
         parts = [_clean(cam.get("framing")), _clean(cam.get("mode")),
@@ -393,7 +569,8 @@ def _camera_segments(clip, vision_doc, temporal_doc, base_facets) -> list:
             start=round(start, 3),
             end=round(end, 3),
             text=f"{text} shot",
-            facets={**base_facets, **curve_facets(temporal_doc, start, end)},
+            facets={**base_facets, "movement_method": VLM_MOVEMENT_METHOD,
+                    **curve_facets(temporal_doc, start, end)},
         ))
     return out
 
@@ -473,6 +650,7 @@ def build_segments(project_folder, kinds=SEGMENT_KINDS) -> list:
         temporal_doc = temporal.get(clip_id) or {}
         vision_doc = vision.get(clip_id) or {}
         base = _vision_facets(vision_doc)
+        base.update(_deterministic_facets(temporal_doc))
         base["duration_seconds"] = clip.get("duration_seconds")
         # A fresh whole-source transcript supersedes the 1.04 regions
         # for the same clip: both transcribe the whole file, so
