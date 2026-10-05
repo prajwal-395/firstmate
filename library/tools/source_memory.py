@@ -18,8 +18,9 @@ read the same memory for free. Projects REFERENCE it and never copy
 it. Nothing here goes into `pipeline_data.json` (rewritten after every
 step; the memory is per source, not per run).
 
-**The slots.** M0, M1, M2, M3, M3b, M6 and M7 are written now; every later lane
-writes into its named slot without inventing its own shape:
+**The slots.** M0, M1, M2, M3, M3b, M1b, M4, M5, M6 and M7 are written now;
+every later lane writes into its named slot without inventing its own
+shape:
 
 ======== ============================ ============================= ==========
 slot     file                         what                          producer
@@ -31,18 +32,22 @@ M0       `source.json` +              digest, size, streams, live    `library/to
 M1       `transcript.words.json`      whole-SOURCE word-timed       this module
                                       transcript (voz text through  (voz + MFA)
                                       MFA, the reel path's seam)
-M1b      `speakers.json`              diarized turns + voice        diarization
-                                      embeddings                    lane
+M1b      `speakers.json`              diarized turns + voice        `library/tools/
+                                       embeddings                    person_entity.py`
 M2       `frames/` +                  I-frame thumbnails, 384 px,   this module
-                                      `frames.index.json`           at ~2 Hz
+         `frames.index.json`           at ~2 Hz
 M3       `persons.json`               faces, lips, hands at the M2  `library/tools/
-                                      cadence (Apple Vision)        person_measurements.py`
+                                       cadence (Apple Vision)        person_measurements.py`
 M3b      `identity.json`              face/voice identity tracks,   `library/tools/
-                                      speech-face links (face-only  person_entity.py`
-                                      cross-source identity - see
-                                      that module's docstring for why)
-M4       `scenes.json`                scene embeddings              CLIP lane
-M5       `sound.json`                 sound-event labels            SoundAnalysis
+                                       speech-face links (face-only  person_entity.py`
+                                       cross-source identity - see
+                                       that module's docstring for why)
+M4       `scenes.json`                scene observations (VLM) +    `library/tools/
+                                       ffmpeg scene boundaries       analysis/
+                                                                vision_pipeline_v3.py`
+M5       `sound.json`                 sound-event labels (PANNs)    `library/steps/
+                                                                step_1_04_temporal_index/
+                                                                step.py`
 M6       `clock.json`                 per-source multicam offset    conversation_clock.py
 M7       `events.json`                DERIVED per-person spans      `library/tools/
                                       (speaking, on_screen)         event_spans.py`
@@ -126,33 +131,33 @@ MEMORY_ROOT_ENV = "PIPELINE_SOURCE_MEMORY_ROOT"
 
 # ── The slots ──────────────────────────────────────────────────────
 # A lane writes into its named file and no other. `source.json`,
-# `transcript.words.json`, the `frames/`/`frames.index.json` pair and
-# `identity.json` (by `library/tools/person_entity.py`) are written
-# now; the rest are RESERVED - named here so later lanes share the
-# shapes instead of inventing their own, with no code behind them yet.
+# `transcript.words.json`, the `frames/`/`frames.index.json` pair,
+# `identity.json` and `speakers.json` (by `library/tools/person_entity.py`),
+# `scenes.json` (by `library/tools/analysis/vision_pipeline_v3.py`) and
+# `sound.json` (by `library/steps/step_1_04_temporal_index/step.py`) are
+# written now; the rest are RESERVED - named here so later lanes share
+# the shapes instead of inventing their own, with no code behind them yet.
 
 SLOT_SOURCE = "source.json"                    # M0
 SLOT_TRANSCRIPT = "transcript.words.json"      # M1
-SLOT_SPEAKERS = "speakers.json"                # M1b (diarization lane)
+SLOT_SPEAKERS = "speakers.json"                # M1b - written by person_entity.py
 SLOT_FRAMES_DIR = "frames"                     # M2
 SLOT_FRAMES_INDEX = "frames.index.json"        # M2
 SLOT_PERSONS = "persons.json"                  # M3 - written by person_measurements.py
 SLOT_IDENTITY = "identity.json"                # M3b - written by person_entity.py
-SLOT_SCENES = "scenes.json"                    # M4 (CLIP lane)
-SLOT_SOUND = "sound.json"                      # M5 (SoundAnalysis lane)
+SLOT_SCENES = "scenes.json"                    # M4 - written by vision_pipeline_v3.py
+SLOT_SOUND = "sound.json"                      # M5 - written by step_1_04
 SLOT_CLOCK = "clock.json"                      # M6 - written by conversation_clock.py
 SLOT_EVENTS = "events.json"                    # M7 - written by event_spans.py
 SLOT_VERDICTS = "verdicts.json"                # M8 - written by span_verification.py
 
-RESERVED_SLOTS = (
-    SLOT_SPEAKERS, SLOT_SCENES, SLOT_SOUND,
-)
-# SLOT_CLOCK (M6) is no longer reserved: `library/tools/conversation_clock.py`
-# writes it. SLOT_FRAMES_DIR/SLOT_FRAMES_INDEX (M2) are no longer reserved:
-# `extract_iframes`/`build_frames` below write them. SLOT_IDENTITY (M3b)
-# is no longer reserved: `library/tools/person_entity.py` writes it.
-# SLOT_PERSONS (M3) and SLOT_EVENTS (M7) are no longer reserved:
-# `person_measurements.py` and `event_spans.py` write them.
+# No slot is reserved now. SLOT_CLOCK (M6) was the first to gain a writer
+# (`library/tools/conversation_clock.py`); SLOT_FRAMES_DIR/SLOT_FRAMES_INDEX
+# (M2) followed (`extract_iframes`/`build_frames` below), then SLOT_IDENTITY
+# (M3b) and SLOT_SPEAKERS (M1b) (`library/tools/person_entity.py`),
+# SLOT_PERSONS (M3) (`person_measurements.py`), SLOT_EVENTS (M7)
+# (`event_spans.py`), SLOT_SCENES (M4) (`vision_pipeline_v3.py`) and
+# SLOT_SOUND (M5) (`step_1_04_temporal_index/step.py`).
 
 SILENCE_DB = -60.0
 """Below this a track is room tone off, not a candidate for anything.
@@ -674,6 +679,107 @@ def frame_abspath(content_digest: str, frame: dict,
     memory contract).
     """
     return str(source_dir(content_digest, root) / frame["file"])
+
+
+# ── M1b / M4 / M5: the reserved lanes, now written ──────────────────
+# Each writer serializes a measurement its producer already made - no
+# writer here measures anything. The producers are `person_entity.py`
+# (M1b, from the same voice measurement M3b makes), `vision_pipeline_v3.py`
+# (M4, from the VLM scene pass plus the temporal index's ffmpeg
+# boundaries) and `step_1_04_temporal_index/step.py` (M5, from the PANNs
+# events the temporal index already measures).
+
+
+def write_speakers(content_digest: str, source_file: str, status: str,
+                   speakers: list, instrument: Optional[dict] = None,
+                   root: Optional[Path] = None) -> None:
+    """M1b `speakers.json`: diarized turns and their voice embeddings.
+
+    `speakers` is the voice-track list `person_entity.measure_voice_tracks`
+    already returns - `[{track_id, embedding, spans}]` - written into the
+    slot the diarization lane reserved. `instrument` is the voice half of
+    the M3b instrument (which diarizer answered, and why not when not).
+    """
+    write_json(source_dir(content_digest, root) / SLOT_SPEAKERS, {
+        "content_digest": content_digest,
+        "source_file": os.path.abspath(source_file),
+        "status": status,
+        "speakers": speakers,
+        "instrument": instrument or {},
+    })
+
+
+def read_speakers(content_digest: str,
+                  root: Optional[Path] = None) -> Optional[dict]:
+    """The M1b speaker lane for a digest, or None when never written."""
+    doc = _load_json(source_dir(content_digest, root) / SLOT_SPEAKERS)
+    return doc if isinstance(doc, dict) else None
+
+
+def write_scenes(content_digest: str, source_file: str, status: str,
+                 scenes: list, scene_boundaries: Optional[list] = None,
+                 scene_coverage: Optional[dict] = None,
+                 instrument: Optional[dict] = None,
+                 root: Optional[Path] = None) -> None:
+    """M4 `scenes.json`: the VLM scene pass plus ffmpeg scene boundaries.
+
+    `scenes` is the profile's normalized scene segments
+    (`[{start, end, location, type, lighting, notable_features}]`),
+    `scene_boundaries` the temporal index's ffmpeg cut points - both
+    already measured, serialized into the slot the scene lane reserved.
+    """
+    write_json(source_dir(content_digest, root) / SLOT_SCENES, {
+        "content_digest": content_digest,
+        "source_file": os.path.abspath(source_file),
+        "status": status,
+        "scenes": scenes,
+        "scene_boundaries": scene_boundaries or [],
+        "scene_coverage": scene_coverage,
+        "instrument": instrument or {},
+    })
+
+
+def read_scenes(content_digest: str,
+                root: Optional[Path] = None) -> Optional[dict]:
+    """The M4 scene lane for a digest, or None when never written."""
+    doc = _load_json(source_dir(content_digest, root) / SLOT_SCENES)
+    return doc if isinstance(doc, dict) else None
+
+
+def write_sound(content_digest: str, source_file: str, status: str,
+                sound_events: list, method: str,
+                root: Optional[Path] = None) -> None:
+    """M5 `sound.json`: measured PANNs sound-event labels.
+
+    `sound_events` is the `[{label, start, end, confidence}]` list the
+    temporal index already measures, `method` the producer's name or
+    `unmeasured: <reason>`. An unmeasured record is written only when no
+    measured record exists for the digest: two clips of one camera file
+    share a memory, and a source whose events were measured must not be
+    demoted to empty because a later clip ran without the checkpoint.
+    """
+    path = source_dir(content_digest, root) / SLOT_SOUND
+    measured = not str(method or "").startswith("unmeasured")
+    if not measured:
+        existing = _load_json(path)
+        if (isinstance(existing, dict)
+                and not str(existing.get("method") or "").startswith(
+                    "unmeasured")):
+            return
+    write_json(path, {
+        "content_digest": content_digest,
+        "source_file": os.path.abspath(source_file),
+        "status": status,
+        "sound_events": sound_events,
+        "method": method,
+    })
+
+
+def read_sound(content_digest: str,
+               root: Optional[Path] = None) -> Optional[dict]:
+    """The M5 sound lane for a digest, or None when never written."""
+    doc = _load_json(source_dir(content_digest, root) / SLOT_SOUND)
+    return doc if isinstance(doc, dict) else None
 
 
 # ── The project-side fingerprint (for the search index) ────────────

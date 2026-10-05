@@ -1,5 +1,6 @@
-"""The person entity store: M3b (`identity.json`) of the per-source
-footage memory (`docs/SOURCE_MEMORY.md`).
+"""The person entity store: M3b (`identity.json`) and M1b
+(`speakers.json`) of the per-source footage memory
+(`docs/SOURCE_MEMORY.md`).
 
 Scout basis: `data/vep-video-intelligence-entities-and-search/report.md`
 section 2 (in firstmate's home). Rigor-gate basis:
@@ -25,7 +26,9 @@ its 512-d ArcFace embedding and nothing else.
   see `FRAME_SOURCE_M2_TIMES`.
 - Voice tracks: the source's own program-track audio, diarized with the
   already-landed ECAPA fallback (`single_track_diarization.diarize_track`,
-  PR #1482) - reused as-is, not re-measured here.
+  PR #1482) - reused as-is, not re-measured here. The same tracks are
+  written to M1b (`speakers.json`), the diarization lane's reserved slot,
+  beside their M3b home.
 - Speech-face links: a face span and a voice turn that overlap in time,
   recorded with the basis that produced them. Never invented past what
   overlaps.
@@ -577,6 +580,9 @@ def build_source_identity(source_file: str,
                   "faces": [], "voices": [], "speech_face_links": [],
                   "instrument": {}}
         source_memory.write_json(target / source_memory.SLOT_IDENTITY, record)
+        source_memory.write_speakers(
+            digest, source_file, STATUS_NO_VIDEO, [], instrument={},
+            root=root)
         return {"source_file": os.path.abspath(source_file),
                "content_digest": digest, "status": STATUS_NO_VIDEO,
                "faces": 0, "voices": 0, "links": 0}
@@ -682,6 +688,12 @@ def build_source_identity(source_file: str,
         },
     }
     source_memory.write_json(target / source_memory.SLOT_IDENTITY, record)
+    source_memory.write_speakers(
+        digest, source_file, status, voice_tracks,
+        instrument={key: record["instrument"].get(key)
+                    for key in ("voice", "voice_unavailable_reason",
+                                "voice_device", "voice_cache_key")},
+        root=root)
     return {"source_file": os.path.abspath(source_file),
            "content_digest": digest, "status": status,
            "faces": len(face_tracks), "voices": len(voice_tracks),

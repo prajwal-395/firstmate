@@ -2412,3 +2412,42 @@ def test_lazy_semantic_model_holds_ram_but_not_gpu_during_host_wait(
         assert results[0][0] == "host answer"
 
     assert scheduler.jobs() == []
+
+
+def test_write_scene_memory_serializes_the_vlm_scene_pass_and_boundaries(
+        tmp_path, monkeypatch):
+    """The defect: the VLM scene pass measured per-window scene
+    observations and the temporal index measured ffmpeg scene
+    boundaries, but the M4 slot reserved for them stayed empty - a
+    reader of `scenes.json` got nothing. Both already-measured signals
+    must reach the slot."""
+    from library.tools import footage_identity, source_memory
+
+    memory_root = tmp_path / "memory"
+    monkeypatch.setenv(source_memory.MEMORY_ROOT_ENV, str(memory_root))
+
+    media = tmp_path / "A.MOV"
+    media.write_bytes(b"scene-bytes" * (3 * 1024 * 1024 // 14 + 1))
+    digest = footage_identity.fingerprint(str(media))["content_digest"]
+
+    profile = {
+        "scene": [{"start": 0.0, "end": 10.0, "location": "studio",
+                   "type": "indoor", "lighting": "soft",
+                   "notable_features": ["logo"]}],
+        "scene_coverage": {"ratio": 1.0, "described_s": 10.0,
+                           "total_s": 10.0},
+    }
+    temporal_index = {
+        "scene_boundaries": [{"time": 0.0, "score": 1.0, "type": "start"},
+                             {"time": 5.5, "score": 0.7,
+                              "type": "scene_change"}],
+    }
+
+    vp.write_scene_memory(media, profile, temporal_index)
+
+    doc = source_memory.read_scenes(digest)
+    assert doc is not None, "the M4 slot stayed empty"
+    assert doc["content_digest"] == digest
+    assert doc["scenes"] == profile["scene"]
+    assert doc["scene_boundaries"] == temporal_index["scene_boundaries"]
+    assert doc["scene_coverage"] == profile["scene_coverage"]

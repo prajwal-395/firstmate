@@ -19,6 +19,11 @@ camera and assessment sections arrive in clip time and are merged
 across windows; the assessment vote merge is `_merge_assessment_votes`
 and the deterministic tail is `_finish_assessment`.
 
+The scene pass is serialized into the per-source memory's M4 slot
+(`scenes.json`) by `write_scene_memory` - the VLM scene observations
+plus the temporal index's ffmpeg scene boundaries, both already
+measured, into the slot the scene lane reserved.
+
 Usage:
     python3 vision_pipeline_v3.py                             # All clips in raw/
     python3 vision_pipeline_v3.py --clip raw/IMG_1813.MOV     # Single clip
@@ -3947,6 +3952,26 @@ def _write_vision_index(all_profiles, skipped, total_start, output_dir):
     return index
 
 
+def write_scene_memory(clip_path, profile, temporal_index, root=None):
+    """M4 `scenes.json`: the VLM scene pass plus ffmpeg scene boundaries.
+
+    Serialized from measurements this run already made - the profile's
+    normalized scene segments and the temporal index's scene boundaries -
+    into the per-source slot the scene lane reserved. No new measurement:
+    the digest comes from the clip's own content fingerprint.
+    """
+    from library.tools import footage_identity, source_memory
+
+    digest = footage_identity.fingerprint(str(clip_path))["content_digest"]
+    source_memory.write_scenes(
+        digest, str(clip_path), "measured",
+        scenes=profile.get("scene") or [],
+        scene_boundaries=(temporal_index or {}).get("scene_boundaries") or [],
+        scene_coverage=profile.get("scene_coverage"),
+        instrument={"scene_pass": "folded window call (PROMPT_WINDOW_ALL_COMPACT)"},
+        root=root)
+
+
 def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
                  harness=None, project_folder=None):
     """Run the v3 vision pipeline on a list of clip paths.
@@ -4139,6 +4164,7 @@ def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
             # Save individual profile
             _write_profile_atomically(out_path, profile)
             print(f"  Saved: {out_path}")
+            write_scene_memory(clip_path, profile, temporal_idx)
 
     return _write_vision_index(all_profiles, skipped, total_start, output_dir)
 

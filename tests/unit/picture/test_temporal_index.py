@@ -24,6 +24,7 @@ import json
 import stat
 from library.steps.step_1_04_temporal_index.step import (
     decompose_camera_motion,
+    write_sound_memory,
 )
 from library.tools.camera_stability import (
     HANDHELD_BELOW,
@@ -847,3 +848,36 @@ def test_the_view_carries_both_signals_a_legend_and_the_disagreement():
          "camera": [{"stability": "stable"}]},
     ]})["stability"]
     assert view["clips"][0]["deterministic_method"] == "unrecorded"
+
+
+def test_write_sound_memory_serializes_the_measured_panns_events(
+        tmp_path, monkeypatch):
+    """The defect: the temporal index measured PANNs sound events per
+    clip, but the M5 slot reserved for them stayed empty - a reader of
+    `sound.json` got nothing. The already-measured events must reach the
+    slot, with the method that says whether anything was measured."""
+    from library.tools import footage_identity, source_memory
+
+    memory_root = tmp_path / "memory"
+    monkeypatch.setenv(source_memory.MEMORY_ROOT_ENV, str(memory_root))
+
+    media = tmp_path / "A.MOV"
+    media.write_bytes(b"sound-bytes" * (3 * 1024 * 1024 // 11 + 1))
+    digest = footage_identity.fingerprint(str(media))["content_digest"]
+
+    index = {
+        "clip_id": "clip_001",
+        "source_file": str(media),
+        "sound_events": [{"label": "Laughter", "start": 1.0, "end": 2.0,
+                          "confidence": 0.9}],
+        "sound_event_method": "panns-cnn14",
+    }
+
+    write_sound_memory(index, str(media))
+
+    doc = source_memory.read_sound(digest)
+    assert doc is not None, "the M5 slot stayed empty"
+    assert doc["content_digest"] == digest
+    assert doc["sound_events"] == index["sound_events"]
+    assert doc["method"] == "panns-cnn14"
+    assert doc["status"] == "measured"

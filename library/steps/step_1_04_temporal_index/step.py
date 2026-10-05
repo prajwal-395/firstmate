@@ -21,7 +21,10 @@ Produces a per-clip JSON index containing:
   - sound_events / sound_event_method: the PANNs event layer proper
     (AudioSet labels, spans, confidences) beside the method that says
     whether anything was measured - what event anchors resolve
-    against (`library/tools/sound_events.py`)
+    against (`library/tools/sound_events.py`). The same events are
+    serialized into the per-source memory's M5 slot (`sound.json`) by
+    `write_sound_memory` - already measured, into the slot the sound
+    lane reserved.
   - motion_energy: per-second visual motion magnitude (frame differencing,
     30Hz frame-aligned)
   - regional_motion: 10Hz, 640x360 Farneback tracks and advisory crop /
@@ -1990,6 +1993,39 @@ def backfill_sound_events(index: dict, video_path: str = None,
     return True
 
 
+def write_sound_memory(index: dict, video_path: str = None,
+                       root=None) -> None:
+    """M5 `sound.json`: the PANNs sound-event layer, serialized.
+
+    The temporal index already measures `sound_events` and
+    `sound_event_method` per clip; this writes them into the per-source
+    slot the sound lane reserved. No new measurement - the digest comes
+    from the clip's own content fingerprint, and an unmeasured record
+    never demotes a measured one (two clips of one camera file share a
+    memory).
+    """
+    from library.tools import footage_identity, source_memory
+
+    path = video_path or (index or {}).get("source_file")
+    if not path or not os.path.isfile(path):
+        return
+    try:
+        digest = footage_identity.fingerprint(str(path))["content_digest"]
+    except OSError:
+        return
+    events = index.get("sound_events")
+    if not isinstance(events, list):
+        events = []
+    method = index.get("sound_event_method")
+    if not isinstance(method, str):
+        method = "unmeasured: predates the event measurement"
+    measured = not method.startswith("unmeasured")
+    source_memory.write_sound(
+        digest, str(path),
+        "measured" if measured else "unmeasured",
+        events, method, root=root)
+
+
 def vision_backfill_needed(index: dict) -> bool:
     """Whether a cached per-clip index predates the Vision measurement.
 
@@ -3303,6 +3339,7 @@ def _index_audio_files(
             else:
                 print(f"  reusing {os.path.basename(index_path)}",
                       file=sys.stderr)
+            write_sound_memory(index, filepath)
             out.append({
                 "audio_id": audio_id,
                 "index_path": index_path,
@@ -3550,6 +3587,7 @@ def build_temporal_index(
             if not isinstance(sound_event_method, str):
                 sound_event_method = (
                     "unmeasured: predates the event measurement")
+            write_sound_memory(index, filepath)
             results.append({
                 "clip_id": clip_id,
                 "index_path": index_path,

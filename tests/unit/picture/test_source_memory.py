@@ -1386,3 +1386,101 @@ def test_one_same_person_pair_below_the_threshold_fails_the_study():
     assert report["at_threshold"]["false_rejects"] == 2
     assert {key for key, _n in report["frames_in_failing_pairs"]} >= {"speakertwo@3"}
     json.dumps(report)
+
+
+# ── The reserved lanes (M1b / M4 / M5), now written ─────────────────
+#
+# Each slot was declared in `source_memory.py` with no writer behind it,
+# so a measurement its producer already made never reached the per-source
+# memory: M3b's voice tracks stayed out of M1b, the VLM scene pass and the
+# ffmpeg boundaries stayed out of M4, and the PANNs events stayed out of
+# M5. The tests below name those defects - a slot a reader can now read.
+
+
+def test_build_source_identity_writes_the_m1b_speaker_lane(
+        tmp_path, memory_root_2, monkeypatch):
+    """The defect: M3b measured diarized voice turns and their ECAPA
+    embeddings, but the M1b slot reserved for them stayed empty - a
+    reader of `speakers.json` got nothing. The same measurement must
+    reach both slots."""
+    from library.tools import source_primitives
+
+    media = _media_2(tmp_path, "A.MXF", b"source-a")
+    digest = footage_identity.fingerprint(str(media))["content_digest"]
+    m0 = {"video_streams": [{"width": 3840, "height": 2160}],
+          "duration_seconds": 10.0, "program_track": {"channel": 1}}
+    primitives = {"content_digest": digest, "m0": m0,
+                  "program_wav": str(tmp_path / "program.16k.wav"),
+                  "program_pcm_sha256": "pcm"}
+    monkeypatch.setattr(source_primitives, "ensure",
+                        lambda *_args, **_kwargs: primitives)
+
+    def no_insightface():
+        raise person_entity.shared_environment.InsightfaceEnvironmentMissing(
+            "absent")
+
+    monkeypatch.setattr(person_entity.shared_environment,
+                        "require_insightface", no_insightface)
+    monkeypatch.setattr(person_entity, "measure_voice_tracks",
+                        lambda *_args, **_kwargs: (
+                            [{"track_id": "voice_001", "embedding": [1.0, 0.0],
+                              "spans": [[0.0, 4.0]]}], None))
+
+    person_entity.build_source_identity(str(media), root=memory_root_2)
+
+    speakers = source_memory.read_speakers(digest, memory_root_2)
+    assert speakers is not None, "the M1b slot stayed empty"
+    assert speakers["content_digest"] == digest
+    assert speakers["speakers"] == [
+        {"track_id": "voice_001", "embedding": [1.0, 0.0],
+         "spans": [[0.0, 4.0]]}]
+    assert speakers["instrument"]["voice_device"] is not None
+
+
+def test_write_sound_never_demotes_a_measured_record(tmp_path, memory_root):
+    """The defect: two clips of one camera file share a memory, so a
+    later clip indexing without the PANNs checkpoint would overwrite a
+    measured `sound.json` with an empty unmeasured one - the events were
+    measured and must survive."""
+    digest = "a" * 64
+    source_memory.write_sound(
+        digest, "/src/A.MXF", "measured",
+        [{"label": "Laughter", "start": 1.0, "end": 2.0, "confidence": 0.9}],
+        "panns-cnn14", root=memory_root)
+
+    source_memory.write_sound(
+        digest, "/src/A.MXF", "unmeasured", [],
+        "unmeasured: checkpoint missing", root=memory_root)
+
+    doc = source_memory.read_sound(digest, memory_root)
+    assert doc["method"] == "panns-cnn14"
+    assert doc["sound_events"] == [
+        {"label": "Laughter", "start": 1.0, "end": 2.0, "confidence": 0.9}]
+
+    # With no measured record, the refusal is recorded, not swallowed.
+    other = "b" * 64
+    source_memory.write_sound(
+        other, "/src/B.MXF", "unmeasured", [],
+        "unmeasured: checkpoint missing", root=memory_root)
+    assert source_memory.read_sound(other, memory_root)["status"] == "unmeasured"
+
+
+def test_write_scenes_serializes_the_measured_scene_pass(tmp_path, memory_root):
+    """The defect: the VLM scene pass and the ffmpeg scene boundaries
+    were measured into the profile and the temporal index, but the M4
+    slot reserved for them stayed empty. Both must reach `scenes.json`."""
+    digest = "c" * 64
+    scenes = [{"start": 0.0, "end": 10.0, "location": "studio",
+               "type": "indoor", "lighting": "soft",
+               "notable_features": ["logo"]}]
+    boundaries = [{"time": 0.0, "score": 1.0, "type": "start"},
+                  {"time": 5.5, "score": 0.7, "type": "scene_change"}]
+    source_memory.write_scenes(
+        digest, "/src/A.MXF", "measured", scenes,
+        scene_boundaries=boundaries,
+        scene_coverage={"ratio": 1.0}, root=memory_root)
+
+    doc = source_memory.read_scenes(digest, memory_root)
+    assert doc["scenes"] == scenes
+    assert doc["scene_boundaries"] == boundaries
+    assert doc["scene_coverage"] == {"ratio": 1.0}
