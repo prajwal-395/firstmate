@@ -1474,6 +1474,59 @@ def test_build_side_helpers_shape_slices_and_file(tmp_path):
         outcome="promoted")
 
 
+def test_draw_gain_for_timeline_reads_the_builds_recorded_gain(tmp_path):
+    """F12 grades stored Pan/Tilt at the gain that WROTE them.
+
+    Measured 2026-10-04 on Reel 15: the verifier read the punch-in
+    back under the fallback gain 2.0 while the build placed it at the
+    measured 4.0, halving every Tilt shift - the transform-derived
+    picture ended at row 1720 against a screen window ending at 1830,
+    a 110px "black band" the rendered pixels do not contain (the
+    picture really reaches 1829). The gain is a renderer property that
+    moves between builds, so the verifier reads it per reel off the
+    phase log's latest build_summary, never assumes one for the sweep.
+    """
+    project = _project(tmp_path)
+    phase_log.log_event(
+        project, 15, "Reel 15 - the-3d-nail-art-salon-beats-the-chains",
+        phase_log.BUILD_SUMMARY,
+        summary={"final": "Reel 15 - the-3d-nail-art-salon-beats-the-chains",
+                 "staging": "Reel 15 - the-3d-nail-art-salon-beats-the-chains (rebuild staging)",
+                 "draw_gain": {"gain": 4.0, "source": "measured",
+                               "disagrees_with_fallback": True}})
+    gain = phase_log.draw_gain_for_timeline(
+        project, "Reel 15 - the-3d-nail-art-salon-beats-the-chains")
+    assert gain == 4.0
+    # The staging name resolves to the same reel's record.
+    assert phase_log.draw_gain_for_timeline(
+        project,
+        "Reel 15 - the-3d-nail-art-salon-beats-the-chains (rebuild staging)"
+    ) == 4.0
+    # A reel with no build_summary, and a non-reel timeline, read as
+    # absence (None) - the caller then grades under the fallback.
+    assert phase_log.draw_gain_for_timeline(project, "Reel 99 - absent") is None
+    assert phase_log.draw_gain_for_timeline(project, "GEO Podcast - Synced") is None
+
+
+def test_draw_gain_for_timeline_the_latest_build_wins(tmp_path):
+    """A rebuild re-measures the gain; the newest record is the one in force."""
+    project = _project(tmp_path)
+    phase_log.log_event(
+        project, 24, "Reel 24 - why-ai-trusts-youtube",
+        phase_log.BUILD_SUMMARY,
+        summary={"final": "Reel 24 - why-ai-trusts-youtube",
+                 "draw_gain": {"gain": 1.0, "source": "measured",
+                               "disagrees_with_fallback": True}})
+    phase_log.log_event(
+        project, 24, "Reel 24 - why-ai-trusts-youtube (rebuild staging)",
+        phase_log.BUILD_SUMMARY,
+        summary={"final": "Reel 24 - why-ai-trusts-youtube",
+                 "draw_gain": {"gain": 4.0, "source": "measured",
+                               "disagrees_with_fallback": True}})
+    assert phase_log.draw_gain_for_timeline(
+        project, "Reel 24 - why-ai-trusts-youtube") == 4.0
+
+
 def test_lease_waits_add_up_to_a_contention_reading(tmp_path):
     """The reader answers the queue question either way it comes out.
 

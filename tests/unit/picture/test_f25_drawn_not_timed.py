@@ -108,3 +108,59 @@ def test_full_frame_word_missing_from_timings_still_errors():
               if f["kind"] == "word_mismatch"]
     assert len(errors) == 1
     assert "are" in errors[0]["message"]
+
+
+# ── 3. simultaneous cross-speaker duplicate speech ──────────────────
+#
+# Measured 2026-09-29 on Reel 15: the transcript carries near-identical
+# speech from Akshita and Craig on overlapping audio, the caption card
+# draws the word once, and the identity diff counted BOTH instances -
+# reporting the second speaker's word as dropped. 29 false word_mismatch
+# errors, all 39 "dropped" words present in their own card text.
+
+
+def test_simultaneous_duplicate_speech_is_one_caption_not_two():
+    played = [
+        _w("yeah", 1.0, 1.2, CARD_A, speaker="Akshita"),
+        _w("yeah", 1.0, 1.2, CARD_A, speaker="Craig"),
+    ]
+    captioned = [_w("yeah", 1.0, 1.2, CARD_A)]
+    cards = [{"card": CARD_A, "reel_start": 1.0, "reel_end": 1.2}]
+    result = sc.check_word_coverage(played, captioned, cards)
+    assert [f for f in result["findings"]
+            if f["kind"] == "word_mismatch"] == []
+    assert [f for f in result["findings"]
+            if f["kind"] == "played_not_captioned"] == []
+    warned = [f for f in result["findings"]
+              if f["kind"] == "duplicate_speech"]
+    assert len(warned) == 1
+    assert "yeah" in warned[0]["message"]
+
+
+def test_different_words_spoken_simultaneously_are_not_deduped():
+    # Two speakers saying DIFFERENT things at once is two captions'
+    # worth of speech, not a duplicate - the card captions one and the
+    # other is a real dropped word, never waved through.
+    played = [
+        _w("yeah", 1.0, 1.2, CARD_A, speaker="Akshita"),
+        _w("right", 1.0, 1.2, CARD_A, speaker="Craig"),
+    ]
+    captioned = [_w("yeah", 1.0, 1.2, CARD_A)]
+    cards = [{"card": CARD_A, "reel_start": 1.0, "reel_end": 1.2}]
+    result = sc.check_word_coverage(played, captioned, cards)
+    assert [f for f in result["findings"]
+            if f["kind"] == "duplicate_speech"] == []
+    assert len([f for f in result["findings"]
+                if f["kind"] == "word_mismatch"]) == 1
+
+
+def test_same_speaker_repeat_is_real_speech_and_stays():
+    played = [
+        _w("very", 1.0, 1.1, CARD_A, speaker="Akshita"),
+        _w("very", 1.1, 1.2, CARD_A, speaker="Akshita"),
+    ]
+    captioned = [_w("very", 1.0, 1.2, CARD_A)]
+    cards = [{"card": CARD_A, "reel_start": 1.0, "reel_end": 1.2}]
+    result = sc.check_word_coverage(played, captioned, cards)
+    assert [f for f in result["findings"]
+            if f["kind"] == "duplicate_speech"] == []

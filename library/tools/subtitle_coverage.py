@@ -641,6 +641,64 @@ def _covers(span_start: float, span_end: float, t: float) -> bool:
     return span_start <= t <= span_end
 
 
+def _dedup_cross_speaker_duplicates(
+        words: Sequence[dict], suppressed_ids: set):
+    """Drop simultaneous cross-speaker duplicate words from the diff basis.
+
+    Two speakers saying the same word at the same time is one caption,
+    not two: the card draws the word once, and a diff that counts both
+    instances reports the second as dropped (measured 2026-09-29 on
+    Reel 15: 29 false `word_mismatch` errors from Akshita/Craig
+    simultaneous speech - all 39 "dropped" words were present in their
+    own card text, and the sweep's own F17 warning named the eight cards
+    spanning that simultaneous speech). Coverage still counts the
+    speech: the word is played and a card sits over it; only the identity
+    diff reads the deduped list.
+
+    A duplicate is a played word whose norm is shared by another played
+    word from a DIFFERENT speaker whose span overlaps it. Within each
+    such cluster one word is kept - a non-suppressed word over a
+    suppressed one (the planner hides a recorded token from one speaker
+    while the other still says it, and the diff must see the one that is
+    drawn), then the earliest - and the rest are dropped. Same-speaker
+    repeats are real speech and stay.
+
+    Returns `(kept, dropped)`; `kept` preserves the input order.
+    """
+    by_norm: dict = {}
+    for word in words:
+        by_norm.setdefault(word["norm"], []).append(word)
+    kept: list = []
+    dropped: list = []
+    for group in by_norm.values():
+        group = sorted(group,
+                       key=lambda w: (w["reel_start"], w["reel_end"]))
+        clusters: list = []
+        for word in group:
+            if clusters and word["reel_start"] < clusters[-1][1]:
+                clusters[-1][0].append(word)
+                clusters[-1][1] = max(clusters[-1][1], word["reel_end"])
+            else:
+                clusters.append([[word], word["reel_end"]])
+        for cluster, _ in clusters:
+            if len(cluster) == 1:
+                kept.append(cluster[0])
+                continue
+            speakers = {(w.get("speaker") or "").strip().lower()
+                        for w in cluster}
+            if len(speakers) <= 1:
+                kept.extend(cluster)
+                continue
+            unsuppressed = [w for w in cluster if id(w) not in suppressed_ids]
+            pool = unsuppressed or cluster
+            chosen = min(pool,
+                         key=lambda w: (w["reel_start"], w["reel_end"]))
+            kept.append(chosen)
+            dropped.extend(w for w in cluster if w is not chosen)
+    kept_ids = {id(w) for w in kept}
+    return [w for w in words if id(w) in kept_ids], dropped
+
+
 def check_word_coverage(
     played: Sequence[dict],
     captioned: Sequence[dict],
@@ -700,6 +758,15 @@ def check_word_coverage(
     played = sorted(played or [],
                     key=lambda w: (w["reel_start"], w["reel_end"]))
     suppressed_ids = {id(word) for word in suppressed or []}
+    # Simultaneous cross-speaker duplicate speech is ONE caption, not two:
+    # the card draws the word once, and a diff that counts both instances
+    # reports the second as dropped (measured 2026-09-29 on Reel 15 - 29
+    # false word_mismatch errors, all 39 "dropped" words present in their
+    # own card text). Deduped BEFORE the coverage and identity legs; both
+    # read the deduped list, and every dropped word is reported below,
+    # never silent.
+    played, duplicate_speech = _dedup_cross_speaker_duplicates(
+        played, suppressed_ids)
     captioned = sorted(captioned or [],
                        key=lambda w: (w["reel_start"], w["reel_end"]))
     cards = sorted(cards or [],
@@ -1101,6 +1168,38 @@ def check_word_coverage(
                      "reel_end": round(w["reel_end"], 3),
                      "suppression": str(w.get("suppression") or "")}
                     for w in suppressed_words],
+            },
+        })
+
+    # Simultaneous cross-speaker duplicates the identity diff read as one
+    # caption. Forgiven above (the card draws the word once), REPORTED
+    # here - one warning naming the words, the speakers and the seconds,
+    # never silence.
+    if duplicate_speech:
+        seen: list = []
+        seen_ids: set = set()
+        for word in duplicate_speech:
+            if id(word) in seen_ids:
+                continue
+            seen_ids.add(id(word))
+            seen.append(word)
+        findings.append({
+            "kind": "duplicate_speech",
+            "severity": "warning",
+            "message": (
+                f"{len(seen)} simultaneous cross-speaker duplicate "
+                f"word(s) read as one caption - two speakers said the "
+                f"same word at the same time and the card draws it "
+                f"once, reel {seen[0]['reel_start']:.2f}-"
+                f"{seen[-1]['reel_end']:.2f}s: "
+                f"{' '.join(w['word'] for w in seen)[:160]}"),
+            "detail": {
+                "words": [
+                    {"word": w["word"],
+                     "reel_start": round(w["reel_start"], 3),
+                     "reel_end": round(w["reel_end"], 3),
+                     "speaker": w.get("speaker")}
+                    for w in seen],
             },
         })
 

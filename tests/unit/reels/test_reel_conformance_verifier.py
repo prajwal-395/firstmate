@@ -2092,6 +2092,43 @@ def test_reel_verify_operation_corrects_noncurrent_transform_read(
     assert report["read_only_proof"]["all_identical"] is True
 
 
+def test_f12_reads_the_punch_in_at_the_gain_that_wrote_it():
+    """The false F12 on Reel 15/24 was the verifier's gain, not the picture.
+
+    Measured 2026-10-04: the build placed Reel 15's punch-in at the
+    measured draw gain 4.0, and the verifier read it back under the
+    fallback 2.0 - halving every Tilt shift, so the transform-derived
+    picture ended at row 1720 against a screen window ending at 1830.
+    The rendered stills show picture through row 1829: the picture
+    really covers the window, and the 110px "black band" was the
+    verifier's own arithmetic. The same transform must PASS under the
+    gain that wrote it and FAIL under a different one - a gate that
+    cannot tell the two apart is no gate (AGENTS.md 10.4).
+    """
+    subject = SimpleNamespace(center_x=0.5023, center_y=0.3132)
+    properties = reel_look.punch_in_properties(
+        LOOK, subject, 3840, 2160, 1080, 1920, window=WINDOW,
+        draw_gain=4.0)
+    snapshot = _snapshot(_Timeline(STAGING, 1080, 1920), properties)
+    timeline = verifier._snapshot_to_reel_timeline(snapshot)
+    with patch.object(reel_look, "screen_window_rect_for",
+                      return_value=WINDOW):
+        correct = verifier.check_delivered_framing(
+            STAGING, timeline.video_items, 1080, 1920,
+            source_sizes={SOURCE: {"width": 3840, "height": 2160}},
+            declared_intent=0.0, declared_crop_factor=1.0,
+            look=LOOK, draw_gain=4.0)
+        wrong = verifier.check_delivered_framing(
+            STAGING, timeline.video_items, 1080, 1920,
+            source_sizes={SOURCE: {"width": 3840, "height": 2160}},
+            declared_intent=0.0, declared_crop_factor=1.0,
+            look=LOOK, draw_gain=2.0)
+    assert correct == [], [f.message for f in correct]
+    assert len(wrong) == 1
+    assert "bottom" in wrong[0].message
+    assert "109.8px" in wrong[0].message
+
+
 # --------------------------------------------------------------------------
 # From test_reel_cover_clip.py
 #

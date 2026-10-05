@@ -900,6 +900,43 @@ def _parse_counts(text: Any) -> tuple:
         return None, None
 
 
+def draw_gain_for_timeline(project_folder: str,
+                           timeline_name: str) -> Optional[float]:
+    """The draw gain the build that produced this timeline placed with.
+
+    The verifier grades stored Pan/Tilt transforms, and Resolve scales
+    them by the gain in force when they were written. Grading them
+    under a different gain mis-places the picture: measured 2026-10-04
+    on Reel 15, the verifier's fallback gain 2.0 against the build's
+    measured 4.0 halved every Tilt shift and reported a 110px black
+    band along the bottom of the television's screen that the rendered
+    pixels do not contain - the picture really reaches the window's
+    bottom edge (the transform-derived rectangle ended at row 1720
+    against a window ending at 1830, while the stills show picture
+    through row 1829). The gain is a renderer property that moves
+    between builds, so it is read per reel off the latest
+    `build_summary`, never assumed.
+
+    None where the timeline names no reel, or no build_summary with a
+    recorded gain exists - the caller then grades under the fallback,
+    exactly as before. A missing record is absence, never a refusal.
+    """
+    import re as _re
+    match = _re.match(r"Reel\s+(\d+)", timeline_name or "")
+    if not match:
+        return None
+    number = int(match.group(1))
+    for event in _latest_summaries(read_events(project_folder)).values():
+        if event.get("reel_number") != number:
+            continue
+        gain = ((event.get("summary") or {}).get("draw_gain") or {}).get(
+            "gain")
+        if (isinstance(gain, (int, float)) and not isinstance(gain, bool)
+                and gain > 0):
+            return float(gain)
+    return None
+
+
 def conformance_rows(project_folder: str) -> Dict[str, Dict[str, Any]]:
     """The per-reel slice of the conformance report the gate just wrote.
 
