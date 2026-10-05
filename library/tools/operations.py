@@ -1141,6 +1141,14 @@ EMPTY_EFFECT_REASONS: dict[str, str] = {
         "it only through an input that manifest declares OPTIONAL, "
         "which `run_scope.prerequisites` deliberately excludes - so no "
         "requirement names `object_segmentation` as a producer.",
+    "edit_graph.build":
+        "ARTIFACT. The graph is a derived artifact that lands in state "
+        "for a caller - `compile_manifest` and the cohesion reviewer, "
+        "which the target behavior names as its readers - rather than "
+        "travelling a DAG edge. No consumer is wired in this PR: the "
+        "brief forbids changing how existing planners decide, so the "
+        "edges from this node to its readers land with the PRs that "
+        "teach those readers to query the graph.",
     # REGION UNIT - one span of one clip, handed back to the caller.
     "transcript.reindex":
         "REGION UNIT. Re-measures the speech of ONE span of one clip and "
@@ -2021,6 +2029,23 @@ _REGISTRY: tuple[Operation, ...] = (
         # `compile_step(inputs)` derives the output directory from
         # `project_folder` (the `out_dir` `compile_manifest` takes) and
         # compiles from the project's recorded state, AGENTS.md 10.1.
+    ),
+    Operation(
+        name="edit_graph.build",
+        summary="Derive the editorial/edit graph from the run's recorded decisions",
+        owning_dir="step_5_05_build_edit_graph", body="step.py",
+        attr="build_edit_graph",
+        produces=("edit_graph",),
+        consumes=("audio_spine",),
+        # The graph is DERIVED, never authored: `build_edit_graph` reads
+        # pipeline_data.json and emits one node per decision the planners
+        # made, with dependency edges, intent links, evidence links and
+        # constraints. Planners decide exactly as they did - the graph is
+        # what a reader queries, not a second decider. The spine is the
+        # one required input: without the timed structure there is no edit
+        # to graph. Every other spec is optional and read when present,
+        # so a run that stopped after the spine still gets its blocks and
+        # passages.
     ),
     Operation(
         name="render.build",

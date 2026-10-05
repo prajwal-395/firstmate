@@ -206,6 +206,16 @@ REPORTED_NOT_CONSUMED = {
         "`direction_contradiction.DECLINED_OUTPUTS` says the same of it "
         "from the other side.",
 
+    ("build_edit_graph", "edit_graph"):
+        "The derived editorial/edit graph. DECISION: it stays unread in "
+        "this PR - its readers are `compile_manifest` and the cohesion "
+        "reviewer, which the target behavior names, but the brief "
+        "forbids changing how existing planners decide, so the edges "
+        "from this node to those readers land with the PRs that teach "
+        "them to query the graph. The graph is a derived artifact: it "
+        "lands in state for a caller, exactly as `objects.segment`'s "
+        "masks land on disk for `compile_manifest` to place.",
+
     ("temporal_index", "total_indexed"):
         "A count. DECISION: it stays unread - it is "
         "`len(temporal_event_indices)`, and the measurements themselves "

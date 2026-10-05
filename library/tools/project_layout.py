@@ -201,6 +201,7 @@ STEPS: tuple = (
     StepDir("render_motion_graphics", "4_06_render_motion_graphics"),
     StepDir("color_grade", "5_01_color_grade"),
     StepDir("audio_mix", "5_02_audio_mix"),
+    StepDir("build_edit_graph", "5_05_build_edit_graph"),
     StepDir("compile_manifest", "5_04_compile_manifest"),
     StepDir("creative_cohesion", "5_03_creative_cohesion"),
     StepDir("render", "6_01_render"),

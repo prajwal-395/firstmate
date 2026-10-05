@@ -196,6 +196,7 @@ CAPABILITY_NEEDS: dict = {
     "objects.segment": CapabilityNeeds(
         ("ffmpeg", "python.analysis", "python.graphics")),
     "manifest.compile": CapabilityNeeds(),
+    "edit_graph.build": CapabilityNeeds(),
     "render.build": CapabilityNeeds(_RESOLVE + ("ffmpeg",)),
     "validation.resolve": CapabilityNeeds(_MODEL),
 

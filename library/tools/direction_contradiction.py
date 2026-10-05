@@ -298,6 +298,7 @@ DECLINED_OUTPUTS = {
     # a coverage check is how a table starts disagreeing with the system.
     "color_grade_spec": "5.01 carries a declared look plus a colourist's judgement; neither is a measurement of the material",
     "audio_mix_spec": "5.02 - a mix plan. It embeds measured levels, but it is routed to no step holding the direction, so nothing here could read them",
+    "edit_graph": "5.05 derives the graph of decisions from the specs the planners already wrote; a derived structure is not a measurement of the material",
     "cohesion_review": "5.03 observes decisions, not material",
     "assembly_manifest": "5.04 consolidates every decision taken; holding it against the direction proves nothing",
     "matte_trigger": "1.06 states which clips the plans wanted mattes for and why - a record of decisions, not a measurement of the material",

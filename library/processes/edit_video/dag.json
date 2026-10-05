@@ -190,6 +190,13 @@
       "estimated_duration_seconds": 5
     },
     {
+      "id": "build_edit_graph",
+      "name": "Build Editorial/Edit Graph",
+      "step_ref": "steps/step_5_05_build_edit_graph",
+      "type": "step",
+      "estimated_duration_seconds": 1
+    },
+    {
       "id": "compile_manifest",
       "name": "Compile Assembly Manifest",
       "step_ref": "steps/step_5_04_compile_manifest",
@@ -693,6 +700,120 @@
       "to": "compile_manifest",
       "data_mapping": {
         "audio_mix_spec": "audio_mix_spec"
+      }
+    },
+    {
+      "from": "mesh_spine",
+      "to": "build_edit_graph",
+      "data_mapping": {
+        "audio_spine": "audio_spine",
+        "timed_spine": "timed_spine"
+      }
+    },
+    {
+      "from": "speech_sequence",
+      "to": "build_edit_graph",
+      "data_mapping": {
+        "speech_sequence": "speech_sequence"
+      }
+    },
+    {
+      "from": "assign_aroll",
+      "to": "build_edit_graph",
+      "data_mapping": {
+        "a_roll_assignments": "a_roll_assignments"
+      }
+    },
+    {
+      "from": "select_broll",
+      "to": "build_edit_graph",
+      "data_mapping": {
+        "b_roll_assignments": "b_roll_assignments",
+        "b_roll_interjections": "b_roll_interjections"
+      }
+    },
+    {
+      "from": "plan_transitions",
+      "to": "build_edit_graph",
+      "data_mapping": {
+        "transition_spec": "transition_spec"
+      }
+    },
+    {
+      "from": "render_subtitles",
+      "to": "build_edit_graph",
+      "data_mapping": {
+        "subtitle_overlay": "subtitle_overlay"
+      }
+    },
+    {
+      "from": "render_motion_graphics",
+      "to": "build_edit_graph",
+      "data_mapping": {
+        "motion_graphics_overlay": "motion_graphics_overlay"
+      }
+    },
+    {
+      "from": "plan_vfx",
+      "to": "build_edit_graph",
+      "data_mapping": {
+        "enhancement_spec": "enhancement_spec"
+      }
+    },
+    {
+      "from": "plan_sfx",
+      "to": "build_edit_graph",
+      "data_mapping": {
+        "sfx_spec": "sfx_spec"
+      }
+    },
+    {
+      "from": "color_grade",
+      "to": "build_edit_graph",
+      "data_mapping": {
+        "color_grade_spec": "color_grade_spec"
+      }
+    },
+    {
+      "from": "audio_mix",
+      "to": "build_edit_graph",
+      "data_mapping": {
+        "audio_mix_spec": "audio_mix_spec"
+      }
+    },
+    {
+      "from": "music_selection",
+      "to": "build_edit_graph",
+      "data_mapping": {
+        "music_selection": "music_selection"
+      }
+    },
+    {
+      "from": "music_analysis",
+      "to": "build_edit_graph",
+      "data_mapping": {
+        "music_analysis": "music_analysis"
+      }
+    },
+    {
+      "from": "creative_direction",
+      "to": "build_edit_graph",
+      "data_mapping": {
+        "creative_direction": "creative_direction"
+      }
+    },
+    {
+      "from": "catalog",
+      "to": "build_edit_graph",
+      "data_mapping": {
+        "clip_catalog": "clip_catalog"
+      }
+    },
+    {
+      "from": "semantic_analysis",
+      "to": "build_edit_graph",
+      "data_mapping": {
+        "semantic_analysis_documents": "semantic_analysis_documents"
       }
     },
     {

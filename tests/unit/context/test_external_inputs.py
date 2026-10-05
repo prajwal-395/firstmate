@@ -218,7 +218,7 @@ def test_a_whole_pipeline_collapses_to_the_step_that_still_has_work(
     because they were made elsewhere, so the only thing left to do is
     judge the master.
 
-    Twenty-six steps become one, and nothing was taken on faith - the
+    Twenty-seven steps become one, and nothing was taken on faith - the
     manifest passed the validator step 5.04 runs on its own output and
     the master was decoded by ffprobe.
 
@@ -253,7 +253,7 @@ def test_a_whole_pipeline_collapses_to_the_step_that_still_has_work(
                               "render": ("render_output",)}
     assert "compile_manifest" not in scope.universe
     assert "render" not in scope.universe
-    assert len(scope.skipped) + len(scope.supplied) == 26
+    assert len(scope.skipped) + len(scope.supplied) == 27
 
 
 def _render_a_real_video(path):

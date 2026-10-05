@@ -1,0 +1,102 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "edit_graph.schema.json",
+  "title": "Editorial/Edit Graph",
+  "description": "The derived graph of editorial decisions a run's planners made. Nodes are decisions (a passage selection, a spine block, a cut, a B-roll cover, a transition, a graphic, a music behavior, a grade correction, a mix window); edges are dependencies pointing at a decision's inputs. Built by library/tools/edit_graph.build_graph from pipeline_data.json - never authored, so it cannot disagree with the decisions it derives from.",
+  "type": "object",
+  "required": ["graph_id", "node_count", "nodes"],
+  "properties": {
+    "graph_id": {
+      "type": "string",
+      "const": "edit_graph"
+    },
+    "node_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "The number of nodes. Equal to len(nodes) - a reader checks the two agree rather than trusting either."
+    },
+    "nodes": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/node" }
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "node": {
+      "type": "object",
+      "required": [
+        "node_id",
+        "node_type",
+        "producer",
+        "label",
+        "intent_refs",
+        "evidence_refs",
+        "constraints",
+        "depends_on",
+        "payload"
+      ],
+      "properties": {
+        "node_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable identity \"<type>:<address>\". Unique within the graph."
+        },
+        "node_type": {
+          "enum": [
+            "passage_selection",
+            "spine_block",
+            "aroll_assignment",
+            "broll_cover",
+            "transition",
+            "graphic",
+            "music_behavior",
+            "vfx",
+            "sfx",
+            "grade_correction",
+            "mix_window"
+          ]
+        },
+        "producer": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The capability id whose output the node was derived from."
+        },
+        "label": {
+          "type": "string"
+        },
+        "intent_refs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "What the node serves - beat ids (\"beat:<spine position>\"). Empty when the node serves nothing yet."
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "What the node rests on - measurement ids (\"clip_catalog:clip_001\"). Empty when the node rests on the edit structure alone."
+        },
+        "constraints": {
+          "type": "object",
+          "description": "The rules the node must satisfy. A constraint is declared only where the node's own data creates the obligation; violations_of checks exactly these declarations.",
+          "properties": {
+            "needs_v1_boundary": { "type": "boolean" },
+            "fits_its_block": { "type": "boolean" },
+            "covers_its_block": { "type": "boolean" },
+            "timeline_covered": { "type": "boolean" },
+            "within_picture": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        },
+        "depends_on": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Node ids this node depends on - its inputs. The blast radius of a change is the reverse walk."
+        },
+        "payload": {
+          "type": "object",
+          "description": "The node's own data: the spans, clip, type and parameters the queries read."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,170 @@
+{
+  "id": "step_5_05_build_edit_graph",
+  "name": "Build Editorial/Edit Graph",
+  "version": "1.0.0",
+  "description": "Derives the editorial/edit graph from the run's recorded decisions: one node per decision the planners made (passage selection, spine block, A-roll assignment, B-roll cover, transition, graphic, music behavior, VFX, SFX, grade correction, mix window), with dependency edges, intent links, evidence links and constraints. The graph is DERIVED, never authored - planners decide exactly as they did, and this step only emits the structure a reader queries. Runs after the planning steps and before the cohesion review and compile, so the graph exists for the readers the target behavior names. A state key the run has not produced is simply absent: the graph builds from whatever decisions exist.",
+  "level": "step",
+  "interface": {
+    "inputs": [
+      {
+        "name": "project_folder",
+        "type": "string",
+        "required": true,
+        "description": "State input: project_folder. REQUIRED: the step reads pipeline_data.json from the project folder to derive the graph."
+      },
+      {
+        "name": "audio_spine",
+        "type": "object",
+        "required": true,
+        "description": "State input: audio_spine from step 2.05. REQUIRED: the spine is the graph's backbone - the timed structure every block, cut and overlay hangs off. Without it there is no edit to graph."
+      },
+      {
+        "name": "timed_spine",
+        "type": "object",
+        "required": false,
+        "description": "State input: timed_spine from step 2.05. OPTIONAL: a copy of audio_spine, read only when audio_spine is absent."
+      },
+      {
+        "name": "speech_sequence",
+        "type": "object",
+        "required": false,
+        "description": "State input: speech_sequence from step 2.02. OPTIONAL: its body_sequence passages become passage_selection nodes."
+      },
+      {
+        "name": "a_roll_assignments",
+        "type": "object",
+        "required": false,
+        "description": "State input: a_roll_assignments from step 3.01. OPTIONAL: each assignment becomes an aroll_assignment node."
+      },
+      {
+        "name": "b_roll_assignments",
+        "type": "object",
+        "required": false,
+        "description": "State input: b_roll_assignments from step 3.02. OPTIONAL: each assignment becomes a broll_cover node."
+      },
+      {
+        "name": "b_roll_interjections",
+        "type": "object",
+        "required": false,
+        "description": "State input: b_roll_interjections from step 3.02. OPTIONAL: each interjection becomes a broll_cover node."
+      },
+      {
+        "name": "transition_spec",
+        "type": "object",
+        "required": false,
+        "description": "State input: transition_spec from step 4.02. OPTIONAL: each transition becomes a transition node."
+      },
+      {
+        "name": "subtitle_overlay",
+        "type": "object",
+        "required": false,
+        "description": "State input: subtitle_overlay from step 4.05. OPTIONAL: each rendered segment becomes a graphic node."
+      },
+      {
+        "name": "motion_graphics_overlay",
+        "type": "object",
+        "required": false,
+        "description": "State input: motion_graphics_overlay from step 4.06. OPTIONAL: each rendered segment becomes a graphic node."
+      },
+      {
+        "name": "enhancement_spec",
+        "type": "object",
+        "required": false,
+        "description": "State input: enhancement_spec from step 4.03. OPTIONAL: each entry becomes a vfx node."
+      },
+      {
+        "name": "sfx_spec",
+        "type": "object",
+        "required": false,
+        "description": "State input: sfx_spec from step 4.04. OPTIONAL: each entry becomes an sfx node."
+      },
+      {
+        "name": "color_grade_spec",
+        "type": "object",
+        "required": false,
+        "description": "State input: color_grade_spec from step 5.01. OPTIONAL: each subject_grades entry becomes a grade_correction node."
+      },
+      {
+        "name": "audio_mix_spec",
+        "type": "object",
+        "required": false,
+        "description": "State input: audio_mix_spec from step 5.02. OPTIONAL: each mix_windows entry becomes a mix_window node."
+      },
+      {
+        "name": "music_selection",
+        "type": "object",
+        "required": false,
+        "description": "State input: music_selection from step 2.04. OPTIONAL: the chosen tracks the music_behavior words were decided against."
+      },
+      {
+        "name": "music_analysis",
+        "type": "object",
+        "required": false,
+        "description": "State input: music_analysis from step 2.06. OPTIONAL: the measured tempo and beat grid the music_behavior words rest on."
+      },
+      {
+        "name": "creative_direction",
+        "type": "object",
+        "required": false,
+        "description": "State input: creative_direction from step 2.01. OPTIONAL: the narrative intent the graph's intent links point at."
+      },
+      {
+        "name": "clip_catalog",
+        "type": "object",
+        "required": false,
+        "description": "State input: clip_catalog from step 1.02. OPTIONAL: the clip identities the evidence links cite."
+      },
+      {
+        "name": "semantic_analysis_documents",
+        "type": "array",
+        "required": false,
+        "description": "State input: semantic_analysis_documents from step 1.03. OPTIONAL: the per-clip vision documents the B-roll evidence links cite."
+      }
+    ],
+    "outputs": [
+      {
+        "name": "edit_graph",
+        "type": "object",
+        "description": "State output: the derived editorial/edit graph - nodes, dependency edges, intent links, evidence links and constraints. Validated against library/schema/edit_graph.schema.json."
+      }
+    ]
+  },
+  "classification": {
+    "stage": "edit",
+    "determinism": "deterministic",
+    "archetype": "data_processing",
+    "idempotent": true
+  },
+  "dependencies": [
+    "step_2_05_mesh_spine",
+    "step_2_02_speech_sequence",
+    "step_3_01_assign_aroll",
+    "step_3_02_select_broll",
+    "step_4_02_plan_transitions",
+    "step_4_05_render_subtitles",
+    "step_4_06_render_motion_graphics",
+    "step_4_03_plan_vfx",
+    "step_4_04_plan_sfx",
+    "step_5_01_color_grade",
+    "step_5_02_audio_mix"
+  ],
+  "tags": [
+    "editorial-intelligence",
+    "edit-graph",
+    "derived-artifact",
+    "video-editing"
+  ],
+  "domain": "video-editing",
+  "implementation": {
+    "default": {
+      "runtime": "python",
+      "entry_point": "step.py"
+    }
+  },
+  "metadata": {
+    "author": "firstmate",
+    "created": "2026-10-05",
+    "last_modified": "2026-10-05",
+    "source_process": "video_editing_pipeline"
+  }
+}
