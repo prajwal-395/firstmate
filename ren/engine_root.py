@@ -12,8 +12,8 @@ packaged Ren instead installs immutable versioned trees:
                                  the atomic pointer; an update installs
                                  alongside, verifies, then switches it
 
-(`ren/package_engine.py` builds the tree; the update/rollback commands
-that switch it are queued separately.) `<vep_home>` is
+(`ren/package_engine.py` builds and switches the tree; `ren upgrade` and
+`ren rollback` manage the active and previous pointers.) `<vep_home>` is
 `PIPELINE_VEP_HOME`, else `~/.local/share/vep` - the directory
 `library/tools/shared_environment.py` already owns.
 
@@ -51,6 +51,10 @@ anticipate."""
 VERSIONS_DIRNAME = "versions"
 
 CURRENT_LINKNAME = "current"
+"""The atomically switched pointer to the active engine version."""
+
+PREVIOUS_LINKNAME = "previous"
+"""The atomically switched pointer to the version before the active one."""
 
 #: What makes a directory an engine root. `manage_project.py` is the
 #: engine CLI underneath `ren`, `library/` the pipeline, `ren/cli.py`
@@ -108,6 +112,37 @@ def current_link(home: str | Path | None = None) -> Path:
     """`<vep_home>/current`: the symlink naming the live version."""
     base = Path(home).expanduser() if home is not None else vep_home()
     return base / CURRENT_LINKNAME
+
+
+def previous_link(home: str | Path | None = None) -> Path:
+    """`<vep_home>/previous`: the last active version, for rollback."""
+    base = Path(home).expanduser() if home is not None else vep_home()
+    return base / PREVIOUS_LINKNAME
+
+
+def version_at_pointer(pointer: str | Path,
+                        home: str | Path | None = None) -> str | None:
+    """Return the complete version named by a home pointer, if any.
+
+    Pointers are accepted only when they resolve to a complete engine
+    directly inside this home's `versions/` directory. A corrupt,
+    dangling or redirected pointer is not a rollback target.
+    """
+    base = Path(home).expanduser() if home is not None else vep_home()
+    link = Path(pointer)
+    if not link.is_absolute():
+        link = base / link
+    if not link.is_symlink():
+        return None
+    try:
+        target = link.resolve(strict=True)
+        versions = versions_root(base).resolve(strict=True)
+        relative = target.relative_to(versions)
+    except (OSError, ValueError):
+        return None
+    if len(relative.parts) != 1 or not is_engine_root(target):
+        return None
+    return relative.name
 
 
 def installed_root(home: str | Path | None = None) -> Path | None:

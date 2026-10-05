@@ -47,6 +47,15 @@ VERBS = (
          builtin="support-bundle"),
     Verb("version", "Setup", "Show the Ren build (version, commit, channel, engine root)",
          builtin="version"),
+    Verb("upgrade", "Setup", "Install and verify an engine tree, then activate it",
+         builtin="upgrade",
+         detail="Install a Ren checkout or built engine tree alongside the active version, "
+                "verify it, then switch the current version. Usage: `ren upgrade <engine-source> "
+                "[--channel CHANNEL]`"),
+    Verb("rollback", "Setup", "Switch to the previously active Ren version",
+         builtin="rollback",
+         detail="Switch the current pointer back to the previously active engine version. "
+                "This changes no project files."),
     Verb("taste", "Setup", "Record an explicit creative preference shared across projects",
          module_argv=("library.tools.taste_profile",)),
     Verb("init", "Setup", "Create the projects root folder", subcommand="init-root"),

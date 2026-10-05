@@ -75,20 +75,22 @@ PROJECT_INPUT_DIRS = [
 
 # ─── Registry Operations ─────────────────────────────────────
 
-def scan_projects(root: Path = None) -> list[ProjectConfig]:
-    """Walk PROJECTS_ROOT and find all project.yaml files.
+def project_config_paths(root: Path = None) -> list[Path]:
+    """List project.yaml files in the registry's flat and grouped layouts.
 
     Supports both flat and client-grouped layouts:
         projects_root/my-project/project.yaml           (flat)
         projects_root/client-name/my-project/project.yaml (grouped)
 
-    Returns a list of validated ProjectConfig objects.
+    Returns paths without loading or migrating projects. Callers that
+    need validated configs use `scan_projects`; compatibility gates can
+    inspect each declared format before loading project data.
     """
     root = root or PROJECTS_ROOT
     if not root.exists():
         return []
 
-    configs = []
+    paths = []
 
     for entry in sorted(root.iterdir()):
         if not entry.is_dir() or entry.name.startswith((".", "_")):
@@ -97,11 +99,7 @@ def scan_projects(root: Path = None) -> list[ProjectConfig]:
         # Check for project.yaml directly (flat layout)
         yaml_path = entry / "project.yaml"
         if yaml_path.exists():
-            try:
-                configs.append(load_project_config(
-                    yaml_path, migrate_format=False))
-            except (ValueError, FileNotFoundError) as e:
-                print(f"  Warning: skipping {yaml_path}: {e}", file=sys.stderr)
+            paths.append(yaml_path)
             continue
 
         # Check for client-grouped layout (one level deeper)
@@ -110,12 +108,19 @@ def scan_projects(root: Path = None) -> list[ProjectConfig]:
                 continue
             sub_yaml = sub_entry / "project.yaml"
             if sub_yaml.exists():
-                try:
-                    configs.append(load_project_config(
-                        sub_yaml, migrate_format=False))
-                except (ValueError, FileNotFoundError) as e:
-                    print(f"  Warning: skipping {sub_yaml}: {e}", file=sys.stderr)
+                paths.append(sub_yaml)
 
+    return paths
+
+
+def scan_projects(root: Path = None) -> list[ProjectConfig]:
+    """Walk the project registry and load each project config."""
+    configs = []
+    for yaml_path in project_config_paths(root):
+        try:
+            configs.append(load_project_config(yaml_path, migrate_format=False))
+        except (ValueError, FileNotFoundError) as e:
+            print(f"  Warning: skipping {yaml_path}: {e}", file=sys.stderr)
     return configs
 
 

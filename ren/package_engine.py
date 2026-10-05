@@ -37,19 +37,20 @@ complete tree into `<home>/versions/<version>/`, then atomically switches
 is immutable: an existing version always refuses, so a failed build
 cannot damage the active tree.
 
-Out of scope here (queued separately): the end-user installer, the
-upgrade/rollback commands, the release workflow and signing.
+The end-user installer, release workflow and signing remain separate.
 """
 
 from __future__ import annotations
 
 import argparse
+import ast
 import datetime
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
+import uuid
 from pathlib import Path
 
 #: Directories copied whole (minus the generated/ignored names in
@@ -96,16 +97,59 @@ def _ignore(dirpath: str, names: list) -> list:
 
 
 def _src_version(src: Path) -> str:
-    """The version this tree ships: the checkout's one source."""
-    sys.path.insert(0, str(src))
+    """Read the version from `src`, even when another Ren is imported.
+
+    Importing `ren.version` here reused the already-loaded package when
+    upgrading from a different checkout, silently rebuilding the active
+    version. Parsing the literal avoids executing candidate code and
+    keeps the source checkout as the authority.
+    """
+    values = _literal_assignments(src / "ren" / "version.py", {"__version__"})
+    version = values.get("__version__")
+    if not isinstance(version, str):
+        raise RuntimeError(
+            f"refusing to package {src}: ren/version.py must declare a "
+            "literal string __version__.")
+    return version
+
+
+def _literal_assignments(path: Path, names: set[str]) -> dict:
+    """Read selected module-level literal assignments without executing them."""
     try:
-        from ren.version import __version__
-        return __version__
-    finally:
-        try:
-            sys.path.remove(str(src))
-        except ValueError:
-            pass
+        module = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    except (OSError, SyntaxError) as exc:
+        raise RuntimeError(f"cannot read build metadata from {path}: {exc}") from exc
+    values = {}
+    for node in module.body:
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+            value = node.value
+        elif isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+            value = node.value
+        else:
+            continue
+        for target in targets:
+            if isinstance(target, ast.Name) and target.id in names:
+                try:
+                    values[target.id] = ast.literal_eval(value)
+                except (ValueError, TypeError):
+                    continue
+    return values
+
+
+def _src_build_info(src: Path) -> dict:
+    """Read a packaged source tree's generated build identity, if present."""
+    path = src / "ren" / "_build.py"
+    if not path.is_file():
+        return {}
+    raw = _literal_assignments(
+        path, {"BUILD_SHA", "BUILD_DATE", "BUILD_CHANNEL"})
+    return {
+        "sha": raw.get("BUILD_SHA", ""),
+        "built_at": raw.get("BUILD_DATE", ""),
+        "channel": raw.get("BUILD_CHANNEL", ""),
+    }
 
 
 def _src_sha(src: Path) -> str:
@@ -211,19 +255,37 @@ def switch_current(home: Path, version: str) -> Path:
     `os.replace`, so a reader never sees a half-written pointer. The
     target is RELATIVE (`versions/<ver>`), so the home relocates.
     """
-    from ren.engine_root import current_link, is_engine_root, versions_root
+    return _switch_pointer(home, "current", version)
+
+
+def switch_previous(home: Path, version: str) -> Path:
+    """Atomically point `<home>/previous` at a complete version."""
+    return _switch_pointer(home, "previous", version)
+
+
+def _switch_pointer(home: Path, name: str, version: str) -> Path:
+    from ren.engine_root import (
+        current_link, is_engine_root, previous_link, versions_root,
+    )
     home = home.expanduser()
+    if (not isinstance(version, str) or not version
+            or Path(version).name != version or version in {".", ".."}):
+        raise RuntimeError(f"refusing an invalid engine version name: {version!r}")
     target_dir = versions_root(home) / version
     if not is_engine_root(target_dir):
         raise RuntimeError(
-            f"refusing to switch {home}/current onto {version}: "
+            f"refusing to switch {home}/{name} onto {version}: "
             f"{target_dir} holds no complete engine tree. "
             f"Install it first.")
-    link = current_link(home)
-    tmp = link.parent / f".current.{os.getpid()}.tmp"
+    link = current_link(home) if name == "current" else previous_link(home)
+    home.mkdir(parents=True, exist_ok=True)
+    if (link.exists() or link.is_symlink()) and not link.is_symlink():
+        raise RuntimeError(
+            f"refusing to replace {link}: it exists and is not a symlink.")
+    tmp = link.parent / f".{name}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
     try:
-        if tmp.is_symlink() or tmp.exists():
-            tmp.unlink()
+        if tmp.exists() or tmp.is_symlink():
+            raise RuntimeError(f"refusing to replace unexpected temporary {tmp}")
         tmp.symlink_to(Path("versions") / version)
         os.replace(tmp, link)
     finally:
@@ -232,25 +294,30 @@ def switch_current(home: Path, version: str) -> Path:
     return link
 
 
-def install_versioned(home: Path, src: Path, channel: str = "stable",
+def stage_versioned(home: Path, src: Path, channel: str | None = None,
                       sha: str | None = None,
                       built_at: str | None = None) -> Path:
-    """Build `<home>/versions/<version>/` from `src` and switch `current`.
+    """Build and publish one immutable version without switching `current`.
 
-    The complete tree moves into place before the current pointer changes.
-    A version directory is immutable: if it already exists, refuse without
-    touching it or the current pointer.
+    The complete tree is moved into place only after it builds. The caller
+    can then inspect it before making it active. Existing versions always
+    refuse rather than being changed in place.
     """
     home = home.expanduser()
     from ren.version import format_version
+    src = Path(src).expanduser().resolve()
+    source_info = _src_build_info(src)
     version = _src_version(src)
-    build_sha = sha if sha is not None else _src_sha(src)
-    build_date = (built_at if built_at is not None
-                  else datetime.date.today().isoformat())
+    build_sha = (sha if sha is not None else
+                 (_src_sha(src) or source_info.get("sha", "")))
+    build_channel = channel or source_info.get("channel", "") or "stable"
+    build_date = (built_at if built_at is not None else
+                  (source_info.get("built_at", "")
+                   or datetime.date.today().isoformat()))
     build_id = format_version({
         "version": version,
         "sha": build_sha,
-        "channel": channel,
+        "channel": build_channel,
         "built_at": build_date,
     })
     dest = version_dir(home, build_id)
@@ -266,7 +333,7 @@ def install_versioned(home: Path, src: Path, channel: str = "stable",
         prefix=f".{version}.", suffix=".staging", dir=str(versions)))
     staged = staging_parent / "engine"
     try:
-        build_engine_tree(src, staged, channel=channel, sha=build_sha,
+        build_engine_tree(src, staged, channel=build_channel, sha=build_sha,
                           built_at=build_date)
         # Catch a concurrent install before publishing the completed tree.
         if dest.exists():
@@ -277,7 +344,21 @@ def install_versioned(home: Path, src: Path, channel: str = "stable",
     finally:
         shutil.rmtree(staging_parent, ignore_errors=True)
 
-    switch_current(home, build_id)
+    return dest
+
+
+def install_versioned(home: Path, src: Path, channel: str | None = "stable",
+                      sha: str | None = None,
+                      built_at: str | None = None) -> Path:
+    """Build `<home>/versions/<version>/` from `src` and activate it.
+
+    The complete immutable tree is published before the atomic current
+    pointer changes. A duplicate version refuses without touching the
+    active pointer.
+    """
+    dest = stage_versioned(home, src, channel=channel, sha=sha,
+                           built_at=built_at)
+    switch_current(home, dest.name)
     return dest
 
 

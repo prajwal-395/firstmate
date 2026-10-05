@@ -136,6 +136,16 @@ def main(argv=None) -> int:
         except RenRefusal as refused:
             print(refused.render(), file=sys.stderr)
             return REFUSAL_EXIT_CODE
+    if verb.builtin in {"upgrade", "rollback"}:
+        from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
+        from ren import upgrade
+        try:
+            if verb.builtin == "upgrade":
+                return upgrade.main(rest)
+            return upgrade.rollback_main(rest)
+        except RenRefusal as refused:
+            print(refused.render(), file=sys.stderr)
+            return REFUSAL_EXIT_CODE
     if verb.subcommand:
         _exec_vep(vep, engine_root, [str(manage_project), verb.subcommand, *rest])
     _exec_vep(vep, engine_root, ["-m", *verb.module_argv, *rest])

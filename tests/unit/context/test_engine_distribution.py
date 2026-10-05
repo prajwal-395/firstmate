@@ -228,6 +228,49 @@ def test_failed_version_build_keeps_the_active_tree(tmp_path, monkeypatch):
     assert not list((home / "versions").glob(".*.staging"))
 
 
+def test_versioned_staging_does_not_switch_the_active_engine(tmp_path, monkeypatch):
+    from ren import package_engine
+    home = tmp_path / "vep"
+    old = _fake_engine(home / "versions" / "old")
+    (home / "current").symlink_to(Path("versions") / "old")
+    source = tmp_path / "candidate"
+    (source / "ren").mkdir(parents=True)
+    (source / "ren" / "version.py").write_text(
+        "__version__ = '9.8.7'\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        package_engine, "build_engine_tree",
+        lambda src, dest, **kwargs: _fake_engine(dest))
+    candidate = package_engine.stage_versioned(
+        home, source, sha="candidate", built_at="2026-10-04")
+
+    assert candidate.parent == home / "versions"
+    assert candidate.name.startswith("9.8.7+")
+    assert engine_root.installed_root(home) == old.resolve()
+    assert engine_root.version_at_pointer(
+        engine_root.previous_link(home), home) is None
+
+
+def test_packager_reads_version_from_the_requested_source(tmp_path):
+    from ren.package_engine import _src_version
+    source = tmp_path / "other-checkout"
+    (source / "ren").mkdir(parents=True)
+    (source / "ren" / "version.py").write_text(
+        "__version__ = '3.4.5'\n", encoding="utf-8")
+
+    assert _src_version(source) == "3.4.5"
+
+
+def test_version_pointer_must_name_a_sibling_engine_tree(tmp_path):
+    from ren.package_engine import switch_current
+    home = tmp_path / "vep"
+    _fake_engine(tmp_path / "elsewhere")
+
+    with pytest.raises(RuntimeError, match="invalid engine version name"):
+        switch_current(home, "../elsewhere")
+    assert not (home / "current").exists()
+
+
 def test_build_metadata_cannot_escape_the_version_directory(tmp_path):
     from ren import package_engine
     home = tmp_path / "vep"
