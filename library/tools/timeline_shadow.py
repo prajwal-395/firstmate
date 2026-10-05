@@ -576,8 +576,14 @@ class ShadowStore:
         not already recorded. A machine's own newer data is never
         clobbered - the mirror adds what is missing, never rewrites
         what is there.
+
+        A generation number both stores hold with DIFFERENT hashes is a
+        real divergence: reported in `conflicts`, never silently
+        resolved. This machine keeps its own observation - the shadow
+        is a cache, not a source of truth, so a conflict is surfaced
+        for a reader, not picked by the merge.
         """
-        report = {"generations": 0, "snapshots": 0}
+        report = {"generations": 0, "snapshots": 0, "conflicts": []}
         if document.get("format") != SHADOW_FORMAT:
             return report
         with self._connect() as db:
@@ -593,24 +599,35 @@ class ShadowStore:
                             (digest, canonical(body)))
                         report["snapshots"] += 1
                 for entry in (document.get("generations") or []):
-                    known = db.execute(
-                        "SELECT 1 FROM generations WHERE project=? AND"
+                    key = (entry["project"], entry["timeline_id"],
+                           entry["generation"])
+                    row = db.execute(
+                        "SELECT hash FROM generations WHERE project=? AND"
                         " timeline_id=? AND generation=?",
+                        key).fetchone()
+                    if row is not None:
+                        if row["hash"] == entry["hash"]:
+                            continue
+                        report["conflicts"].append({
+                            "project": entry["project"],
+                            "timeline_id": entry["timeline_id"],
+                            "generation": entry["generation"],
+                            "local_hash": row["hash"],
+                            "mirror_hash": entry["hash"],
+                        })
+                        continue
+                    db.execute(
+                        "INSERT INTO generations VALUES"
+                        " (?,?,?,?,?,?,?,?,?,?)",
                         (entry["project"], entry["timeline_id"],
-                         entry["generation"])).fetchone()
-                    if known is None:
-                        db.execute(
-                            "INSERT INTO generations VALUES"
-                            " (?,?,?,?,?,?,?,?,?,?)",
-                            (entry["project"], entry["timeline_id"],
-                             entry["generation"], entry["timeline_name"],
-                             entry["hash"], entry["source"],
-                             json.dumps(entry["patch"], sort_keys=True)
-                             if entry.get("patch") else None,
-                             json.dumps(entry["receipt"], sort_keys=True)
-                             if entry.get("receipt") else None,
-                             entry["recorded_at"], entry["verified_at"]))
-                        report["generations"] += 1
+                         entry["generation"], entry["timeline_name"],
+                         entry["hash"], entry["source"],
+                         json.dumps(entry["patch"], sort_keys=True)
+                         if entry.get("patch") else None,
+                         json.dumps(entry["receipt"], sort_keys=True)
+                         if entry.get("receipt") else None,
+                         entry["recorded_at"], entry["verified_at"]))
+                    report["generations"] += 1
                 db.execute("COMMIT")
             except BaseException:
                 db.execute("ROLLBACK")

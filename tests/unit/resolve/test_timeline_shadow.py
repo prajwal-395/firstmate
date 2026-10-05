@@ -544,3 +544,33 @@ def test_a_sync_of_a_twenty_reel_project_is_under_50ms(tmp_path):
 
     assert report["generations"] == 20
     assert elapsed_ms < 50.0, f"sync took {elapsed_ms:.1f}ms"
+
+
+def test_a_divergent_generation_is_reported_and_the_local_one_kept(
+        tmp_path):
+    """A generation number both machines hold with different hashes is
+    a real divergence. The merge reports it and keeps this machine's
+    own observation - the shadow is a cache, not a source of truth, so
+    a conflict is surfaced for a reader, never silently resolved.
+    """
+    project, timeline, store_a = _machine_a_store(tmp_path)
+    mirror = tmp_path / "project"
+    shadow.export_project("Podcast", mirror, store=store_a)
+
+    store_b = shadow.ShadowStore(tmp_path / "machine_b.db")
+    timeline_id = store_a.resolve_timeline("Podcast", "Reel 09")
+    store_b.record(project="Podcast", timeline_id=timeline_id,
+                   timeline_name="Reel 09", snapshot={"diverged": True},
+                   source=shadow.OBSERVED, expected_head=0)
+    document = store_a.export_document("Podcast")
+    report = store_b.merge_document(document)
+
+    assert report["generations"] == 1
+    assert len(report["conflicts"]) == 1
+    conflict = report["conflicts"][0]
+    assert conflict["generation"] == 1
+    assert conflict["local_hash"] == shadow.snapshot_hash({"diverged": True})
+    assert conflict["mirror_hash"] == store_a.get("Podcast", timeline_id, 1).hash
+    # The local observation is kept, not overwritten by the mirror.
+    assert store_b.get("Podcast", timeline_id, 1).hash == \
+        shadow.snapshot_hash({"diverged": True})
