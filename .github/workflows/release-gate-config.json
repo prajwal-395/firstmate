@@ -1,0 +1,32 @@
+{
+  "description": "Release gate thresholds for the Ren release workflow. A release fails when any gate falls below its threshold.",
+  "automated_gate": {
+    "description": "Fast, deterministic contract tests that run in CI without Resolve or heavy ML dependencies.",
+    "gate": "pytest_exit_code",
+    "tests": [
+      "tests/contracts/test_capabilities.py",
+      "tests/contracts/test_asset_policy.py",
+      "tests/contracts/test_motion_graphics_vocabulary.py",
+      "tests/contracts/test_no_creative_floors.py",
+      "tests/contracts/test_requirements.py"
+    ]
+  },
+  "manual_steps": [
+    {
+      "name": "golden projects",
+      "why": "Golden project tests render real media with ffmpeg and run the full pipeline (4+ minutes each). Run tests/scenarios/test_golden_monologue.py and tests/scenarios/test_golden_conversation.py on a development machine."
+    },
+    {
+      "name": "ren eval",
+      "why": "Requires a pristine base project (footage plus analysis) that lives outside git, and a live Resolve. Run per ren eval howto."
+    },
+    {
+      "name": "Resolve-live tests",
+      "why": "Require the live DaVinci Resolve application with scripting enabled. Run tests/qualification/test_golden_conversation_live.py on a machine with Resolve."
+    },
+    {
+      "name": "render QA",
+      "why": "Requires a rendered export from a live Resolve timeline. Run render_qa.py against a delivered reel."
+    }
+  ]
+}
