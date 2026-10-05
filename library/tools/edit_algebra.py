@@ -661,7 +661,9 @@ ALGEBRA: dict[str, AlgebraOp] = {
         key=lambda op: ("clip", op["unique_id"], "audio", "gain"),
         merge="replace",
         inverse=_self("the inverse carries the previous dB"),
-        note="Per-clip gain in dB; the OTIO mix carries it."),
+        note="Per-clip gain in dB. No live-Resolve apply (the scripting "
+             "API carries no per-clip audio surface); `otio_mix."
+             "apply_audio_ops` writes it through the OTIO mix path."),
     "audio.pan": AlgebraOp(
         id="audio.pan", domain="audio_mix",
         required=("unique_id", "pan"),
@@ -669,7 +671,9 @@ ALGEBRA: dict[str, AlgebraOp] = {
         verify=lambda op, after: None,
         key=lambda op: ("clip", op["unique_id"], "audio", "pan"),
         merge="replace",
-        inverse=_self("the inverse carries the previous pan")),
+        inverse=_self("the inverse carries the previous pan"),
+        note="Refuses by name: Resolve's OTIO carries no measured audio-pan "
+             "parameter - the audio surface is volume only."),
     "audio.fade": AlgebraOp(
         id="audio.fade", domain="audio_mix",
         required=("unique_id", "fade_in", "fade_out"),
@@ -678,7 +682,9 @@ ALGEBRA: dict[str, AlgebraOp] = {
         key=lambda op: ("clip", op["unique_id"], "audio", "fade"),
         merge="replace",
         inverse=_self("the inverse carries the previous envelope"),
-        note="Fade in/out with curve; the OTIO mix carries it."),
+        note="Fade in/out with curve. No live-Resolve apply; "
+             "`otio_mix.apply_audio_ops` writes it through the OTIO mix "
+             "path and reads it back."),
     "audio.automation": AlgebraOp(
         id="audio.automation", domain="audio_mix",
         required=("unique_id", "param", "keyframes"),
@@ -688,7 +694,9 @@ ALGEBRA: dict[str, AlgebraOp] = {
                         op["param"]),
         merge="replace",
         inverse=_self("the inverse carries the previous keyframes"),
-        note="A keyframed audio lane; the OTIO mix carries it."),
+        note="A keyframed audio lane. No live-Resolve apply; "
+             "`otio_mix.apply_audio_ops` writes it through the OTIO mix "
+             "path. Only the `volume` parameter has a measured spelling."),
 
     # ── grade (domain: color) ────────────────────────────────────
     "clip_lut": AlgebraOp(

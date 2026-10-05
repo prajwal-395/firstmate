@@ -647,6 +647,20 @@ def declick_curve(fade_seconds: float, *, fps: float, clip_frame_count: int,
     return _tidy(keys, last_frame)
 
 
+def fade_curve(fade_in_seconds: float, fade_out_seconds: float, *,
+               fps: float, clip_frame_count: int) -> dict:
+    """A fade in/out envelope: silence to unity and back, as keyframes.
+
+    Reuses the de-click curve builder - the same silence->level->silence
+    shape, here for a creative fade over a clip's head and tail rather
+    than a sound the plan cut short. The plateau is 0 dB (unity): a fade
+    is an envelope over the clip's own level, not a gain of its own.
+    """
+    return declick_curve(fade_out_seconds, fps=fps,
+                         clip_frame_count=clip_frame_count, level_db=0.0,
+                         fade_in_seconds=fade_in_seconds)
+
+
 def _start_frame(clip: dict, fps: float) -> int:
     if "timeline_in_frame" in clip:
         return int(clip["timeline_in_frame"])
@@ -689,6 +703,109 @@ def apply_mix(otio: dict, targets: list) -> dict:
                             matched_frame_count=frames))
 
     return {"applied": applied, "unmatched": unmatched}
+
+
+# ── Audio algebra ops (gap C-06) ───────────────────────────────────────
+#
+# The algebra's `audio.gain`/`audio.pan`/`audio.fade`/`audio.automation`
+# ops are typed, reversible vocabulary. They have no live-Resolve apply -
+# the scripting API carries no per-clip audio surface (AGENTS.md 5,
+# docs/RULE_EVIDENCE.md) - so they execute HERE, through the same OTIO
+# mix path every other planned level goes through. `audio_op_target` is
+# the ONE translation: it turns an op into a mix target, and a later
+# native-mix change (gap D4) swaps its target without touching the ops.
+
+
+def audio_op_target(op_id: str, params: dict, clip: dict, *,
+                    fps: float) -> dict:
+    """Translate one audio algebra op into an OTIO mix target for `clip`.
+
+    `clip` is a placed clip dict carrying `unique_id`, `source_file`,
+    `record_in` and `duration` - the shadow's shape, which is what maps an
+    op's `unique_id` onto the clip an OTIO target addresses by file and
+    start frame. The target is what `apply_mix` writes; the read-back is
+    `read_levels`.
+
+    Refuses pan by name: Resolve's OTIO carries no measured audio-pan
+    parameter - the audio surface is volume only (docs/RULE_EVIDENCE.md).
+    """
+    source_file = clip.get("source_file", "")
+    start_frame = int(clip.get("record_in", 0))
+    duration = int(clip.get("duration", 0))
+    label = (os.path.basename(source_file) if source_file
+             else str(clip.get("unique_id", "?")))
+
+    if op_id == "audio.gain":
+        return {
+            "role": "sfx", "source_file": source_file,
+            "start_frame": start_frame,
+            "level_db": float(params["db"]), "keyframes": {},
+            "label": label,
+        }
+    if op_id == "audio.fade":
+        return {
+            "role": "sfx", "source_file": source_file,
+            "start_frame": start_frame, "level_db": 0.0,
+            "keyframes": fade_curve(
+                float(params.get("fade_in", 0.0)),
+                float(params.get("fade_out", 0.0)),
+                fps=fps, clip_frame_count=duration),
+            "label": label,
+        }
+    if op_id == "audio.automation":
+        param = params.get("param", "volume")
+        if param != "volume":
+            raise OtioMixError(
+                f"audio.automation on parameter {param!r}: no measured OTIO "
+                f"spelling - the audio surface is volume only "
+                f"(docs/RULE_EVIDENCE.md)")
+        return {
+            "role": "sfx", "source_file": source_file,
+            "start_frame": start_frame, "level_db": 0.0,
+            "keyframes": {int(frame): float(value) for frame, value
+                         in (params.get("keyframes") or {}).items()},
+            "label": label,
+        }
+    if op_id == "audio.pan":
+        raise OtioMixError(
+            "audio.pan: no measured OTIO spelling - Resolve's audio surface "
+            "is volume only (docs/RULE_EVIDENCE.md)")
+    raise OtioMixError(f"unknown audio op {op_id!r}")
+
+
+def apply_audio_ops(otio: dict, ops: list, clips: list, *,
+                    fps: float) -> dict:
+    """Apply audio algebra ops to their clips in an OTIO, with read-back.
+
+    The executor half of the audio ops: each op is translated by the ONE
+    function above, written through `apply_mix` - the same path every
+    planned level takes - and read back through `read_levels`, so "Resolve
+    accepted the file" becomes "the level is on the clip". `clips` are the
+    placed clips the ops' `unique_id`s address.
+    """
+    clips_by_id = {str(c.get("unique_id")): c for c in clips}
+    targets, unmatched = [], []
+    for op in ops:
+        op_id = op.get("op")
+        params = op.get("params") or {}
+        unique_id = str(params.get("unique_id", ""))
+        clip = clips_by_id.get(unique_id)
+        if clip is None:
+            unmatched.append({"op": op_id, "unique_id": unique_id,
+                              "reason": "no placed clip with that unique_id"})
+            continue
+        try:
+            targets.append(audio_op_target(op_id, params, clip, fps=fps))
+        except OtioMixError as exc:
+            unmatched.append({"op": op_id, "unique_id": unique_id,
+                              "reason": str(exc)})
+
+    written = apply_mix(otio, targets)
+    applied = written["applied"]
+    unmatched.extend(written["unmatched"])
+    complaints = verify(otio, applied) if applied else []
+    return {"applied": applied, "unmatched": unmatched,
+            "complaints": complaints, "levels": read_levels(otio)}
 
 
 def _match(placed: list, used: set, target: dict):
