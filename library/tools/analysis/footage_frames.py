@@ -10,8 +10,9 @@ Scope (firstmate decision 2026-10-01 on the vep-clip-frame-search eval,
 objects, people and scenes.  The eval measured P@5 5/5, 5/5 and 3/5 on
 those, but fine-grained actions at chance (mouth-cover 1/5, drinking 0/5 -
 CLIP matches the scene and the person and ignores the interaction), so
-action and gesture queries are REFUSED here and directed to the Apple
-Vision pose/hand lane, which measures bodies instead of ranking pixels.
+action and gesture queries are REFUSED here and directed to the event
+pipeline (`event_spans`, M7), which measures actions as candidate spans
+the VLM verifier disposes instead of ranking pixels.
 
 Ranked candidates only.  The same eval found NO abstention floor that
 separates present from absent (absent max 0.191 inside the present band
@@ -119,6 +120,21 @@ def action_refusal_match(query: str):
         if re.search(pattern, lowered):
             return name
     return None
+
+
+def event_pipeline_pointer() -> str:
+    """The event pipeline's candidate predicates, read from it never copied.
+
+    `event_spans` (M7) is the lane that measures actions and gestures: a
+    geometric candidate rule over M3 hand/face geometry proposes spans and
+    the local VLM verifier disposes.  Imported lazily so the ranking path
+    pays nothing for a pointer it never renders, and the list itself is
+    read from the pipeline so a predicate added there reaches the refusal
+    without a second enumeration to keep stale.
+    """
+    from library.tools import event_spans
+
+    return ", ".join(event_spans.CANDIDATE_PREDICATES)
 
 
 def _pooled_clip_features(feats):
@@ -383,8 +399,9 @@ class FrameIndex:
         Action and gesture queries ("covering the mouth", "drinking",
         "gesturing"...) are refused: the eval measured CLIP at chance on
         them, and ranking chance reads as an answer.  They belong to the
-        Apple Vision pose/hand lane.  `include_actions` overrides, for the
-        caller who wants the ranking anyway and says so.
+        event pipeline (`event_spans`, M7), whose candidate predicates the
+        refusal names.  `include_actions` overrides, for the caller who
+        wants the ranking anyway and says so.
         """
         report = {
             "query": query,
@@ -403,8 +420,11 @@ class FrameIndex:
                 "reason": ("frame search covers objects, people and scenes; "
                            f"{matched!r} is an action/gesture query, which this "
                            "signal does not resolve (measured at chance)"),
-                "hint": ("ask the Apple Vision pose/hand lane instead, or "
-                         "retry with --include-actions to rank anyway"),
+                "hint": ("the event pipeline measures actions and gestures: "
+                         "ren search <project> --person <name> "
+                         f"--predicate <predicate> --verify \"<what you see>\" "
+                         f"(candidate predicates: {event_pipeline_pointer()}); "
+                         "or retry with --include-actions to rank anyway"),
             }
             return report
         if not self.frames or self.matrix is None:
@@ -530,7 +550,8 @@ class FrameIndex:
                         "never be concluded from the answer. Do NOT use it "
                         "for actions or gestures (covering the mouth, "
                         "drinking, waving): this signal cannot resolve those "
-                        "and will refuse; they belong to the pose/hand lane."
+                        "and will refuse; they belong to the event pipeline "
+                        "(ren search --person <name> --predicate <predicate>)."
                     ),
                     "parameters": {
                         "type": "object",

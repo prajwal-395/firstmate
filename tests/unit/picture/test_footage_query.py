@@ -624,17 +624,27 @@ def test_hits_are_ranked_unverified_and_never_claim_absence(
         "all-zero scores still return top-k: ranking is the answer")
 
 
-# ─── Scope: actions belong to the pose/hand lane ────────────────────
+# ─── Scope: actions belong to the event pipeline ────────────────────
 
 
-def test_action_queries_refuse_and_name_the_lane(frame_index):
+def test_action_queries_refuse_and_name_the_event_pipeline(frame_index):
+    """The refusal must name the lane that answers action queries.  The
+    event pipeline (M7) measures actions as candidate spans, so a pointer
+    to any other lane - the pose/hand lane this used to name - sends the
+    caller nowhere: the query is refused and nothing answers it."""
+    from library.tools import event_spans
+
     for query in ("a person covering their mouth with their hand",
                   "a person drinking from a cup",
                   "a hand gesturing in the foreground"):
         report = frame_index.search_frames(query)
         assert report["results"] == [], query
         assert report["refused"] is not None
-        assert "pose/hand" in report["refused"]["hint"]
+        hint = report["refused"]["hint"]
+        assert "event pipeline" in hint, query
+        assert "--predicate" in hint, query
+        assert any(predicate in hint
+                   for predicate in event_spans.CANDIDATE_PREDICATES), query
     # Object queries pass the gate.
     assert footage_frames.action_refusal_match("a laptop on a table") is None
     assert footage_frames.action_refusal_match("two people at a table") is None
