@@ -375,6 +375,47 @@ def _apply_smart_reframe(op, _timeline, item):
     return returned
 
 
+def _apply_retime_segments(op, _timeline, item):
+    """Split the clip at each segment boundary, then SetSpeed each piece.
+
+    Resolve carries no speed-curve API (measured 2026-09-24, PR 1376):
+    a ramp reaches the timeline as stepped constant-speed segments. This
+    apply produces exactly that - one split per boundary, one constant
+    `SetSpeed` per piece.
+    """
+    segments = sorted(op["segments"], key=lambda s: int(s["record_frame"]))
+    pieces = [item]
+    for segment in reversed(segments[1:]):
+        frame = int(segment["record_frame"])
+        for piece in list(pieces):
+            start = int(piece.GetStart())
+            end = int(piece.GetEnd())
+            if start <= frame < end:
+                second = piece.SplitAtFrame(frame)
+                if second is not None:
+                    pieces.append(second)
+                break
+    pieces.sort(key=lambda p: int(p.GetStart()))
+    for index, segment in enumerate(segments):
+        if index < len(pieces):
+            pieces[index].SetSpeed(
+                {"Percentage": float(segment["percent"]),
+                 "RippleTimeline": False})
+    return True
+
+
+def _apply_picture_keyframe(op, _timeline, item):
+    """Write keyframed transform parameters through the write log."""
+    from library.tools.transform_write_log import set_keyframe
+
+    for keyframe in op["keyframes"]:
+        set_keyframe(
+            item, op["param"], keyframe["frame"], keyframe["value"],
+            keyframe.get("interpolation", "linear"),
+            item_identity={"resolve_unique_id": str(op["unique_id"])})
+    return True
+
+
 def _delete_clip_with_measured_retry(op, timeline, item):
     """Retry one local delete only when its unique id still reads back.
 
@@ -675,24 +716,26 @@ ALGEBRA: dict[str, AlgebraOp] = {
         id="retime.segments", domain="timeline_structure",
         required=("unique_id", "segments"),
         span=_item_span, item=True,
-        verify=lambda op, after: _verify_retime(op, after),
+        apply=_apply_retime_segments,
+        verify=lambda op, after: _verify_retime_segments(op, after),
         key=lambda op: ("clip", op["unique_id"]), merge="exclusive",
         temporal="ripple",
         inverse=_self("the inverse carries the previous speed"),
         note="Stepped constant-speed segments; the measured form of a "
-             "speed ramp."),
+              "speed ramp."),
 
     # ── picture keyframes (domain: picture_transform) ───────────────
     "picture.keyframe": AlgebraOp(
         id="picture.keyframe", domain="picture_transform",
         required=("unique_id", "param", "keyframes"),
         span=_item_span, item=True,
-        verify=lambda op, after: None,
+        apply=_apply_picture_keyframe,
+        verify=lambda op, after: _verify_picture_keyframe(op, after),
         key=lambda op: ("clip", op["unique_id"], "keyframe", op["param"]),
         merge="replace",
         inverse=_self("the inverse carries the previous keyframes"),
-        note="A keyframed picture parameter; the shadow read-back carries "
-             "no keyframes, so the executor verifies by re-read."),
+        note="A keyframed picture parameter, written through the "
+              "transform write log."),
 
     # ── audio (domain: audio_mix) ───────────────────────────────────
     "voice_isolation": AlgebraOp(
@@ -1308,6 +1351,48 @@ def _verify_retime(op, after):
     if "duration" in op and int(clip["duration"]) != int(op["duration"]):
         return (f"clip {op['unique_id']!r} reads duration="
                 f"{clip['duration']}, not {op['duration']}")
+    return None
+
+
+def _verify_retime_segments(op, after):
+    """Each piece of the split clip reads back at its declared speed."""
+    segments = sorted(op["segments"], key=lambda s: int(s["record_frame"]))
+    prefix = op["unique_id"] + "-split-"
+    pieces = [c for c in shadow.clips(after)
+              if c["unique_id"] == op["unique_id"]
+              or c["unique_id"].startswith(prefix)]
+    pieces.sort(key=lambda c: int(c["record_in"]))
+    if len(pieces) != len(segments):
+        return (f"clip {op['unique_id']!r} reads {len(pieces)} pieces, "
+                f"not {len(segments)}")
+    for index, (piece, segment) in enumerate(zip(pieces, segments)):
+        speed = piece.get("speed")
+        if speed is None:
+            return (f"piece {index} of clip {op['unique_id']!r} reads "
+                    f"no speed")
+        if abs(float(speed) - float(segment["percent"])) > FLOAT_TOLERANCE:
+            return (f"piece {index} of clip {op['unique_id']!r} reads "
+                    f"speed={speed}, not {segment['percent']}")
+    return None
+
+
+def _verify_picture_keyframe(op, after):
+    """Keyframes read back at the declared frames with the declared values."""
+    clip = _clip(after, op["unique_id"])
+    if clip is None:
+        return f"clip {op['unique_id']!r} is not on the timeline"
+    keyframes = (clip.get("keyframes") or {}).get(op["param"], [])
+    read_back = {int(kf["frame"]): kf for kf in keyframes}
+    for keyframe in op["keyframes"]:
+        frame = int(keyframe["frame"])
+        if frame not in read_back:
+            return (f"no keyframe reads back on {op['unique_id']!r} for "
+                    f"{op['param']!r} at frame {frame}")
+        got = read_back[frame].get("value")
+        if not _same_value(got, keyframe["value"]):
+            return (f"keyframe on {op['unique_id']!r} for {op['param']!r} "
+                    f"at frame {frame} reads value={got!r}, "
+                    f"not {keyframe['value']!r}")
     return None
 
 

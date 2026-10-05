@@ -635,10 +635,12 @@ def apply_patch(patch, *, resolve, project, timeline,
                 if spec.item and item is None:
                     raise RuntimeError(
                         f"clip {op['unique_id']!r} is not uniquely present")
-                if op["op"] == "clip.set_property":
+                if op["op"] in ("clip.set_property", "picture.keyframe"):
                     current = _clip(live, op["unique_id"])
+                    prop = op["key"] if op["op"] == "clip.set_property" \
+                        else op["param"]
                     old_value = ((current.get("transform") or {}).get(
-                        op["key"]) if current is not None else None)
+                        prop) if current is not None else None)
                     from library.tools.transform_write_log import write_scope
 
                     with write_scope(

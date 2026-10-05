@@ -854,3 +854,96 @@ def test_a_scoped_watch_is_the_whole_watch_restricted(tmp_path):
         rw.watch_video(str(video), str(tmp_path / "f"),
                        str(tmp_path / "c.json"), "t",
                        dirty_receipts=[str(receipt)])
+
+
+def test_retime_segments_splits_and_sets_each_step(world):
+    project, timeline, item, store, base = world
+    uid = item.GetUniqueId()
+    patch = _patch("retime-segments", base.generation, [{
+        "op": "retime.segments", "unique_id": uid,
+        "segments": [
+            {"percent": 50.0, "record_frame": 0},
+            {"percent": 100.0, "record_frame": 24},
+        ],
+    }], ["timeline_structure"], [[0, 48]])
+    receipt = _apply(patch, project, timeline, store)
+    assert receipt["status"] == "committed", receipt
+    pieces = timeline.GetItemListInTrack("video", 1)
+    assert len(pieces) == 2
+    speeds = sorted(p.GetSpeed()["Percentage"] for p in pieces)
+    assert speeds == [50.0, 100.0]
+
+
+def test_retime_segments_wrong_speed_fails_verification(world):
+    project, timeline, item, store, base = world
+    uid = item.GetUniqueId()
+    patch = _patch("retime-segments-bad", base.generation, [{
+        "op": "retime.segments", "unique_id": uid,
+        "segments": [
+            {"percent": 50.0, "record_frame": 0},
+            {"percent": 75.0, "record_frame": 24},
+        ],
+    }], ["timeline_structure"], [[0, 48]])
+    original_set_speed = type(item).SetSpeed
+
+    def wrong_speed(self, speed):
+        result = original_set_speed(self, speed)
+        if isinstance(speed, dict) and speed.get("Percentage") == 75.0:
+            self._speed = 100.0
+        return result
+
+    type(item).SetSpeed = wrong_speed
+    try:
+        receipt = _apply(patch, project, timeline, store)
+    finally:
+        type(item).SetSpeed = original_set_speed
+    assert receipt["status"] == "verification_failed"
+    assert "speed=100.0" in receipt["operations"][0]["failure"]
+
+
+def test_picture_keyframe_writes_and_reads_back(world):
+    project, timeline, item, store, base = world
+    uid = item.GetUniqueId()
+    patch = _patch("picture-keyframe", base.generation, [{
+        "op": "picture.keyframe", "unique_id": uid, "param": "ZoomX",
+        "keyframes": [
+            {"frame": 0, "value": 1.0, "interpolation": "linear"},
+            {"frame": 24, "value": 2.0, "interpolation": "linear"},
+        ],
+    }], ["picture_transform"], [[0, 48]])
+    receipt = _apply(patch, project, timeline, store)
+    assert receipt["status"] == "committed", receipt
+    kfs = item.GetKeyframes("ZoomX")
+    assert len(kfs) == 2
+    frames = sorted(kf["frame"] for kf in kfs)
+    assert frames == [0, 24]
+    values = {kf["frame"]: kf["value"] for kf in kfs}
+    assert values[0] == 1.0
+    assert values[24] == 2.0
+
+
+def test_picture_keyframe_wrong_value_fails_verification(world):
+    project, timeline, item, store, base = world
+    uid = item.GetUniqueId()
+    patch = _patch("picture-keyframe-bad", base.generation, [{
+        "op": "picture.keyframe", "unique_id": uid, "param": "ZoomX",
+        "keyframes": [
+            {"frame": 0, "value": 1.0, "interpolation": "linear"},
+            {"frame": 24, "value": 2.0, "interpolation": "linear"},
+        ],
+    }], ["picture_transform"], [[0, 48]])
+    original_set_keyframe = type(item).SetKeyframe
+
+    def wrong_keyframe(self, key, frame, value, interpolation="linear"):
+        result = original_set_keyframe(self, key, frame, value, interpolation)
+        if frame == 24:
+            self._keyframes[key][-1]["value"] = 99.0
+        return result
+
+    type(item).SetKeyframe = wrong_keyframe
+    try:
+        receipt = _apply(patch, project, timeline, store)
+    finally:
+        type(item).SetKeyframe = original_set_keyframe
+    assert receipt["status"] == "verification_failed"
+    assert "value=99.0" in receipt["operations"][0]["failure"]

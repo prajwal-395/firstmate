@@ -1556,7 +1556,11 @@ _REGISTRY: tuple[Operation, ...] = (
                             # reordered in place. All local: none ripples.
                             "clip.link", "clip.unlink",
                             "track.add", "track.delete", "track.rename",
-                            "track.reorder"),
+                            "track.reorder",
+                            # Retime as stepped constant-speed segments
+                            # (Resolve carries no speed-curve API) and
+                            # keyframed picture parameters.
+                            "retime.segments", "picture.keyframe"),
                 conflict_domains=("markers", "timeline_structure",
                                   "picture_transform"),
                 temporal_effect="local", merge_semantics="exclusive")),

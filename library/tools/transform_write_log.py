@@ -288,3 +288,26 @@ def set_property(item: Any, property_name: str, value: Any, *,
             item_identity=item_identity, context=context, caller_site=None)
         _append(row, project_folder)
     return item.SetProperty(property_name, value)
+
+
+def set_keyframe(item: Any, property_name: str, frame: int, value: Any,
+                 interpolation: str = "linear", *,
+                 item_identity: Any = None, **fields: Any) -> Any:
+    """Set one keyframe on a transform parameter, logging the write.
+
+    The log is written before the API call, so a filesystem error refuses
+    the write instead of allowing an untraceable keyframe change. Only the
+    four transform keys are logged, matching ``set_property``.
+    """
+    if property_name in TRANSFORM_PROPERTIES:
+        context = {**_CONTEXT.get(),
+                   **{key: value for key, value in fields.items()
+                      if value is not None}}
+        row, project_folder = _record(
+            property_name=property_name, old_value=_MISSING,
+            new_value={"frame": int(frame), "value": value,
+                       "interpolation": interpolation},
+            item_identity=item_identity, context=context, caller_site=None,
+            write_kind="SetKeyframe")
+        _append(row, project_folder)
+    return item.SetKeyframe(property_name, int(frame), value, interpolation)

@@ -1605,7 +1605,8 @@ class FakeTimelineItem:
         #: the `refuse_properties` fault knob.
         self.refused: list = []
         self.refuse_properties: frozenset = frozenset()
-        self._speed = 1.0
+        self._speed = 100.0
+        self._keyframes: dict = {}
         self._fusion_comps = list(fusion_comps)
         self.export_calls: list = []
         #: Colour-page node count (`GetNumNodes`; `CopyGrades` copies it).
@@ -1700,11 +1701,52 @@ class FakeTimelineItem:
         return key not in FALSE_BUT_SET_PROPERTIES
 
     def GetSpeed(self):
-        return self._speed
+        return {"Percentage": self._speed, "RippleTimeline": False}
 
     def SetSpeed(self, speed):
-        self._speed = float(speed)
+        if isinstance(speed, dict):
+            self._speed = float(speed.get("Percentage", 100.0))
+        else:
+            self._speed = float(speed) * 100.0
         return True
+
+    def SplitAtFrame(self, frame):
+        """Split at a record frame; returns the new second-half item."""
+        frame = int(frame)
+        if frame <= self._start or frame >= self._start + self._duration:
+            return None
+        second = FakeTimelineItem(
+            self._name,
+            self._timeline,
+            start=frame,
+            duration=self._start + self._duration - frame,
+            left_offset=self._left_offset + (frame - self._start),
+            pool_item=self._pool_item,
+            enabled=self._enabled,
+            uid=f"{self._uid}-split-{frame}",
+            source_start_frame=self._source_start_frame + (frame - self._start),
+            source_end_frame=self._source_end_frame,
+        )
+        second._speed = self._speed
+        second._keyframes = {k: list(v) for k, v in self._keyframes.items()}
+        self._duration = frame - self._start
+        self._source_end_frame = self._source_start_frame + (frame - self._start)
+        for kind in ("video", "audio"):
+            for _name, items in self._timeline._tracks[kind]:
+                if self in items:
+                    items.insert(items.index(self) + 1, second)
+                    return second
+        return None
+
+    def SetKeyframe(self, key, frame, value, interpolation="linear"):
+        self._keyframes.setdefault(key, []).append({
+            "frame": int(frame), "value": value,
+            "interpolation": interpolation,
+        })
+        return True
+
+    def GetKeyframes(self, key):
+        return list(self._keyframes.get(key, []))
 
     def GetCDL(self):
         return dict(self._cdl) if hasattr(self, "_cdl") else {}

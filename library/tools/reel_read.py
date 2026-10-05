@@ -111,6 +111,65 @@ class ReelReadError(RuntimeError):
     """A reel that could not be read honestly. Fail closed, like the guard."""
 
 
+def _speed_percent(item) -> Optional[float]:
+    """Read an item's speed as a percentage (100.0 = normal).
+
+    Resolve's `GetSpeed()` returns a dict; a float reads as a fraction.
+    None where the item will not report a speed.
+    """
+    try:
+        reported = item.GetSpeed()
+    except Exception:
+        return None
+    if isinstance(reported, dict):
+        try:
+            return float(reported.get("Percentage"))
+        except (TypeError, ValueError):
+            return None
+    if isinstance(reported, (int, float)):
+        return float(reported) * 100.0
+    return None
+
+
+def _item_keyframes(item) -> dict:
+    """Read an item's keyframed transform parameters, as plain data.
+
+    Returns `{param: [{"frame", "value", "interpolation"}, ...]}` for each
+    param the item reports keyframes on. An item with no keyframe read API
+    reads as empty - the absence of keyframes is not the same as a failed
+    read, so this never raises.
+    """
+    try:
+        getter = item.GetKeyframes
+    except AttributeError:
+        return {}
+    keyframes: dict = {}
+    for param in ("Pan", "Tilt", "ZoomX", "ZoomY"):
+        try:
+            reported = getter(param) or []
+        except Exception:
+            continue
+        if not isinstance(reported, (list, tuple)):
+            continue
+        rows = []
+        for entry in reported:
+            if isinstance(entry, dict):
+                rows.append({
+                    "frame": entry.get("frame"),
+                    "value": entry.get("value"),
+                    "interpolation": entry.get("interpolation", "linear"),
+                })
+            elif isinstance(entry, (list, tuple)) and len(entry) >= 2:
+                rows.append({
+                    "frame": entry[0],
+                    "value": entry[1],
+                    "interpolation": entry[2] if len(entry) > 2 else "linear",
+                })
+        if rows:
+            keyframes[param] = rows
+    return keyframes
+
+
 # ── The currency check: a transform off a non-current timeline is not one ──
 #
 # Measured 2026-09-15 on Resolve Studio 21.1.0.14 (the re-measurement
@@ -516,6 +575,8 @@ def clip_detail(item, track_type: str, track_index: int,
         # failed enabled-state read into `True`, because that is exactly
         # the state a rebuild would silently restore.
         "enabled": _call(item, "GetClipEnabled", None),
+        "speed": _speed_percent(item),
+        "keyframes": _item_keyframes(item),
         "transform": _item_transform(item),
         "fusion": {
             "comp_count": _call(item, "GetFusionCompCount", 0),
