@@ -117,5 +117,8 @@
   },
   "context_fields": [
     "caption_feedback_context"
+  ],
+  "decides": [
+    "subtitle.max_words_per_card"
   ]
 }

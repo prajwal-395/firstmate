@@ -190,5 +190,8 @@
     "view:emphasis",
     "view:motion",
     "view:soundevents"
+  ],
+  "decides": [
+    "transition.density_per_minute"
   ]
 }

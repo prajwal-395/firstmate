@@ -205,5 +205,8 @@
     "view:soundevents",
     "clip_catalog.*.clip_id",
     "clip_catalog.*.filename"
+  ],
+  "decides": [
+    "sfx.density_per_minute"
   ]
 }

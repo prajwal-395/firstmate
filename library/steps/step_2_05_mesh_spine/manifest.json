@@ -198,5 +198,8 @@
     "semantic_analysis_documents.*.assessment.usable_ranges_method",
     "view:beatgrid",
     "view:sectiongrid"
+  ],
+  "decides": [
+    "pacing.target_asl_seconds"
   ]
 }

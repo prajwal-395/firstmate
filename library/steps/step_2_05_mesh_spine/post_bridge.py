@@ -57,6 +57,14 @@ from tools.frame_utils import seconds_to_frame
 from library.tools.music_bed import BED_KEY
 from library.tools.music_bed import describe as describe_bed
 from library.tools.music_bed import resolve_bed
+from library.tools import decided_value
+
+# The pacing slot this step decides, and the decision-entry keys the
+# model's answer may carry.  Anything else on the answer is REFUSED,
+# never dropped: an unread key is how a probe's SFX `at_word` landed
+# 3.06 s early on the block start.
+PACING_SLOT = "pacing.target_asl_seconds"
+DECISION_ENTRY_KEYS = frozenset({"slot", "scope", "value", "why"})
 
 
 # The block keys this step reads or forwards. Anything else on a block
@@ -114,7 +122,8 @@ PACING_WINDOW_KEYS = frozenset({
 })
 
 
-def _resolve_pacing(pacing, enriched_blocks: list) -> list:
+def _resolve_pacing(pacing, enriched_blocks: list,
+                    default_asl: float | None = None) -> list:
     """The validated ASL windows the plan states, or [].
 
     Rung 7 (PA3.2, PA2.2): "average shot length around 2.5s in the
@@ -123,10 +132,17 @@ def _resolve_pacing(pacing, enriched_blocks: list) -> list:
     `compile_manifest` measures the built picture against into
     `pacing_report` (report-only: a target is a target, and failing a
     build on a missed one would be a gate failing correct output).
-    E3's other case is a `feel` word (for example "accelerating") on
-    the same addressed window. Keep it verbatim; do not turn a feel
-    request into a made-up ASL number. A window states exactly one of
+    E3's other case is a `feel` word (for example "accelerating") on the
+    same addressed window. Keep it verbatim; do not turn a feel request
+    into a made-up ASL number. A window states exactly one of
     `asl_seconds` and `feel`.
+
+    `default_asl` is the DECIDED target shot length (the
+    `pacing.target_asl_seconds` slot, resolved through the one ladder).
+    A window that states a `feel` word rather than a number is measured
+    against it, so a stated preference ("I prefer faster cuts") reaches
+    the windows the model expressed as a feel.  None when nothing
+    decided a target: a feel window then carries no ASL, as before.
 
     Refuses (ValueError, travelling the post-bridge retry path) where a
     window names no block, runs backwards, states no positive ASL, or
@@ -183,6 +199,8 @@ def _resolve_pacing(pacing, enriched_blocks: list) -> list:
                     f"mesh_spine pacing window {index} states feel "
                     f"{feel!r}, which is not a non-empty feel word")
             row["feel"] = feel.strip()
+            if default_asl is not None:
+                row["asl_seconds"] = float(default_asl)
         resolved.append(row)
     for first, second in zip(resolved, resolved[1:]):
         if (positions.index(str(second["start_block"]))
@@ -228,7 +246,8 @@ def _attach_handles(blocks: list, catalog, fps: float) -> None:
             max(0.0, total - src_end), fps)
 
 
-def enrich_spine(spine: dict, speech_sequence: dict, music: dict, data: dict = None) -> dict:
+def enrich_spine(spine: dict, speech_sequence: dict, music: dict, data: dict = None,
+                 default_asl: float | None = None) -> dict:
     """
     Enrich the LLM's creative spine with execution-layer data.
 
@@ -517,7 +536,7 @@ def enrich_spine(spine: dict, speech_sequence: dict, music: dict, data: dict = N
     # plan actually produced). `compile_manifest` measures the built
     # picture against them into `pacing_report`, report-only.
     pacing_windows = _resolve_pacing(spine.get("pacing"),
-                                     enriched_blocks)
+                                     enriched_blocks, default_asl)
 
     # Recalculate total duration from enriched blocks
     total_dur = sum(b.get("duration_seconds", 0) for b in enriched_blocks)
@@ -635,8 +654,27 @@ def resolve_spine(data: dict) -> dict:
     speech = data.get("speech_sequence") or {}
     music = data.get("music_selection", {})
 
-    result = enrich_spine(spine, speech, music, data)
+    # The pacing target this piece cuts at, decided through the one ladder.
+    # A decision key nothing here reads is refused before anything
+    # resolves - the refusal travels the post-bridge retry path so the
+    # model re-plans instead of the spine carrying a key nobody reads.
+    refuse_unknown_keys(data.get(decided_value.MERGE_KEY) or [],
+                         DECISION_ENTRY_KEYS, step="mesh_spine",
+                         plan="value_decisions")
+    pacing_decision = decided_value.decide(
+        PACING_SLOT,
+        project_folder=data.get("project_folder", ""),
+        creative_direction=data.get("creative_direction"),
+        model_answer=decided_value.answers_from(data, PACING_SLOT),
+        step="mesh_spine")
+    default_asl = pacing_decision.value
+
+    result = enrich_spine(spine, speech, music, data,
+                          default_asl=default_asl)
     result["timed_spine"] = result["audio_spine"]
+    result["value_decisions"] = [pacing_decision.as_record()]
+    for line in decided_value.summary_lines([pacing_decision]):
+        print(f"  {line}", file=sys.stderr)
     return result
 
 

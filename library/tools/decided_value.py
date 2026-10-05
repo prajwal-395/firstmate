@@ -308,6 +308,274 @@ SLOTS: dict[str, Slot] = {
             "the window carries no gain and the mix spec says why; nothing "
             "downstream may substitute one"),
     ),
+    # ── The editorial taste slots ──────────────────────────────────────
+    #
+    # The mechanism above shipped with one slot (the mix separation).  The
+    # editorial values a captain states a preference about - pacing,
+    # transition density, B-roll density, caption aggression, music
+    # prominence, SFX density - had no slot to be recorded in, so a
+    # preference could not reach them.  Each row below follows the same
+    # contract: a question, a deciding step that reaches a model, a
+    # reader, and a fallback with a named owner.  The taste profile is
+    # the STATED source; the project's `creative_preferences` outranks
+    # it (decided_value.stated_preference).
+    "pacing.target_asl_seconds": Slot(
+        key="pacing.target_asl_seconds",
+        question=(
+            "What average shot length should this piece target, in seconds "
+            "per shot? You are looking at the spine's blocks and how long "
+            "the piece runs, and at the passages that carry the story. Say "
+            "what THIS piece needs, not what a cut usually is: a dialogue-"
+            "heavy piece tolerates longer shots than one carried by action, "
+            "and a piece that builds needs a target that can tighten. There "
+            "is no bound on your answer and no scale to pick from - name the "
+            "shot length you want and why you want it."),
+        answer_units=(
+            "seconds per shot - the average shot length (ASL) the piece "
+            "should target"),
+        value_units=(
+            "seconds per shot - the average shot length (ASL) the piece "
+            "should target"),
+        deciding_step="mesh_spine",
+        readers=(
+            "library/steps/step_2_05_mesh_spine/post_bridge.py",
+            "library/steps/step_5_04_compile_manifest/step.py",
+        ),
+        preference_paths=(
+            "pipeline.creative_preferences.pacing.target_asl_seconds",),
+        direction_key=None,
+        no_direction_reason=(
+            "no key step 2.01 is asked for states a target shot length; "
+            "`creative_direction.DIRECTION_KEYS` is the enumeration, and "
+            "reading a key that cannot exist is the defect that module "
+            "raises on"),
+        fallback=Fallback(
+            value=4.0,
+            whose="the pacing the daily videos shipped at",
+            why=("this is the average shot length the daily videos were "
+                  "cut at before a target was decided per run. It is a "
+                  "pacing that was preferred on one series, not one "
+                  "measured for this one, and a window that takes it "
+                  "records `fallback` rather than a decision"),
+            superseded_by=(
+                "a spine whose blocks and duration every run that reaches "
+                "step 2.05 has - or a target the project states under "
+                "pipeline.creative_preferences or the user records in "
+                "their taste profile")),
+    ),
+    "transition.density_per_minute": Slot(
+        key="transition.density_per_minute",
+        question=(
+            "How many transitions should this piece carry per minute of "
+            "timeline? You are looking at the cut points the spine opens "
+            "and how long the piece runs. Say what THIS piece needs: a "
+            "piece whose cuts are the story wants fewer decorations than "
+            "one that cuts between every beat, and a transition every cut "
+            "reads as a tic. There is no bound on your answer and no "
+            "scale to pick from - name the density you want and why you "
+            "want it."),
+        answer_units=(
+            "transitions per minute of timeline - how many of the piece's "
+            "cut points should carry a transition rather than a straight "
+            "cut"),
+        value_units=(
+            "transitions per minute of timeline - how many of the piece's "
+            "cut points should carry a transition rather than a straight "
+            "cut"),
+        deciding_step="plan_transitions",
+        readers=(
+            "library/steps/step_4_02_plan_transitions/post_bridge.py",),
+        preference_paths=(
+            "pipeline.creative_preferences.transition.density_per_minute",),
+        direction_key=None,
+        no_direction_reason=(
+            "no key step 2.01 is asked for states how many transitions a "
+            "piece should carry; `creative_direction.DIRECTION_KEYS` is "
+            "the enumeration, and reading a key that cannot exist is the "
+            "defect that module raises on"),
+        fallback=Fallback(
+            value=2.0,
+            whose="the transition density the daily videos shipped at",
+            why=("this is the transitions-per-minute the daily videos were "
+                  "cut at before a density was decided per run. It is a "
+                  "density that was preferred on one series, not one "
+                  "measured for this one, and a plan that takes it "
+                  "records `fallback` rather than a decision"),
+            superseded_by=(
+                "the cut points and timeline duration every run that "
+                "reaches step 4.02 has - or a density the project states "
+                "under pipeline.creative_preferences or the user records "
+                "in their taste profile")),
+    ),
+    "broll.density_per_minute": Slot(
+        key="broll.density_per_minute",
+        question=(
+            "How many seconds of B-roll should this piece carry per minute "
+            "of timeline? You are looking at the speech the piece has to "
+            "cover and how long the piece runs. Say what THIS piece needs: "
+            "a piece whose speaker is the picture wants less B-roll than "
+            "one whose speaker describes things the camera must show. "
+            "There is no bound on your answer and no scale to pick from - "
+            "name the density you want and why you want it."),
+        answer_units=(
+            "seconds of B-roll per minute of timeline - how much of the "
+            "piece's picture should be B-roll rather than A-roll"),
+        value_units=(
+            "seconds of B-roll per minute of timeline - how much of the "
+            "piece's picture should be B-roll rather than A-roll"),
+        deciding_step="select_broll",
+        readers=(
+            "library/steps/step_3_02_select_broll/post_bridge.py",),
+        preference_paths=(
+            "pipeline.creative_preferences.broll.density_per_minute",),
+        direction_key=None,
+        no_direction_reason=(
+            "no key step 2.01 is asked for states how much B-roll a piece "
+            "should carry; `creative_direction.DIRECTION_KEYS` is the "
+            "enumeration, and reading a key that cannot exist is the "
+            "defect that module raises on"),
+        fallback=Fallback(
+            value=15.0,
+            whose="the B-roll density the daily videos shipped at",
+            why=("this is the B-roll-seconds-per-minute the daily videos "
+                  "were cut at before a density was decided per run. It is "
+                  "a density that was preferred on one series, not one "
+                  "measured for this one, and a plan that takes it "
+                  "records `fallback` rather than a decision"),
+            superseded_by=(
+                "the speech to cover and the timeline duration every run "
+                "that reaches step 3.02 has - or a density the project "
+                "states under pipeline.creative_preferences or the user "
+                "records in their taste profile")),
+    ),
+    "subtitle.max_words_per_card": Slot(
+        key="subtitle.max_words_per_card",
+        question=(
+            "How many words should a caption card carry at most? You are "
+            "looking at the speech the captions have to keep up with and "
+            "how fast it runs. Say what THIS piece needs: fast dialogue "
+            "needs shorter cards than slow speech, and a card the viewer "
+            "cannot read in its time is a card too long. There is no bound "
+            "on your answer and no scale to pick from - name the word "
+            "count you want and why you want it."),
+        answer_units=(
+            "words per caption card - the most words one card should carry "
+            "before the grouping splits it"),
+        value_units=(
+            "words per caption card - the most words one card should carry "
+            "before the grouping splits it"),
+        deciding_step="plan_subtitles",
+        readers=(
+            "library/steps/step_4_01_plan_subtitles/step.py",),
+        preference_paths=(
+            "pipeline.creative_preferences.subtitle.max_words_per_card",),
+        direction_key=None,
+        no_direction_reason=(
+            "no key step 2.01 is asked for states how many words a "
+            "caption card should carry; `creative_direction.DIRECTION_KEYS` "
+            "is the enumeration, and reading a key that cannot exist is "
+            "the defect that module raises on"),
+        fallback=Fallback(
+            value=6,
+            whose="the caption aggression the Lucie videos shipped at",
+            why=("this is the words-per-card the Lucie videos were captioned "
+                  "at before a ceiling was decided per run. It is a "
+                  "ceiling that was preferred on one series, not one "
+                  "measured for this one, and a plan that takes it "
+                  "records `fallback` rather than a decision"),
+            superseded_by=(
+                "the speech and its speed every run that reaches step 4.01 "
+                "has - or a ceiling the project states under "
+                "pipeline.creative_preferences or the user records in "
+                "their taste profile")),
+    ),
+    "music.bed_level_lufs": Slot(
+        key="music.bed_level_lufs",
+        question=(
+            "How loud should the music bed play in this piece, in integrated "
+            "LUFS? You are looking at what each candidate bed measures and "
+            "at the speech the piece is carried by. Say what THIS piece "
+            "needs: a bed mastered hot needs a different target from a "
+            "quiet one to sit in the same place under the same voice. "
+            "There is no bound on your answer and no scale to pick from - "
+            "name the level you want and why you want it."),
+        answer_units=(
+            "integrated LUFS (BS.1770) the music bed should play at"),
+        value_units=(
+            "integrated LUFS (BS.1770) the music bed should play at"),
+        deciding_step="music_selection",
+        readers=(
+            "library/steps/step_2_04_music_selection/post_bridge.py",),
+        measurements=(
+            Measurement(
+                name="bed_integrated_lufs",
+                produced_by="library/tools/music_measurement.py::bed_reading",
+                what=("the chosen bed's own integrated loudness, folded on "
+                      "by step 2.04's post-bridge")),
+        ),
+        preference_paths=(
+            "pipeline.creative_preferences.music.bed_level_lufs",),
+        direction_key=None,
+        no_direction_reason=(
+            "no key step 2.01 is asked for states how loud the music bed "
+            "should play; `creative_direction.DIRECTION_KEYS` is the "
+            "enumeration, and reading a key that cannot exist is the "
+            "defect that module raises on"),
+        fallback=Fallback(
+            value=-18.0,
+            whose="the bed level the Lucie videos shipped at",
+            why=("this is the bed level the Lucie videos were mixed at "
+                  "before a target was decided per run. It is a level that "
+                  "was preferred on one series, not one measured for this "
+                  "one, and a selection that takes it records `fallback` "
+                  "rather than a decision"),
+            superseded_by=(
+                "a measured bed and measured speech, which every run that "
+                "reaches step 2.04 and step 3.01 has - or a level the "
+                "project states under pipeline.creative_preferences or the "
+                "user records in their taste profile")),
+    ),
+    "sfx.density_per_minute": Slot(
+        key="sfx.density_per_minute",
+        question=(
+            "How many sound effects should this piece carry per minute of "
+            "timeline? You are looking at the speech the SFX have to sit "
+            "beside and how long the piece runs. Say what THIS piece "
+            "needs: a piece whose sound design is the story wants more "
+            "than one whose dialogue is. There is no bound on your answer "
+            "and no scale to pick from - name the density you want and why "
+            "you want it."),
+        answer_units=(
+            "sound effects per minute of timeline - how many SFX the piece "
+            "should carry"),
+        value_units=(
+            "sound effects per minute of timeline - how many SFX the piece "
+            "should carry"),
+        deciding_step="plan_sfx",
+        readers=(
+            "library/steps/step_4_04_plan_sfx/post_bridge.py",),
+        preference_paths=(
+            "pipeline.creative_preferences.sfx.density_per_minute",),
+        direction_key=None,
+        no_direction_reason=(
+            "no key step 2.01 is asked for states how many sound effects a "
+            "piece should carry; `creative_direction.DIRECTION_KEYS` is "
+            "the enumeration, and reading a key that cannot exist is the "
+            "defect that module raises on"),
+        fallback=Fallback(
+            value=3.0,
+            whose="the SFX density the daily videos shipped at",
+            why=("this is the SFX-per-minute the daily videos were cut at "
+                  "before a density was decided per run. It is a density "
+                  "that was preferred on one series, not one measured for "
+                  "this one, and a plan that takes it records `fallback` "
+                  "rather than a decision"),
+            superseded_by=(
+                "the speech and the timeline duration every run that "
+                "reaches step 4.04 has - or a density the project states "
+                "under pipeline.creative_preferences or the user records "
+                "in their taste profile")),
+    ),
 }
 
 

@@ -742,6 +742,13 @@ WITHOUT_A_DECLARED_ROLE: Dict[str, str] = {
         "A supervising editor's review pass, and the one step whose whole "
         "output is a judgement about other steps' work."
     ),
+    "plan_subtitles": (
+        "Addressed as 'a caption feedback reviewer'. The deterministic "
+        "plan is already made; the model checks each timeline note against "
+        "the timed speech and the caption entries and returns a verdict "
+        "per note. A copy editor's review pass over other steps' work, "
+        "not a decision about what the captions say."
+    ),
     "render_motion_graphics": (
         "Addressed as 'deciding what additive graphics, if any, this video carries'. "
         "A motion designer's job. Held by another worker at the time of writing, "

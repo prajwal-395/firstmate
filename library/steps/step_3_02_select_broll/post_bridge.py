@@ -36,6 +36,12 @@ from library.tools.cutaway_window import choose_window
 from library.tools.spine_contract import declares_black_beat
 from library.tools.plan_keys import refuse_unknown_keys
 from library.tools.transition_carriers import block_reaches_v1
+from library.tools import decided_value
+
+# The B-roll-density slot this step decides, and the decision-entry keys
+# the model's answer may carry.
+BROLL_SLOT = "broll.density_per_minute"
+DECISION_ENTRY_KEYS = frozenset({"slot", "scope", "value", "why"})
 
 # The entry keys this step reads, per plan list. Anything else on an
 # entry is REFUSED by `refuse_unknown_keys` in `resolve_broll`, never
@@ -604,6 +610,24 @@ def main():
     # beat is covered by its declaration, not by a cutaway.
     _refuse_uncovered(timed_spine.get("structure", []),
                       result.get("b_roll_assignments", []))
+
+    # The B-roll density this piece carries, decided through the one
+    # ladder.  A decision key nothing here reads is refused before
+    # anything resolves - the refusal travels the post-bridge retry path
+    # so the model re-plans instead of the plan carrying a key nobody
+    # reads.
+    refuse_unknown_keys(data.get(decided_value.MERGE_KEY) or [],
+                         DECISION_ENTRY_KEYS, step="select_broll",
+                         plan="value_decisions")
+    broll_decision = decided_value.decide(
+        BROLL_SLOT,
+        project_folder=data.get("project_folder", ""),
+        creative_direction=data.get("creative_direction"),
+        model_answer=decided_value.answers_from(data, BROLL_SLOT),
+        step="select_broll")
+    for line in decided_value.summary_lines([broll_decision]):
+        print(f"  {line}", file=sys.stderr)
+    result["value_decisions"] = [broll_decision.as_record()]
 
     json.dump(result, sys.stdout, indent=2)
 

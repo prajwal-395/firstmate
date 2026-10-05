@@ -66,6 +66,7 @@ from library.tools.fairlight_presets import select_preset_for_content
 from library.tools.pipeline_validation import require_keys, require_type
 from library.tools.plan_keys import UnreadPlanKey, refuse_unknown_keys
 from library.tools.plan_splice import number_within_block
+from library.tools import decided_value
 from library.tools.sfx_duration import (
     SfxDurationRefused,
     declick_fade_seconds,
@@ -85,6 +86,12 @@ from library.tools.sub_block_anchor import (
     AnchorRefused,
     resolve_anchor,
 )
+
+
+# The SFX-density slot this step decides, and the decision-entry keys the
+# model's answer may carry.
+SFX_SLOT = "sfx.density_per_minute"
+DECISION_ENTRY_KEYS = frozenset({"slot", "scope", "value", "why"})
 
 
 # There is no VOLUME_MAP. How loud a sound plays is the plan's own
@@ -1096,6 +1103,23 @@ def main():
             AnchorRefused) as unplayable:
         print(json.dumps({"error": str(unplayable), "step": "4.04_bridge"}))
         sys.exit(1)
+
+    # The SFX density this piece carries, decided through the one ladder.
+    # A decision key nothing here reads is refused before anything
+    # resolves - the refusal travels the post-bridge retry path so the
+    # model re-plans instead of the plan carrying a key nobody reads.
+    refuse_unknown_keys(data.get(decided_value.MERGE_KEY) or [],
+                         DECISION_ENTRY_KEYS, step="plan_sfx",
+                         plan="value_decisions")
+    sfx_decision = decided_value.decide(
+        SFX_SLOT,
+        project_folder=data.get("project_folder", ""),
+        creative_direction=cd,
+        model_answer=decided_value.answers_from(data, SFX_SLOT),
+        step="plan_sfx")
+    for line in decided_value.summary_lines([sfx_decision]):
+        print(f"  {line}", file=sys.stderr)
+    result["value_decisions"] = [sfx_decision.as_record()]
 
     json.dump({"sfx_spec": result}, sys.stdout, indent=2)
 

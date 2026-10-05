@@ -135,5 +135,8 @@
     "music_candidates",
     "-music_candidates.candidates.*.beat_grid",
     "video_preferences"
+  ],
+  "decides": [
+    "music.bed_level_lufs"
   ]
 }

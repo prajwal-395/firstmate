@@ -117,6 +117,14 @@ DECLARING_STEPS = frozenset({
     # is where it says the bed or the speech was never measured - the one
     # thing it genuinely cannot determine.
     "audio_mix",
+    # Added 2026-10-05 with the editorial taste slots
+    # (library/tools/decided_value.py). Step 4.01 was the one hybrid step
+    # missing from this set: its pre-bridge plans captions deterministically
+    # and its handoff then asks a model to review the caption feedback the
+    # timeline notes carried, which is a judgement. A step that reaches a
+    # model and is left off this list is the subset this module refuses to
+    # choose, and the caption-aggression slot's deciding step is 4.01.
+    "plan_subtitles",
     "validate",
 })
 

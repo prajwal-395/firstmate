@@ -22,6 +22,7 @@ from library.tools.pipeline_validation import require_keys
 from library.tools.plan_keys import refuse_unknown_keys
 from library.tools.plan_splice import number_within_block
 from library.tools.ren_refusal import RenRefusal
+from library.tools import decided_value
 from library.tools.spine_contract import (
     block_word_end_times_timeline,
     is_speech_block,
@@ -39,6 +40,11 @@ from library.tools.sub_block_anchor import (
 
 # A word end counts as landing on a beat within this many seconds.
 BEAT_COINCIDENCE_TOLERANCE = 0.05
+
+# The transition-density slot this step decides, and the decision-entry
+# keys the model's answer may carry.
+TRANSITION_SLOT = "transition.density_per_minute"
+DECISION_ENTRY_KEYS = frozenset({"slot", "scope", "value", "why"})
 
 # The entry keys this step reads. Anything else on an entry is REFUSED
 # by `refuse_unknown_keys` in `resolve_transitions`, never dropped: an
@@ -1303,7 +1309,26 @@ def main():
                                  music_analysis=music_analysis,
                                  v2_spans=v2_spans,
                                  attempt=data.get(ATTEMPT_KEY))
-    json.dump({"transition_spec": result}, sys.stdout, indent=2)
+
+    # The transition density this piece carries, decided through the one
+    # ladder.  A decision key nothing here reads is refused before
+    # anything resolves - the refusal travels the post-bridge retry path
+    # so the model re-plans instead of the plan carrying a key nobody
+    # reads.
+    refuse_unknown_keys(data.get(decided_value.MERGE_KEY) or [],
+                         DECISION_ENTRY_KEYS, step="plan_transitions",
+                         plan="value_decisions")
+    density_decision = decided_value.decide(
+        TRANSITION_SLOT,
+        project_folder=data.get("project_folder", ""),
+        creative_direction=creative_direction,
+        model_answer=decided_value.answers_from(data, TRANSITION_SLOT),
+        step="plan_transitions")
+    for line in decided_value.summary_lines([density_decision]):
+        print(f"  {line}", file=sys.stderr)
+    json.dump({"transition_spec": result,
+               "value_decisions": [density_decision.as_record()]},
+              sys.stdout, indent=2)
 
 
 if __name__ == "__main__":

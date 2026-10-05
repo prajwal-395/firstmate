@@ -63,11 +63,15 @@ DEFAULT_MAX_WORDS_PER_CARD = 6
 
 
 def resolve_max_words_per_card(brand_effect: dict = None, *,
-                               audio_spine: dict = None) -> int:
+                               audio_spine: dict = None,
+                               decided_max_words: int | None = None) -> int:
     """The grouping's word ceiling, and whose number it is.
 
     An explicit request carried on the spine wins; otherwise a brand
-    declaration wins, followed by the grouping default. A stated value
+    declaration wins, followed by the DECIDED ceiling - the
+    `subtitle.max_words_per_card` slot resolved through the one ladder
+    (a stated preference, then the model's answer, then the registered
+    fallback) - and only then the grouping default.  A stated value
     must be a whole number >= 1; malformed counts refuse instead of
     silently falling through to a different ceiling.
     """
@@ -83,6 +87,18 @@ def resolve_max_words_per_card(brand_effect: dict = None, *,
         return requested
     stated = (brand_effect or {}).get("caption_words_per_card", None)
     if stated is None:
+        if decided_max_words is not None:
+            if (isinstance(decided_max_words, bool)
+                    or not isinstance(decided_max_words, int)):
+                raise ValueError(
+                    f"the decided max_words_per_card is "
+                    f"{decided_max_words!r}: it must be a whole number of "
+                    "words per card")
+            if decided_max_words < 1:
+                raise ValueError(
+                    f"the decided max_words_per_card is {decided_max_words}: "
+                    "a card must carry at least one word.")
+            return decided_max_words
         return DEFAULT_MAX_WORDS_PER_CARD
     if isinstance(stated, bool) or not isinstance(stated, int):
         raise ValueError(
@@ -1437,7 +1453,8 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                        project_folder: str = "",
                        scope=None,
                        reel_name: str = "",
-                       fps: float = DEFAULT_CAPTION_FPS) -> dict:
+                       fps: float = DEFAULT_CAPTION_FPS,
+                       decided_max_words: int | None = None) -> dict:
     """
     Generate subtitle entries from the spine's own word-level timestamps.
 
@@ -1644,7 +1661,8 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
     # the series states one, else the default above. Resolved once for
     # the whole plan, so every block groups at the same ceiling.
     max_words_per_card = resolve_max_words_per_card(
-        brand_effect, audio_spine=audio_spine)
+        brand_effect, audio_spine=audio_spine,
+        decided_max_words=decided_max_words)
 
     for block in structure:
         block_type = block["block_type"]

@@ -165,5 +165,8 @@
     "temporal_event_indices.*.clip_id",
     "view:picture",
     "view:stability"
+  ],
+  "decides": [
+    "broll.density_per_minute"
   ]
 }

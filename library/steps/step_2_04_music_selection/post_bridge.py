@@ -61,6 +61,12 @@ from library.tools.music_selection_contract import (  # noqa: E402
     acquired_media_dir,
 )
 from library.tools.plan_keys import refuse_unknown_keys  # noqa: E402
+from library.tools import decided_value  # noqa: E402
+
+# The bed-level slot this step decides, and the decision-entry keys the
+# model's answer may carry.
+BED_LEVEL_SLOT = "music.bed_level_lufs"
+DECISION_ENTRY_KEYS = frozenset({"slot", "scope", "value", "why"})
 
 
 # The selection keys this step reads or forwards. Anything else is
@@ -393,6 +399,24 @@ def main():
         # out below, and a missing sidecar is visible on its face.
         print(f"WARNING: music audit trail could not be written ({exc}); "
               f"continuing with the selection.", file=sys.stderr)
+
+    # The bed level this piece's music plays at, decided through the one
+    # ladder.  A decision key nothing here reads is refused before
+    # anything resolves - the refusal travels the post-bridge retry path
+    # so the model re-plans instead of the selection carrying a key
+    # nobody reads.
+    refuse_unknown_keys(data.get(decided_value.MERGE_KEY) or [],
+                         DECISION_ENTRY_KEYS, step="music_selection",
+                         plan="value_decisions")
+    bed_decision = decided_value.decide(
+        BED_LEVEL_SLOT,
+        project_folder=project_folder,
+        creative_direction=data.get("creative_direction"),
+        model_answer=decided_value.answers_from(data, BED_LEVEL_SLOT),
+        step="music_selection")
+    for line in decided_value.summary_lines([bed_decision]):
+        print(f"  {line}", file=sys.stderr)
+    resolved["value_decisions"] = [bed_decision.as_record()]
 
     json.dump({"music_selection": resolved}, sys.stdout, indent=2)
 
