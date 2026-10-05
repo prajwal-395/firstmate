@@ -458,7 +458,8 @@ def _plan_geometry_checks(assembly_manifest: dict) -> dict:
             "v1_tiling": tiling_check}
 
 
-def build_watch_frames(video_path: str, project_folder: str) -> str:
+def build_watch_frames(video_path: str, project_folder: str,
+                       assembly_manifest: dict = None) -> str:
     """Draw the strips the LLM half WATCHES, and map them for the prompt.
 
     The deterministic half draws them because drawing is measurement,
@@ -471,6 +472,12 @@ def build_watch_frames(video_path: str, project_folder: str) -> str:
     folder: it was asked "would I post this" and shown a table. This is
     the frames half of ending that, and the handoff now states which of
     the two it got.
+
+    Each strip carries the framing the clip playing over it DECLARES, so
+    a declared letterbox is not read as a defect: the handoff's "a black
+    bar inside the frame" is a defect only on a strip whose framing column
+    reads "fill".  See `library/tools/render_watch.framing_labels_for_rows`
+    and `library/tools/framing_intent.py`.
 
     Returns "" when nothing could be drawn. `validate_output` records
     that as `watched: false` rather than as a silent pass - see
@@ -491,10 +498,13 @@ def build_watch_frames(video_path: str, project_folder: str) -> str:
              if drawn["missing"] else ""), file=sys.stderr)
     if not drawn["rows"]:
         return ""
+    framing = (render_watch.framing_labels_for_rows(assembly_manifest,
+                                                     drawn["rows"])
+               if assembly_manifest else [])
     return render_watch.build_watch_block(
         drawn["directory"], drawn["rows"], drawn["missing"],
         subject="the rendered video this step is validating",
-        duration=drawn["duration"])
+        duration=drawn["duration"], framing=framing)
 
 
 def validate_output(rendered_output: dict, assembly_manifest: dict,
@@ -842,7 +852,8 @@ def main():
             rendered_output["output_path"]):
         try:
             block = build_watch_frames(
-                rendered_output["output_path"], project_folder)
+                rendered_output["output_path"], project_folder,
+                input_data.get("assembly_manifest"))
         except Exception as exc:  # noqa: BLE001 - drawing is best-effort
             print(f"Error drawing watch frames: {exc}", file=sys.stderr)
     if block:

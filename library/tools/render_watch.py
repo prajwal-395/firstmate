@@ -392,14 +392,79 @@ WATCH_LEGEND = {
     "span_end": "seconds into the rendered file where this strip ends",
     "frames": "how many frames of that span the strip shows, left to right",
     "file": "the strip's filename inside the directory named above",
+    "framing": (
+        "the framing the clip playing over this span DECLARES - 'letterbox' "
+        "means bars above/below are the project's stated preference and not "
+        "a defect; 'fill' means the frame is asked to be covered and bars "
+        "are a defect"
+    ),
 }
 
-_HEADERS = ("span_start", "span_end", "frames", "file")
+_HEADERS = ("span_start", "span_end", "frames", "file", "framing")
+
+
+def framing_label(intent) -> str:
+    """A human-readable label for a declared framing intent.
+
+    ``0.0`` letterboxes (bars are the project's stated preference), ``1.0``
+    fills (the frame is asked to be covered), and a value between punches
+    in partway - its bars are narrower rather than gone, and they are still
+    declared.  ``None`` means the manifest declared nothing for the clip
+    covering a span, which is reported as an empty label rather than read
+    as a preference nobody made.
+    """
+    if intent is None:
+        return ""
+    value = float(intent)
+    if value <= 0.0:
+        return "letterbox"
+    if value >= 1.0:
+        return "fill"
+    return "partial"
+
+
+def framing_labels_for_rows(assembly_manifest: dict, rows: list) -> list:
+    """The declared framing label per watch strip, read off the manifest.
+
+    V1 first and V2 second, because the later span wins an overlap and V2
+    is the track that covers V1 - the same order `_framing_spans` in step
+    6.02 uses, so a V2 cutaway over a V1 clip is labelled with the V2
+    clip's declaration.  A span no clip covers gets an empty label, which
+    the handoff reads as "nothing declared" rather than as a preference.
+    """
+    from library.tools.render_qa import FramingSpan
+    project_settings = assembly_manifest.get("project", {})
+    fps = project_settings.get("frame_rate", 30.0) or 30.0
+    spans = []
+    for track in ("V1", "V2"):
+        for clip in (assembly_manifest.get("tracks", {})
+                      .get(track, {}).get("clips", [])):
+            declared = clip.get("framing_intent")
+            if declared is None:
+                continue
+            start_frame = clip.get("timeline_in_frame")
+            end_frame = clip.get("timeline_out_frame")
+            if (start_frame is None or end_frame is None
+                    or end_frame <= start_frame):
+                continue
+            spans.append(FramingSpan(float(start_frame) / fps,
+                                     float(end_frame) / fps,
+                                     float(declared)))
+    labels = []
+    for row in rows:
+        start = float(row.get("span_start") or 0.0)
+        found = None
+        for span in spans:
+            if span.start - 1e-6 <= start < span.end:
+                found = span.intent
+        labels.append(framing_label(found))
+    return labels
 
 
 def build_watch_block(directory: str, rows: list, missing=(),
                       subject: str = "this render",
-                      duration: float = 0.0, not_rewatched=()) -> str:
+                      duration: float = 0.0, not_rewatched=(),
+                      framing=()) -> str:
     """The text the watching step receives beside its prose.
 
     Carries the pictures, what each row IS, the sampling resolution, the
@@ -446,7 +511,9 @@ def build_watch_block(directory: str, rows: list, missing=(),
         out.append(f"  {column}: {meaning}")
     out.append("")
     out.append(f"[{len(rows)}]{{{','.join(_HEADERS)}}}")
-    for row in rows:
+    for index, row in enumerate(rows):
+        if index < len(framing):
+            row["framing"] = framing[index]
         out.append("\t".join(str(row.get(h, "")) for h in _HEADERS))
     if missing:
         out.append("")

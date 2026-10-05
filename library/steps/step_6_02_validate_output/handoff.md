@@ -93,6 +93,22 @@ and produce a structured validation result.
    blurred or of nothing, a black bar inside the frame, something that
    appears or jumps inside one continuous shot. Name the span and where
    in the frame. A clean span is a real answer - say it is clean.
+
+   **A declared letterbox is not a defect.** Each strip carries a
+   `framing` column: the framing the clip playing over that span
+   DECLARES. `letterbox` means bars above/below are the project's stated
+   preference - a series that wants bars declares `framing_intent: 0.0`,
+   and a landscape source in a portrait frame letterboxes by design. On
+   such a strip, bars are the deliverable, not a defect: report the
+   strip as cleanly letterboxed rather than flagging the bars. `fill`
+   means the frame is asked to be covered - bars on such a strip ARE a
+   defect. `partial` means a declared punch-in: the bars are narrower
+   but still declared. An empty framing column means the manifest
+   declared nothing for that span - judge the bars on their own merits
+   and say the declaration was absent. The deterministic
+   `frame_occupancy` check in `deterministic_validation.qa_report`
+   already measured the bars against the declared framing; read it for
+   the numbers and do not re-derive them.
 2. **Audio quality** (from the measurements): speech audible, music
    balanced, no clipping. You have no sound; report what was measured
    and do not infer.
