@@ -176,94 +176,34 @@ def _fallback_record(warnings, probe=None) -> dict:
     }
 
 
-class DrawGainCalibrationMissing(RuntimeError):
-    """No qualified draw-gain calibration exists for this format.
-
-    Raised by `calibrate` where the record has no entry for this exact
-    (Resolve version, width, height). The gain is renderer state that
-    can move between Resolve versions and delivery geometries, so a
-    missing entry is never filled with a guessed value - the run refuses
-    and names the fix: measure in a disposable project.
-    """
-
-
 def calibrate(resolve, project, frame_wh: tuple,
               workdir: str = "", project_folder: str = "") -> dict:
-    """Look up the qualified draw-gain calibration for this format.
+    """Measure the draw gain in THIS project, from rendered pixels.
 
     `frame_wh` is the geometry placements are computed for (the reel
-    delivery frame). Returns the record - `gain`, `source`
-    (`"calibration_record"`), `disagrees_with_fallback`, the `probe`
-    detail and `warnings`. Never leaves Resolve changed (no timeline is
-    created, no setting is written).
+    delivery frame). Returns the record - `gain`, `source` (`"measured"`
+    or `"fallback"`), `disagrees_with_fallback`, the `probe` detail and
+    `warnings`. Never raises; never leaves Resolve changed (entry
+    timeline restored and read back, the entry playhead restored where
+    it was readable and left alone where it was not, the scratch
+    timeline and the imported plate removed, temp files gone).
 
-    Raises `DrawGainCalibrationMissing` where no qualified calibration
-    exists for this exact (Resolve version, width, height) - a missing
-    entry is never filled with a guessed gain, because an unmeasured gain
-    silently changes every caption and overlay transform the build
-    computes. The caller refuses the build and names the fix.
+    The gain is a property of the Resolve STATE the placements are
+    written in, not of a Resolve version and a frame size, so it is
+    measured in the project being built, at build time, every time.
+    2026-10-05: a machine-wide record keyed by (version, width, height)
+    stood in for this measurement. It held 1.0, measured in a disposable
+    project, while the captain's project drew at 4.0; every reel built
+    from it stored its Pan/Tilt at four times the units the renderer
+    wanted - Reel 10's picture and TV frame 660 px low, its header,
+    captions and lower thirds off frame - and the read-back verification
+    passed, because a read-back echoes the units it was written in.
 
-    2026-10-04: the live probe used to write timeline resolution settings
-    on a scratch timeline in the captain's open project. That is the same
-    ``SetSetting`` / ``FusionApp::SyncProjectSettings`` ->
-    ``RenderTask::ObtainRenderLock`` deadlock seen in the 2026-10-01 and
-    2026-10-02 Resolve crash reports. The routine path no longer mutates
-    resolution on the live project; it reads a qualified calibration record
-    instead (``library/tools/draw_gain_calibration.py``). The live probe
-    remains as ``_calibrate_live`` for testing and calibration-population.
-    """
-    from library.tools import draw_gain_calibration as cal
-    from library.tools.draw_gain_calibration import lookup
-    from library.tools.resolve_transform import FALLBACK_DRAW_GAIN
-
-    width, height = int(frame_wh[0]), int(frame_wh[1])
-    gain = lookup(resolve, width, height)
-    if gain is not None:
-        disagrees = abs(gain - FALLBACK_DRAW_GAIN) > 0.05
-        record = {
-            "gain": gain,
-            "source": "calibration_record",
-            "disagrees_with_fallback": disagrees,
-            "warnings": [],
-            "probe": {
-                "frame_wh": [width, height],
-                "fallback_gain": FALLBACK_DRAW_GAIN,
-            },
-        }
-        _say(f"run uses CALIBRATED gain {gain:.4f} "
-              f"({width}x{height})")
-        if disagrees:
-            _say(f"DISAGREEMENT: calibrated {gain:.4f} differs from "
-                  f"fallback {FALLBACK_DRAW_GAIN}: the renderer state "
-                  f"moved again")
-        return record
-    _say(f"REFUSING: no qualified calibration for {width}x{height}")
-    raise DrawGainCalibrationMissing(
-        f"no qualified draw-gain calibration for {width}x{height} "
-        f"(resolve {cal.resolve_version(resolve)}). Every caption, "
-        f"motion-graphic and overlay transform is computed at the "
-        f"measured gain, and placing them at an unmeasured one is how a "
-        f"build halves every overlay transform. Fix: measure in a "
-        f"disposable project with "
-        f"bin/vep scripts/populate_calibration.py --width {width} "
-        f"--height {height}")
-
-
-def _calibrate_live(resolve, project, frame_wh: tuple,
-                    workdir: str = "", project_folder: str = "") -> dict:
-    """The live probe, kept for testing and calibration-population only.
-
-    This is the pre-2026-10-04 probe that created a scratch timeline,
-    wrote resolution settings on it, and measured the gain from rendered
-    pixels. It is NO LONGER the routine path - ``calibrate`` reads the
-    qualified calibration record instead. This function remains so the
-    measurement mechanism can be tested and so a calibration can be
-    populated by running it once in a controlled setting.
-
-    Never raises; never leaves Resolve changed (entry timeline restored
-    and read back, the entry playhead restored where it was readable and
-    left alone where it was not, the scratch timeline and the imported
-    plate removed, temp files gone).
+    The scratch timeline is sized before it becomes current, under a
+    deadline - the same pattern `reel_build` uses for every reel
+    timeline it creates (the 2026-10-02 Fusion render-lock race hangs
+    those writes only on a just-made-current timeline), so measuring
+    adds no Resolve write of a kind the build does not already make.
     """
     from library.tools import marker_capture as mc
     from library.tools.marker_capture import grab_still

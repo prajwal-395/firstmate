@@ -386,13 +386,13 @@ class _Resolve:
         return True
 
 
-def _make_grab(plate_path):
-    """A gallery-still stub drawing the full plate at SIM_GAIN."""
+def _make_grab(plate_path, gain=SIM_GAIN):
+    """A gallery-still stub drawing the full plate at `gain`."""
     plate = np.asarray(Image.open(plate_path).convert("RGB"))
 
     def grab(timeline, project, dest):
         tilt = timeline.clip.GetProperty("Tilt")
-        shift = int(round(-tilt * SIM_GAIN))
+        shift = int(round(-tilt * gain))
         canvas = np.zeros((1920, 1080, 3), dtype=np.uint8)
         canvas[shift:shift + 1920, :, :] = plate[
             :1920 - shift, :, :] if shift >= 0 else plate[
@@ -407,13 +407,13 @@ def _make_grab(plate_path):
     return grab
 
 
-def _make_grab_proxy(plate_holder):
+def _make_grab_proxy(plate_holder, gain=SIM_GAIN):
     def grab(timeline, project, dest):
         # The production grab needs a path it can mkdir beside:
         # a str destination is the bug that bit the first live run.
         assert hasattr(dest, "parent"), type(dest)
-        return _make_grab(plate_holder["path"])(timeline, project,
-                                                dest)
+        return _make_grab(plate_holder["path"], gain)(timeline, project,
+                                                      dest)
 
     return grab
 
@@ -438,7 +438,7 @@ def test_measured_gain_comes_back_from_rendered_pixels(monkeypatch,
     import library.tools.marker_capture as mc_mod
     monkeypatch.setattr(mc_mod, "grab_still",
                         _make_grab_proxy(plate_holder))
-    record = probe_mod._calibrate_live(resolve, project, FRAME_WH,
+    record = probe_mod.calibrate(resolve, project, FRAME_WH,
                                        workdir=str(tmp_path),
                                        project_folder=str(tmp_path))
     assert record["source"] == "measured"
@@ -464,7 +464,7 @@ def test_a_refused_grab_falls_back_loud(monkeypatch, tmp_path):
 
     import library.tools.marker_capture as mc_mod
     monkeypatch.setattr(mc_mod, "grab_still", boom)
-    record = probe_mod._calibrate_live(resolve, project, FRAME_WH,
+    record = probe_mod.calibrate(resolve, project, FRAME_WH,
                                        workdir=str(tmp_path),
                                        project_folder=str(tmp_path))
     assert record["source"] == "fallback"
@@ -506,7 +506,7 @@ def test_a_past_the_end_entry_playhead_still_measures(monkeypatch,
     import library.tools.marker_capture as mc_mod
     monkeypatch.setattr(mc_mod, "grab_still",
                         _make_grab_proxy(plate_holder))
-    record = probe_mod._calibrate_live(resolve, project, FRAME_WH,
+    record = probe_mod.calibrate(resolve, project, FRAME_WH,
                                        workdir=str(tmp_path),
                                        project_folder=str(tmp_path))
     assert record["source"] == "measured"
@@ -523,23 +523,25 @@ def test_a_past_the_end_entry_playhead_still_measures(monkeypatch,
 
 
 @pytest.mark.usefixtures("_sole_writer")
-def test_calibration_record_matches_live_probe(monkeypatch, tmp_path):
-    """Prove the calibration record holds what the live probe measured.
+def test_overlays_land_on_design_at_the_gain_this_project_draws(
+        monkeypatch, tmp_path):
+    """A tight and a full-frame overlay both land where the design puts
+    them, at the gain the renderer of THIS project draws.
 
-    The live probe measures a gain from rendered pixels; the calibration
-    record stores that measured gain; the routine ``calibrate`` returns
-    the same value from the record. This test runs the live probe with a
-    known simulated gain, stores the result, and verifies the routine
-    path returns the identical value.
+    2026-10-05: Reel 10 was rebuilt from a machine-wide calibration
+    record holding gain 1.0 - measured in a disposable project - while
+    the captain's project drew at 4.0 (read off its own stills: Reel 11,
+    built at a measured 4.0, in place; Reel 10 not). Its full-frame TV
+    frame and the picture behind it drew 660 px low and its 844x480
+    tight post header off the top of the frame, and the read-back
+    verification passed. `calibrate` must answer what the project's
+    renderer draws, not a stored value: here that renderer draws at
+    4.0 and nothing else in the run says so.
     """
-    import library.tools.draw_gain_calibration as cal_mod
-    monkeypatch.setattr(cal_mod, "calibration_path",
-                        lambda: tmp_path / "cal.json")
-
+    renderer_gain = 4.0
     project = _Project()
     resolve = _Resolve(project)
     plate_holder = {}
-
     real_build = probe.build_plate
 
     def spy_build(path, width=1080, height=1920):
@@ -550,19 +552,36 @@ def test_calibration_record_matches_live_probe(monkeypatch, tmp_path):
     monkeypatch.setattr(probe, "build_plate", spy_build)
     import library.tools.marker_capture as mc_mod
     monkeypatch.setattr(mc_mod, "grab_still",
-                        _make_grab_proxy(plate_holder))
+                        _make_grab_proxy(plate_holder, renderer_gain))
 
-    live_record = probe._calibrate_live(resolve, project, FRAME_WH,
-                                        workdir=str(tmp_path),
-                                        project_folder=str(tmp_path))
-    assert live_record["source"] == "measured"
-    measured_gain = live_record["gain"]
+    record = probe.calibrate(resolve, project, FRAME_WH,
+                             workdir=str(tmp_path),
+                             project_folder=str(tmp_path))
+    assert record["source"] == "measured"
+    gain = record["gain"]
+    assert gain == pytest.approx(renderer_gain, abs=0.05)
 
-    cal_mod.store(resolve, FRAME_WH[0], FRAME_WH[1], measured_gain)
+    full_w, full_h = FRAME_WH
+    # Reel 10's two placements, as designed: the TV frame (full-frame,
+    # 1080x1920) 220 px below centre, and the post header (a tight
+    # 844x480 canvas) 459 px above centre and 12 px left.
+    designs = {"tv_frame": (1080, 1920, 540.0, 1180.0),
+               "post_header_tight": (844, 480, 528.0, 501.0)}
+    for name, (canvas_w, canvas_h, cx, cy) in designs.items():
+        placement = placement_for_box(canvas_w, canvas_h, cx, cy,
+                                      full_w, full_h, draw_gain=gain)
+        drawn = canvas_screen_origin(canvas_w, canvas_h, placement,
+                                     full_w, full_h,
+                                     draw_gain=renderer_gain)
+        assert drawn == pytest.approx(
+            (cx - canvas_w / 2.0, cy - canvas_h / 2.0), abs=0.5), name
 
-    routine_record = probe.calibrate(resolve, project, FRAME_WH)
-    assert routine_record["source"] == "calibration_record"
-    assert routine_record["gain"] == measured_gain
+    # What the stale record's 1.0 placed: the same frame 660 px low.
+    stale = placement_for_box(1080, 1920, 540.0, 1180.0, full_w, full_h,
+                              draw_gain=1.0)
+    _x0, stale_y0 = canvas_screen_origin(1080, 1920, stale, full_w,
+                                         full_h, draw_gain=renderer_gain)
+    assert stale_y0 - 220.0 == pytest.approx(660.0, abs=0.5)
 
 
 # --------------------------------------------------------------------------
