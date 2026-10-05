@@ -1416,6 +1416,33 @@ def test_ownership_adoption_is_a_read_lease_and_records_without_timeline_writes(
         ("lease_enter", False), ("connect", None), ("lease_exit", False)]
 
 
+def test_ownership_adoption_runs_locally_even_when_broker_serves(
+        patched, tmp_path, monkeypatch, capsys):
+    """The defect: `ren adopt` (cmd_ownership_adopt) routed through a
+    serving broker, so the broker's allowlist refused it and the adopt
+    failed. A local-ledger write runs locally under its own lease, never
+    through the broker."""
+    from types import SimpleNamespace
+
+    from library.tools import project_registry
+    from library.tools.resolved import client
+
+    config = SimpleNamespace(
+        slug="podcast-field-test",
+        resolve=SimpleNamespace(project_name="Podcast (field test)"),
+        project_root=tmp_path,
+    )
+    monkeypatch.setattr(project_registry, "get_project",
+                        lambda _project: config)
+    monkeypatch.setattr(client, "serving", lambda *a, **k: True)
+    monkeypatch.setattr(resolve_axi, "_through_broker",
+                        lambda *_args: pytest.fail("ownership used the broker"))
+
+    assert resolve_axi.main(
+        ["ownership", "podcast-field-test", "--who", "Prajwal"]) == 0
+    assert "ownership_adoption_before:" in capsys.readouterr().out
+
+
 def test_run_after_report_survives_a_mid_run_project_switch(
         patched, run_opt_in, monkeypatch, capsys):
     """A script that switches projects (setup/teardown scripts

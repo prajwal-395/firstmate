@@ -24,7 +24,11 @@ Kinds
                        nothing and is REJECTED, its fields kept in the
                        receipt's result so the caller can rebase.
 `resolve_axi`          One `resolve-axi` command line, run inside the
-                       broker so its reads coalesce across agents.
+                       broker so its reads coalesce across agents. Reads
+                       only, and only the named allowlist
+                       (`_BROKER_ALLOWLIST`): a command not on it is
+                       refused before it is queued, so a new resolve-axi
+                       verb is not broker-eligible by default.
 """
 
 from __future__ import annotations
@@ -43,6 +47,31 @@ from library.tools.resolved.scheduler import EXCLUSIVE, PRIORITIES, SHARED
 QUALIFICATION_PROJECT = "Ren Qualification"
 
 KINDS = ("lease", "timeline.snapshot", "timeline.apply_patch", "resolve_axi")
+
+
+#: The resolve-axi commands the broker will run, by name. The broker is
+#: customer runtime: a queued command runs on the shared Resolve
+#: connection, so a command is broker-eligible only by being named here.
+#: The broker's whole purpose is coalescing reads across agents, so the
+#: allowlist is the read-only verbs; a write goes through the typed
+#: `timeline.apply_patch` kind or runs locally under the caller's own
+#: lease. A new resolve-axi verb is refused until it is named here on
+#: purpose - the boundary is this set, not "whatever reaches Resolve".
+#:
+#: `cmd_run` is the one write-capable verb on the list, eligible only
+#: behind the developer opt-in on the broker process (checked below).
+_BROKER_ALLOWLIST = frozenset({
+    # reads that reach Resolve on every call
+    "cmd_cursor", "cmd_project", "cmd_pool", "cmd_renders",
+    "cmd_markers_audit_replies", "cmd_audio",
+    # recorded reads; `--refresh-live` reads Resolve and coalesces
+    "cmd_timeline_list", "cmd_timeline_get", "cmd_markers", "cmd_items",
+    "cmd_fusion", "cmd_captions", "cmd_frames",
+    # pool read; `--apply` is refused by the command itself
+    "cmd_multicam_sync",
+    # developer escape hatch, behind RESOLVE_AXI_ALLOW_RUN on the broker
+    "cmd_run",
+})
 
 
 class JobRefused(ValueError):
@@ -120,6 +149,12 @@ def _resolve_axi_shape(params: dict) -> dict:
     if func is None or name in resolve_axi._LOCAL_COMMANDS:
         raise JobRefused(f"resolve-axi {argv[0]!r} does not reach Resolve; "
                          "run it locally")
+    if name not in _BROKER_ALLOWLIST:
+        raise JobRefused(
+            f"resolve-axi {argv[0]!r} is not on the broker allowlist; the "
+            "broker runs reads so they coalesce across agents - a write "
+            "goes through the typed timeline.apply_patch kind or runs "
+            "locally under your own lease")
     if name == "cmd_run" and not resolve_axi.run_script_enabled():
         # The broker is customer runtime: a queued `run` script would be
         # caller-supplied Python on the shared Resolve connection. The

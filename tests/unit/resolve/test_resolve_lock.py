@@ -1166,6 +1166,31 @@ def test_broker_refuses_resolve_axi_run_without_developer_opt_in(monkeypatch):
     assert shape["executed"] is True
 
 
+def test_broker_refuses_a_resolve_axi_write_not_on_the_allowlist():
+    """The defect: a resolve-axi command that reached Resolve was
+    automatically broker-eligible, so any new write verb could be queued
+    onto the shared Resolve connection by any caller. The broker runs
+    reads; a write goes through the typed `timeline.apply_patch` kind or
+    runs locally under the caller's own lease."""
+    with pytest.raises(jobs.JobRefused, match="allowlist"):
+        jobs.prepare("resolve_axi", {"argv": [
+            "edit", "place", "--timeline", "Reel 01", "--clip", "a.mov",
+            "--apply"]})
+    with pytest.raises(jobs.JobRefused, match="allowlist"):
+        jobs.prepare("resolve_axi", {"argv": [
+            "markers", "restore", "--timeline", "Reel 01",
+            "--in", "snap.json", "--apply"]})
+
+
+def test_broker_still_runs_an_allowlisted_read():
+    """The allowlist is reads, not a shutdown: a read still prepares as
+    a shared job and coalesces."""
+    shape = jobs.prepare("resolve_axi", {"argv": ["pool"]})
+    assert shape["executed"] is True
+    assert shape["mode"] == "shared"
+    assert shape["priority"] == "read"
+
+
 def test_patch_job_uses_its_capability_execution_contract():
     shape = jobs.prepare("timeline.apply_patch", {"patch": {
         "id": "p1", "capability": "reel.touchup", "project": "Podcast",

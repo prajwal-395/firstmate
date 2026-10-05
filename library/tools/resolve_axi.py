@@ -339,6 +339,14 @@ _SHADOW_READ_COMMANDS = frozenset({
     "cmd_items", "cmd_fusion", "cmd_captions", "cmd_frames",
 })
 
+#: Commands that read Resolve under their own lease but write only local
+#: state, so they run locally - never through the broker. The broker
+#: coalesces reads across agents; a local-ledger write does not belong in
+#: that queue.
+_NO_BROKER_COMMANDS = frozenset({
+    "cmd_ownership_adopt",
+})
+
 
 def _dispatch(func, args) -> int:
     """Run Resolve-backed commands inside their lease, before connection.
@@ -7073,14 +7081,17 @@ def main(argv=None) -> int:
         parser.print_help(sys.stdout)
         return 2
     submit = bool(getattr(args, "submit", False))
-    if submit and getattr(func, "__name__", "") in _LOCAL_COMMANDS:
-        return fail("--submit only applies to commands that reach Resolve",
-                    "remove --submit from this local command")
+    if submit and getattr(func, "__name__", "") in (
+            _LOCAL_COMMANDS | _NO_BROKER_COMMANDS):
+        return fail("--submit queues a job on the broker, and this command "
+                    "runs locally", "remove --submit")
     from library.tools.resolve_lock import ResolveBusy
     name = getattr(func, "__name__", "")
-    needs_resolve = (name not in _LOCAL_COMMANDS and not (
-        name in _SHADOW_READ_COMMANDS
-        and not getattr(args, "refresh_live", False)))
+    needs_resolve = (name not in _LOCAL_COMMANDS
+                     and name not in _NO_BROKER_COMMANDS
+                     and not (
+                         name in _SHADOW_READ_COMMANDS
+                         and not getattr(args, "refresh_live", False)))
     if needs_resolve:
         from library.tools.resolved import client
         client.ensure()
