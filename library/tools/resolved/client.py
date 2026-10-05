@@ -146,8 +146,38 @@ def watchdog_status(path=None) -> dict:
 
 
 def _in_pytest() -> bool:
-    """True when running under pytest (a test process)."""
-    return "pytest" in sys.modules
+    """True when running under pytest (a test process or its child).
+
+    A test's subprocess child is not imported under pytest, but it is
+    still the suite's doing: `PYTEST_CURRENT_TEST` is inherited from
+    the test that spawned it, so it counts too.
+    """
+    if "pytest" in sys.modules:
+        return True
+    return bool(os.environ.get("PYTEST_CURRENT_TEST"))
+
+
+def _default_socket_path() -> Path:
+    """The production socket: where the broker serves with no redirect.
+
+    `resolve_lock.lock_dir` falls back to the system temp directory when
+    `PIPELINE_RESOLVE_LOCK_DIR` is unset, so this is the socket a call
+    reaches when nothing isolated it - the one a test must never start
+    or connect to.
+    """
+    import tempfile
+
+    from library.tools.resolved.server import SOCKET_NAME
+    return Path(tempfile.gettempdir()) / SOCKET_NAME
+
+
+def _is_default_socket(target: Path) -> bool:
+    """True where `target` is the production socket, symlinks resolved."""
+    try:
+        return (os.path.realpath(target)
+                == os.path.realpath(_default_socket_path()))
+    except OSError:  # pragma: no cover - a path that cannot be read
+        return False
 
 
 def _engine_root() -> Optional[Path]:
@@ -162,6 +192,28 @@ def _engine_root() -> Optional[Path]:
         if (parent / "library" / "tools" / "resolved" / "__init__.py").is_file():
             return parent
     return None
+
+
+def _broker_python() -> str:
+    """The interpreter the broker serves under: Ren's venv, not the caller's.
+
+    `sys.executable` is whatever ran the caller - a worker's homebrew
+    Python when tests run outside `bin/vep` - and a broker started with
+    it serves production Resolve calls on unmerged code with the wrong
+    stack. The ladder in `shared_environment` is the one owner of which
+    interpreter carries the stack; where it finds none (a machine with
+    no venv yet) the caller's interpreter is all there is.
+    """
+    try:
+        from library.tools.shared_environment import python_interpreter
+        root = _engine_root()
+        python, _ = python_interpreter(
+            str(root) if root is not None else None)
+    except Exception:  # noqa: BLE001 - finding must never refuse
+        python = ""
+    if python:
+        return python
+    return sys.executable
 
 
 def _start_detached(path: Path) -> subprocess.Popen:
@@ -181,7 +233,7 @@ def _start_detached(path: Path) -> subprocess.Popen:
     log = open(path.parent / LOG_NAME, "ab", buffering=0)
     try:
         return subprocess.Popen(
-            [sys.executable, "-m", "library.tools.resolved", "serve"],
+            [_broker_python(), "-m", "library.tools.resolved", "serve"],
             cwd=str(root) if root is not None else os.getcwd(),
             env=env, stdin=subprocess.DEVNULL, stdout=log,
             stderr=subprocess.STDOUT, start_new_session=True)
@@ -209,14 +261,17 @@ def ensure(path=None, timeout: float = START_TIMEOUT_SECONDS) -> Optional[dict]:
         return None
     target = _path(path)
     # Guard: never auto-start a broker on the DEFAULT socket from inside
-    # pytest. A test that forgets to isolate its lock dir (measured: a
-    # monkeypatch.undo() that unset PIPELINE_RESOLVE_LOCK_DIR) would
-    # otherwise leak a broker onto the production socket, which then
-    # serves production Resolve calls on unmerged code.
-    if _in_pytest():
-        from library.tools.resolve_lock import LOCK_DIR_ENV
-        if not os.environ.get(LOCK_DIR_ENV):
-            return None
+    # the test suite. Judged by the TARGET, not by whether the lock dir
+    # looks isolated: a test that forgets its lock dir, passes the
+    # default path explicitly, or inherits the default into a
+    # non-pytest child would otherwise leak a broker onto the
+    # production socket, which then serves production Resolve calls on
+    # unmerged code (measured 2026-10-05: 49 orphaned brokers, each
+    # re-binding the default socket). The session isolation in
+    # `tests/conftest.py` keeps every test off this path; this refusal
+    # is the second line of defence.
+    if _in_pytest() and _is_default_socket(target):
+        return None
     answer = ping(target)
     if answer is not None:
         return answer

@@ -198,6 +198,121 @@ _heavy_work_lock.HEAVY_LOCK_DIR = Path(
     os.environ[_heavy_work_lock.LOCK_DIR_ENV])
 atexit.register(shutil.rmtree, _heavy_sandbox, True)
 
+# ── The Resolve broker is never a test's ────────────────────────────
+#
+# `library.tools.resolved.client.ensure` starts a DETACHED broker on
+# demand - its own session, outliving the worker that started it - so a
+# broker a test starts and never stops keeps serving after the test is
+# gone. Measured 2026-10-05: 49 orphaned `python -m
+# library.tools.resolved serve` processes, each holding the production
+# default socket (`$TMPDIR/ren-resolved.sock`), each re-binding it so
+# real clients talked to whichever started last. They were started by
+# test runs, not by Ren's real use.
+#
+# So the whole session takes a private lock directory for the broker,
+# the way it already takes a private projects root and a private
+# heavy-work lock above. `resolve_lock.lock_dir` (and through it the
+# broker's socket, starter lock and log) reads `PIPELINE_RESOLVE_LOCK_DIR`
+# on every call, so pointing the variable here isolates every test
+# process - including its non-pytest subprocess children, which inherit
+# the environment - without any test opting in.
+#
+# This is NOT done through `monkeypatch`: a per-test `monkeypatch.undo()`
+# undoes the fixture that set the variable too, and the broker then
+# binds the default socket (measured in `test_ensure.py`). Set with
+# `os.environ` at import, re-asserted per test by the fixture below
+# (also without `monkeypatch`), an undo restores the session value
+# rather than removing it. Where the variable is missing anyway,
+# `client.ensure` refuses the default socket outright.
+#
+# A test that needs its own lock dir (a short one under /tmp - a Unix
+# socket path is bounded) still sets the variable itself; the fixture
+# puts the session value back afterwards.
+import library.tools.resolve_lock as _resolve_lock
+
+_CONFIGURED_RESOLVE_LOCK_DIR_ENV = "PIPELINE_TESTS_CONFIGURED_RESOLVE_LOCK_DIR"
+os.environ.setdefault(
+    _CONFIGURED_RESOLVE_LOCK_DIR_ENV,
+    os.environ.get(_resolve_lock.LOCK_DIR_ENV, ""))
+_SESSION_RESOLVE_DIR = tempfile.mkdtemp(prefix="ren-test-resolve-", dir="/tmp")
+os.environ[_resolve_lock.LOCK_DIR_ENV] = _SESSION_RESOLVE_DIR
+
+
+def _restore_session_resolve_dir():
+    os.environ[_resolve_lock.LOCK_DIR_ENV] = _SESSION_RESOLVE_DIR
+
+
+def _remove_session_resolve_dir():
+    original = os.environ.get(_CONFIGURED_RESOLVE_LOCK_DIR_ENV)
+    if original:
+        os.environ[_resolve_lock.LOCK_DIR_ENV] = original
+    else:
+        os.environ.pop(_resolve_lock.LOCK_DIR_ENV, None)
+    shutil.rmtree(_SESSION_RESOLVE_DIR, True)
+
+
+atexit.register(_remove_session_resolve_dir)
+
+
+@pytest.fixture(autouse=True)
+def _resolve_broker_is_the_tests_own():
+    """The broker a test starts is stopped when the test ends.
+
+    Re-asserts the session lock dir without `monkeypatch` (an undo
+    cannot remove what `monkeypatch` never set), records every broker
+    this test spawns, and shuts each one down at teardown: a detached
+    broker outlives the test that started it, and a leaked one holds
+    its socket against the next run. The production socket is never
+    touched - a recorded path resolving to it is skipped, and
+    `client.ensure` refuses to start one there in the first place.
+    """
+    import time as _time
+
+    from library.tools.resolved import client as _client
+    from library.tools.resolved.server import SOCKET_NAME as _SOCKET_NAME
+
+    _restore_session_resolve_dir()
+    setup_dir = _SESSION_RESOLVE_DIR
+    real_start = _client._start_detached
+    started = []
+
+    def _recording_start(path):
+        started.append(Path(path))
+        return real_start(path)
+
+    _client._start_detached = _recording_start
+    try:
+        yield
+    finally:
+        _client._start_detached = real_start
+        _restore_session_resolve_dir()
+        seen = []
+        for sock in started + [Path(setup_dir) / _SOCKET_NAME]:
+            if sock not in seen:
+                seen.append(sock)
+        for sock in seen:
+            if _client._is_default_socket(sock):
+                continue
+            try:
+                if _client.ping(sock) is None:
+                    continue
+            except (OSError, ValueError):
+                continue
+            try:
+                _client.call({"op": "shutdown"}, sock)
+            except (ConnectionError, _client.BrokerError, OSError):
+                pass
+            deadline = _time.time() + 10.0
+            while (_client.ping(sock) is not None
+                    and _time.time() < deadline):
+                _time.sleep(0.05)
+            if _client.ping(sock) is not None:
+                pytest.fail(
+                    f"a broker this test started is still serving on "
+                    f"{sock}: a detached broker outlives its test, so "
+                    f"stop what is started (tests/conftest.py)",
+                    pytrace=False)
+
 # ── No default test reaches the live Resolve ────────────────────────
 #
 # Importing DaVinciResolveScript loads Blackmagic's fusionscript.so, and
