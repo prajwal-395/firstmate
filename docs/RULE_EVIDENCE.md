@@ -7115,6 +7115,37 @@ nodes: 8` was true and meant nothing. A look is verified in exported pixels
 before it ships, per `.drx`, or it is not verified - AGENTS.md 10.4: a gate that
 cannot fail reads as coverage.
 
+## the-graph-api-has-no-addnode
+
+The C-07 gap asked for node-level grade editing: add, remove, reorder, and set a
+per-node grade as typed reversible ops. The algebra declared all four
+(`edit_algebra.py:720-756`, merged in PR #1710), but none had a native apply.
+
+**What the Resolve 21.1 Graph API can do** (measured, 2026-10-05, against the
+vendor's typed API snapshot and the unofficial docs):
+
+* `GetNumNodes()` - count nodes
+* `GetNodeLabel(index)` - read a node's label
+* `GetLUT(index)` / `SetLUT(index, path)` - read/write a node's LUT
+* `GetToolsInNode(index)` - list tools in a node
+* `SetNodeEnabled(index, bool)` - bypass/enable a node
+* `ApplyGradeFromDRX(path, mode)` - apply a whole grade (replaces the graph)
+* `SetCDL({NodeIndex, Slope, Offset, Power, Saturation})` - write a node's CDL
+* `GetCDL()` - read back the CDL
+
+**What it cannot do**: there is no `AddNode`, no `RemoveNode`, no
+`ReorderNode`, no `InsertNode`, no `MoveNode`. The node graph topology is
+fixed by the grade (DRX) or created in the GUI. This is why `edit_ledger.py`
+refuses a LUT on a node outside `1..count` - "the Graph API has no AddNode,
+so only an existing node can hold it" (`edit_ledger.py:351,1274`).
+
+**What was built**: `grade.node_set` is executable - `SetCDL` with `NodeIndex`
+is measured (proved on Reel 09, 2026-09-10, `color_page_grade.py:323-369`),
+and the apply judges by `GetCDL` re-read. `grade.node_add`, `grade.node_remove`,
+and `grade.node_reorder` remain declared in the algebra but have no native
+apply - the API cannot execute them. `SetNodeEnabled(False)` can bypass a
+node but does not remove it from the graph.
+
 ## the-variant-that-dropped-the-captains-closer
 
 The captain, on the two Reel 09 timelines he was comparing:

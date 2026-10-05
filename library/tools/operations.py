@@ -1560,9 +1560,15 @@ _REGISTRY: tuple[Operation, ...] = (
                             # Retime as stepped constant-speed segments
                             # (Resolve carries no speed-curve API) and
                             # keyframed picture parameters.
-                            "retime.segments", "picture.keyframe"),
+                            "retime.segments", "picture.keyframe",
+                            # Grade node edits: SetCDL on a named node,
+                            # judged by GetCDL re-read. The Graph API has
+                            # no AddNode/RemoveNode, so only node_set is
+                            # executable; add/remove/reorder are declared
+                            # in the algebra but have no native apply.
+                            "grade.node_set"),
                 conflict_domains=("markers", "timeline_structure",
-                                  "picture_transform"),
+                                  "picture_transform", "color"),
                 temporal_effect="local", merge_semantics="exclusive")),
     ),
     Operation(

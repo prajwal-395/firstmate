@@ -360,6 +360,92 @@ def _verify_fusion_comps(expected_names):
 # ── Apply helpers (the native writes) ──────────────────────────────────
 
 
+def _apply_grade_node_set(op, _timeline, item):
+    """`SetCDL` the four terms onto ONE named node, judged by re-read.
+
+    The node index is validated against `GetNumNodes` before the write:
+    the Graph API has no AddNode, so only an existing node can hold a
+    grade. A `True` from `SetCDL` is not evidence the grade landed
+    (`color_page_grade.py` measured a CDL that returned True and moved
+    zero pixels), so the write is judged by `GetCDL` on the same node
+    and the receipt carries what Resolve answered, never what was
+    intended.
+    """
+    from library.tools.cdl_readback import compare_cdl
+
+    node_index = int(op["node_index"])
+    params = op["params"]
+    try:
+        graph = item.GetNodeGraph()
+        count = graph.GetNumNodes()
+    except Exception as exc:  # noqa: BLE001 - raised, never half-written
+        raise RuntimeError(
+            f"grade.node_set cannot open the node graph ({exc}) - "
+            f"nothing was written.") from exc
+    if node_index < 1 or (isinstance(count, int) and node_index > count):
+        raise RuntimeError(
+            f"grade.node_set names node {node_index}, outside 1..{count} - "
+            f"the Graph API has no AddNode, so only an existing node can "
+            f"hold a grade. Nothing was written.")
+    payload = {
+        "NodeIndex": str(node_index),
+        "Slope": (f"{float(params.get('slope_r', 1.0)):.4f} "
+                  f"{float(params.get('slope_g', 1.0)):.4f} "
+                  f"{float(params.get('slope_b', 1.0)):.4f}"),
+        "Offset": (f"{float(params.get('offset_r', 0.0)):.4f} "
+                   f"{float(params.get('offset_g', 0.0)):.4f} "
+                   f"{float(params.get('offset_b', 0.0)):.4f}"),
+        "Power": (f"{float(params.get('power_r', 1.0)):.4f} "
+                  f"{float(params.get('power_g', 1.0)):.4f} "
+                  f"{float(params.get('power_b', 1.0)):.4f}"),
+        "Saturation": f"{float(params.get('saturation', 1.0)):.4f}",
+    }
+    try:
+        wrote = bool(item.SetCDL(payload))
+    except Exception as exc:  # noqa: BLE001 - raised, never half-written
+        raise RuntimeError(
+            f"grade.node_set SetCDL raised ({exc}) - verify by hand.") \
+            from exc
+    if not wrote:
+        raise RuntimeError(
+            f"grade.node_set SetCDL(node {node_index}) answered False - "
+            f"nothing was claimed.")
+    try:
+        back = dict(item.GetCDL() or {})
+    except Exception as exc:  # noqa: BLE001 - raised, never half-written
+        raise RuntimeError(
+            f"grade.node_set GetCDL re-read raised ({exc}) - verify by "
+            f"hand.") from exc
+    problems = compare_cdl(back, params)
+    if problems:
+        raise RuntimeError(
+            f"grade.node_set wrote node {node_index} and the re-read "
+            f"disagrees: {'; '.join(problems)}")
+    return True
+
+
+def _verify_grade_node_set(op, after):
+    """The node-grade read-back: the snapshot's `GetCDL` vs the plan.
+
+    `after` is the post-write shadow snapshot, whose `color.cdl` is
+    what `GetCDL` answered after the write. Compared with the four
+    terms the op specified, through `cdl_readback.compare_cdl` - the
+    same comparison the render QA uses, so the op and the export
+    cannot disagree about what a CDL is.
+    """
+    from library.tools.cdl_readback import compare_cdl
+
+    clip = _clip(after, op["unique_id"])
+    if clip is None:
+        return f"clip {op['unique_id']!r} is not on the timeline"
+    actual = (clip.get("color") or {}).get("cdl") or {}
+    problems = compare_cdl(actual, op["params"])
+    if problems:
+        return (f"clip {op['unique_id']!r} node {op['node_index']} reads "
+                f"back: " + "; ".join(problems))
+    return None
+
+
 def _apply_set_property(op, _timeline, item):
     from library.tools.transform_write_log import set_property
 
@@ -821,7 +907,10 @@ ALGEBRA: dict[str, AlgebraOp] = {
                         int(op["node_index"])),
         merge="exclusive",
         inverse=_pair("grade.node_remove"),
-        note="Add a colour node; the node graph re-read verifies."),
+        note="Declared, NOT executable: the Resolve 21.1 Graph API has "
+             "no AddNode (measured; `edit_ledger.py` refuses a LUT on a "
+             "node outside 1..count for the same reason). The node graph "
+             "topology is fixed by the grade (DRX) or created in the GUI."),
     "grade.node_remove": AlgebraOp(
         id="grade.node_remove", domain="color",
         required=("unique_id", "node_index"),
@@ -830,7 +919,10 @@ ALGEBRA: dict[str, AlgebraOp] = {
         key=lambda op: ("clip", op["unique_id"], "grade",
                         int(op["node_index"])),
         merge="exclusive",
-        inverse=_pair("grade.node_add")),
+        inverse=_pair("grade.node_add"),
+        note="Declared, NOT executable: the Graph API has no RemoveNode. "
+             "SetNodeEnabled(False) bypasses a node but does not remove "
+             "it from the graph."),
     "grade.node_reorder": AlgebraOp(
         id="grade.node_reorder", domain="color",
         required=("unique_id", "from_index", "to_index"),
@@ -839,16 +931,23 @@ ALGEBRA: dict[str, AlgebraOp] = {
         key=lambda op: ("clip", op["unique_id"], "grade",
                         int(op["from_index"])),
         merge="exclusive",
-        inverse=_self("the inverse swaps the nodes back")),
+        inverse=_self("the inverse swaps the nodes back"),
+        note="Declared, NOT executable: the Graph API has no ReorderNode. "
+             "Node order is fixed by the grade (DRX) or created in the GUI."),
     "grade.node_set": AlgebraOp(
         id="grade.node_set", domain="color",
         required=("unique_id", "node_index", "params"),
         span=_item_span, item=True,
-        verify=lambda op, after: None,
+        apply=_apply_grade_node_set,
+        verify=_verify_grade_node_set,
         key=lambda op: ("clip", op["unique_id"], "grade",
                         int(op["node_index"])),
         merge="replace",
-        inverse=_self("the inverse carries the previous node grade")),
+        inverse=_self("the inverse carries the previous node grade"),
+        note="SetCDL the four terms onto one named node; judged by GetCDL "
+             "re-read. The only node-grade op the Resolve 21.1 API can "
+             "execute - SetCDL with NodeIndex is measured, AddNode is "
+             "not in the API."),
 
     # ── mask (domain: fusion) ──────────────────────────────────────
     "mask.create": AlgebraOp(

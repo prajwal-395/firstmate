@@ -1542,6 +1542,25 @@ class FakeComp:
         return self.tools["MediaIn1"]
 
 
+class _FakeNodeGraph:
+    """Minimal node-graph double: node count and per-node LUT/CDL state."""
+
+    def __init__(self, item):
+        self._item = item
+
+    def GetNumNodes(self):
+        return self._item.nodes
+
+    def GetLUT(self, node_index):
+        return getattr(self._item, "_node_luts", {}).get(int(node_index), "")
+
+    def SetLUT(self, node_index, lut):
+        if not hasattr(self._item, "_node_luts"):
+            self._item._node_luts = {}
+        self._item._node_luts[int(node_index)] = lut
+        return True
+
+
 class FakeTimelineItem:
     _next_id = 0
 
@@ -1874,6 +1893,9 @@ class FakeTimelineItem:
         return True
 
     # ── grade ──
+    def GetNodeGraph(self):
+        return _FakeNodeGraph(self)
+
     def GetNumNodes(self):
         return self.nodes
 

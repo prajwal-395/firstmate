@@ -856,6 +856,76 @@ def test_a_scoped_watch_is_the_whole_watch_restricted(tmp_path):
                        dirty_receipts=[str(receipt)])
 
 
+def test_grade_node_set_commits_and_the_inverse_restores(world):
+    """A node-grade op that answers True and changes nothing is caught.
+
+    The defect: `SetCDL` returning True is not evidence the grade landed
+    (`color_page_grade.py` measured a CDL that returned True and moved
+    zero pixels). Without a `GetCDL` re-read, a silently-failed node
+    write would be recorded as committed. This test applies a
+    `grade.node_set`, asserts the read-back carries the new value,
+    then applies the inverse and asserts the prior value is restored.
+    """
+    project, timeline, item, store, base = world
+    item.nodes = 2
+    uid = item.GetUniqueId()
+    new_cdl = {
+        "slope_r": 1.6, "slope_g": 1.6, "slope_b": 1.6,
+        "offset_r": 0.0, "offset_g": 0.0, "offset_b": 0.0,
+        "power_r": 1.0, "power_g": 1.0, "power_b": 1.0,
+        "saturation": 1.0,
+    }
+    old_cdl = {
+        "slope_r": 1.0, "slope_g": 1.0, "slope_b": 1.0,
+        "offset_r": 0.0, "offset_g": 0.0, "offset_b": 0.0,
+        "power_r": 1.0, "power_g": 1.0, "power_b": 1.0,
+        "saturation": 1.0,
+    }
+    set_op = {"op": "grade.node_set", "unique_id": uid,
+              "node_index": 2, "params": new_cdl}
+    receipt = _apply(_patch("grade-node-set", base.generation,
+                            [set_op], ["color"], [[0, 48]]),
+                     project, timeline, store)
+    assert receipt["status"] == "committed", receipt
+    back = item.GetCDL()
+    assert back["Slope"] == "1.6000 1.6000 1.6000"
+
+    inverse_op = {"op": "grade.node_set", "unique_id": uid,
+                  "node_index": 2, "params": old_cdl}
+    inverse = _apply(_patch("grade-node-set-inverse", receipt["generation"],
+                            [inverse_op], ["color"], [[0, 48]]),
+                     project, timeline, store)
+    assert inverse["status"] == "committed", inverse
+    restored = item.GetCDL()
+    assert restored["Slope"] == "1.0000 1.0000 1.0000"
+
+
+def test_grade_node_set_refuses_an_out_of_range_node(world):
+    """The Graph API has no AddNode: a node index past the count refuses.
+
+    The defect: without the range check, `SetCDL` on a non-existent
+    node would either raise inside Resolve with no diagnostic or
+    silently write nothing, and the patch would record a committed
+    grade that does not exist.
+    """
+    project, timeline, item, store, base = world
+    item.nodes = 2
+    uid = item.GetUniqueId()
+    cdl = {
+        "slope_r": 1.6, "slope_g": 1.6, "slope_b": 1.6,
+        "offset_r": 0.0, "offset_g": 0.0, "offset_b": 0.0,
+        "power_r": 1.0, "power_g": 1.0, "power_b": 1.0,
+        "saturation": 1.0,
+    }
+    bad_op = {"op": "grade.node_set", "unique_id": uid,
+              "node_index": 5, "params": cdl}
+    receipt = _apply(_patch("grade-node-bad", base.generation,
+                            [bad_op], ["color"], [[0, 48]]),
+                     project, timeline, store)
+    assert receipt["status"] == "verification_failed"
+    assert "outside 1..2" in receipt["stopped"]["raised"]
+
+
 def test_retime_segments_splits_and_sets_each_step(world):
     project, timeline, item, store, base = world
     uid = item.GetUniqueId()
