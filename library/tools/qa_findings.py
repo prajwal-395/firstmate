@@ -95,7 +95,9 @@ BLOCKING_SEVERITY = "error"
 
 REPORT_ONLY_METRICS = frozenset({"chroma_presence", "speech_above_bed",
                                  "music_levels", "punch_in_face",
-                                 "caption_legibility", "caption_obscuring"})
+                                 "caption_legibility", "caption_obscuring",
+                                 "transition_render", "vfx_render",
+                                 "graphics_render"})
 """The checks that measure a number, miss a target and do not gate.
 
 `render_qa.CHROMA_PRESENCE_GATES`, `render_qa.SPEECH_ABOVE_BED_GATES`
@@ -308,6 +310,31 @@ FINDING_READERS: Dict[str, FindingReader] = _rows(
         "cutaway means the choice was wrong - either the wrong clip or "
         "the wrong window. REPORTED, not gated: promoting it is "
         "broll_correspondence.BROLL_CORRESPONDENCE_GATES."),
+    FindingReader(
+        "transition_render", "plan_transitions",
+        "A drawn transition whose exported pixels show a freeze or a "
+        "hard cut instead of an intermediate blend. The transition "
+        "type and its placement are the plan's decision "
+        "(plan_transitions); a freeze means the transition drew nothing "
+        "and a hard cut means the blend never reached the picture. "
+        "REPORTED, not gated: promoting it is "
+        "render_qa.TRANSITION_RENDER_GATES."),
+    FindingReader(
+        "vfx_render", "plan_vfx",
+        "A VFX whose window matches the untreated source in the export "
+        "- the comp was written but never reached the picture. The "
+        "effect and its window are the plan's decision (plan_vfx), so "
+        "an effect that drew nothing means the plan named an effect "
+        "the build failed to composite. REPORTED, not gated: promoting "
+        "it is render_qa.VFX_RENDER_GATES."),
+    FindingReader(
+        "graphics_render", "render_motion_graphics",
+        "An overlay whose window matches the picture underneath in the "
+        "render - the asset was placed on the timeline but never "
+        "composited. The overlay plan (4.06) decides what is drawn "
+        "where, so an overlay absent from the render means the "
+        "placement or the render missed it. REPORTED, not gated: "
+        "promoting it is render_qa.GRAPHICS_RENDER_GATES."),
 )
 
 
