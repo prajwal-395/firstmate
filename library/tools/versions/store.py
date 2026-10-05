@@ -740,6 +740,26 @@ def render_commit_message(project_folder: str) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+def _export_shadow(project_folder: str) -> None:
+    """Mirror the timeline shadow into the project before committing.
+
+    The shadow is machine-local runtime state; this writes its
+    project-scoped projection to `pipeline_output/review/
+    timeline_shadow.json` (on the allow-list) so the commit carries it
+    to every machine. A project that declares no Resolve project name
+    has nothing to mirror - the shadow stays local, which is correct
+    for a project with nowhere bound.
+    """
+    try:
+        from library.tools.brand_registry import resolve_project_name
+        from library.tools import timeline_shadow
+        project_name = resolve_project_name(project_folder)
+        if project_name:
+            timeline_shadow.export_project(project_name, project_folder)
+    except Exception:  # noqa: BLE001 - a mirror write never blocks a commit
+        pass
+
+
 def commit_build(project_folder: str, message: str | None = None) -> dict:
     """Stage the allow-list and commit when anything changed.
 
@@ -756,6 +776,7 @@ def commit_build(project_folder: str, message: str | None = None) -> dict:
     if not (root / ".git").exists():
         return {"committed": False, "reason": "no-repo",
                 "binaries_recorded": []}
+    _export_shadow(project_folder)
     staged = stage_for_commit(project_folder)
     if not staged.get("staged"):
         return {"committed": False,

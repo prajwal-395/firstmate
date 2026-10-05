@@ -4,11 +4,19 @@ from __future__ import annotations
 import pytest
 from library.tools import timeline_shadow as shadow
 from library.tools import timeline_read
+from library.tools import edit_patch
 from library.tools.resolve_lock import assume_sole_writer
-from tests.resolve_double import FakeTimeline, make_pool_clip, make_project, place_clip
+from tests.resolve_double import (
+    FakeResolve,
+    FakeTimeline,
+    make_pool_clip,
+    make_project,
+    place_clip,
+)
 import json
 import os
 import tempfile
+import time
 from unittest.mock import MagicMock
 from library.tools.timeline_serializer import serialize_timeline_state, diff_timeline_states, _clean_dict
 import shutil
@@ -407,3 +415,132 @@ def test_media_start_is_the_container_timecode_at_the_nominal_rate(tmp_path):
          "testsrc2=size=64x64:rate=24:duration=0.2", str(plain)],
         check=True, capture_output=True, encoding="utf-8")
     assert C.media_start_frame(str(plain), 24) == 0
+
+
+# --------------------------------------------------------------------------
+# F-11: the shadow is project state, not machine-local runtime state.
+#
+# The defect: the shadow lived only in one machine's SQLite store, so a
+# second machine (or a restarted Ren) had no generations and had to
+# re-read every timeline live. These tests pin the mirror that makes the
+# shadow travel with the project git repo.
+
+def _machine_a_store(tmp_path):
+    """Machine A: a Resolve double whose timeline is observed twice."""
+    project = make_project("Podcast")
+    timeline = project.adopt(FakeTimeline("Reel 09", project=project))
+    place_clip(timeline, make_pool_clip("a.mov"), 0, 47)
+    timeline.AddMarker(10, "Blue", "note", "keep", 1)
+    project.SetCurrentTimeline(timeline)
+    store = shadow.ShadowStore(tmp_path / "machine_a.db")
+    with assume_sole_writer("canonical Resolve double"):
+        shadow.observe(project, timeline, store)
+        timeline.AddMarker(20, "Red", "hand edit", "", 1)
+        shadow.observe(project, timeline, store)
+    return project, timeline, store
+
+
+def test_a_second_machine_sees_the_same_generations_after_sync(tmp_path):
+    # Defect: a second machine had no shadow and had to re-read every
+    # timeline live. After the mirror is committed and synced, a fresh
+    # store answers from the same generations with no live read.
+    project, timeline, store_a = _machine_a_store(tmp_path)
+    mirror = tmp_path / "project"
+    shadow.export_project("Podcast", mirror, store=store_a)
+    assert shadow.project_shadow_path(mirror).is_file()
+
+    store_b = shadow.ShadowStore(tmp_path / "machine_b.db")
+    report = shadow.sync_project(mirror, store=store_b)
+    assert report["generations"] == 2
+
+    timeline_id = store_a.resolve_timeline("Podcast", "Reel 09")
+    head = store_b.head("Podcast", timeline_id)
+    assert head is not None and head.generation == 2
+    assert head.source == shadow.OBSERVED
+
+    read = timeline_read.read("Podcast", "Reel 09", store=store_b)
+    assert read.generation.generation == 2
+    assert store_b.read_requests_since(0) == {
+        "shadow_hits": 1, "live_refreshes": 0, "misses": 0}
+
+
+def test_a_sync_is_idempotent_and_never_clobbers_local_data(tmp_path):
+    # Defect: a sync that rewrites what is already there would let a
+    # second machine's older data regress a machine's own newer head.
+    project, timeline, store_a = _machine_a_store(tmp_path)
+    mirror = tmp_path / "project"
+    shadow.export_project("Podcast", mirror, store=store_a)
+
+    store_b = shadow.ShadowStore(tmp_path / "machine_b.db")
+    shadow.sync_project(mirror, store=store_b)
+    timeline_id = store_a.resolve_timeline("Podcast", "Reel 09")
+    head_before = store_b.head("Podcast", timeline_id).generation
+
+    again = shadow.sync_project(mirror, store=store_b)
+    assert again["generations"] == 0 and again["snapshots"] == 0
+    assert store_b.head("Podcast", timeline_id).generation == head_before
+
+
+def test_a_write_still_rereads_live_after_a_sync(tmp_path):
+    # Defect: if the mirror made the shadow a write precondition, a
+    # write would trust the synced snapshot instead of re-reading the
+    # live timeline. The write path must re-read live regardless of what
+    # the sync pulled in.
+    project, timeline, store_a = _machine_a_store(tmp_path)
+    mirror = tmp_path / "project"
+    shadow.export_project("Podcast", mirror, store=store_a)
+
+    store_b = shadow.ShadowStore(tmp_path / "machine_b.db")
+    shadow.sync_project(mirror, store=store_b)
+
+    calls = {"live": 0}
+    real_read_live = shadow.read_live
+
+    def counting_read_live(*args, **kwargs):
+        calls["live"] += 1
+        return real_read_live(*args, **kwargs)
+
+    patch = {
+        "id": "p-after-sync", "project": "Podcast", "timeline": "Reel 09",
+        "base_generation": 2, "capability": "reel.touchup",
+        "affected_spans": [[0, 48]], "conflict_domains": ["markers"],
+        "operations": [{"op": "marker.add", "frame": 30, "color": "Blue",
+                         "name": "beat"}],
+    }
+    with assume_sole_writer("canonical Resolve double"):
+        import library.tools.timeline_shadow as ts
+        original = ts.read_live
+        ts.read_live = counting_read_live
+        try:
+            receipt = edit_patch.apply_patch(
+                patch, resolve=FakeResolve(project), project=project,
+                timeline=timeline, store=store_b,
+                project_folder=str(tmp_path))
+        finally:
+            ts.read_live = original
+    assert calls["live"] >= 1
+    assert receipt["status"] in ("committed", "verification_failed")
+
+
+def test_a_sync_of_a_twenty_reel_project_is_under_50ms(tmp_path):
+    # Defect: a sync that reads and writes more than the mirror holds
+    # would make opening a project on a second machine slower than a
+    # live read. One read of the mirror, merged, is the bound.
+    store_a = shadow.ShadowStore(tmp_path / "machine_a.db")
+    for reel in range(20):
+        store_a.record(
+            project="Podcast", timeline_id=f"timeline:{reel}",
+            timeline_name=f"Reel {reel:02d}",
+            snapshot={"timeline": f"Reel {reel:02d}",
+                       "tracks": [{"clips": [{"unique_id": f"c{reel}"}]}]},
+            source=shadow.OBSERVED, expected_head=0)
+    mirror = tmp_path / "project"
+    shadow.export_project("Podcast", mirror, store=store_a)
+
+    store_b = shadow.ShadowStore(tmp_path / "machine_b.db")
+    start = time.monotonic()
+    report = shadow.sync_project(mirror, store=store_b)
+    elapsed_ms = (time.monotonic() - start) * 1000
+
+    assert report["generations"] == 20
+    assert elapsed_ms < 50.0, f"sync took {elapsed_ms:.1f}ms"

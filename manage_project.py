@@ -2908,18 +2908,33 @@ def _reel_project_folder(project: str) -> str:
     `build-reels` has always taken either - `rebuild_reels_in_project`
     did this resolution itself - and an operation takes a FOLDER, because
     that is where its inputs and its requirement checks read from.
+
+    Opening a project syncs its timeline shadow: the mirror committed
+    by the last build (`pipeline_output/review/timeline_shadow.json`)
+    is merged into this machine's local store, so a second machine - or
+    a restarted Ren - answers timeline questions from the same
+    generations without a live read. The sync is idempotent and never
+    blocks the operation: a project with no mirror yet has nothing to
+    sync.
     """
     if os.path.isabs(project) and os.path.isdir(project):
-        return project
-    from library.tools.project_registry import get_project
+        folder = project
+    else:
+        from library.tools.project_registry import get_project
+        try:
+            folder = str(get_project(project).project_root)
+        except FileNotFoundError as unknown:
+            raise RenRefusal(
+                f"{unknown}",
+                "no project with this slug is under PIPELINE_PROJECTS_ROOT",
+                "run `ren projects` to list them, or pass the project's "
+                "absolute path instead of the slug") from unknown
     try:
-        return str(get_project(project).project_root)
-    except FileNotFoundError as unknown:
-        raise RenRefusal(
-            f"{unknown}",
-            "no project with this slug is under PIPELINE_PROJECTS_ROOT",
-            "run `ren projects` to list them, or pass the project's "
-            "absolute path instead of the slug") from unknown
+        from library.tools import timeline_shadow
+        timeline_shadow.sync_project(folder)
+    except Exception:  # noqa: BLE001 - a sync failure never blocks a build
+        pass
+    return folder
 
 
 def _add_command(sub, name):

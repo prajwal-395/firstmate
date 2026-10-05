@@ -48,6 +48,19 @@ Runtime state, not project data: Resolve projects are machine-local, and
 a snapshot is re-derivable by one read. Snapshots are stored once per
 hash.
 
+The project-scoped mirror
+-------------------------
+The local store is the query engine; the project git repo is the
+substrate every machine sees. So each project also carries a mirror of
+its own generations at `pipeline_output/review/timeline_shadow.json`
+(on the version store's allow-list). `export_project` writes it on
+commit (`versions/store.py`); `sync_project` merges it into a fresh
+local store when a project is opened (`manage_project.py`). A second
+machine - or a restarted Ren - then answers from the same generations
+without a live read. The mirror is a read answer only: `edit_patch`
+still re-reads live inside the lease, so a synced generation is never a
+write precondition.
+
     python3 -m library.tools.timeline_shadow log     --project P --timeline T
     python3 -m library.tools.timeline_shadow clips   --project P --timeline T [--generation N]
     python3 -m library.tools.timeline_shadow markers --project P --timeline T [--generation N]
@@ -133,6 +146,80 @@ def default_db_path() -> Path:
     base = os.environ.get("XDG_STATE_HOME") or str(
         Path.home() / ".local" / "state")
     return Path(base) / "ren" / "timeline_shadow.sqlite3"
+
+
+# ── The project-scoped mirror: sharing generations across machines ──
+#
+# The SQLite store above is machine-local runtime state. The project
+# git repo is the one substrate every machine sees, so the shadow is
+# mirrored into it: `export_project` writes every generation of one
+# project to `pipeline_output/review/timeline_shadow.json` (on the
+# version store's allow-list, `/pipeline_output/review/**`), and
+# `sync_project` merges that file into a fresh local store. A second
+# machine - or a restarted Ren - then sees the same generations
+# without a live read. The mirror never changes the write path:
+# `edit_patch` still re-reads live inside the lease, so a synced
+# generation is a read answer, never a write precondition.
+
+SHADOW_FORMAT = "timeline_shadow/1"
+"""The version of the project-scoped shadow file format."""
+
+SHADOW_FILENAME = "timeline_shadow.json"
+"""The mirror's filename, under `pipeline_output/review/`."""
+
+
+def project_shadow_path(project_folder) -> Path:
+    """The project-scoped shadow file's path.
+
+    Lives under `pipeline_output/review/`, which the version store's
+    allow-list already commits, so the mirror is project state a second
+    machine reads. Runtime state stays in the local SQLite store; this
+    file is the shared projection of it.
+    """
+    return Path(project_folder) / "pipeline_output" / "review" / SHADOW_FILENAME
+
+
+def export_project(project_name: str, project_folder,
+                   store: ShadowStore | None = None) -> Path:
+    """Write the project-scoped mirror for `project_name` to the project.
+
+    The shared half of the shadow: called by `versions/store.py` on
+    commit, so the mirror lands in the project git repo and travels to
+    every machine that has the repo. Returns the path written.
+    """
+    store = store or ShadowStore()
+    document = store.export_document(project_name)
+    path = project_shadow_path(project_folder)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    staged = path.with_suffix(".json.staged")
+    staged.write_text(
+        json.dumps(document, indent=2, sort_keys=True, ensure_ascii=False,
+                   default=str) + "\n", encoding="utf-8")
+    os.replace(staged, path)
+    return path
+
+
+def sync_project(project_folder, store: ShadowStore | None = None) -> dict:
+    """Merge the project-scoped mirror into a local store. Idempotent.
+
+    The read half of the sharing: a second machine (or a restarted Ren)
+    reads the committed mirror and pulls in every generation it does
+    not already have, so it answers timeline questions without a live
+    read. A missing or unreadable mirror is not an error - a project
+    with no mirror yet simply has nothing to sync. Returns what was
+    merged.
+    """
+    store = store or ShadowStore()
+    path = project_shadow_path(project_folder)
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"generations": 0, "snapshots": 0, "path": str(path)}
+    if not isinstance(document, dict):
+        return {"generations": 0, "snapshots": 0, "path": str(path)}
+    report = store.merge_document(document)
+    report["path"] = str(path)
+    return report
 
 
 def canonical(snapshot: dict) -> str:
@@ -232,6 +319,20 @@ class ShadowStore:
                 "SELECT * FROM generations WHERE project=? AND timeline_id=?"
                 " AND generation>? ORDER BY generation",
                 (project, timeline_id, after)).fetchall()
+        return [_row_to_generation(r) for r in rows]
+
+    def generations_of(self, project: str) -> list[Generation]:
+        """Every recorded generation of every timeline in a project.
+
+        All of them, not just heads: the mirror shares a timeline's
+        whole history, so a second machine can answer "what changed
+        since generation N" without a live read.
+        """
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT * FROM generations WHERE project=?"
+                " ORDER BY timeline_id, generation",
+                (project,)).fetchall()
         return [_row_to_generation(r) for r in rows]
 
     def since_with_snapshots(self, project: str, timeline_id: str,
@@ -430,6 +531,91 @@ class ShadowStore:
                 db.execute("ROLLBACK")
                 raise
         return self.get(project, timeline_id, head + 1)
+
+    def export_document(self, project: str) -> dict:
+        """The project-scoped mirror document for `project`.
+
+        Every generation of the project and the snapshots they
+        reference, as one JSON-able dict. A generation whose snapshot
+        is missing is skipped rather than exported broken: the mirror
+        stays loadable, and the next live read records the snapshot
+        again.
+        """
+        generations = []
+        snapshots: dict = {}
+        for generation in self.generations_of(project):
+            try:
+                body = self.snapshot(generation)
+            except ShadowError:
+                continue
+            generations.append({
+                "project": generation.project,
+                "timeline_id": generation.timeline_id,
+                "generation": generation.generation,
+                "timeline_name": generation.timeline_name,
+                "hash": generation.hash,
+                "source": generation.source,
+                "patch": generation.patch,
+                "receipt": generation.receipt,
+                "recorded_at": generation.recorded_at,
+                "verified_at": generation.verified_at,
+            })
+            snapshots[generation.hash] = body
+        return {
+            "format": SHADOW_FORMAT,
+            "project": project,
+            "snapshots": snapshots,
+            "generations": generations,
+        }
+
+    def merge_document(self, document: dict) -> dict:
+        """Merge a mirror document into this store. Idempotent.
+
+        A snapshot is inserted only when its hash is unknown; a
+        generation only when `(project, timeline_id, generation)` is
+        not already recorded. A machine's own newer data is never
+        clobbered - the mirror adds what is missing, never rewrites
+        what is there.
+        """
+        report = {"generations": 0, "snapshots": 0}
+        if document.get("format") != SHADOW_FORMAT:
+            return report
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                for digest, body in (document.get("snapshots") or {}).items():
+                    known = db.execute(
+                        "SELECT 1 FROM snapshots WHERE hash=?",
+                        (digest,)).fetchone()
+                    if known is None:
+                        db.execute(
+                            "INSERT INTO snapshots VALUES (?, ?)",
+                            (digest, canonical(body)))
+                        report["snapshots"] += 1
+                for entry in (document.get("generations") or []):
+                    known = db.execute(
+                        "SELECT 1 FROM generations WHERE project=? AND"
+                        " timeline_id=? AND generation=?",
+                        (entry["project"], entry["timeline_id"],
+                         entry["generation"])).fetchone()
+                    if known is None:
+                        db.execute(
+                            "INSERT INTO generations VALUES"
+                            " (?,?,?,?,?,?,?,?,?,?)",
+                            (entry["project"], entry["timeline_id"],
+                             entry["generation"], entry["timeline_name"],
+                             entry["hash"], entry["source"],
+                             json.dumps(entry["patch"], sort_keys=True)
+                             if entry.get("patch") else None,
+                             json.dumps(entry["receipt"], sort_keys=True)
+                             if entry.get("receipt") else None,
+                             entry["recorded_at"], entry["verified_at"]))
+                        report["generations"] += 1
+                db.execute("COMMIT")
+            except BaseException:
+                db.execute("ROLLBACK")
+                raise
+        return report
 
 
 # ── The live half: one read, under the reader's own lease ─────────────
