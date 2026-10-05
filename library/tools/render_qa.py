@@ -3767,6 +3767,35 @@ def _level_runs(magnitude, ceiling: float, sample_rate: int,
     return runs
 
 
+def _digital_zero_runs(magnitude, sample_rate: int,
+                       min_seconds: float) -> List[tuple]:
+    """Digital-zero runs from a decoded magnitude array.
+
+    Shared core: `measure_silence_under_picture` passes its own decoded
+    magnitude (no second decode), and `find_digital_zero_runs` decodes
+    the file first for callers that have only a path.
+    """
+    return _level_runs(magnitude, 0.0, sample_rate, min_seconds)
+
+
+def find_digital_zero_runs(
+        path: str,
+        sample_rate: int = 48000,
+        min_seconds: float = 0.01) -> List[tuple]:
+    """Digital-zero runs in an audio file, as (start, end, duration).
+
+    Public wrapper for callers that have only a path.  Decodes once and
+    delegates to `_digital_zero_runs`.
+    """
+    import numpy as np
+
+    samples = _decode_mono_pcm16(path, sample_rate)
+    if samples.size == 0:
+        return []
+    magnitude = np.abs(samples.astype(np.int32))
+    return _digital_zero_runs(magnitude, sample_rate, min_seconds)
+
+
 def _merge_windows(windows: Sequence[tuple]) -> List[list]:
     """Overlapping (start, end) pairs merged into the fewest spans."""
     merged: List[list] = []
@@ -3911,9 +3940,10 @@ def measure_silence_under_picture(
 
         levels = [DIGITAL_ZERO_DBFS] + [float(x) for x in ladder]
         runs_by_level = {}
-        for level in levels:
-            ceiling = (0.0 if level <= DIGITAL_ZERO_DBFS
-                       else 32768.0 * (10.0 ** (level / 20.0)))
+        runs_by_level[DIGITAL_ZERO_DBFS] = _digital_zero_runs(
+            magnitude, sample_rate, floor_seconds)
+        for level in levels[1:]:
+            ceiling = 32768.0 * (10.0 ** (level / 20.0))
             runs_by_level[level] = _level_runs(magnitude, ceiling,
                                                sample_rate, floor_seconds)
 
