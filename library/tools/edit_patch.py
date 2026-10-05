@@ -377,6 +377,7 @@ def validate(patch: EditPatch, base: dict) -> None:
                         "a condition is one of a fixed vocabulary, with its "
                         "keys",
                         f"use one of {sorted(CONDITIONS)} with its keys")
+    insert_spans: dict = {}
     for index, op in enumerate(patch.operations):
         spec = OPERATIONS.get(op.get("op"))
         if spec is None:
@@ -419,7 +420,13 @@ def validate(patch: EditPatch, base: dict) -> None:
                         "a native operation needs a baseline to verify its "
                         "effect",
                         f"include all of {list(SMART_REFRAME_KEYS)}")
-        span = spec.span(op, base)
+        if op["op"] == "clip.insert":
+            span = spec.span(op, base)
+            insert_spans[op["unique_id"]] = span
+        elif op.get("unique_id") in insert_spans:
+            span = insert_spans[op["unique_id"]]
+        else:
+            span = spec.span(op, base)
         if span is None:
             _refuse(patch, f"operation {index} ({op['op']}) targets clip "
                            f"{op.get('unique_id')!r}, which is not exactly "
@@ -525,6 +532,7 @@ def apply_live_patch(*, project, timeline, capability: str,
         base = shadow.observe(project, timeline, store)
         snapshot = store.snapshot(base)
         spans = []
+        insert_spans: dict = {}
         for operation in operations:
             spec = OPERATIONS.get(operation.get("op"))
             if spec is None:
@@ -534,7 +542,13 @@ def apply_live_patch(*, project, timeline, capability: str,
                     f"names unknown operation {operation.get('op')!r}",
                     "only measured, read-back-judged writes are operations",
                     f"use one of {sorted(OPERATIONS)}")
-            span = spec.span(operation, snapshot)
+            if operation.get("op") == "clip.insert":
+                span = spec.span(operation, snapshot)
+                insert_spans[operation["unique_id"]] = span
+            elif (operation.get("unique_id") in insert_spans):
+                span = insert_spans[operation["unique_id"]]
+            else:
+                span = spec.span(operation, snapshot)
             if span is None:
                 _refuse(EditPatch(
                     patch_id, project_name, timeline_name, base.generation,
@@ -626,17 +640,22 @@ def apply_patch(patch, *, resolve, project, timeline,
         handles = (_live_handles(timeline)
                    if any(OPERATIONS[op["op"]].item
                           for op in patch.operations) else {})
+        id_map: dict = {}
         ran = []
         stopped = None
         for index, op in enumerate(patch.operations):
             spec = OPERATIONS[op["op"]]
             try:
-                item = handles.get(op["unique_id"]) if spec.item else None
+                if spec.item:
+                    resolved = id_map.get(op["unique_id"], op["unique_id"])
+                    item = handles.get(resolved)
+                else:
+                    item = None
                 if spec.item and item is None:
                     raise RuntimeError(
                         f"clip {op['unique_id']!r} is not uniquely present")
                 if op["op"] in ("clip.set_property", "picture.keyframe"):
-                    current = _clip(live, op["unique_id"])
+                    current = _clip(live, resolved)
                     prop = op["key"] if op["op"] == "clip.set_property" \
                         else op["param"]
                     old_value = ((current.get("transform") or {}).get(
@@ -656,7 +675,7 @@ def apply_patch(patch, *, resolve, project, timeline,
 
                     context = validate_transform_write_context(
                         item_identity={"resolve_unique_id":
-                                       str(op["unique_id"])},
+                                       str(resolved)},
                         project=project_name, timeline_name=timeline_name,
                         timeline_id=timeline_id,
                         project_folder=project_folder)
@@ -670,6 +689,8 @@ def apply_patch(patch, *, resolve, project, timeline,
                 break
             ran.append({"index": index, "op": op["op"],
                         "returned": bool(returned)})
+            if op["op"] == "clip.insert":
+                id_map[op["client_unique_id"]] = op["unique_id"]
             if spec.domain == "timeline_structure":
                 handles = _live_handles(timeline)
         after = shadow.read_live(project, timeline)
@@ -701,10 +722,16 @@ def apply_patch(patch, *, resolve, project, timeline,
                 write_kind="SmartReframe")
     hold_seconds = time.monotonic() - started
 
-    judged = [{"index": r["index"], "op": r["op"], "returned": r["returned"],
-               "failure": OPERATIONS[r["op"]].verify(
-                   patch.operations[r["index"]], after)}
-              for r in ran]
+    judged = []
+    for r in ran:
+        op = patch.operations[r["index"]]
+        verify_op = op
+        if r["op"] != "clip.insert" and op.get("unique_id") in id_map:
+            verify_op = {**op, "unique_id": id_map[op["unique_id"]]}
+        judged.append({"index": r["index"], "op": r["op"],
+                       "returned": r["returned"],
+                       "failure": OPERATIONS[r["op"]].verify(
+                           verify_op, after)})
     post_failures = _judge(patch.postconditions, after, base)
     ok = (stopped is None and not post_failures
           and not any(j["failure"] for j in judged))

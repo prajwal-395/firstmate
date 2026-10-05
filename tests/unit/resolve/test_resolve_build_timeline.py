@@ -73,13 +73,16 @@ def test_build_passes_media_resolution_for_a_legacy_caption(
         decisions.append((kwargs, decision))
         return decision
 
-    placement_calls = []
+    patch_calls = []
     monkeypatch.setattr(_builder, "caption_segment_placement", capture_decision)
     monkeypatch.setattr(_builder, "apply_clip_attributes", lambda *args: None)
     monkeypatch.setattr(_builder, "draw_intent_for_segment", lambda *args, **kwargs: None)
-    monkeypatch.setattr(
-        _builder, "place_overlay_segment",
-        lambda *args, **kwargs: (placement_calls.append(kwargs) or (True, "")))
+
+    def fake_apply_live_patch(**kwargs):
+        patch_calls.append(kwargs)
+        return {"status": "committed", "generation": 1}
+
+    monkeypatch.setattr(_builder.edit_patch, "apply_live_patch", fake_apply_live_patch)
     monkeypatch.setattr(_builder, "verify_clip_placement", lambda *args: None)
     monkeypatch.setattr(_builder, "verify_audio", lambda *args: None)
     monkeypatch.setattr(_builder, "verify_fusion_comps", lambda *args: None)
@@ -93,8 +96,92 @@ def test_build_passes_media_resolution_for_a_legacy_caption(
         {"media_pool_item": subtitle_pool_item, "frame_size": (1080, 1920)},
         (None, ""),
     )]
-    assert len(placement_calls) == 1
-    assert placement_calls[0]["placement"] is None
+    assert len(patch_calls) == 1
+    assert patch_calls[0]["capability"] == "render.build"
+    assert patch_calls[0]["operations"][0]["op"] == "clip.insert"
+    assert patch_calls[0]["operations"][0]["track_index"] == 2
+    assert result["tracks"]["V2"] == 1
+
+
+def test_caption_placement_commits_through_edit_patch(
+        mock_resolve, sample_manifest, monkeypatch):
+    """Defect: the master build's caption placement wrote directly to
+    the timeline, so it produced no generation receipt, was invisible to
+    patch_algebra, and could not be rebased. The placement must go
+    through `apply_live_patch` so it commits a verified generation."""
+    from library.tools.resolve_lock import assume_sole_writer
+
+    sample_manifest["project"]["resolution"] = [1080, 1920]
+    sample_manifest["tracks"]["V1"]["clips"][0]["label"] = "speech_1"
+    overlay_path = "/tmp/sub_block_1_tight.mov"
+    sample_manifest["subtitle_overlay"] = {"segments": [{
+        "overlay_path": overlay_path,
+        "timeline_start": 0.0,
+        "timeline_end": 2.0,
+        "total_frames": 60,
+        "_block_position": 1,
+        "tight_box": {"placement": {
+            "scaling": 0.5, "pan": 100.0, "tilt": -870.0}},
+    }]}
+
+    def pool_item(path):
+        item = MagicMock()
+        item.GetName.return_value = path.rsplit("/", 1)[-1]
+        properties = {
+            "File Path": path,
+            "Resolution": "1920x1080",
+            "FPS": "30",
+            "Audio Ch": "1",
+        }
+        item.GetClipProperty.side_effect = lambda name: properties.get(name, "")
+        item.GetUniqueId.return_value = f"uid-{path.rsplit('/', 1)[-1]}"
+        return item
+
+    v1_pool_item = pool_item("test_v1.mov")
+    subtitle_pool_item = pool_item(overlay_path)
+    mock_resolve["root_folder"].GetClipList.return_value = [
+        v1_pool_item, subtitle_pool_item]
+    placed_v1 = MagicMock()
+    placed_v1.GetDuration.return_value = 60
+    placed_v1.GetStart.return_value = 0
+    placed_v1.GetMediaPoolItem.return_value = v1_pool_item
+    mock_resolve["media_pool"].AppendToTimeline.return_value = [placed_v1]
+
+    patch_calls = []
+    monkeypatch.setattr(_builder, "apply_clip_attributes", lambda *args: None)
+    monkeypatch.setattr(_builder, "draw_intent_for_segment", lambda *args, **kwargs: None)
+
+    def fake_apply_live_patch(**kwargs):
+        patch_calls.append(kwargs)
+        return {"status": "committed", "generation": 1}
+
+    monkeypatch.setattr(_builder.edit_patch, "apply_live_patch", fake_apply_live_patch)
+    monkeypatch.setattr(_builder, "verify_clip_placement", lambda *args: None)
+    monkeypatch.setattr(_builder, "verify_audio", lambda *args: None)
+    monkeypatch.setattr(_builder, "verify_fusion_comps", lambda *args: None)
+    monkeypatch.setattr(_builder, "run_full_timeline_qa", lambda *args: None)
+
+    with (assume_sole_writer("offline Resolve double for caption patch build"),
+          builder_paths_exist(_builder)):
+        result = build_timeline(sample_manifest)
+
+    assert len(patch_calls) == 1
+    call = patch_calls[0]
+    assert call["capability"] == "render.build"
+    assert call["conflict_domains"] == ("timeline_structure",
+                                       "picture_transform")
+    ops = call["operations"]
+    assert ops[0]["op"] == "clip.insert"
+    assert ops[0]["track_index"] == 2
+    assert ops[0]["record_in"] == 0
+    assert ops[0]["record_out"] == 60
+    assert ops[0]["media_pool_item"] == "uid-sub_block_1_tight.mov"
+    assert ops[0]["source_in"] == 0
+    assert ops[0]["source_out"] == 60
+    transform_ops = [op for op in ops if op["op"] == "clip.set_property"]
+    assert len(transform_ops) == 3
+    by_key = {op["key"]: op["value"] for op in transform_ops}
+    assert by_key == {"Scaling": 0.5, "Pan": 100.0, "Tilt": -870.0}
     assert result["tracks"]["V2"] == 1
 
 

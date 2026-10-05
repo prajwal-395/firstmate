@@ -97,6 +97,7 @@ from library.tools.overlay_draw_intent import (  # noqa: E402
 from library.tools.execution.deliver_audio_mix import (  # noqa: E402
     PREMIX_SUFFIX, deliver_mix,
 )
+from library.tools import edit_patch  # noqa: E402
 from library.tools import timeline_decisions  # noqa: E402
 from library.tools.resolve_locale import (  # noqa: E402
     scriptapp_preserving_locale,
@@ -605,6 +606,44 @@ def caption_segment_placement(seg: dict, si: int, caption_row: int,
         f"{dimension_note + ' - ' if dimension_note else ''}"
         f"untransformed (an untransformed tight canvas sits centred "
         f"at Tilt 0, inside the picture, not on the declared row)")
+
+
+def _caption_patch_operations(
+    si: int, seg_basename: str, caption_row: int,
+    tl_in_frame: int, seg_frames: int,
+    src_in_f: int, src_out_f: int,
+    pool_item, placement: Optional[dict],
+) -> list:
+    """The EditPatch operations placing one caption segment.
+
+    `clip.insert` places the overlay clip on the caption row;
+    `clip.set_property` writes the tight-box transform (Scaling, Pan,
+    Tilt) onto the just-placed item, addressed by the client unique
+    id the insert carried. One verified transaction per caption.
+    """
+    unique_id = f"caption:{si}:{seg_basename}"
+    operations = [{
+        "op": "clip.insert",
+        "unique_id": unique_id,
+        "track_type": "video",
+        "track_index": caption_row,
+        "record_in": tl_in_frame,
+        "record_out": tl_in_frame + seg_frames,
+        "media_pool_item": str(pool_item.GetUniqueId()),
+        "source_in": src_in_f,
+        "source_out": src_out_f,
+    }]
+    for prop, key in (("Scaling", "scaling"), ("Pan", "pan"),
+                      ("Tilt", "tilt")):
+        value = (placement or {}).get(key)
+        if value is not None:
+            operations.append({
+                "op": "clip.set_property",
+                "unique_id": unique_id,
+                "key": prop,
+                "value": value,
+            })
+    return operations
 
 
 def source_frame_span_for_timeline(source_in: float, source_out: float,
@@ -1549,8 +1588,8 @@ def _finalize_prepared_speech_channels(prepared, find_pool_clip):
 
 
 @under_lease("render the edit timeline", capability="render.build",
-             phase="placement")
-@heavy_work_locked("edit timeline placement", "render.build:placement")
+             phase="apply")
+@heavy_work_locked("edit timeline placement", "render.build:apply")
 def _build_timeline_under_lease(
     manifest: dict,
     subtitle_overlay_path: Optional[str] = None,
@@ -2663,29 +2702,32 @@ def _build_timeline_under_lease(
                 print(f"  ✗ [{si}] {seg_basename}: {_seg_refusal}",
                       file=sys.stderr)
                 continue
-            placed, note = place_overlay_segment(
-                media_pool, timeline, pool_item,
-                track_index=_caption_row, record_frame=tl_in_frame,
-                source_in_frame=src_in_f, source_out_frame=src_out_f,
-                placement=_seg_placement,
-                label=f"V{_caption_row}[{si}] {seg_basename}",
-                draw_intent=draw_intent_for_segment(
-                    seg, kind="caption",
-                    frame_wh=(width, height),
-                    project_folder=project_folder),
-                resolve_project=project,
-                project_folder=project_folder,
-                timeline_name=timeline_name)
-            if placed:
+            # D1b: the caption placement is one verified EditPatch
+            # transaction - `clip.insert` places the overlay clip,
+            # `clip.set_property` writes its tight-box transform - so
+            # it commits a generation receipt a later patch can rebase
+            # onto, instead of a direct write nothing records.
+            _caption_ops = _caption_patch_operations(
+                si, seg_basename, _caption_row,
+                tl_in_frame, seg_frames, src_in_f, src_out_f,
+                pool_item, _seg_placement)
+            _receipt = edit_patch.apply_live_patch(
+                project=project, timeline=timeline,
+                capability="render.build",
+                operations=_caption_ops,
+                conflict_domains=("timeline_structure",
+                                  "picture_transform"),
+                idempotency_key=(
+                    f"render-build:caption:{si}:{seg_basename}"),
+                project_folder=project_folder)
+            if _receipt["status"] == "committed":
                 v3_count += 1
                 print(f"  ✓ [{si}] {seg_basename} on V{_caption_row} ({seg_frames}f @ TL {tl_in_frame})",
                       file=sys.stderr)
-                if note:
-                    results["warnings"].append(note)
-                    print(f"  ⚠ {note}", file=sys.stderr)
             else:
-                print(f"  ✗ [{si}] {seg_basename}: placement failed", file=sys.stderr)
-                results["warnings"].append(f"V{_caption_row}[{si}] placement failed: {seg_basename}")
+                print(f"  ✗ [{si}] {seg_basename}: {_receipt}", file=sys.stderr)
+                results["warnings"].append(
+                    f"V{_caption_row}[{si}] placement failed: {seg_basename}")
 
         results["tracks"][f"V{_caption_row}"] = v3_count
 

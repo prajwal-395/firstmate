@@ -566,6 +566,7 @@ def _apply_clip_insert(op, timeline, _item):
     if not placed:
         raise RuntimeError("clip.insert: AppendToTimeline placed nothing")
     new_item = placed[0]
+    op["client_unique_id"] = op["unique_id"]
     op["unique_id"] = str(new_item.GetUniqueId())
     return new_item
 

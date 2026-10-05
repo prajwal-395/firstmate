@@ -150,6 +150,39 @@ def test_a_clip_insert_places_a_pool_clip_and_commits_as_a_generation(world):
     assert len(placed) == 1
 
 
+def test_a_clip_set_property_addresses_a_just_placed_clip_by_its_client_id(world):
+    """Defect: a caption's `clip.set_property` follows its `clip.insert` in
+    one patch, but the caller cannot know the Resolve-assigned unique id
+    before the insert runs. The apply loop must resolve the client-chosen
+    id to the Resolve-assigned one, or the transform write addresses a
+    clip that is not on the timeline."""
+    project, timeline, _item, store, base = world
+    pool_clip = make_pool_clip("caption.mov")
+    project.GetMediaPool().GetRootFolder()._clips.append(pool_clip)
+    client_id = "caption:0:sub_block_0"
+    operations = [
+        {"op": "clip.insert", "unique_id": client_id,
+         "track_type": "video", "track_index": 2,
+         "record_in": 10, "record_out": 40,
+         "media_pool_item": str(pool_clip.GetUniqueId()),
+         "source_in": 0, "source_out": 30},
+        {"op": "clip.set_property", "unique_id": client_id,
+         "key": "Tilt", "value": -870.0},
+    ]
+    receipt = edit_patch.apply_live_patch(
+        project=project, timeline=timeline, capability="render.build",
+        operations=operations,
+        conflict_domains=("timeline_structure", "picture_transform"),
+        idempotency_key="render-build:caption:0:sub_block_0",
+        store=store, project_folder=store.path.parent)
+    assert receipt["status"] == "committed", receipt
+    head = store.head("Podcast", receipt["readback"]["timeline_id"])
+    placed = [c for c in shadow.clips(store.snapshot(head))
+              if c["record_in"] == 10 and c["record_out"] == 40]
+    assert len(placed) == 1
+    assert placed[0]["transform"]["Tilt"] == -870.0
+
+
 def test_a_write_that_answers_true_and_changes_nothing_fails_by_readback(
         world, monkeypatch):
     project, timeline, item, store, base = world

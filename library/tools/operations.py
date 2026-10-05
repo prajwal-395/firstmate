@@ -2080,8 +2080,9 @@ _REGISTRY: tuple[Operation, ...] = (
         # footage.scan shape. Needs Resolve at call time.
         execution=ExecutionPolicy(phases=(
             ExecutionPhase(
-                name="placement", resolve_mode=RESOLVE_EXCLUSIVE,
+                name="apply", resolve_mode=RESOLVE_EXCLUSIVE,
                 locality=LOCALITY_TIMELINE,
+                freshness=FRESHNESS_TIMELINE_GENERATION,
                 resources=(("cpu", 2), ("ram_gb", 2)),
                 lock_sites=(
                     "library.steps.step_6_01_render.resolve_build_timeline:"
@@ -2109,7 +2110,15 @@ _REGISTRY: tuple[Operation, ...] = (
                     "https://github.com/prajwal-395/video_editing_pilot/pull/1620). "
                     "The captain "
                     "ruled not to hardcode CPU/GPU balancing for it.")),
-        )),
+        ),
+        # D1b: the caption section places each overlay clip and sets
+        # its tight-box transform in one verified transaction, so the
+        # master build's most common write commits a generation receipt
+        # a later patch can rebase onto.
+        patch=PatchSemantics(
+            operations=("clip.insert", "clip.set_property"),
+            conflict_domains=("timeline_structure", "picture_transform"),
+            temporal_effect="local", merge_semantics="exclusive")),
     ),
     Operation(
         name="validation.resolve",
