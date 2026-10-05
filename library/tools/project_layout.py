@@ -188,6 +188,7 @@ STEPS: tuple = (
     StepDir("music_selection", "2_04_music_selection"),
     StepDir("music_analysis", "2_06_music_analysis"),
     StepDir("mesh_spine", "2_05_mesh_spine"),
+    StepDir("plan_picture", "3_00_plan_picture"),
     StepDir("assign_aroll", "3_01_assign_aroll"),
     StepDir("select_broll", "3_02_select_broll"),
     StepDir("review_rough_cut", "3_03_review_rough_cut"),
