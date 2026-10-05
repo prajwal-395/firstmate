@@ -657,12 +657,18 @@ def load_pipeline_state(project_dir: str) -> dict:
     return state
 
 
-def _record_step_failure(state: dict, node_id: str, message: str) -> None:
+def _record_step_failure(state: dict, node_id: str, message: str,
+                         project_dir: str = "") -> None:
     """Record a step failure once, so the ledger reflects state not history.
 
     `failed_steps` used to be an append-only log: 69 entries accumulated
     across runs, a step that later succeeded stayed on the list, and the
     run summary ignored the whole thing anyway.
+
+    The restart-cause sidecar is written too, best-effort: the error is
+    what the next run needs when this run dies before it can write an
+    ending, and the state file that would otherwise carry it is
+    overwritten by whatever runs next.
     """
     failed = state.setdefault("failed_steps", [])
     if node_id not in failed:
@@ -672,6 +678,13 @@ def _record_step_failure(state: dict, node_id: str, message: str) -> None:
     # transcription that died on clip 12 of 17 keeps the eleven indices it
     # wrote, so the re-run pays for the remainder and not the lot.
     step_ledger.forget(state, node_id)
+    if project_dir:
+        try:
+            run_control.write_restart_cause(
+                project_dir, node_id, run_control.step_capability(node_id),
+                error=str(message).strip().splitlines()[0][:500])
+        except Exception:  # noqa: BLE001 - a cause must never take down a run
+            pass
 
 
 def _clear_step_failure(state: dict, node_id: str) -> None:
@@ -2775,13 +2788,18 @@ def run_pipeline(
     briefing_interview.reset()
     decided_value.reset()
     _previous_status = run_control.read_run_status(project_dir)
-    _restart = run_restart.classify(_previous_status, state)
+    # The restart-cause sidecar the previous run left behind: read BEFORE
+    # the status is replaced, so an interrupted run's cause reaches the
+    # restart record.  Consumed (and cleared) by `begin_run_status`.
+    _sidecar = run_control.read_restart_cause(project_dir)
+    _restart = run_restart.classify(_previous_status, state, sidecar=_sidecar)
     run_control.begin_run_status(project_dir, run_mode, steps_to_run,
                                  argv=sys.argv[1:],
                                  profile=active_profile,
                                  breakpoints=gates.as_record(steps_to_run),
                                  state=state,
-                                 carry_run_group=bool(resume_mode))
+                                 carry_run_group=bool(resume_mode),
+                                 sidecar=_sidecar)
     print(f"  Mode: {run_mode}", file=sys.stderr)
     for _line in run_restart.summary_lines(_restart):
         print(_line, file=sys.stderr)
@@ -3240,7 +3258,8 @@ def run_pipeline(
                 print(f"  ✗  {node_id}: rejected by reviewer.", file=sys.stderr)
                 failed.append(node_id)
                 _record_step_failure(
-                    state, node_id, "rejected by reviewer at review gate")
+                    state, node_id, "rejected by reviewer at review gate",
+                    project_dir=project_dir)
                 save_pipeline_state(project_dir, state)
                 break
             elif verdict == "revised":
@@ -3403,7 +3422,8 @@ def run_pipeline(
                         run_logger.log(step_id=node_id,
                                        event_type="step_failed",
                                        error=message)
-                    _record_step_failure(state, node_id, message)
+                    _record_step_failure(state, node_id, message,
+                                         project_dir=project_dir)
                     save_pipeline_state(project_dir, state)
                     settle_semantic_stream(node_id, "failed")
                     failed.append(node_id)
@@ -3450,7 +3470,8 @@ def run_pipeline(
                         run_logger.log(step_id=node_id,
                                        event_type="step_failed",
                                        error=message)
-                    _record_step_failure(state, node_id, message)
+                    _record_step_failure(state, node_id, message,
+                                         project_dir=project_dir)
                     save_pipeline_state(project_dir, state)
                     settle_semantic_stream(node_id, "failed")
                     failed.append(node_id)
@@ -3523,7 +3544,8 @@ def run_pipeline(
                 if run_logger:
                     run_logger.log(step_id=node_id, event_type="step_failed",
                                    error=message)
-                _record_step_failure(state, node_id, message)
+                _record_step_failure(state, node_id, message,
+                                     project_dir=project_dir)
                 save_pipeline_state(project_dir, state)
                 settle_semantic_stream(node_id, "failed")
                 failed.append(node_id)
@@ -3541,7 +3563,8 @@ def run_pipeline(
                 if run_logger:
                     run_logger.log(step_id=node_id, event_type="step_failed",
                                    error=message)
-                _record_step_failure(state, node_id, message)
+                _record_step_failure(state, node_id, message,
+                                     project_dir=project_dir)
                 save_pipeline_state(project_dir, state)
                 settle_semantic_stream(node_id, "failed")
                 failed.append(node_id)
@@ -3694,7 +3717,8 @@ def run_pipeline(
             if run_logger:
                 run_logger.log(step_id=node_id, event_type="step_failed",
                                error=str(e))
-            _record_step_failure(state, node_id, str(e))
+            _record_step_failure(state, node_id, str(e),
+                                 project_dir=project_dir)
             save_pipeline_state(project_dir, state)
             failed.append(node_id)
             dependency_blocked.add(node_id)
@@ -4126,6 +4150,14 @@ def run_pipeline(
     try:
         run_control.record_run_total(project_dir)
     except Exception:  # noqa: BLE001 - a stamp must not fail a run
+        pass
+    # This run wrote its own ending, so what was in flight belongs to
+    # the record - not to whatever run follows.  Best-effort like every
+    # other status write: a cause left on disk would be attributed to a
+    # run that never saw the crash.
+    try:
+        run_control.clear_restart_cause(project_dir)
+    except Exception:  # noqa: BLE001 - a clear must never fail a run
         pass
     _provenance.end_run(_run_id, status.lower(), _steps_this_run)
 

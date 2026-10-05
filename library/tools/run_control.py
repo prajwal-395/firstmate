@@ -8,7 +8,7 @@ a file name or a key name - the failure mode this repo has paid for more
 than once (see CLAUDE.md, "Key-name mismatches are the dominant bug
 class").
 
-Three files live at the root of a project directory:
+Four files live at the root of a project directory:
 
     pipeline.pid        written by run_pipeline.py's __main__ guard.
                         Its existence plus a live pid means a run is up.
@@ -21,6 +21,12 @@ Three files live at the root of a project directory:
                         Nothing else may write it.
                         Per-step wall clock lives here too, under
                         `step_timings` (see `record_step_timing`).
+    restart_cause.json  the restart-cause sidecar: the last step, the last
+                        capability and the last error, refreshed at every
+                        step start and every failure.  It is written
+                        BEFORE the run status is replaced, so a crash
+                        mid-step leaves its cause on disk for the next
+                        run's restart record (see `write_restart_cause`).
 
 The handbrake is deliberately advisory.  A control that killed the
 process mid-step would leave `pipeline_data.json` describing a step that
@@ -39,6 +45,7 @@ from typing import Any, Dict, List, Optional
 PID_FILE = "pipeline.pid"
 HOLD_FILE = "pipeline.hold"
 RUN_STATUS_FILE = "pipeline_run.json"
+RESTART_CAUSE_FILE = "restart_cause.json"
 
 
 # ── Paths ───────────────────────────────────────────────────────────
@@ -53,6 +60,10 @@ def hold_path(project_dir: str) -> Path:
 
 def run_status_path(project_dir: str) -> Path:
     return Path(project_dir) / RUN_STATUS_FILE
+
+
+def restart_cause_path(project_dir: str) -> Path:
+    return Path(project_dir) / RESTART_CAUSE_FILE
 
 
 def _now() -> str:
@@ -160,15 +171,92 @@ def write_run_status(project_dir: str, **fields: Any) -> Dict[str, Any]:
 
     Best-effort by design: the runner calls this between steps and a
     failure to write a status file must never take down a real run.
+
+    A step that has STARTED also refreshes the restart-cause sidecar:
+    what is in flight is what a crash would otherwise lose, and the
+    last recorded error is carried forward until a failure replaces it
+    or the run's own ending clears it.  See `write_restart_cause`.
     """
     try:
         current = read_run_status(project_dir)
         current.update(fields)
         current["updated_at"] = _now()
         _write_json(run_status_path(project_dir), current)
+        step = fields.get("current_step")
+        if isinstance(step, str) and step:
+            _refresh_step_cause(project_dir, step)
         return current
     except OSError:
         return {}
+
+
+# ── The restart-cause sidecar ────────────────────────────────────────
+
+def step_capability(node_id: str) -> str:
+    """The capability id(s) a run of `node_id` records under, comma-joined.
+
+    Best-effort: a node no capability covers yields "" rather than a
+    refusal - the sidecar is a cause record, and a missing capability
+    must never take down a run.
+    """
+    try:
+        from library.tools import dag_adapter
+        caps = dag_adapter.recording_capabilities(node_id)
+        return ",".join(getattr(c, "name", "") for c in caps)
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def write_restart_cause(project_dir: str, step: str, capability: str = "",
+                        error: str = "") -> Dict[str, Any]:
+    """Record what was in flight, so a crash mid-step leaves its cause.
+
+    Written at each step start and each failure, BEFORE the run status
+    is replaced, so the next run's `classify` can read it: an
+    interrupted run's cause is otherwise lost with the state file that
+    held it.  Best-effort like every other status write - a cause that
+    fails to persist must never take down a real run.
+    """
+    record = {
+        "step": step,
+        "capability": capability,
+        "error": error,
+        "recorded_at": _now(),
+    }
+    try:
+        _write_json(restart_cause_path(project_dir), record)
+        return record
+    except OSError:
+        return {}
+
+
+def read_restart_cause(project_dir: str) -> Dict[str, Any]:
+    return _read_json(restart_cause_path(project_dir)) or {}
+
+
+def clear_restart_cause(project_dir: str) -> None:
+    """Drop the cause once its run is accounted for.
+
+    Consumed by `begin_run_status` when the restart is classified, and
+    by the run's own ending: a cause left on disk would be read as
+    though it belonged to whatever run happened to follow - including
+    one that never saw the crash.
+    """
+    try:
+        restart_cause_path(project_dir).unlink()
+    except OSError:
+        pass
+
+
+def _refresh_step_cause(project_dir: str, step: str) -> None:
+    """The sidecar's step and capability, carrying the last error forward."""
+    try:
+        previous = read_restart_cause(project_dir)
+        write_restart_cause(
+            project_dir, step, step_capability(step),
+            error=str(previous.get("error") or ""))
+    except Exception:  # noqa: BLE001 - a cause must never take down a run
+        pass
 
 
 def set_semantic_profile_stream_status(project_dir: str, run_id: str,
@@ -190,6 +278,7 @@ def begin_run_status(project_dir: str, mode: str, steps_to_run: List[str],
                      breakpoints: Optional[Dict[str, Any]] = None,
                      state: Optional[Dict[str, Any]] = None,
                      carry_run_group: bool = False,
+                     sidecar: Optional[dict] = None,
                      ) -> Dict[str, Any]:
     """Replace the run status wholesale at the start of a run.
 
@@ -206,11 +295,20 @@ def begin_run_status(project_dir: str, mode: str, steps_to_run: List[str],
     describing one clean pass.  The previous account is now READ before
     it is replaced and carried forward as `restart` plus a bounded
     `run_history`.  See library/tools/run_restart.py.
+
+    `sidecar` is the restart-cause file the previous run left behind.
+    It is read here - before the status is replaced - so an interrupted
+    run's cause reaches the restart record, and cleared once consumed:
+    a cause left on disk would be attributed to a run that never saw
+    the crash.
     """
     from library.tools import run_restart
 
     previous = read_run_status(project_dir)
-    restart = run_restart.classify(previous, state)
+    if sidecar is None:
+        sidecar = read_restart_cause(project_dir)
+    restart = run_restart.classify(previous, state, sidecar=sidecar)
+    clear_restart_cause(project_dir)
     history = list(previous.get("run_history") or [])
     if previous:
         history.append(run_restart.history_entry(previous, restart))

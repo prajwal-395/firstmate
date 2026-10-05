@@ -38,6 +38,7 @@ One enumeration, `library/tools/run_restart.py`. `begin_run_status` used to repl
 - **The status file records THAT a run failed; `pipeline_data.json` records WHAT it failed on.** The cause is read out of `step_errors`, never inferred from the status.
 - It lands three places - `pipeline_run.json` (`restart` plus a bounded `run_history`), the provenance run record, and `state["run_restarts"]` - because the complaint was that the outputs did not carry it.
 - **A restart already on disk can be RECONSTRUCTED, but its cause cannot.** `reconstruct_from_ledger` reads consecutive provenance run records; every row carries `cause: ""`, because the state file that held the words was overwritten by the run that followed.
+- **An interrupted run's cause is written BEFORE the status is replaced.** The runner keeps a `restart_cause.json` sidecar (owned by `run_control.py`) with the last step, the last capability and the last error, refreshed at every step start and every failure. `classify` reads it, so a crash mid-step is recorded with its cause instead of with none. A restart reconstructed from the ledger before the sidecar existed still carries `cause: ""` - that gap is historical, not live.
 - `step_error`/`step_end` carry real step ids: `step_timer` binds the decorated signature, so a positional `node_id` resolves. Fixed by #409, pinned by `tests/unit/context/test_run_record.py`.
 """
 
@@ -106,16 +107,25 @@ def _first_str(record: dict, *keys: str) -> str:
     return ""
 
 
-def classify(previous: Optional[dict], state: Optional[dict] = None) -> Restart:
+def classify(previous: Optional[dict], state: Optional[dict] = None,
+             sidecar: Optional[dict] = None) -> Restart:
     """Read the outgoing run status into a restart record.
 
     `state` is the pipeline state, which is where a failure's own words
     live (`step_errors`).  The status file records THAT a run failed; the
     state records WHAT it failed on.  Neither is guessed from the other.
+
+    `sidecar` is the restart-cause file the runner wrote before the
+    status was replaced: the last step, the last capability and the last
+    error.  An interrupted run's cause is read from it (with the state's
+    own `step_errors` for the in-flight step as the fallback) - without
+    it, a crash mid-step is recorded as `interrupted` with no cause.
     """
     now = time.strftime("%Y-%m-%dT%H:%M:%S")
     if not previous:
         return Restart(basis=UNKNOWN, recorded_at=now)
+    if not sidecar:
+        sidecar = {}
 
     status = (previous.get("status") or "").lower()
     summary_status = (previous.get("summary_status") or "").lower()
@@ -149,11 +159,13 @@ def classify(previous: Optional[dict], state: Optional[dict] = None) -> Restart:
     # nothing.  This is NOT read as a failure, because the run never
     # reported one.
     if status == "running" or not finished:
-        step = current or _first_str(previous, "last_completed_step")
+        step = (current or _first_str(sidecar, "step")
+                or _first_str(previous, "last_completed_step"))
         return Restart(
-            basis=INTERRUPTED, stopped_at_step=current,
+            basis=INTERRUPTED, stopped_at_step=step,
             cause=("the previous run wrote no ending - it was interrupted"
-                   + (f" during {step}" if step else "")),
+                   + (f" during {step}" if step else "")
+                   + _interrupted_detail(sidecar, state, step)),
             **common)
 
     if status in ("failed", "error") or summary_status == "failed":
@@ -185,6 +197,35 @@ def _failure_cause(state: Optional[dict]) -> tuple:
     for step, message in errors.items():
         return str(step), str(message).strip().splitlines()[0][:500]
     return "", ""
+
+
+def _interrupted_detail(sidecar: dict, state: Optional[dict],
+                        step: str) -> str:
+    """What the sidecar and the state's own record add to an interruption.
+
+    The sidecar carries the last error the run recorded before it died;
+    the state file's `step_errors` for the in-flight step is the fallback
+    when the sidecar's own write was lost.  Neither is guessed: an
+    interruption with no recorded error says so by saying nothing.
+    """
+    capability = _first_str(sidecar, "capability")
+    error = _first_str(sidecar, "error") or _in_flight_error(state, step)
+    detail = ""
+    if capability:
+        detail += f" ({capability})"
+    if error:
+        detail += f" - last error: {error}"
+    return detail
+
+
+def _in_flight_error(state: Optional[dict], step: str) -> str:
+    """The error the run recorded for the step it was in, if any."""
+    if not step or not isinstance(state, dict):
+        return ""
+    message = (state.get("step_errors") or {}).get(step)
+    if not message:
+        return ""
+    return str(message).strip().splitlines()[0][:500]
 
 
 def as_record(restart: Restart) -> dict:

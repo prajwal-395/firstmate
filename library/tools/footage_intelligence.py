@@ -204,7 +204,7 @@ def _record_completion(project: str, state: dict, cid: str, node: str,
 
 def _record_failure(project: str, state: dict, node: str, message: str):
     rp = _runner()
-    rp._record_step_failure(state, node, message)
+    rp._record_step_failure(state, node, message, project_dir=project)
     rp.save_pipeline_state(project, state)
 
 

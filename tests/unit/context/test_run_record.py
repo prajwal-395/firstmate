@@ -385,6 +385,113 @@ def test_past_restarts_are_reconstructed_without_inventing_a_cause():
     assert rows[0]["reconstructed"] is True
 
 
+# --------------------------------------------------------------------------
+# F-13: an interrupted run's cause
+#
+# An interrupted run used to be recorded as `interrupted` with no cause
+# at all: the next run knew a restart happened but not why.  The error
+# lived in `pipeline_data.json`, which the run that followed overwrote,
+# and a crash mid-step left the same gap.  The runner now keeps a
+# `restart_cause.json` sidecar - the last step, the last capability and
+# the last error - written BEFORE the run status is replaced, and
+# `classify` reads it.
+#
+# Fixture-only: nothing here runs a step, renders, transcribes or opens
+# a real project.
+
+def test_an_interrupted_run_carries_the_cause_the_sidecar_recorded():
+    """A crash mid-step, simulated: the status file says `running` with
+    no ending, and the sidecar the runner wrote before the status was
+    replaced carries the last step, the last capability and the last
+    error.  The restart record must show all three - that is the defect
+    this closes."""
+    restart = run_restart.classify(
+        {"status": "running", "current_step": "render", "finished_at": None},
+        {},
+        sidecar={"step": "render", "capability": "render.build",
+                 "error": "Step failed (exit 1): no timeline"},
+    )
+    assert restart.basis == run_restart.INTERRUPTED
+    assert restart.stopped_at_step == "render"
+    assert "render" in restart.cause
+    assert "render.build" in restart.cause
+    assert "no timeline" in restart.cause
+
+
+def test_an_interrupted_run_without_a_recorded_error_says_so():
+    """A crash with no error recorded is still an interruption with no
+    cause - the sidecar names the step and the capability, and invents
+    no error.  Guessing one is the attribution this repository exists
+    not to make."""
+    restart = run_restart.classify(
+        {"status": "running", "current_step": "render", "finished_at": None},
+        {},
+        sidecar={"step": "render", "capability": "render.build", "error": ""},
+    )
+    assert restart.basis == run_restart.INTERRUPTED
+    assert "render.build" in restart.cause
+    assert "last error" not in restart.cause
+
+
+def test_an_interrupted_run_falls_back_to_the_error_the_run_recorded():
+    """The sidecar is best-effort and its write can be lost.  The error
+    the run itself recorded for the step it was in is the fallback, so
+    the cause is not lost with the sidecar."""
+    restart = run_restart.classify(
+        {"status": "running", "current_step": "render", "finished_at": None},
+        {"step_errors": {"render": "Step failed (exit 1): no timeline"}},
+    )
+    assert restart.basis == run_restart.INTERRUPTED
+    assert "no timeline" in restart.cause
+
+
+def test_the_next_run_reads_the_cause_then_lets_it_go(tmp_path):
+    """`begin_run_status` reads the sidecar before the status is
+    replaced and clears it once consumed.  A cause left on disk would be
+    attributed to whatever run happened to follow - including one that
+    never saw the crash."""
+    project = str(tmp_path)
+    # The crashed run's own account: in flight, no ending written.
+    run_control.write_run_status(project, status="running",
+                                 current_step="render", finished_at=None)
+    run_control.write_restart_cause(
+        project, "render", "render.build", error="no timeline")
+    record = run_control.begin_run_status(
+        project, "full run", ["render"], state={})
+    assert record["restart"]["basis"] == run_restart.INTERRUPTED
+    assert "no timeline" in record["restart"]["cause"]
+    assert run_control.read_restart_cause(project) == {}
+
+
+def test_a_step_that_starts_records_what_is_in_flight(tmp_path):
+    """The sidecar is refreshed at every step start: what is in flight is
+    what a crash would otherwise lose, and the last recorded error is
+    carried forward until a failure replaces it or the run's own ending
+    clears it."""
+    project = str(tmp_path)
+    run_control.begin_run_status(project, "full run", ["mesh_spine", "render"])
+    run_control.write_restart_cause(
+        project, "mesh_spine", "spine.mesh", error="Post-bridge failed")
+    run_control.write_run_status(project, current_step="render")
+    cause = run_control.read_restart_cause(project)
+    assert cause["step"] == "render"
+    assert cause["capability"] == "render.build"
+    assert cause["error"] == "Post-bridge failed", (
+        "the last error is carried forward: it is the last thing that "
+        "went wrong before the crash")
+
+
+def test_a_sidecar_that_cannot_be_written_never_takes_down_the_run(tmp_path):
+    """The sidecar is best-effort like every other status write: a cause
+    that fails to persist must never take down a real run."""
+    blocker = tmp_path / "blocker"
+    blocker.write_text("not a directory", encoding="utf-8")
+    record = run_control.write_restart_cause(
+        str(blocker), "render", "render.build", error="boom")
+    assert record == {}
+    assert run_control.read_restart_cause(str(blocker)) == {}
+
+
 # ── PR #409's half: step ids on the events ──────────────────────────
 
 def _drain(tmp_path):
