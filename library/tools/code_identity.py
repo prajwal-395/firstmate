@@ -105,6 +105,13 @@ STEP_IMPLEMENTATION_DEPS = {
         # root decides what the scan sees.  Scan is seconds, so a rare
         # schema edit re-scanning is the cheap, correct trade.
         "library/schemas/project_config.py",
+        # Imported by project_config: the `$HOME` / `$PROJECT` token
+        # expansion path declarations are read through, so a fix here
+        # changes what the scan accepts.
+        "library/tools/portable_paths.py",
+        # Imported by portable_paths: the canonical spelling a rebind
+        # rewrite is written back in.
+        "library/tools/stable_json.py",
         # Imported by project_config: the project_format_version key
         # and the supported format range the open refuses outside of,
         # so a fix here changes what the scan accepts.
@@ -134,6 +141,14 @@ STEP_IMPLEMENTATION_DEPS = {
         # Its declaration parsing: the source block is read through the
         # project config schema.
         "library/schemas/project_config.py",
+        # Imported by project_config: the `$HOME` / `$PROJECT` token
+        # expansion path declarations are read through (same chain as
+        # the scan row above).
+        "library/tools/portable_paths.py",
+        # Imported by portable_paths: the canonical spelling a rebind
+        # rewrite is written back in, so a fix here changes the bytes
+        # the next open reads.
+        "library/tools/stable_json.py",
         # Imported by project_config: the project_format_version key
         # and the supported format range the open refuses outside of
         # (same chain as the scan row above).
@@ -187,6 +202,9 @@ STEP_IMPLEMENTATION_DEPS = {
         # Imported by footage_identity: its declaration parsing (same
         # chain as the scan row above).
         "library/schemas/project_config.py",
+        # Imported by project_config: the `$HOME` / `$PROJECT` token
+        # expansion path declarations are read through (same chain).
+        "library/tools/portable_paths.py",
         "library/tools/project_format.py",
         "library/tools/overlay_mode.py",
         "library/tools/graphics_renderer.py",
@@ -208,6 +226,9 @@ STEP_IMPLEMENTATION_DEPS = {
         # the language and footage-root reads, so a schema fix changes
         # what the step accepts.
         "library/schemas/project_config.py",
+        # Imported by project_config: the `$HOME` / `$PROJECT` token
+        # expansion path declarations are read through (same chain).
+        "library/tools/portable_paths.py",
         # Imported by project_config: the project_format_version key
         # and the supported format range (same chain as the scan row).
         "library/tools/project_format.py",

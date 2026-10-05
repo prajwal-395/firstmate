@@ -62,6 +62,11 @@ class SourceConfig:
     """An ABSOLUTE directory holding this project's footage, when it does
     not live in `<project>/raw`.
 
+    The file may store it portable - `$HOME/...` for a path under any
+    user's home, `$PROJECT/...` for one inside the project - and it
+    reads back as this machine's absolute
+    (`library/tools/portable_paths.py`).
+
     A project whose rough cut was cut in Resolve has its media wherever
     the editor put it, and copying or symlinking it into the project is a
     write to the captain's own material to work around a missing
@@ -580,6 +585,14 @@ def _parse_format_version(data: dict, where) -> object:
 def _dict_to_project_config(data: dict,
                             project_root: Path | None = None) -> ProjectConfig:
     """Convert a raw dict (from YAML) to a ProjectConfig dataclass."""
+    from library.tools.portable_paths import expand as _expand_portable
+
+    def _expand_path(raw) -> str:
+        if not raw:
+            return ""
+        expanded = _expand_portable(raw, project_root)
+        return expanded if isinstance(expanded, str) else ""
+
     source_data = data.get("source", {})
     pipeline_data = data.get("pipeline", {})
     resolve_data = data.get("resolve", {})
@@ -587,7 +600,7 @@ def _dict_to_project_config(data: dict,
 
     source = SourceConfig(
         fps=source_data.get("fps", 30),
-        footage_root=source_data.get("footage_root", "") or "",
+        footage_root=_expand_path(source_data.get("footage_root", "")),
         program_stream=source_data.get("program_stream"),
         measure_program_stream=source_data.get(
             "measure_program_stream", False),
@@ -617,7 +630,8 @@ def _dict_to_project_config(data: dict,
             or "remotion"),
         tv_frame=pipeline_data.get("tv_frame"),
         safe_zones=pipeline_data.get("safe_zones"),
-        creative_brief=pipeline_data.get("creative_brief", ""),
+        creative_brief=_expand_path(
+            pipeline_data.get("creative_brief", "")),
         attach_creative_brief=pipeline_data.get("attach_creative_brief"),
         creative_brief_inline=list(
             pipeline_data.get("creative_brief_inline", []) or []),
@@ -630,8 +644,8 @@ def _dict_to_project_config(data: dict,
                 else data.get("series")) or "",
         creative_tasks=list(
             pipeline_data.get("creative_tasks", []) or []),
-        sfx_library=pipeline_data.get("sfx_library", ""),
-        music_library=pipeline_data.get("music_library", ""),
+        sfx_library=_expand_path(pipeline_data.get("sfx_library", "")),
+        music_library=_expand_path(pipeline_data.get("music_library", "")),
     )
 
     resolve = ResolveConfig(

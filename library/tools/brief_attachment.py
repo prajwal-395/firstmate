@@ -191,7 +191,17 @@ def read_declaration(project_folder: str) -> Attachment:
     if not isinstance(data, dict):
         return Attachment(NONE_DECLARED,
                           basis="project.yaml is not a mapping")
-    return read_declaration_from(data, where=project_yaml)
+    attachment = read_declaration_from(data, where=project_yaml)
+    if attachment.path:
+        # A portable declaration (`$HOME/...`, `$PROJECT/...`) resolves
+        # against this project on this machine; relative stays relative
+        # for the consumer to anchor at the project folder.
+        from library.tools.portable_paths import expand
+        expanded = expand(attachment.path, project_folder)
+        if expanded != attachment.path:
+            attachment = Attachment(attachment.reading, path=expanded,
+                                    basis=attachment.basis)
+    return attachment
 
 
 def read_declaration_from(data: dict, where: str = "project.yaml"

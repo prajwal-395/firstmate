@@ -54,7 +54,7 @@ from library.tools.ren_refusal import RenRefusal
 FORMAT_VERSION_KEY = "project_format_version"
 """The top-level `project.yaml` key.  Absent reads as 0 (unversioned)."""
 
-PROJECT_FORMAT_VERSION = 1
+PROJECT_FORMAT_VERSION = 2
 """The format this engine writes.  New projects are stamped with this."""
 
 MIN_SUPPORTED_FORMAT_VERSION = 0
@@ -162,7 +162,13 @@ class FormatMigration:
     to_version: int
     migration_id: str
     summary: str
-    transform: Callable[[str], str]
+    transform: Callable[..., str]
+    """The text edit, as `transform(text, project_root) -> new_text`.
+
+    The project root travels with the text so a migration can anchor a
+    path: the 1 -> 2 portablizing needs to know what `$PROJECT` means.
+    A migration that needs no root ignores it, the way the stamp does.
+    """
 
 
 def _stamp_format_version(text: str, version: int) -> str:
@@ -195,6 +201,25 @@ def _stamp_format_version(text: str, version: int) -> str:
     )
 
 
+def _stamp_0_to_1(text: str, _project_root) -> str:
+    return _stamp_format_version(text, 1)
+
+
+def _portablize_1_to_2(text: str, project_root) -> str:
+    """The 1 -> 2 migration, as a declaration-preserving text edit.
+
+    Absolute path declarations become portable tokens (`$HOME/...`,
+    `$PROJECT/...`); everything else - comments, quoting, blank lines,
+    every other key - passes through byte for byte, the way the stamp
+    does.  A path no token names stays absolute and is named in the
+    manifest's notes rather than rewritten into a lie.  The version key
+    is stamped to 2 last, so a migrated file reads as format 2.
+    """
+    from library.tools.portable_paths import portablize_declarations_text
+    rewritten, _notes = portablize_declarations_text(text, project_root)
+    return _stamp_format_version(rewritten, 2)
+
+
 MIGRATIONS: tuple = (
     FormatMigration(
         from_version=0,
@@ -205,7 +230,20 @@ MIGRATIONS: tuple = (
             "key and read as format 0. Stamping the key changes nothing "
             "else: the text edit preserves every other byte, so a "
             "stamped project behaves exactly as it did unversioned."),
-        transform=lambda text: _stamp_format_version(text, 1),
+        transform=_stamp_0_to_1,
+    ),
+    FormatMigration(
+        from_version=1,
+        to_version=2,
+        migration_id="portable_path_declarations",
+        summary=(
+            "Absolute path declarations become portable tokens "
+            "(`$HOME/...` under any user's home, `$PROJECT/...` inside "
+            "the project) so the file moves between Macs and users "
+            "without editing. The text edit preserves every other byte, "
+            "so a migrated project behaves exactly as it did with "
+            "absolutes on the machine that migrated it."),
+        transform=_portablize_1_to_2,
     ),
 )
 """The ONE ordered registry.  A future format N+1 appends exactly one
@@ -309,6 +347,7 @@ def migrate_project(project_folder, apply: bool = False) -> dict:
         "actions": [],
         "backup_path": "",
         "backup_sha256": "",
+        "portable_notes": [],
     }
 
     if not pending:
@@ -319,7 +358,15 @@ def migrate_project(project_folder, apply: bool = False) -> dict:
     before_text = yaml_path.read_bytes().decode("utf-8")
     after_text = before_text
     for entry in pending:
-        after_text = entry.transform(after_text)
+        after_text = entry.transform(after_text, root)
+
+    portable_notes: list = []
+    if any(m.migration_id == "portable_path_declarations" for m in pending):
+        from library.tools.portable_paths import (
+            portablize_declarations_text)
+        _rewritten, portable_notes = portablize_declarations_text(
+            before_text, root)
+    manifest["portable_notes"] = portable_notes
 
     if not apply:
         manifest["actions"].append({
@@ -438,12 +485,19 @@ def ensure_project_format(project_folder) -> dict | None:
     """Open a project through the format gate; migrate when behind.
 
     Returns None when the project is already current (the common
-    case: no write, no backup, no manifest) and the applied migration
-    manifest when an older supported project was stamped forward.
-    Raises `ProjectFormatRefused` outside the supported range.
+    case: no migration write, no backup, no manifest) and the applied
+    migration manifest when an older supported project was stamped
+    forward.  Raises `ProjectFormatRefused` outside the supported range.
     A folder with no `project.yaml` is not a project this gate can
     judge: None, silently - the caller that looked for the project
     reports it missing.
+
+    Past the version gate, the machine gate runs: a project that moved
+    folders, disks or users since its state was recorded gets its
+    machine-local paths rebound (`portable_paths.ensure_portable_paths`,
+    atomic with its own backup and manifest, a no-op when nothing
+    moved).  Listing (`scan_projects`) never reaches this gate, so it
+    stays read-only.
     """
     from library.tools.project_layout import ProjectLayout
 
@@ -451,9 +505,12 @@ def ensure_project_format(project_folder) -> dict | None:
     if not yaml_path.is_file():
         return None
     version = check_format(project_folder)
-    if not pending_migrations(version):
-        return None
-    return migrate_project(project_folder, apply=True)
+    manifest = None
+    if pending_migrations(version):
+        manifest = migrate_project(project_folder, apply=True)
+    from library.tools import portable_paths
+    portable_paths.ensure_portable_paths(project_folder)
+    return manifest
 
 
 def _render_report(manifest: dict) -> str:
@@ -466,6 +523,8 @@ def _render_report(manifest: dict) -> str:
             f"  {entry['migration_id']} "
             f"({entry['from_version']}->{entry['to_version']}): "
             f"{entry['summary']}")
+    for note in manifest.get("portable_notes") or []:
+        lines.append(f"  declaration: {note}")
     if not manifest["migrations"]:
         lines.append("The project is already current; nothing changed.")
     elif manifest["applied"]:

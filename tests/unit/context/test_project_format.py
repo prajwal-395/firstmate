@@ -124,7 +124,8 @@ def test_migration_is_deterministic_and_idempotent(tmp_path):
     plan_a = pf.migrate_project(folder, apply=False)
     plan_b = pf.migrate_project(folder, apply=False)
     assert plan_a["actions"] == plan_b["actions"]
-    assert (plan_a["from_version"], plan_a["to_version"]) == (0, 1)
+    assert (plan_a["from_version"], plan_a["to_version"]) == (
+        MIN_SUPPORTED_FORMAT_VERSION, PROJECT_FORMAT_VERSION)
 
     applied = pf.migrate_project(folder, apply=True)
     assert applied["applied"] is True
