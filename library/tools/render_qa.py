@@ -352,6 +352,29 @@ def declared_ending_spans(assembly_manifest: Optional[dict]) -> dict:
             if math.isfinite(start) and math.isfinite(end) and end > start:
                 silent_spans.append((start, end))
 
+    # The animated closer is a deliberate captain's-choice ending: it plays
+    # over silence on every reel by design.  Recognise it by its asset name
+    # on the overlay tracks (V5, V6, V7), not by a time guess.
+    CLOSER_ASSET_NAMES = ("logo_bulb_lines",)
+    OVERLAY_TRACK_KEYS = ("V5", "V6", "V7")
+    for track_key in OVERLAY_TRACK_KEYS:
+        track = tracks.get(track_key) if isinstance(tracks, dict) else None
+        track_clips = track.get("clips") if isinstance(track, dict) else None
+        track_clips = track_clips if isinstance(track_clips, list) else []
+        for clip in track_clips:
+            if not isinstance(clip, dict):
+                continue
+            name = clip.get("name") or ""
+            if not any(marker in name for marker in CLOSER_ASSET_NAMES):
+                continue
+            try:
+                start = float(clip["timeline_in"]) / fps
+                end = float(clip["timeline_out"]) / fps
+            except (KeyError, TypeError, ValueError):
+                continue
+            if math.isfinite(start) and math.isfinite(end) and end > start:
+                silent_spans.append((start, end))
+
     return {"black": _merge_windows(black_spans),
             "silence": _merge_windows(silent_spans)}
 

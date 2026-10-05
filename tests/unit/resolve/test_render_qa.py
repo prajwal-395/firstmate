@@ -449,3 +449,81 @@ def test_every_verification_tool_binds_in_a_scripted_run():
         + "\n  - ".join(missing)
         + f"\nRecorded import errors: {result['errors']}"
     )
+
+
+def test_closer_on_overlay_track_is_declared_silence():
+    from library.tools.render_qa import declared_ending_spans
+    manifest = {
+        "project": {"frame_rate": 23.976},
+        "tracks": {
+            "V1": {"clips": [
+                {"label": "final", "timeline_in": 0, "timeline_out": 100},
+            ]},
+            "V5": {"clips": [
+                {"name": "logo_bulb_lines_safe_23976.mov",
+                 "timeline_in": 100, "timeline_out": 172},
+            ]},
+        },
+    }
+    spans = declared_ending_spans(manifest)
+    assert len(spans["silence"]) == 1
+    start, end = spans["silence"][0]
+    assert abs(start - 100 / 23.976) < 0.001
+    assert abs(end - 172 / 23.976) < 0.001
+
+
+def test_closer_on_v6_also_declared():
+    from library.tools.render_qa import declared_ending_spans
+    manifest = {
+        "project": {"frame_rate": 23.976},
+        "tracks": {
+            "V1": {"clips": [
+                {"label": "final", "timeline_in": 0, "timeline_out": 100},
+            ]},
+            "V6": {"clips": [
+                {"name": "logo_bulb_lines_safe_23976.mov",
+                 "timeline_in": 100, "timeline_out": 172},
+            ]},
+        },
+    }
+    spans = declared_ending_spans(manifest)
+    assert len(spans["silence"]) == 1
+
+
+def test_closer_span_does_not_cover_gap_before_it():
+    from library.tools.render_qa import declared_ending_spans
+    manifest = {
+        "project": {"frame_rate": 23.976},
+        "tracks": {
+            "V1": {"clips": [
+                {"label": "final", "timeline_in": 0, "timeline_out": 90},
+            ]},
+            "V5": {"clips": [
+                {"name": "logo_bulb_lines_safe_23976.mov",
+                 "timeline_in": 100, "timeline_out": 172},
+            ]},
+        },
+    }
+    spans = declared_ending_spans(manifest)
+    assert len(spans["silence"]) == 1
+    start, end = spans["silence"][0]
+    assert abs(start - 100 / 23.976) < 0.001
+    assert abs(end - 172 / 23.976) < 0.001
+
+
+def test_no_closer_no_extra_silence_span():
+    from library.tools.render_qa import declared_ending_spans
+    manifest = {
+        "project": {"frame_rate": 23.976},
+        "tracks": {
+            "V1": {"clips": [
+                {"label": "final", "timeline_in": 0, "timeline_out": 100},
+            ]},
+            "V5": {"clips": [
+                {"name": "mg_geo-podcast_3107ff3d_tight.mov",
+                 "timeline_in": 0, "timeline_out": 84},
+            ]},
+        },
+    }
+    spans = declared_ending_spans(manifest)
+    assert len(spans["silence"]) == 0
