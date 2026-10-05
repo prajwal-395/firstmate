@@ -5200,7 +5200,7 @@ def moment_cuts_and_insistences(moment, transcript: dict,
 
 
 def rate_ranges_from_ledger(ranges, project_folder: str, transcript: dict,
-                            name: str) -> list:
+                            name: str, *, refuse: bool = False) -> list:
     """The reel's keep ranges with its ledger retimes on the reel clock.
 
     `edit_ledger.rate_ranges` over the project's ledger, at the ranges
@@ -5210,6 +5210,13 @@ def rate_ranges_from_ledger(ranges, project_folder: str, transcript: dict,
     passage plays. Applied retimes are SAID; a row the reel cannot
     honour is reported by name and left out; an unreadable ledger or
     two rows retiming one stretch of speech REFUSE.
+
+    `refuse` (the build paths) refuses the build when a retime row
+    cannot be projected at all - the captain's retime instruction
+    would be silently lost. The conformance verifier re-derives without
+    refusing: it checks a reel that already exists, and a retime that
+    became unprojectable after the build is a plan mismatch to report,
+    not a crash.
     """
     from library.tools import edit_ledger as _ledger
 
@@ -5219,6 +5226,8 @@ def rate_ranges_from_ledger(ranges, project_folder: str, transcript: dict,
             return list(ranges)
         ranges, applied, unreplayable = _ledger.rate_ranges(
             ranges, rows, transcript, name)
+        if refuse:
+            _ledger.refuse_unreplayable(unreplayable, name)
     except _ledger.EditLedgerError as exc:
         raise ReelBuildError(
             f"  {name}: edit_ledger retime cannot be projected: {exc}"
@@ -5506,9 +5515,11 @@ def derive_reel_ranges_and_cards(moment, transcript: dict, master_clips,
 
     # The ledger's retimes, on the ranges seam after the ending: a
     # retimed passage changes how long the reel plays, so cards and
-    # captions must derive from the rated ranges.
+    # captions must derive from the rated ranges. `refuse=True`: a
+    # retime this build cannot project is a lost captain edit, and the
+    # build refuses rather than paint over it (F-17).
     ranges = rate_ranges_from_ledger(ranges, project_folder, transcript,
-                                     name)
+                                     name, refuse=True)
 
     # Full-frame elements FIRST, because a head card decides where
     # every other thing on this reel starts. PLANNED here; the build
@@ -9313,8 +9324,10 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         # build's own passes above - the held value is the requester's,
         # never the plan's - each judged by Resolve's own read-back. A
         # row the build cannot replay is REPORTED BY NAME, never dropped
-        # silently; a ledger the build cannot read at all REFUSES the
-        # build, because that build would paint over it by construction.
+        # silently - and a row whose loss is real REFUSES the build
+        # (F-17): the captain's edits are never overwritten or lost. A
+        # ledger the build cannot read at all REFUSES the build too,
+        # because that build would paint over it by construction.
         # Plan-level ledger rows (transform holds, trims, drops, caption
         # fixes, closer redraws) replay through the existing appliers via
         # the merged `captain_edits` view - never here, or every hold
@@ -9357,6 +9370,16 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                 print(f"  {name}: {len(_replay['planned'])} edit-ledger "
                       f"plan change(s) carried to their owner step",
                       file=sys.stderr)
+            # A row this build cannot replay is REPORTED BY NAME above -
+            # and a row whose loss is real REFUSES the build (F-17): the
+            # captain's edits are never overwritten or lost, and a build
+            # that continues with only a stderr note is exactly the
+            # silent loss. A row scoped to another reel is routine (every
+            # row is matched against every reel) and does not refuse.
+            try:
+                _ledger.refuse_unreplayable(_replay["unreplayable"], name)
+            except _ledger.EditLedgerError as exc:
+                raise ReelBuildError(f"  {name}: {exc}") from exc
 
         # ── The freeze inherits the shot it holds ──
         # A freeze IS the ending shot's last frame, so it must look exactly
@@ -15635,9 +15658,11 @@ def build_reel_variants(project_slug: str, reel_number: int,
             ranges, placements(ranges, master_clips, fps),
             transcript, _ending_decl, fps)
         _reel_ending.report(_end_record)
-    # The ledger's retimes, same seam as the rebuild loop.
+    # The ledger's retimes, same seam as the rebuild loop. `refuse=True`
+    # for the same reason the rebuild loop refuses: an unprojectable
+    # retime is a lost captain edit (F-17).
     ranges = rate_ranges_from_ledger(ranges, project_folder, transcript,
-                                     moment.timeline_name)
+                                     moment.timeline_name, refuse=True)
 
     # Cards are identical for every variant (same moment, same
     # ranges): planned and rendered once, shared by all variants.

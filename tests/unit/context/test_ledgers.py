@@ -1150,6 +1150,97 @@ def _retime(phrase, percent, reel="Reel 09 - hook", **params):
             "stated_by": "requester", "reason": "pace the passage"}
 
 
+def test_unreplayable_loss_refuses_the_build():
+    """F-17: an unreplayable captain edit is never silently lost - the
+    build refuses, naming the row. The defect: a build that continues
+    with only a stderr note paints over the captain's edit."""
+    timeline = _Timeline(audio_tracks=1)
+    rows = [_isolate(track=4),
+            _lut(node=9),
+            _lut(phrase="words nobody ever spoke")]
+    report = edit_ledger.replay_on_timeline(
+        "Reel 09 - hook", rows, _spans(), _speech(), timeline,
+        item_for_span=lambda _i: _Item(),
+        reel_name="Reel 09 - hook")
+    assert report["applied"] == []
+    assert len(report["unreplayable"]) == 3
+    # Every one of these is a genuine loss (no reel scope), so the
+    # build refuses naming them.
+    with pytest.raises(EditLedgerError,
+                       match="voice_isolation on Reel 09 - hook"):
+        edit_ledger.refuse_unreplayable(report["unreplayable"],
+                                         "Reel 09 - hook")
+
+
+def test_routine_reel_scope_does_not_refuse_the_build():
+    """A row scoped to another reel is routine - every ledger row is
+    matched against every reel - so it reports by name and does not
+    refuse. Refusing here would break every multi-reel build: a row for
+    Reel 02 would refuse the build of Reel 01."""
+    records = [
+        {"name": "clip_lut on Reel 02 - x at 'the hook'",
+         "scope": "reel",
+         "reason": "STALE - not on this reel: scoped to reel 'Reel 02 - x'"},
+    ]
+    edit_ledger.refuse_unreplayable(records, "Reel 09 - hook")
+
+
+def test_unprojectable_retime_refuses_the_build(tmp_path):
+    """F-17: a retime the reel can no longer project is a lost captain
+    edit - the build refuses rather than place unrated ranges. The
+    defect: the retime instruction is painted over with only a stderr
+    note."""
+    from library.tools.reel_build import (
+        ReelBuildError, rate_ranges_from_ledger)
+    from library.tools import captain_edits as _edits
+
+    project = _project(tmp_path)
+    tpath = _edits.transcript_path(str(project))
+    tpath.parent.mkdir(parents=True, exist_ok=True)
+    tpath.write_text(json.dumps(_transcript(
+        ["hello", "there", "ive", "quit", "every", "single", "day"])),
+        encoding="utf-8")
+    edit_ledger.record_row(str(project), _retime("ive quit", 120))
+
+    # The passage is reworded: the anchor is spoken nowhere now.
+    tpath.write_text(json.dumps(_transcript(
+        ["completely", "different", "words", "now"])),
+        encoding="utf-8")
+    transcript = _transcript(["completely", "different", "words", "now"])
+
+    with pytest.raises(ReelBuildError, match="REFUSING to build"):
+        rate_ranges_from_ledger([(10.0, 15.0)], str(project), transcript,
+                                "Reel 09 - hook", refuse=True)
+
+
+def test_rate_ranges_from_ledger_without_refuse_reports_and_continues(
+        tmp_path):
+    """The conformance verifier re-derives ranges without refusing: it
+    checks a reel that already exists, and a retime that became
+    unprojectable after the build is a plan mismatch to report, not a
+    crash."""
+    from library.tools.reel_build import rate_ranges_from_ledger
+    from library.tools import captain_edits as _edits
+
+    project = _project(tmp_path)
+    tpath = _edits.transcript_path(str(project))
+    tpath.parent.mkdir(parents=True, exist_ok=True)
+    tpath.write_text(json.dumps(_transcript(
+        ["hello", "there", "ive", "quit", "every", "single", "day"])),
+        encoding="utf-8")
+    edit_ledger.record_row(str(project), _retime("ive quit", 120))
+
+    tpath.write_text(json.dumps(_transcript(
+        ["completely", "different", "words", "now"])),
+        encoding="utf-8")
+    transcript = _transcript(["completely", "different", "words", "now"])
+
+    # refuse defaults to False: the verifier's path reports and continues.
+    ranges = rate_ranges_from_ledger([(10.0, 15.0)], str(project), transcript,
+                                     "Reel 09 - hook")
+    assert len(ranges) == 1
+
+
 def test_retime_is_durable_intent_on_the_keep_ranges():
     """Punch list 10: "make this passage 110% speed" re-derives on every
     rebuild - the passage, from its first word to its last, plays at

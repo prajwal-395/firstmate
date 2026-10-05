@@ -90,9 +90,13 @@ each judged by Resolve's own read-back - the same discipline as the
 resolve-axi verb that recorded it. A row the build cannot replay
 (no such track, no node graph, anchor spoken nowhere, carrier with
 no replayer yet) is REPORTED BY NAME - op, reel, anchor - on
-stderr and in the build record, never dropped silently. A ledger
-the build cannot read at all REFUSES the build: a recorded decision
-the build cannot see is a build that paints over it by construction.
+stderr and in the build record, never dropped silently - and a row
+whose loss is real (every scope but another reel's) REFUSES the
+build (`refuse_unreplayable`): the captain's edits are never
+overwritten or lost, and a build that continues with only a stderr
+note is exactly the silent loss. A ledger the build cannot read at
+all REFUSES the build too: a recorded decision the build cannot
+see is a build that paints over it by construction.
 
 `tests/unit/context/test_ledgers.py`.
 """
@@ -1055,6 +1059,37 @@ def report_unreplayable(records: list) -> list:
         print(line, file=sys.stderr)
         lines.append(line)
     return lines
+
+
+def refuse_unreplayable(records: list, reel_name: str = "") -> None:
+    """Refuse the build when an unreplayable row is a genuine loss.
+
+    A row scoped to another reel is routine - every ledger row is
+    matched against every reel, so a row for Reel 02 reports "not on
+    this reel" while Reel 01 builds, and that is expected. Every other
+    unreplayable row is a captain edit this build cannot replay, and
+    the build refuses rather than paint over it: the captain's standing
+    rule is that his manual edits are never overwritten or lost, and a
+    build that continues with only a stderr note is exactly the silent
+    loss this refuses (F-17).
+
+    Raises `EditLedgerError` naming every loss. The routine rows are
+    still reported by name on stderr by the caller's own
+    `report_unreplayable` pass.
+    """
+    losses = [record for record in (records or [])
+              if record.get("scope") != "reel"]
+    if not losses:
+        return
+    details = "\n".join(
+        f"  {record.get('name', '')} - {record.get('reason', '')}"
+        for record in losses)
+    raise EditLedgerError(
+        f"REFUSING to build {reel_name or 'the reel'}: "
+        f"{len(losses)} edit-ledger row(s) cannot be replayed and "
+        f"would be silently lost. The captain's edits are never "
+        f"overwritten or lost - re-record them against the words "
+        f"now spoken, or remove them from the ledger.\n{details}")
 
 
 def match_clip_lut_rows(spans: list, transcript: dict, rows: list,
