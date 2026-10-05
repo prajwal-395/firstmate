@@ -69,6 +69,8 @@ It never fails a run and catches zero-row tables only. [why](docs/RULE_EVIDENCE.
 
 VIEW_PREFIX = "view:"
 
+from library.tools.editorial_types import FACT, check_view_type
+
 
 def _transcript(data: dict) -> dict:
     """What was said, in which clip, between which two seconds.
@@ -1342,12 +1344,51 @@ CONTEXT_VIEWS = {
 }
 
 
+# name -> (editorial type, registry-typed source keys the view reads).
+#
+# A view is a READING of routed inputs, and the type it carries is what
+# lets a reader - the provenance contract, the prompt layer - tell a
+# measurement from a judgment.  Every view here is a FACT: each renders a
+# measurement (or a measurement extracted from a judgment key, as
+# `alignment` extracts the aligner's report from `speech_sequence`).
+# `build_view` refuses a view whose type contradicts the type of a source
+# it reads, so a view can never be built from the editor's request and
+# presented as its own measurement.
+#
+# The source keys are the registry-typed inputs each builder reads; a
+# builder that reads a key not named here is a gap
+# `tests/contracts/test_editorial_types.py` refuses.
+VIEW_TYPES = {
+    # `transcript` reads the routed name `temporal_index`; the state key
+    # the registry types is `temporal_event_indices` (the DAG maps one
+    # onto the other).
+    "transcript": (FACT, ("temporal_event_indices",)),
+    "spoken_lines": (FACT, ("timeline_transcript",)),
+    "prosody": (FACT, ("prosody_analysis",)),
+    "picture": (FACT, ("semantic_analysis_documents", "clip_catalog",
+                      "a_roll_assignments", "b_roll_assignments")),
+    "stability": (FACT, ("semantic_analysis_documents", "clip_catalog")),
+    "alignment": (FACT, ("speech_sequence",)),
+    "beatgrid": (FACT, ("music_analysis", "music_selection")),
+    "sectiongrid": (FACT, ("music_analysis", "music_selection")),
+    "emphasis": (FACT, ("prosody_analysis", "timed_spine")),
+    "motion": (FACT, ("temporal_event_indices", "timed_spine")),
+    "soundevents": (FACT, ("temporal_event_indices", "timed_spine")),
+}
+
+
 def is_view(path: str) -> bool:
     return path.startswith(VIEW_PREFIX)
 
 
 def view_name(path: str) -> str:
     return path[len(VIEW_PREFIX):]
+
+
+def view_type(name: str) -> str:
+    """The editorial type a context view carries, or None if it is not one."""
+    entry = VIEW_TYPES.get(name)
+    return entry[0] if entry else None
 
 
 def build_view(name: str, data: dict) -> dict:
@@ -1362,6 +1403,9 @@ def build_view(name: str, data: dict) -> dict:
             f"Unknown context view {name!r}. "
             f"Known views: {sorted(CONTEXT_VIEWS)}"
         )
+    entry = VIEW_TYPES.get(name)
+    if entry is not None:
+        check_view_type(entry[0], entry[1])
     built = CONTEXT_VIEWS[name](data)
     if not built and name in data:
         return {name: data[name]}
