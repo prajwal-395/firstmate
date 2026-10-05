@@ -143,7 +143,7 @@ from library.tools import reel_retirement as retire
 from library.tools.ren_refusal import RenRefusal
 from library.tools.resolve_lock import under_lease
 from library.tools.stable_json import write_stable
-from library.tools.versions import rounds, store
+from library.tools.versions import edit_variants, rounds, store
 
 VARIANT_BRANCH_PREFIX = "variant/"
 """Every variation branch reads `variant/<slug>`."""
@@ -459,6 +459,40 @@ def validate_variant_spec(spec: dict) -> list[str]:
     if watch is not None and not isinstance(watch, str):
         errors.append("watch must be text")
     return errors
+
+
+def produce_reel_variant_alternative(graph: dict, intent_model: dict,
+                                     reel_number: int, spec: dict) -> dict:
+    """Produce the edit variant alternative for a reel variant spec.
+
+    This is the new path: a reel variant's alternative is produced
+    through the general mechanism (`edit_variants.produce_reel_variant`),
+    so the two systems meet. The reel variant is an edit variant of the
+    region the reel was cut from.
+
+    `spec` is a reel variant spec (the shape `validate_variant_spec`
+    accepts) PLUS the edit variant keys: `region` (the node ids the
+    reel's moment maps to), `dimension` (the edit dimension the reel
+    difference maps to), and `value` (the variant's value). The
+    reel-specific keys (`suffix`, `j_cut`, `cutaway`, `cover`,
+    `declares`, `watch`) are carried on the spec but not used in the
+    edit variant production - they are the reel build's own vocabulary,
+    applied after the fork is chosen.
+
+    Returns the alternative, the same shape `produce_alternatives`
+    returns: the forked graph, the intent model carried alongside, and
+    the spec as a flat dict.
+    """
+    reel_spec = edit_variants.ReelVariantSpec(
+        reel_number=int(reel_number),
+        base_timeline_name=str(spec.get("base_timeline_name", "")),
+        suffix=str(spec.get("suffix", "")),
+        region=tuple(spec.get("region", ())),
+        dimension=str(spec.get("dimension", "")),
+        value=tuple(spec.get("value", ())),
+        trade_off=str(spec.get("trade_off", "")),
+    )
+    return edit_variants.produce_reel_variant(graph, intent_model, reel_spec)
 
 
 def write_variant_specs(project_folder: str, record: dict) -> str:

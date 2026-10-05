@@ -304,3 +304,161 @@ def compare_alternatives(alternatives: list[dict]) -> dict:
         "differ": sorted(differ),
         "agree": sorted(agree),
     }
+
+
+# ── Reel variants as edit variants ──────────────────────────────────
+#
+# A reel is a view onto the edit graph: it is cut from a moment - a span
+# in the main edit's timeline. A reel variant is an edit variant of the
+# region that moment maps to, plus a reel build (the timeline, the
+# captions, the conformance). The two are one mechanism, not two: the
+# reel variant's difference is declared as an edit variant dimension,
+# produced by `produce_reel_variant`, and validated by
+# `validate_alternatives` like any other fork.
+
+
+@dataclass(frozen=True)
+class ReelVariantSpec:
+    """A reel variant expressed as an edit variant of its region.
+
+    A reel is a view onto the edit graph. A reel variant is an edit
+    variant of the region the reel was cut from, plus a reel build.
+    This spec carries the reel-specific info (reel number, base
+    timeline name, suffix) alongside the alternative spec's region,
+    dimension and value.
+
+    The reel-specific difference keys (`j_cut`, `cutaway`, `cover`,
+    `declares`) are NOT carried here: they are the reel build's own
+    vocabulary, applied after the fork is chosen. What this spec
+    declares is the EDIT difference - the dimension and value the
+    alternative is forked on.
+    """
+
+    reel_number: int
+    """Which reel this variant is a variant of."""
+
+    base_timeline_name: str
+    """The approved timeline name the variation builds beside."""
+
+    suffix: str
+    """The variant suffix - trailing parens the timeline name carries."""
+
+    region: tuple[str, ...]
+    """The edit region (node ids) this variant forks."""
+
+    dimension: str
+    """What differs - one of `DIMENSIONS`."""
+
+    value: tuple
+    """The variant's specific value for the dimension."""
+
+    trade_off: str = ""
+    """What this variant gives or takes - the trade-off statement."""
+
+    def as_dict(self) -> dict:
+        """The flat form for a log line or a hook payload."""
+        return {
+            "reel_number": self.reel_number,
+            "base_timeline_name": self.base_timeline_name,
+            "suffix": self.suffix,
+            "region": list(self.region),
+            "dimension": self.dimension,
+            "value": (list(self.value)
+                      if isinstance(self.value, (list, tuple))
+                      else self.value),
+            "trade_off": self.trade_off,
+        }
+
+
+def region_for_moment(graph: dict, timeline_start: float,
+                      timeline_end: float) -> tuple[str, ...]:
+    """The graph nodes whose timeline span overlaps a moment's span.
+
+    A reel is cut from a moment - a span in the main edit's timeline.
+    The region is the set of graph nodes whose timeline span overlaps
+    that span: the blocks, passages, B-roll covers and transitions the
+    moment plays. This is the region a reel variant forks.
+
+    Nodes without a timeline span (a grade correction, a mix window)
+    are not part of any moment's region - they are properties of the
+    whole edit, not of one span of it.
+
+    Both timeline spellings are read: blocks, assignments and overlays
+    carry `timeline_start`/`timeline_end`, while passages carry
+    `start_time`/`end_time`. A passage is part of the moment's region
+    either way - the two spellings are the same address.
+    """
+    region = []
+    for node in graph["nodes"]:
+        payload = node.get("payload", {})
+        start = payload.get("timeline_start", payload.get("start_time"))
+        end = payload.get("timeline_end", payload.get("end_time"))
+        if start is None or end is None:
+            continue
+        if start < timeline_end and timeline_start < end:
+            region.append(node["node_id"])
+    return tuple(sorted(region))
+
+
+def produce_reel_variant(graph: dict, intent_model: dict,
+                        spec: ReelVariantSpec) -> dict:
+    """Produce one reel variant as an edit variant of its region.
+
+    The reel variant is an edit variant: a fork of the graph at the
+    reel's region with a declaration of what differs. The reel build
+    (timeline, captions, conformance) is the reel-specific part that
+    happens after the fork is chosen - it is `variants.py`'s own
+    vocabulary, applied to the fork this produces.
+
+    Returns the alternative, the same shape `produce_alternatives`
+    returns: the forked graph, the intent model carried alongside, and
+    the spec as a flat dict.
+    """
+    alternative_spec = AlternativeSpec(
+        region=spec.region,
+        dimension=spec.dimension,
+        value=spec.value,
+        trade_off=spec.trade_off,
+    )
+    return _produce_one(graph, intent_model, alternative_spec)
+
+
+def reel_variant_agrees_with_edit_variant(reel_variant: dict,
+                                          edit_variant: dict) -> list[str]:
+    """Whether a reel variant and an edit variant agree.
+
+    They agree when they describe the same difference: the same region,
+    the same dimension, the same value. The reel variant is an edit
+    variant of its region, so a reel variant and an edit variant of the
+    same region with the same dimension and value are the same fork.
+
+    Returns a list of problems; empty is agreement. The check is on the
+    SPECS, not the produced graphs: two specs that declare the same
+    region, dimension and value produce the same fork, so the specs are
+    where agreement lives.
+    """
+    problems: list[str] = []
+    reel_spec = reel_variant.get("spec", {})
+    edit_spec = edit_variant.get("spec", {})
+    reel_region = list(reel_spec.get("region", ()))
+    edit_region = list(edit_spec.get("region", ()))
+    if reel_region != edit_region:
+        problems.append(
+            f"regions differ: reel variant names {reel_region}, edit "
+            f"variant names {edit_region}")
+    if reel_spec.get("dimension") != edit_spec.get("dimension"):
+        problems.append(
+            f"dimensions differ: reel variant declares "
+            f"{reel_spec.get('dimension')!r}, edit variant declares "
+            f"{edit_spec.get('dimension')!r}")
+    reel_value = reel_spec.get("value")
+    edit_value = edit_spec.get("value")
+    if isinstance(reel_value, (list, tuple)):
+        reel_value = list(reel_value)
+    if isinstance(edit_value, (list, tuple)):
+        edit_value = list(edit_value)
+    if reel_value != edit_value:
+        problems.append(
+            f"values differ: reel variant carries {reel_value!r}, edit "
+            f"variant carries {edit_value!r}")
+    return problems
