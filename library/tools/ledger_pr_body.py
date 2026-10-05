@@ -90,6 +90,11 @@ def render_row(row: dict) -> str:
                  if anchor.get("kind") == "words" else "across the whole reel")
         return (f"- PLAN: {params.get('operation_type')} for "
                 f"{params.get('owner')} {where}: {values}")
+    if op == "edit_program":
+        ops = params.get("ops") or []
+        steps = ", ".join(item.get("op", "?") for item in ops)
+        return (f"- PROGRAM: {len(ops)} ops on generation "
+                f"{params.get('base_generation')!r}: {steps}")
     return f"- {op}: {_q(phrase)} -> {params!r}"
 
 

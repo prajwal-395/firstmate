@@ -21,7 +21,7 @@ import sys
 import uuid
 from pathlib import Path
 
-from library.tools import edit_ledger, edit_operations
+from library.tools import edit_algebra, edit_ledger, edit_operations
 
 FORMAT = "edit_spec/1"
 STATUSES = ("resolved", "needs_clarification")
@@ -29,11 +29,12 @@ SOURCES = edit_ledger.STATED_BY
 PROXY_PREVIEW = "proxy preview is out of scope for the rung 6 translation layer"
 
 OP_OWNERS = edit_operations.OP_OWNERS
-_DIRECT_LEDGER_OPS = set(edit_ledger.OPS) - {"plan_change"}
+_NON_DIRECT_LEDGER_OPS = {"plan_change", "edit_program"}
+_DIRECT_LEDGER_OPS = set(edit_ledger.OPS) - _NON_DIRECT_LEDGER_OPS
 if set(edit_operations.DIRECT_OP_OWNERS) != _DIRECT_LEDGER_OPS:
     raise RuntimeError(
         "direct edit operation owners must cover ledger ops other than "
-        "plan_change exactly")
+        f"{sorted(_NON_DIRECT_LEDGER_OPS)} exactly")
 
 
 class EditSpecError(ValueError):
@@ -209,6 +210,65 @@ def _validate_plan_operation_values(op: str, values: dict, anchor: dict,
                 f"one of: {allowed}")
 
 
+def _validate_program(program) -> None:
+    """Validate a program wrapper: its kind, its ops, its atomic identity.
+
+    The defect this refuses: a multi-op instruction recorded as flat rows
+    has no shared base generation and no atomicity, and a plan-level
+    request the algebra cannot execute is silently flattened to one op
+    instead of being labeled a planner run. Every op is an algebra id, and
+    an executable op carries the params that op cannot run without.
+    """
+    if not isinstance(program, dict):
+        raise EditSpecError("program must be an object")
+    kind = program.get("kind")
+    if kind not in ("edit_program", "planner_run"):
+        raise EditSpecError(
+            f"program.kind must be one of 'edit_program', 'planner_run', "
+            f"got {kind!r}")
+    ops = program.get("ops")
+    if not isinstance(ops, list) or not ops:
+        raise EditSpecError(
+            "program.ops must be a non-empty list of algebra ops")
+    for index, op in enumerate(ops):
+        label = f"program.ops[{index}]"
+        if not isinstance(op, dict):
+            raise EditSpecError(f"{label} must be an object")
+        op_id = op.get("op")
+        if edit_algebra.get(op_id) is None:
+            raise EditSpecError(
+                f"{label}.op is {op_id!r}: not an algebra op. Known ops: "
+                f"{', '.join(edit_algebra.ALGEBRA)}.")
+        _nonempty_string(op.get("text"), f"{label}.text")
+        params = op.get("params")
+        if params is not None and not isinstance(params, dict):
+            raise EditSpecError(f"{label}.params must be an object")
+        if kind == "edit_program":
+            missing = [key for key in edit_algebra.get(op_id).required
+                       if key not in (params or {})]
+            if missing:
+                raise EditSpecError(
+                    f"{label} ({op_id}) is missing required params: "
+                    f"{', '.join(missing)}.")
+    if kind == "edit_program":
+        _nonempty_string(program.get("base_generation"),
+                         "program.base_generation")
+        _nonempty_string(program.get("idempotency_key"),
+                         "program.idempotency_key")
+    anchor = program.get("anchor")
+    if anchor is not None:
+        if not isinstance(anchor, dict):
+            raise EditSpecError("program.anchor must be an object")
+        if anchor.get("kind") not in ("words", "reel"):
+            raise EditSpecError(
+                "program.anchor.kind must be one of 'words', 'reel'")
+        if anchor.get("kind") == "words":
+            _nonempty_string(anchor.get("phrase"), "program.anchor.phrase")
+    reel = program.get("reel")
+    if reel is not None:
+        _nonempty_string(reel, "program.reel")
+
+
 def validate_spec(value: dict) -> dict:
     """Validate a host translation and return a detached JSON-shaped copy."""
     if not isinstance(value, dict):
@@ -231,7 +291,15 @@ def validate_spec(value: dict) -> dict:
         raise EditSpecError("source_note_id must be a marker note id string")
     if isinstance(source_note_id, str) and source_note_id.strip() != source_note_id:
         raise EditSpecError("source_note_id cannot have leading/trailing spaces")
+    program = value.get("program")
     clauses = value.get("clauses")
+    if program is None and (not isinstance(clauses, list) or not clauses):
+        raise EditSpecError(
+            "clauses must be a non-empty list with one operation per "
+            "clause, or a program must be present")
+    if program is not None:
+        _validate_program(program)
+        return copy.deepcopy(value)
     if not isinstance(clauses, list) or not clauses:
         raise EditSpecError(
             "clauses must be a non-empty list with one operation per clause")
@@ -275,6 +343,8 @@ def questions_for_spec(spec: dict) -> list[dict]:
     """List unresolved references; unresolved clauses never produce rows."""
     validated = validate_spec(spec)
     questions = []
+    if validated.get("program") is not None:
+        return questions
     available_reels = validated.get("available_reels", [])
     for clause in validated["clauses"]:
         if clause["status"] == "needs_clarification":
@@ -329,13 +399,82 @@ def _measured_shortfall(value, label: str) -> dict:
 
 
 def ledger_rows(spec: dict) -> list[dict]:
-    """Compile a fully resolved spec to validated edit-ledger rows."""
+    """Compile a fully resolved spec to validated edit-ledger rows.
+
+    A spec with a program compiles to that program's rows: an `edit_program`
+    is ONE row (the whole atomic decision), a `planner_run` is one plan
+    change per op. A spec without one compiles its clauses, as before.
+    """
     validated = validate_spec(spec)
     questions = questions_for_spec(validated)
     if questions:
         raise NeedsClarification(questions)
+    if validated.get("program") is not None:
+        program = validated["program"]
+        if program["kind"] == "planner_run":
+            return _planner_run_rows(validated)
+        return [_program_row(validated)]
     return [_row_for_clause(clause, index, validated.get("source_note_id", ""))
             for index, clause in enumerate(validated["clauses"])]
+
+
+def _program_row(spec: dict) -> dict:
+    """One ledger row for an edit_program: the whole program, atomically."""
+    program = spec["program"]
+    row = {
+        "op": "edit_program",
+        "anchor": copy.deepcopy(program.get("anchor") or {"kind": "reel"}),
+        "params": {
+            "base_generation": program["base_generation"],
+            "idempotency_key": program["idempotency_key"],
+            "ops": copy.deepcopy(program["ops"]),
+        },
+        "stated_by": "requester",
+        "reason": _nonempty_string(spec.get("request"), "request"),
+    }
+    if program.get("reel"):
+        row["reel"] = program["reel"]
+    if spec.get("source_note_id"):
+        row["source_note_id"] = spec["source_note_id"]
+    return row
+
+
+def _planner_run_rows(spec: dict) -> list[dict]:
+    """Plan change rows for a planner run, labeled and never flattened."""
+    program = spec["program"]
+    anchor = program.get("anchor") or {"kind": "reel"}
+    reel = program.get("reel")
+    rows = []
+    for op in program["ops"]:
+        op_id = op["op"]
+        if op_id not in edit_operations.PLAN_OPERATION_OWNERS:
+            raise EditSpecError(
+                f"planner_run op {op_id!r} is not a plan operation; an "
+                f"executable op belongs in an edit_program")
+        owner = edit_operations.PLAN_OPERATION_OWNERS[op_id]
+        row = {
+            "op": "plan_change",
+            "anchor": copy.deepcopy(op.get("anchor") or anchor),
+            "params": {
+                "operation_type": op_id,
+                "owner": owner,
+                "values": {
+                    "plan": {
+                        "value": op.get("text", ""),
+                        "unit": "plan",
+                        "stated_by": "requester",
+                    }
+                },
+            },
+            "stated_by": "requester",
+            "reason": op.get("text", ""),
+        }
+        if reel:
+            row["reel"] = reel
+        if spec.get("source_note_id"):
+            row["source_note_id"] = spec["source_note_id"]
+        rows.append(row)
+    return rows
 
 
 def record_spec(project_folder: str, spec: dict) -> list[tuple[dict, str]]:
@@ -365,7 +504,7 @@ def _matches_recorded_rows(spec: dict, recorded: list[dict]) -> bool:
     recorded_rows = {
         json.dumps(_normalise_recorded_row(row), sort_keys=True,
                    ensure_ascii=False) for row in recorded}
-    return (len(recorded) == len(spec["clauses"])
+    return (len(recorded) == len(expected)
             and recorded_rows == expected_rows)
 
 
@@ -381,6 +520,10 @@ def intent_check(spec: dict, observations: dict) -> dict:
     questions = questions_for_spec(validated)
     if questions:
         raise NeedsClarification(questions)
+    if validated.get("program") is not None:
+        raise EditSpecError(
+            "intent review reads a program's ops individually; a whole "
+            "program cannot be judged against one observation set")
     if not isinstance(observations, dict):
         raise EditSpecError("observations must be keyed by clause id")
     expected = {clause["id"] for clause in validated["clauses"]}
@@ -734,16 +877,56 @@ def _expected_schema() -> str:
                 },
             }},
         })
+    anchor = {"type": "object", "oneOf": [
+        {"type": "object", "required": ["kind", "phrase"],
+         "properties": {"kind": {"const": "words"},
+                        "phrase": {"type": "string"},
+                        "stated": {"type": "string"}}},
+        {"type": "object", "required": ["kind"],
+         "properties": {"kind": {"const": "reel"}}}]}
+    program = {
+        "type": "object",
+        "required": ["kind", "ops"],
+        "properties": {
+            "kind": {"enum": ["edit_program", "planner_run"]},
+            "base_generation": {"type": "string", "minLength": 1},
+            "idempotency_key": {"type": "string", "minLength": 1},
+            "anchor": anchor,
+            "reel": {"type": "string", "minLength": 1},
+            "ops": {
+                "type": "array", "minItems": 1,
+                "items": {
+                    "type": "object",
+                    "required": ["op", "text"],
+                    "properties": {
+                        "op": {"enum": list(edit_algebra.ALGEBRA)},
+                        "text": {"type": "string", "minLength": 1},
+                        "params": {"type": "object"},
+                        "anchor": anchor,
+                    },
+                    "additionalProperties": True,
+                },
+            },
+        },
+        "allOf": [{
+            "if": {"properties": {"kind": {"const": "edit_program"}}},
+            "then": {"required": ["base_generation", "idempotency_key"]},
+        }],
+        "additionalProperties": True,
+    }
     return json.dumps({
         "type": "object",
-        "required": ["format", "request", "clauses"],
+        "required": ["format", "request"],
         "properties": {
             "format": {"const": FORMAT},
             "request": {"type": "string", "minLength": 1},
             "source_note_id": {"type": "string"},
+            "program": program,
             "clauses": {"type": "array", "minItems": 1,
                          "items": clause},
         },
+        "anyOf": [{"required": ["program"]},
+                   {"required": ["clauses"]}],
         "additionalProperties": True,
     }, ensure_ascii=False)
 
@@ -962,10 +1145,15 @@ def prepare_request(project_folder: str, request: str, reel: str = "",
     if note_path:
         facts["source_note_path"] = note_path
     prompt = (
-        "Translate this editor note into one edit_spec/1 object. Split it "
-        "into exactly one operation per clause. Choose operations by their "
-        "meaning and emit the operation type; do not route by matching "
-        "keywords. Use only the declared edit-ledger operation vocabulary. "
+        "Translate this editor note into one edit_spec/1 object. A request "
+        "that names more than one operation becomes a `program` wrapper "
+        "whose `ops` are the algebra operations in order, sharing one "
+        "`base_generation` and one `idempotency_key`; a request that needs "
+        "a planner to choose (for example, alternatives) is a program with "
+        "kind `planner_run`. A single-operation request may use `clauses` "
+        "as before. Choose operations by their meaning and emit the "
+        "operation type; do not route by matching keywords. Use only the "
+        "declared edit-ledger operation vocabulary. "
         "Keep every stated number in its original unit and source it as "
         "requester; preserve feel words as named feels instead of making up "
         "a number. Attribute every value, anchor and reel to requester, "

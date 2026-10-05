@@ -2041,3 +2041,226 @@ def test_a_brand_that_forbids_a_native_type_gets_a_hard_cut():
         requested_type="cross_dissolve")
     assert res["type"] == "hard_cut"
     assert res["downgrade_reason"]
+
+
+# ── The edit program type (gap map C-02) ──────────────────────────────
+#
+# The review's example requests, fed through `ren spec prepare` + a mock
+# host. Each test names a defect the program type prevents: a multi-op
+# instruction flattened to one op, a program recorded as partial rows, a
+# re-recording that double-applies, and a plan-level request silently
+# flattened instead of labeled a planner run.
+
+
+def _program_project(tmp_path):
+    """A project under tmp_path, never a real one (AGENTS.md 8)."""
+    from library.tools.project_layout import ProjectLayout
+    project = tmp_path / "project"
+    project.mkdir(parents=True)
+    ProjectLayout(str(project)).ensure()
+    return project
+
+
+def _prepare_and_load(project, request, program):
+    """Prepare a spec request, answer it with a mock host, load the spec."""
+    from library.tools import edit_spec, llm_handshake
+    request_id, _path, note_id = edit_spec.prepare_request(
+        str(project), request)
+    spec = {
+        "format": edit_spec.FORMAT,
+        "request": request,
+        "source_note_id": note_id,
+        "program": program,
+    }
+    Path(llm_handshake.response_path(str(project), request_id)).write_text(
+        json.dumps(spec), encoding="utf-8")
+    return edit_spec.load_response_spec(str(project), request_id)
+
+
+_REVIEW_REQUESTS = (
+    "Find the part where Craig explains why the launch failed, start "
+    "about two sentences earlier, use the side angle when he gestures at "
+    "the screen, keep the music understated until the reveal, and make a "
+    "45-second version.",
+    "The opening feels slow. Give me three alternatives without changing "
+    "the argument.",
+    "Use less B-roll in the middle, keep the shots I manually changed "
+    "yesterday, make the captions a little less aggressive, and fix the "
+    "audio transition around 34 seconds.",
+    "Where does Akshita cover her mouth after Craig says something "
+    "surprising?",
+)
+
+
+def _review_program(request_index):
+    """The mock host's program for each review request."""
+    if request_index == 0:
+        return {
+            "kind": "edit_program",
+            "base_generation": "42",
+            "idempotency_key": "req-launch-45s",
+            "anchor": {"kind": "reel"},
+            "reel": "Reel 09 - hook",
+            "ops": [
+                {"op": "clip.trim",
+                 "params": {"unique_id": "clip_017", "in_frame": 10,
+                            "out_frame": 50},
+                 "text": "start about two sentences earlier"},
+                {"op": "angle_plan",
+                 "params": {"plan": "side angle when he gestures"},
+                 "text": "use the side angle when he gestures at the screen"},
+                {"op": "music_selection",
+                 "params": {"plan": "keep the music understated until the reveal"},
+                 "text": "keep the music understated until the reveal"},
+                {"op": "retime",
+                 "params": {"unique_id": "clip_017", "percent": 80},
+                 "text": "make a 45-second version"},
+            ],
+        }
+    if request_index == 1:
+        return {
+            "kind": "planner_run",
+            "anchor": {"kind": "reel"},
+            "ops": [
+                {"op": "story_pacing",
+                 "params": {"plan": "three alternatives without changing the argument"},
+                 "text": "give me three alternatives"},
+            ],
+        }
+    if request_index == 2:
+        return {
+            "kind": "edit_program",
+            "base_generation": "42",
+            "idempotency_key": "req-less-broll",
+            "anchor": {"kind": "reel"},
+            "reel": "Reel 09 - hook",
+            "ops": [
+                {"op": "shot_selection",
+                 "params": {"plan": "less B-roll in the middle"},
+                 "text": "use less B-roll in the middle"},
+                {"op": "caption_fix",
+                 "params": {"unique_id": "clip_017",
+                            "text": "less aggressive captions"},
+                 "text": "make the captions a little less aggressive"},
+                {"op": "audio.fade",
+                 "params": {"unique_id": "clip_017", "fade_in": 0.5,
+                            "fade_out": 0.5},
+                 "text": "fix the audio transition around 34 seconds"},
+            ],
+        }
+    return {
+        "kind": "planner_run",
+        "anchor": {"kind": "reel"},
+        "ops": [
+            {"op": "speech_selection",
+             "params": {"plan": "where Akshita covers her mouth"},
+             "text": "where does Akshita cover her mouth"},
+        ],
+    }
+
+
+def test_the_review_requests_become_programs_with_ordered_algebra_ops(
+        tmp_path):
+    """A multi-op instruction becomes a program, not one flattened op.
+
+    Defect: one clause -> one op cannot express a multi-op instruction;
+    the review's first example needs at least 5 coordinated ops across 4
+    subsystems. The emitted program carries the expected algebra ops in
+    order with a shared base generation.
+    """
+    from library.tools import edit_spec
+    for index, request in enumerate(_REVIEW_REQUESTS):
+        project = _program_project(tmp_path / f"req{index}")
+        program = _review_program(index)
+        spec = _prepare_and_load(project, request, program)
+        emitted = spec["program"]
+        assert emitted["kind"] == program["kind"]
+        assert [op["op"] for op in emitted["ops"]] == [
+            op["op"] for op in program["ops"]]
+        if program["kind"] == "edit_program":
+            assert emitted["base_generation"] == program["base_generation"]
+            assert emitted["idempotency_key"] == program["idempotency_key"]
+
+
+def test_a_plan_level_request_is_labeled_planner_run_not_flattened(
+        tmp_path):
+    """A request that needs a planner is labeled, not flattened to one op.
+
+    Defect: "give me three alternatives" silently flattened to one op the
+    planner then re-interprets from scratch - the multi-op structure is
+    lost and the planner may produce a different cut.
+    """
+    from library.tools import edit_spec
+    project = _program_project(tmp_path)
+    request = _REVIEW_REQUESTS[1]
+    program = _review_program(1)
+    spec = _prepare_and_load(project, request, program)
+    assert spec["program"]["kind"] == "planner_run"
+    assert [op["op"] for op in spec["program"]["ops"]] == ["story_pacing"]
+
+
+def test_a_program_is_recorded_as_one_atomic_ledger_entry(tmp_path):
+    """A program lands as ONE ledger row, never partial flat rows.
+
+    Defect: a multi-op instruction recorded as flat rows can be partially
+    written - the next build replays only part of the request.
+    """
+    from library.tools import edit_ledger, edit_spec
+    project = _program_project(tmp_path)
+    request = _REVIEW_REQUESTS[0]
+    program = _review_program(0)
+    spec = _prepare_and_load(project, request, program)
+    edit_spec.record_spec(str(project), spec)
+    rows = edit_ledger.load_rows(str(project))
+    assert len(rows) == 1
+    assert rows[0]["op"] == "edit_program"
+    assert len(rows[0]["params"]["ops"]) == 4
+
+
+def test_re_recording_a_program_with_the_same_idempotency_key_does_not_double_apply(
+        tmp_path):
+    """One idempotency key means one program - a re-recording is a no-op.
+
+    Defect: without an idempotency key, re-recording a program lists the
+    same decision twice and the build double-applies it.
+    """
+    from library.tools import edit_ledger, edit_spec
+    project = _program_project(tmp_path)
+    request = _REVIEW_REQUESTS[0]
+    program = _review_program(0)
+    spec = _prepare_and_load(project, request, program)
+    edit_spec.record_spec(str(project), spec)
+    edit_spec.record_spec(str(project), spec)
+    rows = edit_ledger.load_rows(str(project))
+    assert len(rows) == 1
+
+
+def test_a_program_with_an_unknown_op_is_refused(tmp_path):
+    """A program naming an op the algebra does not hold is refused.
+
+    Defect: an op with no algebra id cannot become a precise reversible
+    operation - recording it would list a decision nothing can replay.
+    """
+    from library.tools import edit_spec
+    project = _program_project(tmp_path)
+    request = _REVIEW_REQUESTS[0]
+    program = _review_program(0)
+    program["ops"][0]["op"] = "teleport.clip"
+    with pytest.raises(edit_spec.EditSpecError, match="not an algebra op"):
+        _prepare_and_load(project, request, program)
+
+
+def test_a_program_with_missing_required_params_is_refused(tmp_path):
+    """An executable op missing a required param is refused.
+
+    Defect: an op recorded without a value it cannot run without would
+    commit a lie - the build replays it and fails on the missing param.
+    """
+    from library.tools import edit_spec
+    project = _program_project(tmp_path)
+    request = _REVIEW_REQUESTS[0]
+    program = _review_program(0)
+    del program["ops"][0]["params"]["in_frame"]
+    with pytest.raises(edit_spec.EditSpecError,
+                       match="missing required params"):
+        _prepare_and_load(project, request, program)

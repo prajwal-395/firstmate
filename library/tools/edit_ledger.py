@@ -132,8 +132,15 @@ PROJECTED_OPS = ("transform_override", "span_retime", "drop_fragment",
 #: linked marker note instead.
 CARRIER_OPS = ("plan_change",)
 
+#: A program is ONE entry: an ordered, atomic list of algebra ops with a
+#: shared base generation and one idempotency key (gap map C-02). The
+#: multi-op instruction that used to be flattened to one clause per op is
+#: recorded here as a single decision, so a re-recording with the same
+#: idempotency key cannot double-apply it.
+PROGRAM_OPS = ("edit_program",)
+
 #: The complete vocabulary.
-OPS = REPLAYED_OPS + PLAN_OPS + PROJECTED_OPS + CARRIER_OPS
+OPS = REPLAYED_OPS + PLAN_OPS + PROJECTED_OPS + CARRIER_OPS + PROGRAM_OPS
 
 #: Anchor kinds. Words survive a rebuild; the whole reel is the
 #: track-level scope. Frames do not survive one and are refused.
@@ -538,6 +545,58 @@ def _validate_params(label: str, row: dict, anchor: dict) -> None:
                 raise EditLedgerError(
                     f"{label}.params.values[{key!r}] needs value, unit and "
                     f"stated_by from {', '.join(STATED_BY)}.")
+    elif op == "edit_program":
+        validate_program(params, label)
+
+
+def validate_program(params, label: str = "edit_program") -> None:
+    """A program's params: one base generation, one idempotency key, ops.
+
+    The defect this refuses: a multi-op instruction recorded as flat rows
+    has no shared base generation and no atomicity - a re-recording can
+    double-apply it, and a partial write leaves half the request in force.
+    Every op is an algebra id carrying the params that op requires, so a
+    program cannot name an op the algebra does not hold or omit a value
+    that op cannot run without.
+    """
+    from library.tools import edit_algebra
+
+    base_generation = params.get("base_generation")
+    if not isinstance(base_generation, str) or not base_generation.strip():
+        raise EditLedgerError(
+            f"{label} carries no base_generation - a program is planned "
+            f"against one timeline generation, which is what every op in it "
+            f"holds onto.")
+    idempotency_key = params.get("idempotency_key")
+    if not isinstance(idempotency_key, str) or not idempotency_key.strip():
+        raise EditLedgerError(
+            f"{label} carries no idempotency_key - one program is one "
+            f"idempotent act, so re-recording it with the same key does not "
+            f"double-apply it.")
+    ops = params.get("ops")
+    if not isinstance(ops, list) or not ops:
+        raise EditLedgerError(
+            f"{label} carries no ops - a program is an ordered list of "
+            f"algebra ops, never an empty one.")
+    for index, op in enumerate(ops):
+        op_label = f"{label}.ops[{index}]"
+        if not isinstance(op, dict):
+            raise EditLedgerError(f"{op_label} is not an object")
+        op_id = op.get("op")
+        algebra_op = edit_algebra.get(op_id)
+        if algebra_op is None:
+            raise EditLedgerError(
+                f"{op_label}.op is {op_id!r}: not an algebra op. Known ops: "
+                f"{', '.join(edit_algebra.ALGEBRA)}.")
+        op_params = op.get("params")
+        if not isinstance(op_params, dict):
+            raise EditLedgerError(
+                f"{op_label} ({op_id}) carries no params object")
+        missing = [key for key in algebra_op.required if key not in op_params]
+        if missing:
+            raise EditLedgerError(
+                f"{op_label} ({op_id}) is missing required params: "
+                f"{', '.join(missing)}.")
 
 
 # ── Reading: the file the captain writes ─────────────────────────────
@@ -666,6 +725,10 @@ def _row_identity(row: dict) -> tuple:
         return base
     if op == "plan_change":
         return base + (params.get("operation_type"),)
+    if op == "edit_program":
+        # The idempotency key IS the program's identity: a re-recording of
+        # the same key is the same decision, whatever else drifted.
+        return base + (params.get("idempotency_key"),)
     return base
 
 
@@ -853,6 +916,16 @@ def describe_rows(rows: list) -> list:
                 f"{number}. Redrawn: the closer opening on "
                 f"{params.get('from_phrase', '')!r} now opens on "
                 f"{phrase!r}, end fixed{where} ({stated}) - {reason}")
+        elif op == "edit_program":
+            ops = params.get("ops") or []
+            lines.append(
+                f"{number}. Program: {len(ops)} ops on generation "
+                f"{params.get('base_generation')!r}, key "
+                f"{params.get('idempotency_key')!r}{where} ({stated}) - "
+                f"{reason}")
+            for position, op in enumerate(ops, start=1):
+                lines.append(
+                    f"    {position}. {op.get('op')}")
         else:
             shown_op = (params.get("operation_type", op)
                         if op == "plan_change" else op)
@@ -1281,6 +1354,58 @@ def match_grade_rows(spans: list, transcript: dict, rows: list,
     return matched, stale
 
 
+def _replay_program(row: dict, timeline, applied: list,
+                    unreplayable: list) -> tuple[list, list]:
+    """Replay one program's ops onto the timeline, in order.
+
+    A program is one atomic entry; its ops replay in declaration order.
+    An op the algebra gives a native apply rides it directly; a plan op
+    shaped placements before the build and is skipped here; an op with no
+    native apply on this build is REPORTED BY NAME, never dropped - the
+    executor for it lands with the gap that owns it.
+    """
+    from library.tools import edit_algebra
+
+    params = row.get("params") or {}
+    for position, program_op in enumerate(params.get("ops") or []):
+        op_id = program_op.get("op")
+        op_params = program_op.get("params") or {}
+        name = f"{_row_name(row)} op {position + 1} ({op_id})"
+        algebra_op = edit_algebra.get(op_id)
+        if algebra_op is None:
+            unreplayable.append({
+                "name": name, "scope": "op",
+                "reason": f"unknown op {op_id!r} - nothing holds it."})
+            continue
+        if algebra_op.apply is None:
+            if op_id in PLAN_OPS:
+                continue  # the angle plan and retimes shaped placements
+            unreplayable.append({
+                "name": name, "scope": "rung",
+                "reason": (f"no replayer yet: {op_id} has no native apply on "
+                           f"this build. Stored, reported, not applied.")})
+            continue
+        item = None
+        unique_id = op_params.get("unique_id")
+        if algebra_op.item and unique_id:
+            item = edit_algebra._live_item(timeline, unique_id)
+            if item is None:
+                unreplayable.append({
+                    "name": name, "scope": "timeline",
+                    "reason": (f"could not replay: clip {unique_id!r} is not "
+                               f"on the timeline.")})
+                continue
+        try:
+            algebra_op.apply(op_params, timeline, item)
+        except Exception as exc:
+            unreplayable.append({
+                "name": name, "scope": "timeline",
+                "reason": f"could not replay: {exc}"})
+            continue
+        applied.append({"name": name, "op": op_id})
+    return applied, unreplayable
+
+
 def replay_on_timeline(name: str, rows: list, spans: list,
                        transcript: dict, timeline,
                        item_for_span=None,
@@ -1299,7 +1424,9 @@ def replay_on_timeline(name: str, rows: list, spans: list,
     The `angle_plan` and `retime` rows were already applied before
     placement (`rate_ranges`). `plan_change` rows are returned as
     `planned`: their linked note delivers typed values to the operation's
-    owning planner, which writes the normal step outputs for the build.
+    owning planner, which writes the normal step outputs for the build. An
+    `edit_program` row replays its ops in order through the algebra - one
+    atomic entry, so a multi-op instruction lands as one decision.
     """
     from library.tools import dialogue_cleanup as _dclean
 
@@ -1342,6 +1469,11 @@ def replay_on_timeline(name: str, rows: list, spans: list,
                 "reason": (f"no replayer yet: {op} is carried for a "
                            f"later rung and this build holds nothing "
                            f"for it. Stored, reported, not applied.")})
+        elif op == "edit_program":
+            applied_p, unreplayable_p = _replay_program(
+                row, timeline, applied, unreplayable)
+            applied.extend(applied_p)
+            unreplayable.extend(unreplayable_p)
         else:  # pragma: no cover - validation refuses unknown ops
             unreplayable.append({
                 "name": _row_name(row), "scope": "op",

@@ -1408,6 +1408,14 @@ def test_every_known_op_has_a_dedicated_rendering():
                        "values": {"duration": {
                            "value": 12, "unit": "frames",
                            "stated_by": "requester"}}}},
+        "edit_program": {
+            "anchor": {"kind": "reel"}, "reel": "Reel 09 - hook",
+            "params": {"base_generation": "42",
+                       "idempotency_key": "req-abc",
+                       "ops": [{"op": "clip.trim",
+                                "params": {"unique_id": "c1"}},
+                               {"op": "angle_plan",
+                                "params": {"plan": "side angle"}}]}},
     }
     assert set(samples) == set(edit_ledger.OPS)
     for op, partial in samples.items():

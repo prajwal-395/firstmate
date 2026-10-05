@@ -304,11 +304,18 @@ def test_the_structural_ops_span_covers_what_they_touch():
 def test_the_five_vocabularies_are_views_over_the_algebra():
     """Defect: a vocabulary op that resolves to no algebra id is a
     vocabulary that drifted from the union - the algebra would not be
-    the single source of truth."""
+    the single source of truth.
+
+    `edit_program` is the one ledger op that is NOT an algebra op: it is
+    the program container (gap map C-02), an ordered list of algebra ops
+    recorded as one atomic entry. It is excluded here because it is a
+    container over the algebra, not a member of it.
+    """
     from library.tools import edit_algebra
     from library.tools import captain_edits, edit_ledger, edit_operations
     views = {
-        "ledger": {name: name for name in edit_ledger.OPS},
+        "ledger": {name: name for name in edit_ledger.OPS
+                   if name != "edit_program"},
         "plan": {name: name for name in edit_operations.PLAN_OPERATION_OWNERS},
         "touchup": edit_algebra.TOUCHUP_VIEW,
         "captain": edit_algebra.CAPTAIN_VIEW,
