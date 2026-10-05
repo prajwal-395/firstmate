@@ -97,6 +97,7 @@ from library.tools.music_bed import resolve_bed
 from tools.bookends import block_bookend
 from library.tools import cohesion_scope
 from library.tools import cross_department, edit_graph
+from library.tools import music_over_speech
 from library.tools.music_behavior import resolve_music_behavior
 from library.tools.transition_carriers import block_reaches_v1, v2_pair_at
 from library.tools.vfx_plan_basis import (
@@ -2272,6 +2273,24 @@ def compile_manifest(out_dir: str, *, object_segmentation=None,
         _all_authorizations = validate_authorizations(_all_authorizations)
     except EffectAuthorizationError as exc:
         raise ValueError(f"Effect authorization refused: {exc}") from exc
+
+    # The captain's named spans where the bed is deliberately over the
+    # voice, parsed by step 5.02 from timeline notes / edit requests
+    # (library/tools/music_over_speech.py).  Validated here and carried
+    # onto the assembly manifest for the speech-above-bed gate
+    # (render_qa.measure_speech_above_bed), which records an overridden
+    # span in its receipt rather than failing it.
+    music_over_speech_overrides = []
+    if isinstance(audio_mix_data, dict):
+        music_over_speech_overrides = (audio_mix_data.get(
+            "audio_mix_spec", {}) or {}).get(
+            "music_over_speech_overrides", []) or []
+    try:
+        music_over_speech_overrides = music_over_speech.validate_overrides(
+            music_over_speech_overrides)
+    except music_over_speech.MusicOverSpeechError as exc:
+        raise ValueError(
+            f"Music-over-speech override refused: {exc}") from exc
     _effect_plans = {
         "vfx": list(vfx),
         "audio": list(sfx_list),
@@ -3403,6 +3422,11 @@ def compile_manifest(out_dir: str, *, object_segmentation=None,
         "pacing_report": pacing_report,
         "neural_engine_directives": neural_engine_directives,
         "stabilization_authorizations": stabilization_authorizations,
+        # The captain's named spans where the bed is deliberately over the
+        # voice (library/tools/music_over_speech.py).  Read by the
+        # speech-above-bed gate (render_qa.measure_speech_above_bed), which
+        # records an overridden span in its receipt rather than failing it.
+        "music_over_speech_overrides": music_over_speech_overrides,
         # The authoritative record of what creative_cohesion asked for and
         # what actually happened to each request.
         "cohesion_adjustments": cohesion_record,

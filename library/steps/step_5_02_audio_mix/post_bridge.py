@@ -39,6 +39,7 @@ from library.steps.step_5_02_audio_mix.mix import (
     solve_automation,
 )
 from library.tools import decided_value
+from library.tools import music_over_speech
 from library.tools.dialogue_cleanup import (
     CLEANUP_ENTRY_KEYS,
     validate_cleanup_request,
@@ -208,6 +209,15 @@ def resolve_audio_mix(data: dict) -> dict:
         else DEFAULT_TRUE_PEAK_CEILING_DBTP)
     result["audio_mix_spec"]["master_limiter"]["threshold_db"] = (
         result["audio_mix_spec"]["delivery_true_peak_ceiling_dbtp"])
+    # The captain's named spans where the bed is deliberately over the
+    # voice, parsed from the same timeline notes / edit requests every
+    # other override uses (library/tools/music_over_speech.py).  They
+    # travel inside `audio_mix_spec` - the audio step's own output - and
+    # compile_manifest carries them onto the assembly manifest for the
+    # speech-above-bed gate (render_qa.measure_speech_above_bed).
+    result["audio_mix_spec"]["music_over_speech_overrides"] = \
+        music_over_speech.overrides_from_timeline_notes(
+            data.get("timeline_notes"))
     return result
 
 

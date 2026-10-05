@@ -505,14 +505,17 @@ class TestP3SpeechAboveBed:
         assert window["meets_plan"] is True
 
     def test_a_bed_over_the_voice_is_measured_but_does_not_fail_the_build(self):
-        """001's shape. The mix has no delivery route, so this cannot pass
-        whatever anyone configures - which is exactly why it reports."""
+        """001's shape. The plan declares no separation target, so the
+        gate is not live: the miss is measured and reported, and the
+        build passes - a clip gain is not a separation."""
         mix, music = _mix_fixture(2.0)
         result = _speech_above_bed(mix, music, BACKGROUND_WINDOW, SPEECH_BLOCK)
         assert result.passed
         assert result.value["failing"] == 1
+        assert result.value["targets_populated"] is False
+        assert result.value["gates"] is False
         assert "REPORTED ONLY" in result.detail
-        assert render_qa.SPEECH_ABOVE_BED_GATES is False
+        assert render_qa.SPEECH_ABOVE_BED_GATES is True
 
     def test_the_target_is_the_plans_number_not_a_convention(self):
         mix, music = _mix_fixture(10.0)
@@ -600,6 +603,106 @@ class TestP3SpeechAboveBed:
         assert wrong["meets_plan"] is True, (
             "which is how a failing mix passed: this is the reading the "
             "required argument exists to stop being the default")
+
+    # ── the gate activates once its separation targets are populated ──
+    #
+    # The defect the gate catches: a render whose bed sits under the
+    # voice by less than the separation the plan declared.  That used to
+    # ship because the check could not fail; the captain promoted it on
+    # the condition that its targets are populated, so the gate is live
+    # exactly when there is a separation to miss.
+
+    def test_once_a_separation_target_is_populated_a_bed_under_the_voice_fails(
+            self):
+        mix, music = _mix_fixture(2.0)
+        automation = [dict(BACKGROUND_WINDOW[0], separation_target_db=18.0)]
+        result = _speech_above_bed(mix, music, automation, SPEECH_BLOCK)
+        assert result.passed is False
+        assert result.value["gates"] is True
+        assert result.value["targets_populated"] is True
+        assert result.value["failing"] == 1
+        assert result.severity == "error"
+
+    def test_a_window_without_a_declared_separation_cannot_fail_a_live_gate(
+            self):
+        """A clip gain is not a separation.  When the gate is live because
+        ANOTHER window declared a target, a window still on the clip-gain
+        fallback is measured and reported - its miss is named, its basis
+        recorded - but it cannot fail the build: the plan declared no
+        separation for it, so there is no margin anybody chose to miss."""
+        speech = _tone(8.0, 220.0, 1.0)
+        music = _tone(8.0, 55.0, 1.0)
+        ducked = 10 ** (-20.0 / 20.0)   # meets the declared 18 dB target
+        loud = 10 ** (-2.0 / 20.0)      # misses the clip-gain fallback
+        gain = np.concatenate([
+            np.full(4 * SR, ducked, dtype=np.float32),
+            np.full(4 * SR, loud, dtype=np.float32),
+        ]).astype(np.float32)
+        mix = (speech + gain * music).astype(np.float32)
+        automation = [
+            {"spine_block_position": 1, "timeline_start": 0.0,
+             "timeline_end": 4.0, "music_behavior": "background",
+             "target_level_db": -18.0, "separation_target_db": 18.0},
+            {"spine_block_position": 2, "timeline_start": 4.0,
+             "timeline_end": 8.0, "music_behavior": "background",
+             "target_level_db": -18.0},
+        ]
+        blocks = [{"position": 1, "block_type": "speech"},
+                  {"position": 2, "block_type": "speech"}]
+        result = _speech_above_bed(mix, music, automation, blocks)
+        assert result.value["gates"] is True
+        assert result.passed is True, (
+            "the clip-gain window misses but cannot fail: no separation "
+            "was declared for it")
+        fallback = result.value["windows"][1]
+        assert fallback["meets_plan"] is False
+        assert fallback["required_margin_basis"] == (
+            "clip_gain_read_as_separation")
+
+    def test_an_overridden_span_is_recorded_and_does_not_fail(self):
+        """The captain named a span where the bed is deliberately over the
+        voice.  The gate still measures the window, records the override's
+        id on it and lists the span on the result, and does not fail the
+        build - an override is a recorded exemption, never a silent
+        skip."""
+        mix, music = _mix_fixture(2.0)
+        automation = [dict(BACKGROUND_WINDOW[0], separation_target_db=18.0)]
+        overrides = [{
+            "format": "music_over_speech_override/1",
+            "override_id": "note-1",
+            "source": "timeline_note",
+            "instruction": "let the music sit over the speech here",
+            "scope": {"kind": "span", "timeline": "(the master timeline)",
+                      "start_seconds": 0.0, "end_seconds": 4.0}}]
+        result = _speech_above_bed(mix, music, automation, SPEECH_BLOCK,
+                                   music_over_speech_overrides=overrides)
+        assert result.passed is True
+        window = result.value["windows"][0]
+        assert window["meets_plan"] is False
+        assert window["music_over_speech_override"] == "note-1"
+        assert result.value["overridden_spans"] == [
+            {"timeline_start": 0.0, "timeline_end": 4.0,
+             "override_id": "note-1"}]
+        assert "music over the speech by instruction" in result.detail
+
+    def test_an_override_matching_no_window_is_named_not_dropped(self):
+        """An override the captain declared that covers no planned window
+        is recorded on the result, not silently skipped - the same STALE
+        ruling an effect authorization no placed span speaks gets."""
+        mix, music = _mix_fixture(20.0)
+        automation = [dict(BACKGROUND_WINDOW[0], separation_target_db=18.0)]
+        overrides = [{
+            "format": "music_over_speech_override/1",
+            "override_id": "note-stale",
+            "source": "timeline_note",
+            "instruction": "let the music sit over the speech",
+            "scope": {"kind": "span", "timeline": "(the master timeline)",
+                      "start_seconds": 100.0, "end_seconds": 110.0}}]
+        result = _speech_above_bed(mix, music, automation, SPEECH_BLOCK,
+                                   music_over_speech_overrides=overrides)
+        assert result.value["unmatched_overrides"] == ["note-stale"]
+        assert result.value["overridden_spans"] == []
+        assert "matching no window" in result.detail
 
 
 # ═══ The bed's rendered per-block level against the planned curve ═══

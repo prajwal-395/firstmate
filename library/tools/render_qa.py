@@ -8,12 +8,14 @@ reads the manifest cannot tell the difference; these can.
 Five of the baseline-craft properties live here.  P1 (the picture fills
 the delivery frame, and one video has one geometry), P4 (deliverable
 loudness without clipping) and P8 (no picture plays over digital
-silence) FAIL a build.  P2 (somewhere in the frame there is colour) and
-P3 (where someone speaks, the speech is above the bed) REPORT A NUMBER
-and do not fail, because their thresholds are open captain decisions -
-see the two `_GATES` booleans below, which are the whole of what
-promoting them costs.  P8 has a reporting half of the same kind, its
-near-silence ladder, and it is reported for the same reason.
+silence) FAIL a build.  P2 (somewhere in the frame there is colour)
+REPORTS A NUMBER and does not fail, because its threshold is an open
+captain decision - see the `_GATES` boolean below, which is the whole of
+what promoting it costs.  P3 (where someone speaks, the speech is above
+the bed) GATES once its separation targets are populated - a per-run
+decision, not a constant - and reports until they are.  P8 has a
+reporting half of the same kind, its near-silence ladder, and it is
+reported for the same reason.
 
 
 Rules relocated from AGENTS.md 10.4
@@ -784,10 +786,6 @@ DEFAULT_CHROMA_PASS_FRACTION = 0.9
 # reaches 18. Turning this on today would fail every project whose bed is
 # mastered louder than its dialogue, which is most of them.
 #
-# Promoting it is this boolean, and it needs one of: a loudness-relative
-# bed level in `audio_mix`, or a target here that is the planned dB minus
-# the measured source difference. Either is a decision, not a fix.
-#
 # The route is built end to end.  Step 2.04 measures every candidate
 # (`library/tools/music_measurement.py`), the CHOSEN track carries its own
 # scalars forward as `music_selection.measurements`, and step 5.02 reads
@@ -801,7 +799,17 @@ DEFAULT_CHROMA_PASS_FRACTION = 0.9
 # this check measures what it did, judging the margin against the declared
 # separation where the plan declares one and falling back to the clip gain
 # (saying so, per window, in `required_margin_basis`) where it does not.
-SPEECH_ABOVE_BED_GATES = False
+#
+# The gate is PROMOTED (captain, 2026-10-05): speech-above-bed gates the
+# build.  But it activates only once its separation targets are populated -
+# `music_automation[].separation_target_db`, a per-run decision step 5.02
+# records, never a constant.  Until at least one window declares one the
+# check reports and does not fail: a clip gain is not a separation
+# (`music_behavior.UNDECLARED_SEPARATION`), and the captain's ruling is
+# that there are no hardcoded dB values here - the target is the plan's
+# own decided separation, or the window is measured and reported, never
+# failed.  See `measure_speech_above_bed`.
+SPEECH_ABOVE_BED_GATES = True
 
 # A `silent` window is judged by how far its music sits below the median
 # of the non-silent windows. 30 dB rather than the plan's own 90 because a
@@ -3076,6 +3084,7 @@ def measure_speech_above_bed(
         spine_blocks: Optional[Sequence[dict]] = None,
         sample_rate: int = 48000,
         silent_margin_db: float = SILENT_WINDOW_MARGIN_DB,
+        music_over_speech_overrides: Optional[Sequence[dict]] = None,
         gate: bool = SPEECH_ABOVE_BED_GATES) -> RenderQAResult:
     """P3: where someone speaks, the speech is above the bed.
 
@@ -3096,6 +3105,28 @@ def measure_speech_above_bed(
     `silent_margin_db` below the median of the non-silent windows - the gain
     column shows whether the automation ran, the contribution column shows
     whether the viewer can hear it, and the second is the one that matters.
+
+    **The gate activates only once its separation targets are populated.**
+    `SPEECH_ABOVE_BED_GATES` is the captain's ruling that this gates the
+    build; whether it DOES gate on a given render is a fact about that
+    render's plan.  When no window declares a `separation_target_db` the
+    check reports every margin and fails nothing - a clip gain is not a
+    separation, and there are no hardcoded dB values here.  Once at least
+    one window declares a target, the gate is live: a speech-bearing window
+    whose measured margin misses its DECLARED separation fails the build.
+    A window still on the clip-gain fallback is measured and reported (its
+    basis recorded per window) but cannot fail - the plan declared no
+    separation for it, so there is no margin anybody chose to miss.
+
+    `music_over_speech_overrides` are the named spans the captain
+    deliberately wants the bed over the voice (a comic beat, a swell),
+    parsed from timeline notes / edit requests by
+    `library/tools/music_over_speech.py` - the same explicit-instruction
+    path every other override uses.  An overridden window is still measured
+    and still reported, carries its override's id on
+    `music_over_speech_override`, and does not fail the build; the spans
+    overridden are listed on the result, so an override is recorded in the
+    receipt rather than silently skipped.
 
     **`music_offset_seconds` is required and has no default**, because
     the bed does not have to start at the head of its file.  Step 2.04
@@ -3119,7 +3150,8 @@ def measure_speech_above_bed(
     against; `_spine_blocks` carries the same behaviour vocabulary
     (`library/tools/music_behavior.py`) but no level.
 
-    **This reports and does not fail** - see `SPEECH_ABOVE_BED_GATES`.
+    **This gates once its separation targets are populated** - see
+    `SPEECH_ABOVE_BED_GATES` and the activation rule above.
     """
     try:
         import numpy as np
@@ -3131,6 +3163,22 @@ def measure_speech_above_bed(
         if not music_automation:
             return RenderQAResult("speech_above_bed", True, None, None, "info",
                                   "No music automation planned - nothing to measure")
+
+        # The gate is live only when this run's plan populated the
+        # separation targets - a per-run decision step 5.02 records on
+        # `separation_target_db`, never a constant.  See the module comment
+        # above and `music_behavior.UNDECLARED_SEPARATION`.
+        targets_populated = any(
+            isinstance(w.get("separation_target_db"), (int, float))
+            and not isinstance(w.get("separation_target_db"), bool)
+            for w in music_automation)
+        gates = bool(gate) and targets_populated
+
+        def override_for(start, end):
+            """The music-over-speech override covering this window, if any."""
+            from library.tools import music_over_speech
+            return music_over_speech.span_is_overridden(
+                music_over_speech_overrides, start, end)
 
         block_type_by_position = {}
         for block in (spine_blocks or []):
@@ -3263,6 +3311,11 @@ def measure_speech_above_bed(
             if required_gap_recovery is not None:
                 row["required_gap_recovery_db"] = round(
                     required_gap_recovery, 2)
+            # The captain's named span where the bed is deliberately over
+            # the voice.  Recorded on the window beside its measurement, so
+            # an override is never a silent skip - see
+            # library/tools/music_over_speech.py.
+            row["music_over_speech_override"] = override_for(start, end) or None
             windows.append(row)
 
         if not windows:
@@ -3300,7 +3353,7 @@ def measure_speech_above_bed(
             win["required_margin_basis"] = (
                 "clip_gain_read_as_separation" if target is not None else None)
 
-        judged, failures = [], []
+        judged, misses = [], []
         for win in windows:
             if win.get("block_type") not in SPEECH_BEARING_BLOCK_TYPES:
                 win["judged"] = False
@@ -3320,39 +3373,88 @@ def measure_speech_above_bed(
             win["meets_plan"] = ok
             judged.append(win)
             if not ok:
-                failures.append(win)
+                misses.append(win)
 
+        # What fails the build, as opposed to what is only reported:
+        #
+        # * the gate is live (`gates`) - the boolean AND a populated
+        #   separation target, see above;
+        # * the window is not the captain's named music-over-speech
+        #   span, which is exempt by explicit instruction;
+        # * the window is not on the clip-gain fallback - a clip gain
+        #   is not a separation, so there is no margin anybody chose
+        #   to miss (music_behavior.UNDECLARED_SEPARATION).
+        failures = [win for win in misses
+                    if gates
+                    and not win.get("music_over_speech_override")
+                    and win.get("required_margin_basis")
+                    != "clip_gain_read_as_separation"]
         meets = not failures
         bases = {win.get("required_margin_basis") for win in judged
                  if win.get("required_margin_basis")}
         on_clip_gain = "clip_gain_read_as_separation" in bases
-        detail = (f"{len(judged) - len(failures)} of {len(judged)} "
+        overridden = [win for win in windows
+                      if win.get("music_over_speech_override")]
+        matched_ids = {win["music_over_speech_override"] for win in overridden}
+        # An override that matches no window is named, not silently
+        # dropped - the same STALE ruling `effect_authorization` applies
+        # to an authorization no placed span speaks.
+        unmatched = [str(record.get("override_id") or "")
+                     for record in music_over_speech_overrides or []
+                     if isinstance(record, dict)
+                     and str(record.get("override_id") or "")
+                     and str(record.get("override_id") or "") not in matched_ids]
+        detail = (f"{len(judged) - len(misses)} of {len(judged)} "
                   f"speech-bearing windows meet the margin they were "
                   f"judged against")
         if on_clip_gain:
             detail += (" - which for at least one window is the CLIP GAIN, "
                        "not a separation target: the plan declares none "
-                       "(music_behavior.SEPARATION_TARGETS_DB is empty)")
-        if failures:
-            worst = min(failures,
+                       "for that window")
+        if misses:
+            worst = min(misses,
                         key=lambda win: (win["margin_db"] - (win["required_margin_db"] or 0)))
             detail += (f"; worst {worst['timeline_start']:.2f}-"
                        f"{worst['timeline_end']:.2f}s planned "
                        f"{worst['music_behavior']}, speech is "
                        f"{worst['margin_db']:+.1f} dB over the bed")
-            if not gate:
-                detail += (" - REPORTED ONLY; see SPEECH_ABOVE_BED_GATES for "
-                           "why this is not a build failure yet")
+        if not gates:
+            if not targets_populated:
+                detail += (" - REPORTED ONLY: no window declares a "
+                           "separation target "
+                           "(audio_mix.music_automation[].separation_"
+                           "target_db), and a clip gain is not a "
+                           "separation - see SPEECH_ABOVE_BED_GATES")
+            else:
+                detail += (" - REPORTED ONLY; see SPEECH_ABOVE_BED_GATES "
+                           "for why this is not a build failure yet")
+        if overridden:
+            detail += (" - music over the speech by instruction on "
+                       + ", ".join(
+                           f"{win['timeline_start']:.2f}-"
+                           f"{win['timeline_end']:.2f}s"
+                           for win in overridden))
+        if unmatched:
+            detail += (" - override(s) matching no window, named not "
+                       "silently dropped: " + ", ".join(unmatched))
 
         return RenderQAResult(
             metric="speech_above_bed",
-            passed=meets if gate else True,
+            passed=meets if gates else True,
             value={"windows": windows,
                    # Recorded, so a reported margin can never be read
                    # without the offset it was fitted at.
                    "music_offset_seconds": round(offset, 3),
                    "judged": len(judged),
-                   "failing": len(failures),
+                   "failing": len(misses),
+                   "targets_populated": targets_populated,
+                   "gates": gates,
+                   "overridden_spans": [
+                       {"timeline_start": win["timeline_start"],
+                        "timeline_end": win["timeline_end"],
+                        "override_id": win["music_over_speech_override"]}
+                       for win in overridden],
+                   "unmatched_overrides": unmatched,
                    "silent_reference_db": (round(silent_reference, 2)
                                            if silent_reference is not None
                                            else None)},
@@ -3365,8 +3467,8 @@ def measure_speech_above_bed(
                        "silent_margin_db": silent_margin_db,
                        "speech_bearing_block_types":
                            list(SPEECH_BEARING_BLOCK_TYPES),
-                       "gates": gate},
-            severity=("error" if gate else "warning") if not meets else "info",
+                       "gates": gates},
+            severity=("error" if gates else "warning") if not meets else "info",
             detail=detail,
         )
     except Exception as e:
@@ -4577,11 +4679,12 @@ def run_full_render_qa(video_path: str, expected_duration: float = None,
                        true_peak_ceiling: float = DEFAULT_TRUE_PEAK_CEILING_DBTP,
                         declared_ending_black_spans: Optional[List] = None,
                         declared_silence_spans: Optional[List] = None,
-                        punch_in_windows: Optional[Sequence["PunchInWindow"]] = None,
-                        transition_spans: Optional[Sequence["TransitionSpan"]] = None,
-                        vfx_spans: Optional[Sequence["VfxSpan"]] = None,
-                        graphics_spans: Optional[Sequence["GraphicsSpan"]] = None
-                        ) -> List[RenderQAResult]:
+                         punch_in_windows: Optional[Sequence["PunchInWindow"]] = None,
+                         transition_spans: Optional[Sequence["TransitionSpan"]] = None,
+                         vfx_spans: Optional[Sequence["VfxSpan"]] = None,
+                         graphics_spans: Optional[Sequence["GraphicsSpan"]] = None,
+                         music_over_speech_overrides: Optional[Sequence[dict]] = None
+                         ) -> List[RenderQAResult]:
     """Run every render QA check.
 
     `declared_black_beats` carries the black beats the plan declared, as
@@ -4620,6 +4723,14 @@ def run_full_render_qa(video_path: str, expected_duration: float = None,
     the file and the plan but cannot say which SECTION of the track plays
     does not have enough to fit anything, and a default of 0.0 there is the
     value that is silently wrong - see `measure_speech_above_bed`.
+
+    `music_over_speech_overrides` are the captain's named spans where the
+    bed is deliberately over the voice, parsed from timeline notes / edit
+    requests by `library/tools/music_over_speech.py` and carried here on
+    the assembly manifest.  An overridden window is measured, reported and
+    recorded on the result; it does not fail the build.  None means the
+    captain declared no such span, which is reported rather than guessed
+    at.
 
     `overlay_segments` are the rendered overlays the manifest places over
     the picture, so P1 can mask the pixels they drew instead of guessing
@@ -4671,7 +4782,8 @@ def run_full_render_qa(video_path: str, expected_duration: float = None,
     if music_path and music_automation and music_offset_seconds is not None:
         results.append(measure_speech_above_bed(
             video_path, music_path, music_automation, music_offset_seconds,
-            spine_blocks=spine_blocks))
+            spine_blocks=spine_blocks,
+            music_over_speech_overrides=music_over_speech_overrides))
         results.append(measure_music_curve(
             video_path, music_path, music_automation, music_offset_seconds,
             spine_blocks=spine_blocks))

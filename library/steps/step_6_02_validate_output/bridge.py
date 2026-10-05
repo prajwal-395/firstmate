@@ -779,6 +779,13 @@ def validate_output(rendered_output: dict, assembly_manifest: dict,
             transition_spans=_transition_spans(assembly_manifest),
             vfx_spans=_vfx_spans(assembly_manifest),
             graphics_spans=_graphics_spans(assembly_manifest),
+            # The captain's named spans where the bed is deliberately over
+            # the voice, so the speech-above-bed gate records them in its
+            # receipt rather than failing them.  Parsed by step 5.02 from
+            # timeline notes / edit requests, carried here on the manifest.
+            music_over_speech_overrides=(
+                assembly_manifest.get("music_over_speech_overrides")
+                or []),
         )
     except Exception as e:
         print(f"Error running render_qa: {e}", file=sys.stderr)

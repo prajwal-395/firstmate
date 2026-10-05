@@ -100,11 +100,19 @@ REPORT_ONLY_METRICS = frozenset({"chroma_presence", "speech_above_bed",
                                  "graphics_render"})
 """The checks that measure a number, miss a target and do not gate.
 
-`render_qa.CHROMA_PRESENCE_GATES`, `render_qa.SPEECH_ABOVE_BED_GATES`
-and `render_qa.CAPTION_QUALITY_GATES` are the booleans, and all are
-False: these report `passed=True` whatever they measured, and say what
-they measured in `severity` instead.  Promoting one is that boolean and
-nothing here.
+`render_qa.CHROMA_PRESENCE_GATES` and `render_qa.CAPTION_QUALITY_GATES`
+are the booleans, and both are False: these report `passed=True` whatever
+they measured, and say what they measured in `severity` instead.
+Promoting one is that boolean and nothing here.
+
+`SPEECH_ABOVE_BED_GATES` is True (captain, 2026-10-05) but the gate
+activates only once its separation targets are populated - a per-run
+decision step 5.02 records on `music_automation[].separation_target_db`,
+never a constant.  Until at least one window declares one, the check
+reports `passed=True` at `warning` and is read here as ADVISORY, exactly
+as the other report-only checks; once a target is declared, a miss is a
+FAILING `error` like any gate.  The set is what makes the report-only
+half advisory - it says nothing about the gated half.
 
 It is an enumeration rather than a rule about severity because a report
 that is already on disk cannot be re-severitied.  `subtitle_qa` used to
@@ -178,8 +186,11 @@ FINDING_READERS: Dict[str, FindingReader] = _rows(
         "declared, and the value is an open captain decision."),
     FindingReader(
         "speech_above_bed", "audio_mix",
-        "Reports its number and does not gate: the target is a "
-        "SEPARATION and clip gain cannot buy one (AGENTS.md 10.4)."),
+        "Where someone speaks, the speech is above the bed by the "
+        "separation the plan declared. The target is a SEPARATION and "
+        "clip gain cannot buy one (AGENTS.md 10.4). Gates once a "
+        "separation target is populated (render_qa.SPEECH_ABOVE_BED_GATES, "
+        "captain 2026-10-05); reports until one is."),
     FindingReader(
         "music_levels", "audio_mix",
         "The bed's rendered per-block level against the planned curve "
