@@ -134,7 +134,7 @@ def file_exhaustion(project_folder: str, step_id: str, violation: str, *,
 
     review_dir = str(ProjectLayout(str(project_folder)).read_dir(Area.REVIEW))
     elided = _elide(violation)
-    return record_rejection(
+    entry = record_rejection(
         review_dir, str(step_id),
         reason=elided or "the post-bridge rejected every attempt",
         rejecting_party="ren",
@@ -142,3 +142,10 @@ def file_exhaustion(project_folder: str, step_id: str, violation: str, *,
               "violation": elided},
         summary=(f"post-bridge rejected {attempts} attempt(s) for "
                  f"{step_id}"))
+    # F-09: the exhaustion is also a LEARNING, filed best-effort beside
+    # the history entry - the next run of the failing step reads why
+    # its answer was refused.
+    from library.tools import learned_context
+    learned_context.record_post_bridge_exhaustion(
+        str(project_folder), str(step_id), elided, attempts=int(attempts))
+    return entry

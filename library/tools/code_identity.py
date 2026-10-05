@@ -412,6 +412,15 @@ EXEMPT_IMPORTS = {
     # to admit work, but those declarations change no measured footage
     # result and must not invalidate a preflight analysis cache.
     "library/tools/capabilities.py",
+    # The operation registry and its DAG-node translator: capability
+    # addressing and execution routing.  The preflight measurement
+    # chain (vision_pipeline_v3, picture_quality, camera_stability)
+    # imports neither, so a fix here changes no measured value - and
+    # declaring them would drag the registry's whole import graph into
+    # each importing step's hash through the coverage test's transitive
+    # scan, the over-invalidation rot EXEMPT_IMPORTS exists to stop.
+    "library/tools/operations.py",
+    "library/tools/dag_adapter.py",
     # Centralized path configuration: every entry is a location or an
     # environment override, so a change here fails loud (a binary not
     # found) rather than as a silently stale cached value.  Declaring it

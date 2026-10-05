@@ -73,6 +73,27 @@ half-written store. `correct()` mints and links under ONE hold (a
 crash before the single save leaves no partial state, which is the
 honest outcome). The on-disk format is unchanged.
 
+Events file learnings too
+------------------------
+The three writers above are the agent's CLI path. The pipeline's own
+events file learnings programmatically, so a rejection that is never
+manually filed is not forgotten at run end (F-09):
+
+- a gate rejection files a `correction` - the reason as the statement,
+  the gate id as the source, routed to the step that owns the
+  overturned decision (`record_gate_rejection`);
+- a post-bridge exhaustion files a `mistake_fix` - what the pipeline's
+  own contract refused, routed to the step that made the mistake
+  (`record_post_bridge_exhaustion`);
+- a signed-off reel files a `settled_decision` - what was approved,
+  routed to every planning step (`record_reel_signoff`).
+
+Each is best-effort, like `try_record_ren_act`: a learning write must
+never fail the answer being recorded, so a refusal (no reader, unknown
+step, unwritable store) is said on stderr and returns None. The reader
+rule is unchanged - an event determines a reader or the learning is not
+filed; no event invents one.
+
 `tests/unit/captions/test_planning_context.py`.
 """
 
@@ -81,6 +102,7 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import sys
 import tempfile
 import threading
 from contextlib import contextmanager
@@ -488,6 +510,160 @@ def render_for_prompt(project_folder: str, node_id: str) -> str:
             f"{learning.get('said_by', 'unknown')}): "
             f"{learning.get('statement', '')}")
     return "\n".join(lines) + "\n"
+
+
+def _node_reader(raw: str) -> list:
+    """`[node]` when `raw` names a DAG node in either vocabulary, else [].
+
+    A step has two names - the runner's `select_reels` and the step's
+    own `step_3_04_select_reels` - and `node_id_for` is the only
+    translator. An identifier naming no step comes back unchanged, so
+    membership in `_node_ids()` is the whole test.
+    """
+    from library.tools.project_layout import node_id_for
+    node = node_id_for(raw)
+    return [node] if node in _node_ids() else []
+
+
+def _reader_for_gate_id(gate_id) -> list:
+    """The step a gate rejection's correction is routed to.
+
+    A gate id is a DAG node id in either vocabulary, or an operation
+    address (`subtitles.render@45.0-72.0`). The correction is read by
+    the step that owns the overturned decision: the node itself, or -
+    for an operation address - the node the operation runs under,
+    reached through the operations registry. Anything else determines
+    NO reader, and a learning with no reader is refused (`_check_readers`)
+    - the event path routes, it never invents a reader.
+    """
+    raw = str(gate_id or "").strip()
+    if not raw:
+        return []
+    node_readers = _node_reader(raw)
+    if node_readers:
+        return node_readers
+    from library.tools.operations import ADDRESS_SEPARATOR
+    operation, sep, _ = raw.partition(ADDRESS_SEPARATOR)
+    if not sep or not operation:
+        return []
+    try:
+        from library.tools import dag_adapter
+        from library.tools import operations as _operations
+        return _node_reader(dag_adapter.node_of(_operations.get(operation)))
+    except Exception:  # noqa: BLE001 - an unmapped operation has no reader
+        return []
+
+
+def record_gate_rejection(project_folder: str, gate_id: str,
+                          reason: str) -> dict | None:
+    """A gate rejection files a `correction` learning (F-09).
+
+    The captain's verdict on a step's output used to die with the run:
+    F-02 files the rejection into the edit history, but the next run of
+    that step re-attempted the same output with no memory of why it
+    was refused. This files the learning - the reason as the statement,
+    the gate id as the source, routed to the step that owns the
+    overturned decision - so the next run reads it in its prompt
+    (`render_for_prompt`) and does not repeat the refusal.
+
+    Best-effort, like `try_record_ren_act`: a learning write must never
+    fail the answer being recorded, so a refusal (no reader, unknown
+    step, unwritable store) is said on stderr and returns None.
+    """
+    readers = _reader_for_gate_id(gate_id)
+    if not readers:
+        print(f"  learning not filed for gate {gate_id!r}: no step reads it",
+              file=sys.stderr)
+        return None
+    try:
+        return record(
+            project_folder, CORRECTION, (reason or "").strip(), readers,
+            source={"gate": str(gate_id)})
+    except Exception as refusal:  # noqa: BLE001 - the contract is never-fail
+        print(f"  learning not filed for gate {gate_id!r}: {refusal!r} - "
+              f"the run continues without it", file=sys.stderr)
+        return None
+
+
+def record_post_bridge_exhaustion(project_folder: str, step_id: str,
+                                  violation: str, *,
+                                  attempts: int = 3) -> dict | None:
+    """A post-bridge exhaustion files a `mistake_fix` learning (F-09).
+
+    At the retry bound the step FAILS carrying the last violation, and
+    `file_exhaustion` files that into the edit history. This files the
+    learning - what the pipeline's own contract refused, and after how
+    many attempts - routed to the step that made the mistake, so the
+    next run of that step sees why its answer was refused instead of
+    re-attempting the same violation at a full model call per attempt.
+
+    `violation` is the last contract violation, elided by the caller
+    (`file_exhaustion` elides to `MAX_VIOLATION_CHARS`); it lands in the
+    statement, because `render_for_prompt` carries the statement and
+    not the detail.
+
+    Best-effort, like `try_record_ren_act`.
+    """
+    readers = _node_reader(str(step_id or "").strip())
+    if not readers:
+        print(f"  learning not filed for step {step_id!r}: no step reads it",
+              file=sys.stderr)
+        return None
+    statement = f"post-bridge rejected {attempts} attempt(s) for {step_id}"
+    if (violation or "").strip():
+        statement += f": {(violation or '').strip()}"
+    try:
+        return record(
+            project_folder, MISTAKE_FIX, statement, readers,
+            source={"step": str(step_id), "event": "post_bridge_exhaustion",
+                    "attempts": int(attempts)})
+    except Exception as refusal:  # noqa: BLE001 - the contract is never-fail
+        print(f"  learning not filed for step {step_id!r}: {refusal!r} - "
+              f"the run continues without it", file=sys.stderr)
+        return None
+
+
+def record_reel_signoff(project_folder: str, reel: str, *, note: str = "",
+                        by: str = "captain",
+                        round_number: int | None = None) -> dict | None:
+    """A signed-off reel files a `settled_decision` learning (F-09).
+
+    A sign-off is the captain's verdict on a BUILT reel - the one
+    approval that arrives after the reel was watched. It used to live
+    only in `reel_signoffs.json`: a later run proposing to rebuild or
+    touch up that reel had no memory that the captain had already
+    approved it. This files the learning - what was approved, in which
+    round, with the captain's own words - routed to every planning step
+    (`read_by: ["*"]`), the same route a settled series identity takes.
+
+    A prior, never a mandate: the learning says the captain approved
+    this cut; it authorizes no operation and forbids none (AGENTS.md
+    10.5's stabilization rule - observation is not authorization).
+
+    Best-effort, like `try_record_ren_act`.
+    """
+    name = str(reel or "").strip()
+    if not name:
+        print("  learning not filed for a sign-off: no reel named",
+              file=sys.stderr)
+        return None
+    statement = f"{name} was approved as it stands"
+    if round_number is not None:
+        statement += f" in round {round_number}"
+    if by and by.strip():
+        statement += f", by {by.strip()}"
+    if note and note.strip():
+        statement += f": {note.strip()}"
+    statement += "."
+    try:
+        return record(
+            project_folder, SETTLED_DECISION, statement, [GLOBAL],
+            source={"reel": name, "event": "reel_signoff",
+                    "round": round_number})
+    except Exception as refusal:  # noqa: BLE001 - the contract is never-fail
+        print(f"  learning not filed for reel {name!r}: {refusal!r} - "
+              f"the run continues without it", file=sys.stderr)
+        return None
 
 
 def kinds_and_readers() -> dict:

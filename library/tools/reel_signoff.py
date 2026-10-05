@@ -230,6 +230,13 @@ def sign_off(project_folder, timeline: str, *, note: str = "",
     document["signoffs"][reel] = entry
     document["format"] = SIGNOFF_FORMAT
     _write(project_folder, document)
+    # F-09: the sign-off is also a LEARNING, filed best-effort beside
+    # the sign-off record - a later run proposing to rebuild or touch
+    # up this reel reads that the captain already approved it.
+    from library.tools import learned_context
+    learned_context.record_reel_signoff(
+        project_folder, reel, note=str(note or ""), by=str(by or "captain"),
+        round_number=round_number)
     return entry
 
 

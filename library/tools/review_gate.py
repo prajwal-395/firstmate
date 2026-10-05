@@ -257,6 +257,13 @@ def file_rejection(project_dir: str, step_id: str, reason: str) -> None:
         rejecting_party="captain",
         refs={"gate": str(step_id)},
         summary=f"gate {step_id} rejected by reviewer: {reason}")
+    # F-09: the rejection is also a LEARNING, filed best-effort beside
+    # the history entry - the next run of the refused step reads it in
+    # its prompt instead of re-attempting the same output.
+    from library.tools import learned_context
+    learned_context.record_gate_rejection(
+        str(project_dir), str(step_id),
+        reason or "rejected without a reason")
 
 
 def load_gate_feedback(project_dir: str, step_id: str) -> Optional[GateFeedback]:
