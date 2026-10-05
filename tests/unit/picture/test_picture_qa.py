@@ -1254,6 +1254,141 @@ def test_perceptual_observation_is_off_by_default(monkeypatch):
     assert run_perceptual_observation(None, None, None, manifest) is None
 
 
+# ─────────────────────────────────────────────────────────
+# Calibration and gating (E7)
+#
+# The defect: a build that ships a letterboxed frame with the subject's
+# head cropped passes every gate. The one visual inspection that could
+# catch it is opt-in, uncalibrated, and observation-only.
+# ─────────────────────────────────────────────────────────
+
+def test_main_subject_fully_visible_is_calibrated_and_gated():
+    """The cropped-subject dimension must be calibrated on the labeled set.
+
+    Defect: the dimension was marked verified=True without evidence, and
+    the first calibration run produced a false positive. Calibration
+    against the labeled set is what earns the right to gate.
+    """
+    from library.tools.perceptual_qa import (
+        DIMENSIONS, calibrate_dimension, is_gated)
+    dim = next(d for d in DIMENSIONS if d.key == "main_subject_fully_visible")
+    result = calibrate_dimension(dim)
+    assert result.total >= 2, "must have at least 2 labeled frames"
+    assert result.accuracy > 0.9, f"accuracy {result.accuracy} is too low to gate"
+    assert is_gated("main_subject_fully_visible")
+
+
+def test_calibration_records_are_internally_consistent():
+    """The calibration records must parse and match their own labels.
+
+    Defect: if a calibration record's raw reply disagrees with its label,
+    the calibration is measuring the wrong thing and the gate decision
+    is built on sand.
+    """
+    from library.tools.perceptual_qa import (
+        CALIBRATION_FRAMES, DIMENSIONS, calibrate_dimension)
+    dims = {d.key: d for d in DIMENSIONS}
+    for frame in CALIBRATION_FRAMES:
+        from library.tools.perceptual_qa import parse_verdict
+        verdict = parse_verdict(frame["raw"])
+        assert not verdict.parse_error, f"calibration record did not parse: {verdict.parse_error}"
+        for key, label in frame["labels"].items():
+            dim = dims[key]
+            value = verdict.answers.get(key)
+            assert value is not None, f"calibration record has no answer for {key}"
+            is_finding = dim.is_finding(value)
+            expected = (label == "bad")
+            assert is_finding == expected, (
+                f"calibration record label {key}={label} "
+                f"contradicts answer {value!r}")
+
+
+def test_text_legible_is_not_gated_without_calibration_data():
+    """An uncalibrated dimension must not gate.
+
+    Defect: text_legible was marked verified=False with the note "Not yet
+    seen to discriminate; drop it if it never does." The model never
+    answered it on the calibration frames, so it has no evidence. Gating
+    it without that evidence would be the vacuous-gate pattern.
+    """
+    from library.tools.perceptual_qa import (
+        DIMENSIONS, calibrate_dimension, is_gated)
+    dim = next(d for d in DIMENSIONS if d.key == "text_legible")
+    result = calibrate_dimension(dim)
+    assert result.total == 0, "text_legible has no labeled frames"
+    assert not result.promoted
+    assert not is_gated("text_legible")
+
+
+def test_a_cropped_subject_fails_the_gate():
+    """A labeled frame with a cropped subject must fail the gate.
+
+    Defect: a build that ships a frame with the subject's head cropped
+    passes every deterministic gate. The calibrated visual inspection
+    must catch it.
+    """
+    from library.tools.perceptual_qa import gate_failures, parse_verdict
+    verdicts = [parse_verdict(REAL_SUBJECT_CUT, frame=30)]
+    failures = gate_failures(verdicts)
+    assert len(failures) == 1
+    assert failures[0]["dimension"] == "main_subject_fully_visible"
+    assert failures[0]["frame"] == 30
+
+
+def test_a_known_good_frame_passes_the_gate():
+    """A known-good frame must not fail the gate.
+
+    Defect: a gate that fails correct output is no coverage at all. The
+    clean calibration frame must produce no gate failures.
+    """
+    from library.tools.perceptual_qa import gate_failures, parse_verdict
+    verdicts = [parse_verdict(REAL_CLEAN, frame=0)]
+    assert gate_failures(verdicts) == []
+
+
+def test_a_letterboxed_frame_fails_the_black_bars_gate():
+    """A letterboxed frame must fail the black_bars gate.
+
+    Defect: a letterboxed edit is the loudest defect in the plan and the
+    one no technical gate can see. The calibrated black_bars dimension
+    must catch it.
+    """
+    from library.tools.perceptual_qa import gate_failures, parse_verdict
+    verdicts = [parse_verdict(REAL_LETTERBOX, frame=15)]
+    failures = gate_failures(verdicts)
+    assert any(f["dimension"] == "black_bars" for f in failures)
+
+
+def test_observation_runs_when_build_declares_subject(monkeypatch):
+    """The calibrated check must run automatically on subject builds.
+
+    Defect: the visual inspection was opt-in via an env var, off by
+    default. A build that declares a subject must trigger the check
+    without the env var being set.
+    """
+    from library.tools.visual_qa_router import (
+        PERCEPTUAL_QA_ENV, build_declares_subject)
+    monkeypatch.delenv(PERCEPTUAL_QA_ENV, raising=False)
+    manifest = {"tracks": {"V1": {"clips": [
+        {"timeline_in_frame": 0, "timeline_out_frame": 60,
+         "subject_center_x": 0.5, "subject_width": 0.3}]}}}
+    assert build_declares_subject(manifest) is True
+
+
+def test_observation_stays_off_when_no_subject_declared(monkeypatch):
+    """A build that declares no subject must not trigger the check.
+
+    The check costs a model load and ~36 seconds. A build with no
+    declared subject has no cropped-subject risk to gate.
+    """
+    from library.tools.visual_qa_router import (
+        PERCEPTUAL_QA_ENV, build_declares_subject)
+    monkeypatch.delenv(PERCEPTUAL_QA_ENV, raising=False)
+    manifest = {"tracks": {"V1": {"clips": [
+        {"timeline_in_frame": 0, "timeline_out_frame": 60}]}}}
+    assert build_declares_subject(manifest) is False
+
+
 def test_importing_the_router_does_not_pull_in_the_vision_model():
     """A module that costs gigabytes to import poisons every consumer.
 

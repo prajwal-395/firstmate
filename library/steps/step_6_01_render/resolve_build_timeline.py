@@ -4203,14 +4203,14 @@ def _build_timeline_under_lease(
                 results["visual_qa"] = visual_qa_results
             print(f"  ✓ Completed {len(qa_plan.frame_grabs)} frame grabs and {len(qa_plan.segment_checks)} segment checks", file=sys.stderr)
 
-            # ── Perceptual observation (Q8) ──
+            # ── Perceptual QA (Q8) ──
             # A model that WATCHES the render. Every other gate here is
             # technical and none of them would catch a letterboxed edit
             # with the subject's head cropped off.
             #
-            # OBSERVATION ONLY: this never fails a build and never touches
-            # `success`. There is no evidence yet about its false-positive
-            # rate, and it has not been calibrated against the captain.
+            # Calibrated dimensions gate: a finding on a calibrated
+            # dimension fails verification. Uncalibrated dimensions
+            # report observations only.
             if run_perceptual_observation:
                 try:
                     observation = run_perceptual_observation(
@@ -4220,10 +4220,11 @@ def _build_timeline_under_lease(
                     if observation:
                         results["perceptual_observation"] = observation
                         n = len(observation.get("findings", []))
-                        print(f"\n── Perceptual QA (observation only) ──",
-                              file=sys.stderr)
+                        gate_n = len(observation.get("gate_failures", []))
+                        print(f"\n── Perceptual QA ──", file=sys.stderr)
                         print(f"  {observation['frames_examined']} frames "
-                              f"examined, {n} observation(s)", file=sys.stderr)
+                              f"examined, {n} observation(s), "
+                              f"{gate_n} gate failure(s)", file=sys.stderr)
                         if observation.get("frames_not_examined"):
                             print(f"  {observation['frames_not_examined']} "
                                   f"frame(s) not examined (cost bound)",
@@ -4232,8 +4233,10 @@ def _build_timeline_under_lease(
                             print(f"    · frame {f['frame']} [{f['dimension']}]"
                                   f" {f['detail'] or f['value']}",
                                   file=sys.stderr)
-                        print("  Not a gate. Nothing here failed the build.",
-                              file=sys.stderr)
+                        if gate_n:
+                            print(f"  GATE FAILURE: {gate_n} calibrated "
+                                  f"dimension(s) found a defect.",
+                                  file=sys.stderr)
                 except Exception as e:
                     # An observation that breaks must not break a render.
                     print(f"  ⚠ Perceptual QA unavailable: {e}", file=sys.stderr)
@@ -4250,11 +4253,23 @@ def _build_timeline_under_lease(
     # The logic lives in build_verification.derive_verification_verdict so
     # it can be tested with plain data objects, without Resolve.
     #
-    # verification_passed reflects whether QA stations passed.
-    # success is deliberately NOT gated on QA stations - that is step two
-    # of the captain's ruling (see tests/unit/resolve/test_resolve_build_timeline.py::
+    # verification_passed reflects whether QA stations passed AND whether
+    # the calibrated perceptual gate found a defect. success is deliberately
+    # NOT gated on QA stations - that is step two of the captain's ruling
+    # (see tests/unit/resolve/test_resolve_build_timeline.py::
     # test_loud_banner_prints_on_qa_failure_but_not_fatal).
     verification_passed = derive_verification_verdict(qa_reports)
+
+    # The calibrated perceptual gate: a finding on a calibrated dimension
+    # (main_subject_fully_visible, black_bars) fails verification. This is
+    # the one check that catches a letterboxed edit or a cropped subject -
+    # defects no technical gate can see.
+    perceptual_gate_failures = []
+    if results.get("perceptual_observation"):
+        perceptual_gate_failures = results["perceptual_observation"].get(
+            "gate_failures", [])
+    if perceptual_gate_failures:
+        verification_passed = False
 
     results["success"] = not results["errors"]
     results["verification_passed"] = verification_passed

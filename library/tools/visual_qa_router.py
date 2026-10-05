@@ -56,6 +56,7 @@ from library.tools.segment_renderer import (
 )
 from library.tools.perceptual_qa import (
     build_prompt as perceptual_prompt,
+    gate_failures as perceptual_gate_failures,
     parse_verdict as parse_perceptual_verdict,
     summarise as summarise_perceptual,
 )
@@ -809,6 +810,29 @@ def perceptual_qa_enabled() -> bool:
         "1", "true", "yes", "on")
 
 
+def build_declares_subject(manifest: dict) -> bool:
+    """Whether the build declares a subject worth watching.
+
+    A build declares a subject when its manifest carries subject geometry
+    (``subject_center_x`` or ``subject_width`` on any clip) or subject
+    mattes (``subject_mattes`` / ``behind_subject_mattes``). The calibrated
+    visual inspection runs automatically on such builds - a cropped subject
+    is the one defect no technical gate can see, and a build that declares
+    a subject is a build where that defect matters.
+    """
+    for key in ("subject_mattes", "behind_subject_mattes"):
+        if manifest.get(key):
+            return True
+    tracks = manifest.get("tracks") or {}
+    for name in ("V1", "V2"):
+        for clip in (tracks.get(name) or {}).get("clips") or []:
+            if clip.get("subject_center_x") is not None:
+                return True
+            if clip.get("subject_width") is not None:
+                return True
+    return False
+
+
 def perceptual_sample(plan: QAPassPlan, max_frames: int = 6) -> tuple:
     """The grabs the perceptual observation examines, and how many it drops.
 
@@ -831,10 +855,14 @@ def run_perceptual_observation(resolve, project, timeline, manifest: dict,
                                 project_folder: Optional[str] = None,
                                 rendered_frames: Optional[Dict[int, str]] = None,
                                 ) -> Optional[dict]:
-    """Watch the render and report what looks wrong. OBSERVATION ONLY.
+    """Watch the render and report what looks wrong.
 
-    Returns None unless `PIPELINE_PERCEPTUAL_QA` is set or `force=True`;
-    see PERCEPTUAL_QA_ENV above for why it is opt-in.
+    Runs automatically when the build declares a subject
+    (`build_declares_subject`) - a cropped subject is the one defect no
+    technical gate can see, and a build that declares a subject is a build
+    where that defect matters. Also runs when `PIPELINE_PERCEPTUAL_QA` is
+    set or `force=True` (for calibration runs on builds that declare no
+    subject).
 
     Q8's answer: every gate in this pipeline is technical, and none of
     them would catch a letterboxed edit with the subject's head cropped
@@ -842,11 +870,11 @@ def run_perceptual_observation(resolve, project, timeline, manifest: dict,
     the local vision model the grounded questions in
     `library/tools/perceptual_qa.py`.
 
-    Nothing here fails a render, and the return value says so
-    (`observation_only: True`). There is no evidence yet about the
-    false-positive rate - the first calibration run produced one finding
-    on a frame that was correct - and making it fatal without that
-    evidence would repeat the mistake this project keeps undoing.
+    Calibrated dimensions gate: a finding on `main_subject_fully_visible`
+    or `black_bars` fails verification. Uncalibrated dimensions
+    (`text_legible`) report observations only - they have not earned the
+    right to fail a render. The return value carries both
+    (`gate_failures` and `observation_only: False`).
 
     `max_frames` bounds the cost: a frame takes roughly 6 seconds on the
     local model, so a 20-clip edit would otherwise add two minutes to
@@ -859,7 +887,7 @@ def run_perceptual_observation(resolve, project, timeline, manifest: dict,
     `rendered_frames` (the pass's own batch, `execute_qa_plan`) in ONE
     further batch.
     """
-    if not (force or perceptual_qa_enabled()):
+    if not (force or perceptual_qa_enabled() or build_declares_subject(manifest)):
         return None
 
     plan = plan_qa_checks(manifest, phase="post_build", fps=fps)

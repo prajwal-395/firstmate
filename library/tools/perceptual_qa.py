@@ -30,9 +30,13 @@ answer on every frame ranks nothing and is dropped. `fills_frame` was
 dropped for exactly that: it answered `true` on a letterboxed frame that
 plainly did not fill the frame, and `true` on the two that did.
 
-**Observation only.** Nothing here fails a render. There is no evidence
-yet about the false-positive rate, and making it fatal without that
-evidence would repeat the mistake this project keeps undoing.
+**Calibrated dimensions gate; uncalibrated ones observe.** A dimension
+promoted to a gate has been shown to discriminate on a labeled set of
+known-good and known-bad frames with >90% accuracy. An uncalibrated
+dimension reports observations only - it has not earned the right to
+fail a render. `main_subject_fully_visible` and `black_bars` are
+calibrated; `text_legible` is not (the model never answered it on the
+calibration frames, so it has no evidence either way).
 
 What the first real verdicts taught
 -----------------------------------
@@ -132,6 +136,125 @@ DROPPED_DIMENSIONS = {
     ),
 }
 
+
+# The three captured calibration replies from the first real run, with their
+# labels. These are the existing calibration records - real model replies on
+# frames whose condition was known. Fabricating cleaner replies would only
+# prove the fixture. Each label is "bad" (the dimension should fire) or
+# "good" (it should not). `text_legible` was never answered by the model on
+# any of these three frames, so it carries no labels and cannot be
+# calibrated without new labeled frames.
+CALIBRATION_FRAMES = [
+    {
+        "raw": (
+            '```json\n'
+            '{"fills_frame": true, "black_bars": "top_and_bottom", '
+            '"main_subject_fully_visible": true, "what_is_wrong": '
+            '"The video contains large black bars at the top and bottom, '
+            'failing to fill the screen."}\n'
+            '```'
+        ),
+        "labels": {
+            "black_bars": "bad",
+            "main_subject_fully_visible": "good",
+        },
+    },
+    {
+        "raw": (
+            '```json\n'
+            '{"fills_frame": true, "black_bars": "none", '
+            '"main_subject_fully_visible": false, "what_is_wrong": '
+            '"The main subject is cut off by the left edge of the frame."}\n'
+            '```'
+        ),
+        "labels": {
+            "black_bars": "good",
+            "main_subject_fully_visible": "bad",
+        },
+    },
+    {
+        "raw": (
+            '{"fills_frame": true, "black_bars": "none", '
+            '"main_subject_fully_visible": true, "what_is_wrong": ""}'
+        ),
+        "labels": {
+            "black_bars": "good",
+            "main_subject_fully_visible": "good",
+        },
+    },
+]
+
+#: Minimum labeled frames required before a dimension can be calibrated.
+CALIBRATION_MIN_FRAMES = 2
+
+#: Accuracy threshold for promoting a dimension to a gate.
+CALIBRATION_ACCURACY_THRESHOLD = 0.9
+
+
+@dataclass(frozen=True)
+class CalibrationResult:
+    """One dimension's calibration against the labeled set."""
+
+    dimension: str
+    accuracy: float
+    correct: int
+    total: int
+    promoted: bool
+
+
+def calibrate_dimension(dimension: "Dimension",
+                        frames: Optional[List[dict]] = None) -> CalibrationResult:
+    """Score a dimension against the labeled calibration frames.
+
+    A dimension is promoted to a gate when it achieves >90% accuracy on
+    at least 2 labeled frames. An unanswered question counts as incorrect
+    when the label says the dimension should fire - silence is not evidence
+    of a pass.
+    """
+    frames = frames if frames is not None else CALIBRATION_FRAMES
+    correct = 0
+    total = 0
+    for frame in frames:
+        label = frame["labels"].get(dimension.key)
+        if label is None:
+            continue
+        total += 1
+        verdict = parse_verdict(frame["raw"])
+        value = verdict.answers.get(dimension.key)
+        is_finding = dimension.is_finding(value)
+        expected_finding = (label == "bad")
+        if is_finding == expected_finding:
+            correct += 1
+
+    accuracy = correct / total if total > 0 else 0.0
+    promoted = (total >= CALIBRATION_MIN_FRAMES
+                and accuracy > CALIBRATION_ACCURACY_THRESHOLD)
+    return CalibrationResult(
+        dimension=dimension.key,
+        accuracy=accuracy,
+        correct=correct,
+        total=total,
+        promoted=promoted,
+    )
+
+
+def calibrate_all(frames: Optional[List[dict]] = None) -> List[CalibrationResult]:
+    """Calibrate every dimension against the labeled set."""
+    return [calibrate_dimension(d, frames) for d in DIMENSIONS]
+
+
+def gated_dimensions(frames: Optional[List[dict]] = None) -> List["Dimension"]:
+    """Dimensions promoted to gates by calibration."""
+    results = calibrate_all(frames)
+    promoted = {r.dimension for r in results if r.promoted}
+    return [d for d in DIMENSIONS if d.key in promoted]
+
+
+def is_gated(dimension_key: str, frames: Optional[List[dict]] = None) -> bool:
+    """Whether a specific dimension is calibrated and promoted to a gate."""
+    return any(r.dimension == dimension_key and r.promoted
+               for r in calibrate_all(frames))
+
 PROMPT_HEADER = (
     "This is one frame of a vertical short-form video, 1080x1920, meant to "
     "fill a phone screen.\n"
@@ -183,6 +306,28 @@ class FrameVerdict:
     def clean(self) -> bool:
         return (not self.findings and not self.parse_error
                 and not self.unanswered)
+
+
+def gate_failures(verdicts: List[FrameVerdict],
+                  frames: Optional[List[dict]] = None) -> List[dict]:
+    """Findings on calibrated (gated) dimensions, with their frame numbers.
+
+    These are the findings that fail verification. Findings on uncalibrated
+    dimensions are observations only - they have not earned the right to
+    fail a render.
+    """
+    gated = {d.key for d in gated_dimensions(frames)}
+    failures = []
+    for v in verdicts:
+        for f in v.findings:
+            if f.dimension in gated:
+                failures.append({
+                    "frame": v.frame,
+                    "dimension": f.dimension,
+                    "value": f.value,
+                    "detail": f.detail,
+                })
+    return failures
 
 
 def parse_verdict(raw: str, frame: int = 0,
@@ -249,6 +394,10 @@ def summarise(verdicts: List[FrameVerdict]) -> Dict[str, Any]:
     frames" and "the model said the frames were fine" have to be
     distinguishable at a glance. They were not: an unanswered dimension
     used to count as clean.
+
+    `gate_failures` are the findings on calibrated dimensions - the ones
+    that fail verification. Findings on uncalibrated dimensions are
+    observations only.
     """
     findings = [
         {"frame": v.frame, "dimension": f.dimension,
@@ -261,11 +410,12 @@ def summarise(verdicts: List[FrameVerdict]) -> Dict[str, Any]:
             unanswered[key] = unanswered.get(key, 0) + 1
     return {
         "model": MODEL_ID,
-        "observation_only": True,
+        "observation_only": False,
         "frames_examined": len(verdicts),
         "frames_clean": sum(1 for v in verdicts if v.clean),
         "parse_failures": sum(1 for v in verdicts if v.parse_error),
         "unanswered_dimensions": dict(sorted(unanswered.items())),
         "findings": findings,
+        "gate_failures": gate_failures(verdicts),
         "dimension_variance": dimension_variance(verdicts),
     }
