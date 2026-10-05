@@ -28,6 +28,8 @@ copy it; nothing goes into `pipeline_data.json`.
   clock.json                     # M6  - written
   events.json                    # M7  - written (library/tools/event_spans.py)
   verdicts.json                  # M8  - written (library/tools/span_verification.py)
+  world_model.json               # M9  - written (library/tools/world_model.py)
+  relationships.json             # M10 - written (library/tools/relationships.py)
 <root>/transcripts/<pcm_sha256>.json   # the canonical transcript measurement
 ```
 
@@ -474,6 +476,79 @@ NO spans come back as `rejected` with their reasons. `--verify` with a
 predicate that is not a candidate generator (on_screen, speaking)
 REFUSES: those spans run the length of the takes.
 
+## M10 `relationships.json` (written)
+
+Owner: `library/tools/relationships.py`. Light: built from M3 + M3b, no
+decode, no model, no lock. Gap 3 + Gap 7 of the world-model gap map
+(`data/vep-gapmap-a-world-model/report.md` in firstmate's home): the
+review's `Relationships` level - "person holding object, looking at
+person, referring to visible object".
+
+```json
+{
+  "content_digest": "sha256 hex", "source_file": "<absolute path>",
+  "status": "built", "frame_count": 10873,
+  "relationships": {
+    "holding": {"basis": "...",
+                "spans": [{"owners": ["face_001", "face_001"],
+                           "start": 12.0, "end": 14.5,
+                           "frames": [{"index": 24, "t": 12.5, "d": 0.12,
+                                       "hands": ["right", "left"]}]}]},
+    "pointing": {"basis": "...",
+                 "spans": [{"owners": ["face_001", "face_002"],
+                            "start": 40.25, "end": 41.75,
+                            "frames": [{"index": 80, "t": 40.5,
+                                        "angle": 4.2, "extension": 0.41,
+                                        "hand": "right"}]}]}
+  },
+  "unmeasured": {"looking_at": "<the refusal, verbatim>"}
+}
+```
+
+- `holding` - a confident joint of one hand within
+  `HOLDING_MAX_JOINT_DISTANCE` (0.5) face widths of another hand's, for
+  at least `HOLDING_MIN_FRAMES` (2) frames. The review's form is "hand
+  joints near OBJECT box"; M3 carries no object boxes (nothing tracks
+  objects yet), so the detector measures the other half of every hold:
+  the two hands that meet - a clasp, a handshake, a handoff, a
+  two-handed grip. The two hands may share an owner.
+- `pointing` - a hand's wrist->fingertip ray within
+  `POINTING_MAX_ANGLE_DEG` (25) of another tracked face's centre, the
+  hand extended at least `POINTING_MIN_HAND_EXTENSION` (0.3) face
+  widths past its wrist, for at least `POINTING_MIN_FRAMES` (2) frames.
+  A fist does not point; pointing at one's own face is M7's
+  hand-at-mouth rule, not a relationship.
+- Both are geometric CANDIDATES for VLM verification, never answers -
+  the same standing decision as M7's `hand_near_mouth`. Each frame
+  carries its measured distance (`d`) or angle and extension so a
+  verifier can judge the span without re-reading M3.
+- `looking_at` is REFUSED BY NAME under `unmeasured`, with the reason:
+  the review's detector is "face orientation (from landmarks) toward
+  another face's centre", and M3 persists no orientation -
+  `person_measurements.frame_record` writes only the lip regions of the
+  helper's landmark observations (the helper measures
+  leftEye/rightEye/nose/faceContour; they are dropped at persist time),
+  and an axis-aligned face box carries no facing direction. The unlock
+  is persisting the eye landmarks in M3.
+- Who is who: faces take M3b ArcFace tracks by position
+  (`event_spans.assign_face_tracks`); a hand belongs to the tracked
+  face its wrist is nearest. A hand or target no track claims is left
+  out of named relationships, not guessed into one.
+- Distances are measured in pixels (x scales by the frame width, y by
+  its height; the unit is the frame's mean face width) - the
+  coordinate contract `person_measurements` documents. A frame with no
+  face carries no scale, and a distance without a scale is not a
+  measurement.
+
+```sh
+python3 -m library.tools.relationships build <project>
+python3 -m library.tools.relationships status <project>
+```
+
+The build refuses (raises) without M3 or M3b, per source, and reports
+the failure without aborting the project - an unbuilt source would
+read as "no relationships here".
+
 ## Staleness
 
 A record is fresh when the file on disk still fingerprints to the
@@ -561,7 +636,10 @@ ren eval-search <project> --out-json F    # the pre-registered set by default
   ocr.extract`. Results land in `capability_outputs` and the preflight ledger, so
   `ren edit` continues with preflight done. Then the lanes in
   `footage_analysis.LANES` fill M0-M3b, M6, M7 and build the text and frame
-  indexes. `--memory-only` runs scan and catalog alone.
+  indexes; M9 (`world_model.json`) is built by `world_model.py` and
+  M10 (`relationships.json`) by `relationships.py`, both light
+  M3 + M3b, light, and is not a lane yet. `--memory-only` runs scan and
+  catalog alone.
 - **A fresh record is reused, never rebuilt**: a per-source lane runs only
   for sources whose slot is missing, names another digest, or is older than
   a slot it reads (an M3 measured off an M2 that was since re-sampled).

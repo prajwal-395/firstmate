@@ -147,6 +147,20 @@ def _m8_verdict(statement: str, frame_times: list, answer: str) -> dict:
     }
 
 
+def _m10_doc(digest: str, holding: list, pointing: list) -> dict:
+    """An M10 record with relationship candidate spans."""
+    return {
+        "content_digest": digest, "size_bytes": 12345,
+        "source_file": "/nowhere/FILE.MXF", "status": "built",
+        "frame_count": 20,
+        "relationships": {
+            "holding": {"basis": "test", "spans": holding},
+            "pointing": {"basis": "test", "spans": pointing},
+        },
+        "unmeasured": {"looking_at": "refused: no orientation in M3"},
+    }
+
+
 def _build_all_lanes(root: Path, digest: str, **kwargs) -> None:
     """Write every lane a test needs under one digest."""
     target = root / digest
@@ -173,6 +187,10 @@ def _build_all_lanes(root: Path, digest: str, **kwargs) -> None:
             verdicts[key] = verdict
         _write(target / source_memory.SLOT_VERDICTS,
                {"content_digest": digest, "verdicts": verdicts})
+    if "m10_holding" in kwargs or "m10_pointing" in kwargs:
+        _write(target / source_memory.SLOT_RELATIONSHIPS, _m10_doc(
+            digest, kwargs.get("m10_holding", []),
+            kwargs.get("m10_pointing", [])))
 
 
 # ── The join ──────────────────────────────────────────────────────
@@ -314,6 +332,41 @@ def test_hand_near_mouth_candidates_are_joined_with_verdicts(
     assert span["face_track"] == "face_001"
     assert len(span["verdicts"]) == 1
     assert span["verdicts"][0]["answer"] == "yes"
+
+
+def test_relationship_candidates_are_joined_per_second(
+        tmp_path, memory_root):
+    """M10 holding and pointing spans appear in the timeline's
+    `relationships` at the second they overlap, and `m10` joins
+    `lanes`.
+
+    The defect: a world model that joins every lane but the
+    relationships cannot answer "what is happening at time T" when the
+    happening is two people holding hands - the gap map's whole point.
+    """
+    digest = "b" * 64
+    holding = [{"owners": ["face_001", "face_001"], "start": 1.0,
+                "end": 3.0}]
+    pointing = [{"owners": ["face_001", "face_002"], "start": 4.0,
+                "end": 4.5}]
+    _build_all_lanes(memory_root, digest, duration=6.0,
+                     m10_holding=holding, m10_pointing=pointing)
+    record = world_model.build_source_world_model(digest,
+                                                  "/nowhere/FILE.MXF",
+                                                  memory_root)
+    assert "m10" in record["lanes"]
+    model = source_memory.read_world_model(digest, memory_root)
+    assert len(world_model.query_at_time(model, 2.0)["relationships"]
+               ["holding"]) == 1
+    assert world_model.query_at_time(model, 2.0)["relationships"
+                                                  ]["holding"][0][
+                                                      "owners"] == [
+                                                          "face_001",
+                                                          "face_001"]
+    assert len(world_model.query_at_time(model, 4.0)["relationships"]
+               ["pointing"]) == 1
+    assert world_model.query_at_time(model, 0.0)["relationships"] == {
+        "holding": [], "pointing": []}
 
 
 def test_a_missing_lane_is_absent_from_lanes_not_defaulted(

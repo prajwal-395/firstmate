@@ -8,10 +8,10 @@ A query like "where does Craig gesture while speaking" cannot be
 answered: M7 has speaking spans, M3 has hand geometry, but nothing
 joins them into "gesture while speaking."
 
-This module reads M0-M8 and emits a joined per-second timeline. No new
-measurement: every observation in the world model comes from a lane
-that already measured it. The join is pure data manipulation over the
-source memory.
+This module reads M0-M8 and M10 and emits a joined per-second
+timeline. No new measurement: every observation in the world model
+comes from a lane that already measured it. The join is pure data
+manipulation over the source memory.
 
 **The structure.** One entry per second of the source duration. Each
 entry carries every observation that falls within that second, so a
@@ -30,7 +30,8 @@ query at time T is one array index:
           "scene": {"location": ..., "type": ..., "lighting": ...} or null,
           "sound": {"events": [...]},
           "events": {"on_screen": [...], "speaking": [...],
-                     "hand_near_mouth": [...]}
+                     "hand_near_mouth": [...]},
+          "relationships": {"holding": [...], "pointing": [...]}
         },
         ...
       ],
@@ -52,6 +53,9 @@ query at time T is one array index:
 - M7: on_screen, speaking and hand_near_mouth spans -> `events`.
 - M8: VLM verdicts on candidate spans -> `events.hand_near_mouth`
   verdicts.
+- M10: holding and pointing candidate spans -> `relationships`
+  (geometric candidates from `relationships.py`, never answers;
+  looking_at is refused there for lack of orientation in M3).
 
 A lane that was never built is ABSENT from `lanes`, never defaulted:
 the world model joins what exists and says what it joined.
@@ -201,6 +205,29 @@ def _events_at(m7: Optional[dict], m8: Optional[dict],
     return events
 
 
+def _relationships_at(m10: Optional[dict], lo: float, hi: float) -> dict:
+    """M10 relationship candidate spans overlapping [lo, hi).
+
+    The geometric candidates `relationships.py` measured (holding,
+    pointing) - never answers, the same standing decision as M7's
+    hand_near_mouth. `looking_at` is absent by refusal, not by an
+    empty list: the record's `unmeasured` section says why.
+    """
+    measured = {"holding": [], "pointing": []}
+    if not m10:
+        return measured
+    for name in measured:
+        for span in ((m10.get("relationships") or {}).get(name, {})
+                     .get("spans") or []):
+            if _overlap(span["start"], span["end"], lo, hi):
+                measured[name].append({
+                    "owners": span.get("owners"),
+                    "start": span["start"],
+                    "end": span["end"],
+                })
+    return measured
+
+
 def _verdicts_for_span(span: dict, m8: Optional[dict]) -> List[dict]:
     """M8 verdicts whose frames match this candidate span's selected frames."""
     if not m8:
@@ -249,7 +276,7 @@ def _build_multicam(m6: Optional[dict]) -> Optional[dict]:
 def build_timeline(duration: float, m1: Optional[dict], m3: Optional[dict],
                    m3b: Optional[dict], m4: Optional[dict],
                    m5: Optional[dict], m7: Optional[dict],
-                   m8: Optional[dict],
+                   m8: Optional[dict], m10: Optional[dict],
                    m3c: Optional[dict] = None) -> list:
     """Join the lanes into a per-second timeline.
 
@@ -272,6 +299,7 @@ def build_timeline(duration: float, m1: Optional[dict], m3: Optional[dict],
             "scene": _scene_at(m4, lo),
             "sound": {"events": _sound_at(m5, lo, hi)},
             "events": _events_at(m7, m8, lo, hi),
+            "relationships": _relationships_at(m10, lo, hi),
         })
     return timeline
 
@@ -291,14 +319,17 @@ def build_source_world_model(content_digest: str, source_file: str,
     m6 = conversation_clock.read_clock(content_digest, root)
     m7 = event_spans.read_m7(content_digest, root)
     m8 = span_verification.read_verdicts(content_digest, root)
+    m10 = source_memory.read_relationships(content_digest, root)
     m3c = expression_classifier.read_m3c(content_digest, root)
 
     duration = (m0 or {}).get("duration_seconds") or 0.0
-    timeline = build_timeline(duration, m1_doc, m3, m3b, m4, m5, m7, m8, m3c)
+    timeline = build_timeline(duration, m1_doc, m3, m3b, m4, m5, m7, m8, m10,
+                              m3c)
 
     lanes = [name for name, doc in (
         ("m0", m0), ("m1", m1_doc), ("m3", m3), ("m3b", m3b),
         ("m3c", m3c), ("m4", m4), ("m5", m5), ("m6", m6), ("m7", m7),
+        ("m10", m10),
     ) if doc is not None]
 
     record = {
