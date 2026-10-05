@@ -1241,6 +1241,29 @@ def main():
             }))
             sys.exit(1)
 
+    # Gap 9: score the ordering and re-order on a low score. The LLM
+    # produced this ordering in one call; this is the deterministic
+    # second pass that checks redundancy, setup/payoff adjacency,
+    # continuity and variety, and re-orders when the score is low.
+    from library.tools import sequence_scoring
+    body = enriched.get("body_sequence", [])
+    if body:
+        result = sequence_scoring.optimize_ordering(body, model)
+        if result["reordered"]:
+            enriched["body_sequence"] = result["passages"]
+            enriched["sequence_optimization"] = {
+                "score_before": result["score_before"]["total"],
+                "score_after": result["score_after"]["total"],
+                "problems_before": result["score_before"]["problems"],
+                "problems_after": result["score_after"]["problems"],
+            }
+            print(
+                f"  Sequence reordered: score "
+                f"{result['score_before']['total']:.2f} -> "
+                f"{result['score_after']['total']:.2f}",
+                file=sys.stderr,
+            )
+
     # No passage count check. How many passages the edit needs is a
     # creative decision driven by the duration target and the footage.
     # Captain's directive 2026-09-02: remove hardcoded creative values.
