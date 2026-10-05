@@ -714,6 +714,13 @@ One enumeration, `library/tools/marker_payload.py`.
 - **Two neighbouring decisions are the captain's and this file must not take either**: what produces the COPY a graphic shows, and whether the model authors a component or fills a props schema. An entry declares only WHETHER it needs a text payload. `COPY_SOURCE_IS_UNSET` records both; a change that would force one is a stop, not an implication.
 - `roster_rows()` and `ROSTER_LEGEND` are the prompt-side route - a definition beside the table, not in 4.06's prose. The whole roster ships - nothing is shortlisted, because whatever selects a shortlist becomes the chooser (§10.5). **Step 4.06's bridge is the consumer**, and `motion_graphics_plan.DRAWABLE` is DERIVED from the `reachable` column, not listed twice (§10.2).
 - **An ANIMATED EXPLAINER is a staged plan over this roster, timed to the WORDS that say each stage.** `library/tools/explainer_plan.py`. [why](docs/ANIMATED_EXPLAINER.md)
+
+## 17. Rust
+
+**One workspace, boring Rust.** Every Rust crate is a member of the ONE Cargo workspace at `native/Cargo.toml`; the shared target dir is `native/target` (gitignored, never committed). Captain's rule for every crate: concrete structs and enums, limited generics, simple traits, explicit ownership, no async trait hierarchies.
+
+**The first crate is `ren-cli`, the native front door** - what it does, how it is built and what it refuses, live with it: `native/ren-cli/README.md`.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.

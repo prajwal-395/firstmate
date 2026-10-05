@@ -170,6 +170,7 @@ SECTION_BUDGETS = {
     "## 14. General assets vs project assets": 2300,
     "## 15. Notes the captain types onto the timeline": 1521,
     "## 16. Motion graphics": 2349,
+    "## 17. Rust": 480,
     "## Maintaining this file": 553,
 }
 

@@ -1,0 +1,9 @@
+# The ONE Cargo workspace every Ren Rust crate is a member of.
+#
+# The shared target dir is `native/target` (gitignored, never committed):
+# a build artifact a checkout can regenerate, never a fact about the
+# source. Crates land here as the Rust-core migrations ship them; the
+# first is `ren-cli`, the native front door.
+[workspace]
+members = ["ren-cli"]
+resolver = "2"

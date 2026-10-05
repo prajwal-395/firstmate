@@ -86,6 +86,9 @@ data/
 ren/_build.py
 /pr_body.md
 
+# ─── Rust (one workspace at native/, shared target dir) ────
+/native/target/
+
 # local convenience launcher, not shared
 /dash
 scripts/.resolve_memory_trial_state.json

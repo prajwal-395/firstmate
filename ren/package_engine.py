@@ -262,6 +262,31 @@ def _without_requirements(text: str, names: set[str]) -> str:
     return "".join(kept)
 
 
+def _install_native_front_door(dest: Path) -> None:
+    """Replace the copied bash front door with the native binary.
+
+    The build is a repo script (`scripts/build_ren_cli.sh`) because the
+    binary is a build artifact, never a committed fact about the source.
+    A machine without the Rust toolchain keeps the bash door - the
+    script exits 4 and this returns - so packaging never fails for
+    lack of cargo, and the Python entry point (`python -m ren.cli`)
+    runs either way.
+    """
+    script = Path(__file__).resolve().parent.parent / "scripts" / "build_ren_cli.sh"
+    if not script.is_file():
+        return
+    try:
+        done = subprocess.run(
+            ["bash", str(script), str(dest / "bin")],
+            capture_output=True, encoding="utf-8", timeout=600, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return
+    if done.returncode != 0 and done.stderr.strip():
+        print(f"ren: keeping the bash front door: {done.stderr.strip()}",
+              file=sys.stderr)
+
+
 def build_engine_tree(src: Path, dest: Path, channel: str = "dev",
                       sha: str | None = None,
                       built_at: str | None = None,
@@ -344,6 +369,7 @@ def build_engine_tree(src: Path, dest: Path, channel: str = "dev",
         destination_path = dest / destination
         destination_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source_path, destination_path)
+    _install_native_front_door(dest)
     _write_build_record(
         dest,
         build_sha,
