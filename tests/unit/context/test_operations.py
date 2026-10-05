@@ -2364,3 +2364,821 @@ def test_a_delete_instruction_routes_through_the_program_to_the_algebra(
     assert rows[0]["op"] == "edit_program"
     assert rows[0]["params"]["ops"][0]["op"] == "clip.delete"
     assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+def test_an_insert_instruction_routes_through_the_program_to_the_algebra(
+        tmp_path):
+    """An insert instruction routes through the edit program to clip.insert.
+
+    Defect: an insert instruction that does not route through the edit
+    program and algebra cannot be executed as a precise reversible
+    operation - it would be a note that reaches a planner as free text.
+    """
+    from library.tools import edit_ledger, edit_spec
+    project = _program_project(tmp_path)
+    request = "insert the clip at 20 seconds"
+    program = {
+        "kind": "edit_program",
+        "base_generation": "42",
+        "idempotency_key": "req-insert-clip",
+        "anchor": {"kind": "reel"},
+        "reel": "Reel 09 - hook",
+        "ops": [
+            {"op": "clip.insert",
+             "params": {"unique_id": "clip_017", "track_type": "video",
+                        "track_index": 1, "record_in": 20, "record_out": 50},
+             "text": "insert the clip at 20 seconds"},
+        ],
+    }
+    spec = _prepare_and_load(project, request, program)
+    edit_spec.record_spec(str(project), spec)
+    rows = edit_ledger.load_rows(str(project))
+    assert len(rows) == 1
+    assert rows[0]["op"] == "edit_program"
+    assert rows[0]["params"]["ops"][0]["op"] == "clip.insert"
+    assert rows[0]["params"]["ops"][0]["params"]["record_in"] == 20
+    assert rows[0]["params"]["ops"][0]["params"]["record_out"] == 50
+    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+def test_a_join_instruction_routes_through_the_program_to_the_algebra(
+        tmp_path):
+    """A join instruction routes through the edit program to clip.join.
+
+    Defect: a join instruction that does not route through the edit
+    program and algebra cannot be executed as a precise reversible
+    operation - it would be a note that reaches a planner as free text.
+    """
+    from library.tools import edit_ledger, edit_spec
+    project = _program_project(tmp_path)
+    request = "join the two clips"
+    program = {
+        "kind": "edit_program",
+        "base_generation": "42",
+        "idempotency_key": "req-join-clips",
+        "anchor": {"kind": "reel"},
+        "reel": "Reel 09 - hook",
+        "ops": [
+            {"op": "clip.join",
+             "params": {"unique_id": "clip_017",
+                        "other_unique_id": "clip_018"},
+             "text": "join the two clips"},
+        ],
+    }
+    spec = _prepare_and_load(project, request, program)
+    edit_spec.record_spec(str(project), spec)
+    rows = edit_ledger.load_rows(str(project))
+    assert len(rows) == 1
+    assert rows[0]["op"] == "edit_program"
+    assert rows[0]["params"]["ops"][0]["op"] == "clip.join"
+    assert rows[0]["params"]["ops"][0]["params"]["other_unique_id"] == "clip_018"
+    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+def test_a_ripple_instruction_routes_through_the_program_to_the_algebra(
+        tmp_path):
+    """A ripple instruction routes through the edit program to clip.ripple.
+
+    Defect: a ripple instruction that does not route through the edit
+    program and algebra cannot be executed as a precise reversible
+    operation - it would be a note that reaches a planner as free text.
+    """
+    from library.tools import edit_ledger, edit_spec
+    project = _program_project(tmp_path)
+    request = "ripple the later clips by 10 frames"
+    program = {
+        "kind": "edit_program",
+        "base_generation": "42",
+        "idempotency_key": "req-ripple-10f",
+        "anchor": {"kind": "reel"},
+        "reel": "Reel 09 - hook",
+        "ops": [
+            {"op": "clip.ripple",
+             "params": {"unique_id": "clip_017", "delta_frames": 10},
+             "text": "ripple the later clips by 10 frames"},
+        ],
+    }
+    spec = _prepare_and_load(project, request, program)
+    edit_spec.record_spec(str(project), spec)
+    rows = edit_ledger.load_rows(str(project))
+    assert len(rows) == 1
+    assert rows[0]["op"] == "edit_program"
+    assert rows[0]["params"]["ops"][0]["op"] == "clip.ripple"
+    assert rows[0]["params"]["ops"][0]["params"]["delta_frames"] == 10
+    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+def test_a_roll_instruction_routes_through_the_program_to_the_algebra(
+        tmp_path):
+    """A roll instruction routes through the edit program to clip.roll.
+
+    Defect: a roll instruction that does not route through the edit
+    program and algebra cannot be executed as a precise reversible
+    operation - it would be a note that reaches a planner as free text.
+    """
+    from library.tools import edit_ledger, edit_spec
+    project = _program_project(tmp_path)
+    request = "roll the clip source by 5 frames"
+    program = {
+        "kind": "edit_program",
+        "base_generation": "42",
+        "idempotency_key": "req-roll-5f",
+        "anchor": {"kind": "reel"},
+        "reel": "Reel 09 - hook",
+        "ops": [
+            {"op": "clip.roll",
+             "params": {"unique_id": "clip_017", "delta_frames": 5},
+             "text": "roll the clip source by 5 frames"},
+        ],
+    }
+    spec = _prepare_and_load(project, request, program)
+    edit_spec.record_spec(str(project), spec)
+    rows = edit_ledger.load_rows(str(project))
+    assert len(rows) == 1
+    assert rows[0]["op"] == "edit_program"
+    assert rows[0]["params"]["ops"][0]["op"] == "clip.roll"
+    assert rows[0]["params"]["ops"][0]["params"]["delta_frames"] == 5
+    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+def test_a_slip_instruction_routes_through_the_program_to_the_algebra(
+        tmp_path):
+    """A slip instruction routes through the edit program to clip.slip.
+
+    Defect: a slip instruction that does not route through the edit
+    program and algebra cannot be executed as a precise reversible
+    operation - it would be a note that reaches a planner as free text.
+    """
+    from library.tools import edit_ledger, edit_spec
+    project = _program_project(tmp_path)
+    request = "slip the clip by 5 frames"
+    program = {
+        "kind": "edit_program",
+        "base_generation": "42",
+        "idempotency_key": "req-slip-5f",
+        "anchor": {"kind": "reel"},
+        "reel": "Reel 09 - hook",
+        "ops": [
+            {"op": "clip.slip",
+             "params": {"unique_id": "clip_017", "delta_frames": 5},
+             "text": "slip the clip by 5 frames"},
+        ],
+    }
+    spec = _prepare_and_load(project, request, program)
+    edit_spec.record_spec(str(project), spec)
+    rows = edit_ledger.load_rows(str(project))
+    assert len(rows) == 1
+    assert rows[0]["op"] == "edit_program"
+    assert rows[0]["params"]["ops"][0]["op"] == "clip.slip"
+    assert rows[0]["params"]["ops"][0]["params"]["delta_frames"] == 5
+    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+def test_a_slide_instruction_routes_through_the_program_to_the_algebra(
+        tmp_path):
+    """A slide instruction routes through the edit program to clip.slide.
+
+    Defect: a slide instruction that does not route through the edit
+    program and algebra cannot be executed as a precise reversible
+    operation - it would be a note that reaches a planner as free text.
+    """
+    from library.tools import edit_ledger, edit_spec
+    project = _program_project(tmp_path)
+    request = "slide the clip to 30 seconds"
+    program = {
+        "kind": "edit_program",
+        "base_generation": "42",
+        "idempotency_key": "req-slide-30s",
+        "anchor": {"kind": "reel"},
+        "reel": "Reel 09 - hook",
+        "ops": [
+            {"op": "clip.slide",
+             "params": {"unique_id": "clip_017", "to_frame": 30},
+             "text": "slide the clip to 30 seconds"},
+        ],
+    }
+    spec = _prepare_and_load(project, request, program)
+    edit_spec.record_spec(str(project), spec)
+    rows = edit_ledger.load_rows(str(project))
+    assert len(rows) == 1
+    assert rows[0]["op"] == "edit_program"
+    assert rows[0]["params"]["ops"][0]["op"] == "clip.slide"
+    assert rows[0]["params"]["ops"][0]["params"]["to_frame"] == 30
+    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+def test_a_move_instruction_routes_through_the_program_to_the_algebra(
+        tmp_path):
+    """A move instruction routes through the edit program to clip.move.
+
+    Defect: a move instruction that does not route through the edit
+    program and algebra cannot be executed as a precise reversible
+    operation - it would be a note that reaches a planner as free text.
+    """
+    from library.tools import edit_ledger, edit_spec
+    project = _program_project(tmp_path)
+    request = "move the clip to 30 seconds"
+    program = {
+        "kind": "edit_program",
+        "base_generation": "42",
+        "idempotency_key": "req-move-30s",
+        "anchor": {"kind": "reel"},
+        "reel": "Reel 09 - hook",
+        "ops": [
+            {"op": "clip.move",
+             "params": {"unique_id": "clip_017", "to_frame": 30},
+             "text": "move the clip to 30 seconds"},
+        ],
+    }
+    spec = _prepare_and_load(project, request, program)
+    edit_spec.record_spec(str(project), spec)
+    rows = edit_ledger.load_rows(str(project))
+    assert len(rows) == 1
+    assert rows[0]["op"] == "edit_program"
+    assert rows[0]["params"]["ops"][0]["op"] == "clip.move"
+    assert rows[0]["params"]["ops"][0]["params"]["to_frame"] == 30
+    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+def test_a_replace_instruction_routes_through_the_program_to_the_algebra(
+        tmp_path):
+    """A replace instruction routes through the edit program to clip.replace.
+
+    Defect: a replace instruction that does not route through the edit
+    program and algebra cannot be executed as a precise reversible
+    operation - it would be a note that reaches a planner as free text.
+    """
+    from library.tools import edit_ledger, edit_spec
+    project = _program_project(tmp_path)
+    request = "replace the clip with another take"
+    program = {
+        "kind": "edit_program",
+        "base_generation": "42",
+        "idempotency_key": "req-replace-take",
+        "anchor": {"kind": "reel"},
+        "reel": "Reel 09 - hook",
+        "ops": [
+            {"op": "clip.replace",
+             "params": {"unique_id": "clip_017",
+                        "source_file": "take_02.mov"},
+             "text": "replace the clip with another take"},
+        ],
+    }
+    spec = _prepare_and_load(project, request, program)
+    edit_spec.record_spec(str(project), spec)
+    rows = edit_ledger.load_rows(str(project))
+    assert len(rows) == 1
+    assert rows[0]["op"] == "edit_program"
+    assert rows[0]["params"]["ops"][0]["op"] == "clip.replace"
+    assert rows[0]["params"]["ops"][0]["params"]["source_file"] == "take_02.mov"
+    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+def test_an_enable_disable_instruction_routes_through_the_program_to_the_algebra(
+        tmp_path):
+    """An enable/disable instruction routes through the edit program to
+    clip.set_enabled.
+
+    Defect: an enable/disable instruction that does not route through the
+    edit program and algebra cannot be executed as a precise reversible
+    operation - it would be a note that reaches a planner as free text.
+    """
+    from library.tools import edit_ledger, edit_spec
+    project = _program_project(tmp_path)
+    request = "disable the clip"
+    program = {
+        "kind": "edit_program",
+        "base_generation": "42",
+        "idempotency_key": "req-disable-clip",
+        "anchor": {"kind": "reel"},
+        "reel": "Reel 09 - hook",
+        "ops": [
+            {"op": "clip.set_enabled",
+             "params": {"unique_id": "clip_017", "enabled": False},
+             "text": "disable the clip"},
+        ],
+    }
+    spec = _prepare_and_load(project, request, program)
+    edit_spec.record_spec(str(project), spec)
+    rows = edit_ledger.load_rows(str(project))
+    assert len(rows) == 1
+    assert rows[0]["op"] == "edit_program"
+    assert rows[0]["params"]["ops"][0]["op"] == "clip.set_enabled"
+    assert rows[0]["params"]["ops"][0]["params"]["enabled"] is False
+    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+def test_an_unlink_instruction_routes_through_the_program_to_the_algebra(
+        tmp_path):
+    """An unlink instruction routes through the edit program to clip.unlink.
+
+    Defect: an unlink instruction that does not route through the edit
+    program and algebra cannot be executed as a precise reversible
+    operation - it would be a note that reaches a planner as free text.
+    """
+    from library.tools import edit_ledger, edit_spec
+    project = _program_project(tmp_path)
+    request = "unlink the clip"
+    program = {
+        "kind": "edit_program",
+        "base_generation": "42",
+        "idempotency_key": "req-unlink-clip",
+        "anchor": {"kind": "reel"},
+        "reel": "Reel 09 - hook",
+        "ops": [
+            {"op": "clip.unlink",
+             "params": {"unique_id": "clip_017"},
+             "text": "unlink the clip"},
+        ],
+    }
+    spec = _prepare_and_load(project, request, program)
+    edit_spec.record_spec(str(project), spec)
+    rows = edit_ledger.load_rows(str(project))
+    assert len(rows) == 1
+    assert rows[0]["op"] == "edit_program"
+    assert rows[0]["params"]["ops"][0]["op"] == "clip.unlink"
+    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+def test_a_track_add_instruction_routes_through_the_program_to_the_algebra(
+        tmp_path):
+    """A track-add instruction routes through the edit program to track.add.
+
+    Defect: a track instruction that does not route through the edit
+    program and algebra cannot be executed as a precise reversible
+    operation - it would be a note that reaches a planner as free text.
+    """
+    from library.tools import edit_ledger, edit_spec
+    project = _program_project(tmp_path)
+    request = "add a video track"
+    program = {
+        "kind": "edit_program",
+        "base_generation": "42",
+        "idempotency_key": "req-add-track",
+        "anchor": {"kind": "reel"},
+        "reel": "Reel 09 - hook",
+        "ops": [
+            {"op": "track.add",
+             "params": {"track_type": "video", "name": "V3"},
+             "text": "add a video track"},
+        ],
+    }
+    spec = _prepare_and_load(project, request, program)
+    edit_spec.record_spec(str(project), spec)
+    rows = edit_ledger.load_rows(str(project))
+    assert len(rows) == 1
+    assert rows[0]["op"] == "edit_program"
+    assert rows[0]["params"]["ops"][0]["op"] == "track.add"
+    assert rows[0]["params"]["ops"][0]["params"]["name"] == "V3"
+    assert rows[0]["params"]["ops"][0]["params"]["track_type"] == "video"
+def test_a_clip_properties_instruction_routes_through_the_program_to_the_algebra(
+        tmp_path):
+    """A clip-properties instruction routes through the edit program to
+    clip.set_property.
+
+    Defect: a clip-properties instruction that does not route through the
+    edit program and algebra cannot be executed as a precise reversible
+    operation - it would be a note that reaches a planner as free text.
+    """
+    from library.tools import edit_ledger, edit_spec
+    project = _program_project(tmp_path)
+    request = "set the clip opacity to half"
+    program = {
+        "kind": "edit_program",
+        "base_generation": "42",
+        "idempotency_key": "req-set-opacity",
+        "anchor": {"kind": "reel"},
+        "reel": "Reel 09 - hook",
+        "ops": [
+            {"op": "clip.set_property",
+             "params": {"unique_id": "clip_017", "key": "Opacity",
+                        "value": 0.5},
+             "text": "set the clip opacity to half"},
+        ],
+    }
+    spec = _prepare_and_load(project, request, program)
+    edit_spec.record_spec(str(project), spec)
+    rows = edit_ledger.load_rows(str(project))
+    assert len(rows) == 1
+    assert rows[0]["op"] == "edit_program"
+    assert rows[0]["params"]["ops"][0]["op"] == "clip.set_property"
+    assert rows[0]["params"]["ops"][0]["params"]["key"] == "Opacity"
+    assert rows[0]["params"]["ops"][0]["params"]["value"] == 0.5
+    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+def test_a_retime_curves_instruction_routes_through_the_program_to_the_algebra(
+        tmp_path):
+    """A retime-curves instruction routes through the edit program to
+    retime.segments.
+
+    Defect: a retime-curves instruction that does not route through the
+    edit program and algebra cannot be executed as a precise reversible
+    operation - it would be a note that reaches a planner as free text.
+    """
+    from library.tools import edit_ledger, edit_spec
+    project = _program_project(tmp_path)
+    request = "ramp the speed down halfway"
+    program = {
+        "kind": "edit_program",
+        "base_generation": "42",
+        "idempotency_key": "req-ramp-speed",
+        "anchor": {"kind": "reel"},
+        "reel": "Reel 09 - hook",
+        "ops": [
+            {"op": "retime.segments",
+             "params": {"unique_id": "clip_017",
+                        "segments": [{"record_frame": 0, "percent": 100},
+                                     {"record_frame": 30, "percent": 50}]},
+             "text": "ramp the speed down halfway"},
+        ],
+    }
+    spec = _prepare_and_load(project, request, program)
+    edit_spec.record_spec(str(project), spec)
+    rows = edit_ledger.load_rows(str(project))
+    assert len(rows) == 1
+    assert rows[0]["op"] == "edit_program"
+    assert rows[0]["params"]["ops"][0]["op"] == "retime.segments"
+    assert rows[0]["params"]["ops"][0]["params"]["segments"][1]["percent"] == 50
+    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+def test_a_keyframes_instruction_routes_through_the_program_to_the_algebra(
+        tmp_path):
+    """A keyframes instruction routes through the edit program to
+    picture.keyframe.
+
+    Defect: a keyframes instruction that does not route through the edit
+    program and algebra cannot be executed as a precise reversible
+    operation - it would be a note that reaches a planner as free text.
+    """
+    from library.tools import edit_ledger, edit_spec
+    project = _program_project(tmp_path)
+    request = "keyframe the zoom"
+    program = {
+        "kind": "edit_program",
+        "base_generation": "42",
+        "idempotency_key": "req-keyframe-zoom",
+        "anchor": {"kind": "reel"},
+        "reel": "Reel 09 - hook",
+        "ops": [
+            {"op": "picture.keyframe",
+             "params": {"unique_id": "clip_017", "param": "ZoomX",
+                        "keyframes": [{"frame": 0, "value": 1.0},
+                                      {"frame": 30, "value": 1.5}]},
+             "text": "keyframe the zoom"},
+        ],
+    }
+    spec = _prepare_and_load(project, request, program)
+    edit_spec.record_spec(str(project), spec)
+    rows = edit_ledger.load_rows(str(project))
+    assert len(rows) == 1
+    assert rows[0]["op"] == "edit_program"
+    assert rows[0]["params"]["ops"][0]["op"] == "picture.keyframe"
+    assert rows[0]["params"]["ops"][0]["params"]["param"] == "ZoomX"
+    assert rows[0]["params"]["ops"][0]["params"]["keyframes"][1]["value"] == 1.5
+    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+def test_a_transitions_instruction_routes_through_the_program_to_the_algebra(
+        tmp_path):
+    """A transitions instruction routes through the edit program to
+    transition.
+
+    Defect: a transitions instruction that does not route through the
+    edit program and algebra cannot be executed as a precise reversible
+    operation - it would be a note that reaches a planner as free text.
+    """
+    from library.tools import edit_ledger, edit_spec
+    project = _program_project(tmp_path)
+    request = "add a cross dissolve at the cut"
+    program = {
+        "kind": "edit_program",
+        "base_generation": "42",
+        "idempotency_key": "req-add-dissolve",
+        "anchor": {"kind": "reel"},
+        "reel": "Reel 09 - hook",
+        "ops": [
+            {"op": "transition",
+             "params": {"carrier": "clip_017",
+                        "transition": "cross_dissolve"},
+             "text": "add a cross dissolve at the cut"},
+        ],
+    }
+    spec = _prepare_and_load(project, request, program)
+    edit_spec.record_spec(str(project), spec)
+    rows = edit_ledger.load_rows(str(project))
+    assert len(rows) == 1
+    assert rows[0]["op"] == "edit_program"
+    assert rows[0]["params"]["ops"][0]["op"] == "transition"
+    assert rows[0]["params"]["ops"][0]["params"]["transition"] == "cross_dissolve"
+    assert rows[0]["params"]["ops"][0]["params"]["carrier"] == "clip_017"
+def test_a_compositing_instruction_routes_through_the_program_to_the_algebra(
+        tmp_path):
+    """A compositing instruction routes through the edit program to
+    compound.create.
+
+    Defect: a compositing instruction that does not route through the
+    edit program and algebra cannot be executed as a precise reversible
+    operation - it would be a note that reaches a planner as free text.
+    """
+    from library.tools import edit_ledger, edit_spec
+    project = _program_project(tmp_path)
+    request = "compound the two clips"
+    program = {
+        "kind": "edit_program",
+        "base_generation": "42",
+        "idempotency_key": "req-compound-clips",
+        "anchor": {"kind": "reel"},
+        "reel": "Reel 09 - hook",
+        "ops": [
+            {"op": "compound.create",
+             "params": {"unique_id": "compound_01",
+                        "child_unique_ids": ["clip_017", "clip_018"]},
+             "text": "compound the two clips"},
+        ],
+    }
+    spec = _prepare_and_load(project, request, program)
+    edit_spec.record_spec(str(project), spec)
+    rows = edit_ledger.load_rows(str(project))
+    assert len(rows) == 1
+    assert rows[0]["op"] == "edit_program"
+    assert rows[0]["params"]["ops"][0]["op"] == "compound.create"
+    assert rows[0]["params"]["ops"][0]["params"]["child_unique_ids"] == [
+        "clip_017", "clip_018"]
+    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "compound_01"
+def test_a_reframe_instruction_routes_through_the_program_to_the_algebra(
+        tmp_path):
+    """A reframe instruction routes through the edit program to
+    clip.smart_reframe.
+
+    Defect: a reframe instruction that does not route through the edit
+    program and algebra cannot be executed as a precise reversible
+    operation - it would be a note that reaches a planner as free text.
+    """
+    from library.tools import edit_ledger, edit_spec
+    project = _program_project(tmp_path)
+    request = "reframe the shot"
+    program = {
+        "kind": "edit_program",
+        "base_generation": "42",
+        "idempotency_key": "req-reframe-shot",
+        "anchor": {"kind": "reel"},
+        "reel": "Reel 09 - hook",
+        "ops": [
+            {"op": "clip.smart_reframe",
+             "params": {"unique_id": "clip_017",
+                        "keys": ["Pan", "Tilt", "ZoomX"],
+                        "before": {"Pan": 0, "Tilt": 0, "ZoomX": 1.0}},
+             "text": "reframe the shot"},
+        ],
+    }
+    spec = _prepare_and_load(project, request, program)
+    edit_spec.record_spec(str(project), spec)
+    rows = edit_ledger.load_rows(str(project))
+    assert len(rows) == 1
+    assert rows[0]["op"] == "edit_program"
+    assert rows[0]["params"]["ops"][0]["op"] == "clip.smart_reframe"
+    assert rows[0]["params"]["ops"][0]["params"]["keys"] == [
+        "Pan", "Tilt", "ZoomX"]
+    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+def test_a_mask_track_instruction_routes_through_the_program_to_the_algebra(
+        tmp_path):
+    """A mask-track instruction routes through the edit program to
+    mask.track.
+
+    Defect: a mask-track instruction that does not route through the edit
+    program and algebra cannot be executed as a precise reversible
+    operation - it would be a note that reaches a planner as free text.
+    """
+    from library.tools import edit_ledger, edit_spec
+    project = _program_project(tmp_path)
+    request = "track the mask"
+    program = {
+        "kind": "edit_program",
+        "base_generation": "42",
+        "idempotency_key": "req-track-mask",
+        "anchor": {"kind": "reel"},
+        "reel": "Reel 09 - hook",
+        "ops": [
+            {"op": "mask.track",
+             "params": {"unique_id": "clip_017",
+                        "transform": {"Pan": 0, "Tilt": 0}},
+             "text": "track the mask"},
+        ],
+    }
+    spec = _prepare_and_load(project, request, program)
+    edit_spec.record_spec(str(project), spec)
+    rows = edit_ledger.load_rows(str(project))
+    assert len(rows) == 1
+    assert rows[0]["op"] == "edit_program"
+    assert rows[0]["params"]["ops"][0]["op"] == "mask.track"
+    assert rows[0]["params"]["ops"][0]["params"]["transform"] == {
+        "Pan": 0, "Tilt": 0}
+    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+def test_an_audio_fades_instruction_routes_through_the_program_to_the_algebra(
+        tmp_path):
+    """An audio-fades instruction routes through the edit program to
+    audio.fade.
+
+    Defect: an audio-fades instruction that does not route through the
+    edit program and algebra cannot be executed as a precise reversible
+    operation - it would be a note that reaches a planner as free text.
+    """
+    from library.tools import edit_ledger, edit_spec
+    project = _program_project(tmp_path)
+    request = "fade the audio in and out"
+    program = {
+        "kind": "edit_program",
+        "base_generation": "42",
+        "idempotency_key": "req-fade-audio",
+        "anchor": {"kind": "reel"},
+        "reel": "Reel 09 - hook",
+        "ops": [
+            {"op": "audio.fade",
+             "params": {"unique_id": "clip_017", "fade_in": 0.5,
+                        "fade_out": 0.5},
+             "text": "fade the audio in and out"},
+        ],
+    }
+    spec = _prepare_and_load(project, request, program)
+    edit_spec.record_spec(str(project), spec)
+    rows = edit_ledger.load_rows(str(project))
+    assert len(rows) == 1
+    assert rows[0]["op"] == "edit_program"
+    assert rows[0]["params"]["ops"][0]["op"] == "audio.fade"
+    assert rows[0]["params"]["ops"][0]["params"]["fade_in"] == 0.5
+    assert rows[0]["params"]["ops"][0]["params"]["fade_out"] == 0.5
+    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+def test_a_grade_nodes_instruction_routes_through_the_program_to_the_algebra(
+        tmp_path):
+    """A grade-nodes instruction routes through the edit program to
+    grade.node_set.
+
+    Defect: a grade-nodes instruction that does not route through the
+    edit program and algebra cannot be executed as a precise reversible
+    operation - it would be a note that reaches a planner as free text.
+    """
+    from library.tools import edit_ledger, edit_spec
+    project = _program_project(tmp_path)
+    request = "set the grade on node 2"
+    program = {
+        "kind": "edit_program",
+        "base_generation": "42",
+        "idempotency_key": "req-grade-node-2",
+        "anchor": {"kind": "reel"},
+        "reel": "Reel 09 - hook",
+        "ops": [
+            {"op": "grade.node_set",
+             "params": {"unique_id": "clip_017", "node_index": 2,
+                        "params": {"slope_r": 1.1, "slope_g": 1.0,
+                                   "slope_b": 1.0, "offset_r": 0.0,
+                                   "offset_g": 0.0, "offset_b": 0.0,
+                                   "power_r": 1.0, "power_g": 1.0,
+                                   "power_b": 1.0, "saturation": 1.0}},
+             "text": "set the grade on node 2"},
+        ],
+    }
+    spec = _prepare_and_load(project, request, program)
+    edit_spec.record_spec(str(project), spec)
+    rows = edit_ledger.load_rows(str(project))
+    assert len(rows) == 1
+    assert rows[0]["op"] == "edit_program"
+    assert rows[0]["params"]["ops"][0]["op"] == "grade.node_set"
+    assert rows[0]["params"]["ops"][0]["params"]["node_index"] == 2
+    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+def test_a_caption_edits_instruction_routes_through_the_program_to_the_algebra(
+        tmp_path):
+    """A caption-edits instruction routes through the edit program to
+    caption_fix.
+
+    Defect: a caption-edits instruction that does not route through the
+    edit program and algebra cannot be executed as a precise reversible
+    operation - it would be a note that reaches a planner as free text.
+    """
+    from library.tools import edit_ledger, edit_spec
+    project = _program_project(tmp_path)
+    request = "fix the caption text"
+    program = {
+        "kind": "edit_program",
+        "base_generation": "42",
+        "idempotency_key": "req-fix-caption",
+        "anchor": {"kind": "reel"},
+        "reel": "Reel 09 - hook",
+        "ops": [
+            {"op": "caption_fix",
+             "params": {"unique_id": "clip_017",
+                        "text": "the corrected caption"},
+             "text": "fix the caption text"},
+        ],
+    }
+    spec = _prepare_and_load(project, request, program)
+    edit_spec.record_spec(str(project), spec)
+    rows = edit_ledger.load_rows(str(project))
+    assert len(rows) == 1
+    assert rows[0]["op"] == "edit_program"
+    assert rows[0]["params"]["ops"][0]["op"] == "caption_fix"
+    assert rows[0]["params"]["ops"][0]["params"]["text"] == "the corrected caption"
+    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+def test_a_graphics_instruction_routes_through_the_program_to_the_algebra(
+        tmp_path):
+    """A graphics instruction routes through the edit program to overlay.add.
+
+    Defect: a graphics instruction that does not route through the edit
+    program and algebra cannot be executed as a precise reversible
+    operation - it would be a note that reaches a planner as free text.
+    """
+    from library.tools import edit_ledger, edit_spec
+    project = _program_project(tmp_path)
+    request = "add a lower third at 30 seconds"
+    program = {
+        "kind": "edit_program",
+        "base_generation": "42",
+        "idempotency_key": "req-add-lower-third",
+        "anchor": {"kind": "reel"},
+        "reel": "Reel 09 - hook",
+        "ops": [
+            {"op": "overlay.add",
+             "params": {"row": "overlay", "record_frame": 30},
+             "text": "add a lower third at 30 seconds"},
+        ],
+    }
+    spec = _prepare_and_load(project, request, program)
+    edit_spec.record_spec(str(project), spec)
+    rows = edit_ledger.load_rows(str(project))
+    assert len(rows) == 1
+    assert rows[0]["op"] == "edit_program"
+    assert rows[0]["params"]["ops"][0]["op"] == "overlay.add"
+    assert rows[0]["params"]["ops"][0]["params"]["row"] == "overlay"
+    assert rows[0]["params"]["ops"][0]["params"]["record_frame"] == 30
+def test_a_markers_instruction_routes_through_the_program_to_the_algebra(
+        tmp_path):
+    """A markers instruction routes through the edit program to marker.add.
+
+    Defect: a markers instruction that does not route through the edit
+    program and algebra cannot be executed as a precise reversible
+    operation - it would be a note that reaches a planner as free text.
+    """
+    from library.tools import edit_ledger, edit_spec
+    project = _program_project(tmp_path)
+    request = "add a marker at 30 seconds"
+    program = {
+        "kind": "edit_program",
+        "base_generation": "42",
+        "idempotency_key": "req-add-marker",
+        "anchor": {"kind": "reel"},
+        "reel": "Reel 09 - hook",
+        "ops": [
+            {"op": "marker.add",
+             "params": {"frame": 30, "color": "blue",
+                        "name": "review note"},
+             "text": "add a marker at 30 seconds"},
+        ],
+    }
+    spec = _prepare_and_load(project, request, program)
+    edit_spec.record_spec(str(project), spec)
+    rows = edit_ledger.load_rows(str(project))
+    assert len(rows) == 1
+    assert rows[0]["op"] == "edit_program"
+    assert rows[0]["params"]["ops"][0]["op"] == "marker.add"
+    assert rows[0]["params"]["ops"][0]["params"]["frame"] == 30
+    assert rows[0]["params"]["ops"][0]["params"]["color"] == "blue"
+    assert rows[0]["params"]["ops"][0]["params"]["name"] == "review note"
+def test_a_multicam_angle_instruction_routes_through_the_program_to_the_algebra(
+        tmp_path):
+    """A multicam-angle instruction routes through the edit program to
+    multicam.angle.
+
+    Defect: a multicam-angle instruction that does not route through the
+    edit program and algebra cannot be executed as a precise reversible
+    operation - it would be a note that reaches a planner as free text.
+    """
+    from library.tools import edit_ledger, edit_spec
+    project = _program_project(tmp_path)
+    request = "switch to angle 2"
+    program = {
+        "kind": "edit_program",
+        "base_generation": "42",
+        "idempotency_key": "req-switch-angle",
+        "anchor": {"kind": "reel"},
+        "reel": "Reel 09 - hook",
+        "ops": [
+            {"op": "multicam.angle",
+             "params": {"unique_id": "clip_017", "angle_index": 2},
+             "text": "switch to angle 2"},
+        ],
+    }
+    spec = _prepare_and_load(project, request, program)
+    edit_spec.record_spec(str(project), spec)
+    rows = edit_ledger.load_rows(str(project))
+    assert len(rows) == 1
+    assert rows[0]["op"] == "edit_program"
+    assert rows[0]["params"]["ops"][0]["op"] == "multicam.angle"
+    assert rows[0]["params"]["ops"][0]["params"]["angle_index"] == 2
+    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+def test_a_compound_nested_instruction_routes_through_the_program_to_the_algebra(
+        tmp_path):
+    """A compound/nested instruction routes through the edit program to
+    compound.create.
+
+    Defect: a compound/nested instruction that does not route through the
+    edit program and algebra cannot be executed as a precise reversible
+    operation - it would be a note that reaches a planner as free text.
+    """
+    from library.tools import edit_ledger, edit_spec
+    project = _program_project(tmp_path)
+    request = "nest the two clips"
+    program = {
+        "kind": "edit_program",
+        "base_generation": "42",
+        "idempotency_key": "req-nest-clips",
+        "anchor": {"kind": "reel"},
+        "reel": "Reel 09 - hook",
+        "ops": [
+            {"op": "compound.create",
+             "params": {"unique_id": "compound_02",
+                        "child_unique_ids": ["clip_019", "clip_020"]},
+             "text": "nest the two clips"},
+        ],
+    }
+    spec = _prepare_and_load(project, request, program)
+    edit_spec.record_spec(str(project), spec)
+    rows = edit_ledger.load_rows(str(project))
+    assert len(rows) == 1
+    assert rows[0]["op"] == "edit_program"
+    assert rows[0]["params"]["ops"][0]["op"] == "compound.create"
+    assert rows[0]["params"]["ops"][0]["params"]["child_unique_ids"] == [
+        "clip_019", "clip_020"]
+    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "compound_02"
