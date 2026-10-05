@@ -13,6 +13,12 @@
         "description": "State input: creative_direction"
       },
       {
+        "name": "intent_model",
+        "type": "object",
+        "required": false,
+        "description": "State input: intent_model - step 2.01's structured intent model (beats, claims, key moments, pacing curve). Read so the track choice and its sections follow the pacing curve's energy over the beats, not only the prose target_energy. Absent on runs whose creative_direction predates the model. See library/tools/intent_model.py."
+      },
+      {
         "name": "creative_brief",
         "type": "string",
         "required": false,
@@ -125,6 +131,7 @@
   },
   "context_fields": [
     "creative_direction",
+    "intent_model",
     "music_candidates",
     "-music_candidates.candidates.*.beat_grid",
     "video_preferences"

@@ -164,7 +164,12 @@ is the half that used to be missing.
    landscape and target mood - and must not contradict it. A direction
    that says the piece never becomes triumphant is a direction that
    rejects triumphant music, however good the track is.
-2. **Energy should mirror** the video's pacing and energy arc
+2. **Energy should mirror** the video's pacing and energy arc. When an
+   `intent_model` is provided, its `pacing_curve` is that arc as a curve
+   over beats - each beat's `energy` (0..1) is the intensity the music
+   should hit there, and `target_asl` is the pace. Follow the curve, not
+   only the prose `target_energy`: a piece that builds has quiet beats
+   and loud beats, and the curve says which is which.
 3. **Not genre-locked** - genre serves the content, not the other way around
 4. **BPM is critical** - needed for beatmatching transitions in Phase 4
 5. **Entry and exit matter** - consider how the track starts and stops in
@@ -327,6 +332,7 @@ If the input includes `timeline_notes`, you MUST read and weigh them. Your outpu
 | Direction | State Key |
 |-----------|-----------|
 | Reads | `creative_direction` |
+| Reads | `intent_model` |
 | Reads | `music_candidates` (bridge: the local library and the project's music folder) |
 | Reads | `style_specification` |
 | Writes | `music_selection` |

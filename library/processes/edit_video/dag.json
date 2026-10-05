@@ -388,7 +388,8 @@
       "from": "creative_direction",
       "to": "music_selection",
       "data_mapping": {
-        "creative_direction": "creative_direction"
+        "creative_direction": "creative_direction",
+        "intent_model": "intent_model"
       }
     },
     {
@@ -891,7 +892,8 @@
       "from": "creative_direction",
       "to": "speech_sequence",
       "data_mapping": {
-        "creative_direction": "creative_direction"
+        "creative_direction": "creative_direction",
+        "intent_model": "intent_model"
       }
     },
     {
@@ -906,7 +908,8 @@
       "from": "creative_direction",
       "to": "mesh_spine",
       "data_mapping": {
-        "creative_direction": "creative_direction"
+        "creative_direction": "creative_direction",
+        "intent_model": "intent_model"
       }
     },
     {

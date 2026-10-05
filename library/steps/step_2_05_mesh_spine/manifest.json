@@ -19,6 +19,12 @@
         "description": "The vision, from step 2.01. This step decides where every non-speech gap goes, how long it is, and the music_behavior of every block - including a planned silence - and its own handoff names the creative direction as one of three core reads and scores it on 'the spine follows the creative direction's energy arc'. It was never routed: on the 2026-08-26 run of record the model justified the silent climax by quoting 2.01's energy_arc, and that sentence was in no part of this step's context. Only key_moments and rationale are projected away - see context_fields."
       },
       {
+        "name": "intent_model",
+        "type": "object",
+        "required": false,
+        "description": "State input: intent_model - step 2.01's structured intent model (beats, claims, key moments, pacing curve). Read so the spine's blocks land on the beats the model names and the music_behavior follows the pacing curve, not only the prose energy_arc. Absent on runs whose creative_direction predates the model. See library/tools/intent_model.py."
+      },
+      {
         "name": "clip_catalog",
         "type": "array",
         "required": true,
@@ -166,6 +172,7 @@
     "creative_direction.energy_arc",
     "creative_direction.emotional_landscape",
     "creative_direction.audience_emotion",
+    "intent_model",
     "speech_sequence",
     "-speech_sequence.body_sequence.*.word_timestamps",
     "-speech_sequence.alignment_report",

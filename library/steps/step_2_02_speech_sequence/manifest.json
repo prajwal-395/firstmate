@@ -25,6 +25,12 @@
         "description": "State input: creative_direction"
       },
       {
+        "name": "intent_model",
+        "type": "object",
+        "required": false,
+        "description": "State input: intent_model - step 2.01's structured intent model (beats, claims, key moments, pacing curve). Each passage names the beats it serves in `serves_beats`; the post-bridge refuses a passage that names no beat the model has, or a beat it does not. Absent on runs whose creative_direction predates the model, in which case no beat is required. See library/tools/intent_model.py."
+      },
+      {
         "name": "project_config",
         "type": "object",
         "required": false,
@@ -127,6 +133,7 @@
   },
   "context_fields": [
     "creative_direction",
+    "intent_model",
     "project_config",
     "semantic_analysis_documents.*.clip_id",
     "view:picture",

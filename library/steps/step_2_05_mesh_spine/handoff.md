@@ -206,6 +206,23 @@ prompt never mentioned the brief. Read it for:
 Let the brief shape the structure, not just the words in it. If no creative
 brief is provided, follow the creative direction's energy arc.
 
+### The intent model
+
+When an `intent_model` is provided in the input, it is the creative
+direction's structure as addressable entities: the beats the story is
+built from, the pacing curve over those beats, and the key moments
+that must land. Read it alongside the prose direction:
+
+- Place each block on the beats the model names - a block's content
+  belongs to a beat, and the beat's span tells you which footage that
+  block draws on.
+- Set each block's `music_behavior` from the pacing curve for the beat
+  the block serves, not only from the prose `energy_arc`.
+- The key moments are entities with a source address: the block that
+  carries a key moment must cover that moment's span.
+
+If no `intent_model` is present, plan from the prose direction alone.
+
 ---
 
 
@@ -351,6 +368,7 @@ declared default.
 | Reads | `speech_sequence` (with timestamps from 2.3) |
 | Reads | `music_selection` |
 | Reads | `music_analysis` |
+| Reads | `intent_model` |
 | Writes | `audio_spine` |
 | Writes | `timed_spine` |
 

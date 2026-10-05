@@ -73,6 +73,12 @@ Each passage needs:
   If you genuinely cannot judge a passage, set `rank` to null
   and say why in `basis`. An unjudged passage must read as
   unjudged.
+- serves_beats (which beats of the intent model this passage serves -
+  a list of `beat_id`s from the `intent_model` you were given, e.g.
+  `["beat:1"]`). Name every beat the passage's content belongs to: a
+  passage that advances the setup names the setup beat, one that lands
+  the payoff names the payoff beat. This is how a reader asks what the
+  passage is for. When no `intent_model` is present, omit the field.
 
 ### Where the passage is (a hint, not a timing)
 
@@ -248,6 +254,7 @@ why no speech serves this piece.
 | Reads | `semantic_analysis_documents` |
 | Reads | `temporal_event_indices` |
 | Reads | `creative_direction` |
+| Reads | `intent_model` |
 | Reads | `style_specification` |
 | Writes | `speech_sequence` |
 

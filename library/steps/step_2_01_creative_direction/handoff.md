@@ -69,6 +69,48 @@ A creative direction document containing:
   appear. Described by content, not timestamps.
 - **rationale**: Why this direction was chosen over alternatives
 
+### The structured intent model
+
+Beside the prose direction above, emit an `intent_model` object: the
+same direction as ADDRESSABLE ENTITIES that downstream planners can
+reason against and verification can check. The prose stays - the model
+is the structure beside it, not a replacement.
+
+- **beats**: The narrative structure, in the order the viewer meets
+  them. Each beat carries:
+  - `beat_id`: a stable id in the `beat:` namespace (e.g. `"beat:1"`).
+    These ids are how planners name the beats they serve, so they must
+    be unique and stable.
+  - `purpose`: why this beat exists in the edit - the job it does for
+    the story.
+  - `setup_for`: the `beat_id` of a later beat this one sets up, or
+    null. A beat that plants something the payoff lands on.
+  - `payoff_of`: the `beat_id` of an earlier beat this one pays off,
+    or null.
+  - `span`: the footage this beat draws on - `{clip_id, source_start,
+    source_end}`. Ground it in the clips you actually saw in the
+    semantic analysis; a beat with no footage is a beat that cannot be
+    cut.
+- **claims**: The argument as an ordered set - the points the video
+  makes, in the order it makes them. Each claim carries a `claim_id`
+  (e.g. `"claim:1"`), a `statement`, and `supports`: the `claim_id`s
+  of the claims it builds on. The order of the list IS the argument's
+  order.
+- **key_moments**: The moments that MUST appear, as entities - not
+  prose. Each carries a `moment_id` (e.g. `"moment:1"`), a
+  `description`, and a grounding `{clip_id, source_start, source_end}`
+  naming the exact footage the moment lives in. This is what makes "did
+  the key moment land?" answerable: the moment has a source address.
+- **pacing_curve**: Pacing and energy as a curve over beats, not a
+  sentence. One entry per beat: `{beat_id, energy, target_asl}` -
+  `energy` is 0..1 (the beat's intensity), `target_asl` the average
+  shot length the beat should land at in seconds. A beat the curve
+  does not name is a beat with no pacing plan.
+
+Every `beat_id`, `claim_id` and `moment_id` you invent here is a
+promise: a planner will name it, and the edit graph will link decisions
+to it. Name only what the footage supports.
+
 ---
 
 ## Creative Brief
@@ -138,6 +180,7 @@ If the input includes `timeline_notes`, you MUST read and weigh them. Your outpu
 | Reads | `prosody_analysis` |
 | Reads | `clip_catalog` |
 | Writes | `creative_direction` |
+| Writes | `intent_model` |
 
 ---
 

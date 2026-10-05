@@ -70,6 +70,17 @@
           "key_moments": "list",
           "rationale": "string"
         }
+      },
+      {
+        "name": "intent_model",
+        "type": "object",
+        "description": "State output: intent_model - the structured intent model beside the prose direction. The narrative as addressable entities: beats (each with a purpose, a setup/payoff link, and a span grounded in the footage), the argument as an ordered set of claims, key moments as entities grounded in a clip and source span, and pacing/energy as a curve over beats. Emitted beside creative_direction, never instead of it. See library/tools/intent_model.py.",
+        "expected_schema": {
+          "beats": "list",
+          "claims": "list",
+          "key_moments": "list",
+          "pacing_curve": "list"
+        }
       }
     ]
   },

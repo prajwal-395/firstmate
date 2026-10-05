@@ -26,7 +26,7 @@ import sys
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../tools")))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
-from library.tools import capability_outputs
+from library.tools import capability_outputs, intent_model
 from library.tools.project_layout import Area, ProjectLayout
 from library.tools.plan_keys import refuse_unknown_keys
 
@@ -859,7 +859,11 @@ def enrich_speech_sequence(
          # word. Frames when the request states frames, seconds when
          # it states seconds (E3).
          "trim_head_frames", "trim_tail_frames",
-         "trim_head_seconds", "trim_tail_seconds"},
+         "trim_head_seconds", "trim_tail_seconds",
+         # The beats this passage serves, named from step 2.01's intent
+         # model. A passage that serves the story but names no beat is
+         # untraceable - a reader cannot ask what it is for.
+         "serves_beats"},
         step="speech_sequence", plan="body_sequence")
 
     # Cache loaded temporal indices
@@ -1219,6 +1223,23 @@ def main():
         speech_sequence, ti_dir,
         audio_index_errors=audio_index_errors,
         frame_rate=data.get("project_fps"))
+
+    # Each passage names the beats it serves. The intent model is the
+    # structure the passage's content belongs to; a passage naming no
+    # beat is untraceable, and one naming a beat the model does not have
+    # is a claim with nothing under it. Refused here, by name, when the
+    # model is present - a run predating it has nothing to name.
+    model = data.get("intent_model")
+    if model:
+        problems = intent_model.validate_serves_beats(
+            enriched.get("body_sequence", []), model)
+        if problems:
+            print(json.dumps({
+                "error": "passages do not serve the intent model's beats",
+                "step": "2.02_bridge",
+                "problems": problems,
+            }))
+            sys.exit(1)
 
     # No passage count check. How many passages the edit needs is a
     # creative decision driven by the duration target and the footage.
