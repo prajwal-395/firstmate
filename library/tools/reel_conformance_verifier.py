@@ -282,6 +282,11 @@ class FindingClass:
     # worth a look, never a caption failure.
     F25 = "F25"  # PLANNING: caption words are not the words played
 
+    # 2026-10-05: a MANUAL EDIT that degrades creative intent. The edit
+    # is attributed to the captain and preserved; the regression is
+    # flagged as a warning so it is visible, not silently absorbed.
+    INTENT_REGRESSION = "INTENT-REGRESSION"
+
 
 ENCODING_CLASSES = {FindingClass.F1, FindingClass.F2, FindingClass.F4,
                     FindingClass.F9, FindingClass.F10, FindingClass.F12,
@@ -294,11 +299,14 @@ PLAN_QUALITY_CLASSES = {FindingClass.PQ_LENGTH, FindingClass.PQ_SPEAKERS,
                         FindingClass.PQ_PICTURE}
 PROVENANCE_CLASSES = {FindingClass.PLAN_MISMATCH, FindingClass.NO_REFERENCE}
 
-WARNING_CLASSES = {FindingClass.F3, FindingClass.F20}
+WARNING_CLASSES = {FindingClass.F3, FindingClass.F20,
+                   FindingClass.INTENT_REGRESSION}
 """F3 (master-inherited holes) is the plan's fault, not the build's.
 F20 (a transition element over a caption) is what the gesture DOES, not
-a defect - hiding a cut hides what is on it. Both are reported so they
-are visible, and neither fails the gate."""
+a defect - hiding a cut hides what is on it. INTENT-REGRESSION is a
+manual edit's consequence, not a build failure - the edit is preserved
+and the regression is flagged. All three are reported so they are
+visible, and none fails the gate."""
 
 
 @dataclass(frozen=True)
@@ -5360,6 +5368,55 @@ def _attribute_divergence_cause(
     )]
 
 
+def _verify_manual_edit_intent(
+        reel_name: str, edit_history,
+        review_dir: str = "") -> List[Finding]:
+    """Flag manual edits that degraded creative intent.
+
+    After a manual edit is detected and attributed, the edited spans are
+    checked against creative intent. A finding is a WARNING attributed to
+    the manual edit, not a build failure: the edit is preserved, the
+    regression is flagged.
+    """
+    if not edit_history:
+        return []
+    try:
+        from library.tools import manual_edit_intent
+        intent_findings = manual_edit_intent.verify_manual_edit_intent(
+            edit_history, review_dir=review_dir, reel_name=reel_name)
+    except Exception:  # noqa: BLE001 - intent check never fails verify
+        return []
+    findings = []
+    for item in intent_findings:
+        if not isinstance(item, dict):
+            continue
+        regression = str(item.get("regression") or "")
+        if not regression:
+            continue
+        edit_id = str(item.get("edit_id") or "")
+        edit_at = str(item.get("edit_at") or "")
+        edit_summary = str(item.get("edit_summary") or "")
+        check = str(item.get("check") or "unknown")
+        findings.append(Finding(
+            finding_class=FindingClass.INTENT_REGRESSION,
+            reel=reel_name,
+            message=(
+                f"creative-intent regression from the captain's manual "
+                f"edit: {regression}. The edit is preserved ({edit_at}, "
+                f"{edit_summary}; history entry {edit_id}); the "
+                f"regression is flagged, not silently absorbed."),
+            severity="warning",
+            detail={
+                "edit_id": edit_id,
+                "edit_at": edit_at,
+                "edit_summary": edit_summary,
+                "check": check,
+                "regression": regression,
+            },
+        ))
+    return findings
+
+
 def verify_reel(plan: ReelPlan,
                 timeline: ReelTimeline,
                 transcript_segments: Optional[Sequence[dict]] = None,
@@ -5461,6 +5518,10 @@ def verify_reel(plan: ReelPlan,
         plan.reel_name, not_this_plan, edit_history,
         review_dir=review_dir, project_folder=project_folder)
     findings.extend(not_this_plan)
+    # A manual edit that degraded creative intent is flagged as a
+    # warning attributed to the edit, not silently absorbed.
+    findings.extend(_verify_manual_edit_intent(
+        plan.reel_name, edit_history, review_dir=review_dir))
     if not not_this_plan:
         findings.extend(check_item_count(
             plan.reel_name, plan.placements, timeline.video_items, fps,
