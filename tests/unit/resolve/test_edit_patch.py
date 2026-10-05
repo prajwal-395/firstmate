@@ -352,9 +352,96 @@ def test_a_patch_may_not_say_more_than_its_capability_declares(
     project, timeline, _item, store, base = world
     with pytest.raises(edit_patch.PatchRefused, match=why):
         _apply(_patch("p", base.generation, [
-            {"op": "marker.add", "frame": 5, "color": "Blue", "name": "x"}],
-            ["markers"], [[0, 10]], capability=capability),
-            project, timeline, store)
+             {"op": "marker.add", "frame": 5, "color": "Blue", "name": "x"}],
+             ["markers"], [[0, 10]], capability=capability),
+             project, timeline, store)
+
+
+# --------------------------------------------------------------------------
+# The edit algebra's patch-executor ops.
+#
+# The algebra (library/tools/edit_algebra.py) owns the union vocabulary;
+# edit_patch.OPERATIONS is a view over it. These tests pin the view and
+# the new ops' commit-and-invert behaviour against the double.
+
+def test_the_patch_view_is_the_algebra_patch_executor_ops():
+    """Defect: a patch op the algebra does not declare, or an algebra op
+    with a native apply the view drops - the two would drift apart."""
+    from library.tools import edit_algebra
+    view = set(edit_patch.OPERATIONS)
+    assert view == set(edit_algebra.patch_op_ids())
+    for op_id in view:
+        assert edit_algebra.get(op_id) is not None
+
+
+def test_track_add_delete_and_rename_commit_and_invert(world):
+    """Defect: a track row that cannot be added, deleted and renamed in
+    place - the review's `track ops` would have no precise reversible op."""
+    project, timeline, _item, store, base = world
+
+    added = _apply(_patch("track-add", base.generation, [
+        {"op": "track.add", "track_type": "video", "name": "Overlay"}],
+        ["timeline_structure"], [[0, 48]]), project, timeline, store)
+    assert added["status"] == "committed", added
+    assert timeline.GetTrackName("video", 2) == "Overlay"
+
+    renamed = _apply(_patch("track-rename", added["generation"], [
+        {"op": "track.rename", "track_type": "video", "track_index": 2,
+         "name": "Graphics"}], ["timeline_structure"], [[0, 48]]),
+        project, timeline, store)
+    assert renamed["status"] == "committed", renamed
+    assert timeline.GetTrackName("video", 2) == "Graphics"
+
+    # The inverse of a rename carries the previous name.
+    unrenamed = _apply(_patch("track-unrename", renamed["generation"], [
+        {"op": "track.rename", "track_type": "video", "track_index": 2,
+         "name": "Overlay"}], ["timeline_structure"], [[0, 48]]),
+        project, timeline, store)
+    assert unrenamed["status"] == "committed", unrenamed
+    assert timeline.GetTrackName("video", 2) == "Overlay"
+
+    deleted = _apply(_patch("track-delete", unrenamed["generation"], [
+        {"op": "track.delete", "track_type": "video", "track_index": 2}],
+        ["timeline_structure"], [[0, 48]]), project, timeline, store)
+    assert deleted["status"] == "committed", deleted
+    assert timeline.GetTrackCount("video") == 1
+
+
+def test_track_add_that_does_not_read_back_fails_verification(world):
+    """Defect: a track add whose read-back shows no new row would commit
+    a lie if the verifier passed it."""
+    project, timeline, _item, store, base = world
+    original = timeline.AddTrack
+
+    def refused(kind, name):
+        assert kind == "video"
+        return False
+
+    timeline.AddTrack = refused
+    receipt = _apply(_patch("track-add-refused", base.generation, [
+        {"op": "track.add", "track_type": "video", "name": "Overlay"}],
+        ["timeline_structure"], [[0, 48]]), project, timeline, store)
+    assert receipt["status"] == "verification_failed"
+    assert timeline.GetTrackCount("video") == 1
+    timeline.AddTrack = original
+
+
+def test_clip_link_and_unlink_commit(world):
+    """Defect: clips that cannot be linked and unlinked in place - the
+    review's `link/unlink` would have no precise reversible op."""
+    project, timeline, item, store, base = world
+    uid = item.GetUniqueId()
+    linked = _apply(_patch("clip-link", base.generation, [
+        {"op": "clip.link", "unique_id": uid, "with_unique_ids": []}],
+        ["timeline_structure"], [[0, 48]]), project, timeline, store)
+    assert linked["status"] == "committed", linked
+    assert timeline.link_calls[-1][1] is True
+
+    unlinked = _apply(_patch("clip-unlink", linked["generation"], [
+        {"op": "clip.unlink", "unique_id": uid}],
+        ["timeline_structure"], [[0, 48]]), project, timeline, store)
+    assert unlinked["status"] == "committed", unlinked
+    assert timeline.link_calls[-1][1] is False
 
 
 # --------------------------------------------------------------------------
