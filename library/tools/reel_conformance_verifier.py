@@ -6711,6 +6711,9 @@ def run_verification(
     docs/READING_A_TRANSFORM.md). A changed current timeline during one
     snapshot refuses the read rather than mixing units.
     """
+    from library.tools.resolve_transform import FALLBACK_DRAW_GAIN
+    if draw_gain is None:
+        draw_gain = FALLBACK_DRAW_GAIN
     import re as re_mod
 
     from library.tools.timeline_ingest import (
@@ -7339,24 +7342,6 @@ def run_verification(
                     moment.source_spans if moment else None,
                     master_snapshot, caption_props_dir,
                     project_folder=project_folder)
-            # F12 grades stored Pan/Tilt transforms, and Resolve scales
-            # them by the gain in force when they were WRITTEN. The
-            # caller's `draw_gain` is one value for the whole sweep, but
-            # the gain is a renderer property that moves between builds
-            # (measured 1.0, 2.0 and 4.0 across the current finals), so
-            # a reel built at a different gain than the caller's reads
-            # its picture mis-placed - the fallback 2.0 against Reel
-            # 15's measured 4.0 halved every Tilt shift and reported a
-            # 110px black band inside the television's screen that the
-            # rendered pixels do not contain. Read the gain the build
-            # recorded for THIS reel; an explicit `draw_gain` still
-            # wins, and a reel with no recorded gain grades under the
-            # fallback exactly as before.
-            reel_gain = draw_gain
-            if reel_gain is None:
-                from library.tools.reel_phase_log import (
-                    draw_gain_for_timeline)
-                reel_gain = draw_gain_for_timeline(project_folder, name)
             return verify_reel(
                 plan, reel_tl,
                 transcript_segments=(transcript or {}).get("segments"),
@@ -7379,7 +7364,7 @@ def run_verification(
                 post_header_plan=post_header_plan_for_reel(
                     post_header_plans, name),
                 expected_frame=expected_frame,
-                draw_gain=reel_gain,
+                draw_gain=draw_gain,
                 word_coverage=word_coverage,
                 expected_speakers=declared_speaker_count)
 
