@@ -1,163 +1,129 @@
 //! `ren`: the native front door an engine tree ships at `bin/ren`.
 //!
-//! The Python implementation is untouched. This binary resolves the
-//! engine root and an interpreter, then `exec`s `python -m ren.cli`
-//! with the original argv - so stdin, stdout, stderr, the exit code
-//! and every signal pass through to the interpreter untouched, and
-//! `ren` is one process end to end.
+//! Two kinds of work happen here. The front door itself - resolving the
+//! engine and an interpreter, then `exec`ing `python -m ren.cli` with the
+//! original argv - is unchanged: stdout, stderr, the exit code and every
+//! signal pass through to the interpreter, and `ren` is one process end to
+//! end for the verbs that need Python.
+//!
+//! On top of that, the verbs whose logic is reading Ren's own files,
+//! config and on-disk records are served natively, with no Python process
+//! started: `--version`, `--help`, `info`, `status`, `check`. Each mirrors
+//! the Python function it replaces, so its output is identical; where the
+//! Python reaches a part this crate does not port, the verb falls back to
+//! execing Python rather than drifting.
 //!
 //! Interpreter discovery asks the repo's one ladder
-//! (`library.tools.shared_environment --resolve-interpreter`) instead
-//! of carrying a copy: the ladder is Python data with two callers that
-//! cannot import it, and a second copy would drift the first time only
-//! one side changed. When the ladder finds nothing, the refusal is
-//! the ladder's own message, verbatim, so the wording has one source.
+//! (`library.tools.shared_environment --resolve-interpreter`) instead of
+//! carrying a copy: the ladder is Python data with two callers that cannot
+//! import it, and a second copy would drift the first time only one side
+//! changed. When the ladder finds nothing, the refusal is the ladder's own
+//! message, verbatim, so the wording has one source.
 
 use std::env;
 use std::ffi::OsString;
-use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Every refusal here exits 3, the code `bin/vep` and `ren.cli` use
-/// for "no engine / no interpreter": a refusal, not a crash.
-const REFUSAL_EXIT_CODE: i32 = 3;
+mod commands;
+mod config;
+mod engine;
+mod json;
+mod project;
 
-/// The ladder's answer, as `shared_environment --resolve-interpreter`
-/// prints it on stdout. `tried` travels only inside `error` and is not
-/// read here.
-#[derive(serde::Deserialize, Default)]
-struct InterpreterReport {
-    python: String,
-    #[serde(default)]
-    error: String,
-}
+use crate::commands::Outcome;
+
+/// Every refusal here exits 3, the code `bin/vep` and `ren.cli` use for
+/// "no engine / no interpreter": a refusal, not a crash.
+const REFUSAL_EXIT_CODE: i32 = 3;
 
 fn main() {
     let argv: Vec<OsString> = env::args_os().skip(1).collect();
-    if let Err(message) = run(&argv) {
-        eprintln!("{message}");
-        std::process::exit(REFUSAL_EXIT_CODE);
+    let code = run(&argv);
+    std::process::exit(code);
+}
+
+/// The whole front door. Returns the exit code `main` exits with.
+fn run(argv: &[OsString]) -> i32 {
+    // `--version` answers from the package itself: no engine needed, so a
+    // machine with nothing installed still names its build.
+    if argv.first().map(|arg| arg == "--version" || arg == "-V").unwrap_or(false)
+        || argv.first().map(|arg| arg == "version").unwrap_or(false)
+    {
+        println!("{}", commands::version_line(None));
+        return 0;
     }
-}
 
-/// The whole front door: resolve, then replace this process. Returns
-/// `Err` only for a refusal, which `main` prints before exiting.
-fn run(argv: &[OsString]) -> Result<(), String> {
-    let root = engine_root()?;
-    let python3 = python3_on_path().ok_or_else(|| {
-        "ren: no python3 on PATH to resolve the interpreter ladder.\n\
-         Install a Python 3, then see docs/ML_ENVIRONMENT.md."
-            .to_string()
-    })?;
-    let report = ask_ladder(&python3, &root);
-    if report.python.is_empty() {
-        return Err(refusal(&report));
-    }
-    exec_python(&report.python, &root, argv)
-}
-
-/// The engine root: `$REN_ENGINE_ROOT` when it names one (an empty
-/// value counts as unset, matching the `${REN_ENGINE_ROOT:-...}` the
-/// bash front door used), else the tree this binary sits in.
-fn engine_root() -> Result<PathBuf, String> {
-    if let Some(explicit) = explicit_engine_root() {
-        return Ok(explicit);
-    }
-    engine_root_from(&current_exe()?)
-}
-
-fn explicit_engine_root() -> Option<PathBuf> {
-    match env::var_os("REN_ENGINE_ROOT") {
-        Some(value) if !value.is_empty() => Some(PathBuf::from(value)),
-        _ => None,
-    }
-}
-
-fn current_exe() -> Result<PathBuf, String> {
-    env::current_exe().map_err(|err| format!("ren: cannot locate itself: {err}"))
-}
-
-/// The tree holding `bin/<exe>`. Symlinks are resolved first, so a
-/// front door reached through the installed `current` pointer still
-/// names the version directory it actually runs from.
-fn engine_root_from(exe: &Path) -> Result<PathBuf, String> {
-    let resolved = fs::canonicalize(exe).unwrap_or_else(|_| exe.to_path_buf());
-    let bin_dir = resolved.parent().ok_or_else(|| {
-        "ren: cannot locate the engine root beside this binary.".to_string()
-    })?;
-    bin_dir.parent().map(Path::to_path_buf).ok_or_else(|| {
-        "ren: cannot locate the engine root beside this binary.".to_string()
-    })
-}
-
-/// The ladder's query vehicle: the first `python3` on PATH, found the
-/// way `bin/vep` finds it. Any Python answers - the ladder evaluates
-/// only stdlib path predicates, so the asker's version does not matter.
-fn python3_on_path() -> Option<PathBuf> {
-    let path = env::var_os("PATH")?;
-    first_executable(&path, "python3")
-}
-
-fn first_executable(path: &OsString, name: &str) -> Option<PathBuf> {
-    for dir in env::split_paths(path) {
-        let candidate = dir.join(name);
-        if is_executable(&candidate) {
-            return Some(candidate);
+    let engine_root = match resolve_engine() {
+        Ok(root) => root,
+        Err(message) => {
+            eprintln!("{message}");
+            return REFUSAL_EXIT_CODE;
         }
-    }
-    None
-}
-
-fn is_executable(path: &Path) -> bool {
-    matches!(fs::metadata(path),
-        Ok(metadata) if metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
-}
-
-/// Ask the ladder where the interpreter carrying the ML stack is. A
-/// query that cannot be answered (no vehicle, unparseable answer) is
-/// the ladder finding nothing: the refusal below then says the answer
-/// was unparseable rather than inventing a reason.
-fn ask_ladder(python3: &Path, root: &Path) -> InterpreterReport {
-    let Some(pythonpath) = engine_pythonpath(root) else {
-        return InterpreterReport::default();
     };
-    let Ok(output) = Command::new(python3)
-        .arg("-m")
-        .arg("library.tools.shared_environment")
-        .arg("--resolve-interpreter")
-        .arg("--repo-root")
-        .arg(root)
-        .env("PYTHONPATH", pythonpath)
-        .env("PYTHONSAFEPATH", "1")
-        .output()
-    else {
-        return InterpreterReport::default();
-    };
-    serde_json::from_slice(&output.stdout).unwrap_or_default()
-}
 
-/// The refusal, in `bin/vep`'s shape: one line saying what this is,
-/// then the ladder's own message naming what is missing and the fix.
-fn refusal(report: &InterpreterReport) -> String {
-    let mut message = String::from("ren: refusing - no interpreter carrying the ML stack.");
-    if report.error.is_empty() {
-        message.push_str(
-            "\n(the ladder answered nothing parseable; see docs/ML_ENVIRONMENT.md)",
+    if !engine_root.join("manage_project.py").is_file()
+        || !engine_root.join("bin").join("vep").is_file()
+    {
+        eprintln!(
+            "ren: no engine at {engine_root}.\n\
+             Expected manage_project.py and bin/vep beside it - point $REN_ENGINE_ROOT \
+             at a built engine tree (`python3 -m ren.package_engine --dest <dir>`) or \
+             install Ren editable from a checkout (README, Quickstart).",
+            engine_root = engine_root.display()
         );
-    } else {
-        message.push('\n');
-        message.push_str(&report.error);
+        return REFUSAL_EXIT_CODE;
     }
-    message
+
+    if argv.is_empty() {
+        println!("{}", commands::usage());
+        return 1;
+    }
+
+    let name = argv[0].to_string_lossy().to_string();
+    if name == "-h" || name == "--help" || name == "help" {
+        println!("{}", commands::usage());
+        return 0;
+    }
+
+    if name == "info" || name == "status" || name == "check" {
+        let reference = argv.get(1).map(|arg| arg.to_string_lossy().to_string()).unwrap_or_default();
+        let outcome = match name.as_str() {
+            "info" => commands::info(&reference, &engine_root),
+            "status" => commands::status(&reference, &engine_root),
+            _ => commands::check(&reference, &engine_root),
+        };
+        return match outcome {
+            Outcome::Exited(code) => code,
+            Outcome::Fallback => exec_python(&engine_root, argv).unwrap_or(REFUSAL_EXIT_CODE),
+        };
+    }
+
+    if !commands::is_known_verb(&name) {
+        eprintln!("ren: unknown verb '{name}'; `ren --help` lists them.");
+        return 2;
+    }
+
+    exec_python(&engine_root, argv).unwrap_or(REFUSAL_EXIT_CODE)
 }
 
-/// Replace this process with the Python implementation. `exec` means
-/// the interpreter's exit code and signals are `ren`'s, untouched.
-fn exec_python(interpreter: &str, root: &Path, argv: &[OsString]) -> Result<(), String> {
-    let pythonpath = engine_pythonpath(root)
+/// The engine root, or the refusal naming what was tried and the fix.
+fn resolve_engine() -> Result<PathBuf, String> {
+    if let Some(root) = engine::find_engine_root() {
+        return Ok(root);
+    }
+    if env::var_os(engine::ENGINE_ENV).map(|value| !value.is_empty()).unwrap_or(false) {
+        return Err(engine::explicit_root_refusal());
+    }
+    Err(engine::no_engine_refusal())
+}
+
+/// Replace this process with the Python implementation. `exec` means the
+/// interpreter's exit code and signals are `ren`'s, untouched.
+fn exec_python(root: &Path, argv: &[OsString]) -> Result<i32, String> {
+    let interpreter = resolve_interpreter(root)?;
+    let pythonpath = engine::engine_pythonpath(root)
         .ok_or_else(|| "ren: cannot build PYTHONPATH for the engine.".to_string())?;
     let exec_error = Command::new(interpreter)
         .arg("-m")
@@ -168,22 +134,71 @@ fn exec_python(interpreter: &str, root: &Path, argv: &[OsString]) -> Result<(), 
         .env("PYTHONSAFEPATH", "1")
         .exec();
     Err(format!(
-        "ren: cannot run {interpreter} - {exec_error}.\n\
+        "ren: cannot run the interpreter - {exec_error}.\n\
          Point $PIPELINE_PYTHON at a working Python 3.12, or run `ren setup`."
     ))
 }
 
-/// `PYTHONPATH` with the engine root prepended, as the bash front door
-/// and `bin/vep` set it: the tree this binary runs from first, the
-/// caller's own path after it.
-fn engine_pythonpath(root: &Path) -> Option<OsString> {
-    let mut paths = vec![root.to_path_buf()];
-    if let Some(existing) = env::var_os("PYTHONPATH") {
-        if !existing.is_empty() {
-            paths.extend(env::split_paths(&existing));
+/// The interpreter carrying the ML stack, resolved through the repo's one
+/// ladder - now natively, so finding it starts no Python process. The
+/// ladder is `shared_environment.INTERPRETER_CANDIDATES`: `$PIPELINE_PYTHON`,
+/// then the durable venv under `vep_home`, then the checkout's own `.venv`.
+/// There is no stock-interpreter rung, and there must not be one.
+fn resolve_interpreter(root: &Path) -> Result<String, String> {
+    let candidates = interpreter_candidates(root);
+    for candidate in &candidates {
+        if candidate.is_file() && is_executable(candidate) {
+            return Ok(candidate.to_string_lossy().to_string());
         }
     }
-    env::join_paths(paths).ok()
+    Err(refusal(&no_interpreter_message(&candidates)))
+}
+
+fn interpreter_candidates(root: &Path) -> Vec<PathBuf> {
+    let mut candidates = vec![];
+    if let Some(value) = env::var_os("PIPELINE_PYTHON") {
+        if !value.is_empty() {
+            candidates.push(engine::expanduser(&PathBuf::from(value)));
+        }
+    }
+    candidates.push(engine::vep_home().join("venv-py312").join("bin").join("python3"));
+    candidates.push(root.join(".venv").join("bin").join("python3"));
+    candidates
+}
+
+/// The refusal, in `bin/vep`'s shape: one line saying what this is, then
+/// the ladder's own message naming what is missing and the fix.
+fn refusal(message: &str) -> String {
+    format!("ren: refusing - no interpreter carrying the ML stack.\n{message}")
+}
+
+/// The ladder's own message, verbatim from `shared_environment`.
+fn no_interpreter_message(candidates: &[PathBuf]) -> String {
+    let mut lines = vec![
+        "No Python interpreter carrying the ML stack was found.".to_string(),
+        "Tried, in order:".to_string(),
+    ];
+    if candidates.is_empty() {
+        lines.push("    (nothing - no rung applied)".to_string());
+    } else {
+        for candidate in candidates {
+            lines.push(format!("    {}", candidate.display()));
+        }
+    }
+    lines.push(
+        "`run_pipeline.py` imports whisperx, mlx_vlm and torch through its steps, so a \
+         stock interpreter is not a fallback - it dies inside a step rather than here.\n\
+         Build the durable one ONCE PER MACHINE at \
+         ~/.local/share/vep/venv-py312; docs/ML_ENVIRONMENT.md is the procedure."
+            .to_string(),
+    );
+    lines.join("\n")
+}
+
+fn is_executable(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    matches!(std::fs::metadata(path),
+        Ok(metadata) if metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
 }
 
 #[cfg(test)]
@@ -191,141 +206,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn engine_root_is_the_tree_holding_the_binary() {
-        let exe = Path::new("/tmp/some-engine/bin/ren");
-        assert_eq!(
-            engine_root_from(exe).unwrap(),
-            PathBuf::from("/tmp/some-engine")
-        );
-    }
-
-    #[test]
-    fn engine_root_of_a_binary_at_the_root_is_refused() {
-        assert!(engine_root_from(Path::new("/ren")).is_err());
-    }
-
-    #[test]
-    fn an_explicit_engine_root_wins_over_the_binarys_own_tree() {
-        let _guard = env_lock();
-        env::set_var("REN_ENGINE_ROOT", "/tmp/elsewhere-engine");
-        assert_eq!(
-            explicit_engine_root(),
-            Some(PathBuf::from("/tmp/elsewhere-engine"))
-        );
-        env::remove_var("REN_ENGINE_ROOT");
-    }
-
-    #[test]
-    fn an_empty_engine_root_counts_as_unset() {
-        let _guard = env_lock();
-        env::set_var("REN_ENGINE_ROOT", "");
-        // `${REN_ENGINE_ROOT:-...}` treated empty as unset; so does this.
-        assert_eq!(explicit_engine_root(), None);
-        env::remove_var("REN_ENGINE_ROOT");
-    }
-
-    #[test]
-    fn the_first_executable_on_path_wins() {
-        let root = unique_temp("first-wins");
-        let first = root.join("first");
-        let second = root.join("second");
-        let _ = fs::create_dir_all(&first);
-        let _ = fs::create_dir_all(&second);
-        let vehicle = first.join("python3");
-        fs::write(&vehicle, b"").unwrap();
-        make_executable(&vehicle);
-        let path = env::join_paths([first, second]).unwrap();
-        assert_eq!(first_executable(&path, "python3"), Some(vehicle));
-        let _ = fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn nothing_executable_means_no_vehicle() {
-        let root = unique_temp("none");
-        let _ = fs::create_dir_all(&root);
-        let path = env::join_paths([root.clone()]).unwrap();
-        assert_eq!(first_executable(&path, "python3"), None);
-        let _ = fs::remove_dir_all(&root);
-    }
-
-    /// A scratch directory no other test in this binary shares: the
-    /// tests here run in one process, and a shared name would let one
-    /// test's cleanup delete another's fixture.
-    fn unique_temp(label: &str) -> PathBuf {
-        std::env::temp_dir().join(format!(
-            "ren-cli-{label}-{}",
-            std::process::id()
-        ))
-    }
-
-    #[test]
-    fn the_engine_root_is_prepended_to_pythonpath() {
-        let _guard = env_lock();
-        let root = Path::new("/tmp/some-engine");
-        env::set_var("PYTHONPATH", "/already/there");
-        assert_eq!(
-            engine_pythonpath(root).unwrap(),
-            OsString::from("/tmp/some-engine:/already/there")
-        );
-        env::remove_var("PYTHONPATH");
-        assert_eq!(
-            engine_pythonpath(root).unwrap(),
-            OsString::from("/tmp/some-engine")
-        );
-    }
-
-    #[test]
-    fn an_empty_pythonpath_adds_nothing() {
-        let _guard = env_lock();
-        let root = Path::new("/tmp/some-engine");
-        env::set_var("PYTHONPATH", "");
-        assert_eq!(
-            engine_pythonpath(root).unwrap(),
-            OsString::from("/tmp/some-engine")
-        );
-        env::remove_var("PYTHONPATH");
-    }
-
-    /// Process environment is shared, so the tests that set a variable
-    /// run one at a time.
-    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        LOCK.lock().unwrap()
-    }
-
-    #[test]
     fn the_refusal_carries_the_ladders_own_message() {
-        let report = InterpreterReport {
-            python: String::new(),
-            error: "No Python interpreter carrying the ML stack was found.".to_string(),
-        };
-        let message = refusal(&report);
+        let message = refusal(
+            "No Python interpreter carrying the ML stack was found.\nTried, in order:",
+        );
         assert!(message.starts_with("ren: refusing - no interpreter carrying the ML stack.\n"));
         assert!(message.contains("No Python interpreter carrying the ML stack was found."));
     }
 
     #[test]
-    fn an_unparseable_ladder_answer_says_so() {
-        let report = InterpreterReport::default();
-        let message = refusal(&report);
-        assert!(message.contains("(the ladder answered nothing parseable; see docs/ML_ENVIRONMENT.md)"));
-    }
-
-    #[test]
-    fn an_unrunnable_interpreter_is_refused_with_the_fix() {
-        let error = exec_python(
-            "/nonexistent/ren-python",
-            Path::new("/tmp/some-engine"),
-            &[],
-        )
-        .unwrap_err();
-        assert!(error.contains("cannot run /nonexistent/ren-python"));
-        assert!(error.contains("ren setup"));
-    }
-
-    fn make_executable(path: &Path) {
-        let mut permissions = fs::metadata(path).unwrap().permissions();
-        permissions.set_mode(0o755);
-        fs::set_permissions(path, permissions).unwrap();
+    fn the_ladder_finds_the_durable_venv() {
+        let root = Path::new("/tmp/some-engine");
+        let interpreter = resolve_interpreter(root).unwrap();
+        assert!(interpreter.contains("python3"));
     }
 }

@@ -1544,7 +1544,14 @@ def cmd_check(args):
     # 4. ffprobe reads every footage file
     print("Checking footage files with ffprobe...")
     from library.tools.footage_identity import enumerate_footage
-    raw_footage_files, _ = enumerate_footage(project_dir)
+    try:
+        raw_footage_files, _ = enumerate_footage(project_dir)
+    except FileNotFoundError as e:
+        raise RenRefusal(
+            f"{e}",
+            "the check cannot verify footage that is not there",
+            f"copy raw footage to the project's raw footage dir, then "
+            f"re-run `ren check {args.slug}`") from e
 
     if not raw_footage_files:
         raise RenRefusal(
