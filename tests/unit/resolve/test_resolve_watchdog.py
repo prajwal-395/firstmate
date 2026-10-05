@@ -3,11 +3,25 @@
 import threading
 import time
 
+import pytest
+
+from library.tools import resolve_lock
 from library.tools import resolve_watchdog as wd
 from library.tools.resolved import jobs as job_kinds
 from library.tools.resolved.server import Broker
 from library.tools.resolved.store import JobStore
 from tests.resolve_double import FakeResolve, make_project
+
+
+@pytest.fixture
+def unguarded(monkeypatch):
+    """Undo conftest's session-wide sole-writer declaration.
+
+    The suite's Resolve is a mock, so the session declares itself the
+    sole writer - which would answer `held()` before any lease is taken
+    and hide the defect this file tests for.
+    """
+    monkeypatch.setattr(resolve_lock, "_sole_writer_reason", None)
 
 
 def test_watchdog_marks_degraded_when_call_never_returns():
@@ -338,5 +352,61 @@ def test_status_records_degradation_and_recovery():
         assert status["recovered_at"] >= degraded_at
         assert status["holder"] == "test-holder"
         assert status["job_id"] == "test-job"
+    finally:
+        watchdog.stop()
+
+
+def test_watchdog_probe_without_lease_does_not_mark_degraded(unguarded):
+    """A watchdog probe with no lease held must not mark the broker
+    degraded when Resolve is healthy.
+
+    Regression: the watchdog probed from its own thread with no lease
+    held, so `scriptapp_preserving_locale` refused the handshake whenever
+    the broker was idle. The first probe marked Resolve degraded and
+    every later submission was refused - a permanently wedged broker.
+    """
+    seen = {}
+
+    def connect():
+        seen["held"] = resolve_lock.held()
+        if not seen["held"]:
+            raise RuntimeError(
+                "refusing Resolve scriptapp handshake outside the instance "
+                "lease; take resolve_lease before connecting")
+        return FakeResolve()
+
+    watchdog = wd.ResolveWatchdog(connect=connect, probe_interval=0.01,
+                                  connect_budget=30.0)
+    watchdog.start()
+    try:
+        deadline = time.time() + 15
+        while "held" not in seen and time.time() < deadline:
+            time.sleep(0.01)
+        assert seen.get("held") is True
+        assert not watchdog.is_degraded()
+        status = watchdog.status()
+        assert status["connected"] is True
+        assert status["responsive"] is True
+    finally:
+        watchdog.stop()
+
+
+def test_watchdog_contention_does_not_mark_degraded(unguarded):
+    """A contended lease is not a hang: the probe skips, the broker lives.
+
+    While a build holds the instance exclusively, the watchdog's shared
+    lease acquisition refuses (`ResolveBusy`). Contention is not
+    unresponsiveness, so the watchdog must not mark Resolve degraded -
+    a build in progress must not wedge the broker.
+    """
+    watchdog = wd.ResolveWatchdog(connect=lambda: FakeResolve(),
+                                  probe_interval=0.01,
+                                  connect_budget=0.2)
+    watchdog.start()
+    try:
+        with resolve_lock.resolve_lease("test build", exclusive=True,
+                                       honor_captain=False):
+            time.sleep(0.5)
+            assert not watchdog.is_degraded()
     finally:
         watchdog.stop()

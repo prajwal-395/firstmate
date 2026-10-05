@@ -9,7 +9,10 @@ timeout does not unstick Resolve.
 
 This module is the watchdog that does:
 
-* PROBE Resolve on a short budget (connect ~10s, round trip ~5s).
+* PROBE Resolve on a short budget (connect ~10s, round trip ~5s),
+  under a shared instance lease - the scripting handshake refuses
+  outside one, and a probe that cannot connect is not evidence that
+  Resolve is down.
 * MARK Resolve unresponsive after a failed bounded probe.
 * STOP queue growth: the broker rejects new submissions while degraded.
 * KEEP the holder and job id of the operation that was running.
@@ -150,6 +153,30 @@ class ResolveWatchdog:
             self._probe()
 
     def _probe(self) -> None:
+        """Connect and round-trip under a shared instance lease.
+
+        `connect_resolve` reaches Resolve through the guarded scripting
+        handshake in `resolve_locale`, which refuses outside the instance
+        lease. The watchdog probes from its own thread, so it takes the
+        lease itself: without it an idle broker's first probe fails and
+        marks Resolve degraded permanently, refusing every submission. A
+        shared lease - the probe only reads - and `honor_captain=False` -
+        a health check is not the captain's action and must not wait on
+        his signal. A lease another writer holds is not a hang: the
+        refusal is skipped and the next probe retries.
+        """
+        from library.tools.resolve_lock import ResolveBusy, resolve_lease
+        try:
+            with resolve_lease("resolve-watchdog probe", exclusive=False,
+                               honor_captain=False,
+                               timeout=self._connect_budget):
+                self._probe_connected()
+        except ResolveBusy:
+            pass      # contention is not a hang; the next probe retries
+        except Exception as exc:  # noqa: BLE001 - any failure is a mark
+            self._mark_degraded(f"probe failed: {exc}", "", "")
+
+    def _probe_connected(self) -> None:
         try:
             resolve = _deadline_call("watchdog connect", self._connect,
                                      timeout_s=self._connect_budget)
