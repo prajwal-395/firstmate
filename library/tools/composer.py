@@ -897,6 +897,69 @@ def reachable_goals() -> tuple[str, ...]:
     return tuple(sorted({r.name for op in ops_mod.all() for r in op.effect}))
 
 
+# ── The alternatives goal ───────────────────────────────────────────
+#
+# "The opening feels slow. Give me three alternatives without changing
+# the argument." The composer resolves a goal backwards to the shortest
+# capability set that reaches it; the alternatives goal is the one the
+# edit graph (Gap 1) and the intent model (Gap 2) make answerable. An
+# alternative is a fork of the graph at a named region with a
+# declaration of what differs (`versions/edit_variants.py`); the
+# argument is preserved because the intent model is carried alongside
+# each fork and `validate_alternatives` refuses a fork that changed it.
+#
+# The goal is planned, not run: the composer names the capabilities
+# that must run - the graph build and the intent model the fork reads,
+# then the alternatives operation itself. It refuses a dimension
+# nothing declares, by name, rather than planning a fork that differs
+# in nothing.
+
+ALTERNATIVES_GOAL = "alternatives"
+"""The goal name the composer resolves to the alternatives operation."""
+
+EDIT_ALTERNATIVES_PRODUCE = "edit_alternatives.produce"
+"""The capability that produces N alternative graphs of a named region."""
+
+ALTERNATIVE_DIMENSIONS = ("passage_order", "broll_cover")
+"""The declared dimensions an alternative may differ in."""
+
+
+def compose_alternatives(region, dimension: str, count: int) -> Composition:
+    """Resolve the alternatives goal: N forks of the graph at `region`.
+
+    Plans the capabilities that must run, in order: the graph build
+    (`edit_graph.build`) and the intent model the fork reads, then the
+    alternatives operation itself. The plan is returned, not executed -
+    the composer names capabilities; running them is the caller's.
+
+    Refuses, by name, a dimension nothing declares or a count below 2:
+    one alternative is not a comparison, and a dimension outside the
+    declared vocabulary is a second builder wearing the alternatives'
+    name.
+    """
+    if dimension not in ALTERNATIVE_DIMENSIONS:
+        known = ", ".join(ALTERNATIVE_DIMENSIONS)
+        return Composition(
+            goal=ALTERNATIVES_GOAL, status=REFUSED, blocker=dimension,
+            blocker_producers=(),
+            detail=(f"unknown alternative dimension {dimension!r}; the "
+                    f"declared dimensions are {known}"))
+    if count < 2:
+        return Composition(
+            goal=ALTERNATIVES_GOAL, status=REFUSED, blocker="count",
+            blocker_producers=(),
+            detail=(f"alternatives are a comparison, and {count} is not "
+                    f"one - the captain asked for three"))
+
+    operations: list[str] = []
+    for name in ("edit_graph.build", EDIT_ALTERNATIVES_PRODUCE):
+        if name not in operations:
+            operations.append(name)
+    return Composition(
+        goal=ALTERNATIVES_GOAL, status=COMPLETED,
+        operations=tuple(operations))
+
+
 def describe_plan(comp: Composition) -> str:
     """The composition, rendered for the operator who asked."""
     if comp.refused:
