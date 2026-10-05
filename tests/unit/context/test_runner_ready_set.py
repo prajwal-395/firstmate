@@ -302,10 +302,11 @@ def test_full_runner_commits_finished_workers_and_keeps_independent_siblings(
             events.append(("committed", node_id))
         return original_record(state, node_id, output, capability_id)
 
-    def record_failure(state, node_id, message):
+    def record_failure(state, node_id, message, project_dir=""):
         if node_id in step_refs:
             events.append(("failed", node_id))
-        return original_failure(state, node_id, message)
+        return original_failure(state, node_id, message,
+                                project_dir=project_dir)
 
     monkeypatch.setattr(runner, "load_dag", lambda: dag)
     monkeypatch.setattr(runner, "get_step_implementation", implementation)
