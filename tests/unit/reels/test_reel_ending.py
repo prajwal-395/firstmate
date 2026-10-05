@@ -296,6 +296,54 @@ def test_a_freeze_holds_the_last_frame_for_the_elements_own_length():
     assert freeze.element == "tv_power_tail"
 
 
+def test_the_freeze_follows_the_last_playing_shot_not_the_last_listed():
+    """Reel 10, 2026-10-05: the hold landed on the wrong row.
+
+    `reel_build.placements()` emits one entry per (keep range,
+    overlapping clip) in MASTER-CLIP order, and the master snapshot
+    sorts clips by `(track_type, track_index, timeline_start)`. With a
+    single keep range the list is therefore grouped by camera, and its
+    last entry is the last clip of the LAST camera - not the shot that
+    plays last. Reel 10's last two shots were Craig (V2) then Akshita
+    (V1), but Craig's camera sorted second, so `[-1]` named Craig's
+    shot ending at frame 1258 and the freeze went to V2 at 1258 while
+    Akshita's V1 played on to 1365 - a 19-frame black hole the
+    conformance gate refused. The hold must follow the shot with the
+    latest END frame, whatever order the list arrives in.
+    """
+    fps = 24000 / 1001
+    akshita = SimpleNamespace(timeline_start=718.59, timeline_end=735.6,
+                              source_in=100.0, track_index=1,
+                              speaker="Akshita", track_type="video",
+                              source_file="LCATL0013.MXF")
+    craig = SimpleNamespace(timeline_start=718.59, timeline_end=735.6,
+                            source_in=200.0, track_index=2,
+                            speaker="Craig", track_type="video",
+                            source_file="LC4932.MXF")
+    # The master snapshot's own ordering: video by track_index, so
+    # Akshita's camera (V1) sorts before Craig's (V2).
+    master_clips = [akshita, craig]
+    ranges = [(718.59, 735.6)]
+    placed = reel_build.placements(ranges, master_clips, fps)
+    video = [p for p in placed if p["clip"].track_type == "video"]
+    # The list is camera-grouped: Craig's clip is LAST even though the
+    # reel's last shot is Akshita's. This is the ordering the bug read.
+    assert video[-1]["clip"].speaker == "Craig"
+    freeze = reel_ending.plan_freeze(video, _freeze_ending(), fps)
+    assert freeze is not None
+    # The hold follows the shot that PLAYS last (Akshita, V1), not the
+    # one that sorts last in the list (Craig, V2).
+    assert freeze.track_index == 1
+    assert freeze.held_from == "LCATL0013.MXF"
+    assert freeze.speaker == "Akshita"
+    # It begins on the frame after Akshita's live tail, not Craig's.
+    akshita_end = max(
+        int(p["snapped_record"]) + round(
+            (float(p["source_out"]) - float(p["source_in"])) * fps)
+        for p in video if p["clip"].speaker == "Akshita")
+    assert freeze.reel_start_frame == akshita_end
+
+
 def test_the_freeze_placement_is_a_picture_clip_that_speaks_nothing():
     placements = [{"clip": _shots()[0], "source_in": 50.0,
                    "source_out": 50.0 + 310 / 24.0,

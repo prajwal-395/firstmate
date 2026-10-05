@@ -584,15 +584,48 @@ class FreezeTail:
         return self.reel_start_frame + self.duration_frames
 
 
+def _last_played_picture(picture_placements, fps: float):
+    """The picture placement that PLAYS last, chosen by END frame.
+
+    `reel_build.placements()` emits one entry per (keep range,
+    overlapping clip) in MASTER-CLIP order, and the master snapshot
+    sorts clips by `(track_type, track_index, timeline_start)` - so
+    with a single keep range the list is grouped by camera and its
+    last entry is the last clip of the LAST camera, not the shot that
+    plays last. Taking `[-1]` froze the wrong shot whenever the reel's
+    last two shots came from different cameras and the later-sorting
+    camera was not the one playing last - measured 2026-10-05 on Reel
+    10: the hold landed at frame 1258 on Craig's V2 while Akshita's V1
+    played on to 1365, leaving a 19-frame black hole the conformance
+    gate refused. The hold must be the shot with the latest END frame,
+    whatever order the list arrives in; on a tie the first such shot
+    wins, which is the earlier-listed of two angles covering the same
+    frames.
+    """
+    best = None
+    best_end = None
+    for place in picture_placements or ():
+        played = round((float(place["source_out"])
+                       - float(place["source_in"])) * fps)
+        # `snapped_record` is where the placement lands on the reel; a
+        # fixture that omits it has no position and reads as frame 0.
+        end = round(place.get("snapped_record", 0)) + played
+        if best_end is None or end > best_end:
+            best, best_end = place, end
+    return best
+
+
 def plan_freeze(picture_placements, ending, fps: float,
                 look=None) -> Optional["FreezeTail"]:
     """The freeze a declared ending asks for, or None.
 
-    `picture_placements` are the reel's picture placements in play
-    order - `reel_build.placements()` entries. The hold begins on the
-    frame AFTER the last one that plays and holds the last frame that
-    plays, which is the only frame a freeze may use: the reel already
-    shows it, so nothing unreviewed reaches the timeline.
+    `picture_placements` are the reel's picture placements -
+    `reel_build.placements()` entries. The hold begins on the frame
+    AFTER the last one that plays and holds the last frame that plays,
+    which is the only frame a freeze may use: the reel already shows
+    it, so nothing unreviewed reaches the timeline. The last-playing
+    shot is found by END frame, not by list position - see
+    `_last_played_picture`.
 
     Returns None for no declaration and for `tail_hold: none`, so a
     project that declares neither builds exactly what it built before.
@@ -602,7 +635,7 @@ def plan_freeze(picture_placements, ending, fps: float,
     frames = tail_room_frames(ending, look)
     if frames <= 0:
         return None
-    tail = list(picture_placements or [])[-1] if picture_placements else None
+    tail = _last_played_picture(picture_placements, fps)
     if tail is None:
         raise ReelEndingError(
             "a freeze was declared for a reel that places no picture: "
@@ -773,7 +806,7 @@ def assert_tail_fits(picture_placements, ending, fps: float,
     that only speaks when it fails reads as absent.
     """
     room = tail_room_frames(ending, look)
-    tail = list(picture_placements or [])[-1] if picture_placements else None
+    tail = _last_played_picture(picture_placements, fps)
     if tail is None:
         raise ReelEndingError(
             "the reel has no picture to end on: an ending was declared "
