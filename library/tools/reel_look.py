@@ -2362,6 +2362,64 @@ def apply_comps(manifest: dict, project_folder: str,
     return result.returncode == 0
 
 
+def apply_comps_batch(entries, project_folder: str,
+                      resolve_project_name: str,
+                      python_executable: Optional[str] = None,
+                      step_id: str = "build_reels") -> dict:
+    """Apply comps for multiple reels in ONE subprocess (one Resolve connection).
+
+    ``entries`` is a list of ``(manifest, timeline_name)`` tuples. Each
+    manifest is written to disk and a single subprocess connects to Resolve
+    once and applies every reel's comps, amortizing the per-reel fixed
+    overhead (17.0-63.7s measured per reel) across the whole build.
+    Returns a dict of ``{timeline_name: success}``.
+    """
+    from library.tools.project_layout import Area, ProjectLayout
+
+    scratch = os.path.join(
+        str(ProjectLayout(project_folder).read_dir(Area.SCRATCH)),
+        "reel_look")
+    os.makedirs(scratch, exist_ok=True)
+
+    batch_entries = []
+    for manifest, timeline_name in entries:
+        if not (manifest.get("fusion_effects", {}).get("per_clip")):
+            continue
+        manifest_path = os.path.join(
+            scratch, f"{_slug(timeline_name)}_fusion_manifest.json")
+        with open(manifest_path, "w", encoding="utf-8") as handle:
+            json.dump(manifest, handle, indent=2)
+        batch_entries.append({"manifest": manifest_path,
+                              "timeline": timeline_name})
+
+    if not batch_entries:
+        return {}
+
+    batch_path = os.path.join(scratch, "fusion_batch.json")
+    with open(batch_path, "w", encoding="utf-8") as handle:
+        json.dump(batch_entries, handle, indent=2)
+
+    module = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                          "execution", "apply_fusion_comps.py")
+    result = subprocess.run(
+        [python_executable or sys.executable, module, batch_entries[0]["manifest"],
+         "--project-folder", project_folder,
+         "--expected-project", resolve_project_name,
+         "--step-id", step_id,
+         "--batch", batch_path],
+        capture_output=True, encoding="utf-8", check=False)
+    if result.stdout:
+        print(result.stdout, file=sys.stderr)
+    if result.stderr:
+        print(result.stderr, file=sys.stderr)
+    if result.returncode != 0:
+        return {}
+    try:
+        return json.loads(result.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        return {}
+
+
 def _slug(text: str) -> str:
     import re
     return re.sub(r"[^a-z0-9]+", "_", str(text).lower()).strip("_")

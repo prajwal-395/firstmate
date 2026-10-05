@@ -428,7 +428,25 @@ def apply_fusion_comps(manifest, project_folder,
     if not resolve:
         print("ERROR: Could not connect to Resolve.", file=sys.stderr)
         return False
+    return apply_fusion_comps_with_resolve(
+        resolve, manifest, project_folder,
+        expected_project=expected_project,
+        expected_timeline=expected_timeline,
+        step_id=step_id)
 
+
+def apply_fusion_comps_with_resolve(resolve, manifest, project_folder,
+                                    expected_project=None,
+                                    expected_timeline=None,
+                                    step_id="render"):
+    """Apply comps for one reel using an already-connected Resolve handle.
+
+    Extracted from `apply_fusion_comps` so a batch pass can connect once
+    and apply every reel's comps in a single subprocess - the per-reel
+    subprocess was 17.0-63.7s of FIXED overhead per reel
+    (`reel_build.py` docstring), and batching amortizes it across the
+    whole build.
+    """
     # ── Destination guard ──
     # ASSERT the cursor under this pass's exclusive lease, then verify
     # IMMEDIATELY before the first mutation. Depending on ambient
@@ -1081,6 +1099,32 @@ def apply_fusion_comps(manifest, project_folder,
         return False
     return True
 
+
+def apply_fusion_comps_batch(entries, project_folder,
+                             expected_project=None, step_id="render"):
+    """Apply comps for multiple reels in ONE Resolve connection.
+
+    ``entries`` is a list of ``(manifest, expected_timeline)`` tuples. The
+    subprocess connects to Resolve once and applies every reel's comps,
+    amortizing the per-reel fixed overhead (17.0-63.7s measured) across
+    the whole build. Returns a dict of ``{timeline_name: success}``.
+    """
+    from library.tools.resolve_locale import scriptapp_preserving_locale
+    resolve = scriptapp_preserving_locale(dvr, "Resolve")
+    if not resolve:
+        print("ERROR: Could not connect to Resolve.", file=sys.stderr)
+        return {}
+
+    results = {}
+    for manifest, expected_timeline in entries:
+        results[expected_timeline] = apply_fusion_comps_with_resolve(
+            resolve, manifest, project_folder,
+            expected_project=expected_project,
+            expected_timeline=expected_timeline,
+            step_id=step_id)
+    return results
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("manifest")
@@ -1093,18 +1137,36 @@ if __name__ == "__main__":
                              "find current. Mismatch refuses all mutations.")
     parser.add_argument("--expected-timeline", default=None,
                         help="Resolve timeline name the subprocess expects to "
-                        "find current. Mismatch refuses all mutations.")
+                             "find current. Mismatch refuses all mutations.")
+    parser.add_argument("--batch", default=None,
+                        help="JSON file with [{manifest, timeline}, ...] - "
+                             "apply all reels' comps in one connection")
     parser.add_argument("--step-id", default="render",
                         help="DAG node id the verify_treatment receipt is "
                         "filed under (render on the master path, "
                         "build_reels on the reels path).")
     args = parser.parse_args()
 
-    with open(args.manifest) as f:
-        manifest = json.load(f)
-
     project_folder = args.project_folder or os.path.abspath(
         os.path.dirname(args.manifest))
+
+    if args.batch:
+        with open(args.batch) as f:
+            batch_entries = json.load(f)
+        entries = []
+        for entry in batch_entries:
+            with open(entry["manifest"]) as f:
+                manifest = json.load(f)
+            entries.append((manifest, entry["timeline"]))
+        results = apply_fusion_comps_batch(
+            entries, project_folder,
+            expected_project=args.expected_project,
+            step_id=args.step_id)
+        print(json.dumps(results))
+        sys.exit(0 if results and all(results.values()) else 1)
+
+    with open(args.manifest) as f:
+        manifest = json.load(f)
     success = apply_fusion_comps(
         manifest, project_folder,
         expected_project=args.expected_project,

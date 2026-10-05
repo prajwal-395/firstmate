@@ -12175,14 +12175,19 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
       first's scratch as "stale".
     - one hold per placed reel (`f"place {name}"` with the staging
       container, EXCLUSIVE):
-      the carried self-read, the rebuild-need decision, the
-      placement and the Fusion comp pass, which acts on the current
-      timeline's items in a subprocess that inherits this hold. The
-      per-reel derivation before it - Remotion caption and card
-      renders, model-answer reads, digest computation - touches no
-      Resolve state and holds nothing, so lanes overlap there and
-      serialise only here, for the measured 19.4-67.1 s a reel's
-      Resolve pass costs.
+      the carried self-read, the rebuild-need decision and the
+      placement. The per-reel derivation before it - Remotion caption
+      and card renders, model-answer reads, digest computation -
+      touches no Resolve state and holds nothing, so lanes overlap
+      there and serialise only here.
+    - the batch Fusion comp pass (`"apply fusion comps"`, EXCLUSIVE):
+      one subprocess, one Resolve connection, one lease for every
+      reel's comps. The per-reel subprocess was 17.0-63.7s of FIXED
+      overhead per reel; batching amortizes it across the whole
+      build. The comps act on each reel's own timeline items, so the
+      subprocess moves the cursor between timelines under this one
+      hold, and the freeze-tail read-back follows the comp pass that
+      it depends on.
     - the gate and the sweep (`"verify built reels"`,
       `"sweep all reels"`, SHARED): reads that must grade a stable
       staging, several of which run together while no writer runs.
@@ -13101,6 +13106,12 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # so a re-run starts from no debris of this run. The approved
     # timelines were never touched and need no recovery.
     current_staging: str | None = None
+    # Batch Fusion comp pass: collect manifests during the per-reel
+    # placement holds, then apply them all in ONE subprocess after the
+    # loop. The per-reel subprocess was 17.0-63.7s of FIXED overhead per
+    # reel; batching amortizes it across the whole build.
+    _batch_comp_entries: list = []
+    _pending_freeze_verifies: list = []
     try:
         for moment in building:
             final = built_name(moment, name_suffix)
@@ -13720,10 +13731,11 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             #    freeze render, post header, track plan, promoted
             #    artefacts) and the Fusion manifest - the work that used
             #    to sit inside the placement hold computing, not placing.
-            # 3. `place {name}`: the placement and the Fusion comp pass.
-            #    The Fusion subprocess inherits this hold, because comps
-            #    act on the current timeline's items and must not run
-            #    while another lane moves the cursor.
+             # 3. `place {name}`: the placement. The Fusion comp pass is
+             #    BATCHED across all reels - one subprocess, one Resolve
+             #    connection, one lease after the loop - because the
+             #    per-reel subprocess was 17.0-63.7s of FIXED overhead
+             #    per reel.
             # 4. FREE: the overlay sweep's judgement, on what the
             #    placement read back.
             #
@@ -14032,54 +14044,19 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                         build_result["transition_placements"])
                 # The switch animation and the drift are Fusion comps, and a
                 # comp cannot be imported by the process that created the
-                # timeline (AGENTS.md 5).  So they go in here, in a
-                # subprocess handed the destination it must find current -
-                # after the picture is placed and before the gate reads it,
-                # because a reel whose comps failed is not the reel that was
-                # planned. The subprocess inherits THIS hold, so no other
-                # lane moves the cursor between the placement and the
-                # comp pass that reads it back.
+                # timeline (AGENTS.md 5). They go in a BATCH after all reels
+                # are placed, in ONE subprocess that connects to Resolve once
+                # and applies every reel's comps - the per-reel fixed
+                # overhead of a subprocess (17.0-63.7s measured) is what this
+                # batching amortizes across the whole build.
                 placement_profile = build_result.get("placement_profile")
-                fusion_started = (time.perf_counter()
-                                  if isinstance(placement_profile, dict)
-                                  else None)
                 if manifest is not None:
-                    if not _look.apply_comps(manifest, project_folder,
-                                             resolve_name, name):
-                        raise ReelBuildError(
-                            f"{name}: the Fusion pass refused or failed. The "
-                            f"switch animation and every planned drift are "
-                            f"comps, so a reel that lost them is a reel with a "
-                            f"different picture from the one that was planned.")
+                    _batch_comp_entries.append(
+                        (manifest, name, placement_profile))
                 _freeze_trace = build_result.get("freeze_placement")
                 if isinstance(_freeze_trace, dict):
-                    _freeze = build_result["freeze"]
-                    if not _verify_freeze_tail_after_fusion(
-                            project, name, _freeze, _freeze_trace):
-                        _refusal = (
-                            f"{name}: declared freeze tail did not survive "
-                            f"exact post-Fusion read-back on its planned row "
-                            f"and frames ({_freeze_trace['expected']}); "
-                            "refusing before conformance rather than recording "
-                            "a generic black-hole finding")
-                        summary_facts[name].update({
-                            "freeze_placement": _freeze_trace,
-                            "has_freeze_tail": True,
-                        })
-                        from library.tools import reel_phase_log as _freeze_log
-                        _file_reel_summary(
-                            project_folder, number=int(moment.number),
-                            name=name,
-                            facts=summary_facts[name],
-                            outcome=_freeze_log.OUTCOME_VERIFY_REFUSED,
-                            verify={"passed": False,
-                                    "refusal": _refusal},
-                            gain_record=gain_record)
-                        raise ReelBuildError(_refusal)
-                if (isinstance(placement_profile, dict)
-                        and fusion_started is not None):
-                    _otio.record_duration(
-                        placement_profile, "fusion_comps_s", fusion_started)
+                    _pending_freeze_verifies.append(
+                        (name, build_result["freeze"], _freeze_trace))
                 # Placed: only now is this staging a container the gate may
                 # grade and promotion may move. An exception above leaves the
                 # name off this list and the except below removes whatever
@@ -14176,6 +14153,80 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             discard_staged_reels(project, project_folder, placed,
                                  master_timeline_name)
         raise
+
+    # ── THE BATCH FUSION COMP PASS ──
+    # One subprocess, one Resolve connection, one exclusive lease for every
+    # reel's comps. The per-reel subprocess was 17.0-63.7s of FIXED overhead
+    # per reel (reel_build.py docstring); batching amortizes it across the
+    # whole build. The comps act on each reel's own timeline items, so the
+    # subprocess moves the cursor between timelines under this one hold.
+    if _batch_comp_entries:
+        try:
+            with resolve_lease("apply fusion comps", exclusive=True):
+                _fusion_started = time.perf_counter()
+                _comp_results = _look.apply_comps_batch(
+                    [(m, n) for m, n, _ in _batch_comp_entries],
+                    project_folder, resolve_name)
+                _fusion_total = time.perf_counter() - _fusion_started
+                _per_reel = (_fusion_total / len(_batch_comp_entries)
+                             if _batch_comp_entries else 0.0)
+                for _manifest, _name, _profile in _batch_comp_entries:
+                    if not _comp_results.get(_name, False):
+                        raise ReelBuildError(
+                            f"{_name}: the Fusion pass refused or failed. The "
+                            f"switch animation and every planned drift are "
+                            f"comps, so a reel that lost them is a reel with a "
+                            f"different picture from the one that was planned.")
+                    if isinstance(_profile, dict):
+                        _otio.record_duration(
+                            _profile, "fusion_comps_s", _per_reel)
+                # Freeze-tail verification, after the comp pass that the
+                # read-back depends on. The trace dicts are updated in place,
+                # so summary_facts already carries the verified results.
+                for _name, _freeze, _freeze_trace in _pending_freeze_verifies:
+                    if not _verify_freeze_tail_after_fusion(
+                            project, _name, _freeze, _freeze_trace):
+                        _refusal = (
+                            f"{_name}: declared freeze tail did not survive "
+                            f"exact post-Fusion read-back on its planned row "
+                            f"and frames ({_freeze_trace['expected']}); "
+                            "refusing before conformance rather than recording "
+                            "a generic black-hole finding")
+                        summary_facts[_name].update({
+                            "freeze_placement": _freeze_trace,
+                            "has_freeze_tail": True,
+                        })
+                        from library.tools import reel_phase_log as _freeze_log
+                        _file_reel_summary(
+                            project_folder,
+                            number=int(summary_facts[_name]["number"]),
+                            name=_name,
+                            facts=summary_facts[_name],
+                            outcome=_freeze_log.OUTCOME_VERIFY_REFUSED,
+                            verify={"passed": False,
+                                    "refusal": _refusal},
+                            gain_record=gain_record)
+                        raise ReelBuildError(_refusal)
+        except Exception as exc:
+            placed = list(dict.fromkeys(
+                built_reel_names + ([current_staging]
+                                    if current_staging else [])))
+            try:
+                from library.tools import reel_phase_log as _fail_log
+                if current_staging:
+                    try:
+                        _failed_number = int(current_staging.split("_")[1])
+                    except Exception:
+                        _failed_number = 0
+                    _fail_log.log_wait(
+                        project_folder, _failed_number, current_staging,
+                        f"batch Fusion comp pass failed: {exc}")
+            except Exception:
+                pass
+            with resolve_lease("discard failed staging", exclusive=True):
+                discard_staged_reels(project, project_folder, placed,
+                                     master_timeline_name)
+            raise
 
     # What each reel's explainer really was, INCLUDING the empty ones.
     # Recorded rather than re-derived, for the reason
