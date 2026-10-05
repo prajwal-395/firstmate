@@ -50,6 +50,8 @@ class Need:
 
 NEEDS: dict = {n.id: n for n in (
     Need("macos", "macOS - Ren runs on a Mac only"),
+    Need("hardware.memory", "unified memory enough for the resident vision "
+         "model (gemma-4-12b-it-4bit, ~7.3-7.9 GB) plus the pipeline"),
     Need("python.venv", "the Python 3.12 pipeline interpreter"),
     Need("python.core", "the core dependency group (requirements/core.txt)"),
     Need("python.graphics", "the graphics dependency group: cv2 with its "
@@ -80,6 +82,17 @@ NEEDS: dict = {n.id: n for n in (
          "to answer the model's half"),
 )}
 
+MEMORY_MINIMUM_GB = 16
+"""Below this the resident vision model cannot be held at all."""
+
+MEMORY_RECOMMENDED_GB = 24
+"""The project's target machine (docs/GEMMA_SERVER.md)."""
+
+GEMMA_RESIDENT_GB = 7.9
+"""The vision server's measured resident footprint - 7.3-7.9 GB on the
+captain's 24 GB MacBook (docs/GEMMA_SERVER.md §5). The top of the band
+is the conservative side for "will it fit"."""
+
 BASELINE = ("macos", "python.venv", "python.core")
 """Required by every capability."""
 
@@ -104,6 +117,8 @@ class CapabilityNeeds:
 
 
 _MODEL = ("chat_harness",)
+_MEMORY_DEGRADE = ("the vision model will swap: the vision pass runs, "
+                  "but slow")
 _RESOLVE = ("resolve.scripting", "resolve.studio")
 _REEL = _RESOLVE + ("python.graphics",)
 _REMOTION = ("node", "remotion")
@@ -124,7 +139,8 @@ CAPABILITY_NEEDS: dict = {
     "footage.scan": CapabilityNeeds(("ffmpeg",)),
     "footage.catalog": CapabilityNeeds(("ffmpeg",)),
     "semantics.analyse": CapabilityNeeds(
-        ("ffmpeg", "python.analysis", "python.graphics", "model.vision")),
+        ("ffmpeg", "python.analysis", "python.graphics", "model.vision"),
+        {"hardware.memory": _MEMORY_DEGRADE}),
     "temporal.index": CapabilityNeeds(
         _TRANSCRIBE.requires + ("python.graphics",), _TRANSCRIBE.degrades),
     "prosody.analyse": CapabilityNeeds(("python.analysis",)),
@@ -189,7 +205,8 @@ CAPABILITY_NEEDS: dict = {
         ("ffmpeg", "python.analysis", "python.graphics", "model.vision",
          "transcriber.voz", "model.mfa"),
         {"python.identity": "no identity lane: faces and voices are not "
-                            "resolved to people"}),
+                            "resolved to people",
+         "hardware.memory": _MEMORY_DEGRADE}),
     "project.inspect": CapabilityNeeds(),
     "project.create": CapabilityNeeds(("config.projects_root",)),
 }

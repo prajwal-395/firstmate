@@ -704,6 +704,70 @@ def harness_check() -> Check:
                  "(an API key does not count)", need="chat_harness")
 
 
+# ── Hardware ─────────────────────────────────────────────────────────
+
+def _total_memory_gb() -> float | None:
+    """Total unified memory in GB, or None when it cannot be read.
+
+    `sysctl hw.memsize` is the macOS spelling, and Ren runs on macOS only
+    (`macos_check`). A machine that cannot answer is a MISS line, never a
+    crashed doctor - `_guarded` wraps the check itself.
+    """
+    try:
+        done = subprocess.run(["sysctl", "-n", "hw.memsize"],
+                              capture_output=True, encoding="utf-8",
+                              timeout=PROBE_TIMEOUT_S, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if done.returncode != 0:
+        return None
+    try:
+        return int(done.stdout.strip()) / 2**30
+    except ValueError:
+        return None
+
+
+def memory_check() -> Check:
+    """Can this machine hold the resident vision model plus the pipeline?
+
+    The Gemma server measures 7.3-7.9 GB resident on the captain's 24 GB
+    MacBook (docs/GEMMA_SERVER.md §5). Below the recommended floor the
+    model swaps and the vision pass runs slow; below the minimum it cannot
+    be held at all. The floors are declared in
+    `library/tools/machine_needs.py`, not here.
+    """
+    from library.tools import machine_needs
+
+    total = _total_memory_gb()
+    if total is None:
+        return Check("memory", False,
+                     "could not read this machine's unified memory",
+                     "run Ren on a Mac", need="hardware.memory")
+    gemma = machine_needs.GEMMA_RESIDENT_GB
+    if total >= machine_needs.MEMORY_RECOMMENDED_GB:
+        return Check("memory", True,
+                     f"{total:.1f} GB unified memory; the vision model "
+                     f"resides at ~{gemma:.1f} GB, leaving "
+                     f"{total - gemma:.1f} GB headroom",
+                     need="hardware.memory")
+    if total >= machine_needs.MEMORY_MINIMUM_GB:
+        return Check("memory", False,
+                     f"{total:.1f} GB unified memory - below the "
+                     f"{machine_needs.MEMORY_RECOMMENDED_GB} GB recommended "
+                     f"floor; the vision model (~{gemma:.1f} GB resident) "
+                     f"will swap: the vision pass runs, but slow",
+                     "a machine with "
+                     f"{machine_needs.MEMORY_RECOMMENDED_GB} GB or more is "
+                     "the target",
+                     need="hardware.memory")
+    return Check("memory", False,
+                 f"{total:.1f} GB unified memory - below the "
+                 f"{machine_needs.MEMORY_MINIMUM_GB} GB minimum; the vision "
+                 f"model needs ~{gemma:.1f} GB resident and cannot be held",
+                 "the vision pass cannot run on this machine",
+                 need="hardware.memory")
+
+
 # ── Running it ───────────────────────────────────────────────────────
 
 def macos_check() -> Check:
@@ -734,6 +798,7 @@ GROUPS = (
     # (name, the function that checks it, the needs its lines check)
     ("edition", "edition_check", ()),
     ("macOS", "macos_check", ("macos",)),
+    ("memory", "memory_check", ("hardware.memory",)),
     ("Resolve scripting", "resolve_checks", ("resolve.scripting", "resolve.studio")),
     ("Python 3.12 venv", "python_checks",
      ("python.venv", "python.core", "python.graphics", "python.analysis",

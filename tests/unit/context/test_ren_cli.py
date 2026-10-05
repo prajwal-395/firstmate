@@ -332,6 +332,63 @@ def test_doctor_requires_voz_and_mfa_without_claiming_a_fallback(monkeypatch):
     assert "takes over" not in by_name["MFA aligner"].detail
 
 
+def _stub_sysctl(monkeypatch, gib):
+    """Answer `sysctl -n hw.memsize` with `gib` GiB; delegate the rest."""
+    real_run = subprocess.run
+
+    def run(argv, **kwargs):
+        if argv[:3] == ["sysctl", "-n", "hw.memsize"]:
+            return subprocess.CompletedProcess(
+                argv, 0, str(int(gib * 2**30)) + "\n", "")
+        return real_run(argv, **kwargs)
+
+    monkeypatch.setattr(doctor.subprocess, "run", run)
+
+
+def test_memory_line_names_the_floor_and_the_cost_of_missing_it(monkeypatch):
+    """A doctor that PASSes a 16 GB machine because the weights are cached
+    hides that the resident vision model will swap - the user then learns
+    the floor and what it costs at the first OOM, not before the install.
+    On a 24 GB machine the same line reports the headroom instead."""
+    from library.tools import machine_needs
+
+    _stub_sysctl(monkeypatch, 16)
+    check = doctor.memory_check()
+    assert not check.ok
+    assert "16.0 GB" in check.detail
+    assert f"{machine_needs.MEMORY_RECOMMENDED_GB} GB recommended" in check.detail
+    assert f"{machine_needs.GEMMA_RESIDENT_GB:.1f} GB" in check.detail
+    assert "swap" in check.detail
+
+    verdict, _missing, degraded = doctor.capability_report(
+        [check])["semantics.analyse"]
+    assert verdict == machine_needs.DEGRADED
+    assert any("swap" in why for why in degraded.values())
+
+    _stub_sysctl(monkeypatch, 24)
+    check = doctor.memory_check()
+    assert check.ok
+    assert "24.0 GB" in check.detail and "headroom" in check.detail
+
+    _stub_sysctl(monkeypatch, 8)
+    check = doctor.memory_check()
+    assert not check.ok
+    assert f"{machine_needs.MEMORY_MINIMUM_GB} GB minimum" in check.detail
+    assert "cannot be held" in check.detail
+
+
+def test_memory_line_never_crashes_doctor_when_sysctl_is_missing(monkeypatch):
+    """A machine that cannot answer `hw.memsize` is a MISS line, never the
+    traceback a bare `subprocess.run` inside the check would give."""
+    def boom(argv, **kwargs):
+        raise OSError("sysctl not found")
+
+    monkeypatch.setattr(doctor.subprocess, "run", boom)
+    check = doctor.memory_check()
+    assert not check.ok
+    assert "could not read" in check.detail
+
+
 # --------------------------------------------------------------------------
 # From test_cli_ml_preflight.py
 #
