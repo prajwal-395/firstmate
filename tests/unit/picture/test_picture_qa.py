@@ -964,6 +964,36 @@ class TestTheGatesActuallyDecide:
         assert verdict["distribution_ready"] is True
         assert all(c["pass"] for c in verdict["checks"].values())
 
+    def test_a_grade_that_lands_at_the_wrong_magnitude_fails_the_build(self):
+        """The E6 defect the gate catches: a grade that moved the RIGHT
+        direction and the WRONG size - saturation 1.5 instead of 1.2,
+        +1.3 stops that moves luma 43 -> 82 against ~130 - passes every
+        direction check, because the direction is right and only the
+        magnitude is wrong. Only the landing check can fail it, so a
+        `grade_landing` result reading `passed=False` must make the
+        render undeliverable (captain's call, 2026-10-05, once the
+        shortfall confound was resolved)."""
+        verdict = self._validate([
+            self._result("grade_landing", False, "error"),
+        ])
+        assert verdict["distribution_ready"] is False
+        assert verdict["checks"]["grade_landing"]["pass"] is False
+        assert verdict["status"] == "fail"
+
+    def test_a_grade_direction_contradiction_alone_does_not_fail_the_build(self):
+        """The direction half stays report-only: its dead zones are
+        tighter than the landing tolerance in some directions and looser
+        in others, and a direction failure is always a magnitude failure
+        too, so the magnitude gate is the one that decides. A
+        `grade_delivery` result reading `passed=False` is visible in
+        the verdict without moving distribution_ready."""
+        verdict = self._validate([
+            self._result("grade_delivery", False, "warning"),
+        ])
+        assert verdict["distribution_ready"] is True
+        assert verdict["checks"]["grades"]["pass"] is False
+        assert verdict["checks"]["grade_landing"]["pass"] is True
+
     def test_framing_spans_follow_frames_not_drifted_seconds(self):
         """D4: the rendered timeline is frame-quantised, so the seconds
         the plan wrote drift from the cut by up to a frame. The spans

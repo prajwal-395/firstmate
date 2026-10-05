@@ -865,11 +865,21 @@ def validate_output(rendered_output: dict, assembly_manifest: dict,
     # lands here so a failing caption reads in the verdict instead of
     # passing silently beside it.
     subtitle_check = {"pass": True, "issues": []}
-    # Reporting-only, the same shape: every grade metric lands here so
+    # Reporting-only, the same shape: the direction metric lands here so
     # a span whose exported pixels contradict its grade (finding 28)
     # reads in the verdict instead of passing silently beside it.
-    # Promoting it to the gate is a captain's call, not a change here.
+    # Its dead zones are tighter than the landing tolerance in some
+    # directions and looser in others, and a direction failure is always
+    # a magnitude failure too - the magnitude gate below is the one that
+    # decides.
     grade_check = {"pass": True, "issues": []}
+    # GATED (captain's call, 2026-10-05, gap E6 call 2b): a span whose
+    # exported pixels miss the CDL's demanded magnitude fails the build.
+    # The confound that kept this report-only - a shortfall confounding
+    # the grade with the pipeline and the encode - is resolved: the
+    # demand is computed from the source, so a shortfall can no longer
+    # be confused with the pipeline. See render_qa.GRADE_LANDING_GATES.
+    grade_landing_check = {"pass": True, "issues": []}
     
     qa_report = []
     
@@ -938,14 +948,24 @@ def validate_output(rendered_output: dict, assembly_manifest: dict,
             if not r.passed:
                 subtitle_check["pass"] = False
                 subtitle_check["issues"].append(r.detail)
-        elif r.metric in ("grade_delivery", "grade_landing"):
-            # P11 and the E6 magnitude half REPORTED, not gated, the same
-            # shape: a span whose pixels contradict its grade, or miss its
-            # demanded magnitude, is visible in checks/all_issues/qa_report
-            # without moving status or distribution_ready.
+        elif r.metric == "grade_delivery":
+            # P11, the direction half: REPORTED, not gated, the same shape
+            # - a span whose pixels contradict its grade is visible in
+            # checks/all_issues/qa_report without moving status or
+            # distribution_ready. A direction failure is always a
+            # magnitude failure too, so the magnitude gate below decides.
             if not r.passed:
                 grade_check["pass"] = False
                 grade_check["issues"].append(r.detail)
+        elif r.metric == "grade_landing":
+            # The E6 magnitude half, GATED (captain's call, 2026-10-05):
+            # a span whose exported pixels miss the CDL's demanded
+            # magnitude fails the build. The defect it catches is the one
+            # the direction check cannot - a grade that moved the RIGHT
+            # direction and the WRONG size.
+            if not r.passed:
+                grade_landing_check["pass"] = False
+                grade_landing_check["issues"].append(r.detail)
         elif r.metric in ("render_qa", "subtitle_qa"):
             # The toolkit itself failed - fail the technical check so the
             # verdict and distribution_ready reflect an unvalidated render
@@ -963,19 +983,22 @@ def validate_output(rendered_output: dict, assembly_manifest: dict,
     checks["audio_levels"] = audio_check
     checks["subtitles"] = subtitle_check
     checks["grades"] = grade_check
+    checks["grade_landing"] = grade_landing_check
     checks["transitions_at_seams"] = geometry["transitions_at_seams"]
     checks["v1_tiling"] = geometry["v1_tiling"]
 
     # ── Aggregate result ──
-    # `subtitles` and `grades` are deliberately outside the gate: their
-    # issues reach the verdict through checks/all_issues/qa_report, but
-    # status and distribution_ready move only on the checks above. The
-    # set below is exactly the keys the old `all(checks.values())`
-    # read, plus the two plan-geometry checks this step now holds so
-    # the prompt no longer has to.
+    # `subtitles` and `grades` (the direction half) are deliberately
+    # outside the gate: their issues reach the verdict through
+    # checks/all_issues/qa_report, but status and distribution_ready
+    # move only on the checks below. `grade_landing` (the magnitude
+    # half) IS gated - the captain's call, 2026-10-05, once the
+    # shortfall confound was resolved. The set below is exactly the keys
+    # the old `all(checks.values())` read, plus the two plan-geometry
+    # checks this step now holds so the prompt no longer has to.
     gating = ("file_exists", "technical", "framing", "duration",
               "black_frames", "audio_levels", "transitions_at_seams",
-              "v1_tiling")
+              "v1_tiling", "grade_landing")
     all_passed = all(checks.get(k, {}).get("pass", False) for k in gating)
     critical_passed = all(
         checks.get(k, {}).get("pass", False)

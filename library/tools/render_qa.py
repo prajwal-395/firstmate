@@ -117,6 +117,9 @@ two. [why](docs/RULE_EVIDENCE.md#the-mix-target-is-not-a-separation)
 **Pixel-level rendering (gap E9) reports three numbers and passes, and promoting each is one boolean.**
 `measure_transition_render` samples frames across each drawn transition's boundary and verifies the blend is intermediate (not a hard cut, not a freeze); `measure_vfx_render` samples each VFX's window and verifies the pixels differ from the untreated source; `measure_graphics_render` verifies each overlay's ink is present in the rendered frame. All three REPORT unless their `*_GATES` boolean is True - whether a misrendered transition, a VFX that drew nothing, or an overlay that failed to composite blocks delivery is a pending captain call, the same ruling P2 and P3 carry.
 
+**Grade magnitude (gap E6) GATES, and the direction half reports.**
+`measure_grade_landing` asks whether the export lands at the CDL's demanded magnitude, computed from the source's measured luma and chroma through the CDL's exact math - a reference the pipeline/encode confound cannot touch, which is what resolved the shortfall confound and let the captain promote it (2026-10-05). `GRADE_LANDING_GATES` is True. The direction check `measure_grade_delivery` stays report-only: its dead zones are tighter than the landing tolerance in some directions and looser in others, and a direction failure is always a magnitude failure too, so the magnitude gate is the one that decides.
+
 **The bed is fitted at the SECTION that plays, and the offset is a REQUIRED argument.**
 `measure_speech_above_bed` takes `music_offset_seconds` positionally with no default; `run_full_render_qa` declines P3 when it is None. [why](docs/RULE_EVIDENCE.md#the-bed-was-fitted-from-the-wrong-second)
 """
@@ -2841,11 +2844,38 @@ def measure_grade_delivery(video_path: str,
 #: chroma misses the CDL's demanded magnitude by more than this FAILS the
 #: landing check. The fidelity test's bound. It is wide enough to absorb
 #: what the pipeline and the encode do to the pixels between the grade and
-#: the master - the confound that keeps `measure_grade_delivery` a
+#: the master - the confound that kept `measure_grade_delivery` a
 #: direction check and report-only - and tight enough to catch a grade
 #: that landed at the wrong magnitude: saturation 1.5 instead of 1.2
 #: misses by 25%.
+#:
+#: The tolerance is a CHOSEN bound, not a measured one: the pipeline and
+#: the encode move the pixels by an amount only a real render can show.
+#: The gate is promoted anyway (captain's call, 2026-10-05: "gate grade
+#: delivery once its confound is resolved") because the confound is
+#: resolved - the demand is computed from the source, so a shortfall can
+#: no longer be confused with the pipeline. What would confirm the
+#: tolerance itself is a real-render landing measurement: run
+#: `measure_grade_landing` over an export whose grade is known to have
+#: landed, and read the per-span ratios. If they sit inside the
+#: tolerance, the bound is honest; if they breach it, the bound - not
+#: the gate - is what moves.
 DEFAULT_LANDING_TOLERANCE = 0.10
+
+#: Whether a graded span whose exported pixels miss the CDL's demanded
+#: magnitude FAILS the build. The captain's call, 2026-10-05 (gap E6,
+#: verification call 2b): "gate grade delivery once its confound is
+#: resolved." The confound - a shortfall confounding the grade with the
+#: pipeline and the encode - is resolved by `measure_grade_landing`
+#: asking magnitude against the CDL's own demanded output, computed
+#: from the source's measured luma and chroma through the CDL's exact
+#: math. A reference the pipeline and the encode cannot touch.
+#:
+#: The direction check (`measure_grade_delivery`) stays report-only: its
+#: dead zones are tighter than this tolerance in some directions and
+#: looser in others, and a direction failure is always a magnitude
+#: failure too, so the magnitude gate is the one that decides.
+GRADE_LANDING_GATES = True
 
 
 def _cdl_terms(cdl: dict):
@@ -2880,7 +2910,8 @@ def _is_identity_cdl(sat, slopes, offsets, powers) -> bool:
 def measure_grade_landing(video_path: str,
                           grade_spans: Optional[Sequence[GradeSpan]] = None,
                           sample_fps: float = DEFAULT_SAMPLE_FPS,
-                          tolerance: float = DEFAULT_LANDING_TOLERANCE
+                          tolerance: float = DEFAULT_LANDING_TOLERANCE,
+                          gate: bool = GRADE_LANDING_GATES
                           ) -> RenderQAResult:
     """P11b: do the exported pixels land at the CDL's demanded magnitude?
 
@@ -2903,10 +2934,14 @@ def measure_grade_landing(video_path: str,
     CDL is identity demands nothing and reads as info; a span with no
     source or no samples reads as unverifiable, never as landed.
 
-    REPORTED per graded clip, never gated - the same ruling every
-    report-only check in this pipeline carries. The tolerance is what
-    makes it gate-ready: it absorbs the encode, which is the confound
-    that kept the direction check from being a gate.
+    GATED (`GRADE_LANDING_GATES` is True - the captain's call, 2026-10-05,
+    once the shortfall confound was resolved): a span missing its
+    demanded magnitude fails the build. The defect it catches is the one
+    the direction check cannot: a grade that landed at the wrong
+    magnitude - saturation 1.5 instead of 1.2, +1.3 stops that moves
+    luma 43 -> 82 against ~130 - moves the RIGHT direction and the
+    WRONG size, so every direction check passes it and only the
+    magnitude can fail it.
     """
     import numpy as np  # noqa: F401 - hard dependency, see chroma_presence
 
@@ -3006,19 +3041,29 @@ def measure_grade_landing(video_path: str,
             rows.append({"label": label, "verdict": "missed",
                          "detail": "; ".join(problems),
                          **ratios})
-    value = {"spans": rows, "missed": missed, "tolerance": tolerance}
+    value = {"spans": rows, "missed": missed, "tolerance": tolerance,
+             "gates": gate}
+    if missed and not gate:
+        return RenderQAResult(
+            "grade_landing", True, value,
+            {"missed": 0, "gates": False}, "warning",
+            f"{missed} of {len(rows)} graded span(s) miss the CDL's "
+            f"demanded magnitude on exported pixels - REPORTED ONLY; "
+            f"see GRADE_LANDING_GATES - "
+            + "; ".join(f"{r['label']}: {r['detail']}"
+                        for r in rows if r["verdict"] == "missed"))
     if missed:
         return RenderQAResult(
             "grade_landing", False, value,
-            {"missed": 0, "gates": False},
-            "warning",
+            {"missed": 0, "gates": True},
+            "error",
             f"{missed} of {len(rows)} graded span(s) miss the CDL's "
             f"demanded magnitude on exported pixels - "
             + "; ".join(f"{r['label']}: {r['detail']}"
                         for r in rows if r["verdict"] == "missed"))
     return RenderQAResult(
         "grade_landing", True, value,
-        {"missed": 0, "gates": False}, "info",
+        {"missed": 0, "gates": gate}, "info",
         f"{len(rows)} graded span(s) measured against the CDL's demanded "
         f"magnitude - none missed")
 
