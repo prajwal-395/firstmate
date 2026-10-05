@@ -40,6 +40,7 @@ from library.tools.render_qa import (
     measure_chroma_presence,
     measure_frame_occupancy,
     measure_lufs,
+    measure_music_curve,
     measure_speech_above_bed,
 )
 from library.tools.render_qa import (
@@ -599,6 +600,120 @@ class TestP3SpeechAboveBed:
         assert wrong["meets_plan"] is True, (
             "which is how a failing mix passed: this is the reading the "
             "required argument exists to stop being the default")
+
+
+# ═══ The bed's rendered per-block level against the planned curve ═══
+#
+# The defect this check exists for: the planned per-block dB curve is
+# verified on the TIMELINE (`otio_mix.verify` reads the levels back off a
+# re-export of the imported timeline), and the master's loudness is
+# verified on the render (`measure_lufs`).  Nothing verified the render's
+# OWN per-block level - and the OTIO import rebuilds the timeline, so the
+# timeline read-back runs against a DIFFERENT timeline than the one that
+# was rendered.  A render whose bed sits at the wrong level per block
+# ships.
+
+
+def _music_curve(mix, music, automation, spine_blocks, **kwargs):
+    with patch.object(render_qa, "_decode_mono", side_effect=[mix, music]):
+        return measure_music_curve("master.mp4", "music.wav", automation,
+                                  kwargs.pop("music_offset_seconds", 0.0),
+                                  spine_blocks=spine_blocks,
+                                  sample_rate=SR, **kwargs)
+
+
+class TestMusicCurve:
+
+    def test_a_block_whose_bed_misses_its_plateau_is_detected_and_reported(
+            self):
+        """The defect, kept executable: a render whose bed is 12 dB too hot
+        in one block.  The timeline verify passes (the level is on the
+        timeline); the render is wrong.  This check names it - and reports
+        rather than gating, the ruling P3 carries."""
+        speech = _tone(8.0, 220.0, 1.0)
+        music = _tone(8.0, 55.0, 1.0)
+        planned = 10 ** (-18.0 / 20.0)
+        too_hot = 10 ** (-6.0 / 20.0)
+        bed = np.concatenate(
+            [planned * music[:4 * SR], too_hot * music[4 * SR:]])
+        mix = (speech + bed).astype(np.float32)
+        automation = [
+            {"spine_block_position": 1, "timeline_start": 0.0,
+             "timeline_end": 4.0, "music_behavior": "background",
+             "target_level_db": -18.0},
+            {"spine_block_position": 2, "timeline_start": 4.0,
+             "timeline_end": 8.0, "music_behavior": "background",
+             "target_level_db": -18.0},
+        ]
+        blocks = [{"position": 1, "block_type": "speech"},
+                  {"position": 2, "block_type": "speech"}]
+        result = _music_curve(mix, music, automation, blocks)
+        assert result.passed, (
+            "report-only: a missed plateau is named, not a build failure")
+        assert result.value["failing"] == 1
+        assert result.value["judged"] == 2
+        hot = result.value["windows"][1]
+        assert hot["fitted_gain_db"] == pytest.approx(-6.0, abs=0.5)
+        assert hot["miss_db"] > 1.0
+        assert hot["meets_plan"] is False
+        assert "REPORTED ONLY" in result.detail
+        assert render_qa.MUSIC_CURVE_GATES is False
+
+    def test_a_bed_at_its_planned_level_meets_the_curve(self):
+        speech = _tone(4.0, 220.0, 1.0)
+        music = _tone(4.0, 55.0, 1.0)
+        gain = 10 ** (-18.0 / 20.0)
+        mix = (speech + gain * music).astype(np.float32)
+        automation = [{"spine_block_position": 1, "timeline_start": 0.0,
+                       "timeline_end": 4.0, "music_behavior": "background",
+                       "target_level_db": -18.0}]
+        result = _music_curve(mix, music, automation, SPEECH_BLOCK)
+        assert result.value["failing"] == 0
+        assert result.value["windows"][0]["meets_plan"] is True
+
+    def test_the_plateau_is_measured_under_words_not_as_the_ducked_average(
+            self):
+        """A whole-window fit would read the average of the ducked level
+        and the gap recovery, and report a bed doing exactly what was
+        requested as a missed plateau.  The fit runs under the words."""
+        speech = _tone(4.0, 220.0, 1.0)
+        music = _tone(4.0, 55.0, 1.0)
+        word_gain = 10 ** (-18.0 / 20.0)
+        gap_gain = 10 ** (-14.0 / 20.0)
+        music_gain = np.full(4 * SR, word_gain, dtype=np.float32)
+        music_gain[1 * SR:3 * SR] = gap_gain
+        mix = (speech + music * music_gain).astype(np.float32)
+        automation = [{
+            "spine_block_position": 1, "timeline_start": 0.0,
+            "timeline_end": 4.0, "music_behavior": "background",
+            "target_level_db": -18.0,
+            "word_intervals": [[0.0, 1.0], [3.0, 4.0]],
+            "word_gap_level_db": -14.0,
+            "word_gap_release_ms": 0.0,
+        }]
+        result = _music_curve(mix, music, automation, SPEECH_BLOCK)
+        window = result.value["windows"][0]
+        assert window["measurement_scope"] == "spoken_words"
+        assert window["fitted_gain_db"] == pytest.approx(-18.0, abs=0.5)
+        assert window["meets_plan"] is True
+
+    def test_a_fade_is_not_judged_as_a_plateau(self):
+        """A fade is a MOVE: its fitted gain over the window is the ramp
+        average, not the level it moves to.  Judging it against the target
+        would report a correct fade as a miss.  Its landing level is
+        judged at the block it moves to."""
+        speech = _tone(4.0, 220.0, 1.0)
+        music = _tone(4.0, 55.0, 1.0)
+        gain = 10 ** (-18.0 / 20.0)
+        mix = (speech + gain * music).astype(np.float32)
+        automation = [{"spine_block_position": 1, "timeline_start": 0.0,
+                       "timeline_end": 4.0, "music_behavior": "fade_in",
+                       "target_level_db": -18.0}]
+        result = _music_curve(mix, music, automation, SPEECH_BLOCK)
+        window = result.value["windows"][0]
+        assert window["judged"] is False
+        assert "fade" in window["not_judged_reason"]
+
 
 # ═══ P4: deliverable at platform loudness without clipping ═══
 

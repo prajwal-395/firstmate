@@ -94,7 +94,7 @@ BLOCKING_SEVERITY = "error"
 """The one severity a gate is entitled to act on.  Reading never gates."""
 
 REPORT_ONLY_METRICS = frozenset({"chroma_presence", "speech_above_bed",
-                                 "punch_in_face",
+                                 "music_levels", "punch_in_face",
                                  "caption_legibility", "caption_obscuring"})
 """The checks that measure a number, miss a target and do not gate.
 
@@ -178,6 +178,16 @@ FINDING_READERS: Dict[str, FindingReader] = _rows(
         "speech_above_bed", "audio_mix",
         "Reports its number and does not gate: the target is a "
         "SEPARATION and clip gain cannot buy one (AGENTS.md 10.4)."),
+    FindingReader(
+        "music_levels", "audio_mix",
+        "The bed's rendered per-block level against the planned curve "
+        "(audio_mix.music_automation[].target_level_db). The mix sets the "
+        "curve on the timeline and otio_mix.verify reads it back there; "
+        "this is the render's OWN per-block level, which the OTIO import's "
+        "timeline rebuild puts out of reach of the timeline read-back. "
+        "Reports and does not gate: whether a block whose rendered level "
+        "misses its planned plateau blocks delivery is a pending captain "
+        "call (render_qa.MUSIC_CURVE_GATES)."),
     FindingReader(
         "silence_under_picture", "mesh_spine",
         "Picture on screen with nothing at all on any track. The spine "

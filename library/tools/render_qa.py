@@ -73,6 +73,7 @@ An eighth, a face cut by the frame edge, is measured on the render and gates thr
   [why - both, measured on 001's correct render](docs/RULE_EVIDENCE.md#the-occupancy-gate-failed-a-correct-render)
 - colour exists somewhere in the frame (`measure_chroma_presence`);
 - speech sits above the bed (`measure_speech_above_bed`);
+- the bed's rendered per-block level matches the planned curve (`measure_music_curve`);
 - the master is deliverable without clipping (`measure_lufs`, whose true-peak half sets `passed = False`);
 - no picture plays over digital silence (`measure_silence_under_picture`).
   **Picture with nothing at all on any track is a defect on its own terms**, and it had no
@@ -101,8 +102,14 @@ A caller with no spine gets the whole-timeline measurement and the result says w
 Chroma and the mix REPORT A NUMBER and pass.
 Promoting either is ONE boolean (`CHROMA_PRESENCE_GATES`, `SPEECH_ABOVE_BED_GATES`); do not turn them into gates by another route. [why - including why frame-mean saturation is not the statistic](docs/RULE_EVIDENCE.md#baseline-craft-properties)
 
-`SPEECH_ABOVE_BED_GATES` stays False: `background` means clip gain while the check reads it as SEPARATION.
-Do not flip the boolean without changing one of the two. [why](docs/RULE_EVIDENCE.md#the-mix-target-is-not-a-separation)
+`SPEECH_ABOVE_BED_GATES` stays False.  A declared separation
+(`music_automation[].separation_target_db`, decided per run by step 5.02
+over the bed's and the speech's own measurements) the check reads; when
+the plan declares none, the check falls back to the clip gain and SAYS SO
+per window in `required_margin_basis` - and a clip gain is not a
+separation, so that window is judged on a number about a FILE, not the
+gap the ear hears.  Do not flip the boolean without changing one of the
+two. [why](docs/RULE_EVIDENCE.md#the-mix-target-is-not-a-separation)
 
 **Caption quality (gap E4) reports two numbers and passes, and promoting them is one boolean.**
 `measure_caption_legibility` reads each subtitle overlay's own alpha and judges the smallest card's delivered ink height against a fraction of the frame; `measure_caption_obscuring` intersects each caption's delivered box against the faces `measure_face_intact`'s Haar path detects over its span. Both run only on `subtitle_overlay` segments, and both REPORT unless `CAPTION_QUALITY_GATES` is True - whether an illegible or obscuring caption blocks delivery is a pending captain call, the same ruling P2 and P3 carry. [why](docs/RULE_EVIDENCE.md#baseline-craft-properties)
@@ -135,6 +142,11 @@ try:
     from library.tools.subject_framing import load_face_cascade
 except ImportError:  # imported as a top-level module from library/tools
     from subject_framing import load_face_cascade
+
+try:
+    from library.tools.music_behavior import is_fade
+except ImportError:  # imported as a top-level module from library/tools
+    from music_behavior import is_fade
 
 # Slack when matching detected black against a declared beat. blackdetect
 # reports whole-frame timestamps, so the segment it reports for a beat can
@@ -770,23 +782,19 @@ DEFAULT_CHROMA_PASS_FRACTION = 0.9
 # bed level in `audio_mix`, or a target here that is the planned dB minus
 # the measured source difference. Either is a decision, not a fix.
 #
-# Half of the first route is now built and the half that is missing is a
-# number, not a mechanism. Step 2.04 measures every candidate
+# The route is built end to end.  Step 2.04 measures every candidate
 # (`library/tools/music_measurement.py`), the CHOSEN track carries its own
 # scalars forward as `music_selection.measurements`, and step 5.02 reads
-# them: `audio_mix.music_automation[].bed_level_after_gain_lufs` is where
-# the clip gain actually puts the bed. Two things still do not exist:
-#
-#   * a declared separation target. `music_behavior.SEPARATION_TARGETS_DB`
-#     is empty, so this check still falls back to the clip gain and now
-#     SAYS SO per window in `required_margin_basis`. The number is the
-#     same open captain decision as the five clip gains themselves.
-#   * a separation target, again. The speech's own loudness IS now
-#     measured - one ffmpeg loudnorm pass per block over the ranges
-#     `a_roll_assignments` names (`library/tools/speech_loudness.py`), so
-#     `audio_mix.music_automation[].separation_delivered_db` predicts
-#     what each window will deliver and this check measures what it did.
-#     Neither has anything to be judged against until a target exists.
+# them: it asks a mix engineer for the SEPARATION over the bed's and the
+# speech's own measurements, records the answer on
+# `audio_mix.music_automation[].separation_target_db`, and solves the clip
+# gain that delivers it (`decided_value._solve_bed_gain`).  The speech's
+# own loudness is measured - one ffmpeg loudnorm pass per block over the
+# ranges `a_roll_assignments` names (`library/tools/speech_loudness.py`) -
+# so `separation_delivered_db` predicts what each window will deliver and
+# this check measures what it did, judging the margin against the declared
+# separation where the plan declares one and falling back to the clip gain
+# (saying so, per window, in `required_margin_basis`) where it does not.
 SPEECH_ABOVE_BED_GATES = False
 
 # A `silent` window is judged by how far its music sits below the median
@@ -798,6 +806,43 @@ SILENT_WINDOW_MARGIN_DB = 30.0
 # Block types that carry a voice. A non-speech pacing beat has nothing to
 # be above, so its window is measured and reported but not judged.
 SPEECH_BEARING_BLOCK_TYPES = ("speech", "hook")
+
+
+# ── The bed's rendered per-block level against the planned curve ──────
+#
+# The planned per-block dB curve is verified on the TIMELINE
+# (`otio_mix.verify` reads the levels back off a re-export of the imported
+# timeline), and the master's loudness is verified on the RENDER
+# (`measure_lufs`).  Nothing verified the render's OWN per-block level:
+# the OTIO import rebuilds the timeline (`otio_mix.py:57-61` - Fusion comps
+# and CDL grades do not survive), so the timeline read-back runs against a
+# DIFFERENT timeline than the one that was rendered, and a render whose bed
+# sits at the wrong level per block - the keyframes lost, the wrong timeline
+# rendered - ships.
+#
+# The measurement is the least-squares fit `measure_speech_above_bed`
+# already runs: fit the music file against the master per window and read
+# the fitted gain, which is the dB the render applied to the bed file.
+# Compared to the window's planned `target_level_db` within
+# `CURVE_TOLERANCE_DB`.  The fit runs over the span the planned plateau
+# covers - the word intervals when the plan ducks under words, the whole
+# window otherwise - so a bed doing what was requested in word gaps is not
+# read as a missed plateau.
+#
+# REPORT-ONLY, the same ruling P3 (`speech_above_bed`) carries: whether a
+# block whose rendered loudness misses its planned plateau blocks delivery
+# is a pending captain call.  `MUSIC_CURVE_GATES` is the whole of what
+# promoting it costs - until it is True each reports its number and passes.
+MUSIC_CURVE_GATES = False
+
+CURVE_TOLERANCE_DB = 1.0
+"""How far the rendered per-block level may sit from the planned plateau.
+
+The gap's fidelity test: a block missing its plateau by more than this is
+a miss.  1 dB is the tolerance `measure_lufs` already judges the master
+against, and far under the 6-12 dB a bed planned `background` sits under
+the voice, so a real miss is not absorbed by the tolerance.
+"""
 
 
 # ── Caption quality (gap E4): legibility + obscuring ──
@@ -2512,6 +2557,74 @@ def _db(x: float) -> float:
     return float(20.0 * np.log10(max(float(x), 1e-12)))
 
 
+def _fit_music(window_mix, window_music, sample_rate: int):
+    """Least-squares fit of the music against one span of the master.
+
+    ``g = <music, mix> / <music, music>`` - the coefficient that scales the
+    music file to match its appearance in the mix.  When the plan's own
+    level is on the timeline, that coefficient IS the clip gain the render
+    applied, which is what makes the planned curve measurable in the render.
+
+    Returns ``None`` when the span is too short to fit (under 100 ms) or the
+    music is absent from it - a denominator of zero is a bed that is not
+    there, not a bed at negative infinity.
+    """
+    import numpy as np
+    count = min(window_mix.size, window_music.size)
+    if count < sample_rate // 10:  # under 100 ms: nothing to fit
+        return None
+    fitted_mix = window_mix[:count]
+    fitted_music = window_music[:count]
+    denominator = float(fitted_music @ fitted_music)
+    if denominator <= 0:
+        return None
+    gain = float(fitted_music @ fitted_mix) / denominator
+    residual = fitted_mix - gain * fitted_music
+    music_db = _db(abs(gain) * float(np.sqrt(np.mean(fitted_music ** 2))))
+    other_db = _db(float(np.sqrt(np.mean(residual ** 2))))
+    corr_denom = float(np.sqrt((fitted_mix @ fitted_mix) * denominator))
+    return {
+        "gain": gain,
+        "music_db": music_db,
+        "other_db": other_db,
+        "margin_db": other_db - music_db,
+        "fitted_gain_db": _db(abs(gain)),
+        "correlation": (float(fitted_mix @ fitted_music)
+                        / corr_denom if corr_denom > 0 else 0.0),
+    }
+
+
+def _collect_intervals(raw, start, end, count, sample_rate: int):
+    """Word intervals as ``(left, right, first, last)`` sample indices.
+
+    Clipped to the window, dropped when they do not overlap it, sorted by
+    start.  ``first``/``last`` index into the window's own sample arrays, so
+    a caller slices the music and the master over the SAME span - which is
+    what keeps a fit over spoken words from reading the bed's word-gap
+    recovery as its level under speech.
+    """
+    intervals = []
+    for item in raw or []:
+        if not isinstance(item, (list, tuple)) or len(item) != 2:
+            continue
+        try:
+            left = max(start, float(item[0]))
+            right = min(end, float(item[1]))
+        except (TypeError, ValueError):
+            continue
+        if right <= left:
+            continue
+        first = max(0, min(count,
+                            int(round((left - start) * sample_rate))))
+        last = max(first, min(count,
+                              int(round((right - start)
+                                        * sample_rate))))
+        if last > first:
+            intervals.append((left, right, first, last))
+    intervals.sort(key=lambda row: (row[0], row[1]))
+    return intervals
+
+
 @dataclass
 class GradeSpan:
     """One graded clip's claim on the export, for `measure_grade_delivery`.
@@ -2739,13 +2852,16 @@ def measure_speech_above_bed(
     separately. This keeps a bed doing what was requested in word gaps from
     being counted as louder under speech.
 
-    **The targets are the manifest's own numbers**, not a convention and
-    not taste: `background` -> +18 dB, `prominent` -> +6 dB, from
-    `audio_mix.track_levels` against a speech reference of 0 dB.  A
-    `silent` window is judged on the music's CONTRIBUTION, `silent_margin_db`
-    below the median of the non-silent windows - the gain column shows
-    whether the automation ran, the contribution column shows whether the
-    viewer can hear it, and the second is the one that matters.
+    **The target is the window's own declared separation**
+    (`music_automation[].separation_target_db`, decided per run by step 5.02
+    over the bed's and the speech's own measurements) - not a convention and
+    not taste.  When the plan declares none, the check falls back to the
+    clip gain in `target_level_db` and SAYS SO per window in
+    `required_margin_basis`, so a clip gain is never read as a margin
+    somebody chose.  A `silent` window is judged on the music's CONTRIBUTION,
+    `silent_margin_db` below the median of the non-silent windows - the gain
+    column shows whether the automation ran, the contribution column shows
+    whether the viewer can hear it, and the second is the one that matters.
 
     **`music_offset_seconds` is required and has no default**, because
     the bed does not have to start at the head of its file.  Step 2.04
@@ -2803,52 +2919,10 @@ def measure_speech_above_bed(
                 f"its own file, which nothing can fit against")
 
         def fit_window(window_mix, window_music):
-            count = min(window_mix.size, window_music.size)
-            if count < sample_rate // 10:  # under 100 ms: nothing to fit
-                return None
-            fitted_mix = window_mix[:count]
-            fitted_music = window_music[:count]
-            denominator = float(fitted_music @ fitted_music)
-            if denominator <= 0:
-                return None
-            gain = float(fitted_music @ fitted_mix) / denominator
-            residual = fitted_mix - gain * fitted_music
-            music_db = _db(
-                abs(gain) * float(np.sqrt(np.mean(fitted_music ** 2))))
-            other_db = _db(float(np.sqrt(np.mean(residual ** 2))))
-            corr_denom = float(np.sqrt(
-                (fitted_mix @ fitted_mix) * denominator))
-            return {
-                "gain": gain,
-                "music_db": music_db,
-                "other_db": other_db,
-                "margin_db": other_db - music_db,
-                "fitted_gain_db": _db(abs(gain)),
-                "correlation": (float(fitted_mix @ fitted_music)
-                                / corr_denom if corr_denom > 0 else 0.0),
-            }
+            return _fit_music(window_mix, window_music, sample_rate)
 
         def collect_intervals(raw, start, end, count):
-            intervals = []
-            for item in raw or []:
-                if not isinstance(item, (list, tuple)) or len(item) != 2:
-                    continue
-                try:
-                    left = max(start, float(item[0]))
-                    right = min(end, float(item[1]))
-                except (TypeError, ValueError):
-                    continue
-                if right <= left:
-                    continue
-                first = max(0, min(count,
-                                   int(round((left - start) * sample_rate))))
-                last = max(first, min(count,
-                                      int(round((right - start)
-                                                * sample_rate))))
-                if last > first:
-                    intervals.append((left, right, first, last))
-            intervals.sort(key=lambda row: (row[0], row[1]))
-            return intervals
+            return _collect_intervals(raw, start, end, count, sample_rate)
 
         windows = []
         for w in music_automation:
@@ -3064,6 +3138,184 @@ def measure_speech_above_bed(
     except Exception as e:
         return RenderQAResult("speech_above_bed", True, str(e), None,
                               "warning", f"Error measuring the mix: {e}")
+
+
+def measure_music_curve(video_path: str, music_path: str,
+                        music_automation: Sequence[dict],
+                        music_offset_seconds: float,
+                        spine_blocks: Optional[Sequence[dict]] = None,
+                        sample_rate: int = 48000,
+                        tolerance_db: float = CURVE_TOLERANCE_DB,
+                        gate: bool = MUSIC_CURVE_GATES) -> RenderQAResult:
+    """The bed's rendered per-block level against the planned curve.
+
+    For each `music_automation` window, fits the music against the master
+    and reads the fitted gain - the dB the render applied to the bed file -
+    and compares it to the window's planned `target_level_db` within
+    `tolerance_db`.  Runs on the RENDER, never the timeline: the OTIO
+    import rebuilds the timeline (`otio_mix.py:57-61`), so the timeline
+    read-back `otio_mix.verify` runs against is an export of a DIFFERENT
+    timeline than the one that was rendered.
+
+    The fit runs over the span the planned plateau covers: the word
+    intervals when the plan ducks under words (the bed is at
+    `target_level_db` under speech and recovers through gaps, so a
+    whole-window fit would read the average of the two), and the whole
+    window otherwise.  This is the same span `measure_speech_above_bed`
+    measures the margin over.
+
+    Windows the plan does not give a plateau to are measured and reported,
+    not judged: a `silent` window is judged by `measure_speech_above_bed`
+    on what the viewer can hear, a fade is a MOVE whose landing level is
+    judged at the block it moves to, and a window with no decided level
+    (`target_level_db` None) has nothing to be judged against.
+
+    **This reports and does not fail** - see `MUSIC_CURVE_GATES`.
+    """
+    try:
+        import numpy as np
+    except ImportError as e:  # pragma: no cover - numpy is a hard dependency
+        return RenderQAResult("music_levels", True, str(e), None,
+                              "warning", f"numpy unavailable: {e}")
+
+    try:
+        if not music_automation:
+            return RenderQAResult("music_levels", True, None, None, "info",
+                                  "No music automation planned - nothing to measure")
+
+        block_type_by_position = {}
+        for block in (spine_blocks or []):
+            if "position" in block:
+                block_type_by_position[str(block["position"])] = \
+                    block.get("block_type")
+
+        mix = _decode_mono(video_path, sample_rate).astype(np.float64)
+        music = _decode_mono(music_path, sample_rate).astype(np.float64)
+        if mix.size == 0 or music.size == 0:
+            return RenderQAResult("music_levels", True, None, None,
+                                  "warning",
+                                  "Could not decode the master or the music bed")
+
+        offset = float(music_offset_seconds)
+        if offset < 0:
+            return RenderQAResult(
+                "music_levels", True, None, None, "warning",
+                f"The bed is placed at a negative offset ({offset} s) into "
+                f"its own file, which nothing can fit against")
+
+        windows = []
+        for w in music_automation:
+            start = float(w.get("timeline_start", 0.0))
+            end = float(w.get("timeline_end", 0.0))
+            a = int(start * sample_rate)
+            b = int(end * sample_rate)
+            # The bed's own clock, not the timeline's - the A2 clip starts
+            # `offset` seconds into the file (music_section, AGENTS.md 10.5).
+            ma = int((start + offset) * sample_rate)
+            mb = int((end + offset) * sample_rate)
+            x = mix[a:min(b, mix.size)]
+            y = music[ma:min(mb, music.size)]
+            n = min(x.size, y.size)
+            x, y = x[:n], y[:n]
+            if n == 0:
+                continue
+
+            intervals = _collect_intervals(
+                w.get("word_intervals"), start, end, n, sample_rate)
+            if intervals:
+                fit_mix = np.concatenate(
+                    [x[first:last] for _, _, first, last in intervals])
+                fit_music = np.concatenate(
+                    [y[first:last] for _, _, first, last in intervals])
+                fit = _fit_music(fit_mix, fit_music, sample_rate)
+                measurement_scope = "spoken_words"
+            else:
+                fit = _fit_music(x, y, sample_rate)
+                measurement_scope = "whole_block"
+            if fit is None:
+                continue
+
+            windows.append({
+                "timeline_start": round(float(w.get("timeline_start", 0.0)), 3),
+                "timeline_end": round(float(w.get("timeline_end", 0.0)), 3),
+                "music_behavior": w.get("music_behavior"),
+                "target_level_db": w.get("target_level_db"),
+                "block_type": block_type_by_position.get(
+                    str(w.get("spine_block_position"))),
+                "measurement_scope": measurement_scope,
+                "fitted_gain_db": round(fit["fitted_gain_db"], 2),
+                "correlation": round(fit["correlation"], 3),
+            })
+
+        if not windows:
+            return RenderQAResult("music_levels", True, None, None,
+                                  "warning",
+                                  "No music automation window was long enough to fit")
+
+        judged, failures = [], []
+        for win in windows:
+            behaviour = win["music_behavior"]
+            target = win["target_level_db"]
+            if behaviour == "silent":
+                win["judged"] = False
+                win["not_judged_reason"] = (
+                    "a silent window is judged by measure_speech_above_bed "
+                    "on what the viewer can hear")
+                continue
+            if is_fade(behaviour):
+                win["judged"] = False
+                win["not_judged_reason"] = (
+                    "a fade is a move: its landing level is judged at the "
+                    "block it moves to")
+                continue
+            if not isinstance(target, (int, float)) or isinstance(target, bool):
+                win["judged"] = False
+                win["not_judged_reason"] = (
+                    "the plan decided no level for this window")
+                continue
+            win["judged"] = True
+            miss_db = abs(win["fitted_gain_db"] - float(target))
+            win["miss_db"] = round(miss_db, 2)
+            ok = miss_db <= tolerance_db
+            win["meets_plan"] = ok
+            judged.append(win)
+            if not ok:
+                failures.append(win)
+
+        meets = not failures
+        detail = (f"{len(judged) - len(failures)} of {len(judged)} "
+                  f"planned windows sit at the level the plan asked for")
+        if failures:
+            worst = max(failures, key=lambda win: win["miss_db"])
+            detail += (f"; worst {worst['timeline_start']:.2f}-"
+                       f"{worst['timeline_end']:.2f}s planned "
+                       f"{worst['music_behavior']}, the bed renders "
+                       f"{worst['fitted_gain_db']:+.1f} dB vs the planned "
+                       f"{float(worst['target_level_db']):+.1f} dB "
+                       f"({worst['miss_db']:.1f} dB off)")
+            if not gate:
+                detail += (" - REPORTED ONLY; see MUSIC_CURVE_GATES for "
+                           "why this is not a build failure yet")
+
+        return RenderQAResult(
+            metric="music_levels",
+            passed=meets if gate else True,
+            value={"windows": windows,
+                   # Recorded, so a reported level can never be read
+                   # without the offset it was fitted at.
+                   "music_offset_seconds": round(offset, 3),
+                   "judged": len(judged),
+                   "failing": len(failures)},
+            threshold={"planned": (
+                           "audio_mix.music_automation[].target_level_db"),
+                       "tolerance_db": tolerance_db,
+                       "gates": gate},
+            severity=("error" if gate else "warning") if not meets else "info",
+            detail=detail,
+        )
+    except Exception as e:
+        return RenderQAResult("music_levels", True, str(e), None,
+                              "warning", f"Error measuring the music curve: {e}")
 
 
 # ── P8: the mix is never digitally silent under picture ──
@@ -3618,13 +3870,14 @@ def run_full_render_qa(video_path: str, expected_duration: float = None,
     `chroma_floor` is the colour floor, which has no default
     because it is an open captain decision; `music_path`,
     `music_automation`, `music_offset_seconds` and `spine_blocks` are
-    what P3 needs to fit the bed against the master, and without them P3
-    does not run at all rather than guessing at a music file or at where
-    in that file the bed starts.  `music_offset_seconds` is separate from
-    the other two and checked separately: a caller that has the file and
-    the plan but cannot say which SECTION of the track plays does not
-    have enough to fit anything, and a default of 0.0 there is the value
-    that is silently wrong - see `measure_speech_above_bed`.
+    what P3 (`measure_speech_above_bed`) and the per-block curve check
+    (`measure_music_curve`) need to fit the bed against the master, and
+    without them neither runs at all rather than guessing at a music file
+    or at where in that file the bed starts.  `music_offset_seconds` is
+    separate from the other two and checked separately: a caller that has
+    the file and the plan but cannot say which SECTION of the track plays
+    does not have enough to fit anything, and a default of 0.0 there is the
+    value that is silently wrong - see `measure_speech_above_bed`.
 
     `overlay_segments` are the rendered overlays the manifest places over
     the picture, so P1 can mask the pixels they drew instead of guessing
@@ -3666,6 +3919,9 @@ def run_full_render_qa(video_path: str, expected_duration: float = None,
         video_path, declared_spans=declared_silence_spans))
     if music_path and music_automation and music_offset_seconds is not None:
         results.append(measure_speech_above_bed(
+            video_path, music_path, music_automation, music_offset_seconds,
+            spine_blocks=spine_blocks))
+        results.append(measure_music_curve(
             video_path, music_path, music_automation, music_offset_seconds,
             spine_blocks=spine_blocks))
     # The frame the render was built at, declared by the caller - never
