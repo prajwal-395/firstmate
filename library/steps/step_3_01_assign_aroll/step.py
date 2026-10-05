@@ -62,7 +62,7 @@ def needs_conform(clip: dict, target_width: int, target_height: int, target_fps:
     return False
 
 
-def assign_a_roll(audio_spine: dict, clip_catalog: list, target_width: int, target_height: int, target_fps: float = 30.0, audio_catalog: list = None) -> dict:
+def assign_a_roll(audio_spine: dict, clip_catalog: list, target_width: int, target_height: int, target_fps: float = 30.0, audio_catalog: list = None, picture_plan: dict = None) -> dict:
     """
     Map speech blocks, hook and picture blocks to their A-roll video source files.
 
@@ -75,11 +75,26 @@ def assign_a_roll(audio_spine: dict, clip_catalog: list, target_width: int, targ
     entry) and no video is placed here. Absent means the run predates
     the edge, and a voiceover-sourced block is refused naming the
     missing intake rather than misread as footage.
+
+    `picture_plan` is step 3.0's global picture plan. When present, its
+    shot selection overrides the spine's clip reference: the A-roll is
+    the clip the global plan selected for this block, not whatever the
+    spine happens to reference. This is the wiring that makes A-roll
+    assignment reason globally about picture (Gap 10).
     """
     # Build clip lookup
     clip_lookup = {c["clip_id"]: c for c in clip_catalog}
     audio_lookup = {a.get("audio_id"): a for a in (audio_catalog or [])
                     if isinstance(a, dict) and a.get("audio_id")}
+
+    # Build picture plan lookup: position -> selected clip_id
+    plan_lookup = {}
+    if picture_plan:
+        for block_plan in picture_plan.get("blocks", []):
+            pos = str(block_plan.get("spine_block_position"))
+            selected = block_plan.get("selected_clip_id")
+            if pos and selected:
+                plan_lookup[pos] = selected
 
     structure = audio_spine.get("structure", [])
     a_roll_assignments = []
@@ -100,6 +115,14 @@ def assign_a_roll(audio_spine: dict, clip_catalog: list, target_width: int, targ
             raise ValueError(
                 f"{block_type} block {block['position']} has no clip_id"
             )
+
+        # The global picture plan overrides the spine's clip reference.
+        # When the plan selected a different clip for this block, use
+        # the plan's selection: the A-roll is the clip the global plan
+        # chose, not whatever the spine happens to reference.
+        block_pos = str(block["position"])
+        if block_pos in plan_lookup:
+            clip_id = plan_lookup[block_pos]
 
         if is_audio_id(clip_id):
             # Voiceover over B-roll: words from the audio file, picture
@@ -391,7 +414,7 @@ def main():
         input_data.get("project_folder"))
 
     try:
-        result = assign_a_roll(audio_spine, clip_catalog, target_width, target_height, target_fps, audio_catalog=input_data.get("audio_catalog"))
+        result = assign_a_roll(audio_spine, clip_catalog, target_width, target_height, target_fps, audio_catalog=input_data.get("audio_catalog"), picture_plan=input_data.get("picture_plan"))
     except ValueError as e:
         print(json.dumps({"error": str(e), "step": "3.1_assign_aroll"}))
         sys.exit(1)

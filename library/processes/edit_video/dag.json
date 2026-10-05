@@ -92,6 +92,13 @@
       "estimated_duration_seconds": 30
     },
     {
+      "id": "plan_picture",
+      "name": "Plan Picture",
+      "step_ref": "steps/step_3_00_plan_picture",
+      "type": "step",
+      "estimated_duration_seconds": 1
+    },
+    {
       "id": "assign_aroll",
       "name": "Assign A-Roll",
       "step_ref": "steps/step_3_01_assign_aroll",
@@ -425,6 +432,34 @@
       "to": "mesh_spine",
       "data_mapping": {
         "music_selection": "music_selection"
+      }
+    },
+    {
+      "from": "mesh_spine",
+      "to": "plan_picture",
+      "data_mapping": {
+        "timed_spine": "timed_spine"
+      }
+    },
+    {
+      "from": "catalog",
+      "to": "plan_picture",
+      "data_mapping": {
+        "clip_catalog": "clip_catalog"
+      }
+    },
+    {
+      "from": "semantic_analysis",
+      "to": "plan_picture",
+      "data_mapping": {
+        "semantic_analysis_documents": "semantic_analysis_documents"
+      }
+    },
+    {
+      "from": "plan_picture",
+      "to": "assign_aroll",
+      "data_mapping": {
+        "picture_plan": "picture_plan"
       }
     },
     {

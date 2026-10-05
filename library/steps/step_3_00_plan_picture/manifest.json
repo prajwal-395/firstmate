@@ -1,0 +1,67 @@
+{
+  "id": "step_3_00_plan_picture",
+  "name": "Plan Picture",
+  "version": "1.0.0",
+  "description": "Builds a global picture plan that selects shots against the whole edit, considering gesture coverage, continuity, variety, and illustration.",
+  "level": "step",
+  "interface": {
+    "inputs": [
+      {
+        "name": "timed_spine",
+        "type": "object",
+        "required": true,
+        "description": "State input: timed_spine"
+      },
+      {
+        "name": "clip_catalog",
+        "type": "array",
+        "required": true,
+        "description": "State input: clip_catalog"
+      },
+      {
+        "name": "semantic_analysis_documents",
+        "type": "object",
+        "required": false,
+        "description": "State input: semantic_analysis_documents"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "picture_plan",
+        "type": "object",
+        "description": "State output: picture_plan - global shot selection across the whole edit"
+      }
+    ]
+  },
+  "classification": {
+    "stage": "edit",
+    "determinism": "deterministic",
+    "archetype": "data_transformation",
+    "idempotent": true
+  },
+  "dependencies": [
+    "step_2_05_mesh_spine",
+    "step_1_02_catalog_footage",
+    "step_1_03_semantic_analysis"
+  ],
+  "tags": [
+    "data_transformation",
+    "video-editing",
+    "deterministic"
+  ],
+  "domain": "video-editing",
+  "implementation": {
+    "default": {
+      "runtime": "python",
+      "entry_point": "step.py"
+    },
+    "variants": {},
+    "test_entry_point": ""
+  },
+  "metadata": {
+    "author": "prajwal",
+    "created": "2026-10-05",
+    "last_modified": "2026-10-05",
+    "source_process": "video_editing_pipeline"
+  }
+}

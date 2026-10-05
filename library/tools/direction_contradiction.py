@@ -133,6 +133,7 @@ MEASURED_OUTPUTS = {
     "clip_catalog": "1.02 - measured duration, frame rate and stored resolution per clip",
     "project_fps": "1.02 - the footage's measured frame rate",
     "source_resolution": "1.02 - the footage's measured stored resolution",
+    "picture_plan": "3.0 - global shot selection: per-block gesture coverage, continuity, variety and illustration scores",
     # A MIXED container: per-window camera segments, usable ranges with a
     # deterministic method, and subject-visibility ranges are measurements;
     # the scene/action/object prose and the assessment judgements inside
