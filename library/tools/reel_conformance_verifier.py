@@ -5210,7 +5210,8 @@ def _derive_word_coverage(reel_snapshot,
 
 def _attribute_plan_mismatch_to_recorded_edit(
         reel_name: str, mismatch: List[Finding],
-        edit_history) -> List[Finding]:
+        edit_history, review_dir: str = "",
+        project_folder: str = "") -> List[Finding]:
     """Report a recorded manual edit AS the edit, not as a PLAN-MISMATCH.
 
     The captain, 2026-10-05 (Reel 28: plan 1978 frames vs timeline 1403;
@@ -5223,8 +5224,17 @@ def _attribute_plan_mismatch_to_recorded_edit(
     the error finding is replaced by a WARNING naming the edit - its
     time, what it changed, and which history entry filed it. The
     timeline is as the captain left it, so it does not fail the gate;
-    it stays visible, so it is never silent. What nothing recorded
-    explains keeps its error unchanged.
+    it stays visible, so it is never silent.
+
+    What no recorded edit explains is attributed further
+    (`reel_edit_history.attribute_drift`): a rebuild that diverged is
+    reported as a WARNING naming the rebuild and the rebuilt state it
+    diverged from, and a drift nothing attributes files an
+    `unexplained` entry - the count of unexplained drifts is a metric,
+    not a silent error. A unit-epoch reading is never attributed to a
+    manual edit: the factor is a unit conversion, not a move. What
+    nothing explains keeps its error, now carrying the cause and the
+    unexplained entry that files it.
     """
     if not mismatch or not edit_history:
         return mismatch
@@ -5239,7 +5249,9 @@ def _attribute_plan_mismatch_to_recorded_edit(
         delta = None
     edit = _history.attribute_plan_mismatch(edit_history, delta)
     if edit is None:
-        return mismatch
+        return _attribute_divergence_cause(
+            reel_name, mismatch, edit_history, review_dir,
+            project_folder, delta)
     planned = (mismatch[0].detail or {}).get("planned_frames")
     carried = (mismatch[0].detail or {}).get("timeline_frames")
     delta_words = (f"{delta:+d} frames" if delta is not None
@@ -5271,6 +5283,83 @@ def _attribute_plan_mismatch_to_recorded_edit(
     )]
 
 
+def _attribute_divergence_cause(
+        reel_name: str, mismatch: List[Finding], edit_history,
+        review_dir: str, project_folder: str,
+        delta: Optional[int]) -> List[Finding]:
+    """Attribute a mismatch no recorded edit explains, or file it.
+
+    The widened attribution for a plan/timeline divergence: a rebuild
+    that diverged is reported as a WARNING naming the rebuild and the
+    rebuilt state it diverged from (`reel_versions.build_before`), and
+    a drift nothing attributes files an `unexplained` entry - the
+    count of unexplained drifts is a metric, not a silent error. A
+    unit-epoch reading is never attributed to a manual edit: the
+    factor is a unit conversion, not a move. What nothing explains
+    keeps its error, now carrying the cause and the unexplained entry
+    that files it.
+    """
+    from library.tools import reel_edit_history as _history
+
+    detail = mismatch[0].detail or {}
+    planned = detail.get("planned_frames")
+    carried = detail.get("timeline_frames")
+    delta_words = (f"{delta:+d} frames" if delta is not None
+                   else "a different frame count")
+    attribution = _history.attribute_drift(
+        review_dir, project_folder, reel_name,
+        {"kind": "frame_mismatch", "line": (
+            f"plan {planned} frames vs timeline {carried}"),
+         "delta_frames": delta},
+        entries=edit_history)
+    cause = attribution.get("cause")
+    if cause == "rebuild":
+        version = attribution.get("version")
+        before = attribution.get("before_version")
+        before_words = (f"; the previous rebuilt state was version "
+                        f"{before}" if before is not None else "")
+        return [Finding(
+            finding_class=FindingClass.PLAN_MISMATCH,
+            reel=reel_name,
+            message=(
+                f"the plan re-derived for this reel lays down {planned} "
+                f"frames and the picture on the timeline carries "
+                f"{carried} ({delta_words}): this is a rebuild that "
+                f"diverged from the plan, not an unexplained error - "
+                f"version {version} at {attribution.get('at')}"
+                f"{before_words}. The rebuild placed these frames; "
+                f"re-derive the plan or roll the rebuild back."),
+            severity="warning",
+            detail={
+                **detail,
+                "attributed_to_rebuild": version,
+                "rebuild_at": attribution.get("at"),
+                "before_version": before,
+            },
+        )]
+    entry = attribution.get("entry")
+    entry_words = (f" (history entry {entry['id']})"
+                   if isinstance(entry, dict) else "")
+    return [Finding(
+        finding_class=FindingClass.PLAN_MISMATCH,
+        reel=reel_name,
+        message=(
+            f"the plan re-derived for this reel lays down {planned} "
+            f"frames and the picture on the timeline carries {carried} "
+            f"({delta_words}): no recorded manual edit and no rebuild "
+            f"explains this divergence - it is filed as an unexplained "
+            f"drift{entry_words}. Re-derive the plan, check for an "
+            f"undetected edit, or accept the timeline as it is."),
+        severity="error",
+        detail={
+            **detail,
+            "cause": cause,
+            **({"unexplained_entry": entry["id"]}
+               if isinstance(entry, dict) else {}),
+        },
+    )]
+
+
 def verify_reel(plan: ReelPlan,
                 timeline: ReelTimeline,
                 transcript_segments: Optional[Sequence[dict]] = None,
@@ -5293,6 +5382,8 @@ def verify_reel(plan: ReelPlan,
                  word_coverage: Optional[dict] = None,
                  expected_speakers: Optional[int] = None,
                  edit_history=None,
+                 review_dir: str = "",
+                 project_folder: str = "",
                  ) -> ReelResult:
     from library.tools.resolve_transform import FALLBACK_DRAW_GAIN
     if draw_gain is None:
@@ -5304,6 +5395,13 @@ def verify_reel(plan: ReelPlan,
     given, a PLAN-MISMATCH frame disagreement a recorded manual edit
     explains is reported AS that edit (naming it) instead of as an
     unexplained error. None grades exactly as before.
+
+    `review_dir` and `project_folder` widen the attribution of a
+    mismatch no recorded edit explains: a rebuild that diverged is
+    reported naming the rebuild, and a drift nothing attributes files
+    an `unexplained` entry - the count of unexplained drifts is a
+    metric, not a silent error. Both default to "", which grades
+    exactly as before (an unexplained error, filed nowhere).
 
     `master_video_items` is what `check_plan_picture_continuity` measures
     against - every video item on the MASTER, as dicts. It returns
@@ -5360,7 +5458,8 @@ def verify_reel(plan: ReelPlan,
     # A mismatch a recorded manual edit explains is reported AS that
     # edit - naming it - instead of as an unexplained PLAN-MISMATCH.
     not_this_plan = _attribute_plan_mismatch_to_recorded_edit(
-        plan.reel_name, not_this_plan, edit_history)
+        plan.reel_name, not_this_plan, edit_history,
+        review_dir=review_dir, project_folder=project_folder)
     findings.extend(not_this_plan)
     if not not_this_plan:
         findings.extend(check_item_count(
@@ -7456,7 +7555,9 @@ def run_verification(
                 draw_gain=draw_gain,
                 word_coverage=word_coverage,
                 expected_speakers=declared_speaker_count,
-                edit_history=edit_histories.get(name))
+                edit_history=edit_histories.get(name),
+                review_dir=effective_review_dir,
+                project_folder=project_folder or "")
 
         for tl in reel_timelines:
             name = tl.GetName()

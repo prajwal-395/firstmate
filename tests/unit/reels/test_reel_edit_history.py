@@ -289,6 +289,185 @@ class TestAttribution:
         assert history.attribute_plan_mismatch([build], -575) is None
 
 
+class TestDriftAttribution:
+    """F-07: a drift is attributed to its cause - a manual edit, a unit
+    conversion, a rebuild that diverged - and a drift nothing
+    attributes files an `unexplained` entry, so the count of
+    unexplained drifts is a metric, not a silent error.
+
+    Defect each test names: a drift that is reported but not
+    attributed leaves the captain unable to tell a captain's change
+    from an unexplained divergence.
+    """
+
+    def test_a_frame_mismatch_a_recorded_manual_edit_explains_attributes(
+            self, tmp_path):
+        review = _review_dir(tmp_path)
+        build = history.make_entry(
+            FINAL_28, actor=history.ACTOR_REN, act=history.ACT_BUILD,
+            summary="Ren build from plan deadbeef...",
+            plan_version={"plan_content_hash": "deadbeef"},
+            at="2026-10-01T10:00:00+00:00")
+        manual = history.make_entry(
+            FINAL_28, actor=history.ACTOR_CAPTAIN,
+            act=history.ACT_MANUAL_EDIT,
+            summary="captain trimmed the closer by 575 frames",
+            frame_delta=-575, at="2026-10-02T09:00:00+00:00")
+        result = history.attribute_drift(
+            review, str(tmp_path), FINAL_28,
+            {"kind": "frame_mismatch",
+             "line": "plan 1978 frames vs timeline 1403",
+             "delta_frames": -575},
+            entries=[build, manual])
+        assert result["cause"] == "manual_edit"
+        assert result["entry"]["id"] == manual["id"]
+
+    def test_a_moved_clip_with_no_recorded_edit_files_an_unexplained_entry(
+            self, tmp_path):
+        review = _review_dir(tmp_path)
+        result = history.attribute_drift(
+            review, str(tmp_path), FINAL_28,
+            {"kind": "live_delta",
+             "line": f"{FINAL_28}: 3 of 10 moved",
+             "moved": ["speakerone.MXF", "caption.mov"]})
+        assert result["cause"] == "unexplained"
+        filed = history.unexplained_drifts(review, FINAL_28)
+        assert len(filed) == 1
+        assert filed[0]["act"] == history.ACT_UNEXPLAINED
+        assert "3 of 10 moved" in filed[0]["summary"]
+        # The metric is idempotent: attributing the same drift again
+        # files nothing, so the count does not pile up per report.
+        again = history.attribute_drift(
+            review, str(tmp_path), FINAL_28,
+            {"kind": "live_delta",
+             "line": f"{FINAL_28}: 3 of 10 moved",
+             "moved": ["speakerone.MXF", "caption.mov"]})
+        assert again["cause"] == "unexplained"
+        assert len(history.unexplained_drifts(review, FINAL_28)) == 1
+
+    def test_a_unit_epoch_mismatch_is_not_attributed_to_a_manual_edit(
+            self, tmp_path):
+        review = _review_dir(tmp_path)
+        manual = history.make_entry(
+            FINAL_28, actor=history.ACTOR_CAPTAIN,
+            act=history.ACT_MANUAL_EDIT,
+            summary="captain touched the reel",
+            at="2026-10-02T09:00:00+00:00")
+        result = history.attribute_drift(
+            review, str(tmp_path), FINAL_28,
+            {"kind": "unit_epoch",
+             "line": "every placement moved by x4",
+             "unit_epoch": "the build snapshot was stored under project "
+                            "resolution 3840x2160 and the project is now "
+                            "1920x1080"},
+            entries=[manual])
+        assert result["cause"] == "unit_conversion"
+        assert "unit_conversion" == result["cause"]
+        # A unit conversion files no unexplained entry: it is a
+        # explained drift, not an unexplained one.
+        assert history.unexplained_drifts(review, FINAL_28) == []
+
+    def test_a_live_delta_a_recorded_editor_change_explains_attributes(
+            self, tmp_path):
+        review = _review_dir(tmp_path)
+        plan_provenance.record_editor_changes(review, FINAL_28, [{
+            "id": "ec10",
+            "recorded_at": "2026-10-02T09:00:00+00:00",
+            "timeline": FINAL_28, "status": "pending",
+            "changes": [{"kind": "item_changed",
+                         "before": {"name": "speakerone.MXF",
+                                    "track_name": "V1"},
+                         "after": {"name": "speakerone.MXF",
+                                   "track_name": "V1"},
+                         "changed": {"record_in"}}]}])
+        result = history.attribute_drift(
+            review, str(tmp_path), FINAL_28,
+            {"kind": "live_delta",
+             "line": f"{FINAL_28}: 3 of 10 moved",
+             "moved": ["speakerone.MXF"]})
+        assert result["cause"] == "manual_edit"
+        assert result["editor_change"]["id"] == "ec10"
+        # Attributed drifts file no unexplained entry.
+        assert history.unexplained_drifts(review, FINAL_28) == []
+
+    def test_a_rebuild_divergence_attributes_to_the_rebuild(self, tmp_path):
+        from library.tools.versions import reel_versions
+
+        review = _review_dir(tmp_path)
+        reel_versions.record(str(tmp_path), FINAL_28,
+                             kind=reel_versions.KIND_BUILD,
+                             rows={"video:V1": []}, round=7)
+        reel_versions.record(str(tmp_path), FINAL_28,
+                             kind=reel_versions.KIND_BUILD,
+                             rows={"video:V1": ["one frame fewer"]},
+                             round=8)
+        result = history.attribute_drift(
+            review, str(tmp_path), FINAL_28,
+            {"kind": "frame_mismatch",
+             "line": "plan 1978 frames vs timeline 1403",
+             "delta_frames": -575})
+        assert result["cause"] == "rebuild"
+        assert result["version"] == 2
+        assert result["before_version"] == 1
+        # A rebuild divergence files no unexplained entry: the rebuild
+        # is the explanation.
+        assert history.unexplained_drifts(review, FINAL_28) == []
+
+    def test_a_rebuild_divergence_a_later_manual_edit_explains_blocks(
+            self, tmp_path):
+        from library.tools.versions import reel_versions
+
+        review = _review_dir(tmp_path)
+        reel_versions.record(str(tmp_path), FINAL_28,
+                             kind=reel_versions.KIND_BUILD,
+                             rows={"video:V1": []}, round=7)
+        build_at = "2026-10-01T10:00:00+00:00"
+        manual = history.make_entry(
+            FINAL_28, actor=history.ACTOR_CAPTAIN,
+            act=history.ACT_MANUAL_EDIT,
+            summary="captain re-cut the reel by hand",
+            frame_delta=-575, at="2026-10-02T09:00:00+00:00")
+        result = history.attribute_drift(
+            review, str(tmp_path), FINAL_28,
+            {"kind": "frame_mismatch",
+             "line": "plan 1978 frames vs timeline 1403",
+             "delta_frames": -575},
+            entries=[manual])
+        assert result["cause"] == "manual_edit"
+        assert result["entry"]["id"] == manual["id"]
+
+    def test_attribution_reads_existing_history_under_ten_ms(
+            self, tmp_path):
+        import time
+
+        review = _review_dir(tmp_path)
+        entries = []
+        for index in range(20):
+            entries.append(history.make_entry(
+                FINAL_28, actor=history.ACTOR_REN, act=history.ACT_BUILD,
+                summary=f"build {index}",
+                plan_version={"plan_content_hash": f"plan{index}"},
+                at=f"2026-01-{index + 1:02d}T10:00:00+00:00"))
+        plan_provenance.record_editor_changes(review, FINAL_28, [{
+            "id": "ec20", "recorded_at": "2026-10-02T09:00:00+00:00",
+            "timeline": FINAL_28, "status": "pending",
+            "changes": [{"kind": "item_removed",
+                         "before": {"name": "speakerone.MXF"},
+                         "after": None, "changed": {}}]}])
+        history.record_entry(review, FINAL_28, actor=history.ACTOR_REN,
+                             act=history.ACT_BUILD, summary="build 20")
+        start = time.perf_counter()
+        result = history.attribute_drift(
+            review, str(tmp_path), FINAL_28,
+            {"kind": "live_delta",
+             "line": f"{FINAL_28}: 1 of 10 moved",
+             "moved": ["speakerone.MXF"]},
+            entries=entries)
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        assert result["cause"] == "manual_edit"
+        assert elapsed_ms < 10.0
+
+
 class TestVerificationNamesTheEdit:
     """Reel 28 (plan 1978 vs timeline 1403) and Reel 26 (plan 1022 vs
     timeline 1104): the captain's real regression cases."""
@@ -338,6 +517,72 @@ class TestVerificationNamesTheEdit:
         assert named.detail["delta_frames"] == delta
 
 
+class TestDivergenceCauseAttribution:
+    """F-07, through `verify_reel`: a plan/timeline divergence no
+    recorded edit explains is attributed to a rebuild that diverged,
+    or files an `unexplained` entry - the count of unexplained drifts
+    is a metric, not a silent error.
+
+    Defect each test names: a divergence that is reported but not
+    attributed leaves the captain unable to tell a rebuild that
+    diverged from an unexplained error.
+    """
+
+    def test_a_divergence_nothing_explains_files_an_unexplained_entry(
+            self, tmp_path):
+        review = _review_dir(tmp_path)
+        build = history.make_entry(
+            FINAL_28, actor=history.ACTOR_REN, act=history.ACT_BUILD,
+            summary="Ren build from plan deadbeef...",
+            plan_version={"plan_content_hash": "deadbeef"},
+            at="2026-10-01T10:00:00+00:00")
+        result = verify_reel(
+            _mismatch_plan(FINAL_28, 28, 1978),
+            _mismatch_timeline(FINAL_28, 1403),
+            edit_history=[build],
+            review_dir=review, project_folder=str(tmp_path))
+        findings = _plan_mismatch_findings(result)
+        assert len(findings) == 1
+        assert findings[0].severity == "error"
+        assert findings[0].detail["cause"] == "unexplained"
+        assert findings[0].detail["unexplained_entry"]
+        filed = history.unexplained_drifts(review, FINAL_28)
+        assert len(filed) == 1
+        assert filed[0]["id"] == findings[0].detail["unexplained_entry"]
+
+    def test_a_rebuild_that_diverged_is_reported_naming_the_rebuild(
+            self, tmp_path):
+        from library.tools.versions import reel_versions
+
+        review = _review_dir(tmp_path)
+        reel_versions.record(str(tmp_path), FINAL_28,
+                             kind=reel_versions.KIND_BUILD,
+                             rows={"video:V1": []}, round=7)
+        reel_versions.record(str(tmp_path), FINAL_28,
+                             kind=reel_versions.KIND_BUILD,
+                             rows={"video:V1": ["one frame fewer"]},
+                             round=8)
+        build = history.make_entry(
+            FINAL_28, actor=history.ACTOR_REN, act=history.ACT_BUILD,
+            summary="Ren build from plan deadbeef...",
+            plan_version={"plan_content_hash": "deadbeef"},
+            at="2026-10-01T10:00:00+00:00")
+        result = verify_reel(
+            _mismatch_plan(FINAL_28, 28, 1978),
+            _mismatch_timeline(FINAL_28, 1403),
+            edit_history=[build],
+            review_dir=review, project_folder=str(tmp_path))
+        findings = _plan_mismatch_findings(result)
+        assert len(findings) == 1
+        assert findings[0].severity == "warning"
+        assert findings[0].detail["attributed_to_rebuild"] == 2
+        assert findings[0].detail["before_version"] == 1
+        assert "rebuild" in findings[0].message.lower()
+        # A rebuild divergence files no unexplained entry: the rebuild
+        # is the explanation.
+        assert history.unexplained_drifts(review, FINAL_28) == []
+
+
 class TestBackfillAndDrift:
     def test_backfill_derives_versions_and_editor_changes(self, tmp_path):
         from library.tools.versions import reel_versions
@@ -376,8 +621,12 @@ class TestBackfillAndDrift:
                             "line": "Reel 09 - x: unreadable"}}}
         assert history.record_drift_findings(review, report) == 1
         entries = history.recorded_history(review, FINAL_28)
-        assert len(entries) == 1
-        assert entries[0]["summary"].startswith("drift check:")
+        by_act = {entry["act"] for entry in entries}
+        assert by_act == {history.ACT_MANUAL_EDIT,
+                          history.ACT_UNEXPLAINED}
+        trace = [e for e in entries if e["act"] == history.ACT_MANUAL_EDIT]
+        assert len(trace) == 1
+        assert trace[0]["summary"].startswith("drift check:")
         assert history.recorded_history(review, FINAL_26) == []
         # A second identical drift report files nothing new.
         assert history.record_drift_findings(review, report) == 0

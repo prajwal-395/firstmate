@@ -103,6 +103,7 @@ ACT_REDO = "redo"
 ACT_MANUAL_EDIT = "manual_edit"
 ACT_REJECTED = "rejected"
 ACT_MANUAL_EDIT_REASON = "manual_edit_reason"
+ACT_UNEXPLAINED = "unexplained"
 
 REN_ACTS = (ACT_BUILD, ACT_PROMOTION, ACT_TOUCH, ACT_UNDO, ACT_ROLLBACK,
             ACT_REDO)
@@ -895,7 +896,173 @@ def attribute_plan_mismatch(entries: Sequence[Mapping],
     return None
 
 
-def record_drift_findings(review_dir: str, drift_report: Mapping) -> int:
+def attribute_drift(review_dir: str, project_folder: str, final: str,
+                    drift: Mapping,
+                    entries: Optional[Sequence[Mapping]] = None) -> dict:
+    """Attribute a drift to its cause, or file it as unexplained.
+
+    The widened attribution: a drift is attributed to a manual edit,
+    a unit conversion, or a rebuild that diverged - and when nothing
+    attributes, an `unexplained` entry is filed, so the count of
+    unexplained drifts is a metric rather than a silent error.
+
+    `drift` names what drifted:
+
+    - kind "unit_epoch": the numbers are a unit conversion, never a
+      manual edit - Resolve rescales stored Pan/Tilt with the project
+      resolution, so the factor is a unit, not a move.
+    - kind "frame_mismatch": the plan's frame count against the
+      timeline's; attributes via `attribute_plan_mismatch`, which sees
+      the editor-change records `detect_editor_changes` filed.
+    - kind "live_delta": any other live/recorded delta (a moved clip,
+      a dropped fragment, a retime); attributes to a recorded editor
+      change whose changes name a clip the drift found moved or missing.
+
+    `entries` is the reel's ordered history, read once by a caller that
+    already holds it; read fresh when not given. Returns `{"cause":
+    ...}`: "unit_conversion", "manual_edit", "rebuild" or
+    "unexplained". Never raises - an unreadable record reads as
+    absence, and absence attributes nothing.
+    """
+    final = str(final)
+    drift = drift or {}
+    kind = str(drift.get("kind") or "")
+    line = str(drift.get("line")
+               or "the live timeline no longer holds what the plan wrote")
+    if kind == "unit_epoch":
+        return {"cause": "unit_conversion",
+                "detail": str(drift.get("unit_epoch")
+                              or "the stored Pan/Tilt are in a different "
+                                 "unit than the live reading")}
+    if entries is None:
+        entries = history_for(review_dir, final)
+    delta = drift.get("delta_frames")
+    if kind == "frame_mismatch":
+        edit = attribute_plan_mismatch(
+            entries, int(delta) if delta is not None else None)
+        if edit is not None:
+            return {"cause": "manual_edit", "entry": edit}
+    if kind == "live_delta":
+        change = _editor_change_for_drift(review_dir, final, drift)
+        if change is not None:
+            return {"cause": "manual_edit", "editor_change": change}
+    rebuild = _diverging_rebuild(project_folder, final, entries)
+    if rebuild is not None:
+        return {"cause": "rebuild", **rebuild}
+    return {"cause": "unexplained",
+            "entry": file_unexplained_drift(review_dir, final, line)}
+
+
+def _editor_change_for_drift(review_dir: str, final: str,
+                             drift: Mapping) -> Optional[dict]:
+    """The recorded editor change that explains a live delta, or None.
+
+    `detect_editor_changes` records every unattributed live delta at
+    build/promote time; a record explains the drift when its changes
+    name a clip the drift found moved or missing. Read from the
+    provenance sidecar, never re-detected: attribution is a read over
+    records that already exist.
+    """
+    moved = {str(name) for name in (drift.get("moved") or ())
+             if str(name)}
+    if not moved:
+        return None
+    try:
+        from library.tools.plan_provenance import read_provenance
+
+        doc = read_provenance(str(review_dir)) or {}
+    except Exception:                                   # noqa: BLE001
+        return None
+    records = ((doc.get("unattributed_editor_changes") or {}).get(
+        str(final)) or [])
+    for record in reversed(list(records)):
+        if not isinstance(record, dict):
+            continue
+        for change in record.get("changes") or ():
+            if not isinstance(change, dict):
+                continue
+            for side in ("before", "after"):
+                item = change.get(side) or {}
+                if str(item.get("name") or "") in moved:
+                    return dict(record)
+    return None
+
+
+def _diverging_rebuild(project_folder: str, final: str,
+                       entries: Sequence[Mapping]) -> Optional[dict]:
+    """The rebuild a divergence is attributed to, or None.
+
+    A rebuild diverged when it is the reel's newest live act and no
+    manual edit is recorded after it: the timeline drifted, the drift
+    is not the captain's, and the rebuild is what placed the timeline
+    as it is. `build_before` names the previous rebuilt state, so the
+    attribution says what the timeline held before the diverging
+    rebuild. An unreadable ledger reads as absence - no rebuild is
+    named, and the drift stays unexplained.
+    """
+    if not project_folder:
+        return None
+    try:
+        from library.tools.versions import reel_versions
+
+        acts = reel_versions.live_acts(project_folder, final)
+    except Exception:                                   # noqa: BLE001
+        return None
+    if not acts:
+        return None
+    newest = acts[-1]
+    if newest.get("kind") != reel_versions.KIND_BUILD:
+        return None
+    build_at = str(newest.get("at") or "")
+    for entry in entries:
+        if (entry.get("actor") == ACTOR_CAPTAIN
+                and entry.get("act") == ACT_MANUAL_EDIT
+                and str(entry.get("at") or "") > build_at):
+            return None
+    before = None
+    try:
+        before = reel_versions.build_before(
+            project_folder, final, int(newest["version"]))
+    except Exception:                                   # noqa: BLE001
+        before = None
+    return {"version": newest["version"], "at": build_at,
+            "before_version": (before.get("version")
+                               if isinstance(before, dict) else None)}
+
+
+def file_unexplained_drift(review_dir: str, final: str,
+                           line: str) -> Optional[dict]:
+    """File one `unexplained` entry for a drift nothing attributed.
+
+    Idempotent: an unexplained entry with the same summary is not
+    filed twice, so a repeated drift report does not pile up. Returns
+    the entry filed (or already there), or None where there is no
+    `review_dir` to file into.
+    """
+    if not review_dir:
+        return None
+    summary = f"drift unexplained: {line}"
+    for entry in reversed(recorded_history(review_dir, final)):
+        if (entry.get("act") == ACT_UNEXPLAINED
+                and entry.get("summary") == summary):
+            return entry
+    return record_entry(review_dir, final, actor=ACTOR_REN,
+                        act=ACT_UNEXPLAINED, summary=summary)
+
+
+def unexplained_drifts(review_dir: str, final: str) -> list[dict]:
+    """The `unexplained` entries filed for `final`, oldest first.
+
+    The count of unexplained drifts is a metric: each entry is one
+    drift nothing attributed - not a manual edit, not a unit
+    conversion, not a rebuild.
+    """
+    return [entry for entry in recorded_history(review_dir, final)
+            if entry.get("act") == ACT_UNEXPLAINED]
+
+
+def record_drift_findings(review_dir: str, drift_report: Mapping,
+                          project_folder: str = "") -> int:
     """File one manual-edit entry per drifted reel. Never raises.
 
     `ren drift` (`drift_check.check_project`) compares each reel's
@@ -906,11 +1073,19 @@ def record_drift_findings(review_dir: str, drift_report: Mapping) -> int:
     entry already files the identical line is not filed twice.
     Unit-epoch readings (the numbers are a unit conversion, not a
     move) and unreadable reels file nothing: unproven is unfiled.
-    Returns the number of entries added.
+
+    Each drifted reel is attributed BEFORE the trace is filed
+    (`attribute_drift`): a recorded editor change explains it, a
+    rebuild diverged, or an `unexplained` entry is filed - so a drift
+    nothing explains is a counted metric, not a silent error. The
+    attribution runs against the history as it stands, never against
+    the trace this call is about to file: a detection is not an
+    explanation of itself. Returns the number of trace entries added.
     """
     added = 0
     try:
         reels = (drift_report or {}).get("reels") or {}
+        folder = str(project_folder or _project_folder_for(review_dir))
         for name in sorted(reels):
             compared = reels[name]
             if not isinstance(compared, dict):
@@ -921,10 +1096,19 @@ def record_drift_findings(review_dir: str, drift_report: Mapping) -> int:
                        "the live timeline no longer holds what its "
                        "build snapshot wrote"))
             head = recorded_history(review_dir, str(name))
-            if (head and head[-1].get("actor") == ACTOR_CAPTAIN
-                    and head[-1].get("act") == ACT_MANUAL_EDIT
-                    and head[-1].get("summary") == summary):
+            if any(entry.get("actor") == ACTOR_CAPTAIN
+                   and entry.get("act") == ACT_MANUAL_EDIT
+                   and entry.get("summary") == summary
+                   for entry in head):
                 continue
+            attribute_drift(review_dir, folder, str(name), {
+                "kind": "live_delta",
+                "line": str(compared.get("line") or summary),
+                "moved": [row.get("name") for row in
+                          (compared.get("rows") or [])
+                          if isinstance(row, dict)
+                          and (row.get("moved") or row.get("missing"))],
+            })
             record_manual_edit(review_dir, str(name), summary=summary)
             added += 1
     except Exception as exc:  # noqa: BLE001 - history never fails drift
