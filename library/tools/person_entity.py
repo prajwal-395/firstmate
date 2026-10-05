@@ -33,15 +33,20 @@ its 512-d ArcFace embedding and nothing else.
   recorded with the basis that produced them. Never invented past what
   overlaps.
 
-**What this module deliberately does NOT do:** match voice embeddings
-ACROSS source files to merge a person's identity. Only the face side
-carries a measured false-accept rate (see the eval); porting ECAPA's
-diarization proof (which measures separating voices WITHIN one file) into
-a claim about matching voices ACROSS files would be exactly the
-unmeasured leap the rigor gate exists to catch. Cross-source person
-identity is **face-only**; a source's voice tracks travel with whichever
-person their speech-face link (within that same source) attaches them to,
-never on their own cosine distance to another source's voice track.
+**Cross-source voice matching:** implemented, threshold pending
+measurement. `match_voices_across_sources` matches voice tracks across
+sources by ECAPA cosine similarity, but only when `VOICE_MATCH_THRESHOLD`
+is set to a measured value. The within-source diarization proof (PR #1482)
+measures separating voices WITHIN one file; whether that separation holds
+ACROSS files (different microphones, rooms, camera positions) is an open
+question. `measure_cross_source_voice_separation` computes the
+same-person and different-person distance distributions from labelled
+pairs, and `docs/CROSS_SOURCE_VOICE_MEASUREMENT.md` specifies the
+real-footage measurement that sets the threshold. Until that measurement
+is run, cross-source person identity remains **face-only**; a source's
+voice tracks travel with whichever person their speech-face link (within
+that same source) attaches them to, never on their own cosine distance
+to another source's voice track.
 """
 
 from __future__ import annotations
@@ -76,6 +81,18 @@ weakest same-person 0.2647. This is the smallest passing width in the
 measured sweep. Biased toward FAR over FRR: a false merge silently
 corrupts a person's whole span history; a missed match leaves two
 person_ids for one person, visible and recoverable in search results.
+"""
+
+VOICE_MATCH_THRESHOLD = None
+"""Cosine floor for 'same voice' on a 192-d ECAPA embedding, across sources.
+
+None until measured: the within-source diarization proof (PR #1482) measures
+separating voices WITHIN one file, not matching them ACROSS files. Setting
+this before a cross-source measurement would be the unmeasured leap the
+rigor gate exists to catch. `measure_cross_source_voice_separation`
+computes the distributions from labelled pairs;
+`docs/CROSS_SOURCE_VOICE_MEASUREMENT.md` specifies the real-footage
+measurement that sets this threshold.
 """
 
 FRAME_SAMPLE_INTERVAL_S = 10.0
@@ -511,6 +528,106 @@ def measure_voice_tracks(wav_path: str,
                    "embedding": list(cluster.centroid),
                    "spans": [list(turn) for turn in cluster.turns]})
     return out, None
+
+
+# ── cross-source voice matching (threshold pending measurement) ──────
+
+
+def measure_cross_source_voice_separation(labelled_pairs: list) -> dict:
+    """Same-person vs different-person ECAPA distance distributions.
+
+    `labelled_pairs` is a list of `(embedding_a, embedding_b,
+    same_person)` tuples, where `same_person` is True when both
+    embeddings are the same person's voice measured across different
+    sources. Returns the distributions and whether a threshold separates
+    them at the target precision >= 0.90 and recall >= 0.80.
+
+    Voice matching needs high precision: a false accept merges two
+    people's speech into one track; a false reject leaves two tracks
+    for one person, visible and recoverable. The asymmetry matches the
+    face-identity study's bias toward FAR over FRR.
+    """
+    same_dists = []
+    diff_dists = []
+    for emb_a, emb_b, same_person in labelled_pairs:
+        sim = _cosine(emb_a, emb_b)
+        if same_person:
+            same_dists.append(sim)
+        else:
+            diff_dists.append(sim)
+
+    result = {
+        "same_person_distances": same_dists,
+        "different_person_distances": diff_dists,
+        "separates": False,
+        "threshold": None,
+        "precision_at_threshold": None,
+        "recall_at_threshold": None,
+    }
+
+    if not same_dists or not diff_dists:
+        result["reason"] = "need both same-person and different-person pairs"
+        return result
+
+    import numpy as np
+    same_arr = np.asarray(same_dists)
+    diff_arr = np.asarray(diff_dists)
+
+    candidates = np.unique(np.concatenate([same_arr, diff_arr]))
+    best = None
+    for t in candidates:
+        tp = int(np.sum(same_arr >= t))
+        fp = int(np.sum(diff_arr >= t))
+        fn = int(np.sum(same_arr < t))
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        if precision >= 0.90 and (best is None or recall > best[1]):
+            best = (float(t), recall, precision)
+
+    if best is not None:
+        result["threshold"] = best[0]
+        result["recall_at_threshold"] = best[1]
+        result["precision_at_threshold"] = best[2]
+        if best[1] >= 0.80:
+            result["separates"] = True
+        else:
+            result["reason"] = (
+                f"best recall {best[1]:.3f} below 0.80 target")
+    else:
+        result["reason"] = "no threshold achieves precision >= 0.90"
+    return result
+
+
+def match_voices_across_sources(voice_tracks_by_source: dict,
+                                threshold: float) -> list:
+    """Match voice tracks across sources by ECAPA cosine similarity.
+
+    `voice_tracks_by_source` maps a source identifier to its voice
+    tracks (each with `track_id`, `embedding`, `spans`). Returns
+    cross-source matches: pairs of voice tracks from different sources
+    whose embedding cosine >= `threshold`. Never matches two tracks
+    from the same source - within-source diarization already did that.
+
+    The threshold is measured, not chosen - see
+    `measure_cross_source_voice_separation` and
+    `docs/CROSS_SOURCE_VOICE_MEASUREMENT.md`.
+    """
+    matches = []
+    source_ids = sorted(voice_tracks_by_source.keys())
+    for i, src_a in enumerate(source_ids):
+        for src_b in source_ids[i + 1:]:
+            for voice_a in voice_tracks_by_source[src_a]:
+                for voice_b in voice_tracks_by_source[src_b]:
+                    sim = _cosine(voice_a["embedding"], voice_b["embedding"])
+                    if sim >= threshold:
+                        matches.append({
+                            "source_a": src_a,
+                            "voice_a": voice_a["track_id"],
+                            "source_b": src_b,
+                            "voice_b": voice_b["track_id"],
+                            "similarity": round(sim, 6),
+                        })
+    return matches
 
 
 # ── speech-face linking ───────────────────────────────────────────────

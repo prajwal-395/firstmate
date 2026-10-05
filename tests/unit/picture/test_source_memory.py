@@ -1325,6 +1325,94 @@ def test_find_person_resolves_declared_name_and_reports_none_unmatched(
     assert person_entity.find_person(str(project), "nobody") is None
 
 
+# ── cross-source voice matching ────────────────────────────────────────
+
+
+def test_match_voices_across_sources_matches_same_person():
+    """Two voice tracks from different sources with high ECAPA cosine
+    must be matched - the defect this guards is a threshold applied so
+    strictly (or a comparison inverted) that the same person's voice
+    across two cameras is never merged."""
+    tracks = {
+        "cam_a": [{"track_id": "voice_001", "embedding": [1.0, 0.0],
+                   "spans": [[0.0, 5.0]]}],
+        "cam_b": [{"track_id": "voice_001", "embedding": [0.99, 0.01],
+                   "spans": [[10.0, 15.0]]}],
+    }
+    matches = person_entity.match_voices_across_sources(tracks, 0.90)
+    assert len(matches) == 1
+    assert matches[0]["source_a"] == "cam_a"
+    assert matches[0]["source_b"] == "cam_b"
+
+
+def test_match_voices_across_sources_rejects_different_person():
+    """Two voice tracks from different sources with low ECAPA cosine
+    must NOT be matched - the defect this guards is a threshold applied
+    so loosely that two different people's voices merge into one track,
+    silently corrupting both persons' span histories."""
+    tracks = {
+        "cam_a": [{"track_id": "voice_001", "embedding": [1.0, 0.0],
+                   "spans": [[0.0, 5.0]]}],
+        "cam_b": [{"track_id": "voice_001", "embedding": [0.0, 1.0],
+                   "spans": [[10.0, 15.0]]}],
+    }
+    assert person_entity.match_voices_across_sources(tracks, 0.90) == []
+
+
+def test_match_voices_across_sources_never_matches_within_source():
+    """Two voice tracks from the SAME source must never be matched -
+    within-source diarization already clustered them. The defect this
+    guards is a function that compares every pair regardless of source,
+    re-matching tracks the diarizer already separated."""
+    tracks = {
+        "cam_a": [{"track_id": "voice_001", "embedding": [1.0, 0.0],
+                   "spans": [[0.0, 5.0]]},
+                  {"track_id": "voice_002", "embedding": [0.99, 0.01],
+                   "spans": [[10.0, 15.0]]}],
+    }
+    assert person_entity.match_voices_across_sources(tracks, 0.90) == []
+
+
+def test_measure_cross_source_voice_separation_reports_separation():
+    """Well-separated same-person and different-person distributions
+    must report separation with a threshold - the defect this guards is
+    a measurement that misses separation when the distributions are
+    distinct, leaving cross-source voice matching permanently disabled
+    despite the embeddings supporting it."""
+    same = [( _embedding(192, 1), _jitter(_embedding(192, 1), seed=10), True),
+            ( _embedding(192, 2), _jitter(_embedding(192, 2), seed=20), True)]
+    diff = [( _embedding(192, 1), _embedding(192, 3), False),
+            ( _embedding(192, 2), _embedding(192, 4), False)]
+    report = person_entity.measure_cross_source_voice_separation(same + diff)
+    assert report["separates"] is True
+    assert report["threshold"] is not None
+    assert report["precision_at_threshold"] >= 0.90
+    assert report["recall_at_threshold"] >= 0.80
+
+
+def test_measure_cross_source_voice_separation_reports_no_separation():
+    """Overlapping same-person and different-person distributions must
+    report NO separation - the defect this guards is a measurement that
+    claims separation when the distributions overlap, setting a threshold
+    that false-merges different people's voices."""
+    base = _embedding(192, 1)
+    pairs = [(base, _jitter(base, seed=i, scale=0.3), True) for i in range(5)]
+    pairs += [(base, _jitter(base, seed=i + 10, scale=0.3), False) for i in range(5)]
+    report = person_entity.measure_cross_source_voice_separation(pairs)
+    assert report["separates"] is False
+
+
+def test_measure_cross_source_voice_separation_requires_both_classes():
+    """A measurement with only same-person or only different-person pairs
+    must report NO separation - the defect this guards is a measurement
+    that claims separation from one class alone, setting a threshold
+    never tested against the other class."""
+    same_only = [(_embedding(192, 1), _embedding(192, 1), True)]
+    report = person_entity.measure_cross_source_voice_separation(same_only)
+    assert report["separates"] is False
+    assert "reason" in report
+
+
 # --------------------------------------------------------------------------
 # From test_face_identity_study.py
 #
