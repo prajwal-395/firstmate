@@ -1199,6 +1199,22 @@ class FakeTimeline:
         return True
 
     def AddTrack(self, kind, name=""):
+        """Resolve's measured overloads: AddTrack(trackType, subTrackType)
+        names an audio subtype, and AddTrack(trackType, newTrackOptions)
+        carries `index` - the position to insert the row at
+        (1 <= index <= count; skipped or out of bounds appends)."""
+        index = None
+        if isinstance(name, dict):
+            index = name.get("index")
+            name = ""
+        if index is not None:
+            position = int(index)
+            if 1 <= position <= len(self._tracks[kind]) + 1:
+                prefix = {"video": "Video", "audio": "Audio",
+                          "subtitle": "Subtitle"}[kind]
+                self._tracks[kind].insert(
+                    position - 1, [f"{prefix} {position}", []])
+                return True
         self.add_track(kind, name or f"Track {len(self._tracks[kind]) + 1}")
         return True
 

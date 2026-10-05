@@ -1552,10 +1552,11 @@ _REGISTRY: tuple[Operation, ...] = (
                             "clip.delete",
                             # The edit algebra's patch-executor ops: link
                             # and unlink move linked items together, and the
-                            # track rows are added, deleted and renamed in
-                            # place. All local: none ripples.
+                            # track rows are added, deleted, renamed and
+                            # reordered in place. All local: none ripples.
                             "clip.link", "clip.unlink",
-                            "track.add", "track.delete", "track.rename"),
+                            "track.add", "track.delete", "track.rename",
+                            "track.reorder"),
                 conflict_domains=("markers", "timeline_structure",
                                   "picture_transform"),
                 temporal_effect="local", merge_semantics="exclusive")),

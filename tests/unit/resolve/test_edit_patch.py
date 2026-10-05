@@ -426,6 +426,62 @@ def test_track_add_that_does_not_read_back_fails_verification(world):
     timeline.AddTrack = original
 
 
+def test_track_rename_and_reorder_commit_and_invert(world):
+    """Defect: a track row that cannot be renamed and reordered in place -
+    the review's `track ops` would have no precise reversible op. The
+    listing reads back as declared, and the inverse restores the prior
+    layout."""
+    project, timeline, _item, store, base = world
+
+    # A second, empty row: Resolve destroys a row's clips with the row,
+    # so a reorder moves an empty one.
+    added = _apply(_patch("track-reorder-add", base.generation, [
+        {"op": "track.add", "track_type": "video", "name": "Overlay"}],
+        ["timeline_structure"], [[0, 48]]), project, timeline, store)
+    assert added["status"] == "committed", added
+    assert timeline.GetTrackName("video", 2) == "Overlay"
+
+    renamed = _apply(_patch("track-reorder-rename", added["generation"], [
+        {"op": "track.rename", "track_type": "video", "track_index": 2,
+         "name": "Graphics"}], ["timeline_structure"], [[0, 48]]),
+        project, timeline, store)
+    assert renamed["status"] == "committed", renamed
+
+    # The listing reads back as declared: Graphics above V1.
+    reordered = _apply(_patch("track-reorder-move", renamed["generation"], [
+        {"op": "track.reorder", "track_type": "video", "from_index": 2,
+         "to_index": 1, "name": "Graphics"}],
+        ["timeline_structure"], [[0, 48]]), project, timeline, store)
+    assert reordered["status"] == "committed", reordered
+    assert timeline.GetTrackName("video", 1) == "Graphics"
+    assert timeline.GetTrackName("video", 2) == "Video 1"
+    # A track op commits in under 5 s (the gap's performance requirement).
+    assert reordered["exclusive_hold_seconds"] < 5.0
+
+    # The inverse restores the prior layout.
+    restored = _apply(_patch("track-reorder-back", reordered["generation"], [
+        {"op": "track.reorder", "track_type": "video", "from_index": 1,
+         "to_index": 2, "name": "Graphics"}],
+        ["timeline_structure"], [[0, 48]]), project, timeline, store)
+    assert restored["status"] == "committed", restored
+    assert timeline.GetTrackName("video", 1) == "Video 1"
+    assert timeline.GetTrackName("video", 2) == "Graphics"
+
+
+def test_track_reorder_refuses_a_row_that_carries_clips(world):
+    """Defect: reordering a row whose clips DeleteTrack would destroy - the
+    op refuses rather than deleting the clips to move the row."""
+    project, timeline, item, store, base = world
+    receipt = _apply(_patch("track-reorder-clips", base.generation, [
+        {"op": "track.reorder", "track_type": "video", "from_index": 1,
+         "to_index": 2, "name": "Video 1"}],
+        ["timeline_structure"], [[0, 48]]), project, timeline, store)
+    assert receipt["status"] == "verification_failed"
+    assert receipt["stopped"]["op"] == "track.reorder"
+    assert timeline.GetTrackCount("video") == 1
+    assert timeline.GetItemListInTrack("video", 1) == [item]
+
+
 def test_clip_link_and_unlink_commit(world):
     """Defect: clips that cannot be linked and unlinked in place - the
     review's `link/unlink` would have no precise reversible op."""

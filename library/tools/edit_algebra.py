@@ -320,6 +320,29 @@ def _verify_track_present(present: bool):
     return verify
 
 
+def _verify_track_reorder(op, after):
+    """The row that was at `from_index` reads back at `to_index` under
+    the same name - and, when the indices differ, no longer at
+    `from_index`: a reorder that answered True and moved nothing fails
+    here."""
+    track_type = op["track_type"]
+    from_index = int(op["from_index"])
+    to_index = int(op["to_index"])
+    name = op["name"]
+    landed = _track(after, track_type, to_index)
+    if landed is None:
+        return f"{track_type}{to_index} is not on the timeline"
+    if landed["name"] != name:
+        return (f"{track_type}{to_index} reads {landed['name']!r}, not "
+                f"{name!r}: the row did not land at the declared index")
+    if from_index != to_index:
+        left = _track(after, track_type, from_index)
+        if left is not None and left["name"] == name:
+            return (f"{track_type}{from_index} still reads {name!r}: the "
+                    "row did not move")
+    return None
+
+
 def _verify_fusion_comps(expected_names):
     def verify(op, after):
         clip = _clip(after, op["unique_id"])
@@ -389,6 +412,35 @@ def _live_handles(timeline):
     for unique_id in duplicates:
         handles.pop(unique_id, None)
     return handles
+
+
+def _apply_track_reorder(op, tl, _item):
+    """Move a track row to a new index; the row's name follows.
+
+    Resolve has no move-track call. The measured route is delete and
+    re-insert: `AddTrack`'s options dict carries `index`, which places
+    the row at a declared position (skipped or out of bounds appends).
+    DeleteTrack destroys the row's clips, so a row carrying any is
+    refused - the engine does not destroy clips to move a row.
+    """
+    track_type = op["track_type"]
+    from_index = int(op["from_index"])
+    to_index = int(op["to_index"])
+    if from_index == to_index:
+        return True
+    items = list(tl.GetItemListInTrack(track_type, from_index) or [])
+    if items:
+        raise RuntimeError(
+            f"{track_type}{from_index} carries {len(items)} clip(s); "
+            "Resolve has no move-track call and DeleteTrack destroys a "
+            "row's clips - refusing rather than reordering a row that "
+            "carries clips")
+    name = tl.GetTrackName(track_type, from_index)
+    if not tl.DeleteTrack(track_type, from_index):
+        return False
+    if not tl.AddTrack(track_type, {"index": to_index}):
+        return False
+    return bool(tl.SetTrackName(track_type, to_index, name))
 
 
 # ── The union ──────────────────────────────────────────────────────────
@@ -846,13 +898,16 @@ ALGEBRA: dict[str, AlgebraOp] = {
         inverse=_self("the inverse carries the previous name")),
     "track.reorder": AlgebraOp(
         id="track.reorder", domain="timeline_structure",
-        required=("track_type", "from_index", "to_index"),
+        required=("track_type", "from_index", "to_index", "name"),
         span=_timeline_span,
-        verify=lambda op, after: None,
+        apply=_apply_track_reorder,
+        verify=_verify_track_reorder,
         key=lambda op: ("track", op["track_type"],
                         int(op["from_index"])), merge="exclusive",
-        inverse=_self("the inverse swaps the rows back"),
-        note="Move a row to a new index; the track listing verifies."),
+        inverse=_self("the inverse carries the previous index"),
+        note="Move a row to a new index; the track listing verifies. A "
+             "row carrying clips is refused: Resolve has no move-track "
+             "call, and DeleteTrack destroys them."),
 
     # ── overlays / graphics (domain: fusion) ────────────────────────
     "overlay.add": AlgebraOp(
