@@ -171,7 +171,7 @@ def sweep_files(project_folder: str, db_paths: list[str],
         if apply and result.orphans:
             try:
                 record = gc.sweep(mark_path, project_folder=project_folder,
-                                  fresh_roots=roots,
+                                  db_paths=db_paths,
                                   manifest_tag=area.value)
             except gc.SweepRefused as refused:
                 raise SweepRefused(

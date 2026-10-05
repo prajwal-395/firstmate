@@ -162,6 +162,15 @@ and a body taking it under another name is a rename to make rather than a
 spelling to accept.
 """
 
+PROJECT_FOLDER_PARAMETER = "project_folder"
+"""The project identity an operation was addressed to.
+
+Like `scope`, this is execution context rather than a pipeline input.
+An operation body that declares it receives the exact folder passed to
+`execute`, so direct operation calls use that project's declarations and
+coordination.
+"""
+
 MERGED_INPUT_PARAMETERS: tuple = ("data", "inputs", "llm_output")
 """The parameter names a step body uses for THE WHOLE INPUT DICT.
 
@@ -717,7 +726,8 @@ class Operation:
         # The step's own function, its own signature. Bound here so the
         # unbindable case below is asked of the SAME dict that would have
         # been splatted into the call.
-        arguments = self._arguments(inputs, where)
+        arguments = self._arguments(
+            inputs, where, project_folder=project_folder)
 
         # A post-bridge resolves the MODEL's answer against the step's
         # own measurements. Run as an operation it is handed the
@@ -893,7 +903,8 @@ class Operation:
             f"\nRefused rather than called, because a step handed a "
             f"guessed argument answers a question nobody asked.")
 
-    def _arguments(self, inputs: dict, scope: Scope = None) -> dict:
+    def _arguments(self, inputs: dict, scope: Scope = None,
+                   project_folder: str = "") -> dict:
         """Only the arguments the step's own function actually names.
 
         The gathered dict is the STEP's whole input; a function that takes
@@ -943,6 +954,8 @@ class Operation:
         # rather than a special one.
         if SCOPE_PARAMETER in parameters and SCOPE_PARAMETER not in bound:
             bound[SCOPE_PARAMETER] = scope or scope_mod.project()
+        if PROJECT_FOLDER_PARAMETER in parameters and project_folder:
+            bound[PROJECT_FOLDER_PARAMETER] = project_folder
         return bound
 
     def missing_model_answer(self, merged: dict) -> tuple:

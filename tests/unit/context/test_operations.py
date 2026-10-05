@@ -459,6 +459,29 @@ def test_an_operation_whose_body_takes_the_merged_dict_executes(tmp_path):
     assert zone["minimum_seconds"] < 45.0 < zone["maximum_seconds"]
 
 
+def test_operation_supplies_its_project_folder_to_the_step(monkeypatch,
+                                                          tmp_path):
+    """A direct operation call still carries its addressed project context."""
+    op = operations.get("subtitles.render_segment")
+    module = operations.load_step_module(op.owning_dir, op.body)
+    observed = {}
+
+    def run(props, out_dir, timeline_label, project_folder=""):
+        observed["project_folder"] = project_folder
+        return {"project_folder": project_folder}
+
+    monkeypatch.setattr(module, op.attr, run)
+    monkeypatch.setattr(operations.Operation, "unmet", lambda self, folder: [])
+    monkeypatch.setattr(operations.Operation, "gather", lambda self, folder: {})
+
+    project = str(tmp_path)
+    result = op.execute(project, props={}, out_dir=str(tmp_path),
+                        timeline_label="tl")
+
+    assert result.completed, result.error
+    assert observed["project_folder"] == project
+
+
 def _state(tmp_path, outputs):
     (tmp_path / "pipeline_output").mkdir(parents=True, exist_ok=True)
     (tmp_path / "pipeline_data.json").write_text(json.dumps({

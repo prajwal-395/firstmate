@@ -89,6 +89,9 @@ UNREADABLE = "unreadable"
 
 STEP_NODE_ID = "render_subtitles"
 
+CAPTION_ASSET_ACCESS_LOCK = "caption_asset_access"
+"""One project lock shared by per-segment writes and quarantine sweeps."""
+
 # The step's render ledger: every overlay the caption step produced,
 # recorded where the `pipeline:render_subtitles` root reads it.
 RENDER_LEDGER_NAME = "render_ledger.json"
@@ -118,6 +121,22 @@ missing-sidecar path the common one."""
 
 class SweepRefused(Exception):
     """Something about the sweep is not safe, so NOTHING moves."""
+
+
+def caption_asset_access_lock(project_folder: str):
+    """Serialize caption renders with sweeps of their shared output area.
+
+    A renderer can find a reusable file on disk before it records that
+    reference in the render ledger.  Without this project lock, a build
+    sweep can move the file in that interval.  The lock identity is
+    declared under the project review area so it is outside the asset
+    tree being enumerated and swept.
+    """
+    from library.tools.project_file_lock import lock_project_file
+
+    lock_identity = ProjectLayout(project_folder).read_path(
+        Area.REVIEW, CAPTION_ASSET_ACCESS_LOCK)
+    return lock_project_file(lock_identity)
 
 
 @dataclass
@@ -1437,6 +1456,35 @@ def sweep(mark_path: str, project_folder: str = "",
           db_paths: list[str] | None = None,
           fresh_roots: list[RootResult] | None = None,
           manifest_tag: str = "") -> dict:
+    """Sweep under the same lock held across a segment's reuse and record.
+
+    Build callers should pass `db_paths`, not a roots snapshot: roots
+    must be re-established after this lock is acquired so a renderer
+    that completed while the sweep waited is visible to the move check.
+    `fresh_roots` remains for tests and callers that deliberately use
+    in-memory roots.
+    """
+    lock_folder = project_folder
+    if not lock_folder:
+        try:
+            lock_folder = MarkResult.read_json(mark_path).project_folder
+        except (OSError, ValueError, KeyError, TypeError):
+            # The implementation below turns an unreadable mark into
+            # the public SweepRefused. There is no project to lock yet.
+            return _sweep_locked(mark_path, project_folder, db_paths,
+                                 fresh_roots, manifest_tag)
+    if not lock_folder:
+        return _sweep_locked(mark_path, project_folder, db_paths,
+                             fresh_roots, manifest_tag)
+    with caption_asset_access_lock(lock_folder):
+        return _sweep_locked(mark_path, project_folder or lock_folder,
+                             db_paths, fresh_roots, manifest_tag)
+
+
+def _sweep_locked(mark_path: str, project_folder: str = "",
+                  db_paths: list[str] | None = None,
+                  fresh_roots: list[RootResult] | None = None,
+                  manifest_tag: str = "") -> dict:
     """Move a marked orphan set to quarantine.
 
     Refuses (moving NOTHING) when the mark file cannot be read, when

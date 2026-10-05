@@ -58,6 +58,7 @@ import shutil
 import subprocess
 import sys
 import threading
+from functools import wraps
 from pathlib import Path
 
 from generate_remotion_props import generate_subtitle_props_per_block
@@ -110,6 +111,7 @@ from library.tools.caption_asset_gc import (
     LedgerError,
     ambiguous_span_pairs,
     card_key,
+    caption_asset_access_lock,
     ledger_path_for,
     record_rendered_segments,
 )
@@ -831,6 +833,22 @@ def _superseded_generations(out_dir: str, overlay_path: str) -> list:
     return sorted(older)
 
 
+def _serialize_caption_asset_access(function):
+    """Keep reuse, rendering and ledger recording atomic against GC."""
+    @wraps(function)
+    def serialized(*args, **kwargs):
+        import inspect
+
+        bound = inspect.signature(function).bind_partial(*args, **kwargs)
+        project_folder = bound.arguments.get("project_folder") or ""
+        if not project_folder:
+            return function(*args, **kwargs)
+        with caption_asset_access_lock(str(project_folder)):
+            return function(*args, **kwargs)
+    return serialized
+
+
+@_serialize_caption_asset_access
 def render_one_segment(props: dict, out_dir: str, timeline_label: str,
                        remotion_dir: str = None,
                        progress: str = "",
