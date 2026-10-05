@@ -1488,6 +1488,82 @@ def test_verified_suffix_build_promotes_to_its_approved_base_reel(project_dir):
     assert holds.held_names(str(project_dir)) == set()
 
 
+@pytest.mark.usefixtures("mock_dvr")
+def test_the_pending_report_reconciles_a_deleted_staging_as_stale(
+        project_dir, capsys):
+    """A hold whose timeline is gone reads STALE, not pending.
+
+    The verify node's pending report is the last word before promotion.
+    Unreconciled, it read a deleted staging as awaiting a decision the
+    captain cannot make - the same defect `staging_holds` fixed for the
+    build's own census, unrepaired in this consumer.
+    """
+    from library.tools.reel_proposal import (
+        Approval, ReelMoment, proposal_path, write_proposal)
+    from tests.promotion_test_helpers import no_a_roll_track_plans
+
+    suffix = " (whole-take rebuild)"
+    final = "Reel 03 - moment-3"
+    scratch_final = final + suffix
+    staged = scratch_final + STAGING_SUFFIX
+    ghost = "Reel 09 - gone (rebuild staging)"
+    live = "Reel 11 - held (rebuild staging)"
+
+    plan_path = proposal_path(project_dir)
+    moment = ReelMoment(
+        number=3, slug="moment-3", reason="verified edit",
+        timeline_start=10.0, timeline_end=40.0,
+        approval=Approval.APPROVED)
+    write_proposal(plan_path, [moment], {"derived_from": {}})
+
+    resolve_project = FakeProject([MASTER, final, staged, live])
+    staged_id = next(
+        timeline.GetUniqueId() for timeline in resolve_project.timelines
+        if timeline.GetName() == staged)
+    holds.take_hold(str(project_dir), staged, awaiting=final,
+                    taken_by="test")
+    holds.take_hold(str(project_dir), ghost, awaiting="Reel 09 - gone",
+                    taken_by="test")
+    holds.take_hold(str(project_dir), live, awaiting="Reel 11 - held",
+                    taken_by="test")
+    (project_dir / "pipeline_output" / "review" / "plan_provenance.json")\
+        .write_text(json.dumps({"built_reels": [staged]}), encoding="utf-8")
+    module = _verify_step_module()
+
+    with patch("library.tools.reel_build.verify_built_reels") as gate, \
+            patch("library.tools.reel_build._connect_resolve_project",
+                  return_value=resolve_project), \
+            patch("library.tools.reel_build.sweep_all_reels_informational"), \
+            patch("library.tools.timeline_transcript.transcript_path",
+                  return_value=str(project_dir / "transcript.json")), \
+            patch.object(module, "_resolve_live_project",
+                         return_value=resolve_project):
+        module.verify_reels({
+            "project_folder": str(project_dir),
+            "only_reels": [3],
+            "timeline_transcript": {"segments": []},
+            "reel_build": {
+                "timelines_built": [staged],
+                "staged_timelines": {scratch_final: staged},
+                "staged_timeline_ids": {staged: staged_id},
+                "track_plans": no_a_roll_track_plans(
+                    {scratch_final: staged}),
+                "name_suffix": suffix,
+                "resolve_project_name": "Mock Project",
+                "master_timeline_name": MASTER,
+                "plan_path": str(plan_path),
+            },
+        })
+
+    err = capsys.readouterr().err
+    assert "STALE HOLDS: 1 hold(s)" in err
+    assert ghost in err
+    unpromoted, _, _stale = err.partition("STALE HOLDS")
+    assert ghost not in unpromoted
+    assert "UNPROMOTED STAGING: 1" in err
+    assert live in unpromoted
+
+
 # --------------------------------------------------------------------------
 # From test_verify_scopes_to_built_reels.py
 #

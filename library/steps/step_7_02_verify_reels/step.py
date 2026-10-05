@@ -498,17 +498,38 @@ def verify_reels(data: dict) -> dict:
         # stages but never promotes otherwise sits protected and
         # invisible (measured on Reel 16, 2026-09-19). Reported, never
         # a gate - the reels above already landed.
+        # Reconciled against the LIVE project, the same census
+        # `reel_build.rebuild_reels_in_project` runs at its own end:
+        # this report is the last word before promotion, and an
+        # unreconciled one reads a deleted staging as awaiting a
+        # decision the captain cannot make. The listing is a read-only
+        # name enumeration that never touches the cursor, so it carries
+        # no lease; it is taken only where there is a hold to reconcile,
+        # so an empty holds file costs no Resolve connection. No listing
+        # (Resolve down, wrong project open) degrades to the unreconciled
+        # file - loudly, never to empty.
         try:
             from library.tools import staging_holds as _holds
-            _pending_report = _holds.report_pending(
-                project_folder,
-                owned_staging_names=list(staged.values()))
+            _pending_report = ""
+            if _holds.read_holds(project_folder):
+                _live_hold_names = None
+                try:
+                    _live_hold_names = _holds.live_timeline_names(
+                        _resolve_live_project(project_folder))
+                except Exception as _census_failed:
+                    print(f"  pending-promotion census unavailable "
+                          f"({_census_failed}) - the pending report is "
+                          f"unreconciled against the live project; a "
+                          f"deleted staging would read as pending",
+                          file=sys.stderr, flush=True)
+                _pending_report = _holds.report_pending(
+                    project_folder,
+                    timeline_names=_live_hold_names,
+                    owned_staging_names=list(staged.values()))
         except Exception:
             _pending_report = ""
         if _pending_report:
-            import sys as _sys_pending
-            print(f"  {_pending_report}", file=_sys_pending.stderr,
-                  flush=True)
+            print(f"  {_pending_report}", file=sys.stderr, flush=True)
     else:
         timelines_verified = list(timelines_built)
 
