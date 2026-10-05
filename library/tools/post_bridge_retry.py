@@ -54,6 +54,8 @@ One enumeration, `library/tools/post_bridge_retry.py`. `present_llm_step` owns a
 
 from __future__ import annotations
 
+from typing import Optional
+
 # Total model calls one post-bridge rejection may cause, first included.
 # Two retries after the first answer, the same bound the QA loop uses.
 MAX_ATTEMPTS = 3
@@ -112,3 +114,31 @@ def feedback_block(violation: str, attempt: int) -> str:
 def carries_violation(context: str) -> bool:
     """True when a context has been seeded with a rejection."""
     return HEADING in (context or "")
+
+
+def file_exhaustion(project_folder: str, step_id: str, violation: str, *,
+                    attempts: int = MAX_ATTEMPTS) -> Optional[dict]:
+    """File the exhaustion of the retry bound into the edit history.
+
+    At the bound the step FAILS carrying the last violation, and without
+    this filing the rejection dies with the run: the next run
+    re-attempts the same contract violation with no memory of the
+    previous exhaustion, at a full model call per attempt. The artifact
+    is the step id; the reason is the last violation, elided; the
+    rejecting party is Ren's own contract, not the captain. Never
+    raises - the step has already failed, and a history write must not
+    mask that failure.
+    """
+    from library.tools.project_layout import Area, ProjectLayout
+    from library.tools.reel_edit_history import record_rejection
+
+    review_dir = str(ProjectLayout(str(project_folder)).read_dir(Area.REVIEW))
+    elided = _elide(violation)
+    return record_rejection(
+        review_dir, str(step_id),
+        reason=elided or "the post-bridge rejected every attempt",
+        rejecting_party="ren",
+        refs={"step": str(step_id), "attempts": int(attempts),
+              "violation": elided},
+        summary=(f"post-bridge rejected {attempts} attempt(s) for "
+                 f"{step_id}"))

@@ -21,15 +21,18 @@ from library.tools.reel_proposal import (
     approved_only,
     assert_approved,
     enrich,
+    file_rejection,
     held_back,
     read_proposal,
     reel_timeline_name,
     slugify,
+    span_artifact,
     validate_proposal,
     write_proposal,
     snap_to_speech,
     straddling_within,
     duplicate_takes,
+    refuse_rejected_reel_timeline,
 )
 from library.tools.reel_proposal import (
     CallToAction,
@@ -111,6 +114,100 @@ def test_only_an_approved_moment_passes_the_gate():
     back = held_back(moments)
     assert [m.number for m in back["proposed"]] == [2]
     assert [m.number for m in back["rejected"]] == [3]
+
+
+# ── Rejection memory (F-02, F-10) ────────────────────────────────────
+
+def test_a_rejection_records_the_reason_and_held_back_cites_it(tmp_path):
+    """A rejected proposal used to be indistinguishable from one nobody
+    considered: the state was recorded, the why was not, and the report
+    could not cite it."""
+    from library.tools.reel_proposal import (
+        proposal_path, write_from_step_output)
+
+    root = _project_with_step_output(tmp_path, [_emitted()])
+    write_from_step_output(root)
+    file_rejection(root, 1, "too close to reel 2")
+
+    loaded = read_proposal(proposal_path(root))
+    assert loaded[0].approval is Approval.REJECTED
+    assert loaded[0].rejections[-1].reason == "too close to reel 2"
+    back = held_back(loaded)
+    assert back["rejection_reasons"]["1"] == "too close to reel 2"
+
+
+def test_a_re_proposal_of_a_rejected_span_is_refused_with_the_prior_cited(
+        tmp_path):
+    """The same span re-proposed in a later run is refused by name with
+    the prior rejection cited, rather than re-attempted blind."""
+    from library.tools import reel_edit_history as history
+    from library.tools.reel_proposal import (
+        proposal_path, write_from_step_output)
+
+    root = _project_with_step_output(tmp_path, [_emitted()])
+    write_from_step_output(root)
+    file_rejection(root, 1, "the captain already ruled on this span")
+
+    # A later run re-proposes the SAME span, un-ruled back to proposed.
+    moments = read_proposal(proposal_path(root))
+    write_proposal(proposal_path(root),
+                   [replace(moments[0], approval=Approval.PROPOSED,
+                            rejections=())],
+                   _transcript())
+    with pytest.raises(NotApproved) as excinfo:
+        refuse_rejected_reel_timeline("Reel 01 - seo-vs-geo (staging)", root)
+    assert "reel 1" in str(excinfo.value)
+    assert "the captain already ruled on this span" in str(excinfo.value)
+
+    # A DIFFERENT span is a different proposal: the same reel number
+    # covering new seconds proceeds.
+    write_proposal(proposal_path(root),
+                   [replace(moments[0], timeline_start=400.0,
+                            timeline_end=409.0, approval=Approval.PROPOSED,
+                            rejections=())],
+                   _transcript())
+    assert refuse_rejected_reel_timeline(
+        "Reel 01 - seo-vs-geo (staging)", root) is None
+    # And the history still holds exactly one rejection, keyed by span.
+    review = str(root / "pipeline_output" / "review")
+    artifact = span_artifact(_moment())
+    entries = history.recorded_history(review, artifact)
+    assert len(entries) == 1
+    assert entries[0]["act"] == "rejected"
+
+
+def test_rejection_filing_the_same_reason_twice_files_once(tmp_path):
+    """Repeated refusals of the same rejection do not pile up duplicate
+    entries: the history holds one rejection per reason, not one per
+    attempt."""
+    from library.tools.reel_proposal import (
+        file_rejection, proposal_path, span_artifact,
+        write_from_step_output)
+    from library.tools import reel_edit_history as history
+
+    root = _project_with_step_output(tmp_path, [_emitted()])
+    write_from_step_output(root)
+    first = file_rejection(root, 1, "the same reason")
+    second = file_rejection(root, 1, "the same reason")
+    assert second["id"] == first["id"]
+    review = str(root / "pipeline_output" / "review")
+    entries = history.recorded_history(review, span_artifact(_moment()))
+    assert len(entries) == 1
+
+
+def test_assert_approved_cites_the_recorded_rejection(tmp_path):
+    """The gate's refusal names the why: a rejection whose reason the
+    refusal cannot cite is a rejection the next run will repeat."""
+    from library.tools.reel_proposal import (
+        proposal_path, write_from_step_output)
+
+    root = _project_with_step_output(tmp_path, [_emitted()])
+    write_from_step_output(root)
+    file_rejection(root, 1, "opens on a back-reference")
+    loaded = read_proposal(proposal_path(root))
+    with pytest.raises(NotApproved) as excinfo:
+        assert_approved(loaded[0])
+    assert "opens on a back-reference" in str(excinfo.value)
 
 
 # ── The captain's naming ─────────────────────────────────────────────

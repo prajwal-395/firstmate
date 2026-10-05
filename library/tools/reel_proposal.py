@@ -80,6 +80,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, asdict, field, replace
+from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
@@ -127,6 +128,42 @@ class Approval(str, Enum):
     PROPOSED = "proposed"
     APPROVED = "approved"
     REJECTED = "rejected"
+
+
+@dataclass(frozen=True)
+class ProposalRejection:
+    """One recorded rejection of a proposal: why, and by whom.
+
+    A rejection used to be indistinguishable from a moment nobody ever
+    considered: the state was recorded, the reason was not, and the same
+    span could be re-proposed in a later run with no memory of the
+    refusal (F-10). This carries the reason, the rejecting party, the
+    time, and the span the rejection names - so a later run recognises a
+    re-proposal of the same seconds and refuses it by name with this
+    reason cited.
+    """
+
+    reason: str
+    rejected_by: str = "captain"
+    at: str = ""
+    span: tuple = ()
+    """The `(timeline_start, timeline_end)` the rejection names. A
+    re-proposal carries its own span; the history keys the rejection by
+    it, so "the same span" is a measured comparison, not a guess."""
+
+    def as_dict(self) -> dict:
+        return {"reason": self.reason,
+                "rejected_by": self.rejected_by,
+                "at": self.at,
+                "span": [self.span[0], self.span[1]]}
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ProposalRejection":
+        span = tuple(float(x) for x in (data.get("span") or ()))
+        return cls(reason=str(data.get("reason", "")),
+                   rejected_by=str(data.get("rejected_by", "captain")),
+                   at=str(data.get("at", "")),
+                   span=span)
 
 
 @dataclass(frozen=True)
@@ -212,6 +249,15 @@ class ReelMoment:
     approval: Approval = Approval.PROPOSED
     approval_note: str = ""
 
+    rejections: tuple = ()
+    """Every rejection recorded against this moment, oldest first.
+
+    A rejection is a verdict WITH its reason, filed so a later run does
+    not re-propose the same span blind (F-10). Empty for every moment
+    rejected before this field existed - `approval_note` then carries
+    the reason, and `rejection_reason` reads both.
+    """
+
     speakers: tuple = ()
     transcript_preview: str = ""
     duplicate_takes: tuple = ()
@@ -296,14 +342,15 @@ class ReelMoment:
         body["speakers"] = list(self.speakers)
         body["source_spans"] = [dict(s) for s in self.source_spans]
         body["duplicate_takes"] = [dict(d) for d in self.duplicate_takes]
-        body["refused_take_groups"] = [dict(g) for g
-                                       in self.refused_take_groups]
+        body["refused_take_groups"] = [dict(g) for g in
+                                       self.refused_take_groups]
         body["straddling_within"] = [dict(x) for x in self.straddling_within]
-        body["opening_observations"] = [dict(o) for o
-                                        in self.opening_observations]
+        body["opening_observations"] = [dict(o) for o in
+                                         self.opening_observations]
         body["call_to_action"] = (self.call_to_action.as_dict()
                                    if self.call_to_action else None)
         body["closer_repeats"] = [dict(r) for r in self.closer_repeats]
+        body["rejections"] = [r.as_dict() for r in self.rejections]
         return body
 
     @classmethod
@@ -316,6 +363,8 @@ class ReelMoment:
             timeline_end=float(data["timeline_end"]),
             approval=Approval(data.get("approval", "proposed")),
             approval_note=str(data.get("approval_note", "")),
+            rejections=tuple(ProposalRejection.from_dict(r) for r in
+                             (data.get("rejections") or ())),
             speakers=tuple(data.get("speakers") or ()),
             transcript_preview=str(data.get("transcript_preview", "")),
             source_spans=tuple(dict(s) for s in (data.get("source_spans") or ())),
@@ -360,9 +409,10 @@ def assert_approved(moment: ReelMoment) -> ReelMoment:
     if moment.approval is Approval.APPROVED:
         return moment
     if moment.approval is Approval.REJECTED:
+        detail = rejection_reason(moment)
         raise NotApproved(
             f"reel {moment.number} ({moment.slug!r}) was REJECTED"
-            + (f": {moment.approval_note}" if moment.approval_note else ""),
+            + (f": {detail}" if detail else ""),
             "building it anyway would overrule the captain",
             "rule on a different moment, or ask the captain to "
             "re-consider this one - then build")
@@ -380,18 +430,164 @@ def approved_only(moments: Sequence[ReelMoment]) -> List[ReelMoment]:
 
 
 def held_back(moments: Sequence[ReelMoment]) -> Dict[str, List[ReelMoment]]:
-    """What is NOT being built, by why. Reported, never dropped quietly."""
-    out: Dict[str, List[ReelMoment]] = {"proposed": [], "rejected": []}
+    """What is NOT being built, by why. Reported, never dropped quietly.
+
+    `rejection_reasons` cites each rejected moment's recorded reason, so
+    the report names WHY something was held back - a rejection whose
+    reason nobody can see is a rejection that will be re-attempted (F-10).
+    """
+    out: Dict[str, List[ReelMoment]] = {"proposed": [], "rejected": [],
+                                        "rejection_reasons": {}}
     for moment in moments:
         if moment.approval is Approval.PROPOSED:
             out["proposed"].append(moment)
         elif moment.approval is Approval.REJECTED:
             out["rejected"].append(moment)
+            reason = rejection_reason(moment)
+            if reason:
+                out["rejection_reasons"][str(int(moment.number))] = reason
     return out
+
+
+def rejection_reason(moment: ReelMoment) -> str:
+    """The latest rejection reason recorded on a moment, or "".
+
+    Reads the recorded rejections first, then `approval_note` - the
+    field a rejection predating `rejections` carries its reason in. A
+    moment with neither has no recorded why, and that absence is
+    reported, not invented.
+    """
+    if moment.rejections:
+        return str(moment.rejections[-1].reason)
+    return str(moment.approval_note or "")
+
+
+def record_rejection(moment: ReelMoment, reason: str, *,
+                     rejected_by: str = "captain",
+                     at: Optional[str] = None) -> ReelMoment:
+    """Return `moment` with this rejection recorded against it.
+
+    Pure: the caller files the result with `file_rejection`. The
+    moment's approval becomes REJECTED - a rejection is a ruling, and
+    the record carries it. The span travels with the rejection so the
+    history can key it: a re-proposal of the same seconds is then a
+    measured comparison, not a guess.
+    """
+    stamp = at or datetime.now(UTC).isoformat(timespec="seconds")
+    rejection = ProposalRejection(
+        reason=reason, rejected_by=rejected_by, at=stamp,
+        span=(float(moment.timeline_start), float(moment.timeline_end)))
+    return replace(moment, approval=Approval.REJECTED,
+                   rejections=tuple(moment.rejections) + (rejection,))
+
+
+def span_artifact(moment: ReelMoment) -> str:
+    """The artifact identity of a proposal's span, for the history key.
+
+    The reel number and the seconds, because F-10's target is "Ren does
+    not re-propose the SAME SPAN" - two moments sharing a number but
+    covering different seconds are different proposals, and two moments
+    with different numbers covering the same seconds are the same
+    rejected span.
+    """
+    return (f"reel {int(moment.number)}: "
+            f"{float(moment.timeline_start):.2f}-"
+            f"{float(moment.timeline_end):.2f}s")
+
+
+def prior_rejection_for(moment: ReelMoment,
+                        review_dir: str) -> Optional[dict]:
+    """The edit history's rejection of this moment's span, if any.
+
+    A re-proposal of a span the captain already refused is refused by
+    name with THIS entry cited, rather than re-attempted blind (F-10).
+    Never raises: an unreadable history reads as no prior rejection,
+    the honest absence `reel_edit_history.recorded_history` answers.
+    """
+    from library.tools.reel_edit_history import prior_rejection_of
+
+    return prior_rejection_of(str(review_dir), span_artifact(moment))
+
+
+def file_history_rejection(project_folder, moment: ReelMoment, reason: str, *,
+                           rejected_by: str = "captain") -> Optional[dict]:
+    """File one proposal rejection into the edit history. Idempotent.
+
+    The entry is keyed by the span artifact and carries the reason and
+    the rejecting party, so `prior_rejection_of` can refuse a
+    re-proposal of the same seconds. Filing the same reason twice
+    returns the entry already there - a rejection the history already
+    holds is not filed again. Never raises: a history write must not
+    fail the build that is refusing anyway.
+    """
+    from library.tools.project_layout import Area, ProjectLayout
+    from library.tools.reel_edit_history import (
+        prior_rejection_of, record_rejection,
+    )
+
+    review_dir = str(ProjectLayout(str(project_folder)).read_dir(Area.REVIEW))
+    artifact = span_artifact(moment)
+    summary = (f"reel {int(moment.number)} ({moment.slug!r}) rejected: "
+               f"{reason}")
+    prior = prior_rejection_of(review_dir, artifact)
+    if prior is not None and str(reason) in str(prior.get("summary") or ""):
+        return prior
+    return record_rejection(
+        review_dir, artifact,
+        reason=reason or "rejected without a reason",
+        rejecting_party=rejected_by,
+        refs={"reel": int(moment.number),
+              "span": [float(moment.timeline_start),
+                       float(moment.timeline_end)]},
+        summary=summary)
+
+
+def file_rejection(project_folder, number, reason, *,
+                   rejected_by: str = "captain") -> Optional[dict]:
+    """Record a rejection against one proposed moment, in both stores.
+
+    The proposal document gains the rejection on the named moment - the
+    captain's review surface, and the record a later run reads back -
+    and the edit history files the `rejected` entry, so a re-proposal of
+    the same span is refused by name with this reason cited. The
+    document is rewritten through `write_proposal`, which preserves
+    every other moment byte-for-byte and the captain's rulings on them.
+    Returns the history entry (or the one already there).
+    """
+    path = proposal_path(project_folder)
+    moments = read_proposal(path)
+    target = None
+    for moment in moments:
+        if int(moment.number) == int(number):
+            target = moment
+            break
+    if target is None:
+        raise ProposalError(
+            f"reel {number} is not among the {len(moments)} proposed "
+            f"moment(s)",
+            "a rejection names a moment that exists",
+            "check the reel number against reel_proposals_v2.json")
+    rejected = record_rejection(target, reason, rejected_by=rejected_by)
+    updated = [rejected if int(m.number) == int(number) else m
+               for m in moments]
+    from library.tools.timeline_transcript import transcript_path
+
+    transcript = json.loads(
+        Path(transcript_path(project_folder)).read_text(encoding="utf-8"))
+    write_proposal(path, updated, transcript)
+    return file_history_rejection(project_folder, rejected, reason,
+                                  rejected_by=rejected_by)
 
 
 _REEL_LABEL_RE = re.compile(r"^reel\s+(\d+)\b", re.IGNORECASE)
 """A render's timeline label naming a reel: `Reel 09 - slug (staging)`."""
+
+
+def _review_dir(project_folder) -> str:
+    """The review area of `project_folder`, where the edit history lives."""
+    from library.tools.project_layout import Area, ProjectLayout
+
+    return str(ProjectLayout(str(project_folder)).read_dir(Area.REVIEW))
 
 
 def refuse_rejected_reel_timeline(timeline_label, project_folder) -> None:
@@ -407,12 +603,15 @@ def refuse_rejected_reel_timeline(timeline_label, project_folder) -> None:
     Only REJECTED refuses. PROPOSED proceeds: staging builds (`rebuild
     staging` timelines) are how the captain REVIEWS a moment before
     approving it, so refusing unreviewed moments would refuse the
-    review itself. A label naming no reel (the master timeline, an
-    unnamed spine) proceeds, as does anything unreadable - a missing
-    proposals file, an unparseable one, a number it does not list.
-    A gate that fails correct output is worse than no gate (AGENTS.md
-    10.4), so every one of those proceeds with its reason SAID on
-    stderr rather than refusing work it cannot judge.
+    review itself - UNLESS the span was already rejected once, in which
+    case the re-proposal is refused by name with the prior rejection
+    cited (F-10): a rejection the next run cannot see is a rejection
+    that gets re-attempted. A label naming no reel (the master
+    timeline, an unnamed spine) proceeds, as does anything unreadable -
+    a missing proposals file, an unparseable one, a number it does not
+    list. A gate that fails correct output is worse than no gate
+    (AGENTS.md 10.4), so every one of those proceeds with its reason
+    SAID on stderr rather than refusing work it cannot judge.
     """
     import sys  # noqa: PLC0415 - stderr notes only, no dependency
 
@@ -442,14 +641,37 @@ def refuse_rejected_reel_timeline(timeline_label, project_folder) -> None:
     for moment in moments:
         if int(moment.number) == number:
             if moment.approval is Approval.REJECTED:
+                # The rejection is FILED, not only raised: a refusal that
+                # dies with this run is re-attempted by the next one
+                # (F-10). Idempotent by reason - a rejection the history
+                # already holds is not filed twice.
+                file_history_rejection(
+                    project_folder, moment, rejection_reason(moment))
+                detail = rejection_reason(moment)
                 raise NotApproved(
                     f"reel {moment.number} ({moment.slug!r}) was REJECTED"
-                    + (f": {moment.approval_note}"
-                       if moment.approval_note else ""),
+                    + (f": {detail}" if detail else ""),
                     "rendering its captions anyway would overrule the "
                     "captain",
                     "rule on a different moment, or ask the captain to "
                     "re-consider this one - then render")
+            # A RE-PROPOSAL of a span the captain already refused is
+            # refused by name with the prior rejection cited, rather
+            # than re-attempted blind. An APPROVED moment proceeds: the
+            # captain has re-considered and ruled.
+            if moment.approval is not Approval.APPROVED:
+                prior = prior_rejection_for(
+                    moment, _review_dir(project_folder))
+                if prior is not None:
+                    raise NotApproved(
+                        f"reel {moment.number} ({moment.slug!r}) "
+                        f"re-proposes a span that was already rejected: "
+                        f"{prior.get('summary', 'rejected')} "
+                        f"(filed {prior.get('at', '')})",
+                        "re-attempting a rejected span without "
+                        "acknowledging the prior rejection",
+                        "rule on a different span, or re-consider the "
+                        "rejected one - then build")
             return
     print(f"  approval gate: reel {number} is not among the "
           f"{len(moments)} proposed moment(s) - proceeding without "

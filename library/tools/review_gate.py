@@ -230,7 +230,33 @@ def save_gate_feedback(
             "updated_at": fb.timestamp,
         }, f, indent=2)
 
+    if action == "rejected":
+        file_rejection(project_dir, step_id, feedback)
+
     return feedback_path
+
+
+def file_rejection(project_dir: str, step_id: str, reason: str) -> None:
+    """File the reviewer's rejection into the edit history (F-02).
+
+    A gate rejection is a verdict on the step's output, and it used to
+    die with the run: the next run re-attempted the same step with no
+    memory of why it was refused. The rejection is filed under the
+    step id as the artifact, with the reviewer's own words as the reason
+    and the captain as the rejecting party, so `prior_rejection_of` can
+    cite it. Never raises - a history write must not fail the answer
+    being recorded.
+    """
+    from library.tools.project_layout import Area, ProjectLayout
+    from library.tools.reel_edit_history import record_rejection
+
+    review_dir = str(ProjectLayout(str(project_dir)).read_dir(Area.REVIEW))
+    record_rejection(
+        review_dir, str(step_id),
+        reason=reason or "rejected without a reason",
+        rejecting_party="captain",
+        refs={"gate": str(step_id)},
+        summary=f"gate {step_id} rejected by reviewer: {reason}")
 
 
 def load_gate_feedback(project_dir: str, step_id: str) -> Optional[GateFeedback]:

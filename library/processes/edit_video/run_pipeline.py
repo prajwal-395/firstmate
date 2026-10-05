@@ -1918,6 +1918,9 @@ def run_hybrid_step(step_dir: Path, inputs: dict, node_id: str, manifest: dict =
                 except _skills_rt.GatingSkillSkipped as e:
                     violation = str(e)
                     if attempt >= post_bridge_retry.MAX_ATTEMPTS:
+                        post_bridge_retry.file_exhaustion(
+                            str(inputs.get("project_folder", "")),
+                            node_id, violation)
                         raise PostBridgeError(
                             f"Post-bridge failed after "
                             f"{post_bridge_retry.MAX_ATTEMPTS} attempts "
@@ -1971,6 +1974,9 @@ def run_hybrid_step(step_dir: Path, inputs: dict, node_id: str, manifest: dict =
                 # way the QA loop does: a rejected post-bridge means the
                 # downstream contract is unsatisfied and there is no
                 # partial output to proceed with.
+                post_bridge_retry.file_exhaustion(
+                    str(inputs.get("project_folder", "")),
+                    node_id, violation)
                 raise PostBridgeError(
                     f"Post-bridge failed after "
                     f"{post_bridge_retry.MAX_ATTEMPTS} attempts "

@@ -196,6 +196,40 @@ STEP_IMPLEMENTATION_DEPS = {
         # so a fix here must recompose; a recompose re-measures only
         # the layers whose own keys moved, so this costs little.
         "library/tools/analysis/measurement_layers.py",
+        # Imported by vision_pipeline_v3: the source-memory root the
+        # reserved lanes are written under, so a fix here changes which
+        # stored layers a compose reuses.
+        "library/tools/source_memory.py",
+        # The source-memory chain: source_memory writes and reads the
+        # canonical audio and the measured transcripts, so a fix to any
+        # of these changes the stored layers a compose reuses.
+        "library/tools/hybrid_transcription.py",
+        "library/tools/shared_environment.py",
+        "library/tools/source_primitives.py",
+        "library/tools/transcript_measurement.py",
+        # Imported by hybrid_transcription: the heard-speech gate and
+        # the word boundaries the forced alignment is anchored to.
+        "library/tools/heard_speech.py",
+        "library/tools/word_boundaries.py",
+        # Imported by shared_environment: the MFA align path and the
+        # subject framing the reserved lanes are measured against.
+        "library/tools/mfa_align.py",
+        "library/tools/subject_framing.py",
+        # Imported by transcript_measurement: the timeline transcript
+        # whose segments the stored hearings are served from.
+        "library/tools/timeline_transcript.py",
+        # Imported by source_primitives / transcript_measurement: the
+        # per-clip vision measurements and the transcript corrections
+        # and confidence the cached profile is composed from.
+        "library/steps/step_1_04_temporal_index/vision_measure.py",
+        "library/tools/caption_reading.py",
+        "library/tools/single_track_diarization.py",
+        "library/tools/transcript_confidence.py",
+        "library/tools/transcript_corrections.py",
+        "library/tools/transcript_fit.py",
+        # Imported by transcript_corrections: the learned context a
+        # correction is checked against.
+        "library/tools/learned_context.py",
         # Imported by measurement_layers: the source digest every layer
         # key starts from.
         "library/tools/footage_identity.py",

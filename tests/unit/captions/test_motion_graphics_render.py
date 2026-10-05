@@ -119,6 +119,12 @@ def _run_step(tmp_path: Path, payload: dict):
     env = dict(os.environ)
     env["PATH"] = f"{bindir}{os.pathsep}{env.get('PATH', '')}"
     env["PYTHONPATH"] = str(REPO) + os.pathsep + env.get("PYTHONPATH", "")
+    # PYTHONSAFEPATH (set by the vep launcher) stops the interpreter
+    # putting the script's own directory on sys.path, which breaks the
+    # post-bridge's bare `from generate_motion_props import ...`. A
+    # normal `python post_bridge.py` invocation has it unset, so the
+    # subprocess is given the same import environment.
+    env.pop("PYTHONSAFEPATH", None)
     proc = subprocess.run(
         [sys.executable, str(STEP_DIR / "post_bridge.py")],
         input=json.dumps(payload),

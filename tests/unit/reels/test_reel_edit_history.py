@@ -383,6 +383,98 @@ class TestBackfillAndDrift:
         assert history.record_drift_findings(review, report) == 0
 
 
+class TestRejectionMemory:
+    """A rejection is a verdict that must outlive the run that filed it.
+
+    Regression context: F-02/F-10 - a gate rejection, a post-bridge
+    exhaustion and a rejected reel proposal all used to die with their
+    run, so the next run re-attempted the same thing with no memory of
+    why it was refused.
+    """
+
+    ARTIFACT = "Reel 03 - the-rejected-one"
+
+    def test_rejection_files_with_reason_and_artifact(self, tmp_path):
+        review = _review_dir(tmp_path)
+        entry = history.record_rejection(
+            review, self.ARTIFACT, reason="the captain said no",
+            rejecting_party=history.ACTOR_CAPTAIN,
+            refs={"gate": "gate-1"},
+            at="2026-10-05T10:00:00+00:00")
+        entries = history.history_for(review, self.ARTIFACT)
+        assert [e["act"] for e in entries] == ["rejected"]
+        assert entries[0]["id"] == entry["id"]
+        assert "the captain said no" in entries[0]["summary"]
+        assert entries[0]["actor"] == "captain"
+        assert entries[0]["refs"]["gate"] == "gate-1"
+        prior = history.prior_rejection_of(review, self.ARTIFACT)
+        assert prior is not None and prior["id"] == entry["id"]
+
+    def test_prior_rejection_of_returns_the_newest(self, tmp_path):
+        review = _review_dir(tmp_path)
+        history.record_rejection(
+            review, self.ARTIFACT, reason="first reason",
+            at="2026-10-05T10:00:00+00:00")
+        newer = history.record_rejection(
+            review, self.ARTIFACT, reason="second reason",
+            at="2026-10-05T11:00:00+00:00")
+        prior = history.prior_rejection_of(review, self.ARTIFACT)
+        assert prior is not None and prior["id"] == newer["id"]
+        assert "second reason" in prior["summary"]
+
+    def test_prior_rejection_of_reads_absence_honestly(self, tmp_path):
+        review = _review_dir(tmp_path)
+        assert history.prior_rejection_of(review, self.ARTIFACT) is None
+        # A build is not a rejection: the newest entry of another act
+        # answers nothing about a prior refusal.
+        history.record_entry(
+            review, self.ARTIFACT, actor=history.ACTOR_REN,
+            act=history.ACT_BUILD, summary="Ren build",
+            at="2026-10-05T10:00:00+00:00")
+        assert history.prior_rejection_of(review, self.ARTIFACT) is None
+
+    def test_rejection_write_never_fails_the_run(self, tmp_path):
+        # The review area's parent is a FILE, so the history write
+        # cannot land. The filing must return None and say so, never
+        # raise: a history write that fails the run turns a recorded
+        # rejection into a crashed one.
+        blocker = tmp_path / "pipeline_output"
+        blocker.write_text("not a directory", encoding="utf-8")
+        review = str(blocker / "review")
+        entry = history.record_rejection(
+            review, self.ARTIFACT, reason="filed into a wall")
+        assert entry is None
+
+    def test_gate_rejection_files_into_history(self, tmp_path):
+        from library.tools import review_gate
+
+        project = tmp_path / "project"
+        project.mkdir()
+        review_gate.save_gate_feedback(
+            str(project), "step_3_04_select_reels", "rejected",
+            feedback="the plan invents a timecode nobody spoke")
+        review = str(project / "pipeline_output" / "review")
+        prior = history.prior_rejection_of(review, "step_3_04_select_reels")
+        assert prior is not None
+        assert "the plan invents a timecode nobody spoke" in prior["summary"]
+        assert prior["actor"] == "captain"
+        assert prior["refs"]["gate"] == "step_3_04_select_reels"
+
+    def test_post_bridge_exhaustion_files_into_history(self, tmp_path):
+        from library.tools import post_bridge_retry
+
+        project = tmp_path / "project"
+        project.mkdir()
+        entry = post_bridge_retry.file_exhaustion(
+            str(project), "step_2_02_speech_sequence",
+            "block 4 has no clip_id")
+        review = str(project / "pipeline_output" / "review")
+        prior = history.prior_rejection_of(review, "step_2_02_speech_sequence")
+        assert prior is not None and prior["id"] == entry["id"]
+        assert "no clip_id" in prior["refs"]["violation"]
+        assert prior["actor"] == "ren"
+        assert "3 attempt" in prior["summary"]
+
 class TestParentChain:
     """F-01: every edit names the parent it was applied against.
 

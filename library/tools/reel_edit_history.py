@@ -45,6 +45,13 @@ read-only: detection never writes to Resolve, never reverts or
 "corrects" the captain's edit, and never changes a resolution. Reel
 rebuilds stay out of scope: recording never alters what a build places.
 
+Rejections are filed here too, as the `rejected` act: a review-gate
+rejection, a post-bridge exhaustion at `MAX_ATTEMPTS`, and a rejected
+reel proposal all land as one entry carrying the artifact (step id or
+span), the reason and the rejecting party, so `prior_rejection_of` can
+refuse a re-attempt of the same thing by name. A rejection is a verdict,
+never a timeline change, and filing it never fails the run.
+
 Plan-versus-timeline verification consults this history
 (`attribute_plan_mismatch`, wired into `verify_reel`): a frame mismatch
 that a recorded manual edit explains is reported AS that edit - naming
@@ -88,6 +95,7 @@ ACT_TOUCH = "touch"
 ACT_UNDO = "undo"
 ACT_ROLLBACK = "rollback"
 ACT_MANUAL_EDIT = "manual_edit"
+ACT_REJECTED = "rejected"
 ACT_MANUAL_EDIT_REASON = "manual_edit_reason"
 
 REN_ACTS = (ACT_BUILD, ACT_PROMOTION, ACT_TOUCH, ACT_UNDO, ACT_ROLLBACK)
@@ -455,6 +463,56 @@ def try_record_ren_act(review_dir: str, final: str, *, act: str,
         print(f"  edit history unrecorded for {final}: {exc!r} - "
               f"the build continues without it", file=sys.stderr)
         return None
+
+
+def record_rejection(review_dir: str, artifact: str, *, reason: str,
+                     rejecting_party: str = ACTOR_CAPTAIN,
+                     refs: Optional[Mapping] = None,
+                     at: Optional[str] = None,
+                     summary: Optional[str] = None) -> Optional[dict]:
+    """File a `rejected` entry against `artifact`. Never raises.
+
+    A rejection is a VERDICT, not a timeline change: the captain (or a
+    gate, or Ren's own contract at the post-bridge bound) refused an
+    attempt, and the refusal dies with the run unless it is filed here.
+    The artifact is whatever was refused - a step id, a plan hash, a
+    proposal's span - and the entry carries the reason and the rejecting
+    party, so a later run can answer "was this tried before, and why did
+    it fail" instead of re-attempting it blind.
+
+    Recording is instrumentation, not the refusal: a history write that
+    cannot land is said on stderr and the run continues (the
+    `try_record_ren_act` never-raise pattern above). Returns the entry
+    filed, or None when it could not be filed.
+    """
+    entry = make_entry(str(artifact), actor=rejecting_party,
+                       act=ACT_REJECTED,
+                       summary=summary or f"rejected: {reason}",
+                       refs=refs, at=at)
+
+    def update(doc):
+        append_entries(doc, str(artifact), [entry])
+
+    try:
+        _mutate(str(review_dir), update)
+    except Exception as exc:  # noqa: BLE001 - the contract is never-fail
+        print(f"  edit history unrecorded for {artifact}: {exc!r} - "
+              f"the run continues without it", file=sys.stderr)
+        return None
+    return entry
+
+
+def prior_rejection_of(review_dir: str, artifact: str) -> Optional[dict]:
+    """The newest `rejected` entry filed against `artifact`, or None.
+
+    Never raises: an unreadable history reads as no prior rejection,
+    the same honest absence `recorded_history` already answers. The
+    re-attempt refusal reads this and cites the entry it returns.
+    """
+    for entry in reversed(recorded_history(review_dir, str(artifact))):
+        if entry.get("act") == ACT_REJECTED:
+            return entry
+    return None
 
 
 def record_manual_edit(review_dir: str, final: str, *, summary: str,
