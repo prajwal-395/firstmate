@@ -1541,15 +1541,39 @@ def _write_motion_response(path: str, payload: dict) -> None:
         json.dump(payload, handle, indent=2)
 
 
+def _prior_plan_path(response_path: str) -> str:
+    """Where an invalidated answer's plan waits for the next ask."""
+    return response_path[:-len(".json")] + ".prior.json"
+
+
 def _invalidate_motion_answer(response_path: str, reel_number: int,
                               reason: str) -> None:
+    """Retire a stored answer the current ask no longer matches.
+
+    The answer stops being an answer - the reel must be asked again - but
+    the plan it held is still the reel's existing motion, and the next ask
+    has to carry it (`MOTION_HANDOFF`: copy the locked closing moves,
+    leave unchosen body entries alone). 2026-10-04: the caption fixes
+    changed shot words on nine reels, each answer was deleted here, and
+    every re-ask reached the model with `existing_reel_motion_plan` empty
+    - Reel 13 lost its nine drift moves and the 09-29 closing move. So
+    the plan is set aside beside the answer (`_prior_plan_path`) before
+    the answer goes, never discarded.
+    """
+    plan = _read_motion_plan_file(response_path)
+    if plan:
+        with open(_prior_plan_path(response_path), "w",
+                  encoding="utf-8") as handle:
+            json.dump({MOTION_PLAN_KEY: plan, "invalidated_because": reason},
+                      handle, indent=2)
     try:
         os.unlink(response_path)
     except FileNotFoundError:
         return
     print(f"  reel {int(reel_number):02d}: invalidated stored motion "
-          f"answer - {reason}; answer the current motion ask again",
-          file=sys.stderr)
+          f"answer - {reason}; answer the current motion ask again "
+          f"(its {len(plan or [])} move(s) carried into that ask as the "
+          f"existing plan)", file=sys.stderr)
 
 
 def locked_closing_positions(project_folder: str,
@@ -1729,6 +1753,11 @@ def write_motion_request(reel_number: int, reel_name: str,
                 response_payload[MOTION_BASIS_KEY] = current_basis
                 _write_motion_response(response_path, response_payload)
 
+    if not os.path.isfile(response_path):
+        # No answer stands for this ask: the plan a retired answer held is
+        # still the reel's existing motion, and the model must see it.
+        existing_plan = (_read_motion_plan_file(
+            _prior_plan_path(response_path)) or [])
     locked_closing_moves = [
         entry for entry in existing_plan
         if _is_locked_motion_entry(entry, closing_positions)]

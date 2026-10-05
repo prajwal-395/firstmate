@@ -272,6 +272,62 @@ def test_existing_cta_motion_is_locked_by_its_span_not_the_last_shot(
         later_move, cta_move]
 
 
+def test_a_motion_reask_carries_the_reels_existing_plan(tmp_path):
+    """2026-10-04: the caption fixes changed shot words on nine reels, the
+    stored motion answers were invalidated - deleted - and every re-ask
+    reached the model with `existing_reel_motion_plan` and
+    `locked_closing_moves` empty. Reel 13 lost its nine drift moves and
+    its closing move. The re-ask must carry the plan the retired answer
+    held, with its closing move still locked."""
+    from library.tools.project_layout import Area, ProjectLayout
+
+    project_folder = os.fspath(tmp_path / "project")
+    response_dir = str(ProjectLayout(project_folder).read_dir(
+        Area.LLM_RESPONSES))
+    os.makedirs(response_dir, exist_ok=True)
+    body_move = {
+        "target_block_position": 0,
+        "effect_type": "ken_burns",
+        "params": {"zoom_start": 1.0, "zoom_end": 1.025},
+        "rationale": "the slow push follows the claim",
+    }
+    cta_move = {
+        "target_block_position": 1,
+        "effect_type": "ken_burns",
+        "params": {"zoom_start": 1.05, "zoom_end": 1.0},
+        "rationale": "the existing CTA pull-back",
+    }
+    placements = [_placement("/body.mxf", 0, 4.0),
+                  _placement("/cta.mxf", 96, 4.0)]
+    placements[1]["clip"] = _Clip("/cta.mxf", timeline_start=4.0)
+    spine = reel_look.motion_spine(placements, 24.0)
+    call_to_action = {"timeline_start": 4.0, "timeline_end": 8.0}
+
+    def ask(text):
+        path = reel_look.write_motion_request(
+            13, "Reel 13", spine,
+            [{"timeline_start": 0.0, "timeline_end": 8.0, "text": text}],
+            project_folder, call_to_action=call_to_action)
+        with open(path, "r", encoding="utf-8") as handle:
+            return json.load(handle)["context"]
+
+    ask("A body line, then the link's bio.")
+    response_path = os.path.join(response_dir, "reel_motion_13.json")
+    with open(response_path, "w", encoding="utf-8") as handle:
+        json.dump(reel_look.bind_motion_answer(
+            project_folder, 13,
+            {"reel_motion_plan": [body_move, cta_move]}), handle)
+
+    context = ask("A body line, then the link's in our bio.")
+
+    assert not os.path.exists(response_path), "the stale answer must go"
+    assert context["existing_reel_motion_plan"] == [body_move, cta_move]
+    assert context["locked_closing_moves"] == [cta_move]
+    # And again, before anyone answers: the plan is not lost twice.
+    assert ask("A body line, then the link's in our bio.")[
+        "existing_reel_motion_plan"] == [body_move, cta_move]
+
+
 def test_changed_motion_spine_invalidates_answer_and_offline_build_resolves(
         tmp_path):
     """A re-asked motion plan binds to its shot text and resolves pre-placement.
