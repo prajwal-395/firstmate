@@ -1172,6 +1172,102 @@ def test_an_authorised_report_applies_as_an_extension():
             if m.get("attribution") == "tail-report"] != []
 
 
+# ------------------------------------------------- the placed ranges
+#
+# Reel 28 PLAN-MISMATCH (2026-10-05): the rebuild's decision record
+# listed the captain's authorised moves but placed the unrepaired
+# ranges - 1403 frames against the re-derived 1978-frame plan (-575).
+# The build now applies the recorded moves to the ranges it places
+# (`reel_build.apply_recorded_boundary_moves`, on the ranges seam
+# before trims, ending and cards derive from them).
+
+
+def _reel28_recorded_moves():
+    """Reel 28's real decision record, numbers verbatim: the authorised
+    tail extension plus the three word-edge snap moves."""
+    return [
+        {"boundary": "body_end", "was": 2265.6, "now": 2287.14,
+         "attribution": "tail-extend",
+         "authorized_by": "captain 2026-09-21: extend it",
+         "why": "finishes the sentence-tail - applied under the "
+                "recorded ruling, which accepted the longer reel"},
+        {"boundary": "body_start", "was": 2217.71, "now": 2217.58},
+        {"boundary": "cta_start", "was": 321.61, "now": 319.31},
+        {"boundary": "cta_end", "was": 328.231, "now": 328.453},
+    ]
+
+
+def _reel28_placed_moment():
+    """A moment carrying Reel 28's repaired closing CTA, so the mover
+    reads the last range as the closer, exactly as `reel_ranges`
+    lays it down."""
+    return SimpleNamespace(
+        timeline_start=2217.58, timeline_end=2287.14,
+        call_to_action=SimpleNamespace(timeline_start=319.31,
+                                       timeline_end=328.453))
+
+
+def test_reel28_recorded_moves_repair_the_placed_ranges():
+    """The regression: declared ranges plus the recorded moves equal
+    the re-derived plan's keep ranges - the longer cut the captain
+    approved."""
+    placed = reel_build.apply_recorded_boundary_moves(
+        [(2217.71, 2265.6), (321.61, 328.231)],
+        _reel28_recorded_moves(), moment=_reel28_placed_moment())
+    assert placed == [(2217.58, 2287.14), (319.31, 328.453)]
+
+
+def test_reel28_repaired_ranges_pass_through_untouched():
+    """Idempotent: ranges the derivation already repaired match the
+    recorded `now` values and come back bit-identical."""
+    placed = reel_build.apply_recorded_boundary_moves(
+        [(2217.58, 2287.14), (319.31, 328.453)],
+        _reel28_recorded_moves(), moment=_reel28_placed_moment())
+    assert placed == [(2217.58, 2287.14), (319.31, 328.453)]
+
+
+def test_a_held_or_reported_move_never_places():
+    """A question held for a human is not a decision: a held CTA end
+    and an unanswered tail report leave the placed ranges exactly as
+    derived."""
+    moves = [
+        {"boundary": "cta_end", "was": 328.231, "now": 328.9,
+         "held_for_decision": True},
+        {"boundary": "body_end", "was": 2265.6, "now": 2265.6,
+         "attribution": "tail-report", "reported": True},
+    ]
+    placed = reel_build.apply_recorded_boundary_moves(
+        [(2217.71, 2265.6), (321.61, 328.231)],
+        moves, moment=_reel28_placed_moment())
+    assert placed == [(2217.71, 2265.6), (321.61, 328.231)]
+
+
+def test_a_take_cut_edge_is_not_a_span_edge():
+    """Interior edges belong to the cutter: where a take cut owns the
+    outer edge, it sits further than the match tolerance from the
+    repair's `was` and the recorded value is skipped with the reason
+    instead of reinstating removed seconds. Where the span edge
+    survives beside a cut, only that edge moves."""
+    moves = _reel28_recorded_moves()
+    # A body whose tail a take cut removed: the head snap still lands
+    # (its edge is the span edge the repair moved) while the placed
+    # tail (2260.0s) sits 5.6s from the repair's `was`, so the tail
+    # extension is skipped instead of reinstating removed seconds.
+    cut_short = reel_build.apply_recorded_boundary_moves(
+        [(2217.71, 2260.0)], moves,
+        moment=SimpleNamespace(timeline_start=2217.71,
+                               timeline_end=2265.6,
+                               call_to_action=None))
+    assert cut_short == [(2217.58, 2260.0)]
+    # A body split mid-span by a take cut: the interior cut edges
+    # (2260.0/2261.0s) are untouched, the surviving outer edges move.
+    split = reel_build.apply_recorded_boundary_moves(
+        [(2217.71, 2260.0), (2261.0, 2265.6), (321.61, 328.231)],
+        moves, moment=_reel28_placed_moment())
+    assert split == [(2217.58, 2260.0), (2261.0, 2287.14),
+                     (319.31, 328.453)]
+
+
 def _an_authorised_extension_answers_the_recorded_report(tmp_path):
     """The ledger stops asking once answered: recording an
     authorised tail-extend supersedes the same reel and boundary's

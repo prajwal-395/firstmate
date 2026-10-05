@@ -5232,23 +5232,158 @@ def rate_ranges_from_ledger(ranges, project_folder: str, transcript: dict,
     return ranges
 
 
+MOVE_MATCH_TOLERANCE_SECONDS = 0.5
+"""How far a placed edge may sit from a recorded repair's `was`.
+
+The repair moved the boundary it stood on; a placed edge further away
+is a different edge - a take cut, a recorded trim, the ending - and
+forcing the recorded value onto it would reinstate seconds something
+else deliberately removed. Half a second is the same scale
+`tail_extend_authorization.TOLERANCE_SECONDS` weighs authorised
+seconds on: word timings drift between runs, but anything past it is
+a different ruling.
+"""
+
+
+def apply_recorded_boundary_moves(ranges, moves=(), *, moment=None):
+    """Widen keep-range outer edges to recorded boundary repairs.
+
+    The build repairs every stored moment on the way through
+    (`reel_proposal.snap_moment_to_speech`: the authorised tail
+    extension plus the word-edge snap), and `reel_ranges` derives from
+    the repaired moment - so the placed ranges already carry the moves,
+    and this returns them unchanged. Measured on Reel 28 (2026-10-05):
+    the rebuild's decision record listed the captain's authorised
+    moves (body_end 2265.6->2287.14, body_start 2217.71->2217.58,
+    cta_start 321.61->319.31, cta_end 328.231->328.453) but placed the
+    unrepaired ranges, building 1403 frames against the re-derived
+    1978-frame plan (PLAN-MISMATCH, -575 frames). This applies the
+    recorded `now` values to the ranges the build actually places, so
+    the build converges with the plan the conformance verifier
+    re-derives from the same repair.
+
+    Only OUTER edges move, and only to a recorded `now`: interior
+    take-cut and strike edges are never touched, so removed seconds
+    stay removed. A move the repair held back (`held_for_decision`,
+    `abstained`, `reported` - an unanswered question, never a decision)
+    is skipped. An edge is only moved when it still sits where the
+    repair left it (`was`, within `MOVE_MATCH_TOLERANCE_SECONDS`) -
+    anything further away is a different edge (a take cut, a recorded
+    trim, the ending), and forcing the recorded value onto it would
+    reinstate seconds something else deliberately removed. A move that
+    would invert its range is skipped. Every application and every
+    skip is said on stderr, beside the repair lines that listed the
+    moves. Pure: the input list is never mutated.
+
+    `moment` (the repaired moment) only decides which ranges are body
+    and which one is the closer: with a closing CTA the last range is
+    the closer and every other range is body, exactly the order
+    `reel_ranges` builds. Without one every range is body and CTA
+    moves are skipped with the reason.
+    """
+    import sys as _sys
+
+    moved = [(float(start), float(end)) for start, end in (ranges or [])]
+    usable = [move for move in (moves or []) if isinstance(move, dict)]
+    if not moved or not usable:
+        return moved
+    latest = {}
+    for move in usable:
+        if move.get("held_for_decision"):
+            continue
+        if move.get("abstained") or move.get("reported"):
+            continue
+        boundary = move.get("boundary")
+        if boundary not in ("body_start", "body_end",
+                             "cta_start", "cta_end"):
+            continue
+        try:
+            now = float(move["now"])
+            was = float(move.get("was", now))
+        except (TypeError, ValueError, KeyError):
+            continue
+        latest[boundary] = (was, now)
+    if not latest:
+        return moved
+    has_closer = moment is not None and cta_range(moment) is not None
+    if has_closer and len(moved) < 2:
+        print("  recorded boundary moves name a closer but the ranges "
+              "hold no closer range - CTA moves skipped",
+              file=_sys.stderr)
+    body_indices = list(range(len(moved)))
+    closer_index = None
+    if has_closer and len(moved) >= 2:
+        closer_index = len(moved) - 1
+        body_indices = list(range(len(moved) - 1))
+
+    def _set_edge(label, index, side, was, now):
+        start, end = moved[index]
+        current = start if side == 0 else end
+        if abs(current - was) > MOVE_MATCH_TOLERANCE_SECONDS:
+            print(f"  recorded {label} {was:.3f}s -> {now:.3f}s skipped: "
+                  f"the placed edge sits at {current:.3f}s - a take cut, "
+                  f"a recorded trim or the ending owns it, not the repair",
+                  file=_sys.stderr)
+            return
+        candidate = (now, end) if side == 0 else (start, now)
+        if candidate[1] <= candidate[0]:
+            print(f"  recorded {label} {was:.3f}s -> {now:.3f}s skipped: "
+                  f"it would invert the placed range "
+                  f"{start:.3f}-{end:.3f}s", file=_sys.stderr)
+            return
+        if candidate[side] == current:
+            return
+        moved[index] = (float(candidate[0]), float(candidate[1]))
+        print(f"  recorded {label} {was:.3f}s -> {now:.3f}s applied to "
+              f"the placed range (was {start:.3f}-{end:.3f}s)",
+              file=_sys.stderr)
+
+    if "body_start" in latest and body_indices:
+        was, now = latest["body_start"]
+        _set_edge("body_start", body_indices[0], 0, was, now)
+    if "body_end" in latest and body_indices:
+        was, now = latest["body_end"]
+        _set_edge("body_end", body_indices[-1], 1, was, now)
+    if closer_index is not None:
+        if "cta_start" in latest:
+            was, now = latest["cta_start"]
+            _set_edge("cta_start", closer_index, 0, was, now)
+        if "cta_end" in latest:
+            was, now = latest["cta_end"]
+            _set_edge("cta_end", closer_index, 1, was, now)
+    elif "cta_start" in latest or "cta_end" in latest:
+        print("  recorded CTA moves skipped: this reel declares no closer",
+              file=_sys.stderr)
+    return moved
+
+
 def derive_reel_ranges_and_cards(moment, transcript: dict, master_clips,
                                  project_folder: str, fps: float, name: str,
                                  moment_cuts, moment_insisted, *,
                                  card_declarations, look_decl,
                                  reel_width: int, reel_height: int,
-                                 collect_trims: dict | None = None):
+                                 collect_trims: dict | None = None,
+                                 moves=()):
     """One reel's keep ranges and planned cards, exactly as pass 1 derives.
 
     `moment_cuts`/`moment_insisted` are `moment_cuts_and_insistences`
     output. What follows is the loop's own order: `reel_ranges` (a
     strike covering the whole body raises `ExclusionWipesBody` and the
-    caller drops that reel WITH the reason), the captain's recorded
+    caller drops that reel WITH the reason), the recorded boundary
+    repairs (`apply_recorded_boundary_moves` - the authorised tail
+    extension and the word-edge snap the moment repair decided, on the
+    ranges the build actually places), the captain's recorded
     span trims (`captain_edits.retime_ranges`), the declared ending
     (`reel_ending.apply_ending`, whose tail-fit refusal stands here),
     and the full-frame card plan (`plan_cards` - PLANNED only; rendering
     is the build's, the asks need `duration_frames` which planning
     already sets).
+
+    `moves` are this reel's `snap_moment_to_speech` repair moves (the
+    build loop's `repair_moves_by_number`, the ask path's own) - empty
+    where nothing moved, and the derivation is then byte-identical to
+    before. Repairs land before trims so a recorded pin still wins
+    over a repair where the two disagree.
 
     Returns `(ranges, cards, ending_decl)`. Raises where the build loop
     refuses, so a caller that cannot derive this reel writes no ask for
@@ -5275,6 +5410,15 @@ def derive_reel_ranges_and_cards(moment, transcript: dict, master_clips,
     # captions read one shape.
     ranges = absorb_wordless_clip_edge_dust(ranges, master_clips,
                                             transcript, fps)
+    # The recorded boundary repairs, on the RANGES the build places -
+    # before trims, ending and cards derive from them, so picture and
+    # captions read one shape. Normally a no-op (`reel_ranges` already
+    # derived from the repaired moment); it only moves an edge the
+    # derivation left behind, which is the Reel 28 defect (2026-10-05:
+    # the decision listed body_end 2265.6->2287.14 and the snap moves
+    # but placed 1403 frames against the 1978-frame plan). A recorded
+    # pin still wins where the two disagree: trims apply after this.
+    ranges = apply_recorded_boundary_moves(ranges, moves, moment=moment)
     # The captain's recorded trims (`span_retime`,
     # `library/tools/captain_edits.py`): applied to the RANGES, before
     # cards derive from them. Trimming placements after captions were
@@ -5788,7 +5932,8 @@ def write_reel_asks_for_project(project_folder: str, transcript: dict,
                 moment_cuts, moment_insisted,
                 card_declarations=card_declarations,
                 look_decl=reel_look_decl,
-                reel_width=reel_width, reel_height=reel_height)
+                reel_width=reel_width, reel_height=reel_height,
+                moves=repair_moves_by_number.get(int(moment.number), ()))
         except ExclusionWipesBody as wiped:
             reason = str(wiped)
             print(f"  SKIPPING {name}: {reason}", flush=True)
@@ -13121,7 +13266,9 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                         look_decl=reel_look_decl,
                         reel_width=reel_width,
                         reel_height=reel_height,
-                        collect_trims=_trim_records))
+                        collect_trims=_trim_records,
+                        moves=repair_moves_by_number.get(
+                            int(moment.number), ())))
             except ExclusionWipesBody as wiped:
                 reason = str(wiped)
                 print(f"  SKIPPING {name}: {reason}", flush=True)
