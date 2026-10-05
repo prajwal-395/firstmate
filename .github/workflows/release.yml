@@ -1,0 +1,228 @@
+name: Ren release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and draft Ren release
+    runs-on: macos-14
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up the engine Python version
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+
+      - name: Verify tag and build the immutable engine
+        id: build
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          version="$(python -c 'from ren.version import __version__; print(__version__)')"
+          if [[ "$RELEASE_TAG" != "v$version" ]]; then
+            echo "Tag $RELEASE_TAG does not match ren/version.py ($version)." >&2
+            exit 1
+          fi
+
+          mkdir -p dist
+          python -m ren.package_engine \
+            --src "$GITHUB_WORKSPACE" \
+            --dest "$GITHUB_WORKSPACE/dist/ren-engine" \
+            --channel stable \
+            --sha "$RELEASE_SHA" \
+            --built-at "$(date -u +%Y-%m-%d)"
+          python .github/scripts/package_engine_archive.py \
+            --engine dist/ren-engine \
+            --archive "dist/ren-engine-${RELEASE_TAG}.zip"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Download, verify, and run pinned Syft
+        env:
+          RELEASE_VERSION: ${{ steps.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in
+            arm64)
+              syft_arch=darwin_arm64
+              syft_sha256=d71ee7db2be0fe2e96f679fd9d69ef04274cc86c8604707797080a21070b3f32
+              ;;
+            x86_64)
+              syft_arch=darwin_amd64
+              syft_sha256=c00d01b7c43504708c8922d643d1cbaefa62ca8876baa4d2c2cf4c3be43707a9
+              ;;
+            *)
+              echo "Unsupported release runner architecture: $(uname -m)" >&2
+              exit 1
+              ;;
+          esac
+
+          syft_version=1.42.3
+          syft_archive="$RUNNER_TEMP/syft_${syft_version}_${syft_arch}.tar.gz"
+          syft_dir="$RUNNER_TEMP/ren-syft"
+          curl --fail --location --silent --show-error \
+            "https://github.com/anchore/syft/releases/download/v${syft_version}/syft_${syft_version}_${syft_arch}.tar.gz" \
+            --output "$syft_archive"
+          printf '%s  %s\n' "$syft_sha256" "$syft_archive" \
+            | shasum -a 256 --check -
+          mkdir -p "$syft_dir"
+          tar -xzf "$syft_archive" -C "$syft_dir"
+          "$syft_dir/syft" version
+          "$syft_dir/syft" scan dir:dist/ren-engine \
+            --source-name "Ren Engine" \
+            --source-version "$RELEASE_VERSION" \
+            -o "spdx-json=dist/ren-engine-${{ github.ref_name }}.spdx.json"
+
+      - name: Check for complete Apple signing credentials
+        id: signing
+        env:
+          APPLE_DEVELOPER_ID_APPLICATION_P12: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_P12 }}
+          APPLE_DEVELOPER_ID_APPLICATION_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_PASSWORD }}
+          APPLE_DEVELOPER_ID_APPLICATION_IDENTITY: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$APPLE_DEVELOPER_ID_APPLICATION_P12" \
+            && -n "$APPLE_DEVELOPER_ID_APPLICATION_PASSWORD" \
+            && -n "$APPLE_DEVELOPER_ID_APPLICATION_IDENTITY" \
+            && -n "$APPLE_ID" \
+            && -n "$APPLE_TEAM_ID" \
+            && -n "$APPLE_APP_SPECIFIC_PASSWORD" ]]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Sign and notarize the macOS app bundle
+        if: steps.signing.outputs.available == 'true'
+        env:
+          APPLE_DEVELOPER_ID_APPLICATION_P12: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_P12 }}
+          APPLE_DEVELOPER_ID_APPLICATION_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_PASSWORD }}
+          APPLE_DEVELOPER_ID_APPLICATION_IDENTITY: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_VERSION: ${{ steps.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          keychain="$RUNNER_TEMP/ren-release.keychain-db"
+          keychain_password="$(openssl rand -base64 32)"
+          certificate="$RUNNER_TEMP/ren-application-certificate.p12"
+          app_bundle="$RUNNER_TEMP/Ren.app"
+          app_contents="$app_bundle/Contents"
+          notary_zip="$RUNNER_TEMP/ren-engine-${RELEASE_TAG}-notarization.zip"
+          signed_zip="$GITHUB_WORKSPACE/dist/ren-engine-${RELEASE_TAG}-macos.zip"
+
+          cleanup() {
+            security delete-keychain "$keychain" >/dev/null 2>&1 || true
+            rm -f "$certificate" "$notary_zip"
+            rm -rf "$app_bundle"
+          }
+          trap cleanup EXIT
+
+          printf '%s' "$APPLE_DEVELOPER_ID_APPLICATION_P12" | base64 -D > "$certificate"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$certificate" -k "$keychain" \
+            -P "$APPLE_DEVELOPER_ID_APPLICATION_PASSWORD" \
+            -T /usr/bin/codesign
+          security list-keychains -d user -s "$keychain" login.keychain-db
+          security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -k "$keychain_password" "$keychain"
+          security find-identity -v -p codesigning "$keychain" \
+            | grep -F "$APPLE_DEVELOPER_ID_APPLICATION_IDENTITY"
+
+          mkdir -p "$app_contents/MacOS" "$app_contents/Resources"
+          ditto dist/ren-engine "$app_contents/Resources/engine"
+          cat > "$app_contents/MacOS/ren" <<'EOF'
+          #!/bin/bash
+          set -euo pipefail
+          APP_RESOURCES="$(cd "$(dirname "${BASH_SOURCE[0]}")/../Resources" && pwd -P)"
+          exec "$APP_RESOURCES/engine/bin/ren" "$@"
+          EOF
+          chmod 755 "$app_contents/MacOS/ren"
+          python - "$app_contents/Info.plist" "$RELEASE_VERSION" <<'PY'
+          import plistlib
+          import sys
+
+          with open(sys.argv[1], "wb") as stream:
+              plistlib.dump({
+                  "CFBundleDevelopmentRegion": "en",
+                  "CFBundleExecutable": "ren",
+                  "CFBundleIdentifier": "com.ren.engine",
+                  "CFBundleInfoDictionaryVersion": "6.0",
+                  "CFBundleName": "Ren",
+                  "CFBundlePackageType": "APPL",
+                  "CFBundleShortVersionString": sys.argv[2],
+                  "CFBundleVersion": sys.argv[2],
+              }, stream)
+          PY
+
+          codesign --force --options runtime --timestamp \
+            --sign "$APPLE_DEVELOPER_ID_APPLICATION_IDENTITY" "$app_bundle"
+          codesign --verify --strict --verbose=2 "$app_bundle"
+          ditto -c -k --sequesterRsrc --keepParent "$app_bundle" "$notary_zip"
+          xcrun notarytool submit "$notary_zip" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --wait
+          xcrun stapler staple "$app_bundle"
+          xcrun stapler validate "$app_bundle"
+          ditto -c -k --sequesterRsrc --keepParent "$app_bundle" "$signed_zip"
+
+      - name: Explain why signing and notarization were skipped
+        if: steps.signing.outputs.available != 'true'
+        run: |
+          echo "::notice::Apple signing and notarization skipped: the Developer ID Application certificate and complete notary credentials are not configured. The draft will contain the unsigned engine ZIP, SBOM, and checksum manifest only."
+
+      - name: Compute SHA-256 checksums
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          assets=("ren-engine-${RELEASE_TAG}.zip" "ren-engine-${RELEASE_TAG}.spdx.json")
+          if [[ -f "dist/ren-engine-${RELEASE_TAG}-macos.zip" ]]; then
+            assets+=("ren-engine-${RELEASE_TAG}-macos.zip")
+          fi
+          (cd dist && shasum -a 256 "${assets[@]}" > SHA256SUMS.txt)
+          cat dist/SHA256SUMS.txt
+
+      - name: Publish draft GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "A release for $RELEASE_TAG already exists; refusing to replace its assets." >&2
+            exit 1
+          fi
+          assets=(
+            "dist/ren-engine-${RELEASE_TAG}.zip"
+            "dist/ren-engine-${RELEASE_TAG}.spdx.json"
+            "dist/SHA256SUMS.txt"
+          )
+          if [[ -f "dist/ren-engine-${RELEASE_TAG}-macos.zip" ]]; then
+            assets+=("dist/ren-engine-${RELEASE_TAG}-macos.zip")
+          fi
+          gh release create "$RELEASE_TAG" \
+            --verify-tag \
+            --draft \
+            --generate-notes \
+            --title "Ren $RELEASE_TAG" \
+            "${assets[@]}"
