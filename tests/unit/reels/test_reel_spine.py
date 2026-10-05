@@ -12,17 +12,17 @@ subtitle step, unmodified, with no reel branch anywhere in that step.
 and it is why `reel_subtitles.py` can be deleted rather than extended.
 """
 from __future__ import annotations
-from dataclasses import dataclass
-import pytest
-from library.tools import operations
-from library.tools import region as region_mod
-from library.tools.reel_spine import (
-    ALIGNMENT_METHOD,
-    spine_for_reel,
-)
-from library.tools.spine_contract import REQUIRED_BLOCK_KEYS, is_speech_block
+
 import json
+from dataclasses import dataclass
+from types import SimpleNamespace
+
+import pytest
+
+from library.tools import operations
 from library.tools import reel_semantic_visual as span
+from library.tools import region as region_mod
+from library.tools import scope as scope_mod
 from library.tools.reel_conformance_verifier import (
     FindingClass,
     ReelPlan,
@@ -30,13 +30,16 @@ from library.tools.reel_conformance_verifier import (
     check_span_plan,
     verify_reel,
 )
-from library.tools import scope as scope_mod
-from library.tools.region import MASTER, Region
-from types import SimpleNamespace
 from library.tools.reel_ledger import (
     OutOfWindowRange,
     audit_ranges,
 )
+from library.tools.reel_spine import (
+    ALIGNMENT_METHOD,
+    spine_for_reel,
+)
+from library.tools.region import MASTER, Region
+from library.tools.spine_contract import REQUIRED_BLOCK_KEYS, is_speech_block
 
 
 @dataclass
@@ -191,6 +194,53 @@ def test_reel21_suppressed_false_start_keeps_ive_word_timing():
     ]
     assert aligned[0]["start"] == 1745.79
     assert aligned[0]["end"] == 1746.29
+
+
+def test_measured_word_absent_from_text_is_kept():
+    from library.tools.reel_spine import _segment_word_alignment
+
+    row = {
+        "speaker": "Akshita",
+        "text": "make sure that when you're trying to optimize content",
+        "words": [
+            {"word": "make", "start": 100.0, "end": 100.4,
+             "timed": True},
+            {"word": "sure", "start": 100.4, "end": 100.8,
+             "timed": True},
+            {"word": "that", "start": 100.8, "end": 101.2,
+             "timed": True},
+            {"word": "your", "start": 101.2, "end": 101.6,
+             "timed": True, "display": False},
+            {"word": "when", "start": 101.6, "end": 102.0,
+             "timed": True},
+            {"word": "you're", "start": 102.0, "end": 102.4,
+             "timed": True},
+            {"word": "trying", "start": 102.4, "end": 102.8,
+             "timed": True},
+            {"word": "to", "start": 102.8, "end": 103.2,
+             "timed": True},
+            {"word": "optimize", "start": 103.2, "end": 103.6,
+             "timed": True},
+            {"word": "your", "start": 103.6, "end": 104.0,
+             "timed": True},
+            {"word": "content", "start": 104.0, "end": 104.4,
+             "timed": True},
+        ],
+    }
+    suppression = [{
+        "heard": "your",
+        "scope": {"speaker": "Akshita", "surface": "your",
+                  "prev": "that", "next": "when"},
+    }]
+
+    aligned, undetermined = _segment_word_alignment(
+        row, display_suppressions=suppression)
+
+    assert undetermined == []
+    assert [item["word"] for item in aligned] == [
+        "make", "sure", "that", "when", "you're", "trying", "to",
+        "optimize", "your", "content",
+    ]
 
 
 def test_the_reel_spine_never_promotes_an_interpolated_word_to_timing():

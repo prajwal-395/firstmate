@@ -266,12 +266,16 @@ def _segment_word_alignment(
                               b=[_token_key(token) for token in array_tokens],
                               autojunk=False)
     matched: dict[int, tuple[int, int]] = {}
+    inserted_array_indexes: set = set()
     for tag, text_start, text_end, array_start, array_end in matcher.get_opcodes():
         if tag == "equal":
             matched.update((text_index, (array_index, array_index + 1))
                            for text_index, array_index in
                            zip(range(text_start, text_end),
                                range(array_start, array_end)))
+            continue
+        if tag == "insert":
+            inserted_array_indexes.update(range(array_start, array_end))
             continue
         if tag != "replace":
             continue
@@ -399,8 +403,28 @@ def _segment_word_alignment(
         aligned.append((array_start, combined))
         text_index += 1
 
+    # Measured words the transcript TEXT never named are real speech the
+    # ASR dropped, not alignment slop: the forced aligner placed them
+    # (they carry a measured interval) and F25 counts them as played.
+    # Dropping them here made the caption planner omit a spoken word
+    # (Reel 28: "optimize your content" captioned "optimize content",
+    # measured 2026-10-05). Only INSERT-opcode array words qualify -
+    # a REPLACE span's array word is a different transcription of text
+    # the sentence already carries, not a word the text omitted. A true
+    # extra (a duplicated "it", a leading "Um") carries no measured
+    # interval and stays out; a suppressed word is already hidden by its
+    # own correction and stays out with it.
+    for array_index in sorted(inserted_array_indexes):
+        word_index, _phrase_size = owners[array_index]
+        entry = words[word_index]
+        if entry.get("display") is False:
+            continue
+        if not _measured_word_span(entry):
+            continue
+        aligned.append((array_index, dict(entry)))
+
     aligned_words = [word for _, word in sorted(aligned,
-                                                key=lambda item: item[0])]
+                                                 key=lambda item: item[0])]
 
     # A legacy suppression could remove the leading "I" from "I've" while
     # hiding the following false-start "I", leaving cached text as either
