@@ -1723,6 +1723,67 @@ def test_render_shows_the_words_not_just_the_marker_name():
     assert "speakerone finishes talking" in printed
 
 
+# ── The stable note_id: identity across a rename and a re-ask ──────
+#
+# The defect both tests name: the digest identity is the reel name plus
+# the words, so a rebuild that renames the reel files one note as two,
+# and a note re-asked in different words is filed as a new open question
+# - the captain's marker is still there, we said done, and the ledger
+# cannot see it is the same note.  The stable note_id, assigned at first
+# pull and carried in the marker's `marker_payload` envelope, is the
+# identity when present; the digest stays the fallback for a note that
+# predates the id.
+
+
+def test_a_note_survives_a_reel_rename():
+    """One note, two reel names - the rename must not split it.
+
+    Without the stable id the digest changes with the reel name and the
+    same words on the renamed reel become a second entry, which reads as
+    the captain asking twice about something already answered.
+    """
+    entries = fl.collect(None, [
+        pull(REEL, "2026-09-11T04:00:00Z",
+              note(ASK, frame=1902, note_id="nt_abc")),
+        pull("Reel 99 - a-different-name", "2026-09-11T18:00:00Z",
+              note(ASK, frame=5000, note_id="nt_abc"))])
+    assert len(entries) == 1
+    entry = next(iter(entries.values()))
+    assert entry.note_id == "nt_abc"
+    assert entry.pulls == 2
+    assert sorted(entry.frames) == [1902, 5000]
+
+
+def test_a_re_ask_in_different_words_is_flagged_by_note_id():
+    """We said done; the captain's marker is still there, re-typed.
+
+    The words changed, the note did not.  A digest join cannot see that -
+    it matches the resolution to the ORIGINAL words and the re-ask in new
+    words files as a fresh open question.  The stable note_id matches the
+    resolution to the note whatever words it now carries.
+    """
+    document = fl.build(
+        None,
+        [pull(REEL, "2026-09-11T04:00:00Z",
+              note(ASK, frame=1902, note_id="nt_abc")),
+         pull(REEL, "2026-09-11T18:00:00Z",
+              note("the ending is still wrong", frame=1907,
+                   note_id="nt_abc"))],
+        resolutions=[{
+            "note_id": f"{REEL}:timeline_marker:1902",
+            "stable_note_id": "nt_abc",
+            "status": mr.STATUS_RESOLVED_VERIFIED,
+            "resolved_at": "2026-09-11T10:00:00Z",
+            "timeline": REEL, "name": "feedback", "note": ASK,
+            "text": f"feedback\n\n{ASK}",
+            "check": "a_roll_two_rows",
+            "verifier": "marker_resolution.CHECKS[a_roll_two_rows]",
+            "marker_removed": True,
+        }])
+    assert document["entries"][0]["reasked"] is True
+    assert len(document["reasked"]) == 1
+
+
 # ── The identity grammar the `answers` single writer enforces ────────
 
 

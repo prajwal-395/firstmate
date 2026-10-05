@@ -108,6 +108,7 @@ import json
 import re
 import uuid
 from datetime import datetime, timezone
+from typing import Mapping
 
 SCHEMA = "vep.marker/1"
 """The envelope version.  Bump only when a reader must parse differently."""
@@ -140,6 +141,39 @@ def new_envelope() -> dict:
         "updated_at": now,
         "records": [],
     }
+
+
+#: The envelope field carrying a note's STABLE id.  Assigned once at first
+#: pull and never changed, so a note keeps its identity across a rebuild
+#: that renames the reel or moves the frame - the two things the digest
+#: identity (`feedback_ledger.durable_identity`) is made of.  A marker that
+#: predates this field has none and the digest stays its identity.
+NOTE_ID_FIELD = "note_id"
+
+
+def note_id_of(envelope: dict) -> str:
+    """The stable note id this envelope carries, or "".
+
+    Read off the envelope's own field, never derived: an id that could be
+    recomputed would not be stable, and the whole point is that this one is
+    assigned once and carried.
+    """
+    if not isinstance(envelope, Mapping):
+        return ""
+    value = envelope.get(NOTE_ID_FIELD)
+    return value if isinstance(value, str) else ""
+
+
+def with_note_id(envelope: dict, note_id: str) -> dict:
+    """A copy of `envelope` carrying `note_id`.  The stable id, set once.
+
+    A top-level field, not a record: it is the marker's identity as a note,
+    not one writer's statement about it, and it is assigned once and never
+    replaced - so it sits beside `id` rather than in `records`.
+    """
+    out = dict(envelope or {})
+    out[NOTE_ID_FIELD] = note_id
+    return out
 
 
 def is_envelope(value) -> bool:

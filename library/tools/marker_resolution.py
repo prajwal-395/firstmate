@@ -456,6 +456,14 @@ class ResolutionRecord:
     evidence: dict = field(default_factory=dict)
     verifier: str = ""
 
+    stable_note_id: str = ""
+    """The note's STABLE id, read off the marker's `marker_payload` envelope
+    at pull time and assigned at first pull.  Carried here so
+    `feedback_ledger.apply_resolutions` can match a resolution to its note
+    by the id a rebuild cannot move - a note re-asked in different words
+    is still the note already answered.  Empty for a note that predated
+    the id; the ledger then falls back to the digest join."""
+
     name: str = ""
     note: str = ""
     text: str = ""
@@ -560,6 +568,7 @@ def record_resolution(project_folder, note: dict, status: str, action: str = "",
         check=check or "",
         evidence=dict(evidence or {}),
         verifier=verifier or "",
+        stable_note_id=note.get("stable_note_id", ""),
         marker_removed=bool(marker_removed),
         marker_still_present=bool(marker_still_present),
         removal=dict(removal or {}),

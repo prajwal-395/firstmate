@@ -329,6 +329,13 @@ class MarkerNote:
 
     read_at: str = ""
 
+    note_id: str = ""
+    """The note's STABLE id, read off the marker's `marker_payload` envelope
+    and assigned at first pull.  Survives a rebuild that renames the reel or
+    moves the frame, which is what `feedback_ledger` keys an entry on when it
+    is present - the digest identity stays the fallback for a note that
+    predates the id."""
+
 
 # ── Reading ─────────────────────────────────────────────────────────
 
@@ -544,6 +551,7 @@ def read_notes(timeline, project_folder=None) -> list:
                 kw.get("name", ""), kw.get("note", ""),
                 kw.get("custom_data") or {}, project_folder)],
             read_at=read_at,
+            note_id=marker_payload.note_id_of(kw.get("custom_data") or {}),
             **kw,
         ))
 
@@ -1092,6 +1100,45 @@ def note_identity(note: MarkerNote) -> tuple:
     """
     return (note.source, note.name, note.note, note.frame_in_timeline_space,
             _attachment_identity(note.attachments))
+
+
+@under_lease("assign stable note ids to the captain's markers")
+def assign_note_ids(project_folder, timeline=None, project=None) -> dict:
+    """Give every timeline marker that lacks one a stable `note_id`.
+
+    The id is written into the marker's `marker_payload` envelope, so it
+    travels WITH the marker across a rebuild that renames the reel or moves
+    the frame - the two things `feedback_ledger.durable_identity` is made
+    of, and the reason a note's identity is otherwise destroyed by the exact
+    act that is supposed to answer it.  A marker that already carries a
+    note_id keeps it: the id is assigned once, never re-minted.
+
+    Only the envelope's `note_id` field is added; every other field and
+    record is preserved through `marker_payload.parse`, so a marker another
+    writer has stamped keeps their work.  Returns `{marker key: note_id}`
+    for the markers that were assigned one.
+
+    Timeline markers only: a clip or media-pool marker's customData has no
+    measured in-place update on Resolve's item objects, so those notes keep
+    the digest identity until the item API gains one - the stable id is
+    written where the write is verified, not everywhere it is wanted.
+    """
+    if timeline is None:
+        timeline, project = current_timeline()
+    assigned: dict = {}
+    for key, marker in (timeline.GetMarkers() or {}).items():
+        envelope = marker_payload.parse(marker.get("customData") or "")
+        if marker_payload.note_id_of(envelope):
+            continue
+        note_id = marker_payload.new_id("nt")
+        payload = marker_payload.dumps(
+            marker_payload.with_note_id(envelope, note_id))
+        if not timeline.UpdateMarkerCustomData(int(key), payload):
+            raise MarkerWriteError(
+                f"Resolve refused to assign a note id to the marker at "
+                f"frame {int(key)} on {timeline.GetName()!r}.")
+        assigned[f"timeline:{key}"] = note_id
+    return assigned
 
 
 @under_lease("read the captain's markers", exclusive=False)

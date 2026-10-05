@@ -36,7 +36,16 @@ place to be answered from.
 
 The identity
 ------------
-:func:`durable_identity` is the durable half.  It is a digest of two things
+A note's identity is its ``note_id`` when the marker carried one, and
+:func:`durable_identity` when it did not.
+
+The ``note_id`` is the stable half.  It is assigned once at first pull,
+written into the marker's `marker_payload` envelope, and carried across
+rebuild - so a note survives a reel being renamed and a re-ask typed in
+DIFFERENT words, the two things a digest cannot outlive.  A marker that
+predates the id has none, and the digest below is its identity.
+
+:func:`durable_identity` is the fallback.  It is a digest of two things
 and nothing else:
 
 * the reel's BASE name, with container suffixes stripped - a note
@@ -217,7 +226,16 @@ def durable_identity(timeline: str, text: str) -> str:
 
 
 def identity_of(note: Mapping, timeline: str = "") -> str:
-    """One collected note's durable identity."""
+    """One collected note's durable identity.
+
+    The note's own ``note_id`` when the marker carried one - it is the
+    stable half, assigned at first pull and unchanged by a rebuild that
+    renames the reel or moves the frame.  The digest is the fallback for a
+    note that predates the id.
+    """
+    note_id = str((note or {}).get("note_id") or "")
+    if note_id:
+        return note_id
     return durable_identity(timeline or (note or {}).get("timeline") or "",
                          note_text(note))
 
@@ -297,6 +315,13 @@ class FeedbackEntry:
     reel: str
     text: str
     kind: str = KIND_ASK
+
+    note_id: str = ""
+    """The note's STABLE id, read off the marker's `marker_payload` envelope
+    at pull time.  Assigned once at first pull and carried across rebuilds,
+    so it is the identity when present - the digest below is the fallback
+    for a note that predates the id.  Empty for a note pulled before the
+    marker carried one."""
     answers: str = ""
     """For a reply: the durable identity of the note it answers, read
     off its own `customData`. This is the link that survives the blue
@@ -406,12 +431,18 @@ def collect(project_folder, pulls=None) -> Dict[str, FeedbackEntry]:
             text = note_text(raw)
             if not normalise_text(text):
                 continue          # a marker with no words asks nothing
-            identity = durable_identity(timeline, text)
+            note_id = str((raw or {}).get("note_id") or "")
+            # The note's own id when the marker carried one: it survives a
+            # reel rename and a re-ask in different words, which the digest
+            # below does not.  The digest stays the fallback for a note
+            # pulled before the marker carried an id.
+            identity = note_id or durable_identity(timeline, text)
             entry = entries.get(identity)
             if entry is None:
                 kind, answers = _authorship(raw)
                 entry = FeedbackEntry(
-                    identity=identity, reel=base_reel_name(timeline),
+                    identity=identity, note_id=note_id,
+                    reel=base_reel_name(timeline),
                     text=text, kind=kind, answers=answers,
                     first_asked=pulled_at, last_seen=pulled_at)
                 entries[identity] = entry
@@ -432,11 +463,14 @@ def apply_resolutions(entries: Mapping[str, FeedbackEntry],
                       resolutions) -> Dict[str, FeedbackEntry]:
     """Fold `marker_resolution` records onto the entries they answer.
 
-    A resolution is matched by recomputing the DURABLE identity from the
-    record's own `timeline` and `text` - the record already carries both
-    verbatim - rather than by its stored `note_id`, which is the
-    frame-keyed one a rebuild invalidates. That is the whole join, and
-    it is why no change to `marker_resolution`'s storage was needed.
+    A resolution is matched by the note's STABLE id when the record
+    carries one - the id the marker's envelope assigned at first pull,
+    which a rebuild cannot move.  That is what lets a note re-asked in
+    DIFFERENT words still be recognized as the one already answered: the
+    words changed, the note did not.  Without a stable id the join falls
+    back to recomputing the DURABLE identity from the record's own
+    `timeline` and `text`, which is the frame-keyed digest a rebuild
+    invalidates and a re-ask changes.
 
     A record for words this project never pulled is skipped rather than
     creating an entry: the pulls are what the captain asked, and a
@@ -447,9 +481,12 @@ def apply_resolutions(entries: Mapping[str, FeedbackEntry],
     out = dict(entries)
     for record in resolutions or ():
         record = record or {}
-        identity = durable_identity(str(record.get("timeline") or ""),
-                                 note_text(record))
-        entry = out.get(identity)
+        stable = str(record.get("stable_note_id") or "")
+        entry = out.get(stable) if stable else None
+        if entry is None:
+            identity = durable_identity(str(record.get("timeline") or ""),
+                                     note_text(record))
+            entry = out.get(identity)
         if entry is None:
             continue
         resolved_at = _iso(record.get("resolved_at"))
@@ -467,6 +504,7 @@ def apply_resolutions(entries: Mapping[str, FeedbackEntry],
             "verifier": record.get("verifier") or "",
             "marker_removed": bool(record.get("marker_removed")),
             "note_id": record.get("note_id") or "",
+            "stable_note_id": stable,
         }
         if (status == mr.STATUS_RESOLVED_VERIFIED
                 and _newer(entry.last_seen, resolved_at)):

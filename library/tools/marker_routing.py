@@ -649,6 +649,13 @@ class RoutedNote:
     """The id an edit spec and its ledger rows link to (`edit_link_id`):
     the note id plus its words, so two notes on one frame stay apart."""
 
+    stable_note_id: str = ""
+    """The note's STABLE id, read off the marker's `marker_payload` envelope
+    at pull time.  Passed through so `marker_resolution` can file it on
+    the resolution record and `feedback_ledger` can match a re-asked note
+    by the id a rebuild cannot move.  Empty for a note that predated the
+    id."""
+
     timeline_start_frame: int = 0
     """Where the timeline's own frame numbering starts, off the pull
     file. Resolve's default is 01:00:00:00, which is frame 108000 at
@@ -920,6 +927,7 @@ def route_note(raw: dict, timeline: str = "", pull_file: str = "",
     routed = RoutedNote(
         note_id=_note_id(raw, timeline, pull_file),
         edit_link_id=edit_link_id(raw, timeline, pull_file),
+        stable_note_id=raw.get("note_id", ""),
         source=raw.get("source", ""),
         name=raw.get("name", ""),
         note=raw.get("note", ""),
