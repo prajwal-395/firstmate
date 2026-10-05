@@ -332,6 +332,40 @@ def test_doctor_requires_voz_and_mfa_without_claiming_a_fallback(monkeypatch):
     assert "takes over" not in by_name["MFA aligner"].detail
 
 
+def test_the_disk_space_line_reports_the_gap_against_the_footprint():
+    """A full disk must be REPORTED against the declared footprint, not
+    silently passed: the line is how a user sees the gap before a
+    download fails mid-way (G5)."""
+    footprint = {"venv": 2_000_000_000, "engine": 1_000_000_000,
+                 "models": 9_800_000_000, "scratch": 2_000_000_000}
+    ok, detail = doctor.disk_space_verdict(20_000_000_000, footprint)
+    assert ok and "20.0 GB free" in detail and "14.8 GB" in detail
+
+    ok, detail = doctor.disk_space_verdict(4_000_000_000, footprint)
+    assert not ok and "4.0 GB free" in detail
+    assert "short 10.8 GB" in detail
+    check = doctor.Check("disk space", ok, detail, need="disk.space")
+    assert doctor.required_failures([check]) == [], (
+        "a full disk stops no capability by itself; `ren setup` refuses")
+
+
+def test_the_venv_footprint_is_derived_from_the_lock_file(tmp_path):
+    """The venv component tracks the lock's package count, not a
+    hardcoded number: a lock that pins nothing needs no venv space, and
+    the shipped lock's count is what the footprint is built from."""
+    empty = tmp_path / "empty.txt"
+    empty.write_text("# a lock that pins nothing\n", encoding="utf-8")
+    assert doctor.disk_footprint(empty)["venv"] == 0
+
+    one = tmp_path / "one.txt"
+    one.write_text("torch==2.0 \\\n    --hash=sha256:aa\n    # via\n",
+                   encoding="utf-8")
+    assert doctor.disk_footprint(one)["venv"] == doctor.VENV_BYTES_PER_PACKAGE
+
+    shipped = Path(__file__).resolve().parents[3] / "requirements" / "lock" / "macos-arm64-py312.txt"
+    assert doctor.disk_footprint(shipped)["venv"] == 132 * doctor.VENV_BYTES_PER_PACKAGE
+
+
 def _stub_sysctl(monkeypatch, gib):
     """Answer `sysctl -n hw.memsize` with `gib` GiB; delegate the rest."""
     real_run = subprocess.run

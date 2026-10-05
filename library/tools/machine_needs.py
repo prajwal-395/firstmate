@@ -50,6 +50,7 @@ class Need:
 
 NEEDS: dict = {n.id: n for n in (
     Need("macos", "macOS - Ren runs on a Mac only"),
+    Need("disk.space", "free disk space for the runtime, models and scratch"),
     Need("hardware.memory", "unified memory enough for the resident vision "
          "model (gemma-4-12b-it-4bit, ~7.3-7.9 GB) plus the pipeline"),
     Need("python.venv", "the Python 3.12 pipeline interpreter"),

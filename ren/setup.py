@@ -18,6 +18,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from ren import doctor
 from ren.engine_root import require_engine_root
 
 PACKS = {
@@ -26,6 +27,15 @@ PACKS = {
     "ecapa": ("scripts/install_ecapa.sh", "INSTALL_ECAPA_PYTHON"),
     "deepfilter": ("scripts/install_deepfilternet.sh", "INSTALL_DEEPFILTERNET_PYTHON"),
 }
+
+PACK_BYTES = {
+    "panns": 327_428_481,        # PANNS_CHECKPOINT_SIZE (shared_environment.py)
+    "mfa": 200_000_000,          # declared: acoustic + dictionary + G2P models
+    "ecapa": 50_000_000,         # declared: the speechbrain ECAPA checkpoint
+    "deepfilter": 150_000_000,   # declared: the binary plus its ~100 MB weights
+}
+"""Each pack's download footprint. PANNs is measured; the rest are
+declared allowances - the install scripts verify hashes, not sizes."""
 
 VENV_DIRNAME = "venv-py312"
 PYTHON_DIRNAME = "python"
@@ -287,6 +297,17 @@ def _install_record(
     os.replace(tmp, path)
 
 
+def _check_disk_space(free: int, needed: int, what: str) -> None:
+    """Refuse with the exact shortfall before a download that cannot complete."""
+    if free < needed:
+        raise SetupFailure(
+            f"not enough free disk space for {what}: "
+            f"{doctor.gb(free)} free, {doctor.gb(needed)} needed - "
+            f"short {doctor.gb(needed - free)}; free up that space and "
+            f"re-run `ren setup`"
+        )
+
+
 def _run_packs(engine: Path, packs: list[str], python: Path, env: dict) -> None:
     variables = {
         "panns": "INSTALL_PANNS_PYTHON",
@@ -296,6 +317,9 @@ def _run_packs(engine: Path, packs: list[str], python: Path, env: dict) -> None:
     }
     for name in packs:
         script, _ = PACKS[name]
+        _check_disk_space(
+            doctor.free_bytes(_home()), PACK_BYTES[name], f"the {name} pack"
+        )
         pack_env = dict(env)
         pack_env[variables[name]] = str(python)
         pack_env["XDG_CACHE_HOME"] = str(_home() / "models" / "cache")
@@ -337,6 +361,11 @@ def main(argv=None) -> int:
         engine = require_engine_root()
         home = _home()
         home.mkdir(parents=True, exist_ok=True)
+        _check_disk_space(
+            doctor.free_bytes(home),
+            sum(doctor.disk_footprint(engine.joinpath(*doctor.LOCK_PATH)).values()),
+            "Ren's runtime, models and scratch",
+        )
         env = dict(os.environ)
         env["PIPELINE_VEP_HOME"] = str(home)
         env["UV_CACHE_DIR"] = str(home / "cache" / "uv")

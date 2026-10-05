@@ -458,7 +458,7 @@ def _size(path: Path) -> int:
     return sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
 
 
-def _gb(size: int) -> str:
+def gb(size: int) -> str:
     return f"{size / 1e9:.1f} GB" if size >= 1e8 else f"{size / 1e6:.0f} MB"
 
 
@@ -490,7 +490,7 @@ def model_checks() -> list:
         complete, size, why = hf_model_state(ident, cache)
         fix = (f"{sys.executable} -c \"from huggingface_hub import "
                f"snapshot_download; snapshot_download('{ident}')\"")
-        detail = f"{reader}: {_gb(size)}" if complete else f"{reader}: {why}"
+        detail = f"{reader}: {gb(size)}" if complete else f"{reader}: {why}"
         checks.append(Check(f"model {label}", complete, detail,
                             "" if complete else fix, need=need))
 
@@ -500,7 +500,7 @@ def model_checks() -> list:
     complete, size, why = hf_model_state(ident, cache)
     checks.append(Check(
         "model all-MiniLM-L6-v2", complete,
-        f"footage search embedder: {_gb(size)}" if complete else
+        f"footage search embedder: {gb(size)}" if complete else
         f"not cached - optional; lexical-only search remains available "
         f"when no embedder can load ({why})",
         "" if complete else
@@ -523,7 +523,7 @@ def model_checks() -> list:
              "load_model('final0', device='cpu')")
     checks.append(Check(
         "model beat_this final0", bt_complete,
-        f"detected downbeats (step 2.06): {_gb(bt_path.stat().st_size)}"
+        f"detected downbeats (step 2.06): {gb(bt_path.stat().st_size)}"
         if bt_complete else
         "not downloaded - downbeats fall back to the librosa "
         "every-4th-beat estimate (labelled estimated)",
@@ -540,7 +540,7 @@ def model_checks() -> list:
     checks.append(Check(
         "model PANNs Cnn14-DLM", panns_ok,
         f"timed sound events (step 1.04): "
-        f"{_gb(panns_path.stat().st_size)}"
+        f"{gb(panns_path.stat().st_size)}"
         if panns_ok else
         "not downloaded - clips record unmeasured sound events and "
         "event anchors refuse by name "
@@ -550,6 +550,93 @@ def model_checks() -> list:
         "ren setup --with panns",
         need="model.panns"))
     return checks
+
+
+# ── Disk space ───────────────────────────────────────────────────────
+
+VENV_BYTES_PER_PACKAGE = 15_000_000
+"""Mean installed bytes per distribution in the locked stack.
+
+The lock file pins the distributions but not their installed size, so
+the venv's footprint is a derivation: the pinned count is read from the
+lock at call time and multiplied by this mean, measured 2026-10-05
+against the shipped venv (2.0 GB installed across 132 locked
+distributions)."""
+
+ENGINE_BYTES = 1_000_000_000
+"""The versioned engine tree and its shared Node store: 585 MB of
+node_modules (library/tools/shared_environment.py), the CPython 3.12
+runtime, and the engine sources - one copy per machine."""
+
+MODEL_BYTES = (
+    6_300_000_000    # gemma-4-12b-it-4bit weights (docs/GEMMA_SERVER.md)
+    + 327_428_481    # PANNs Cnn14 checkpoint (shared_environment.PANNS_CHECKPOINT_SIZE)
+    + 100_000_000    # DeepFilterNet weights (docs/DOWNLOAD_INVENTORY.md)
+    + 81_000_000     # beat_this final0 checkpoint (the fetch line above)
+    + 3_000_000_000  # the run-time table's unsized models: SAM 2.1, CLIP,
+                     # MiniLM, ECAPA, MFA, Audio Flamingo, All-In-One,
+                     # Demucs, EasyOCR (docs/DOWNLOAD_INVENTORY.md)
+)
+"""Every model Ren fetches, sized: the documented sizes plus a declared
+allowance for the run-time table's unsized rows."""
+
+SCRATCH_BYTES = 2_000_000_000
+"""Project scratch: pipeline_output trees, renders and the footage index
+(a measured output tree is 2 GB - docs/STEP_REPLAY_BENCH.md)."""
+
+LOCK_PATH = ("requirements", "lock", "macos-arm64-py312.txt")
+"""The locked stack the venv footprint is derived from."""
+
+
+def _pinned_packages(lock: Path) -> int:
+    """Distributions a uv lock file pins: top-level `name==version` lines,
+    never `--hash` continuations or `# via` comments."""
+    count = 0
+    for line in lock.read_text(encoding="utf-8").splitlines():
+        if line and not line[0].isspace() and not line.startswith("#") \
+                and "==" in line:
+            count += 1
+    return count
+
+
+def disk_footprint(lock: Path) -> dict:
+    """Ren's footprint in bytes, by component, each traced to its source."""
+    return {
+        "venv": _pinned_packages(lock) * VENV_BYTES_PER_PACKAGE,
+        "engine": ENGINE_BYTES,
+        "models": MODEL_BYTES,
+        "scratch": SCRATCH_BYTES,
+    }
+
+
+def free_bytes(path: Path) -> int:
+    """Free bytes on the disk holding `path` - one statvfs call."""
+    return shutil.disk_usage(path).free
+
+
+def disk_space_verdict(free: int, footprint: dict) -> tuple:
+    """`(ok, detail)` for free bytes against a footprint."""
+    total = sum(footprint.values())
+    if free >= total:
+        return True, f"{gb(free)} free of {gb(total)} Ren needs"
+    return False, f"{gb(free)} free of {gb(total)} Ren needs - short {gb(total - free)}"
+
+
+def disk_space_check() -> Check:
+    """Free disk space against the declared footprint.
+
+    Informational by design: a full disk stops no capability by itself,
+    so this line reports the gap before a download hits it - it never
+    fails the doctor, and `ren setup` is the gate that refuses.
+    """
+    from library.tools import shared_environment
+
+    home = shared_environment.vep_home()
+    lock = _engine_root().joinpath(*LOCK_PATH)
+    ok, detail = disk_space_verdict(free_bytes(home), disk_footprint(lock))
+    return Check("disk space", ok, detail,
+                 "" if ok else "free up disk space, then re-run `ren doctor`",
+                 need="disk.space")
 
 
 def transcription_checks() -> list:
@@ -798,6 +885,7 @@ GROUPS = (
     # (name, the function that checks it, the needs its lines check)
     ("edition", "edition_check", ()),
     ("macOS", "macos_check", ("macos",)),
+    ("disk space", "disk_space_check", ("disk.space",)),
     ("memory", "memory_check", ("hardware.memory",)),
     ("Resolve scripting", "resolve_checks", ("resolve.scripting", "resolve.studio")),
     ("Python 3.12 venv", "python_checks",
