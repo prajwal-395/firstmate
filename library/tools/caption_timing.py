@@ -405,6 +405,89 @@ def apply_pins(segments, pins, fps: float) -> tuple:
                     f"addresses was reworded, re-grouped or re-cut out, "
                     f"so nothing was moved. Original request: "
                     f"{pin['reason']}")})
+    # Re-resolve overlaps the pins created. A pin moves a card whole, and
+    # the move can push the card's end past the next card's start - two
+    # cards covering the same seconds cannot coexist on one V3 track, and
+    # Resolve trims the LATER one's head, which reads downstream as F14
+    # "planned and never placed" beside F7's flash (reel 13, 2026-10-05:
+    # the captain's +7f closer pin drove "the link's in our bio." 4 frames
+    # into the following 'so' card, which Resolve then trimmed to 8 of
+    # its planned 12 frames). The pin is the captain's recorded edit and
+    # it wins: the pinned card never moves or shortens, and the overlap
+    # is resolved by adjusting the UNPINNED neighbour. When the neighbour
+    # is the later card it moves later, preserving its duration (and so
+    # its floor); when it is the earlier card it is trimmed to the later
+    # card's start, and a trim that would drop it under the craft floor
+    # REFUSES rather than placing a flash - naming both cards.
+    if len(out) > 1:
+        pinned = {row.get("segment_id") for row in applied}
+        for _ in range(len(out)):
+            order = sorted(
+                range(len(out)),
+                key=lambda i: (float(out[i]["timeline_start"]),
+                               float(out[i]["timeline_end"])))
+            resolved = False
+            for position in range(len(order) - 1):
+                earlier = out[order[position]]
+                later = out[order[position + 1]]
+                overlap = (float(earlier["timeline_end"])
+                           - float(later["timeline_start"]))
+                if overlap <= SPAN_TOLERANCE_SECONDS:
+                    continue
+                earlier_pinned = earlier.get("segment_id") in pinned
+                later_pinned = later.get("segment_id") in pinned
+                if earlier_pinned and later_pinned:
+                    raise CaptionTimingError(
+                        f"REFUSING to build: caption pins moved "
+                        f"{earlier.get('segment_id', '?')!r} and "
+                        f"{later.get('segment_id', '?')!r} into an "
+                        f"overlap ({overlap:.3f}s) that cannot be "
+                        f"resolved without moving a pinned card - the "
+                        f"pin is the captain's edit and it wins, but two "
+                        f"cards cannot cover the same seconds on one "
+                        f"track")
+                if earlier_pinned:
+                    duration = (float(later["timeline_end"])
+                                - float(later["timeline_start"]))
+                    later["timeline_start"] = float(
+                        earlier["timeline_end"])
+                    later["timeline_end"] = (later["timeline_start"]
+                                             + duration)
+                    print(
+                        f"  Caption timing: "
+                        f"{later.get('segment_id', '?')} moved later to "
+                        f"{earlier.get('segment_id', '?')}'s end - a pin "
+                        f"drove that card {overlap:.3f}s into it, and "
+                        f"the pin wins",
+                        file=sys.stderr, flush=True)
+                else:
+                    earlier["timeline_end"] = float(
+                        later["timeline_start"])
+                    now_start, now_end = span_frames(
+                        earlier["timeline_start"],
+                        earlier["timeline_end"], fps)
+                    if (now_end - now_start) / fps < SHORT_CARD_SECONDS:
+                        raise CaptionTimingError(
+                            f"REFUSING to build: resolving the overlap "
+                            f"between {earlier.get('segment_id', '?')!r} "
+                            f"and {later.get('segment_id', '?')!r} would "
+                            f"trim {earlier.get('segment_id', '?')!r} to "
+                            f"{(now_end - now_start) / fps:.3f}s, under "
+                            f"the {SHORT_CARD_SECONDS}s floor, and the "
+                            f"pinned card must not move - two cards "
+                            f"cannot cover the same seconds on one track")
+                    print(
+                        f"  Caption timing: "
+                        f"{earlier.get('segment_id', '?')} trimmed to "
+                        f"{later.get('segment_id', '?')}'s start - a pin "
+                        f"moved it {overlap:.3f}s into the next card, "
+                        f"and two cards cannot cover the same seconds "
+                        f"on one track",
+                        file=sys.stderr, flush=True)
+                resolved = True
+                break
+            if not resolved:
+                break
     # The caller's list subclass carries the plan entries the caption
     # hash digests; rebuilding a plain list here would drop them
     # silently three functions away from the cause.

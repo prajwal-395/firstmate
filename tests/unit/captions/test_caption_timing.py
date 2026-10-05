@@ -231,6 +231,76 @@ def test_an_unreadable_declaration_refuses(tmp_path):
     assert caption_timing.load_pins(str(tmp_path / "other")) == []
 
 
+# ── A pin that runs into the next card ──────────────────────────────
+#
+# Reel 13, 2026-10-05: the captain's +7f closer pin drove "the link's in
+# our bio." 4 frames into the following 'so' card. Step 4.01's
+# `resolve_caption_overlaps` ran during planning - before the pin - so
+# nothing re-resolved the overlap the pin created, and Resolve trimmed
+# the LATER card's head: 'so' placed 8 of its planned 12 frames, 4 frames
+# off its planned start - F14 "planned and never placed" beside F7's
+# flash, and the reel could not be promoted. The pin is the captain's
+# recorded edit and it wins: the pinned card is never moved or shortened,
+# and the overlap is resolved by adjusting the UNPINNED neighbour.
+
+#: "the link's in our bio." (pinned) and the following 'so' card, as the
+#: rebuild plans them - the pin's +7f move is what closes the 0.11s gap
+#: into a 4-frame overlap.
+_OVERLAP_SEGMENTS = [
+    {"segment_id": "closer",
+     "binding": {"speaker": "akshita", "source_clip_id": "5ae8f521",
+                 "source_start": 500.780, "source_end": 512.759},
+     "timeline_start": 74.362, "timeline_end": 75.242},
+    {"segment_id": "so",
+     "binding": {"speaker": "craig", "source_clip_id": "7b1a6b77",
+                 "source_start": 625.346, "source_end": 625.396},
+     "timeline_start": 75.352, "timeline_end": 75.852},
+]
+
+_OVERLAP_PIN = [{"scope": {"speaker": "akshita",
+                           "source_start_at_or_after": 500.780,
+                           "source_start_before": 512.759},
+                 "offset_frames": 7,
+                 "reason": "captain 2026-09-11: the closer runs 7f early"}]
+
+
+def test_a_pin_running_into_the_next_card_moves_the_unpinned_neighbour():
+    moved, applied, short, stale = caption_timing.apply_pins(
+        [dict(s) for s in _OVERLAP_SEGMENTS], _OVERLAP_PIN, FPS)
+    assert not stale
+    assert len(applied) == 1
+    # The pinned card is untouched by the overlap resolution: the pin's
+    # +7f move stands, start and end.
+    assert _spans(moved)[0] == (1790, 1811)
+    # The unpinned neighbour moved later to the pinned card's end,
+    # preserving its 12f duration - and so its floor. No overlap remains.
+    assert _spans(moved)[1] == (1811, 1823)
+    assert not short
+
+
+def test_a_pin_overlap_the_unpinned_card_cannot_absorb_refuses():
+    """The neighbour is the EARLIER card and the pinned card is the later
+    one: the earlier card must yield, but trimming it to the pinned
+    card's start would drop it under the craft floor. Refuse rather than
+    place a flash - naming both cards (AGENTS.md 10.4)."""
+    segments = [
+        {"segment_id": "runt",
+         "binding": {"speaker": "craig", "source_clip_id": "x",
+                     "source_start": 600.0, "source_end": 600.1},
+         "timeline_start": 74.362, "timeline_end": 74.700},
+        {"segment_id": "closer",
+         "binding": {"speaker": "akshita", "source_clip_id": "y",
+                     "source_start": 500.780, "source_end": 512.759},
+         "timeline_start": 74.208, "timeline_end": 74.708},
+    ]
+    with pytest.raises(caption_timing.CaptionTimingError,
+                       match="runt") as excinfo:
+        caption_timing.apply_pins(segments, _OVERLAP_PIN, FPS)
+    # Both cards are named, and the floor is the reason.
+    assert "closer" in str(excinfo.value)
+    assert "floor" in str(excinfo.value)
+
+
 # ── Rebase: pins follow the words across an ingest retiming ─────────
 #
 # When ingest moves instruments, words sit where the new one heard
