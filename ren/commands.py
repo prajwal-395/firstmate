@@ -41,6 +41,12 @@ _FOOTAGE_QUERY = "library.tools.analysis.footage_query"
 VERBS = (
     Verb("doctor", "Setup", "Check what this Mac can do with Ren (--for <capability>); changes nothing",
          builtin="doctor"),
+    Verb("setup", "Setup", "Install Ren's runtime and system prerequisites; optional verified packs with --with",
+         builtin="setup",
+         detail="Install the Python 3.12 runtime and locked dependencies, Node renderer dependencies, ffmpeg, and the default project folders. Optional model packs: panns, mfa, ecapa, deepfilter. Example: `ren setup --with panns`."),
+    Verb("uninstall", "Setup", "Remove Ren's runtime and cache; customer data is kept",
+         builtin="uninstall",
+         detail="Remove Ren's app runtime and cache after confirmation. Model downloads are kept unless `--models` is passed. Projects, footage, exports, shared assets, and user configuration are never removed."),
     Verb("config", "Setup", "Show where each setting comes from; --init writes a starter file",
          builtin="config"),
     Verb("support-bundle", "Setup", "Collect a redacted support bundle (version, config, doctor, recent errors; never footage)",

@@ -268,7 +268,7 @@ def test_deepfilter_present_absent_or_broken(monkeypatch):
     _stub_deepfilter(monkeypatch, False)
     check = doctor.deepfilternet_check()
     assert not check.ok and "not installed" in check.detail
-    assert "scripts/install_deepfilternet.sh" in check.fix
+    assert "ren setup --with deepfilter" in check.fix
     assert doctor.required_failures([check]) == []
     verdict, _missing, degraded = doctor.capability_report([check])["audio_mix.resolve"]
     assert verdict == machine_needs.DEGRADED and "deepfilter" in degraded

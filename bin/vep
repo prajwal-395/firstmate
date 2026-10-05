@@ -42,6 +42,7 @@ fi
 # script bootstrap that module from a checkout; the resolver itself also
 # handles REN_ENGINE_ROOT and the installed current pointer.
 _VEP_PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+export PYTHONSAFEPATH=1
 if ! REPO_ROOT="$(PYTHONPATH="${_VEP_PACKAGE_ROOT}${PYTHONPATH:+:${PYTHONPATH}}" \
   python3 -c 'import sys
 try:
@@ -55,6 +56,10 @@ except ImportError as exc:
     raise SystemExit(3)')"; then
   exit 3
 fi
+
+# The engine path is explicit before safe-path mode removes the caller's
+# current directory from Python's import search.
+export PYTHONPATH="${REPO_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 
 # The two Resolve variables, exactly as lanes set them (and as
 # `library/tools/paths.py` defaults them). An explicit environment wins:
@@ -74,8 +79,8 @@ if [ -n "${PIPELINE_PYTHON:-}" ] && [ -f "${PIPELINE_PYTHON}" ] \
   PYTHON="${PIPELINE_PYTHON}"
 else
   # The query vehicle may be ANY python3 - answering evaluates only
-  # stdlib path predicates. PYTHONPATH is scoped to this one command so
-  # the exec below inherits nothing extra.
+  # stdlib path predicates. The explicit engine path remains on
+  # PYTHONPATH for this query and the eventual pipeline process.
   REPORT="$(PYTHONPATH="${REPO_ROOT}${PYTHONPATH:+:$PYTHONPATH}" \
     python3 -m library.tools.shared_environment --resolve-interpreter \
     --repo-root "${REPO_ROOT}" 2>/dev/null || true)"

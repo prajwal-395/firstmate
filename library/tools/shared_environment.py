@@ -68,9 +68,10 @@ passed in 39.14s, where the same selection had skipped 10.
 
 What this module does NOT do
 ----------------------------
-It never installs anything.  Reading where the dependencies should be is
-free and side-effect free; putting them there is `scripts/install_node_deps.sh`,
-run deliberately.  See `docs/SHARED_ENVIRONMENT.md`, which is to this what
+It never installs anything. Reading where the dependencies should be is
+free and side-effect free. `ren setup` is the customer install path;
+`scripts/install_node_deps.sh` remains the direct, deliberate installer for
+developer checkouts. See `docs/SHARED_ENVIRONMENT.md`, which is to this what
 `docs/ML_ENVIRONMENT.md` is to the Python ML environment - the same
 shape, for the same reason, and the two are independent: this changes
 nothing about the venv.

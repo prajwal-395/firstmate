@@ -254,7 +254,7 @@ def test_doctor_reports_panns_and_its_absence_never_fails(monkeypatch,
                  if c.name == "model PANNs Cnn14-DLM")
     assert not check.ok and "not downloaded" in check.detail
     assert doctor.required_failures([check]) == []
-    assert "scripts/install_panns.sh" in check.fix
+    assert "ren setup --with panns" in check.fix
 
 
 # --------------------------------------------------------------------------

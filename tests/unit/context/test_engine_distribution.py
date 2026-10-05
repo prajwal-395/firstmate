@@ -368,3 +368,30 @@ def test_version_doctor_and_new_run_with_no_checkout_on_the_path(tmp_path):
     text = yaml_path.read_text(encoding="utf-8")
     assert "ren_version: " in text
     assert __version__ in text
+
+
+def test_installed_engine_wins_when_the_current_directory_is_a_checkout(tmp_path):
+    """An installed build launched from a checkout must keep its build identity.
+
+    The Python -m invocation prepended the current directory ahead of
+    PYTHONPATH, so a nearby checkout package reported channel=dev and ran
+    its source engine even when REN_ENGINE_ROOT named the installed tree.
+    """
+    tree = _build_tree(tmp_path / "engine")
+    box = tmp_path / "box"
+    box.mkdir()
+
+    done = _run_box(["doctor", "--json"], tree, box, REPO_ROOT)
+    assert done.returncode in (0, 1), done.stderr
+    report = json.loads(done.stdout)
+    assert report["ren"]["engine_root"] == str(tree)
+    assert report["ren"]["channel"] == "test"
+    assert report["ren"]["sha"] == "abc123def456"
+
+    done = _run_box(["new", "checkout-proof", "--name", "Checkout Proof",
+                     "--non-interactive"], tree, box, REPO_ROOT)
+    assert done.returncode == 0, done.stderr + done.stdout
+    project = box / "projects" / "checkout-proof" / "project.yaml"
+    assert project.is_file()
+    assert "abc123def456.test.personal.2026-10-04" in project.read_text(
+        encoding="utf-8")

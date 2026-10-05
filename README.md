@@ -11,27 +11,40 @@ live outside it, in the projects root.
 
 ## Requirements
 
-- A Mac (Apple Silicon) with **DaVinci Resolve Studio**. The free edition
-  does not accept external scripts, so Ren cannot drive it. In Resolve:
-  Settings > System > General > External scripting using: **Local**.
-- Python **3.12** (not 3.13 or 3.14 - `requirements.txt` says why).
-- `ffmpeg` and Node.js 18+: `brew install ffmpeg node`.
-- Claude Code, signed in with your Claude account. An API key does not count.
+- Apple Silicon Mac. Ren's installer supplies Python 3.12, Node.js,
+  `ffmpeg`/`ffprobe`, and the locked Python and renderer dependencies.
+- To build/read/render timelines, install **DaVinci Resolve Studio** and
+  set Resolve > Settings > System > General > External scripting using:
+  **Local**. The free edition does not accept external scripts.
+- To have an agent make creative decisions, use a supported chat harness
+  signed in with its subscription account. An API key does not count.
 
 ## Quickstart
 
-**1. Install.** Build the shared Python environment once per machine
-from the lock - the exact stack Ren was measured on
-([docs/ML_ENVIRONMENT.md](docs/ML_ENVIRONMENT.md) has the details) - then
-install `ren` into it from this checkout:
+**1. Install.** Run the installer from Terminal. It downloads the current
+main-branch source archive without cloning the repository, installs
+Homebrew if needed, then installs Ren's runtime and system prerequisites:
 
 ```sh
-uv venv --python 3.12 ~/.local/share/vep/venv-py312
-uv pip sync --python ~/.local/share/vep/venv-py312/bin/python3 requirements/lock/macos-arm64-py312.txt
-uv pip install --python ~/.local/share/vep/venv-py312/bin/python3 -e .
-ln -s ~/.local/share/vep/venv-py312/bin/ren /opt/homebrew/bin/ren   # or add the venv's bin/ to PATH
-scripts/install_node_deps.sh    # the subtitle renderer's Node dependencies
+curl -fsSL https://raw.githubusercontent.com/prajwal-395/video_editing_pilot/main/scripts/install_ren.sh | bash
 ```
+
+The installer may ask macOS to install command-line tools or for an
+administrator password while installing Homebrew. The current installer
+builds from GitHub `main`; signed release installation is not available yet.
+For an installed copy, `ren setup` repairs the runtime and can install
+verified optional capability packs from `docs/DOWNLOAD_INVENTORY.md`:
+
+```sh
+ren setup
+ren setup --with panns       # sound-event weights
+ren setup --with mfa         # pinned forced-alignment models
+ren setup --with ecapa       # pinned speaker encoder
+ren setup --with deepfilter  # pinned dialogue-cleanup binary and weights
+```
+
+These packs are opt-in. The floating, non-commercial `buffalo_l` pack is
+not offered by `ren setup`.
 
 **2. Configure.** Machine paths live in one per-user file,
 `~/.config/ren/config.env` - where projects go, where your sound-effect and
@@ -63,6 +76,12 @@ ren doctor --for footage.search
 ren init                              # create the projects root
 ren new my-vlog --name "My Vlog"      # then copy the footage into its raw/
 ```
+
+`ren uninstall` removes Ren's runtime and cache after confirmation. It keeps
+model downloads by default; `ren uninstall --models` includes them. Projects,
+footage, exports, shared asset libraries and `~/.config/ren` are always kept.
+See [docs/INSTALLING_REN.md](docs/INSTALLING_REN.md) for the owned paths and
+recovery details.
 
 ## Working with Ren
 

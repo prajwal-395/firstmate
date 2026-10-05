@@ -249,10 +249,10 @@ def python_checks() -> list:
     from library.tools.dependency_groups import RUNTIME_GROUPS
     python_label = f"Python {PYTHON_VERSION[0]}.{PYTHON_VERSION[1]} venv"
     interpreter, why_not = resolve_interpreter()
-    ml_doc = "docs/ML_ENVIRONMENT.md"
+    setup_command = "ren setup"
     if not interpreter:
         return [Check(python_label, False, why_not.splitlines()[0],
-                      f"build the venv once per machine: {ml_doc}",
+                      f"run {setup_command}",
                       need="python.venv")]
     try:
         done = subprocess.run(
@@ -262,14 +262,14 @@ def python_checks() -> list:
     except (OSError, subprocess.SubprocessError, ValueError, IndexError) as exc:
         return [Check(python_label, False,
                       f"{interpreter} could not be asked about itself ({exc})",
-                      f"rebuild the venv: {ml_doc}", need="python.venv")]
+                      f"run {setup_command} to repair it", need="python.venv")]
     version = tuple(report["version"])
     shown = ".".join(str(part) for part in version)
     checks = [Check(
         python_label, version[:2] == PYTHON_VERSION,
         f"{interpreter} is Python {shown}",
         "" if version[:2] == PYTHON_VERSION
-        else f"rebuild the venv for {REQUIRES_PYTHON}: {ml_doc}",
+        else f"run {setup_command} to repair it for {REQUIRES_PYTHON}",
         need="python.venv")]
 
     for group in RUNTIME_GROUPS:
@@ -286,7 +286,7 @@ def python_checks() -> list:
         elif problems:
             checks.append(Check(name, False,
                                 f"{len(problems)} not satisfied: " + "; ".join(problems),
-                                f"{interpreter} -m pip install -r {source}", need=need))
+                                f"run ren setup to install {source}", need=need))
         else:
             usable = ("; cv2 face detector usable"
                       if group == FACE_DETECTOR_GROUP else "")
@@ -301,7 +301,7 @@ def ffmpeg_check() -> Check:
     absent = [tool for tool, where in found.items() if not where]
     if absent:
         return Check("ffmpeg", False, f"not on PATH: {', '.join(absent)}",
-                     "brew install ffmpeg", need="ffmpeg")
+                     "ren setup", need="ffmpeg")
     return Check("ffmpeg", True, f"{found['ffmpeg']}, {found['ffprobe']}",
                  need="ffmpeg")
 
@@ -312,7 +312,7 @@ def node_checks() -> list:
     public = current_edition() == PUBLIC
     node = shutil.which("node")
     if not node:
-        checks = [Check("Node.js", False, "node is not on PATH", "brew install node",
+        checks = [Check("Node.js", False, "node is not on PATH", "ren setup",
                         need="node")]
         if public:
             checks.append(Check("HyperFrames renderer", False,
@@ -320,7 +320,7 @@ def node_checks() -> list:
                                 need="remotion"))
         else:
             checks.append(Check("Remotion deps", False, "needs Node.js first",
-                                "brew install node", need="remotion"))
+                                "ren setup", need="remotion"))
         return checks
     try:
         version = subprocess.run([node, "--version"], capture_output=True,
@@ -330,7 +330,7 @@ def node_checks() -> list:
         version, major = "unreadable", 0
     checks = [Check("Node.js", major >= MIN_NODE_MAJOR, f"{node} {version}",
                     "" if major >= MIN_NODE_MAJOR
-                    else f"install Node {MIN_NODE_MAJOR}+: brew install node",
+                    else f"run ren setup to install Node {MIN_NODE_MAJOR}+",
                     need="node")]
 
     if public:
@@ -354,7 +354,7 @@ def node_checks() -> list:
         else:
             checks.append(Check("Remotion deps", False,
                                 f"no node_modules bound at {remotion}",
-                                f"bash {shared_environment.INSTALL_SCRIPT}",
+                                "ren setup",
                                 need="remotion"))
     return checks
 
@@ -410,7 +410,7 @@ def graphics_engine_checks() -> list:
         "the default engine (selected when nothing else is)"
         if remotion_ok else "the default engine is not installed",
         "" if remotion_ok else
-        f"bash {shared_environment.INSTALL_SCRIPT}", need="remotion"))
+        "ren setup", need="remotion"))
     try:
         usable, detail = hf.hyperframes_available()
     except Exception as exc:  # noqa: BLE001 - doctor must finish
@@ -544,10 +544,10 @@ def model_checks() -> list:
         if panns_ok else
         "not downloaded - clips record unmeasured sound events and "
         "event anchors refuse by name "
-        f"(bash {shared_environment.PANNS_INSTALL_SCRIPT} adds it, "
-        f"~327 MB)",
+        "(ren setup --with panns adds it, "
+        "~327 MB)",
         "" if panns_ok else
-        f"bash {shared_environment.PANNS_INSTALL_SCRIPT}",
+        "ren setup --with panns",
         need="model.panns"))
     return checks
 
@@ -565,7 +565,7 @@ def transcription_checks() -> list:
     mfa_ok, mfa_detail = shared_environment.mfa_available()
     checks.append(Check(
         "MFA aligner", mfa_ok, mfa_detail,
-        f"bash {shared_environment.MFA_INSTALL_SCRIPT}" if not mfa_ok else "",
+        "ren setup --with mfa" if not mfa_ok else "",
         need="model.mfa"))
     return checks
 
@@ -584,13 +584,12 @@ def deepfilternet_check() -> Check:
     """
     from library.tools import shared_environment
     usable, _ = shared_environment.deepfilter_available()
-    script = shared_environment.DEEPFILTER_INSTALL_SCRIPT
     if not usable:
         return Check(
             "dialogue cleanup DeepFilter", False,
             "not installed - a deepfilternet request refuses by name and "
             "the model re-plans with voice_isolation",
-            f"bash {script} adds it", need="deepfilter")
+            "ren setup --with deepfilter", need="deepfilter")
     binary = str(shared_environment.deepfilter_binary())
     try:
         done = subprocess.run([binary, "--version"], capture_output=True,
@@ -603,7 +602,7 @@ def deepfilternet_check() -> Check:
     if not version:
         return Check("dialogue cleanup DeepFilter", False,
                      f"{binary} is installed but would not run",
-                     f"re-run bash {script}", need="deepfilter")
+                     "run ren setup --with deepfilter", need="deepfilter")
     return Check("dialogue cleanup DeepFilter", True,
                  f"{version} at {binary}", need="deepfilter")
 

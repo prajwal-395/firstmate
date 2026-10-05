@@ -18,4 +18,8 @@ fi
 
 export REN_ENGINE_ROOT="${REN_ENGINE_ROOT:-${ENGINE_ROOT}}"
 export PYTHONPATH="${ENGINE_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
+# The current directory must not shadow this installed engine with a
+# checkout package. Python 3.12 honors PYTHONSAFEPATH before resolving
+# ren.cli; the engine itself is already on PYTHONPATH.
+export PYTHONSAFEPATH=1
 exec "${PYTHON}" -m ren.cli "$@"
