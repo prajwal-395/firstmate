@@ -252,7 +252,8 @@ def _overlay_segments(assembly_manifest: dict):
                 continue
             segments.append(OverlaySegment(
                 str(path), float(start), float(end),
-                float(seg.get("source_in_frame") or 0.0) / fps))
+                float(seg.get("source_in_frame") or 0.0) / fps,
+                kind=key))
     return segments
 
 

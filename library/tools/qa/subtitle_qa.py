@@ -278,7 +278,25 @@ def run_subtitle_qa(mov_path: str, project_folder: str = None,
         "reason": "caption geometry checks passed",
         "sampled_at": [round(t, 3) for t in timestamps],
         "vision_observation": observation,
+        "legibility_observation": _legibility_observation(mov_path, canvas),
     }
+
+
+def _legibility_observation(mov_path: str, canvas: dict = None) -> dict:
+    """The caption's delivered ink height against the legibility floor.
+
+    REPORTED, never enforced: whether an illegible caption blocks
+    delivery is a pending captain call (`render_qa.CAPTION_QUALITY_GATES`),
+    the same ruling the per-reel check carries.  Shared with that check
+    through `render_qa.caption_legibility_observation`, so a caption is
+    judged by the same number at render time (here) and at validation
+    time (step 6.02).
+    """
+    try:
+        from library.tools.render_qa import caption_legibility_observation
+        return caption_legibility_observation(mov_path, canvas=canvas)
+    except Exception as e:  # noqa: BLE001 - an observation never fails the QA
+        return {"error": f"legibility unavailable: {e}"}
 
 
 def _vision_observation(frame_paths: list, harness: str = None,

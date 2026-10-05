@@ -104,6 +104,9 @@ Promoting either is ONE boolean (`CHROMA_PRESENCE_GATES`, `SPEECH_ABOVE_BED_GATE
 `SPEECH_ABOVE_BED_GATES` stays False: `background` means clip gain while the check reads it as SEPARATION.
 Do not flip the boolean without changing one of the two. [why](docs/RULE_EVIDENCE.md#the-mix-target-is-not-a-separation)
 
+**Caption quality (gap E4) reports two numbers and passes, and promoting them is one boolean.**
+`measure_caption_legibility` reads each subtitle overlay's own alpha and judges the smallest card's delivered ink height against a fraction of the frame; `measure_caption_obscuring` intersects each caption's delivered box against the faces `measure_face_intact`'s Haar path detects over its span. Both run only on `subtitle_overlay` segments, and both REPORT unless `CAPTION_QUALITY_GATES` is True - whether an illegible or obscuring caption blocks delivery is a pending captain call, the same ruling P2 and P3 carry. [why](docs/RULE_EVIDENCE.md#baseline-craft-properties)
+
 **The bed is fitted at the SECTION that plays, and the offset is a REQUIRED argument.**
 `measure_speech_above_bed` takes `music_offset_seconds` positionally with no default; `run_full_render_qa` declines P3 when it is None. [why](docs/RULE_EVIDENCE.md#the-bed-was-fitted-from-the-wrong-second)
 """
@@ -797,6 +800,43 @@ SILENT_WINDOW_MARGIN_DB = 30.0
 SPEECH_BEARING_BLOCK_TYPES = ("speech", "hook")
 
 
+# ── Caption quality (gap E4): legibility + obscuring ──
+#
+# The captain's bar for captions is "legible, natural, grouped, not
+# obscuring".  `subtitle_qa` proves a caption is inside the frame and
+# in the lower half; these two measure what the viewer actually gets -
+# whether the type is tall enough to read at the delivered resolution,
+# and whether the card covers the speaker's face.  Both are
+# deterministic and free: the first reads the overlay's own alpha, the
+# second reuses the Haar path `measure_face_intact` already runs.
+#
+# REPORT-ONLY, the same ruling P2 (chroma) and P3 (mix separation)
+# carry: whether a caption that fails either check blocks delivery is a
+# pending captain call.  `CAPTION_QUALITY_GATES` is the whole of what
+# promoting them costs - until it is True each reports its number and
+# passes, and `qa_findings` reads a passed-but-warning result as
+# ADVISORY rather than dropping it.
+CAPTION_QUALITY_GATES = False
+
+# Caption ink shorter than this fraction of the frame's height is too
+# small to read at the delivered resolution.  2% of a 1920px vertical
+# master is 38px.  The smallest caption any shipped style declares
+# (`subtitle_style`'s `minimal`, a 120px font at 1080x1920) inks at
+# ~100px for one line - 5.2% - so the floor sits under every legitimate
+# caption with margin, and ~8x above the 10px defect this check exists
+# to catch.  Judged on the SMALLEST card in a segment (the per-frame
+# minimum ink height), which for same-font cards is the one-line height
+# and so tracks the font size rather than the line count.
+CAPTION_MIN_HEIGHT_FRACTION = 0.02
+
+# How close a face box must come to a caption box before the caption is
+# called obscuring.  Zero would fire on a cascade box that merely
+# touches the caption's corner; a small tolerance absorbs the cascade's
+# own placement error (the same reason `measure_face_intact` carries
+# `FACE_EDGE_TOLERANCE_PX`).
+OBSCURING_FACE_TOLERANCE_PX = 8
+
+
 def _probe_video_size(video_path: str) -> Optional[tuple]:
     """(width, height) of the first video stream, or None."""
     cmd = ['ffprobe', '-v', 'quiet', '-select_streams', 'v:0',
@@ -977,6 +1017,15 @@ class OverlaySegment(NamedTuple):
     start: float
     end: float
     source_in: float = 0.0
+    kind: str = ""
+    """Which manifest overlay track this segment came from.
+
+    The caption-quality checks judge CAPTIONS, so they run only on
+    `subtitle_overlay` segments - a motion-graphic or timed-text overlay
+    is not a caption and measuring its "legibility" would be measuring
+    the wrong thing. Empty means the caller did not say, and such a
+    segment is left to the occupancy check alone.
+    """
 
 
 def _overlay_ink_frames(segment: "OverlaySegment", sample_fps: float,
@@ -1733,6 +1782,415 @@ def measure_face_intact(
     except Exception as e:
         return RenderQAResult("face_intact", False, str(e), None,
                               "error", f"Error measuring face crop: {e}")
+
+
+# ── Caption quality (gap E4): the two render-side checks ─────────────
+#
+# Both judge the subtitle overlays the manifest places over the
+# picture.  A caption is rendered as a TIGHT canvas - the card's own
+# box, smaller than the frame - and placed onto the timeline at a
+# recorded position, so where its ink lands in the DELIVERED frame is a
+# property of the placement, not of the file.  The box sidecar step
+# 4.05 writes beside each tight overlay records that position as
+# `union`, the canvas rect in full-frame pixels; a segment with no
+# sidecar is full-canvas, where the file IS the frame.
+
+
+def _probe_overlay_ink(overlay_path: str):
+    """Ink geometry of one caption overlay, in its own canvas pixels.
+
+    Returns dict(canvas=(w, h), ink=(l, t, r, b), min_frame_ink_height,
+    frames=n) or None when the overlay cannot be decoded.  `ink` is the
+    union over every frame; `min_frame_ink_height` is the smallest
+    single-frame ink height, which for same-font cards is the one-line
+    height and so tracks the font size rather than the line count.
+    """
+    if not overlay_path or not os.path.exists(overlay_path):
+        return None
+    try:
+        if os.path.isdir(overlay_path):
+            return _probe_overlay_ink_frames(overlay_path)
+        return _probe_overlay_ink_video(overlay_path)
+    except Exception:  # noqa: BLE001 - an unreadable overlay reports, never raises
+        return None
+
+
+def _probe_overlay_ink_video(overlay_path: str):
+    import numpy as np
+
+    size = _probe_video_size(overlay_path)
+    if not size:
+        return None
+    canvas_w, canvas_h = size
+    result = subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", overlay_path,
+         "-pix_fmt", "rgba", "-f", "rawvideo", "-"],
+        capture_output=True, timeout=600, check=False)
+    if result.returncode != 0 or not result.stdout:
+        return None
+    raw = result.stdout
+    frame_bytes = canvas_w * canvas_h * 4
+    if frame_bytes == 0 or len(raw) % frame_bytes != 0:
+        return None
+    count = len(raw) // frame_bytes
+    if count == 0:
+        return None
+    union_l, union_t, union_r, union_b = canvas_w, canvas_h, -1, -1
+    min_height = None
+    for index in range(count):
+        plane = np.frombuffer(
+            raw[index * frame_bytes:(index + 1) * frame_bytes],
+            dtype=np.uint8).reshape(canvas_h, canvas_w, 4)[:, :, 3]
+        ink = plane >= OVERLAY_INK_ALPHA
+        if not bool(ink.any()):
+            continue
+        ys, xs = np.where(ink)
+        top, bottom = int(ys.min()), int(ys.max())
+        left, right = int(xs.min()), int(xs.max())
+        union_l, union_t = min(union_l, left), min(union_t, top)
+        union_r, union_b = max(union_r, right), max(union_b, bottom)
+        height = bottom - top + 1
+        min_height = height if min_height is None else min(min_height, height)
+    if union_r < 0:
+        return None
+    return {
+        "canvas": (canvas_w, canvas_h),
+        "ink": (union_l, union_t, union_r, union_b),
+        "min_frame_ink_height": min_height,
+        "frames": count,
+    }
+
+
+def _probe_overlay_ink_frames(overlay_path: str):
+    from PIL import Image
+
+    names = sorted(n for n in os.listdir(overlay_path) if n.endswith(".png"))
+    if not names:
+        return None
+    canvas_w = canvas_h = None
+    union_l, union_t, union_r, union_b = None, None, -1, -1
+    min_height = None
+    for name in names:
+        with Image.open(os.path.join(overlay_path, name)) as im:
+            if canvas_w is None:
+                canvas_w, canvas_h = im.size
+            bbox = im.convert("RGBA").getchannel("A").getbbox()
+        if bbox is None:
+            continue
+        left, top, right, bottom = bbox
+        if union_l is None:
+            union_l, union_t = left, top
+        union_l, union_t = min(union_l, left), min(union_t, top)
+        union_r, union_b = max(union_r, right), max(union_b, bottom)
+        height = bottom - top
+        min_height = height if min_height is None else min(min_height, height)
+    if union_r < 0 or canvas_w is None:
+        return None
+    return {
+        "canvas": (canvas_w, canvas_h),
+        "ink": (union_l, union_t, union_r, union_b),
+        "min_frame_ink_height": min_height,
+        "frames": len(names),
+    }
+
+
+def _subtitle_canvas_rect(overlay_path: str, canvas_w: int,
+                         canvas_h: int) -> tuple:
+    """(x0, y0, x1, y1) of the overlay's canvas in delivered-frame pixels.
+
+    From the box sidecar step 4.05 writes beside a tight overlay.  A
+    segment with no sidecar is full-canvas - the file IS the frame - so
+    its canvas rect is the whole file.
+    """
+    sidecar = os.path.splitext(overlay_path)[0] + "_box.json"
+    try:
+        with open(sidecar, encoding="utf-8") as handle:
+            union = (json.load(handle) or {}).get("union") or {}
+        x0, y0 = float(union.get("x0", 0)), float(union.get("y0", 0))
+        x1, y1 = float(union.get("x1", 0)), float(union.get("y1", 0))
+        if x1 > x0 and y1 > y0:
+            return (x0, y0, x1, y1)
+    except (OSError, ValueError, TypeError):
+        pass
+    return (0.0, 0.0, float(canvas_w), float(canvas_h))
+
+
+def _delivered_ink_box(ink: tuple, canvas: tuple, rect: tuple) -> tuple:
+    """Map a canvas-pixel ink box through the canvas rect (frame pixels).
+
+    The canvas is placed at `rect` in the delivered frame, so a point in
+    the file maps by the rect's own scale - which is 1 for every
+    placement `tight_box` computes (`placement_for_box` pins scaling at
+    1) but is read off the rect rather than assumed.
+    """
+    left, top, right, bottom = ink
+    canvas_w, canvas_h = canvas
+    x0, y0, x1, y1 = rect
+    sx = (x1 - x0) / float(canvas_w) if canvas_w else 1.0
+    sy = (y1 - y0) / float(canvas_h) if canvas_h else 1.0
+    return (x0 + left * sx, y0 + top * sy,
+            x0 + right * sx, y0 + bottom * sy)
+
+
+def _subtitle_overlay_segments(overlay_segments) -> list:
+    """The overlay segments that are captions, in timeline order."""
+    if not overlay_segments:
+        return []
+    return sorted(
+        (s for s in overlay_segments
+         if getattr(s, "kind", "") == "subtitle_overlay"),
+        key=lambda s: (s.start, s.end))
+
+
+def caption_legibility_observation(overlay_path: str, canvas: dict = None,
+                                   frame_h: float = None) -> dict:
+    """Report-only legibility measurement for ONE caption segment.
+
+    Shared by the per-reel check (`measure_caption_legibility`) and
+    `subtitle_qa`'s per-segment QA, so both judge a caption by the same
+    number.  `canvas` is a tight segment's placement record
+    (`{origin, frame, width, height}`) or None; when None the box
+    sidecar beside the overlay is read, and when that is absent too the
+    segment is full-canvas and the file IS the frame.  `frame_h`
+    overrides the delivered frame's height.
+
+    Returns a dict with the measured heights and whether the caption
+    clears the floor, or None when the overlay cannot be decoded.
+    """
+    probe = _probe_overlay_ink(overlay_path)
+    if probe is None:
+        return None
+    canvas_size = probe["canvas"]
+    rect = None
+    if canvas and canvas.get("origin") and canvas.get("width") and canvas.get("height"):
+        ox, oy = canvas["origin"]
+        rect = (float(ox), float(oy),
+                float(ox) + float(canvas["width"]),
+                float(oy) + float(canvas["height"]))
+        if frame_h is None and canvas.get("frame"):
+            frame_h = float(canvas["frame"][1])
+    if rect is None:
+        rect = _subtitle_canvas_rect(overlay_path, canvas_size[0], canvas_size[1])
+    if frame_h is None:
+        frame_h = float(canvas_size[1])
+    box = _delivered_ink_box(probe["ink"], canvas_size, rect)
+    min_canvas = probe["min_frame_ink_height"] or 0
+    scale_y = ((rect[3] - rect[1]) / float(canvas_size[1])
+               if canvas_size[1] else 1.0)
+    min_delivered = min_canvas * scale_y
+    floor = frame_h * CAPTION_MIN_HEIGHT_FRACTION
+    return {
+        "delivered_ink_height": round(box[3] - box[1], 1),
+        "smallest_card_height": round(min_delivered, 1),
+        "floor": round(floor, 1),
+        "legible": min_delivered >= floor,
+    }
+
+
+def measure_caption_legibility(
+        video_path: str,
+        overlay_segments: Optional[Sequence["OverlaySegment"]] = None,
+        gate: bool = CAPTION_QUALITY_GATES) -> RenderQAResult:
+    """Is each caption tall enough to read at the delivered resolution?
+
+    Per subtitle segment, the smallest card's ink height is measured in
+    delivered-frame pixels and judged against `CAPTION_MIN_HEIGHT_FRACTION`
+    of the frame's height.  A caption below the floor is too small to
+    read on a phone - the defect `render_watch`'s `text_size` question
+    asks a VLM about and `perceptual_qa.text_legible` is not yet
+    calibrated to catch.
+
+    **This reports and does not fail** unless `CAPTION_QUALITY_GATES` is
+    True - whether an illegible caption blocks delivery is a pending
+    captain call, the same ruling P2 and P3 carry.
+    """
+    segments = _subtitle_overlay_segments(overlay_segments)
+    if not segments:
+        return RenderQAResult(
+            "caption_legibility", True, {"segments": 0}, None, "info",
+            "No subtitle overlay segments were declared - caption "
+            "legibility was not measured")
+
+    try:
+        size = _probe_video_size(video_path)
+        if not size:
+            return RenderQAResult(
+                "caption_legibility", True, None, None, "warning",
+                "No video stream found - caption legibility not measured")
+        frame_h = size[1]
+        floor = frame_h * CAPTION_MIN_HEIGHT_FRACTION
+
+        measured = []
+        illegible = []
+        for seg in segments:
+            row = caption_legibility_observation(seg.path, frame_h=frame_h)
+            if row is None:
+                illegible.append({"segment": os.path.basename(seg.path),
+                                  "reason": "overlay could not be decoded"})
+                continue
+            row = dict(row)
+            row["segment"] = os.path.basename(seg.path)
+            row["at_seconds"] = [round(seg.start, 2), round(seg.end, 2)]
+            measured.append(row)
+            if not row["legible"]:
+                illegible.append(row)
+
+        value = {
+            "segments": len(segments),
+            "floor": round(floor, 1),
+            "min_height_fraction": CAPTION_MIN_HEIGHT_FRACTION,
+            "measured": measured,
+            "illegible": illegible,
+        }
+        detail = (f"{len(illegible)} of {len(segments)} caption segment(s) "
+                  f"ink under {floor:.0f}px ({CAPTION_MIN_HEIGHT_FRACTION:.0%} "
+                  f"of the {frame_h}px frame)")
+        if illegible and not gate:
+            detail += " - REPORTED ONLY; see CAPTION_QUALITY_GATES"
+        failed = bool(illegible) and gate
+        return RenderQAResult(
+            "caption_legibility",
+            passed=not failed,
+            value=value,
+            threshold={"min_height_fraction": CAPTION_MIN_HEIGHT_FRACTION,
+                       "floor_px": round(floor, 1), "gates": gate},
+            severity=("error" if gate else "warning") if illegible else "info",
+            detail=detail,
+        )
+    except Exception as e:
+        return RenderQAResult("caption_legibility", True, str(e), None,
+                              "warning", f"Error measuring caption legibility: {e}")
+
+
+def _faces_in_span(video_path: str, start: float, end: float,
+                   sample_fps: float) -> list:
+    """Subject face boxes the render detects over one span, in frame pixels.
+
+    Reuses `measure_face_intact`'s Haar path - the same cascade, the
+    same `detectMultiScale` parameters, the same `MIN_SUBJECT_FACE_AREA`
+    floor - so a face the crop gate would judge is a face this check
+    judges.  Boxes are returned in delivered-frame pixels.
+    """
+    import numpy as np
+
+    cascade = load_face_cascade()
+    if cascade is None:
+        return []
+    size = _probe_video_size(video_path)
+    if not size:
+        return []
+    width, height = size
+    sample_w, sample_h = _master_face_sample_size(width, height)
+    frame_area = float(sample_w * sample_h)
+    boxes = []
+    duration = max(0.0, end - start)
+    for index, frame in enumerate(_stream_raw_frames(
+            video_path, 'gray', 1, sample_w, sample_h, sample_fps,
+            scaled=True, start_seconds=start, duration_seconds=duration)):
+        gray = np.ascontiguousarray(frame[0])
+        detected = [b for b in cascade.detectMultiScale(
+            gray, scaleFactor=1.1, minNeighbors=3, minSize=(20, 20))
+            if (b[2] * b[3]) / frame_area >= MIN_SUBJECT_FACE_AREA]
+        if not detected:
+            continue
+        x, y, fw, fh = max(detected, key=lambda b: b[2] * b[3])
+        boxes.append({
+            "at_seconds": round(start + index / sample_fps, 2),
+            "box": [round(float(x) * width / sample_w, 1),
+                    round(float(y) * height / sample_h, 1),
+                    round(float(x + fw) * width / sample_w, 1),
+                    round(float(y + fh) * height / sample_h, 1)],
+        })
+    return boxes
+
+
+def _boxes_intersect(a: tuple, b: tuple, tolerance: float) -> bool:
+    """Whether two (l, t, r, b) boxes overlap, within `tolerance` pixels."""
+    return (a[0] < b[2] + tolerance and a[2] > b[0] - tolerance
+            and a[1] < b[3] + tolerance and a[3] > b[1] - tolerance)
+
+
+def measure_caption_obscuring(
+        video_path: str,
+        overlay_segments: Optional[Sequence["OverlaySegment"]] = None,
+        gate: bool = CAPTION_QUALITY_GATES) -> RenderQAResult:
+    """Does any caption cover the subject's face in the delivered frame?
+
+    Per subtitle segment, the caption's delivered ink box is intersected
+    against the face boxes the render detects over the segment's span.
+    A caption that overlaps a face is the captain's "not obscuring"
+    bar, which no check measures today: `subtitle_qa` proves the card is
+    inside the frame, and the safe-area insets are platform UI zones,
+    not subject-aware.
+
+    **This reports and does not fail** unless `CAPTION_QUALITY_GATES` is
+    True - whether an obscuring caption blocks delivery is a pending
+    captain call, the same ruling P2 and P3 carry.
+    """
+    segments = _subtitle_overlay_segments(overlay_segments)
+    if not segments:
+        return RenderQAResult(
+            "caption_obscuring", True, {"segments": 0}, None, "info",
+            "No subtitle overlay segments were declared - caption "
+            "obscuring was not measured")
+
+    try:
+        size = _probe_video_size(video_path)
+        if not size:
+            return RenderQAResult(
+                "caption_obscuring", True, None, None, "warning",
+                "No video stream found - caption obscuring not measured")
+        frame_h = size[1]
+
+        measured = []
+        obscuring = []
+        for seg in segments:
+            probe = _probe_overlay_ink(seg.path)
+            if probe is None:
+                obscuring.append({"segment": os.path.basename(seg.path),
+                                  "reason": "overlay could not be decoded"})
+                continue
+            canvas = probe["canvas"]
+            rect = _subtitle_canvas_rect(seg.path, canvas[0], canvas[1])
+            box = _delivered_ink_box(probe["ink"], canvas, rect)
+            faces = _faces_in_span(video_path, seg.start, seg.end,
+                                   DEFAULT_SAMPLE_FPS)
+            hits = [f for f in faces if _boxes_intersect(
+                box, f["box"], OBSCURING_FACE_TOLERANCE_PX)]
+            row = {
+                "segment": os.path.basename(seg.path),
+                "at_seconds": [round(seg.start, 2), round(seg.end, 2)],
+                "caption_box": [round(v, 1) for v in box],
+                "faces": len(faces),
+                "overlapping_faces": len(hits),
+            }
+            measured.append(row)
+            if hits:
+                obscuring.append(row)
+
+        value = {
+            "segments": len(segments),
+            "tolerance_px": OBSCURING_FACE_TOLERANCE_PX,
+            "measured": measured,
+            "obscuring": obscuring,
+        }
+        detail = (f"{len(obscuring)} of {len(segments)} caption segment(s) "
+                  f"overlap a detected face")
+        if obscuring and not gate:
+            detail += " - REPORTED ONLY; see CAPTION_QUALITY_GATES"
+        failed = bool(obscuring) and gate
+        return RenderQAResult(
+            "caption_obscuring",
+            passed=not failed,
+            value=value,
+            threshold={"tolerance_px": OBSCURING_FACE_TOLERANCE_PX,
+                       "gates": gate},
+            severity=("error" if gate else "warning") if obscuring else "info",
+            detail=detail,
+        )
+    except Exception as e:
+        return RenderQAResult("caption_obscuring", True, str(e), None,
+                              "warning", f"Error measuring caption obscuring: {e}")
 
 
 # ── The punch-in face preservation check ──
@@ -3125,11 +3583,11 @@ def run_full_render_qa(video_path: str, expected_duration: float = None,
                        spine_blocks: Optional[Sequence[dict]] = None,
                        overlay_segments: Optional[Sequence["OverlaySegment"]] = None,
                        grade_spans: Optional[Sequence["GradeSpan"]] = None,
-                        true_peak_ceiling: float = DEFAULT_TRUE_PEAK_CEILING_DBTP,
-                        declared_ending_black_spans: Optional[List] = None,
-                        declared_silence_spans: Optional[List] = None,
-                        punch_in_windows: Optional[Sequence["PunchInWindow"]] = None
-                        ) -> List[RenderQAResult]:
+                       true_peak_ceiling: float = DEFAULT_TRUE_PEAK_CEILING_DBTP,
+                       declared_ending_black_spans: Optional[List] = None,
+                       declared_silence_spans: Optional[List] = None,
+                       punch_in_windows: Optional[Sequence["PunchInWindow"]] = None
+                       ) -> List[RenderQAResult]:
     """Run every render QA check.
 
     `declared_black_beats` carries the black beats the plan declared, as
@@ -3172,6 +3630,8 @@ def run_full_render_qa(video_path: str, expected_duration: float = None,
     the picture, so P1 can mask the pixels they drew instead of guessing
     at where an overlay sits.  Passing None says nothing was established
     about them, and P1 reports that rather than treating it as none.
+    Only the `subtitle_overlay` ones are captions; the caption-quality
+    checks below run on those alone.
 
     `grade_spans` are the per-clip grades the manifest carries, so P11
     (`measure_grade_delivery`) can judge each graded span's exported
@@ -3182,10 +3642,8 @@ def run_full_render_qa(video_path: str, expected_duration: float = None,
 
     `punch_in_windows` are the timeline spans where a punch-in was
     applied, so `measure_punch_in_face` can judge the rendered pixels at
-    each window - whether the zoom kept the subject's face inside the
-    frame.  None says nobody established the windows, which is reported
-    and is not the same claim as `[]` (declared: no punch-in windows).
-    The check reports and does not gate (`PUNCH_IN_FACE_GATES`).
+    the zoom itself rather than over the whole file.  None means nobody
+    established the windows, which is reported rather than guessed at.
     """
     results = []
 
@@ -3240,6 +3698,16 @@ def run_full_render_qa(video_path: str, expected_duration: float = None,
 
     if grade_spans is not None:
         results.append(measure_grade_delivery(video_path, grade_spans))
+
+    # Caption quality (gap E4): legibility and obscuring.  Both run only
+    # on the subtitle overlays the manifest declares, and both REPORT
+    # unless CAPTION_QUALITY_GATES is promoted - see the two functions.
+    caption_segments = _subtitle_overlay_segments(overlay_segments)
+    if caption_segments:
+        results.append(measure_caption_legibility(
+            video_path, overlay_segments))
+        results.append(measure_caption_obscuring(
+            video_path, overlay_segments))
 
     return results
 

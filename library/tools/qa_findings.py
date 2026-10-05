@@ -22,8 +22,8 @@ check's own verdict; `severity` is how loud that verdict is.  A finding
 whose check did not pass is FAILING at its declared severity.  A finding
 that passed while carrying a non-`info` severity is ADVISORY if and only
 if it is one of the declared `REPORT_ONLY_METRICS` - the checks that
-report `passed=True` whatever they measured and deliberately do not gate.
-Everything else is CLEAN and counted rather than printed.
+measure a number, miss a target and deliberately do not gate.  Everything
+else is CLEAN and counted rather than printed.
 
 **Nothing here blocks a run.**  Reading is not gating.  Step 6.02 already
 decides what fails; promoting a report-only check is one boolean in
@@ -58,7 +58,7 @@ A declared letterbox is exempt from the fill floor and never from the consistenc
 One enumeration, `library/tools/qa_findings.py`. [why](docs/RULE_EVIDENCE.md#the-qa-report-had-no-reader)
 - **Two readers, one module.** The run summary prints them at the end of every run, and step 3.03 `review_rough_cut` is handed them as `render_qa_findings`. Both go through `read_qa_report`, so neither can develop a private opinion about which findings matter.
 - **Reading is not gating.** The summary block runs AFTER `status` is decided and assigns nothing; promoting a report-only check is still one boolean in `render_qa`. The test pins that ordering off the runner's own source.
-- **`passed` is the verdict; `severity` is how loud it is.** A check that did not pass is FAILING at its declared severity. One that passed while carrying a non-`info` severity is ADVISORY **if and only if** its metric is in `REPORT_ONLY_METRICS`, the checks whose gate boolean is False. Advisory is read off that enumeration and never off severity alone, and a check's severity moves with its verdict.
+- **`passed` is the verdict; `severity` is how loud it is.** A check that did not pass is FAILING at its declared severity. One that passed while carrying a non-`info` severity is ADVISORY **if and only if** its metric is in `REPORT_ONLY_METRICS`, the two whose gate boolean is False. Advisory is read off that enumeration and never off severity alone, and a check's severity moves with its verdict.
 - **A metric with no row in `FINDING_READERS` is named first and loudest** - in the summary and in what 3.03 receives - and fails the test, which harvests the metric names out of every producer and checks BOTH directions.
 - **No DAG edge carries the findings to 3.03 and none can**: `validate` is the final node and 3.03 is in phase 3, so an edge would be a back edge. They travel by name in `gather_step_inputs`, only to a step whose manifest DECLARES them, and they describe the LAST render - `load_findings` asks state first and the file second and RECORDS which answered. **Step 3.03's own `handoff.md` defines every field and states plainly that a finding is not grounds to reject a rough cut** - the prose carries it since the freeze lifted 2026-09-09, so nothing ships a legend beside the table.
 - `tests/contracts/test_qa_findings_reach_a_reader.py`.
@@ -94,14 +94,14 @@ BLOCKING_SEVERITY = "error"
 """The one severity a gate is entitled to act on.  Reading never gates."""
 
 REPORT_ONLY_METRICS = frozenset({"chroma_presence", "speech_above_bed",
-                                 "punch_in_face"})
-"""The checks that report `passed=True` whatever they measured, and say
-what they measured in `severity` instead.
+                                 "punch_in_face",
+                                 "caption_legibility", "caption_obscuring"})
+"""The checks that measure a number, miss a target and do not gate.
 
 `render_qa.CHROMA_PRESENCE_GATES`, `render_qa.SPEECH_ABOVE_BED_GATES`
-and `render_qa.PUNCH_IN_FACE_GATES` are the booleans, and all are False:
-these report `passed=True` whatever they measured, and say what they
-measured in `severity` instead.  Promoting one is that boolean and
+and `render_qa.CAPTION_QUALITY_GATES` are the booleans, and all are
+False: these report `passed=True` whatever they measured, and say what
+they measured in `severity` instead.  Promoting one is that boolean and
 nothing here.
 
 It is an enumeration rather than a rule about severity because a report
@@ -224,6 +224,22 @@ FINDING_READERS: Dict[str, FindingReader] = _rows(
         "subtitle_read_speed", "plan_subtitles",
         "Characters per second. The grouper fits cards to the caption "
         "box at the resolved type size, so this moves with that size."),
+    FindingReader(
+        "caption_legibility", "plan_subtitles",
+        "A caption whose smallest card inks under the legibility floor "
+        "at the delivered resolution. The type size is the plan's "
+        "declaration (`subtitle_style`), so an illegible caption is the "
+        "size the plan chose - or a render that drew it smaller than "
+        "planned. REPORTED, not gated: promoting it is "
+        "render_qa.CAPTION_QUALITY_GATES."),
+    FindingReader(
+        "caption_obscuring", "plan_subtitles",
+        "A caption whose delivered box overlaps a face the render "
+        "detects over its span. The caption row is the plan's "
+        "declaration and the subject's position is the footage's, so an "
+        "obscuring caption is a row that sits on the speaker - or a "
+        "punch-in that put the face under the caption row. REPORTED, "
+        "not gated: promoting it is render_qa.CAPTION_QUALITY_GATES."),
     # ── reel_hearing.py ──
     #
     # The first producer that measures the render against the PLAN
