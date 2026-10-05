@@ -4,9 +4,9 @@ The host model does the language understanding through the existing
 Ren file handshake. This module owns the typed boundary after that: one
 operation per clause, operation-type routing, explicit questions for
 missing referents, per-value source and unit metadata, atomic ledger
-recording, and an intent report that can carry measured misses back as
-a revised spec. Proxy preview is deliberately out of scope for this
-rung.
+recording, an intent report that can carry measured misses back as a
+revised spec, and a proxy preview that shows what a program will do
+before it executes (gap map C-05).
 """
 
 from __future__ import annotations
@@ -21,12 +21,12 @@ import sys
 import uuid
 from pathlib import Path
 
-from library.tools import edit_algebra, edit_ledger, edit_operations
+from library.tools import edit_algebra, edit_ledger, edit_operations, edit_preview
 
 FORMAT = "edit_spec/1"
 STATUSES = ("resolved", "needs_clarification")
 SOURCES = edit_ledger.STATED_BY
-PROXY_PREVIEW = "proxy preview is out of scope for the rung 6 translation layer"
+PROXY_PREVIEW = "proxy preview is available: `ren spec preview` computes affected spans, before/after values and duration change from the recorded generation"
 
 OP_OWNERS = edit_operations.OP_OWNERS
 _NON_DIRECT_LEDGER_OPS = {"plan_change", "edit_program"}
@@ -485,6 +485,90 @@ def record_spec(project_folder: str, spec: dict) -> list[tuple[dict, str]]:
         replace_source_note_id=spec.get("source_note_id") or None)
 
 
+def preview_spec(project_folder: str, spec_id: str) -> dict:
+    """Preview what a recorded spec's program will do against the head.
+
+    The third artifact beside the spec and the intent review (gap map
+    C-05): the affected spans, before/after values and duration change
+    for each op, computed in pure Python from the recorded generation.
+    No Resolve read. The editor approves or revises before the program
+    executes.
+    """
+    from library.tools import llm_handshake, timeline_shadow
+
+    project_folder = os.path.abspath(project_folder)
+    spec = load_response_spec(project_folder, spec_id)
+    program = spec.get("program")
+    if program is None:
+        raise EditSpecError(
+            "preview reads a program; this spec has clauses, not a program")
+    if program["kind"] != "edit_program":
+        raise EditSpecError(
+            "preview reads an edit_program; a planner_run is delivered to "
+            "its planning node, not the timeline")
+
+    rows = edit_ledger.load_rows(project_folder)
+    program_rows = [row for row in rows if row.get("op") == "edit_program"]
+    if not program_rows:
+        raise EditSpecError(
+            "no edit_program row in the ledger; record the spec first")
+    row = program_rows[-1]
+    params = row.get("params") or {}
+    ops = params.get("ops") or []
+    if not ops:
+        raise EditSpecError("the program row carries no ops")
+
+    reel = row.get("reel") or program.get("reel") or ""
+    if not reel:
+        raise EditSpecError(
+            "the program names no reel; preview needs a timeline to read "
+            "its generation from")
+
+    store = timeline_shadow.ShadowStore()
+    project_name = _resolve_project_name(project_folder)
+    try:
+        timeline_id = store.resolve_timeline(project_name, reel)
+    except timeline_shadow.ShadowError as exc:
+        raise EditSpecError(
+            f"cannot preview: {exc}. The timeline must be observed before "
+            "its generation can be previewed against.") from exc
+    head = store.head(project_name, timeline_id)
+    if head is None:
+        raise EditSpecError(
+            f"no generation recorded for {reel!r}; observe the timeline "
+            "first so the preview has a base to read from")
+    base = store.snapshot(head)
+
+    preview_ops = []
+    for op in ops:
+        preview_ops.append({
+            "op": op["op"],
+            "text": op.get("text", ""),
+            "params": op.get("params") or {},
+        })
+    return edit_preview.preview_program(preview_ops, base)
+
+
+def _resolve_project_name(project_folder: str) -> str:
+    """The Resolve project name for a project folder, from project.yaml."""
+    from library.tools.project_layout import ProjectLayout
+
+    layout = ProjectLayout(project_folder)
+    config_path = layout.project_path / "project.yaml"
+    if not config_path.is_file():
+        raise EditSpecError(
+            f"no project.yaml in {project_folder}; cannot resolve the "
+            "Resolve project name")
+    import yaml
+    data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    name = (data.get("resolve") or {}).get("project") or data.get("project")
+    if not name:
+        raise EditSpecError(
+            f"no resolve project name in {config_path}; the preview reads "
+            "the timeline generation from the shadow store")
+    return str(name)
+
+
 def _normalise_recorded_row(row: dict) -> dict:
     """Remove the transcript-derived edge added by the ledger writer."""
     normalized = copy.deepcopy(row)
@@ -731,8 +815,8 @@ def prepare_intent(project_folder: str, spec_id: str,
         "measured value with its unit on each surface. When either surface "
         "missed or broke something, include the requested value, observed "
         "value, and unit as a shortfall. The code will refuse mismatched "
-        "shortfall units or observations. Do not create or use a proxy "
-        "preview. Return JSON only using edit_intent_observations/1."
+        "shortfall units or observations. Return JSON only using "
+        "edit_intent_observations/1."
     )
     context = {"format": "edit_intent_review/1", "spec": spec,
                "artifacts": artifacts, "proxy_preview": PROXY_PREVIEW}
@@ -1464,6 +1548,11 @@ def main(argv=None) -> int:
     intent_resolve.add_argument("project", help="project folder path")
     intent_resolve.add_argument("--id", required=True,
                                 help="intent request id from prepare")
+    preview = sub.add_parser(
+        "preview", help="preview what a recorded program will do")
+    preview.add_argument("project", help="project folder path")
+    preview.add_argument("--id", required=True,
+                         help="recorded edit-spec request id")
     args = parser.parse_args(argv)
     try:
         if args.command == "prepare":
@@ -1522,6 +1611,10 @@ def main(argv=None) -> int:
                 result = resolve_intent(args.project, args.id)
                 print(json.dumps(result, indent=2, ensure_ascii=False))
                 return 0 if result["status"] == "passed" else 4
+        if args.command == "preview":
+            result = preview_spec(args.project, args.id)
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+            return 0
     except (OSError, ValueError) as exc:
         print(f"ren spec: {exc}", file=sys.stderr)
         return 2

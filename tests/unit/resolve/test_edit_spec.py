@@ -701,7 +701,7 @@ def test_intent_handshake_reviews_the_built_artifacts_and_saves_revision(
         str(readback.resolve())
     assert context["artifacts"]["export"]["path"] == str(export.resolve())
     assert "actual built timeline readback" in intent_request["prompt"]
-    assert "proxy preview" in intent_request["prompt"]
+    assert "proxy preview" in context["proxy_preview"]
 
     observations = {
         "format": edit_spec.INTENT_FORMAT,
