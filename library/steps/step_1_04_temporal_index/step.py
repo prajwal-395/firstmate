@@ -1129,6 +1129,63 @@ def _consolidate_events(events: list) -> list:
     return [e for e in consolidated if e["duration"] >= 0.3]
 
 
+# ── 4b. Audio classification beyond speech/PANNs (Gap 12) ─────────────
+
+def measure_audio_classification(audio_path: str,
+                                 speech_regions: list = None) -> dict:
+    """Audio categories beyond speech and PANNs, measured.
+
+    Gap 12: the temporal index measures PANNs sound events and energy
+    silence spans, but no music genre, no absolute speech level, no
+    ambience type.  This measures those categories:
+
+    - ``speech_level``: absolute RMS of speech spans in dBFS (the
+      ``energy_curve`` is normalized per clip, so cross-clip comparison
+      fails; this is on an absolute scale).
+    - ``music_genre``: genre classification from a pre-trained AST
+      model (PANNs detects "Music" but not WHAT music).
+    - ``ambience_type``: spectral-feature classification of non-speech
+      spans into indoor/outdoor/urban/nature.
+
+    Returns ``{"speech_level": ..., "music_genre": ...,
+    "ambience_type": ..., "method": ...}``.  Each category is measured
+    or records its absence with a reason - never a default presented as
+    measured.
+    """
+    from library.tools import audio_classification
+
+    speech_spans = []
+    for region in (speech_regions or []):
+        for w in region.get("words", []):
+            speech_spans.append((w["start"], w["end"]))
+
+    speech_level = audio_classification.measure_speech_level(
+        audio_path, speech_spans)
+    music_genre = audio_classification.classify_music(audio_path)
+    ambience_type = audio_classification.classify_ambience(
+        audio_path, speech_spans)
+
+    measured = []
+    if speech_level.get("measured"):
+        measured.append("speech_level")
+    if music_genre.get("measured"):
+        measured.append("music_genre")
+    if ambience_type.get("measured"):
+        measured.append("ambience_type")
+
+    method = "audio-classification"
+    if not measured:
+        method = "unmeasured: no audio category could be measured"
+
+    return {
+        "speech_level": speech_level,
+        "music_genre": music_genre,
+        "ambience_type": ambience_type,
+        "categories_measured": measured,
+        "method": method,
+    }
+
+
 # ── 5. Motion energy (frame differencing) ────────────────────────────
 
 def compute_motion_energy(
@@ -2003,6 +2060,9 @@ def write_sound_memory(index: dict, video_path: str = None,
     from the clip's own content fingerprint, and an unmeasured record
     never demotes a measured one (two clips of one camera file share a
     memory).
+
+    Also writes the audio classification (Gap 12): absolute speech
+    level, music genre, ambience type.
     """
     from library.tools import footage_identity, source_memory
 
@@ -2020,10 +2080,12 @@ def write_sound_memory(index: dict, video_path: str = None,
     if not isinstance(method, str):
         method = "unmeasured: predates the event measurement"
     measured = not method.startswith("unmeasured")
+    audio_classification = index.get("audio_classification")
     source_memory.write_sound(
         digest, str(path),
         "measured" if measured else "unmeasured",
-        events, method, root=root)
+        events, method, root=root,
+        audio_classification=audio_classification)
 
 
 def vision_backfill_needed(index: dict) -> bool:
@@ -2917,6 +2979,15 @@ def index_clip(
         file=sys.stderr,
     )
 
+    # 5b. Audio classification beyond speech/PANNs (Gap 12)
+    audio_classification = measure_audio_classification(
+        audio_path, speech_regions=speech)
+    print(
+        f"           audio classification: "
+        f"{', '.join(audio_classification['categories_measured']) or 'unmeasured'}",
+        file=sys.stderr,
+    )
+
     # 6. Motion energy (30Hz — frame-aligned)
     print("    [6/12] Motion energy (30Hz)...", file=sys.stderr)
     motion = compute_motion_energy(
@@ -3051,6 +3122,10 @@ def index_clip(
         # <reason>` and an empty list, never guesses.
         "sound_events": sound_events,
         "sound_event_method": sound_event_method,
+        # Audio classification beyond speech/PANNs (Gap 12): absolute
+        # speech level (dBFS), music genre, ambience type. Each category
+        # is measured or records its absence with a reason.
+        "audio_classification": audio_classification,
         "motion_energy": motion,
         "onset_times": onsets,
         "word_end_times": word_ends,
@@ -3252,6 +3327,15 @@ def index_audio_clip(
         wav_path, speech_regions=speech,
         sound_measurement=(sound_events, sound_event_method))
 
+    # 4b. Audio classification beyond speech/PANNs (Gap 12)
+    audio_classification = measure_audio_classification(
+        wav_path, speech_regions=speech)
+    print(
+        f"           audio classification: "
+        f"{', '.join(audio_classification['categories_measured']) or 'unmeasured'}",
+        file=sys.stderr,
+    )
+
     print("    [5/5] Word end times...", file=sys.stderr)
     word_ends = extract_word_end_times(speech)
 
@@ -3273,6 +3357,7 @@ def index_audio_clip(
         "audio_events": audio_events,
         "sound_events": sound_events,
         "sound_event_method": sound_event_method,
+        "audio_classification": audio_classification,
         "onset_times": onsets,
         "word_end_times": word_ends,
         "speech_activity": speech_activity,

@@ -329,6 +329,33 @@ def sound_events_for_project(project_folder) -> tuple:
     return events_by_clip, methods
 
 
+def audio_classification_for_project(project_folder) -> dict:
+    """Audio classification per clip, from the M5 slot (`sound.json`).
+
+    Gap 12: absolute speech level (dBFS), music genre, ambience type.
+    Returns ``{clip_id: audio_classification}``.  A clip with no
+    measured classification is ABSENT, not present and empty.
+    """
+    catalog = load_catalog(project_folder)
+    recorded = source_memory.load_recorded_fingerprints(project_folder)
+    by_clip: dict = {}
+    for clip in catalog:
+        clip_id = clip.get("clip_id")
+        if not clip_id:
+            continue
+        digest, _basis = source_memory.digest_for_clip(
+            project_folder, clip, recorded)
+        if digest is None:
+            continue
+        doc = source_memory.read_sound(digest)
+        if not doc:
+            continue
+        classification = doc.get("audio_classification")
+        if classification:
+            by_clip[clip_id] = classification
+    return by_clip
+
+
 def ocr_texts_for_project(project_folder) -> tuple:
     """On-screen text per clip, from step 1.07's `ocr_result.json` files.
 
@@ -390,6 +417,7 @@ def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=Fal
             embeddings_path.unlink()
 
     sound_events, sound_methods = sound_events_for_project(project_folder)
+    audio_classification = audio_classification_for_project(project_folder)
     ocr_texts, ocr_methods = ocr_texts_for_project(project_folder)
 
     payload = {
@@ -408,6 +436,9 @@ def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=Fal
         # The M5 sound lane: PANNs labels per clip, reachable from search.
         "sound_events": sound_events,
         "sound_event_methods": sound_methods,
+        # Audio classification beyond speech/PANNs (Gap 12): absolute
+        # speech level, music genre, ambience type.
+        "audio_classification": audio_classification,
         # The on-screen text lane: step 1.07's tracked strings per clip,
         # reachable from search.  Absent entirely when the step never ran.
         "ocr_texts": ocr_texts,
@@ -975,6 +1006,10 @@ class FootageIndex:
         min_motion: float | None = None,
         contains: str | None = None,
         person: str | None = None,
+        min_speech_level: float | None = None,
+        max_speech_level: float | None = None,
+        music_genre: str | None = None,
+        ambience_type: str | None = None,
     ) -> list:
         """Select footage by measurable properties, with no query at all.
 
@@ -1003,6 +1038,15 @@ class FootageIndex:
                 face or voice spans - this is how "who says X" and
                 "clips of this person" are answered. Raises when the
                 name resolves to nobody the store knows.
+            min_speech_level / max_speech_level: absolute speech level
+                in dBFS (Gap 12). Cross-clip comparable, unlike the
+                per-clip normalized energy curve.
+            music_genre: music genre label (Gap 12), e.g. "rock",
+                "jazz", "classical". Matches clips whose music genre
+                classification includes this label.
+            ambience_type: ambience type (Gap 12), e.g. "indoor",
+                "outdoor", "urban", "nature". Matches clips whose
+                ambience classification equals this type.
 
         Returns:
             Every matching segment, in index order.
@@ -1014,6 +1058,9 @@ class FootageIndex:
                 f"use --kind {' / --kind '.join(sorted(SEGMENT_KINDS))}")
 
         person_windows = self._person_windows(person) if person else None
+
+        # Audio classification per clip (Gap 12)
+        audio_cls = self.payload.get("audio_classification") or {}
 
         # A named facet must MATCH; an unmeasured numeric facet fails its
         # bound rather than passing it, because "not measured" is not
@@ -1035,6 +1082,9 @@ class FootageIndex:
                         and segment["end"] > window_start):
                     return True
             return False
+
+        def _audio_classification_for(segment: dict) -> dict:
+            return audio_cls.get(segment["clip_id"]) or {}
 
         def keeps(segment: dict) -> bool:
             facets = segment.get("facets", {})
@@ -1065,6 +1115,27 @@ class FootageIndex:
                     return False
                 if high is not None and value > high:
                     return False
+            # Audio classification filters (Gap 12)
+            if (min_speech_level is not None or max_speech_level is not None
+                    or music_genre is not None or ambience_type is not None):
+                cls = _audio_classification_for(segment)
+                speech_level = (cls.get("speech_level") or {}).get(
+                    "speech_level_dbfs")
+                if min_speech_level is not None:
+                    if speech_level is None or speech_level < min_speech_level:
+                        return False
+                if max_speech_level is not None:
+                    if speech_level is None or speech_level > max_speech_level:
+                        return False
+                if music_genre is not None:
+                    genres = (cls.get("music_genre") or {}).get("genres") or []
+                    genre_labels = [g.get("label", "").lower() for g in genres]
+                    if music_genre.lower() not in genre_labels:
+                        return False
+                if ambience_type is not None:
+                    ambience = (cls.get("ambience_type") or {}).get("ambience")
+                    if ambience is None or ambience.lower() != ambience_type.lower():
+                        return False
             return not (contains is not None
                         and contains.lower() not in segment["text"].lower())
 
@@ -1558,6 +1629,14 @@ def main(argv=None):
     p_filter.add_argument("--person",
                           help="restrict to one person's measured face/voice "
                               "spans (person_id or declared name)")
+    p_filter.add_argument("--min-speech-level", type=float,
+                          help="minimum absolute speech level in dBFS (Gap 12)")
+    p_filter.add_argument("--max-speech-level", type=float,
+                          help="maximum absolute speech level in dBFS (Gap 12)")
+    p_filter.add_argument("--music-genre",
+                          help="music genre label (Gap 12), e.g. rock, jazz")
+    p_filter.add_argument("--ambience-type",
+                          help="ambience type (Gap 12): indoor, outdoor, urban, nature")
     p_filter.add_argument("--index-dir")
 
     p_hybrid = sub.add_parser("hybrid", help="Search restricted by filters")
@@ -1729,6 +1808,10 @@ def main(argv=None):
             max_face_presence=args.max_face_presence,
             max_motion=args.max_motion, contains=args.contains,
             person=args.person,
+            min_speech_level=args.min_speech_level,
+            max_speech_level=args.max_speech_level,
+            music_genre=args.music_genre,
+            ambience_type=args.ambience_type,
         )
         print(f"{len(results)} matching segments:")
         for hit in results:

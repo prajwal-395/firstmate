@@ -760,7 +760,8 @@ def read_scenes(content_digest: str,
 
 def write_sound(content_digest: str, source_file: str, status: str,
                 sound_events: list, method: str,
-                root: Optional[Path] = None) -> None:
+                root: Optional[Path] = None,
+                audio_classification: dict = None) -> None:
     """M5 `sound.json`: measured PANNs sound-event labels.
 
     `sound_events` is the `[{label, start, end, confidence}]` list the
@@ -769,6 +770,10 @@ def write_sound(content_digest: str, source_file: str, status: str,
     measured record exists for the digest: two clips of one camera file
     share a memory, and a source whose events were measured must not be
     demoted to empty because a later clip ran without the checkpoint.
+
+    `audio_classification` (Gap 12) is the beyond-PANNs measurement:
+    absolute speech level (dBFS), music genre, ambience type. It is
+    stored beside the PANNs events in the same slot.
     """
     path = source_dir(content_digest, root) / SLOT_SOUND
     measured = not str(method or "").startswith("unmeasured")
@@ -778,13 +783,16 @@ def write_sound(content_digest: str, source_file: str, status: str,
                 and not str(existing.get("method") or "").startswith(
                     "unmeasured")):
             return
-    write_json(path, {
+    record = {
         "content_digest": content_digest,
         "source_file": os.path.abspath(source_file),
         "status": status,
         "sound_events": sound_events,
         "method": method,
-    })
+    }
+    if audio_classification is not None:
+        record["audio_classification"] = audio_classification
+    write_json(path, record)
 
 
 def read_sound(content_digest: str,
