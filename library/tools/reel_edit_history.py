@@ -35,7 +35,12 @@ snapshots into a parallel store.
 An entry carries time (`at`), actor (`ren` or `captain`), what changed
 (`act` + `summary`), and - for every Ren build and promotion - the plan
 version it used (`plan_version`: the plan content hash plus the caption
-and footage-binding hashes). Every entry also names the entry it was
+and footage-binding hashes). An entry also carries the originating ask
+(`origin`: gate id, note id, CLI verb or plan hash), the verification
+that confirmed it (`verification`: an EditPatch receipt linked by
+`patch_id`, or a conformance verdict) and the capability operation
+that produced it (`decision_id`) - the three links that make the
+history self-auditing. Every entry also names the entry it was
 applied against (`parent_entry_id`: the id of the entry whose state this
 one followed), so a reel's history reads as one causal chain -
 `history_chain` walks it oldest-first and a rebuild can tell which edits
@@ -229,6 +234,9 @@ def _derived_manual_entries(review_dir: str, final: str) -> list[dict]:
             "backfilled": False,
             "parent_entry_id": None,
             "derived": True,
+            "origin": None,
+            "verification": None,
+            "decision_id": None,
         })
     return derived
 
@@ -263,6 +271,57 @@ def history_for(review_dir: str, final: str) -> list[dict]:
     entries.extend(_derived_manual_entries(review_dir, final))
     entries.sort(key=_sort_key)
     return entries
+
+
+def _entry_at_round(entries: Sequence[Mapping],
+                    round: Optional[int]) -> Optional[dict]:
+    """The newest entry whose refs name `round`; the newest entry if None."""
+    if not entries:
+        return None
+    if round is None:
+        return entries[-1]
+    for entry in reversed(entries):
+        refs = entry.get("refs") or {}
+        if refs.get("round") == round:
+            return entry
+    return None
+
+
+def origin_of(review_dir: str, final: str,
+              round: Optional[int] = None) -> Optional[dict]:
+    """The originating request recorded on `final`'s entry at `round`.
+
+    Answers "which request caused this build/touch" from the history
+    alone: the gate id, note id, CLI verb or plan hash the entry was
+    filed with. None when the entry names no origin - an unrecorded
+    ask is reported as absent, never invented.
+    """
+    entry = _entry_at_round(recorded_history(review_dir, str(final)), round)
+    return entry.get("origin") if entry else None
+
+
+def verification_of(review_dir: str, final: str,
+                    round: Optional[int] = None) -> Optional[dict]:
+    """The verification recorded on `final`'s entry at `round`.
+
+    The receipt that confirmed the act - an EditPatch receipt linked by
+    `patch_id`, or a conformance verdict. None when the entry names no
+    verification: an unconfirmed act reads as unconfirmed.
+    """
+    entry = _entry_at_round(recorded_history(review_dir, str(final)), round)
+    return entry.get("verification") if entry else None
+
+
+def decision_of(review_dir: str, final: str,
+                round: Optional[int] = None) -> Optional[str]:
+    """The capability operation behind `final`'s entry at `round`.
+
+    The operation id `provenance.observe_operation` recorded, so a
+    decision traces to the step and run that made it. None when the
+    entry names no operation.
+    """
+    entry = _entry_at_round(recorded_history(review_dir, str(final)), round)
+    return entry.get("decision_id") if entry else None
 
 
 def _chain_with_parents(entries: Sequence[Mapping]) -> list[dict]:
@@ -335,7 +394,10 @@ def make_entry(final: str, *, actor: str, act: str, summary: str,
                frame_delta: Optional[int] = None,
                at: Optional[str] = None,
                backfilled: bool = False,
-               parent_entry_id: Optional[str] = None) -> dict:
+               parent_entry_id: Optional[str] = None,
+               origin: Optional[Mapping] = None,
+               verification: Optional[Mapping] = None,
+               decision_id: Optional[str] = None) -> dict:
     """One history entry, constructed without writing anything.
 
     Hook sites holding the provenance lock (the build's own provenance
@@ -347,6 +409,13 @@ def make_entry(final: str, *, actor: str, act: str, summary: str,
     against. It is a field, not part of the id: the id hashes the act's
     own inputs, so a parent added later never rewrites an entry's
     identity.
+
+    `origin` names the originating ask (gate id, note id, CLI verb or
+    plan hash), `verification` the receipt that confirmed the act (an
+    EditPatch receipt linked by `patch_id`, or a conformance verdict),
+    and `decision_id` the capability operation that produced it. All
+    three are optional metadata: an entry that names none reads as
+    unlinked, never as a link invented after the fact.
     """
     final = str(final)
     stamp = at or _now()
@@ -364,6 +433,11 @@ def make_entry(final: str, *, actor: str, act: str, summary: str,
         "backfilled": bool(backfilled),
         "parent_entry_id": (str(parent_entry_id)
                             if parent_entry_id is not None else None),
+        "origin": dict(origin) if origin is not None else None,
+        "verification": (dict(verification) if verification is not None
+                         else None),
+        "decision_id": (str(decision_id) if decision_id is not None
+                        else None),
     }
 
 
@@ -411,7 +485,10 @@ def record_entry(review_dir: str, final: str, *, actor: str, act: str,
                  frame_delta: Optional[int] = None,
                  at: Optional[str] = None,
                  backfilled: bool = False,
-                 parent_entry_id=_UNSET) -> dict:
+                 parent_entry_id=_UNSET,
+                 origin: Optional[Mapping] = None,
+                 verification: Optional[Mapping] = None,
+                 decision_id: Optional[str] = None) -> dict:
     """Append one history entry for `final`. Idempotent by entry id.
 
     History is append-only: an entry whose id already exists is left
@@ -430,7 +507,9 @@ def record_entry(review_dir: str, final: str, *, actor: str, act: str,
         entry = make_entry(final, actor=actor, act=act, summary=summary,
                            plan_version=plan_version, refs=refs,
                            frame_delta=frame_delta, at=at,
-                           backfilled=backfilled)
+                           backfilled=backfilled, origin=origin,
+                           verification=verification,
+                           decision_id=decision_id)
         existing = by_id.get(entry["id"])
         if existing is not None:
             return existing
@@ -449,7 +528,10 @@ def record_entry(review_dir: str, final: str, *, actor: str, act: str,
 def try_record_ren_act(review_dir: str, final: str, *, act: str,
                        summary: str, plan_version: Optional[Mapping] = None,
                        refs: Optional[Mapping] = None,
-                       frame_delta: Optional[int] = None) -> Optional[dict]:
+                       frame_delta: Optional[int] = None,
+                       origin: Optional[Mapping] = None,
+                       verification: Optional[Mapping] = None,
+                       decision_id: Optional[str] = None) -> Optional[dict]:
     """Record one Ren act. Never raises: history must not fail a build.
 
     Recording is instrumentation, not the build: a history write that
@@ -460,7 +542,9 @@ def try_record_ren_act(review_dir: str, final: str, *, act: str,
     try:
         return record_entry(review_dir, final, actor=ACTOR_REN, act=act,
                             summary=summary, plan_version=plan_version,
-                            refs=refs, frame_delta=frame_delta)
+                            refs=refs, frame_delta=frame_delta,
+                            origin=origin, verification=verification,
+                            decision_id=decision_id)
     except Exception as exc:  # noqa: BLE001 - the contract is never-fail
         print(f"  edit history unrecorded for {final}: {exc!r} - "
               f"the build continues without it", file=sys.stderr)
@@ -524,7 +608,8 @@ def record_manual_edit(review_dir: str, final: str, *, summary: str,
                        editor_change_id: Optional[str] = None,
                        reason: Optional[str] = None,
                        note_id: Optional[str] = None,
-                       at: Optional[str] = None) -> dict:
+                       at: Optional[str] = None,
+                       origin: Optional[Mapping] = None) -> dict:
     """Record the captain's own edit. Detection stays read-only.
 
     The caller measured the difference through Ren's existing read
@@ -536,7 +621,9 @@ def record_manual_edit(review_dir: str, final: str, *, summary: str,
     entry with `file_manual_edit_reason` - history is append-only, so
     the detection entry is never rewritten. `note_id` links the note
     that produced this edit, so the history carries the captain's
-    intent alongside the mechanical change.
+    intent alongside the mechanical change. `origin` names the ask the
+    edit answers (a note id, a CLI verb); a detected edit with none
+    reads as intent unknown.
     """
     refs: dict = {}
     if rows_digest_before:
@@ -551,7 +638,7 @@ def record_manual_edit(review_dir: str, final: str, *, summary: str,
         refs["note_id"] = str(note_id)
     return record_entry(review_dir, final, actor=ACTOR_CAPTAIN,
                         act=ACT_MANUAL_EDIT, summary=summary, refs=refs,
-                        frame_delta=frame_delta, at=at)
+                        frame_delta=frame_delta, at=at, origin=origin)
 
 
 def file_manual_edit_reason(review_dir: str, final: str, *,

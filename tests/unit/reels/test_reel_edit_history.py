@@ -383,6 +383,118 @@ class TestBackfillAndDrift:
         assert history.record_drift_findings(review, report) == 0
 
 
+class TestOriginAndVerificationLinkage:
+    """F-06/F-14: an entry names the originating request that produced
+    it and the verification that confirmed it, so the history is a
+    self-auditing chain.
+
+    The defect: an entry filed without an origin cannot answer "which
+    request caused this build" - the history records what changed but
+    not why it was asked for, and not which receipt confirmed it. The
+    three stores (edit_patch receipts, provenance operations, the
+    history) could only be cross-referenced by hand.
+    """
+
+    def test_build_entry_carries_origin_and_verification(self, tmp_path):
+        review = _review_dir(tmp_path)
+        history.record_entry(
+            review, FINAL_28, actor=history.ACTOR_REN,
+            act=history.ACT_BUILD, summary="Ren build from plan abc",
+            plan_version={"plan_content_hash": "abc"},
+            refs={"round": 7},
+            origin={"kind": "gate", "id": "gate-123"},
+            verification={"kind": "patch_receipt",
+                          "patch_id": "ren-deadbeef",
+                          "status": "committed"})
+        entries = history.history_for(review, FINAL_28)
+        assert len(entries) == 1
+        assert entries[0]["origin"] == {"kind": "gate", "id": "gate-123"}
+        assert entries[0]["verification"] == {
+            "kind": "patch_receipt", "patch_id": "ren-deadbeef",
+            "status": "committed"}
+
+    def test_origin_of_returns_the_originating_request(self, tmp_path):
+        review = _review_dir(tmp_path)
+        history.record_entry(
+            review, FINAL_28, actor=history.ACTOR_REN,
+            act=history.ACT_BUILD, summary="Ren build from plan abc",
+            refs={"round": 7},
+            origin={"kind": "gate", "id": "gate-123"})
+        assert history.origin_of(review, FINAL_28, round=7) == {
+            "kind": "gate", "id": "gate-123"}
+        # A round with no entry is absence, not a guess.
+        assert history.origin_of(review, FINAL_28, round=99) is None
+
+    def test_origin_of_no_round_returns_the_newest_entry(self, tmp_path):
+        review = _review_dir(tmp_path)
+        history.record_entry(
+            review, FINAL_28, actor=history.ACTOR_REN,
+            act=history.ACT_BUILD, summary="build v1",
+            refs={"round": 7},
+            origin={"kind": "gate", "id": "gate-123"},
+            at="2026-10-01T10:00:00+00:00")
+        history.record_entry(
+            review, FINAL_28, actor=history.ACTOR_REN,
+            act=history.ACT_TOUCH, summary="touch v2",
+            refs={"version": 2},
+            origin={"kind": "note", "id": "note-456"},
+            at="2026-10-01T11:00:00+00:00")
+        assert history.origin_of(review, FINAL_28) == {
+            "kind": "note", "id": "note-456"}
+
+    def test_entry_without_origin_reports_absence(self, tmp_path):
+        review = _review_dir(tmp_path)
+        history.record_entry(
+            review, FINAL_28, actor=history.ACTOR_REN,
+            act=history.ACT_BUILD, summary="Ren build from plan abc",
+            refs={"round": 7})
+        assert history.origin_of(review, FINAL_28, round=7) is None
+        assert history.verification_of(review, FINAL_28, round=7) is None
+        assert history.decision_of(review, FINAL_28, round=7) is None
+
+    def test_verification_of_returns_the_receipt(self, tmp_path):
+        review = _review_dir(tmp_path)
+        history.record_entry(
+            review, FINAL_28, actor=history.ACTOR_REN,
+            act=history.ACT_TOUCH, summary="Ren touch-up",
+            refs={"version": 2},
+            verification={"kind": "patch_receipt",
+                          "patch_id": "ren-deadbeef",
+                          "status": "committed"})
+        assert history.verification_of(review, FINAL_28) == {
+            "kind": "patch_receipt", "patch_id": "ren-deadbeef",
+            "status": "committed"}
+
+    def test_decision_id_links_to_provenance_operation(self, tmp_path):
+        # F-14: a build entry carries a decision_id, and provenance.of
+        # on the build's output file returns the same operation id -
+        # the link that lets a decision trace to the step and run.
+        from library.tools.provenance import ProvenanceLedger
+        from library.tools.project_layout import ProjectLayout
+
+        ProjectLayout(tmp_path).ensure()
+        review = _review_dir(tmp_path)
+        ledger = ProvenanceLedger(str(tmp_path),
+                                  step_ids=["step_6_01_render"],
+                                  operation_ids=["build_reels"])
+        before = ledger.snapshot()
+        out = tmp_path / "pipeline_output" / "exports" / "Reel 28.mov"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text("render", encoding="utf-8")
+        ledger.observe(step_id="step_6_01_render", run_id="run-1",
+                       operation_id="build_reels",
+                       before=before, after=ledger.snapshot())
+        record = ledger.of("pipeline_output/exports/Reel 28.mov")
+        assert record.operation_id == "build_reels"
+        history.record_entry(
+            review, FINAL_28, actor=history.ACTOR_REN,
+            act=history.ACT_BUILD, summary="Ren build from plan abc",
+            refs={"round": 7},
+            decision_id=record.operation_id)
+        assert history.decision_of(review, FINAL_28, round=7) == (
+            "build_reels")
+
+
 class TestRejectionMemory:
     """A rejection is a verdict that must outlive the run that filed it.
 
@@ -474,6 +586,7 @@ class TestRejectionMemory:
         assert "no clip_id" in prior["refs"]["violation"]
         assert prior["actor"] == "ren"
         assert "3 attempt" in prior["summary"]
+
 
 class TestParentChain:
     """F-01: every edit names the parent it was applied against.
