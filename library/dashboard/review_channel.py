@@ -216,14 +216,51 @@ def send_queued(
     return batch
 
 
+def pending_reasons(project_dir: str | os.PathLike) -> list[dict[str, Any]]:
+    """Detected manual edits with no reason filed, across every reel.
+
+    The prompt at the next interaction: the agent reads this when it
+    polls a batch, and asks the captain why he made the change, so a
+    later run does not re-derive a plan that contradicts his unrecorded
+    intent. Each entry names the reel, what changed, and the history
+    entry a reason will be filed against (`file_manual_edit_reason`).
+    Never raises: an unreadable history reads as no pending reasons.
+    """
+    try:
+        from library.tools import plan_provenance, reel_edit_history
+
+        review_dir = str(Path(project_dir) / "pipeline_output" / "review")
+        doc = plan_provenance.read_provenance(review_dir) or {}
+        table = doc.get(reel_edit_history.HISTORY_KEY) or {}
+        out = []
+        for final in sorted(table):
+            for entry in reel_edit_history.unexplained_manual_edits(
+                    review_dir, str(final)):
+                out.append({
+                    "reel": str(final),
+                    "entry_id": entry.get("id"),
+                    "summary": entry.get("summary", ""),
+                    "at": entry.get("at", ""),
+                })
+        return out
+    except Exception:  # noqa: BLE001 - a prompt that cannot read is silent
+        return []
+
+
 def pending_batch(project_dir: str | os.PathLike) -> dict[str, Any] | None:
-    """The oldest batch no agent has answered yet, with its notes attached."""
+    """The oldest batch no agent has answered yet, with its notes attached.
+
+    The batch carries `pending_reasons` - the detected manual edits still
+    waiting for the captain's reason - so the agent's next interaction
+    prompts for them instead of the intent going unrecorded.
+    """
     doc = load_channel(project_dir)
     by_id = {n["id"]: n for n in doc["notes"]}
     for batch in doc["batches"]:
         if batch["status"] == "pending":
             payload = dict(batch)
             payload["notes"] = [by_id[i] for i in batch["note_ids"] if i in by_id]
+            payload["pending_reasons"] = pending_reasons(project_dir)
             return payload
     return None
 

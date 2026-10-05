@@ -380,3 +380,117 @@ class TestBackfillAndDrift:
         assert history.recorded_history(review, FINAL_26) == []
         # A second identical drift report files nothing new.
         assert history.record_drift_findings(review, report) == 0
+
+
+class TestManualEditReason:
+    """A detected edit is a fact without a motive until the captain's own
+    words are filed against it (F-05), and the note that carried them is
+    linked to the edit it explains (F-12).
+
+    Regression context: the captain hand-edits a timeline, Ren detects
+    the difference and files it, and nothing records WHY - so a later
+    run re-derives a plan that contradicts his unrecorded intent, and a
+    note that says "I moved this clip because..." is not linked to the
+    edit it explains.
+    """
+
+    def test_detected_edit_without_reason_is_intent_unknown(self, tmp_path):
+        review = _review_dir(tmp_path)
+        history.record_manual_edit(
+            review, FINAL_28, summary="captain trimmed the closer",
+            frame_delta=-575, at="2026-10-02T09:00:00+00:00")
+        unexplained = history.unexplained_manual_edits(review, FINAL_28)
+        assert len(unexplained) == 1
+        assert unexplained[0]["summary"] == "captain trimmed the closer"
+        lines = history.intent_unknown_lines(review, FINAL_28)
+        assert len(lines) == 1
+        assert "intent unknown" in lines[0]
+        assert FINAL_28 in lines[0]
+
+    def test_filed_reason_carries_through_history_and_attribution(
+            self, tmp_path):
+        review = _review_dir(tmp_path)
+        history.record_entry(
+            review, FINAL_28, actor=history.ACTOR_REN, act=history.ACT_BUILD,
+            summary="Ren build", at="2026-10-01T10:00:00+00:00")
+        entry = history.record_manual_edit(
+            review, FINAL_28, summary="captain trimmed the closer",
+            frame_delta=-575, at="2026-10-02T09:00:00+00:00")
+        filed = history.file_manual_edit_reason(
+            review, FINAL_28, manual_edit_id=entry["id"],
+            reason="the closer was dragging the ending")
+        assert filed is not None
+        assert filed["act"] == history.ACT_MANUAL_EDIT_REASON
+        assert (filed["refs"]["reason"]
+                == "the closer was dragging the ending")
+        # The history carries the reason.
+        entries = history.history_for(review, FINAL_28)
+        assert history.reason_for(entries, entry["id"]) == (
+            "the closer was dragging the ending")
+        # The detection entry itself is never rewritten: the reason is a
+        # new entry, and the captain's edit stands exactly as measured.
+        detection = [e for e in entries if e["id"] == entry["id"]][0]
+        assert "reason" not in detection["refs"]
+        # Attribution cites the captain's own words.
+        attributed = history.attribute_plan_mismatch(entries, -575)
+        assert attributed is not None
+        assert attributed["id"] == entry["id"]
+        assert (attributed["reason"]
+                == "the closer was dragging the ending")
+        # The edit is no longer unexplained.
+        assert history.unexplained_manual_edits(review, FINAL_28) == []
+
+    def test_reason_linked_by_editor_change_id(self, tmp_path):
+        review = _review_dir(tmp_path)
+        plan_provenance.record_editor_changes(review, FINAL_28, [{
+            "id": "ec1", "recorded_at": "2026-10-02T09:00:00+00:00",
+            "timeline": FINAL_28, "changes": [], "status": "pending"}])
+        filed = history.file_manual_edit_reason(
+            review, FINAL_28, editor_change_id="ec1",
+            reason="I moved it because the framing was off")
+        assert filed is not None
+        entries = history.history_for(review, FINAL_28)
+        # The derived entry is explained by the reason filed against the
+        # editor-change id the replace guard recorded.
+        assert history.reason_for(entries, "ec1") == (
+            "I moved it because the framing was off")
+        assert history.unexplained_manual_edits(review, FINAL_28) == []
+
+    def test_note_that_produces_edit_is_linked(self, tmp_path):
+        review = _review_dir(tmp_path)
+        entry = history.record_manual_edit(
+            review, FINAL_28, summary="captain moved the closer",
+            note_id="note_abc123", at="2026-10-02T09:00:00+00:00")
+        assert entry["refs"]["note_id"] == "note_abc123"
+        entries = history.history_for(review, FINAL_28)
+        assert entries[0]["refs"]["note_id"] == "note_abc123"
+
+    def test_reason_carries_the_note_that_prompted_it(self, tmp_path):
+        review = _review_dir(tmp_path)
+        entry = history.record_manual_edit(
+            review, FINAL_28, summary="captain trimmed the closer",
+            at="2026-10-02T09:00:00+00:00")
+        filed = history.file_manual_edit_reason(
+            review, FINAL_28, manual_edit_id=entry["id"],
+            reason="the closer was dragging", note_id="note_xyz")
+        assert filed is not None
+        assert filed["refs"]["note_id"] == "note_xyz"
+
+    def test_filing_a_reason_never_blocks_or_alters_the_edit(self, tmp_path):
+        review = _review_dir(tmp_path)
+        entry = history.record_manual_edit(
+            review, FINAL_28, summary="captain trimmed the closer",
+            frame_delta=-575, at="2026-10-02T09:00:00+00:00")
+        before = history.recorded_history(review, FINAL_28)
+        # An empty reason files nothing and raises nothing.
+        assert history.file_manual_edit_reason(
+            review, FINAL_28, manual_edit_id=entry["id"], reason="") is None
+        # A history that cannot be written files nothing and raises nothing:
+        # the reason is instrumentation, never a blocker.
+        blocker = tmp_path / "afile"
+        blocker.write_text("not a directory", encoding="utf-8")
+        assert history.file_manual_edit_reason(
+            str(blocker), FINAL_28,
+            manual_edit_id=entry["id"], reason="why") is None
+        # The edit stands exactly as measured.
+        assert history.recorded_history(review, FINAL_28) == before

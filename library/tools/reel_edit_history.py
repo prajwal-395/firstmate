@@ -46,6 +46,21 @@ Plan-versus-timeline verification consults this history
 that a recorded manual edit explains is reported AS that edit - naming
 the entry, its time and what it changed - instead of as an unexplained
 PLAN-MISMATCH error. What nothing recorded explains still refuses.
+
+The captain's reason for a detected edit
+----------------------------------------
+A detected edit is a fact without a motive until the captain's own
+words are filed against it. `file_manual_edit_reason` files those
+words at the next interaction - a NEW entry referencing the edit it
+explains (history is append-only, so the detection entry is never
+rewritten), linked by the entry's id or its `editor_change_id`, and by
+the `note_id` of the answered note that carried them. `reason_for`
+reads them back; `attribute_plan_mismatch` cites them when the edit
+explains a mismatch. `unexplained_manual_edits` /
+`intent_unknown_lines` report the detected edits still waiting for a
+reason - the run summary's "intent unknown" prompt. Filing a reason
+never blocks or alters the edit itself: the captain's change stands
+exactly as he made it.
 """
 
 from __future__ import annotations
@@ -69,6 +84,7 @@ ACT_TOUCH = "touch"
 ACT_UNDO = "undo"
 ACT_ROLLBACK = "rollback"
 ACT_MANUAL_EDIT = "manual_edit"
+ACT_MANUAL_EDIT_REASON = "manual_edit_reason"
 
 REN_ACTS = (ACT_BUILD, ACT_PROMOTION, ACT_TOUCH, ACT_UNDO, ACT_ROLLBACK)
 
@@ -323,11 +339,21 @@ def record_manual_edit(review_dir: str, final: str, *, summary: str,
                        rows_digest_after: Optional[str] = None,
                        frame_delta: Optional[int] = None,
                        editor_change_id: Optional[str] = None,
+                       reason: Optional[str] = None,
+                       note_id: Optional[str] = None,
                        at: Optional[str] = None) -> dict:
     """Record the captain's own edit. Detection stays read-only.
 
     The caller measured the difference through Ren's existing read
     paths; this only files it. The edit itself is never touched.
+
+    `reason` is the captain's own words, known only when the detection
+    itself carries them (the note that produced the edit is being filed
+    in the same breath). A reason found later is filed against the
+    entry with `file_manual_edit_reason` - history is append-only, so
+    the detection entry is never rewritten. `note_id` links the note
+    that produced this edit, so the history carries the captain's
+    intent alongside the mechanical change.
     """
     refs: dict = {}
     if rows_digest_before:
@@ -336,9 +362,135 @@ def record_manual_edit(review_dir: str, final: str, *, summary: str,
         refs["rows_digest_after"] = str(rows_digest_after)
     if editor_change_id:
         refs["editor_change_id"] = str(editor_change_id)
+    if reason:
+        refs["reason"] = str(reason)
+    if note_id:
+        refs["note_id"] = str(note_id)
     return record_entry(review_dir, final, actor=ACTOR_CAPTAIN,
                         act=ACT_MANUAL_EDIT, summary=summary, refs=refs,
                         frame_delta=frame_delta, at=at)
+
+
+def file_manual_edit_reason(review_dir: str, final: str, *,
+                            manual_edit_id: Optional[str] = None,
+                            editor_change_id: Optional[str] = None,
+                            reason: str,
+                            note_id: Optional[str] = None,
+                            at: Optional[str] = None) -> Optional[dict]:
+    """File the captain's reason for a detected manual edit. Never raises.
+
+    The reason is the captain's own words, filed at the next interaction
+    (the review channel's prompt, the run summary's "intent unknown"
+    list). History is append-only and idempotent by entry id, so the
+    reason is a NEW entry referencing the edit it explains - never a
+    rewrite of the detection entry, which stays exactly as measured.
+
+    The link is the manual edit entry's id, or the `editor_change_id`
+    the replace guard recorded against it: either resolves the edit the
+    reason explains. `note_id` links the answered note that carried
+    the reason, so the note feed and the edit history are one account.
+
+    Filing is instrumentation, not the edit: a reason that cannot be
+    filed is said on stderr and the edit stands without it, exactly as
+    a Ren act that cannot be recorded never fails a build.
+    """
+    reason = str(reason or "").strip()
+    if not reason:
+        return None
+    if not manual_edit_id and not editor_change_id:
+        return None
+    refs: dict = {"reason": reason}
+    if manual_edit_id:
+        refs["manual_edit_id"] = str(manual_edit_id)
+    if editor_change_id:
+        refs["editor_change_id"] = str(editor_change_id)
+    if note_id:
+        refs["note_id"] = str(note_id)
+    try:
+        return record_entry(review_dir, final, actor=ACTOR_CAPTAIN,
+                            act=ACT_MANUAL_EDIT_REASON,
+                            summary=f"captain's reason for manual edit: "
+                                    f"{reason}",
+                            refs=refs, at=at)
+    except Exception as exc:  # noqa: BLE001 - the contract is never-fail
+        print(f"  edit history reason unrecorded for {final}: {exc!r} - "
+              f"the edit stands without it", file=sys.stderr)
+        return None
+
+
+def reason_for(entries: Sequence[Mapping],
+               manual_edit_id: Optional[str]) -> Optional[str]:
+    """The reason filed for one manual edit entry, or None.
+
+    The entry's own `refs.reason` first (known at detection time), then
+    the newest `manual_edit_reason` entry filed against it - by the
+    entry's id, or by the `editor_change_id` the entry carries. None
+    anywhere is honestly None: an unexplained edit stays unexplained.
+    """
+    target = str(manual_edit_id or "")
+    if not target:
+        return None
+    for entry in entries or ():
+        if (entry.get("act") == ACT_MANUAL_EDIT
+                and str(entry.get("id") or "") == target):
+            reason = (entry.get("refs") or {}).get("reason")
+            if reason:
+                return str(reason)
+    for entry in reversed(list(entries or ())):
+        if entry.get("act") != ACT_MANUAL_EDIT_REASON:
+            continue
+        refs = entry.get("refs") or {}
+        if (str(refs.get("manual_edit_id") or "") == target
+                or str(refs.get("editor_change_id") or "") == target):
+            reason = refs.get("reason")
+            if reason:
+                return str(reason)
+    return None
+
+
+def unexplained_manual_edits(review_dir: str, final: str) -> list[dict]:
+    """Detected manual edits with no reason filed. Never raises.
+
+    The run summary's "intent unknown" list: a detected edit is a fact
+    without a motive until the captain's words are filed against it.
+    Recorded and derived entries both count; an entry explained by a
+    reason filed against its id or its `editor_change_id` is not
+    unexplained. An unreadable history reads as empty, never as clean.
+    """
+    try:
+        entries = history_for(review_dir, final)
+    except Exception:  # noqa: BLE001 - an unreadable history reads as empty
+        return []
+    out = []
+    for entry in entries:
+        if entry.get("act") != ACT_MANUAL_EDIT:
+            continue
+        if reason_for(entries, entry.get("id")):
+            continue
+        editor_change_id = (entry.get("refs") or {}).get("editor_change_id")
+        if editor_change_id and reason_for(entries, editor_change_id):
+            continue
+        out.append(entry)
+    return out
+
+
+def intent_unknown_lines(review_dir: str, final: str) -> list[str]:
+    """One "intent unknown" line per unexplained detected edit.
+
+    The prompt at the next interaction: the run summary and the review
+    channel read this to ask the captain why he made the change, so a
+    later run does not re-derive a plan that contradicts his unrecorded
+    intent. Each line names the reel, what changed, and the history
+    entry the reason will be filed against.
+    """
+    lines = []
+    for entry in unexplained_manual_edits(review_dir, final):
+        lines.append(
+            f"intent unknown: {final} - "
+            f"{entry.get('summary', 'manual edit')} "
+            f"(history entry {entry.get('id')}) - why did the captain "
+            f"make this change?")
+    return lines
 
 
 def _project_folder_for(review_dir: str) -> str:
@@ -447,6 +599,11 @@ def attribute_plan_mismatch(entries: Sequence[Mapping],
     measured, unequal) disqualifies - anything else attributes, naming
     the edit. Nothing recorded returns None: unexplained stays
     unexplained and still refuses.
+
+    When the edit carries the captain's reason, the entry is returned
+    as a COPY with `reason` attached - the caller cites the captain's
+    own words when it reports the edit, instead of a fact with no
+    motive. The entry in the history is never rewritten.
     """
     entries = list(entries or ())
     ren = last_ren_act(entries)
@@ -461,6 +618,9 @@ def attribute_plan_mismatch(entries: Sequence[Mapping],
         if (delta_frames is not None and recorded_delta is not None
                 and int(recorded_delta) != int(delta_frames)):
             continue
+        reason = reason_for(entries, entry.get("id"))
+        if reason:
+            return dict(entry, reason=reason)
         return entry
     return None
 

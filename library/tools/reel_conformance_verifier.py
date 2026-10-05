@@ -5244,6 +5244,9 @@ def _attribute_plan_mismatch_to_recorded_edit(
     carried = (mismatch[0].detail or {}).get("timeline_frames")
     delta_words = (f"{delta:+d} frames" if delta is not None
                    else "a different frame count")
+    reason = edit.get("reason")
+    reason_words = (f" The captain's reason: {reason}."
+                    if reason else "")
     return [Finding(
         finding_class=FindingClass.PLAN_MISMATCH,
         reel=reel_name,
@@ -5252,7 +5255,8 @@ def _attribute_plan_mismatch_to_recorded_edit(
             f"frames and the picture on the timeline carries {carried} "
             f"({delta_words}): this is the captain's recorded manual "
             f"edit, not an unexplained divergence - {edit['at']}, "
-            f"{edit['summary']} (history entry {edit['id']}). The "
+            f"{edit['summary']} (history entry {edit['id']})."
+            f"{reason_words} The "
             f"timeline is as the captain left it; Ren did not place "
             f"these frames, and nothing here reverts them."),
         severity="warning",
@@ -5262,6 +5266,7 @@ def _attribute_plan_mismatch_to_recorded_edit(
             "edit_at": edit["at"],
             "edit_actor": edit["actor"],
             "edit_summary": edit["summary"],
+            **({"edit_reason": reason} if reason else {}),
         },
     )]
 
