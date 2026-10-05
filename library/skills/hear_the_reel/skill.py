@@ -7,16 +7,18 @@ asks it what the render actually sounds like against the plan and gets
 an answer back; nothing has to have run it first, and nothing has to run
 it at all.
 
-Deterministic, and REPORTS. The whole comparison -
+Deterministic, and it GATES two of its checks. The whole comparison -
 `library/tools/reel_hearing.py` - is transcribe, align, diff, measure.
 No model is called at any point and none is needed: on the known-answer
 case it found six uncaptioned words, a caption card a full second late
 and the drift run that explains both, on its own. The MODEL's job is the
 judgement the answer is handed to: which of these divergences matter.
 
-So this is a `report` skill, not a `gate`: `reel_hearing.GATES` is False,
-no build reads its record and a `passed: false` row here fails nothing.
-That is the conservative direction on purpose - see the module docstring.
+So this is a `gate` skill on script divergence and caption coverage - the
+captain's call, 2026-10-05 - and a `report` on timing drift, transcript
+row fit and caption pairing. A reel whose render says different words
+than the plan, or leaves planned words uncaptioned, is refused by name
+(`reel_hearing.refusal`) and is not promoted. See the module docstring.
 
 Shell invocation:
 
@@ -171,7 +173,7 @@ def run(project_folder: str,
         announce: bool = False,
         dials: Optional[Dict[str, Any]] = None,
         decline: Optional[List[str]] = None) -> Dict[str, Any]:
-    """Hear one reel. Returns an OBSERVATION; gates nothing.
+    """Hear one reel. Returns an OBSERVATION; two of its checks gate.
 
     `available: false` with the reason when the render, the plan or the
     transcriber is missing - an unheard reel is never a clean one, and
@@ -264,6 +266,7 @@ def run(project_folder: str,
         "settings": hearing.settings.as_dict(),
         "transcriber_anomalies": hearing.anomalies,
         "skipped": hearing.skipped,
+        "refusal": reel_hearing.refusal(hearing),
         "summary": reel_hearing.summary_lines(hearing),
         "elapsed_seconds": round(time.time() - started, 2),
     }
@@ -314,7 +317,8 @@ def dials_from(args) -> Dict[str, Any]:
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         description="Hear a rendered reel against its plan "
-                    "(skill: hear_the_reel). Reports; never gates.")
+                    "(skill: hear_the_reel). Script divergence and caption "
+                    "coverage gate; drift, row fit and pairing report.")
     parser.add_argument("--project-folder", required=True)
     parser.add_argument("--step-id", required=True)
     parser.add_argument("--reel", default=None,
@@ -338,9 +342,12 @@ def main(argv: Optional[List[str]] = None) -> int:
                       announce=args.announce, dials=dials_from(args),
                       decline=args.decline_check)
     print(json.dumps(observation, indent=2, default=str))
-    # Exit zero whatever it found: a report is not a failure. The caller
-    # reads the findings.
-    return 0 if observation["available"] else 1
+    # A gated metric that failed is a refusal, not a report: the reel is
+    # not promoted. Everything else - a report-only finding, or a skill
+    # that could not run - exits 0 so the caller reads the findings.
+    if not observation["available"]:
+        return 1
+    return 1 if observation.get("refusal") else 0
 
 
 if __name__ == "__main__":

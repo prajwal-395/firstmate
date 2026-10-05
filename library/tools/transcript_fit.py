@@ -79,7 +79,8 @@ Two places, for two different questions, and the split is deliberate:
   Reel 26 defect was knowable the day the transcript was written.
 
 It REPORTS. Nothing here gates, and `reel_hearing.GATES` governs the
-reel-side half unchanged. Fixing the CAUSE is two separately filed
+reel-side half (script divergence and caption coverage now gate; this
+one still reports). Fixing the CAUSE is two separately filed
 tasks; this reads the signal.
 """
 

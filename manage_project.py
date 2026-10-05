@@ -2439,9 +2439,17 @@ def cmd_hear_reel(args):
     the plan says it says - which is the exact shape of a caption card
     sitting a second behind its own audio in a delivered file.
 
-    It REPORTS. It fails no build and refuses no render: no gate reads
-    the record it writes, and promoting any of these checks to a gate is
-    the captain's call (`library/tools/reel_hearing.GATES`).
+    It HEARS, and two of its checks GATE. `render_qa` measures the render
+    against itself, `manifest_validator` checks the plan against itself,
+    and this compares what the render is HEARD to say against what the
+    plan says it says - which is the exact shape of a caption card
+    sitting a second behind its own audio in a delivered file.
+
+    Script divergence and caption coverage gate (the captain's call,
+    2026-10-05): a reel whose render says different words than the plan,
+    or leaves planned words uncaptioned, is refused by name and is not
+    promoted. Timing drift, transcript row fit and caption pairing still
+    report. The refusal is `reel_hearing.GATES` and `reel_hearing.refusal`.
 
     It RENDERS NOTHING and it re-transcribes nothing upstream. It reads
     the file `deliver-reel` already wrote, the timeline `build_reels`
@@ -2469,6 +2477,7 @@ def cmd_hear_reel(args):
         targets = [{"video": args.video, "reel": args.reel}]
 
     heard_any = False
+    refused = False
     for target in targets:
         observation = hear.run(
             project_folder, args.step_id, reel=target["reel"],
@@ -2481,12 +2490,17 @@ def cmd_hear_reel(args):
         heard_any = True
         print("\n".join(observation["summary"]))
         print(f"  record:   {observation['record']}")
+        if observation.get("refusal"):
+            refused = True
+            print(f"  REFUSED:  {observation['refusal']}")
         if observation.get("announced"):
             for fired in observation["announced"]:
                 print(f"  announced {fired['hook']}: {fired['outcome']} "
                       f"- {fired['detail']}")
         print()
     if not heard_any:
+        sys.exit(1)
+    if refused:
         sys.exit(1)
 
 

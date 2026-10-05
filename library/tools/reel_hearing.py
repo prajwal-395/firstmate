@@ -40,21 +40,20 @@ it is roughly 1,600 tokens, and it is an ADDITION - `library/skills/
 hear_the_reel/` hands a model this module's output and asks. Nothing
 here calls a model and nothing here needs one.
 
-It REPORTS. It gates nothing.
------------------------------
-No build reads this record, no step declares it, and `passed: false` on
-a row here fails nothing. That is deliberate and it is the conservative
-direction: a new gate that blocks builds is the hard-to-reverse move,
-and the right order is to prove this on real episodes and then ask the
-captain to promote it. `tests/unit/reels/test_reel_hearing.py` pins that no gate
-reads the record.
+It REPORTS, and two of its checks now GATE
+--------------------------------------------
+The captain's call, 2026-10-05: script divergence and caption coverage
+gate. A reel whose render says different words than the plan, or leaves
+planned words uncaptioned, fails verification and is not promoted -
+`refusal` names the failing words and their timecodes. Timing drift,
+transcript row fit and caption pairing stay report-only, and the
+`render_watch` VLM picture-watch stays report-only with them.
 
 `passed` is still the check's own honest verdict rather than a constant
 true, because a row that says "clean" when it measured a defect is the
-gate-that-cannot-fail turned inside out (AGENTS.md 10.4). The rows carry
-real verdicts and nothing acts on them; which of those two facts changes
-is the captain's call, and it is one boolean in
-`library/tools/reel_hearing.GATES`.
+gate-that-cannot-fail turned inside out (AGENTS.md 10.4). The rows
+carry real verdicts; what changed is that two of them now ACT on a
+failing one, through `GATES` and `refusal`.
 
 Normalisation, and why it is not optional
 -----------------------------------------
@@ -85,10 +84,6 @@ import statistics
 import unicodedata
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
-
-GATES = False
-"""Whether a finding here may fail anything. One boolean, and it is the
-captain's to flip. See the module docstring."""
 
 RECORD_SUFFIX = ".hearing.json"
 """Where the record lands: beside the render, next to `.deliver.json`."""
@@ -782,6 +777,35 @@ have had BEFORE it was rendered
 (`library/tools/transcript_fit.py`)."""
 
 
+GATES: Dict[str, bool] = {
+    SCRIPT_METRIC: True,
+    DRIFT_METRIC: False,
+    COVERAGE_METRIC: True,
+    FIT_METRIC: False,
+    PAIRING_METRIC: False,
+}
+"""Whether a finding on a metric may fail a verification.
+
+The captain's call, 2026-10-05: script divergence and caption coverage
+gate now - a reel whose render says different words than the plan, or
+leaves planned words uncaptioned, is refused and not promoted. Timing
+drift, transcript row fit and caption pairing stay report-only, and the
+`render_watch` VLM picture-watch stays report-only with them. One
+enumeration, read through `gates` so a caller cannot develop a private
+opinion about which checks gate (AGENTS.md 10.4).
+"""
+
+
+def gates(metric: str) -> bool:
+    """Whether a finding on `metric` may fail a verification.
+
+    One reading of one enumeration (`GATES`), never a second spelling of
+    it: a default here would let a metric nobody promoted start refusing
+    reels the moment a row is built.
+    """
+    return GATES.get(metric, False)
+
+
 class NothingWasHeard(RuntimeError):
     """This reel cannot be heard against its plan, and the reason is named."""
 
@@ -879,9 +903,12 @@ def _script_finding(hearing: Hearing) -> Finding:
     if hearing.divergences:
         first = hearing.divergences[0]
         detail += f" - first at {first['reel_seconds']:.2f}s: {first['detail']}"
+    failed = total > 0
     return Finding(
-        metric=SCRIPT_METRIC, passed=total == 0, value=total, threshold=0,
-        severity="warning" if total else "info", detail=detail)
+        metric=SCRIPT_METRIC, passed=not failed, value=total, threshold=0,
+        severity=("error" if gates(SCRIPT_METRIC) else "warning")
+        if failed else "info",
+        detail=detail)
 
 
 def _drift_finding(hearing: Hearing) -> Finding:
@@ -937,11 +964,17 @@ def _coverage_finding(hearing: Hearing) -> Optional[Finding]:
     # would ever see. A finding that reads CLEAN while carrying a
     # warning is exactly what `qa_findings.REPORT_ONLY_METRICS` exists
     # to keep rare, and this is not one of those two.
+    failed = bool(zero or partial)
+    if failed and gates(COVERAGE_METRIC):
+        severity = "error"
+    elif failed:
+        severity = "warning"
+    else:
+        severity = "info"
     return Finding(
-        metric=COVERAGE_METRIC, passed=not (zero or partial),
+        metric=COVERAGE_METRIC, passed=not failed,
         value=[len(zero), len(partial)], threshold=0,
-        severity="error" if zero else ("warning" if partial else "info"),
-        detail=detail)
+        severity=severity, detail=detail)
 
 
 def _fit_finding(hearing: Hearing) -> Finding:
@@ -1327,6 +1360,47 @@ def read_findings(hearing: Hearing):
         f"hearing {hearing.timeline_name or hearing.video_path}")
 
 
+def refusal(hearing: Hearing) -> Optional[str]:
+    """The refusal, when a GATED metric failed. None when every gated
+    metric passed, or was not run.
+
+    The captain's call, 2026-10-05: script divergence and caption
+    coverage gate. A reel whose render says different words than the
+    plan, or leaves planned words uncaptioned, is refused here by name -
+    the failing words and their timecodes - and is not promoted.
+    Timing drift, transcript row fit and caption pairing still report
+    and do not refuse.
+
+    The refusal NAMES what failed rather than counting it: a reader
+    told "3 divergences" cannot act, and a reader told the word and the
+    second can. Only the two gated metrics are named; a report-only
+    failure is left in the findings where a human can read it.
+    """
+    parts: List[str] = []
+    for finding in hearing.findings:
+        if finding.passed or not gates(finding.metric):
+            continue
+        if finding.metric == SCRIPT_METRIC:
+            for row in hearing.divergences:
+                parts.append(f"{row['reel_seconds']:.2f}s: {row['detail']}")
+        elif finding.metric == COVERAGE_METRIC:
+            for row in hearing.coverage["uncaptioned_words"]:
+                parts.append(
+                    f"{row['word']!r} at {row['reel_start']:.2f}-"
+                    f"{row['reel_end']:.2f}s is spoken with no caption on "
+                    f"screen")
+            for row in hearing.coverage["half_captioned_words"]:
+                parts.append(
+                    f"{row['word']!r} at {row['reel_start']:.2f}-"
+                    f"{row['reel_end']:.2f}s is only {row['covered']:.0%} "
+                    f"covered by a caption card")
+    if not parts:
+        return None
+    named = "; ".join(parts)
+    return (f"the render does not say what the plan says, or does not "
+            f"caption the words it says - {named}")
+
+
 def summary_lines(hearing: Hearing) -> List[str]:
     """What a reader is told, as lines."""
     from library.tools import qa_findings
@@ -1340,8 +1414,13 @@ def summary_lines(hearing: Hearing) -> List[str]:
         f"{hearing.engine.get('version', '')}".rstrip(),
         (f"  words:    {len(hearing.planned)} planned, "
          f"{len(hearing.heard)} heard"),
-        "  gates:    no - this is a report, not a gate",
     ]
+    refused = refusal(hearing)
+    if refused is not None:
+        lines.append(f"  GATE:    REFUSED - {refused}")
+    else:
+        lines.append("  gates:    script divergence and caption coverage "
+                     "gate; drift, row fit and pairing report")
     if hearing.corrections_applied:
         lines.append(
             "  spelling: the heard side was corrected through "

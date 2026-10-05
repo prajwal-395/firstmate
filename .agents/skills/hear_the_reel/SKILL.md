@@ -5,7 +5,8 @@ description: >
   diff it against the plan's own words for script divergence, timing
   drift, caption coverage, caption pairing and transcript rows with no
   word timing. Use when a reel has been delivered and you need to know
-  what it actually SAYS. Reports, never gates.
+  what it actually SAYS. Script divergence and caption coverage gate;
+  drift, row fit and pairing report.
 ---
 
 # hear_the_reel
@@ -82,11 +83,13 @@ decision behind it; `divergences`, `drift_runs`, `caption_coverage`,
 `caption_pairing` and `unfitted_transcript_rows` carry the evidence
 under each.
 
-**This one REPORTS. It gates nothing** - `library/tools/reel_hearing.py`
-sets `GATES = False`, no build reads its record, and a `passed: false`
-row here fails nothing. Say what it found and what you think about it;
-the decision to act is yours and the decision to promote any of it to a
-gate is the captain's.
+**Script divergence and caption coverage GATE** (the captain's call,
+2026-10-05) - `library/tools/reel_hearing.py` sets `GATES` per metric,
+and a reel whose render says different words than the plan, or leaves
+planned words uncaptioned, is refused by name (`reel_hearing.refusal`)
+and is not promoted. Timing drift, transcript row fit and caption
+pairing still report. Say what it found and what you think about it; the
+decision to act on a report-only finding is yours.
 
 Three things to read before blaming the edit:
 

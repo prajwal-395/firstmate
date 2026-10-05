@@ -1,4 +1,4 @@
-"""The hearing pass finds the Reel 26 defect, and gates nothing.
+"""The hearing pass finds the Reel 26 defect, and two of its checks gate.
 
 Reel 26 is the known-answer case: a defect that SHIPPED, traced to one
 transcript row, with three separate consequences in the delivered file.
@@ -7,12 +7,18 @@ that pins it is worth more than any synthetic one, so the pinning tests
 here run over that recorded evidence and assert the numbers the pass was
 measured to produce.
 
+Script divergence and caption coverage gate (the captain's call,
+2026-10-05): a reel that says different words than the plan, or leaves
+planned words uncaptioned, is refused by name and is not promoted.
+Timing drift, transcript row fit and caption pairing still report.
+
 Nothing here reaches a real project: the fixture is three trimmed JSON
 documents in the repository, copied into `tmp_path` where a project is
 needed, and the transcriber never runs - its output is REPLAYED through
 the one function that maps it.
 """
 import json
+import re
 import shutil
 from pathlib import Path
 
@@ -141,15 +147,18 @@ def test_the_filed_spelling_correction_is_applied_to_the_heard_side(hearing):
     assert "Lucie" in hearing.as_dict()["heard_script"]
 
 
-# ── 3. It reports, and it gates nothing ──────────────────────────────
+# ── 3. It reports, and its verdicts are honest ────────────────────────
 
 
 def test_no_gate_reads_the_hearing_record():
-    """The record is written and nothing in the pipeline opens it.
+    """The record is written for the human reader, and no gate opens it.
 
-    A new gate that blocks builds is the hard-to-reverse direction; the
-    order is to prove this on real episodes and then ask the captain to
-    promote it. This test is what has to change when he does.
+    The captain promoted script divergence and caption coverage on
+    2026-10-05. The gate acts on the IN-MEMORY hearing (`refusal`), not
+    on the record file: nothing reads `.hearing.json` back to decide
+    anything. This test pins that the record stays write-only - a gate
+    that read the file would be one step from a second opinion about
+    what the render says.
     """
     root = Path(__file__).resolve().parents[3]
     # The producer chain: the module that writes the record, the skill
@@ -169,9 +178,9 @@ def test_no_gate_reads_the_hearing_record():
         if reel_hearing.RECORD_SUFFIX in path.read_text(encoding="utf-8"):
             readers.append(relative)
     assert readers == [], (
-        f"{readers} name the hearing record. Nothing may READ it into a "
-        f"gate until the captain promotes these checks - see "
-        f"reel_hearing.GATES.")
+        f"{readers} name the hearing record. The gate acts in-memory "
+        f"through reel_hearing.refusal; nothing may READ the record file "
+        f"- see reel_hearing.GATES.")
     # And no step declares it as an input, which is the other way in.
     for manifest in sorted((root / "library" / "steps").rglob("manifest.json")):
         body = manifest.read_text(encoding="utf-8")
@@ -204,7 +213,71 @@ def test_every_finding_carries_an_honest_verdict_and_one_owner(hearing):
     assert read.counts()[qa_findings.FAILING] == 4
 
 
-# ── 4. What it refuses rather than passing ───────────────────────────
+# ── 4. The gate: script divergence and caption coverage refuse ────────
+
+def test_a_diverged_render_is_refused_with_the_words_and_timecodes(hearing):
+    """Reel 26 says 'niche' where the plan does not carry it. The gate
+    refuses and names the word and its timecode - a reader told "3
+    divergences" cannot act, and a reader told the word and the second
+    can."""
+    refused = reel_hearing.refusal(hearing)
+    assert refused is not None
+    # The divergent word is named.
+    assert "niche" in refused
+    # A timecode is named, not just a count.
+    assert re.search(r"\d+\.\d\ds", refused), refused
+
+
+def test_uncaptioned_planned_words_are_refused_with_their_timecodes(hearing):
+    """Reel 26 leaves six words with no caption on screen. The gate
+    refuses and names the words and the seconds they are spoken."""
+    refused = reel_hearing.refusal(hearing)
+    assert refused is not None
+    uncaptioned = hearing.coverage["uncaptioned_words"]
+    assert uncaptioned, "the fixture must carry uncaptioned words"
+    # Every uncaptioned word is named, with its own timecode.
+    for row in uncaptioned:
+        assert row["word"] in refused, (row, refused)
+        assert f"{row['reel_start']:.2f}" in refused, (row, refused)
+
+
+def test_a_clean_render_is_not_refused():
+    """A render that says what the plan says, captioned, is not refused.
+
+    The caption card covers both words, so coverage passes; the heard
+    words match the plan, so script passes. Nothing to refuse.
+    """
+    timeline, transcript = _mini_timeline(
+        "sub_alice_clipa_10000-11500_ab12cd34.mov", 0.2, 1.1)
+    spoken = heard_speech.HeardSpeech(
+        words=[heard_speech.HeardWord("hello", 0.2, 0.6),
+               heard_speech.HeardWord("world", 0.7, 1.1)],
+        engine={"transcriber": "fixture"})
+    clean = reel_hearing.hear(timeline, transcript, spoken)
+    assert reel_hearing.refusal(clean) is None
+
+
+def test_drift_stays_report_only_and_does_not_refuse():
+    """A run of words drifting half a second is a real defect, and it
+    still does not refuse: the captain gated script divergence and
+    caption coverage, not timing drift. The drift is in the findings
+    where a human can read it."""
+    timeline, transcript = _drifted_timeline()
+    spoken = heard_speech.HeardSpeech(
+        words=[heard_speech.HeardWord(word, start + DRIFT, end + DRIFT)
+               for word, start, end in PLANNED_WORDS],
+        engine={"transcriber": "fixture"})
+    drifted = reel_hearing.hear(timeline, transcript, spoken)
+    # The drift is measured and reported...
+    assert drifted.runs, "the fixture must carry a drift run"
+    drift = next(f for f in drifted.findings
+                 if f.metric == reel_hearing.DRIFT_METRIC)
+    assert drift.passed is False
+    # ...and it does not refuse.
+    assert reel_hearing.refusal(drifted) is None
+
+
+# ── 5. What it refuses rather than passing ───────────────────────────
 
 def test_a_timeline_with_no_transcribed_speech_refuses(timeline, spoken,
                                                        project):
@@ -350,6 +423,51 @@ def test_the_pairing_check_is_clean_on_the_delivered_reel(hearing):
     assert pairing["max_edge_offset_seconds"] == pytest.approx(0.042,
                                                               abs=0.005)
     assert pairing["mean_edge_offset_seconds"] < 0.042
+
+
+PLANNED_WORDS = [("one", 0.2, 0.3), ("two", 0.3, 0.4),
+                 ("three", 0.4, 0.5), ("four", 0.5, 0.6),
+                 ("five", 0.6, 0.7)]
+"""Five words the plan says, in reel time. Heard half a second late."""
+
+DRIFT = 0.5
+"""How late the render says them: past the 0.25s noise floor, so a run."""
+
+
+def _drifted_timeline():
+    """One speech clip, five planned words, and a caption card over the
+    words as the render is HEARD to say them - half a second late.
+
+    The heard words match the plan (no divergence) and the card covers
+    them (no coverage failure), so the only defect is the drift.
+    """
+    source_file = "/audio/a.wav"
+    fps = 24.0
+    return {
+        "metadata": {"fps": fps, "name": "drifted"},
+        "tracks": [
+            {"type": "audio", "index": 1, "name": "Dialogue",
+             "clips": [{"file_path": source_file, "name": "a.wav",
+                        "record_in": 0, "record_out": int(2.0 * fps),
+                        "source_in": int(10.0 * fps)}]},
+            {"type": "video", "index": 3, "name": "Subtitles",
+             "clips": [{
+                 "file_path": "/caps/sub_alice_clipa_10200-10700_ab12cd34.mov",
+                 "name": "sub_alice_clipa_10200-10700_ab12cd34.mov",
+                 "record_in": int((PLANNED_WORDS[0][1] + DRIFT) * fps),
+                 "record_out": int((PLANNED_WORDS[-1][2] + DRIFT) * fps)}]},
+        ],
+    }, {
+        "segments": [{
+            "source_file": source_file,
+            "source_start": 10.0, "source_end": 12.0,
+            "timeline_start": 10.0,
+            "speaker": "Alice", "text": "one two three four five",
+            "words": [{"word": word, "start": 10.0 + start,
+                       "end": 10.0 + end}
+                      for word, start, end in PLANNED_WORDS],
+        }],
+    }
 
 
 def _mini_timeline(card_name, reel_in, reel_out, fps=24.0):

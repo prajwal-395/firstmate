@@ -25,9 +25,10 @@ not the list of goals.
 
 **This reports and does not gate.** The receipt composes verdicts; it
 does not assign the run status. Promoting an intent check to a gate is
-the boolean in its own module (`reel_hearing.GATES`,
-`render_qa.PUNCH_IN_FACE_GATES`, `render_qa.CAPTION_QUALITY_GATES`,
-`broll_correspondence.BROLL_CORRESPONDENCE_GATES`), all False. The
+the boolean in its own module: `reel_hearing.GATES` (script divergence
+and caption coverage now True, the captain's call 2026-10-05),
+`render_qa.PUNCH_IN_FACE_GATES`, `render_qa.CAPTION_QUALITY_GATES` and
+`broll_correspondence.BROLL_CORRESPONDENCE_GATES` (all still False). The
 receipt is the proof document, not a gate.
 """
 from __future__ import annotations
