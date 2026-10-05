@@ -4408,6 +4408,16 @@ class VerificationReport:
     none of which is a finding and all of which is what "as many good
     reels as possible" needs to be able to rank."""
 
+    plan_creative_quality: object = None
+    """The plan judged against the creative direction, as a
+    `plan_creative_quality.PlanCreativeQualityReport`, or None when the
+    check did not run.  A SEPARATE section from the structural findings:
+    the conformance verifier proves the timeline matches the plan, this
+    asks whether the plan's own choices serve the direction (gap E11).
+    Never folded into `all_findings`, so it cannot move the structural
+    gate's error/warning counts - it reports and does not fail
+    (`PLAN_CREATIVE_QUALITY_GATES`)."""
+
     motion_graphics_tightness: dict = field(default_factory=dict)
     """The tight-vs-full census over the rendered motion-graphics
     artefacts (`mg_tight_box.check_motion_graphics_dir`), or
@@ -4477,6 +4487,8 @@ class VerificationReport:
             ]
         if self.quality_bar is not None:
             d["quality_bar"] = self.quality_bar.as_dict()
+        if self.plan_creative_quality is not None:
+            d["plan_creative_quality"] = self.plan_creative_quality.as_dict()
         if self.motion_graphics_tightness:
             d["motion_graphics_tightness"] = self.motion_graphics_tightness
         return d
@@ -4829,6 +4841,41 @@ def attach_quality_bar(bar_report, reel_results: Sequence[ReelResult],
                 message=finding.message, severity=finding.severity,
                 detail=finding.detail))
     return unattached
+
+
+def _print_plan_creative_quality(report, out, err) -> None:
+    """Print the plan-against-direction section, as lines.
+
+    Written as a function rather than inline so the section's shape is
+    testable without capturing a whole verification run - the same reason
+    `reel_quality_bar.format_table` is a function.  Never raises: a
+    section that cannot be printed is said on stderr, not crashed on.
+    """
+    try:
+        print("── Plan creative quality (against the direction) ──",
+              file=out)
+        k = report.key_moments_total
+        covered = report.key_moments_covered
+        print(f"  Key moments: {covered} of {k} declared moments the "
+              f"plan plays", file=out)
+        b = report.beats_total
+        measured = report.beats_measured
+        print(f"  Pacing: {measured} of {b} declared beats measured "
+              f"against their target ASL", file=out)
+        for finding in report.findings:
+            mark = "✗" if finding.severity == "warning" else "·"
+            print(f"  {mark} [{finding.code}] {finding.message}", file=out)
+        for reason in report.unmeasured:
+            print(f"  · unmeasured: {reason}", file=out)
+        if not report.findings and not report.unmeasured:
+            print("  · the plan serves every declared key moment and "
+                  "lands every measured beat on its target ASL",
+                  file=out)
+        print(f"  REPORTED ONLY; see PLAN_CREATIVE_QUALITY_GATES",
+              file=out)
+    except Exception as exc:  # noqa: BLE001 - a section never crashes the gate
+        print(f"Plan creative quality: section could not be printed "
+              f"({exc})", file=err)
 
 
 # ── What the project declares about the picture ──────────────────────
@@ -7772,6 +7819,22 @@ def run_verification(
             print(f"Quality bar: read the judgement from "
                   f"{judgement_source}", file=err)
 
+    # ── The plan against the creative direction (gap E11) ──────────────
+    #
+    # The structural checks above prove the timeline matches the plan.
+    # This asks the question none of them does: does the PLAN serve the
+    # creative direction?  It is a separate module
+    # (`plan_creative_quality`) and a separate section of this report -
+    # its findings never enter `all_findings`, so they cannot move the
+    # structural gate's counts.  It reports and does not fail
+    # (`PLAN_CREATIVE_QUALITY_GATES`).  Runs whenever there is a plan to
+    # judge; a project with no intent model is reported UNMEASURED by the
+    # check itself rather than passing quietly.
+    pcq_report = None
+    if moments:
+        from library.tools import plan_creative_quality as _pcq
+        pcq_report = _pcq.verify_project_plan(project_folder, moments)
+
     # ── Snapshot everything AFTER (for read-only proof) ───────────────
     print("Re-reading master and selected reel timelines (after hash)...",
           file=err)
@@ -7837,6 +7900,7 @@ def run_verification(
     )
 
     report.quality_bar = bar_report
+    report.plan_creative_quality = pcq_report
 
     # ── Print human-readable output ──────────────────────────────────
     print(file=out)
@@ -7848,6 +7912,9 @@ def run_verification(
         from library.tools.reel_quality_bar import format_table as _bar_table
 
         print(_bar_table(bar_report), file=out)
+        print(file=out)
+    if pcq_report is not None:
+        _print_plan_creative_quality(pcq_report, out, err)
         print(file=out)
     if report.all_findings:
         print(format_findings(report), file=out)
