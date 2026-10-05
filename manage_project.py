@@ -2706,13 +2706,14 @@ def cmd_touch_master(args):
 
 
 def cmd_undo(args):
-    """Reverse the newest Ren act on a reel: a touch IN PLACE, a rebuild by version.
+    """Reverse a Ren act on a reel: a touch IN PLACE, a rebuild by version.
 
     A touch-up is reversed on the same timeline from its undo journal
     and verified by re-reading it; one the live timeline has moved on
     from since is refused by name. A rebuild is rolled back to the
     version before it: that version's plan is restored and the reel is
-    rebuilt. `--list` prints what would be undone, newest first. See
+    rebuilt. `--act` addresses any recorded act by id, not just the
+    newest; `--list` prints what would be undone, newest first. See
     library/tools/undo_journal.py.
     """
     from library.tools import run_control as _hold
@@ -2745,7 +2746,7 @@ def cmd_undo(args):
             from None
     try:
         receipts = _undo.undo(project_folder, final=final,
-                              entry_id=args.entry,
+                              act=args.act,
                               supersede=args.supersede or (),
                               accept_editor_changes=(
                                   args.accept_editor_changes or None))
@@ -2764,8 +2765,60 @@ def cmd_undo(args):
                 print(f"  note not carried: {note!r}")
         else:
             print(f"Rolled {receipt['final']!r} back from version "
-                  f"{receipt['rolled_back']} to version {receipt['to']}"
-                  f"{'; re-applied ' + ', '.join(receipt['replayed']) if receipt['replayed'] else ''}.")
+                  f"{receipt['rolled_back']} to version {receipt['to']}")
+
+
+def cmd_redo(args):
+    """Re-apply a reversed Ren act: a touch from its journal, a rebuild from its plan.
+
+    `--act` addresses the reversed act by id: a touch's journal entry
+    id, a rolled-back rebuild's version number, or a rollback's version
+    number. The act must be reversed; a live act has nothing to redo.
+    See library/tools/undo_journal.py.
+    """
+    from library.tools import run_control as _hold
+    from library.tools import undo_journal as _undo
+
+    project_folder = _reel_project_folder(args.project)
+    final = ""
+    if args.reel is not None:
+        from library.tools.reel_touchup import (
+            TouchupRefused,
+            resolve_final_name,
+        )
+        try:
+            final = resolve_final_name(project_folder, args.reel)
+        except TouchupRefused as refused:
+            print(refused.render(), file=sys.stderr)
+            sys.exit(REFUSAL_EXIT_CODE)
+    hold = _hold.hold_requested(project_folder)
+    if hold is not None:
+        raise RenRefusal(
+            f"the handbrake is engaged on this project "
+            f"({hold.get('requested_by', 'unknown')}: "
+            f"{hold.get('reason', '')})",
+            "a redo under a held project could fight the holder",
+            "delete pipeline.hold at the project root (it records who "
+            "asked for it - check with them), then re-run `ren redo`") \
+            from None
+    try:
+        receipts = _undo.redo(project_folder, final=final, act=args.act,
+                              accept_editor_changes=(
+                                  args.accept_editor_changes or None))
+    except _undo.UndoRefused as refused:
+        print(refused.render(), file=sys.stderr)
+        sys.exit(REFUSAL_EXIT_CODE)
+    except (_undo.UndoNotVerified, _undo.RollbackDiverged) as failed:
+        print(f"FAILED: {failed}", file=sys.stderr)
+        sys.exit(1)
+    for receipt in receipts:
+        if receipt.get("redo") and "entry" in receipt:
+            print(f"Re-applied touch {receipt['entry']} from its journal "
+                  f"(redo version {receipt['version']}).")
+        else:
+            print(f"Re-applied {receipt['final']!r} version "
+                  f"{receipt['redone']} (redo version "
+                  f"{receipt['version']}).")
 
 
 def cmd_ren_dry_run(args):
@@ -3223,9 +3276,11 @@ def main():
         help="Undo the newest act on this reel. Absent: the newest act "
              "on any reel (an --all-reels touch-up is undone whole)")
     undo_parser.add_argument(
-        "--entry", default="",
-        help="Undo this journal entry, by id; refused unless it is its "
-             "reel's newest act")
+        "--act", default="",
+        help="Undo this act by id - a touch's journal entry id, a "
+             "rebuild's version number, or a history entry id. Absent: "
+             "the newest act. Refused by name when the live timeline "
+             "has moved on from that act")
     undo_parser.add_argument(
         "--list", action="store_true",
         help="Print what would be undone, newest first, and stop")
@@ -3240,6 +3295,25 @@ def main():
         help="Explicitly supersede recorded manual edits the rollback or "
              "touch undo cannot carry. Repeatable")
     undo_parser.set_defaults(func=cmd_undo)
+
+    redo_parser = _add_command(sub, "redo")
+    redo_parser.add_argument(
+        "project", help="Project slug, or an absolute path "
+                        "to the project directory")
+    redo_parser.add_argument(
+        "reel", type=int, nargs="?", default=None,
+        help="Redo the reversed act on this reel")
+    redo_parser.add_argument(
+        "--act", default="",
+        help="Re-apply this reversed act by id - a touch's journal entry "
+             "id, a rolled-back rebuild's version number, or a "
+             "rollback's version number. Required")
+    redo_parser.add_argument(
+        "--accept-editor-changes", action="append", default=[],
+        metavar="REEL",
+        help="Explicitly supersede recorded manual edits the redo cannot "
+             "carry. Repeatable")
+    redo_parser.set_defaults(func=cmd_redo)
 
     ren_dry_run_parser = _add_command(sub, "ren-dry-run")
     ren_dry_run_parser.add_argument(

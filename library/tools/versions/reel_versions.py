@@ -30,13 +30,17 @@ already stores (`rounds`, `variants`) - text, a few kilobytes, the D7
              (`library/tools/undo_journal.py`).
 - `undo`     a touch reversed in place.
 - `rollback` a rebuild rolled back to the version before it.
+- `redo`     a reversed act re-applied: a touch re-run from its
+             journal's spec, a rebuild re-run from the plan moment of
+             the act that had been rolled back. Carries `redoes`, the
+             act it re-applied.
 
 `build` and `touch` are ACTS - the things `ren undo` reverses. `undo`
-and `rollback` are states the undo produced; they are recorded so the
-ledger stays a complete account of what the timeline held, and they are
-never themselves undone (there is no redo: a reversed act is re-done by
-doing it again). An act that was reversed carries `undone_by`, naming
-the version that reversed it, and the next undo reads past it.
+and `rollback` are states the undo produced. `redo` re-applies a
+reversed act: the act it re-applied carries `redone_by`, naming the
+redo version, and is live again (`undone_by` cleared). An act that was
+reversed carries `undone_by`, naming the version that reversed it, and
+the next undo reads past it.
 
 Where it lives: `pipeline_output/review/reel_versions.json`, on the
 store's allow-list, written through `store.write_record` like every
@@ -61,10 +65,11 @@ KIND_BUILD = "build"
 KIND_TOUCH = "touch"
 KIND_UNDO = "undo"
 KIND_ROLLBACK = "rollback"
+KIND_REDO = "redo"
 
-#: What `ren undo` reverses. The other two kinds are what it produced.
+#: What `ren undo` reverses. The other kinds are what it produced.
 ACTS = (KIND_BUILD, KIND_TOUCH)
-KINDS = (KIND_BUILD, KIND_TOUCH, KIND_UNDO, KIND_ROLLBACK)
+KINDS = (KIND_BUILD, KIND_TOUCH, KIND_UNDO, KIND_ROLLBACK, KIND_REDO)
 
 
 class ReelVersionsUnreadable(RuntimeError):
@@ -154,6 +159,28 @@ def mark_undone(project_folder, final: str, version: int,
     _write(project_folder, document)
 
 
+def mark_redone(project_folder, final: str, version: int,
+                by_version: int) -> None:
+    """Say act `version` was re-applied by redo `by_version`.
+
+    The reversal is cleared - the act is live again - and `redone_by`
+    names the redo that restored it, so the ledger reads as one causal
+    chain: undone, then redone.
+    """
+    document = read(project_folder)
+    history = list(document["reels"].get(final) or ())
+    for entry in history:
+        if int(entry.get("version", 0)) == int(version):
+            entry.pop("undone_by", None)
+            entry["redone_by"] = int(by_version)
+            break
+    else:
+        raise ReelVersionsUnreadable(
+            f"{final!r} has no version {version} to mark redone.")
+    document["reels"][final] = history
+    _write(project_folder, document)
+
+
 def live_acts(project_folder, final: str) -> list:
     """The acts on this reel nothing has reversed, newest LAST."""
     return [entry for entry in versions_of(project_folder, final)
@@ -227,9 +254,49 @@ def take_pending_rollback(project_folder, final: str) -> int | None:
     return version
 
 
+PENDING_REDO_FILENAME = "reel_versions_pending_redo.json"
+
+
+def _pending_redo_path(project_folder) -> str:
+    return os.path.join(str(project_folder), "pipeline_output", "review",
+                        PENDING_REDO_FILENAME)
+
+
+def set_pending_redo(project_folder, final: str, version: int) -> None:
+    """Tell the promotion that the build about to land re-applies act `version`.
+
+    The redo restores a plan moment and rebuilds; this is how that
+    promotion knows to record a `redo` instead of a `build` and to mark
+    the act it re-applied live again.
+    """
+    path = _pending_redo_path(project_folder)
+    pending = {}
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as handle:
+            pending = json.load(handle)
+    pending[final] = int(version)
+    store.write_record(path, pending, prefix=".pending-redo-")
+
+
+def take_pending_redo(project_folder, final: str) -> int | None:
+    """The act a promotion of `final` re-applies, consumed once; or None."""
+    path = _pending_redo_path(project_folder)
+    if not os.path.exists(path):
+        return None
+    with open(path, encoding="utf-8") as handle:
+        pending = json.load(handle)
+    version = pending.pop(final, None)
+    if pending:
+        store.write_record(path, pending, prefix=".pending-redo-")
+    else:
+        os.unlink(path)
+    return version
+
+
 __all__ = [
     "ACTS",
     "KIND_BUILD",
+    "KIND_REDO",
     "KIND_ROLLBACK",
     "KIND_TOUCH",
     "KIND_UNDO",
@@ -237,12 +304,15 @@ __all__ = [
     "build_before",
     "latest_act",
     "live_acts",
+    "mark_redone",
     "mark_undone",
     "path_for",
     "read",
     "record",
+    "set_pending_redo",
     "set_pending_rollback",
     "state_before",
+    "take_pending_redo",
     "take_pending_rollback",
     "versions_of",
 ]

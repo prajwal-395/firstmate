@@ -10386,17 +10386,30 @@ def _record_reel_versions(project_folder: str, rows_by_final: dict,
     review_dir = os.path.join(project_folder, "pipeline_output", "review")
     written = []
     for final, rows in sorted(rows_by_final.items()):
+        redoes = _versions.take_pending_redo(project_folder, final)
         undoes = _versions.take_pending_rollback(project_folder, final)
-        entry = _versions.record(
-            project_folder, final,
-            kind=(_versions.KIND_ROLLBACK if undoes is not None
-                  else _versions.KIND_BUILD),
-            rows=rows, round=round_number,
-            plan_moment=moments.get(final),
-            built_with=built_with.get(final) or None, undoes=undoes)
-        if undoes is not None:
+        if redoes is not None:
+            entry = _versions.record(
+                project_folder, final, kind=_versions.KIND_REDO,
+                rows=rows, round=round_number,
+                plan_moment=moments.get(final),
+                built_with=built_with.get(final) or None, redoes=redoes)
+            _versions.mark_redone(project_folder, final, redoes,
+                                  entry["version"])
+        elif undoes is not None:
+            entry = _versions.record(
+                project_folder, final, kind=_versions.KIND_ROLLBACK,
+                rows=rows, round=round_number,
+                plan_moment=moments.get(final),
+                built_with=built_with.get(final) or None, undoes=undoes)
             _versions.mark_undone(project_folder, final, undoes,
                                   entry["version"])
+        else:
+            entry = _versions.record(
+                project_folder, final, kind=_versions.KIND_BUILD,
+                rows=rows, round=round_number,
+                plan_moment=moments.get(final),
+                built_with=built_with.get(final) or None)
         # The promotion half of the per-reel edit history
         # (`library/tools/reel_edit_history.py`): the build entry was
         # filed at build time under the staging name and moved here by
@@ -10407,15 +10420,22 @@ def _record_reel_versions(project_folder: str, rows_by_final: dict,
         try:
             from library.tools import reel_edit_history as _history
 
-            act = (_history.ACT_ROLLBACK if undoes is not None
-                   else _history.ACT_PROMOTION)
+            if redoes is not None:
+                act = _history.ACT_REDO
+            elif undoes is not None:
+                act = _history.ACT_ROLLBACK
+            else:
+                act = _history.ACT_PROMOTION
             _history.try_record_ren_act(
                 review_dir, final, act=act,
-                summary=(f"Ren {'rollback' if undoes is not None
-                                          else 'promotion'} of {final} "
+                summary=(f"Ren {'redo' if redoes is not None
+                                    else ('rollback' if undoes is not None
+                                          else 'promotion')} of {final} "
                          f"(version {entry['version']}"
                          + (f", round {round_number}"
                             if round_number is not None else "")
+                         + (f", re-applies version {redoes}"
+                            if redoes is not None else "")
                          + (f", rolls back version {undoes}"
                             if undoes is not None else "") + ")"),
                 plan_version={
@@ -10431,6 +10451,8 @@ def _record_reel_versions(project_folder: str, rows_by_final: dict,
                 refs={"version": entry["version"],
                       "round": round_number,
                       "rows_digest_after": entry.get("rows_digest"),
+                      **({"redoes": redoes} if redoes is not None
+                         else {}),
                       **({"undoes": undoes} if undoes is not None
                          else {})})
         except Exception:  # noqa: BLE001 - history never fails promotion

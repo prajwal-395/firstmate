@@ -6,7 +6,9 @@ One verb, two mechanisms
 ------------------------
 `ren undo <project> [reel]` (`undo`) reverses the newest act nothing has
 reversed yet, read off the reel version ledger (`versions.reel_versions`;
-`undo_stack` and `render_stack` list it):
+`undo_stack` and `render_stack` list it) - or the act `--act <id>` names,
+addressed by a touch's journal entry id, a rebuild's version number, or
+a history entry id (`resolve_act`):
 
 - a TOUCH (`reel_touchup.apply_touchup`, one reel or `--all-reels`) is
   reversed IN PLACE on the same timeline from its journal entry
@@ -20,6 +22,20 @@ reversed yet, read off the reel version ledger (`versions.reel_versions`;
   was meant to reach - `RollbackDiverged` when it does not.  This is the
   one restore route: the Resolve project is derived (declarations plus a
   rebuild, never a restored binary).
+
+A named act is reversed only when the live timeline still reads as that
+act left it (`TimelineMovedSinceTouch`): a later act standing on top of
+it is caught by that check, not by the address. The check is the same
+for any addressed act - a touch's `undo_in_place` projection comparison,
+a rebuild's rows-digest comparison against the addressed version.
+
+REDO
+----
+`ren redo <project> [reel] --act <id>` re-applies a reversed act: a touch
+is re-run from its journal's spec (`redo_touch`), a rolled-back rebuild
+is re-run from the plan moment of the act that had been rolled back
+(`redo_rebuild`). The re-applied act is live again (`mark_redone` clears
+its `undone_by`), and a `redo` version names the act it re-applied.
 
 The journal entry
 -----------------
@@ -1280,16 +1296,15 @@ def rollback_rebuild(project_folder: str, final: str, act: Mapping, *,
     from library.tools.versions import reel_versions, rounds
 
     history = reel_versions.versions_of(project_folder, final)
-    newest = history[-1]
     live = dict(read_live_rows(final) or {})
     from library.tools.reel_replace_guard import accepts_editor_changes
     accepts_manual_edits = accepts_editor_changes(
         final, accept_editor_changes)
-    if (rounds.digest_rows(live) != newest["rows_digest"]
+    if (rounds.digest_rows(live) != act.get("rows_digest")
             and not accepts_manual_edits):
         raise TimelineMovedSinceTouch(
-            f"{final!r} no longer reads as version {newest['version']} "
-            f"({newest['kind']}) - it was changed outside Ren since",
+            f"{final!r} no longer reads as version {act['version']} "
+            f"({act['kind']}) - it was changed outside Ren since",
             "rolling back would destroy that work; nothing was changed",
             "re-apply the outside change after the rollback, or leave "
             "the timeline as it is - `ren undo` will not destroy it")
@@ -1360,6 +1375,180 @@ def _apply_touch(project_folder: str, spec: Mapping):
     return reel_touchup.apply_touchup(project_folder, spec)
 
 
+# ── Redo: re-applying a reversed act ─────────────────────────────
+
+
+def redo(project_folder: str, *, final: str = "", act: str = "",
+         connect=None, read_live_rows=None, build=None, touch=None,
+         supersede=(), accept_editor_changes=None) -> list:
+    """Re-apply a reversed act: a touch from its journal, a rebuild from its plan.
+
+    `act` addresses the reversed act by id - a touch's journal entry id,
+    a rolled-back rebuild's version number, a rollback's version number,
+    or a history entry id. The act must be reversed; a live act has
+    nothing to redo. Returns one receipt per reel re-applied.
+    """
+    kind, target, entry, name = resolve_act(project_folder, final, act)
+    if kind == "touch":
+        return [redo_touch(project_folder, entry["id"],
+                           connect=connect, read_live_rows=read_live_rows,
+                           touch=touch,
+                           accept_editor_changes=accept_editor_changes)]
+    return [redo_rebuild(project_folder, name, target,
+                         read_live_rows=read_live_rows, build=build,
+                         accept_editor_changes=accept_editor_changes)]
+
+
+def redo_touch(project_folder: str, entry_id: str, *, connect=None,
+               read_live_rows=None, touch=None,
+               accept_editor_changes=None) -> dict:
+    """Re-apply a touch that was undone, from its journal's spec.
+
+    The journal holds the touch's spec; re-applying it runs the touch
+    again through the `touch` seam (`reel_touchup.apply_touchup` in
+    production, a test double otherwise) and records a `redo` version
+    naming the undo it reversed. The touch is live again as a new
+    version; the undo stays recorded as the history it was.
+    """
+    from library.tools.versions import reel_versions
+
+    entry = read_entry(project_folder, entry_id)
+    if entry.get("status") != STATUS_UNDONE:
+        raise UndoRefused(
+            f"touch {entry_id} is {entry.get('status')!r}, not undone",
+            "there is no undo of it to redo",
+            "pick an undone entry (`ren undo <project> --list` shows "
+            "the acts)")
+    history = reel_versions.versions_of(project_folder, entry["final"])
+    touch_version = next(
+        (v for v in history if int(v["version"]) == int(entry["version"])),
+        None)
+    undo_version = (touch_version or {}).get("undone_by")
+    if undo_version is None:
+        raise UndoRefused(
+            f"touch {entry_id} carries no undo to redo",
+            "its version was never reversed",
+            "pick an undone entry (`ren undo <project> --list` shows "
+            "the acts)")
+    spec = dict(entry["spec"])
+    apply_touch = touch or _apply_touch
+    apply_touch(project_folder, spec)
+    rows = (read_live_rows or _live_rows_reader(
+        project_folder, connect))(entry["final"])
+    version = reel_versions.record(
+        project_folder, entry["final"], kind=reel_versions.KIND_REDO,
+        rows=rows, redoes=undo_version, journal=entry["id"])
+    try:
+        from library.tools import reel_edit_history as _history
+        _history.try_record_ren_act(
+            os.path.join(project_folder, "pipeline_output", "review"),
+            entry["final"], act=_history.ACT_REDO,
+            summary=(f"Ren redo on {entry['final']} (version "
+                     f"{version['version']} re-applies touch journal "
+                     f"{entry['id']}, reversing undo version "
+                     f"{undo_version})"),
+            refs={"version": version["version"], "redoes": undo_version,
+                  "journal": entry["id"],
+                  "rows_digest_after": version.get("rows_digest")})
+    except Exception:  # noqa: BLE001 - history never fails a redo
+        pass
+    return {"entry": entry["id"], "version": version["version"],
+            "redo": True, "reapplied": undo_version}
+
+
+def redo_rebuild(project_folder: str, final: str, act: Mapping, *,
+                 read_live_rows: Callable[[str], Mapping] | None = None,
+                 build: Callable[[str, int], int] | None = None,
+                 accept_editor_changes=None) -> dict:
+    """Re-apply a rebuild that was rolled back, from its plan moment.
+
+    `act` is the rollback version or the rolled-back rebuild. The
+    rebuild's plan moment is restored and the reel rebuilt through the
+    `build` seam; a `redo` version names the act it re-applied and the
+    rolled-back rebuild is live again.
+    """
+    from library.tools.versions import reel_versions, rounds
+
+    history = reel_versions.versions_of(project_folder, final)
+    if act.get("kind") == reel_versions.KIND_ROLLBACK:
+        rebuild = next(
+            (v for v in history
+             if int(v["version"]) == int(act.get("redoes") or 0)), None)
+        if rebuild is None:
+            raise UndoRefused(
+                f"rollback {act['version']} of {final!r} names no rebuild "
+                f"to re-apply",
+                "so there is nothing to redo",
+                "list the acts with `ren undo <project> --list`")
+        act = rebuild
+    if act.get("kind") != reel_versions.KIND_BUILD:
+        raise UndoRefused(
+            f"version {act['version']} of {final!r} is "
+            f"{act.get('kind')!r}, not a rebuild",
+            "so there is no rebuild to redo",
+            "list the acts with `ren undo <project> --list`")
+    if not act.get("undone_by"):
+        raise UndoRefused(
+            f"version {act['version']} of {final!r} is not rolled back",
+            "there is no rollback of it to redo",
+            "pick a rolled-back rebuild (`ren undo <project> --list` "
+            "shows the acts)")
+    plan_moment = act.get("plan_moment")
+    if not plan_moment:
+        raise UndoRefused(
+            f"version {act['version']} of {final!r} carries no plan moment",
+            "so the redo cannot say which plan to rebuild from",
+            "list the acts with `ren undo <project> --list`")
+    target = reel_versions.state_before(project_folder, final,
+                                        int(act["version"]))
+    if target is None:
+        raise UndoRefused(
+            f"version {act['version']} of {final!r} is the first recorded "
+            f"version",
+            "so there is no earlier state to have rolled back to",
+            "there is nothing to redo - leave the reel as it is")
+    live = dict(read_live_rows(final) or {})
+    from library.tools.reel_replace_guard import accepts_editor_changes
+    if (rounds.digest_rows(live) != target["rows_digest"]
+            and not accepts_editor_changes(final, accept_editor_changes)):
+        raise TimelineMovedSinceTouch(
+            f"{final!r} no longer reads as version {target['version']} - "
+            f"it was changed outside Ren since the rollback",
+            "re-applying the rebuild over it would destroy that work; "
+            "nothing was changed",
+            "re-apply the outside change after the redo, or leave the "
+            "timeline as it is - `ren redo` will not destroy it")
+    reel = int(plan_moment["number"])
+    restore_plan_moment(project_folder, plan_moment)
+    reel_versions.set_pending_redo(project_folder, final, int(act["version"]))
+    if build is None:
+        code = _build_one_reel(project_folder, reel, supersede=(),
+                               accept_editor_changes=accept_editor_changes)
+    else:
+        code = build(project_folder, reel)
+    unplaced = reel_versions.take_pending_redo(project_folder, final)
+    if code or unplaced is not None:
+        raise UndoNotVerified(
+            f"the rebuild for the redo of {final!r} "
+            f"{'refused (exit ' + str(code) + ')' if code else 'promoted nothing'}"
+            f"; the plan now holds version {act['version']}'s moment "
+            f"and the timeline was not replaced.")
+    after = dict(read_live_rows(final) or {})
+    if rounds.digest_rows(after) != act["rows_digest"]:
+        diff = rounds.diff_reel(act["rows"], after)
+        raise RollbackDiverged(
+            f"{final!r} was rebuilt from version {act['version']}'s plan "
+            f"and it does not read as that version: {diff}. The redo is "
+            f"on the timeline and recorded, and this is what it could "
+            f"not reproduce.")
+    redo_version = next(
+        (v for v in reversed(reel_versions.versions_of(project_folder, final))
+         if v.get("kind") == reel_versions.KIND_REDO), None)
+    return {"final": final, "redone": act["version"],
+            "version": (int(redo_version["version"])
+                        if redo_version else None)}
+
+
 # ── `ren undo` ───────────────────────────────────────────────────
 
 
@@ -1376,52 +1565,124 @@ def undo_stack(project_folder, final: str = "") -> list:
                   reverse=True)
 
 
-def undo(project_folder: str, *, final: str = "", entry_id: str = "",
-         connect=None, read_live_rows=None, build=None, touch=None,
-         supersede=(), accept_editor_changes=None) -> list:
-    """Reverse the newest act (on `final`, or anywhere), or a named touch.
+def resolve_act(project_folder, final: str, act_id: str):
+    """Resolve an act id to `(kind, act, entry, final_name)`.
 
-    Returns one receipt per reel reversed. A named entry that is not
-    its reel's newest act refuses: a later act stands on top of it.
+    An act id is a touch's journal entry id, a rebuild's version number,
+    or a history entry id (resolved through its refs) - the history is
+    the address space. `act` is the version ledger entry; `entry` is the
+    undo journal entry for a touch, else None; `final_name` is the reel
+    the act was found on.
     """
     from library.tools.versions import reel_versions
 
-    if entry_id:
-        entry = read_entry(project_folder, entry_id)
-        newest = reel_versions.latest_act(project_folder, entry["final"])
-        if newest is None or newest.get("journal") != entry_id:
+    review_dir = os.path.join(str(project_folder), "pipeline_output", "review")
+    finals = ([final] if final
+              else list(reel_versions.read(project_folder)["reels"]))
+
+    for name in finals:
+        try:
+            entry = read_entry(project_folder, act_id)
+        except UndoRefused:
+            continue
+        if entry.get("final") != name:
+            continue
+        for act in reel_versions.versions_of(project_folder, name):
+            if act.get("journal") == act_id:
+                return ("touch", act, entry, name)
+        raise UndoRefused(
+            f"journal entry {act_id!r} is recorded on {name!r} but no "
+            f"version names it",
+            "so it cannot be addressed as an act",
+            "list the acts with `ren undo <project> --list`")
+
+    try:
+        number = int(act_id)
+    except (TypeError, ValueError):
+        number = None
+    if number is not None:
+        for name in finals:
+            for act in reel_versions.versions_of(project_folder, name):
+                if (int(act["version"]) == number
+                        and act.get("kind") in (reel_versions.KIND_BUILD,
+                                                reel_versions.KIND_ROLLBACK)):
+                    return ("rebuild", act, None, name)
+
+    from library.tools import reel_edit_history
+    for name in finals:
+        for entry in reel_edit_history.recorded_history(review_dir, name):
+            if entry.get("id") != act_id:
+                continue
+            refs = entry.get("refs") or {}
+            if refs.get("journal"):
+                return resolve_act(project_folder, name, str(refs["journal"]))
+            if refs.get("version") is not None:
+                return resolve_act(project_folder, name, str(refs["version"]))
             raise UndoRefused(
-                f"{entry_id} is not the newest act on {entry['final']!r} "
-                f"(that is version {(newest or {}).get('version')}, "
-                f"{(newest or {}).get('kind')})",
-                "a later act stands on top of it",
-                "undo the later one first (`ren undo <project> --list` "
-                "shows the order)")
-        targets = [(entry["final"], newest)]
-    else:
-        stack = undo_stack(project_folder, final)
-        if not stack:
+                f"history entry {act_id!r} names no version or journal",
+                "so it cannot be addressed as an act",
+                "list the acts with `ren undo <project> --list`")
+
+    raise UndoRefused(
+        f"no act {act_id!r} is recorded on {final or 'this project'}",
+        "the id names no journal entry, version, or history entry",
+        "list the acts with `ren undo <project> --list`")
+
+
+def undo(project_folder: str, *, final: str = "", act: str = "",
+          connect=None, read_live_rows=None, build=None, touch=None,
+          supersede=(), accept_editor_changes=None) -> list:
+    """Reverse the newest act (on `final`, or anywhere), or the act `act` names.
+
+    `act` addresses any recorded act by id, not just the newest: a touch
+    is reversed in place, a rebuild rolled back. A named act is reversed
+    only when the live timeline still reads as that act left it - a later
+    act standing on top of it is caught by that check (`TimelineMoved
+    SinceTouch`), not by the address. Returns one receipt per reel.
+    """
+    from library.tools.versions import reel_versions
+
+    if act:
+        kind, target, entry, name = resolve_act(project_folder, final, act)
+        if kind == "touch":
+            return [undo_touch(project_folder, entry["id"],
+                               connect=connect,
+                               accept_editor_changes=accept_editor_changes)]
+        if target.get("undone_by"):
             raise UndoRefused(
-                f"nothing recorded on {final or 'this project'!r} is "
-                f"left to undo",
-                "every recorded act was already undone, or none was "
-                "ever recorded",
-                "there is nothing to undo - leave the reels as they are")
-        name, act = stack[0]
-        targets = [(name, act)]
-        if act["kind"] == reel_versions.KIND_TOUCH and act.get("batch"):
-            targets = [(other, other_act) for other, other_act
-                       in undo_stack(project_folder)
-                       if other_act.get("batch") == act["batch"]]
-            for other, _act in targets:
-                if reel_versions.latest_act(project_folder, other) != _act:
-                    raise UndoRefused(
-                        f"the all-reels touch {act['batch']} has a later "
-                        f"act on {other!r} standing on it",
-                        "an all-reels touch is undone whole, and a later "
-                        "act stands in the way",
-                        f"undo the later act on {other!r} first, then "
-                        f"re-run `ren undo`")
+                f"version {target['version']} of {name!r} is "
+                f"already undone (by version {target['undone_by']})",
+                "there is nothing to undo",
+                "pick a live act (`ren undo <project> --list` shows them)")
+        return [rollback_rebuild(
+            project_folder, name, target,
+            read_live_rows=read_live_rows or _live_rows_reader(
+                project_folder, connect),
+            build=build, touch=touch, supersede=supersede,
+            accept_editor_changes=accept_editor_changes)]
+    stack = undo_stack(project_folder, final)
+    if not stack:
+        raise UndoRefused(
+            f"nothing recorded on {final or 'this project'!r} is "
+            f"left to undo",
+            "every recorded act was already undone, or none was "
+            "ever recorded",
+            "there is nothing to undo - leave the reels as they are")
+    name, act = stack[0]
+    targets = [(name, act)]
+    if act["kind"] == reel_versions.KIND_TOUCH and act.get("batch"):
+        targets = [(other, other_act) for other, other_act
+                   in undo_stack(project_folder)
+                   if other_act.get("batch") == act["batch"]]
+        for other, _act in targets:
+            if reel_versions.latest_act(project_folder, other) != _act:
+                raise UndoRefused(
+                    f"the all-reels touch {act['batch']} has a later "
+                    f"act on {other!r} standing on it",
+                    "an all-reels touch is undone whole, and a later "
+                    "act stands in the way",
+                    f"undo the later act on {other!r} first, then "
+                    f"re-run `ren undo`")
     receipts = []
     for name, act in targets:
         if act["kind"] == reel_versions.KIND_TOUCH:
@@ -1488,6 +1749,10 @@ __all__ = [
     "projection",
     "projection_diff",
     "read_entry",
+    "redo",
+    "redo_rebuild",
+    "redo_touch",
+    "resolve_act",
     "restore_plan_moment",
     "rollback_rebuild",
     "undo",

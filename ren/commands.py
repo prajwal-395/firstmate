@@ -103,8 +103,11 @@ VERBS = (
           detail="Apply a structured change to a built reel's existing timeline through composed_edit, staged and verified"),
     Verb("touch-master", "Reels", "Apply a small change to the master timeline (a touch-up, not a rebuild)", subcommand="touch-master",
           detail="Apply a structured change to the master timeline's existing timeline through composed_edit, staged and verified"),
-    Verb("undo", "Reels", "Undo the newest touch-up (in place) or rebuild (by version)", subcommand="undo",
-         detail="Reverse the newest Ren act: a touch-up in place from its journal, a rebuild by rolling back to the version before it"),
+    Verb("undo", "Reels", "Undo a touch-up (in place) or rebuild (by version)", subcommand="undo",
+          detail="Reverse a Ren act: a touch-up in place from its journal, a rebuild by rolling back to the version before it. "
+                 "--act addresses any recorded act by id, not just the newest"),
+    Verb("redo", "Reels", "Re-apply a reversed touch-up or rebuild", subcommand="redo",
+          detail="Re-apply a reversed act: a touch from its journal's spec, a rolled-back rebuild from the plan moment of the act that had been rolled back"),
     Verb("dry-run", "Reels", "Plan a touch-up against the live timeline and stop", subcommand="ren-dry-run",
          detail="Dry-run the composed edit path (plan, read live, print, stop - never executes)"),
     Verb("deliver", "Reels", "Render one approved reel to a file", subcommand="deliver-reel"),

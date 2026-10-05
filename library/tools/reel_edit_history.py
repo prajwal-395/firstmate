@@ -94,11 +94,13 @@ ACT_PROMOTION = "promotion"
 ACT_TOUCH = "touch"
 ACT_UNDO = "undo"
 ACT_ROLLBACK = "rollback"
+ACT_REDO = "redo"
 ACT_MANUAL_EDIT = "manual_edit"
 ACT_REJECTED = "rejected"
 ACT_MANUAL_EDIT_REASON = "manual_edit_reason"
 
-REN_ACTS = (ACT_BUILD, ACT_PROMOTION, ACT_TOUCH, ACT_UNDO, ACT_ROLLBACK)
+REN_ACTS = (ACT_BUILD, ACT_PROMOTION, ACT_TOUCH, ACT_UNDO, ACT_ROLLBACK,
+            ACT_REDO)
 
 _FORMAT = "reel_edit_history/1"
 
