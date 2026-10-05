@@ -13,6 +13,8 @@ This module is the watchdog that does:
 * MARK Resolve unresponsive after a failed bounded probe.
 * STOP queue growth: the broker rejects new submissions while degraded.
 * KEEP the holder and job id of the operation that was running.
+* RECOVER on the next successful bounded probe, so a transient hang does
+  not latch the broker shut until an operator restarts it.
 * NEVER auto-restart Resolve - that is the operator's call.
 
 Health status separates ``connected`` (a non-null handle exists) from
@@ -25,6 +27,7 @@ verification that runs before builds resume after an operator restart.
 
 from __future__ import annotations
 
+import sys
 import threading
 import time
 from collections.abc import Callable
@@ -107,6 +110,7 @@ class ResolveWatchdog:
         self._degraded = False
         self._degraded_at: float | None = None
         self._degraded_reason = ""
+        self._recovered_at: float | None = None
         self._holder = ""
         self._job_id = ""
         self._lock = threading.Lock()
@@ -133,6 +137,7 @@ class ResolveWatchdog:
                 "degraded": self._degraded,
                 "degraded_at": self._degraded_at,
                 "degraded_reason": self._degraded_reason,
+                "recovered_at": self._recovered_at,
                 "holder": self._holder,
                 "job_id": self._job_id,
             }
@@ -160,6 +165,9 @@ class ResolveWatchdog:
                 timeout_s=self._round_trip_budget)
         except Exception as exc:  # noqa: BLE001 - any failure is a mark
             self._mark_degraded(f"probe failed: {exc}", "", "")
+            return
+        if self.is_degraded():
+            self._clear_degraded()
 
     def _mark_degraded(self, reason: str, holder: str,
                        job_id: str) -> None:
@@ -169,6 +177,25 @@ class ResolveWatchdog:
             self._degraded_reason = reason
             self._holder = holder
             self._job_id = job_id
+
+    def _clear_degraded(self) -> None:
+        """A bounded probe succeeded while degraded: Resolve has recovered.
+
+        Clears the degraded mark so the broker resumes accepting
+        submissions. The holder and job id of the original failure are
+        kept for post-mortem; nothing about Resolve is restarted,
+        killed or reconfigured.
+        """
+        with self._lock:
+            self._degraded = False
+            self._degraded_at = None
+            self._degraded_reason = ""
+            self._recovered_at = time.time()
+            holder = self._holder
+            job_id = self._job_id
+        print(f"resolve-watchdog: recovered - Resolve is responsive again "
+              f"(failed holder={holder!r}, job_id={job_id!r})",
+              file=sys.stderr)
 
 
 def health_status(resolve) -> dict:
