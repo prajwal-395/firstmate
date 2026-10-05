@@ -49,10 +49,17 @@ whatever selects a shortlist becomes the chooser).  There is no
 single-frame selection there to replace, and ranking strips would
 contradict the rule that every candidate window gets one.
 
-Status: unwired, not yet exercised on real frames
--------------------------------------------------
-The selection and the gate run against injected scorers in tests.  The
-real head has not scored a production frame.
+Status: exercised on real frames 2026-10-04
+-------------------------------------------
+``extract_ranked_clip_thumbnail`` drives the whole path - probe, extract,
+score, sharpness-gate, choose - and the real pass over the geo-podcast
+clips is recorded in ``docs/evidence/frame_ranker.md``: the ranker beats
+the legacy timestamp on the thumbnail clips with BOTH the shipped
+openai/clip-vit-large-patch14 backbone and the laion2b backbone the head
+was trained on, and the blind re-judge confirms the win is visible, not
+just numerical.  The unit tests still pin the two bounds with stub
+scorers; ``tests/qualification/test_frame_ranker_real.py`` runs the real
+weights over a synthetic clip.
 """
 
 from __future__ import annotations
@@ -80,6 +87,11 @@ LAION_HEAD_LICENCE = "MIT (LAION-AI/aesthetic-predictor, 2022)"
 #: data).  Spike report section 1: the right fidelity for "does ranking
 #: beat timestamp picking", NOT the exact LAION number.  The 200-frame
 #: retest with the exact backbone is still open (report section 6).
+#: CLOSED 2026-10-04: the real pass ran BOTH this backbone and the exact
+#: laion2b (laion/CLIP-ViT-L-14-laion2B-s32B-b82K); the ranker beats the
+#: legacy timestamp on the thumbnail clips with either, and the blind
+#: re-judge confirms the win on both.  Evidence:
+#: ``docs/evidence/frame_ranker.md``.
 CLIP_MODEL_ID = "openai/clip-vit-large-patch14"
 
 #: The 4 KB linear head, fetched over HTTPS 200 from the LAION repo.
@@ -342,6 +354,100 @@ class LaionAestheticScorer:
         return scores
 
 
+def _probe_duration(path: str) -> float:
+    """Container duration in seconds, or raise - an unprobeable clip has no
+    candidates to rank."""
+    probe = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-print_format", "json",
+         "-show_format", str(path)],
+        capture_output=True, text=True, encoding="utf-8",
+        errors="replace", timeout=_pq.FFPROBE_TIMEOUT_S, check=False,
+    )
+    if probe.returncode != 0:
+        raise FrameRankerUnavailable(f"ffprobe could not read {path}")
+    import json as _json
+
+    try:
+        return float(_json.loads(probe.stdout)["format"]["duration"])
+    except (ValueError, KeyError, TypeError) as exc:
+        raise FrameRankerUnavailable(f"no duration for {path}") from exc
+
+
+def extract_ranked_clip_thumbnail(
+    clip_path: str,
+    scorer: LaionAestheticScorer,
+    work_dir: str | None = None,
+    n_candidates: int | None = None,
+    width: int = 960,
+) -> dict:
+    """Extract a clip's thumbnail by ranking candidate frames.
+
+    Probes the clip, extracts ``candidate_timestamps`` interior frames (the
+    legacy pick among them, so the old rule stays a candidate), scores each
+    with the loaded ``scorer``, measures each one's sharpness, and applies the
+    fail-closed ``choose`` gate.  Returns the winner, or ``None`` with
+    ``fallback`` naming the legacy timestamp when nothing passes - the caller
+    then uses exactly the frame it would have used before this module
+    existed, never a soft one.
+
+    Frames are written under ``work_dir`` (a fresh temp dir when omitted) and
+    left there: the caller builds pairs or previews from them and removes the
+    directory.  Raises ``FrameRankerUnavailable`` rather than returning a
+    partial result when the clip cannot be probed or decoded.
+    """
+    import shutil as _shutil
+    import tempfile as _tempfile
+    from pathlib import Path as _Path
+
+    duration = _probe_duration(clip_path)
+    count = int(n_candidates) if n_candidates else N_THUMBNAIL_CANDIDATES
+    timestamps = candidate_timestamps(duration, count)
+    legacy_ts = round(legacy_timestamp(duration), 3)
+
+    own_dir = work_dir is None
+    work = _tempfile.mkdtemp(prefix="frame-ranker-") if own_dir else work_dir
+    _Path(work).mkdir(parents=True, exist_ok=True)
+    try:
+        paths = []
+        for ts in timestamps:
+            frame_path = str(_Path(work) / f"t{ts:07.3f}.jpg")
+            extracted = subprocess.run(
+                ["ffmpeg", "-hide_banner", "-loglevel", "error",
+                 "-ss", str(ts), "-i", str(clip_path),
+                 "-frames:v", "1", "-vf", f"scale={width}:-1",
+                 "-q:v", "2", frame_path],
+                capture_output=True, timeout=_pq.FFMPEG_TIMEOUT_S, check=False,
+            )
+            if extracted.returncode != 0 or not _Path(frame_path).is_file():
+                raise FrameRankerUnavailable(
+                    f"ffmpeg could not extract t={ts} from {clip_path}")
+            paths.append(frame_path)
+
+        scores = scorer.score_files(paths)
+        candidates = []
+        for ts, path, score in zip(timestamps, paths, scores):
+            candidates.append({
+                "id": f"t{ts:07.3f}",
+                "timestamp": ts,
+                "path": path,
+                "aesthetic_score": round(float(score), 4),
+                "sharpness": round(sharpness_of_image(path), 2),
+            })
+        winner, report = choose(candidates)
+        return {
+            "clip_path": str(clip_path),
+            "duration": round(duration, 3),
+            "legacy_timestamp": legacy_ts,
+            "candidates": candidates,
+            "winner": winner,
+            "report": report,
+            "fallback": None if winner else "legacy_timestamp",
+        }
+    finally:
+        if own_dir:
+            _shutil.rmtree(work, ignore_errors=True)
+
+
 def _decode_rgb(path: str):
     """A still as an RGB numpy array, via the ffmpeg this pipeline
     already shells out to - no new imaging dependency at the boundary."""
@@ -373,5 +479,7 @@ def _decode_rgb(path: str):
     raw = decoded.stdout
     if decoded.returncode != 0 or len(raw) < width * height * 3:
         raise FrameRankerUnavailable(f"ffmpeg could not decode {path}")
+    # a writable copy: torch.from_numpy warns on the read-only array
+    # frombuffer returns, and the warning is noise at scoring time
     return _np.frombuffer(raw[: width * height * 3],
-                          dtype=_np.uint8).reshape(height, width, 3)
+                          dtype=_np.uint8).reshape(height, width, 3).copy()
