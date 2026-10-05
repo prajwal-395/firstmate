@@ -514,26 +514,53 @@ def test_two_placements_of_one_file_refuse_rather_than_guess(capsys):
 
 
 @pytest.mark.usefixtures("fake_preservation_snapshots")
-def test_a_marker_whose_file_is_gone_names_the_file(capsys):
-    """A re-rendered overlay under a fresh content hash plays no source
-    frame of the old file: the report names the file and the words."""
+def test_a_note_on_a_rerendered_overlay_lands_on_its_row_at_its_frame():
+    """The captain's ruling, 2026-10-05 (Reel 13's post header, once a
+    movie, now a PNG still): the rebuild replaced the file, so the note
+    goes onto the one item on the same row playing the same record frame,
+    keyed in that item's own source space."""
     retiring = _retiring_cta()
     notes = marker_carry.read_clip_markers(retiring, "Reel 09")
+    card = timeline_item("cta card", 490, 600, path="/f/mg_cta_NEW.png",
+                         left_offset=86_313)
     replacement = FakeTimeline("staging", video=[
-        ("SpeakerOne", [timeline_item("SpeakerOne A", 0, 600, path="/f/LC4932.MXF",
-                               left_offset=6505)]),
-        ("Motion Graphics", [timeline_item("cta card", 500, 560,
-                                       path="/f/mg_cta_NEW.mov", left_offset=0)]),
+        ("SpeakerOne", [timeline_item("SpeakerOne A", 0, 600,
+                                      path="/f/LC4932.MXF",
+                                      left_offset=6505)]),
+        ("Motion Graphics", [card]),
     ])
     carried, uncarried = marker_carry.plan_clip_carry(
         notes, replacement, "Reel 09")
-    assert not carried and len(uncarried) == 1
-    assert uncarried[0]["note"] == CTA_NOTE
-    assert "/f/mg_cta.mov" in uncarried[0]["why"]
+    assert not uncarried and len(carried) == 1
+    assert carried[0]["to_frame"] == 512
+    assert carried[0]["to_source_frame"] == 86_313 + 22
+    assert not marker_carry.place_clip_markers(replacement, carried)
+    assert card.placed == [(86_335, "Blue", "feedback", CTA_NOTE, 1, "")]
+
+
+@pytest.mark.usefixtures("fake_preservation_snapshots")
+def test_a_note_whose_file_is_gone_and_whose_row_is_ambiguous_refuses(
+        capsys):
+    """Two items on the row play the note's frame, or none does: refused
+    by name, with the file and the words - never guessed."""
+    retiring = _retiring_cta()
+    notes = marker_carry.read_clip_markers(retiring, "Reel 09")
+    for cards in ([timeline_item("a", 500, 520, path="/f/a.png"),
+                   timeline_item("b", 505, 560, path="/f/b.png")],
+                  [timeline_item("a", 0, 100, path="/f/a.png")]):
+        replacement = FakeTimeline("staging", video=[
+            ("SpeakerOne", [timeline_item("SpeakerOne A", 0, 600,
+                                          path="/f/LC4932.MXF",
+                                          left_offset=6505)]),
+            ("Motion Graphics", cards),
+        ])
+        carried, uncarried = marker_carry.plan_clip_carry(
+            notes, replacement, "Reel 09")
+        assert not carried and len(uncarried) == 1
+        assert "/f/mg_cta.mov" in uncarried[0]["why"]
+        assert "refusing to guess" in uncarried[0]["why"]
     marker_carry.report_clip("Reel 09", carried, uncarried)
-    err = capsys.readouterr().err
-    assert "CLIP MARKER NOT CARRIED" in err
-    assert CTA_NOTE in err
+    assert CTA_NOTE in capsys.readouterr().err
 
 
 @pytest.mark.usefixtures("fake_preservation_snapshots")

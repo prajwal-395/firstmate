@@ -395,19 +395,27 @@ def _canonical(value):
 #: 2026-10-02) and some one ulp off (`composed_edit.READBACK_TOLERANCE`).
 VALUE_TOLERANCE = 1e-6
 
+#: How far two transform reads may differ and still be one value: half
+#: of the 0.001 the Inspector displays Pan, Tilt, Zoom and the rest to,
+#: so two values that show the same number are the same, and a change
+#: anyone could see is not. Reel 13, 2026-10-05: the rebuild computed
+#: Tilt -174.01 where the captain's reel held -174.01025 - one value,
+#: rounded differently - and the guard refused it as an editor change.
+TRANSFORM_TOLERANCE = 5e-4
 
-def _same_value(a, b) -> bool:
+
+def _same_value(a, b, tolerance: float = VALUE_TOLERANCE) -> bool:
     """One value, read twice: numbers by magnitude, containers by member."""
     numbers = (int, float)
     if (isinstance(a, numbers) and isinstance(b, numbers)
             and not isinstance(a, bool) and not isinstance(b, bool)):
-        return abs(float(a) - float(b)) <= VALUE_TOLERANCE
+        return abs(float(a) - float(b)) <= tolerance
     if isinstance(a, dict) and isinstance(b, dict):
         return a.keys() == b.keys() and all(
-            _same_value(a[key], b[key]) for key in a)
+            _same_value(a[key], b[key], tolerance) for key in a)
     if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
         return len(a) == len(b) and all(
-            _same_value(x, y) for x, y in zip(a, b))
+            _same_value(x, y, tolerance) for x, y in zip(a, b))
     return _canonical(a) == _canonical(b)
 
 
@@ -431,6 +439,8 @@ def _same_preservation_value(field: str, before, after) -> bool:
     """Compare one preserved item field using its domain semantics."""
     if field == "color":
         before, after = _normalized_color(before), _normalized_color(after)
+    if field == "transform":
+        return _same_value(before, after, TRANSFORM_TOLERANCE)
     return _same_value(before, after)
 
 
@@ -464,7 +474,7 @@ def _normalize_pending_editor_record(record: dict) -> dict:
     return {**record, "changes": normalized_changes}
 
 
-def _stable_item_key(item: dict) -> tuple:
+def stable_item_key(item: dict) -> tuple:
     return (item.get("track_type"), item.get("track_index"),
             item.get("track_name"),
             item.get("source_identity"), item.get("source_in_frame"),
@@ -487,9 +497,9 @@ def snapshot_diff(before: dict, after: dict) -> list[dict]:
     changes = []
     old_items, new_items = {}, {}
     for item in before.get("items", ()):
-        old_items.setdefault(_stable_item_key(item), []).append(item)
+        old_items.setdefault(stable_item_key(item), []).append(item)
     for item in after.get("items", ()):
-        new_items.setdefault(_stable_item_key(item), []).append(item)
+        new_items.setdefault(stable_item_key(item), []).append(item)
     for key in sorted(set(old_items) | set(new_items), key=_canonical):
         old_group, new_group = old_items.get(key, []), new_items.get(key, [])
         paired = min(len(old_group), len(new_group))
@@ -544,11 +554,85 @@ def snapshot_diff(before: dict, after: dict) -> list[dict]:
     return changes
 
 
+#: What a re-planned caption card must match of the editor's card: all
+#: but what names the render (`_replanned_caption_cards`).
+_CAPTION_SPAN_FIELDS = tuple(
+    field for field in PRESERVATION_FIELDS
+    if field not in ("name", "source_identity", "source_in_frame",
+                     "source_out_frame"))
+
+
+def _replanned_caption_cards(change: dict, staged: dict) -> list[dict]:
+    """Staged cards that re-render the caption card `change` names.
+
+    A rebuild that re-plans the captions renders every card under a new
+    name and media pool item, so an editor's change to a card can never
+    match staging by source identity. The card's stable identity is its
+    caption segment (`subtitle_segment_id.stable_prefix`) on the same
+    row; what must then hold is everything but the render's name and
+    source frames - its record span above all, which is what
+    `editor_edit_carry` carries (`caption_span`, and ripples).
+    """
+    from library.tools import subtitle_segment_id
+
+    def segment(item):
+        name = str(item.get("name") or "")
+        if name.lower().endswith(".mov"):
+            name = name[:-4]
+        if not subtitle_segment_id.is_segment_id(name):
+            return None
+        return subtitle_segment_id.stable_prefix(name)
+
+    item = change.get("after") or {}
+    wanted = segment(item)
+    if wanted is None:
+        return []
+    row = (item.get("track_type"), item.get("track_index"),
+           item.get("track_name"))
+    return [other for other in staged.get("items", ())
+            if (other.get("track_type"), other.get("track_index"),
+                other.get("track_name")) == row
+            and segment(other) == wanted]
+
+
+def _note_content(marker: dict) -> tuple:
+    return tuple(_canonical(marker.get(field)) for field in
+                 ("color", "name", "note", "duration", "custom_data"))
+
+
+def _note_landed_on_row(change: dict, staged: dict) -> bool:
+    """A markers-only change whose notes sit on the same row of staging.
+
+    The captain's ruling, 2026-10-05: a note typed on an item the rebuild
+    re-rendered under a new file is carried onto the one item on that
+    row playing the same record frame (`marker_carry.plan_clip_carry`).
+    The item it lands on has a new identity, so what is judged is the
+    note: every note he added is on an item of that row, and none he
+    removed is. The key is the re-rendered item's own source frame, so
+    the comparison is the note's content, not its key.
+    """
+    if (change.get("kind") != "item_changed"
+            or set(change.get("changed") or ()) != {"markers"}):
+        return False
+    item = change.get("after") or {}
+    row = (item.get("track_type"), item.get("track_index"),
+           item.get("track_name"))
+    values = change["changed"]["markers"]
+    before = {_note_content(m) for m in values.get("before") or ()}
+    after = {_note_content(m) for m in values.get("after") or ()}
+    on_row = {_note_content(marker)
+              for other in staged.get("items", ())
+              if (other.get("track_type"), other.get("track_index"),
+                  other.get("track_name")) == row
+              for marker in other.get("markers") or ()}
+    return (after - before) <= on_row and not ((before - after) & on_row)
+
+
 def _change_is_carried(change: dict, staged: dict) -> bool:
     kind = change["kind"]
     if kind.startswith("item_"):
         candidates = [item for item in staged.get("items", ())
-                     if _stable_item_key(item) == tuple(change["identity"])]
+                     if stable_item_key(item) == tuple(change["identity"])]
         if not candidates and kind == "item_changed":
             after = change.get("after") or {}
             identity = after.get("graphic_identity")
@@ -565,15 +649,25 @@ def _change_is_carried(change: dict, staged: dict) -> bool:
                 ]
         if kind == "item_removed":
             return not candidates
+        fields = PRESERVATION_FIELDS
+        if not candidates and _note_landed_on_row(change, staged):
+            return True
+        if not candidates:
+            candidates = _replanned_caption_cards(change, staged)
+            fields = _CAPTION_SPAN_FIELDS
         if not candidates:
             return False
         if kind == "item_added":
             wanted = change["after"]
             return any(all(_same_preservation_value(
                                field, item.get(field), wanted.get(field))
-                           for field in PRESERVATION_FIELDS)
+                           for field in fields)
                        for item in candidates)
         wanted = change["changed"]
+        if fields is _CAPTION_SPAN_FIELDS:
+            # The render's name and source frames are not the editor's.
+            wanted = {field: values for field, values in wanted.items()
+                      if field in fields}
         return any(all(_same_preservation_value(
                            field, item.get(field), values["after"])
                        for field, values in wanted.items())
@@ -696,9 +790,9 @@ def journaled_touch_snapshot(project_folder: str, final: str,
     # nothing else moved but a pass-through Fusion comp.
     live_by_key = {}
     for item in live.get("items", ()):
-        live_by_key.setdefault(_stable_item_key(item), []).append(item)
+        live_by_key.setdefault(stable_item_key(item), []).append(item)
     for item in items:
-        paired = live_by_key.get(_stable_item_key(item))
+        paired = live_by_key.get(stable_item_key(item))
         if not paired:
             continue
         live_transform = paired.pop(0).get("transform") or {}
@@ -801,6 +895,31 @@ def detect_editor_changes(project_folder: str, final: str, live: dict,
     }
 
 
+def _moved_by_carried_ripples(carry_report) -> set:
+    """Items the editor's carried, verified ripples moved, by stable key.
+
+    `editor_edit_carry.derive_edits` records on each rippled edit every
+    item whose shift that ripple alone explains (`ripple_moved`). The
+    editor did not edit those items; his ripple moved them, and once the
+    ripple is replayed on staging and verified, so is the move - even on
+    an item the rebuild re-rendered (Reel 13's freeze, end card and
+    captions after record 1,497), which no identity match can find.
+    """
+    if not isinstance(carry_report, dict):
+        return set()
+    return {tuple(key) for edit in carry_report.get("edits") or ()
+            if edit.get("ripple")
+            for key in edit.get("ripple_moved") or ()}
+
+
+def _moved_by_ripple(change: dict, rippled: set) -> bool:
+    return (change.get("kind") == "item_changed"
+            and set(change.get("changed") or ()) <= {"record_in",
+                                                     "record_out"}
+            and bool(change.get("changed"))
+            and tuple(change.get("identity") or ()) in rippled)
+
+
 def protect_editor_changes(project_folder: str, final: str, live: dict,
                            staged_initial: dict, staged_after: dict,
                            *, accept=False, detection=None,
@@ -819,9 +938,11 @@ def protect_editor_changes(project_folder: str, final: str, live: dict,
     detected = detection["detected"]
     pending = detection["pending"]
     carried, uncarried = [], []
+    rippled = _moved_by_carried_ripples(carried_edits)
     for record in pending:
         remaining = [change for change in record.get("changes", ())
-                     if not _change_is_carried(change, staged_after)]
+                     if not _change_is_carried(change, staged_after)
+                     and not _moved_by_ripple(change, rippled)]
         if remaining:
             uncarried.extend((record, change) for change in remaining)
         else:
@@ -835,7 +956,7 @@ def protect_editor_changes(project_folder: str, final: str, live: dict,
                 continue
             item = change.get("before") or change.get("after") or {}
             key = (problem.get("record_id"), change.get("kind"),
-                   _stable_item_key(item))
+                   stable_item_key(item))
             reasons.setdefault(key, []).append(problem["why"])
         details = []
         for record, change in uncarried:
@@ -843,7 +964,7 @@ def protect_editor_changes(project_folder: str, final: str, live: dict,
             if str(change.get("kind") or "").startswith("item_"):
                 item = change.get("before") or change.get("after") or {}
                 key = (record.get("id"), change.get("kind"),
-                       _stable_item_key(item))
+                       stable_item_key(item))
             summary = _change_summary(change)
             if key is not None and reasons.get(key):
                 summary += " - " + "; ".join(reasons[key])

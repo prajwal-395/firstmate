@@ -416,35 +416,6 @@ def test_the_next_rebuild_carries_the_ledger_with_no_new_change(project_dir):
 
 
 @pytest.mark.usefixtures("mock_dvr")
-def test_a_rippled_trim_under_a_graphic_refuses_with_the_source_ranges(project_dir):
-    live, staging = edited_reel_7(), rebuilt_reel_7()
-    # The editor also shortened the first SpeakerOne passage by 16 frames
-    # and closed the gap - under the Semantic card at 47..143.
-    rows = [live.GetItemListInTrack("video", 1)] + [
-        live.GetItemListInTrack("audio", index)
-        for index in range(1, live.GetTrackCount("audio") + 1)
-    ]
-    for clips in rows:
-        clips[0]._duration = 22_332 - clips[0]._left_offset
-        clips[0]._source_end_frame = clips[0]._left_offset + clips[0]._duration
-        for later in clips[1:]:
-            later._start -= 16
-    seed_provenance(project_dir)
-    resolve = FakeProject([FakeTimeline(MASTER), live, staging])
-
-    with pytest.raises(ReelBuildError) as refused:
-        promote(resolve, project_dir, STAGING)
-
-    message = str(refused.value)
-    assert "a rippled trim under another row's item is not carried" in message
-    assert "'semantic-card' at record 47..143" in message
-    assert "--accept-editor-changes" in message
-    assert sorted(resolve.names()) == sorted([MASTER, FINAL, STAGING])
-    assert resolve.deleted == []
-    assert getattr(staging, "deletes", 0) == 0
-
-
-@pytest.mark.usefixtures("mock_dvr")
 def test_a_cut_staging_plays_only_part_of_refuses_by_name(project_dir):
     edit = {
         "id": "e1",
@@ -870,6 +841,234 @@ def test_a_tail_extension_and_ripple_are_written_on_the_resolve_double(
             extended_after["record_out"]) == (100, 206, 106)
     assert next_after["record_in"] == 106
     assert extension["id"] in written
+
+
+# Reel 13, 2026-10-05: the captain held Akshita's caption cards a few
+# frames longer (a tail extended, the next card's head trimmed to meet it,
+# every word left where it was) and extended the picture under them by 6
+# frames with a ripple. PR 1689 then re-planned the captions, so every
+# card on staging is a new render: same segment, new digest, new identity.
+SEGMENT = "sub_akshita_5d01801c-6efe-48c6-ae1b_1983975-1985745"
+
+
+def _card(digest, source_in, source_out, record_in, *, right=12):
+    card = _item("Subtitles", f"{SEGMENT}_{digest}.mov", source_in,
+                 source_out, record_in, record_in + source_out - source_in,
+                 track_index=4)
+    return {**card, "left_offset": source_in, "right_offset": right}
+
+
+def _picture():
+    return [_item("Akshita", "LC4932.MXF", 47563, 48022, 1038, 1497),
+            _item("Akshita", "LC4932.MXF", 12006, 12318, 1497, 1809)]
+
+
+def _caption_record():
+    """The captain's two caption re-spans over an unchanged picture."""
+    before = [*_picture(), _card("0e607e0c", 12, 53, 1043),
+              _card("682aef85", 12, 50, 1086)]
+    after = [*_picture(),
+             {**_card("0e607e0c", 12, 59, 1043), "right_offset": 6},
+             {**_card("682aef85", 17, 56, 1091), "right_offset": 6}]
+    return _change_record(before, after)
+
+
+def _replanned(right=12):
+    """Staging: the same picture, the same cards re-rendered."""
+    return [*_picture(), _card("d6c65589", 12, 53, 1043, right=right),
+            _card("45cd4cb1", 12, 51, 1086, right=right)]
+
+
+def test_caption_card_spans_carry_onto_the_replanned_cards():
+    """Each edit lands on the card of its segment that starts over the
+    picture the captain's card started over, re-expressed as the record
+    span he set - never on the content-hashed name, which is gone."""
+    edits, uncarried = carry.derive_edits(_caption_record())
+    assert uncarried == []
+    assert [edit["kind"] for edit in edits] == ["caption_span"] * 2
+    staged = _replanned()
+    plan = carry.plan_application(edits, {"items": staged}, FINAL)
+    landed = {step["item"]["name"]: step["edit"]["after"]
+              for step in plan["trim"]}
+    assert landed == {
+        f"{SEGMENT}_d6c65589.mov": {"source_in_frame": 12,
+                                    "source_out_frame": 59, "head": 0,
+                                    "tail": -6, "record_in": 1043},
+        f"{SEGMENT}_45cd4cb1.mov": {"source_in_frame": 17,
+                                    "source_out_frame": 56, "head": 5,
+                                    "tail": -5, "record_in": 1091},
+    }
+    assert all(step["edit"]["ripple"] is False for step in plan["trim"])
+    with pytest.raises(carry.EditorEditCarryRefused,
+                       match="wanted one card at record 1,043..1,090"):
+        carry.verify_carried_edits({"edits": edits}, {"items": staged},
+                                   FINAL)
+    carried = [*_picture(), _card("d6c65589", 12, 59, 1043),
+               _card("45cd4cb1", 17, 56, 1091)]
+    carry.verify_carried_edits({"edits": edits}, {"items": carried}, FINAL)
+    again = carry.plan_application(edits, {"items": carried}, FINAL)
+    assert sorted(again["already_held"]) == sorted(e["id"] for e in edits)
+
+
+def test_caption_span_refuses_when_no_card_starts_where_his_did():
+    """The re-plan moved the segment's card off the picture frame the
+    captain's card started over: no single card to land on, refused by
+    name rather than guessed onto a neighbour."""
+    edits, _ = carry.derive_edits(_caption_record())
+    staged = [*_picture(), _card("d6c65589", 12, 53, 1047),
+              _card("45cd4cb1", 12, 51, 1086)]
+    with pytest.raises(carry.EditorEditCarryRefused,
+                       match=r"0 card\(s\) of that segment"):
+        carry.plan_application(edits, {"items": staged}, FINAL)
+
+
+def test_caption_span_refuses_without_the_source_headroom():
+    edits, _ = carry.derive_edits(_caption_record())
+    with pytest.raises(carry.EditorEditCarryRefused,
+                       match="the span needs 6"):
+        carry.plan_application(edits, {"items": _replanned(right=3)}, FINAL)
+
+
+def test_a_caption_card_slid_against_its_words_is_not_a_span():
+    """Same record span, a different part of the card: a re-time."""
+    before = [*_picture(), _card("0e607e0c", 12, 53, 1043)]
+    after = [*_picture(), _card("0e607e0c", 15, 56, 1043)]
+    edits, uncarried = carry.derive_edits(_change_record(before, after))
+    assert edits == []
+    assert "moved against its own words" in uncarried[0]["why"]
+
+
+def _ripple_record(*, frame_after=(0, 1828)):
+    """The captain's +6 extension at record 1,497, rippled, run under the
+    Frame overlay and a caption card ending with the line."""
+    frame = _item("Frame", "tv_frame.mov", 0, 1828, 0, 1828, track_index=3)
+    card = _card("11397b27", 12, 60, 1450)
+    before = [*_picture(), frame, card]
+    after = [_item("Akshita", "LC4932.MXF", 47563, 48028, 1038, 1503),
+             _item("Akshita", "LC4932.MXF", 12006, 12318, 1503, 1815),
+             {**frame, "source_out_frame": frame_after[1],
+              "record_out": frame_after[1],
+              "duration": frame_after[1]},
+             card]
+    return _change_record(before, after)
+
+
+def _rippled_extend(record):
+    edits, _ = carry.derive_edits(record)
+    (extend,) = [edit for edit in edits if edit["kind"] == "extend"]
+    assert extend["ripple"] is True
+    return extend
+
+
+def test_a_rippled_extension_records_the_rows_it_ran_under_untouched():
+    extend = _rippled_extend(_ripple_record())
+    assert extend["ripple_held_rows"] == ["video:Frame", "video:Subtitles"]
+    assert extend["ripple_moved"] == [
+        ["video", 1, "Akshita", "file:/media/LC4932.MXF", 12006, 12318]]
+
+
+def test_a_rippled_extension_replays_where_staging_is_the_timeline_he_cut():
+    """Staging plays the passage ending at the frame he extended it at,
+    and every straddler sits on a row he held: the ripple carries, and
+    the write leaves those rows alone as Resolve did for him."""
+    extend = _rippled_extend(_ripple_record())
+    staged = [{**_picture()[0], "right_offset": 100}, _picture()[1],
+              _item("Frame", "tv_frame.png", 0, 1840, 0, 1840,
+                    track_index=3),
+              _card("abe8cc1f", 12, 60, 1450)]
+    plan = carry.plan_application([extend], {"items": staged}, FINAL)
+    assert [step["item"]["record_out"] for step in plan["trim"]] == [1497]
+
+
+def test_a_rippled_extension_still_refuses_what_is_not_a_replay():
+    """Not widened: a straddler on a row he never ran the ripple under
+    (a music bed), or a passage the rebuild moved, refuses as before."""
+    extend = _rippled_extend(_ripple_record())
+    bed = _item("Music", "bed.wav", 0, 1900, 0, 1900, track_type="audio",
+                track_index=3)
+    staged = [{**_picture()[0], "right_offset": 100}, _picture()[1], bed]
+    with pytest.raises(carry.EditorEditCarryRefused,
+                       match="a rippled trim under another row's item"):
+        carry.plan_application([extend], {"items": staged}, FINAL)
+    moved = [_item("Akshita", "LC4932.MXF", 47563, 48022, 1040, 1499),
+             _item("Frame", "tv_frame.png", 0, 1840, 0, 1840,
+                   track_index=3)]
+    moved[0]["right_offset"] = 100
+    with pytest.raises(carry.EditorEditCarryRefused,
+                       match="video:Frame 'tv_frame.png'"):
+        carry.plan_application([extend], {"items": moved}, FINAL)
+
+
+def test_a_still_overlay_follows_the_ripple_and_the_rest_is_held():
+    """The captain's standing rule, 2026-10-05: under a replayed ripple a
+    PNG still extends to the new end - his Reel 13 note asked the TV
+    frame and post header to reach it - and anything else is held."""
+    extend = _rippled_extend(_ripple_record())
+    steps = [{"edit": extend}]
+    still = _item("Frame", "tv_frame.png", 0, 1840, 0, 1840, track_index=3)
+    movie = _item("Frame", "tv_frame.mov", 0, 1840, 0, 1840, track_index=3)
+    card = _card("abe8cc1f", 12, 60, 1450)
+    assert carry._ripple_replays(steps, 1497, still)
+    assert not carry._ripple_holds(steps, 1497, still)
+    assert carry._ripple_holds(steps, 1497, movie)
+    assert carry._ripple_holds(steps, 1497, card)
+    assert not carry.is_still({**still, "media_type": "Video"})
+
+
+def test_the_guard_reads_a_note_that_landed_on_its_row_as_carried():
+    """Reel 13's post header: his note was typed on the old movie; the
+    rebuild's PNG on the same row now carries it, keyed in its own
+    source space. A note that did not land is still a loss."""
+    note = {"frame": 1815, "color": "Blue", "name": "feedback",
+            "note": "this clip does not go all the way to the end",
+            "duration": 1, "custom_data": ""}
+    old = _item("Post Header", "post_header_old.mov", 0, 1827, 0, 1828,
+                track_index=7)
+    change = {"kind": "item_changed",
+              "identity": list(guard.stable_item_key(old)),
+              "before": old, "after": {**old, "markers": [note]},
+              "changed": {"markers": {"before": [], "after": [note]}}}
+    png = _item("Post Header", "post_header_new.png", 86_313, 88_159, 0,
+                1846, track_index=7)
+    landed = {"items": [{**png, "markers": [{**note,
+                                             "frame": 86_313 + 1815}]}]}
+    assert guard._change_is_carried(change, landed)
+    assert not guard._change_is_carried(change, {"items": [png]})
+    elsewhere = {"items": [{**png, "track_index": 6,
+                            "track_name": "Motion Graphics",
+                            "markers": [note]}]}
+    assert not guard._change_is_carried(change, elsewhere)
+
+
+def test_the_guard_finds_a_replanned_caption_card_at_his_span():
+    """The promotion guard cannot match a re-rendered card by identity;
+    it matches its segment on the same row, and judges the span."""
+    record = _caption_record()
+    added = [change for change in record["changes"]
+             if change["kind"] == "item_added"]
+    carried = {"items": [*_picture(), _card("d6c65589", 12, 59, 1043),
+                         _card("45cd4cb1", 17, 56, 1091)]}
+    assert all(guard._change_is_carried(change, carried)
+               for change in added)
+    as_planned = {"items": _replanned()}
+    assert not any(guard._change_is_carried(change, as_planned)
+                   for change in added)
+
+
+def test_the_guard_reads_a_ripple_shift_as_carried_with_its_ripple():
+    """An item his ripple only moved, which the rebuild re-rendered, is
+    carried once the ripple is - and only a pure shift, only then."""
+    record = _ripple_record()
+    extend = _rippled_extend(record)
+    (shifted,) = [change for change in record["changes"]
+                  if change["kind"] == "item_changed"]
+    rippled = guard._moved_by_carried_ripples({"edits": [extend]})
+    assert guard._moved_by_ripple(shifted, rippled)
+    assert not guard._moved_by_ripple(shifted, set())
+    retimed = {**shifted, "changed": {**shifted["changed"],
+                                      "enabled": {"before": True,
+                                                  "after": False}}}
+    assert not guard._moved_by_ripple(retimed, rippled)
 
 
 def test_source_partition_splits_overlay_and_defers_its_cut_segments():
@@ -1357,10 +1556,10 @@ def test_a_trim_of_a_comp_bearing_clip_with_no_manifest_refuses_unwritten(
 @pytest.mark.usefixtures("mock_dvr")
 def test_a_trim_under_another_rows_item_refuses_unwritten(project_dir_2):
     live, staging = edited(), reel(STAGING)
-    # A graphic straddling the end of the SpeakerTwo passage on both sides.
-    for timeline, start in ((live, 500), (staging, 500)):
-        timeline.add_item("video", 3, item(CARD, start, 80, 0))
-        timeline.rows["V3"].sort(key=lambda placed: placed.GetStart())
+    # The rebuild put a graphic across the end of the SpeakerTwo passage;
+    # the editor's ripple never ran under one, so it is no replay.
+    staging.add_item("video", 3, item(CARD, 500, 80, 0))
+    staging.rows["V3"].sort(key=lambda placed: placed.GetStart())
     before = played_2(staging)
     project = Project([Timeline(MASTER, {}), live, staging])
 
@@ -1371,6 +1570,25 @@ def test_a_trim_under_another_rows_item_refuses_unwritten(project_dir_2):
     assert "a rippled trim under another row's item is not carried" in message
     assert "'semantic-card.mov' at record 500..580" in message
     assert played_2(staging) == before
+
+
+@pytest.mark.usefixtures("mock_dvr")
+def test_a_trim_under_a_card_the_editor_held_replays_exactly(project_dir_2):
+    """Reel 13's shape: the editor's ripple ran under a graphic and Resolve
+    left it where it was. Staging is the timeline he cut, so the ripple
+    replays - the graphic held, everything after it moved - and staging
+    plays what his timeline plays."""
+    live, staging = edited(), reel(STAGING)
+    for timeline in (live, staging):
+        timeline.add_item("video", 3, item(CARD, 500, 80, 0))
+        timeline.rows["V3"].sort(key=lambda placed: placed.GetStart())
+    wanted = played_2(live)
+    project = Project([Timeline(MASTER, {}), live, staging])
+
+    promote_2(project, project_dir_2)
+
+    assert staging.GetName() == FINAL
+    assert played_2(staging) == wanted
 
 
 @pytest.mark.usefixtures("mock_dvr")

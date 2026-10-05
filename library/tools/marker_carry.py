@@ -860,6 +860,38 @@ def _clip_candidates(anchor: dict, replacement) -> list:
     return found
 
 
+def _plays_file(anchor: dict, replacement) -> bool:
+    """Whether any replacement item plays the anchor's source file."""
+    return any(
+        (_clip_item_anchor(item, track_type, index) or {}).get(
+            "source_file") == anchor["source_file"]
+        for track_type, index, _name, item in _clip_row_items(replacement))
+
+
+def _replaced_source_candidates(marker: dict, replacement) -> list:
+    """Items on the note's row playing its record frame, by `(item, anchor)`.
+
+    The captain's ruling, 2026-10-05 (Reel 13): a rebuild that re-renders
+    an overlay under a new file - the post header, once a movie, now a
+    PNG still - leaves the note typed on the old one nothing to anchor
+    to by source. Such a note goes onto the ONE item on the same row
+    that plays the same record frame; none or several refuse by name.
+    """
+    anchor = marker["anchor"]
+    frame = marker["frame"]
+    found = []
+    for track_type, index, _name, item in _clip_row_items(replacement):
+        if (track_type, int(index)) != (anchor["track_type"],
+                                        int(anchor["track_index"])):
+            continue
+        candidate = _clip_item_anchor(item, track_type, index)
+        if (candidate is not None
+                and candidate["timeline_start"] <= frame
+                < candidate["timeline_end"]):
+            found.append((item, candidate))
+    return found
+
+
 def plan_clip_carry(clip_markers, replacement,
                     timeline_name: str = "") -> tuple:
     """Split clip markers into those that resolve here and those that do not.
@@ -894,6 +926,27 @@ def plan_clip_carry(clip_markers, replacement,
                 "file - there is no file identity to carry it by")})
             continue
         candidates = _clip_candidates(anchor, replacement)
+        if not candidates and not _plays_file(anchor, replacement):
+            replaced = _replaced_source_candidates(marker, replacement)
+            if len(replaced) == 1:
+                _item, candidate = replaced[0]
+                carried.append({
+                    **marker,
+                    "to_source_frame": (candidate["source_start"]
+                                        + marker["frame"]
+                                        - candidate["timeline_start"]),
+                    "to_frame": marker["frame"],
+                    "target": candidate,
+                    "replaced_source": True,
+                })
+            else:
+                uncarried.append({**marker, "why": (
+                    f"the rebuild replaced {anchor['source_file']}, and "
+                    f"{len(replaced)} clips on "
+                    f"{anchor['track_type']}{anchor['track_index']} play "
+                    f"record frame {marker['frame']} - refusing to guess "
+                    f"which one the note is about")})
+            continue
         if not candidates:
             uncarried.append({**marker, "why": (
                 f"no clip in the replacement plays source frame "
@@ -968,7 +1021,9 @@ def place_clip_markers(replacement, carried) -> list:
     for marker in carried:
         anchor = marker.get("anchor") or {}
         target = marker.get("target") or {}
-        candidates = _clip_candidates(anchor, replacement)
+        candidates = (_replaced_source_candidates(marker, replacement)
+                      if marker.get("replaced_source")
+                      else _clip_candidates(anchor, replacement))
         item = None
         for candidate_item, candidate in candidates:
             if all(candidate.get(k) == target.get(k)

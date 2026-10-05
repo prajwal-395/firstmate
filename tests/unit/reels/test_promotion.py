@@ -763,7 +763,7 @@ def test_a_float_read_of_an_int_is_the_same_value_not_a_change():
     assert guard.snapshot_diff({"items": [item]}, {"items": [reread]}) == []
     added = {
         "kind": "item_added",
-        "identity": guard._stable_item_key(item),
+        "identity": guard.stable_item_key(item),
         "before": None,
         "after": item,
         "changed": {},

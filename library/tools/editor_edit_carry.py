@@ -220,6 +220,68 @@ def _picture_anchor(snapshot: dict, frame) -> dict | None:
     return None
 
 
+def caption_segment(item: dict) -> str | None:
+    """A caption card's stable identity, or None if `item` is not one.
+
+    `subtitle_segment_id.stable_prefix` of the card's name: speaker,
+    source clip and source segment range, without the content digest. A
+    rebuild that re-plans the captions (PR 1689's fragment merging)
+    renders every card under a new digest and a new media pool item, so
+    the name and identity the editor's edit recorded no longer exist on
+    staging while this prefix stands still. Several cards share one
+    segment, so it narrows a match and never decides one alone.
+    """
+    from library.tools import subtitle_segment_id
+
+    name = str(item.get("name") or "")
+    if name.lower().endswith(".mov"):
+        name = name[:-4]
+    if not subtitle_segment_id.is_segment_id(name):
+        return None
+    return subtitle_segment_id.stable_prefix(name)
+
+
+def _picture_clips(snapshot: dict) -> list[dict]:
+    return [item for item in snapshot.get("items") or ()
+            if item.get("track_type") == "video"
+            and item.get("track_index") == 1]
+
+
+def _caption_span_target(edit: dict, picture: list[dict]):
+    """The record span the editor gave a caption card, on `picture`."""
+    after = edit["after"]
+    start = _anchor_frame(picture, after["start_anchor"])
+    last = _anchor_frame(picture, after["last_anchor"])
+    if start is None or last is None or last < start:
+        return None
+    return start, last + 1
+
+
+def _caption_span_card(edit: dict, items: list[dict]) -> list[dict]:
+    """The re-planned cards that stand where the editor's card stood.
+
+    Same row, same caption segment, and starting over the same picture
+    frame the edited card started over before the editor touched it.
+    """
+    start = _anchor_frame(_picture_clips({"items": items}),
+                          edit["before"]["start_anchor"])
+    return [item for item in items
+            if _row(item) == edit["row"]
+            and caption_segment(item) == edit["caption_segment"]
+            and start is not None and item.get("record_in") == start]
+
+
+def _caption_span_held(edit: dict, items: list[dict]) -> list[dict]:
+    """Cards of the edit's segment already at the editor's span."""
+    target = _caption_span_target(edit, _picture_clips({"items": items}))
+    if target is None:
+        return []
+    return [item for item in items
+            if _row(item) == edit["row"]
+            and caption_segment(item) == edit["caption_segment"]
+            and (item.get("record_in"), item.get("record_out")) == target]
+
+
 def _shift_model(events: list[dict], pairs: list[tuple]) -> None:
     """Decide each event's `ripple` from what the items after it did.
 
@@ -396,6 +458,90 @@ def _split_partition(old: dict, partners: list[dict]) -> list[dict] | None:
     return parts
 
 
+def _caption_span(final: str, old: dict, new: dict, record: dict,
+                  plan_version) -> dict | str:
+    """A caption card the editor re-spanned, or why it is not carried.
+
+    Reel 13, 2026-10-05: the captain held nine of Akshita's cards a few
+    frames longer - each tail extended, the next card's head trimmed to
+    meet it - and left every word where it was. A rebuild re-plans the
+    captions, so the card he edited is gone and a re-planned card of the
+    same segment stands in its place, under a new name, often a few
+    frames shorter. His intent is the card's SPAN ON SCREEN, so that is
+    what is carried: the re-planned card is found by its segment and the
+    picture frame it started over, and given the record span he set,
+    stated as the picture frames under its first and last frame.
+
+    Carried only while the card's content stays where the picture put it
+    (record minus source is unchanged): a card he slid against its own
+    words is a re-time, not a span, and refuses.
+    """
+    passage = _span(*_source(old))
+    where = f"{_row(old)} {old.get('name')!r} source {passage}"
+    fields = (old.get("record_in"), old.get("record_out"),
+              new.get("record_in"), new.get("record_out"),
+              new.get("source_in_frame"))
+    if not all(isinstance(value, int) for value in fields):
+        return f"{where} has no readable record span"
+    if (new["record_in"] - new["source_in_frame"]
+            != old["record_in"] - old["source_in_frame"]):
+        return (f"{where} now plays {_span(*_source(new))} at record "
+                f"{_span(new['record_in'], new['record_out'])} - the card "
+                f"moved against its own words, which is a re-time and not "
+                f"a span the editor held")
+    before = record.get("before_snapshot") or {}
+    after = record.get("after_snapshot") or {}
+    start_anchor = _picture_anchor(before, old["record_in"])
+    first = _picture_anchor(after, new["record_in"])
+    last = _picture_anchor(after, new["record_out"] - 1)
+    if start_anchor is None or first is None or last is None:
+        return (f"{where} spans record "
+                f"{_span(new['record_in'], new['record_out'])} where no "
+                f"picture plays to anchor it")
+    target = _span(new["record_in"], new["record_out"])
+    return _base(
+        final, "caption_span", old, field="record_span", record=record,
+        plan_version=plan_version,
+        wording=(f"Hold caption card {old.get('name')!r} on {_row(old)} "
+                 f"from record {_span(old['record_in'], old['record_out'])}"
+                 f" to {target}, over the same picture"),
+        before={"record_in": old["record_in"],
+                "record_out": old["record_out"],
+                "start_anchor": start_anchor},
+        after={"record_in": new["record_in"],
+               "record_out": new["record_out"],
+               "start_anchor": first, "last_anchor": last}) | {
+        "caption_segment": caption_segment(old)}
+
+
+def _ripple_held_rows(record: dict, event: dict) -> list[str]:
+    """The rows whose item the editor's ripple ran under, untouched.
+
+    Resolve's ripple trim moves what starts after the edit point and
+    leaves an item that straddles it - a frame overlay, a header, a
+    caption ending with the line - exactly where it was (Reel 13,
+    2026-10-05: Frame, Post Header and a caption card held across the
+    6-frame extension at record 1,497). `composed_edit.plan_ripple`
+    instead EXTENDS a straddler, so a staged straddler is carried only on
+    a row this records, and the replay leaves it alone as he did.
+    """
+    before = record.get("before_snapshot") or {}
+    after = record.get("after_snapshot") or {}
+    end = event["end"]
+    edited = {_row(edit) for edit in event["edits"]}
+    kept = {(_stable(item), item.get("record_in"), item.get("record_out"))
+            for item in after.get("items") or ()}
+    held = set()
+    for item in before.get("items") or ():
+        if _row(item) in edited or not isinstance(item.get("record_in"), int):
+            continue
+        if not item["record_in"] < end <= item.get("record_out"):
+            continue
+        if (_stable(item), item["record_in"], item["record_out"]) in kept:
+            held.add(_row(item))
+    return sorted(held)
+
+
 def derive_edits(record: dict, *, plan_version=None) -> tuple[list, list]:
     """One editor-change record as carried edits, plus what is not carried.
 
@@ -495,6 +641,15 @@ def derive_edits(record: dict, *, plan_version=None) -> tuple[list, list]:
                           "change in the Ren plan or approve an explicit "
                           "fragment mapping")})
             continue
+        if partners and caption_segment(old) is not None:
+            used_added.add(id(partners[0]))
+            span = _caption_span(final, old, partners[0]["after"], record,
+                                 plan_version)
+            if isinstance(span, str):
+                uncarried.append({"change": change, "why": span})
+            else:
+                edits.append(span)
+            continue
         if partners:
             used_added.add(id(partners[0]))
             kept_in, kept_out = _source(partners[0]["after"])
@@ -578,10 +733,27 @@ def derive_edits(record: dict, *, plan_version=None) -> tuple[list, list]:
                                    f"{passage} on {edit['row']} to "
                                    f"{kept}{gap}")
 
+    for event in events:
+        if not event["ripple"]:
+            continue
+        held = _ripple_held_rows(record, event)
+        for edit in event["edits"]:
+            if edit["kind"] in ("trim", "extend"):
+                edit["ripple_held_rows"] = held
+
     after_snapshot = record.get("after_snapshot") or {}
     for before, after in pairs:
         shift = after["record_in"] - before["record_in"]
         if shift == _explained(events, before["record_in"]):
+            # Moved by the ripples alone: carried with them, and the
+            # guard reads it so (`ripple_moved`), even where the rebuild
+            # re-rendered or re-timed the item it moved.
+            for event in events:
+                if (shift and event["ripple"]
+                        and event["end"] <= before["record_in"]):
+                    for edit in event["edits"]:
+                        edit.setdefault("ripple_moved", []).append(
+                            list(_guard.stable_item_key(before)))
             continue
         what = (f"{_row(after)} {after.get('name')!r} source "
                 f"{_span(*_source(after))}")
@@ -936,6 +1108,52 @@ def _refuse(final: str, problems: list[str]) -> None:
           f"--accept-editor-changes {final!r}.")
 
 
+def _plan_caption_span(edit: dict, items: list[dict]):
+    """The trim that gives the re-planned card the editor's span.
+
+    Returns None when staging already holds it, a refusal line when no
+    single card or no headroom can carry it, else a `plan["trim"]` step
+    whose edit names the STAGED card, so `_apply_trims` re-places it.
+    """
+    where = (f"  caption span {edit['row']} {edit['name']!r} (segment "
+             f"{edit['caption_segment']})")
+    if _caption_span_held(edit, items):
+        return None
+    cards = _caption_span_card(edit, items)
+    if len(cards) != 1:
+        return (f"{where}: staging holds {len(cards)} card(s) of that "
+                f"segment starting over the picture the edited card "
+                f"started over, so the edit has no single card to land on")
+    card = cards[0]
+    target = _caption_span_target(edit, _picture_clips({"items": items}))
+    if target is None:
+        return (f"{where}: staging does not play the picture the editor "
+                f"held the card over")
+    s_in, s_out = _source(card)
+    r_in, r_out = card.get("record_in"), card.get("record_out")
+    head, tail = target[0] - r_in, r_out - target[1]
+    left, right = card.get("left_offset"), card.get("right_offset")
+    if target[0] >= target[1]:
+        return f"{where}: the held span is empty on staging"
+    for need, room, side in ((-head, left, "before"),
+                             (-tail, right, "after")):
+        if need > 0 and (not isinstance(room, int) or room < need):
+            shown = room if isinstance(room, int) else "unknown"
+            return (f"{where}: staging has {shown} frame(s) {side} "
+                    f"{card.get('name')!r}, and the span needs {need}; "
+                    f"the source headroom cannot be proven")
+    landed = {**edit,
+              "name": card.get("name"),
+              "source_identity": card.get("source_identity"),
+              "source_in_frame": s_in, "source_out_frame": s_out,
+              "ripple": False,
+              "after": {"source_in_frame": s_in + head,
+                        "source_out_frame": s_out - tail,
+                        "head": head, "tail": tail,
+                        "record_in": target[0]}}
+    return {"edit": landed, "item": card}
+
+
 def plan_application(edits: list[dict], staged: dict, final: str) -> dict:
     """What each edit does to `staged` (a full snapshot). Pure; may refuse."""
     items = list(staged.get("items") or ())
@@ -946,6 +1164,15 @@ def plan_application(edits: list[dict], staged: dict, final: str) -> dict:
     split_edits = [edit for edit in edits if edit["kind"] == "split"]
     for edit in edits:
         passage = _span(edit["source_in_frame"], edit["source_out_frame"])
+        if edit["kind"] == "caption_span":
+            step = _plan_caption_span(edit, items)
+            if isinstance(step, str):
+                problems.append(step)
+            elif step is None:
+                plan["already_held"].append(edit["id"])
+            else:
+                plan["trim"].append(step)
+            continue
         exact = [item for item in items if _governs(edit, item)]
         if edit["kind"] == "split":
             parts = list((edit.get("after") or {}).get("parts") or ())
@@ -1187,6 +1414,43 @@ def _trim_amount(edit: dict) -> int:
     return int(edit["after"]["head"]) + int(edit["after"]["tail"])
 
 
+def _ripple_replays(steps: list, end: int, item: dict) -> bool:
+    """`item` straddles a ripple the editor ran under its row untouched.
+
+    Exact replay only: every trim at this point was detected ending at
+    this same record frame, so staging is the timeline he edited, and
+    each one recorded `item`'s row as held (`_ripple_held_rows`).
+    """
+    if not item.get("record_in") < end <= item.get("record_out"):
+        return False
+    return all(step["edit"].get("record_out_when_detected") == end
+               and _row(item) in (step["edit"].get("ripple_held_rows") or ())
+               for step in steps)
+
+
+def is_still(item: dict) -> bool:
+    """A native PNG still: the one item Resolve can give any length.
+
+    `media_type` and `source_file` when the read has them (a
+    `reel_read` row), else the rendered name (a snapshot item).
+    """
+    if item.get("media_type") not in (None, "Still"):
+        return False
+    source = str(item.get("source_file") or item.get("name") or "")
+    return source.lower().endswith(".png")
+
+
+def _ripple_holds(steps: list, end: int, item: dict) -> bool:
+    """A replayed straddler the ripple leaves exactly where it is.
+
+    The captain's standing rule, 2026-10-05: a still overlay under a
+    ripple follows it - his Reel 13 note at 1815 asked the TV frame and
+    post header to reach the end, and a still has no length to run out
+    of - and everything else is held exactly as Resolve held it for him.
+    """
+    return _ripple_replays(steps, end, item) and not is_still(item)
+
+
 def _trim_collateral(trims: list, items: list) -> list[str]:
     """What a rippled trim would shorten that it does not name.
 
@@ -1194,17 +1458,20 @@ def _trim_collateral(trims: list, items: list) -> list[str]:
     the trim's end (`record_in < end <= record_out`) and shifts every
     one after it. An item it would shorten that is not itself trimmed
     by the same amount at the same frame - a music bed, a caption
-    ending with the line - refuses, named.
+    ending with the line - refuses, named. The one exception is a replay
+    (`_ripple_holds`): the editor's own ripple ran under that row's item
+    at this very frame and left it alone, and the write does the same.
     """
     groups: dict = {}
     for step in trims:
         if step["edit"].get("ripple"):
             key = (step["item"]["record_out"], _trim_amount(step["edit"]))
-            groups.setdefault(key, set()).add(id(step["item"]))
+            groups.setdefault(key, []).append(step)
     problems = []
-    for (end, amount), members in sorted(groups.items()):
+    for (end, amount), steps in sorted(groups.items()):
+        members = {id(step["item"]) for step in steps}
         for item in items:
-            if id(item) in members:
+            if id(item) in members or _ripple_replays(steps, end, item):
                 continue
             if item.get("record_in") < end <= item.get("record_out"):
                 action = "extend" if amount < 0 else "shorten"
@@ -1379,7 +1646,7 @@ def _work_dir(project_folder: str, timeline_name: str, phase: str) -> str:
 
 def _composed(project_folder: str, project, staged, tracks: list,
               changes: list, rederiver, phase: str, final: str,
-              insertions=()) -> dict:
+              insertions=(), still_placer=None) -> dict:
     """Run one composed edit on staging, grades carried from a reference.
 
     A re-placed item comes back with one colour node, enabled, and no
@@ -1419,7 +1686,7 @@ def _composed(project_folder: str, project, staged, tracks: list,
             comp_dir=os.path.join(work, "comps"),
             withheld_dir=os.path.join(work, "withheld"),
             rederiver=rederiver, grade_sources=grade_sources,
-            link_rows={}, picture_row="V1",
+            link_rows={}, picture_row="V1", still_placer=still_placer,
             write_context={"project_folder": project_folder,
                            "timeline_name": staged_name})
     finally:
@@ -1605,10 +1872,28 @@ def _apply_trims(project_folder: str, project, staged, edits: list,
             key = (int(step["clip"]["record_out"]),
                    _trim_amount(step["edit"]))
             groups.setdefault(key, []).append(step)
+    stills = []
     try:
         for (end, amount), members in sorted(groups.items(), reverse=True):
             cut = int(clip_of(members[0])["record_out"])
-            for change in _ce.plan_ripple(virtual, cut, -amount):
+            # A replayed straddler stays out of the ripple; a still one
+            # then follows it on Resolve's one-item still route.
+            held = []
+            for track in virtual:
+                for index, clip in enumerate(track.get("clips") or ()):
+                    straddler = {**clip, "track_type": track["type"],
+                                 "track_name": track.get("name")}
+                    if not _ripple_replays(
+                            [{"edit": step["edit"]} for step in members],
+                            cut, straddler):
+                        continue
+                    row = _ce.row_label(track["type"], int(track["index"]))
+                    held.append((row, index))
+                    if is_still(clip):
+                        stills.append((row, int(clip["record_in"]),
+                                       -amount))
+            for change in _ce.plan_ripple(virtual, cut, -amount,
+                                          exclude=held):
                 clip = clip_of({"row": change.row,
                                 "index": change.item_index})
                 clip["record_in"] = change.record_frame
@@ -1675,7 +1960,60 @@ def _apply_trims(project_folder: str, project, staged, edits: list,
         rederiver = _CompFreeRederiver()
     _composed(project_folder, project, staged, tracks, changes, rederiver,
               "trims", final)
+    for row, record_in, delta in stills:
+        _resize_still(project_folder, project, staged, row, record_in,
+                      delta, final)
     return [step["edit"]["id"] for step in steps]
+
+
+def _resize_still(project_folder: str, project, staged, row: str,
+                  record_in: int, delta: int, final: str) -> None:
+    """Lengthen (or shorten) one still by `delta` frames, in place.
+
+    `AppendToTimeline` takes no duration for an image, so a still is
+    re-placed alone through `still_placement.place_still_exact` - the
+    route `reel_touchup`'s `resize_still` uses - after the ripple has
+    cleared the frames it grows into.
+    """
+    from library.tools import composed_edit as _ce
+    from library.tools import reel_read
+    from library.tools.reel_build import _connect_resolve
+    from library.tools.still_placement import place_still_exact
+
+    tracks = reel_read.read_tracks(staged)
+    hits = [(track, index, clip) for track in tracks
+            if _ce.row_label(track["type"], int(track["index"])) == row
+            for index, clip in enumerate(track.get("clips") or ())
+            if int(clip["record_in"]) == record_in]
+    if len(hits) != 1 or not is_still(hits[0][2]) or \
+            _ce.treatment_comps(hits[0][2]):
+        _refuse(final, [(
+            f"  the still on {row} at record {record_in:,} could not be "
+            f"followed through the ripple: staging holds "
+            f"{len(hits)} item(s) there, and only one native PNG still "
+            f"with no Fusion comp has a direct duration route")])
+    track, index, clip = hits[0]
+    old = int(clip["duration"])
+    change = _ce.ItemChange(
+        track_type=track["type"], track_index=int(track["index"]),
+        item_index=index, record_frame=record_in, duration=old + delta,
+        left_offset=int(clip.get("left_offset") or 0),
+        previous_record=record_in, previous_duration=old,
+        how=_ce.RESIZE_STILL, comp_count=0,
+        right_offset=clip.get("right_offset"), name=clip.get("name", ""))
+    fps = float(staged.GetSetting("timelineFrameRate"))
+    resolve = _connect_resolve()
+
+    def still_placer(capture):
+        return place_still_exact(
+            resolve, project, project.GetMediaPool(), staged,
+            capture.media_pool_item, int(capture.change.duration),
+            int(capture.change.record_frame),
+            int(capture.change.track_index), fps, timeline_name=final)
+
+    _composed(project_folder, project, staged, tracks, [change],
+              _CompFreeRederiver(), "still", final,
+              still_placer=still_placer)
 
 
 def _apply_moves(project_folder: str, project, staged, edits: list,
@@ -1870,6 +2208,23 @@ def verify_carried_edits(report: dict, staged_after: dict,
                         f"{passage}: wanted segment "
                         f"{_span(part['source_in_frame'], part['source_out_frame'])}, "
                         f"staging has {len(matches)} matching items")
+            continue
+        if edit["kind"] == "caption_span":
+            if len(_caption_span_held(edit, items)) != 1:
+                target = _caption_span_target(edit, _picture_clips(
+                    staged_after))
+                missed.append(
+                    f"  caption span {edit['row']} {edit['name']!r} "
+                    f"(segment {edit['caption_segment']}): wanted one card "
+                    f"at record "
+                    + (_span(*target) if target else "(picture not played)")
+                    + ", staging has "
+                    + (", ".join(
+                        _span(item.get("record_in"), item.get("record_out"))
+                        for item in items
+                        if _row(item) == edit["row"]
+                        and caption_segment(item) == edit["caption_segment"])
+                       or "none"))
             continue
         if edit["kind"] == "cut":
             still = [item for item in items if _overlaps(edit, item)]

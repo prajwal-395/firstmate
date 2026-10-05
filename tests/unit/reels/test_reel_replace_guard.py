@@ -380,7 +380,7 @@ def test_legacy_empty_lut_pending_change_is_normalized_before_promotion(tmp_path
     reread = {**item, "color": {**item["color"], "luts": []}}
     before = {"items": [item]}
     after = {"items": [reread]}
-    identity = reel_replace_guard._stable_item_key(item)
+    identity = reel_replace_guard.stable_item_key(item)
     legacy_change = {
         "kind": "item_changed",
         "identity": identity,
@@ -412,3 +412,19 @@ def test_legacy_empty_lut_pending_change_is_normalized_before_promotion(tmp_path
         str(tmp_path), final, after, before, after, detection=detection
     )
     assert promotion["carried"] == ["legacy-empty-lut"]
+
+
+def test_a_transform_rounded_below_a_display_unit_is_not_an_editor_change():
+    """Reel 13, 2026-10-05: the rebuild computed Tilt -174.01 where the
+    captain's reel held -174.01025 - one value the Inspector shows the
+    same - and the guard refused promotion on it as an editor change. A
+    difference anyone could see (one display unit, 0.001) still counts."""
+    held = {"Pan": -2.0, "Tilt": -174.01025, "ZoomX": 2.1385851851851854}
+    rounded = {**held, "Tilt": -174.01}
+    assert reel_replace_guard._same_preservation_value(
+        "transform", held, rounded)
+    assert not reel_replace_guard._same_preservation_value(
+        "transform", held, {**held, "Tilt": -174.012})
+    # Other fields keep the read-noise tolerance only.
+    assert not reel_replace_guard._same_preservation_value(
+        "record_in", 1038.0, 1038.0005)
