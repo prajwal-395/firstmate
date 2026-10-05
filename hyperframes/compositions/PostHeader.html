@@ -1,0 +1,136 @@
+<!doctype html>
+<!--
+  PostHeader - HyperFrames port of remotion-subtitles/src/compositions/PostHeader.
+
+  The project and reel own every visible value. This template preserves the
+  delivered account header's measured box, avatar treatment, verified seal,
+  typography, and hook text; it supplies no account identity or copy.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=__REN_WIDTH__, height=__REN_HEIGHT__" />
+    <script src="./gsap.min.js"></script>
+    <style>
+      <!--__REN_HEAD_EXTRA__-->
+      @font-face {
+        font-family: "Montserrat";
+        src: url("./Montserrat-Variable.ttf") format("truetype");
+        font-weight: 100 900;
+        font-style: normal;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        margin: 0; width: __REN_WIDTH__px; height: __REN_HEIGHT__px;
+        overflow: hidden; background: transparent;
+      }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; }
+      #header {
+        position: absolute; color: #FFFFFF;
+      }
+      .account { display: flex; align-items: center; }
+      .avatar {
+        flex: none; overflow: hidden;
+        display: flex; align-items: center; justify-content: center;
+      }
+      .avatar img { width: 72%; height: 72%; object-fit: contain; }
+      .identity { min-width: 0; }
+      .name {
+        display: flex; align-items: center; font-weight: 700; line-height: 1.2;
+      }
+      .badge { display: flex; }
+      .handle { font-weight: 500; line-height: 1.25; color: #8B98A5; }
+      .hook { font-weight: 600; line-height: 1.3; white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="__REN_DURATION__"
+      data-width="__REN_WIDTH__"
+      data-height="__REN_HEIGHT__"
+      data-fps="__REN_FPS__"
+    >
+      <div id="header">
+        <div class="account">
+          <div class="avatar"><img alt="" /></div>
+          <div class="identity">
+            <div class="name">
+              <span class="display-name"></span>
+              <span class="badge" aria-label="verified">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    fill="#1D9BF0"
+                    d="M22.25 12c0-1.43-.88-2.67-2.19-3.34.46-1.39.2-2.9-.81-3.91s-2.52-1.27-3.91-.81c-.66-1.31-1.91-2.19-3.34-2.19s-2.67.88-3.33 2.19c-1.4-.46-2.91-.2-3.92.81s-1.26 2.52-.8 3.91C2.63 9.33 1.75 10.57 1.75 12s.88 2.67 2.19 3.34c-.46 1.39-.2 2.9.81 3.91s2.52 1.26 3.91.81c.67 1.31 1.91 2.19 3.34 2.19s2.68-.88 3.34-2.19c1.39.46 2.9.2 3.91-.81s1.27-2.52.81-3.91c1.31-.67 2.19-1.91 2.19-3.34z"
+                  />
+                  <path
+                    fill="#FFFFFF"
+                    d="M10.54 16.2l-3.74-3.74 1.41-1.41 2.33 2.33 5.66-5.66 1.41 1.41z"
+                  />
+                </svg>
+              </span>
+            </div>
+            <div class="handle"></div>
+          </div>
+        </div>
+        <div class="hook"></div>
+      </div>
+    </div>
+    <script>
+      //__REN_PROPS__
+      (function () {
+        var P = window.__REN_PROPS || {};
+        var box = P.box;
+        if (!box || !P.avatarSrc || !P.fontFamily) {
+          throw new Error("PostHeader HF props are missing box, avatarSrc, or fontFamily.");
+        }
+
+        var header = document.getElementById("header");
+        var avatar = document.querySelector(".avatar");
+        var image = document.querySelector(".avatar img");
+        var name = document.querySelector(".name");
+        var displayName = document.querySelector(".display-name");
+        var badge = document.querySelector(".badge");
+        var handle = document.querySelector(".handle");
+        var hook = document.querySelector(".hook");
+        var avatarSize = Math.round(P.nameSize * 1.3 + P.handleSize * 1.3);
+        var gap = Math.round(P.nameSize * 0.55);
+
+        header.style.left = box.left + "px";
+        header.style.top = box.top + "px";
+        header.style.width = box.width + "px";
+        header.style.fontFamily = P.fontFamily;
+
+        avatar.style.width = avatarSize + "px";
+        avatar.style.height = avatarSize + "px";
+        avatar.style.borderRadius = P.avatarShape === "round"
+          ? (avatarSize / 2) + "px" : (avatarSize * 0.08) + "px";
+        avatar.style.backgroundColor = P.avatarBackground;
+        image.src = P.avatarSrc;
+
+        name.style.fontSize = P.nameSize + "px";
+        var badgeSize = Math.round(P.nameSize * 1.05);
+        badge.style.marginLeft = (P.nameSize * 0.25) + "px";
+        badge.querySelector("svg").style.width = badgeSize + "px";
+        badge.querySelector("svg").style.height = badgeSize + "px";
+        badge.style.display = P.verified ? "flex" : "none";
+        displayName.textContent = P.displayName;
+
+        var identity = document.querySelector(".identity");
+        identity.style.marginLeft = gap + "px";
+        handle.style.fontSize = P.handleSize + "px";
+        handle.textContent = "@" + P.handle;
+        hook.style.marginTop = Math.round(P.hookSize * 0.6) + "px";
+        hook.style.fontSize = P.hookSize + "px";
+        hook.textContent = P.hook;
+
+        var timeline = gsap.timeline({ paused: true });
+        window.__timelines = window.__timelines || {};
+        window.__timelines["main"] = timeline;
+        timeline.seek(0);
+      })();
+    </script>
+  </body>
+</html>

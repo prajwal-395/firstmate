@@ -98,6 +98,7 @@ def test_template_registry_names_what_has_no_form():
     assert hf.hyperframes_template("TimedTextOverlay") == "TimedTextOverlay"
     assert hf.hyperframes_template("FullFrameCard") == "FullFrameCard"
     assert hf.hyperframes_template("MotionGraphics") == "MotionGraphics"
+    assert hf.hyperframes_template("PostHeader") == "PostHeader"
 
 
 # --------------------------------------------------------------------------

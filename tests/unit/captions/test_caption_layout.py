@@ -1544,6 +1544,95 @@ def test_the_header_is_a_tight_canvas_placed_where_it_laid_out(tmp_path):
         assert all(abs(a - b) < 0.5 for a, b in zip(drawn, (130, 275, 951, 461)))
 
 
+def test_post_header_still_uses_hyperframes_when_selected(
+        tmp_path, monkeypatch):
+    from PIL import ImageDraw
+    from library.tools import graphics_renderer as engines
+    from library.tools import hyperframes_render as hf
+    from library.tools import reel_post_header as rph
+
+    calls = []
+
+    def render_frames(composition, props, frames_dir, work_dir,
+                      project_folder, repo_root):
+        calls.append((composition, props, project_folder, repo_root))
+        os.makedirs(frames_dir, exist_ok=True)
+        frame = os.path.join(frames_dir, "frame_000001.png")
+        image = Image.new("RGBA", (32, 32), (0, 0, 0, 0))
+        ImageDraw.Draw(image).rectangle(
+            (6, 7, 10, 11), fill=(255, 255, 255, 255))
+        image.save(frame)
+        return {"frames": [frame]}
+
+    def no_remotion(*_args, **_kwargs):
+        raise AssertionError("HyperFrames selection reached Remotion")
+
+    monkeypatch.setattr(engines, "is_hyperframes", lambda _folder=None: True)
+    monkeypatch.setattr(hf, "render_one_card_frames", render_frames)
+    monkeypatch.setattr(rph.subprocess, "run", no_remotion)
+
+    out = tmp_path / "post-header.png"
+    rendered = rph.render_still(
+        {"displayName": "Lucie"}, str(out), project_folder=str(tmp_path))
+
+    assert rendered == str(out)
+    assert rph.ink_box(str(out)) == (6, 7, 11, 12)
+    assert calls == [(
+        rph.COMPOSITION, {"displayName": "Lucie"}, str(tmp_path),
+        str(hf.hyperframes_dir().parent))]
+    assert not list(tmp_path.glob(".hyperframes-post-header-*"))
+
+
+def test_header_still_cache_names_renderer_and_requires_its_fingerprint(
+        tmp_path, monkeypatch):
+    from library.tools import reel_post_header as rph
+
+    avatar = tmp_path / "avatar.png"
+    Image.new("RGBA", (8, 8), (255, 0, 0, 255)).save(avatar)
+    declared = {
+        "avatar": str(avatar), "avatar_shape": "round",
+        "avatar_background": "transparent", "name": "Lucie",
+        "handle": "luciecontent", "verified": True, "top": 0.02,
+        "name_size": 30, "handle_size": 26, "hook_size": 30,
+        "font": "",
+    }
+    identities = [
+        ("hyperframes", "hf-v1"),
+        ("remotion", "remotion-v1"),
+        ("remotion", "remotion-v1"),
+        ("hyperframes", ""),
+        ("hyperframes", ""),
+    ]
+    monkeypatch.setattr(
+        rph, "_still_renderer_identity", lambda _folder: identities.pop(0))
+    rendered = []
+
+    def write_still(_props, path):
+        rendered.append(path)
+        Image.new("RGBA", (20, 20), (255, 255, 255, 255)).save(path)
+
+    first = rph._still_for(
+        declared, "we're calling the Lucie visibility system",
+        1080, 1920, 24000 / 1001, str(tmp_path), render=write_still)
+    second = rph._still_for(
+        declared, "we're calling the Lucie visibility system",
+        1080, 1920, 24000 / 1001, str(tmp_path), render=write_still)
+    second_hit = rph._still_for(
+        declared, "we're calling the Lucie visibility system",
+        1080, 1920, 24000 / 1001, str(tmp_path), render=write_still)
+    unknown = rph._still_for(
+        declared, "we're calling the Lucie visibility system",
+        1080, 1920, 24000 / 1001, str(tmp_path), render=write_still)
+    unknown_again = rph._still_for(
+        declared, "we're calling the Lucie visibility system",
+        1080, 1920, 24000 / 1001, str(tmp_path), render=write_still)
+
+    assert first != second
+    assert second == second_hit
+    assert unknown == unknown_again
+    assert len(rendered) == 4
+
+
 def test_header_still_serves_multiple_run_lengths_without_video_carry(
         tmp_path):
     from library.tools import reel_post_header as rph

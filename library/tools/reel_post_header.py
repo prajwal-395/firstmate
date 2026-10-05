@@ -295,6 +295,24 @@ def _data_uri(path: str) -> str:
         return f"data:{mime};base64,{base64.b64encode(handle.read()).decode()}"
 
 
+def _still_renderer_identity(project_folder: str) -> tuple[str, str]:
+    """Renderer and source fingerprint used to reuse a cached header still."""
+    from library.tools import graphics_renderer as _engines
+    from library.tools import render_cache as _cache
+
+    engine = _engines.resolve_engine(project_folder or None)
+    if engine == _engines.ENGINE_HYPERFRAMES:
+        from library.tools import hyperframes_render as _hf
+
+        fingerprint = _cache.hyperframes_fingerprint(
+            str(_hf.hyperframes_dir()))
+    else:
+        from library.tools.paths import REMOTION_DIR
+
+        fingerprint = _cache.renderer_fingerprint(str(REMOTION_DIR))
+    return engine, fingerprint
+
+
 def props_for(declared: dict, hook: str, width: int, height: int,
               fps: float, project_folder: str | None = None) -> dict:
     return {
@@ -318,8 +336,51 @@ def props_for(declared: dict, hook: str, width: int, height: int,
 
 
 def render_still(props: dict, out_png: str,
-                 remotion_dir: str | None = None) -> str:
-    """One transparent still of ``PostHeader``, judged by its result."""
+                 remotion_dir: str | None = None,
+                 project_folder: str = "") -> str:
+    """One transparent still of ``PostHeader``, judged by its result.
+
+    The selected graphics renderer applies here too. HyperFrames writes
+    its ported still through the same premultiplied PNG carriage; Remotion
+    remains the personal renderer otherwise.
+    """
+    from library.tools import graphics_renderer as _engines
+
+    if _engines.is_hyperframes(project_folder or None):
+        import shutil
+        import tempfile
+
+        from library.tools import hyperframes_render as _hf
+
+        work_dir = os.path.dirname(os.path.abspath(out_png))
+        os.makedirs(work_dir, exist_ok=True)
+        try:
+            with tempfile.TemporaryDirectory(
+                    prefix=".hyperframes-post-header-", dir=work_dir) as scratch:
+                frames_dir = os.path.join(scratch, "frames")
+                rendered = _hf.render_one_card_frames(
+                    COMPOSITION, props, frames_dir, scratch,
+                    project_folder or "",
+                    (os.path.dirname(os.path.abspath(remotion_dir))
+                     if remotion_dir else
+                     str(_hf.hyperframes_dir().parent)))
+                frames = rendered["frames"]
+                if not frames:
+                    raise PostHeaderError(
+                        "HyperFrames reported no frames for PostHeader")
+                shutil.copyfile(frames[0], out_png)
+        except (_hf.HyperFramesUnavailable,
+                _hf.HyperFramesRenderError) as exc:
+            raise PostHeaderError(
+                f"PostHeader HyperFrames still failed: {exc}") from exc
+        if not os.path.isfile(out_png):
+            raise PostHeaderError(
+                f"PostHeader HyperFrames reported success but wrote no file "
+                f"at {out_png}")
+        if ink_box(out_png) is None:
+            raise PostHeaderError(f"PostHeader still {out_png} drew nothing")
+        return out_png
+
     from ren.edition import require_component
 
     require_component("renderer.remotion", action="load")
@@ -421,15 +482,24 @@ def _still_for(declared: dict, hook: str, width: int, height: int,
     from library.tools.project_layout import Area, ProjectLayout
 
     props = props_for(declared, hook, width, height, fps, project_folder)
-    key = {"carriage": "png-premultiplied-rgba/1", "props": props}
+    engine, renderer = _still_renderer_identity(project_folder)
+    key = {
+        "carriage": "png-premultiplied-rgba/1",
+        "engine": engine,
+        "renderer": renderer,
+        "props": props,
+    }
     stamp = hashlib.sha1(json.dumps(key, sort_keys=True).encode(
         "utf-8")).hexdigest()[:10]
     out_dir = str(ProjectLayout(project_folder).write_dir(
         Area.REEL_POST_HEADERS))
     os.makedirs(out_dir, exist_ok=True)
     png = os.path.join(out_dir, f"post_header_{stamp}.png")
-    if not os.path.isfile(png):
-        render(props, png)
+    if not os.path.isfile(png) or not renderer:
+        if render is render_still:
+            render(props, png, project_folder=project_folder)
+        else:
+            render(props, png)
     return png
 
 

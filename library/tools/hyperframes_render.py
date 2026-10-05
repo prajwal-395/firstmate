@@ -121,6 +121,7 @@ HYPERFRAMES_COMPOSITIONS = (
     "TimedTextOverlay",
     "FullFrameCard",
     "MotionGraphics",
+    "PostHeader",
 )
 
 
