@@ -864,6 +864,90 @@ class TestTheRenderCheck:
         assert result.value["face_frames"] == 0
 
 
+# ─────────────────────────────────────────────────────────
+# 4c. The punch-in face preservation check (E1, deterministic half)
+# ─────────────────────────────────────────────────────────
+
+def punch_in_face_with(box, windows, w=480, h=854, frames_per_window=4):
+    """Run measure_punch_in_face with a fake cascade and per-window streams."""
+    from library.tools.render_qa import PunchInWindow
+    win_list = [PunchInWindow(float(s), float(e)) for s, e in windows]
+    streams = [iter([np.zeros((1, h, w), dtype=np.uint8)
+                     for _ in range(frames_per_window)])
+               for _ in win_list]
+
+    def fake_stream(*args, **kwargs):
+        return streams.pop(0) if streams else iter([])
+
+    with patch.object(render_qa, "_probe_video_size",
+                      return_value=(1080, 1920)), \
+            patch.object(render_qa, "_stream_raw_frames",
+                         side_effect=fake_stream), \
+            patch.object(render_qa, "load_face_cascade",
+                         return_value=FakeCascade(box)):
+        return render_qa.measure_punch_in_face("/x/master.mp4", win_list)
+
+
+class TestPunchInFaceCheck:
+    """The defect: a punch-in that crops the face passes every gate today.
+
+    The aim is proven applied on the timeline (`reel_build.assert_punch_took`)
+    but the rendered pixels are never asked whether the face survived the
+    zoom. This check measures and reports per window; it does not gate.
+    """
+
+    def test_a_punch_in_that_crops_the_face_is_reported(self):
+        result = punch_in_face_with((0, 200, 300, 300), [(10.0, 20.0)])
+        assert result.passed is True
+        assert result.severity == "warning"
+        assert result.value["windows_with_cropped_face"] == 1
+        assert result.value["windows"][0]["cropped_samples"] > 0
+        assert "left" in result.value["windows"][0]["examples"][0]["edges"]
+        assert "REPORTED ONLY" in result.detail
+
+    def test_a_punch_in_that_keeps_the_face_is_clean(self):
+        result = punch_in_face_with((90, 200, 300, 300), [(10.0, 20.0)])
+        assert result.passed is True
+        assert result.severity == "info"
+        assert result.value["windows_with_cropped_face"] == 0
+        assert result.value["windows"][0]["cropped_samples"] == 0
+
+    def test_each_window_is_reported_separately(self):
+        result = punch_in_face_with(
+            (0, 200, 300, 300), [(10.0, 20.0), (30.0, 40.0)])
+        assert result.value["total_windows"] == 2
+        assert result.value["windows_with_cropped_face"] == 2
+        assert result.value["windows"][0]["start"] == 10.0
+        assert result.value["windows"][1]["start"] == 30.0
+
+    def test_a_window_with_no_face_is_not_counted_as_cropped(self):
+        result = punch_in_face_with(None, [(10.0, 20.0)])
+        assert result.passed is True
+        assert result.severity == "info"
+        assert result.value["windows"][0]["face_samples"] == 0
+        assert result.value["windows"][0]["cropped_samples"] == 0
+
+    def test_no_punch_in_windows_declared_is_reported_not_measured(self):
+        with patch.object(render_qa, "_probe_video_size",
+                          return_value=(1080, 1920)), \
+                patch.object(render_qa, "load_face_cascade",
+                             return_value=FakeCascade((90, 200, 300, 300))):
+            result = render_qa.measure_punch_in_face("/x/master.mp4", None)
+        assert result.passed is True
+        assert result.severity == "info"
+        assert "not measured" in result.detail
+
+    def test_empty_punch_in_windows_reports_nothing_to_measure(self):
+        with patch.object(render_qa, "_probe_video_size",
+                          return_value=(1080, 1920)), \
+                patch.object(render_qa, "load_face_cascade",
+                             return_value=FakeCascade((90, 200, 300, 300))):
+            result = render_qa.measure_punch_in_face("/x/master.mp4", [])
+        assert result.passed is True
+        assert result.value["total_windows"] == 0
+        assert "nothing to measure" in result.detail
+
+
 # --------------------------------------------------------------------------
 # From test_body_pose_framing.py
 #

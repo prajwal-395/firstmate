@@ -1735,6 +1735,210 @@ def measure_face_intact(
                               "error", f"Error measuring face crop: {e}")
 
 
+# ── The punch-in face preservation check ──
+# `measure_face_intact` asks whether ANY face in the render is cut by the
+# frame edge, over the whole file, and fails only when more than
+# `MAX_CROPPED_FACE_FRACTION` of face-bearing samples are cropped. It
+# cannot answer the captain's question about a DECLARED PUNCH-IN: a
+# punch-in is a deliberate zoom into the subject, and the question is
+# whether the zoom kept the face. A punch-in that crops the face is the
+# defect the captain named (E1: "a punch-in kept the face"), and no check
+# measures it today - the aim is proven applied on the timeline
+# (`reel_build.assert_punch_took`) but the RENDERED pixels are never
+# asked whether the face survived the zoom.
+#
+# This check is windowed: it samples the render only at the declared
+# punch-in windows and measures the subject's face position there, with
+# the same cascade, the same sample size and the same edge tolerance
+# `measure_face_intact` uses. It reports per window and does not gate -
+# whether a cropped face at a punch-in blocks delivery is a pending
+# captain call.
+
+PUNCH_IN_FACE_GATES = False
+"""Whether a face cropped at a declared punch-in window fails the render.
+
+The check measures and reports; it does not fail. Promoting it is this
+boolean, and it is a captain's call because whether a cropped face at a
+punch-in is a delivery-blocking defect is a creative judgement, not a
+technical one - the same ruling that keeps `measure_face_intact`'s
+whole-file backstop from failing a render for a speaker who leans out
+of shot for a moment.
+"""
+
+
+class PunchInWindow(NamedTuple):
+    """One declared punch-in window on the timeline, in seconds.
+
+    `start`/`end` are timeline seconds. The window is where the reel
+    build applied (or the master conform delivered) a punch-in zoom.
+    """
+
+    start: float
+    end: float
+
+
+def measure_punch_in_face(
+        video_path: str,
+        punch_in_windows: Optional[Sequence["PunchInWindow"]] = None,
+        sample_fps: float = DEFAULT_SAMPLE_FPS,
+        gate: bool = PUNCH_IN_FACE_GATES) -> RenderQAResult:
+    """The subject's face is inside the frame at each declared punch-in window.
+
+    For each window, samples the render at `sample_fps`, runs the same
+    Haar cascade `measure_face_intact` runs, and asks whether the
+    subject's face - the largest detection at least
+    `MIN_SUBJECT_FACE_AREA` of the frame - is inside the frame with
+    `FACE_EDGE_TOLERANCE_PX` of margin on every edge. A face that is
+    cropped by the frame edge at a punch-in window is the defect: the
+    zoom was supposed to keep the subject, and it did not.
+
+    **This reports and does not fail** (`PUNCH_IN_FACE_GATES` is False).
+    The measurement is the output; whether it blocks delivery is a
+    captain's call. Promoting it is that boolean and nothing here.
+
+    `punch_in_windows` None means nobody established the windows, which
+    is reported and is not the same claim as `[]` (declared: no
+    punch-in windows). An empty list reports that there is nothing to
+    measure. A non-empty list measures each window and reports per
+    window.
+
+    A window where no face is detected is reported as such, not counted
+    as cropped: a punch-in on a shot with no visible face (a cutaway, a
+    b-roll insert) has nothing to keep, and failing it would be a gate
+    that fails correct output.
+    """
+    try:
+        import numpy as np
+    except ImportError as e:  # pragma: no cover - numpy is a hard dependency
+        return RenderQAResult("punch_in_face", True, str(e), None,
+                              "warning", f"numpy unavailable: {e}")
+
+    if punch_in_windows is None:
+        return RenderQAResult(
+            "punch_in_face", True, None, None, "info",
+            "No punch-in windows were declared to the checker - the "
+            "face preservation at punch-ins was not measured. Pass "
+            "punch_in_windows: the timeline spans where the punch-in "
+            "was applied.")
+
+    windows = list(punch_in_windows)
+    if not windows:
+        return RenderQAResult(
+            "punch_in_face", True,
+            {"windows": [], "total_windows": 0,
+             "windows_with_cropped_face": 0},
+            {"edge_tolerance_px": FACE_EDGE_TOLERANCE_PX,
+             "min_subject_face_area": MIN_SUBJECT_FACE_AREA,
+             "gates": gate},
+            "info",
+            "No punch-in windows declared - nothing to measure.")
+
+    cascade = load_face_cascade()
+    if cascade is None:
+        return RenderQAResult(
+            "punch_in_face", True, None, None, "warning",
+            "No Haar cascade available, punch-in face unmeasured")
+
+    try:
+        size = _probe_video_size(video_path)
+        if not size:
+            return RenderQAResult("punch_in_face", False, None, None,
+                                  "error", "No video stream found")
+        width, height = size
+        sample_w, sample_h = _master_face_sample_size(width, height)
+        frame_area = float(sample_w * sample_h)
+        tol = FACE_EDGE_TOLERANCE_PX
+
+        per_window = []
+        total_cropped = 0
+        for window in windows:
+            start = float(window.start)
+            end = float(window.end)
+            if end <= start:
+                per_window.append({
+                    "start": round(start, 3), "end": round(end, 3),
+                    "samples": 0, "face_samples": 0,
+                    "cropped_samples": 0, "cropped_fraction": 0.0,
+                    "examples": [], "note": "empty window",
+                })
+                continue
+            samples = 0
+            face_samples = 0
+            cropped = []
+            for index, frame in enumerate(_stream_raw_frames(
+                    video_path, 'gray', 1, sample_w, sample_h, sample_fps,
+                    scaled=True, start_seconds=start,
+                    duration_seconds=end - start)):
+                samples += 1
+                gray = np.ascontiguousarray(frame[0])
+                boxes = [b for b in cascade.detectMultiScale(
+                    gray, scaleFactor=1.1, minNeighbors=3, minSize=(20, 20))
+                    if (b[2] * b[3]) / frame_area >= MIN_SUBJECT_FACE_AREA]
+                if not boxes:
+                    continue
+                face_samples += 1
+                x, y, fw, fh = max(boxes, key=lambda b: b[2] * b[3])
+                edges = []
+                if x <= tol:
+                    edges.append("left")
+                if x + fw >= sample_w - tol:
+                    edges.append("right")
+                if y <= tol:
+                    edges.append("top")
+                if y + fh >= sample_h - tol:
+                    edges.append("bottom")
+                if edges:
+                    cropped.append({
+                        "at_seconds": round(start + index / sample_fps, 2),
+                        "edges": edges,
+                        "box_fraction": [round(float(x) / sample_w, 4),
+                                         round(float(y) / sample_h, 4),
+                                         round(float(fw) / sample_w, 4),
+                                         round(float(fh) / sample_h, 4)],
+                    })
+            fraction = (len(cropped) / float(face_samples)
+                        if face_samples else 0.0)
+            total_cropped += len(cropped)
+            per_window.append({
+                "start": round(start, 3), "end": round(end, 3),
+                "samples": samples, "face_samples": face_samples,
+                "cropped_samples": len(cropped),
+                "cropped_fraction": round(fraction, 4),
+                "examples": cropped[:8],
+            })
+
+        windows_with_cropped = sum(
+            1 for w in per_window if w["cropped_samples"])
+        failed = bool(gate and windows_with_cropped)
+        detail = (f"{windows_with_cropped} of {len(per_window)} punch-in "
+                  f"window(s) show a face cut by the frame edge "
+                  f"({total_cropped} cropped sample(s))")
+        if failed:
+            detail += " - the punch-in did not keep the face"
+        elif windows_with_cropped:
+            detail += (" - REPORTED ONLY; see PUNCH_IN_FACE_GATES for why "
+                       "this is not a build failure yet")
+
+        return RenderQAResult(
+            metric="punch_in_face",
+            passed=not failed,
+            value={
+                "windows": per_window,
+                "total_windows": len(per_window),
+                "windows_with_cropped_face": windows_with_cropped,
+            },
+            threshold={"edge_tolerance_px": FACE_EDGE_TOLERANCE_PX,
+                       "min_subject_face_area": MIN_SUBJECT_FACE_AREA,
+                       "gates": gate},
+            severity="error" if failed else (
+                "warning" if windows_with_cropped else "info"),
+            detail=detail,
+        )
+    except Exception as e:
+        return RenderQAResult("punch_in_face", False, str(e), None,
+                              "error", f"Error measuring punch-in face: {e}")
+
+
 def measure_chroma_presence(
         video_path: str,
         chroma_floor: Optional[float] = None,
@@ -2921,10 +3125,11 @@ def run_full_render_qa(video_path: str, expected_duration: float = None,
                        spine_blocks: Optional[Sequence[dict]] = None,
                        overlay_segments: Optional[Sequence["OverlaySegment"]] = None,
                        grade_spans: Optional[Sequence["GradeSpan"]] = None,
-                       true_peak_ceiling: float = DEFAULT_TRUE_PEAK_CEILING_DBTP,
-                       declared_ending_black_spans: Optional[List] = None,
-                       declared_silence_spans: Optional[List] = None
-                       ) -> List[RenderQAResult]:
+                        true_peak_ceiling: float = DEFAULT_TRUE_PEAK_CEILING_DBTP,
+                        declared_ending_black_spans: Optional[List] = None,
+                        declared_silence_spans: Optional[List] = None,
+                        punch_in_windows: Optional[Sequence["PunchInWindow"]] = None
+                        ) -> List[RenderQAResult]:
     """Run every render QA check.
 
     `declared_black_beats` carries the black beats the plan declared, as
@@ -2974,6 +3179,13 @@ def run_full_render_qa(video_path: str, expected_duration: float = None,
     verdict - a caller that never established the grades says so by
     passing none, not by passing an empty list (which is exact: graded
     nowhere, verified nowhere).
+
+    `punch_in_windows` are the timeline spans where a punch-in was
+    applied, so `measure_punch_in_face` can judge the rendered pixels at
+    each window - whether the zoom kept the subject's face inside the
+    frame.  None says nobody established the windows, which is reported
+    and is not the same claim as `[]` (declared: no punch-in windows).
+    The check reports and does not gate (`PUNCH_IN_FACE_GATES`).
     """
     results = []
 
@@ -2991,6 +3203,7 @@ def run_full_render_qa(video_path: str, expected_duration: float = None,
     results.append(measure_chroma_presence(video_path,
                                            chroma_floor=chroma_floor))
     results.append(measure_face_intact(video_path))
+    results.append(measure_punch_in_face(video_path, punch_in_windows))
     results.append(measure_silence_under_picture(
         video_path, declared_spans=declared_silence_spans))
     if music_path and music_automation and music_offset_seconds is not None:
