@@ -128,6 +128,71 @@ def test_word_timings_are_SOURCE_seconds_not_timeline_seconds(transcript,
             block["source_start"], abs=0.01)
 
 
+def test_reel21_suppressed_false_start_keeps_ive_word_timing():
+    from library.tools.reel_spine import _segment_word_alignment
+
+    row = {
+        "speaker": "Craig",
+        "text": "'ve thought I did everything I needed to do for the website "
+                "for AI to understand it.",
+        "words": [
+            {"word": "I've", "start": 1745.79, "end": 1746.29,
+             "timed": True},
+            {"word": "I", "start": 1746.32, "end": 1746.44,
+             "timed": True, "display": False},
+            {"word": "thought", "start": 1746.44, "end": 1746.84,
+             "timed": True},
+            {"word": "I", "start": 1746.84, "end": 1746.93,
+             "timed": True},
+            {"word": "did", "start": 1746.93, "end": 1747.13,
+             "timed": True},
+            {"word": "everything", "start": 1747.13, "end": 1747.54,
+             "timed": True},
+            {"word": "I", "start": 1747.54, "end": 1747.62,
+             "timed": True},
+            {"word": "needed", "start": 1747.62, "end": 1747.87,
+             "timed": True},
+            {"word": "to", "start": 1747.87, "end": 1747.95,
+             "timed": True},
+            {"word": "do", "start": 1747.95, "end": 1748.29,
+             "timed": True},
+            {"word": "for", "start": 1748.29, "end": 1748.45,
+             "timed": True},
+            {"word": "the", "start": 1748.45, "end": 1748.56,
+             "timed": True},
+            {"word": "website", "start": 1748.56, "end": 1749.22,
+             "timed": True},
+            {"word": "for", "start": 1749.22, "end": 1749.46,
+             "timed": True},
+            {"word": "AI", "start": 1749.46, "end": 1749.81,
+             "timed": True},
+            {"word": "to", "start": 1749.81, "end": 1749.93,
+             "timed": True},
+            {"word": "understand", "start": 1749.93, "end": 1750.46,
+             "timed": True},
+            {"word": "it.", "start": 1750.46, "end": 1750.51,
+             "timed": True},
+        ],
+    }
+    suppression = [{
+        "heard": "I",
+        "scope": {"speaker": "Craig", "surface": "I",
+                  "prev": "I've", "next": "thought"},
+    }]
+
+    aligned, undetermined = _segment_word_alignment(
+        row, display_suppressions=suppression)
+
+    assert undetermined == []
+    assert [item["word"] for item in aligned] == [
+        "I've", "thought", "I", "did", "everything", "I", "needed",
+        "to", "do", "for", "the", "website", "for", "AI", "to",
+        "understand", "it.",
+    ]
+    assert aligned[0]["start"] == 1745.79
+    assert aligned[0]["end"] == 1746.29
+
+
 def test_the_reel_spine_never_promotes_an_interpolated_word_to_timing():
     row = segment(
         "host", "alpha unavailable omega", 10.0, 13.0,

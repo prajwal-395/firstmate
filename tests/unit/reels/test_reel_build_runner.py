@@ -1316,13 +1316,23 @@ def test_placement_profile_round_trips_through_build_summary(tmp_path):
     profile = {"timeline_import_s": 1.2,
                "exclusive_context_wall_s": 4.5,
                "counts": {"recorded_items": 24}}
+    freeze_placement = {
+        "called": True,
+        "landed": True,
+        "verified": True,
+        "expected": {"track_index": 1, "start_frame": 1365,
+                     "end_frame": 1384},
+        "post_fusion": {"readback_matches": 1, "verified": True},
+    }
     payload = phase_log.assemble_summary(
-        outcome=phase_log.OUTCOME_PROMOTED, placement_profile=profile)
+        outcome=phase_log.OUTCOME_PROMOTED, placement_profile=profile,
+        freeze_placement=freeze_placement)
 
     phase_log.file_build_summary(project, 5, "Reel 05", payload)
     slot = phase_log.summarize(phase_log.read_events(project))["Reel 05"]
 
     assert slot["build_summary"]["placement_profile"] == profile
+    assert slot["build_summary"]["freeze_placement"] == freeze_placement
 
 
 def test_drops_cap_bounds_a_pathological_line():

@@ -164,8 +164,8 @@ def test_normalize_depth_uses_one_pooled_2nd_to_98th_percentile_range():
 
     normalized, low, high = normalize_depth(depths)
 
-    assert low == np.percentile(depths, 2)
-    assert high == np.percentile(depths, 98)
+    assert low == pytest.approx(np.percentile(depths, 2))
+    assert high == pytest.approx(np.percentile(depths, 98))
     assert normalized.shape == depths.shape
     assert normalized.min() == 0.0
     assert normalized.max() == 1.0

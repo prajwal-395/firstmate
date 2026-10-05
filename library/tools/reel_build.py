@@ -6784,8 +6784,81 @@ def _with_freeze(placements_list, freeze, fps: float) -> list:
         _ending_owner.freeze_placement(freeze, fps)]
 
 
+def _freeze_tail_matches(timeline, row: int, start: int, end: int,
+                         path: str) -> list:
+    """Read back the one exact freeze item named by its row and span."""
+    import os
+
+    items = timeline.GetItemListInTrack("video", row)
+    if items is None:
+        items = []
+    if not isinstance(items, (list, tuple)):
+        raise ReelBuildError(
+            f"freeze tail read-back on V{row} returned "
+            f"{type(items).__name__}, not an item list")
+    matches = []
+    for item in items:
+        if _timeline_span(item) != (start, end):
+            continue
+        try:
+            pool_item = item.GetMediaPoolItem()
+            item_path = (pool_item.GetClipProperty("File Path")
+                         if pool_item else "")
+        except Exception:
+            item_path = ""
+        if item_path and os.path.normcase(os.path.normpath(
+                item_path)) == os.path.normcase(os.path.normpath(path)):
+            matches.append(item)
+    return matches
+
+
+def _verify_freeze_tail_after_fusion(project, name: str, freeze,
+                                    trace: dict) -> bool:
+    """Record the exact freeze read-back after Fusion has touched the reel."""
+    timeline_matches = []
+    item_matches = []
+    error = None
+    try:
+        timeline_count = project.GetTimelineCount()
+        for index in range(1, timeline_count + 1):
+            candidate = project.GetTimelineByIndex(index)
+            if candidate is not None and candidate.GetName() == name:
+                timeline_matches.append(candidate)
+        if len(timeline_matches) == 1:
+            expected = trace["expected"]
+            item_matches = _freeze_tail_matches(
+                timeline_matches[0], int(expected["track_index"]),
+                int(expected["start_frame"]), int(expected["end_frame"]),
+                freeze.rendered_path)
+    except Exception as exc:
+        error = str(exc)
+
+    verified = len(timeline_matches) == 1 and len(item_matches) == 1
+    trace["post_fusion"] = {
+        "timeline_matches": len(timeline_matches),
+        "readback_matches": len(item_matches),
+        "verified": verified,
+        "error": error,
+    }
+    trace["verified"] = (
+        trace.get("landed") is True
+        and trace.get("append_verified") is True
+        and (trace.get("post_placement") or {}).get("verified") is True
+        and verified
+    )
+    trace["repair"] = (
+        {"attempted": False, "status": "not_needed"}
+        if trace["verified"] else
+        {"attempted": False, "status": "refused",
+         "reason": ("post-Fusion loss refuses placement; a repair would "
+                    "need to re-prove the freeze's inherited treatment")}
+    )
+    return bool(trace["verified"])
+
+
 def _append_freeze_tail(pool, project, timeline, name: str, path: str,
-                        spec: dict, *, recording: bool = False):
+                        spec: dict, *, recording: bool = False,
+                        trace: dict | None = None):
     """Place the declared hold and prove it occupies its planned frames.
 
     Reel 10's declared 19-frame close was present in the plan and the tail
@@ -6803,26 +6876,54 @@ def _append_freeze_tail(pool, project, timeline, name: str, path: str,
     end = start + int(spec["endFrame"]) - int(spec["startFrame"])
     row = int(spec["trackIndex"])
 
+    if trace is not None:
+        trace.update({
+            "called": False,
+            "landed": None,
+            "append_verified": None,
+            "expected": {
+                "asset": os.path.basename(path),
+                "track_index": row,
+                "start_frame": start,
+                "end_frame": end,
+            },
+            "append_attempts": [],
+            "post_placement": None,
+            "post_fusion": None,
+            "repair": {"attempted": False, "status": "not_needed"},
+        })
+
+    def append(attempt_number: int):
+        if trace is not None:
+            trace["called"] = True
+        placed_items = pool.AppendToTimeline([spec])
+        if trace is not None:
+            trace["append_attempts"].append({
+                "attempt": attempt_number,
+                "returned_items": (len(placed_items)
+                                   if isinstance(placed_items,
+                                                 (list, tuple)) else None),
+                "readback_matches": None,
+            })
+        return placed_items
+
     def readback():
-        items = timeline.GetItemListInTrack("video", row) or []
-        matches = []
-        for item in items:
-            if _timeline_span(item) != (start, end):
-                continue
-            try:
-                pool_item = item.GetMediaPoolItem()
-                item_path = (pool_item.GetClipProperty("File Path")
-                             if pool_item else "")
-            except Exception:
-                item_path = ""
-            if item_path and os.path.normcase(os.path.normpath(
-                    item_path)) == os.path.normcase(os.path.normpath(path)):
-                matches.append(item)
-        return matches
+        return _freeze_tail_matches(timeline, row, start, end, path)
+
+    def record_readback(matches, attempt_number: int):
+        if trace is not None:
+            trace["append_attempts"][attempt_number - 1][
+                "readback_matches"] = len(matches)
+            trace["landed"] = len(matches) == 1
+            trace["append_verified"] = len(matches) == 1
 
     _assert_placing(project, timeline)
-    placed = pool.AppendToTimeline([spec])
+    placed = append(1)
     if recording:
+        if trace is not None:
+            trace["landed"] = bool(placed)
+            trace["append_verified"] = None
+            trace["verification_deferred"] = True
         if not placed:
             raise ReelBuildError(
                 f"{name}: OTIO recorder declined the freeze tail "
@@ -6831,6 +6932,7 @@ def _append_freeze_tail(pool, project, timeline, name: str, path: str,
         return placed
 
     matches = readback()
+    record_readback(matches, 1)
     if len(matches) == 1:
         return placed
     if len(matches) > 1:
@@ -6848,8 +6950,9 @@ def _append_freeze_tail(pool, project, timeline, name: str, path: str,
     # it did not land. One guarded retry handles a transient refusal without
     # duplicating a hold that actually made it onto the timeline.
     _assert_placing(project, timeline)
-    retried = pool.AppendToTimeline([spec])
+    retried = append(2)
     matches = readback()
+    record_readback(matches, 2)
     if len(matches) == 1:
         return retried
     if len(matches) > 1:
@@ -8348,6 +8451,7 @@ def prepare_reel_timeline(moment, master_clips, subtitle_segments, fps,
         "deleted_empty_tracks": [], "skipped_clips": [],
         "offsets": offset_reports,
         "angle_plan": angle_plan_record,
+        "freeze_placement": (None if freeze_tail is None else {}),
         # The declared hold, so the Fusion pass places the tail element
         # on it without re-deriving what this build already rendered.
         "freeze": freeze_tail,
@@ -8852,7 +8956,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         if is_freeze_tail:
             _append_freeze_tail(
                 pool, project, timeline, name, c.source_file, append_spec,
-                recording=recording)
+                recording=recording,
+                trace=build_record["freeze_placement"])
         else:
             pool.AppendToTimeline([append_spec])
         if c.track_type != "video":
@@ -9605,6 +9710,23 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     if profile is not None:
         _otio.record_duration(profile, "row_occupancy_cleanup_s",
                                occupancy_started)
+
+    if freeze_tail is not None:
+        freeze_trace = build_record["freeze_placement"]
+        expected = freeze_trace["expected"]
+        found = _freeze_tail_matches(
+            timeline, int(expected["track_index"]),
+            int(expected["start_frame"]),
+            int(expected["end_frame"]), freeze_tail.rendered_path)
+        freeze_trace["post_placement"] = {
+            "readback_matches": len(found),
+            "verified": len(found) == 1,
+            "after_import": recording,
+        }
+        if freeze_trace.get("append_verified") is None:
+            freeze_trace["append_verified"] = len(found) == 1
+            freeze_trace["landed"] = len(found) == 1
+            freeze_trace["verification_deferred"] = False
 
     build_record["transition_placements"] = [
         p.as_dict() if hasattr(p, "as_dict") else dict(p)
@@ -11721,10 +11843,11 @@ def _file_reel_summary(project_folder: str, *, number: int, name: str,
             mic_bleed_audio_suppressions=facts.get(
                 "mic_bleed_audio_suppressions"),
             overlay_sweep=facts.get("overlay_sweep"),
-                       transition_placements=facts.get("transition_placements"),
-                       has_freeze_tail=facts.get("has_freeze_tail"),
-                       placement_profile=facts.get("placement_profile"),
-                       verify=verify,
+            transition_placements=facts.get("transition_placements"),
+            has_freeze_tail=facts.get("has_freeze_tail"),
+            freeze_placement=facts.get("freeze_placement"),
+            placement_profile=facts.get("placement_profile"),
+            verify=verify,
             retired_to=retired_to,
             markers=markers,
             version_control=version_control,
@@ -13758,6 +13881,31 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                             f"switch animation and every planned drift are "
                             f"comps, so a reel that lost them is a reel with a "
                             f"different picture from the one that was planned.")
+                _freeze_trace = build_result.get("freeze_placement")
+                if isinstance(_freeze_trace, dict):
+                    _freeze = build_result["freeze"]
+                    if not _verify_freeze_tail_after_fusion(
+                            project, name, _freeze, _freeze_trace):
+                        _refusal = (
+                            f"{name}: declared freeze tail did not survive "
+                            f"exact post-Fusion read-back on its planned row "
+                            f"and frames ({_freeze_trace['expected']}); "
+                            "refusing before conformance rather than recording "
+                            "a generic black-hole finding")
+                        summary_facts[name].update({
+                            "freeze_placement": _freeze_trace,
+                            "has_freeze_tail": True,
+                        })
+                        from library.tools import reel_phase_log as _freeze_log
+                        _file_reel_summary(
+                            project_folder, number=int(moment.number),
+                            name=name,
+                            facts=summary_facts[name],
+                            outcome=_freeze_log.OUTCOME_VERIFY_REFUSED,
+                            verify={"passed": False,
+                                    "refusal": _refusal},
+                            gain_record=gain_record)
+                        raise ReelBuildError(_refusal)
                 if (isinstance(placement_profile, dict)
                         and fusion_started is not None):
                     _otio.record_duration(
@@ -13811,6 +13959,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                         if isinstance(_transitions, (list, tuple)) else None),
                     "has_freeze_tail": (
                         build_result.get("freeze_tail") is not None),
+                    "freeze_placement": build_result.get(
+                        "freeze_placement"),
                 })
             if (isinstance(placement_profile, dict)
                     and placement_hold_started is not None):

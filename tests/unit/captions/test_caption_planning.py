@@ -1209,6 +1209,67 @@ def test_reel08_short_block_tail_uses_the_safe_gap_before_the_next_block():
     assert plan["readability_issues"] == []
 
 
+def test_reel13_one_frame_so_holds_backward_only_in_caption_free_silence():
+    fps = 24000 / 1001
+    from library.steps.step_4_01_plan_subtitles.step import (
+        _enforce_caption_duration_floor,
+    )
+
+    entries = [
+        {"id": "akshita-link-card", "text": "The link's in our bio.",
+         "speaker": "Akshita", "spine_block_position": 13,
+         "timeline_start": 74.46, "timeline_end": 75.30},
+        {"id": "craig-so-card", "text": "So", "speaker": "Craig",
+         "spine_block_position": 14,
+         "timeline_start": 75.90, "timeline_end": 75.95},
+    ]
+    structure = [
+        {"position": 13, "block_type": "speech",
+         "timeline_start": 74.46, "timeline_end": 75.30},
+        {"position": 14, "block_type": "speech",
+         "timeline_start": 75.90, "timeline_end": 75.95},
+    ]
+
+    result = _enforce_caption_duration_floor(entries, structure, fps)
+    so = next(entry for entry in entries if entry["text"] == "So")
+
+    assert result == {"extended": 1, "extended_backward": 1, "merged": 0}
+    assert entries[0]["timeline_end"] == 75.30
+    assert so["speaker"] == "Craig"
+    assert so["timeline_start"] == pytest.approx(75.45, abs=0.001)
+    assert round((so["timeline_end"] - so["timeline_start"]) * fps) >= 12
+    assert so["timeline_end"] <= 75.95
+    assert not any(
+        other is not so
+        and other["timeline_start"] < so["timeline_end"]
+        and other["timeline_end"] > so["timeline_start"]
+        for other in entries
+    )
+def test_short_tail_does_not_hold_backward_through_its_speech_block():
+    spine = {
+        "structure": [{
+            "position": 14,
+            "block_type": "speech",
+            "timeline_start": 75.50,
+            "timeline_end": 75.95,
+            "source_start": 4000.0,
+            "source_end": 4000.45,
+            "speaker": "Craig",
+            "content": {"text": "So"},
+            "word_timestamps": [{
+                "word": "So", "source_start": 4000.40,
+                "source_end": 4000.45,
+            }],
+        }],
+    }
+
+    with pytest.raises(ValueError, match="under the 0.500s readability floor"):
+        generate_subtitles(
+            spine, caption_case="as_written", brand_effect={},
+            brand_style={}, fps=24000 / 1001,
+        )
+
+
 def test_unfixable_sub_floor_block_refuses_instead_of_emitting_f7_card():
     spine = _speech_spine([
         {"word": "2026.", "source_start": 0.0, "source_end": 0.212},

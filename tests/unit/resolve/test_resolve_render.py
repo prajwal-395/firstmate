@@ -699,8 +699,13 @@ REPO = Path(__file__).resolve().parents[3]
 
 _WAITER = textwrap.dedent("""
     import sys
+    from contextlib import contextmanager
     sys.path.insert(0, {repo!r})
     from library.tools import resolve_lock
+    @contextmanager
+    def no_broker_turn(*args, **kwargs):
+        yield None
+    resolve_lock._broker_turn = no_broker_turn
     original_flock = resolve_lock._flock
     reported_contention = False
     def observed_flock(handle, exclusive, blocking):
@@ -771,6 +776,12 @@ def test_render_start_keeps_lease_until_resolve_reports_completion(
     lock_dir = tmp_path / "resolve-lock"
     monkeypatch.setenv(resolve_lock.LOCK_DIR_ENV, str(lock_dir))
     monkeypatch.setattr(resolve_lock, "_sole_writer_reason", None)
+    # This test proves the disk fence across processes. Keep the shared
+    # ren-resolved service out of the demonstration; it has its own suite.
+    @contextmanager
+    def no_broker_turn(*_args, **_kwargs):
+        yield None
+    monkeypatch.setattr(resolve_lock, "_broker_turn", no_broker_turn)
 
     project = _Project()
     monkeypatch.setattr(resolve_axi, "_connect", lambda: _Resolve(project))

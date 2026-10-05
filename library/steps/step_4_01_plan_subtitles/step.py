@@ -856,11 +856,12 @@ def _enforce_caption_duration_floor(entries: list, structure: list,
 
     Per-block clamping can undo a minimum-duration hold on a block's final
     card. The card may use an uncaptioned gap after that block, but not
-    another speech block or caption. If the gap is too short, it joins an
-    adjacent same-speaker card in its own block when doing so keeps the
-    sentence boundary intact. A short boundary fragment may also join the
-    nearest same-speaker card in the immediately neighboring speech block,
-    even when non-speech structure rows make their numeric positions skip.
+    another speech block or caption. If the gap is too short, the card may
+    extend backward into caption-free silence, or join an adjacent
+    same-speaker card when doing so keeps the sentence boundary intact. A
+    short boundary fragment may also join the nearest same-speaker card in
+    the immediately neighboring speech block, even when non-speech structure
+    rows make their numeric positions skip.
     An impossible plan fails here instead of emitting a card the F7 gate
     will reject.
     """
@@ -885,6 +886,7 @@ def _enforce_caption_duration_floor(entries: list, structure: list,
         default=float("inf"),
     )
     extended = 0
+    extended_backward = 0
     merged = 0
     index = 0
 
@@ -1004,6 +1006,33 @@ def _enforce_caption_duration_floor(entries: list, structure: list,
                 index = max(0, index - 1)
             continue
 
+        # A clipped word at the very end of a reel can have no safe room
+        # after it, even though the preceding interval is genuine silence.
+        # Existing same-speaker merging gets first refusal. The card may
+        # then appear early enough to reach the same frame floor, but only
+        # when the full held interval is free of speech and every other card.
+        target_start = round(end - target_duration + 1e-9, 3)
+        while round((end - target_start) * fps) < floor_frames:
+            target_start = round(target_start - 0.001, 3)
+        speech_free = all(
+            float(block["timeline_end"]) <= target_start + 1e-9
+            or float(block["timeline_start"]) >= start - 1e-9
+            for block in speech_blocks
+        )
+        cards_free = all(
+            other is entry
+            or float(other["timeline_end"]) <= target_start + 1e-9
+            or float(other["timeline_start"]) >= end - 1e-9
+            for other in entries
+        )
+        if (target_start >= 0.0 and target_start < start - 1e-9
+                and speech_free and cards_free):
+            entry["timeline_start"] = target_start
+            extended += 1
+            extended_backward += 1
+            index += 1
+            continue
+
         raise ValueError(
             f"Caption {entry.get('id', '?')} {entry.get('text', '')!r} "
             f"would remain under the {floor:.3f}s readability floor "
@@ -1014,7 +1043,8 @@ def _enforce_caption_duration_floor(entries: list, structure: list,
             f"a sentence boundary"
         )
 
-    return {"extended": extended, "merged": merged}
+    return {"extended": extended, "extended_backward": extended_backward,
+            "merged": merged}
 
 
 def _readability_issues(entries: list) -> list:
@@ -1947,7 +1977,8 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
     if duration_fix["extended"] or duration_fix["merged"]:
         print(
             f"NOTE: held {duration_fix['extended']} short caption card(s) "
-            f"through a safe gap and merged {duration_fix['merged']} into "
+            f"through safe silence ({duration_fix['extended_backward']} "
+            f"backward) and merged {duration_fix['merged']} into "
             f"compatible same-speaker card(s) to meet the "
             f"{MIN_CAPTION_FLASH_SECONDS:.1f}s readability floor",
             file=sys.stderr,

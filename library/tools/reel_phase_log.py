@@ -740,6 +740,7 @@ def assemble_summary(
         overlay_sweep: Optional[Dict[str, Any]] = None,
         transition_placements: Any = None,
         has_freeze_tail: Any = None,
+        freeze_placement: Optional[Dict[str, Any]] = None,
         placement_profile: Optional[Dict[str, Any]] = None,
         verify: Optional[Dict[str, Any]] = None,
         retired_to: Optional[str] = None,
@@ -826,6 +827,8 @@ def assemble_summary(
         "transition_placements": _int_or_none(transition_placements),
         "has_freeze_tail": (None if has_freeze_tail is None
                             else bool(has_freeze_tail)),
+        **({"freeze_placement": freeze_placement}
+           if isinstance(freeze_placement, dict) else {}),
         **({"placement_profile": placement_profile}
            if isinstance(placement_profile, dict) else {}),
         "verify": verify,

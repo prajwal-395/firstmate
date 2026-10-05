@@ -403,28 +403,41 @@ def _segment_word_alignment(
                                                 key=lambda item: item[0])]
 
     # A legacy suppression could remove the leading "I" from "I've" while
-    # hiding the following false-start "I", leaving cached text as
-    # "'ve I thought". The corrected timed array records "I've", the
-    # hidden duplicate, then "thought". Recover only that exact explained
-    # shape; other unmatched text remains undetermined.
+    # hiding the following false-start "I", leaving cached text as either
+    # "'ve I thought" or, after a later transcript refresh,
+    # "'ve thought". The corrected timed array records "I've", the hidden
+    # duplicate, then "thought". Recover only those exact explained shapes;
+    # other unmatched text remains undetermined.
     text_keys = [_token_key(token) for token in text_tokens]
     timed_keys = [_token_key(str(word.get("word") or "")) for word in words]
     hidden_keys = {
         _token_key(str(word.get("word") or ""))
         for word in raw_words if word.get("display") is False
     }
-    legacy_suppressed_contraction = (
+    explained_contraction_head = (
         bool(correction_report.get("suppressed"))
-        and len(text_keys) >= 3
+        and len(text_keys) >= 2
         and len(timed_keys) >= 2
+        and timed_keys[0].startswith("i")
         and len(timed_keys[0]) - len(text_keys[0]) == 1
         and timed_keys[0].endswith(text_keys[0])
+    )
+    hidden_false_start_variant = (
+        explained_contraction_head
+        and "i" in hidden_keys
+        and text_keys[1:] == timed_keys[1:]
+    )
+    hidden_token_still_in_text_variant = (
+        explained_contraction_head
+        and len(text_keys) >= 3
         and text_keys[1] in hidden_keys
         and text_keys[2:] == timed_keys[1:]
     )
-    if legacy_suppressed_contraction:
+    if (hidden_false_start_variant
+            or hidden_token_still_in_text_variant):
         return ([dict(word) for word in words
-                 if _measured_word_span(word)], [])
+                 if word.get("display") is not False
+                 and _measured_word_span(word)], [])
     return aligned_words, undetermined
 
 

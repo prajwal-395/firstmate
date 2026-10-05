@@ -12,6 +12,7 @@ import sys
 import textwrap
 import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 import pytest
 from library.tools import resolve_lock
@@ -206,8 +207,14 @@ def test_cursor_write_guard_refuses_a_shared_lease(lock_dir, unguarded):
 
 _HOLDER = textwrap.dedent("""
     import sys, time
+    from contextlib import contextmanager
     sys.path.insert(0, {repo!r})
-    from library.tools.resolve_lock import resolve_lease
+    from library.tools import resolve_lock
+    @contextmanager
+    def no_broker_turn(*args, **kwargs):
+        yield None
+    resolve_lock._broker_turn = no_broker_turn
+    resolve_lease = resolve_lock.resolve_lease
     with resolve_lease("holding for the demonstration", owner="holder",
                        timeout=5.0):
         print("HELD", flush=True)
@@ -217,8 +224,15 @@ _HOLDER = textwrap.dedent("""
 
 _WAITER = textwrap.dedent("""
     import sys, time
+    from contextlib import contextmanager
     sys.path.insert(0, {repo!r})
-    from library.tools.resolve_lock import resolve_lease, ResolveBusy
+    from library.tools import resolve_lock
+    @contextmanager
+    def no_broker_turn(*args, **kwargs):
+        yield None
+    resolve_lock._broker_turn = no_broker_turn
+    resolve_lease = resolve_lock.resolve_lease
+    ResolveBusy = resolve_lock.ResolveBusy
     started = time.time()
     try:
         with resolve_lease("waiting for the demonstration", owner="waiter",
@@ -239,8 +253,13 @@ def _spawn(source, lock_dir):
 
 _SYNCHRONIZED_WAITER = textwrap.dedent("""
     import sys
+    from contextlib import contextmanager
     sys.path.insert(0, {repo!r})
     from library.tools import resolve_lock
+    @contextmanager
+    def no_broker_turn(*args, **kwargs):
+        yield None
+    resolve_lock._broker_turn = no_broker_turn
     original_flock = resolve_lock._flock
     def observed_flock(handle, exclusive, blocking):
         acquired = original_flock(handle, exclusive, blocking)

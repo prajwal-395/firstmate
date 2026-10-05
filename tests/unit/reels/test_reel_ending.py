@@ -335,6 +335,10 @@ class _FreezeAppendItem:
 class _FreezeAppendTimeline:
     def __init__(self):
         self.items = []
+        self.name = "Reel 10"
+
+    def GetName(self):
+        return self.name
 
     def GetItemListInTrack(self, media_type, row):
         assert (media_type, row) == ("video", 1)
@@ -370,6 +374,44 @@ def _freeze_append_spec(path):
             "trackIndex": 1, "recordFrame": 1365}
 
 
+def test_post_fusion_freeze_readback_records_a_later_loss():
+    from types import SimpleNamespace
+    from library.tools import reel_build
+
+    path = "/project/reel_freeze_test.mov"
+    timeline = _FreezeAppendTimeline()
+    timeline.items.append(_FreezeAppendItem(path, 1365, 1384))
+    project = SimpleNamespace(
+        GetTimelineCount=lambda: 1,
+        GetTimelineByIndex=lambda index: timeline if index == 1 else None,
+    )
+    trace = {
+        "called": True,
+        "landed": True,
+        "append_verified": True,
+        "expected": {"track_index": 1, "start_frame": 1365,
+                     "end_frame": 1384},
+        "post_placement": {"readback_matches": 1, "verified": True},
+    }
+    freeze = SimpleNamespace(rendered_path=path)
+
+    assert reel_build._verify_freeze_tail_after_fusion(
+        project, "Reel 10", freeze, trace)
+    assert trace["post_fusion"] == {
+        "timeline_matches": 1, "readback_matches": 1,
+        "verified": True, "error": None,
+    }
+    assert trace["repair"] == {"attempted": False, "status": "not_needed"}
+
+    timeline.items.clear()
+    assert not reel_build._verify_freeze_tail_after_fusion(
+        project, "Reel 10", freeze, trace)
+    assert trace["landed"] is True
+    assert trace["post_fusion"]["readback_matches"] == 0
+    assert trace["verified"] is False
+    assert trace["repair"]["status"] == "refused"
+
+
 def test_freeze_append_retries_only_after_empty_return_and_readback(
         monkeypatch):
     from library.tools import reel_build
@@ -379,14 +421,26 @@ def test_freeze_append_retries_only_after_empty_return_and_readback(
     path = "/project/reel_freeze_test.mov"
     timeline = _FreezeAppendTimeline()
     pool = _FreezeAppendPool(timeline, ["declined", "placed"])
+    trace = {}
 
     placed = reel_build._append_freeze_tail(
         pool, object(), timeline, "Reel 10", path,
-        _freeze_append_spec(path))
+        _freeze_append_spec(path), trace=trace)
 
     assert pool.calls == 2
     assert len(timeline.items) == 1
     assert placed == timeline.items
+    assert trace["called"] is True
+    assert trace["landed"] is True
+    assert trace["append_verified"] is True
+    assert trace["expected"] == {
+        "asset": "reel_freeze_test.mov", "track_index": 1,
+        "start_frame": 1365, "end_frame": 1384,
+    }
+    assert trace["append_attempts"] == [
+        {"attempt": 1, "returned_items": 0, "readback_matches": 0},
+        {"attempt": 2, "returned_items": 1, "readback_matches": 1},
+    ]
 
 
 def test_freeze_append_does_not_retry_when_readback_proves_it_landed(
@@ -398,14 +452,20 @@ def test_freeze_append_does_not_retry_when_readback_proves_it_landed(
     path = "/project/reel_freeze_test.mov"
     timeline = _FreezeAppendTimeline()
     pool = _FreezeAppendPool(timeline, ["placed-empty-return", "placed"])
+    trace = {}
 
     placed = reel_build._append_freeze_tail(
         pool, object(), timeline, "Reel 10", path,
-        _freeze_append_spec(path))
+        _freeze_append_spec(path), trace=trace)
 
     assert pool.calls == 1
     assert len(timeline.items) == 1
     assert placed == []
+    assert trace["landed"] is True
+    assert trace["append_verified"] is True
+    assert trace["append_attempts"] == [
+        {"attempt": 1, "returned_items": 0, "readback_matches": 1},
+    ]
 
 
 def test_freeze_append_refuses_when_one_retry_leaves_the_tail_unplaced(
@@ -417,14 +477,18 @@ def test_freeze_append_refuses_when_one_retry_leaves_the_tail_unplaced(
     path = "/project/reel_freeze_test.mov"
     timeline = _FreezeAppendTimeline()
     pool = _FreezeAppendPool(timeline, ["declined", "declined"])
+    trace = {}
 
     with pytest.raises(reel_build.ReelBuildError,
                        match="frames 1365-1384 after one retry"):
         reel_build._append_freeze_tail(
             pool, object(), timeline, "Reel 10", path,
-            _freeze_append_spec(path))
+            _freeze_append_spec(path), trace=trace)
 
     assert pool.calls == 2
+    assert trace["called"] is True
+    assert trace["landed"] is False
+    assert trace["append_verified"] is False
 
 
 # --------------------------------------------------------------------------

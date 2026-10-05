@@ -34,6 +34,18 @@ import os
 
 REPO = Path(__file__).resolve().parents[2]
 POST_BRIDGE = "library.steps.step_4_03_plan_vfx.post_bridge"
+_REAL_PATH_EXISTS = os.path.exists
+_FAKE_MEDIA_PATHS = {"/a.mov", "/m.wav", "/whoosh.mp3", "/click.wav"}
+
+
+def _exists_with_fake_media(path):
+    """Pretend only the Resolve double's media files exist.
+
+    Patching `os.path.exists` patches the shared `os.path` module, so a
+    blanket True also makes `Path.exists()` report both external declaration
+    layouts present. Keep actual filesystem checks real outside these files.
+    """
+    return str(path) in _FAKE_MEDIA_PATHS or _REAL_PATH_EXISTS(path)
 
 
 @pytest.fixture
@@ -767,7 +779,8 @@ def _fake_setup(tmp_path):
 def test_the_round_trip_puts_every_planned_level_on_the_new_timeline(tmp_path):
     from library.tools.execution.deliver_audio_mix import deliver_mix
     resolve, project, pool, timeline = _fake_setup(tmp_path)
-    with patch("library.tools.otio_mix.os.path.exists", return_value=True):
+    with patch("library.tools.otio_mix.os.path.exists",
+               side_effect=_exists_with_fake_media):
         report = deliver_mix(resolve, project, pool, timeline, MANIFEST,
                              fps=FPS, project_folder=str(tmp_path))
     assert report["delivered"], report["reason"]
@@ -802,7 +815,8 @@ def test_picture_frame_drift_refuses_import_and_keeps_original_timeline(
         return replacement
 
     monkeypatch.setattr(pool, "ImportTimelineFromFile", import_with_source_drift)
-    with patch("library.tools.otio_mix.os.path.exists", return_value=True):
+    with patch("library.tools.otio_mix.os.path.exists",
+               side_effect=_exists_with_fake_media):
         report = deliver_mix(resolve, project, pool, timeline, MANIFEST,
                              fps=FPS, project_folder=str(tmp_path))
 
