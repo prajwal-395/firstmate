@@ -35,7 +35,11 @@ snapshots into a parallel store.
 An entry carries time (`at`), actor (`ren` or `captain`), what changed
 (`act` + `summary`), and - for every Ren build and promotion - the plan
 version it used (`plan_version`: the plan content hash plus the caption
-and footage-binding hashes). Manual edits are detected by comparing the
+and footage-binding hashes). Every entry also names the entry it was
+applied against (`parent_entry_id`: the id of the entry whose state this
+one followed), so a reel's history reads as one causal chain -
+`history_chain` walks it oldest-first and a rebuild can tell which edits
+sit on top of which. Manual edits are detected by comparing the
 live timeline against Ren's last recorded state and are recorded
 read-only: detection never writes to Resolve, never reverts or
 "corrects" the captain's edit, and never changes a resolution. Reel
@@ -90,6 +94,11 @@ REN_ACTS = (ACT_BUILD, ACT_PROMOTION, ACT_TOUCH, ACT_UNDO, ACT_ROLLBACK)
 
 _FORMAT = "reel_edit_history/1"
 
+#: `parent_entry_id` was not given, so the parent is derived from the
+#: history at write time. Distinguishes "not given" from an explicit
+#: `None`, which files the entry as the chain's root.
+_UNSET = object()
+
 
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
@@ -108,8 +117,17 @@ def _entry_id(final: str, at: str, actor: str, act: str,
     return digest[:32]
 
 
-def _mutate(review_dir: str, mutation) -> None:
-    """Apply `mutation(doc)` to the provenance sidecar under its lock."""
+def _sort_key(entry: Mapping) -> tuple[str, str]:
+    """The oldest-first order every history is read in."""
+    return (str(entry.get("at") or ""), str(entry.get("id") or ""))
+
+
+def _mutate(review_dir: str, mutation):
+    """Apply `mutation(doc)` to the provenance sidecar under its lock.
+
+    Returns whatever `mutation` returns, so a writer can hand back the
+    entry it filed.
+    """
     from library.tools.project_file_lock import lock_project_file
 
     path = Path(review_dir) / "plan_provenance.json"
@@ -121,9 +139,10 @@ def _mutate(review_dir: str, mutation) -> None:
             doc = {}
         if not isinstance(doc, dict):
             raise ValueError(f"{path} is not a JSON object")
-        mutation(doc)
+        result = mutation(doc)
         path.write_text(json.dumps(doc, indent=2, default=str),
                         encoding="utf-8")
+        return result
 
 
 def recorded_history(review_dir: str, final: str) -> list[dict]:
@@ -134,11 +153,8 @@ def recorded_history(review_dir: str, final: str) -> list[dict]:
         doc = read_provenance(str(review_dir)) or {}
         table = doc.get(HISTORY_KEY) or {}
         entries = table.get(str(final)) or []
-        ordered = sorted((dict(entry) for entry in entries
-                          if isinstance(entry, dict)),
-                         key=lambda e: (str(e.get("at") or ""),
-                                        str(e.get("id") or "")))
-        return ordered
+        return sorted((dict(entry) for entry in entries
+                       if isinstance(entry, dict)), key=_sort_key)
     except Exception:  # noqa: BLE001 - an unreadable history reads as empty
         return []
 
@@ -201,6 +217,7 @@ def _derived_manual_entries(review_dir: str, final: str) -> list[dict]:
                      "status": record.get("status")},
             "frame_delta": None,
             "backfilled": False,
+            "parent_entry_id": None,
             "derived": True,
         })
     return derived
@@ -234,9 +251,72 @@ def history_for(review_dir: str, final: str) -> list[dict]:
     """
     entries = recorded_history(review_dir, final)
     entries.extend(_derived_manual_entries(review_dir, final))
-    entries.sort(key=lambda e: (str(e.get("at") or ""),
-                                str(e.get("id") or "")))
+    entries.sort(key=_sort_key)
     return entries
+
+
+def _chain_with_parents(entries: Sequence[Mapping]) -> list[dict]:
+    """Copy `entries` oldest-first, filling each missing parent by order.
+
+    An entry written before parent ids existed carries no
+    `parent_entry_id`; the chain derives it from the entry before it,
+    here, without a write. A parent already on an entry is a write-time
+    fact and is left exactly as it is.
+    """
+    ordered = sorted((dict(e) for e in entries if isinstance(e, dict)),
+                     key=_sort_key)
+    parent: Optional[str] = None
+    for entry in ordered:
+        if entry.get("parent_entry_id") is None:
+            entry["parent_entry_id"] = parent
+        parent = entry.get("id")
+    return ordered
+
+
+def history_chain(review_dir: str, final: str) -> list[dict]:
+    """The reel's causal chain, oldest first, every entry parented.
+
+    The walkable form of `history_for`: each entry's `parent_entry_id`
+    names the entry whose state it was applied against, so any state can
+    be walked back to the root and a rebuild can tell which edits sit on
+    top of which. Entries that already carry a parent keep the one
+    written at write time; entries that predate parent ids get theirs
+    derived by ordering, here, without a write.
+    """
+    return _chain_with_parents(history_for(review_dir, final))
+
+
+def backfill_parents(review_dir: str, final: str) -> int:
+    """Derive `parent_entry_id` for entries that lack it, by ordering.
+
+    Entries written before parent ids existed carry no `parent_entry_id`,
+    which left every pre-change history an unordered set: a rebuild could
+    not say which edits sat on top of which. This walks the reel's
+    recorded history oldest-first and sets each parentless entry's
+    parent to the entry before it, persisting the result under the
+    provenance lock. An entry that already carries a parent is left
+    exactly as it is. Idempotent: re-running changes nothing.
+
+    Returns the number of entries that gained a parent.
+    """
+    review_dir = str(review_dir)
+    final = str(final)
+    updated = 0
+
+    def update(doc):
+        nonlocal updated
+        filed = _filed_for(doc, final)
+        parent: Optional[str] = None
+        for entry in sorted((e for e in filed if isinstance(e, dict)),
+                            key=_sort_key):
+            if entry.get("parent_entry_id") is None:
+                entry["parent_entry_id"] = parent
+                if parent is not None:
+                    updated += 1
+            parent = entry.get("id")
+
+    _mutate(review_dir, update)
+    return updated
 
 
 def make_entry(final: str, *, actor: str, act: str, summary: str,
@@ -244,13 +324,19 @@ def make_entry(final: str, *, actor: str, act: str, summary: str,
                refs: Optional[Mapping] = None,
                frame_delta: Optional[int] = None,
                at: Optional[str] = None,
-               backfilled: bool = False) -> dict:
+               backfilled: bool = False,
+               parent_entry_id: Optional[str] = None) -> dict:
     """One history entry, constructed without writing anything.
 
     Hook sites holding the provenance lock (the build's own provenance
     write, promotion's rename) build entries with this and file them
     with `append_entries` into the document they already hold - one
     locked write, never two.
+
+    `parent_entry_id` names the entry whose state this one was applied
+    against. It is a field, not part of the id: the id hashes the act's
+    own inputs, so a parent added later never rewrites an entry's
+    identity.
     """
     final = str(final)
     stamp = at or _now()
@@ -266,7 +352,32 @@ def make_entry(final: str, *, actor: str, act: str, summary: str,
         "refs": refs,
         "frame_delta": frame_delta,
         "backfilled": bool(backfilled),
+        "parent_entry_id": (str(parent_entry_id)
+                            if parent_entry_id is not None else None),
     }
+
+
+def _filed_for(doc: Mapping, final: str) -> list:
+    """The per-reel entry list inside `doc`, created if absent."""
+    table = doc.get(HISTORY_KEY)
+    if not isinstance(table, dict):
+        table = {}
+        doc[HISTORY_KEY] = table
+    filed = table.get(str(final))
+    if not isinstance(filed, list):
+        filed = []
+        table[str(final)] = filed
+    return filed
+
+
+def last_entry_id(filed: Sequence[Mapping]) -> Optional[str]:
+    """The id of the newest entry in `filed`, in oldest-first order."""
+    ordered = sorted((e for e in filed if isinstance(e, dict)),
+                     key=_sort_key)
+    if not ordered:
+        return None
+    newest = ordered[-1].get("id")
+    return str(newest) if newest else None
 
 
 def append_entries(doc: Mapping, final: str, entries: Sequence[Mapping]
@@ -276,41 +387,53 @@ def append_entries(doc: Mapping, final: str, entries: Sequence[Mapping]
     Append-only and idempotent: an id already present is left exactly
     as it is, never rewritten. Mutates `doc` in place.
     """
-    table = doc.get(HISTORY_KEY)
-    if not isinstance(table, dict):
-        table = {}
-        doc[HISTORY_KEY] = table
-    filed = table.get(str(final))
-    if not isinstance(filed, list):
-        filed = []
-        table[str(final)] = filed
+    filed = _filed_for(doc, final)
     known = {e.get("id") for e in filed if isinstance(e, dict)}
     for entry in entries:
         if isinstance(entry, dict) and entry.get("id") not in known:
             known.add(entry.get("id"))
             filed.append(dict(entry))
+
+
 def record_entry(review_dir: str, final: str, *, actor: str, act: str,
                  summary: str, plan_version: Optional[Mapping] = None,
                  refs: Optional[Mapping] = None,
                  frame_delta: Optional[int] = None,
                  at: Optional[str] = None,
-                 backfilled: bool = False) -> dict:
+                 backfilled: bool = False,
+                 parent_entry_id=_UNSET) -> dict:
     """Append one history entry for `final`. Idempotent by entry id.
 
     History is append-only: an entry whose id already exists is left
     exactly as it is, never rewritten. Returns the entry written (or
     the one already there).
+
+    `parent_entry_id` names the entry whose state this one was applied
+    against. When it is not given, the parent is the newest entry
+    already filed for `final` at write time - the prior entry in the
+    reel's oldest-first order - so a fresh history chains itself. An
+    explicit `None` files the entry as the chain's root.
     """
-    entry = make_entry(final, actor=actor, act=act, summary=summary,
-                       plan_version=plan_version, refs=refs,
-                       frame_delta=frame_delta, at=at,
-                       backfilled=backfilled)
-
     def update(doc):
+        filed = _filed_for(doc, str(final))
+        by_id = {e.get("id"): e for e in filed if isinstance(e, dict)}
+        entry = make_entry(final, actor=actor, act=act, summary=summary,
+                           plan_version=plan_version, refs=refs,
+                           frame_delta=frame_delta, at=at,
+                           backfilled=backfilled)
+        existing = by_id.get(entry["id"])
+        if existing is not None:
+            return existing
+        if parent_entry_id is _UNSET:
+            entry["parent_entry_id"] = last_entry_id(filed)
+        else:
+            entry["parent_entry_id"] = (
+                str(parent_entry_id) if parent_entry_id is not None
+                else None)
         append_entries(doc, str(final), [entry])
+        return entry
 
-    _mutate(str(review_dir), update)
-    return entry
+    return _mutate(str(review_dir), update)
 
 
 def try_record_ren_act(review_dir: str, final: str, *, act: str,
@@ -674,26 +797,28 @@ def backfill(review_dir: str, final: str,
     their carried/superseded/restored status). Every derived entry is
     marked `backfilled: true` and idempotent: re-running adds nothing.
 
+    Each derived entry is parented to the entry whose state it was
+    applied against - the one immediately before it in the combined
+    oldest-first order of the entries already filed and the ones being
+    derived - so a backfilled history reads as one chain. Entries
+    written before parent ids existed then get theirs derived by
+    ordering (`backfill_parents`).
+
     Returns the number of entries added.
     """
     review_dir = str(review_dir)
+    final = str(final)
     folder = (str(project_folder) if project_folder is not None
               else _project_folder_for(review_dir))
     added = 0
-    existing_ids = {e.get("id") for e in recorded_history(review_dir, final)}
-
-    def file_entry(**fields):
-        nonlocal added
-        entry = record_entry(review_dir, final, **fields, backfilled=True)
-        if entry["id"] not in existing_ids:
-            existing_ids.add(entry["id"])
-            added += 1
-        return entry
+    existing = recorded_history(review_dir, final)
+    existing_ids = {e.get("id") for e in existing}
+    derived: list[dict] = []
 
     try:
         from library.tools.versions import reel_versions
 
-        versions = reel_versions.versions_of(folder, str(final))
+        versions = reel_versions.versions_of(folder, final)
     except Exception:  # noqa: BLE001 - backfill what can be read
         versions = []
     plan_version = None
@@ -701,11 +826,11 @@ def backfill(review_dir: str, final: str,
         from library.tools.plan_provenance import read_provenance
 
         provenance = read_provenance(review_dir) or {}
-        built_at = (provenance.get("built_at_reels") or {}).get(str(final))
-        built_with = (provenance.get("built_with") or {}).get(str(final))
-        caption = (provenance.get("caption_hashes") or {}).get(str(final))
+        built_at = (provenance.get("built_at_reels") or {}).get(final)
+        built_with = (provenance.get("built_with") or {}).get(final)
+        caption = (provenance.get("caption_hashes") or {}).get(final)
         binding = ((provenance.get("footage_binding_hashes") or {}).get(
-            str(final)))
+            final))
         plan_version = {
             "plan_content_hash": provenance.get("plan_content_hash"),
             "caption_hash": caption,
@@ -733,21 +858,39 @@ def backfill(review_dir: str, final: str,
             summary_bits.append(f"round {version['round']}")
         if version.get("journal"):
             summary_bits.append(f"journal {version['journal']}")
-        file_entry(actor=ACTOR_REN, act=act,
-                   summary=" ".join(summary_bits),
-                   plan_version=plan_version if act in (
-                       ACT_BUILD, ACT_ROLLBACK) else None,
-                   refs=refs, at=version.get("at"))
+        derived.append(make_entry(
+            final, actor=ACTOR_REN, act=act,
+            summary=" ".join(summary_bits),
+            plan_version=plan_version if act in (
+                ACT_BUILD, ACT_ROLLBACK) else None,
+            refs=refs, at=version.get("at")))
     changes = ((provenance.get("unattributed_editor_changes") or {}).get(
-        str(final)) or [])
+        final) or [])
     for record in changes:
         if not isinstance(record, dict) or not record.get("id"):
             continue
-        file_entry(
-            actor=ACTOR_CAPTAIN, act=ACT_MANUAL_EDIT,
+        derived.append(make_entry(
+            final, actor=ACTOR_CAPTAIN, act=ACT_MANUAL_EDIT,
             summary=(f"captain's manual edit recorded at "
                      f"{record.get('recorded_at')} "
                      f"(status: {record.get('status')})"),
             refs={"editor_change_id": str(record["id"])},
-            at=record.get("recorded_at"))
+            at=record.get("recorded_at")))
+
+    combined = list(existing) + derived
+    combined.sort(key=_sort_key)
+    parent_of: dict = {}
+    for previous, current in zip(combined, combined[1:]):
+        parent_of.setdefault(current.get("id"), previous.get("id"))
+
+    for entry in derived:
+        filed = record_entry(
+            review_dir, final, actor=entry["actor"], act=entry["act"],
+            summary=entry["summary"], plan_version=entry["plan_version"],
+            refs=entry["refs"], at=entry["at"], backfilled=True,
+            parent_entry_id=parent_of.get(entry["id"]))
+        if filed["id"] not in existing_ids:
+            existing_ids.add(filed["id"])
+            added += 1
+    backfill_parents(review_dir, final)
     return added

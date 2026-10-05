@@ -484,6 +484,13 @@ def _write_provenance_unlocked(
     history_doc = {_history.HISTORY_KEY: dict(
         existing.get(_history.HISTORY_KEY) or {})}
     for name in reel_names:
+        # The build is applied against the reel's current state, so its
+        # parent is the newest entry already filed for this reel - the
+        # prior entry in the oldest-first order `last_entry_id` reads.
+        # A reel with no history yet files the build as the chain's root.
+        prior = _history.last_entry_id(
+            list((existing.get(_history.HISTORY_KEY) or {}).get(name)
+                 or []))
         _history.append_entries(
             history_doc, name,
             [_history.make_entry(
@@ -497,7 +504,8 @@ def _write_provenance_unlocked(
                     "built_at": now,
                 },
                 refs={"plan_content_hash": content_hash},
-                at=now)],
+                at=now,
+                parent_entry_id=prior)],
         )
     history_table = history_doc[_history.HISTORY_KEY]
 

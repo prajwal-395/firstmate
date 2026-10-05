@@ -9,6 +9,7 @@ reaches a real project, Resolve, or the primary checkout.
 """
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -380,6 +381,121 @@ class TestBackfillAndDrift:
         assert history.recorded_history(review, FINAL_26) == []
         # A second identical drift report files nothing new.
         assert history.record_drift_findings(review, report) == 0
+
+
+class TestParentChain:
+    """F-01: every edit names the parent it was applied against.
+
+    The defect: entries carried no parent, so a reel's history was an
+    unordered set - given a timeline state, Ren could not answer which
+    edit produced it, and a rebuild landing between two touches could
+    not say which touch's parent it built on.
+    """
+
+    STAMPS = ["2026-10-01T10:00:00+00:00", "2026-10-01T10:05:00+00:00",
+              "2026-10-02T09:00:00+00:00", "2026-10-02T10:00:00+00:00"]
+
+    def _chain(self, review):
+        history.record_entry(
+            review, FINAL_28, actor=history.ACTOR_REN,
+            act=history.ACT_BUILD, summary="Ren build from plan abc",
+            at=self.STAMPS[0])
+        history.record_entry(
+            review, FINAL_28, actor=history.ACTOR_REN, act=history.ACT_TOUCH,
+            summary="Ren touch-up (journal j1)", at=self.STAMPS[1])
+        history.record_manual_edit(
+            review, FINAL_28, summary="captain trimmed the closer",
+            frame_delta=-575, at=self.STAMPS[2])
+        history.record_entry(
+            review, FINAL_28, actor=history.ACTOR_REN, act=history.ACT_TOUCH,
+            summary="Ren touch-up (journal j2)", at=self.STAMPS[3])
+
+    def test_each_entry_names_the_parent_it_was_applied_against(
+            self, tmp_path):
+        review = _review_dir(tmp_path)
+        self._chain(review)
+        entries = history.recorded_history(review, FINAL_28)
+        assert [e["act"] for e in entries] == [
+            "build", "touch", "manual_edit", "touch"]
+        assert entries[0]["parent_entry_id"] is None
+        for previous, current in zip(entries, entries[1:]):
+            assert current["parent_entry_id"] == previous["id"]
+        # The manual edit's parent is the last Ren act (the touch), not
+        # some other manual edit.
+        assert entries[2]["parent_entry_id"] == entries[1]["id"]
+        assert entries[1]["actor"] == history.ACTOR_REN
+
+    def test_history_for_reconstructs_the_chain(self, tmp_path):
+        review = _review_dir(tmp_path)
+        self._chain(review)
+        entries = history.history_for(review, FINAL_28)
+        assert [e["act"] for e in entries] == [
+            "build", "touch", "manual_edit", "touch"]
+        for previous, current in zip(entries, entries[1:]):
+            assert current["parent_entry_id"] == previous["id"]
+
+    def test_history_chain_parents_a_parentless_entry(self, tmp_path):
+        review = _review_dir(tmp_path)
+        history.record_entry(
+            review, FINAL_28, actor=history.ACTOR_REN,
+            act=history.ACT_BUILD, summary="Ren build from plan abc",
+            at=self.STAMPS[0])
+        # A parentless entry (as pre-change code wrote them) filed
+        # between two parented ones.
+        orphan = history.make_entry(
+            FINAL_28, actor=history.ACTOR_REN, act=history.ACT_TOUCH,
+            summary="Ren touch-up (journal j1)", at=self.STAMPS[1])
+        orphan.pop("parent_entry_id")
+        path = Path(review) / "plan_provenance.json"
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        doc[history.HISTORY_KEY][FINAL_28].append(orphan)
+        path.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+        history.record_entry(
+            review, FINAL_28, actor=history.ACTOR_REN, act=history.ACT_TOUCH,
+            summary="Ren touch-up (journal j2)", at=self.STAMPS[3])
+        chain = history.history_chain(review, FINAL_28)
+        assert [e["act"] for e in chain] == ["build", "touch", "touch"]
+        assert chain[0]["parent_entry_id"] is None
+        for previous, current in zip(chain, chain[1:]):
+            assert current["parent_entry_id"] == previous["id"]
+
+    def test_backfill_parents_derives_missing_parents_by_ordering(
+            self, tmp_path):
+        review = _review_dir(tmp_path)
+        # Entries as pre-change code wrote them: no parent_entry_id.
+        path = Path(review) / "plan_provenance.json"
+        filed = []
+        for index, stamp in enumerate(self.STAMPS[:3]):
+            entry = history.make_entry(
+                FINAL_28, actor=history.ACTOR_REN,
+                act=history.ACT_BUILD, summary=f"build {index}",
+                at=stamp)
+            entry.pop("parent_entry_id")
+            filed.append(entry)
+        path.write_text(json.dumps(
+            {history.HISTORY_KEY: {FINAL_28: filed}}, indent=2),
+            encoding="utf-8")
+        updated = history.backfill_parents(review, FINAL_28)
+        assert updated == 2
+        entries = history.recorded_history(review, FINAL_28)
+        assert entries[0]["parent_entry_id"] is None
+        for previous, current in zip(entries, entries[1:]):
+            assert current["parent_entry_id"] == previous["id"]
+        # Idempotent: a second run changes nothing.
+        assert history.backfill_parents(review, FINAL_28) == 0
+
+    def test_write_provenance_chains_builds(self, tmp_path):
+        review = _review_dir(tmp_path)
+        plan = _plan_file(tmp_path)
+        plan_provenance.write_provenance(review, plan, [FINAL_28])
+        first = history.recorded_history(review, FINAL_28)
+        assert len(first) == 1
+        assert first[0]["parent_entry_id"] is None
+        plan_provenance.write_provenance(review, plan, [FINAL_28])
+        second = history.recorded_history(review, FINAL_28)
+        assert len(second) == 2
+        assert second[0]["parent_entry_id"] is None
+        assert second[1]["parent_entry_id"] == first[0]["id"]
 
 
 class TestManualEditReason:
