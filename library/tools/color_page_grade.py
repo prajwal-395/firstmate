@@ -78,6 +78,7 @@ How a DRX reaches a run:
 from __future__ import annotations
 
 import os
+import time
 from typing import Any, Mapping, Optional
 
 
@@ -367,3 +368,219 @@ def apply_cdl_to_node(timeline_item: Any, node_index: int,
         record["landed"] = False
         record["reason"] = f"SetCDL raised: {exc}"
     return record
+
+
+# ── Gap E6: a per-DRX verification, in pixels, per run ────────────────
+#
+# `apply_power_grade` reads back a node count, and a node count is NOT a
+# grade (this module's docstring): `applied: True, nodes: 8` is true of
+# `The Grade Free` whose every node draws nothing. The bypass-node
+# measurement that proved it was a one-time probe on a scratch timeline
+# (`SCRATCH_grade_probe`, 2026-09-10). This is the same measurement as a
+# per-run check: apply the DRX to a test clip, render one frame, measure
+# the pixel delta. A DRX that draws nothing FAILS here, naming the clip's
+# grade as a ghost - reported, never a refused render, the same ruling
+# every report-only check in this pipeline carries.
+
+#: A DRX that moves fewer pixels than this draws nothing. The probe
+#: measured EXACTLY ZERO pixels for every node of `The Grade Free` that
+#: drew nothing and 49 for the faintest that did (SAT at max delta 1),
+#: so the floor sits between them: a real grade moves tens of pixels, a
+#: ghost moves none. A one-frame render is measured against another
+#: render of the same frame, so the delta is the grade's own - no codec
+#: noise to absorb, whichever deterministic encode the project renders.
+DRAWS_MIN_MOVED_PIXELS = 10
+
+
+def pixel_delta(before, after):
+    """(pixels moved, max per-pixel delta, total pixels) between two frames.
+
+    `before`/`after` are HxWx3 arrays of the same shape. A pixel counts
+    as moved when any channel differs - the probe's own statistic ("each
+    move EXACTLY ZERO pixels, SAT moves 49 at max delta 1"). A shape
+    change raises: the render changed shape, so the delta is not
+    measurable and must not read as agreement.
+    """
+    import numpy as np
+
+    a = np.asarray(before)
+    b = np.asarray(after)
+    if a.shape != b.shape:
+        raise ValueError(
+            f"the graded frame came back at {b.shape} against the "
+            f"baseline's {a.shape} - the render changed shape, so the "
+            f"delta is not measurable")
+    if a.size == 0:
+        return 0, 0, 0
+    diff = np.abs(a.astype(np.int16) - b.astype(np.int16))
+    per_pixel = diff.max(axis=-1) if diff.ndim == 3 else diff
+    return int((per_pixel > 0).sum()), int(per_pixel.max()), int(
+        per_pixel.size)
+
+
+def verify_drx_draws(timeline_item: Any, drx_path: str,
+                     render_frame) -> dict[str, Any]:
+    """Apply the DRX to a test clip, render one frame, measure the delta.
+
+    A node count is NOT a grade (this module's docstring): the only
+    evidence a DRX draws is pixels that move. This renders one frame of
+    the ungraded clip, applies the DRX, renders the same frame again,
+    and measures the delta. A DRX that draws nothing - moved pixels at
+    or below `DRAWS_MIN_MOVED_PIXELS` - FAILS, naming the clip's grade
+    as a ghost.
+
+    `render_frame(item)` is the seam: it renders one frame of the item
+    and returns it as an HxWx3 uint8 array. Production renders one frame
+    through the Deliver page (`render_one_frame_deliver`); tests inject a
+    fake. The seam is the Resolve half - the apply, the delta and the
+    verdict are Resolve-free and measured by `tests/unit/picture/
+    test_grade_delivery.py`.
+
+    The record carries `drx`, `applied` (the apply record's own reading),
+    `draws` (None where the DRX did not apply or a render failed - said,
+    never False-by-omission), `pixels_moved`, `max_delta`,
+    `total_pixels`, and, where it stopped, `reason`.
+    """
+    record: dict[str, Any] = {"drx": drx_path, "draws": None,
+                              "pixels_moved": 0, "max_delta": 0,
+                              "total_pixels": 0}
+    try:
+        baseline = render_frame(timeline_item)
+    except Exception as exc:  # noqa: BLE001 - reported on the record
+        record["reason"] = f"baseline render failed: {exc}"
+        return record
+    apply_record = apply_power_grade(timeline_item, drx_path)
+    record["applied"] = apply_record.get("applied")
+    if not apply_record.get("applied"):
+        record["reason"] = apply_record.get("reason")
+        return record
+    try:
+        graded = render_frame(timeline_item)
+    except Exception as exc:  # noqa: BLE001 - reported on the record
+        record["reason"] = f"graded render failed: {exc}"
+        return record
+    try:
+        moved, max_delta, total = pixel_delta(baseline, graded)
+    except Exception as exc:  # noqa: BLE001 - reported on the record
+        record["reason"] = f"pixel delta failed: {exc}"
+        return record
+    record.update(pixels_moved=moved, max_delta=max_delta,
+                  total_pixels=total)
+    record["draws"] = moved >= DRAWS_MIN_MOVED_PIXELS
+    return record
+
+
+def render_one_frame_deliver(resolve, project, timeline, item,
+                             output_dir: str = "") -> Any:
+    """Render one frame of `item` through the Deliver page, as RGB bytes.
+
+    The proven one-frame route on this build
+    (`probe_resolve_capabilities.py`, 2026-09-10): `MarkIn == MarkOut`,
+    ~1.2s, no full render - the gallery `GrabStill` route's WRITE is dead
+    on Resolve Studio 21.0.0b, so a lane that needs pixels renders them.
+    The frame is the item's own start frame, where the clip is on the
+    base video track and nothing above it covers the picture yet.
+
+    The page, format/codec and render queue are put back on every exit
+    path, the way `segment_renderer.render_batch` does - the main render
+    sets its own settings after this returns, but a wedged check must
+    not take the render's settings or its queue with it.
+
+    Returns an HxWx3 uint8 numpy array. Specified, not run here: the
+    brief forbids driving the live Resolve, so the production render is
+    exercised by `verify_drx_draws`'s fake seam in tests, and this
+    follows the measured route.
+    """
+    import subprocess
+    import tempfile
+
+    import numpy as np
+
+    from library.tools.resolve_lock import assert_current_timeline
+
+    if not output_dir:
+        output_dir = tempfile.mkdtemp(prefix="vep_drx_frame_")
+    os.makedirs(output_dir, exist_ok=True)
+    name = "drx_frame"
+    frame = item.GetStart()
+    prev_page = resolve.GetCurrentPage()
+    saved_format_codec = project.GetCurrentRenderFormatAndCodec() or {}
+    job_id = None
+    try:
+        resolve.OpenPage("deliver")
+        project.SetRenderSettings({
+            "TargetDir": output_dir,
+            "CustomName": name,
+            # WITHOUT `SelectAllFrames: False` Resolve IGNORES the range
+            # and queues the whole timeline (segment_renderer's note).
+            "SelectAllFrames": False,
+            "MarkIn": frame,
+            "MarkOut": frame,
+            "ExportVideo": True,
+            "ExportAudio": False,
+        })
+        assert_current_timeline(project, timeline)
+        job_id = project.AddRenderJob()
+        if not job_id:
+            raise RuntimeError("AddRenderJob returned no job id")
+        if not project.StartRendering([job_id], isInteractiveMode=False):
+            raise RuntimeError("StartRendering failed")
+        deadline = time.time() + 60
+        while project.IsRenderingInProgress():
+            if time.time() > deadline:
+                project.StopRendering()
+                raise RuntimeError("one-frame render timed out")
+            time.sleep(0.2)
+        candidates = sorted(
+            os.path.join(output_dir, f) for f in os.listdir(output_dir)
+            if f.startswith(name))
+        if not candidates:
+            raise RuntimeError(
+                f"the one-frame render wrote nothing into {output_dir}")
+        frame_path = candidates[-1]
+        return _decode_frame_rgb(frame_path)
+    finally:
+        if job_id:
+            try:
+                project.DeleteRenderJob(job_id)
+            except Exception:  # noqa: BLE001 - best-effort cleanup
+                pass
+        if saved_format_codec.get("format"):
+            try:
+                project.SetCurrentRenderFormatAndCodec(
+                    saved_format_codec.get("format", ""),
+                    saved_format_codec.get("codec", ""))
+            except Exception:  # noqa: BLE001 - best-effort restore
+                pass
+        if prev_page and prev_page != "deliver":
+            try:
+                resolve.OpenPage(prev_page)
+            except Exception:  # noqa: BLE001 - best-effort restore
+                pass
+
+
+def _decode_frame_rgb(frame_path: str):
+    """Decode a rendered frame (any container ffmpeg reads) to HxWx3 uint8."""
+    import subprocess
+
+    import numpy as np
+
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=width,height", "-of",
+         "csv=p=0:s=x", frame_path],
+        capture_output=True, encoding="utf-8", errors="replace",
+        timeout=60)
+    size = probe.stdout.strip()
+    if "x" not in size:
+        raise RuntimeError(f"could not read the frame size of {frame_path}")
+    width, height = (int(part) for part in size.split("x", 1))
+    res = subprocess.run(
+        ["ffmpeg", "-nostdin", "-v", "error", "-i", frame_path,
+         "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+        capture_output=True, timeout=120)
+    if res.returncode != 0 or not res.stdout:
+        raise RuntimeError(
+            f"could not decode {frame_path}: {res.stderr.decode('utf-8', 'replace')[:200]}")
+    return np.frombuffer(res.stdout, dtype=np.uint8).reshape(
+        height, width, 3)

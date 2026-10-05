@@ -938,11 +938,11 @@ def validate_output(rendered_output: dict, assembly_manifest: dict,
             if not r.passed:
                 subtitle_check["pass"] = False
                 subtitle_check["issues"].append(r.detail)
-        elif r.metric == "grade_delivery":
-            # P11 REPORTED, not gated, the same shape: a span whose
-            # pixels contradict its grade is visible in
-            # checks/all_issues/qa_report without moving status or
-            # distribution_ready.
+        elif r.metric in ("grade_delivery", "grade_landing"):
+            # P11 and the E6 magnitude half REPORTED, not gated, the same
+            # shape: a span whose pixels contradict its grade, or miss its
+            # demanded magnitude, is visible in checks/all_issues/qa_report
+            # without moving status or distribution_ready.
             if not r.passed:
                 grade_check["pass"] = False
                 grade_check["issues"].append(r.detail)

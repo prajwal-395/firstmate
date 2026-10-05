@@ -1172,3 +1172,198 @@ def test_transitions_are_not_replayed_onto_broll(fusion_module, monkeypatch,
     a_roll_comp = timeline.items_by_track[1][0].imported[0]
     assert "Brightness" in a_roll_comp, "the flash did not reach the A-roll"
     assert "Brightness" not in broll_comp
+
+
+# --------------------------------------------------------------------------
+# Gap E6: the rendered-output halves of the colour loop.
+#
+# `measure_grade_delivery` asks DIRECTION - did the export move the way
+# the CDL demands - and it cannot ask MAGNITUDE, because a shortfall there
+# confounds the grade with the pipeline and the encode. Two checks close
+# the loop, both REPORTED (never gated), the same ruling every
+# report-only check in this pipeline carries:
+#
+# - `measure_grade_landing` asks magnitude against the CDL's own demanded
+#   output, computed from the source's measured luma/chroma through the
+#   CDL's exact math. The defect it prevents: a grade that lands at the
+#   wrong magnitude (saturation 1.5 instead of 1.2, +1.3 stops that moves
+#   luma 43 -> 82 against ~130) passes every direction check, because the
+#   direction is right and only the size is wrong.
+# - `verify_drx_draws` applies the DRX to a test clip and measures the
+#   pixel delta. The defect it prevents: a declared DRX that draws
+#   nothing passes `apply_power_grade`'s node-count read-back - a node
+#   count is NOT a grade - and ships a clip with no grade on it.
+#
+# The videos are generated with ffmpeg (a declared dependency; skipped
+# where it is absent), the same fixtures the direction check uses.
+
+
+def _gen_luma(path, mult, duration=2.0):
+    """A solid-colour clip with its luma scaled by `mult` (None = none)."""
+    vf = f",lutyuv=y='val*{mult}'" if mult is not None else ""
+    cmd = [ffmpeg, "-nostdin", "-v", "error", "-f", "lavfi", "-i",
+           f"color=c=0xC04020:s=64x64:d={duration}:r=10",
+           "-vf", f"format=yuv444p{vf},format=yuv444p",
+           "-frames:v", "20", "-pix_fmt", "yuv444p", str(path)]
+    subprocess.run(cmd, check=True, timeout=120)
+
+
+def _landing_span(source, slope=1.5, sat=1.0):
+    from library.tools.render_qa import GradeSpan
+    return GradeSpan(label="clip_a", timeline_start=0.0, timeline_end=2.0,
+                     source_path=str(source),
+                     cdl={"slope_r": slope, "slope_g": slope,
+                          "slope_b": slope, "offset_r": 0.0,
+                          "offset_g": 0.0, "offset_b": 0.0,
+                          "power_r": 1.0, "power_g": 1.0,
+                          "power_b": 1.0, "saturation": sat},
+                     source_start=0.0, source_end=2.0)
+
+
+@needs_ffmpeg
+def test_a_grade_that_lands_at_the_demanded_luma_passes(tmp_path):
+    """Slope 1.5 demanded, luma x1.5 rendered: the export lands at the
+    CDL's demanded magnitude."""
+    from library.tools.render_qa import measure_grade_landing
+    _gen_luma(tmp_path / "source.mp4", None)
+    _gen_luma(tmp_path / "landed.mp4", 1.5)
+    result = measure_grade_landing(
+        str(tmp_path / "landed.mp4"),
+        [_landing_span(tmp_path / "source.mp4")],
+        sample_fps=5.0)
+    assert result.passed
+    (row,) = result.value["spans"]
+    assert row["verdict"] == "landed"
+
+
+@needs_ffmpeg
+def test_a_grade_whose_luma_misses_the_demanded_magnitude_fails(tmp_path):
+    """The E6 fidelity test: slope 1.5 demanded, luma x1.2 rendered. The
+    direction is right and the magnitude is 20% short, so a direction
+    check alone passes it - the landing check fails it."""
+    from library.tools.render_qa import measure_grade_landing
+    _gen_luma(tmp_path / "source.mp4", None)
+    _gen_luma(tmp_path / "missed.mp4", 1.2)
+    result = measure_grade_landing(
+        str(tmp_path / "missed.mp4"),
+        [_landing_span(tmp_path / "source.mp4")],
+        sample_fps=5.0)
+    assert not result.passed
+    (row,) = result.value["spans"]
+    assert row["verdict"] == "missed"
+    assert "luma" in row["detail"]
+
+
+@needs_ffmpeg
+def test_a_grade_whose_chroma_misses_the_demanded_saturation_fails(tmp_path):
+    """Saturation 0.5 demanded, chroma unmoved: the chroma half misses
+    by 100% - a desaturation that did not happen."""
+    from library.tools.render_qa import measure_grade_landing
+    _gen_luma(tmp_path / "source.mp4", None)
+    result = measure_grade_landing(
+        str(tmp_path / "source.mp4"),
+        [_landing_span(tmp_path / "source.mp4", slope=1.0, sat=0.5)],
+        sample_fps=5.0)
+    assert not result.passed
+    (row,) = result.value["spans"]
+    assert row["verdict"] == "missed"
+    assert "chroma" in row["detail"]
+
+
+@needs_ffmpeg
+def test_an_identity_cdl_demands_nothing_on_the_landing_check(tmp_path):
+    from library.tools.render_qa import measure_grade_landing
+    _gen_luma(tmp_path / "source.mp4", None)
+    result = measure_grade_landing(
+        str(tmp_path / "source.mp4"),
+        [_landing_span(tmp_path / "source.mp4", slope=1.0, sat=1.0)],
+        sample_fps=5.0)
+    assert result.passed
+    assert result.value["spans"][0]["verdict"] == "no demand"
+
+
+# ── verify_drx_draws: the per-DRX pixel check ─────────────────────────
+
+class _FakeGraph:
+    def __init__(self, applied=True):
+        self._applied = applied
+        self.applied_calls = []
+
+    def ApplyGradeFromDRX(self, path, mode):
+        self.applied_calls.append((path, mode))
+        return self._applied
+
+
+class _FakeItem:
+    def __init__(self, applied=True):
+        self.graph = _FakeGraph(applied)
+
+    def GetNodeGraph(self):
+        return self.graph
+
+
+def _fake_render_frame(item, draws):
+    """The render_frame seam: the same frame before the DRX, and a moved
+    frame after it - or the same frame after it, for a ghost DRX."""
+    import numpy as np
+    base = np.full((8, 8, 3), 100, dtype=np.uint8)
+
+    def render(_item):
+        if not item.graph.applied_calls:
+            return base.copy()
+        if draws:
+            frame = base.copy()
+            frame[:4, :4] = [200, 200, 200]
+            return frame
+        return base.copy()
+
+    return render
+
+
+def test_a_drx_that_draws_nothing_fails_the_per_drx_gate():
+    """The E6 fidelity test: the DRX applies (a node count of 8, say)
+    and moves zero pixels - a ghost. The node-count read-back passes it;
+    the pixel delta fails it."""
+    from library.tools.color_page_grade import verify_drx_draws
+    item = _FakeItem(applied=True)
+    record = verify_drx_draws(item, "/grade/ghost.drx",
+                              _fake_render_frame(item, draws=False))
+    assert record["applied"] is True
+    assert record["draws"] is False
+    assert record["pixels_moved"] == 0
+
+
+def test_a_drx_that_draws_passes_the_per_drx_gate():
+    from library.tools.color_page_grade import verify_drx_draws
+    item = _FakeItem(applied=True)
+    record = verify_drx_draws(item, "/grade/real.drx",
+                              _fake_render_frame(item, draws=True))
+    assert record["draws"] is True
+    assert record["pixels_moved"] > 0
+
+
+def test_a_drx_that_does_not_apply_is_reported_not_false():
+    """A DRX that did not apply is SAID (draws is None with a reason),
+    never a False that reads as a ghost grade."""
+    from library.tools.color_page_grade import verify_drx_draws
+    item = _FakeItem(applied=False)
+    record = verify_drx_draws(item, "/grade/broken.drx",
+                              _fake_render_frame(item, draws=True))
+    assert record["applied"] is False
+    assert record["draws"] is None
+    assert "reason" in record
+
+
+def test_pixel_delta_counts_moved_pixels_and_a_shape_change_raises():
+    import numpy as np
+    from library.tools.color_page_grade import pixel_delta
+    a = np.full((4, 4, 3), 100, dtype=np.uint8)
+    assert pixel_delta(a, a.copy()) == (0, 0, 16)
+    b = a.copy()
+    b[0, 0] = [200, 100, 100]
+    b[1, 1] = [100, 200, 100]
+    moved, max_delta, total = pixel_delta(a, b)
+    assert (moved, total) == (2, 16)
+    assert max_delta == 100
+    with pytest.raises(ValueError):
+        pixel_delta(a, np.zeros((2, 2, 3), dtype=np.uint8))

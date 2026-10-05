@@ -2837,6 +2837,192 @@ def measure_grade_delivery(video_path: str,
         f"no span contradicts its grade")
 
 
+#: The landing tolerance (gap E6): a graded clip whose exported luma or
+#: chroma misses the CDL's demanded magnitude by more than this FAILS the
+#: landing check. The fidelity test's bound. It is wide enough to absorb
+#: what the pipeline and the encode do to the pixels between the grade and
+#: the master - the confound that keeps `measure_grade_delivery` a
+#: direction check and report-only - and tight enough to catch a grade
+#: that landed at the wrong magnitude: saturation 1.5 instead of 1.2
+#: misses by 25%.
+DEFAULT_LANDING_TOLERANCE = 0.10
+
+
+def _cdl_terms(cdl: dict):
+    """The CDL's four terms as floats, or None where any is not a number.
+
+    Read off the plan's own spelling (`slope_r`...`saturation`, as
+    `color_grade` carries them). A term that is not a number is reported
+    by the caller as unverifiable, never parsed into a demand.
+    """
+    try:
+        sat = float(cdl.get("saturation", 1.0))
+        slopes = [float(cdl.get(f"slope_{c}", 1.0)) for c in "rgb"]
+        offsets = [float(cdl.get(f"offset_{c}", 0.0)) for c in "rgb"]
+        powers = [float(cdl.get(f"power_{c}", 1.0)) for c in "rgb"]
+    except (TypeError, ValueError):
+        return None
+    return sat, slopes, offsets, powers
+
+
+def _is_identity_cdl(sat, slopes, offsets, powers) -> bool:
+    """Whether the CDL demands nothing measurable (every term neutral).
+
+    The same reading `color_correction._is_neutral` gives a correction:
+    an identity CDL is a grade nobody asked for, and checking it against
+    the pixels would measure the encode, not the grade.
+    """
+    return (sat == 1.0 and all(s == 1.0 for s in slopes)
+            and all(o == 0.0 for o in offsets)
+            and all(p == 1.0 for p in powers))
+
+
+def measure_grade_landing(video_path: str,
+                          grade_spans: Optional[Sequence[GradeSpan]] = None,
+                          sample_fps: float = DEFAULT_SAMPLE_FPS,
+                          tolerance: float = DEFAULT_LANDING_TOLERANCE
+                          ) -> RenderQAResult:
+    """P11b: do the exported pixels land at the CDL's demanded magnitude?
+
+    `measure_grade_delivery` asks DIRECTION - did the export move the way
+    the CDL demands, against the raw source - and it cannot ask
+    MAGNITUDE, because a shortfall there confounds the grade with the
+    pipeline and the encode: a grade that landed and an encode that
+    darkened the master read the same. This asks magnitude against a
+    reference the confound cannot touch: the CDL's own demanded output,
+    computed from the source's measured luma and chroma through the
+    CDL's exact math. The demand is known before the render exists; only
+    the measurement depends on the export.
+
+    Per span, demanded luma is ``(src_luma * mean_slope + mean_offset)
+    ** mean_power`` and demanded chroma is ``src_chroma * saturation``,
+    and the export's measured median luma / p99 chroma must land within
+    `tolerance` of the demand. The mean of the three channel terms is
+    exact when the channels share a term (the exposure case) and an
+    approximation otherwise, well inside the tolerance. A span whose
+    CDL is identity demands nothing and reads as info; a span with no
+    source or no samples reads as unverifiable, never as landed.
+
+    REPORTED per graded clip, never gated - the same ruling every
+    report-only check in this pipeline carries. The tolerance is what
+    makes it gate-ready: it absorbs the encode, which is the confound
+    that kept the direction check from being a gate.
+    """
+    import numpy as np  # noqa: F401 - hard dependency, see chroma_presence
+
+    if not grade_spans:
+        return RenderQAResult(
+            "grade_landing", True, {"spans": []}, {"spans": 0},
+            "info", "no graded spans declared - nothing to verify")
+
+    size = _probe_video_size(video_path)
+    if not size:
+        return RenderQAResult("grade_landing", True, None, None,
+                              "warning", "No video stream found")
+    width, height = size
+
+    rows = []
+    missed = 0
+    for span in grade_spans or []:
+        cdl = span.cdl or {}
+        terms = _cdl_terms(cdl)
+        label = span.label
+        if terms is None:
+            rows.append({"label": label, "verdict": "unverifiable",
+                         "detail": "CDL terms are not numbers"})
+            continue
+        sat, slopes, offsets, powers = terms
+        duration = max(float(span.timeline_end)
+                       - float(span.timeline_start), 0.0)
+        if duration <= 0.0:
+            rows.append({"label": label, "verdict": "unverifiable",
+                         "detail": "empty timeline span"})
+            continue
+        if _is_identity_cdl(sat, slopes, offsets, powers):
+            rows.append({"label": label, "verdict": "no demand",
+                         "detail": "identity CDL - nothing measurable "
+                                   "demanded"})
+            continue
+        exp_luma, exp_chroma = _median_luma_and_chroma(
+            video_path, width, height, sample_fps,
+            start_seconds=float(span.timeline_start),
+            duration_seconds=duration)
+        if exp_luma is None:
+            rows.append({"label": label, "verdict": "unverifiable",
+                         "detail": "no export frames sampled"})
+            continue
+        src_size = _probe_video_size(span.source_path)
+        if not src_size:
+            rows.append({"label": label, "verdict": "unverifiable",
+                         "detail": f"source unreadable: {span.source_path}"})
+            continue
+        try:
+            _src_start = (float(span.source_start)
+                          if span.source_start is not None else None)
+            _src_end = (float(span.source_end)
+                        if span.source_end is not None else None)
+        except (TypeError, ValueError):
+            _src_start = _src_end = None
+        _src_dur = ((max(_src_end - _src_start, 0.0))
+                    if _src_start is not None and _src_end is not None
+                    else None)
+        src_luma, src_chroma = _median_luma_and_chroma(
+            span.source_path, src_size[0], src_size[1], sample_fps,
+            start_seconds=_src_start, duration_seconds=_src_dur)
+        if src_luma is None or not src_chroma:
+            rows.append({"label": label, "verdict": "unverifiable",
+                         "detail": "no source frames sampled"})
+            continue
+        s_mean = sum(slopes) / 3.0
+        o_mean = sum(offsets) / 3.0
+        p_mean = sum(powers) / 3.0
+        demanded_luma = max(src_luma * s_mean + o_mean, 0.0) ** p_mean
+        demanded_chroma = src_chroma * sat
+        problems = []
+        ratios = {}
+        if demanded_luma > 0.0:
+            luma_ratio = exp_luma / demanded_luma
+            ratios["luma_ratio"] = round(luma_ratio, 3)
+            if abs(luma_ratio - 1.0) > tolerance:
+                problems.append(
+                    f"luma {exp_luma:.1f} vs demanded "
+                    f"{demanded_luma:.1f} ({luma_ratio:.2f}x, "
+                    f"tolerance {tolerance:.0%})")
+        if demanded_chroma > 0.0 and exp_chroma:
+            chroma_ratio = exp_chroma / demanded_chroma
+            ratios["chroma_ratio"] = round(chroma_ratio, 3)
+            if abs(chroma_ratio - 1.0) > tolerance:
+                problems.append(
+                    f"chroma {exp_chroma:.1f} vs demanded "
+                    f"{demanded_chroma:.1f} ({chroma_ratio:.2f}x, "
+                    f"tolerance {tolerance:.0%})")
+        if not problems:
+            rows.append({"label": label, "verdict": "landed",
+                         "detail": "export lands at the CDL's demanded "
+                                   "magnitude",
+                         **ratios})
+        else:
+            missed += 1
+            rows.append({"label": label, "verdict": "missed",
+                         "detail": "; ".join(problems),
+                         **ratios})
+    value = {"spans": rows, "missed": missed, "tolerance": tolerance}
+    if missed:
+        return RenderQAResult(
+            "grade_landing", False, value,
+            {"missed": 0, "gates": False},
+            "warning",
+            f"{missed} of {len(rows)} graded span(s) miss the CDL's "
+            f"demanded magnitude on exported pixels - "
+            + "; ".join(f"{r['label']}: {r['detail']}"
+                        for r in rows if r["verdict"] == "missed"))
+    return RenderQAResult(
+        "grade_landing", True, value,
+        {"missed": 0, "gates": False}, "info",
+        f"{len(rows)} graded span(s) measured against the CDL's demanded "
+        f"magnitude - none missed")
+
+
 def measure_speech_above_bed(
         video_path: str,
         music_path: str,
@@ -4474,6 +4660,13 @@ def run_full_render_qa(video_path: str, expected_duration: float = None,
 
     if grade_spans is not None:
         results.append(measure_grade_delivery(video_path, grade_spans))
+        # The magnitude half (gap E6): the direction check above cannot
+        # ask how far the grade landed, because a shortfall there
+        # confounds the grade with the pipeline and the encode. This
+        # asks it against the CDL's own demanded output, which the
+        # confound cannot touch. REPORTED, never gated - the same
+        # ruling every report-only check in this pipeline carries.
+        results.append(measure_grade_landing(video_path, grade_spans))
 
     # Caption quality (gap E4): legibility and obscuring.  Both run only
     # on the subtitle overlays the manifest declares, and both REPORT

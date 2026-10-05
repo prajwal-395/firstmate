@@ -3588,6 +3588,53 @@ def _build_timeline_under_lease(
         if src:
             color_lookup[os.path.basename(src).lower()] = adj.get("cdl_values", {})
 
+    # The PowerGrade declaration is resolved BEFORE the color passes so
+    # the per-DRX check (gap E6) can capture the test clip's frame while
+    # it is still ungraded: the CDL and the DRX each replace the other's
+    # node graph, so a baseline taken after either one conflates the two
+    # grades. This is the same resolution the DRX pass below applies.
+    power_grade = None
+    if project_folder:
+        try:
+            from library.tools.color_page_grade import (
+                DRAWS_MIN_MOVED_PIXELS,
+                apply_power_grade,
+                pixel_delta,
+                render_one_frame_deliver,
+                resolve_color_page_grade,
+            )
+            power_grade = resolve_color_page_grade(project_folder)
+        except Exception as e:
+            # A malformed declaration refuses the render rather than
+            # rendering ungraded: a dropped grade ships forty minutes in.
+            results["errors"].append(f"color.power_grade_drx refused: {e}")
+            print(f"  ✗ color.power_grade_drx refused: {e}", file=sys.stderr)
+            power_grade = "refused"
+
+    # E6: a node count is NOT a grade. Capture the test clip's frame
+    # before any color grade lands, so the per-DRX check measures the
+    # DRX's own drawing and not the CDL's. Report-only throughout: a
+    # warning, never a refused render.
+    drx_test_item = None
+    drx_baseline = None
+    drx_test_name = ""
+    if power_grade not in (None, "refused"):
+        try:
+            _v1_items = timeline.GetItemListInTrack("video", 1) or []
+            if _v1_items:
+                drx_test_item = _v1_items[0]
+                _mpi = drx_test_item.GetMediaPoolItem()
+                drx_test_name = ((_mpi.GetClipProperty("File Name")
+                                  if _mpi else None)
+                                 or drx_test_item.GetName()
+                                 or "unnamed clip")
+                drx_baseline = render_one_frame_deliver(
+                    resolve, project, timeline, drx_test_item)
+        except Exception as e:
+            results["warnings"].append(
+                f"PowerGrade draw check could not render a baseline frame "
+                f"of {drx_test_name or 'the test clip'}: {e}")
+
     if color_lookup:
         label = series_look or "no house look named - exposure only"
         print(f"\n── Color Grading (CDL: {label}) ──", file=sys.stderr)
@@ -3689,22 +3736,8 @@ def _build_timeline_under_lease(
     # The PowerGrade route, per clip, after the CDL: a declared DRX
     # replaces the whole node graph, so this runs inside the same clip
     # loop position rather than as a second pass that could disagree
-    # about which items carry a grade.
-    power_grade = None
-    if project_folder:
-        try:
-            from library.tools.color_page_grade import (
-                apply_power_grade,
-                resolve_color_page_grade,
-            )
-            power_grade = resolve_color_page_grade(project_folder)
-        except Exception as e:
-            # A malformed declaration refuses the render rather than
-            # rendering ungraded: a dropped grade ships forty minutes in.
-            results["errors"].append(f"color.power_grade_drx refused: {e}")
-            print(f"  ✗ color.power_grade_drx refused: {e}", file=sys.stderr)
-            power_grade = "refused"
-
+    # about which items carry a grade. The declaration itself was
+    # resolved before the CDL pass (see the per-DRX baseline above).
     if power_grade is not None and power_grade != "refused":
         print(f"\n── Color Grading (PowerGrade: "
               f"{os.path.basename(power_grade['path'])}) ──",
@@ -3731,6 +3764,31 @@ def _build_timeline_under_lease(
                         f"{record.get('reason')}")
                     print(f"  ⚠ PowerGrade did not land on {clip_name}: "
                           f"{record.get('reason')}", file=sys.stderr)
+
+        # E6: a node count is NOT a grade. The DRX's own drawing is
+        # measured in pixels on the test clip, against the ungraded
+        # baseline captured before the color passes. Report-only: a
+        # ghost DRX warns naming the clip; it never refuses the render.
+        if drx_baseline is not None and drx_test_item is not None:
+            try:
+                _graded = render_one_frame_deliver(
+                    resolve, project, timeline, drx_test_item)
+                _moved, _max_delta, _total = pixel_delta(
+                    drx_baseline, _graded)
+            except Exception as e:
+                results["warnings"].append(
+                    f"PowerGrade draw check failed on {drx_test_name}: {e}")
+            else:
+                if _moved < DRAWS_MIN_MOVED_PIXELS:
+                    _msg = (f"PowerGrade drew nothing on {drx_test_name}: "
+                            f"{_moved} of {_total} pixels moved - the "
+                            f"declared grade is not on this clip")
+                    results["warnings"].append(_msg)
+                    print(f"  ⚠ {_msg}", file=sys.stderr)
+                else:
+                    print(f"  ✓ PowerGrade draws on {drx_test_name} "
+                          f"({_moved} of {_total} pixels moved)",
+                          file=sys.stderr)
 
 
     if verify_color_grades:
