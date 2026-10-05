@@ -6915,6 +6915,7 @@ def main(argv=None) -> int:
         and not getattr(args, "refresh_live", False)))
     if needs_resolve:
         from library.tools.resolved import client
+        client.ensure()
         if submit and not client.in_broker():
             return _submit_through_broker(client, argv)
         if client.serving():

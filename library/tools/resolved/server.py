@@ -382,7 +382,10 @@ def serve(path: Optional[Path] = None, connect=None) -> None:
     server.broker = broker
     os.chmod(path, 0o600)
     try:
-        server.serve_forever()
+        # A short poll interval: `shutdown` is answered at once, but the
+        # serve loop notices on its next tick - and a client that was
+        # asked to stop should be gone by the time `stop` returns.
+        server.serve_forever(poll_interval=0.05)
     finally:
         broker.stop()
         server.server_close()

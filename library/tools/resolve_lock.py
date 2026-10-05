@@ -720,8 +720,14 @@ def _broker_turn(purpose: str, exclusive: bool, interactive: bool,
                  timeout: float, owner: str, qualification_project: str,
                  locality: str = "none", project: str = "",
                  timeline: str = ""):
-    """The broker's grant for one lease, or nothing where none serves."""
+    """The broker's grant for one lease, or nothing where none serves.
+
+    `ensure` first: the broker is a standalone service that any client
+    starts on demand, so a worker never has to be the one running it -
+    and one started here is detached and outlives this process.
+    """
     from library.tools.resolved import client
+    client.ensure()
     if not client.serving():
         yield None
         return

@@ -1,10 +1,11 @@
-"""`ren resolved serve|status|list|stop|submit|result|kpi` (see the package)."""
+"""`ren resolved serve|ensure|status|list|stop|submit|result|kpi` (see the package)."""
 
 from __future__ import annotations
 
 import argparse
 import json
 import sys
+import time
 
 from library.tools.resolved import client
 
@@ -15,6 +16,8 @@ def main(argv=None) -> int:
         description="The broker in front of the one Resolve instance.")
     verbs = parser.add_subparsers(dest="verb", required=True)
     verbs.add_parser("serve", help="run the broker in the foreground")
+    verbs.add_parser("ensure",
+                     help="start the broker detached if none is serving")
     verbs.add_parser("status", help="is a broker serving, and on which pid")
     listing = verbs.add_parser("list", help="recent jobs and their receipts")
     listing.add_argument("--limit", type=int, default=20)
@@ -55,12 +58,25 @@ def main(argv=None) -> int:
         print(json.dumps({"serving": answer is not None,
                           "pid": answer and answer.get("pid")}))
         return 0 if answer is not None else 1
+    if args.verb == "ensure":
+        answer = client.ensure()
+        print(json.dumps({"serving": answer is not None,
+                          "pid": answer and answer.get("pid")}))
+        return 0 if answer is not None else 1
     try:
         if args.verb == "list":
             print(json.dumps(client.call({"op": "list",
-                                          "limit": args.limit}), indent=2))
+                                           "limit": args.limit}), indent=2))
         elif args.verb == "stop":
-            client.call({"op": "shutdown"})
+            try:
+                client.call({"op": "shutdown"})
+            except ConnectionError:
+                print("ren-resolved: no broker is serving - nothing to stop")
+                return 1
+            deadline = time.time() + 10.0
+            while client.ping() is not None and time.time() < deadline:
+                time.sleep(0.05)
+            print("ren-resolved: stopped")
         elif args.verb == "submit":
             submitted = client.submit(args.kind, json.loads(args.params),
                                       qualification=args.qualification,

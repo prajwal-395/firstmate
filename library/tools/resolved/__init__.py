@@ -33,13 +33,24 @@ or is refused. It moves the timeline cursor only inside its own
 exclusive section, through `resolve_lock.cursor_fence`.
 
     ren resolved serve            # foreground daemon
+    ren resolved ensure           # start it detached if none serves
     ren resolved status|list|stop
     ren resolved kpi [--hours N | --since EPOCH] [--until EPOCH]
-                                      # what Resolve cost (`kpi.py`)
+                                       # what Resolve cost (`kpi.py`)
     ren resolved submit <kind> '<json params>' [--wait SECONDS]
     ren resolved result <id> [--wait SECONDS]
 
+The broker is a STANDALONE service, not a child of any worker:
+`client.ensure` starts it detached (its own session, stdio to a log
+beside the socket) so it outlives the worker that started it, and
+every client that needs the broker ensures it first - the lease path
+(`resolve_lock._broker_turn`), `resolve-axi`, and `client.call`. A
+starter lock serializes concurrent starters, so one broker serves a
+socket; `ren resolved stop` is the clean stop. A broker that dies is
+restarted by the next client that calls.
+
 Socket and database live in `resolve_lock.lock_dir()`, next to the
 lease, so `PIPELINE_RESOLVE_LOCK_DIR` isolates a test's broker exactly
-as it isolates a test's lease. `tests/unit/resolve/test_resolve_lock.py`.
+as it isolates a test's lease. `tests/unit/resolve/test_resolve_lock.py`,
+`tests/unit/resolve/test_ensure.py`.
 """
