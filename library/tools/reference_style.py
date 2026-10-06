@@ -800,6 +800,89 @@ def measure_reference_framing(video_path: str) -> dict:
         _drop_frames(frames)
 
 
+# ── The sound-design half ────────────────────────────────────────
+#
+# How dense the reference's sound design is: strong transients per
+# minute - impacts, hits and hard attacks, the events an SFX plan
+# places.  Detection and the strong/weak split are the preflight's
+# own (`detect_onsets_with_strength`, `classify_onsets`): strong is
+# the top quartile of the reference's OWN onset strengths, never a
+# fixed level a stranger's mix would have to share.  Speech syllables
+# land in the weak three quartiles with the soft attacks; a dialogue
+# piece does not read as designed.
+
+
+def measure_reference_sound_design(video_path: str) -> dict:
+    """The sound-design half of the Style Representation, as one dict.
+
+    Onsets from the reference's own audio track, split strong/weak by
+    their own strength distribution: the strong-transient density the
+    SFX slot reads as its measured rung.  A reference with no
+    extractable audio, no onset detector, or no classifiable onsets
+    is unmeasurable with its reason - never a zero density a plan
+    could mistake for "no sound design here".
+    """
+    try:
+        import librosa  # noqa: F401
+    except ImportError:
+        return {
+            "source": video_path,
+            "transients_measurable": False,
+            "reason": "librosa not available",
+        }
+    measured = measure_shot_boundaries(video_path)
+    duration = measured["duration_seconds"]
+    audio_path = _extract_reference_audio(video_path)
+    if audio_path is None:
+        return {
+            "source": video_path,
+            "transients_measurable": False,
+            "reason": "no extractable audio stream",
+        }
+    try:
+        from library.steps.step_1_04_temporal_index.step import (
+            classify_onsets,
+            detect_onsets_with_strength,
+        )
+        times, strengths = detect_onsets_with_strength(audio_path)
+        classified = classify_onsets(times, strengths)
+    finally:
+        _drop_frames([audio_path])
+    if classified is None:
+        return {
+            "source": video_path,
+            "transients_measurable": False,
+            "reason": "onset strengths unreadable",
+        }
+    strong = sum(1 for o in classified if o["kind"] == "strong")
+    per_minute = (strong / duration * 60.0) if duration > 0 else 0.0
+    return {
+        "source": video_path,
+        "transients_measurable": True,
+        "onsets": len(classified),
+        "strong_transients": strong,
+        "strong_transients_per_minute": round(per_minute, 3),
+        "duration_seconds": duration,
+    }
+
+
+def measure_reference_sfx_density(reference_path: str):
+    """The reference's strong-transient density, for the SFX slot.
+
+    The one sound value a reference's audio determines directly: how
+    many hard attacks each minute carries.  The SFX slot reads this as
+    its measured rung - the project declared a reference, and this is
+    what measuring it says.  None when the reference's transients are
+    unmeasurable - an absence, not a value: a reference with no audio
+    says nothing about sound effects per minute, and the slot falls to
+    the next rung.
+    """
+    sound = measure_reference_sound_design(reference_path)
+    if not sound.get("transients_measurable"):
+        return None
+    return sound["strong_transients_per_minute"]
+
+
 # ── The graphics half ──────────────────────────────────────────────
 #
 # The palette and the contrast are measured from the reference's
@@ -992,13 +1075,14 @@ def measure_reference_style(video_path: str) -> dict:
     The editorial half (shot lengths, transitions, pacing), the
     graphics half (palette, contrast), the text half (captions, type),
     the camera-movement half (motion-energy distribution), the
-    graphic-density half (per-frame element counts) and the music-sync
-    half (cut-to-beat alignment) and the framing half (face presence,
-    placement and scale).  CONTENT is never read: the reference's
-    words, faces and subject are its own; only how it looks, how it
-    is cut, how its text is set, how much motion it carries, how
-    densely its frames are filled, whether its cuts land on its beats
-    and how it frames the people in it are measured.
+    graphic-density half (per-frame element counts), the music-sync
+    half (cut-to-beat alignment), the framing half (face presence,
+    placement and scale) and the sound-design half (strong-transient
+    density).  CONTENT is never read: the reference's words, faces and
+    subject are its own; only how it looks, how it is cut, how its
+    text is set, how much motion it carries, how densely its frames
+    are filled, whether its cuts land on its beats, how it frames the
+    people in it and how dense its sound design is are measured.
     """
     editorial = measure_reference_editorial_style(video_path)
     graphical = measure_reference_graphical_style(video_path)
@@ -1007,6 +1091,7 @@ def measure_reference_style(video_path: str) -> dict:
     density = measure_reference_graphic_density(video_path)
     sync = measure_reference_music_sync(video_path)
     framing = measure_reference_framing(video_path)
+    sound = measure_reference_sound_design(video_path)
     return {
         "source": video_path,
         "duration_seconds": editorial["duration_seconds"],
@@ -1021,6 +1106,7 @@ def measure_reference_style(video_path: str) -> dict:
         "graphic_density": density,
         "music_sync": sync,
         "framing": framing,
+        "sound_design": sound,
     }
 
 

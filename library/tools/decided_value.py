@@ -569,6 +569,8 @@ SLOTS: dict[str, Slot] = {
             "library/steps/step_4_04_plan_sfx/post_bridge.py",),
         preference_paths=(
             "pipeline.creative_preferences.sfx.density_per_minute",),
+        reference_measurement=(
+            "library.tools.reference_style::measure_reference_sfx_density"),
         direction_key=None,
         no_direction_reason=(
             "no key step 2.01 is asked for states how many sound effects a "
@@ -585,9 +587,11 @@ SLOTS: dict[str, Slot] = {
                   "rather than a decision"),
             superseded_by=(
                 "the speech and the timeline duration every run that "
-                "reaches step 4.04 has - or a density the project states "
-                "under pipeline.creative_preferences or the user records "
-                "in their taste profile")),
+                "reaches step 4.04 has - or the strong-transient density "
+                "measured from a reference the project declares, or a "
+                "density the project states under "
+                "pipeline.creative_preferences or the user records in "
+                "their taste profile")),
     ),
 }
 
@@ -948,6 +952,9 @@ _STORED_MEASUREMENTS = {
         lambda s: s.get("shot_length_distribution", {}).get("asl_seconds")),
     "measure_reference_words_per_caption": (
         lambda s: s.get("text", {}).get("captions", {}).get("mean_words")),
+    "measure_reference_sfx_density": (
+        lambda s: s.get("sound_design", {}).get(
+            "strong_transients_per_minute")),
 }
 
 

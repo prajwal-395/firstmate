@@ -447,3 +447,93 @@ class TestTheSubtitleSlotRung:
         value, source = DV.stated_preference(SUBTITLE_SLOT, folder)
         assert value == 8
         assert "creative_preferences" in source
+
+
+SFX_SLOT = "sfx.density_per_minute"
+
+
+@pytest.mark.usefixtures("_isolate_user_taste_profile")
+class TestTheSfxSlotRung:
+
+    @pytest.fixture
+    def _stored_digest_matches(self, monkeypatch):
+        """The reference file's digest matches the stored one.
+
+        What this rung owns is that the slot READS the stored
+        representation - the digest keying that reuse is pinned by the
+        pacing tests above, so it is stubbed here.
+        """
+        monkeypatch.setattr(RS, "reference_digest", lambda path: "abc123")
+
+    def _project_with_stored_style(self, tmp_path, style):
+        """A project whose state holds a measured representation.
+
+        The measurement is stubbed: what this rung owns is that the
+        slot READS the stored representation's strong-transient
+        density, not that the representation was measured (pinned by
+        tests/unit/picture/test_reference_style.py).
+        """
+        import json
+        from library.tools.project_layout import ProjectLayout
+        (tmp_path / "reference.mp4").write_text(
+            "reference", encoding="utf-8")
+        state = {"reference_style": style,
+                 "reference_style_digest": "abc123"}
+        path = ProjectLayout(str(tmp_path)).pipeline_data_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(state, handle)
+        (tmp_path / "video.yaml").write_text(
+            "reference: reference.mp4\n", encoding="utf-8")
+        return str(tmp_path)
+
+    def test_the_slot_reads_the_stored_transient_density(
+            self, tmp_path, _stored_digest_matches):
+        """The slot reads the representation, not a second decode.
+
+        The failure it pins: the SFX slot measuring the reference
+        itself - an onset pass every time the slot is decided, on top
+        of the runner's measurement for the step context.
+        """
+        folder = self._project_with_stored_style(tmp_path, {
+            "sound_design": {"transients_measurable": True,
+                             "strong_transients_per_minute": 12.0},
+        })
+        value, source = DV.stated_preference(SFX_SLOT, folder)
+        assert value == 12.0
+        assert "reference.mp4" in source
+
+    def test_an_unmeasurable_reference_is_absent_for_the_slot(
+            self, tmp_path, _stored_digest_matches):
+        """No audio is not a zero-density mix.
+
+        The failure it pins: an unmeasurable reference giving the slot
+        a measured value of 0 - the plan would read 0 as the
+        reference's effects count and score a bare mix.
+        """
+        folder = self._project_with_stored_style(tmp_path, {
+            "sound_design": {"transients_measurable": False,
+                             "reason": "no extractable audio stream"},
+        })
+        assert DV.stated_preference(SFX_SLOT, folder) == (None, "")
+
+    def test_the_project_s_own_preference_outranks_the_reference(
+            self, tmp_path):
+        """An explicit preference is the project's own voice.
+
+        The failure it pins: letting a reference's measurement
+        override a preference the project states would make the
+        reference the chooser (AGENTS.md 10.5).
+        """
+        (tmp_path / "project.yaml").write_text(
+            "pipeline:\n"
+            "  creative_preferences:\n"
+            "    sfx:\n"
+            "      density_per_minute: 9\n", encoding="utf-8")
+        folder = self._project_with_stored_style(tmp_path, {
+            "sound_design": {"transients_measurable": True,
+                             "strong_transients_per_minute": 12.0},
+        })
+        value, source = DV.stated_preference(SFX_SLOT, folder)
+        assert value == 9
+        assert "creative_preferences" in source

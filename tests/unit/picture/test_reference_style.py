@@ -940,3 +940,81 @@ def test_an_encoded_reference_without_faces_measures_zero_presence(
     assert framing["faces_measurable"] is True
     assert framing["face_presence"] == 0.0
     assert framing["sampled_frames"] >= 1
+
+
+# ── The sound-design half ───────────────────────────────────────────
+
+def test_strong_is_the_reference_s_own_top_quartile(monkeypatch, tmp_path):
+    """Strong means the top quarter of THESE onsets, not a fixed level.
+
+    The failure it pins: a fixed strength floor (say 100) would call
+    20 of these 120 onsets strong while the reference's own
+    distribution says 30 - the SFX slot would plan to a number no
+    mix it measured could have produced.
+    """
+    import library.steps.step_1_04_temporal_index.step as preflight
+    monkeypatch.setattr(RS, "measure_shot_boundaries",
+                        lambda path: _boundaries_at(duration=120.0))
+    monkeypatch.setattr(RS, "_extract_reference_audio",
+                        lambda path: str(tmp_path / "aud" / "audio.wav"))
+    monkeypatch.setattr(preflight, "detect_onsets_with_strength",
+                        lambda path: ([float(i) for i in range(120)],
+                                      [float(i + 1) for i in range(120)]))
+    sound = RS.measure_reference_sound_design(str(tmp_path / "ref.mp4"))
+    assert sound["transients_measurable"] is True
+    assert sound["onsets"] == 120
+    assert sound["strong_transients"] == 30
+    assert sound["strong_transients_per_minute"] == 15.0
+
+
+def test_a_reference_with_no_audio_has_no_sound_design(monkeypatch,
+                                                       tmp_path):
+    """A silent reference says nothing about sound effects per minute.
+
+    The failure it pins: an unmeasurable reference reported as 0.0
+    strong transients per minute would read as "no sound design here"
+    - the SFX slot would plan a bare mix for want of music that does
+    not exist.
+    """
+    monkeypatch.setattr(RS, "measure_shot_boundaries",
+                        lambda path: _boundaries_at(duration=8.0))
+    monkeypatch.setattr(RS, "_extract_reference_audio", lambda path: None)
+    sound = RS.measure_reference_sound_design(str(tmp_path / "silent.mp4"))
+    assert sound["transients_measurable"] is False
+    assert "audio" in sound["reason"]
+    assert RS.measure_reference_sfx_density(str(tmp_path / "silent.mp4")) \
+        is None
+
+
+@pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg/ffprobe not available")
+def test_an_encoded_reference_with_clicks_measures_its_transients(
+        tmp_path):
+    """The sound-design half on real encoded audio, end to end.
+
+    This test encodes media because transient density is a fact about
+    the reference's actual audio - a measurement fed stubbed onsets
+    cannot prove the audio is extracted, detected and split.  Twelve
+    clicks in six seconds are all hard attacks.
+    """
+    from PIL import Image
+    image = Image.new("RGB", (320, 240), (128, 128, 128))
+    frame = tmp_path / "frame.png"
+    image.save(str(frame))
+    silent = tmp_path / "silent.mp4"
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-loop", "1", "-i", str(frame),
+         "-t", "6", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+         str(silent)],
+        check=True, capture_output=True, text=True, encoding="utf-8")
+    clicks = tmp_path / "clicks.wav"
+    _click_track(clicks)
+    video = tmp_path / "reference.mp4"
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-i", str(silent), "-i", str(clicks),
+         "-c:v", "copy", "-c:a", "aac", "-shortest", str(video)],
+        check=True, capture_output=True, text=True, encoding="utf-8")
+    sound = RS.measure_reference_sound_design(str(video))
+    assert sound["transients_measurable"] is True
+    assert sound["onsets"] >= 8
+    assert sound["strong_transients"] >= 1
+    assert sound["strong_transients_per_minute"] > 0.0
