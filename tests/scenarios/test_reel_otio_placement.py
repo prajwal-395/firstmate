@@ -235,6 +235,67 @@ def test_what_the_import_cannot_carry_refuses_by_name(media, tmp_path):
             overlay_placements=[_Element()], placement_mode="otio")
 
 
+def test_unlinked_import_is_relinked_to_the_pooled_clip(media, tmp_path):
+    """An import that reports no media pool item is repaired, not kept.
+
+    The double's `unlinked_otio_imports` knob reproduces what PR 1853's
+    first live run measured on Resolve 21.1 (2026-10-06): the imported
+    clip plays the pooled file, yet `GetMediaPoolItem()` returns None.
+    The build must delete each such item and place the already-pooled
+    clip at the recorded span - matched by file path and span - filing
+    no pool-ROOT copy. Without the repair the timeline below reads a
+    `None` pool item, which is what the freeze-tail inheritance, the
+    crop aiming and the comp mapping refuse on.
+    """
+    from library.tools.reel_build import pool_items_for
+
+    project = make_project(width=1080, height=1920, frame_rate=FPS)
+    pool = project.GetMediaPool()
+    pool.next_timeline = FakeTimeline()
+    pool.unlinked_otio_imports = True
+    footage = [media["speakerone"], media["speakertwo"]]
+    pool.media_properties = {p: {"FPS": "23.976", "Resolution": "32x32"}
+                             for p in footage}
+    root = pool.GetRootFolder()
+    source_bin = pool.AddSubFolder(root, "Source footage")
+    before = pool.GetCurrentFolder()
+    pool.SetCurrentFolder(source_bin)
+    pool.ImportMedia(footage)
+    pool.SetCurrentFolder(before)
+    clips = [
+        _clip(media, "video", 1, "SpeakerOne", "SpeakerOne", "speakerone", 0, 10),
+        _clip(media, "video", 2, "SpeakerTwo", "SpeakerTwo", "speakertwo", 10, 20),
+        _clip(media, "audio", 1, "SpeakerOne CH1", "SpeakerOne", "speakerone", 0, 10),
+        _clip(media, "audio", 2, "SpeakerTwo CH1", "SpeakerTwo", "speakertwo", 10, 20),
+    ]
+    record = build_reel_timeline(
+        project, _Moment(), clips, [], FPS, 1080, 1920,
+        str(tmp_path / "project"), {"segments": []},
+        program_channels={"1": 1, "2": 1}, placement_mode="otio")
+    timeline = project.GetCurrentTimeline()
+    for kind in ("video", "audio"):
+        for index in range(1, timeline.GetTrackCount(kind) + 1):
+            for item in timeline.GetItemListInTrack(kind, index) or []:
+                pool_item = item.GetMediaPoolItem()
+                assert pool_item is not None, (
+                    f"{kind}{index}@{item.GetStart()} plays unlinked - "
+                    f"the import was not repaired")
+                assert pool_item.GetClipProperty("File Path"), (
+                    f"{kind}{index}@{item.GetStart()} is bound to a "
+                    f"pool item with no file")
+    for path in footage:
+        items = pool_items_for(pool, path)
+        assert len(items) == 1, (
+            f"{os.path.basename(path)} holds {len(items)} pool items "
+            f"after the repair - the fallback must reuse, never import")
+        assert items[0] in source_bin.GetClipList()
+    root_files = [clip.GetClipProperty("File Path") or ""
+                  for clip in root.GetClipList() or ()]
+    assert [path for path in root_files if path] == [], (
+        f"the repair filed pool-ROOT copies: {root_files}")
+    assert record["placement_profile"]["relinked_items"] == 4
+
+
 def test_source_clips_already_pooled_are_not_duplicated(media, tmp_path):
     """A source clip already in the pool is reused, not re-imported.
 

@@ -497,6 +497,13 @@ class FakeMediaPool:
         #: Fault knob: Resolve ignores the requested still preference and
         #: places the specified number of frames instead.
         self.still_duration_override = None
+        #: Fault knob: a False import binds the pooled item for playback
+        #: but the item reports NO media pool item - measured live on
+        #: Resolve 21.1, 2026-10-06 (PR 1853's first live run): the clip
+        #: plays the pooled file, yet `GetMediaPoolItem()` returns None,
+        #: even after save and reload. Off by default; a test proving the
+        #: build repairs the linkage turns it on.
+        self.unlinked_otio_imports = False
         self.next_timeline = None
         #: One entry per `AppendToTimeline` call: how many specs it held.
         self.append_calls: list = []
@@ -578,7 +585,12 @@ class FakeMediaPool:
           unrecognised case, the one the build must defend against.
         - False binds the item the pool already holds, searched in
           every bin - the item the project's finals reference - and
-          files nothing at the ROOT.
+          files nothing at the ROOT. The clip PLAYS that file, but the
+          item reports NO media pool item: measured live 2026-10-06,
+          `GetMediaPoolItem()` returns None even after save and reload.
+          The double links the pooled item unless
+          `unlinked_otio_imports` is on, which is the regime the build
+          must repair.
         """
         import os
 
@@ -614,6 +626,14 @@ class FakeMediaPool:
                         pool_item = self._pooled(media)
                     if pool_item is None and media in filed:
                         pool_item = filed[media]
+                    # Measured live 2026-10-06: a False import plays the
+                    # pooled file but the item reports no media pool item
+                    # - and files no ROOT copy doing it.
+                    unlinked = (
+                        self.unlinked_otio_imports
+                        and not options.get("importSourceClips")
+                        and pool_item is not None
+                        and media not in filed)
                     if pool_item is None:
                         # Pooled from the file, as `ImportMedia` pools
                         # it: Resolve reads a new file's own properties
@@ -644,11 +664,12 @@ class FakeMediaPool:
                         "Resolve_OTIO", {})
                     channels = meta.get("Channels") or []
                     item = FakeTimelineItem(
-                        pool_item.GetName(), rebuilt, start=position,
+                        pool_item.GetName() if pool_item is not None
+                        else Path(media).name, rebuilt, start=position,
                         duration=duration,
                         left_offset=int(source["start_time"]["value"])
                         - media_start,
-                        pool_item=pool_item,
+                        pool_item=None if unlinked else pool_item,
                         source_audio_channel_mapping=json.dumps({
                             "embedded_audio_channels": 4,
                             "linked_audio": {},
@@ -673,6 +694,11 @@ class FakeMediaPool:
                                 item.SetProperty(
                                     key[0], param["Parameter Value"] * key[1])
                     item._otio_volume = otio_mix._volume_parameter_of(child)
+                    if unlinked:
+                        # The constructor stands a nameless item in for a
+                        # missing pool item; the measured regime reports
+                        # None, so say None.
+                        item._pool_item = None
                     rebuilt._tracks[kind][index - 1][1].append(item)
                 position += duration
         self._project.adopt(rebuilt)

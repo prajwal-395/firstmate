@@ -358,6 +358,108 @@ def _move_into(pool, items, dest: tuple) -> None:
             f"{'/'.join(dest)}")
 
 
+def _root_file_clips(pool) -> list:
+    """The file-backed clips filed at the pool ROOT, by path.
+
+    Timeline pool entries carry no file path, so the imported timeline's
+    own entry never counts here - only a source or render copy Resolve
+    filed at the root does.
+    """
+    root = pool.GetRootFolder()
+    return sorted((item.GetClipProperty("File Path") or "")
+                  for item in root.GetClipList() or ())
+
+
+def relink_imported_items(pool, timeline, recorder: PlacementRecorder,
+                          track_plan, name: str) -> list:
+    """Repair import-created items that report no media pool item.
+
+    Measured live on Resolve 21.1, 2026-10-06: an `importSourceClips:
+    False` import plays the pooled file but every placed item reads
+    `GetMediaPoolItem()` None, even after save and reload - so the
+    freeze-tail inheritance, the crop aiming and the comp mapping, which
+    all read the item's pool item, refuse or go blind on an imported
+    reel. Resolve has no `SetMediaPoolItem` (reel_touchup), so
+    re-linking IS the append path: the unlinked item is deleted and the
+    already-pooled clip is placed at the recorded span - matched by file
+    path and imported span, and nothing is imported, so the pool gains
+    no ROOT copy. A file nothing pools, an undeletable item or a
+    re-placement that does not read back refuses rather than playing
+    unlinked.
+    """
+    from library.tools.reel_build import (
+        _speech_row_uids, _timeline_span, pool_item_for,
+        sweep_placed_audio)
+    repaired = []
+    for spec in recorder.specs:
+        kind = "video" if spec.media_type == 1 else "audio"
+        want = (spec.record, spec.record + spec.source_out - spec.source_in)
+        for item in timeline.GetItemListInTrack(kind, spec.track) or ():
+            if _timeline_span(item) != want:
+                continue
+            linked = item.GetMediaPoolItem()
+            if linked is not None and (
+                    linked.GetClipProperty("File Path") or "") == spec.path:
+                continue
+            pooled = pool_item_for(pool, spec.path)
+            if pooled is None:
+                raise OtioPlacementRefused(
+                    f"{name}: {os.path.basename(spec.path)} at "
+                    f"{kind[0].upper()}{spec.track}@{spec.record} is bound "
+                    f"to nothing and the file is not in the media pool - "
+                    f"refusing rather than importing it, which would file "
+                    f"a pool-ROOT copy")
+            if not timeline.DeleteClips([item], False):
+                raise OtioPlacementRefused(
+                    f"{name}: Resolve would not delete the unlinked "
+                    f"{os.path.basename(spec.path)} at "
+                    f"{kind[0].upper()}{spec.track}@{spec.record} - "
+                    f"refusing rather than placing a second item over it")
+            before = _speech_row_uids(timeline, track_plan)
+            placed = pool.AppendToTimeline([{
+                "mediaPoolItem": pooled,
+                "startFrame": spec.source_in,
+                "endFrame": spec.source_out,
+                "mediaType": spec.media_type,
+                "trackIndex": spec.track,
+                "recordFrame": spec.record,
+            }])
+            if not placed:
+                raise OtioPlacementRefused(
+                    f"{name}: Resolve would not place the pooled "
+                    f"{os.path.basename(spec.path)} at "
+                    f"{kind[0].upper()}{spec.track}@{spec.record} - "
+                    f"AppendToTimeline returned nothing")
+            if spec.media_type == 2 and spec.channel is not None:
+                kept, _deleted, _unverified = sweep_placed_audio(
+                    timeline, track_plan, before, spec.track,
+                    spec.channel,
+                    f"{name} relink "
+                    f"{os.path.basename(spec.path)}@{spec.record}")
+                if not kept:
+                    raise OtioPlacementRefused(
+                        f"{name}: the relinked "
+                        f"{os.path.basename(spec.path)} at "
+                        f"A{spec.track}@{spec.record} carries no CH"
+                        f"{spec.channel} speech - refusing rather than "
+                        f"leaving the row without its program stream")
+            again = [candidate for candidate in
+                     timeline.GetItemListInTrack(kind, spec.track) or ()
+                     if _timeline_span(candidate) == want]
+            bound = [candidate.GetMediaPoolItem() for candidate in again]
+            if not again or any(
+                    mpi is None or (mpi.GetClipProperty("File Path")
+                                    or "") != spec.path for mpi in bound):
+                raise OtioPlacementRefused(
+                    f"{name}: the relinked "
+                    f"{os.path.basename(spec.path)} at "
+                    f"{kind[0].upper()}{spec.track}@{spec.record} does not "
+                    f"read back bound to the pooled clip - refusing")
+            repaired.append(f"{kind[0].upper()}{spec.track}@{spec.record} "
+                            f"{os.path.basename(spec.path)}")
+    return repaired
+
+
 def import_recorded(project, recorder: PlacementRecorder, name: str,
                     track_plan, fps: float, width: int, height: int,
                     timeline_bin: tuple):
@@ -377,6 +479,7 @@ def import_recorded(project, recorder: PlacementRecorder, name: str,
                                 height)
     record_duration(recorder.profile, "offline_compile_s", started)
     pool = project.GetMediaPool()
+    root_before = _root_file_clips(pool)
     with tempfile.TemporaryDirectory(prefix="reel_otio_") as scratch:
         started = time.perf_counter()
         path = otio_compile.write(document, os.path.join(scratch,
@@ -484,6 +587,20 @@ def import_recorded(project, recorder: PlacementRecorder, name: str,
     for bin_path, items in by_bin.items():
         _move_into(pool, items, bin_path)
     record_duration(recorder.profile, "pool_organization_s", started)
+    started = time.perf_counter()
+    repaired = relink_imported_items(
+        pool, timeline, recorder, track_plan, name)
+    record_duration(recorder.profile, "linkage_repair_s", started)
+    recorder.profile["relinked_items"] = len(repaired)
+    for label in repaired:
+        print(f"  {name}: relinked {label}", file=sys.stderr)
+    added = [path for path in _root_file_clips(pool)
+             if path and path not in root_before]
+    if added:
+        raise OtioPlacementRefused(
+            f"{name}: the import filed {len(added)} file-backed cop"
+            f"{'y' if len(added) == 1 else 'ies'} at the pool ROOT - "
+            f"refusing: {added[:4]}")
     return timeline
 
 
