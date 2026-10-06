@@ -1208,12 +1208,15 @@ def _derive_version_nodes(graph: dict, project_folder: str) -> None:
 def _derive_variant_nodes(graph: dict, project_folder: str) -> None:
     """Variant-branch nodes from the variant explorations.
 
-    Each variant of each exploration is a node carrying its branch,
+    Each variant of each RECORDED exploration is a node carrying its branch,
     base, direction and planning agent verbatim, so the critic - and
     any other lane - references a variant by node id instead of
-    re-reading the exploration records. Like the version nodes, these
-    carry no edges: a variant links to nothing until the merge queue
-    evaluates it. A project with no explorations gains no nodes.
+    re-reading the exploration records. A planned-but-undispatched
+    exploration gains no nodes: its branches do not exist yet, and a
+    node for a branch that is not there would read as a comparison of
+    nothing. Like the version nodes, these carry no edges: a variant links
+    to nothing until the merge queue evaluates it. A project with no explorations
+    gains no nodes.
     """
     try:
         from library.tools import variant_exploration
@@ -1221,6 +1224,8 @@ def _derive_variant_nodes(graph: dict, project_folder: str) -> None:
     except (OSError, ValueError, RuntimeError):
         return
     for record in records:
+        if not record.get("recorded", True):
+            continue
         exploration = record.get("id") or ""
         for variant in record.get("variants") or ():
             name = variant.get("name") or ""

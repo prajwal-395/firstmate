@@ -289,3 +289,237 @@ def test_held_branch_lease_refuses_naming_the_holder(tmp_path, lock_dir):
         holder.join(timeout=30)
     assert uj.list_branches(project) == []
     assert vx.list_explorations(project) == []
+
+
+# ── Scheduled dispatch ──────────────────────────────────────────────
+#
+# Each test names a defect the scheduler path closes:
+#
+# - a plan that records branches (plan must write the record and
+#   nothing else - the branches are the dispatch's job);
+# - variant tasks sharing a resource (disjoint declarations are what
+#   let the scheduler run them together);
+# - a dispatch that silently re-records landed branches (recorded
+#   plans refuse; a foreign base under a planned name refuses);
+# - a task failure the dispatch swallows (anything not done refuses
+#   naming its tasks, and the plan stays unrecorded);
+# - a foreign-held lease the dispatch spins on (pre-flight refuses by
+#   name before the scheduler starts).
+
+
+def _planned(tmp_path, monkeypatch, names=("faster-intro",
+                                           "emotional-intro")):
+    locks = tmp_path / "locks"
+    locks.mkdir(exist_ok=True)
+    monkeypatch.setenv("PIPELINE_RESOLVE_LOCK_DIR", str(locks))
+    project = _project(tmp_path)
+    root = _root(project)
+    record = vx.plan_variants(
+        project, base=root["id"],
+        variants=_variants(*names),
+        agent="ren-worker-07", timeline="Reel 01 - lab")
+    return project, root["id"], record
+
+
+def test_plan_writes_the_record_and_no_branch(tmp_path, monkeypatch):
+    """The plan validates like the fan-out and writes the record with
+    `"recorded": False` - and no branch, lease or branch event: the
+    branches are the dispatch's job, not the plan's."""
+    project, root_id, record = _planned(tmp_path, monkeypatch)
+
+    assert record["recorded"] is False
+    assert record["base"] == root_id
+    assert uj.list_branches(project) == []
+    kinds = [e["type"] for e in event_log.read_events(project)]
+    assert "variant_branch_recorded" not in kinds
+    assert kinds.count("variant_exploration_planned") == 1
+    assert vx.read_exploration(project, record["id"])["recorded"] is False
+
+
+def test_variant_tasks_are_disjoint_and_name_their_command(
+        tmp_path, monkeypatch):
+    """One task per variant, pairwise compatible declarations, each
+    commanding back into this module - the scheduler can place them
+    together, and whatever runs is this plan's own record."""
+    project, _base, record = _planned(tmp_path, monkeypatch)
+
+    graph = vx.variant_task_graph(project, record["id"])
+
+    assert sorted(graph.tasks) == ["variant-emotional-intro",
+                                   "variant-faster-intro"]
+    tasks = list(graph.tasks.values())
+    assert tasks[0].resources.conflicts_with(tasks[1].resources) is None
+    for task in tasks:
+        assert task.command[-4:-1] == ("record-variant", project,
+                                       record["id"])
+    assert tasks[0].capabilities == ()
+
+
+def test_dispatch_records_every_branch_and_flips_the_plan(
+        tmp_path, monkeypatch):
+    """The scheduler path lands every branch, fills the record and
+    emits the same branch events the serial path emits - one plan, one
+    recording, whichever path ran."""
+    project, base, record = _planned(tmp_path, monkeypatch)
+
+    def _run(task):
+        name = task.id[len("variant-"):]
+        direction = next(
+            v["direction"] for v in record["variants"]
+            if v["name"] == name)
+        vx._record_variant_branch(
+            project, base_id=base,
+            entry={"name": name, "direction": direction})
+        return 0
+
+    result = vx.dispatch_variants(project, record["id"], runner=_run)
+
+    assert result["states"] == {"variant-emotional-intro": "done",
+                                "variant-faster-intro": "done"}
+    branches = {b["name"]: b for b in uj.list_branches(project)}
+    assert branches["variant faster-intro"]["base"] == base
+    assert branches["variant faster-intro"]["note"] == "try faster-intro"
+    done = vx.read_exploration(project, record["id"])
+    assert done["recorded"] is True
+    assert [v["branch"] for v in done["variants"]] == [
+        "variant faster-intro", "variant emotional-intro"]
+    kinds = [e["type"] for e in event_log.read_events(project)]
+    assert kinds.count("variant_branch_recorded") == 2
+    assert kinds.count("variant_exploration_recorded") == 1
+    assert kinds.count("variant_dispatch_finished") == 1
+
+
+def test_dispatch_refuses_a_recorded_plan(tmp_path, monkeypatch):
+    """Dispatching a recorded exploration would only re-record landed
+    branches - it refuses instead of forking a second recording."""
+    locks = tmp_path / "locks"
+    locks.mkdir(exist_ok=True)
+    monkeypatch.setenv("PIPELINE_RESOLVE_LOCK_DIR", str(locks))
+    project = _project(tmp_path)
+    root = _root(project)
+    recorded = vx.explore_variants(
+        project, base=root["id"], variants=_variants("faster-intro"),
+        agent="ren-worker-07", timeline="Reel 01 - lab")
+    assert recorded["recorded"] is True
+    with pytest.raises(VariantRefused, match="already recorded"):
+        vx.dispatch_variants(project, recorded["id"], runner=lambda t: 0)
+    with pytest.raises(VariantRefused, match="already recorded"):
+        vx.variant_task_graph(project, recorded["id"])
+
+
+def test_dispatch_names_unfinished_tasks_and_keeps_the_plan(
+        tmp_path, monkeypatch):
+    """A task the runner fails is named, its siblings still land, and
+    the plan stays unrecorded - a half-recorded plan would read as a
+    comparison of branches that are not all there."""
+    project, _base, record = _planned(tmp_path, monkeypatch)
+
+    def _run(task):
+        if task.id == "variant-emotional-intro":
+            return 1
+        name = task.id[len("variant-"):]
+        direction = next(
+            v["direction"] for v in record["variants"]
+            if v["name"] == name)
+        base = vx.read_exploration(
+            project, record["id"])["base"]
+        vx._record_variant_branch(
+            project, base_id=base,
+            entry={"name": name, "direction": direction})
+        return 0
+
+    with pytest.raises(VariantRefused, match="variant-emotional-intro"):
+        vx.dispatch_variants(project, record["id"], runner=_run)
+    assert uj.read_branch(project, "variant faster-intro")
+    assert vx.read_exploration(project, record["id"])["recorded"] is False
+
+
+def test_dispatch_preflights_a_held_lease(tmp_path, monkeypatch):
+    """A foreign holder standing at dispatch time refuses by name
+    before the scheduler starts - no branch, no checkpoint spin."""
+    import threading
+
+    project, _base, record = _planned(tmp_path, monkeypatch)
+    declaration = vx.variant_declaration("variant faster-intro")
+    entered = threading.Event()
+    release = threading.Event()
+
+    def _hold():
+        with resource_lease(declaration, purpose="other planner",
+                            heartbeat_thread=False, project=project):
+            entered.set()
+            release.wait(timeout=30)
+
+    holder = threading.Thread(target=_hold, name="other-planner")
+    holder.start()
+    try:
+        assert entered.wait(timeout=30)
+        with pytest.raises(VariantRefused, match="variant-faster-intro"):
+            vx.dispatch_variants(project, record["id"], runner=lambda t: 0)
+    finally:
+        release.set()
+        holder.join(timeout=30)
+    assert uj.list_branches(project) == []
+    assert vx.read_exploration(project, record["id"])["recorded"] is False
+
+
+def test_record_variant_entry_point(tmp_path, monkeypatch, capsys):
+    """The scheduler task's command records its branch and prints its
+    name; unknown explorations and variants exit 4 with a refusal, and
+    record nothing."""
+    project, base, record = _planned(tmp_path, monkeypatch)
+
+    assert vx._main(["record-variant", project, record["id"],
+                     "faster-intro"]) == 0
+    out = capsys.readouterr().out.strip()
+    assert out == "variant faster-intro"
+    assert uj.read_branch(project, "variant faster-intro")["base"] == base
+
+    assert vx._main(["record-variant", project, "no-such-id",
+                     "faster-intro"]) == 4
+    assert vx._main(["record-variant", project, record["id"],
+                     "no-such-variant"]) == 4
+
+
+def test_retry_over_a_foreign_base_is_refused(tmp_path, monkeypatch):
+    """A retry re-records its own base; a branch name that landed off
+    another base belongs to other planning and refuses naming it."""
+    project, base, record = _planned(tmp_path, monkeypatch)
+    foreign = uj.record_commit(
+        project, parent=None, intent="another line", changes=[],
+        agent="ren-worker-08", timeline="Reel 02 - lab")["id"]
+    uj.record_branch(project, name="variant faster-intro",
+                     base=foreign, timeline="variant faster-intro",
+                     note="someone else's")
+
+    with pytest.raises(uj.BranchRefused, match="another"):
+        vx._record_variant_branch(
+            project, base_id=base,
+            entry={"name": "faster-intro", "direction": "try faster-intro"})
+    assert uj.read_branch(
+        project, "variant faster-intro")["note"] == "someone else's"
+
+    uj.record_branch(project, name="variant emotional-intro",
+                     base=base, timeline="variant emotional-intro",
+                     note="first attempt")
+    again = vx._record_variant_branch(
+        project, base_id=base,
+        entry={"name": "emotional-intro",
+               "direction": "try emotional-intro"})
+    assert again["base"] == base
+
+
+def test_exploration_ids_resolve_from_unique_prefixes(tmp_path, monkeypatch):
+    """The CLI prints short ids, so it accepts them back: a unique
+    prefix resolves, an unknown ref refuses, and a prefix naming two
+    plans refuses instead of guessing."""
+    project, _base, record = _planned(tmp_path, monkeypatch)
+
+    assert vx.resolve_exploration(
+        project, record["id"][:12])["id"] == record["id"]
+    assert vx.resolve_exploration(
+        project, record["id"])["id"] == record["id"]
+    with pytest.raises(VariantRefused, match="not recorded"):
+        vx.resolve_exploration(project, "no-such-plan")
+    with pytest.raises(VariantRefused, match="no exploration named"):
+        vx.resolve_exploration(project, "  ")

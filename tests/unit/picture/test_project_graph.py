@@ -1652,3 +1652,36 @@ def test_find_variant_branches_filters_by_exploration_and_timeline(
         graph, exploration=second["id"],
         timeline="Reel 01 - lab") == []
     assert len(project_graph.find_variant_branches(graph)) == 2
+
+
+def test_planned_but_undispatched_variants_gain_no_nodes(
+        tmp_path, monkeypatch):
+    """Defect: a plan reads as a comparison of branches that do not
+    exist yet. Nodes derive only from recorded explorations; the plan
+    appears after the dispatch lands its branches."""
+    from library.tools import undo_journal as uj
+    from library.tools import variant_exploration as vx
+
+    project, base = _variant_project(tmp_path, monkeypatch)
+    root = uj.read_commit(str(project), base)
+    plan = vx.plan_variants(
+        str(project), base=root["id"],
+        variants=[{"name": "faster-intro", "direction": "go fast"}],
+        agent="ren-worker-07", timeline="Reel 01 - lab")
+    assert plan["recorded"] is False
+
+    graph = project_graph.build_graph(str(project))
+    assert [n for n in graph["nodes"]
+            if n["node_type"] == project_graph.VARIANT] == []
+    assert project_graph.find_variant_branches(graph) == []
+
+    def _run(task):
+        vx._record_variant_branch(
+            str(project), base_id=root["id"],
+            entry={"name": "faster-intro", "direction": "go fast"})
+        return 0
+
+    vx.dispatch_variants(str(project), plan["id"], runner=_run)
+    graph = project_graph.build_graph(str(project))
+    assert [r["name"] for r in
+            project_graph.find_variant_branches(graph)] == ["faster-intro"]

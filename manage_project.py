@@ -1079,8 +1079,11 @@ def cmd_explore_variants(args):
 
     The spec's "Branch parallelism": fork one base into one isolated
     branch per variant direction, offline, then compare. `propose`
-    records the exploration (branches, leases, events); `list` reads
-    back what is recorded for comparison. Direction text arrives on
+    records the exploration (branches, leases, events) serially;
+    `plan` writes the same exploration without recording any branch,
+    and `dispatch` records a plan's branches through the fabric
+    scheduler, concurrently; `list` reads back what is recorded for
+    comparison. Direction text arrives on
     `--direction NAME=TEXT` - project or user data, never a value the
     engine invents - and a variant with none is refused. See
     library/tools/variant_exploration.py and AGENTS.md 17.
@@ -1153,6 +1156,72 @@ def cmd_explore_variants(args):
         print(f"  {variant['name']}: branch {variant['branch']!r} "
               f"- tries: {variant['direction']}")
     print(f"  Compare them with: ren explore-variants {args.project} list")
+
+
+def cmd_dispatch_variants(args):
+    """Record a planned exploration's branches via the scheduler."""
+    from library.tools import variant_exploration as _vx
+
+    project_folder = _reel_project_folder(args.project)
+    try:
+        result = _vx.dispatch_variants(
+            project_folder, args.exploration)
+    except _vx.VariantRefused as refused:
+        print(refused.render(), file=sys.stderr)
+        sys.exit(REFUSAL_EXIT_CODE)
+    print(f"Dispatched exploration {result['exploration'][:12]}: "
+          f"{len(result['states'])} task(s) done.")
+
+
+def cmd_plan_variants(args):
+    """Plan N variants off a base without recording any branch."""
+    from library.tools import undo_journal as _journal
+    from library.tools import variant_exploration as _vx
+    from library.tools.resolve_lock import default_owner
+
+    project_folder = _reel_project_folder(args.project)
+
+    directions = []
+    for raw in args.direction or ():
+        name, sep, text = str(raw).partition("=")
+        if not sep:
+            print(f"Error: --direction {raw!r} needs NAME=TEXT form",
+                  file=sys.stderr)
+            sys.exit(2)
+        directions.append({"name": name, "direction": text})
+
+    base = args.base
+    if not base:
+        if not args.timeline:
+            print("Error: pass --base <commit> or --timeline NAME to "
+                  "explore from its latest commit", file=sys.stderr)
+            sys.exit(2)
+        latest = _journal.latest_commit_for_timeline(
+            project_folder, args.timeline)
+        if latest is None:
+            raise RenRefusal(
+                f"timeline {args.timeline!r} has no commit to explore from",
+                "variant branches fork a base commit, and no touch has "
+                "recorded one on this timeline yet",
+                "run the pipeline or a touch-up on this timeline first, "
+                "then re-run with --base <commit>") from None
+        base = latest["id"]
+
+    try:
+        record = _vx.plan_variants(
+            project_folder, base=base, variants=directions,
+            agent=args.agent or default_owner(),
+            timeline=args.timeline or "")
+    except _vx.VariantRefused as refused:
+        print(refused.render(), file=sys.stderr)
+        sys.exit(REFUSAL_EXIT_CODE)
+    print(f"Planned exploration {record['id'][:12]} off base "
+          f"{record['base'][:12]}: {len(record['variants'])} variant(s), "
+          f"no branches recorded.")
+    for variant in record["variants"]:
+        print(f"  {variant['name']} - tries: {variant['direction']}")
+    print(f"  Dispatch it with: ren explore-variants {args.project} "
+          f"dispatch --exploration {record['id'][:12]}")
 
 
 def cmd_organize(args):
@@ -3892,6 +3961,35 @@ def main():
     e_list = e_sub.add_parser(
         "list", help="What explorations are recorded, for comparison")
     del e_list
+
+    e_dispatch = e_sub.add_parser(
+        "dispatch",
+        help="Record a planned exploration's branches through the "
+             "fabric scheduler, concurrently")
+    e_dispatch.add_argument("--exploration", required=True, metavar="ID",
+                            help="The planned exploration whose variants "
+                                 "to record")
+    e_dispatch.set_defaults(func=cmd_dispatch_variants)
+
+    e_plan = e_sub.add_parser(
+        "plan",
+        help="Plan N variants off a base without recording any branch")
+    e_plan.add_argument("--direction", action="append", default=[],
+                        metavar="NAME=TEXT",
+                        help="One variant: its branch slug and the "
+                             "project/user text saying what it tries. "
+                             "Repeatable - one per variant.")
+    e_plan.add_argument("--base", default="",
+                        help="The base commit every variant forks. "
+                             "Default: the --timeline's latest commit.")
+    e_plan.add_argument("--timeline", default="",
+                        help="The timeline the base is for, and whose "
+                             "latest commit is the base when --base is "
+                             "absent.")
+    e_plan.add_argument("--agent", default="",
+                        help="The worker planning the variants. "
+                             "Default: this lane or process.")
+    e_plan.set_defaults(func=cmd_plan_variants)
 
     p_explore.set_defaults(func=cmd_explore_variants)
 
