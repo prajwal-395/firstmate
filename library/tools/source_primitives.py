@@ -52,6 +52,7 @@ import functools
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import Dict, Optional
@@ -151,15 +152,47 @@ def ensure(source_file: str, declaration: Optional[int] = None,
     `program_track.basis` says why there is no program track.
     Heavy on a miss (one whole-file audio demux); callers run it under
     the heavy-work lock. Media is read-only.
+
+    Same-digest lanes share one lock and re-check inside it: two clips
+    of one file measuring at once would otherwise demux twice and race
+    the canonical-WAV move against the sample hash. The second lane
+    waits, re-reads, and is served what the first stored.
     """
     stored = read(source_file, declaration, root)
     if stored is not None:
         return stored
     from library.tools import transcript_measurement
 
+    fp = footage_identity.fingerprint(source_file)
+    with _primitive_lock(fp["content_digest"]):
+        stored = read(source_file, declaration, root)
+        if stored is not None:
+            return stored
+        return _measure_primitives(source_file, declaration, root,
+                                   scratch_parent, fp,
+                                   transcript_measurement)
+
+
+# One lock per content digest: the unit the lanes contend on, like the
+# M2 frame-slot locks - never a global primitives lock, which would
+# serialize every source behind one file's demux.
+_PRIMITIVE_LOCKS: Dict[str, threading.Lock] = {}
+_PRIMITIVE_LOCKS_GUARD = threading.Lock()
+
+
+def _primitive_lock(digest: str) -> threading.Lock:
+    """The ensure lock for one digest slot, creating it once."""
+    with _PRIMITIVE_LOCKS_GUARD:
+        return _PRIMITIVE_LOCKS.setdefault(digest, threading.Lock())
+
+
+def _measure_primitives(source_file: str, declaration: Optional[int],
+                        root: Optional[Path],
+                        scratch_parent: Optional[str], fp: dict,
+                        transcript_measurement) -> dict:
+    """Measure and store one source's primitives; caller holds its lock."""
     started = time.perf_counter()
     timings: Dict[str, float] = {}
-    fp = footage_identity.fingerprint(source_file)
     digest, size = fp["content_digest"], fp["size_bytes"]
     target = source_memory.source_dir(digest, root)
 

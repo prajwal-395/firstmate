@@ -502,6 +502,67 @@ def test_an_undecodable_stream_is_recorded_not_fatal(tmp_path, memory_root,
     assert source_primitives.read(str(media), 2) is None
 
 
+def test_concurrent_same_file_ensure_demuxes_once(tmp_path, memory_root,
+                                                  monkeypatch):
+    """Two lanes ensuring one file's primitives at once must demux once:
+    the second waits on the digest lock, re-reads, and is served what
+    the first stored. Without the lock both demux the whole file and
+    race the canonical-WAV move against the sample hash - and the
+    loser's hearing is keyed to bytes that were never on disk together.
+    """
+    import threading
+    from library.tools import source_primitives
+
+    media = _media(tmp_path, "DUP.MOV", b"dup-bytes")
+    demuxed = []
+    demux_lock = threading.Lock()
+
+    def _probe(_path):
+        return {"streams": [
+            {"index": 0, "codec_type": "video", "codec": "hevc"},
+            {"index": 1, "codec_type": "audio", "codec": "aac",
+             "channel": 1, "channels": 2, "sample_rate": 48000}]}
+
+    def _demux(source, channels, out_dir):
+        with demux_lock:
+            demuxed.append(list(channels))
+        paths = {}
+        for ch in channels:
+            paths[ch] = str(Path(out_dir) / f"track_CH{ch}.wav")
+            _tone_wav(paths[ch])
+        return paths
+
+    monkeypatch.setattr(source_memory, "probe_streams", _probe)
+    monkeypatch.setattr(source_memory, "demux_audio_tracks", _demux)
+    monkeypatch.setattr(source_primitives, "available_decoders",
+                        lambda: frozenset({"aac", "hevc"}))
+
+    barrier = threading.Barrier(2)
+    accounts, failures = [], []
+
+    def _ensure():
+        barrier.wait(timeout=60)
+        try:
+            accounts.append(source_primitives.ensure(str(media)))
+        except Exception as e:  # noqa: BLE001 - collected, asserted
+            failures.append(repr(e))
+
+    threads = [threading.Thread(target=_ensure) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=120)
+    assert not any(t.is_alive() for t in threads)
+    assert failures == [], f"lanes crashed ensuring: {failures}"
+    assert demuxed == [[1]], f"demuxed {len(demuxed)}x, not once: {demuxed}"
+    assert len(accounts) == 2
+    assert sorted(a["reused"] for a in accounts) == [False, True]
+    assert accounts[0]["program_wav"] == accounts[1]["program_wav"]
+    assert (accounts[0]["program_pcm_sha256"]
+            == accounts[1]["program_pcm_sha256"])
+    assert Path(accounts[0]["program_wav"]).is_file()
+
+
 # --------------------------------------------------------------------------
 # From test_measurement_layers.py
 #
