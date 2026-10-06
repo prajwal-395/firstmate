@@ -415,6 +415,13 @@ STEP_IMPLEMENTATION_DEPS = {
     "step_1_07_ocr_extraction": (
         # The whole measurement, imported by step.py.
         "library/tools/analysis/ocr_extractor.py",
+        # Imported by step.py: the per-clip lanes, so a fix here
+        # changes how many clips measure at once.
+        "library/tools/concurrency_routing.py",
+        # Imported by concurrency_routing: the lane bound is this
+        # machine's measured core count. (Its capabilities read is
+        # exempt plumbing.)
+        "library/tools/resource_scheduler.py",
     ),
     "step_2_06_music_analysis": (
         # The executed measurement: beat grid, tempo, key and sections.
