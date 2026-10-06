@@ -108,6 +108,12 @@ import math
 import sys
 from pathlib import Path
 
+from library.tools.resource_leases import (
+    LeaseDeclaration,
+    ResourceRef,
+    resource_lease,
+)
+
 #: Schema version this reader honours.
 EDIT_LEDGER_VERSION = 1
 
@@ -1441,155 +1447,169 @@ def replay_on_timeline(name: str, rows: list, spans: list,
     """
     from library.tools import dialogue_cleanup as _dclean
 
-    scoped = rows_for_reel(rows, reel_name or name)
-    applied, planned, unreplayable = [], [], []
-    for row in scoped:
-        op = row.get("op")
-        if op == "voice_isolation":
-            params = row.get("params") or {}
-            try:
-                _dclean.apply_voice_isolation(
-                    timeline, int(params.get("track", 1)),
-                    int(params.get("amount", 0)))
-            except Exception as exc:
+    # The replay writes the reel: voice isolation, grades, LUTs and
+    # whatever the algebra applies. One timeline declaration covers
+    # the reel-scoped writes, so a touch-up restructuring the reel
+    # mid-replay serialises against it. Pool inserts an algebra op
+    # makes race pool writers on name only where the names match;
+    # the declaration cannot see pool paths the ops invent, and
+    # that residual is stated here rather than hidden.
+    with resource_lease(
+        LeaseDeclaration(
+            write=frozenset({ResourceRef("timeline", name)}),
+            exclusive=frozenset({ResourceRef("timeline", name)}),
+        ),
+        purpose=f"replay edit ledger on {name}",
+    ):
+        scoped = rows_for_reel(rows, reel_name or name)
+        applied, planned, unreplayable = [], [], []
+        for row in scoped:
+            op = row.get("op")
+            if op == "voice_isolation":
+                params = row.get("params") or {}
+                try:
+                    _dclean.apply_voice_isolation(
+                        timeline, int(params.get("track", 1)),
+                        int(params.get("amount", 0)))
+                except Exception as exc:
+                    unreplayable.append({
+                        "name": _row_name(row), "scope": "timeline",
+                        "reason": f"could not replay: {exc}"})
+                    continue
+                applied.append({"name": _row_name(row), "op": op,
+                                "track": params.get("track"),
+                                "amount": params.get("amount")})
+            elif op in ("clip_lut", "grade"):
+                continue  # matched below, per picture span
+            elif op in PLAN_OPS:
+                continue  # the angle plan and retimes shaped placements
+            elif op in PROJECTED_OPS:
+                continue  # the existing appliers hold these, never here
+            elif op == "plan_change":
+                params = row["params"]
+                from library.tools.edit_operations import PLAN_OPERATION_OWNERS
+                planned.append({
+                    "name": _row_name(row),
+                    "operation_type": params["operation_type"],
+                    "owner": PLAN_OPERATION_OWNERS[params["operation_type"]],
+                    "values": params["values"],
+                })
+            elif op in CARRIER_OPS:
                 unreplayable.append({
-                    "name": _row_name(row), "scope": "timeline",
-                    "reason": f"could not replay: {exc}"})
+                    "name": _row_name(row), "scope": "rung",
+                    "reason": (f"no replayer yet: {op} is carried for a "
+                               f"later rung and this build holds nothing "
+                               f"for it. Stored, reported, not applied.")})
+            elif op == "edit_program":
+                applied_p, unreplayable_p = _replay_program(
+                    row, timeline, applied, unreplayable, project)
+                applied.extend(applied_p)
+                unreplayable.extend(unreplayable_p)
+            else:  # pragma: no cover - validation refuses unknown ops
+                unreplayable.append({
+                    "name": _row_name(row), "scope": "op",
+                    "reason": f"unknown op {op!r} - nothing holds it."})
+        grade_matches, grade_stale = match_grade_rows(
+            spans, transcript, scoped, reel_name or name)
+        unreplayable.extend(grade_stale)
+        resolve_item = item_for_span or (lambda _index: None)
+        for record in grade_matches:
+            item = resolve_item(record["span_index"])
+            row_name = (f"grade at {record['anchor_phrase']!r}"
+                        if record["anchor_phrase"]
+                        else "grade on the whole reel")
+            if item is None:
+                unreplayable.append({
+                    "name": row_name, "scope": "timeline",
+                    "reason": "could not replay: no timeline item for the "
+                              "matched picture span."})
                 continue
-            applied.append({"name": _row_name(row), "op": op,
-                            "track": params.get("track"),
-                            "amount": params.get("amount")})
-        elif op in ("clip_lut", "grade"):
-            continue  # matched below, per picture span
-        elif op in PLAN_OPS:
-            continue  # the angle plan and retimes shaped placements
-        elif op in PROJECTED_OPS:
-            continue  # the existing appliers hold these, never here
-        elif op == "plan_change":
-            params = row["params"]
-            from library.tools.edit_operations import PLAN_OPERATION_OWNERS
-            planned.append({
-                "name": _row_name(row),
-                "operation_type": params["operation_type"],
-                "owner": PLAN_OPERATION_OWNERS[params["operation_type"]],
-                "values": params["values"],
-            })
-        elif op in CARRIER_OPS:
-            unreplayable.append({
-                "name": _row_name(row), "scope": "rung",
-                "reason": (f"no replayer yet: {op} is carried for a "
-                           f"later rung and this build holds nothing "
-                           f"for it. Stored, reported, not applied.")})
-        elif op == "edit_program":
-            applied_p, unreplayable_p = _replay_program(
-                row, timeline, applied, unreplayable, project)
-            applied.extend(applied_p)
-            unreplayable.extend(unreplayable_p)
-        else:  # pragma: no cover - validation refuses unknown ops
-            unreplayable.append({
-                "name": _row_name(row), "scope": "op",
-                "reason": f"unknown op {op!r} - nothing holds it."})
-    grade_matches, grade_stale = match_grade_rows(
-        spans, transcript, scoped, reel_name or name)
-    unreplayable.extend(grade_stale)
-    resolve_item = item_for_span or (lambda _index: None)
-    for record in grade_matches:
-        item = resolve_item(record["span_index"])
-        row_name = (f"grade at {record['anchor_phrase']!r}"
-                    if record["anchor_phrase"]
-                    else "grade on the whole reel")
-        if item is None:
-            unreplayable.append({
-                "name": row_name, "scope": "timeline",
-                "reason": "could not replay: no timeline item for the "
-                          "matched picture span."})
-            continue
-        params = record["params"]
-        if "lut" in params:
+            params = record["params"]
+            if "lut" in params:
+                try:
+                    proof = apply_lut_to_item(
+                        item, params["lut"], params.get("node", 1))
+                except EditLedgerError as exc:
+                    unreplayable.append({
+                        "name": row_name, "scope": "timeline",
+                        "reason": f"could not replay: {exc}"})
+                    continue
+                applied.append({"name": row_name, "op": "grade",
+                                "lut": proof["lut"], "node": proof["node"],
+                                "write_readback": proof["verified"],
+                                "pixel_verification": PIXELS_UNMEASURED})
+                continue
+            from library.tools import color_page_grade as _color_grade
+            proof = _color_grade.apply_power_grade(item, params["drx"])
+            if not proof.get("applied") or not isinstance(
+                    proof.get("nodes"), int) or proof["nodes"] <= 1:
+                detail = (proof.get("reason")
+                          or "the node graph did not read back the grade nodes")
+                unreplayable.append({
+                    "name": row_name, "scope": "timeline",
+                    "reason": (f"could not replay PowerGrade: {detail} - "
+                               f"nodes={proof.get('nodes')!r}")})
+                continue
+            cdl_result = None
+            if params.get("cdl"):
+                index = _color_grade.node_index_by_label(
+                    item, params["cdl_node"])
+                if index is None:
+                    unreplayable.append({
+                        "name": row_name, "scope": "timeline",
+                        "reason": (f"PowerGrade landed, but node "
+                                   f"{params['cdl_node']!r} is absent; the "
+                                   f"CDL was not guessed onto another node.")})
+                    continue
+                cdl_result = _color_grade.apply_cdl_to_node(
+                    item, index, params["cdl"])
+                if not cdl_result.get("landed"):
+                    unreplayable.append({
+                        "name": row_name, "scope": "timeline",
+                        "reason": ("PowerGrade landed, but its named-node "
+                                   f"CDL failed: {cdl_result.get('reason')}.")})
+                    continue
+            applied.append({"name": row_name, "op": "grade",
+                            "drx": params["drx"], "nodes": proof["nodes"],
+                            "cdl_node": params.get("cdl_node"),
+                            "write_readback": "fresh node graph read-back",
+                            "pixel_verification": PIXELS_UNMEASURED,
+                            "cdl": cdl_result})
+
+        matched, stale = match_clip_lut_rows(spans, transcript, scoped,
+                                             reel_name or name)
+        # Rows scoped elsewhere already reported inside the matcher as
+        # routine reel-scope; only the transcript-lost kind is new here -
+        # both arrive named, so report them all the same way.
+        unreplayable.extend(stale)
+        for record in matched:
+            item = resolve_item(record["span_index"])
+            if item is None:
+                unreplayable.append({
+                    "name": (f"clip_lut at "
+                             f"{record['anchor_phrase']!r}"),
+                    "scope": "timeline",
+                    "reason": ("could not replay: no timeline item for "
+                               "the matched span - the placement moved "
+                               "under the grade.")})
+                continue
             try:
-                proof = apply_lut_to_item(
-                    item, params["lut"], params.get("node", 1))
+                apply_lut_to_item(item, record["lut"],
+                                  record["node"])
             except EditLedgerError as exc:
                 unreplayable.append({
-                    "name": row_name, "scope": "timeline",
+                    "name": (f"clip_lut at "
+                             f"{record['anchor_phrase']!r}"),
+                    "scope": "timeline",
                     "reason": f"could not replay: {exc}"})
                 continue
-            applied.append({"name": row_name, "op": "grade",
-                            "lut": proof["lut"], "node": proof["node"],
-                            "write_readback": proof["verified"],
-                            "pixel_verification": PIXELS_UNMEASURED})
-            continue
-        from library.tools import color_page_grade as _color_grade
-        proof = _color_grade.apply_power_grade(item, params["drx"])
-        if not proof.get("applied") or not isinstance(
-                proof.get("nodes"), int) or proof["nodes"] <= 1:
-            detail = (proof.get("reason")
-                      or "the node graph did not read back the grade nodes")
-            unreplayable.append({
-                "name": row_name, "scope": "timeline",
-                "reason": (f"could not replay PowerGrade: {detail} - "
-                           f"nodes={proof.get('nodes')!r}")})
-            continue
-        cdl_result = None
-        if params.get("cdl"):
-            index = _color_grade.node_index_by_label(
-                item, params["cdl_node"])
-            if index is None:
-                unreplayable.append({
-                    "name": row_name, "scope": "timeline",
-                    "reason": (f"PowerGrade landed, but node "
-                               f"{params['cdl_node']!r} is absent; the "
-                               f"CDL was not guessed onto another node.")})
-                continue
-            cdl_result = _color_grade.apply_cdl_to_node(
-                item, index, params["cdl"])
-            if not cdl_result.get("landed"):
-                unreplayable.append({
-                    "name": row_name, "scope": "timeline",
-                    "reason": ("PowerGrade landed, but its named-node "
-                               f"CDL failed: {cdl_result.get('reason')}.")})
-                continue
-        applied.append({"name": row_name, "op": "grade",
-                        "drx": params["drx"], "nodes": proof["nodes"],
-                        "cdl_node": params.get("cdl_node"),
-                        "write_readback": "fresh node graph read-back",
-                        "pixel_verification": PIXELS_UNMEASURED,
-                        "cdl": cdl_result})
-
-    matched, stale = match_clip_lut_rows(spans, transcript, scoped,
-                                         reel_name or name)
-    # Rows scoped elsewhere already reported inside the matcher as
-    # routine reel-scope; only the transcript-lost kind is new here -
-    # both arrive named, so report them all the same way.
-    unreplayable.extend(stale)
-    for record in matched:
-        item = resolve_item(record["span_index"])
-        if item is None:
-            unreplayable.append({
-                "name": (f"clip_lut at "
-                         f"{record['anchor_phrase']!r}"),
-                "scope": "timeline",
-                "reason": ("could not replay: no timeline item for "
-                           "the matched span - the placement moved "
-                           "under the grade.")})
-            continue
-        try:
-            apply_lut_to_item(item, record["lut"],
-                              record["node"])
-        except EditLedgerError as exc:
-            unreplayable.append({
-                "name": (f"clip_lut at "
-                         f"{record['anchor_phrase']!r}"),
-                "scope": "timeline",
-                "reason": f"could not replay: {exc}"})
-            continue
-        applied.append({"name": (f"clip_lut at "
-                                 f"{record['anchor_phrase']!r}"),
-                        "op": "clip_lut",
-                        "lut": record["lut"], "node": record["node"]})
-    report_unreplayable(unreplayable)
-    return {"applied": applied, "planned": planned,
-            "unreplayable": unreplayable}
+            applied.append({"name": (f"clip_lut at "
+                                     f"{record['anchor_phrase']!r}"),
+                            "op": "clip_lut",
+                            "lut": record["lut"], "node": record["node"]})
+        report_unreplayable(unreplayable)
+        return {"applied": applied, "planned": planned,
+                "unreplayable": unreplayable}
 
 
 def main(argv=None) -> int:

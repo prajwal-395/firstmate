@@ -28,6 +28,7 @@ if str(REPO) not in sys.path:
 
 from library.tools import edit_ledger  # noqa: E402
 from library.tools import replay_ledger  # noqa: E402
+import threading
 from library.tools.edit_ledger import EditLedgerError  # noqa: E402
 from library.tools.project_layout import ProjectLayout  # noqa: E402
 
@@ -120,6 +121,14 @@ def _grade(reel="Reel 09 - hook", lut="Film Looks/Kodak 2383"):
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────
+
+
+@pytest.fixture(autouse=True)
+def _leases_off_machine(tmp_path, monkeypatch):
+    """The replay declares its timeline now: leases stay in tmp."""
+    directory = tmp_path / "locks"
+    directory.mkdir()
+    monkeypatch.setenv("PIPELINE_RESOLVE_LOCK_DIR", str(directory))
 
 
 def _project(tmp_path):
@@ -281,3 +290,57 @@ def test_a_ten_row_replay_lands_in_under_thirty_seconds(tmp_path,
 
     assert len(receipt["applied"]) == 10
     assert elapsed < 30.0
+
+
+# ── The replay declares the reel it writes ───────────────────────────
+
+def test_a_single_isolation_row_replays_through_the_lease():
+    """The wired path still replays: isolation lands, row applied.
+
+    Defect caught: a declaration that refuses its own replay turns
+    the ledger's writes into a refusal, and nothing replays.
+    """
+    timeline = _Timeline()
+    report = edit_ledger.replay_on_timeline(
+        "Reel 09 - hook", [_isolate()], _spans(), _speech(), timeline,
+        reel_name="Reel 09 - hook")
+    assert len(report["applied"]) == 1
+    assert timeline.GetVoiceIsolationState(1) == {"isEnabled": True,
+                                                 "amount": 60}
+
+
+def test_a_replay_waits_for_a_touchup_on_the_same_reel():
+    """Replayed rows and restructuring on one reel serialise: wait.
+
+    Defect caught: with no declaration the replay grades and isolates
+    onto a reel a touch-up is restructuring - rows land where the
+    footage was. On origin/main the replay returns before the holder
+    releases.
+    """
+    from library.tools.resource_leases import (
+        LeaseDeclaration, ResourceRef, resource_lease)
+    timeline = _Timeline()
+    touchup = LeaseDeclaration(
+        write=frozenset({ResourceRef("timeline", "Reel 09 - hook")}),
+        exclusive=frozenset({ResourceRef("timeline", "Reel 09 - hook")}),
+    )
+    released_at: list = []
+
+    def restructure():
+        with resource_lease(touchup, "touch up Reel 09 - hook",
+                           heartbeat_interval=30.0):
+            time.sleep(2.0)
+        released_at.append(time.monotonic())
+
+    holder = threading.Thread(target=restructure)
+    holder.start()
+    time.sleep(0.3)  # let the touch-up acquire first
+    report = edit_ledger.replay_on_timeline(
+        "Reel 09 - hook", [_isolate()], _spans(), _speech(), timeline,
+        reel_name="Reel 09 - hook")
+    returned_at = time.monotonic()
+    holder.join(30.0)
+    assert released_at, "the touch-up never released"
+    assert returned_at >= released_at[0], \
+        "the replay returned mid-touch-up"
+    assert len(report["applied"]) == 1
