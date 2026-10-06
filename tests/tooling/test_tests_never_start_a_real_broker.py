@@ -118,6 +118,10 @@ def test_the_broker_spawns_with_the_ren_venv_interpreter(tmp_path, monkeypatch):
     The orphans ran under homebrew Python 3.14 - `sys.executable` of
     whichever test worker started them. The spawn path resolves the
     ladder in `shared_environment` instead.
+
+    With `REN_RESOLVED_DAEMON=rust` the broker is the Rust binary - the
+    same protocol, a different process - and the spawn path is the binary,
+    not the interpreter.
     """
     from library.tools import shared_environment
 
@@ -138,10 +142,18 @@ def test_the_broker_spawns_with_the_ren_venv_interpreter(tmp_path, monkeypatch):
     sock_dir = tmp_path / "locks"
     sock_dir.mkdir()
     client._start_detached(sock_dir / SOCKET_NAME)
-    assert seen and seen[0][0] == expected, (
-        f"the broker would spawn with {seen[0][0] if seen else 'nothing'} "
-        f"instead of Ren's interpreter {expected}")
-    assert seen[0][1:4] == ["-m", "library.tools.resolved", "serve"]
+    if os.environ.get("REN_RESOLVED_DAEMON", "").strip().lower() == "rust":
+        binary = client._rust_daemon()
+        assert binary is not None, "REN_RESOLVED_DAEMON=rust but no binary"
+        assert seen and seen[0][0] == str(binary), (
+            f"the Rust broker would spawn with {seen[0][0] if seen else 'nothing'} "
+            f"instead of {binary}")
+        assert seen[0][1:] == ["serve"]
+    else:
+        assert seen and seen[0][0] == expected, (
+            f"the broker would spawn with {seen[0][0] if seen else 'nothing'} "
+            f"instead of Ren's interpreter {expected}")
+        assert seen[0][1:4] == ["-m", "library.tools.resolved", "serve"]
 
 
 # ── 2. The incident's shape, replayed in a subprocess ────────────────
@@ -187,8 +199,13 @@ def pytest_configure(config):
         return orig_ensure(path=path, timeout=timeout)
 
     def start(path):
+        # The Rust daemon is a binary, not a Python interpreter: record it
+        # as a rust spawn so the interpreter assertion below skips it.
+        is_rust = (os.environ.get("REN_RESOLVED_DAEMON", "").strip().lower()
+                   == "rust")
         spawn = {"path": str(path), "default": _is_default(Path(path)),
-                 "python": orig_python(), "pid": None}
+                 "python": None if is_rust else orig_python(),
+                 "rust": is_rust, "pid": None}
         events["spawns"].append(spawn)
         process = orig_start(path)
         spawn["pid"] = getattr(process, "pid", None)
@@ -238,7 +255,8 @@ def _broker_pids() -> set:
         if len(parts) != 2:
             continue
         pid, command = parts
-        if ("library.tools.resolved" in command and " serve" in command
+        if (("library.tools.resolved" in command or "ren-resolved" in command)
+                and " serve" in command
                 and "test_tests_never_start_a_real_broker" not in command):
             found.add(int(pid))
     return found
@@ -307,6 +325,8 @@ def test_broker_exercising_suites_leave_no_broker_and_never_touch_default(
     expected, _ = shared_environment.python_interpreter(str(REPO_ROOT))
     if expected:
         for spawn in events["spawns"]:
+            if spawn.get("rust"):
+                continue
             assert spawn["python"] == expected, (
                 "a test started a broker with the caller's interpreter "
                 f"{spawn['python']} instead of Ren's {expected}: {spawn}")

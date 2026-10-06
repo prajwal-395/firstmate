@@ -74,7 +74,13 @@ def started(lock_dir):
 
 
 def _broker_pids() -> list:
-    """Pids of brokers THIS process started (its detached children)."""
+    """Pids of brokers THIS process started (its detached children).
+
+    Matches both daemons: the Python broker (`library.tools.resolved
+    serve`) and the Rust broker (`ren-resolved serve`) - the strangler
+    switch starts one or the other, and this test counts whichever is
+    serving.
+    """
     try:
         listing = subprocess.run(
             ["ps", "-eo", "pid=,ppid=,command="], capture_output=True,
@@ -88,7 +94,8 @@ def _broker_pids() -> list:
             continue
         pid, ppid, command = parts
         if (ppid == str(os.getpid())
-                and "library.tools.resolved" in command
+                and ("library.tools.resolved" in command
+                     or "ren-resolved" in command)
                 and " serve" in command):
             mine.append(int(pid))
     return mine

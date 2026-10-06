@@ -216,6 +216,24 @@ def _broker_python() -> str:
     return sys.executable
 
 
+def _rust_daemon() -> Optional[Path]:
+    """The Rust ren-resolved binary, where it is built.
+
+    The strangler switch (`REN_RESOLVED_DAEMON=rust`) starts this binary
+    instead of the Python daemon; the client is otherwise unchanged, and
+    `client.call(...)` does not care which daemon serves it. The binary
+    lives in the crate's target dir, release first, then debug.
+    """
+    root = _engine_root()
+    if root is None:
+        return None
+    for profile in ("release", "debug"):
+        candidate = root / "native" / "target" / profile / "ren-resolved"
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return candidate
+    return None
+
+
 def _start_detached(path: Path) -> subprocess.Popen:
     """Start the broker in its OWN session, stdio to a log.
 
@@ -224,16 +242,30 @@ def _start_detached(path: Path) -> subprocess.Popen:
     leaves the broker serving. Stdio goes to `LOG_NAME` beside the
     socket rather than the worker's pipes, which would otherwise stay
     open for the broker's lifetime.
+
+    The daemon is the Python one by default; `REN_RESOLVED_DAEMON=rust`
+    starts the Rust daemon (the same protocol, the same socket) - the
+    strangler migration's one switch.
     """
     env = dict(os.environ)
     root = _engine_root()
     if root is not None:
         env["PYTHONPATH"] = os.pathsep.join(
             p for p in (str(root), env.get("PYTHONPATH", "")) if p)
+    if os.environ.get("REN_RESOLVED_DAEMON", "").strip().lower() == "rust":
+        binary = _rust_daemon()
+        if binary is None:
+            raise RuntimeError(
+                "REN_RESOLVED_DAEMON=rust but the ren-resolved binary is not "
+                f"built (looked under {root / 'native' / 'target'}) - run "
+                "cargo build --release in native/")
+        argv = [str(binary), "serve"]
+    else:
+        argv = [_broker_python(), "-m", "library.tools.resolved", "serve"]
     log = open(path.parent / LOG_NAME, "ab", buffering=0)
     try:
         return subprocess.Popen(
-            [_broker_python(), "-m", "library.tools.resolved", "serve"],
+            argv,
             cwd=str(root) if root is not None else os.getcwd(),
             env=env, stdin=subprocess.DEVNULL, stdout=log,
             stderr=subprocess.STDOUT, start_new_session=True)

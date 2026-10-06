@@ -727,6 +727,8 @@ One enumeration, `library/tools/marker_payload.py`.
 
 **A stale `ren_native` is refused, not used.** The build bakes a `native/` source fingerprint into the extension; `edit_backend.rust()` falls back to Python on a mismatch. `ren setup`/`ren upgrade` rebuild it; `ren doctor` names it.
 
+**`ren-resolved` is the broker daemon in Rust** (queue, scheduler, watchdog, job store; the Python worker executes Resolve jobs over stdio). It speaks the existing socket protocol byte-compatibly - `REN_RESOLVED_DAEMON=rust` selects it, the client is unchanged: `native/ren-resolved/README.md`.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.
