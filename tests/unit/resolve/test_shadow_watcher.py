@@ -346,7 +346,7 @@ def test_main_hands_its_project_folder_to_every_tick(reel, monkeypatch):
         ticked.wait(5.0)
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(shadow_watcher.time, "sleep", sleep_until_ticked)
+    monkeypatch.setattr(shadow_watcher, "_sleep", sleep_until_ticked)
 
     assert shadow_watcher.main([project_folder, "--cadence", "60"]) == 0
     assert names == ["Podcast"]

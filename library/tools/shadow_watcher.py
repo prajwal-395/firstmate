@@ -36,6 +36,10 @@ from library.tools.resolve_lock import lock_dir
 #: How often the watcher observes every reel in the open project.
 CADENCE_SECONDS = 30.0
 
+#: The watcher's own sleep reference, patchable in tests without
+#: touching the global `time.sleep`.
+_sleep = time.sleep
+
 #: How long the soft flag stays fresh. A build that starts within this
 #: window of an observed hand edit refuses before placement; after it, the
 #: flag is stale and reads as absent.
@@ -385,7 +389,7 @@ def main(argv=None) -> int:
           f"observing every reel at {args.cadence}s cadence", file=sys.stderr)
     try:
         while True:
-            time.sleep(1.0)
+            _sleep(1.0)
     except KeyboardInterrupt:
         watcher.stop()
     return 0
