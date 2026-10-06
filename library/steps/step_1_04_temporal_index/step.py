@@ -2889,8 +2889,15 @@ def _pretranscribe_misses(items: list, layout: ProjectLayout,
         needs.append((key, source_path))
     if not needs:
         return {}
-    prepared = []
-    for key, source_path in needs:
+    # Extraction + onset detection, one lane per clip: ffmpeg writes
+    # each clip's own WAV (distinct names) and onset detection is pure
+    # compute over the file, so the prep loop runs on the bounded FREE
+    # lanes with input order restored - the prepared batch is identical
+    # to serial, and a clip that fails still falls out to single-shot.
+    from library.tools.concurrency_routing import run_lanes
+
+    def _prep_one(job):
+        key, source_path = job
         try:
             audio_path = clip_audio_16k(source_path, audio_dir,
                                         clip_id=key)
@@ -2902,10 +2909,13 @@ def _pretranscribe_misses(items: list, layout: ProjectLayout,
             # single-shot path in the loop, which reports per-clip.
             print(f"  WARNING: batch prep failed for {key} ({e}); "
                   f"single-shot fallback", file=sys.stderr)
-            continue
-        prepared.append({"key": key, "audio_path": audio_path,
-                         "onsets": onsets,
-                         "onset_strengths": onset_strengths})
+            return None
+        return {"key": key, "audio_path": audio_path,
+                "onsets": onsets,
+                "onset_strengths": onset_strengths}
+
+    prepared = [row for row in run_lanes(_prep_one, needs)
+                if row is not None]
     if not prepared:
         return {}
     print(f"    Transcribing {len(prepared)} clip(s) in one batch...",

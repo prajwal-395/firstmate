@@ -341,3 +341,66 @@ def test_samples_heard_once_serve_both_the_index_and_source_memory(
     again = temporal_index.transcribe_clips_batched(
         [{"key": "clip_001", "audio_path": batch_audio}], language="en")
     assert again["clip_001"] == batched["clip_001"]
+
+
+def test_batch_prep_runs_one_lane_per_clip_and_drops_failures(
+        monkeypatch, tmp_path):
+    """The batch prep (extract + onsets per clip) runs on the bounded
+    lanes with input order restored; a clip whose extraction fails
+    falls out to single-shot instead of failing the batch. A wiring
+    that silently serializes must fail the overlap assertion here."""
+    import threading
+    import time
+
+    from library.tools.concurrency_routing import lane_width
+    from library.tools.project_layout import ProjectLayout
+
+    for name in ("a.mov", "b.mov", "c.mov"):
+        (tmp_path / name).write_bytes(b"\x00")
+    items = [(f"clip_{i:03d}", str(tmp_path / name),
+              str(tmp_path / f"clip_{i:03d}.json"), True)
+             for i, name in enumerate(("a.mov", "b.mov", "c.mov"), 1)]
+
+    monkeypatch.setattr(temporal_index, "_load_cached_index",
+                        lambda *a, **k: None)
+
+    spans = []
+    spans_lock = threading.Lock()
+
+    def fake_extract(source_path, out_dir, clip_id=None):
+        if source_path.endswith("b.mov"):
+            raise RuntimeError("ffmpeg refused")
+        start = time.monotonic()
+        time.sleep(0.2)
+        with spans_lock:
+            spans.append((start, time.monotonic()))
+        return str(tmp_path / f"{clip_id}.wav")
+
+    monkeypatch.setattr(temporal_index, "clip_audio_16k", fake_extract)
+    monkeypatch.setattr(
+        temporal_index, "detect_onsets_with_strength",
+        lambda audio_path: ([0.5], [0.9]))
+    monkeypatch.setattr(
+        temporal_index, "transcribe_clips_batched", lambda *a, **k: {})
+    monkeypatch.setattr(
+        temporal_index, "detect_speech_regions",
+        lambda *a, **k: ([], {"arm": "none", "aligner": "none",
+                              "detected_language": "en",
+                              "method": "untranscribed-test"}))
+
+    layout = ProjectLayout(str(tmp_path))
+    out = temporal_index._pretranscribe_misses(items, layout, "large-v3",
+                                               "en")
+
+    assert list(out) == ["clip_001", "clip_003"]
+    assert out["clip_001"][0].endswith("clip_001.wav")
+    assert out["clip_001"][1] == [0.5]
+
+    width = lane_width()
+    peak, depth, events = 0, 0, sorted(
+        [(s, 1) for s, _ in spans] + [(e, -1) for _, e in spans])
+    for _, delta in events:
+        depth += delta
+        peak = max(peak, depth)
+    assert peak >= min(2, width), (
+        f"lanes never overlapped (peak {peak}, width {width})")
