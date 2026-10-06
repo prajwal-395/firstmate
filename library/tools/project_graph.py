@@ -126,6 +126,7 @@ DEAD_SECTION = "dead_section"
 VERSION = "version"
 EDITORIAL_FINDING = "editorial_finding"
 VARIANT = "variant"
+COMMIT = "commit"
 
 NODE_TYPES = (
     PERSON,
@@ -144,6 +145,7 @@ NODE_TYPES = (
     VERSION,
     EDITORIAL_FINDING,
     VARIANT,
+    COMMIT,
 )
 
 
@@ -342,6 +344,9 @@ def _input_fingerprint(project_folder: str, root: Path | None = None) -> str:
         # invalidates and an untouched set reuses the cache.
         "variant_explorations": _variant_explorations_digest(
             project_folder),
+        # Creative commits are a graph input like the explorations:
+        # a new commit changes the graph, so the cache must rebuild.
+        "creative_commits": _commit_records_digest(project_folder),
     }
     for clip in catalog:
         digest, _ = source_memory.digest_for_clip(project_folder, clip, recorded)
@@ -442,6 +447,45 @@ def _variant_explorations_digest(project_folder) -> str | None:
     return digest.hexdigest()
 
 
+def _commit_records_digest(project_folder) -> str | None:
+    """One digest over the creative commit records, or None.
+
+    The commit-graph form of `_variant_explorations_digest`: sorted
+    commit ids plus `commit.json` bytes, hashed together. A project
+    with no commits reads as None, and a new commit - a touch, a
+    merge, a revert, a replay - changes the digest, so the cache
+    rebuilds exactly when the creative history moves.
+    """
+    import hashlib
+
+    try:
+        from library.tools import undo_journal
+        root = Path(undo_journal.commit_root(project_folder))
+    except (OSError, ValueError):
+        return None
+    if not root.is_dir():
+        return None
+    try:
+        names = sorted(
+            entry.name for entry in root.iterdir()
+            if entry.is_dir() and (
+                entry / undo_journal.COMMIT_FILENAME
+            ).is_file())
+    except OSError:
+        return None
+    if not names:
+        return None
+    digest = hashlib.sha256()
+    for name in names:
+        path = root / name / undo_journal.COMMIT_FILENAME
+        try:
+            digest.update(name.encode("utf-8"))
+            digest.update(path.read_bytes())
+        except OSError:
+            return None
+    return digest.hexdigest()
+
+
 def _read_identity(digest: str, root: Path | None) -> dict | None:
     try:
         from library.tools import person_entity
@@ -530,6 +574,7 @@ def build_graph(project_folder: str, root: Path | None = None) -> dict:
     _derive_version_nodes(graph, project_folder)
     _derive_editorial_nodes(graph, project_folder)
     _derive_variant_nodes(graph, project_folder)
+    _derive_commit_nodes(graph, project_folder)
 
     return graph
 
@@ -1250,6 +1295,47 @@ def _derive_variant_nodes(graph: dict, project_folder: str) -> None:
             })
 
 
+def _derive_commit_nodes(graph: dict, project_folder: str) -> None:
+    """Commit nodes from the creative commit graph.
+
+    Each recorded commit - touch, merge, revert, replay - is a node
+    carrying its lineage (parent, and a merge's second parent), its
+    timeline, agent, intent and change counts, so any lane reading
+    only the graph answers "what changed on this reel and why"
+    without re-reading the commit store. Like the version and variant
+    nodes, these carry no edges: a commit links to nothing until a
+    lane evaluates it. A project with no commits gains no nodes.
+    """
+    try:
+        from library.tools import timeline_diff, undo_journal
+        commits = undo_journal.list_commits(project_folder)
+    except (OSError, ValueError, RuntimeError):
+        return
+    for commit in commits:
+        commit_id = commit.get("id") or ""
+        if not commit_id:
+            continue
+        payload = {
+            "id": commit_id,
+            "parent": commit.get("parent"),
+            "timeline": commit.get("timeline"),
+            "agent": commit.get("agent"),
+            "intent": commit.get("intent"),
+            "at": commit.get("recorded_at"),
+            "sequence": commit.get("sequence") or 0,
+            "change_counts": timeline_diff.summarize(
+                commit.get("changes") or ()),
+        }
+        if commit.get("second_parent"):
+            payload["second_parent"] = commit.get("second_parent")
+        add_node(graph, {
+            "node_id": f"commit:{commit_id}",
+            "node_type": COMMIT,
+            "label": f"commit {commit_id[:12]} on {commit.get('timeline')}",
+            "payload": payload,
+        })
+
+
 # ── The query API ─────────────────────────────────────────────────
 
 
@@ -1468,6 +1554,40 @@ def find_reel_versions(graph: dict, final: str | None = None) -> list:
             "rows_digest": payload.get("rows_digest"),
         })
     rows.sort(key=lambda r: (str(r["final"]), r["version"] or 0))
+    return rows
+
+
+def find_commits(graph: dict, timeline: str | None = None) -> list:
+    """The creative commits the graph registered, oldest first.
+
+    Each row names the commit, the timeline it stands on, the agent
+    that recorded it (touch, merge, revert, replay), its intent, its
+    parent - and a merge's second parent - so lineage reads off the
+    graph without re-reading the commit store. A timeline with no
+    commits reads as no rows.
+    """
+    rows = []
+    for candidate in graph["nodes"]:
+        if candidate["node_type"] != COMMIT:
+            continue
+        payload = candidate["payload"] or {}
+        if timeline is not None and payload.get("timeline") != timeline:
+            continue
+        row = {
+            "node_id": candidate["node_id"],
+            "id": payload.get("id"),
+            "timeline": payload.get("timeline"),
+            "agent": payload.get("agent"),
+            "intent": payload.get("intent"),
+            "parent": payload.get("parent"),
+            "at": payload.get("at"),
+            "sequence": payload.get("sequence") or 0,
+            "change_counts": payload.get("change_counts") or {},
+        }
+        if payload.get("second_parent"):
+            row["second_parent"] = payload.get("second_parent")
+        rows.append(row)
+    rows.sort(key=lambda r: (str(r["timeline"]), r["sequence"]))
     return rows
 
 

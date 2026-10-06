@@ -1685,3 +1685,127 @@ def test_planned_but_undispatched_variants_gain_no_nodes(
     graph = project_graph.build_graph(str(project))
     assert [r["name"] for r in
             project_graph.find_variant_branches(graph)] == ["faster-intro"]
+
+
+# ── Creative commit nodes ─────────────────────────────────────────
+
+
+def _graph_project(tmp_path, monkeypatch):
+    """A minimal graph project: one clip, world model and identity."""
+    memory_root = tmp_path / "memory"
+    monkeypatch.setenv("PIPELINE_SOURCE_MEMORY_ROOT", str(memory_root))
+    project = tmp_path / "project"
+    project.mkdir()
+    digest_a = "a" * 64
+    (project / "pipeline_data.json").write_text(json.dumps({
+        "capability_outputs": {
+            "footage.catalog": {"clip_catalog": [
+                {"clip_id": "clip_001", "source_file": "/camA/take1.MXF",
+                 "duration_seconds": 10.0},
+            ]},
+        },
+        "source_fingerprints": {
+            "clip_001": {"content_digest": digest_a},
+        },
+    }), encoding="utf-8")
+    _write_world_model(memory_root, digest_a, {
+        "timeline": [],
+        "entities": {"face_tracks": [], "voice_tracks": []},
+        "multicam": None,
+    })
+    _write_identity(memory_root, digest_a, {
+        "faces": [], "voices": [], "speech_face_links": [],
+    })
+    return project
+
+
+def _record_commit(project, timeline, intent, changes, parent=None):
+    from library.tools import undo_journal as uj
+    return uj.record_commit(
+        str(project), parent=parent, intent=intent, changes=changes,
+        agent="reel_touchup", timeline=timeline)
+
+
+def _move(item, new_start=50):
+    return [{"op": "move", "item": item, "row": "V1",
+             "before": {"start": 0}, "after": {"start": new_start},
+             "mutation": {"op": "retime_block",
+                          "timeline_start": new_start}}]
+
+
+def test_commit_nodes_carry_each_commit_with_its_lineage(tmp_path,
+                                                         monkeypatch):
+    """Every recorded commit - touch, merge, revert - is a node naming
+    its parent, so a lane reading only the graph answers what changed
+    on a reel and what it stood on. The defect: creative history
+    invisible to the graph, so a critic asking the graph what a reel's
+    last change was misses the touch that made it."""
+    from library.tools import undo_journal as uj
+
+    project = _graph_project(tmp_path, monkeypatch)
+    first = _record_commit(project, "Reel 1", "tighten opening",
+                           _move("clip_001"))
+    merged = uj.merge_commits(
+        str(project), timeline="Reel 1", left=first["id"],
+        right=_record_commit(project, "Reel 1", "trim tail",
+                             _move("clip_002"), parent=first["id"])["id"])
+    reverted = uj.revert_commit(str(project), first["id"])
+
+    graph = project_graph.build_graph(str(project))
+    nodes = {n["payload"]["id"]: n for n in graph["nodes"]
+             if n["node_type"] == project_graph.COMMIT}
+    assert nodes[first["id"]]["payload"]["intent"] == "tighten opening"
+    assert nodes[first["id"]]["payload"]["agent"] == "reel_touchup"
+    assert nodes[first["id"]]["payload"]["timeline"] == "Reel 1"
+    assert nodes[first["id"]]["payload"]["change_counts"] == {"move": 1}
+    assert nodes[merged["id"]]["payload"]["second_parent"] is not None
+    assert nodes[reverted["id"]]["payload"]["parent"] == merged["id"]
+    assert nodes[reverted["id"]]["payload"]["agent"] == "creative_revert"
+
+
+def test_find_commits_answers_one_timeline_oldest_first(tmp_path,
+                                                        monkeypatch):
+    """`find_commits` filters by timeline in record order. The defect:
+    a reel's history query returning another reel's commits, so the
+    answer to "what changed on Reel 1" includes Reel 10's touch."""
+    project = _graph_project(tmp_path, monkeypatch)
+    _record_commit(project, "Reel 1", "tighten opening",
+                   _move("clip_001"))
+    _record_commit(project, "Reel 10", "other reel work",
+                   _move("clip_009"))
+    _record_commit(project, "Reel 1", "trim tail",
+                   _move("clip_002"),
+                   parent=None)
+
+    graph = project_graph.build_graph(str(project))
+    rows = project_graph.find_commits(graph, "Reel 1")
+    assert [r["intent"] for r in rows] == ["tighten opening", "trim tail"]
+    assert all(r["timeline"] == "Reel 1" for r in rows)
+    assert project_graph.find_commits(graph, "Reel 2") == []
+
+
+def test_a_project_with_no_commits_gains_no_commit_nodes(tmp_path,
+                                                         monkeypatch):
+    """No commits means no commit nodes, not a failed build. The
+    defect: a graph build that refuses a project whose reel was never
+    touched, so an untouched project has no graph at all."""
+    project = _graph_project(tmp_path, monkeypatch)
+    graph = project_graph.build_graph(str(project))
+    assert [n for n in graph["nodes"]
+            if n["node_type"] == project_graph.COMMIT] == []
+    assert project_graph.find_commits(graph) == []
+
+
+def test_the_graph_rebuilds_when_a_commit_lands(tmp_path, monkeypatch):
+    """A new commit invalidates the cached graph. The defect: a
+    fingerprint that misses the commit store, so the cached graph
+    keeps answering the history from before the revert landed."""
+    project = _graph_project(tmp_path, monkeypatch)
+    before = project_graph.load_or_build(str(project))
+    assert project_graph.find_commits(before) == []
+
+    _record_commit(project, "Reel 1", "tighten opening",
+                   _move("clip_001"))
+    after = project_graph.load_or_build(str(project))
+    assert [r["intent"] for r in
+            project_graph.find_commits(after)] == ["tighten opening"]
