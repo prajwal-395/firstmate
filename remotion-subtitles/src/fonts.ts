@@ -58,8 +58,26 @@ export const loadBundledFonts = (): Promise<void> => {
     document.fonts.add(face);
     // `load()` resolves when the bytes are parsed; this waits until the
     // face is actually usable for layout, which is the thing that used to
-    // race.
-    await document.fonts.ready;
+    // race. But `document.fonts.ready` can hang forever in headless
+    // Chromium tabs, which would leave the delayRender handle uncleared
+    // and kill the render after 28s. Race it so the handle is always
+    // cleared.
+    await Promise.race([
+      document.fonts.ready,
+      new Promise((resolve) => setTimeout(resolve, 5000)),
+    ]);
+    // The race timing out is not a pass: verify the face is actually
+    // usable for layout. Without this, a silent timeout would reintroduce
+    // the exact fallback-to-sans the .catch below exists to prevent.
+    if (
+      face.status !== 'loaded' ||
+      !document.fonts.check(`16px "${BUNDLED_FONT_FAMILY}"`)
+    ) {
+      throw new Error(
+        `Bundled font ${BUNDLED_FONT_FAMILY} from ${BUNDLED_FONT_FILE} ` +
+          `is not usable after loading (status=${face.status})`,
+      );
+    }
   })()
     .catch((err) => {
       // Fail loudly. A silent fallback to Chromium's default sans is the
@@ -109,7 +127,23 @@ export const loadProjectFont = (
     const face = new FontFace(family, `url(${staticFile(file)})`);
     await face.load();
     document.fonts.add(face);
-    await document.fonts.ready;
+    // Same hang risk as loadBundledFonts: race against a timeout so the
+    // delayRender handle is always cleared.
+    await Promise.race([
+      document.fonts.ready,
+      new Promise((resolve) => setTimeout(resolve, 5000)),
+    ]);
+    // The race timing out is not a pass: verify the face is actually
+    // usable for layout.
+    if (
+      face.status !== 'loaded' ||
+      !document.fonts.check(`16px "${family}"`)
+    ) {
+      throw new Error(
+        `Project font ${family} from ${file} is not usable after loading ` +
+          `(status=${face.status})`,
+      );
+    }
   })()
     .catch((err) => {
       throw new Error(
