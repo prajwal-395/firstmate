@@ -59,7 +59,21 @@ from library.tools import source_memory
 
 # Every kind this module emits.  A kind not in here does not exist, and
 # asking to filter by one raises rather than quietly matching nothing.
-SEGMENT_KINDS = ("speech", "action", "scene", "camera", "object")
+SEGMENT_KINDS = ("speech", "action", "scene", "camera", "object", "chunk")
+
+# The unified-search chunk unit: fixed 8 s windows, one video embedding
+# per window (slice-3 measurement: 8 s at 1 fps beats single frames and
+# shorter prefixes on top-1 correctness; 2 fps is the opt-in for hard
+# queries).  A chunk row joins the texts of the fine rows overlapping
+# its window, so every span of footage is retrievable at a coarse
+# granularity even where no fine row was cut.
+CHUNK_S = 8.0
+
+# Text for a chunk window no measurement overlaps.  It says what the
+# row is - footage nothing described - rather than leaving the row
+# textless: an empty string embeds to an arbitrary vector that could
+# clear a floor for no reason.
+UNMEASURED_CHUNK_TEXT = "unmeasured footage"
 
 # Facets reduced off the step 1.04 curves, and the key each is read from.
 # The value stored is the MEAN over the segment's span.
@@ -612,7 +626,148 @@ def _object_segments(clip, vision_doc, temporal_doc, base_facets) -> list:
     return out
 
 
-# ─── The whole project ────────────────────────────────────────────
+def cut_chunks(duration_s, chunk_s=CHUNK_S) -> list:
+    """Fixed windows tiling ``[0, duration_s)``.
+
+    The last window may be short; a missing or non-positive duration
+    cuts nothing, said plainly as an empty list.  Pure: no ingest read,
+    so the chunk grid is identical wherever it is cut from.
+    """
+    try:
+        duration = float(duration_s)
+    except (TypeError, ValueError):
+        return []
+    if duration <= 0 or chunk_s <= 0:
+        return []
+    windows = []
+    start = 0.0
+    while start < duration:
+        windows.append((round(start, 3), round(min(start + chunk_s, duration), 3)))
+        start += chunk_s
+    return windows
+
+
+def _overlaps(start: float, end: float, windows) -> list:
+    """The entries of `windows` touching ``[start, end]``, in time order."""
+    hits = []
+    for window in windows or []:
+        if not isinstance(window, dict):
+            continue
+        try:
+            w_start = float(window.get("start", 0.0))
+            w_end = float(window.get("end", w_start))
+        except (TypeError, ValueError):
+            continue
+        if w_end <= start or w_start >= end:
+            continue
+        hits.append((w_start, window))
+    return [w for _, w in sorted(hits, key=lambda h: h[0])]
+
+
+def _action_windows(vision_doc) -> list:
+    """Action windows as overlap-able entries.
+
+    The analyser keys an action window by its ``window`` pair, not by
+    top-level start/end - the same span rule `_action_segments` cuts
+    by, so a chunk and the action rows agree on what overlaps what.
+    """
+    out = []
+    for window in vision_doc.get("actions") or []:
+        if not isinstance(window, dict):
+            continue
+        span = window.get("window") or []
+        try:
+            w_start = float(span[0])
+            w_end = float(span[1])
+        except (TypeError, ValueError, IndexError):
+            actions = window.get("actions") or []
+            bounds = [a for a in actions if isinstance(a, dict)]
+            try:
+                w_start = min(float(a.get("start", 0.0)) for a in bounds)
+                w_end = max(float(a.get("end", w_start)) for a in bounds)
+            except (TypeError, ValueError):
+                continue
+            if not bounds:
+                continue
+        entry = dict(window)
+        entry["start"], entry["end"] = w_start, w_end
+        out.append(entry)
+    return out
+
+
+def _chunk_segments(clip, temporal_doc, vision_doc, base_facets) -> list:
+    """One row per 8 s window: the coarse guarantee beside fine rows.
+
+    Text joins what the window overlaps - speech regions, scene
+    observations, action windows, object labels - each read from the
+    document that owns it, in time order.  A window nothing overlaps
+    is still a row (`UNMEASURED_CHUNK_TEXT`): a silent unmeasured
+    stretch is footage, and the index must be able to say so rather
+    than holding nothing there at all.
+    """
+    try:
+        duration = float(clip.get("duration_seconds"))
+    except (TypeError, ValueError):
+        return []
+    out = []
+    for n, (start, end) in enumerate(cut_chunks(duration)):
+        parts = []
+        for region in _overlaps(start, end, temporal_doc.get("speech_regions")):
+            text = _clean(region.get("text"))
+            if text:
+                parts.append(text)
+        for scene in _overlaps(start, end, vision_doc.get("scene")):
+            bits = [_clean(scene.get("location")), _clean(scene.get("type")),
+                    _clean(scene.get("lighting"))]
+            bits += [_clean(f) for f in scene.get("notable_features") or []]
+            text = ". ".join(p for p in bits if p)
+            if text:
+                parts.append(text)
+        for window in _overlaps(start, end, _action_windows(vision_doc)):
+            for action in window.get("actions") or []:
+                bits = [_clean(action.get("action")),
+                        _clean(action.get("body_language")),
+                        _clean(action.get("speech_cue"))]
+                text = " ".join(p for p in bits if p and p != "None")
+                if text:
+                    parts.append(text)
+        for obj in vision_doc.get("objects") or []:
+            label = _clean(obj.get("label"))
+            if not label:
+                continue
+            appearances = obj.get("appearances") or [[0.0, duration]]
+            spans = []
+            for span in appearances:
+                try:
+                    spans.append((float(span[0]), float(span[1])))
+                except (TypeError, ValueError, IndexError):
+                    continue
+            if any(s < end and e > start for s, e in spans):
+                bits = [label, _clean(obj.get("category")),
+                        _clean(obj.get("role")),
+                        _clean(obj.get("readable_text"))]
+                text = ". ".join(p for p in bits if p and p != "None")
+                if text:
+                    parts.append(text)
+        speech_here = _overlaps(start, end, temporal_doc.get("speech_regions"))
+        text = " ".join(parts) if parts else UNMEASURED_CHUNK_TEXT
+        out.append(Segment(
+            segment_id=f"{clip['clip_id']}#chunk#{n:03d}",
+            clip_id=clip["clip_id"],
+            filename=clip.get("filename", ""),
+            source_file=clip.get("source_file") or clip.get("path", ""),
+            kind="chunk",
+            start=start,
+            end=end,
+            text=text,
+            facets={**base_facets, "has_speech": bool(speech_here),
+                    "measured": bool(parts),
+                    **curve_facets(temporal_doc, start, end)},
+        ))
+    return out
+
+
+# ─── The whole project ───
 
 
 def build_segments(project_folder, kinds=SEGMENT_KINDS) -> list:
@@ -640,6 +795,7 @@ def build_segments(project_folder, kinds=SEGMENT_KINDS) -> list:
         "scene": _scene_segments,
         "camera": _camera_segments,
         "object": _object_segments,
+        "chunk": lambda c, v, t, b: _chunk_segments(c, t, v, b),
     }
 
     segments = []

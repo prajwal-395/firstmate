@@ -349,7 +349,10 @@ def test_a_query_nothing_clears_returns_nothing_and_says_why(offline_index):
     not a threshold that only holds for one stub embedder.
     """
     idx, _ = offline_index
-    unfloored = idx.search_report("parking", top_k=5, floor=0)
+    # Rank every row, not the top five: the best DENSE score is a max
+    # over the whole candidate set, and a top-k cut can hide the row
+    # that holds it once chunk rows join the ranking.
+    unfloored = idx.search_report("parking", top_k=len(idx.segments), floor=0)
     # The best DENSE score, not the top combined row: the hybrid ranking
     # blends dense with lexical, so the first result is not necessarily the
     # highest cosine. The floor is set above the best cosine any segment
@@ -536,13 +539,18 @@ def test_person_filter_keeps_only_that_person_s_clip(offline_index_2, memory_roo
     _write_identity(memory_root, digest_1, 1.0, 3.0)
 
     results = idx.filter(person="person_001")
-    assert len(results) == 1
-    assert results[0]["clip_id"] == "clip_001"
+    assert {r["segment_id"] for r in results} == {
+        "clip_001#speech#000", "clip_001#chunk#000"}, (
+        "span overlap selects the fine row and the 8s window covering it")
+    assert all(r["clip_id"] == "clip_001" for r in results)
 
     # A span that does not cover the segment's time range does not match
-    # it: 10.0-10.2s is nowhere near the 1.0-3.0s speech segment.
+    # it: 10.0-10.2s is nowhere near the 1.0-3.0s speech segment - but
+    # the 8-16s chunk covering 10.0-10.2s still answers, which is the
+    # coarse guarantee doing its job where no fine row was cut.
     _write_identity(memory_root, digest_1, 10.0, 10.2)
-    assert idx.filter(person="person_001") == []
+    results = idx.filter(person="person_001")
+    assert [r["segment_id"] for r in results] == ["clip_001#chunk#001"]
 
 
 def test_person_filter_unknown_name_raises_rather_than_matching_nothing(

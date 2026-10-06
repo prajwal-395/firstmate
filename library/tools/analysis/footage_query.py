@@ -1120,7 +1120,7 @@ class FootageIndex:
         """Select footage by measurable properties, with no query at all.
 
         Args:
-            kind: one of speech, action, scene, camera, object.
+            kind: one of speech, action, scene, camera, object, chunk.
             clip_id: restrict to one clip ("clip_012").
             framing: shot size as the vision pass reported it
                 ("close-up", "medium", "wide").
@@ -1370,7 +1370,9 @@ class FootageIndex:
                     "What kind of observation to search: 'speech' (one spoken "
                     "utterance, with word timings), 'action' (what the subject "
                     "did, roughly a 10s window), 'scene' (where it is), 'camera' "
-                    "(how it is shot), 'object' (one appearance of one thing)."
+                    "(how it is shot), 'object' (one appearance of one thing), "
+                    "'chunk' (one fixed 8s window joining what it overlaps - "
+                    "the coarse guarantee every span of footage has a row)."
                 ),
             },
             "clip_id": {"type": "string", "description": "Restrict to one clip, e.g. 'clip_012'."},
