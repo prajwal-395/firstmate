@@ -224,31 +224,68 @@ def build_project_persons(project_folder: str,
     """M3 for every catalog source with media and a fresh M2. Same
     reporting shape as `source_memory.build_project_frames`."""
     recorded = source_memory.load_recorded_fingerprints(project_folder)
-    results, failed, seen = [], [], set()
+    # The digest dedup is decided serially up front: two clips of one
+    # file share a digest and the second reports "reused" without
+    # measuring, and a shared `seen` set cannot decide that across
+    # lanes (both would measure). Digest resolution is read-only, so
+    # the pre-pass costs no measurement; the lanes then measure only
+    # first occurrences, and the assembly restores catalog order -
+    # identical to the serial loop.
+    jobs, skipped = [], {}
+    seen = set()
     for clip in source_memory.load_catalog(project_folder):
         clip_id = clip.get("clip_id")
         if clip_ids and clip_id not in clip_ids:
             continue
         path = clip.get("source_file") or clip.get("path") or ""
         if not path or not os.path.isfile(path):
-            results.append({"clip_id": clip_id, "source_file": path,
-                            "skipped": "media-offline"})
+            skipped[clip_id] = {"clip_id": clip_id, "source_file": path,
+                                "skipped": "media-offline"}
             continue
-        digest, _ = source_memory.digest_for_clip(project_folder, clip, recorded)
+        digest, _ = source_memory.digest_for_clip(project_folder, clip,
+                                                  recorded)
         if digest is None or digest in seen:
-            results.append({"clip_id": clip_id, "source_file": path,
-                            "skipped": "no content digest" if digest is None
-                            else "reused"})
+            skipped[clip_id] = {
+                "clip_id": clip_id, "source_file": path,
+                "skipped": "no content digest" if digest is None
+                else "reused"}
             continue
         seen.add(digest)
+        jobs.append((clip_id, path, digest))
+
+    # Compile the Vision helper once, serially: its first use writes
+    # the binary into the cache, which concurrent compiles would race
+    # on. Every lane then takes the cached-binary fast path. An
+    # unavailable helper is not a decision here - each lane fails its
+    # clip exactly as the serial loop did.
+    _vision().ensure_helper()
+
+    from collections import deque
+
+    from library.tools.concurrency_routing import run_lanes
+
+    def _one(job):
+        clip_id, path, digest = job
         try:
             account = build_source_persons(path, digest, root)
         except Exception as exc:
-            failed.append(clip_id)
-            results.append({"clip_id": clip_id, "source_file": path,
-                            "failed": f"{type(exc).__name__}: {exc}"})
-            continue
-        results.append({"clip_id": clip_id, **account})
+            return ({"clip_id": clip_id, "source_file": path,
+                     "failed": f"{type(exc).__name__}: {exc}"}, clip_id)
+        return ({"clip_id": clip_id, **account}, None)
+
+    results, failed = [], []
+    measured = {}
+    for row, failed_id in run_lanes(_one, jobs):
+        measured.setdefault(row["clip_id"], deque()).append(row)
+        if failed_id is not None:
+            failed.append(failed_id)
+    for clip in source_memory.load_catalog(project_folder):
+        clip_id = clip.get("clip_id")
+        queue = measured.get(clip_id)
+        if queue:
+            results.append(queue.popleft())
+        elif clip_id in skipped:
+            results.append(skipped[clip_id])
     return {"project_folder": os.path.abspath(project_folder),
             "clips": results, "failed": failed}
 
