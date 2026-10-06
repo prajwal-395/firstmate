@@ -1641,6 +1641,7 @@ if [ "\${1:-}" = debug ] && [ "\${2:-}" = config ]; then
   [ -n "\${OPENCODE_DB:-}" ] || exit 1
   sqlite3 "\$OPENCODE_DB" 'CREATE TABLE IF NOT EXISTS account (id text PRIMARY KEY, email text NOT NULL, url text NOT NULL, access_token text NOT NULL, refresh_token text NOT NULL, token_expiry integer, time_created integer NOT NULL, time_updated integer NOT NULL);' || exit 1
   sqlite3 "\$OPENCODE_DB" 'CREATE TABLE IF NOT EXISTS account_state (id integer PRIMARY KEY, active_account_id text, active_org_id text);' || exit 1
+  printf '%s\n' '{"provider": {"opencode": {"name": "secondary / OpenCode", "models": {}}}}'
   exit 0
 fi
 if [ "\${1:-}" = debug ] && [ "\${2:-}" = paths ]; then
