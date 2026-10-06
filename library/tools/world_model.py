@@ -350,17 +350,37 @@ def build_source_world_model(content_digest: str, source_file: str,
 
 def build_project_world_model(project_folder: str,
                              root: Optional[Path] = None) -> dict:
-    """Build the world model for every catalog source that carries M0."""
-    results, failed = [], []
-    for clip_id, digest, path in event_spans.catalog_sources(project_folder):
+    """Build the world model for every catalog source that carries M0.
+
+    One lane per distinct digest: catalog_sources dedups serially up
+    front, and each unit only reads slots, joins, and atomically writes
+    its own record - no decode, no model, no lock, no warm-up. Units
+    materialize once; input order is restored, identical to serial.
+    """
+    from collections import deque
+
+    from library.tools.concurrency_routing import run_lanes
+
+    def _one(job):
+        clip_id, digest, path = job
         try:
             account = build_source_world_model(digest, path, root)
         except Exception as exc:
-            failed.append(clip_id)
-            results.append({"clip_id": clip_id, "content_digest": digest,
-                            "failed": f"{type(exc).__name__}: {exc}"})
-            continue
-        results.append({"clip_id": clip_id, **account})
+            return ({"clip_id": clip_id, "content_digest": digest,
+                     "failed": f"{type(exc).__name__}: {exc}"}, clip_id)
+        return ({"clip_id": clip_id, **account}, None)
+
+    results, failed = [], []
+    measured = {}
+    units = event_spans.catalog_sources(project_folder)
+    for row, failed_id in run_lanes(_one, units):
+        measured.setdefault(row["clip_id"], deque()).append(row)
+        if failed_id is not None:
+            failed.append(failed_id)
+    for clip_id, _digest, _path in units:
+        queue = measured.get(clip_id)
+        if queue:
+            results.append(queue.popleft())
     return {"project_folder": os.path.abspath(project_folder),
             "clips": results, "failed": failed}
 

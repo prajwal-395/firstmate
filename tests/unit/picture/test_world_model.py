@@ -433,3 +433,57 @@ def test_entities_carry_face_and_voice_tracks(tmp_path, memory_root):
     assert wm["entities"]["face_tracks"][0]["track_id"] == "face_001"
     assert len(wm["entities"]["voice_tracks"]) == 1
     assert wm["entities"]["voice_tracks"][0]["track_id"] == "voice_001"
+
+
+class TestWorldModelLanes:
+    """`build_project_world_model` runs one lane per distinct digest on
+    the bounded FREE lanes. Dedup already happens serially in
+    catalog_sources; each unit only reads slots, joins, and atomically
+    writes its own record. A wiring that silently serializes must fail
+    the overlap assertion here, not in production."""
+
+    def test_rows_match_serial_contract_and_lanes_overlap(
+            self, monkeypatch):
+        import threading
+        import time
+
+        from library.tools import event_spans
+        from library.tools.concurrency_routing import lane_width
+
+        units = [(f"clip_{i:03d}", "d" * 63 + str(i),
+                  f"/cam/C{i:03d}.MOV") for i in (1, 2, 3)]
+        monkeypatch.setattr(event_spans, "catalog_sources",
+                            lambda project_folder: list(units))
+
+        spans = []
+        spans_lock = threading.Lock()
+
+        def fake_build(digest, path, root=None):
+            if digest.endswith("2"):
+                raise RuntimeError("no M0 duration")
+            start = time.monotonic()
+            time.sleep(0.2)
+            with spans_lock:
+                spans.append((start, time.monotonic()))
+            return {"content_digest": digest, "timeline_seconds": 4}
+
+        monkeypatch.setattr(world_model, "build_source_world_model",
+                            fake_build)
+
+        report = world_model.build_project_world_model("/proj")
+
+        rows = report["clips"]
+        assert [r["clip_id"] for r in rows] == [
+            "clip_001", "clip_002", "clip_003"]
+        assert report["failed"] == ["clip_002"]
+        assert rows[1]["failed"] == "RuntimeError: no M0 duration"
+        assert rows[0]["timeline_seconds"] == 4
+
+        width = lane_width()
+        peak, depth, events = 0, 0, sorted(
+            [(s, 1) for s, _ in spans] + [(e, -1) for _, e in spans])
+        for _, delta in events:
+            depth += delta
+            peak = max(peak, depth)
+        assert peak >= min(2, width), (
+            f"lanes never overlapped (peak {peak}, width {width})")
