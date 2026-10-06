@@ -78,6 +78,10 @@ NEEDS: dict = {n.id: n for n in (
     Need("deepfilter", "the DeepFilterNet binary"),
     Need("ren_native", "the ren_native Rust edit-algebra extension, built "
          "from this engine's native/ sources"),
+    Need("renderer.fframes", "the ren-graphics-fframes binary, built "
+         "from this engine's native/ sources"),
+    Need("resolve.control", "the resolve-control driver binary, built "
+         "from this engine's native/ sources"),
     Need("config.projects_root", "PIPELINE_PROJECTS_ROOT exists"),
     Need("config.sfx_library", "PIPELINE_SFX_LIBRARY names a library"),
     Need("config.music_library", "PIPELINE_MUSIC_LIBRARY names a library"),

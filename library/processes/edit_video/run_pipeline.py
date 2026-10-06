@@ -4320,6 +4320,17 @@ def main():
     args = parser.parse_args()
     args.full_auto = normalize_full_auto(args.full_auto)
 
+    # The engine draws with compiled parts; a missing or stale build
+    # silently fell back on desks where native/target was never built.
+    # Refresh first, while no render is in flight: freshness is
+    # lock-free hashing, and only a rebuild takes the heavy-work lock.
+    try:
+        from pathlib import Path
+        from library.tools import native_refresh
+        native_refresh.ensure_current(Path(__file__).resolve().parent.parent.parent)
+    except Exception:  # noqa: BLE001 - refresh never breaks a run
+        pass
+
     # Carry the driving harness into code that never sees argv: the
     # still-vision route (`library/tools/still_vision.py`) reads
     # PIPELINE_HOST_HARNESS to decide whether a host with vision

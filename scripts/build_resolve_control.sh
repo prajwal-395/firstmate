@@ -32,3 +32,9 @@ fi
 
 cargo build --release -p resolve-control \
   --manifest-path "$REPO_ROOT/native/Cargo.toml" --locked
+
+# Record what was built from, so Ren's native-refresh can tell a stale
+# binary from a fresh one without rebuilding. Never fails the build.
+python3 "$REPO_ROOT/library/tools/native_refresh.py" record resolve-control \
+    --root "$REPO_ROOT" \
+    || echo "warning: could not record the resolve-control fingerprint" >&2

@@ -381,6 +381,15 @@ def ensure(path=None, timeout: float = START_TIMEOUT_SECONDS) -> Optional[dict]:
             answer = ping(target)
             if answer is not None:
                 return answer
+            # Starting a broker is a safe point: no render is in flight
+            # from this starter. A missing or stale native part rebuilds
+            # first, under the heavy-work lock, or the broker would
+            # serve on a build that predates this tree.
+            try:
+                from library.tools import native_refresh
+                native_refresh.ensure_current(_engine_root())
+            except Exception:  # noqa: BLE001 - refresh never breaks ensure
+                pass
             process = _start_detached(target)
             deadline = time.time() + max(0.0, timeout)
             while True:

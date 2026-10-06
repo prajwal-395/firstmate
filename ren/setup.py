@@ -298,6 +298,13 @@ def _build_ren_native(engine: Path, venv_python: Path, env: dict) -> None:
     code = build_ren_native(engine, venv_python.parent, env)
     if code == 0:
         print("ren_native: built from the engine's Rust sources.")
+        try:
+            import sys
+            sys.path.insert(0, str(engine))
+            from library.tools import native_refresh
+            native_refresh.record(engine, "ren_native")
+        except Exception:  # noqa: BLE001 - recording never fails setup
+            pass
     elif code == 4:
         print("ren_native: not built - no Rust toolchain or no Rust "
               "sources; the Python edit backend runs.")

@@ -227,6 +227,13 @@ def _rebuild_ren_native(engine_root: Path, home: Path) -> None:
                             _candidate_env(engine_root, home))
     if code == 0:
         print("ren_native: rebuilt from the new engine's Rust sources.")
+        try:
+            import sys
+            sys.path.insert(0, str(engine_root))
+            from library.tools import native_refresh
+            native_refresh.record(engine_root, "ren_native")
+        except Exception:  # noqa: BLE001 - recording never fails upgrade
+            pass
     elif code is not None and code != 4:
         print(f"ren_native: rebuild failed (exit {code}); the Python "
               "edit backend runs.")

@@ -40,3 +40,9 @@ fi
 SIZE=$(stat -f%z "$BINARY_PATH" 2>/dev/null || stat -c%s "$BINARY_PATH" 2>/dev/null)
 echo "Built $BINARY_PATH ($SIZE bytes)"
 echo "Copy it to a directory on PATH, or set PIPELINE_GRAPHICS_RENDERER=fframes"
+
+# Record what was built from, so Ren's native-refresh can tell a stale
+# binary from a fresh one without rebuilding. Never fails the build.
+python3 "$REPO_ROOT/library/tools/native_refresh.py" record ren-graphics-fframes \
+    --root "$REPO_ROOT" \
+    || echo "warning: could not record the fframes fingerprint" >&2

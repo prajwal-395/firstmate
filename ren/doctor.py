@@ -761,6 +761,48 @@ def ren_native_check() -> Check:
                  need="ren_native")
 
 
+def native_freshness_checks() -> list:
+    """Are the binary native parts built from this tree?
+
+    `ren_native` has its own baked-fingerprint check above; these are
+    the two binaries Ren refreshes itself
+    (`library/tools/native_refresh.py`): a stale one renders or drives
+    with code that predates this tree, so it is a FAIL naming the
+    rebuild. A missing FFrames binary is owned by the graphics-engine
+    checks (it falls back); a missing driver has no fallback.
+    """
+    from library.tools import native_refresh
+    from ren.engine_root import require_engine_root
+
+    try:
+        root = require_engine_root()
+    except Exception:  # noqa: BLE001 - doctor must finish
+        return []
+    checks = []
+    for part, need in (("ren-graphics-fframes", "renderer.fframes"),
+                       ("resolve-control", "resolve.control")):
+        try:
+            state, detail = native_refresh.status(root, part)
+        except Exception as exc:  # noqa: BLE001 - doctor must finish
+            state, detail = "missing", f"could not be checked ({exc})"
+        if state == "fresh":
+            checks.append(Check(
+                f"native {part}", True, "built from this tree", need=need))
+        elif state == "stale":
+            checks.append(Check(
+                f"native {part}", False,
+                f"stale - {detail}; it would run code that predates this tree",
+                "run ren setup, or the next safe point rebuilds it",
+                need=need))
+        elif part == "resolve-control":
+            checks.append(Check(
+                f"native {part}", False,
+                f"missing - {detail}",
+                "build it with scripts/build_resolve_control.sh",
+                need=need))
+    return checks
+
+
 # ── Configuration ────────────────────────────────────────────────────
 
 def config_checks() -> list:
@@ -963,6 +1005,8 @@ GROUPS = (
     ("transcription", "transcription_checks", ("transcriber.voz", "model.mfa")),
     ("dialogue cleanup DeepFilter", "deepfilternet_check", ("deepfilter",)),
     ("ren_native Rust backend", "ren_native_check", ("ren_native",)),
+    ("native builds freshness", "native_freshness_checks",
+     ("renderer.fframes", "resolve.control")),
     ("configuration", "config_checks",
      ("config.projects_root", "config.sfx_library", "config.music_library")),
     ("chat harness", "harness_check", ("chat_harness",)),

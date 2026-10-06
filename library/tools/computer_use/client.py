@@ -137,6 +137,15 @@ class DriverClient:
     # ── process ────────────────────────────────────────────────────
 
     def _spawn(self) -> subprocess.Popen:
+        # A session start is a safe point: refresh the driver build
+        # first, while it is not running. Best-effort - a refresh
+        # failure must not break the spawn it precedes.
+        try:
+            from library.tools import native_refresh
+            from ren.engine_root import require_engine_root
+            native_refresh.ensure_current(require_engine_root())
+        except Exception:  # noqa: BLE001 - refresh never breaks a spawn
+            pass
         process = subprocess.Popen(
             [str(self._binary)],
             stdin=subprocess.PIPE,
