@@ -24,6 +24,12 @@ What this module owns (one enumeration, like every vocabulary here):
   states what the build can actually do.
 - `measure_source` and `spans_by_source`: the noise record for each
   played source, absences stated.
+- `source_spectra` and `plan_dialogue_eq`: the Fairlight chain's
+  measurement half - per-source speech/floor spectra on the analyzer's
+  own bands, and the dialogue-bus EQ (high-pass + one peaking cut)
+  derived from them with every number's source recorded. Spectra never
+  enter pipeline state or a prompt; only the derived bands travel, in
+  the intent post_bridge validates.
 - `run_deepfilternet`: source range in, stem file out, with wall time
   and before/after measurements on the record; `stage_audio_chain`
   (`stage_deepfilternet` is its compatibility name) stages every
@@ -493,8 +499,314 @@ def measure_source(source_file: str, played_ranges: list,
                 > speech["integrated_lufs"]):
             speech = reading
     record["speech"] = speech or {"measured": False,
-                                  "reason": "no played range measured"}
+                                   "reason": "no played range measured"}
     return record
+
+
+# ── Fairlight chain planning ─────────────────────────────────────────
+
+def source_spectra(source_file: str, played_ranges: list,
+                   speech_spans: list, floor_segment) -> dict:
+    """Speech and floor spectra for one played source, absences stated.
+
+    One decode (`room_tone.decode_mono`, resampled to the measurement
+    rate), sliced two ways: the speech spectrum over the played word
+    spans (each span clipped to the ranges the edit really plays - room
+    between words must not dilute the speech), the floor spectrum over
+    the measured floor segment `measure_room_tone` answered. Both go
+    through `room_tone.spectrum_db`, so the bands and edges are the
+    analyzer's own (`SPECTRUM_EDGES_HZ`) - no second spectrum
+    implementation. Bands keep their -inf in process (a band with no
+    energy reads -inf, exactly like silence does in `rms_dbfs`); -inf
+    never enters pipeline state, only the bands the planner derives.
+
+    `floor_segment` is the `(segment_start, segment_end)` the floor
+    record measured, or None when the floor refused. Either absence is
+    stated on the record: no floor, or no played speech, means no
+    chain can be derived for the source - the caller plans nothing for
+    it and says so, the way `plan_room_tone_fills` plans nothing for a
+    source with dropouts but no floor. A file that does not decode
+    raises the decode refusal; the caller records it per source and
+    never sinks the run on one unreadable file.
+
+    Both spectra are measured over EQUAL-length windows (each side
+    truncated to the shorter): the analyzer's band means average over
+    their bins, so a pure tone reads hotter in the shorter window and
+    unequal windows would report a phantom excess. The truncation is
+    the comparison's own requirement, stated on the record as
+    `window_seconds` - never silent resampling of the evidence.
+    """
+    try:
+        from library.tools import room_tone as _room
+    except ImportError:
+        from tools import room_tone as _room
+
+    samples, rate = _room.decode_mono(source_file)
+    edges = list(_room.SPECTRUM_EDGES_HZ)
+    empty = [float("-inf")] * (len(edges) - 1)
+
+    def _slice(start: float, end: float) -> list:
+        lo = max(0, int(start * rate))
+        hi = min(len(samples), int(end * rate))
+        return samples[lo:hi] if hi > lo else []
+
+    ranges = [(float(s), float(e)) for s, e in played_ranges or []
+              if float(e) > float(s)]
+    speech_samples: list = []
+    for start, end in speech_spans or []:
+        try:
+            start, end = float(start), float(end)
+        except (TypeError, ValueError):
+            continue
+        if not end > start:
+            continue
+        for range_start, range_end in ranges:
+            lo, hi = max(start, range_start), min(end, range_end)
+            if hi > lo:
+                speech_samples.extend(_slice(lo, hi))
+
+    if floor_segment is not None:
+        try:
+            floor_start, floor_end = float(floor_segment[0]), float(
+                floor_segment[1])
+        except (TypeError, ValueError, IndexError):
+            floor_start, floor_end = 0.0, 0.0
+        floor_samples = (_slice(floor_start, floor_end)
+                         if floor_end > floor_start else [])
+    else:
+        floor_samples = []
+
+    record: dict = {
+        "source_file": source_file,
+        "sample_rate": rate,
+        "spectrum_edges_hz": edges,
+        "speech_seconds": round(len(speech_samples) / rate, 3)
+        if rate else 0.0,
+        "floor_seconds": round(len(floor_samples) / rate, 3)
+        if rate else 0.0,
+        "absences": [],
+    }
+    window = min(len(speech_samples), len(floor_samples))
+    if window == 0:
+        record["speech_bands_db"] = list(empty)
+        record["floor_bands_db"] = list(empty)
+        record["window_seconds"] = 0.0
+        if not speech_samples:
+            record["absences"].append(
+                "no played word span carries speech on this source, so "
+                "no speech spectrum can be measured")
+        if not floor_samples:
+            record["absences"].append(
+                "the floor refused on this source (or its segment "
+                "covers no samples), so nothing can say which bands "
+                "carry speech above the room")
+        return record
+    record["window_seconds"] = round(window / rate, 3)
+    record["speech_bands_db"] = _room.spectrum_db(speech_samples[:window],
+                                                  rate)
+    record["floor_bands_db"] = _room.spectrum_db(floor_samples[:window],
+                                                 rate)
+    return record
+
+
+def plan_dialogue_eq(measured: list, edges: list) -> dict:
+    """The dialogue-bus EQ this material's own spectra ask for, derived.
+
+    `measured` is one `source_spectra` record per played dialogue
+    source plus its bus weight (`weight_seconds` - the played speech
+    seconds the source contributes to the dialogue bus); `edges` are
+    the analyzer's band edges both spectra share. Every number derives
+    from these spectra; every number's source is recorded beside it in
+    `basis`, the way `_speech_reference` records the basis its level
+    was read on. At most two bands: a high-pass where the bus carries
+    no speech above its own room, and one peaking cut on the worst
+    measured hump. Anything that cannot be derived is absent and said:
+
+    - excess is speech minus floor per band, averaged across the
+      sources that carry both, weighted by played speech seconds. A
+      band no source measures is -inf, never zero-filled.
+    - the high-pass is the top edge of the lowest contiguous run of
+      bands at or below the MEDIAN band excess, starting at the bottom
+      and never reaching the peak band. The median is the material's
+      own spectral center - no invented dB threshold: bands at or
+      below it carry no more speech-above-room than the typical band,
+      and a word's own transient lift sits at or under the median with
+      them instead of defeating the comparison. No run means the
+      speech starts above the center: no high-pass, stated. The peak
+      band stops the run, so a flat spectrum (whose peak is the bottom
+      band) plans no high-pass, stated.
+    - the peaking band is the band of maximum excess over the median of
+      the finite band excesses - the worst hump relative to the
+      source's own spectrum. Its gain is minus that above-median
+      excess (the hump cut back to the material's own median, never a
+      chosen amount), its frequency the band's geometric center, its Q
+      the center over the width of the contiguous above-median run
+      around it (the hump's measured width - the definition of Q, not
+      a choice). A flat spectrum plans no cut, stated.
+    - each band is validated through `audio_chain.validate_eq_band`
+      before it joins the plan. A band the intent schema refuses (a
+      cut deeper than Resolve's scale, a Q outside it) is DROPPED with
+      the reason - never clamped into something the measurement did
+      not say.
+
+    Returns `{"bands", "basis", "dropped"}`. `bands` are plain dicts
+    ready for `audio_chain.validate_intent`; they carry no spectra,
+    only the derived controls plus their basis strings.
+    """
+    try:
+        from library.tools import audio_chain as _chain
+    except ImportError:
+        from tools import audio_chain as _chain
+
+    basis: dict = {}
+    dropped: list = []
+    if not measured:
+        return {"bands": [], "basis": basis, "dropped": dropped,
+                "why_empty": "no played dialogue source was measured"}
+    band_count = len(edges) - 1
+    for row in measured:
+        if (len(row.get("speech_bands_db") or []) != band_count
+                or len(row.get("floor_bands_db") or []) != band_count):
+            raise ValueError(
+                "plan_dialogue_eq needs spectra on the analyzer's own "
+                f"{band_count} bands for every source")
+
+    answered = [r.get("source_file", "?") for r in measured]
+    basis["sources"] = (
+        f"{len(measured)} played dialogue source(s) answered: "
+        + ", ".join(answered))
+
+    excess: list = []
+    for band in range(band_count):
+        total = 0.0
+        weight = 0.0
+        for row in measured:
+            speech = row["speech_bands_db"][band]
+            floor = row["floor_bands_db"][band]
+            if speech == float("-inf") or floor == float("-inf"):
+                continue
+            w = float(row.get("weight_seconds") or 0.0)
+            if w <= 0.0:
+                continue
+            total += w * (speech - floor)
+            weight += w
+        excess.append(total / weight if weight > 0.0 else float("-inf"))
+
+    finite = [e for e in excess if e != float("-inf")]
+    if not finite:
+        return {"bands": [], "basis": basis, "dropped": dropped,
+                "why_empty": "no band carries speech above any measured "
+                             "floor on this material"}
+
+    ordered = sorted(finite)
+    median = ordered[len(ordered) // 2] if len(ordered) % 2 else (
+        ordered[len(ordered) // 2 - 1] + ordered[len(ordered) // 2]) / 2.0
+    peak = max(range(band_count),
+               key=lambda b: excess[b]
+               if excess[b] != float("-inf") else float("-inf"))
+    peak_excess = excess[peak]
+    peak_above = peak_excess - median
+    peak_lo, peak_hi = edges[peak], edges[peak + 1]
+
+    bands: list = []
+
+    # The peaking cut first: the high-pass guard reads its band.
+    if peak_above <= 0.0:
+        basis["peaking"] = (
+            f"no peaking cut: the strongest band ({peak_lo:g}-"
+            f"{peak_hi:g} Hz, excess {peak_excess:.1f} dB) sits at or "
+            f"below the median band excess ({median:.1f} dB), so the "
+            f"spectrum is flat and there is no hump to cut")
+    else:
+        run_lo, run_hi = peak, peak
+        while (run_lo - 1 >= 0
+               and excess[run_lo - 1] != float("-inf")
+               and excess[run_lo - 1] - median > 0.0):
+            run_lo -= 1
+        while (run_hi + 1 < band_count
+               and excess[run_hi + 1] != float("-inf")
+               and excess[run_hi + 1] - median > 0.0):
+            run_hi += 1
+        center = (peak_lo * peak_hi) ** 0.5
+        width = edges[run_hi + 1] - edges[run_lo]
+        candidate = {
+            "type": "peaking",
+            "frequency_hz": round(center, 1),
+            "gain_db": round(-peak_above, 1),
+            "q": round(center / width, 2) if width > 0.0 else 0.0,
+        }
+        peak_basis = (
+            f"peaking cut {candidate['gain_db']:.1f} dB at "
+            f"{candidate['frequency_hz']:.1f} Hz: the "
+            f"{peak_lo:g}-{peak_hi:g} Hz band exceeds this "
+            f"material's own median band excess by "
+            f"{peak_above:.1f} dB; Q {candidate['q']:.2f} is the "
+            f"band center over the width of the measured "
+            f"above-median run ({edges[run_lo]:g}-"
+            f"{edges[run_hi + 1]:g} Hz)")
+        try:
+            _chain.validate_eq_band(candidate)
+        except Exception as exc:
+            dropped.append({"band": candidate, "reason": str(exc)[:300]})
+            basis["peaking"] = (
+                f"no peaking cut: the derived band {candidate} is "
+                f"outside the intent scale and is dropped, never "
+                f"clamped - {str(exc)[:200]}")
+        else:
+            bands.append(candidate)
+            basis["peaking"] = peak_basis
+
+    # The high-pass: the bottom run at or below the material's own
+    # median band excess, stopping at the peak band.
+    run = 0
+    while (run < peak and excess[run] != float("-inf")
+           and excess[run] <= median):
+        run += 1
+    if run == 0:
+        basis["high_pass"] = (
+            f"no high-pass: the bottom band ({edges[0]:g}-"
+            f"{edges[1]:g} Hz) carries speech at or above the "
+            f"material's own median band excess ({median:.1f} dB), so "
+            f"the speech starts above the spectral center and "
+            f"filtering the bottom would cut it")
+    else:
+        cutoff = edges[run]
+        candidate = {
+            "type": "high_pass",
+            "frequency_hz": cutoff,
+            "gain_db": 0.0,
+            "q": 0.71,
+        }
+        hp_basis = (
+            f"high-pass at {cutoff:g} Hz: the bands below sit at or "
+            f"below this material's own median band excess "
+            f"({median:.1f} dB) - they carry no more speech above "
+            f"the room than the typical band, and the run stops at "
+            f"the speech hump's own band ({peak_lo:g}-"
+            f"{peak_hi:g} Hz); {cutoff:g} Hz is the analyzer's own "
+            f"band edge, not a chosen number. Gain 0.0 dB and Q "
+            f"0.71 are the high-pass's own mechanical identity (no "
+            f"boost, Butterworth) - the Fairlight control they map "
+            f"to carries no gain or Q")
+        try:
+            _chain.validate_eq_band(candidate)
+        except Exception as exc:
+            dropped.append({"band": candidate,
+                            "reason": str(exc)[:300]})
+            basis["high_pass"] = (
+                f"no high-pass: the derived band {candidate} is "
+                f"outside the intent scale and is dropped, never "
+                f"clamped - {str(exc)[:200]}")
+        else:
+            bands.insert(0, candidate)
+            basis["high_pass"] = hp_basis
+
+    result: dict = {"bands": bands, "basis": basis, "dropped": dropped}
+    if not bands:
+        result["why_empty"] = ("neither a below-room run nor an "
+                                "above-median hump survived validation - "
+                                "see basis")
+    return result
 
 
 # ── DeepFilterNet staging ────────────────────────────────────────────

@@ -41,8 +41,12 @@ from library.steps.step_5_02_audio_mix.mix import (
 )
 from library.tools import decided_value
 from library.tools import music_over_speech
+from library.tools.audio_chain import AudioChainError, validate_intent
 from library.tools.dialogue_cleanup import (
     CLEANUP_ENTRY_KEYS,
+    plan_dialogue_eq,
+    source_spectra,
+    spans_by_source,
     validate_cleanup_request,
 )
 from library.tools.plan_keys import refuse_unknown_keys
@@ -233,7 +237,129 @@ def resolve_audio_mix(data: dict) -> dict:
     result["audio_mix_spec"]["room_tone_continuity"] = {
         "sources": plan_room_tone_fills(data.get("cleanup_context") or {}),
     }
+    result["audio_mix_spec"]["fairlight_chain"] = resolve_fairlight_chain(
+        data,
+        dialogue_lufs_target=result["audio_mix_spec"][
+            "delivery_lufs_target"],
+        true_peak_ceiling=result["audio_mix_spec"][
+            "delivery_true_peak_ceiling_dbtp"])
     return result
+
+
+def resolve_fairlight_chain(data: dict, dialogue_lufs_target: float,
+                             true_peak_ceiling: float) -> dict:
+    """The dialogue-bus EQ this run's own spectra ask for, as intent.
+
+    Measures each played dialogue source's speech and floor spectra
+    (`source_spectra` - one decode per source, the chain planner's own
+    read; the cleanup_context record carries levels, not spectra, and
+    spectra stay out of the prompt tables), derives the bus EQ
+    (`plan_dialogue_eq` - duration-weighted across the sources that
+    answered), and validates the whole intent through
+    `audio_chain.validate_intent` - the validator's first production
+    caller. The intent's targets are the delivery numbers this step
+    already resolved (the program loudness target and the true-peak
+    ceiling the QC gate reads), never constants restated here.
+
+    The intent carries the dialogue EQ track only. The limiter
+    PROCESSING entry and the dynamics wait for the executor slice: an
+    entry nothing can apply yet is not shipped - only the ceiling
+    travels, as the target the verifier will judge the render against.
+    A source that cannot be measured (no floor, no played speech, an
+    unreadable file) plans nothing and is named in `unplanned`; one
+    bad source never sinks the bus chain. The plan applies nothing -
+    compile_manifest carries `audio_mix_spec` (this key with it) onto
+    the assembly manifest, where the Fairlight UI executor will read
+    it.
+    """
+    sources = (data.get("cleanup_context") or {}).get("sources", []) or []
+    structure = (data.get("audio_spine") or {}).get("structure", []) or []
+    played, word_spans = spans_by_source(
+        structure, data.get("a_roll_assignments") or [])
+
+    measured: list = []
+    unplanned: list = []
+    for record in sources:
+        if not isinstance(record, dict):
+            continue
+        source_file = record.get("source_file", "?")
+        floor = record.get("floor") or {}
+        segment = None
+        if floor.get("level_dbfs") is not None:
+            try:
+                segment = (float(floor["segment_start"]),
+                           float(floor["segment_end"]))
+            except (KeyError, TypeError, ValueError):
+                segment = None
+        if segment is None:
+            unplanned.append({
+                "source_file": source_file,
+                "reason": (record.get("floor_unmeasured_reason")
+                           or "no measured floor segment on the record"),
+            })
+            continue
+        spans = word_spans.get(source_file, [])
+        played_ranges = record.get("played_ranges") or []
+        try:
+            spectra = source_spectra(source_file, played_ranges, spans,
+                                     segment)
+        except Exception as exc:
+            unplanned.append({"source_file": source_file,
+                              "reason": str(exc)[:300]})
+            continue
+        if spectra["absences"]:
+            unplanned.append({"source_file": source_file,
+                              "reason": "; ".join(spectra["absences"])})
+            continue
+        spectra["weight_seconds"] = spectra["speech_seconds"]
+        measured.append(spectra)
+
+    plan = plan_dialogue_eq(
+        measured, measured[0]["spectrum_edges_hz"] if measured else [])
+    tracks: list = []
+    if plan["bands"]:
+        tracks.append({
+            "track": "dialogue",
+            "role": "dialogue",
+            "eq": plan["bands"],
+        })
+    intent = {
+        "tracks": tracks,
+        "targets": {
+            "integrated_lufs": float(dialogue_lufs_target),
+            "true_peak_ceiling_dbTP": float(true_peak_ceiling),
+        },
+    }
+    try:
+        validate_intent(intent)
+    except AudioChainError as exc:
+        print(f"  Fairlight chain refused by its own schema ({exc}) - "
+              f"the mix ships without one", file=sys.stderr)
+        return {"intent": {"tracks": [], "targets": intent["targets"]},
+                "basis": dict(plan.get("basis", {})),
+                "dropped": list(plan.get("dropped", [])),
+                "unplanned": unplanned + [
+                    {"source_file": "(intent)",
+                     "reason": f"schema refusal: {exc}"}]}
+
+    if tracks:
+        print(f"  Fairlight chain: dialogue EQ "
+              f"{', '.join(b['type'] + ' ' + str(b['frequency_hz']) + ' Hz'
+                           for b in plan['bands'])} "
+              f"(targets {dialogue_lufs_target:.1f} LUFS, "
+              f"{true_peak_ceiling:.1f} dBTP)", file=sys.stderr)
+    else:
+        print(f"  Fairlight chain: no dialogue EQ earned - "
+              f"{plan.get('why_empty', 'see basis')} "
+              f"({len(unplanned)} source(s) unplanned)",
+              file=sys.stderr)
+    return {"intent": intent,
+            "basis": dict(plan.get("basis", {})),
+            "dropped": list(plan.get("dropped", [])),
+            "unplanned": unplanned,
+            "executor": ("unassigned - a later slice wires the Fairlight "
+                         "UI executor; the build applies nothing from "
+                         "this plan yet")}
 
 
 def resolve_music_ducking_plan(data: dict) -> dict:
