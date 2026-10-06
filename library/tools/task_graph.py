@@ -66,7 +66,8 @@ PENDING = "pending"
 RUNNING = "running"
 DONE = "done"
 FAILED = "failed"
-STATES = (PENDING, RUNNING, DONE, FAILED)
+TIMED_OUT = "timed_out"
+STATES = (PENDING, RUNNING, DONE, FAILED, TIMED_OUT)
 
 
 @dataclass(frozen=True)
@@ -77,7 +78,13 @@ class Task:
     to have - matched against the worker manifest by
     `worker_requirements`. `resources` is the lease declaration the
     task will hold while it runs - checked against standing leases by
-    `resource_leases` before the task starts.
+    `resource_leases` before the task starts. `timeout_seconds` is the
+    task's own deadline: past it the scheduler marks the task timed
+    out, releases its lease and lets the graph continue. It is
+    declared per task (or per run) from the task's declared or
+    measured expected duration - `timeout_basis` records which, so a
+    deadline is never a magic number. A task that declares none runs
+    unbounded, the way a task that declares no retries gets none.
     """
 
     id: str
@@ -89,6 +96,8 @@ class Task:
     command: Tuple[str, ...] = ()
     heartbeat_interval: float = DEFAULT_HEARTBEAT_INTERVAL
     max_retries: int = 0
+    timeout_seconds: Optional[float] = None
+    timeout_basis: str = ""
 
     def __post_init__(self):
         if not self.id or not str(self.id).strip():
@@ -103,10 +112,16 @@ class Task:
             raise ValueError(
                 f"task {self.id!r}: max_retries must be >= 0, got "
                 f"{self.max_retries!r}.")
+        if self.timeout_seconds is not None and self.timeout_seconds <= 0:
+            raise ValueError(
+                f"task {self.id!r}: timeout_seconds must be positive, "
+                f"got {self.timeout_seconds!r} - a deadline already "
+                f"past refuses the task before it starts.")
 
     @classmethod
     def from_record(cls, record: dict) -> "Task":
         resources = LeaseDeclaration.from_record(record.get("resources", {}))
+        timeout = record.get("timeout_seconds", None)
         return cls(
             id=str(record["id"]),
             name=str(record.get("name", record["id"])),
@@ -118,6 +133,9 @@ class Task:
             heartbeat_interval=float(record.get("heartbeat_interval",
                                                 DEFAULT_HEARTBEAT_INTERVAL)),
             max_retries=int(record.get("max_retries", 0)),
+            timeout_seconds=(None if timeout is None
+                             else float(timeout)),
+            timeout_basis=str(record.get("timeout_basis", "")),
         )
 
     def to_record(self) -> dict:
@@ -130,6 +148,8 @@ class Task:
             "command": list(self.command),
             "heartbeat_interval": self.heartbeat_interval,
             "max_retries": self.max_retries,
+            "timeout_seconds": self.timeout_seconds,
+            "timeout_basis": self.timeout_basis,
         }
 
     @property
@@ -189,14 +209,16 @@ class TaskGraph:
 
         A task that failed and has retries left is ready again - the
         scheduler reassigns it. A task that failed with no retries left
-        is not ready; it is finished, failed.
+        is not ready; it is finished, failed. A timed-out task reads
+        like a failed one here: the scheduler counts its consumed
+        attempt and decides.
         """
         result = []
         for task in self.tasks.values():
             state = states.get(task.id, PENDING)
             if state == RUNNING or state == DONE:
                 continue
-            if state == FAILED:
+            if state == FAILED or state == TIMED_OUT:
                 # A failed task is ready only if it has retries left;
                 # the scheduler counts attempts and decides.
                 continue
@@ -207,10 +229,12 @@ class TaskGraph:
 
     def retryable(self, states: Dict[str, str],
                   attempts: Dict[str, int]) -> List[Task]:
-        """Failed tasks that still have retries left, dependencies met."""
+        """Failed - or timed-out - tasks that still have retries left,
+        dependencies met."""
         result = []
         for task in self.tasks.values():
-            if states.get(task.id) != FAILED:
+            if states.get(task.id) != FAILED and \
+                    states.get(task.id) != TIMED_OUT:
                 continue
             if attempts.get(task.id, 0) >= task.max_retries:
                 continue

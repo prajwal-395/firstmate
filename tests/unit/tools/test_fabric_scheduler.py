@@ -18,6 +18,7 @@ from library.tools.task_graph import (
     FAILED,
     PENDING,
     RUNNING,
+    TIMED_OUT,
     Task,
     TaskGraph,
     load_state,
@@ -243,3 +244,164 @@ def test_a_done_task_is_not_rerun_on_restart(lock_dir, tmp_path):
 
     assert states == {"a": DONE}
     assert runner.ran == []
+
+
+# ── Deadlines ───────────────────────────────────────────────────────
+
+
+class _Blocker:
+    """A runner that blocks until released; one task that never finishes."""
+
+    def __init__(self):
+        self.entered = threading.Event()
+        self.release = threading.Event()
+        self.calls = 0
+        self._lock = threading.Lock()
+
+    def __call__(self, task) -> int:
+        with self._lock:
+            self.calls += 1
+        self.entered.set()
+        self.release.wait(timeout=30)
+        return 0
+
+
+def test_a_task_that_blocks_forever_is_timed_out(lock_dir, tmp_path):
+    """A task past its deadline is marked timed out and the run ends.
+
+    Defect caught: the loop had no deadline, so one task that blocks
+    forever hangs the whole run forever - the graph never completes
+    and no checkpoint ever says why.
+    """
+    graph = TaskGraph(tasks={
+        "a": Task(id="a", name="A", timeout_seconds=0.2,
+                  timeout_basis="declared"),
+    })
+    runner = _Blocker()
+    states = _scheduler(graph, _manifest(), tmp_path / "state.json",
+                        runner).run()
+
+    assert runner.entered.is_set()
+    assert states == {"a": TIMED_OUT}
+
+
+def test_a_timed_out_task_releases_its_lease(lock_dir, tmp_path):
+    """A task waiting on the expired task's lease proceeds after the
+    expiry - the lease is released at the deadline, not when the
+    stuck thread eventually returns.
+
+    Defect caught: a lease held until thread return serializes every
+    conflicting task behind a task that never returns.
+    """
+    exclusive = LeaseDeclaration(
+        exclusive=frozenset({ResourceRef("clip", "X")}))
+    graph = TaskGraph(tasks={
+        "a": Task(id="a", name="A", resources=exclusive,
+                  timeout_seconds=0.2, timeout_basis="declared"),
+        "b": Task(id="b", name="B", resources=exclusive),
+    })
+    blocker = _Blocker()
+    ran_b = threading.Event()
+
+    def runner(task):
+        if task.id == "a":
+            return blocker(task)
+        ran_b.set()
+        return 0
+
+    states = _scheduler(graph, _manifest(), tmp_path / "state.json",
+                        runner).run()
+
+    assert ran_b.wait(timeout=10)
+    assert states == {"a": TIMED_OUT, "b": DONE}
+
+
+def test_a_dependent_of_a_timed_out_task_stays_pending(lock_dir, tmp_path):
+    """A task whose dependency timed out never becomes runnable: with
+    no DONE dependency the graph cannot place it, so it stays pending
+    and the run reports the timeout as the failure.
+
+    Defect caught: a loop that treats any terminal state as runnable
+    places a task whose inputs were never produced.
+    """
+    graph = TaskGraph(tasks={
+        "a": Task(id="a", name="A", timeout_seconds=0.2,
+                  timeout_basis="declared"),
+        "b": Task(id="b", name="B", depends_on=("a",)),
+    })
+    states = _scheduler(graph, _manifest(), tmp_path / "state.json",
+                        _Blocker()).run()
+
+    assert states["a"] == TIMED_OUT
+    assert states.get("b", PENDING) == PENDING
+
+
+def test_a_timed_out_task_with_retries_runs_again(lock_dir, tmp_path):
+    """A timed-out task that still has retries left is reassigned like
+    a failed one - the expiry consumes one attempt, and the retry runs
+    while the stuck thread's late report writes nothing."""
+    graph = TaskGraph(tasks={
+        "a": Task(id="a", name="A", max_retries=2, timeout_seconds=0.2,
+                  timeout_basis="declared"),
+    })
+    blocker = _Blocker()
+    calls = []
+
+    def runner(task):
+        calls.append(task.id)
+        if len(calls) == 1:
+            return blocker(task)
+        return 0
+
+    states = _scheduler(graph, _manifest(), tmp_path / "state.json",
+                        runner).run()
+
+    assert states == {"a": DONE}
+    assert len(calls) == 2
+    blocker.release.set()
+
+
+def test_a_stuck_threads_late_report_writes_nothing(lock_dir, tmp_path):
+    """A thread the deadline retired cannot overwrite the timeout when
+    it eventually returns: its epoch is spent, so the checkpoint keeps
+    saying timed out."""
+    graph = TaskGraph(tasks={
+        "a": Task(id="a", name="A", timeout_seconds=0.2,
+                  timeout_basis="declared"),
+    })
+    state_path = tmp_path / "state.json"
+    blocker = _Blocker()
+    states = _scheduler(graph, _manifest(), state_path, blocker).run()
+    assert states == {"a": TIMED_OUT}
+
+    blocker.release.set()
+    time.sleep(0.3)
+    assert load_state(state_path) == {"a": TIMED_OUT}
+
+
+def test_a_run_flag_bounds_tasks_that_declare_nothing(lock_dir, tmp_path):
+    """`with_default_timeout` fills a deadline into tasks that declare
+    none - recording the run flag as its source - and never overrides
+    a task's own declaration."""
+    from library.tools.fabric_scheduler import with_default_timeout
+
+    graph = TaskGraph(tasks={
+        "a": Task(id="a", name="A"),
+        "b": Task(id="b", name="B", timeout_seconds=60.0,
+                  timeout_basis="declared"),
+    })
+    bounded = with_default_timeout(graph, 5.0)
+
+    assert bounded.tasks["a"].timeout_seconds == 5.0
+    assert bounded.tasks["a"].timeout_basis == "run --timeout"
+    assert bounded.tasks["b"].timeout_seconds == 60.0
+    assert bounded.tasks["b"].timeout_basis == "declared"
+
+
+def test_a_non_positive_run_flag_is_refused(lock_dir, tmp_path):
+    """A run flag of zero or less refuses rather than bounding every
+    task at a deadline already past."""
+    from library.tools.fabric_scheduler import with_default_timeout
+
+    with pytest.raises(ValueError, match="must be positive"):
+        with_default_timeout(TaskGraph(tasks={}), 0)

@@ -186,3 +186,38 @@ def test_a_graph_with_no_tasks_is_valid():
     """
     graph = TaskGraph.from_record({"tasks": []})
     assert graph.ready({}) == []
+
+
+# ── Deadlines ───────────────────────────────────────────────────────
+
+def test_a_deadline_round_trips_with_its_source():
+    """A task's timeout and the source it was derived from survive the
+    record - the checkpoint names both the deadline and who set it, so
+    a deadline is never a magic number.
+
+    Defect caught: a record that keeps the seconds but drops the
+    basis lets a timeout nobody can attribute refuse real work.
+    """
+    task = Task(id="a", name="A", timeout_seconds=90.0,
+                timeout_basis="measured: 2.1s/video-min over 43 min")
+    rebuilt = Task.from_record(task.to_record())
+    assert rebuilt.timeout_seconds == 90.0
+    assert rebuilt.timeout_basis == "measured: 2.1s/video-min over 43 min"
+
+
+def test_a_task_without_a_deadline_runs_unbounded():
+    """A task that declares no timeout gets none - like max_retries,
+    an absent declaration is not a hidden default that kills slow
+    work."""
+    task = Task.from_record({"id": "a"})
+    assert task.timeout_seconds is None
+    assert task.timeout_basis == ""
+
+
+def test_a_non_positive_deadline_is_refused():
+    """A deadline of zero or less refuses at load: it would time the
+    task out before it starts."""
+    with pytest.raises(ValueError, match="must be positive"):
+        Task(id="a", name="A", timeout_seconds=0)
+    with pytest.raises(ValueError, match="must be positive"):
+        Task.from_record({"id": "a", "timeout_seconds": -5})

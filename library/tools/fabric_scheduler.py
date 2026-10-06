@@ -30,7 +30,10 @@ The loop
    a compatible task runs now, a conflicting one waits for the holder.
 4. A task that finishes is marked done (exit 0) or failed (non-zero).
    The checkpoint is written after every state change, so a restart
-   resumes from the last completed task.
+   resumes from the last completed task. A task past its
+   `timeout_seconds` is marked timed out instead: its lease is
+   released, its attempt is consumed, and the graph continues - a
+   task that blocks forever cannot hang the run forever.
 5. Repeat until no task is ready or running.
 
 Parallelism is the spec's read-only parallelism: tasks whose resource
@@ -61,6 +64,7 @@ from library.tools.task_graph import (
     FAILED,
     PENDING,
     RUNNING,
+    TIMED_OUT,
     TaskGraph,
     load_state,
     load_task_graph,
@@ -92,6 +96,9 @@ class Scheduler:
         self.poll_seconds = poll_seconds
         self._states: Dict[str, str] = {}
         self._attempts: Dict[str, int] = {}
+        self._started: Dict[str, float] = {}
+        self._epochs: Dict[str, int] = {}
+        self._leases: Dict[str, object] = {}
         self._lock = threading.Lock()
 
     def run(self) -> Dict[str, str]:
@@ -129,22 +136,64 @@ class Scheduler:
                 if not thread.is_alive():
                     del threads[task_id]
 
+            self._expire_overdue(threads)
+
             if not threads and not self._ready_now():
                 break
             time.sleep(self.poll_seconds)
 
         return dict(self._states)
 
+    def _expire_overdue(self, threads: Dict[str, threading.Thread]) -> None:
+        """Mark past-deadline tasks timed out and release their leases.
+
+        A task that blocks forever must not hang the run forever. Past
+        its `timeout_seconds` the task is marked `timed_out`, its
+        attempt is consumed, and its lease is released so a compatible
+        task - or its own retry, when retries remain - can proceed.
+        The stuck thread cannot be killed; its epoch is retired so
+        whatever it eventually reports writes nothing. Dependents of
+        a timed-out task stay pending: with no DONE dependency they
+        are not runnable, and the run fails by its dependency rules.
+        """
+        now = time.monotonic()
+        for task_id in list(threads):
+            task = self.graph.tasks[task_id]
+            if task.timeout_seconds is None:
+                continue
+            with self._lock:
+                if self._states.get(task_id) != RUNNING:
+                    continue
+                if now - self._started.get(task_id, now) <= \
+                        task.timeout_seconds:
+                    continue
+                self._epochs[task_id] = self._epochs.get(task_id, 0) + 1
+                self._states[task_id] = TIMED_OUT
+                self._attempts[task_id] = \
+                    self._attempts.get(task_id, 0) + 1
+                lease_ctx = self._leases.pop(task_id, None)
+            self._save()
+            if lease_ctx is not None:
+                try:
+                    lease_ctx.__exit__(None, None, None)
+                except Exception:
+                    pass
+            basis = f" ({task.timeout_basis})" if task.timeout_basis else ""
+            print(f"fabric task {task_id}: timed out after "
+                  f"{task.timeout_seconds:g}s{basis} - lease released",
+                  file=sys.stderr)
+            del threads[task_id]
+
     def _ready_now(self) -> list:
         """Tasks that are ready to start now: deps done, not running/done,
-        retries left."""
+        retries left (a timed-out task retries like a failed one)."""
         with self._lock:
             ready = []
             for task in self.graph.tasks.values():
                 state = self._states.get(task.id, PENDING)
                 if state in (RUNNING, DONE):
                     continue
-                if state == FAILED:
+                if state in (FAILED, TIMED_OUT):
                     if self._attempts.get(task.id, 0) >= task.max_retries:
                         continue
                 if not all(self._states.get(dep, PENDING) == DONE
@@ -177,29 +226,37 @@ class Scheduler:
 
         with self._lock:
             self._states[task.id] = RUNNING
+            self._epochs[task.id] = self._epochs.get(task.id, 0) + 1
+            self._started[task.id] = time.monotonic()
+            self._leases[task.id] = lease_ctx
+            epoch = self._epochs[task.id]
         self._save()
 
         def run_with_lease():
             try:
                 result = self.runner(task)
-                with self._lock:
-                    if result == 0:
-                        self._states[task.id] = DONE
-                    else:
-                        self._states[task.id] = FAILED
-                        self._attempts[task.id] = \
-                            self._attempts.get(task.id, 0) + 1
+                outcome = DONE if result == 0 else FAILED
             except Exception:
-                with self._lock:
-                    self._states[task.id] = FAILED
+                outcome = FAILED
+            with self._lock:
+                # A thread the deadline retired writes nothing: its
+                # lease is released and its attempt consumed, so a
+                # late report must not overwrite the timeout - or the
+                # retry running in its place.
+                if self._epochs.get(task.id) != epoch or \
+                        self._states.get(task.id) != RUNNING:
+                    return
+                self._states[task.id] = outcome
+                if outcome == FAILED:
                     self._attempts[task.id] = \
                         self._attempts.get(task.id, 0) + 1
-            finally:
-                self._save()
-                try:
-                    lease_ctx.__exit__(None, None, None)
-                except Exception:
-                    pass
+            self._save()
+            try:
+                lease_ctx.__exit__(None, None, None)
+            except Exception:
+                pass
+            with self._lock:
+                self._leases.pop(task.id, None)
 
         thread = threading.Thread(target=run_with_lease,
                                   name=f"fabric-task-{task.id}", daemon=True)
@@ -237,14 +294,19 @@ class Scheduler:
 
 def schedule(graph_path: Path, state_path: Optional[Path] = None,
              manifest: Optional[dict] = None,
-             runner: Optional[Callable] = None) -> Dict[str, str]:
+             runner: Optional[Callable] = None,
+             default_timeout: Optional[float] = None) -> Dict[str, str]:
     """Run a task graph on this machine; return the final task states.
 
     The worker manifest is the live one (`ren worker manifest`) unless a
     caller injects one - a test pins the scheduler against a fixture
     machine, and a cross-machine slice will pass a remote worker's.
+    `default_timeout` bounds tasks that declare no deadline of their
+    own; a task's own declaration always wins.
     """
     graph = load_task_graph(graph_path)
+    if default_timeout is not None:
+        graph = with_default_timeout(graph, default_timeout)
     if manifest is None:
         from library.tools.worker_manifest import produce_manifest
         manifest = produce_manifest()
@@ -252,6 +314,26 @@ def schedule(graph_path: Path, state_path: Optional[Path] = None,
         state_path = Path(graph_path).with_suffix(".state.json")
     scheduler = Scheduler(graph, manifest, state_path, runner=runner)
     return scheduler.run()
+
+
+def with_default_timeout(graph: TaskGraph,
+                         timeout_seconds: float) -> TaskGraph:
+    """The graph with a run-level deadline filled into tasks that
+    declare none - each filled task records the run flag as its
+    source, so a deadline is never a magic number. A task's own
+    declaration always wins over the run default.
+    """
+    if timeout_seconds <= 0:
+        raise ValueError(
+            f"default timeout must be positive, got {timeout_seconds!r}.")
+    import dataclasses
+    return TaskGraph(tasks={
+        task_id: task if task.timeout_seconds is not None
+        else dataclasses.replace(
+            task, timeout_seconds=float(timeout_seconds),
+            timeout_basis="run --timeout")
+        for task_id, task in graph.tasks.items()
+    })
 
 
 def _main(argv=None) -> int:
@@ -265,17 +347,24 @@ def _main(argv=None) -> int:
     run.add_argument("graph", type=Path, help="a task graph JSON")
     run.add_argument("--state", type=Path, default=None,
                      help="checkpoint path (default: <graph>.state.json)")
+    run.add_argument("--timeout", type=float, default=None,
+                     metavar="SECONDS",
+                     help="deadline for tasks that declare none of their "
+                          "own, from this run's declared expected "
+                          "duration; a task's own timeout_seconds "
+                          "always wins")
     args = parser.parse_args(argv)
 
     try:
-        states = schedule(args.graph, state_path=args.state)
+        states = schedule(args.graph, state_path=args.state,
+                          default_timeout=args.timeout)
     except Exception as error:
         print(f"fabric scheduler: {error}", file=sys.stderr)
         return 1
 
     for task_id, state in sorted(states.items()):
         print(f"  {task_id}: {state}")
-    failed = [t for t, s in states.items() if s == FAILED]
+    failed = [t for t, s in states.items() if s in (FAILED, TIMED_OUT)]
     if failed:
         print(f"fabric scheduler: {len(failed)} task(s) failed: "
               f"{', '.join(sorted(failed))}", file=sys.stderr)
