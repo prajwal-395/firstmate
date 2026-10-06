@@ -46,9 +46,11 @@ def _side(position: float) -> str:
 def _block_subject_reading(block: dict, temporal_index: dict):
     """The subject's measured screen side and centre for a block.
 
-    Returns (side, position), or (None, None) when the block carries no
-    clip, the clip has no temporal index, or the position is
-    unmeasurable - a shrug is not a side.
+    Returns (side, position), ("centre", None) when the subject is
+    MEASURED centred - a centred subject is not a side, but it is a
+    measurement, not a shrug - or (None, None) when the block carries
+    no clip, the clip has no temporal index, or the position is
+    unmeasurable.
     """
     clip_id = str(block.get("clip_id", ""))
     if not clip_id:
@@ -61,8 +63,57 @@ def _block_subject_reading(block: dict, temporal_index: dict):
         return None, None
     reading = subject_center_reading(face_presence, source_in, source_out)
     if reading.position is None:
+        if reading.status == "centred":
+            return "centre", None
         return None, None
     return _side(reading.position), round(reading.position, 4)
+
+
+def direction_cell_for_cut(outgoing: dict, incoming: dict,
+                            outgoing_idx: dict, incoming_idx: dict) -> str:
+    """The screen-direction cell for one cut, as bridge context.
+
+    Pure measurement, no conclusion: a flip reads
+    `"left -> right (potential line cross)"`, a held side reads
+    `"left -> left"`, a centred subject on either side reads with
+    `"centre"` (centred is not a side, so never a flip), and an
+    unmeasurable position on either side reads `"unmeasured"` - the
+    absence of a measurement, never a held side.
+    """
+    outgoing_side, _ = _block_subject_reading(
+        outgoing, outgoing_idx or {})
+    incoming_side, _ = _block_subject_reading(
+        incoming, incoming_idx or {})
+    if outgoing_side is None or incoming_side is None:
+        return "unmeasured"
+    cell = f"{outgoing_side} -> {incoming_side}"
+    if (outgoing_side != incoming_side
+            and outgoing_side != "centre"
+            and incoming_side != "centre"):
+        cell += " (potential line cross)"
+    return cell
+
+
+def direction_cells_for_cuts(spine_blocks: list,
+                             temporal_indices: dict) -> dict:
+    """The screen-direction cell per cut, keyed by cut_point_position.
+
+    The same readings `find_screen_direction_issues` flags, rendered
+    for every boundary - not just the flips - so a planner sees held
+    sides and unmeasured cuts too, beside the cut it is choosing for.
+    Keys are `str(position)`; the end of the piece is not a cut and
+    gets no cell.
+    """
+    cells = {}
+    blocks = [b for b in spine_blocks or [] if isinstance(b, dict)]
+    for outgoing, incoming in zip(blocks, blocks[1:]):
+        outgoing_idx = (temporal_indices or {}).get(
+            str(outgoing.get("clip_id", "")), {})
+        incoming_idx = (temporal_indices or {}).get(
+            str(incoming.get("clip_id", "")), {})
+        cells[str(incoming.get("position"))] = direction_cell_for_cut(
+            outgoing, incoming, outgoing_idx, incoming_idx)
+    return cells
 
 
 def find_screen_direction_issues(spine_blocks: list,

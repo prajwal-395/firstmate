@@ -227,8 +227,9 @@ The `cuts_toon` table provides a summarized list of cut points with the followin
 - `outgoing_footage`: The mood and tags of the clip ending at the cut.
 - `incoming_footage`: The mood and tags of the clip starting at the cut.
 
-Six more columns are DERIVED, two from the spine, two from step 3.03's
-review, and two from the temporal motion measurement. Each says what
+Eight more columns are DERIVED: two from the spine, two from step
+3.03's review, two from the temporal motion measurement, one J/L-cut
+room, and one screen-direction reading. Each says what
 it measures; none of them says what to conclude.
 
 - `can_carry_drawn_transition`: Whether a DRAWN transition
@@ -274,6 +275,16 @@ it measures; none of them says what to conclude.
   `none` means the measurement found no room for a J/L cut here. The
   planner may choose to use a placement (at any offset up to the
   measured bound) or not; the measurement is context, not a decision.
+- `screen_direction`: **The measured screen direction** either side of
+  this cut - each side's subject position (`left`, `centre`, `right`),
+  read off the face tracks through the same reader the compile flags
+  line crosses from. A flip reads `left -> right (potential line
+  cross)`; a held side reads `left -> left`; `unmeasured` means a
+  position on either side could not be measured and is NOT a held
+  side. A flip is also what a shot/reverse-shot dialogue cut looks
+  like, so the cell concludes nothing: weigh it when choosing a
+  directional transition, and leave the intent question to the
+  reviewer. The measurement is context, not a decision.
 
 Use this data to decide which transitions to apply. Prefer placing major creative
 transitions on cuts with a nearby beat. Hard cuts don't need beat alignment.

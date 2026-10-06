@@ -389,7 +389,7 @@ CUTS_HEADERS = [
     "narrative_verdict", "verdict_note",
     "beat_near_cut", "outgoing_motion", "incoming_motion",
     "outgoing_footage", "incoming_footage",
-    "jl_placement",
+    "jl_placement", "screen_direction",
 ]
 
 
@@ -593,6 +593,33 @@ def test_the_fact_reaches_the_table_the_prompt_reads():
     assert "cuts_legend" not in out, (
         "the derived columns are defined in handoff.md; shipping the "
         "definition as data too is the duplication the fold removed")
+
+
+def test_screen_direction_column_reads_unmeasured_without_indices():
+    """The screen-direction cell degrades, never invents.
+
+    With no catalog paths the bridge loads no temporal index, so every
+    cut reads `unmeasured` - the absence of a measurement, not a held
+    side - and the end row (not a cut) reads empty.
+    """
+    out = _run_bridge({
+        "timed_spine": {"structure": SPINE_001},
+        "music_selection": {},
+        "music_analysis": {},
+        "semantic_analysis": {},
+        "clip_catalog": [],
+        "b_roll_assignments": [],
+    })
+    header = out["cuts_toon"].splitlines()[0]
+    assert header == "[16]{" + ",".join(CUTS_HEADERS) + "}"
+
+    rows = [line.split("\t") for line in out["cuts_toon"].splitlines()[1:]]
+    cells = {r[0]: r[13] for r in rows}
+    assert cells["end"] == ""
+    # Fifteen cuts, each unmeasured without indices on disk.
+    assert all(c == "unmeasured" for p, c in cells.items()
+               if p != "end"), cells
+    assert sum(1 for p in cells if p != "end") == 15
 
 
 def test_a_spine_with_no_cuts_yields_only_the_end_row():

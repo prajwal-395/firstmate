@@ -121,6 +121,46 @@ def main():
     for place in placements:
         placement_by_position[str(place.get("cut_point_position"))] = place
 
+    # Measured screen direction either side of each cut, read off the
+    # same subject-centre signal compile_manifest flags line crosses
+    # from (`library/tools/continuity.py`). A flip is also what a
+    # shot/reverse-shot dialogue cut looks like, so the cell states
+    # the measured sides and nothing else - whether a directional
+    # transition belongs across it is the planner's call. Computed
+    # here so the planner sees it beside the cut it is choosing for.
+    # Full per-clip indices, not the routed summaries: the summaries
+    # carry no face tracks. One corrupt index blanks its own clip,
+    # never the column.
+    from library.tools import continuity as _continuity
+
+    direction_indices = {}
+    try:
+        from pathlib import Path
+        from library.tools.analysis.vision_pipeline_v3 import (
+            load_temporal_index)
+        catalog_raw = data.get("clip_catalog", []) or []
+        if isinstance(catalog_raw, dict):
+            catalog_raw = list(catalog_raw.values())
+        for entry in catalog_raw:
+            if not isinstance(entry, dict) or not entry.get("clip_id"):
+                continue
+            clip_id = str(entry["clip_id"])
+            if clip_id in direction_indices or not entry.get("path"):
+                continue
+            try:
+                clip_path = entry["path"]
+                if not isinstance(clip_path, Path):
+                    clip_path = Path(str(clip_path))
+                index = load_temporal_index(clip_path)
+            except Exception:
+                continue
+            if index:
+                direction_indices[clip_id] = index
+    except Exception as exc:
+        print(f"  Screen direction load failed: {exc}", file=sys.stderr)
+    direction_by_position = _continuity.direction_cells_for_cuts(
+        spine_blocks, direction_indices)
+
     # Step 3.03 is asked to judge how each cut READS - Check 7 of its
     # handoff, "smooth | acceptable | jarring | broken" - and its answer
     # used to go nowhere: `cut_decisions` appeared once in the whole
@@ -212,6 +252,8 @@ def main():
                 f"incoming pause {place.get('incoming_leading_pause', 0):.3f}s)"
                 if place else "none"
             ),
+            "screen_direction": direction_by_position.get(
+                str(position), "unmeasured"),
         })
 
     # The end of the piece (rung 7, TR3.1): one row addressed "end",
@@ -243,7 +285,7 @@ def main():
             "incoming_footage": "nothing follows",
         })
 
-    cuts_toon = format_toon(["cut_point_position", "cut_time", "type", "can_carry_drawn_transition", "carry_basis", "narrative_verdict", "verdict_note", "beat_near_cut", "outgoing_motion", "incoming_motion", "outgoing_footage", "incoming_footage", "jl_placement"], cut_rows)
+    cuts_toon = format_toon(["cut_point_position", "cut_time", "type", "can_carry_drawn_transition", "carry_basis", "narrative_verdict", "verdict_note", "beat_near_cut", "outgoing_motion", "incoming_motion", "outgoing_footage", "incoming_footage", "jl_placement", "screen_direction"], cut_rows)
 
     # The four derived columns are DEFINED in this step's handoff.md
     # ("Context data available"), not shipped beside the table as data.
