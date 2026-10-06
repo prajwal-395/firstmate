@@ -18,6 +18,7 @@ Every fixture is built under ``tmp_path``; no test reaches a real
 project.  ffmpeg fixtures skip when ffmpeg is missing.
 """
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -190,3 +191,40 @@ def test_a_file_without_timecode_records_none(tmp_path):
     path = _cfr_mp4(tmp_path)
     md = catalog_step.extract_metadata(path)
     assert md["timecode_start"] is None
+
+
+# ── Duplicate footage ─────────────────────────────────────────────
+
+def test_identical_takes_under_different_names_are_grouped(tmp_path):
+    """A card copied to a backup, or one take imported twice under a
+    different name, is the same bytes.  On origin/main the catalog
+    recorded no duplicate groups, so two copies of one take competed
+    as two independent clips and the vision analysis was paid twice
+    for identical footage."""
+    first = _cfr_mp4(tmp_path)
+    second = tmp_path / "take_b.mp4"
+    shutil.copyfile(first, second)
+    third = _build(
+        tmp_path, "other.mp4",
+        "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=30:duration=2",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p")
+    result = catalog_step.catalog_footage([{
+        "path": first,
+        "filename": "take_a.mp4",
+        "extension": ".mp4",
+        "size_bytes": os.path.getsize(first),
+        "clip_id": "clip_001",
+    }, {
+        "path": str(second),
+        "filename": "take_b.mp4",
+        "extension": ".mp4",
+        "size_bytes": os.path.getsize(second),
+        "clip_id": "clip_002",
+    }, {
+        "path": third,
+        "filename": "other.mp4",
+        "extension": ".mp4",
+        "size_bytes": os.path.getsize(third),
+        "clip_id": "clip_003",
+    }])
+    assert result["duplicate_groups"] == [["clip_001", "clip_002"]]

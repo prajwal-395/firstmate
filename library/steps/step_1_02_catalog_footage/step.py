@@ -692,6 +692,38 @@ def parse_creation_time(ct_str: str | None) -> datetime | None:
     return None
 
 
+def detect_duplicate_groups(entries: list) -> list:
+    """Groups of clip ids whose files are the same recorded content.
+
+    Two files are the same take when their fingerprints agree - the
+    size plus the digest of the first and last mebibyte, the identity
+    `footage_identity.fingerprint` already gives the rest of the
+    pipeline.  A card copied to a backup, or the same take imported
+    twice under different names, is then ONE take the editor can
+    choose between, not two clips competing for the same moment - and
+    the vision analysis is not paid twice for identical bytes.
+
+    The fingerprint is the pipeline's identity standard, not a
+    whole-file hash: two mebibytes a clip cost milliseconds, and a
+    false positive (two different takes sharing a head and tail) is
+    not a camera-file outcome.  A file that cannot be read is simply
+    absent from the result, which reads as "no duplicate proven".
+    """
+    from library.tools.footage_identity import fingerprint
+    by_digest: dict = {}
+    for entry in entries:
+        path = entry.get("path") or entry.get("source_file")
+        if not path:
+            continue
+        try:
+            fp = fingerprint(path)
+        except OSError:
+            continue
+        key = (fp["size_bytes"], fp["content_digest"])
+        by_digest.setdefault(key, []).append(entry.get("clip_id"))
+    return [sorted(ids) for ids in by_digest.values() if len(ids) > 1]
+
+
 def catalog_footage(raw_footage_files: list, program_stream=None,
                     project_config: dict | None = None,
                     project_folder: str = "",
@@ -871,6 +903,15 @@ def catalog_footage(raw_footage_files: list, program_stream=None,
         program_stream=program_stream,
         measure_program_stream=measure_program_stream)
 
+    duplicate_groups = detect_duplicate_groups(entries)
+    if duplicate_groups:
+        print(
+            "REPORT: Duplicate footage - identical bytes, one take under "
+            "different names: "
+            + ", ".join("[" + ", ".join(g) + "]" for g in duplicate_groups),
+            file=sys.stderr,
+        )
+
     return {
         "clip_catalog": entries,
         "total_clips": len(entries),
@@ -878,6 +919,7 @@ def catalog_footage(raw_footage_files: list, program_stream=None,
         "project_fps": project_fps,
         "source_resolution": source_res,
         "audio_catalog": audio_catalog,
+        "duplicate_groups": duplicate_groups,
     }
 
 
