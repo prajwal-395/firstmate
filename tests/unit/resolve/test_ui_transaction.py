@@ -1146,3 +1146,164 @@ def test_wait_action_times_out(backend):
               "timeout_seconds": 0.2}
     with pytest.raises(job_kinds.JobRefused):
         ui_transaction._execute_action(FakeDriver(backend), action)
+
+
+# ── foreground: the announced screen take ─────────────────────────
+#
+# Background input never reaches Resolve's Qt widgets (measured), so a
+# Qt-only transaction takes the real screen - announced, budgeted, and
+# backed off where macOS refuses. These pin the take, not the collector
+# that will use it.
+
+
+class RecordingDriver(FakeDriver):
+    """FakeDriver that logs every call and can refuse the take."""
+
+    def __init__(self, backend, refuse_activate=None):
+        super().__init__(backend)
+        self.calls = []
+        self._refuse_activate = refuse_activate
+
+    def call(self, method, params=None):
+        self.calls.append((method, dict(params or {})))
+        if method == "activate_resolve" and self._refuse_activate is not None:
+            raise self._refuse_activate
+        return super().call(method, params)
+
+
+def _foreground_params(**over):
+    params = {
+        "project": "Scratch", "timeline": "Reel 07",
+        "foreground": {"reason": "IntelliSearch box is Qt-drawn"},
+        "actions": [{"action": "click", "target": {
+            "kind": "viewer_coordinate", "x": 100, "y": 100}}],
+    }
+    params.update(over)
+    return params
+
+
+def test_prepare_refuses_a_take_without_a_reason(backend):
+    """A take that says nothing is a silent takeover - refused before
+    anything is queued. On origin/main the key passes through
+    unvalidated, so this fails there."""
+    with pytest.raises(job_kinds.JobRefused):
+        job_kinds.prepare("resolve.ui_transaction",
+                          _foreground_params(
+                              foreground={"budget_seconds": 10}))
+
+
+def test_prepare_refuses_a_take_beyond_the_announced_window(backend):
+    with pytest.raises(job_kinds.JobRefused):
+        job_kinds.prepare("resolve.ui_transaction",
+                          _foreground_params(
+                              foreground={"reason": "Qt",
+                                          "budget_seconds": 61}))
+    shape = job_kinds.prepare(
+        "resolve.ui_transaction",
+        _foreground_params(
+            foreground={"reason": "Qt", "budget_seconds": 60}))
+    assert shape["executed"] is True
+
+
+def test_prepare_refuses_background_typing_at_coordinates(backend):
+    """Keys posted at a coordinate in the background never reach Qt
+    (measured) - only an announced take may type there."""
+    params = _foreground_params()
+    del params["foreground"]
+    params["actions"] = [{"action": "type", "target": {
+        "kind": "viewer_coordinate", "x": 100, "y": 100,
+        "text": "parking lot"}}]
+    with pytest.raises(job_kinds.JobRefused):
+        job_kinds.prepare("resolve.ui_transaction", params)
+    params["foreground"] = {"reason": "IntelliSearch box is Qt-drawn"}
+    shape = job_kinds.prepare("resolve.ui_transaction", params)
+    assert shape["executed"] is True
+
+
+def test_background_actions_carry_no_foreground_flag(
+        lock_dir, unguarded, backend):
+    """The flag must not leak into background transactions: a coord click
+    without a take posts background, and the receipt carries no take."""
+    driver = RecordingDriver(backend)
+    receipt = ui_transaction.run(
+        {"id": "bg-1", "params": {
+            "project": "Scratch", "timeline": "Reel 07",
+            "actions": [{"action": "click", "target": {
+                "kind": "viewer_coordinate", "x": 100, "y": 100}}]}},
+        backend, factory=lambda _backend: driver)
+    assert receipt["status"] == "committed"
+    assert receipt["take"] is None
+    clicks = [params for method, params in driver.calls
+              if method == "click"]
+    assert clicks and all("allow_foreground" not in params
+                          for params in clicks)
+    assert not [method for method, _ in driver.calls
+                if method == "activate_resolve"]
+
+
+def test_foreground_take_announces_and_flags_only_input(
+        lock_dir, unguarded, backend, monkeypatch):
+    """The take announces its reason, flags synthetic input for the
+    foreground, and leaves the AX menu-bar route background - press
+    reaches the menu bar without the screen, so it never carries the
+    flag."""
+    announced = []
+    monkeypatch.setattr(
+        ui_transaction, "announce_take",
+        lambda reason, budget: announced.append((reason, budget))
+        or f"ANNOUNCED:{reason}")
+    backend.get_ax_tree()["children"][0]["focused"] = True
+    driver = RecordingDriver(backend)
+    receipt = ui_transaction.run(
+        {"id": "fg-1", "params": {
+            "project": "Scratch", "timeline": "Reel 07",
+            "foreground": {"reason": "IntelliSearch box is Qt-drawn",
+                           "budget_seconds": 30},
+            "actions": [
+                {"action": "press", "target": {
+                    "kind": "accessibility_element", "role": "button",
+                    "label": "Color"}},
+                {"action": "type", "target": {
+                    "kind": "viewer_coordinate", "x": 100, "y": 100,
+                    "text": "parking lot"}},
+            ]}},
+        backend, factory=lambda _backend: driver)
+    assert receipt["status"] == "committed"
+    assert announced == [("IntelliSearch box is Qt-drawn", 30.0)]
+    assert [method for method, _ in driver.calls
+            ].count("activate_resolve") == 1
+    presses = [params for method, params in driver.calls
+               if method == "press"]
+    assert presses and all("allow_foreground" not in params
+                           for params in presses)
+    typed = [params for method, params in driver.calls
+             if method == "type_text"]
+    assert typed and all(params.get("allow_foreground") is True
+                         for params in typed)
+    take = receipt["take"]
+    assert take["budget_seconds"] == 30.0
+    assert take["announced"] == "ANNOUNCED:IntelliSearch box is Qt-drawn"
+    assert take["elapsed_seconds"] >= 0
+
+
+def test_locked_screen_backs_off_after_one_attempt(
+        lock_dir, unguarded, backend, monkeypatch):
+    """A refused take is one attempt and a refusal naming the back-off -
+    never a retry loop hammering a locked screen."""
+    from library.tools.computer_use.client import DriverError
+
+    monkeypatch.setattr(ui_transaction, "announce_take",
+                        lambda reason, budget: "announced")
+    driver = RecordingDriver(
+        backend,
+        refuse_activate=DriverError("SCREEN_LOCKED", "the screen is locked"))
+    with pytest.raises(job_kinds.JobRefused) as excinfo:
+        ui_transaction.run(
+            {"id": "fg-locked",
+             "params": _foreground_params()},
+            backend, factory=lambda _backend: driver)
+    assert "backing off" in str(excinfo.value)
+    assert [method for method, _ in driver.calls
+            ].count("activate_resolve") == 1
+    assert not [method for method, _ in driver.calls
+                if method in ("click", "type_text", "key")]

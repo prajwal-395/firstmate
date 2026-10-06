@@ -18,6 +18,8 @@ One transaction (the plan's `ResolveUITransaction`)::
       "actions": [ResolveUIAction, ...],  # sandbox-checked, run in order
       "verification": {...},              # API/readback, run after
       "restoration": {"page": true, "timeline": true, "playhead": true},
+      "foreground": {"reason": "...", "budget_seconds": 60},
+                                          # announced screen take, Qt only
       "review_dir": "..."                # where the receipt is filed
     }
 
@@ -58,6 +60,8 @@ of several.
 from __future__ import annotations
 
 import contextlib
+import subprocess
+import time
 from typing import Optional
 
 from library.tools.resolved.jobs import JobRefused
@@ -105,6 +109,13 @@ DEFAULT_RESTORATION = {"page": True, "timeline": True, "playhead": True}
 #: verification.
 VERIFICATION_KINDS = frozenset({"text_visible", "api_readback"})
 
+#: The announced foreground window in seconds. Source: the firstmate
+#: decision on the IntelliSearch lane, 2026-10-06 ("announced ~60s
+#: take"): a take holds the captain's screen for at most this long.
+#: A spec may name a SMALLER budget; a larger one is refused - a longer
+#: take needs a new announcement, not a quieter overrun.
+TAKE_SECONDS = 60
+
 #: The api_readback getters the runner can read off the resolve handle.
 _API_READBACKS = ("page", "playhead", "timeline")
 
@@ -138,7 +149,56 @@ def validate_spec(params: dict) -> dict:
             raise JobRefused(
                 f"restoration names unknown field(s) {sorted(unknown)}; "
                 f"one of {sorted(DEFAULT_RESTORATION)}")
+    foreground = params.get("foreground")
+    if foreground is not None:
+        _validate_foreground(foreground)
     return params
+
+
+def _validate_foreground(foreground) -> None:
+    """A screen take says why and for how long, or it does not run.
+
+    Background input never reaches Resolve's Qt widgets (measured), so
+    some transactions need the real screen - and a transaction that
+    takes it without saying why takes it silently. `reason` names the
+    need (it is announced); `budget_seconds` caps the take at the
+    announced window (`TAKE_SECONDS`).
+    """
+    if not isinstance(foreground, dict):
+        raise JobRefused("foreground must be an object")
+    if not str(foreground.get("reason") or "").strip():
+        raise JobRefused(
+            "a foreground take needs 'reason', what needs the real "
+            "screen - the take is announced, and an unannounced take "
+            "is refused before anything runs")
+    budget = foreground.get("budget_seconds", TAKE_SECONDS)
+    if (not isinstance(budget, (int, float))
+            or not (0 < float(budget) <= TAKE_SECONDS)):
+        raise JobRefused(
+            f"foreground budget_seconds must be within (0, "
+            f"{TAKE_SECONDS}] - a longer take needs a new "
+            f"announcement, not a quieter overrun")
+
+
+def announce_take(reason: str, budget_seconds: float) -> str:
+    """Tell the captain Ren is taking the screen. Best-effort, never raises.
+
+    A macOS notification names the need and the window; the text is
+    returned for the receipt. A notification that cannot fire (headless
+    runner, osascript missing) is not a failed take - the receipt still
+    records that the take was announced, and the take itself proceeds.
+    """
+    text = (f"Ren is taking the Resolve screen for up to "
+            f"{float(budget_seconds):.0f}s: {reason}")
+    try:
+        safe = str(reason).replace('"', "'")[:200]
+        subprocess.run(
+            ["osascript", "-e",
+             f'display notification "{safe}" with title "Ren"'],
+            capture_output=True, encoding="utf-8", timeout=5)
+    except Exception:                                   # noqa: BLE001
+        pass
+    return text
 
 
 def _validate_action(action, index: int, params: dict) -> None:
@@ -196,10 +256,16 @@ def _validate_action(action, index: int, params: dict) -> None:
             f"action {index}: an icon_anchor target needs 'image', "
             f"the template file to match")
     if kind != "accessibility_element" and name not in ("click", "double_click"):
-        raise JobRefused(
-            f"action {index}: {name!r} cannot act on a {kind} target - "
-            f"only click and double_click resolve anchors; "
-            f"press, choose and set_value act on accessibility_element")
+        foreground_ok = (name in ("type", "key")
+                         and isinstance(params.get("foreground"), dict))
+        if not foreground_ok:
+            raise JobRefused(
+                f"action {name!r} cannot act on a {kind} target - "
+                f"only click and double_click resolve anchors; "
+                f"press, choose and set_value act on accessibility_element; "
+                f"type and key reach a coordinate target only inside an "
+                f"announced foreground take (background keys never reach "
+                f"Qt)")
 
 
 def _validate_verification(verification) -> None:
@@ -421,13 +487,21 @@ def _resolve_element(driver, target: dict) -> str:
     return elements[0]["ref"]
 
 
-def _execute_action(driver, action: dict) -> None:
-    """Run one declared action through the driver - one driver call."""
+def _execute_action(driver, action: dict, foreground: bool = False) -> None:
+    """Run one declared action through the driver - one driver call.
+
+    `foreground` threads the announced take through: synthetic input
+    (click, drag, scroll, type, key) carries `allow_foreground`, the
+    AX element routes (press, choose, set_value, focus) never do - the
+    menu bar they reach works in the background, and a foreground flag
+    on an AX call is meaningless.
+    """
     from library.tools.computer_use.scripts import Anchor, resolve_anchor
 
     name = action["action"]
     target = action.get("target") or {}
     kind = target.get("kind")
+    on_screen = {"allow_foreground": True} if foreground else {}
     if name == "wait":
         _execute_wait(driver, action)
         return
@@ -459,7 +533,7 @@ def _execute_action(driver, action: dict) -> None:
                 f"{method!r}, not a point to click")
         if name == "double_click":
             params = {**params, "clicks": 2}
-        driver.call("click", params)
+        driver.call("click", {**params, **on_screen})
         return
     if name == "click":
         if kind == "accessibility_element":
@@ -467,32 +541,74 @@ def _execute_action(driver, action: dict) -> None:
                 "a click on an accessibility_element names no point - "
                 "press, choose, set_value or focus act on elements, "
                 "click acts on anchors and coordinates")
-        driver.call("click", {"x": float(target["x"]), "y": float(target["y"])})
+        driver.call("click", {"x": float(target["x"]),
+                              "y": float(target["y"]), **on_screen})
         return
     if name == "double_click":
         x, y = float(target["x"]), float(target["y"])
-        driver.call("click", {"x": x, "y": y, "clicks": 2})
+        driver.call("click", {"x": x, "y": y, "clicks": 2, **on_screen})
         return
     if name == "drag":
         driver.call("drag", {"start_x": float(target.get("x", 0)),
                              "start_y": float(target.get("y", 0)),
                              "end_x": float(target.get("to_x", 0)),
-                             "end_y": float(target.get("to_y", 0))})
+                             "end_y": float(target.get("to_y", 0)),
+                             **on_screen})
         return
     if name == "scroll":
         driver.call("scroll", {"x": float(target.get("x", 0)),
                                "y": float(target.get("y", 0)),
                                "delta_x": float(target.get("dx", 0)),
-                               "delta_y": float(target.get("dy", 0))})
+                               "delta_y": float(target.get("dy", 0)),
+                               **on_screen})
         return
     if name == "type":
-        driver.call("type_text", {"text": str(target.get("text") or "")})
+        driver.call("type_text", {"text": str(target.get("text") or ""),
+                                  **on_screen})
         return
     if name == "key":
         driver.call("key", {"key": str(target.get("key") or ""),
-                            "modifiers": list(target.get("modifiers") or ())})
+                            "modifiers": list(target.get("modifiers") or ()),
+                            **on_screen})
         return
     raise JobRefused(f"action {name!r} has no target route")
+
+
+def _take_foreground(driver, spec: dict):
+    """Announce and take the screen, or back off. Single attempt, no retry.
+
+    Returns the take record (`announced`, `budget_seconds`, `started`)
+    the receipt reads back, or None for a background transaction. A
+    refused take (locked screen, denied focus) is a `JobRefused` naming
+    the back-off: the captain's state is not a failure to hammer.
+    """
+    foreground = spec.get("foreground")
+    if foreground is None:
+        return None
+    budget = float(foreground.get("budget_seconds", TAKE_SECONDS))
+    announced = announce_take(str(foreground["reason"]), budget)
+    try:
+        driver.call("activate_resolve", {"allow_foreground": True})
+    except Exception as exc:                              # noqa: BLE001
+        raise JobRefused(
+            f"backing off: the screen take was refused "
+            f"({type(exc).__name__}: {exc}) - no retry") from exc
+    return {"announced": announced, "budget_seconds": budget,
+            "started": time.monotonic()}
+
+
+def _check_take_budget(take) -> None:
+    """End the take where it was announced to end.
+
+    The restore still runs - the receipt records a failed transaction
+    with the UI put back, not a transaction abandoned mid-screen.
+    """
+    if take is None:
+        return
+    if time.monotonic() - take["started"] > take["budget_seconds"]:
+        raise JobRefused(
+            f"take budget exceeded ({take['budget_seconds']:.0f}s) - "
+            f"the take ends where it was announced to end")
 
 
 def _target_to_anchor(target: dict):
@@ -634,10 +750,12 @@ def run(job: dict, resolve, project=None, factory=None) -> dict:
     verification: Optional[dict] = None
     error: Optional[str] = None
     purpose = f"ren-resolved resolve.ui_transaction {job['id']}"
+    take = _take_foreground(driver, spec)
     try:
         _establish(resolve, spec, purpose=purpose)
         for action in spec.get("actions", []):
-            _execute_action(driver, action)
+            _check_take_budget(take)
+            _execute_action(driver, action, foreground=take is not None)
             _check_expect(driver, action)
             executed.append(action.get("action"))
         verification = _run_verification(resolve, driver,
@@ -657,6 +775,13 @@ def run(job: dict, resolve, project=None, factory=None) -> dict:
     restored = restore_context(resolve, before, restoration,
                                purpose=purpose)
     after = snapshot_context(resolve, driver)
+    take_record = None
+    if take is not None:
+        take_record = {
+            "announced": take["announced"],
+            "budget_seconds": take["budget_seconds"],
+            "elapsed_seconds": round(time.monotonic() - take["started"], 3),
+        }
     receipt = {
         "operation": "resolve.ui_transaction",
         "provider": "resolve.ui",
@@ -668,6 +793,7 @@ def run(job: dict, resolve, project=None, factory=None) -> dict:
         "verification": verification,
         "restored": restored,
         "result": {"error": error} if error else {"committed": True},
+        "take": take_record,
     }
     _file_receipt(job, spec, receipt)
     return receipt
