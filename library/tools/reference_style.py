@@ -700,6 +700,106 @@ def measure_reference_music_sync(video_path: str) -> dict:
     }
 
 
+# ── The framing half ─────────────────────────────────────────────
+#
+# How the reference frames its subjects: how often a face is on
+# screen, where it sits horizontally, and how large it is.  Faces are
+# the subject signal (AGENTS.md 10.3) - the same shared Haar cascade
+# and the same detection parameters the subject probe reads the
+# project's own footage with, so a reference's framing compares
+# against the project's on the same terms.  No width band classifies
+# a shot as close or wide - the distribution IS the measurement.
+
+
+def _frame_subject(frame_path: str, cascade) -> tuple | None:
+    """The largest plausible face in one frame, or None.
+
+    Centre-x and width as fractions of the frame width, the same pair
+    `compute_face_presence` banks per sample.  The largest face wins,
+    and a face hard against the frame edge is refused as too likely a
+    false positive - both carried over from the subject probe rather
+    than re-decided here.
+    """
+    import cv2
+    from library.tools.subject_framing import (
+        MAX_PLAUSIBLE_CX,
+        MIN_PLAUSIBLE_CX,
+    )
+    image = cv2.imread(frame_path)
+    if image is None:
+        return None
+    height, width = image.shape[:2]
+    if width <= 0:
+        return None
+    grey = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    faces = cascade.detectMultiScale(grey, 1.1, 5)
+    if faces is None or len(faces) == 0:
+        return None
+    x, y, w, h = max(faces, key=lambda f: int(f[2]) * int(f[3]))
+    cx = (int(x) + int(w) / 2.0) / width
+    if not (MIN_PLAUSIBLE_CX <= cx <= MAX_PLAUSIBLE_CX):
+        return None
+    return (round(cx, 4), round(int(w) / float(width), 4))
+
+
+def measure_reference_framing(video_path: str) -> dict:
+    """The framing half of the Style Representation, as one dict.
+
+    One frame per shot, read by the shared face cascade: the share of
+    frames carrying a face, the median horizontal placement, and the
+    median face width with its range.  A reference that never shows a
+    face is presence 0.0 - a measured absence of talking heads, never
+    a failure.  An environment whose OpenCV carries no cascade cannot
+    measure at all, and says so.
+    """
+    from library.tools.subject_framing import load_face_cascade
+    measured = measure_shot_boundaries(video_path)
+    duration = measured["duration_seconds"]
+    times = _reference_frame_times(measured["boundaries"], duration)
+    frames = _extract_frames(video_path, times)
+    try:
+        cascade = load_face_cascade()
+        if cascade is None:
+            return {
+                "source": video_path,
+                "faces_measurable": False,
+                "reason": "no face cascade in this OpenCV",
+                "sampled_frames": len(frames),
+            }
+        subjects = []
+        for path in frames:
+            try:
+                reading = _frame_subject(path, cascade)
+            except Exception:  # noqa: BLE001
+                reading = None
+            if reading is not None:
+                subjects.append(reading)
+        if not subjects:
+            return {
+                "source": video_path,
+                "faces_measurable": True,
+                "face_presence": 0.0,
+                "faces": 0,
+                "sampled_frames": len(frames),
+            }
+        centres = sorted(s[0] for s in subjects)
+        widths = sorted(s[1] for s in subjects)
+        return {
+            "source": video_path,
+            "faces_measurable": True,
+            "face_presence": round(len(subjects) / len(frames), 4)
+            if frames else 0.0,
+            "faces": len(subjects),
+            "sampled_frames": len(frames),
+            "median_center_x": round(statistics.median(centres), 4),
+            "median_face_width": round(statistics.median(widths), 4),
+            "min_face_width": widths[0],
+            "max_face_width": widths[-1],
+        }
+    finally:
+        _drop_frames(frames)
+
+
 # ── The graphics half ──────────────────────────────────────────────
 #
 # The palette and the contrast are measured from the reference's
@@ -893,11 +993,12 @@ def measure_reference_style(video_path: str) -> dict:
     graphics half (palette, contrast), the text half (captions, type),
     the camera-movement half (motion-energy distribution), the
     graphic-density half (per-frame element counts) and the music-sync
-    half (cut-to-beat alignment).  CONTENT is never read: the
-    reference's words, faces and subject are its own; only how it
-    looks, how it is cut, how its text is set, how much motion it
-    carries, how densely its frames are filled and whether its cuts
-    land on its beats are measured.
+    half (cut-to-beat alignment) and the framing half (face presence,
+    placement and scale).  CONTENT is never read: the reference's
+    words, faces and subject are its own; only how it looks, how it
+    is cut, how its text is set, how much motion it carries, how
+    densely its frames are filled, whether its cuts land on its beats
+    and how it frames the people in it are measured.
     """
     editorial = measure_reference_editorial_style(video_path)
     graphical = measure_reference_graphical_style(video_path)
@@ -905,6 +1006,7 @@ def measure_reference_style(video_path: str) -> dict:
     camera = measure_reference_camera_movement(video_path)
     density = measure_reference_graphic_density(video_path)
     sync = measure_reference_music_sync(video_path)
+    framing = measure_reference_framing(video_path)
     return {
         "source": video_path,
         "duration_seconds": editorial["duration_seconds"],
@@ -918,6 +1020,7 @@ def measure_reference_style(video_path: str) -> dict:
         "camera_movement": camera,
         "graphic_density": density,
         "music_sync": sync,
+        "framing": framing,
     }
 
 

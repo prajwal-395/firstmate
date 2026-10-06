@@ -851,3 +851,92 @@ def test_an_encoded_reference_cut_on_its_clicks_measures_full_sync(
     assert sync["on_beat_share"] == 1.0
     assert sync["bpm"] == pytest.approx(120.0, abs=5.0)
     assert sync["median_abs_offset_seconds"] < 0.1
+
+
+# ── The framing half ────────────────────────────────────────────────
+
+def test_framing_without_a_cascade_says_so(monkeypatch, tmp_path):
+    """No detector is an inability, not an empty audience.
+
+    The failure it pins: a None cascade reported as presence 0.0 would
+    read as "this reference never shows a face" - a style judgement
+    about footage that was never looked at.
+    """
+    import library.tools.subject_framing as subject_framing
+    monkeypatch.setattr(RS, "measure_shot_boundaries",
+                        lambda path: _boundaries_at(1.0, 2.0))
+    monkeypatch.setattr(RS, "_extract_frames", lambda *a: [])
+    monkeypatch.setattr(subject_framing, "load_face_cascade",
+                        lambda: None)
+    framing = RS.measure_reference_framing(str(tmp_path / "ref.mp4"))
+    assert framing["faces_measurable"] is False
+    assert "cascade" in framing["reason"]
+
+
+def test_framing_counts_only_frames_with_faces(monkeypatch, tmp_path):
+    """Faceless frames are absent from the placement, not centred.
+
+    The failure it pins: defaulting a faceless frame to centre 0.5
+    would drag the median placement to the middle - the direction
+    would read "subjects centred" for a reference whose subjects all
+    stand off to one side.
+    """
+    monkeypatch.setattr(RS, "measure_shot_boundaries",
+                        lambda path: _boundaries_at(1.0, 2.0))
+    monkeypatch.setattr(RS, "_extract_frames",
+                        lambda *a: ["a.jpg", "b.jpg", "c.jpg"])
+    readings = iter([(0.3, 0.2), None, (0.7, 0.4)])
+    monkeypatch.setattr(RS, "_frame_subject",
+                        lambda path, cascade: next(readings))
+    import library.tools.subject_framing as subject_framing
+    monkeypatch.setattr(subject_framing, "load_face_cascade",
+                        lambda: object())
+    framing = RS.measure_reference_framing(str(tmp_path / "ref.mp4"))
+    assert framing["faces_measurable"] is True
+    assert framing["faces"] == 2
+    assert framing["face_presence"] == pytest.approx(2 / 3, abs=0.001)
+    assert framing["median_center_x"] == pytest.approx(0.5)
+    assert framing["median_face_width"] == pytest.approx(0.3)
+
+
+def test_the_largest_face_wins_not_the_first(tmp_path):
+    """The measurement follows the speaker, not the passer-by.
+
+    The failure it pins: keeping the first detection would frame the
+    reference's subjects wherever the smallest face happened to sit -
+    the placement distribution would describe background extras.
+    """
+    from types import SimpleNamespace
+    from PIL import Image
+    frame = tmp_path / "frame.png"
+    Image.new("RGB", (100, 100), (128, 128, 128)).save(str(frame))
+    cascade = SimpleNamespace(
+        detectMultiScale=lambda *a: [[10, 10, 20, 20],
+                                     [60, 10, 40, 40]])
+    assert RS._frame_subject(str(frame), cascade) == (0.8, 0.4)
+
+
+@pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg/ffprobe not available")
+def test_an_encoded_reference_without_faces_measures_zero_presence(
+        tmp_path):
+    """The framing half on real encoded frames, end to end.
+
+    This test encodes media because presence is a fact about the
+    reference's actual frames - a measurement fed stubbed detections
+    cannot prove the frames are extracted and read.  A solid-colour
+    video carries no face: presence 0.0, measurably.
+    """
+    from PIL import Image
+    image = Image.new("RGB", (320, 240), (128, 128, 128))
+    frame = tmp_path / "frame.png"
+    image.save(str(frame))
+    video = tmp_path / "reference.mp4"
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-loop", "1", "-i", str(frame),
+         "-t", "2", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+         str(video)],
+        check=True, capture_output=True, text=True, encoding="utf-8")
+    framing = RS.measure_reference_framing(str(video))
+    assert framing["faces_measurable"] is True
+    assert framing["face_presence"] == 0.0
+    assert framing["sampled_frames"] >= 1
