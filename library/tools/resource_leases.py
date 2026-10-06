@@ -597,6 +597,79 @@ def _conflict(lease: ResourceLease, declaration: LeaseDeclaration) -> Optional[s
     return lease.declaration.conflicts_with(declaration)
 
 
+#: Leases THIS process holds, for same-thread reentrancy. A nested
+#: declaration in the same thread that the outer lease already covers
+#: is granted without a conflict check - the way `resolve_lease` is
+#: reentrant within a process. Without it a touch-up that triggers a
+#: timeline build on the same timeline refuses itself: the outer
+#: touch-up holds WRITE on the timeline and the inner build asks the
+#: same, and the disk check sees the outer lease as a blocker.
+#: Entries are `(thread_ident, lease)`: another thread in this process
+#: is a different contender and still waits on the disk state, which
+#: is what keeps `test_a_waiter_proceeds_once_the_holder_releases`
+#: (threads) blocking while nested (same-thread) work proceeds.
+_held_leases: list = []
+
+_MODE_RANK: Dict[str, int] = {READ: 0, WRITE: 1, EXCLUSIVE: 2}
+
+
+def _held_modes(lease: ResourceLease) -> Dict[ResourceRef, str]:
+    """The modes in which one lease holds each resource."""
+    modes: Dict[ResourceRef, str] = {}
+    for mode in MODES:
+        for ref in getattr(lease.declaration, mode):
+            modes[ref] = mode
+    return modes
+
+
+def _covered_by_held(declaration: LeaseDeclaration, owner: str) -> bool:
+    """True where this thread already holds a lease covering every
+    resource the new declaration names, in a mode equal or stricter,
+    for the same owner.
+
+    A held EXCLUSIVE covers a requested WRITE or READ on the same
+    resource; a held WRITE covers a requested READ. A resource the
+    outer lease does not hold at all is NOT covered - the nested
+    request must still contend for it on disk against other holders.
+    A held READ does not cover a requested WRITE: upgrading mid-section
+    would silently exclude the readers the outer lease admitted, so
+    the nested write contends (and refuses on its own outer lease -
+    a caller bug, widen the outer declaration). A held lease whose
+    heartbeat went stale covers nothing: the outer section already lost
+    its declaration, so the nested request contends on disk like anyone
+    and the holder learns the expiry instead of silently re-entering.
+    """
+    ident = threading.get_ident()
+    now = time.time()
+    for mode in MODES:
+        for ref in getattr(declaration, mode):
+            needed = _MODE_RANK[mode]
+            covered = False
+            for held_ident, held in _held_leases:
+                if held_ident != ident or held.owner != owner:
+                    continue
+                if held.is_expired(now=now):
+                    continue
+                held_mode = _held_modes(held).get(ref)
+                if held_mode is not None and _MODE_RANK[held_mode] >= needed:
+                    covered = True
+                    break
+            if not covered:
+                return False
+    return True
+
+
+def _track_held(record: ResourceLease) -> None:
+    _held_leases.append((threading.get_ident(), record))
+
+
+def _untrack_held(record: ResourceLease) -> None:
+    for index in range(len(_held_leases) - 1, -1, -1):
+        if _held_leases[index][1] is record:
+            del _held_leases[index]
+            return
+
+
 class _Heartbeat:
     """A holder's background heartbeat, so a live lease never expires.
 
@@ -644,10 +717,14 @@ class ResourceLeaseHandle:
 
     record: ResourceLease
     _heartbeat: Optional[_Heartbeat] = field(default=None, repr=False)
+    _reentrant: bool = field(default=False, repr=False)
     project: str = ""
 
     def heartbeat(self) -> None:
         """Say "I am still here", or raise where the lease is gone.
+
+        A reentrant (nested, memory-only) handle is kept alive by its
+        outer lease's heartbeat, so heartbeating it is a no-op.
 
         Re-reads the file under the flock and updates THIS lease's
         heartbeat in place. A lease that expired while the holder was
@@ -656,6 +733,8 @@ class ResourceLeaseHandle:
         declaration that came back to life after expiring would let two
         holders believe they are alone.
         """
+        if self._reentrant:
+            return
         with _leases_file(exclusive=True):
             leases = _read_leases()
             for index, lease in enumerate(leases):
@@ -686,6 +765,9 @@ class ResourceLeaseHandle:
         if self._heartbeat is not None:
             self._heartbeat.stop()
             self._heartbeat = None
+        _untrack_held(self.record)
+        if self._reentrant:
+            return
         with _leases_file(exclusive=True):
             leases = _read_leases()
             remaining = [lease for lease in leases
@@ -734,6 +816,13 @@ def resource_lease(declaration: LeaseDeclaration, purpose: str,
     Raises `ResourceLeaseBusy` naming the conflicting holder and
     resource where the wait ran out, and `ResourceLeaseExpired` from
     the heartbeat where this lease was evicted mid-section.
+
+    Reentrant in the same thread: a nested declaration the outer lease
+    already covers (same owner, same resources, mode equal or
+    stricter) is granted memory-only, the way `resolve_lease` nests -
+    so a touch-up holding a timeline may build that same timeline
+    without refusing itself. The nested handle writes nothing to disk;
+    the outer lease's heartbeat keeps the declaration alive.
     """
     if not isinstance(declaration, LeaseDeclaration):
         raise TypeError(
@@ -750,6 +839,20 @@ def resource_lease(declaration: LeaseDeclaration, purpose: str,
     resolved_timeout = (resolve_lock.default_timeout() if timeout is None
                         else float(timeout))
     owner_name = owner or default_owner()
+    if _covered_by_held(declaration, owner_name):
+        record = ResourceLease(
+            owner=owner_name, purpose=purpose,
+            pid=os.getpid(), host=socket.gethostname(),
+            since=time.time(), heartbeat=time.time(),
+            heartbeat_interval=interval,
+            declaration=declaration)
+        _track_held(record)
+        try:
+            yield ResourceLeaseHandle(record=record, _reentrant=True,
+                                      project=project)
+        finally:
+            _untrack_held(record)
+        return
     acquired: Optional[ResourceLease] = None
     try:
         deadline = time.time() + resolved_timeout
@@ -774,6 +877,7 @@ def resource_lease(declaration: LeaseDeclaration, purpose: str,
                         declaration=declaration)
                     _write_leases([*live, record])
                     acquired = record
+                    _track_held(record)
                     _emit(project, event_log.LEASE_ACQUIRED,
                           task=purpose, owner=owner_name,
                           pid=record.pid, host=record.host,
@@ -808,6 +912,7 @@ def resource_lease(declaration: LeaseDeclaration, purpose: str,
             handle.release()
     except BaseException:
         if acquired is not None:
+            _untrack_held(acquired)
             with _leases_file(exclusive=True):
                 leases = _read_leases()
                 remaining = [lease for lease in leases

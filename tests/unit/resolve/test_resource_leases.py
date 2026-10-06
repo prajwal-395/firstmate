@@ -279,15 +279,29 @@ def test_a_conflicting_lease_refuses_by_name(lock_dir):
     Defect caught: a refusal that names only "busy" cannot be acted
     on - the waiter cannot tell which resource to re-plan around or
     which holder to wait for.
+
+    The waiter runs in another thread: a nested request in the SAME
+    thread is the holder re-entering its own lease (granted), while a
+    contender - another thread, another process - is refused.
     """
     holder_decl = LeaseDeclaration(write=frozenset({ResourceRef("clip", "A004_C013")}))
     with resource_lease(holder_decl, "the holder", heartbeat_interval=30.0):
         waiter_decl = LeaseDeclaration(write=frozenset({ResourceRef("clip", "A004_C013")}))
-        with pytest.raises(ResourceLeaseBusy) as raised:
-            with resource_lease(waiter_decl, "the waiter", wait=False,
-                               heartbeat_interval=30.0):
-                pass
-        message = str(raised.value)
+        errors: list = []
+
+        def contend():
+            try:
+                with resource_lease(waiter_decl, "the waiter", wait=False,
+                                   heartbeat_interval=30.0):
+                    pass
+            except ResourceLeaseBusy as exc:  # noqa: BLE001 - the refusal under test
+                errors.append(exc)
+
+        thread = threading.Thread(target=contend)
+        thread.start()
+        thread.join(10.0)
+        assert errors, "the waiter ran beside its blocker"
+        message = str(errors[0])
         assert "A004_C013" in message
         assert "the holder" in message
 
@@ -323,16 +337,29 @@ def test_a_waiter_that_gives_up_names_the_holder(lock_dir):
 
     Defect caught: a refusal that says only "timed out" forces the
     captain to go and find the holder himself.
+
+    The waiter runs in another thread - same-thread nesting is the
+    holder re-entering, not a contender giving up.
     """
     holder_decl = LeaseDeclaration(write=frozenset({ResourceRef("clip", "A004_C013")}))
     with resource_lease(holder_decl, "the holder", heartbeat_interval=30.0):
         waiter_decl = LeaseDeclaration(write=frozenset({ResourceRef("clip", "A004_C013")}))
-        with pytest.raises(ResourceLeaseBusy) as raised:
-            with resource_lease(waiter_decl, "the waiter", wait=True,
-                               timeout=0.5, heartbeat_interval=30.0):
-                pass
-        assert "the holder" in str(raised.value)
-        assert "A004_C013" in str(raised.value)
+        errors: list = []
+
+        def contend():
+            try:
+                with resource_lease(waiter_decl, "the waiter", wait=True,
+                                   timeout=0.5, heartbeat_interval=30.0):
+                    pass
+            except ResourceLeaseBusy as exc:  # noqa: BLE001 - the refusal under test
+                errors.append(exc)
+
+        thread = threading.Thread(target=contend)
+        thread.start()
+        thread.join(10.0)
+        assert errors, "the waiter ran beside its blocker"
+        assert "the holder" in str(errors[0])
+        assert "A004_C013" in str(errors[0])
 
 
 # ── The heartbeat expiry ─────────────────────────────────────────────
@@ -359,6 +386,9 @@ def test_a_stale_holders_heartbeat_raises_rather_than_resurrecting(lock_dir):
     Defect caught: a heartbeat that re-writes its own record after
     expiry lets two holders believe they are alone - the exact
     double-holder the layer exists to prevent.
+
+    The second holder runs in another thread: same-thread nesting is
+    the first holder re-entering, which must NOT evict it.
     """
     decl = LeaseDeclaration(write=frozenset({ResourceRef("clip", "A004_C013")}))
     with resource_lease(decl, "the first holder", heartbeat_interval=0.2,
@@ -367,10 +397,16 @@ def test_a_stale_holders_heartbeat_raises_rather_than_resurrecting(lock_dir):
         # Stop heartbeating and let the lease go stale.
         time.sleep(0.5)
         # A second holder evicts the stale lease and takes the resource.
-        with resource_lease(decl, "the second holder", wait=False,
-                           heartbeat_interval=30.0):
-            with pytest.raises(ResourceLeaseExpired):
-                first.heartbeat()
+        def take_over():
+            with resource_lease(decl, "the second holder", wait=False,
+                               heartbeat_interval=30.0):
+                pass
+
+        thread = threading.Thread(target=take_over)
+        thread.start()
+        thread.join(10.0)
+        with pytest.raises(ResourceLeaseExpired):
+            first.heartbeat()
 
 
 def test_a_heartbeat_keeps_a_live_lease_from_expiring(lock_dir):
@@ -378,6 +414,9 @@ def test_a_heartbeat_keeps_a_live_lease_from_expiring(lock_dir):
 
     Defect caught: a lease that expires while its holder is alive and
     working evicts a task mid-section, and the next write is unguarded.
+
+    The late waiter runs in another thread - same-thread nesting is
+    the live holder re-entering, not a new contender.
     """
     decl = LeaseDeclaration(write=frozenset({ResourceRef("clip", "A004_C013")}))
     with resource_lease(decl, "a live holder", heartbeat_interval=0.3,
@@ -386,10 +425,20 @@ def test_a_heartbeat_keeps_a_live_lease_from_expiring(lock_dir):
             time.sleep(0.15)
             handle.heartbeat()
         # Still the holder: a second holder is refused.
-        with pytest.raises(ResourceLeaseBusy):
-            with resource_lease(decl, "a late waiter", wait=False,
-                               heartbeat_interval=30.0):
-                pass
+        errors: list = []
+
+        def contend():
+            try:
+                with resource_lease(decl, "a late waiter", wait=False,
+                                   heartbeat_interval=30.0):
+                    pass
+            except ResourceLeaseBusy:  # noqa: BLE001 - the refusal under test
+                errors.append(True)
+
+        thread = threading.Thread(target=contend)
+        thread.start()
+        thread.join(10.0)
+        assert errors, "a waiter ran beside a live holder"
 
 
 # ── The declaration's own refusals ───────────────────────────────────
@@ -561,3 +610,85 @@ def test_an_expired_lease_emits_an_expiry_event(lock_dir, project):
     from library.tools import event_log
     events = event_log.read_events(str(project))
     assert event_log.LEASE_EXPIRED in [e["type"] for e in events]
+
+
+# ── Same-thread reentrancy: a touch-up that builds its own timeline ──
+
+def _timeline_write(name):
+    return LeaseDeclaration(
+        write=frozenset({ResourceRef("timeline", name)}),
+        exclusive=frozenset({ResourceRef("timeline", name)}),
+    )
+
+
+def test_a_nested_lease_on_the_covered_timeline_is_granted(lock_dir):
+    """A touch-up that builds its own timeline does not refuse itself.
+
+    Defect caught: without same-thread reentrancy the outer touch-up
+    holds WRITE on the timeline and the inner build asks the same, so
+    the disk check sees the outer lease as a blocker and the build
+    refuses (or waits out its timeout) on its own caller. On
+    origin/main this raises `ResourceLeaseBusy` naming the outer
+    purpose.
+    """
+    outer = _timeline_write("Reel 03")
+    with resource_lease(outer, "touch up Reel 03", heartbeat_interval=30.0):
+        assert len(resource_leases._read_leases()) == 1
+        with resource_lease(outer, "build timeline Reel 03", wait=False,
+                           heartbeat_interval=30.0) as inner:
+            inner.heartbeat()
+            # The nested lease adds no disk entry: the outer lease is
+            # the declaration, and it still stands alone.
+            assert len(resource_leases._read_leases()) == 1
+        assert len(resource_leases._read_leases()) == 1
+    assert "none stand" in status()
+
+
+def test_a_nested_read_inside_a_held_write_is_granted(lock_dir):
+    """A held WRITE covers a nested READ on the same resource.
+
+    Defect caught: a rank-blind reentrancy check grants only the
+    identical mode set, so a build step that re-reads the timeline it
+    is writing refuses itself.
+    """
+    outer = _timeline_write("Reel 03")
+    reader = LeaseDeclaration(read=frozenset({ResourceRef("timeline", "Reel 03")}))
+    with resource_lease(outer, "touch up Reel 03", heartbeat_interval=30.0):
+        with resource_lease(reader, "reread Reel 03", wait=False,
+                           heartbeat_interval=30.0):
+            pass
+
+
+def test_a_nested_write_inside_a_held_read_still_contends(lock_dir):
+    """Upgrading READ to WRITE mid-section is refused, not silently granted.
+
+    Defect caught: a reentrancy check that ignores mode rank lets a
+    nested WRITE silently exclude the readers the outer READ admitted.
+    The nested write must contend - and here it meets its own outer
+    lease, which names the widening the caller should have declared
+    outside.
+    """
+    reader = LeaseDeclaration(read=frozenset({ResourceRef("timeline", "Reel 03")}))
+    with resource_lease(reader, "read Reel 03", heartbeat_interval=30.0):
+        with pytest.raises(ResourceLeaseBusy) as raised:
+            with resource_lease(_timeline_write("Reel 03"), "rewrite Reel 03",
+                               wait=False, heartbeat_interval=30.0):
+                pass
+        assert "read Reel 03" in str(raised.value)
+
+
+def test_a_nested_lease_for_an_undeclared_resource_still_uses_disk(lock_dir):
+    """A nested request outside the outer lease contends on disk like anyone.
+
+    Defect caught: a reentrancy check that grants every nested request
+    lets a touch-up silently take a second timeline no other agent can
+    see. The uncovered request must land on disk beside the outer
+    lease, and leave with it.
+    """
+    with resource_lease(_timeline_write("Reel 03"), "touch up Reel 03",
+                       heartbeat_interval=30.0):
+        with resource_lease(_timeline_write("Reel 04"), "touch up Reel 04",
+                           wait=False, heartbeat_interval=30.0):
+            assert len(resource_leases._read_leases()) == 2
+        assert len(resource_leases._read_leases()) == 1
+    assert "none stand" in status()
