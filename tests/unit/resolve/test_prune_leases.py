@@ -6,12 +6,14 @@ one, a relink re-pointing one - collides with it. Every test names a
 defect it catches - a case that fails on origin/main, where the prune
 takes no lease.
 """
+import json
 import threading
 import time
+from pathlib import Path
 
 import pytest
 
-from library.tools.execution.prune_orphans import remove_pool_items
+from library.tools.execution.prune_orphans import delete_files, remove_pool_items
 from library.tools.orphan_removal import DELETE, Removal
 from library.tools.resource_leases import (
     LeaseDeclaration,
@@ -103,3 +105,62 @@ def test_a_prune_waits_for_a_swap_on_the_same_pool_file(
         "the prune returned mid-swap"
     assert _pool_names(project) == []
     assert len(journal["removed"]) == 1
+
+
+def _journal(tmp_path):
+    path = str(tmp_path / "journal.json")
+    Path(path).write_text(json.dumps({"removed": []}), encoding="utf-8")
+    return path
+
+
+def test_file_deletion_unlinks_and_records(lock_dir, tmp_path):
+    """The wired path still deletes: files go, the journal records them.
+
+    Defect caught: a lease wrapped around the wrong section turns the
+    file half of the sweep into a refusal, and orphaned files
+    accumulate on disk.
+    """
+    first = tmp_path / "a.mov"
+    second = tmp_path / "b.mov"
+    first.write_bytes(b"a" * 8)
+    second.write_bytes(b"b" * 4)
+    record = delete_files([str(first), str(second)], set(),
+                          _journal(tmp_path))
+    assert record["deleted"] == [str(first), str(second)]
+    assert record["bytes_freed"] == 12
+    assert not first.exists() and not second.exists()
+
+
+def test_file_deletion_waits_for_a_swap_on_the_same_path(
+        lock_dir, tmp_path):
+    """An unlink and a replace on one path serialise: deletion waits.
+
+    Defect caught: with no declaration the file half unlinks a file a
+    swap is re-pointing at mid-pass - the swap resurrects a path that
+    is gone. On origin/main deletion returns before the holder
+    releases.
+    """
+    target = tmp_path / "a.mov"
+    target.write_bytes(b"a" * 8)
+    swap = LeaseDeclaration(
+        write=frozenset({ResourceRef("clip", str(target))}),
+    )
+    released_at: list = []
+
+    def replace():
+        with resource_lease(swap, "swap the pool file",
+                           heartbeat_interval=30.0):
+            time.sleep(2.0)
+        released_at.append(time.monotonic())
+
+    holder = threading.Thread(target=replace)
+    holder.start()
+    time.sleep(0.3)  # let the swap acquire first
+    record = delete_files([str(target)], set(), _journal(tmp_path))
+    returned_at = time.monotonic()
+    holder.join(30.0)
+    assert released_at, "the swap never released"
+    assert returned_at >= released_at[0], \
+        "deletion returned mid-swap"
+    assert record["deleted"] == [str(target)]
+    assert not target.exists()

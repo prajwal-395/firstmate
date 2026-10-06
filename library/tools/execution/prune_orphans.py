@@ -495,18 +495,29 @@ def delete_files(paths: list[str], referenced: set[str],
     against the union of both instruments.  A file that has become
     referenced since stops the whole run rather than being skipped
     quietly.
+
+    The unlinks declare the files EXCLUSIVE by path - the spelling the
+    item-removal pass used for the pool items behind them - before the
+    first unlink. A swap re-pointing at a file this pass unlinks
+    serialises against it instead of resurrecting a path that is gone.
     """
-    deleted, freed, absent = [], 0, []
-    for path in paths:
-        assert_file_unreferenced(path, referenced)
-        try:
-            size = os.path.getsize(path)
-        except OSError:
-            absent.append(path)
-            continue
-        os.remove(path)
-        deleted.append(path)
-        freed += size
+    with resource_lease(
+        LeaseDeclaration(
+            exclusive=frozenset({ResourceRef("clip", path) for path in paths}),
+        ),
+        purpose=f"delete {len(paths)} orphaned file(s)",
+    ):
+        deleted, freed, absent = [], 0, []
+        for path in paths:
+            assert_file_unreferenced(path, referenced)
+            try:
+                size = os.path.getsize(path)
+            except OSError:
+                absent.append(path)
+                continue
+            os.remove(path)
+            deleted.append(path)
+            freed += size
     record = {
         "deleted_at": datetime.now(timezone.utc).isoformat(),
         "deleted": deleted,
