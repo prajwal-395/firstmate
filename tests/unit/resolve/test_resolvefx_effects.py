@@ -346,6 +346,71 @@ class TestRegistryLoads:
                 assert len(entry.resolve_versions) > 0
 
 
+class TestResolveExact:
+    """Apply-by-search resolves the ONE named effect, never a near-miss.
+
+    The recipe applies whatever this returns, so a fuzzy top hit is
+    the defect: ``find_by_intent("blur")`` ranks every blur equally
+    and returns registry order, which can hand the recipe Lens Blur
+    for a request that named Blur. These pin the exact half failing
+    on origin/main (no exact resolution exists there).
+    """
+
+    def _entry(self, entry_id: str, name: str) -> EffectEntry:
+        return EffectEntry(
+            id=entry_id,
+            name=name,
+            category="blur",
+            application="ui",
+            installed=True,
+            installed_evidence="Fusion.GetRegSummary(0) read back",
+            installed_resolve_versions=["21.1"],
+            intent_words=[w for w in name.lower().split() if len(w) > 2],
+        )
+
+    def test_exact_name_resolves_despite_case_and_spacing(self):
+        entries = [self._entry("gaussian_blur", "Gaussian Blur")]
+        assert resolvefx_effects.resolve_exact(
+            "  GAUSSIAN   blur ", entries).id == "gaussian_blur"
+
+    def test_unknown_name_is_refused_not_guessed(self):
+        entries = [self._entry("gaussian_blur", "Gaussian Blur")]
+        with pytest.raises(resolvefx_effects.UnknownEffect) as exc:
+            resolvefx_effects.resolve_exact("Bloom", entries)
+        assert "Bloom" in str(exc.value)
+
+    def test_empty_name_is_refused(self):
+        entries = [self._entry("gaussian_blur", "Gaussian Blur")]
+        with pytest.raises(resolvefx_effects.UnknownEffect):
+            resolvefx_effects.resolve_exact("   ", entries)
+
+    def test_shared_name_is_refused_with_both_ids(self):
+        entries = [
+            self._entry("gaussian_blur", "Gaussian Blur"),
+            self._entry("gaussian_blur_vendor", "Gaussian  Blur"),
+        ]
+        with pytest.raises(resolvefx_effects.AmbiguousEffect) as exc:
+            resolvefx_effects.resolve_exact("gaussian blur", entries)
+        assert "gaussian_blur" in str(exc.value)
+        assert "gaussian_blur_vendor" in str(exc.value)
+
+    def test_exact_query_sorts_its_entry_first(self):
+        entries = [
+            self._entry("lens_blur", "Lens Blur"),
+            self._entry("blur", "Blur"),
+        ]
+        ranked = resolvefx_effects.find_by_intent("blur", entries)
+        assert [e.id for e in ranked] == ["blur", "lens_blur"]
+
+    def test_non_exact_query_keeps_scored_order(self):
+        entries = [
+            self._entry("gaussian_blur", "Gaussian Blur"),
+            self._entry("lens_blur", "Lens Blur"),
+        ]
+        ranked = resolvefx_effects.find_by_intent("blur", entries)
+        assert [e.id for e in ranked] == ["gaussian_blur", "lens_blur"]
+
+
 class TestInstalledCache:
     """The per-machine installed cache: one format, version-keyed.
 

@@ -31,6 +31,12 @@ resolve_versions each was observed on.
 The planner calls :func:`find_by_intent` with intent words (e.g. "blur",
 "transition", "mask") and gets back matching entries with their
 application method, parameters, and verification status.
+
+Apply-by-search resolves through :func:`resolve_exact` instead: the
+Effects Library route applies ONE named effect, so a fuzzy lookup
+returning a near-miss first would apply the wrong effect. An exact
+query that names nothing installed, or names more than one entry, is
+refused rather than guessed at.
 """
 
 from __future__ import annotations
@@ -128,6 +134,29 @@ def _api_method_for(name: str) -> Optional[str]:
 
 class EffectsCacheUnavailable(RuntimeError):
     """The installed effects cache is missing and could not be built."""
+
+
+class UnknownEffect(RuntimeError):
+    """No installed effect has the requested name - refused, not guessed."""
+
+
+class AmbiguousEffect(RuntimeError):
+    """More than one installed effect shares the requested name.
+
+    The same effect name ships in more than one bundle (OFX vendors
+    reuse names), so the recipe cannot pick one - the caller names
+    which entry it meant.
+    """
+
+
+def _normalize_name(name: str) -> str:
+    """One effect name for comparison: case-insensitive, internal
+    whitespace collapsed.
+
+    ``"  Gaussian  BLUR "`` and ``"gaussian blur"`` name the same
+    effect; ``"Gaussian Blur"`` and ``"Lens Blur"`` do not.
+    """
+    return " ".join(str(name).split()).casefold()
 
 
 def _fetch_registry_summary() -> dict:
@@ -287,6 +316,10 @@ def find_by_intent(
     description. Returns entries sorted by relevance (most matches first).
     An empty query returns all entries.
 
+    An exact-name query sorts its entry first: the scored order leaves
+    equal scorers in registry order, so without this an apply step
+    taking the top hit could apply whichever near-miss loaded first.
+
     A query that matches nothing refreshes the cache once per process
     and retries, so a newly installed plugin is picked up by the lookup
     that is looking for it.
@@ -306,7 +339,49 @@ def find_by_intent(
         _miss_refresh_done = True
         entries = load_registry(refresh=True)
         scored = _score_entries(entries, query_tokens)
-    return [entry for _, entry in scored]
+    ranked = [entry for _, entry in scored]
+    want = _normalize_name(query)
+    exact = [entry for entry in ranked
+             if _normalize_name(entry.name) == want]
+    if exact:
+        rest = [entry for entry in ranked
+                if all(entry is not hit for hit in exact)]
+        return exact + rest
+    return ranked
+
+
+def resolve_exact(
+    name: str,
+    entries: Optional[List[EffectEntry]] = None,
+) -> EffectEntry:
+    """Resolve one effect by its exact name as Resolve shows it.
+
+    The apply half of apply-by-search: the recipe applies the entry
+    this returns, so a near-miss is a refusal, never a guess. An empty
+    name, a name nothing installed carries, or a name more than one
+    installed entry shares raises - the caller (or the captain)
+    disambiguates.
+    """
+    if entries is None:
+        entries = load_registry()
+
+    want = _normalize_name(name)
+    if not want:
+        raise UnknownEffect(
+            "no effect name was given - name the effect as Resolve "
+            "shows it in the Effects Library")
+    matches = [entry for entry in entries
+               if _normalize_name(entry.name) == want]
+    if not matches:
+        raise UnknownEffect(
+            f"no installed effect is named {name!r} - search the "
+            "installed list before applying")
+    if len(matches) > 1:
+        ids = ", ".join(entry.id for entry in matches)
+        raise AmbiguousEffect(
+            f"{len(matches)} installed effects are named {name!r} "
+            f"({ids}) - name the entry id instead")
+    return matches[0]
 
 
 def get_by_id(
