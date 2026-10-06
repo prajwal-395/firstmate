@@ -97,6 +97,34 @@ INDEX_SUBDIR = os.path.join("pipeline_output", "scratch", "footage_index")
 SEGMENTS_FILE = "footage_index.json"
 EMBEDDINGS_FILE = "footage_embeddings.npy"
 
+# EmbeddingGemma 2 as a TEXT encoder (unified-search lane).  The full
+# checkpoint serves text through sentence-transformers >= 6.1; a
+# modular text-only load and quantised builds are a later slice's
+# measurement, not this one's.  Dimension: MRL-256 - the first scout
+# re-ran its text query set at truncate_dim=256 and kept the identical
+# top-1 (cos 0.9396), and the model card holds 256 keeps ~95% of
+# image/video/speech retrieval.  128 is deliberately NOT offered: the
+# card drops multimodal retrieval to ~75% there.
+EG2_TEXT_MODEL = "google/embeddinggemma-2"
+EG2_TEXT_BACKEND = "embeddinggemma-2-text"
+EG2_TEXT_DIM = 256
+# Task prefixes are REQUIRED for quality (model card).  Resolved
+# against the checkpoint's own prompts dict at load time - the Scout
+# runs used SearchQuery/Document, the RAG docs use
+# Retrieval-query/Retrieval-document - and the winners are recorded in
+# the backend string, because a silent prompt change moves every score.
+EG2_TEXT_QUERY_PROMPTS = ("SearchQuery", "Retrieval-query")
+EG2_TEXT_DOC_PROMPTS = ("Document", "Retrieval-document")
+
+# `build --embedder` choices.  MiniLM stays the default; an EG2 index
+# records its own model name so the query path loads the same encoder
+# that wrote the matrix (768/384-d vectors never meet).
+TEXT_EMBEDDERS = ("minilm", "embeddinggemma-2")
+TEXT_EMBEDDER_MODELS = {
+    "minilm": EMBED_MODEL,
+    "embeddinggemma-2": EG2_TEXT_MODEL,
+}
+
 # Weight on the dense half of a hybrid score.  Both halves are normalised
 # to 0..1 over the candidate set first, so this is a straight blend.
 HYBRID_DENSE_WEIGHT = 0.6
@@ -307,6 +335,81 @@ def load_embedder():
                       f"{type(exc).__name__}: {exc})")
 
 
+def _st_version_ok(version: str) -> bool:
+    """Whether a sentence-transformers version carries EG2 support (>= 6.1)."""
+    try:
+        parts = []
+        for piece in str(version).split("."):
+            digits = "".join(ch for ch in piece if ch.isdigit())
+            parts.append(int(digits) if digits else 0)
+        return tuple(parts[:3]) >= (6, 1, 0)
+    except Exception:  # noqa: BLE001 - unparsable version never gates in
+        return False
+
+
+def load_eg2_text_embedder():
+    """Return ``(encode_fn, backend_name)`` or ``(None, reason)``.
+
+    Text through EmbeddingGemma 2: the full `google/embeddinggemma-2`
+    checkpoint served by sentence-transformers >= 6.1, truncated to
+    `EG2_TEXT_DIM` per call and L2-normalised here (normalising after
+    the truncation, per the model card).  Documents encode with the
+    checkpoint's document prompt, queries with its query prompt; the
+    chosen names travel in the backend string.
+
+    `encode` takes ``is_query``: ``encode(texts)`` embeds documents
+    (index builds), ``encode(texts, is_query=True)`` embeds a query.
+    Mixing the two silently - a query prefix on a document or none on
+    a query - moves scores without moving any floor, so the flag is
+    keyword-only and defaults to documents.
+
+    Refusals, not fallbacks: below 6.1, without the checkpoint, or
+    without torchvision (which the processor import requires even for
+    text-only input), the caller gets the reason and the index builds
+    lexical-only, the same degradation as a missing MiniLM.
+    """
+    try:
+        import sentence_transformers
+        from sentence_transformers import SentenceTransformer
+    except Exception as exc:  # noqa: BLE001 - absent dependency
+        return None, (f"no EmbeddingGemma embedder: sentence-transformers "
+                      f"unavailable ({type(exc).__name__}: {exc})")
+    version = getattr(sentence_transformers, "__version__", "unknown")
+    if not _st_version_ok(version):
+        return None, (f"no EmbeddingGemma embedder: sentence-transformers "
+                      f"{version} < 6.1.0, which is the first release with "
+                      f"EmbeddingGemma 2 support")
+    try:
+        model = SentenceTransformer(EG2_TEXT_MODEL)
+    except Exception as exc:  # noqa: BLE001 - download or load failure
+        return None, (f"no EmbeddingGemma embedder: could not load "
+                      f"{EG2_TEXT_MODEL} ({type(exc).__name__}: {exc})")
+    available = dict(getattr(model, "prompts", {}) or {})
+    query_prompt = next((p for p in EG2_TEXT_QUERY_PROMPTS if p in available), None)
+    doc_prompt = next((p for p in EG2_TEXT_DOC_PROMPTS if p in available), None)
+
+    def encode(texts, *, is_query=False):
+        prompt = query_prompt if is_query else doc_prompt
+        raw = model.encode(list(texts), prompt_name=prompt,
+                           normalize_embeddings=False,
+                           truncate_dim=EG2_TEXT_DIM,
+                           show_progress_bar=False)
+        mat = np.asarray(raw, dtype="float32")
+        if mat.size == 0:
+            return np.zeros((0, EG2_TEXT_DIM), dtype="float32")
+        # The contract is 256-d even when a backend ignores the kwarg:
+        # Matryoshka orders information front-first, so the prefix is
+        # the truncation. Normalising stays here, after the cut.
+        mat = mat[:, :EG2_TEXT_DIM]
+        norms = np.linalg.norm(mat, axis=1, keepdims=True)
+        norms[norms == 0] = 1.0
+        return (mat / norms).astype("float32")
+
+    backend = (f"{EG2_TEXT_BACKEND}+q:{query_prompt or '-'}"
+               f"_d:{doc_prompt or '-'}")
+    return encode, backend
+
+
 # ─── Lexical scoring ──────────────────────────────────────────────
 
 
@@ -458,12 +561,21 @@ def ocr_texts_for_project(project_folder) -> tuple:
     return texts_by_clip, methods
 
 
-def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=False) -> dict:
+def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=False,
+                embedder="minilm") -> dict:
     """Cut, embed and store the index.  Returns build statistics.
 
     Reads the project's ingest output; writes ONLY into `index_dir`,
-    which defaults to the project's scratch area.
+    which defaults to the project's scratch area.  `embedder` selects
+    the text encoder (`TEXT_EMBEDDERS`); the query path loads the same
+    one back from the recorded model name, so an index built with
+    EmbeddingGemma 2 is never queried with MiniLM vectors.
     """
+    if embedder not in TEXT_EMBEDDER_MODELS:
+        raise RenRefusal(
+            f"unknown text embedder {embedder!r}",
+            "the footage index is built with a named text encoder",
+            f"use one of {', '.join(TEXT_EMBEDDERS)}")
     started = time.perf_counter()
     target = Path(index_dir) if index_dir else index_dir_for(project_folder)
     target.mkdir(parents=True, exist_ok=True)
@@ -472,7 +584,11 @@ def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=Fal
     segments = build_segments(project_folder, kinds=kinds)
     segment_seconds = time.perf_counter() - t0
 
-    encode, backend = load_embedder()
+    model_name = TEXT_EMBEDDER_MODELS[embedder]
+    if embedder == "embeddinggemma-2":
+        encode, backend = load_eg2_text_embedder()
+    else:
+        encode, backend = load_embedder()
     embed_seconds, dimension = 0.0, 0
     if encode is not None and segments:
         t0 = time.perf_counter()
@@ -491,7 +607,7 @@ def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=Fal
 
     payload = {
         "project_folder": str(project_folder),
-        "embed_model": EMBED_MODEL if dimension else None,
+        "embed_model": model_name if dimension else None,
         "embed_backend": backend if dimension else None,
         "embed_dimension": dimension,
         "segment_count": len(segments),
@@ -591,11 +707,20 @@ class FootageIndex:
             self._bm25 = _BM25([s["text"] for s in self.segments])
         return self._bm25
 
+    def _wants_eg2(self) -> bool:
+        """Whether this index's matrix was written by EmbeddingGemma 2."""
+        return "embeddinggemma" in (self.payload.get("embed_model") or "").lower()
+
     def _encode_query(self, query: str):
         if self._embedder is None:
-            self._embedder, self._embed_backend = load_embedder()
+            if self._wants_eg2():
+                self._embedder, self._embed_backend = load_eg2_text_embedder()
+            else:
+                self._embedder, self._embed_backend = load_embedder()
         if self._embedder is None:
             return None
+        if self._wants_eg2():
+            return self._embedder([query], is_query=True)[0]
         return self._embedder([query])[0]
 
     def warm(self) -> dict:
@@ -609,7 +734,10 @@ class FootageIndex:
         thing to hide behind lexical results.
         """
         if self._embedder is None:
-            self._embedder, self._embed_backend = load_embedder()
+            if self._wants_eg2():
+                self._embedder, self._embed_backend = load_eg2_text_embedder()
+            else:
+                self._embedder, self._embed_backend = load_embedder()
         return {"ready": self._embedder is not None,
                 "backend": self._embed_backend or "not loaded"}
 
@@ -679,8 +807,13 @@ class FootageIndex:
             matrix = self.matrix
             if matrix is not None and len(matrix) == len(self.segments):
                 vector = self._encode_query(query)
-                if vector is not None:
+                if vector is not None and vector.shape[-1] == matrix.shape[1]:
                     dense = matrix @ vector
+                # A query vector whose width is not the matrix's - a
+                # MiniLM query against an EmbeddingGemma matrix, or the
+                # reverse - is not evidence for anything.  Dense stays
+                # None and the caller degrades to lexical saying so,
+                # instead of crashing in the matmul or scoring garbage.
 
         if mode == "dense":
             if dense is None:
@@ -1937,6 +2070,11 @@ def main(argv=None):
     p_build.add_argument("project")
     p_build.add_argument("--index-dir", help="Where to write (default: <project>/pipeline_output/scratch/footage_index)")
     p_build.add_argument("--kinds", nargs="+", choices=list(SEGMENT_KINDS), default=list(SEGMENT_KINDS))
+    p_build.add_argument("--embedder", choices=list(TEXT_EMBEDDERS), default="minilm",
+                         help="text encoder: minilm (default, 384-d) or "
+                              "embeddinggemma-2 (768-d truncated to 256, "
+                              "needs sentence-transformers>=6.1; refuses "
+                              "otherwise and builds lexical-only)")
     p_build.add_argument("--frames", action="store_true",
                          help="Also sample the clips to stills and embed them with CLIP "
                               "(objects/people/scenes; writes beside the text index)")
@@ -2099,7 +2237,8 @@ def main(argv=None):
         return 0
 
     if args.command == "build":
-        stats = build_index(args.project, index_dir=args.index_dir, kinds=tuple(args.kinds))
+        stats = build_index(args.project, index_dir=args.index_dir, kinds=tuple(args.kinds),
+                            embedder=args.embedder)
         print(json.dumps(stats, indent=2))
         if args.frames:
             from library.tools.analysis import footage_frames
