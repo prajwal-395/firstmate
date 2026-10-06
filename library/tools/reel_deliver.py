@@ -401,9 +401,10 @@ def render_file_name(timeline_name: str, naming: str, ext: str) -> str:
 
 
 def verify_deliverable(video_path: str, expected_seconds: float,
-                       expected_width: int, expected_height: int) -> dict:
+                       expected_width: int, expected_height: int,
+                       expected_codec: str = "") -> dict:
     """`render_qa`'s verdict on one delivered file: duration, resolution,
-    audio present, and not black.
+    audio present, not black, and - when named - the encoded codec.
 
     This wires the existing checker in rather than writing a second
     one: `verify_duration`, `verify_resolution`, `verify_audio_streams`
@@ -413,6 +414,14 @@ def verify_deliverable(video_path: str, expected_seconds: float,
     `opens_on_black`, an observation rather than a pass, so the
     TV-switch-on reel does not fail a correct file (see the module
     docstring).
+
+    `expected_codec` is the delivery spec's codec (capability 18: the
+    declaration was already checked, this checks the FILE - a render
+    that encoded the wrong codec ships wrong even when the preset
+    declared right). Empty means unchecked. Comparison is
+    case-insensitive (`h264` is `H264`); a file with no measurable
+    video stream is skipped rather than flagged, the same policy
+    `_disk_resolution` applies.
     """
     from library.tools import render_qa
 
@@ -429,6 +438,7 @@ def verify_deliverable(video_path: str, expected_seconds: float,
         expected_height=expected_height)
     audio = render_qa.verify_audio_streams(video_path)
     black = render_qa.detect_black_frames(video_path)
+    codec = _verify_file_codec(video_path, expected_codec)
 
     segments = list(black.value or []) if black.value else []
     black_seconds = sum(float(s.get("duration", 0.0)) for s in segments
@@ -450,13 +460,53 @@ def verify_deliverable(video_path: str, expected_seconds: float,
         "resolution": _result_record(resolution),
         "audio": _result_record(audio),
         "black": _result_record(black),
+        "codec": codec,
         "black_segments": segments,
         "opens_on_black": opens_on_black,
         "content_present": content_present,
         "passed": bool(duration.passed and resolution.passed
-                       and audio.passed and content_present),
+                       and audio.passed and content_present
+                       and codec["passed"]),
     }
     return verdict
+
+
+def _verify_file_codec(video_path: str, expected_codec: str) -> dict:
+    """The file's measured codec against the spec's, as a verdict record.
+
+    Read through `pool_stream_meta.disk_stream` - the one comparison
+    the reel build's staleness check uses too, so the two cannot
+    disagree about what the file carries. Empty expectation means
+    unchecked (passes); an unmeasurable file is skipped rather than
+    flagged.
+    """
+    record = {
+        "metric": "codec",
+        "passed": True,
+        "value": None,
+        "threshold": expected_codec or None,
+        "severity": "info",
+        "detail": "no codec expected - not checked",
+    }
+    if not (expected_codec or "").strip():
+        return record
+    from library.tools import pool_stream_meta
+    measured = (pool_stream_meta.disk_stream(video_path).get("codec")
+                or "")
+    record["value"] = measured or None
+    if not measured.strip():
+        record["detail"] = (
+            "no video stream to compare - skipped rather than flagged")
+        return record
+    if measured.strip().lower() != expected_codec.strip().lower():
+        record["passed"] = False
+        record["severity"] = "error"
+        record["detail"] = (
+            f"file carries {measured!r}, spec expects "
+            f"{expected_codec.strip()!r}")
+    else:
+        record["detail"] = f"file carries {measured.strip()!r} as expected"
+    return record
 
 
 def _result_record(result) -> dict:
@@ -768,9 +818,13 @@ def deliver_reel(project_folder: str, reel: Optional[int],
         report, final_path,
         target_lufs=delivery_spec.loudness_target_lufs,
         true_peak_ceiling=delivery_spec.true_peak_ceiling_dbtp)
+    # Positional: fakes of verify_deliverable in the suite take
+    # (*args), so a keyword here would break every one of them; the
+    # parameter stays keyword-capable for direct callers.
     verdict = verify_deliverable(
         report["output_path"], expected_seconds,
-        settings["width"], settings["height"])
+        settings["width"], settings["height"],
+        delivery_spec.codec)
 
     full = {
         "timeline_name": timeline_name,
@@ -792,6 +846,7 @@ def deliver_reel(project_folder: str, reel: Optional[int],
             f"duration={verdict['duration']['passed']}, "
             f"resolution={verdict['resolution']['passed']}, "
             f"audio={verdict['audio']['passed']}, "
+            f"codec={verdict['codec']['passed']}, "
             f"content_present={verdict['content_present']}. "
             f"Report: {sidecar}",
             "read the sidecar report for the failing check, fix the "
