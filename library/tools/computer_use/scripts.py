@@ -175,7 +175,10 @@ def resolve_anchor(client: DriverClient, anchor: Anchor) -> tuple[str, dict] | N
         x, y = anchor.params.get("x"), anchor.params.get("y")
         if x is None or y is None:
             return None
-        return ("click", {"x": x, "y": y})
+        params: dict = {"x": x, "y": y}
+        if anchor.params.get("clicks") is not None:
+            params["clicks"] = anchor.params["clicks"]
+        return ("click", params)
     if anchor.via == "template":
         return _resolve_template(client, anchor)
     if anchor.via == "offset":
@@ -390,12 +393,15 @@ def _drive(client: DriverClient, action) -> None:
 def _record_learned_anchor(step: ScriptStep, action) -> None:
     """Record the anchor the LLM's action actually resolved.
 
-    A `press` teaches the AX path; a `click` teaches the position. An
-    action with no deterministic anchor (key, type, drag, scroll, wait)
-    teaches nothing - recording a fake position would make the next run
-    click the screen origin.
+    A `press` or `choose` teaches the AX path; a `click` teaches the
+    position, a `double_click` the position with both clicks. A
+    `set_value` teaches nothing - the anchor layer has no value write,
+    and teaching its path as an AX press would open the control instead
+    of setting it. An action with no deterministic anchor (key, type,
+    drag, scroll, wait) teaches nothing - recording a fake position
+    would make the next run click the screen origin.
     """
-    if action.kind == "press":
+    if action.kind in ("press", "choose"):
         step.anchors.append(
             Anchor(via="ax_path", params={"path": list(action.params["path"])})
         )
@@ -406,6 +412,18 @@ def _record_learned_anchor(step: ScriptStep, action) -> None:
                 params={
                     "x": action.params["x"],
                     "y": action.params["y"],
+                    "why": "llm",
+                },
+            )
+        )
+    elif action.kind == "double_click":
+        step.anchors.append(
+            Anchor(
+                via="position",
+                params={
+                    "x": action.params["x"],
+                    "y": action.params["y"],
+                    "clicks": 2,
                     "why": "llm",
                 },
             )

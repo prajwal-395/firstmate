@@ -267,6 +267,88 @@ def test_the_learned_anchor_for_a_press_records_the_ax_path(client: DriverClient
     assert learned.params["path"] == ["Workspace", "Switch to Page", "Media"]
 
 
+def test_a_choose_teaches_the_ax_path_like_a_press(client: DriverClient):
+    """A choose resolves through find_element then press, so it teaches
+    the AX path - the choice intent already lives in the step's action.
+    A choose that taught nothing would ask the LLM again on every run
+    of a verified route."""
+    script = Script(
+        goal="choose a menu that is not there",
+        steps=[
+            ScriptStep(
+                action="choose",
+                anchors=[Anchor(via="ax_path", params={"path": ["No", "Such", "Menu"]})],
+            ),
+        ],
+    )
+
+    def llm(obs, step):
+        return {"action": "choose", "path": ["Workspace", "Switch to Page", "Media"]}
+
+    result = run_script(client, script, llm=llm)
+    assert result.outcome == "done"
+    assert len(script.steps[0].anchors) == 2
+    learned = script.steps[0].anchors[1]
+    assert learned.via == "ax_path"
+    assert learned.params["path"] == ["Workspace", "Switch to Page", "Media"]
+
+
+def test_a_double_click_teaches_the_position_with_both_clicks(
+    client: DriverClient,
+):
+    """A double_click teaches position with clicks=2, and the position
+    anchor forwards it to the driver. A taught double_click replayed as
+    a single click would select instead of opening - the count is the
+    action, not a detail."""
+    script = Script(
+        goal="double-click a label that is not there",
+        steps=[
+            ScriptStep(
+                action="double_click",
+                anchors=[Anchor(via="ocr", params={"text": "Not On Screen"})],
+            ),
+        ],
+    )
+
+    def llm(obs, step):
+        return {"action": "double_click", "x": 100.0, "y": 200.0}
+
+    result = run_script(client, script, llm=llm)
+    assert result.outcome == "done"
+    learned = script.steps[0].anchors[1]
+    assert learned.via == "position"
+    assert learned.params["clicks"] == 2
+    assert resolve_anchor(client, learned) == (
+        "click", {"x": 100.0, "y": 200.0, "clicks": 2})
+
+
+def test_a_set_value_teaches_no_anchor(client: DriverClient):
+    """A set_value has no anchor to teach: the anchor layer resolves
+    paths to presses, and a taught press on a field would open its
+    menu instead of setting it. The rescue still commits - only the
+    teaching is refused."""
+    script = Script(
+        goal="set a field that is not there",
+        steps=[
+            ScriptStep(
+                action="set_value",
+                anchors=[Anchor(via="ax_path", params={"path": ["No", "Such", "Menu"]})],
+            ),
+        ],
+    )
+
+    def llm(obs, step):
+        return {
+            "action": "set_value",
+            "path": ["Workspace", "Switch to Page", "Media"],
+            "value": "Person",
+        }
+
+    result = run_script(client, script, llm=llm)
+    assert result.outcome == "done"
+    assert len(script.steps[0].anchors) == 1
+
+
 def test_pixels_changed_verification_diffs_captures(client: DriverClient):
     """`pixels_changed` diffs the capture before the action against the
     capture after - a step that changes nothing fails verification."""
