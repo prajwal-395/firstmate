@@ -389,8 +389,34 @@ def import_recorded(project, recorder: PlacementRecorder, name: str,
             pool.SetCurrentFolder(dest)
             record_duration(recorder.profile, "import_setup_s", started)
             started = time.perf_counter()
+            # Source clips already in the pool are REUSED, not
+            # re-imported: `importSourceClips: True` files a new item
+            # at the pool ROOT for every referenced file whenever
+            # Resolve's cache does not recognise the pooled item -
+            # even one the project already holds in its Source footage
+            # bin - so the reel's timeline binds a different media id
+            # than the captain's master plays. Measured 2026-10-06,
+            # after a relaunch: the 6-reel rebuild added LC4932.MXF and
+            # LCATL0013.MXF to the pool ROOT beside their Source
+            # footage items, and every later build bound the ROOT copy.
+            # So the import asks for no source clips at all, and the
+            # renders the import would have filed at the ROOT are
+            # imported separately into their own bins instead.
+            from library.tools.reel_build import pool_item_for
+            unpooled = [spec.path for spec in recorder.specs
+                        if pool_item_for(pool, spec.path) is None]
+            if unpooled:
+                from library.tools.reel_build import import_pool_item
+                for render in unpooled:
+                    if import_pool_item(
+                            pool, render,
+                            recorder.bins.get(render)) is None:
+                        raise OtioPlacementRefused(
+                            f"{name}: Resolve would not import the render "
+                            f"{render!r}")
             timeline = pool.ImportTimelineFromFile(
-                path, {"timelineName": name, "importSourceClips": True})
+                path, {"timelineName": name,
+                       "importSourceClips": False})
         finally:
             if before is not None:
                 pool.SetCurrentFolder(before)
@@ -436,13 +462,20 @@ def import_recorded(project, recorder: PlacementRecorder, name: str,
     record_duration(recorder.profile, "placement_restore_readback_s", started)
 
     # The renders: into the bin each belongs in, with their clip
-    # attributes. New pool items land in the CURRENT folder, which was
-    # the timeline's bin during the import.
+    # attributes. The import files every new pool item into the ROOT
+    # bin (measured: "It filed the 35 overlay renders, plus the
+    # imported timeline's own pool entry, into the ROOT bin"), never
+    # the CURRENT folder - so the restore searches every bin, not just
+    # the timeline's.
     started = time.perf_counter()
     by_path: dict = {}
-    for item in dest.GetClipList() or ():
-        by_path.setdefault(item.GetClipProperty("File Path") or "",
-                           []).append(item)
+    folders = [pool.GetRootFolder()]
+    while folders:
+        folder = folders.pop()
+        for item in folder.GetClipList() or ():
+            by_path.setdefault(item.GetClipProperty("File Path") or "",
+                               []).append(item)
+        folders.extend(folder.GetSubFolderList() or ())
     by_bin: dict = {}
     for render, bin_path in recorder.bins.items():
         for item in by_path.get(render, ()):

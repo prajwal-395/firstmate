@@ -9,6 +9,7 @@ import - which nothing in Resolve would report.
 """
 
 import json
+import os
 import shutil
 import subprocess
 import time
@@ -232,3 +233,48 @@ def test_what_the_import_cannot_carry_refuses_by_name(media, tmp_path):
             project, _Moment(), [], [], FPS, 1080, 1920,
             str(tmp_path / "project"), {"segments": []},
             overlay_placements=[_Element()], placement_mode="otio")
+
+
+def test_source_clips_already_pooled_are_not_duplicated(media, tmp_path):
+    """A source clip already in the pool is reused, not re-imported.
+
+    The defect: the OTIO import (importSourceClips) created a second
+    pool item for a source clip the project already held, filing the
+    new item into the pool ROOT. The reel's timeline then bound the
+    ROOT copy - a different media id than the captain's master plays -
+    so an in-place edit on the master's item could not carry.
+    """
+    from library.tools.reel_build import pool_items_for
+
+    project = make_project(width=1080, height=1920, frame_rate=FPS)
+    pool = project.GetMediaPool()
+    pool.next_timeline = FakeTimeline()
+    footage = [media["speakerone"], media["speakertwo"]]
+    pool.media_properties = {p: {"FPS": "23.976", "Resolution": "32x32"}
+                             for p in footage}
+    # Pool the footage into a bin, as the master build files it - NOT
+    # into the pool root, which is where the defect filed the duplicate.
+    root = pool.GetRootFolder()
+    source_bin = pool.AddSubFolder(root, "Source footage")
+    before = pool.GetCurrentFolder()
+    pool.SetCurrentFolder(source_bin)
+    pool.ImportMedia(footage)
+    pool.SetCurrentFolder(before)
+    clips = [
+        _clip(media, "video", 1, "SpeakerOne", "SpeakerOne", "speakerone", 0, 10),
+        _clip(media, "video", 2, "SpeakerTwo", "SpeakerTwo", "speakertwo", 10, 20),
+        _clip(media, "audio", 1, "SpeakerOne CH1", "SpeakerOne", "speakerone", 0, 10),
+        _clip(media, "audio", 2, "SpeakerTwo CH1", "SpeakerTwo", "speakertwo", 10, 20),
+    ]
+    build_reel_timeline(
+        project, _Moment(), clips, [], FPS, 1080, 1920,
+        str(tmp_path / "project"), {"segments": []},
+        program_channels={"1": 1, "2": 1}, placement_mode="otio")
+    for path in footage:
+        items = pool_items_for(pool, path)
+        assert len(items) == 1, (
+            f"{os.path.basename(path)} holds {len(items)} pool items "
+            f"after the OTIO import - the import duplicated an "
+            f"already-pooled source clip")
+        assert items[0] in source_bin.GetClipList(), (
+            f"{os.path.basename(path)} is not in the 'Source footage' bin")

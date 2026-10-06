@@ -560,10 +560,25 @@ class FakeMediaPool:
         Measured on Resolve 21.1, 2026-10-02
         (`docs/OTIO_COMPILATION_MEASURED.md`): rows are numbered per kind
         in document order and NAMED from the document; a source frame
-        counts from the media's start timecode (`available_range`); a
-        file already pooled is reused and a new one is pooled into the
-        CURRENT folder; the program channel (`Channels`) and the
-        Transform (Pan/Tilt as fractions of the frame) are carried.
+        counts from the media's start timecode (`available_range`); the
+        program channel (`Channels`) and the Transform (Pan/Tilt as
+        fractions of the frame) are carried.
+
+        What a referenced file does to the pool depends on
+        `importSourceClips`, and the two regimes are both measured:
+
+        - True files a NEW item into the ROOT bin for every referenced
+          file, never the CURRENT folder. When Resolve's cache
+          recognises a pooled item it is reused (2026-10-02: the two
+          pooled MXFs); when it does not - after a relaunch - the file
+          is filed at the ROOT beside the item the project already
+          holds, and the timeline binds the ROOT copy (2026-10-06: the
+          6-reel rebuild added LC4932.MXF and LCATL0013.MXF to the ROOT
+          next to their Source footage items). This double models the
+          unrecognised case, the one the build must defend against.
+        - False binds the item the pool already holds, searched in
+          every bin - the item the project's finals reference - and
+          files nothing at the ROOT.
         """
         import os
 
@@ -579,6 +594,7 @@ class FakeMediaPool:
         height = float(self._project.GetSetting("timelineResolutionHeight")
                        or 1)
         counts = {"video": 0, "audio": 0}
+        filed: dict = {}
         for track in otio["tracks"]["children"]:
             kind = "video" if track["kind"] == "Video" else "audio"
             counts[kind] += 1
@@ -593,11 +609,22 @@ class FakeMediaPool:
                     media = otio_mix.clip_media_path(child)
                     if not os.path.exists(media):
                         return None
-                    pool_item = self._pooled(media)
+                    pool_item = None
+                    if not options.get("importSourceClips"):
+                        pool_item = self._pooled(media)
+                    if pool_item is None and media in filed:
+                        pool_item = filed[media]
                     if pool_item is None:
                         # Pooled from the file, as `ImportMedia` pools
                         # it: Resolve reads a new file's own properties
-                        # whichever call brings it in.
+                        # whichever call brings it in. True files it
+                        # into the ROOT even when the pool already holds
+                        # the file in its Source footage bin (the
+                        # unrecognised case above); False reaches this
+                        # only for a file nothing pre-imported, which the
+                        # build refuses before it gets here. One item
+                        # per FILE, as the pool holds it - a timeline
+                        # that references a file twice binds one item.
                         pool_item = FakeMediaPoolItem(Path(media).name)
                         pool_item.SetClipProperty("File Path", media)
                         read = (self.media_properties.get(media)
@@ -605,7 +632,8 @@ class FakeMediaPool:
                                     else {}) or {})
                         for key, value in read.items():
                             pool_item.SetClipProperty(key, value)
-                        self._current_folder._clips.append(pool_item)
+                        self._root._clips.append(pool_item)
+                        filed[media] = pool_item
                     references = child.get("media_references") or {}
                     reference = references.get(
                         child.get("active_media_reference_key"), {})
