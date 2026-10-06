@@ -168,13 +168,30 @@ def borrowed(resolve):
     timeline = project.GetCurrentTimeline()
     found = {"project": name,
              "timeline_id": timeline.GetUniqueId() if timeline else None,
-             "timeline": timeline.GetName() if timeline else None}
+             "timeline": timeline.GetName() if timeline else None,
+             "page": resolve.GetCurrentPage()}
     if not manager.SaveProject():
         raise QualificationError(f"could not save {name!r}; not borrowing")
     try:
         yield found
     finally:
         restore(resolve, found)
+
+
+def _restore_page(resolve, found: dict) -> None:
+    """Put the captain's project back on the page it was on.
+
+    A UI action can land after the project is back (measured 2026-10-06:
+    a run_command press flipped the captain's project to the media page
+    post-restore), so the page is recorded on entry and read back here
+    like the project and timeline are.
+    """
+    page = found.get("page")
+    if page is None or resolve.GetCurrentPage() == page:
+        return
+    if not resolve.OpenPage(page) or resolve.GetCurrentPage() != page:
+        raise RestoreFailed(f"the page did not read back as {page!r}; "
+                            f"reopen it by hand")
 
 
 def restore(resolve, found: dict) -> None:
@@ -190,6 +207,7 @@ def restore(resolve, found: dict) -> None:
               f"{found['timeline']!r} by hand")
     if not current or current.GetName() != found["project"]:
         raise RestoreFailed(f"{found['project']!r} did not reload; {reopen}")
+    _restore_page(resolve, found)
     if found["timeline_id"] is None:
         return
     timeline = _timeline_by_id(current, found["timeline_id"])

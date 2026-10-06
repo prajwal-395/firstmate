@@ -62,9 +62,17 @@ class _Manager:
         self.projects = {p.name: p for p in projects}
         self.open = projects[0]
         self.saved = []
+        self.opened_pages = ["edit"]
 
     def GetProjectManager(self):
         return self
+
+    def GetCurrentPage(self):
+        return self.opened_pages[-1]
+
+    def OpenPage(self, page):
+        self.opened_pages.append(page)
+        return True
 
     def GetCurrentProject(self):
         return self.open
@@ -100,6 +108,18 @@ def test_the_borrow_returns_the_exact_timeline_even_when_names_collide():
     assert resolve.GetCurrentProject() is podcast
     assert podcast.GetCurrentTimeline().GetUniqueId() == "uid-second"
     assert resolve.saved[0] == "Podcast (field test)"
+
+
+def test_the_borrow_puts_the_captains_page_back():
+    """Defect: a late AX page press flipped the captain's project to the
+    media page after borrowed() restored it - restore put back the project
+    and timeline but never the page."""
+    resolve, _ = _captain()
+    with qp.borrowed(resolve):
+        resolve.LoadProject(qp.QUALIFICATION_PROJECT)
+        resolve.OpenPage("media")
+    assert resolve.GetCurrentPage() == "edit"
+    assert resolve.opened_pages == ["edit", "media", "edit"]
 
 
 def test_a_restore_that_does_not_read_back_raises():
