@@ -40,6 +40,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from library.tools import journal_naming
+from library.tools.resource_leases import (
+    LeaseDeclaration,
+    ResourceRef,
+    resource_lease,
+)
 from library.tools.resolve_lock import under_lease
 
 from library.tools.orphan_removal import (
@@ -364,6 +369,12 @@ def remove_pool_items(project, survey_result: dict, journal_path: str,
     them it got to.  The journal records every item removed, with the
     bin it was in and the file behind it, so the manifest and the
     journal are two independent statements of what went.
+
+    The removals declare the pool items EXCLUSIVE by file path - the
+    spelling `caption_swap` and the relinker use for the same items -
+    before the first `DeleteClips`. A delete is the destructive case
+    the lease exists for: a swap replacing a file this pass deletes
+    serialises against it instead of re-pointing an item that is gone.
     """
     by_id = {a.item_id: a for a in survey_result["artefacts"]}
     wanted = [by_id[r.item_id] for r in survey_result["plan"]]
@@ -405,28 +416,35 @@ def remove_pool_items(project, survey_result: dict, journal_path: str,
                 f"timeline. Nothing was removed.")
         targets.append((removal, clip))
 
-    try:
-        for start in range(0, len(targets), batch):
-            chunk = targets[start:start + batch]
-            if not pool.DeleteClips([clip for _, clip in chunk]):
-                raise RemovalRefused(
-                    f"DeleteClips returned False for {len(chunk)} item(s) "
-                    f"after {len(journal['removed'])} had been removed. "
-                    f"The journal names those; every file is still on disk.")
-            for removal, _clip in chunk:
-                journal["removed"].append({
-                    "item_id": removal.item_id,
-                    "name": removal.name,
-                    "file_path": removal.file_path,
-                    "from": "/".join(removal.folder_path),
-                    "file_state": removal.file_state,
-                })
-    finally:
-        if before_current:
-            pool.SetCurrentFolder(before_current)
-        Path(journal_path).parent.mkdir(parents=True, exist_ok=True)
-        Path(journal_path).write_text(
-            json.dumps(journal, indent=2), encoding="utf-8")
+    with resource_lease(
+        LeaseDeclaration(
+            exclusive=frozenset({ResourceRef("clip", removal.file_path)
+                                 for removal, _clip in targets}),
+        ),
+        purpose=f"prune {len(targets)} orphaned pool item(s)",
+    ):
+        try:
+            for start in range(0, len(targets), batch):
+                chunk = targets[start:start + batch]
+                if not pool.DeleteClips([clip for _, clip in chunk]):
+                    raise RemovalRefused(
+                        f"DeleteClips returned False for {len(chunk)} item(s) "
+                        f"after {len(journal['removed'])} had been removed. "
+                        f"The journal names those; every file is still on disk.")
+                for removal, _clip in chunk:
+                    journal["removed"].append({
+                        "item_id": removal.item_id,
+                        "name": removal.name,
+                        "file_path": removal.file_path,
+                        "from": "/".join(removal.folder_path),
+                        "file_state": removal.file_state,
+                    })
+        finally:
+            if before_current:
+                pool.SetCurrentFolder(before_current)
+            Path(journal_path).parent.mkdir(parents=True, exist_ok=True)
+            Path(journal_path).write_text(
+                json.dumps(journal, indent=2), encoding="utf-8")
     journal["journal_path"] = journal_path
     return journal
 
