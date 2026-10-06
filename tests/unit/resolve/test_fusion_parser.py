@@ -14,6 +14,14 @@ import subprocess
 import tempfile
 import unittest
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _leases_off_machine(tmp_path, monkeypatch):
+    """Fusion import instants take native locks now: leases stay in tmp."""
+    directory = tmp_path / "locks"
+    directory.mkdir()
+    monkeypatch.setenv("PIPELINE_RESOLVE_LOCK_DIR", str(directory))
 from unittest.mock import MagicMock, patch
 from library.tools.builtin_effect_loader import import_customized_effect
 import pathlib
@@ -1304,6 +1312,7 @@ def test_builtin_effect_reaches_resolve_byte_identical(monkeypatch, tmp_path):
             return {"File Path": "test.mov", "Frames": "100"}.get(prop)
 
     class MockTimeline:
+        def GetName(self): return "Reel 09"
         def GetTrackCount(self, kind): return 1
         def GetUniqueId(self): return str(id(self))
         def GetSetting(self, name):

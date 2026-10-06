@@ -414,6 +414,28 @@ def release_track_lock(timeline, ref: ResourceRef) -> bool:
         return False
 
 
+@contextmanager
+def locked_track(timeline, ref: ResourceRef):
+    """Resolve's native track lock around one destructive instant.
+
+    Takes the lock this module can take and releases it on exit, even
+    on error - a lock left on is a timeline the captain finds frozen.
+    Yields whether the lock was taken. A False take proceeds anyway:
+    the Ren-side resource lease is the fence that serialises Ren
+    writers, and this is the signal to writers that never asked it -
+    a fake timeline has no `SetTrackLock` at all, and a section that
+    refused there could never be tested off Resolve. Where the take
+    failed on live Resolve, the section runs fenced Ren-side only,
+    which the yielded False says plainly.
+    """
+    took = take_track_lock(timeline, ref)
+    try:
+        yield took
+    finally:
+        if took:
+            release_track_lock(timeline, ref)
+
+
 @dataclass
 class ResourceLease:
     """One active lease, as recorded on disk.

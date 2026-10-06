@@ -692,3 +692,68 @@ def test_a_nested_lease_for_an_undeclared_resource_still_uses_disk(lock_dir):
             assert len(resource_leases._read_leases()) == 2
         assert len(resource_leases._read_leases()) == 1
     assert "none stand" in status()
+
+
+# ── The native track lock, held around one destructive instant ──────
+
+def _locking_timeline():
+    class FakeTimeline:
+        def __init__(self):
+            self.locks = []
+
+        def SetTrackLock(self, track_type, index, locked):
+            self.locks.append((track_type, index, locked))
+            return True
+
+    return FakeTimeline()
+
+
+def test_locked_track_locks_and_releases_the_named_track(lock_dir):
+    """The native fence goes on before the instant, off after it.
+
+    Defect caught: a take without a paired release leaves the
+    timeline frozen for the captain after the pass finishes.
+    """
+    from library.tools.resource_leases import locked_track
+    timeline = _locking_timeline()
+    ref = ResourceRef("track", "Reel 03:video:3")
+    with locked_track(timeline, ref) as took:
+        assert took is True
+        assert timeline.locks == [("video", 3, True)]
+    assert timeline.locks == [("video", 3, True), ("video", 3, False)]
+
+
+def test_locked_track_releases_on_error(lock_dir):
+    """An error mid-instant must not leave the track locked.
+
+    Defect caught: a release on the happy path only freezes the
+    timeline whenever the import it fenced throws.
+    """
+    from library.tools.resource_leases import locked_track
+    timeline = _locking_timeline()
+    ref = ResourceRef("track", "Reel 03:video:3")
+    with pytest.raises(RuntimeError, match="import blew up"):
+        with locked_track(timeline, ref):
+            raise RuntimeError("import blew up")
+    assert timeline.locks == [("video", 3, True), ("video", 3, False)]
+
+
+def test_locked_track_proceeds_where_resolve_has_no_lock(lock_dir):
+    """A timeline that cannot take the lock still gets its section run.
+
+    Defect caught: refusing where `SetTrackLock` is absent makes the
+    section untestable off Resolve - every fake timeline refuses.
+    The Ren-side lease is the fence; the native lock is the signal,
+    and the yielded False says which held.
+    """
+    from library.tools.resource_leases import locked_track
+    ran = []
+
+    class FakeTimeline:
+        pass
+
+    with locked_track(FakeTimeline(),
+                      ResourceRef("track", "Reel 03:video:3")) as took:
+        ran.append(True)
+    assert took is False
+    assert ran == [True]

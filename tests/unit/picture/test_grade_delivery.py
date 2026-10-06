@@ -24,6 +24,14 @@ import subprocess
 import sys
 from pathlib import Path
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _leases_off_machine(tmp_path, monkeypatch):
+    """Fusion import instants take native locks now: leases stay in tmp."""
+    directory = tmp_path / "locks"
+    directory.mkdir()
+    monkeypatch.setenv("PIPELINE_RESOLVE_LOCK_DIR", str(directory))
 import os
 from unittest.mock import patch
 import yaml
@@ -1076,6 +1084,9 @@ class _FakeTimelineItem:
 class _FakeTimeline:
     def __init__(self, items_by_track):
         self.items_by_track = items_by_track
+
+    def GetName(self):
+        return "Reel 09"
 
     def GetSetting(self, _key):
         return "30"

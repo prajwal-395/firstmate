@@ -283,6 +283,7 @@ def _mock_resolve(monkeypatch, played):
             return None
 
     class MockTimeline:
+        def GetName(self): return "Reel 09"
         def GetSetting(self, name): return "30"
         def GetTrackCount(self, kind): return 1
         def GetItemListInTrack(self, track_type, index):
@@ -466,7 +467,15 @@ def test_a_plan_with_nothing_verifiable_needs_no_receipt(tmp_path):
 def test_a_planned_switch_animation_still_needs_its_receipt(tmp_path):
     """Scoping the gate must not unscope it: a tv_power plan with no
     receipt still fails."""
-    import pytest
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _leases_off_machine(tmp_path, monkeypatch):
+    """Fusion import instants take native locks now: leases stay in tmp."""
+    directory = tmp_path / "locks"
+    directory.mkdir()
+    monkeypatch.setenv("PIPELINE_RESOLVE_LOCK_DIR", str(directory))
 
     from library.tools import pipeline_skills
 

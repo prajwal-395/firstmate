@@ -6,6 +6,14 @@ import os
 import sys
 from dataclasses import dataclass
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _leases_off_machine(tmp_path, monkeypatch):
+    """Fusion import instants take native locks now: leases stay in tmp."""
+    directory = tmp_path / "locks"
+    directory.mkdir()
+    monkeypatch.setenv("PIPELINE_RESOLVE_LOCK_DIR", str(directory))
 from pathlib import Path
 from library.tools.framing_intent import DEFAULT_FRAMING_INTENT, FILL, LETTERBOX
 from library.tools.reel_conformance_verifier import (
@@ -1186,6 +1194,9 @@ class _FakeTimelineItem:
 class _FakeTimeline:
     def __init__(self, items_by_track):
         self.items_by_track = items_by_track
+
+    def GetName(self):
+        return "Reel 09"
 
     def GetSetting(self, _key):
         return "24"

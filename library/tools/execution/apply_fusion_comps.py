@@ -57,6 +57,7 @@ from library.tools.resolve_lock import under_lease
 from library.tools.resource_leases import (
     LeaseDeclaration,
     ResourceRef,
+    locked_track,
     resource_lease,
 )
 from library.tools.resolve_locale import LazyResolveScript
@@ -912,13 +913,21 @@ def apply_fusion_comps_with_resolve(resolve, manifest, project_folder,
             comp_path, reused = bank_comp(project_folder, label,
                                           comp_content)
 
-            for cn in (tl_clip.GetFusionCompNameList() or []):
-                tl_clip.DeleteFusionCompByName(cn)
+            # The native fence goes around the irreversible instant:
+            # the Ren-side lease spans the pass, and this stops a writer
+            # that never asked it from moving the clip mid-import. The
+            # conform below re-imports on repair under that same
+            # pass-wide lease.
+            _track = ResourceRef(
+                "track", f"{timeline.GetName()}:video:{track_index}")
+            with locked_track(timeline, _track):
+                for cn in (tl_clip.GetFusionCompNameList() or []):
+                    tl_clip.DeleteFusionCompByName(cn)
 
-            # Imported from the bank, not from a scratch copy of it: the
-            # file that reached the timeline is then still on disk under
-            # its own content digest, which is how a build is read back.
-            tl_clip.ImportFusionComp(comp_path)
+                # Imported from the bank, not from a scratch copy of it: the
+                # file that reached the timeline is then still on disk under
+                # its own content digest, which is how a build is read back.
+                tl_clip.ImportFusionComp(comp_path)
             if reused:
                 print(f"  · [{where}] {label}: comp unchanged since "
                       f"{os.path.basename(comp_path)}", file=sys.stderr)
@@ -1015,8 +1024,11 @@ def apply_fusion_comps_with_resolve(resolve, manifest, project_folder,
         _gen_rows = {int(g.get("timeline_row", 5)) for g in gen_overlays}
         _gen_items = []
         for _row in sorted(_gen_rows):
-            _gen_items.extend(timeline.GetItemListInTrack("video", _row) or [])
-        v5_items = _gen_items
+            _gen_items.extend(
+                (_row, clip) for clip in
+                (timeline.GetItemListInTrack("video", _row) or []))
+        v5_items = [clip for _, clip in _gen_items]
+        v5_rows = [_row for _row, _ in _gen_items]
         if v5_items:
             print(
                 f"\n-- Generator Imports (rows {sorted(_gen_rows)}): "
@@ -1038,10 +1050,14 @@ def apply_fusion_comps_with_resolve(resolve, manifest, project_folder,
                 effect_name = gen['effect_name']
 
                 # Clear any existing comps on the carrier clip
-                for cn in (tl_clip.GetFusionCompNameList() or []):
-                    tl_clip.DeleteFusionCompByName(cn)
+                _gen_track = ResourceRef(
+                    "track",
+                    f"{timeline.GetName()}:video:{v5_rows[gi]}")
+                with locked_track(timeline, _gen_track):
+                    for cn in (tl_clip.GetFusionCompNameList() or []):
+                        tl_clip.DeleteFusionCompByName(cn)
 
-                import_effect_to_clip(tl_clip, effect_name)
+                    import_effect_to_clip(tl_clip, effect_name)
 
                 comp_names = tl_clip.GetFusionCompNameList()
                 if comp_names and len(comp_names) > 0:

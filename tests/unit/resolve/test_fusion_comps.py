@@ -368,7 +368,12 @@ def _mock_resolve(monkeypatch, imported, state=None, include_unplanned=False):
                 self.items.append(MockClip(
                     uid="clip-2", path="unplanned.mov", start=72,
                     unplanned=True))
+            self.track_locks = []
 
+        def GetName(self): return "Reel 09"
+        def SetTrackLock(self, track_type, index, locked):
+            self.track_locks.append((track_type, index, locked))
+            return True
         def GetTrackCount(self, kind): return 1
         def GetSetting(self, name): return "30"
         def GetItemListInTrack(self, track_type, index):
@@ -1169,6 +1174,8 @@ def _drive_comp_pass(monkeypatch, tmp_path, after_import):
             return {"File Path": "a_roll.mov", "Frames": "600"}.get(prop)
 
     class MockTimeline:
+        def GetName(self): return "Reel 09"
+        def SetTrackLock(self, track_type, index, locked): return True
         def GetTrackCount(self, kind): return 1
         def GetSetting(self, name): return "30"
         def GetItemListInTrack(self, kind, index):
@@ -1207,3 +1214,25 @@ def test_the_comp_pass_conforms_a_drifted_window_it_just_imported(
         "the pass imported once and never read the window back - a comp "
         "whose MediaIn misses the frames its item plays fails the whole "
         "render job")
+
+
+def test_the_comp_pass_natively_locks_the_row_it_imports_onto(
+        monkeypatch, tmp_path):
+    """The Ren-side lease serialises Ren writers; the native lock stops
+    a writer that never asked it. The pass takes `SetTrackLock` on the
+    row it deletes and imports onto, and releases it before returning -
+    on origin/main the row is never locked.
+    """
+    imported = []
+    state = {}
+    afc = _mock_resolve(monkeypatch, imported, state=state)
+
+    assert afc.apply_fusion_comps(_manifest(), str(tmp_path),
+                                  step_id="build_reels") is True
+
+    timeline = state["timeline"]
+    assert ("video", 1, True) in timeline.track_locks
+    assert ("video", 1, False) in timeline.track_locks
+    assert timeline.track_locks.index(("video", 1, False)) > \
+        timeline.track_locks.index(("video", 1, True))
+    assert len(imported) == 1
