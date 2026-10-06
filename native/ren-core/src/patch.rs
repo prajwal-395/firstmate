@@ -57,6 +57,13 @@ pub const TRANSFORM_KEYS: &[&str] = &[
     "Opacity",
 ];
 
+/// Mode keys `clip.set_property` may write (`edit_patch.MODE_KEYS`).
+/// Resolve modes that are not magnitudes. `Scaling` is the scaling MODE
+/// (1 = Crop - native pixels, centred), not a magnification.
+pub const MODE_KEYS: &[&str] = &[
+    "Scaling",
+];
+
 /// The capability's declared patch semantics, as `validate` reads them.
 #[derive(Deserialize)]
 pub struct SemanticsDict {
@@ -139,7 +146,9 @@ pub fn validate_patch(patch: &EditPatch, base: &Snapshot, semantics: &Value) -> 
             let EditOp::ClipSetProperty { key, .. } = op else {
                 unreachable!()
             };
-            if !TRANSFORM_KEYS.contains(&key.as_str()) {
+            if !TRANSFORM_KEYS.contains(&key.as_str())
+                && !MODE_KEYS.contains(&key.as_str())
+            {
                 return Err(format!("operation {index} writes property {key:?}"));
             }
         }

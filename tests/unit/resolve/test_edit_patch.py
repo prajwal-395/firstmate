@@ -224,6 +224,44 @@ def test_a_clip_set_property_addresses_a_just_placed_clip_by_its_client_id(world
     assert placed[0]["transform"]["Tilt"] == -870.0
 
 
+def test_a_placed_caption_carries_scaling_1_crop(world):
+    """Defect: the master caption placement wrote Scaling through
+    `clip.set_property`, but Scaling was not in TRANSFORM_KEYS and the
+    patch was refused. Scaling is the scaling MODE (1 = Crop - native
+    pixels, centred), not a magnification; the tight-box Pan/Tilt are
+    computed assuming Crop, so a caption clip without Scaling=1 takes
+    the project's default scaling and lands at the wrong size and place.
+    """
+    project, timeline, _item, store, base = world
+    pool_clip = make_pool_clip("caption.mov")
+    project.GetMediaPool().GetRootFolder()._clips.append(pool_clip)
+    client_id = "caption:0:sub_block_0"
+    operations = [
+        {"op": "clip.insert", "unique_id": client_id,
+         "track_type": "video", "track_index": 2,
+         "record_in": 10, "record_out": 40,
+         "media_pool_item": str(pool_clip.GetUniqueId()),
+         "source_in": 0, "source_out": 30},
+        {"op": "clip.set_property", "unique_id": client_id,
+         "key": "Scaling", "value": 1},
+        {"op": "clip.set_property", "unique_id": client_id,
+         "key": "Tilt", "value": -870.0},
+    ]
+    receipt = edit_patch.apply_live_patch(
+        project=project, timeline=timeline, capability="render.build",
+        operations=operations,
+        conflict_domains=("timeline_structure", "picture_transform"),
+        idempotency_key="render-build:caption:0:sub_block_0",
+        store=store, project_folder=store.path.parent)
+    assert receipt["status"] == "committed", receipt
+    head = store.head("Podcast", receipt["readback"]["timeline_id"])
+    placed = [c for c in shadow.clips(store.snapshot(head))
+              if c["record_in"] == 10 and c["record_out"] == 40]
+    assert len(placed) == 1
+    assert placed[0]["transform"]["Scaling"] == 1
+    assert placed[0]["transform"]["Tilt"] == -870.0
+
+
 def test_a_clip_insert_replays_through_the_ledger_with_the_project(world):
     """Defect: the ledger replay called the algebra apply with no project
     handle, so a `clip.insert` inside a recorded edit program failed - the

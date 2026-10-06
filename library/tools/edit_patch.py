@@ -114,6 +114,15 @@ TRANSFORM_KEYS = frozenset({
     "CropRetain", "Opacity",
 })
 
+#: Mode keys `clip.set_property` may write: Resolve modes that are not
+#: magnitudes. `Scaling` is the scaling MODE (1 = Crop - native pixels,
+#: centred), not a magnification. The tight-box Pan/Tilt are computed
+#: assuming Crop, so a caption clip without Scaling=1 takes the
+#: project's default scaling and lands at the wrong size and place.
+MODE_KEYS = frozenset({
+    "Scaling",
+})
+
 
 class PatchRefused(RenRefusal):
     """The patch cannot be applied as stated. Nothing was written."""
@@ -434,10 +443,12 @@ def _validate_python(patch: EditPatch, base: dict, declared) -> None:
                     "that trusts the declared domains would let a "
                     "conflicting patch through",
                     f"add {spec.domain!r} to conflict_domains")
-        if op["op"] == "clip.set_property" and op["key"] not in TRANSFORM_KEYS:
+        if (op["op"] == "clip.set_property"
+                and op["key"] not in TRANSFORM_KEYS
+                and op["key"] not in MODE_KEYS):
             _refuse(patch, f"operation {index} writes property {op['key']!r}",
-                    "clip.set_property is the picture transform only",
-                    f"use one of {sorted(TRANSFORM_KEYS)}")
+                    "clip.set_property is the picture transform and its modes only",
+                    f"use one of {sorted(TRANSFORM_KEYS | MODE_KEYS)}")
         if op["op"] == "clip.smart_reframe":
             if tuple(op["keys"]) != SMART_REFRAME_KEYS:
                 _refuse(patch, f"operation {index} names reframe keys "
