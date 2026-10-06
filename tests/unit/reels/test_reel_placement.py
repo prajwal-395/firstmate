@@ -1496,3 +1496,149 @@ def test_no_usable_beat_cuts_at_the_last_word():
         beat_grid=[])
     assert abs(none["cut_time"] - 2.3) < 1e-6
     assert none["word_beat_coincidence"] is False
+
+
+# --------------------------------------------------------------------------
+# Transient-snapped picture cuts (audio-intelligence track).
+#
+# The defect these pin: step 1.04 measures classified transients
+# (`onset_classes`, strong/weak at the data's own 75th percentile) and
+# SFX placement already snaps to them, but picture cuts never did - a
+# cut two frames from a drum hit shipped two frames off it. Now
+# `resolve_cut_point` snaps a word-end cut onto a nearby strong
+# transient inside TRANSIENT_SNAP_FRAMES of the run's own frame rate,
+# after beats have had their say.
+# --------------------------------------------------------------------------
+
+from library.steps.step_4_02_plan_transitions.post_bridge import (  # noqa: E402
+    TRANSIENT_SNAP_FRAMES,
+    _resolve_picture_cut,
+    snap_to_transient,
+    strong_transients_timeline,
+)
+
+
+def _index_file(tmp_path, classes):
+    path = str(tmp_path / "clip_011.json")
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump({"onset_classes": classes}, handle)
+    return path
+
+
+def test_snap_to_transient_contract():
+    """The snap helper's own shape: nearest transient wins, nothing
+    measured or no window means no snap - never a move to nowhere."""
+    assert snap_to_transient(2.3, [2.35, 2.5], 0.1)[0] == 2.35
+    assert snap_to_transient(2.3, [2.9], 0.1)[1] is False
+    assert snap_to_transient(2.3, [], 0.1)[1] is False
+    assert snap_to_transient(2.3, [2.35], 0.0)[1] is False
+
+
+def test_a_transient_within_two_frames_moves_the_cut():
+    """The defect: a strong transient a frame off the word-end cut moves
+    it - the cut lands on the transient, and the record says so."""
+    info = resolve_cut_point(
+        incoming=non_speech(2.4, 5.4),
+        outgoing=speech_block(0.0, 2.4, word_ends=[0.196, 1.1, 2.3]),
+        beat_grid=[],
+        transients=[2.35],
+        transient_tolerance=TRANSIENT_SNAP_FRAMES / 30.0)
+    assert info["transient_snapped"] is True
+    assert abs(info["cut_time"] - 2.35) < 1e-6
+    assert "transient" in info["method"]
+    assert abs(info["transient_snap_delta_seconds"] - 0.05) < 1e-6
+
+
+def test_a_transient_beyond_two_frames_leaves_the_cut():
+    """A snap is a nudge, not a relocation: a transient half a second
+    out is a different place to cut, and the cut stays on the words."""
+    info = resolve_cut_point(
+        incoming=non_speech(2.4, 5.4),
+        outgoing=speech_block(0.0, 2.4, word_ends=[0.196, 1.1, 2.3]),
+        beat_grid=[],
+        transients=[2.9],
+        transient_tolerance=TRANSIENT_SNAP_FRAMES / 30.0)
+    assert info["transient_snapped"] is False
+    assert abs(info["cut_time"] - 2.3) < 1e-6
+
+
+def test_a_beat_coincidence_wins_over_a_transient():
+    """Beats are the track's own pulse: a cut already on a beat
+    coincidence is not moved off it onto a transient."""
+    info = resolve_cut_point(
+        incoming=non_speech(2.4, 5.4),
+        outgoing=speech_block(0.0, 2.4, word_ends=[0.196, 1.1, 2.3]),
+        beat_grid=[2.3],
+        transients=[2.32],
+        transient_tolerance=TRANSIENT_SNAP_FRAMES / 30.0)
+    assert info["word_beat_coincidence"] is True
+    assert info["transient_snapped"] is False
+    assert abs(info["cut_time"] - 2.3) < 1e-6
+
+
+def test_a_transient_past_the_block_end_is_not_snapped_to():
+    """A transient past the block's end is inside the window but not a
+    place the cut can sit: min() would record a delta to a time the cut
+    never moved to, the defect the 001 beat postmortem records."""
+    info = resolve_cut_point(
+        incoming=non_speech(2.32, 5.4),
+        outgoing=speech_block(0.0, 2.32, word_ends=[0.196, 1.1, 2.3]),
+        beat_grid=[],
+        transients=[2.34],
+        transient_tolerance=TRANSIENT_SNAP_FRAMES / 30.0)
+    assert info["transient_snapped"] is False
+    assert info["cut_time"] <= 2.32
+
+
+def test_weak_onsets_never_move_a_cut(tmp_path):
+    """The loader filters to strong transients: weak note attacks are
+    measured, but a cut moving for one is a cut moved for nothing the
+    ear hears."""
+    path = _index_file(tmp_path, [
+        {"time": 2.35, "strength": 0.1, "kind": "weak"},
+    ])
+    block = speech_block(0.0, 2.4, word_ends=[0.196, 1.1, 2.3])
+    assert strong_transients_timeline(
+        block, [{"clip_id": "clip_011", "index_path": path}]) == []
+
+
+def test_unreadable_strengths_leave_the_cut(tmp_path):
+    """`onset_classes` None (the strengths pass refused) reads as no
+    transients - an empty list would read as none measured, so the
+    loader treats both as nothing to snap to, never a crash."""
+    path = _index_file(tmp_path, None)
+    block = speech_block(0.0, 2.4, word_ends=[0.196, 1.1, 2.3])
+    assert strong_transients_timeline(
+        block, [{"clip_id": "clip_011", "index_path": path}]) == []
+    assert strong_transients_timeline(block, []) == []
+    assert strong_transients_timeline(
+        block, [{"clip_id": "other", "index_path": path}]) == []
+    assert strong_transients_timeline(
+        block, [{"clip_id": "clip_011",
+                 "index_path": str(tmp_path / "missing.json")}]) == []
+
+
+def test_transient_tolerance_comes_from_the_frame_rate(tmp_path):
+    """The window is two frames of the RUN's timebase, not a chosen
+    second count: the same 0.06s gap snaps at 25 fps (0.08s window)
+    and holds at 100 fps (0.02s window). Pinned end to end through
+    `_resolve_picture_cut`, the production caller."""
+    path = _index_file(tmp_path, [
+        {"time": 2.36, "strength": 0.9, "kind": "strong"},
+    ])
+    summaries = [{"clip_id": "clip_011", "index_path": path}]
+
+    def cut_at(fps):
+        cut, info, _, _ = _resolve_picture_cut(
+            None,
+            speech_block(2.4, 5.4, word_ends=[3.0]),
+            speech_block(0.0, 2.4, word_ends=[0.196, 1.1, 2.3]),
+            [], fps, {}, {}, temporal_indices=summaries)
+        return cut, info
+
+    cut25, info25 = cut_at(25.0)
+    assert abs(cut25 - 2.36) < 1e-6
+    assert info25["transient_snapped"] is True
+    cut100, info100 = cut_at(100.0)
+    assert abs(cut100 - 2.3) < 1e-6
+    assert info100["transient_snapped"] is False

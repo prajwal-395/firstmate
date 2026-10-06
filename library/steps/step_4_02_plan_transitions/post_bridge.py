@@ -26,6 +26,7 @@ from library.tools import decided_value
 from library.tools.spine_contract import (
     block_word_end_times_timeline,
     is_speech_block,
+    source_to_timeline,
 )
 
 
@@ -139,10 +140,95 @@ def snap_to_beat(
     return cut_time, False, 0.0
 
 
+def snap_to_transient(
+    cut_time: float,
+    transients: list,
+    tolerance: float = 0.0,
+) -> tuple:
+    """
+    Snap a cut point onto the nearest strong transient if within tolerance.
+
+    The sibling of `snap_to_beat` for unpitched attacks: a drum hit or
+    hard consonant the beat grid does not carry. Returns
+    (snapped_time, was_snapped, snap_delta), same shape as `snap_to_beat`.
+    """
+    if not transients or tolerance <= 0:
+        return cut_time, False, 0.0
+
+    closest = min(transients, key=lambda t: abs(t - cut_time))
+    delta = closest - cut_time
+    if abs(delta) <= tolerance:
+        return closest, True, round(delta, 4)
+    return cut_time, False, 0.0
+
+
+#: How far a cut may move to land on a strong transient, in frames of
+#: the run's own timebase. The spec's example is literal - "move this
+#: cut two frames so it lands on the transient" - and the timebase is
+#: the project's measured `project_fps` (threaded here as `frame_rate`,
+#: #124), so the window in seconds is TRANSIENT_SNAP_FRAMES / frame_rate
+#: on every project, never a chosen second count. A snap is a nudge onto
+#: the music, not a relocation: anything further out is a different
+#: place to cut, and the cut stays where the words put it.
+TRANSIENT_SNAP_FRAMES = 2
+
+
+def strong_transients_timeline(block: dict, temporal_indices: list) -> list:
+    """Strong transient times in TIMELINE seconds for the block's clip.
+
+    The block's clip summary in `temporal_indices` (the same keying the
+    motion forms use) carries `index_path` to the banked per-clip index;
+    that file's `onset_classes` (step 1.04's classified transients, in
+    source seconds) is mapped through the block's own source/timeline
+    ranges, the same conversion SFX placement uses. Only `strong`
+    transients: a cut snapping to a weak one is a cut moved for nothing
+    the ear hears. Anything unmeasured - no summary, no index path, an
+    unreadable file, `onset_classes` None (the strengths pass refused) -
+    reads as no transients, the way an empty beat grid reads as no beats:
+    the cut stays where the words put it, never refused for it.
+    """
+    clip_id = block.get("clip_id") if isinstance(block, dict) else None
+    if not clip_id:
+        return []
+    summary = None
+    for entry in temporal_indices or []:
+        if (isinstance(entry, dict)
+                and str(entry.get("clip_id")) == str(clip_id)):
+            summary = entry
+            break
+    if not summary:
+        return []
+    index_path = summary.get("index_path")
+    if not index_path:
+        return []
+    try:
+        with open(index_path, "r", encoding="utf-8") as handle:
+            index = json.load(handle)
+    except (OSError, ValueError):
+        return []
+    classes = ((index.get("onset_classes") or [])
+               if isinstance(index, dict) else [])
+    times = []
+    for entry in classes:
+        if not isinstance(entry, dict) or entry.get("kind") != "strong":
+            continue
+        try:
+            moment = float(entry["time"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        try:
+            times.append(source_to_timeline(moment, block))
+        except (KeyError, TypeError):
+            continue
+    return sorted(times)
+
+
 def resolve_cut_point(
     incoming: dict,
     outgoing: dict,
     beat_grid: list,
+    transients: list = None,
+    transient_tolerance: float = 0.0,
 ) -> dict:
     """Find the precise cut point for a transition.
 
@@ -156,12 +242,22 @@ def resolve_cut_point(
         incoming: The incoming spine block
         outgoing: The outgoing spine block
         beat_grid: List of beat positions in timeline domain
+        transients: Strong transient times in timeline domain, nearest
+            the cut (see `strong_transients_timeline`). None or empty
+            reads as no transients, the way an empty beat grid reads
+            as no beats.
+        transient_tolerance: How far the cut may move to land on one,
+            in seconds. The caller passes TRANSIENT_SNAP_FRAMES of the
+            run's own frame rate - project data, never a chosen count.
 
     Returns:
         {
             "cut_time": float,
             "method": str,
-            "word_beat_coincidence": bool
+            "word_beat_coincidence": bool,
+            "transient_snapped": bool,
+            "transient_snap_delta_seconds": float,
+            "transient_tolerance_seconds": float
         }
     """
     incoming_start = incoming["timeline_start"]
@@ -215,10 +311,32 @@ def resolve_cut_point(
                 if was_snapped:
                     cut_time = min(snapped, tl_end)
 
+            # Still no musical landing: snap onto a strong transient
+            # within TRANSIENT_SNAP_FRAMES of the run's frame rate.
+            # Beats win ties - the grid is the track's own pulse, and a
+            # transient snap that fought a beat coincidence would move
+            # the cut OFF the beat. A transient past the block's end is
+            # not snapped to: min() would report a delta to a time the
+            # cut did not move to, the defect the 001 postmortem above
+            # records.
+            transient_snapped = False
+            transient_delta = 0.0
+            if (not word_beat_coincidence and transients
+                    and transient_tolerance > 0):
+                snapped, was_snapped, delta = snap_to_transient(
+                    cut_time, transients, tolerance=transient_tolerance)
+                if was_snapped and snapped <= tl_end:
+                    cut_time = snapped
+                    transient_snapped = True
+                    transient_delta = delta
+
             return {
                 "cut_time": cut_time,
-                "method": "word-end" + (" + beat" if word_beat_coincidence else ""),
+                "method": "word-end" + (" + beat" if word_beat_coincidence else "") + (" + transient" if transient_snapped else ""),
                 "word_beat_coincidence": word_beat_coincidence,
+                "transient_snapped": transient_snapped,
+                "transient_snap_delta_seconds": transient_delta,
+                "transient_tolerance_seconds": round(transient_tolerance, 4),
             }
 
     # ── Non-speech blocks: use incoming block's timeline_start ──
@@ -226,6 +344,9 @@ def resolve_cut_point(
         "cut_time": incoming_start,
         "method": "block-boundary",
         "word_beat_coincidence": False,
+        "transient_snapped": False,
+        "transient_snap_delta_seconds": 0.0,
+        "transient_tolerance_seconds": round(transient_tolerance, 4),
     }
 
 
@@ -803,7 +924,15 @@ def _resolve_picture_entry(trans: dict, block: dict, outgoing: dict,
            if duration_seconds is not None else {}),
         "beat_aligned": beat_aligned,
         "snap_delta_seconds": snap_delta,
-        # How far the resolved cut ended up from the block boundary
+        # The transient snap's own record: whether the cut moved onto
+        # a strong transient, by how much, and inside what window.
+        # `displacement_seconds` below already measures the total move,
+        # so a transient relocation can never again record 0.0.
+        "transient_snapped": cut_info.get("transient_snapped", False),
+        "transient_snap_delta_seconds": cut_info.get(
+            "transient_snap_delta_seconds", 0.0),
+        "transient_tolerance_seconds": cut_info.get(
+            "transient_tolerance_seconds", 0.0),        # How far the resolved cut ended up from the block boundary
         # the plan named. `snap_delta_seconds` only measures the
         # snap_to_beat path, so a cut relocated by word-end matching
         # recorded 0.0 while having moved 2.2 seconds. Always
@@ -925,6 +1054,9 @@ def _resolve_end_entry(trans: dict, outgoing: dict,
         "at_end": True,
         "beat_aligned": False,
         "snap_delta_seconds": 0.0,
+        "transient_snapped": False,
+        "transient_snap_delta_seconds": 0.0,
+        "transient_tolerance_seconds": 0.0,
         "displacement_seconds": round(cut_time - end_time, 3),
         "placement_method": method,
         "word_beat_coincidence": False,
@@ -972,10 +1104,21 @@ def _resolve_picture_cut(trans: dict | None, block: dict, outgoing: dict,
                     "method": f"anchor: {hit['method']}",
                     "word_beat_coincidence": False}
     else:
+        # The outgoing block's strong transients in timeline seconds,
+        # read off its banked per-clip index (never the prompt: the
+        # bridge routes summaries, and no raw value list reaches one).
+        # The window is TRANSIENT_SNAP_FRAMES of the run's own frame
+        # rate - project data, recorded on the cut record beside the
+        # delta it caused.
+        transients = strong_transients_timeline(outgoing, temporal_indices)
+        tolerance = (TRANSIENT_SNAP_FRAMES / frame_rate
+                     if frame_rate else 0.0)
         cut_info = resolve_cut_point(
             incoming=block,
             outgoing=outgoing,
             beat_grid=beat_positions,
+            transients=transients,
+            transient_tolerance=tolerance,
         )
         cut_time = cut_info["cut_time"]
 
@@ -1082,6 +1225,9 @@ def _attach_jl_offset(jl_entry: dict, trans_dict: dict | None,
             "duration_frames": 0,
             "beat_aligned": False,
             "snap_delta_seconds": 0.0,
+            "transient_snapped": False,
+            "transient_snap_delta_seconds": 0.0,
+            "transient_tolerance_seconds": 0.0,
             "displacement_seconds": round(boundary_seconds - original_tl,
                                           3),
             "placement_method": "v1-boundary",
