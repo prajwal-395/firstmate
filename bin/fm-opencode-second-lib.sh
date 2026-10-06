@@ -152,14 +152,12 @@ fm_opencode_second_db() {  # [config-dir]
     echo "error: second OpenCode workspace needs sqlite3 to pin its database" >&2
     return 1
   }
-  command -v opencode >/dev/null 2>&1 || {
-    echo "error: second OpenCode workspace needs the opencode CLI on PATH" >&2
-    return 1
-  }
   [ -d "$config_dir" ] || {
     echo "error: config directory is missing: $config_dir" >&2
     return 1
   }
+  # Healing an existing pin needs only the database itself; building one from
+  # scratch migrates through opencode, so the CLI is required only below.
   if [ -f "$db" ]; then
     if [ "$(sqlite3 "$db" 'SELECT active_org_id FROM account_state WHERE id=1;' 2>/dev/null)" = "$org" ]; then
       printf '%s\n' "$db"
@@ -172,6 +170,10 @@ fm_opencode_second_db() {  # [config-dir]
     fi
     rm -f "$db"
   fi
+  command -v opencode >/dev/null 2>&1 || {
+    echo "error: second OpenCode workspace needs the opencode CLI on PATH" >&2
+    return 1
+  }
   live=$(fm_opencode_second_live_db) || {
     echo "error: second OpenCode workspace needs a console login on this machine; no readable opencode database found" >&2
     return 1

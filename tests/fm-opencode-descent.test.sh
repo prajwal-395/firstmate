@@ -777,7 +777,7 @@ test_go_lane_descends_to_second_workspace() {
   record_cap "$state" lane1 78840 "$GO" || fail "record refused fixture"
   out=$(FM_CONFIG_OVERRIDE="$cfg" run_tick "$state") || fail "tick must never fail"
   case "$out" in
-    relaunched' '*second' 'workspace*) : ;;
+    relaunched' '*'second workspace'*) : ;;
     *) fail "a capped main Go lane must descend to the second workspace, said: ${out:-<silent>}" ;;
   esac
   case "$(stub_calls)" in
@@ -820,7 +820,7 @@ test_secondary_go_lane_has_no_later_rung() {
   record_cap "$state" lane1 78840 "$GO" || fail "record refused fixture"
   out=$(FM_CONFIG_OVERRIDE="$cfg" run_tick "$state") || fail "tick must never fail"
   case "$out" in
-    refused' '*later' 'rung*) : ;;
+    refused' '*'later rung'*) : ;;
     *) fail "a capped second-workspace Go lane must surface, said: ${out:-<silent>}" ;;
   esac
   stub_called && fail "a fourth-rung lane has nowhere to move to"
@@ -843,7 +843,7 @@ test_free_lane_overflows_to_second_workspace() {
   "$RETRY" record-cap "$state" go "$(ms_from_now 78840)" || fail "record refused Go fixture"
   out=$(FM_CONFIG_OVERRIDE="$cfg" run_tick "$state") || fail "tick must never fail"
   case "$out" in
-    relaunched' '*second' 'workspace*) : ;;
+    relaunched' '*'second workspace'*) : ;;
     *) fail "a free lane past three capped rungs must overflow to the second workspace, said: ${out:-<silent>}" ;;
   esac
   case "$(stub_calls)" in
