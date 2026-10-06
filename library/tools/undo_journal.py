@@ -836,6 +836,238 @@ def list_tags(project_folder) -> list:
     return tags
 
 
+def merge_preview(project_folder, *, left: str, right: str) -> dict:
+    """What `merge_commits` would do, without recording anything.
+
+    The merge queue's evaluation pass reads this: each candidate is
+    compared against the master in one pass, and only the verdict is
+    recorded - the merge itself waits for `merge_passing`, which
+    re-verifies freshness first. Returns `mergeable` with the merged
+    changes (or the conflicts by name), the common ancestor, and
+    whether the merge is a fast-forward. Unreadable commits propagate
+    `UndoRefused` from the read; unmergeable pairs report their reason
+    instead of raising, because an evaluation that threw on the first
+    bad candidate could never report the rest of the batch.
+    """
+    left_chain = _ancestor_chain(project_folder, left)
+    right_chain = _ancestor_chain(project_folder, right)
+    if left == right:
+        return {"mergeable": False,
+                "reason": "a commit cannot be merged with itself",
+                "common": left, "fast_forward": False,
+                "conflicts": [], "merged_changes": []}
+    common = next((cid for cid in left_chain if cid in right_chain), None)
+    if common is None:
+        return {"mergeable": False,
+                "reason": f"{left[:12]} and {right[:12]} have no common "
+                          f"ancestor - they cannot be merged",
+                "common": None, "fast_forward": False,
+                "conflicts": [], "merged_changes": []}
+    if common == left or common == right:
+        descendant = right if common == left else left
+        return {"mergeable": True, "reason": "",
+                "common": common, "fast_forward": True,
+                "conflicts": [],
+                "merged_changes": _changes_since(
+                    project_folder, descendant, common)}
+    left_changes = _changes_since(project_folder, left, common)
+    right_changes = _changes_since(project_folder, right, common)
+    left_names = {c.get("item") for c in left_changes if c.get("item")}
+    right_names = {c.get("item") for c in right_changes if c.get("item")}
+    conflicts = sorted(left_names & right_names)
+    if conflicts:
+        return {"mergeable": False,
+                "reason": f"conflicting changes to: "
+                          f"{', '.join(conflicts)}",
+                "common": common, "fast_forward": False,
+                "conflicts": conflicts, "merged_changes": []}
+    return {"mergeable": True, "reason": "",
+            "common": common, "fast_forward": False,
+            "conflicts": [],
+            "merged_changes": left_changes + right_changes}
+
+
+# ── The merge queue ───────────────────────────────────────────────
+#
+# The captain's merge-queue direction (2026-10-06): candidate branches
+# - variants, or proposals from other participants' Rens - are
+# evaluated together against the current master version in one pass
+# with measured signals; the passing ones merge into the next version,
+# a failing one is identified (per-candidate verdicts ARE the split:
+# each candidate merges against master independently, so a failure
+# already names its candidate) and sent back with the reason; nothing
+# merges if its branch changed after it was evaluated. Variant
+# exploration owns this queue and the evaluation; who may submit,
+# approve and merge is the permissions/federation lane's, so entries
+# carry `submitted_by` but this module checks nothing about it. The
+# queue is coordinated through the event log - one queue for both
+# items - so every transition emits its event.
+
+QUEUE_FORMAT = "merge_queue_entry/1"
+QUEUE_DIRNAME = "merge_queue"
+QUEUE_FILENAME = "entry.json"
+
+ENTRY_QUEUED = "queued"
+ENTRY_EVALUATED_PASS = "evaluated_pass"
+ENTRY_EVALUATED_FAIL = "evaluated_fail"
+ENTRY_MERGED = "merged"
+ENTRY_REJECTED = "rejected"
+ENTRY_STALE = "stale"
+
+
+class QueueRefused(RenRefusal, RuntimeError):
+    """A queue transition that declined before changing anything."""
+
+
+def queue_root(project_folder) -> str:
+    """Where merge-queue entries live, beside commits and branches."""
+    return os.path.join(str(project_folder), "pipeline_output", "review",
+                        QUEUE_DIRNAME)
+
+
+def _queue_path(project_folder, entry_id: str) -> str:
+    return os.path.join(queue_root(project_folder), entry_id,
+                        QUEUE_FILENAME)
+
+
+def _branch_digest(branch: Mapping) -> str:
+    """The branch record's identity, for the freshness check.
+
+    The commit identity pattern over the whole record: any re-record
+    of the branch changes the digest, so a merge gated on it refuses
+    where the branch moved after evaluation.
+    """
+    return _commit_id(dict(branch))
+
+
+def _tip_sequence(project_folder, timeline: str) -> int:
+    """The newest commit sequence on one timeline, or 0.
+
+    The branch's line of development may gain commits after an entry
+    is evaluated; the sequence is the cheap clock that says whether
+    it did. Zero where nothing was ever committed on the timeline -
+    absence is absence, never sequence 1.
+    """
+    sequence = 0
+    for commit in list_commits(project_folder):
+        if commit.get("timeline") == timeline:
+            sequence = max(sequence, int(commit.get("sequence") or 0))
+    return sequence
+
+
+def read_queue_entry(project_folder, entry_id: str) -> dict:
+    """One queue entry back, format-checked."""
+    path = _queue_path(project_folder, entry_id)
+    try:
+        with open(path, encoding="utf-8") as handle:
+            entry = json.load(handle)
+    except (OSError, ValueError) as unreadable:
+        raise QueueRefused(
+            f"merge-queue entry {entry_id!r} could not be read",
+            f"({unreadable})",
+            "list what is queued with "
+            "`manage_project.py merge-queue <project> list") from unreadable
+    if entry.get("format") != QUEUE_FORMAT:
+        raise QueueRefused(
+            f"{path} is {entry.get('format')!r}, not {QUEUE_FORMAT!r}",
+            "a queue entry in a foreign format cannot be trusted",
+            "recover the entry from the project's git history")
+    return entry
+
+
+def list_queue_entries(project_folder, status: str = "") -> list:
+    """Every queue entry, oldest first, optionally one status."""
+    root = queue_root(project_folder)
+    if not os.path.isdir(root):
+        return []
+    entries = []
+    for name in sorted(os.listdir(root)):
+        path = os.path.join(root, name, QUEUE_FILENAME)
+        if os.path.isfile(path):
+            entry = read_queue_entry(project_folder, name)
+            if not status or entry.get("status") == status:
+                entries.append(entry)
+    return sorted(entries, key=lambda entry: entry.get("queued_at") or "")
+
+
+def _write_queue_entry(project_folder, entry: dict) -> dict:
+    from library.tools.versions import store
+
+    store.write_record(
+        _queue_path(project_folder, entry["id"]), entry,
+        prefix=".queue-")
+    return entry
+
+
+def queue_merge(project_folder, *, branch: str, candidate: str,
+                master: str, submitted_by: str, note: str = "") -> dict:
+    """Submit one candidate branch to the merge queue.
+
+    `branch` names the recorded branch, `candidate` the commit the
+    branch proposes, `master` the commit it is evaluated against.
+    `submitted_by` names who proposed it - recorded, never checked
+    here: who may submit is the permissions lane's. Returns the entry;
+    a re-submitted triple returns the queued entry instead of forking
+    a second one. Refusals, all before anything is written: unknown
+    branch or commits, a candidate that IS the master (nothing to
+    merge), a candidate with no common ancestor with the master (it
+    could never merge, so queueing it would only waste an evaluation
+    pass).
+    """
+    from library.tools import event_log
+
+    branch_record = read_branch(project_folder, branch)
+    candidate_commit = read_commit(project_folder, candidate)
+    master_commit = read_commit(project_folder, master)
+    if not str(submitted_by or "").strip():
+        raise QueueRefused(
+            "no submitter named",
+            "a queued proposal with no author cannot be sent back - "
+            "a rejection with nobody to reach is not a decision",
+            "pass who proposed this candidate and re-run")
+    if candidate == master:
+        raise QueueRefused(
+            f"candidate {candidate[:12]} is already the master",
+            "merging a commit with itself changes nothing, and a queue "
+            "entry that can only no-op is not a proposal",
+            "queue the branch's own tip commit instead")
+    preview = merge_preview(
+        project_folder, left=master, right=candidate)
+    if preview["common"] is None:
+        raise QueueRefused(
+            f"candidate {candidate[:12]} shares no ancestor with master "
+            f"{master[:12]}",
+            "two commits with no common ancestor cannot be merged, so "
+            "an evaluation pass could only reject it",
+            "rebase the branch onto the master line first, then queue it")
+
+    content = {"branch": branch, "candidate": candidate, "master": master}
+    entry_id = _commit_id(content)
+    if os.path.isfile(_queue_path(project_folder, entry_id)):
+        return read_queue_entry(project_folder, entry_id)
+
+    entry = {
+        "format": QUEUE_FORMAT,
+        "id": entry_id,
+        "branch": branch,
+        "branch_timeline": branch_record.get("timeline") or "",
+        "candidate": candidate,
+        "candidate_timeline": candidate_commit.get("timeline") or "",
+        "master": master,
+        "master_timeline": master_commit.get("timeline") or "",
+        "submitted_by": str(submitted_by).strip(),
+        "note": str(note or ""),
+        "status": ENTRY_QUEUED,
+        "queued_at": _now(),
+        "evaluation": None,
+    }
+    _write_queue_entry(project_folder, entry)
+    event_log.emit(
+        str(project_folder), "merge_queued", task=str(submitted_by).strip(),
+        entry=entry_id, branch=branch, candidate=candidate, master=master)
+    return entry
+
+
 # ── Capture: the touch's side ────────────────────────────────────
 
 

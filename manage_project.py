@@ -1224,6 +1224,50 @@ def cmd_plan_variants(args):
           f"dispatch --exploration {record['id'][:12]}")
 
 
+def cmd_merge_queue(args):
+    """The merge queue: proposals evaluated together, merged in order.
+
+    The captain's merge-queue direction (2026-10-06): candidate
+    branches queue against the master, one evaluation pass compares
+    them with measured signals, the passing ones merge into the next
+    version. `queue` submits a branch's candidate commit; `list` reads
+    back what is queued and decided. See library/tools/undo_journal.py
+    (the queue lives on the existing merge slice) and AGENTS.md 17.
+    """
+    from library.tools import undo_journal as _journal
+
+    project_folder = _reel_project_folder(args.project)
+
+    if args.queue_command == "list":
+        entries = _journal.list_queue_entries(
+            project_folder, status=args.status or "")
+        if not entries:
+            print("The merge queue is empty"
+                  + (f" for status {args.status!r}." if args.status else "."))
+            print(f"  Queue one with: ren merge-queue {args.project} "
+                  f"queue --branch NAME --candidate <commit> "
+                  f"--master <commit> --submitted-by WHO")
+            return
+        for entry in entries:
+            print(f"── queued {entry['id'][:12]} [{entry['status']}] ──")
+            print(f"  branch     {entry['branch']}")
+            print(f"  candidate  {entry['candidate'][:12]}")
+            print(f"  master     {entry['master'][:12]}")
+            print(f"  by         {entry['submitted_by']}")
+            if entry.get("evaluation"):
+                print(f"  verdict    {entry['evaluation'].get('verdict')} "
+                      f"{entry['evaluation'].get('reason') or ''}".rstrip())
+        return
+
+    entry = _journal.queue_merge(
+        project_folder, branch=args.branch, candidate=args.candidate,
+        master=args.master, submitted_by=args.submitted_by,
+        note=args.note or "")
+    print(f"Queued {entry['id'][:12]}: branch {entry['branch']!r} "
+          f"candidate {entry['candidate'][:12]} against master "
+          f"{entry['master'][:12]}.")
+
+
 def cmd_organize(args):
     """Bring a project folder onto the layout - or undo one that was.
 
@@ -3992,6 +4036,33 @@ def main():
     e_plan.set_defaults(func=cmd_plan_variants)
 
     p_explore.set_defaults(func=cmd_explore_variants)
+
+    p_queue = _add_command(sub, "merge-queue")
+    p_queue.add_argument("project",
+                         help="Project slug, or an absolute path")
+    q_sub = p_queue.add_subparsers(dest="queue_command", required=True)
+
+    q_queue = q_sub.add_parser(
+        "queue", help="Submit a branch's candidate against the master")
+    q_queue.add_argument("--branch", required=True,
+                         help="The recorded branch proposing")
+    q_queue.add_argument("--candidate", required=True,
+                         help="The commit the branch proposes")
+    q_queue.add_argument("--master", required=True,
+                         help="The commit it is evaluated against")
+    q_queue.add_argument("--submitted-by", required=True,
+                         help="Who proposed it - recorded, never checked "
+                              "here; who may submit is the permissions lane's")
+    q_queue.add_argument("--note", default="",
+                         help="What the proposal tries, in one line")
+
+    q_list = q_sub.add_parser(
+        "list", help="What is queued and what is decided")
+    q_list.add_argument("--status", default="",
+                        help="One queue status; default: every entry")
+    del q_list
+
+    p_queue.set_defaults(func=cmd_merge_queue)
 
     p_worktree = _add_command(sub, "worktree")
     p_worktree.add_argument("project",
