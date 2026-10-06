@@ -499,8 +499,9 @@ is mechanical, checked in `driver.rs` before any method runs
 ## Building
 
 ```sh
-cd native/resolve-control
-cargo build --release
+scripts/build_resolve_control.sh
 ```
 
-The binary is `target/release/resolve-control`. Never commit binaries.
+The binary is `native/target/release/resolve-control` (the one builder;
+`cargo build --release -p resolve-control` in `native/` says the same).
+Never commit binaries.
