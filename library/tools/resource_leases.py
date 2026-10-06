@@ -194,10 +194,15 @@ class LeaseDeclaration:
     def conflicts_with(self, other: "LeaseDeclaration") -> Optional[str]:
         """None if the two declarations may run concurrently, else why.
 
-        The compatibility rule: two READS on one resource are
-        compatible; every other pair of modes on the same resource
-        conflicts. The reason names the resource and both modes, so a
-        waiter can act on it - a conflict that cannot be described
+        Two rules. The same-resource rule: two READS on one resource
+        are compatible; every other pair of modes on the same resource
+        conflicts. The hierarchy rule: a WRITE on a parent conflicts
+        with a WRITE or EXCLUSIVE on a child inside it, a READ on a
+        parent conflicts with a WRITE on a child, and an EXCLUSIVE on
+        a parent conflicts with anything on a child - because writing,
+        reading or deleting the timeline invalidates every track and
+        clip inside it. The reason names the resource and both modes,
+        so a waiter can act on it - a conflict that cannot be described
         cannot be resolved.
         """
         mine = ((READ, self.read), (WRITE, self.write),
@@ -212,6 +217,27 @@ class LeaseDeclaration:
                 if shared:
                     ref = sorted(str(r) for r in shared)[0]
                     return f"{ref}: {mode_a} vs {mode_b}"
+        for mode_a, set_a in mine:
+            for mode_b, set_b in theirs:
+                for ref_a in set_a:
+                    for ref_b in set_b:
+                        if _ranges_overlap(ref_a, ref_b):
+                            return (f"{ref_a} overlaps {ref_b}: "
+                                    f"{mode_a} vs {mode_b}")
+                        # Both directions: the existing lease may hold
+                        # the parent and the new request the child, or
+                        # the existing lease may hold the child and the
+                        # new request the parent. A check that only
+                        # walks one way grants a parent write that
+                        # contains a child another agent holds.
+                        if _is_ancestor(ref_a, ref_b):
+                            if _hierarchical_conflict(mode_a, mode_b):
+                                return (f"{ref_b} is inside {ref_a}: "
+                                        f"{mode_a} vs {mode_b}")
+                        if _is_ancestor(ref_b, ref_a):
+                            if _hierarchical_conflict(mode_b, mode_a):
+                                return (f"{ref_a} is inside {ref_b}: "
+                                        f"{mode_b} vs {mode_a}")
         return None
 
     def to_record(self) -> Dict[str, list]:
@@ -229,6 +255,108 @@ class LeaseDeclaration:
             exclusive=frozenset(ResourceRef.parse(r)
                                 for r in record.get(EXCLUSIVE, ())),
         )
+
+
+#: Which kind contains which. The spec's resources nest - a project
+#: holds timelines, a timeline holds tracks, clips and ranges - and a
+#: write to the parent invalidates the child inside it. The child's
+#: NAME carries the placement: a track is `timeline:row`, a clip
+#: placed in a timeline is `timeline:clip_id`, a range is
+#: `timeline:start-end`. A clip in the media pool has no timeline in
+#: its name, so it is not a child of any timeline until a caller
+#: declares the placement.
+CONTAINS: Dict[str, Set[str]] = {
+    "project": {"timeline"},
+    "timeline": {"track", "clip", "timeline_range"},
+    "track": {"clip"},
+}
+
+
+def _is_ancestor(parent: ResourceRef, child: ResourceRef) -> bool:
+    """True where `parent` is a strict ancestor of `child`.
+
+    The child's kind must be one the parent's kind contains, and the
+    child's name must be the parent's name plus a `:` path - the track
+    `Reel 03:video:3` is inside the timeline `Reel 03`, the clip
+    `Reel 03:A004_C013` is the clip as placed in `Reel 03`. A name
+    that is merely a prefix (a clip named `Reel 03` and a track named
+    `Reel 03:video:3`) is not a hierarchy: the kind pair decides, and
+    a bare clip is not contained in a timeline by name.
+    """
+    if CONTAINS.get(parent.kind, set()) and child.kind in CONTAINS[parent.kind]:
+        return child.name.startswith(parent.name + ":")
+    return False
+
+
+def _range_bounds(ref: ResourceRef) -> Optional[Tuple[str, int, int]]:
+    """`(timeline, start, end)` for a `timeline_range` ref, else None.
+
+    The name is `timeline:start-end` - the last `:` separates the
+    timeline from the span, so a timeline whose own name contains a
+    colon still parses. None where the name is not a range: a range
+    that cannot be read cannot overlap anything.
+    """
+    if ref.kind != "timeline_range":
+        return None
+    head, sep, tail = ref.name.rpartition(":")
+    if not sep or not head:
+        return None
+    start_text, dash, end_text = tail.partition("-")
+    if not dash:
+        return None
+    try:
+        return head, int(start_text), int(end_text)
+    except ValueError:
+        return None
+
+
+def _ranges_overlap(first: ResourceRef, second: ResourceRef) -> bool:
+    """True where two `timeline_range` refs on one timeline overlap.
+
+    Two ranges on the same timeline conflict only where they share a
+    frame - the spec's "two agents changing overlapping timeline
+    regions". Ranges on different timelines never overlap, and a range
+    that cannot be read overlaps nothing (fail-open for the reader,
+    fail-closed for the writer, which the same-resource rule already
+    covers).
+    """
+    a, b = _range_bounds(first), _range_bounds(second)
+    if a is None or b is None:
+        return False
+    timeline_a, start_a, end_a = a
+    timeline_b, start_b, end_b = b
+    if timeline_a != timeline_b:
+        return False
+    return start_a < end_b and start_b < end_a
+
+
+def _hierarchical_conflict(parent_mode: str, child_mode: str) -> bool:
+    """Does a parent's access mode conflict with a child's, given the
+    child is inside the parent?
+
+    The full parent-mode x child-mode table:
+
+    | parent \\ child | READ | WRITE | EXCLUSIVE |
+    |-----------------|------|-------|-----------|
+    | READ            | no   | YES   | YES       |
+    | WRITE           | no   | YES   | YES       |
+    | EXCLUSIVE       | YES  | YES   | YES       |
+
+    READ on the parent conflicts with WRITE and EXCLUSIVE on the child
+    (reading the whole timeline is invalidated when a track changes or
+    is deleted - deleting a clip invalidates the read at least as much
+    as editing it). WRITE on the parent conflicts with WRITE and
+    EXCLUSIVE on the child (restructuring the timeline can move or drop
+    the track). EXCLUSIVE on the parent conflicts with anything on the
+    child (deleting the timeline deletes every track and clip in it).
+    """
+    if parent_mode == EXCLUSIVE:
+        return True
+    if parent_mode == WRITE and child_mode in (WRITE, EXCLUSIVE):
+        return True
+    if parent_mode == READ and child_mode in (WRITE, EXCLUSIVE):
+        return True
+    return False
 
 
 @dataclass

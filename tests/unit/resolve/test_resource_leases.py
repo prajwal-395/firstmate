@@ -92,6 +92,171 @@ def test_different_resources_do_not_conflict(lock_dir):
     assert first.conflicts_with(second) is None
 
 
+# ── The hierarchy: a parent's write invalidates its children ─────────
+
+def test_a_write_on_a_timeline_conflicts_with_a_write_on_a_track_inside_it(lock_dir):
+    """The spec's granularity: a timeline holds tracks, a track holds clips.
+
+    Defect caught: a same-resource-only check lets an agent restructure
+    a timeline while another edits a track inside it - the exact
+    "two agents changing overlapping timeline regions" the spec calls
+    very hard.
+    """
+    restructure = LeaseDeclaration(write=frozenset({ResourceRef("timeline", "Reel 03")}))
+    track_edit = LeaseDeclaration(write=frozenset({ResourceRef("track", "Reel 03:video:3")}))
+    reason = restructure.conflicts_with(track_edit)
+    assert reason is not None
+    assert "Reel 03:video:3" in reason
+
+
+def test_a_read_on_a_timeline_conflicts_with_a_write_on_a_track_inside_it(lock_dir):
+    """Reading the whole timeline is invalidated when a track changes.
+
+    Defect caught: a check that only refuses WRITE-WRITE lets a reader
+    observe a timeline mid-restructure and act on a stale track.
+    """
+    reader = LeaseDeclaration(read=frozenset({ResourceRef("timeline", "Reel 03")}))
+    track_edit = LeaseDeclaration(write=frozenset({ResourceRef("track", "Reel 03:video:3")}))
+    assert reader.conflicts_with(track_edit) is not None
+
+
+def test_an_exclusive_on_a_timeline_conflicts_with_a_read_on_a_track_inside_it(lock_dir):
+    """Deleting the timeline deletes every track in it - even a reader is excluded.
+
+    Defect caught: a check that treats EXCLUSIVE like WRITE lets a
+    reader observe a timeline being deleted.
+    """
+    deleter = LeaseDeclaration(exclusive=frozenset({ResourceRef("timeline", "Reel 03")}))
+    reader = LeaseDeclaration(read=frozenset({ResourceRef("track", "Reel 03:video:3")}))
+    assert deleter.conflicts_with(reader) is not None
+
+
+def test_a_write_on_a_track_does_not_conflict_with_a_write_on_another_timeline(lock_dir):
+    """A track edit is inside ONE timeline, not every timeline with a similar name.
+
+    Defect caught: a prefix check without the kind pair lets a track
+    edit in Reel 03 conflict with a write to Reel 030 - a false
+    conflict that serialises unrelated work.
+    """
+    other_timeline = LeaseDeclaration(write=frozenset({ResourceRef("timeline", "Reel 030")}))
+    track_edit = LeaseDeclaration(write=frozenset({ResourceRef("track", "Reel 03:video:3")}))
+    assert other_timeline.conflicts_with(track_edit) is None
+
+
+def test_a_write_on_a_timeline_does_not_conflict_with_a_read_on_a_track_inside_it(lock_dir):
+    """Reading a track while the timeline is being written is fine - the track itself does not change.
+
+    Defect caught: a check that refuses any parent-write beside any
+    child-access serialises readers against every timeline write,
+    which is the over-serialisation the layer exists to avoid.
+    """
+    restructure = LeaseDeclaration(write=frozenset({ResourceRef("timeline", "Reel 03")}))
+    track_read = LeaseDeclaration(read=frozenset({ResourceRef("track", "Reel 03:video:3")}))
+    assert restructure.conflicts_with(track_read) is None
+
+
+def test_a_write_on_a_timeline_conflicts_with_a_write_on_a_clip_placed_in_it(lock_dir):
+    """A clip placed in a timeline is a child of that timeline.
+
+    Defect caught: a hierarchy that only knows tracks lets an agent
+    restructure a timeline while another edits a clip placed in it -
+    the clip's frames move under the edit.
+    """
+    restructure = LeaseDeclaration(write=frozenset({ResourceRef("timeline", "Reel 03")}))
+    clip_edit = LeaseDeclaration(write=frozenset({ResourceRef("clip", "Reel 03:A004_C013")}))
+    reason = restructure.conflicts_with(clip_edit)
+    assert reason is not None
+    assert "Reel 03:A004_C013" in reason
+
+
+def test_a_write_on_a_timeline_does_not_conflict_with_a_write_on_a_clip_in_the_pool(lock_dir):
+    """A bare pool clip is not inside any timeline - it has no placement in its name.
+
+    Defect caught: a check that treats every clip as a child of every
+    timeline serialises all clip work against every timeline write.
+    """
+    restructure = LeaseDeclaration(write=frozenset({ResourceRef("timeline", "Reel 03")}))
+    pool_clip = LeaseDeclaration(write=frozenset({ResourceRef("clip", "A004_C013")}))
+    assert restructure.conflicts_with(pool_clip) is None
+
+
+# ── Timeline ranges: overlapping regions conflict ────────────────────
+
+def test_two_overlapping_ranges_on_one_timeline_conflict(lock_dir):
+    """The spec's "two agents changing overlapping timeline regions".
+
+    Defect caught: a same-resource check treats two different ranges
+    as different resources and lets both agents write the shared
+    frames.
+    """
+    first = LeaseDeclaration(write=frozenset({ResourceRef("timeline_range", "Reel 03:100-200")}))
+    second = LeaseDeclaration(write=frozenset({ResourceRef("timeline_range", "Reel 03:150-250")}))
+    reason = first.conflicts_with(second)
+    assert reason is not None
+    assert "Reel 03:100-200" in reason
+
+
+def test_two_disjoint_ranges_on_one_timeline_do_not_conflict(lock_dir):
+    """Ranges that share no frame do not conflict.
+
+    Defect caught: a check that refuses any two ranges on one
+    timeline serialises the whole timeline against itself.
+    """
+    first = LeaseDeclaration(write=frozenset({ResourceRef("timeline_range", "Reel 03:100-200")}))
+    second = LeaseDeclaration(write=frozenset({ResourceRef("timeline_range", "Reel 03:300-400")}))
+    assert first.conflicts_with(second) is None
+
+
+def test_two_ranges_on_different_timelines_do_not_conflict(lock_dir):
+    """Ranges on different timelines are different resources.
+
+    Defect caught: a check that matches ranges by span alone lets a
+    range in Reel 03 conflict with an identical range in Reel 04.
+    """
+    first = LeaseDeclaration(write=frozenset({ResourceRef("timeline_range", "Reel 03:100-200")}))
+    second = LeaseDeclaration(write=frozenset({ResourceRef("timeline_range", "Reel 04:100-200")}))
+    assert first.conflicts_with(second) is None
+
+
+def test_a_range_conflicts_with_a_write_on_the_timeline_containing_it(lock_dir):
+    """Writing the whole timeline invalidates a range inside it.
+
+    Defect caught: a hierarchy that only knows tracks and clips lets
+    an agent restructure a timeline while another edits a range in it.
+    """
+    restructure = LeaseDeclaration(write=frozenset({ResourceRef("timeline", "Reel 03")}))
+    range_edit = LeaseDeclaration(write=frozenset({ResourceRef("timeline_range", "Reel 03:100-200")}))
+    assert restructure.conflicts_with(range_edit) is not None
+
+
+def test_an_existing_child_and_a_new_parent_request_conflict(lock_dir):
+    """The reverse direction: existing child, new parent request.
+
+    Defect caught: a one-directional check (existing parent vs new
+    child only) grants a parent write that contains a clip another
+    agent already holds - the new request never sees the child it
+    would invalidate.
+    """
+    existing_child = LeaseDeclaration(write=frozenset({ResourceRef("clip", "Reel 03:A004_C013")}))
+    new_parent = LeaseDeclaration(write=frozenset({ResourceRef("timeline", "Reel 03")}))
+    # The existing lease is checked against the new request, in both
+    # orders - the conflict is symmetric.
+    assert existing_child.conflicts_with(new_parent) is not None
+    assert new_parent.conflicts_with(existing_child) is not None
+
+
+def test_a_read_on_a_parent_conflicts_with_an_exclusive_on_a_child(lock_dir):
+    """Deleting a clip invalidates a whole-timeline read.
+
+    Defect caught: a mode table where READ on the parent conflicts
+    with WRITE on the child but not EXCLUSIVE lets a reader observe a
+    timeline while a clip inside it is being deleted.
+    """
+    reader = LeaseDeclaration(read=frozenset({ResourceRef("timeline", "Reel 03")}))
+    deleter = LeaseDeclaration(exclusive=frozenset({ResourceRef("clip", "Reel 03:A004_C013")}))
+    assert reader.conflicts_with(deleter) is not None
+
+
 # ── The refusal and the wait ──────────────────────────────────────────
 
 def test_a_conflicting_lease_refuses_by_name(lock_dir):
