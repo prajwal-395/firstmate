@@ -404,6 +404,11 @@ CURSOR_SETTERS = {
     # Capability probes take the default exclusive @under_lease.
     "library/steps/step_6_01_render/probe_resolve_capabilities.py": (
         2, "exclusive: capability checks only"),
+    # The broker's executor holds the exclusive Resolve lease for the
+    # whole job (server.Broker._run); the runner's cursor writes are
+    # covered by that lease.
+    "library/tools/resolved/ui_transaction.py": (
+        2, "exclusive: the broker's executor holds the lease"),
 }
 
 METHOD = "SetCurrentTimeline"

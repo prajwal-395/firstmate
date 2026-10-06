@@ -36,6 +36,20 @@ Kinds
                        fixed here, never caller-supplied, so the job
                        carries no script text and needs no developer
                        opt-in. Identical reads coalesce.
+`resolve.ui_transaction`
+                       One verified UI transaction, run on the broker's
+                       connection through the resolve-control driver.
+                       EXCLUSIVE: a UI action changes the page, the
+                       selection, the cursor, the panels, the focus and
+                       the window state, so it cannot run beside any
+                       other Resolve job. The runner snapshots the
+                       interaction context, establishes the target
+                       project/timeline/playhead, runs the declared
+                       actions through the driver, runs the declared
+                       verification, restores the recoverable UI state
+                       and files a receipt into the edit history. The
+                       sandbox is enforced in the runner, not by
+                       convention. Detail: `resolved/ui_transaction.py`.
 """
 
 from __future__ import annotations
@@ -55,7 +69,8 @@ from library.tools.resolved.scheduler import EXCLUSIVE, PRIORITIES, SHARED
 QUALIFICATION_PROJECT = "Ren Qualification"
 
 KINDS = ("lease", "timeline.snapshot", "timeline.apply_patch",
-         "resolve_axi", "fusion.registry_summary")
+          "resolve_axi", "fusion.registry_summary",
+          "resolve.ui_transaction")
 
 
 #: The resolve-axi commands the broker will run, by name. The broker is
@@ -270,6 +285,22 @@ def prepare(kind: str, params: dict, qualification: bool = False) -> dict:
                  "project": "", "timeline": "",
                  "locality": "none",
                  "coalesce_key": _coalesce_key(kind)}
+    elif kind == "resolve.ui_transaction":
+        project = _required(params, "project", kind)
+        timeline = params.get("timeline", "") or ""
+        # The spec is validated before it is queued, so a malformed
+        # transaction is refused at the same fail-closed boundary as
+        # every other kind - never mid-run.
+        from library.tools.resolved import ui_transaction
+        ui_transaction.validate_spec(params)
+        # EXCLUSIVE although it is mostly reads: a UI action changes the
+        # page, the selection, the cursor, the panels, the focus and the
+        # window state, so it cannot run beside any other Resolve job.
+        shape = {"mode": EXCLUSIVE,
+                 "priority": "mutation", "executed": True,
+                 "project": project, "timeline": timeline,
+                 "locality": "timeline" if timeline else "project",
+                 "coalesce_key": None}
     else:
         shape = dict(_resolve_axi_shape(params), executed=True)
     requested = params.get("priority")
@@ -345,6 +376,15 @@ def run(job: dict, resolve) -> Optional[dict]:
         # edit path needs live evidence first), refuse in tests/dev.
         protocol_conformance.validate(params["patch"], "edit-patch")
     project = _open_project(resolve, job["project"])
+    if kind == "resolve.ui_transaction":
+        # The transaction establishes the timeline itself - the cursor
+        # moves to it - so it is NOT required to be current here, and
+        # the runner does the establishing under the exclusive lease.
+        from library.tools.resolved import ui_transaction
+        with write_scope(project=job.get("project"),
+                         timeline_name=job.get("timeline"),
+                         run_id=job.get("id")):
+            return ui_transaction.run(job, resolve, project=project)
     timeline = _timeline(project, job["timeline"])
     if kind == "timeline.snapshot":
         from library.tools import timeline_shadow

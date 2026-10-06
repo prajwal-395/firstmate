@@ -22,7 +22,8 @@ Unix-socket daemon that owns the QUEUE in front of that engine:
 Two shapes of job, because Resolve's handles cannot cross a process:
 
 * EXECUTED - the broker runs it on its own Resolve connection:
-  `timeline.snapshot`, `timeline.apply_patch`, `resolve_axi`.
+  `timeline.snapshot`, `timeline.apply_patch`, `resolve_axi`,
+  `resolve.ui_transaction`.
 * GRANT (`lease`) - an in-process critical section the CALLER runs.
   `resolve_lock.resolve_lease` asks the broker for its turn whenever a
   broker is serving, so every existing lease call site is scheduled
