@@ -1,0 +1,144 @@
+"""Tests for take alternate collection.
+
+These tests pin behaviour: the measured delivery descriptions are
+collected for each alternate take, an alternate that is the clip
+itself is skipped, and a clip with no alternates gets an empty list.
+"""
+from library.tools.take_selection import (
+    collect_take_alternates,
+    index_semantic_documents,
+)
+
+
+def _semantic(blocks):
+    return {"blocks": blocks}
+
+
+def _temporal(face_values=None, speech_regions=None):
+    idx = {}
+    if face_values is not None:
+        idx["face_presence"] = {"values": face_values,
+                                "sample_rate_hz": 1.0}
+    if speech_regions is not None:
+        idx["speech_regions"] = speech_regions
+    return idx
+
+
+def _graph(alternates, target_clip="c1"):
+    """Build a minimal project graph with shot and transcript nodes."""
+    nodes = []
+    digest = "d1"
+    text = "hello world"
+    nodes.append({
+        "node_id": f"shot:{target_clip}",
+        "node_type": "shot",
+        "payload": {"clip_id": target_clip, "content_digest": digest},
+    })
+    for alt in alternates:
+        clip_id = alt["clip_id"]
+        nodes.append({
+            "node_id": f"shot:{clip_id}",
+            "node_type": "shot",
+            "payload": {"clip_id": clip_id, "content_digest": digest},
+        })
+    nodes.append({
+        "node_id": "ts:1",
+        "node_type": "transcript_segment",
+        "payload": {"content_digest": digest, "text": text},
+    })
+    return {"nodes": nodes, "edges": []}
+
+
+class TestCollectTakeAlternates:
+    def test_delivery_descriptions_collected(self):
+        """The measured speech_cue and body_language are collected."""
+        graph = _graph([
+            {"clip_id": "c2", "reason": "transcript-overlap",
+             "shared_words": ["hello"]},
+        ])
+        semantic = {
+            "c2": _semantic([{"speech_cue": "measured pause before key line",
+                              "body_language": "smiles, leans forward"}]),
+        }
+        temporal = {"c2": _temporal(face_values=[0.8] * 10)}
+        result = collect_take_alternates("c1", semantic, temporal, graph)
+        assert len(result) == 1
+        alt = result[0]
+        assert alt["clip_id"] == "c2"
+        assert alt["speech_cue"] == "measured pause before key line"
+        assert alt["body_language"] == "smiles, leans forward"
+        assert alt["face_presence"] == 0.8
+
+    def test_alternate_same_as_clip_is_skipped(self):
+        """An alternate that is the clip itself is skipped."""
+        graph = _graph([
+            {"clip_id": "c1", "reason": "transcript-overlap",
+             "shared_words": ["hello"]},
+        ])
+        result = collect_take_alternates("c1", {}, {}, graph)
+        assert result == []
+
+    def test_no_alternates_gets_empty_list(self):
+        """A clip with no measured alternates gets an empty list."""
+        graph = _graph([])
+        result = collect_take_alternates("c1", {}, {}, graph)
+        assert result == []
+
+    def test_speech_spans_collected(self):
+        """The measured speech regions are collected."""
+        graph = _graph([
+            {"clip_id": "c2", "reason": "transcript-overlap",
+             "shared_words": ["hello"]},
+        ])
+        temporal = {"c2": _temporal(speech_regions=[
+            {"start": 0.0, "end": 5.0},
+            {"start": 6.0, "end": 8.0},
+        ])}
+        result = collect_take_alternates("c1", {}, temporal, graph)
+        assert len(result) == 1
+        assert result[0]["speech_spans"] == [(0.0, 5.0), (6.0, 8.0)]
+
+    def test_unmeasurable_delivery_reported_as_absent(self):
+        """An unmeasurable delivery is reported as absent, not defaulted."""
+        graph = _graph([
+            {"clip_id": "c2", "reason": "transcript-overlap",
+             "shared_words": ["hello"]},
+        ])
+        semantic = {"c2": _semantic([{"speech_cue": None,
+                                       "body_language": ""}])}
+        result = collect_take_alternates("c1", semantic, {}, graph)
+        assert len(result) == 1
+        assert result[0]["speech_cue"] is None
+        assert result[0]["body_language"] is None
+        assert result[0]["face_presence"] is None
+
+    def test_real_step_1_03_shape_is_indexed(self):
+        """The raw step 1.03 wrapper shape yields measured descriptions.
+
+        Regression: compile_manifest used to .get(clip_id) on the raw
+        {"semantic_analysis_documents": [...]} wrapper, so on a real
+        project every alternate read as unmeasured.
+        """
+        graph = _graph([
+            {"clip_id": "c2", "reason": "transcript-overlap",
+             "shared_words": ["hello"]},
+        ])
+        raw = {"semantic_analysis_documents": [
+            {"clip_id": "c2", "blocks": [
+                {"speech_cue": "measured pause before key line",
+                 "body_language": "smiles, leans forward"}]},
+        ]}
+        result = collect_take_alternates("c1", raw, {}, graph)
+        assert len(result) == 1
+        assert result[0]["speech_cue"] == "measured pause before key line"
+        assert result[0]["body_language"] == "smiles, leans forward"
+
+    def test_index_passes_through_a_map(self):
+        """An already-indexed map passes through unchanged."""
+        semantic = {"c2": _semantic([{"speech_cue": "brisk"}])}
+        assert index_semantic_documents(semantic) == semantic
+
+    def test_index_handles_a_document_list(self):
+        """A bare list of documents is indexed by clip_id."""
+        raw = [{"clip_id": "c2", "blocks": []}]
+        assert list(index_semantic_documents(raw)) == ["c2"]

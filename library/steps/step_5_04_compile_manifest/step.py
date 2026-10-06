@@ -3603,6 +3603,7 @@ def compile_manifest(out_dir: str, *, object_segmentation=None,
     # reaction cutaway is a finding, not a failure.
     reaction_cutaways = []
     reaction_cutaways_error = None
+    graph = None
     try:
         from library.tools import project_graph as _pg
         from library.tools import reaction_cutaway as _rc
@@ -3619,6 +3620,50 @@ def compile_manifest(out_dir: str, *, object_segmentation=None,
     except Exception as exc:
         reaction_cutaways_error = str(exc)
         print(f"  Reaction cutaway analysis failed: {exc}", file=sys.stderr)
+
+    # ── Take alternates: delivery descriptions for comparison ──
+    # For each spine block, find alternate takes and collect their
+    # measured delivery descriptions (speech_cue, body_language, face
+    # presence, speech spans). Delivery is a judgment - whether one
+    # performance is stronger than another - and this module does not
+    # make it. It presents the descriptions side by side so the model
+    # or the reviewer can compare them and choose. Consumes
+    # project_graph.find_alternate_takes. Report-only.
+    take_alternates = []
+    take_alternates_error = None
+    try:
+        from library.tools import take_selection as _ts
+        if graph is None:
+            from library.tools import project_graph as _pg
+            graph = _pg.load_or_build(_project_root)
+        # Step 1.03 emits {"semantic_analysis_documents": [...]} - a
+        # list under a wrapper key, not a {clip_id: doc} map. Index it
+        # by clip_id here; without this every alternate reads as
+        # unmeasured on a real project.
+        semantic_docs = _ts.index_semantic_documents(
+            load(out_dir, "semantic_analysis.json") or
+            load(out_dir, "step_1_03.json") or {})
+        for block in structure:
+            if not isinstance(block, dict):
+                continue
+            clip_id = str(block.get("clip_id", ""))
+            if not clip_id:
+                continue
+            alternates = _ts.collect_take_alternates(
+                clip_id, semantic_docs, temporal_indices, graph)
+            if alternates:
+                take_alternates.append({
+                    "block_position": block.get("position"),
+                    "clip_id": clip_id,
+                    "alternates": alternates,
+                })
+                print(
+                    f"  Take alternates: block {block.get('position')!r} "
+                    f"clip {clip_id}: {len(alternates)} alternate(s)",
+                    file=sys.stderr)
+    except Exception as exc:
+        take_alternates_error = str(exc)
+        print(f"  Take alternate analysis failed: {exc}", file=sys.stderr)
 
     manifest = {
         "project": {
@@ -3759,6 +3804,13 @@ def compile_manifest(out_dir: str, *, object_segmentation=None,
         # read by the run log and the reviewer.
         "reaction_cutaways": reaction_cutaways,
         "reaction_cutaways_error": reaction_cutaways_error,
+        # Take alternates: for each spine block with measured alternate
+        # takes, their delivery descriptions (speech_cue, body_language,
+        # face presence, speech spans) side by side. Delivery is a
+        # judgment; the descriptions are the fact, the choice belongs to
+        # the model or the reviewer. Report-only.
+        "take_alternates": take_alternates,
+        "take_alternates_error": take_alternates_error,
         "neural_engine_directives": neural_engine_directives,
         "stabilization_authorizations": stabilization_authorizations,
         # The captain's named spans where the bed is deliberately over the
