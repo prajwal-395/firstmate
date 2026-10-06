@@ -509,6 +509,41 @@ def test_footage_under_a_declared_root_is_enumerated_and_numbered(tmp_path):
     assert skipped == []
 
 
+def test_raw_footage_is_named_in_skipped_never_silent(tmp_path):
+    """A stranger's .braw sitting in raw/ with the run reporting the
+    clip count and no mention of it is footage loss.  On origin/main
+    RAW extensions scanned past in silence - absent from both lists -
+    so the run could report clips with a RAW file sitting beside
+    them unmentioned."""
+    media = _media(tmp_path, "A001_C001_0101.braw", "A002_C003_0101.r3d",
+                   "LC4930.MXF")
+    project = _project_2(tmp_path, f"name: T\nslug: t\nsource:\n"
+                                  f"  footage_root: {media}\n")
+    files, skipped = enumerate_footage(str(project))
+    # Numbering is untouched: RAW never enters the clip ids.
+    assert [f["clip_id"] for f in files] == ["clip_001"]
+    assert [f["filename"] for f in files] == ["LC4930.MXF"]
+    by_name = {os.path.basename(e["path"]): e for e in skipped}
+    assert set(by_name) == {"A001_C001_0101.braw", "A002_C003_0101.r3d"}
+    for entry in by_name.values():
+        assert "RAW" in entry["reason"]
+        assert entry["extension"] in (".braw", ".r3d")
+
+
+def test_a_raw_only_folder_refusal_names_the_way_in(tmp_path):
+    """A folder of nothing but RAW is not 'no footage': the refusal
+    says the files were seen and names the Resolve-side import."""
+    from library.steps.step_1_01_scan_project.step import (
+        scan_project_folder,
+    )
+    media = _media(tmp_path, "A001_C001_0101.braw")
+    project = _project_2(tmp_path, f"name: T\nslug: t\nsource:\n"
+                                  f"  footage_root: {media}\n")
+    with pytest.raises(ValueError, match="RAW") as excinfo:
+        scan_project_folder(str(project))
+    assert "Resolve-side import" in str(excinfo.value)
+
+
 # ── The refusals ─────────────────────────────────────────────────────
 
 def test_a_bad_declared_root_is_refused_never_defaulted(tmp_path):

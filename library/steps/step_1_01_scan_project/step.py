@@ -24,6 +24,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from library.tools.footage_identity import (
+    RAW_VIDEO_EXTENSIONS,
     SUPPORTED_AUDIO_EXTENSIONS,
     SUPPORTED_VIDEO_EXTENSIONS,
     enumerate_audio,
@@ -72,9 +73,15 @@ def scan_project_folder(project_folder: str) -> dict:
 
     # --- Verification: at least one video file found ---
     if not raw_footage_files:
+        raw_count = sum(
+            1 for entry in skipped_files
+            if entry.get("extension") in RAW_VIDEO_EXTENSIONS)
         raise ValueError(
             f"No video files found in {project_folder}. "
             f"Supported extensions: {sorted(SUPPORTED_VIDEO_EXTENSIONS)}"
+            + (f" - {raw_count} RAW file(s) were seen but need "
+               f"Resolve-side import ({sorted(RAW_VIDEO_EXTENSIONS)})"
+               if raw_count else "")
         )
 
     # --- Verification: every entry has a valid, accessible file path ---

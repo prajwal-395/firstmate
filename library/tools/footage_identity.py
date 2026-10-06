@@ -55,6 +55,20 @@ SUPPORTED_VIDEO_EXTENSIONS = {
     ".mxf",
 }
 
+# Camera RAW formats the pipeline RECOGNISES but does not probe.
+# Blackmagic RAW, REDCODE, ARRI and CinemaDNG need their vendors'
+# decode (Resolve imports them natively); ffprobe - the catalog's
+# only offline measurer - cannot read them, so admitting them into
+# the clip numbering would hand every downstream step an
+# unmeasurable file. They are recognised so the run SAYS they are
+# there (in `skipped_files`, which step 1.01 prints and records)
+# instead of scanning past them in silence - a stranger's .braw
+# sitting in raw/ with the run reporting "3 clips" and no mention
+# of it is the footage loss this closes.
+RAW_VIDEO_EXTENSIONS = {
+    ".braw", ".r3d", ".ari", ".dng",
+}
+
 # Voiceover and music audio: the takes and beds a project brings that
 # carry no picture. Enumerated SEPARATELY from video (`enumerate_audio`
 # below), in their own `audio_001` numbering, for one reason: clip ids
@@ -285,6 +299,15 @@ def enumerate_footage(project_folder: str) -> Tuple[List[dict], List[dict]]:
         for fname in sorted(names):
             filepath = os.path.join(root, fname)
             ext = os.path.splitext(fname)[1].lower()
+            if ext in RAW_VIDEO_EXTENSIONS:
+                skipped.append({
+                    "path": filepath,
+                    "extension": ext,
+                    "reason": (
+                        f"RAW format ({ext}): needs Resolve-side import "
+                        "- the catalog cannot probe it"),
+                })
+                continue
             if ext not in SUPPORTED_VIDEO_EXTENSIONS:
                 continue
             if not os.access(filepath, os.R_OK):
