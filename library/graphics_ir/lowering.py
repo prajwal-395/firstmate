@@ -1284,25 +1284,37 @@ def lower_staged_scene(props: dict[str, Any]) -> Scene:
     font_file = props.get("fontFile")
 
     nodes: list[Node] = []
-    camera_tracks: list[Track] = []
 
     ground = props.get("ground")
     if ground:
-        ground_node = _lower_staged_ground(ground, width, height, font_file)
+        ground_node, vignette_node = _lower_staged_ground(ground, width, height, font_file)
         if ground_node:
             nodes.append(ground_node)
 
-    camera = props.get("camera")
-    if camera:
-        cam_node, cam_tracks = _lower_staged_camera(camera, width, height)
-        if cam_node:
-            nodes.append(cam_node)
-            camera_tracks.extend(cam_tracks)
-
+    world_ids: list[str] = []
     for layer in props.get("layers", []):
+        if _staged_space(layer) == "frame":
+            continue
         node = _lower_staged_layer(layer, width, height, font_family, font_file, fps)
         if node:
             nodes.append(node)
+            world_ids.append(node.id)
+
+    camera = props.get("camera")
+    if camera:
+        cam_node = _lower_staged_camera(camera, width, height, world_ids)
+        if cam_node:
+            nodes.append(cam_node)
+
+    for layer in props.get("layers", []):
+        if _staged_space(layer) != "frame":
+            continue
+        node = _lower_staged_layer(layer, width, height, font_family, font_file, fps)
+        if node:
+            nodes.append(node)
+
+    if ground and vignette_node is not None:
+        nodes.append(vignette_node)
 
     return Scene(
         version=1, fps=fps, width=width, height=height,
@@ -1310,7 +1322,23 @@ def lower_staged_scene(props: dict[str, Any]) -> Scene:
     )
 
 
-def _lower_staged_ground(ground: dict, width: int, height: int, font_file: str | None) -> Node | None:
+def _staged_space(layer: dict) -> str:
+    """Which space a layer is placed in: ``frame`` holds still on the lens,
+    everything else rides the world under the camera (the template's
+    ``layerSpace``)."""
+    return "frame" if layer.get("space") == "frame" else "world"
+
+
+def _lower_staged_ground(ground: dict, width: int, height: int,
+                         font_file: str | None) -> tuple[Node | None, Node | None]:
+    """The ground colour and its lens vignette, if declared.
+
+    The template draws the vignette as a radial-gradient overlay that
+    holds still on the lens while the world moves
+    (``radial-gradient(ellipse RX% RY% at 50% 50%, transparent 0%,
+    black@strength 100%)``), so the lowering emits the same overlay
+    rather than a shader the adapter would have to invent.
+    """
     colour = ground.get("colour", "#000000")
     shape = ShapeContent(shape="rect", fill=colour)
     pattern = None
@@ -1324,43 +1352,55 @@ def _lower_staged_ground(ground: dict, width: int, height: int, font_file: str |
             opacity=ground.get("textureOpacity", 1.0),
         )
         shape.pattern = pattern
-    vignette = ground.get("vignette")
-    filters = []
-    if vignette:
-        from .model import ShaderContent
-        return Node(
-            id="ground", type=NodeType.SHAPE,
-            shape=ShapeContent(shape="rect", fill=colour, pattern=pattern),
-            bounds=Bounds(x=0, y=0, width=width, height=height),
-            shader=ShaderContent(
-                program="vignette",
-                uniforms={
-                    "strength": vignette.get("strength", 0.5),
-                    "radiusX": vignette.get("radiusX", 0.8),
-                    "radiusY": vignette.get("radiusY", 0.55),
-                },
-            ),
-        )
-    return Node(
+    ground_node: Node | None = Node(
         id="ground", type=NodeType.SHAPE, shape=shape,
         bounds=Bounds(x=0, y=0, width=width, height=height),
     )
+    vignette = ground.get("vignette")
+    if not vignette:
+        return ground_node, None
+    strength = float(vignette.get("strength", 0.5))
+    if strength <= 0:
+        return ground_node, None
+    overlay = Node(
+        id="vignette", type=NodeType.SHAPE,
+        shape=ShapeContent(shape="rect", fill=RadialGradient(
+            kind="radial",
+            radius_x=float(vignette.get("radiusX", 0.8)) * 100.0,
+            radius_y=float(vignette.get("radiusY", 0.55)) * 100.0,
+            stops=[
+                PaintStop(offset=0.0, color="#000000", opacity=0.0),
+                PaintStop(offset=1.0, color="#000000", opacity=strength),
+            ],
+        )),
+        bounds=Bounds(x=0, y=0, width=width, height=height),
+    )
+    return ground_node, overlay
 
 
-def _lower_staged_camera(camera: dict, width: int, height: int) -> tuple[Node | None, list[Track]]:
+def _lower_staged_camera(camera: dict, width: int, height: int,
+                         world_ids: list[str]) -> Node | None:
+    """The camera node, carrying the world layers as children and the
+    keyframed tracks on itself (the adapter samples a node's own tracks).
+    """
     tracks: list[Track] = []
     cam = CameraContent()
-    for prop, track_name in (("zoom", "camera.scale"), ("x", "camera.translateX"),
-                             ("y", "camera.translateY"), ("roll", "camera.rotate"),
-                             ("focus", "camera.focus")):
+    # The template translates by unit-scaled pixels about the frame centre
+    # (`translate(${-camX * unit}px, ...)`), so the tracks carry pixels,
+    # the IR's unit for every other spatial value.
+    for prop, track_name, scale in (("zoom", "camera.scale", 1.0), ("x", "camera.translateX", width),
+                                    ("y", "camera.translateY", width), ("roll", "camera.rotate", 1.0),
+                                    ("focus", "camera.focus", width)):
         keys = camera.get(prop)
         if keys and len(keys) >= 2:
-            t = _staged_track("camera", track_name, keys)
+            scaled = [dict(k, value=k["value"] * scale) for k in keys]
+            t = _staged_track("camera", track_name, scaled)
             if t:
                 tracks.append(t)
     if not tracks:
-        return None, []
-    return Node(id="camera", type=NodeType.CAMERA, camera=cam), tracks
+        return None
+    return Node(id="camera", type=NodeType.CAMERA, camera=cam,
+                children=list(world_ids), tracks=tracks)
 
 
 def _lower_staged_layer(layer: dict, width: int, height: int,
@@ -1383,8 +1423,8 @@ def _lower_staged_layer(layer: dict, width: int, height: int,
 
 def _lower_staged_disc(layer: dict, layer_id: str, width: int, height: int) -> Node:
     unit = width
-    cx = (layer.get("x", 0.0) + 0.5) * unit
-    cy = (layer.get("y", 0.0) + 0.5) * unit
+    cx = width / 2.0 + layer.get("x", 0.0) * unit
+    cy = height / 2.0 + layer.get("y", 0.0) * unit
     size = layer.get("size", 1.0) * unit
     r = size / 2
     bounds = Bounds(x=cx - r, y=cy - r, width=size, height=size)
@@ -1403,8 +1443,8 @@ def _lower_staged_disc(layer: dict, layer_id: str, width: int, height: int) -> N
 
 def _lower_staged_rule(layer: dict, layer_id: str, width: int, height: int) -> Node:
     unit = width
-    cx = (layer.get("x", 0.0) + 0.5) * unit
-    cy = (layer.get("y", 0.0) + 0.5) * unit
+    cx = width / 2.0 + layer.get("x", 0.0) * unit
+    cy = height / 2.0 + layer.get("y", 0.0) * unit
     length = layer.get("length", 1.0) * unit
     thickness = layer.get("thickness", 0.01) * unit
     bounds = Bounds(x=cx - length / 2, y=cy - thickness / 2, width=length, height=thickness)
@@ -1426,8 +1466,8 @@ def _lower_staged_image(layer: dict, layer_id: str, width: int, height: int) -> 
     x0 = (x_keys[0]["value"] if isinstance(x_keys, list) and x_keys else 0.0)
     y_val = placement.get("y", 0.0)
     y0 = (y_keys[0]["value"] if isinstance(y_keys, list) and y_keys else y_val)
-    cx = (x0 + 0.5) * unit
-    cy = (y0 + 0.5) * unit
+    cx = width / 2.0 + x0 * unit
+    cy = height / 2.0 + y0 * unit
     bounds = Bounds(x=cx - w / 2, y=cy - w / 2, width=w, height=w)
     anims = []
     if x_keys:
@@ -1463,8 +1503,11 @@ def _lower_staged_text(layer: dict, layer_id: str, width: int, height: int,
     unit = width
     placement = layer.get("placement", {})
     box_w = placement.get("width", 0.8) * unit
-    px = (placement.get("x", 0.0) + 0.5) * unit - box_w / 2
-    py = (placement.get("y", 0.0) + 0.5) * unit
+    px = width / 2.0 + placement.get("x", 0.0) * unit - box_w / 2
+    # The template centres the box on its anchor (translate(-50%,-50%)),
+    # so the top sits half the box height above the anchored point. box_h
+    # is measured below; py is placed after it.
+    py_anchor = height / 2.0 + placement.get("y", 0.0) * unit
     align = layer.get("align", "left")
     text_align = {"left": "left", "center": "center", "right": "right"}.get(align, "left")
     runs_out: list[TextRun] = []
@@ -1490,7 +1533,7 @@ def _lower_staged_text(layer: dict, layer_id: str, width: int, height: int,
     if shadow:
         text_shadow = f"{shadow.get('dx', 0) * unit:g}px {shadow.get('dy', 0) * unit:g}px {shadow.get('blur', 0) * unit:g}px {shadow.get('colour', 'rgba(0,0,0,0.5)')}"
     top = 0.0
-    for line in lines:
+    for li, line in enumerate(lines):
         def inline(size, a, d):
             lh = leading * unit if leading is not None else size
             ra, rd = round(a * size), round(d * size)
@@ -1499,7 +1542,7 @@ def _lower_staged_text(layer: dict, layer_id: str, width: int, height: int,
             return ra + up, rd + (leading_px - up)
         above, below = inline(STRUT_SIZE, STRUT_A, STRUT_D)
         widths = []
-        for run in line:
+        for ri, run in enumerate(line):
             size = run["size"] * unit
             ab, be = inline(size, A, D)
             above, below = max(above, ab), max(below, be)
@@ -1509,16 +1552,20 @@ def _lower_staged_text(layer: dict, layer_id: str, width: int, height: int,
         line_w = sum(widths)
         x = 0.0 if align == "left" else (box_w - line_w) if align == "right" else (box_w - line_w) / 2
         baseline = top + above
-        for run, w in zip(line, widths):
+        for ri, run in enumerate(line):
             size = run["size"] * unit
             runs_out.append(TextRun(
                 text=run["text"], font_size=size, font_weight=run["weight"],
                 color=run["colour"], letter_spacing=run.get("letterSpacing", 0) * unit,
                 reveal_at=run.get("revealAt"),
+                # The run that opened this line broke it in the
+                # declaration; the adapter breaks there too.
+                new_line=li > 0 and ri == 0,
             ))
-            x += w
+            x += widths[ri]
         top += above + below
     box_h = top
+    py = py_anchor - box_h / 2.0
     bounds = Bounds(x=px, y=py, width=box_w, height=box_h)
     return Node(
         id=layer_id, type=NodeType.TEXT,
@@ -1533,8 +1580,8 @@ def _lower_staged_text(layer: dict, layer_id: str, width: int, height: int,
 
 def _lower_staged_light(layer: dict, layer_id: str, width: int, height: int) -> Node:
     unit = width
-    cx = (layer.get("x", 0.0) + 0.5) * unit
-    cy = (layer.get("y", 0.0) + 0.5) * unit
+    cx = width / 2.0 + layer.get("x", 0.0) * unit
+    cy = height / 2.0 + layer.get("y", 0.0) * unit
     angle_keys = layer.get("angle")
     length_keys = layer.get("length")
     spread_keys = layer.get("spreadDeg")
@@ -1564,7 +1611,7 @@ def _lower_staged_light(layer: dict, layer_id: str, width: int, height: int) -> 
         shape=ShapeContent(
             shape="path",
             fill=RadialGradient(
-                kind="radial", radius_x=0.5, radius_y=1.0,
+                kind="radial", radius_x=50.0, radius_y=100.0,
                 stops=[
                     PaintStop(offset=0.0, color=colour, opacity=1.0),
                     PaintStop(offset=falloff, color=colour, opacity=0.5),

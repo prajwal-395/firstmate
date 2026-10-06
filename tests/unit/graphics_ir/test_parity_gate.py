@@ -26,7 +26,7 @@ from library.graphics_ir.lowering import lower_staged_scene
 from library.graphics_ir.serialization import serialize
 from library.tools import fframes_render
 
-_PILOT_ROOT = Path(__file__).resolve().parent.parent.parent
+_PILOT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 
 _STAGED_SCENE = {
     "ground": {
@@ -77,13 +77,17 @@ def _fframes_available() -> bool:
 
 
 def _remotion_available() -> bool:
+    # Probed where the render runs (remotion-subtitles/): npx resolves
+    # the local binary there and nowhere else. `versions` needs no entry
+    # point; `--version` is not a remotion command and exits 1.
     npx = shutil.which("npx")
     if not npx:
         return False
     try:
         done = subprocess.run(
-            [npx, "--no-install", "remotion", "--version"],
-            capture_output=True, text=True, timeout=10,
+            [npx, "--no-install", "remotion", "versions"],
+            capture_output=True, text=True, timeout=60,
+            cwd=str(_PILOT_ROOT / "remotion-subtitles"),
         )
         return done.returncode == 0
     except (OSError, subprocess.TimeoutExpired):
@@ -101,6 +105,8 @@ def test_fframes_matches_remotion_on_a_fixed_staged_scene(tmp_path):
     motion-on-twos counts equal.
     """
     scene = lower_staged_scene(_STAGED_SCENE)
+    fonts_dir = tmp_path / "fonts"
+    fframes_render.stage_scene_fonts(scene, str(fonts_dir))
     scene_json = tmp_path / "scene.json"
     scene_json.write_text(json.dumps(json.loads(serialize(scene))), encoding="utf-8")
 

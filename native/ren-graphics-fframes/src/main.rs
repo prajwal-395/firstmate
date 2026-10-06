@@ -281,6 +281,10 @@ struct IRTextRun {
     reveal_at: Option<f32>,
     #[serde(default)]
     new_line: bool,
+    #[serde(default)]
+    font_file: Option<String>,
+    #[serde(default)]
+    font_family: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -1009,6 +1013,7 @@ struct RunLayout {
     baseline: f32,
     size: f32,
     weight: f32,
+    family: Option<String>,
     colour: String,
     letter_spacing: f32,
     opacity: f32,
@@ -1021,7 +1026,7 @@ fn layout_runs(
     t: f32,
     m: &FaceMetrics,
     bounds: &IRBounds,
-    advances: &mut Advances,
+    advances: &mut HashMap<String, Advances>,
 ) -> Vec<RunLayout> {
     let fallback_size = text.font_size.unwrap_or(16.0);
     let mut lines: Vec<Vec<&IRTextRun>> = vec![vec![]];
@@ -1046,7 +1051,21 @@ fn layout_runs(
             above = above.max(a);
             below = below.max(b);
             let ls = run.letter_spacing.unwrap_or(0.0);
-            let w = advances.width(&run.text, size) + ls * run.text.chars().count() as f32;
+            // Widths come from the run's own staged face: a Bold advance
+            // is not a Thin advance.
+            let key = run
+                .font_file
+                .clone()
+                .or_else(|| text.font_file.clone())
+                .unwrap_or_default();
+            let adv = advances.entry(key.clone()).or_insert_with(|| {
+                if key.is_empty() {
+                    load_advances(Path::new(""))
+                } else {
+                    load_advances(Path::new(&key))
+                }
+            });
+            let w = adv.width(&run.text, size) + ls * run.text.chars().count() as f32;
             widths.push(w);
         }
         let line_w: f32 = widths.iter().sum();
@@ -1070,6 +1089,7 @@ fn layout_runs(
                 baseline: baseline + bounds.y,
                 size,
                 weight: run.font_weight.unwrap_or(text.font_weight.unwrap_or(400.0)),
+                family: run.font_family.clone().or_else(|| text.font_family.clone()),
                 colour,
                 letter_spacing: run.letter_spacing.unwrap_or(0.0),
                 opacity: run_opacity(t, run.reveal_at, ramp),
@@ -1440,18 +1460,13 @@ impl SceneVideo {
         }
 
         // Runs: inline flow sharing baselines.
-        let mut advances = text
-            .font_file
-            .as_deref()
-            .and_then(|p| ctx.advances.get(p).cloned())
-            .unwrap_or_else(|| load_advances(Path::new("")));
-        let runs = layout_runs(text, t, &m, &b, &mut advances);
+        let runs = layout_runs(text, t, &m, &b, &mut ctx.advances);
         for run in &runs {
             if run.opacity <= 0.0 {
                 continue;
             }
             let mut el = self.text_el(ctx, &escape_xml(&run.text), run.x, run.baseline, run.size,
-                text.font_family.as_deref(), Some(run.weight), &run.colour, "start", None);
+                run.family.as_deref(), Some(run.weight), &run.colour, "start", None);
             if run.letter_spacing != 0.0 {
                 el = el.a("letter-spacing", run.letter_spacing);
             }
@@ -1717,21 +1732,28 @@ fn scene_media(scene: &Scene) -> Result<(DynamicMediaProvider<'static>, HashMap<
     let mut fonts: Vec<RawFontData> = Vec::new();
     let mut seen: HashSet<PathBuf> = HashSet::new();
     for node in &scene.nodes {
-        let Some(font_file) = node.text.as_ref().and_then(|t| t.font_file.as_ref()) else {
+        let Some(text) = &node.text else {
             continue;
         };
-        let path = PathBuf::from(font_file);
-        if !seen.insert(path.clone()) {
-            continue;
+        // The node's face plus every run's staged face: runs at several
+        // weights each draw with their own static instance.
+        let mut files: Vec<&String> = text.font_file.iter().collect();
+        files.extend(text.runs.iter().filter_map(|r| r.font_file.as_ref()));
+        for font_file in files {
+            let path = PathBuf::from(font_file);
+            if !seen.insert(path.clone()) {
+                continue;
+            }
+            let data =
+                fs::read(&path).map_err(|e| format!("cannot read font file {}: {}", path.display(), e))?;
+            fonts.push(RawFontData {
+                file_name: path
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| path.to_string_lossy().into_owned()),
+                data: Arc::new(data),
+            });
         }
-        let data = fs::read(&path).map_err(|e| format!("cannot read font file {}: {}", path.display(), e))?;
-        fonts.push(RawFontData {
-            file_name: path
-                .file_name()
-                .map(|name| name.to_string_lossy().into_owned())
-                .unwrap_or_else(|| path.to_string_lossy().into_owned()),
-            data: Arc::new(data),
-        });
     }
     let mut images = HashMap::new();
     let mut names = HashMap::new();
@@ -1788,13 +1810,17 @@ fn setup_render(scene: Scene) -> Result<RenderSetup, String> {
         scene.nodes.iter().map(|n| (n.id.clone(), n.clone())).collect();
     let metrics = text_metrics(&scene);
 
-    // Precompute advance widths for every text node's font.
+    // Precompute advance widths for every staged face: the node's plus
+    // each run's, since a Bold advance is not a Thin advance.
     let mut advances: HashMap<String, Advances> = HashMap::new();
     for node in &scene.nodes {
         let Some(text) = &node.text else { continue };
-        let Some(path) = text.font_file.as_deref() else { continue };
-        if !advances.contains_key(path) {
-            advances.insert(path.to_string(), load_advances(Path::new(path)));
+        let mut paths: Vec<&str> = text.font_file.as_deref().into_iter().collect();
+        paths.extend(text.runs.iter().filter_map(|r| r.font_file.as_deref()));
+        for path in paths {
+            if !advances.contains_key(path) {
+                advances.insert(path.to_string(), load_advances(Path::new(path)));
+            }
         }
     }
 

@@ -1309,6 +1309,30 @@
           "default": false,
           "title": "New Line",
           "type": "boolean"
+        },
+        "font_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Font File"
+        },
+        "font_family": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Font Family"
         }
       },
       "required": [

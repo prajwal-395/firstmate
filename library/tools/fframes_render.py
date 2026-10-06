@@ -600,24 +600,40 @@ def stage_scene_fonts(scene, fonts_dir: str):
     usvg cannot apply a variable font's ``wght`` axis and would draw the
     default instance (Montserrat's is Thin), so each (file, weight) the
     scene declares is cut to a static face under a unique family name,
-    written to *fonts_dir*, and the node is pointed at it. The scene's
-    meaning is unchanged: the same face at the same weight.
+    written to *fonts_dir*, and the node is pointed at it. Runs name
+    their own weight, so a node whose runs carry several weights gets one
+    face per distinct run weight - a single node-level face would draw
+    every run at one weight. The scene's meaning is unchanged: the same
+    face at the same weight.
     """
     from library.graphics_ir.fonts import FontUnreadable, static_instance
 
     os.makedirs(fonts_dir, exist_ok=True)
-    for node in scene.nodes:
-        text = node.text
-        if text is None or not text.font_file:
-            continue
+
+    def stage(font_file, weight):
         try:
-            data, family = static_instance(text.font_file, text.font_weight)
+            data, family = static_instance(font_file, weight)
         except (FontUnreadable, OSError) as exc:
             raise FFramesRenderError(str(exc)) from exc
         path = os.path.join(fonts_dir, family.replace(" ", "-") + ".ttf")
         if not os.path.isfile(path):
             with open(path, "wb") as handle:
                 handle.write(data)
+        return path, family
+
+    for node in scene.nodes:
+        text = node.text
+        if text is None or not text.font_file:
+            continue
+        if text.runs:
+            for run in text.runs:
+                weight = run.font_weight
+                if weight is None:
+                    weight = text.font_weight if text.font_weight is not None else 400.0
+                path, family = stage(text.font_file, weight)
+                run.font_file = path
+                run.font_family = family
+        path, family = stage(text.font_file, text.font_weight)
         text.font_file = path
         text.font_family = family
     return scene

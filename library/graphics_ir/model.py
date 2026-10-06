@@ -387,6 +387,15 @@ class TextRun(BaseModel):
     letter_spacing: float | None = None
     reveal_at: float | None = None
     new_line: bool = False
+    font_file: str | None = None
+    font_family: str | None = None
+    """The static instance's file and family for this run's weight.
+
+    Blank until staging: ``stage_scene_fonts`` cuts one instance per
+    distinct run weight and names it here, because one node-level face
+    cannot carry runs at several weights. Engines read the run's face
+    first and fall back to the node's.
+    """
 
 
 class CameraContent(BaseModel):
