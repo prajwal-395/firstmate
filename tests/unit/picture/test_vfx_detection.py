@@ -21,6 +21,7 @@ from library.tools.vfx_detection import (
     detect_screen_replacement_candidates,
     detect_stabilization_needs,
     detect_subject_isolation_needs,
+    detect_tracking_candidates,
     detect_vfx_needs,
 )
 
@@ -457,3 +458,179 @@ def test_detect_vfx_needs_includes_retiming_and_removal():
     assert len(result["by_type"]["object_removal_candidate"]) == 1
     assert "clip_fast" in result["clips_touched"]
     assert "clip_002" in result["clips_touched"]
+
+
+def test_stabilization_records_missing_index_as_unmeasured(tmp_path):
+    """A clip whose index file is missing is recorded as unmeasured.
+
+    Defect: the old code silently continued when the index file did not
+    exist, so a clip with an unreadable index vanished from the report
+    entirely - the planner could not distinguish "measured and stable"
+    from "never measured".
+    """
+    entry = {"clip_id": "clip_missing",
+             "index_path": str(tmp_path / "nonexistent.json")}
+    unmeasured = []
+    items = detect_stabilization_needs(
+        {"temporal_event_indices": [entry]}, unmeasured=unmeasured)
+    assert items == []
+    assert len(unmeasured) == 1
+    assert unmeasured[0]["clip_id"] == "clip_missing"
+    assert "not found" in unmeasured[0]["reason"]
+
+
+def test_stabilization_records_unparseable_index_as_unmeasured(tmp_path):
+    """A clip whose index file is corrupt is recorded as unmeasured.
+
+    Defect: the old code silently continued when the index file could
+    not be parsed, so a clip with an unreadable index vanished from the
+    report entirely - the planner could not distinguish "measured and
+    stable" from "never measured".
+    """
+    bad_index = tmp_path / "bad.json"
+    bad_index.write_text("{not valid json", encoding="utf-8")
+    entry = {"clip_id": "clip_corrupt", "index_path": str(bad_index)}
+    unmeasured = []
+    items = detect_stabilization_needs(
+        {"temporal_event_indices": [entry]}, unmeasured=unmeasured)
+    assert items == []
+    assert len(unmeasured) == 1
+    assert unmeasured[0]["clip_id"] == "clip_corrupt"
+    assert "unreadable" in unmeasured[0]["reason"]
+
+
+def test_stabilization_carries_intent_read():
+    """A stabilization plan item carries the measured camera modes.
+
+    Defect: without the intent read, a deliberate handheld shot and a
+    defective shaky shot look identical to the planner - both are just
+    "shake above threshold". The camera mode is the measured signal that
+    separates them.
+    """
+    residuals = [0.2] * 20
+    entry = _temporal_index_entry("clip_shaky", residuals)
+    semantic_docs = [{
+        "clip_id": "clip_shaky",
+        "file_path": "/footage/clip_shaky.mov",
+        "camera": [
+            {"start": 0.0, "end": 10.0, "mode": "handheld",
+             "framing": "medium", "stability": "shaky",
+             "movement": "walking"},
+        ],
+    }]
+    clip_catalog = [{"clip_id": "clip_shaky",
+                     "path": "/footage/clip_shaky.mov"}]
+    items = detect_stabilization_needs(
+        {"temporal_event_indices": [entry]},
+        clip_catalog=clip_catalog,
+        semantic_docs=semantic_docs,
+    )
+    assert len(items) == 1
+    assert items[0]["evidence"]["camera_modes"] == ["handheld"]
+
+
+def test_stabilization_intent_read_absent_without_semantic_docs():
+    """No camera modes in evidence when semantic docs are not provided.
+
+    Defect: fabricating a camera mode when none was measured would give
+    the planner a false intent read - the evidence carries the intent
+    only where one exists.
+    """
+    residuals = [0.2] * 20
+    entry = _temporal_index_entry("clip_shaky", residuals)
+    items = detect_stabilization_needs({"temporal_event_indices": [entry]})
+    assert len(items) == 1
+    assert "camera_modes" not in items[0]["evidence"]
+
+
+def test_tracking_detects_tracking_camera_mode():
+    """A clip whose camera mode is 'tracking' is a tracking candidate.
+
+    Defect: without this detection, a shot where the camera follows a
+    subject reaches the VFX planner with no measurement that an overlay
+    would need motion tracking - the planner must guess from prose.
+    """
+    semantic_docs = [{
+        "clip_id": "clip_001",
+        "file_path": "/footage/clip_001.mov",
+        "camera": [
+            {"start": 0.0, "end": 10.0, "mode": "tracking",
+             "framing": "medium", "stability": "smooth",
+             "movement": "walking"},
+        ],
+    }]
+    clip_catalog = [{"clip_id": "clip_001", "path": "/footage/clip_001.mov"}]
+    items = detect_tracking_candidates(semantic_docs, clip_catalog)
+    assert len(items) == 1
+    assert items[0]["detection_type"] == "tracking_candidate"
+    assert items[0]["clip_id"] == "clip_001"
+    assert items[0]["evidence"]["camera_modes"] == ["tracking"]
+    assert items[0]["executable_by"] == "mask and track ops C-11"
+
+
+def test_tracking_skips_non_tracking_modes():
+    """Clips with stationary or mounted cameras are not tracking candidates.
+
+    Defect: emitting a static shot as a tracking candidate would route it
+    to the track ops with no measured camera movement to track.
+    """
+    semantic_docs = [{
+        "clip_id": "clip_001",
+        "file_path": "/footage/clip_001.mov",
+        "camera": [
+            {"start": 0.0, "end": 10.0, "mode": "mounted",
+             "framing": "wide", "stability": "stable",
+             "movement": "stationary"},
+        ],
+    }]
+    clip_catalog = [{"clip_id": "clip_001", "path": "/footage/clip_001.mov"}]
+    items = detect_tracking_candidates(semantic_docs, clip_catalog)
+    assert items == []
+
+
+def test_tracking_skips_clips_without_camera_segments():
+    """A clip with no camera segments is not a tracking candidate.
+
+    Defect: an absent camera measurement is not evidence of tracking -
+    emitting a plan item for a clip with no camera data would route it to
+    the track ops with nothing to track.
+    """
+    semantic_docs = [{
+        "clip_id": "clip_001",
+        "file_path": "/footage/clip_001.mov",
+        "objects": [],
+    }]
+    clip_catalog = [{"clip_id": "clip_001", "path": "/footage/clip_001.mov"}]
+    items = detect_tracking_candidates(semantic_docs, clip_catalog)
+    assert items == []
+
+
+def test_detect_vfx_needs_includes_tracking_and_unmeasured():
+    """The combined detection includes tracking and unmeasured stabilization.
+
+    Defect: without the combined entry point including the new types,
+    a caller must invoke each detection separately and merge the results
+    by hand - the merge is where a detection gets dropped.
+    """
+    entries = [
+        {"clip_id": "clip_missing",
+         "index_path": "/nonexistent/index.json"},
+    ]
+    semantic_docs = [{
+        "clip_id": "clip_002",
+        "file_path": "/footage/clip_002.mov",
+        "camera": [
+            {"start": 0.0, "end": 10.0, "mode": "tracking",
+             "framing": "medium", "stability": "smooth",
+             "movement": "walking"},
+        ],
+    }]
+    clip_catalog = [{"clip_id": "clip_002", "path": "/footage/clip_002.mov"}]
+    result = detect_vfx_needs(
+        temporal_index={"temporal_event_indices": entries},
+        semantic_docs=semantic_docs,
+        clip_catalog=clip_catalog,
+    )
+    assert len(result["by_type"]["tracking_candidate"]) == 1
+    assert len(result["unmeasured_stabilization"]) == 1
+    assert result["unmeasured_stabilization"][0]["clip_id"] == "clip_missing"

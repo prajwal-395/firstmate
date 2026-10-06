@@ -1,12 +1,16 @@
 """VFX detection: the decision layer that knows WHEN to use stabilization,
-screen replacement, and subject isolation - separate from the ability to
-operate them.
+screen replacement, subject isolation, retiming, object removal and
+tracking - separate from the ability to operate them.
 
-Three detections, each emitting plan items with reason and evidence:
+Each detection emits plan items with reason and evidence:
 
 1. **Stabilization needs** - shots where measured camera shake exceeds the
    instrument-derived threshold (``camera_stability.HANDHELD_BELOW``). The
    threshold is read off the block-search grid, not fitted to a project.
+   The intent read (camera mode from semantic analysis) travels with the
+   plan item: a handheld or selfie mode means the shake is deliberate, not
+   a defect. An unreadable stability index is recorded as unmeasured with
+   its reason - never silently skipped.
 
 2. **Screen replacement candidates** - objects in semantic analysis that
    carry readable text and are not people or vehicles. A screen with text on
@@ -16,10 +20,23 @@ Three detections, each emitting plan items with reason and evidence:
    behind-subject overlay requires a matte. The trigger is the same one
    step 1.06 uses, extended to emit plan items with reason and evidence.
 
+4. **Retiming candidates** - clips whose measured motion energy is
+   significantly above the project median.
+
+5. **Object removal candidates** - objects with role ``passing`` in
+   semantic analysis (briefly visible, measurable distraction).
+
+6. **Tracking candidates** - clips whose camera mode is ``tracking`` (the
+   camera is following a subject). A graphic placed in such a shot would
+   need motion tracking to stay attached to the subject.
+
 Each plan item names the existing operation that can execute it:
 - ``stabilization_needed`` -> stabilization hold D5
 - ``screen_replacement_candidate`` -> mask and track ops C-11
 - ``subject_isolation_needed`` -> Magic Mask seed / SAM2 segmentation
+- ``retiming_candidate`` -> native speed effects (speed_ramp, freeze_frame)
+- ``object_removal_candidate`` -> mask and track ops C-11
+- ``tracking_candidate`` -> mask and track ops C-11
 """
 
 from __future__ import annotations
@@ -41,6 +58,8 @@ DETECTION_TYPES = {
         "measured motion energy significantly above the project median",
     "object_removal_candidate":
         "object with role 'passing' (briefly visible, measurable distraction)",
+    "tracking_candidate":
+        "camera mode 'tracking' (camera is following a subject)",
 }
 
 EXECUTABLE_BY = {
@@ -49,6 +68,7 @@ EXECUTABLE_BY = {
     "subject_isolation_needed": "Magic Mask seed / SAM2 segmentation",
     "retiming_candidate": "native speed effects (speed_ramp, freeze_frame)",
     "object_removal_candidate": "mask and track ops C-11",
+    "tracking_candidate": "mask and track ops C-11",
 }
 
 
@@ -63,8 +83,32 @@ def _plan_item(detection_type: str, clip_id: str, reason: str,
     }
 
 
+def _camera_modes(doc: dict) -> list:
+    """Distinct camera modes from a semantic analysis document.
+
+    Returns the sorted list of ``camera[].mode`` values the VLM measured
+    for the clip. Empty when the document carries no camera segments - an
+    absent measurement is not evidence of intent.
+    """
+    if not isinstance(doc, dict):
+        return []
+    camera = doc.get("camera") or []
+    if not isinstance(camera, list):
+        return []
+    modes = []
+    for seg in camera:
+        if not isinstance(seg, dict):
+            continue
+        mode = str(seg.get("mode") or "").strip().lower()
+        if mode and mode not in modes:
+            modes.append(mode)
+    return sorted(modes)
+
+
 def detect_stabilization_needs(temporal_index: dict,
-                               clip_catalog: list = None) -> list:
+                               clip_catalog: list = None,
+                               semantic_docs: list = None,
+                               unmeasured: list = None) -> list:
     """Detect shots needing stabilization from camera shake measurements.
 
     Reads ``camera_motion_decomposition.values[].residual`` from the
@@ -74,8 +118,19 @@ def detect_stabilization_needs(temporal_index: dict,
     Returns a list of plan items, one per clip whose mean residual exceeds
     the threshold. Clips with no measurement are not emitted - an absent
     measurement is not evidence of shake.
+
+    When ``unmeasured`` is a list, clips whose stability index cannot be
+    read (missing file, parse error) are appended there with the reason -
+    an unreadable index is recorded, never silently skipped.
+
+    When ``semantic_docs`` is provided, each plan item's evidence carries
+    the clip's measured camera modes (the intent read): a ``handheld`` or
+    ``selfie`` mode means the shake is deliberate, not a defect.
     """
     items = []
+    lookup = {}
+    if semantic_docs:
+        lookup = build_semantic_lookup(semantic_docs, clip_catalog or [])
     indices = temporal_index
     if isinstance(temporal_index, dict):
         indices = temporal_index.get("temporal_event_indices",
@@ -90,15 +145,25 @@ def detect_stabilization_needs(temporal_index: dict,
         if index_path:
             import json
             import os
-            if os.path.exists(index_path):
-                try:
-                    with open(index_path, encoding="utf-8") as handle:
-                        full_index = json.load(handle)
-                    label, method, mean_residual = read_camera_stability(
-                        full_index)
-                except (OSError, ValueError):
-                    continue
-            else:
+            if not os.path.exists(index_path):
+                if isinstance(unmeasured, list):
+                    unmeasured.append({
+                        "clip_id": clip_id,
+                        "reason": f"index file not found at {index_path}",
+                    })
+                continue
+            try:
+                with open(index_path, encoding="utf-8") as handle:
+                    full_index = json.load(handle)
+                label, method, mean_residual = read_camera_stability(
+                    full_index)
+            except (OSError, ValueError) as exc:
+                if isinstance(unmeasured, list):
+                    unmeasured.append({
+                        "clip_id": clip_id,
+                        "reason": f"index unreadable: "
+                                  f"{type(exc).__name__}: {exc}",
+                    })
                 continue
         else:
             label, method, mean_residual = read_camera_stability(entry)
@@ -107,17 +172,21 @@ def detect_stabilization_needs(temporal_index: dict,
             continue
         if mean_residual < HANDHELD_BELOW:
             continue
+        evidence = {
+            "mean_residual": mean_residual,
+            "label": label,
+            "method": method,
+            "threshold": HANDHELD_BELOW,
+        }
+        modes = _camera_modes(lookup.get(clip_id, {}))
+        if modes:
+            evidence["camera_modes"] = modes
         items.append(_plan_item(
             "stabilization_needed",
             clip_id,
             f"camera shake measured at {mean_residual:.4f} residual "
             f"({label}, method: {method})",
-            {
-                "mean_residual": mean_residual,
-                "label": label,
-                "method": method,
-                "threshold": HANDHELD_BELOW,
-            },
+            evidence,
         ))
     return items
 
@@ -325,6 +394,39 @@ def detect_object_removal_candidates(semantic_docs: list,
     return items
 
 
+def detect_tracking_candidates(semantic_docs: list,
+                               clip_catalog: list = None) -> list:
+    """Detect shots where an overlay would need motion tracking.
+
+    A tracking candidate is a clip whose measured camera mode is
+    ``tracking`` - the camera is following a subject. A graphic placed in
+    such a shot would need motion tracking to stay attached to the
+    subject as the camera follows it.
+
+    The camera mode is measured by the VLM in semantic analysis, not
+    inferred from the label. Clips with a ``stationary``, ``mounted``,
+    ``panning``, ``handheld`` or ``selfie`` mode are not emitted - those
+    modes do not measure a subject being followed.
+    """
+    items = []
+    lookup = build_semantic_lookup(semantic_docs, clip_catalog or [])
+    for clip_id, doc in lookup.items():
+        if not isinstance(doc, dict):
+            continue
+        modes = _camera_modes(doc)
+        if "tracking" not in modes:
+            continue
+        items.append(_plan_item(
+            "tracking_candidate",
+            clip_id,
+            f"camera mode 'tracking' (camera is following a subject)",
+            {
+                "camera_modes": modes,
+            },
+        ))
+    return items
+
+
 def detect_vfx_needs(temporal_index: dict = None,
                       semantic_docs: list = None,
                       clip_catalog: list = None,
@@ -339,8 +441,16 @@ def detect_vfx_needs(temporal_index: dict = None,
     - ``detections``: list of all plan items
     - ``by_type``: dict mapping detection_type to list of plan items
     - ``clips_touched``: sorted list of clip_ids that appear in any plan item
+    - ``unmeasured_stabilization``: clips whose stability index could not
+      be read, each with the reason - an absence with its cause, never a
+      silent skip
     """
-    stabilization = detect_stabilization_needs(temporal_index, clip_catalog)
+    unmeasured_stabilization = []
+    stabilization = detect_stabilization_needs(
+        temporal_index, clip_catalog,
+        semantic_docs=semantic_docs,
+        unmeasured=unmeasured_stabilization,
+    )
     screens = detect_screen_replacement_candidates(semantic_docs, clip_catalog)
     isolation = detect_subject_isolation_needs(
         color_grade_spec=color_grade_spec,
@@ -351,17 +461,21 @@ def detect_vfx_needs(temporal_index: dict = None,
     )
     retiming = detect_retiming_candidates(temporal_index, clip_catalog)
     removals = detect_object_removal_candidates(semantic_docs, clip_catalog)
-    all_items = stabilization + screens + isolation + retiming + removals
+    tracking = detect_tracking_candidates(semantic_docs, clip_catalog)
+    all_items = (stabilization + screens + isolation + retiming
+                 + removals + tracking)
     by_type = {
         "stabilization_needed": stabilization,
         "screen_replacement_candidate": screens,
         "subject_isolation_needed": isolation,
         "retiming_candidate": retiming,
         "object_removal_candidate": removals,
+        "tracking_candidate": tracking,
     }
     clips_touched = sorted({item["clip_id"] for item in all_items})
     return {
         "detections": all_items,
         "by_type": by_type,
         "clips_touched": clips_touched,
+        "unmeasured_stabilization": unmeasured_stabilization,
     }
