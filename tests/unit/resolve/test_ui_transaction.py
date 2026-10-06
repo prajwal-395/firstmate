@@ -144,10 +144,18 @@ class FakeBackend:
         self._node_count = int(count)
 
     def find_element(self, *, role="", title="", title_contains="",
-                     label="", value=""):
+                     label="", value="", path=None):
         return find_in_tree(self._ax_tree, role=role, title=title,
                             title_contains=title_contains, label=label,
-                            value=value)
+                            value=value, path=path or [])
+
+    def find_all_elements(self, *, role="", title="", title_contains="",
+                          label="", value="", path=None):
+        found = []
+        find_all_in_tree(self._ax_tree, found, role=role, title=title,
+                         title_contains=title_contains, label=label,
+                         value=value, path=path or [])
+        return found
 
     def element(self, ref):
         return element_by_ref(self._ax_tree, ref)
@@ -237,16 +245,19 @@ class FakeDriver:
             criteria = {k: params[k] for k in
                         ("role", "title", "title_contains", "label", "value")
                         if params.get(k)}
-            ref = self._backend.find_element(**criteria)
-            if ref is None:
-                return {"elements": []}
-            self._ref_counter += 1
-            driver_ref = f"fake-ref-{self._ref_counter}"
-            self._refs[driver_ref] = ref
-            element = self._backend.element(ref)
-            return {"elements": [{"ref": driver_ref,
-                                   "role": element.get("role", ""),
-                                   "title": element.get("title", "")}]}
+            if params.get("path"):
+                criteria["path"] = params["path"]
+            refs = self._backend.find_all_elements(**criteria)
+            elements = []
+            for ref in refs:
+                element = self._backend.element(ref)
+                self._ref_counter += 1
+                driver_ref = f"fake-ref-{self._ref_counter}"
+                self._refs[driver_ref] = ref
+                elements.append({"ref": driver_ref,
+                                 "role": element.get("role", ""),
+                                 "title": element.get("title", "")})
+            return {"elements": elements}
         if method == "press":
             self._backend.press(self._resolve_ref(params.get("element")))
             return {"pressed": True}
@@ -314,7 +325,8 @@ def _empty_tree():
             "focused": False, "children": []}
 
 
-def _matches(element, *, role, title, title_contains, label, value):
+def _matches(element, *, role, title, title_contains, label, value,
+             path=()):
     if role and element.get("role") != role:
         return False
     if title and element.get("title") != title:
@@ -324,6 +336,8 @@ def _matches(element, *, role, title, title_contains, label, value):
     if label and element.get("label") != label:
         return False
     if value and element.get("value") != value:
+        return False
+    if path and list(element.get("path") or []) != list(path):
         return False
     return True
 
@@ -336,6 +350,13 @@ def find_in_tree(tree, **criteria):
         if hit is not None:
             return hit
     return None
+
+
+def find_all_in_tree(tree, found, **criteria):
+    if _matches(tree, **criteria):
+        found.append(str(tree.get("ref") or ""))
+    for child in tree.get("children") or ():
+        find_all_in_tree(child, found, **criteria)
 
 
 def element_by_ref(tree, ref):
@@ -698,6 +719,65 @@ def test_sandbox_refuses_unknown_element(broker, backend):
     result = job["result"]
     assert result["status"] == "failed"
     assert "Ghost" in result["result"]["error"]
+
+
+def _menu_pair(backend):
+    """Two commands under one title, as Resolve's menus really hold them."""
+    backend._ax_tree["children"].extend([
+        {"ref": "color-bypass", "role": "AXMenuItem", "title": "Color",
+         "label": "", "value": "",
+         "path": ["View", "Bypass Color and Fusion"],
+         "focused": False, "children": []},
+        {"ref": "color-switch", "role": "AXMenuItem", "title": "Color",
+         "label": "", "value": "",
+         "path": ["Workspace", "Switch to Page"],
+         "focused": False, "children": []},
+    ])
+
+
+def test_path_qualified_element_presses_the_named_command(broker, backend):
+    """A path-qualified target presses exactly the menu item it names."""
+    _menu_pair(backend)
+    params = {
+        "project": "Scratch", "timeline": "Reel 07",
+        "actions": [{"action": "press", "target": {
+            "kind": "accessibility_element", "title": "Color",
+            "path": ["Workspace", "Switch to Page"]}}],
+    }
+    submitted = _submit(broker, params)
+    job = _wait_terminal(broker, submitted["id"])
+    result = job["result"]
+    assert result["status"] == "committed", result
+    assert backend.element("color-switch").get("pressed") is True
+    assert backend.element("color-bypass").get("pressed") is not True
+
+
+def test_ambiguous_element_match_is_refused(broker, backend):
+    """One title naming several commands refuses; nothing is acted on."""
+    _menu_pair(backend)
+    params = {
+        "project": "Scratch", "timeline": "Reel 07",
+        "actions": [{"action": "press", "target": {
+            "kind": "accessibility_element", "title": "Color"}}],
+    }
+    submitted = _submit(broker, params)
+    job = _wait_terminal(broker, submitted["id"])
+    result = job["result"]
+    assert result["status"] == "failed"
+    assert "elements match" in result["result"]["error"]
+    assert backend.element("color-switch").get("pressed") is not True
+    assert backend.element("color-bypass").get("pressed") is not True
+
+
+def test_prepare_refuses_malformed_path(backend):
+    for bad in ("Workspace", [], ["Workspace", ""], [""]):
+        with pytest.raises(job_kinds.JobRefused):
+            job_kinds.prepare("resolve.ui_transaction", {
+                "project": "Scratch",
+                "actions": [{"action": "press", "target": {
+                    "kind": "accessibility_element", "title": "Color",
+                    "path": bad}}],
+            })
 
 
 def test_sandbox_refuses_unknown_verification_kind(backend):

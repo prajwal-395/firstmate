@@ -46,8 +46,10 @@ the provider and UI-action fields in its refs - the per-reel account
 The driver is the official `DriverClient` from
 `library.tools.computer_use.client` - the resolve-control native driver's
 ONE Python side. Element targets carry search criteria (role, title,
-label); the runner resolves them to a ref via `find_element` before
-acting, so the driver's ref table is honoured.
+label, and the menu `path` above the element); the runner resolves them
+to a ref via `find_element` before acting, so the driver's ref table is
+honoured, and refuses an ambiguous match instead of acting on the first
+of several.
 """
 
 from __future__ import annotations
@@ -80,8 +82,14 @@ TARGET_KINDS = frozenset({
 })
 
 #: The search criteria an accessibility_element target may carry. The
-#: runner resolves them to a ref via the driver's `find_element`.
-_ELEMENT_CRITERIA = ("role", "title", "title_contains", "label", "value")
+#: runner resolves them to a ref via the driver's `find_element`. `path`
+#: is the menu path above the element, outermost first (e.g.
+#: `["Workspace", "Switch to Page"]`) - the driver's own doc requires
+#: refining a bare title with its path before pressing, because one title
+#: names several commands (every page name sits under both Switch to Page
+#: and Show Page, measured 2026-10-06).
+_ELEMENT_CRITERIA = ("role", "title", "title_contains", "label", "value",
+                     "path")
 
 #: What a transaction restores by default: the recoverable UI state the
 #: plan names (page/timeline/playhead). Selection and focused panel are
@@ -164,6 +172,14 @@ def _validate_action(action, index: int, params: dict) -> None:
             raise JobRefused(
                 f"action {index}: an accessibility_element target needs "
                 f"search criteria - one of {_ELEMENT_CRITERIA}")
+        path = target.get("path")
+        if path is not None and (
+                not isinstance(path, list) or not path
+                or not all(isinstance(bit, str) and bit for bit in path)):
+            raise JobRefused(
+                f"action {index}: 'path' is the menu path above the "
+                f"element - a non-empty list of menu titles, outermost "
+                f"first (e.g. ['Workspace', 'Switch to Page'])")
     if kind in ("viewer_coordinate", "window_relative_coordinate"):
         if "x" not in target or "y" not in target:
             raise JobRefused(
@@ -369,13 +385,23 @@ def _resolve_element(driver, target: dict) -> str:
 
     The driver's `find_element` returns elements with an opaque `ref`;
     the action then carries that ref. A target whose criteria match
-    nothing is refused by name, not acted on a None.
+    nothing is refused by name, and one matching MORE than one element
+    is refused as ambiguous - acting on the first of several matches
+    pressed the wrong command (a bare "Color" title matched six menu
+    items, the page switch fourth, measured 2026-10-06). Refine with
+    `path` until exactly one element answers.
     """
     criteria = {c: target[c] for c in _ELEMENT_CRITERIA if target.get(c)}
     elements = driver.call("find_element", criteria).get("elements") or []
     if not elements:
         raise JobRefused(
             f"no element matches {criteria} in the accessibility tree")
+    if len(elements) > 1:
+        raise JobRefused(
+            f"{len(elements)} elements match {criteria}; refine with "
+            f"'path' (the menu path above the element, outermost first) "
+            f"until exactly one matches - the sandbox never acts on the "
+            f"first of several")
     return elements[0]["ref"]
 
 
