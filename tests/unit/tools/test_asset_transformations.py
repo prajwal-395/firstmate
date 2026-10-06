@@ -311,6 +311,82 @@ def test_the_jl_cut_path_writes_a_routing_decision_record(tmp_path):
     assert records[0]["provenance"]["derived_from"] == [source]
 
 
+def _broll_block(position=1, block_type="music", clip_id="clip_009",
+                 start=0.0, end=4.0):
+    """A spine block with no V1 picture: the B-roll gap to route."""
+    return {"position": position, "block_type": block_type,
+            "clip_id": clip_id, "timeline_start": start,
+            "timeline_end": end}
+
+
+def test_the_routed_broll_gap_covers_the_block_and_writes_a_record(
+        tmp_path):
+    """An uncovered block's gap is answered from the project's catalog.
+
+    On origin/main the post-bridge refuses the block with no record of
+    what could have covered it; routed, the same gap lands a substitute
+    assignment covering the block's own span, and the project's routing
+    ledger carries the decision with its provenance.
+    """
+    substitute = tmp_path / "substitute.mov"
+    substitute.touch()
+    _project_with_catalog(tmp_path, [
+        {"clip_id": "clip_001", "path": str(substitute),
+         "filename": "substitute.mov", "duration_seconds": 30.0,
+         "width": 1920, "height": 1080, "rotation": 0},
+    ])
+    catalog = [{"clip_id": "clip_001", "path": str(substitute),
+                "duration_seconds": 30.0, "width": 1920, "height": 1080,
+                "rotation": 0}]
+
+    out = asset_transformations.route_broll_gap(
+        _broll_block(), catalog, [], str(tmp_path))
+
+    assert out is not None
+    assert out["clip_id"] == "clip_001"
+    assert out["source_file"] == str(substitute)
+    assert out["timeline_start"] == 0.0
+    assert out["timeline_end"] == 4.0
+    assert out["video_in"] == 0.0
+    assert out["video_out"] == 4.0
+    assert out["coverage_shortfall_seconds"] == 0.0
+    assert out["selection_rationale"] == "routed B-roll substitute"
+    assert out["window_basis"] == "routed_substitute"
+    assert out["video_only"] is True
+
+    records = asset_routing.read_decisions(str(tmp_path))
+    assert len(records) == 1
+    assert records[0]["need"]["kind"] == "b_roll"
+    assert records[0]["answered_by"] == "transformation"
+    assert records[0]["provenance"]["producer"] == "broll_substitute"
+    assert records[0]["provenance"]["derived_from"] == [str(substitute)]
+
+
+def test_the_unroutable_broll_gap_returns_none_and_writes_no_record(
+        tmp_path):
+    """A gap no catalog clip can cover refuses as it did before.
+
+    Every catalog clip is shorter than the block, so no tier answers:
+    the gap routes to None, no decision is appended, and the step's
+    refusal path owns the block - the routing layer never invents
+    picture to fill a hole nothing held can cover.
+    """
+    short = tmp_path / "short.mov"
+    short.touch()
+    _project_with_catalog(tmp_path, [
+        {"clip_id": "clip_001", "path": str(short),
+         "filename": "short.mov", "duration_seconds": 2.0},
+    ])
+    catalog = [{"clip_id": "clip_001", "path": str(short),
+                "duration_seconds": 2.0}]
+
+    out = asset_transformations.route_broll_gap(
+        _broll_block(), catalog, [], str(tmp_path))
+
+    assert out is None
+    assert asset_routing.read_decisions(str(tmp_path)) == []
+
+
 def test_the_unrouted_jl_cut_path_writes_no_routing_record(tmp_path):
     """The measure/stage path stages the fill with no routing record.
 

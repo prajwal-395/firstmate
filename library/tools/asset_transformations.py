@@ -379,6 +379,113 @@ def route_room_tone_fill(source_file: str, speech_spans: list,
     }
 
 
+def route_broll_gap(block: dict, catalog: list, assignments: list,
+                    project_folder: str) -> dict | None:
+    """Route an uncovered block's B-roll gap through the routing layer.
+
+    The B-roll plan leaves a block with no V1 picture and no cutaway:
+    the hole would render black. Before the step refuses, the gap is
+    routed as a ``b_roll`` need - the ``broll_substitute`` handler
+    selects a substitute from the project's own catalog, and the
+    decision record is written. The substitute plays the block's own
+    span from the clip's start (capped, never the full clip), so it
+    covers the slot exactly. Returns the substitute assignment, or
+    None when no catalog clip can cover the block (the step then
+    refuses as it did before).
+    """
+    block_duration = float(block.get("timeline_end", 0.0)
+                           - block.get("timeline_start", 0.0))
+    exclude = {str(a.get("clip_id"))
+               for a in assignments if isinstance(a, dict)}
+    exclude.add(str(block.get("clip_id")))
+    subject = str(block.get("block_type", ""))
+    need = asset_routing.Need("b_roll", {
+        "subject": subject,
+        "exclude_clip_ids": sorted(exclude),
+        "min_duration_seconds": round(block_duration, 3),
+    })
+    record = asset_routing.route_need(need,
+                                      {"project_folder": project_folder})
+    if record["answered_by"] is None:
+        return None
+    asset = record["artifact"]
+    asset_routing.append_decision(project_folder, record)
+    timeline_start = float(block.get("timeline_start", 0.0))
+    duration = float(asset.get("duration_seconds", 0.0) or 0.0)
+    # The window is the block's own span, from the substitute's start -
+    # never the substitute's full length. The handler only answers with
+    # a clip at least as long as the block (the need's floor), so the
+    # cap covers the slot exactly and the shortfall below stays 0.0; an
+    # uncapped window would run past the block into the next cutaway on
+    # V2. The opening seconds are not a picture-chosen moment - choosing
+    # one from the semantic analysis is the graph lane's follow-up
+    # (`find_broll_matches`), and the basis below says which answered.
+    window = round(min(duration, block_duration), 3)
+    return {
+        "spine_block_position": block.get("position"),
+        "block_type": block.get("block_type", "transition_slot"),
+        "clip_id": asset.get("clip_id"),
+        "source_file": asset.get("path"),
+        "video_in": 0.0,
+        "video_out": window,
+        "duration_seconds": window,
+        "timeline_start": timeline_start,
+        "timeline_end": round(timeline_start + window, 3),
+        "coverage_shortfall_seconds": round(
+            max(0.0, block_duration - window), 3),
+        "needs_conform": _substitute_needs_conform(
+            catalog, asset.get("clip_id"), project_folder),
+        "selection_rationale": "routed B-roll substitute",
+        "window_basis": "routed_substitute",
+        "window_basis_detail": record["provenance"]["detail"],
+        "slip_seconds": 0.0,
+        "video_only": True,
+    }
+
+
+def _substitute_needs_conform(catalog: list, clip_id: str | None,
+                              project_folder: str) -> bool:
+    """Whether the substitute plays at a foreign resolution.
+
+    The bridge recomputes this flag from the catalog on every
+    assignment it places itself (``check_needs_conform`` in
+    ``post_bridge.py``); a routed substitute carries the same
+    measurement rather than a default. A clip the passed catalog does
+    not describe reads False - ``compile_manifest`` re-derives the
+    conform from probed metadata for every V2 clip, so an unknown
+    resolution is measured there, not refused here.
+    """
+    from library.tools.delivery_format import resolve_delivery_format
+    clip = next((c for c in catalog
+                 if isinstance(c, dict) and c.get("clip_id") == clip_id),
+                None)
+    if clip is None:
+        return False
+    width, height = resolve_delivery_format(project_folder)
+    return bool(check_needs_conform(clip, width, height))
+
+
+def check_needs_conform(clip: dict, target_width: int,
+                        target_height: int) -> bool:
+    """True when the clip's resolution or rotation differs from target.
+
+    The one comparison both the bridge's own assignments and the
+    router's substitutes are measured with (the bridge imports it;
+    ``post_bridge.check_needs_conform`` keeps working as that import).
+    Rotation-aware - a 1920x1080 clip with -90 rotation IS portrait -
+    and None-safe where the bridge's former local copy raised in
+    ``abs`` on a clip with no recorded rotation.
+    """
+    w = clip.get("width", 0)
+    h = clip.get("height", 0)
+    rotation = clip.get("rotation", 0)
+    if abs(rotation or 0) in (90, 270, -90, -270):
+        w, h = h, w
+    if w and h and (w != target_width or h != target_height):
+        return True
+    return False
+
+
 #: The transformation tier's handlers, registered in the order the
 #: router consults them. A need the first cannot answer falls through
 #: to the next, so a room-tone need never reaches the freeze handler.

@@ -234,6 +234,48 @@ def test_only_one_cutaway_reaches_a_block():
     assert len(out["b_roll_assignments"]) == 1
 
 
+def test_an_uncovered_block_is_answered_from_the_catalog(tmp_path):
+    """A block with no V1 picture and no cutaway is routed, not refused.
+
+    On origin/main the post-bridge refuses the block with nothing on
+    the record; with the router wired in, the same block lands a
+    substitute assignment from the project's own catalog, and the
+    routing ledger carries the decision. A block the catalog cannot
+    cover still refuses (the test below).
+    """
+    from library.steps.step_3_02_select_broll.post_bridge import (
+        _route_uncovered_substitutes,
+    )
+    from library.tools import asset_routing
+
+    substitute = tmp_path / "substitute.mov"
+    substitute.touch()
+    state = {"capability_outputs": {"footage.catalog": {
+        "clip_catalog": [{
+            "clip_id": "clip_001", "path": str(substitute),
+            "filename": "substitute.mov", "duration_seconds": 30.0,
+            "width": 1920, "height": 1080, "rotation": 0,
+        }]}}}
+    pipeline_data = tmp_path / "pipeline_data"
+    pipeline_data.mkdir()
+    with open(pipeline_data / "pipeline_data.json", "w",
+              encoding="utf-8") as handle:
+        json.dump(state, handle)
+    catalog = state["capability_outputs"]["footage.catalog"]["clip_catalog"]
+    blocks = [{"position": 1, "block_type": "music", "clip_id": None,
+               "timeline_start": 0.0, "timeline_end": 4.0}]
+
+    out = _route_uncovered_substitutes(blocks, [], catalog, str(tmp_path))
+
+    assert len(out) == 1
+    assert out[0]["spine_block_position"] == 1
+    assert out[0]["clip_id"] == "clip_001"
+    assert out[0]["timeline_end"] == 4.0
+    records = asset_routing.read_decisions(str(tmp_path))
+    assert len(records) == 1
+    assert records[0]["need"]["kind"] == "b_roll"
+
+
 def test_an_uncovered_music_block_is_refused_by_position():
     payload = {
         "clip_catalog": [{

@@ -31,6 +31,8 @@ import os
 import sys
 
 from library.tools.semantic_index import build_semantic_lookup
+from library.tools import asset_transformations
+from library.tools.asset_transformations import check_needs_conform
 from library.tools.delivery_format import resolve_delivery_format
 from library.tools.cutaway_window import choose_window
 from library.tools.spine_contract import declares_black_beat
@@ -76,23 +78,11 @@ def _require_keys(obj, keys, context):
         raise ValueError(f"{context}: missing required keys: {missing}")
 
 
-def check_needs_conform(clip: dict, target_width: int, target_height: int) -> bool:
-    """
-    Check if a clip needs conforming to target output specs.
-    True if resolution or rotation differs from target.
-    """
-    w = clip.get("width", 0)
-    h = clip.get("height", 0)
-    rotation = clip.get("rotation", 0)
-
-    # Account for rotation: a 1920x1080 clip with -90 rotation IS portrait
-    if abs(rotation) in (90, 270, -90, -270):
-        # Swap width/height for rotated clips
-        w, h = h, w
-
-    if w and h and (w != target_width or h != target_height):
-        return True
-    return False
+# `check_needs_conform` lives in `library.tools.asset_transformations`
+# (imported above): the routed B-roll substitute carries the same
+# measurement, so the comparison exists once. It is None-safe where
+# this local copy was not - a clip with no recorded rotation conforms
+# by resolution alone instead of raising in `abs`.
 
 
 def find_best_segment(
@@ -608,6 +598,19 @@ def main():
     # naming the block, through the post-bridge retry path back to the
     # model that chose nothing for it. A deliberately declared black
     # beat is covered by its declaration, not by a cutaway.
+    # Route uncovered blocks through the asset router before refusing:
+    # a block with no V1 picture and no cutaway is a missing B-roll
+    # asset, and the router's broll_substitute handler can select a
+    # substitute from the project's own catalog. The decision record is
+    # written for each substitute; a block no clip can cover is left
+    # for _refuse_uncovered to refuse.
+    broll_assignments = result.get("b_roll_assignments", [])
+    substitutes = _route_uncovered_substitutes(
+        timed_spine.get("structure", []), broll_assignments,
+        clip_catalog, data.get("project_folder", ""))
+    if substitutes:
+        broll_assignments.extend(substitutes)
+        result["b_roll_assignments"] = broll_assignments
     _refuse_uncovered(timed_spine.get("structure", []),
                       result.get("b_roll_assignments", []))
 
@@ -630,6 +633,34 @@ def main():
     result["value_decisions"] = [broll_decision.as_record()]
 
     json.dump(result, sys.stdout, indent=2)
+
+
+def _route_uncovered_substitutes(blocks: list, assignments: list,
+                                 catalog: list,
+                                 project_folder: str) -> list:
+    """Route each uncovered block's B-roll gap through the router.
+
+    A block with no V1 picture and no cutaway is a missing B-roll
+    asset. Before the step refuses, the gap is routed as a ``b_roll``
+    need: the ``broll_substitute`` handler selects a substitute from
+    the project's own catalog, and the decision record is written.
+    Returns the substitute assignments; a block no catalog clip can
+    cover is left for ``_refuse_uncovered`` to refuse.
+    """
+    covered = {str(a.get("spine_block_position"))
+               for a in assignments if isinstance(a, dict)}
+    substitutes = []
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        if (block_reaches_v1(block) or declares_black_beat(block)
+                or str(block.get("position")) in covered):
+            continue
+        substitute = asset_transformations.route_broll_gap(
+            block, catalog, assignments + substitutes, project_folder)
+        if substitute is not None:
+            substitutes.append(substitute)
+    return substitutes
 
 
 def _refuse_uncovered(blocks: list, assignments: list) -> None:
