@@ -416,7 +416,7 @@ def test_a_failed_probe_is_reported_and_not_returned_as_a_number(
 
 # ── Downstream ──────────────────────────────────────────────────────────
 
-def test_compile_manifest_merges_the_look_onto_every_clip():
+def test_compile_manifest_merges_the_look_onto_every_clip(tmp_path):
     from library.steps.step_5_04_compile_manifest.step import compile_manifest
 
     source = os.path.abspath(__file__)
@@ -448,7 +448,7 @@ def test_compile_manifest_merges_the_look_onto_every_clip():
     }
     with patch("library.steps.step_5_04_compile_manifest.step.load",
                side_effect=lambda out_dir, filename: inputs):
-        manifest = compile_manifest("dummy")
+        manifest = compile_manifest(str(tmp_path / "dummy"))
 
     # The CDL half travels in color_grade, the Fusion half in the per-clip
     # effects. Both must be in the manifest the renderer reads.
@@ -461,7 +461,7 @@ def test_compile_manifest_merges_the_look_onto_every_clip():
         assert effects["glow_gain"] == pytest.approx(look.glow_gain)
 
 
-def test_compile_manifest_draws_no_comp_when_no_look_is_declared():
+def test_compile_manifest_draws_no_comp_when_no_look_is_declared(tmp_path):
     """This is what project 001 gets: all seventeen of its per-clip comps
     existed only to carry the look."""
     from library.steps.step_5_04_compile_manifest.step import compile_manifest
@@ -491,7 +491,7 @@ def test_compile_manifest_draws_no_comp_when_no_look_is_declared():
     }
     with patch("library.steps.step_5_04_compile_manifest.step.load",
                side_effect=lambda out_dir, filename: inputs):
-        manifest = compile_manifest("dummy")
+        manifest = compile_manifest(str(tmp_path / "dummy"))
 
     assert manifest["color_grade"]["series_look"] is None
     for label, effects in manifest["fusion_effects"]["per_clip"].items():

@@ -8,6 +8,8 @@ No test asserts a schema or count.
 import json
 from pathlib import Path
 
+import pytest
+
 from library.tools import project_graph
 
 
@@ -1388,3 +1390,52 @@ def test_find_vfx_detections_filters_by_clip():
     assert found[0]["effect"] == "stabilization"
     assert len(project_graph.find_vfx_detections(graph)) == 2
     assert project_graph.find_vfx_detections(graph, "clip_999") == []
+
+
+# ── The engine-checkout guard ───────────────────────────────────────
+#
+# Defect, reported by the delivery lane: the audio suite left an empty
+# `project_graph.json` at the repository root. The compile tests pass
+# a cwd-relative out_dir (`compile_manifest("dummy")` resolves its
+# project root to the empty string), so `load_or_build` wrote the
+# cache into whatever directory the suite ran from. The graph is
+# project state - a root that contains this module is the engine
+# checkout, never a project, and the load is refused before any write.
+#
+
+
+def test_load_or_build_refuses_the_engine_checkout(tmp_path, monkeypatch):
+    """A cwd-relative test root must fail loudly, not write the cache
+    into the repo. On origin/main the write lands beside the suite -
+    this test fails there by leaving the stray file behind."""
+    from library.tools.ren_refusal import RenRefusal
+
+    repo_root = Path(project_graph.__file__).resolve().parents[2]
+    assert (repo_root / "library" / "tools" / "project_graph.py").is_file()
+
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(RenRefusal):
+        project_graph.load_or_build(str(repo_root))
+
+    assert not (repo_root / project_graph.GRAPH_FILE_NAME).exists()
+    assert not (tmp_path / project_graph.GRAPH_FILE_NAME).exists()
+
+
+def test_load_or_build_still_caches_a_tmp_project(tmp_path, monkeypatch):
+    """The guard refuses only the checkout itself: a project under
+    tmp_path loads, writes its cache beside its own state, and reuses
+    it unchanged."""
+    memory_root = tmp_path / "memory"
+    monkeypatch.setenv("PIPELINE_SOURCE_MEMORY_ROOT", str(memory_root))
+
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "pipeline_data.json").write_text(json.dumps({
+        "capability_outputs": {"footage.catalog": {"clip_catalog": []}},
+    }), encoding="utf-8")
+
+    first = project_graph.load_or_build(str(project))
+    assert first["node_count"] == 0
+    assert (project / project_graph.GRAPH_FILE_NAME).is_file()
+    second = project_graph.load_or_build(str(project))
+    assert second["node_count"] == 0

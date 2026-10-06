@@ -338,13 +338,13 @@ def _speech_block():
     }
 
 
-def _compile(inputs):
+def _compile(inputs, tmp_path):
     from unittest.mock import patch
 
     from library.steps.step_5_04_compile_manifest.step import compile_manifest
     with patch("library.steps.step_5_04_compile_manifest.step.load",
                side_effect=lambda out_dir, filename: inputs):
-        return compile_manifest("dummy")
+        return compile_manifest(str(tmp_path / "dummy"))
 
 
 def test_a_declared_end_card_is_in_the_assembly_manifest(tmp_path):
@@ -362,7 +362,8 @@ def test_a_declared_end_card_is_in_the_assembly_manifest(tmp_path):
     card["timeline_end_frame"] = 206
 
     manifest = _compile(_compile_inputs(
-        tmp_path, [_speech_block(), card], extra_files=[card_file]))
+        tmp_path, [_speech_block(), card], extra_files=[card_file]),
+        tmp_path)
 
     v1 = manifest["tracks"]["V1"]["clips"]
     cards = [c for c in v1 if c.get("bookend")]
@@ -427,7 +428,7 @@ def test_the_house_film_look_is_not_painted_over_a_card(tmp_path):
         tmp_path, [_speech_block(), card], extra_files=[card_file])
     inputs["color_grade_spec"] = {
         "fusion_look": {"glow_gain": 2.0, "grain_strength": 0.4}}
-    manifest = _compile(inputs)
+    manifest = _compile(inputs, tmp_path)
 
     per_clip = manifest["fusion_effects"]["per_clip"]
     assert "speech_1" in per_clip

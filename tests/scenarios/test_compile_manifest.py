@@ -108,9 +108,11 @@ class TestCompileManifest(unittest.TestCase):
         
         from library.steps.step_5_04_compile_manifest.step import compile_manifest
         from unittest.mock import patch
-        
-        with patch("library.steps.step_5_04_compile_manifest.step.load", side_effect=lambda out_dir, filename: mock_inputs):
-            manifest = compile_manifest("dummy")
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("library.steps.step_5_04_compile_manifest.step.load", side_effect=lambda out_dir, filename: mock_inputs):
+                manifest = compile_manifest(tmp + "/dummy")
             
         output_data = {"assembly_manifest": manifest}
         self.assertIn("assembly_manifest", output_data)
@@ -167,6 +169,7 @@ class TestCompileManifest(unittest.TestCase):
         hook a per-clip choice would arrive through, proved reachable.
         """
         import os as _os
+        import tempfile as _tempfile
         from unittest.mock import patch
         from library.steps.step_5_04_compile_manifest.step import compile_manifest
 
@@ -205,9 +208,10 @@ class TestCompileManifest(unittest.TestCase):
             }
 
         def _v1(declared):
-            with patch("library.steps.step_5_04_compile_manifest.step.load",
-                       side_effect=lambda out_dir, filename: _inputs(declared)):
-                return compile_manifest("dummy")["tracks"]["V1"]["clips"][0]
+            with _tempfile.TemporaryDirectory() as tmp:
+                with patch("library.steps.step_5_04_compile_manifest.step.load",
+                           side_effect=lambda out_dir, filename: _inputs(declared)):
+                    return compile_manifest(tmp + "/dummy")["tracks"]["V1"]["clips"][0]
 
         undeclared = _v1(None)
         self.assertEqual(undeclared["framing_intent"], 1.0)

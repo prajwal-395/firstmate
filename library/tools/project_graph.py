@@ -265,6 +265,36 @@ def _graph_path(project_folder: str) -> Path:
     return Path(project_folder) / GRAPH_FILE_NAME
 
 
+def _refuse_engine_checkout(project_folder: str) -> None:
+    """Refuse to read or write the graph at the engine checkout itself.
+
+    The graph is project state: it is written beside the project's
+    own `pipeline_data.json`. A test that passes a cwd-relative root
+    (compile_manifest's `"dummy"` out_dir resolves its project to the
+    empty string) lands the write in whatever directory the suite ran
+    from - the audio suite left `project_graph.json` at the repository
+    root. No stranger's project ever contains this module, so a root
+    that does is the engine checkout, and the call is refused before
+    any read or write.
+    """
+    try:
+        from library.tools.ren_refusal import RenRefusal
+    except ImportError:
+        from tools.ren_refusal import RenRefusal
+    resolved = Path(project_folder).expanduser().resolve()
+    try:
+        Path(__file__).resolve().relative_to(resolved)
+    except ValueError:
+        return
+    raise RenRefusal(
+        f"project graph root {str(resolved)!r} is the engine checkout",
+        "the graph is project state, written beside the project's own "
+        "pipeline_data.json - a root that contains this module is a "
+        "cwd-relative test root, never a project",
+        "pass the test's tmp_path project (a test builds its project "
+        "under tmp_path, never the repo)")
+
+
 def _input_fingerprint(project_folder: str, root: Path | None = None) -> str:
     """A fingerprint of the inputs the graph is built from.
 
@@ -371,6 +401,7 @@ def load_or_build(project_folder: str, root: Path | None = None) -> dict:
     was built from. A query checks the fingerprint first - unchanged
     inputs reuse the cached graph, changed inputs rebuild and rewrite.
     """
+    _refuse_engine_checkout(project_folder)
     path = _graph_path(project_folder)
     if path.is_file():
         try:

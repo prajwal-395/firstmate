@@ -374,13 +374,13 @@ def _compile_inputs(spine, a_roll, b_roll, catalog):
     }
 
 
-def _compile(inputs):
+def _compile(inputs, tmp_path):
     from unittest.mock import patch
     from library.steps.step_5_04_compile_manifest import step as CM
     with patch.object(
             CM, "load",
             side_effect=lambda out_dir, filename: inputs):
-        return CM.compile_manifest("dummy")
+        return CM.compile_manifest(str(tmp_path / "dummy"))
 
 
 def test_music_only_spine_compiles_to_broll_over_silence(tmp_path):
@@ -405,7 +405,7 @@ def test_music_only_spine_compiles_to_broll_over_silence(tmp_path):
          _broll_cover(2, "music", "clip_002", catalog,
                       (0.0, 4.0), (4.0, 8.0))],
         catalog)
-    manifest = _compile(inputs)
+    manifest = _compile(inputs, tmp_path)
     assert len(manifest["tracks"]["V1"]["clips"]) == 0
     assert len(manifest["tracks"]["V2"]["clips"]) == 2
 
@@ -434,7 +434,7 @@ def test_picture_only_spine_compiles_with_v1_from_picture(tmp_path):
         [_broll_cover(2, "music", "clip_001", catalog,
                       (0.0, 3.0), (3.0, 6.0))],
         catalog)
-    manifest = _compile(inputs)
+    manifest = _compile(inputs, tmp_path)
     v1 = manifest["tracks"]["V1"]["clips"]
     assert len(v1) == 1
     assert v1[0]["label"].startswith("picture_")
@@ -765,7 +765,7 @@ def test_voiceover_spine_compiles_narration_on_a1(tmp_path):
               "window_basis": "trace", "video_only": True}]
     manifest = _compile(_compile_inputs_2(
         spine, placed["a_roll_assignments"],
-        placed["voiceover_assignments"], broll, catalog))
+        placed["voiceover_assignments"], broll, catalog), tmp_path)
     assert manifest["tracks"]["V1"]["clips"] == []
     assert len(manifest["tracks"]["V2"]["clips"]) == 1
     a1 = manifest["tracks"]["A1"]["clips"]

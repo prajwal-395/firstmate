@@ -95,10 +95,10 @@ def _inputs(media):
     }
 
 
-def _compile(inputs):
+def _compile(inputs, tmp_path):
     with patch("library.steps.step_5_04_compile_manifest.step.load",
                side_effect=lambda out_dir, filename: inputs):
-        return compile_manifest("dummy")
+        return compile_manifest(str(tmp_path / "dummy"))
 
 
 def _inputs_with_slot(media, slot_type):
@@ -135,7 +135,7 @@ def _vfx(position, timeline_start, timeline_end):
 
 # ── D1: an effect on a B-roll block ───────────────────────────────────
 
-def test_an_effect_on_a_cutaway_block_reaches_the_v2_clip(media):
+def test_an_effect_on_a_cutaway_block_reaches_the_v2_clip(media, tmp_path):
     """The reproduction: it used to raise; now the comp lands on the
     cutaway, for a `transition_slot` and a pacing `outro` alike (neither
     puts a clip on V1), and the Fusion pass really visits that label."""
@@ -145,7 +145,7 @@ def test_an_effect_on_a_cutaway_block_reaches_the_v2_clip(media):
         inputs = _inputs_with_slot(media, slot_type)
         inputs.update(_vfx(2, 6.0, 9.0))
 
-        manifest = _compile(inputs)
+        manifest = _compile(inputs, tmp_path)
 
         per_clip = manifest["fusion_effects"]["per_clip"]
         v2_labels = {c["label"] for c in manifest["tracks"]["V2"]["clips"]}
@@ -162,12 +162,12 @@ def test_an_effect_on_a_cutaway_block_reaches_the_v2_clip(media):
         assert set(per_clip) <= reachable_effect_labels(manifest)
 
 
-def test_an_effect_over_nothing_is_dropped_with_a_reason(media):
+def test_an_effect_over_nothing_is_dropped_with_a_reason(media, tmp_path):
     """The bar: a genuinely undeliverable entry still does not pass silently."""
     inputs = dict(_inputs(media))
     inputs.update(_vfx(9, 400.0, 402.0))
 
-    manifest = _compile(inputs)
+    manifest = _compile(inputs, tmp_path)
 
     assert manifest["fusion_effects"]["per_clip"] == {}
     assert manifest["vfx"] == []
@@ -184,12 +184,12 @@ def test_an_effect_over_nothing_is_dropped_with_a_reason(media):
 
 
 
-def test_an_effect_on_a_v1_block_is_unmoved(media):
+def test_an_effect_on_a_v1_block_is_unmoved(media, tmp_path):
     """V1 is asked first, so every existing placement stays where it was."""
     inputs = dict(_inputs(media))
     inputs.update(_vfx(1, 0.0, 6.0))
 
-    manifest = _compile(inputs)
+    manifest = _compile(inputs, tmp_path)
 
     per_clip = manifest["fusion_effects"]["per_clip"]
     v1_labels = {c["label"] for c in manifest["tracks"]["V1"]["clips"]}
@@ -254,7 +254,7 @@ def _sfx(media, entries):
     return {"sfx_spec": {"sfx": entries}}
 
 
-def test_two_sounds_at_one_span_compile_and_reach_separate_tracks(media):
+def test_two_sounds_at_one_span_compile_and_reach_separate_tracks(media, tmp_path):
     """The reproduction, end to end: the plan compiles and the builder
     gives the two layers their own physical tracks."""
     from library.steps.step_6_01_render.resolve_build_timeline import (
@@ -277,7 +277,7 @@ def test_two_sounds_at_one_span_compile_and_reach_separate_tracks(media):
          "timeline_in": 6.0, "timeline_out": 9.0, "volume_db": -12.0},
     ]))
 
-    manifest = _compile(inputs)
+    manifest = _compile(inputs, tmp_path)
 
     a3 = manifest["tracks"]["A3"]["clips"]
     assert len(a3) == 3
@@ -290,7 +290,7 @@ def test_two_sounds_at_one_span_compile_and_reach_separate_tracks(media):
     assert {allocations["sfx_004"], allocations["sfx_005"]} == {3, 4}
 
 
-def test_the_same_sound_twice_at_one_span_is_still_refused(media):
+def test_the_same_sound_twice_at_one_span_is_still_refused(media, tmp_path):
     """The bar: layering is two DIFFERENT sounds.  One waveform played
     twice adds level and nothing else, and no lane makes it audible as a
     second sound."""
@@ -308,7 +308,7 @@ def test_the_same_sound_twice_at_one_span_is_still_refused(media):
     ]))
 
     with pytest.raises(ValueError, match="same sound"):
-        _compile(inputs)
+        _compile(inputs, tmp_path)
 
 
 

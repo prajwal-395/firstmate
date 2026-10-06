@@ -1082,7 +1082,7 @@ def test_sfx_transient_placement(monkeypatch, tmp_path):
     monkeypatch.setattr(step504, "resolve_delivery_format", lambda *args: [1080, 1920])
     
     monkeypatch.setattr(step504, "_assert_timeline_fully_covered", lambda x: None)
-    manifest = step504.compile_manifest("dummy_project")
+    manifest = step504.compile_manifest(str(tmp_path / "dummy_project"))
     
     assert "tracks" in manifest
     assert "A3" in manifest["tracks"]
@@ -1148,7 +1148,7 @@ def test_a_plan_that_names_only_a_type_is_refused_with_the_rerun(
     monkeypatch.setattr(step504, "load", mock_load)
 
     with pytest.raises(ValueError) as raised:
-        step504.compile_manifest("dummy_project")
+        step504.compile_manifest(str(tmp_path / "dummy_project"))
     message = str(raised.value)
     assert "sfx_id" in message
     assert "--rerun plan_sfx" in message

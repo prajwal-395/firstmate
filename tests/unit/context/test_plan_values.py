@@ -517,11 +517,11 @@ def _inputs(semantic, enhancement_spec=None):
     }
 
 
-def _directives(semantic, enhancement_spec=None):
+def _directives(semantic, enhancement_spec=None, *, tmp_path):
     inputs = _inputs(semantic, enhancement_spec)
     with patch("library.steps.step_5_04_compile_manifest.step.load",
                side_effect=lambda out_dir, filename: inputs):
-        manifest = compile_manifest("dummy")
+        manifest = compile_manifest(str(tmp_path / "dummy"))
     return manifest["neural_engine_directives"]
 
 
@@ -534,17 +534,18 @@ def _stabilize_request(position=1, start=0.0, end=10.0):
     }]}
 
 
-def test_shaky_measurements_do_not_authorize_a_model_stabilize_entry(capsys):
+def test_shaky_measurements_do_not_authorize_a_model_stabilize_entry(capsys, tmp_path):
     """Measured shake is not permission, and the compile names a model
     proposal it cannot connect to an explicit user instruction."""
     directives = _directives(
-        {"semantic_analysis_documents": [dict(SHAKY_V3_DOC)]})
+        {"semantic_analysis_documents": [dict(SHAKY_V3_DOC)]},
+        tmp_path=tmp_path)
     assert not any(d.get("stabilize") for d in directives.values())
 
     with pytest.raises(ValueError, match="no explicit user timeline note"):
         _directives(
             {"semantic_analysis_documents": [dict(SHAKY_V3_DOC)]},
-            _stabilize_request())
+            _stabilize_request(), tmp_path=tmp_path)
     assert "Stabilization authorization refused" in capsys.readouterr().err
 
 
@@ -590,7 +591,7 @@ def test_clip_scoped_timeline_request_reaches_only_that_clip(tmp_path):
 
     with patch("library.steps.step_5_04_compile_manifest.step.load",
                side_effect=lambda out_dir, filename: inputs):
-        manifest = compile_manifest("dummy")
+        manifest = compile_manifest(str(tmp_path / "dummy"))
 
     directives = manifest["neural_engine_directives"]
     stabilized = [label for label, value in directives.items()
@@ -637,17 +638,17 @@ def test_skip_stabilization_opt_out_preserves_other_neural_directives(
     }
 
 
-def test_documents_that_join_to_nothing_fail_loudly():
+def test_documents_that_join_to_nothing_fail_loudly(tmp_path):
     """A key-name mismatch has to raise, not compile to an empty dict."""
     with pytest.raises(ValueError, match="none of them joined"):
         _directives({"semantic_analysis_documents": [
             {"clip_id": "a_clip_from_another_project",
              "analysis": {"motion": "handheld"}},
-        ]})
+        ]}, tmp_path=tmp_path)
 
 
-def test_no_semantic_analysis_at_all_is_not_an_error():
-    assert _directives({}) == {}
+def test_no_semantic_analysis_at_all_is_not_an_error(tmp_path):
+    assert _directives({}, tmp_path=tmp_path) == {}
 
 
 # --------------------------------------------------------------------------
