@@ -185,6 +185,15 @@ class TagRefused(RuntimeError):
     """
 
 
+class RevertRefused(RuntimeError):
+    """A commit that could not be reverted.
+
+    Raised, not swallowed, naming the commit and what stands in the
+    way: a later commit that changed the same clips, a change the
+    record cannot invert, or a commit outside its timeline's line.
+    """
+
+
 # ── Where entries live ───────────────────────────────────────────
 
 
@@ -484,6 +493,69 @@ def _intent_from_edits(edits: Sequence[Mapping], summary: Mapping) -> str:
     if ops:
         return "touch: " + ", ".join(ops)
     return "touch"
+
+
+def revert_commit(project_folder, commit_id: str, note: str = "") -> dict:
+    """Revert a commit: record its inverse as a new commit. Returns it.
+
+    The inverse is `timeline_diff.invert_changes` of the target's
+    changes - a move moves back, an add removes, a trim restores. The
+    revert stands on the timeline's head, so history only moves
+    forward: nothing is rewritten, and the reverted commit stays
+    readable beside its revert.
+
+    Three refusals, all `RevertRefused` and all by name. A target
+    outside its timeline's line (it is not the head or an ancestor of
+    it) cannot be reverted - the revert would stand on a history that
+    does not contain it. A target whose clips later commits also
+    changed is refused naming the clips: restoring the old span would
+    silently undo the later touch. A target with a change the record
+    cannot invert (a whole-row add/remove names a clip count, not the
+    clips) is refused naming the change, so a revert never claims a
+    clean undo while dropping one.
+    """
+    from library.tools import timeline_diff
+
+    target = read_commit(project_folder, commit_id)
+    timeline = target.get("timeline") or ""
+    if target.get("second_parent"):
+        raise RevertRefused(
+            f"commit {commit_id[:12]} is a merge - its changes are the "
+            f"union of both sides, so inverting them would silently "
+            f"revert the main line too; revert the commits it brought "
+            f"in instead")
+    head = latest_commit_for_timeline(project_folder, timeline)
+    if head is None or commit_id not in _ancestor_chain(
+            project_folder, head.get("id")):
+        raise RevertRefused(
+            f"commit {commit_id[:12]} is not on {timeline!r}'s line - "
+            f"a revert stands on the timeline's head, and this commit "
+            f"is not its head or an ancestor of it")
+    later = _changes_since(project_folder, head.get("id"), commit_id)
+    try:
+        inverse = timeline_diff.invert_changes(target.get("changes") or ())
+    except timeline_diff.Uninvertible as uninvertible:
+        raise RevertRefused(
+            f"commit {commit_id[:12]} cannot be reverted "
+            f"({uninvertible})") from uninvertible
+    inverse_names = {c.get("item") for c in inverse if c.get("item")}
+    later_names = {c.get("item") for c in later if c.get("item")}
+    conflicts = sorted(inverse_names & later_names)
+    if conflicts:
+        raise RevertRefused(
+            f"commit {commit_id[:12]} cannot be reverted: later commits "
+            f"also changed {', '.join(conflicts)} - restoring the old "
+            f"spans would silently undo the later touch")
+    if not inverse:
+        raise RevertRefused(
+            f"commit {commit_id[:12]} changed nothing - an empty revert "
+            f"would rewrite no history and only pollute it")
+    intent = note or (f"revert {commit_id[:12]} "
+                      f"({target.get('intent') or 'no intent'})")
+    return record_commit(
+        project_folder, parent=head.get("id"), intent=intent,
+        changes=inverse, agent="creative_revert", timeline=timeline,
+        artifacts={"reverts": commit_id})
 
 
 # ── Branches and merges: the commit graph ──────────────────────────

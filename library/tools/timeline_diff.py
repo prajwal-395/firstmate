@@ -269,3 +269,66 @@ def summarize(changes: Sequence[Mapping]) -> dict:
         if op in CHANGE_OPS:
             counts[op] = counts.get(op, 0) + 1
     return dict(sorted(counts.items()))
+
+
+class Uninvertible(ValueError):
+    """A change the record cannot invert.
+
+    Raised naming the op and item, so a revert names what it cannot
+    undo instead of silently dropping it.
+    """
+
+
+def _is_clip_state(state) -> bool:
+    """A per-item span/source record, not a whole-row summary.
+
+    A diff's `before`/`after` is either a `_clip_state` (start, end,
+    source in/out, offsets) or, for a whole-row add/remove, a
+    `{"track", "clips"}` summary that names a clip COUNT, not the
+    clips. Only the first carries enough to invert.
+    """
+    return isinstance(state, Mapping) and "start" in state
+
+
+def invert_changes(changes: Sequence[Mapping]) -> list[dict]:
+    """The inverse of a diff: the changes that undo it.
+
+    A move/trim/replace/J-cut swaps its before and after (a move's
+    `retime_block` mutation is re-pointed at the restored start); an
+    add becomes a remove and a remove an add. A whole-row add/remove
+    (`item` is empty, the state a `{"track", "clips"}` summary) and
+    anything malformed raises `Uninvertible` naming the change: the
+    record does not carry the clips, so no inverse exists, and a
+    revert built on this must refuse rather than claim a clean undo.
+
+    Inverting twice returns the original changes.
+    """
+    inverse: list[dict] = []
+    for change in changes or ():
+        change = dict(change)
+        op = change.get("op")
+        before, after = change.get("before"), change.get("after")
+        if op in (OP_MOVE, OP_TRIM, OP_REPLACE, OP_J_CUT):
+            if not (_is_clip_state(before) and _is_clip_state(after)):
+                raise Uninvertible(
+                    f"cannot invert {op} of {change.get('item')!r} on "
+                    f"{change.get('row')}: it has no before-and-after "
+                    f"clip state")
+            change["before"], change["after"] = (
+                dict(after), dict(before))
+            if op == OP_MOVE:
+                change["mutation"] = _mutation_for(
+                    OP_MOVE, change["after"])
+        elif op == OP_ADD and before is None and _is_clip_state(after):
+            change.update(op=OP_REMOVE, before=dict(after), after=None,
+                          mutation=_mutation_for(OP_REMOVE))
+        elif op == OP_REMOVE and after is None and _is_clip_state(before):
+            change.update(op=OP_ADD, before=None, after=dict(before),
+                          mutation=None)
+        else:
+            raise Uninvertible(
+                f"cannot invert {op} of {change.get('item')!r} on "
+                f"{change.get('row')}: the record does not carry the "
+                f"clips it would restore")
+        inverse.append(change)
+    return inverse

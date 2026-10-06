@@ -205,6 +205,7 @@ const VERBS: &[Verb] = &[
     Verb { name: "explore-variants", group: "Reels", summary: "Fork one base commit into one isolated branch per direction: propose, list" },
     Verb { name: "worktree", group: "Reels", summary: "A task's own checkout of the project store: add, list, commit, merge, remove" },
     Verb { name: "rounds", group: "Reels", summary: "What changed between two feedback rounds" },
+    Verb { name: "revert", group: "Reels", summary: "Revert a creative commit: record its inverse as a new commit" },
     Verb { name: "pr-body", group: "Reels", summary: "Generate the PR-body enumeration for a ledger change (read only)" },
     Verb { name: "notes", group: "Reels", summary: "Show which timeline note went to which step" },
     Verb { name: "take-pick", group: "Reels", summary: "Print one reel's takes, freshness, snap deltas and boundary words in one read" },
