@@ -22,6 +22,11 @@ if str(_PILOT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PILOT_ROOT))
 
 from library.tools.overlay_carriage import apply_clip_attributes  # noqa: E402
+from library.tools.resource_leases import (  # noqa: E402
+    LeaseDeclaration,
+    ResourceRef,
+    resource_lease,
+)
 from library.tools.resolve_lock import under_lease  # noqa: E402
 
 
@@ -230,28 +235,41 @@ def relink_project(project_slug: str = "", dry_run: bool = False,
             f"Refusing to rewrite the media pool of the wrong project."
         )
 
-    # Execute relinking
-    relinked = 0
-    failed = 0
-    for clip_info in fixable:
-        try:
-            ok = clip_info["clip"].ReplaceClip(clip_info["new_path"])
-            if ok:
-                # A relink re-points an EXISTING pool item at a
-                # different file, and the item keeps whatever clip
-                # attributes it was carrying. Where the new file is an
-                # overlay artefact those attributes have to follow the
-                # file: a `qtrle` overlay relinked onto an item that
-                # was set up for ProRes composites the whole frame
-                # 16/255 dark, transparent pixels included. See
-                # library/tools/overlay_carriage.py.
-                apply_clip_attributes(clip_info["clip"],
-                                      clip_info["new_path"])
-                relinked += 1
-            else:
+    # Execute relinking. The declaration names the pool items this pass
+    # re-points, by file path - the spelling `caption_swap` uses for the
+    # same items, so a swap replacing a file this pass relinks
+    # serialises against it instead of re-pointing under it. Rewriting
+    # a pool has no easy reversal (H12 above), hence a lease and not
+    # just the instance fence. WRITE, not EXCLUSIVE: a relink moves no
+    # clip, it re-points.
+    with resource_lease(
+        LeaseDeclaration(
+            write=frozenset({ResourceRef("clip", clip_info["old_path"])
+                             for clip_info in fixable}),
+        ),
+        purpose=f"relink media pool in {actual_project}",
+    ):
+        relinked = 0
+        failed = 0
+        for clip_info in fixable:
+            try:
+                ok = clip_info["clip"].ReplaceClip(clip_info["new_path"])
+                if ok:
+                    # A relink re-points an EXISTING pool item at a
+                    # different file, and the item keeps whatever clip
+                    # attributes it was carrying. Where the new file is an
+                    # overlay artefact those attributes have to follow the
+                    # file: a `qtrle` overlay relinked onto an item that
+                    # was set up for ProRes composites the whole frame
+                    # 16/255 dark, transparent pixels included. See
+                    # library/tools/overlay_carriage.py.
+                    apply_clip_attributes(clip_info["clip"],
+                                          clip_info["new_path"])
+                    relinked += 1
+                else:
+                    failed += 1
+            except Exception:
                 failed += 1
-        except Exception:
-            failed += 1
 
     result["relinked"] = relinked
     result["failed"] = failed
