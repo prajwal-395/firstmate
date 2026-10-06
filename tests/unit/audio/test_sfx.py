@@ -1467,3 +1467,114 @@ def test_the_table_is_empty_rather_than_wrong_without_the_plan():
     payload = _inputs_2()
     del payload["transition_spec"]
     assert build_transition_rows(payload) == []
+
+
+# --------------------------------------------------------------------------
+# Production-audio moments in the candidate rows (audio-intelligence track).
+#
+# The defect these pin: step 1.04 banks PANNs sound events per clip, but
+# the SFX candidate table showed only transient COUNTS - a door slam
+# already sitting in the production audio at the planned moment was
+# invisible, so the plan could stack a library slam on top of it. Now
+# the row names the production audio's own highest-confidence moments
+# (label, timeline second, confidence) and the model judges usability.
+# --------------------------------------------------------------------------
+
+from library.tools.project_layout import Area, layout_for  # noqa: E402
+
+
+def _sfx_candidate_block(**overrides):
+    block = {
+        "position": "hook",
+        "block_type": "speech",
+        "clip_id": "clip_a",
+        "source_start": 10.0,
+        "source_end": 14.0,
+        "timeline_start": 0.0,
+        "timeline_end": 4.0,
+        "music_behavior": "silent",
+        "content": {"text": "hello world", "clip_id": "clip_a"},
+    }
+    block.update(overrides)
+    return block
+
+
+def _bank_sfx_index(project_folder, clip_id="clip_a", peaks=None,
+                    events=None):
+    out = layout_for(str(project_folder)).write_dir(Area.TEMPORAL_INDEX)
+    out.joinpath("clip_a.json").write_text(json.dumps({
+        "clip_id": clip_id,
+        "energy_curve": {"peak_times": peaks if peaks is not None else []},
+        "sound_events": events if events is not None else [],
+        "sound_event_method": "panns-test",
+    }), encoding="utf-8")
+
+
+def _sfx_candidate_data(project_folder, block):
+    return {
+        "timed_spine": {"structure": [block]},
+        "b_roll_assignments": [],
+        "music_selection": {},
+        "project_folder": str(project_folder),
+    }
+
+
+def _sfx_cell(data):
+    rows = build_sfx_candidates(data)
+    assert len(rows) == 1
+    return rows[0]["action_sfx_suggested"]
+
+
+def test_candidate_row_names_the_production_moment(tmp_path):
+    """The defect: a door slam in the production audio at the planned
+    moment is named with its timeline second and confidence - the model
+    can see it would double the sound."""
+    _bank_sfx_index(tmp_path, peaks=[10.5], events=[
+        {"label": "Door slam", "start": 10.8, "end": 11.1,
+         "confidence": 0.71},
+    ])
+    cell = _sfx_cell(_sfx_candidate_data(
+        tmp_path, _sfx_candidate_block()))
+    assert "1 audio transient" in cell
+    assert "Door slam" in cell
+    assert "0.80s" in cell
+    assert "0.71" in cell
+
+
+def test_a_moment_outside_the_block_range_is_not_shown(tmp_path):
+    """A slam twenty seconds past the block's source range is not a
+    moment at this cut - the row keeps its transient count alone."""
+    _bank_sfx_index(tmp_path, peaks=[10.5], events=[
+        {"label": "Door slam", "start": 20.0, "end": 20.3,
+         "confidence": 0.9},
+    ])
+    cell = _sfx_cell(_sfx_candidate_data(
+        tmp_path, _sfx_candidate_block()))
+    assert cell == "1 audio transient"
+
+
+def test_an_unmeasured_block_keeps_its_existing_reading(tmp_path):
+    """No index file, no moments: the row keeps saying WHICH
+    measurement is missing, never an absence dressed as none heard."""
+    cell = _sfx_cell(_sfx_candidate_data(
+        tmp_path, _sfx_candidate_block()))
+    assert cell == "not measured (no transient index for clip_a)"
+
+
+def test_at_most_two_moments_highest_confidence_first(tmp_path):
+    """Prompt economy, not a judgement: the cap is two, highest
+    confidence first, confidences always stated so the model sees the
+    ranking basis."""
+    _bank_sfx_index(tmp_path, peaks=[10.5], events=[
+        {"label": "Clang", "start": 11.0, "end": 11.2,
+         "confidence": 0.4},
+        {"label": "Door slam", "start": 10.8, "end": 11.1,
+         "confidence": 0.71},
+        {"label": "Thump", "start": 12.0, "end": 12.2,
+         "confidence": 0.9},
+    ])
+    cell = _sfx_cell(_sfx_candidate_data(
+        tmp_path, _sfx_candidate_block()))
+    assert "Thump" in cell and "Door slam" in cell
+    assert "Clang" not in cell
+    assert cell.index("Thump") < cell.index("Door slam")

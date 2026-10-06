@@ -98,6 +98,8 @@ from library.tools.sfx_library import (
     catalog_document,
     load_sfx_catalog,
 )
+from library.tools import sound_events as _sound_events
+from library.tools.spine_contract import source_to_timeline
 from library.tools.transition_vocabulary import is_cut
 
 # How much of a block's line reaches the summary column. The full text is
@@ -176,6 +178,54 @@ def _summary_text(block: dict) -> str:
     if len(text) > TEXT_SUMMARY_CHARS:
         text = text[:TEXT_SUMMARY_CHARS - 3] + "..."
     return text
+
+
+#: How many production-audio moments a candidate cell names. Prompt
+#: economy, not a judgement about usability: the highest-confidence
+#: events first, confidences always stated, so the model sees the
+#: ranking basis and judges usability itself.
+MAX_PRODUCTION_MOMENTS = 2
+
+
+def production_moments(block: dict, temporal_lookup: dict) -> str | None:
+    """Usable sound moments the block's own production audio carries.
+
+    Step 1.04 banks PANNs sound events per clip (`sound_events`, timed
+    in source seconds with confidences); this reads them through the
+    existing `sound_events` module - no second shape, no label
+    vocabulary - and names the highest-confidence events inside the
+    block's own source range, mapped to timeline seconds. The model
+    judges usability: a door slam already in the production audio
+    means a library slam on top would double the sound. Returns the
+    cell fragment, or None where nothing measured names one - the
+    caller keeps its existing cell, never an absence dressed as a
+    reading.
+    """
+    clip_id = block.get("clip_id") if isinstance(block, dict) else None
+    if not clip_id:
+        return None
+    index = (temporal_lookup or {}).get(clip_id)
+    start = block.get("source_start")
+    end = block.get("source_end")
+    if start is None or end is None:
+        return None
+    in_range = []
+    for event in _sound_events.events(index):
+        if event["end_seconds"] < start or event["start_seconds"] > end:
+            continue
+        try:
+            moment = source_to_timeline(float(event["start_seconds"]),
+                                        block)
+        except (KeyError, TypeError, ValueError):
+            continue
+        in_range.append((event["confidence"], event["label"], moment))
+    if not in_range:
+        return None
+    in_range.sort(key=lambda row: (-row[0], row[2]))
+    shown = in_range[:MAX_PRODUCTION_MOMENTS]
+    return ("production audio already carries: " + "; ".join(
+        f"{label} at {moment:.2f}s (conf {confidence:.2f})"
+        for confidence, label, moment in shown))
 
 
 def transient_count(block: dict, temporal_lookup: dict):
@@ -301,6 +351,9 @@ def build_sfx_candidates(data: dict) -> list:
         covering = entry.get("clip_id") if isinstance(entry, dict) else None
         if count is not None:
             cell = f"{count} audio transient{'' if count == 1 else 's'}"
+            moments = production_moments(block, temporal_lookup)
+            if moments:
+                cell += f"; {moments}"
         elif own_clip:
             # The block plays its own clip and something about the
             # measurement is missing - no temporal index for the clip, or
