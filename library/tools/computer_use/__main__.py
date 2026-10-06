@@ -8,7 +8,11 @@ One verb, one module, extended as the layer grows:
                `READ_ONLY_METHODS` whitelist, so it runs against the
                captain's own project without touching it.
 
-    run        (PR 3) the observe-decide-act loop on a task.
+    run        the observe-decide-act loop on a task. Runs inside
+               `qualification_project.borrowed()` once the broker is
+               back; until then it is an offline tool against the mock
+               driver.
+
     script     (PR 4) run a deterministic UI script.
 
 The verb execs `python -m library.tools.computer_use` under the engine
@@ -21,6 +25,7 @@ import argparse
 import sys
 
 from library.tools.computer_use.client import DriverClient, DriverError
+from library.tools.computer_use.loop import run_loop
 
 
 def _status(client: DriverClient) -> int:
@@ -57,18 +62,56 @@ def _status(client: DriverClient) -> int:
     return 0
 
 
+def _run(client: DriverClient, goal: str) -> int:
+    """Run the observe-decide-act loop on a goal.
+
+    The model is a stub for now - it returns `done` immediately. The
+    production model sends the observation to a hosted model API (Claude
+    Sonnet 5) or the local Gemma server and parses the response into an
+    action. The loop, the observation and the action schema are the
+    deliverable; the model is the pluggable half.
+
+    The loop runs inside `qualification_project.borrowed()`: the
+    captain's project is saved, the qualification project is opened for
+    the driver's gates, and the captain's project is restored on exit.
+    The exclusive instance lease is taken for the duration.
+    """
+    from library.tools.computer_use.observe import Observation
+    from library.tools.marker_feedback import connect_resolve
+    from library.tools.qualification_project import borrowed
+    from library.tools.resolve_lock import resolve_lease
+    from library.tools.resolved.jobs import QUALIFICATION_PROJECT
+
+    def model(observation: Observation) -> dict:
+        return {"action": "done"}
+
+    resolve = connect_resolve()
+    with resolve_lease(
+        "computer-use", qualification_project=QUALIFICATION_PROJECT
+    ), borrowed(resolve):
+        result = run_loop(client, model, goal)
+    print(f"outcome: {result.outcome}")
+    for step in result.steps:
+        print(f"  {step['action']}: {step['outcome']}")
+    return 0 if result.outcome == "done" else 1
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         prog="ren computer-use", description="Computer use above the native driver."
     )
     sub = parser.add_subparsers(dest="subcommand", required=True)
     sub.add_parser("status", help="what the driver can see right now (read only)")
+    run_parser = sub.add_parser("run", help="run the observe-decide-act loop on a task")
+    run_parser.add_argument("goal", help="the task for the loop to perform")
     args = parser.parse_args(argv)
 
     try:
         with DriverClient() as client:
             if args.subcommand == "status":
                 return _status(client)
+            if args.subcommand == "run":
+                return _run(client, args.goal)
     except DriverError as exc:
         print(exc.render(), file=sys.stderr)
         return 4

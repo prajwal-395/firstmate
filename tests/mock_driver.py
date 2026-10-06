@@ -30,14 +30,21 @@ MAIN_WINDOW = {
     "is_main": True,
 }
 
-#: A real 128x64 PNG. The mock reports it at backing scale 2.0, so a
-#: client capturing at point size must downscale to 64x32.
+#: Four real 128x64 PNGs. The mock reports them at backing scale 2.0,
+#: so a client capturing at point size must downscale to 64x32. The
+#: capture counter cycles through them, so a loop that verifies an
+#: action by diffing the before/after screenshot sees a change.
 CAPTURE_WIDTH = 128.0
 CAPTURE_HEIGHT = 64.0
 CAPTURE_SCALE = 2.0
-CAPTURE_PNG = (
-    "iVBORw0KGgoAAAANSUhEUgAAAIAAAABACAIAAABdtOgoAAAAqElEQVR4nO3TMREAMAwDsbRAwh9KYRXGLxIBD38+b3fo3HAbAXoeEBMgJkBMgJgAMQFiAsQEiAkQEyAmQEyAmAAxAWICxASICRATICZATICYADEBYgLEBIgJEBMgJkBMgJgAMQFiAsQEiAkQEyAmQEyAmAAxAWICxASICRATICZATICYADEBYgLEBIgJEBMgJkBMgJgAMQFiAsQEiAkQEyAmQEyAmADT+jcIAYS+iDAeAAAAAElFTkSuQmCC"
+CAPTURE_PNGS = (
+    "iVBORw0KGgoAAAANSUhEUgAAAIAAAABACAIAAABdtOgoAAAAqElEQVR4nO3TMREAMAwDsbRAwh9KYRXGLxIBD38+b3fo3HAbAXoeEBMgJkBMgJgAMQFiAsQEiAkQEyAmQEyAmAAxAWICxASICRATICZATICYADEBYgLEBIgJEBMgJkBMgJgAMQFiAsQEiAkQEyAmQEyAmAAxAWICxASICRATICZATICYADEBYgLEBIgJEBMgJkBMgJgAMQFiAsQEiAkQEyAmQEyAmADT+jcIAYS+iDAeAAAAAElFTkSuQmCC",
+    "iVBORw0KGgoAAAANSUhEUgAAAIAAAABACAIAAABdtOgoAAAAqElEQVR4nO3TMREAMAwDsbRAwh9KYRXGLxIBD38++3bo3HAbAXoeEBMgJkBMgJgAMQFiAsQEiAkQEyAmQEyAmAAxAWICxASICRATICZATICYADEBYgLEBIgJEBMgJkBMgJgAMQFiAsQEiAkQEyAmQEyAmAAxAWICxASICRATICZATICYADEBYgLEBIgJEBMgJkBMgJgAMQFiAsQEiAkQEyAmQEyAmADT+jZeAYTJHvTBAAAAAElFTkSuQmCC",
+    "iVBORw0KGgoAAAANSUhEUgAAAIAAAABACAIAAABdtOgoAAAAqElEQVR4nO3TMREAMAwDsbRAwh9KYRXGLxIBD38+u2/o3HAbAXoeEBMgJkBMgJgAMQFiAsQEiAkQEyAmQEyAmAAxAWICxASICRATICZATICYADEBYgLEBIgJEBMgJkBMgJgAMQFiAsQEiAkQEyAmQEyAmAAxAWICxASICRATICZATICYADEBYgLEBIgJEBMgJkBMgJgAMQFiAsQEiAkQEyAmQEyAmADT+jW0AYQOzzJXAAAAAElFTkSuQmCC",
+    "iVBORw0KGgoAAAANSUhEUgAAAIAAAABACAIAAABdtOgoAAAAqElEQVR4nO3TMREAMAwDsbRAyh9KYBWGlhcBD38+u2/iXLidAng9ACsAVgCsAFgBsAJgBcAKgBUAKwBWAKwAWAGwAmAFwAqAFQArAFYArABYAbACYAXACoAVACsAVgCsAFgBsAJgBcAKgBUAKwBWAKwAWAGwAmAFwAqAFQArAFYArABYAbACYAXACoAVACsAVgCsAFgBsAJgBcAKgBUAKwBWAKwAWAHG+iP0Ai7JtYFbAAAAAElFTkSuQmCC",
 )
+
+_capture_counter = 0
 
 AX_TREE = {
     "ref": "ax-root",
@@ -114,7 +121,29 @@ def _open_project() -> str:
     return os.environ.get("MOCK_OPEN_PROJECT", QUALIFICATION_PROJECT)
 
 
+def _find_by_path(path) -> list:
+    """Walk the AX tree and return the elements whose menu-title chain
+    matches the path, outermost first. A path that matches nothing
+    returns []."""
+    if not path:
+        return []
+    matches = []
+
+    def walk(node, chain):
+        role = node.get("role")
+        title = node.get("title")
+        here = chain + [title] if role in ("AXMenuBarItem", "AXMenuItem") and title else chain
+        if here == path:
+            matches.append(node)
+        for child in node.get("children") or []:
+            walk(child, here)
+
+    walk(AX_TREE, [])
+    return matches
+
+
 def handle(request: dict) -> dict:
+    global _capture_counter
     method = request.get("method", "")
     params = request.get("params") or {}
     request_id = request.get("id", 0)
@@ -130,14 +159,7 @@ def handle(request: dict) -> dict:
         return reply({"tree": AX_TREE})
     if method == "find_element":
         path = params.get("path")
-        if path == ["Workspace", "Switch to Page", "Media"]:
-            matches = [
-                AX_TREE["children"][0]["children"][0]["children"][0]["children"][0]
-            ]
-        elif path == ["Help"]:
-            matches = [AX_TREE["children"][0]["children"][1]]
-        else:
-            matches = []
+        matches = _find_by_path(path)
         return reply({"elements": matches})
     if method in ("press", "set_value", "focus"):
         if _open_project() != QUALIFICATION_PROJECT:
@@ -210,13 +232,15 @@ def handle(request: dict) -> dict:
             return _refuse(request_id, "INVALID_PARAMS", "type_text needs text")
         return reply({"typed": len(params["text"]), "text": params["text"]})
     if method == "capture_window":
-        return reply({"image": CAPTURE_PNG, "width": CAPTURE_WIDTH, "height": CAPTURE_HEIGHT, "scale": CAPTURE_SCALE})
+        _capture_counter += 1
+        return reply({"image": CAPTURE_PNGS[_capture_counter % len(CAPTURE_PNGS)], "width": CAPTURE_WIDTH, "height": CAPTURE_HEIGHT, "scale": CAPTURE_SCALE})
     if method == "capture_region":
         x, y = params.get("x"), params.get("y")
         w, h = params.get("width"), params.get("height")
         if x is None or y is None or w is None or h is None:
             return _refuse(request_id, "INVALID_PARAMS", "capture_region needs x, y, width, height")
-        return reply({"image": CAPTURE_PNG, "width": w, "height": h, "scale": CAPTURE_SCALE})
+        _capture_counter += 1
+        return reply({"image": CAPTURE_PNGS[_capture_counter % len(CAPTURE_PNGS)], "width": w, "height": h, "scale": CAPTURE_SCALE})
     if method == "wait_for":
         predicate = params.get("predicate") or {}
         pred_type = predicate.get("type")
