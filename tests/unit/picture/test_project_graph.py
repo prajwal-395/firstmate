@@ -434,6 +434,51 @@ def test_build_graph_with_no_state_produces_an_empty_graph(tmp_path):
     assert graph["edge_count"] == 0
 
 
+def test_room_tone_dropouts_are_registered_as_audio_events(
+        tmp_path, monkeypatch):
+    """The audio lane's outputs reach the graph: 5.02's measured
+    room-tone dropouts are registered as audio events keyed on the
+    source's own digest. A project that has not run the mix carries
+    none - the graph builds from whatever exists."""
+    memory_root = tmp_path / "memory"
+    monkeypatch.setenv("PIPELINE_SOURCE_MEMORY_ROOT", str(memory_root))
+
+    project = tmp_path / "project"
+    project.mkdir()
+
+    digest_a = "a" * 64
+    state = {
+        "capability_outputs": {
+            "footage.catalog": {"clip_catalog": [
+                {"clip_id": "clip_001", "source_file": "/camA/take1.MXF",
+                 "content_digest": digest_a, "duration_seconds": 10.0},
+            ]},
+            "audio_mix": {"audio_mix_spec": {"room_tone_continuity": {
+                "sources": [{
+                    "source_file": "/camA/take1.MXF",
+                    "floor": {"level_dbfs": -42.0},
+                    "dropouts": [
+                        {"start": 2.5, "end": 3.0, "duration": 0.5},
+                    ],
+                }],
+            }}},
+        },
+        "source_fingerprints": {"clip_001": {"content_digest": digest_a}},
+    }
+    (project / "pipeline_data.json").write_text(
+        json.dumps(state), encoding="utf-8")
+
+    graph = project_graph.build_graph(str(project))
+
+    dropout_events = [n for n in graph["nodes"]
+                      if n["label"] == "room_tone_dropout"]
+    assert len(dropout_events) == 1
+    assert dropout_events[0]["payload"]["content_digest"] == digest_a
+    assert dropout_events[0]["payload"]["start"] == 2.5
+    assert dropout_events[0]["payload"]["end"] == 3.0
+    assert dropout_events[0]["payload"]["unit"] == "source_seconds"
+
+
 # ── load_or_build persistence ─────────────────────────────────────
 
 

@@ -441,6 +441,35 @@ def shortfall_lines(automation: list) -> list:
     return lines
 
 
+def plan_room_tone_fills(cleanup_context: dict) -> list:
+    """Room-tone dropout fills, planned from the measured dropouts.
+
+    One plan per source that has BOTH a measured floor (the source
+    carries audible room) and a dropout (a digital-silence span inside
+    what the edit plays). A source with dropouts but no measured floor
+    plans nothing: its dropouts are reported on the source's own record,
+    but filling them from silence would be the defect `room_tone`
+    exists to remove. Returns [{"source_file", "floor", "dropouts"}] -
+    the source-level plan. The timeline mapping is the build's:
+    compile_manifest reads each V1 clip's own source/timeline ranges
+    to place the fill, the same way it places a J/L cut's fill.
+    """
+    plans = []
+    for source in (cleanup_context or {}).get("sources", []) or []:
+        dropouts = source.get("dropouts") or []
+        if not dropouts:
+            continue
+        floor = source.get("floor") or {}
+        if floor.get("level_dbfs") is None:
+            continue
+        plans.append({
+            "source_file": source["source_file"],
+            "floor": floor,
+            "dropouts": dropouts,
+        })
+    return plans
+
+
 def cleanup_context(audio_spine: dict, a_roll_assignments) -> dict:
     """The noise record the cleanup judgement is made over, measured once.
 

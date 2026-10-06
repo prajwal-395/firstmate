@@ -1475,6 +1475,52 @@ def assert_overlay_segments_on_disk(manifest: dict) -> None:
                         f"frames but {frame_dir} holds {have}.")
 
 
+def _v1_clip_playing(v1_clips: list, source_file: str,
+                      start: float, end: float):
+    """The V1 clip that plays `source_file` over [start, end], or None.
+
+    Matched by source basename (the same match the cleanup staging
+    uses) and by the clip's own source range covering the span. A
+    dropout no clip plays is reported by the caller, not filled - a
+    fill placed where nothing plays is a clip the timeline cannot use.
+    """
+    base = os.path.basename(str(source_file))
+    for clip in v1_clips or []:
+        if not isinstance(clip, dict):
+            continue
+        if os.path.basename(str(clip.get("source_file", ""))) != base:
+            continue
+        try:
+            src_in = float(clip.get("source_in", 0.0))
+            src_out = float(clip.get("source_out", 0.0))
+        except (TypeError, ValueError):
+            continue
+        if src_in <= start and end <= src_out:
+            return clip
+    return None
+
+
+def _source_to_timeline_frames(clip: dict, src_start: float, src_end: float,
+                               fps: float):
+    """Map a source span to (timeline_in, timeline_out, frame_in, frame_out).
+
+    Linear over the clip's own source/timeline ranges, so a retimed
+    segment maps by its ratio, not by a 1:1 assumption. Frame edges use
+    the same `seconds_to_frame` every other clip edge uses.
+    """
+    src_in = float(clip.get("source_in", 0.0))
+    src_out = float(clip.get("source_out", 0.0))
+    tl_in = float(clip.get("timeline_in", 0.0))
+    tl_out = float(clip.get("timeline_out", 0.0))
+    span = src_out - src_in
+    ratio = (tl_out - tl_in) / span if span > 0 else 0.0
+    drop_tl_in = tl_in + (src_start - src_in) * ratio
+    drop_tl_out = tl_in + (src_end - src_in) * ratio
+    return (drop_tl_in, drop_tl_out,
+            seconds_to_frame(drop_tl_in, fps),
+            seconds_to_frame(drop_tl_out, fps))
+
+
 def compile_manifest(out_dir: str, *, object_segmentation=None,
                      matte_trigger=None) -> dict:
     global _STATE_OUTPUTS
@@ -3123,6 +3169,82 @@ def compile_manifest(out_dir: str, *, object_segmentation=None,
                 f"{record['segment_end']:.2f}s at "
                 f"{record['level_dbfs']} dBFS "
                 f"({record['method']})",
+                file=sys.stderr,
+            )
+
+    # ── Room-tone continuity: fill the dropouts the mix measured ──
+    # 5.02's measure pass found digital-silence spans inside the played
+    # ranges of sources that carry audible room (cleanup_context ->
+    # room_tone.find_dropouts). Each is staged with the source's
+    # measured room tone and placed on the speech row - the same route
+    # a J/L cut's fill travels, judged by the same read-back. A dropout
+    # no V1 clip plays is reported, not filled; a fill whose source
+    # refuses to stage is reported, never a silent skip.
+    from library.tools import room_tone as _room
+    audio_mix_spec = ((audio_mix_data if isinstance(audio_mix_data, dict)
+                       else {}).get("audio_mix_spec", {}) or {})
+    continuity = audio_mix_spec.get("room_tone_continuity", {}) or {}
+    for plan in continuity.get("sources", []) or []:
+        fill_source = plan.get("source_file")
+        floor = plan.get("floor") or {}
+        for dropout in plan.get("dropouts", []) or []:
+            try:
+                drop_start = float(dropout["start"])
+                drop_end = float(dropout["end"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            host = _v1_clip_playing(v1_clips, fill_source,
+                                    drop_start, drop_end)
+            if host is None:
+                print(
+                    f"  Room-tone dropout "
+                    f"{os.path.basename(str(fill_source))} "
+                    f"{drop_start:.3f}-{drop_end:.3f}s: no V1 clip plays "
+                    f"it - reported, not filled",
+                    file=sys.stderr,
+                )
+                continue
+            tl_in, tl_out, frame_in, frame_out = _source_to_timeline_frames(
+                host, drop_start, drop_end, fps)
+            fill_name = (f"roomtone_dropout_{len(room_tone_fills):02d}_"
+                         f"{os.path.basename(str(fill_source))}.wav")
+            fill_path = os.path.join(out_dir, "room_tone", fill_name)
+            try:
+                staged = _room.stage_fill(fill_source, floor,
+                                          tl_out - tl_in, fill_path)
+            except Exception as exc:
+                print(
+                    f"  Room-tone dropout "
+                    f"{os.path.basename(str(fill_source))} "
+                    f"{drop_start:.3f}-{drop_end:.3f}s cannot be filled: "
+                    f"{exc}",
+                    file=sys.stderr,
+                )
+                continue
+            room_tone_fills.append({
+                "source_file": staged["path"],
+                "room_source_file": fill_source,
+                "source_in": 0.0,
+                "source_out": staged["fill_seconds"],
+                "timeline_in": round(tl_in, 3),
+                "timeline_out": round(tl_out, 3),
+                "timeline_in_frame": frame_in,
+                "timeline_out_frame": frame_out,
+                "label": f"roomtone_dropout_{len(room_tone_fills):02d}",
+                "room_tone_fill": True,
+                "fill_for": {"kind": "dropout",
+                             "source_start": round(drop_start, 3),
+                             "source_end": round(drop_end, 3)},
+                "level_dbfs": staged["level_dbfs"],
+                "loops": staged["loops"],
+            })
+            print(
+                f"  Room-tone dropout "
+                f"{os.path.basename(str(fill_source))} "
+                f"{drop_start:.3f}-{drop_end:.3f}s filled at "
+                f"{tl_in:.3f}-{tl_out:.3f}s from "
+                f"{floor.get('level_dbfs')} dBFS room "
+                f"({staged['loops']} loop(s))",
                 file=sys.stderr,
             )
 

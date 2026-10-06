@@ -450,9 +450,16 @@ def measure_source(source_file: str, played_ranges: list,
     `speech_spans` are word timings in the same unit (the spine
     contract's `source_start`/`source_end`, read directly). Returns the
     floor (`room_tone.measure_room_tone`), the speech level over the
-    played ranges (`speech_loudness.measure_range`), and
-    `floor_unmeasured_reason` when the floor refuses - never a default
-    level reported as measured.
+    played ranges (`speech_loudness.measure_range`), the room-tone
+    dropouts (`room_tone.find_dropouts` - digital-silence spans inside
+    the played ranges, the stretches where the room the source carries
+    drops out), and `floor_unmeasured_reason` when the floor refuses -
+    never a default level reported as measured. The floor and the
+    dropouts are independent measurements: a source can hold digital-
+    silence spans in its played ranges whether or not it has audible
+    room to fill them with. The FILL needs both - `plan_room_tone_fills`
+    plans nothing for a source with dropouts but no floor, because
+    filling from silence is the defect `room_tone` exists to remove.
     """
     from library.tools import room_tone as _room
     from library.tools import speech_loudness as _loud
@@ -472,6 +479,12 @@ def measure_source(source_file: str, played_ranges: list,
     except Exception as exc:
         record["floor"] = {}
         record["floor_unmeasured_reason"] = str(exc)[:300]
+    try:
+        record["dropouts"] = _room.find_dropouts(
+            source_file, played_ranges or [])
+    except Exception as exc:
+        record["dropouts"] = []
+        record["dropouts_unmeasured_reason"] = str(exc)[:300]
     speech = None
     for start, end in played_ranges or []:
         reading = _loud.measure_range(source_file, start, end)

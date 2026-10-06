@@ -35,6 +35,7 @@ from library.steps.step_5_02_audio_mix.mix import (
     SLOT,
     apply_word_gap_ducking,
     assemble,
+    plan_room_tone_fills,
     shortfall_lines,
     solve_automation,
 )
@@ -218,6 +219,14 @@ def resolve_audio_mix(data: dict) -> dict:
     result["audio_mix_spec"]["music_over_speech_overrides"] = \
         music_over_speech.overrides_from_timeline_notes(
             data.get("timeline_notes"))
+    # Room-tone continuity: the dropouts the measure pass found, planned
+    # as fills. compile_manifest stages and places them on the speech
+    # row - the same route a J/L cut's fill travels. A source with
+    # dropouts but no measured floor plans nothing (see
+    # `plan_room_tone_fills`).
+    result["audio_mix_spec"]["room_tone_continuity"] = {
+        "sources": plan_room_tone_fills(data.get("cleanup_context") or {}),
+    }
     return result
 
 

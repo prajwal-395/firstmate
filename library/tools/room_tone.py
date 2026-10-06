@@ -216,6 +216,95 @@ def speech_free_gaps(duration: float, speech_spans: list,
     return gaps
 
 
+#: The shortest dropout worth filling, in seconds. A shorter digital-zero
+#: span is a zero crossing or a single-sample artifact, not a hole the
+#: ear hears as the room dropping out. The bound matches
+#: `render_qa.find_digital_zero_runs`' own minimum (0.01 s) - the same
+#: digital-silence floor the render QA already measures, so a span the
+#: QA would call silence is a dropout here.
+MIN_DROPOUT_SECONDS = 0.01
+
+
+def _played_bounds(played_ranges: list, duration: float) -> list:
+    """Normalised, merged (start, end) played ranges in source seconds.
+
+    Segments the edit plays, clipped to the file's own duration and
+    merged so two segments sharing a boundary do not report one dropout
+    twice. Unparseable segments are skipped, the way `speech_free_gaps`
+    skips them.
+    """
+    bounds = []
+    for span in played_ranges or []:
+        try:
+            start, end = float(span[0]), float(span[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        start = max(0.0, start)
+        end = min(float(duration), end)
+        if end > start:
+            bounds.append((start, end))
+    bounds.sort()
+    merged = []
+    for start, end in bounds:
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def find_dropouts(source_file: str, played_ranges: list,
+                  min_seconds: float = MIN_DROPOUT_SECONDS) -> list:
+    """Digital-silence spans inside the ranges the edit plays, measured.
+
+    A dropout is a stretch where the source's audio is digital silence
+    (every sample is zero) inside a range the edit plays - the room tone
+    the source carries drops out, and the ear hears the room disappear
+    after the dialogue edit. The threshold is digital zero, the physical
+    definition of silence, not a chosen level: a source whose room tone
+    measures above -inf dBFS has audible room that a zero span drops
+    out of. `measure_room_tone` already refuses a source whose pauses are
+    all digital silence; this finds the zero spans a source with real
+    room still carries inside what the edit plays.
+
+    `played_ranges` are (start, end) source seconds the edit plays (the
+    `a_roll_assignments` video segments). Returns [{"start", "end",
+    "duration"}] in source seconds - the part of each digital-zero run
+    the edit actually plays, only spans reaching `min_seconds`. Refuses
+    when the file cannot be decoded: a dropout reported without reading
+    the source would be a default presented as measured.
+    """
+    samples, rate = decode_mono(source_file)
+    if not samples:
+        raise _refuse(
+            f"room tone cannot be measured: {os.path.basename(source_file)} "
+            f"decodes to no audio",
+            "the file exists but holds zero frames.",
+            "point room_tone at the real source file for this clip.",
+        )
+    import numpy as np
+    magnitude = np.abs(np.asarray(list(samples), dtype=np.float64))
+    mask = (magnitude <= 0.0).astype(np.int8)
+    edges = np.flatnonzero(np.diff(np.concatenate(([0], mask, [0]))))
+    duration = len(samples) / rate
+    bounds = _played_bounds(played_ranges, duration)
+    dropouts = []
+    for start, end in zip(edges[0::2], edges[1::2]):
+        run_start = start / rate
+        run_end = end / rate
+        for range_start, range_end in bounds:
+            lo = max(run_start, range_start)
+            hi = min(run_end, range_end)
+            if hi - lo >= min_seconds:
+                dropouts.append({
+                    "start": round(lo, 3),
+                    "end": round(hi, 3),
+                    "duration": round(hi - lo, 3),
+                })
+    dropouts.sort(key=lambda d: d["start"])
+    return dropouts
+
+
 def rms_dbfs(samples) -> float:
     """Level of the samples in dBFS. Digital silence reads -inf."""
     total = 0.0
