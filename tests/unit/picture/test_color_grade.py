@@ -13,6 +13,7 @@ import pathlib
 import shutil
 import subprocess
 from unittest.mock import patch
+import yaml
 from library.steps.step_5_01_color_grade import bridge as bridge_501
 from library.steps.step_5_01_color_grade.grade import (
     collect_entries,
@@ -480,6 +481,45 @@ def test_a_project_with_a_template_still_gets_that_templates_look(
     assert corrected["offset_r"] == 0.012
     assert corrected["power_g"] == 0.995
     assert corrected["saturation"] == 0.95
+
+
+def test_a_templates_output_transform_reaches_the_grade_spec(
+        tmp_path, bridge_output):
+    """The defect this slice fixes. Step 5.01 hardcoded
+    "Rec.709, Gamma 2.4" as an engine constant - declared by nobody, read
+    by nobody - so a series delivering HDR shipped in Rec.709. The
+    transform is a property of the product: the template declares it, and
+    the spec records the resolution AND its source beside the value."""
+    _payload_, rows, _ = bridge_output
+    spec = _post_bridge(tmp_path, rows, {
+        "color_correction": [
+            {"clip_id": "clip_017", "exposure_stops": 1.0, "why": "dark"}],
+        "grade_assessment": "one clip under",
+    }, brand_template={"output_transform": "rec2020_gamma24"})
+
+    assert spec["output_color_space"] == "Rec.2020, Gamma 2.4"
+    assert spec["output_transform"] == "rec2020_gamma24"
+    assert spec["output_transform_source"] == "brand template output_transform"
+
+
+def test_a_project_override_beats_the_template_in_the_grade_spec(
+        tmp_path, bridge_output):
+    """The project's own declaration outranks the template's, the same
+    precedence the geometry uses - a series ships one video in a
+    different transform without forking its template."""
+    (tmp_path / "project.yaml").write_text(yaml.safe_dump({
+        "name": "T", "slug": "t",
+        "pipeline": {"output_transform": "rec709_gamma22"},
+    }))
+    _payload_, rows, _ = bridge_output
+    spec = _post_bridge(tmp_path, rows, {
+        "color_correction": [],
+        "grade_assessment": "these three sit together already",
+    }, brand_template={"output_transform": "rec2020_gamma24"})
+
+    assert spec["output_color_space"] == "Rec.709, Gamma 2.2"
+    assert spec["output_transform"] == "rec709_gamma22"
+    assert spec["output_transform_source"] == "project.yaml pipeline.output_transform"
 
 
 def test_a_judged_no_correction_is_not_an_ungraded_run(tmp_path,

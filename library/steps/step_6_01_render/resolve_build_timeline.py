@@ -99,6 +99,9 @@ from library.tools.execution.deliver_audio_mix import (  # noqa: E402
 )
 from library.tools import edit_patch  # noqa: E402
 from library.tools import timeline_decisions  # noqa: E402
+from library.tools.delivery_format import (  # noqa: E402
+    read_output_transform,
+)
 from library.tools.resolve_locale import (  # noqa: E402
     scriptapp_preserving_locale,
 )
@@ -3622,6 +3625,16 @@ def _build_timeline_under_lease(
     color_grade = manifest.get("color_grade", {})
     per_clip_adjs = color_grade.get("per_clip_adjustments", [])
     series_look = color_grade.get("series_look")
+
+    # The output transform the graded picture is delivered in. Step 5.01
+    # resolved it from the product's own declaration (project > template
+    # > SDR default) and recorded it on the manifest; the render reports
+    # what the manifest carries. A manifest carrying none reports no key
+    # at all - an absent transform and a declared one are different facts,
+    # and the render must not invent one.
+    output_transform = read_output_transform(manifest)
+    if output_transform:
+        results["output_color_space"] = output_transform
 
     # Build a lookup by source_file basename
     color_lookup = {}

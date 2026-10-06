@@ -201,6 +201,13 @@ def _render_output_payload(result: dict, export: dict,
     track_plan = result.get("track_plan")
     if track_plan is not None:
         payload["track_plan"] = track_plan
+    # The color transform the graded picture is delivered in, when the
+    # manifest declared one. Step 5.01 resolved it (project > template >
+    # SDR default); the render reports it, and a build whose manifest
+    # carries none adds no key rather than inventing a transform.
+    output_color_space = result.get("output_color_space")
+    if output_color_space is not None:
+        payload["output_color_space"] = output_color_space
     return payload
 
 

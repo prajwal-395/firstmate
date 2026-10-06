@@ -36,6 +36,10 @@ from library.tools.color_correction import (
     describe_correction,
     planning_basis,
 )
+from library.tools.delivery_format import (
+    DEFAULT_OUTPUT_TRANSFORM as DEFAULT_OUTPUT_TRANSFORM_NAME,
+    OUTPUT_TRANSFORMS,
+)
 from library.tools.project_layout import ProjectLayout
 from library.tools.semantic_index import build_semantic_lookup
 from library.tools.series_look import (
@@ -77,7 +81,6 @@ GRADE_PIPELINE = {
     },
 }
 
-
 #: What actually happens to each designed node. A node with no
 #: `delivered_by` does not reach the viewer, and the reason says why -
 #: four of the five used to be silently unread.
@@ -113,10 +116,31 @@ GRADE_PIPELINE_DELIVERY = {
     },
     "node_5": {
         "delivered_by": None,
-        "reason": "See node_1: the Rec.709 output transform is project-level "
-                  "colour management. output_color_space records the intent.",
+        "reason": "See node_1: the output transform is project-level colour "
+                  "management, not a per-clip grade. The resolved transform "
+                  "(library/tools/delivery_format.py - declared by the template "
+                  "or project, defaulting to Rec.709 Gamma 2.4) is recorded in "
+                  "output_color_space with its source.",
     },
 }
+
+#: The output transform step 5.01 records when the caller resolved none.
+#: MECHANICAL - the color space a finished SDR video is delivered in, like a
+#: codec - not a taste (AGENTS.md 10.5). The resolved record (with its
+#: ``source``) is what `define_color_grade` writes; this is the shape of it
+#: for a caller that holds no template to resolve against. Derived from the
+#: enumeration, never a second copy of the values: a default that drifts
+#: from OUTPUT_TRANSFORMS is how a project ships in a color space nobody
+#: chose.
+def _default_output_transform() -> dict:
+    transform = OUTPUT_TRANSFORMS[DEFAULT_OUTPUT_TRANSFORM_NAME]
+    return {
+        "name": DEFAULT_OUTPUT_TRANSFORM_NAME,
+        "color_space": transform["color_space"],
+        "gamma": transform["gamma"],
+        "output_color_space": f"{transform['color_space']}, {transform['gamma']}",
+        "source": "default (nothing declared)",
+    }
 
 #: How the luma is sampled. Recorded on every clip beside the number, so
 #: a reader can tell a measurement from an absence (AGENTS.md 10.3).
@@ -475,11 +499,12 @@ def cut_adjacency(entries: list, rows: list) -> list:
 
 
 def define_color_grade(shot_list: dict, project_folder: str = "",
-                       reference_image: str = "", series_look=None,
-                       *, measured_clips=None, corrections=None,
-                       dropped=None, decided: bool = False,
-                       assessment: str = "",
-                       subject_grades: list = None) -> dict:
+                        reference_image: str = "", series_look=None,
+                        *, measured_clips=None, corrections=None,
+                        dropped=None, decided: bool = False,
+                        assessment: str = "",
+                        subject_grades: list = None,
+                        output_transform: dict = None) -> dict:
     """Assemble the colour grade spec.
 
     Args:
@@ -490,6 +515,11 @@ def define_color_grade(shot_list: dict, project_folder: str = "",
             LOOK. A declaration that cannot be delivered as written
             raises `LookDeclarationError`; it is never completed from a
             default and never dropped.
+        output_transform: the resolved output transform
+            (`library/tools/delivery_format.resolve_output_transform`), or
+            None to record the SDR default. The resolved record travels
+            into the spec with its ``source``, so a reader can tell a
+            declared transform from the engine's default.
         measured_clips: rows from `measure_clips`, so the measurement
             happens once in the bridge rather than twice. When None the
             clips are measured here, which is the path the unit tests
@@ -508,6 +538,8 @@ def define_color_grade(shot_list: dict, project_folder: str = "",
 
     look = resolve_look(series_look)
     reference = look.exposure_reference if look else None
+
+    transform = output_transform or _default_output_transform()
 
     if measured_clips is None:
         measured_clips = measure_clips(entries, project_folder)
@@ -679,7 +711,9 @@ def define_color_grade(shot_list: dict, project_folder: str = "",
             "series_look": look.name if look else None,
             "series_look_declared": list(look.declared) if look else [],
             "look_notes": look_notes,
-            "output_color_space": "Rec.709, Gamma 2.4",
+            "output_color_space": transform["output_color_space"],
+            "output_transform": transform["name"],
+            "output_transform_source": transform["source"],
             "exposure_reference": reference,
             "unmeasured_clips": unmeasured_clips,
             # WHICH absence an ungraded run is. Four readings, spelled

@@ -19,11 +19,17 @@ import yaml
 
 from library.tools.delivery_format import (
     DEFAULT_DELIVERY_FORMAT,
+    DEFAULT_OUTPUT_TRANSFORM,
     DELIVERY_FORMATS,
+    OUTPUT_TRANSFORMS,
     delivery_format_name,
     format_names,
+    output_transform_names,
+    read_output_transform,
     resolve_delivery_format,
     resolve_format_name,
+    resolve_output_transform,
+    resolve_output_transform_name,
 )
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -58,6 +64,71 @@ def test_an_unknown_format_raises_rather_than_defaulting():
     assert "vertical_9x16" in str(exc.value)
     for known in format_names():
         assert known in str(exc.value)
+
+
+# ── The color half of the delivery frame ──────────────────────────────
+#
+# Step 5.01 hardcoded "Rec.709, Gamma 2.4" as an engine constant -
+# declared by nobody, read by nobody, wrong for any project that
+# delivers HDR. The transform is resolved exactly like the geometry.
+
+def test_declaring_nothing_is_rec709_gamma24():
+    """The SDR default. Declaring nothing is legitimate, and yields the
+    transform this pipeline has always rendered."""
+    assert DEFAULT_OUTPUT_TRANSFORM == "rec709_gamma24"
+    assert OUTPUT_TRANSFORMS[DEFAULT_OUTPUT_TRANSFORM] == {
+        "color_space": "Rec.709", "gamma": "Gamma 2.4"}
+    assert resolve_output_transform_name("") == {
+        "color_space": "Rec.709", "gamma": "Gamma 2.4"}
+    assert resolve_output_transform(None)["name"] == DEFAULT_OUTPUT_TRANSFORM
+    assert resolve_output_transform(None)["source"] == "default (nothing declared)"
+
+
+def test_an_unknown_output_transform_raises_rather_than_defaulting():
+    """A silent fallback is how an HDR project ships in Rec.709."""
+    with pytest.raises(ValueError) as exc:
+        resolve_output_transform_name("rec2100_pq")
+    assert "rec2100_pq" in str(exc.value)
+    for known in output_transform_names():
+        assert known in str(exc.value)
+
+
+def test_project_override_beats_the_template_which_beats_the_default(
+        tmp_path):
+    template = {"series_id": "hdr_series",
+                "output_transform": "rec2020_gamma24"}
+    folder = _project(tmp_path, {"brand_template": "hdr_series"})
+    resolved = resolve_output_transform(template=template, project_folder=folder)
+    assert resolved["output_color_space"] == "Rec.2020, Gamma 2.4"
+    assert resolved["source"] == "brand template output_transform"
+    folder = _project(tmp_path, {
+        "brand_template": "hdr_series",
+        "output_transform": "rec709_gamma22",
+    })
+    resolved = resolve_output_transform(template=template, project_folder=folder)
+    assert resolved["output_color_space"] == "Rec.709, Gamma 2.2"
+    assert resolved["source"] == "project.yaml pipeline.output_transform"
+
+
+def test_an_unknown_project_or_template_declaration_raises(tmp_path):
+    folder = _project(tmp_path, {"output_transform": "dci_p3"})
+    with pytest.raises(ValueError):
+        resolve_output_transform(project_folder=folder)
+    with pytest.raises(ValueError):
+        resolve_output_transform(
+            template={"output_transform": "srgb"}, project_folder=str(tmp_path))
+
+
+def test_the_render_reads_the_transform_the_manifest_carries():
+    """The render's reader. A manifest carrying a transform reports it;
+    one carrying none reports None - never a default. An absent transform
+    and a declared one are different facts."""
+    assert read_output_transform(
+        {"color_grade": {"output_color_space": "Rec.2020, Gamma 2.4"}}
+    ) == "Rec.2020, Gamma 2.4"
+    assert read_output_transform({"color_grade": {}}) is None
+    assert read_output_transform({}) is None
+    assert read_output_transform(None) is None
 
 
 # ── Precedence: project override > template > default ─────────────────

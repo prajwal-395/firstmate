@@ -40,6 +40,7 @@ from library.tools.color_correction import (
     FIELD,
     read_corrections,
 )
+from library.tools.delivery_format import resolve_output_transform
 from library.tools.plan_keys import refuse_unknown_keys
 from library.tools.series_look import effective_series_look
 
@@ -96,6 +97,14 @@ def resolve_color_grade(data: dict) -> dict:
               f"{entry.reason}: {entry.detail}", file=sys.stderr)
 
     style = (data.get("brand_template") or {}).get("style", {})
+    # The output transform is a property of the PRODUCT, resolved the same
+    # way the geometry is: project pipeline block > brand template > the
+    # SDR default. The resolved record travels into the spec with its
+    # source, so a reader can tell a declared transform from the engine's
+    # default (library/tools/delivery_format.py).
+    output_transform = resolve_output_transform(
+        template=data.get("brand_template"),
+        project_folder=project_folder)
     result = define_color_grade(
         {"entries": entries},
         project_folder,
@@ -109,6 +118,7 @@ def resolve_color_grade(data: dict) -> dict:
         decided=True,
         assessment=str(data.get(ASSESSMENT_FIELD) or "").strip(),
         subject_grades=data.get("subject_grades") or [],
+        output_transform=output_transform,
     )
     for drop in (result["color_grade_spec"].get("subject_grade_drops")
                  or []):

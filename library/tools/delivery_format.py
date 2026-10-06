@@ -4,6 +4,17 @@ Captain's ruling of 2026-08-19. The delivery format is a property of the
 product, declared by the brand template, overridable per project, and
 defaulting to vertical 1080x1920.
 
+The frame has two halves and both are the product's: the GEOMETRY
+(``DELIVERY_FORMATS``, below) and the COLOR TRANSFORM
+(``OUTPUT_TRANSFORMS``) - the color space and gamma the graded picture
+is delivered in. Step 5.01 used to hardcode ``output_color_space`` as
+"Rec.709, Gamma 2.4", an engine constant presented as a product intent:
+declared by nobody, read by nobody, and wrong for any project that
+delivers HDR. The transform is resolved the same way the geometry is -
+project ``pipeline.output_transform`` > brand template
+``output_transform`` > the SDR default - and the grade spec records the
+resolution and its source beside the value.
+
 What it replaced, and why it mattered
 -------------------------------------
 Step 1.02 derived a ``project_resolution`` from the MODAL SOURCE
@@ -174,3 +185,127 @@ def resolve_delivery_format(project_folder: Optional[str] = None,
             video_preferences=video_preferences)
     )
     return [width, height]
+
+
+# ── The color half of the delivery frame ─────────────────────────────
+#
+# The output transform: the color space and gamma the graded picture is
+# delivered in. A property of the PRODUCT, declared by the brand
+# template's top-level ``output_transform``, overridable per project
+# through ``pipeline.output_transform``, defaulting to Rec.709 Gamma 2.4
+# (SDR). One enumeration; an unknown name RAISES - a silent fallback is
+# how a project ships in a color space nobody chose.
+
+#: Every output transform a template or project may name. Names are
+#: self-describing on purpose: the value appears in project.yaml and in
+#: brand templates, where a reader has no type to consult.
+OUTPUT_TRANSFORMS: Dict[str, Dict[str, str]] = {
+    "rec709_gamma24": {"color_space": "Rec.709", "gamma": "Gamma 2.4"},
+    "rec709_gamma22": {"color_space": "Rec.709", "gamma": "Gamma 2.2"},
+    "rec2020_gamma24": {"color_space": "Rec.2020", "gamma": "Gamma 2.4"},
+}
+
+#: The captain's default. A template or project that declares nothing
+#: ships Rec.709 Gamma 2.4 - the SDR delivery this pipeline has always
+#: rendered. MECHANICAL, like a codec: the color space a finished SDR
+#: video is delivered in, not a taste.
+DEFAULT_OUTPUT_TRANSFORM = "rec709_gamma24"
+
+
+def output_transform_names() -> List[str]:
+    """Every output transform a template or project may name."""
+    return sorted(OUTPUT_TRANSFORMS)
+
+
+def resolve_output_transform_name(name: str) -> Dict[str, str]:
+    """``{color_space, gamma}`` for a declared output transform name.
+
+    Raises on an unknown name. An empty name is not a declaration and
+    yields the default - that is how "declares nothing" is spelled.
+    """
+    if not name:
+        return OUTPUT_TRANSFORMS[DEFAULT_OUTPUT_TRANSFORM]
+    if not isinstance(name, str):
+        raise TypeError(
+            f"output_transform must be one of {output_transform_names()}, "
+            f"got {type(name).__name__}: {name!r}"
+        )
+    key = name.strip()
+    if key not in OUTPUT_TRANSFORMS:
+        raise ValueError(
+            f"Unknown output_transform {name!r}. "
+            f"Known transforms: {output_transform_names()}. "
+            "Add a row to library/tools/delivery_format.py to introduce one."
+        )
+    return OUTPUT_TRANSFORMS[key]
+
+
+def resolve_output_transform(template=None,
+                             project_folder: Optional[str] = None) -> dict:
+    """The output transform this product delivers, and who declared it.
+
+    Precedence: project ``pipeline.output_transform`` > the brand
+    template's top-level ``output_transform`` > :data:`DEFAULT_OUTPUT_TRANSFORM`.
+    The same shape ``delivery_format_name`` uses for the geometry.
+
+    Args:
+        template: the brand template carrying the declaration - a mapping
+            with an ``output_transform`` key or a BrandTemplate, or None
+            where the caller holds none (the project override still reads).
+        project_folder: the project's folder, for the ``pipeline:`` block.
+
+    Returns:
+        ``{name, color_space, gamma, output_color_space, source}`` -
+        the resolved transform, the human-readable string step 5.01
+        records, and ``source`` naming who declared it ("default
+        (nothing declared)" where nobody did). The source travels beside
+        the value so a reader can tell a declared transform from the
+        engine's SDR default.
+    """
+    pipeline_block = _project_pipeline_block(project_folder)
+
+    override = (pipeline_block.get("output_transform") or "").strip()
+    if override:
+        resolve_output_transform_name(override)  # raise here, naming the project
+        name = override
+        source = "project.yaml pipeline.output_transform"
+    else:
+        declared = ""
+        if template is not None:
+            if isinstance(template, dict):
+                declared = (template.get("output_transform") or "").strip()
+            else:
+                declared = (getattr(template, "output_transform", "") or "").strip()
+        if declared:
+            resolve_output_transform_name(declared)  # raise here, naming the template
+            name = declared
+            source = "brand template output_transform"
+        else:
+            name = DEFAULT_OUTPUT_TRANSFORM
+            source = "default (nothing declared)"
+
+    transform = OUTPUT_TRANSFORMS[name]
+    return {
+        "name": name,
+        "color_space": transform["color_space"],
+        "gamma": transform["gamma"],
+        "output_color_space": f"{transform['color_space']}, {transform['gamma']}",
+        "source": source,
+    }
+
+
+def read_output_transform(manifest: Optional[dict]) -> Optional[str]:
+    """The output transform the assembly manifest carries, or None.
+
+    The render reads this to report - and, live, to set - the color
+    management the graded picture is delivered in. A manifest that
+    carries none is None, never a default: an absent transform and a
+    declared one are different facts, and the render must not invent one.
+    """
+    if not isinstance(manifest, dict):
+        return None
+    color_grade = manifest.get("color_grade")
+    if not isinstance(color_grade, dict):
+        return None
+    value = color_grade.get("output_color_space")
+    return value if isinstance(value, str) and value.strip() else None

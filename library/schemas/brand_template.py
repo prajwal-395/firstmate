@@ -8,6 +8,12 @@ def _delivery_format_names() -> List[str]:
     from library.tools.delivery_format import format_names
     return format_names()
 
+
+def _output_transform_names() -> List[str]:
+    """Enumerated output transforms, imported late to keep this module leaf-level."""
+    from library.tools.delivery_format import output_transform_names
+    return output_transform_names()
+
 @dataclass
 class StyleSlots:
     color_palette: List[str] = field(default_factory=list)
@@ -115,6 +121,14 @@ class BrandTemplate:
     # is none of those - it is what the series delivers, and every one of
     # the three slot groups is read as creative direction.
     delivery_format: str = ""
+    # The color transform the graded picture is delivered in - a name
+    # from library/tools/delivery_format.OUTPUT_TRANSFORMS; empty means
+    # "declares nothing" and yields the Rec.709 Gamma 2.4 SDR default.
+    # It sits at the top level, beside delivery_format, for the same
+    # reason: it is what the series delivers, not a style/effect/content
+    # slot. Step 5.01 used to hardcode "Rec.709, Gamma 2.4" as an engine
+    # constant; a project that delivers HDR now declares it here.
+    output_transform: str = ""
     style: StyleSlots = field(default_factory=StyleSlots)
     effect: EffectSlots = field(default_factory=EffectSlots)
     content: ContentSlots = field(default_factory=ContentSlots)
@@ -136,6 +150,7 @@ class BrandTemplate:
         content = ContentSlots(**data.get("content", {}))
         return cls(series_id=series_id,
                    delivery_format=data.get("delivery_format", "") or "",
+                   output_transform=data.get("output_transform", "") or "",
                    style=style, effect=effect, content=content)
 
     @staticmethod
@@ -148,6 +163,11 @@ class BrandTemplate:
                     "type": "string",
                     "enum": _delivery_format_names(),
                     "description": "The frame this series ships in. Omit for the vertical default. See library/tools/delivery_format.py."
+                },
+                "output_transform": {
+                    "type": "string",
+                    "enum": _output_transform_names(),
+                    "description": "The color transform the graded picture is delivered in. Omit for the Rec.709 Gamma 2.4 SDR default. See library/tools/delivery_format.py."
                 },
                 "style": {
                     "type": "object",
