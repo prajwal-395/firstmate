@@ -52,9 +52,26 @@ Queries
         overlapping source ranges).
     find_coverage(graph, timeline_start, timeline_end)
         Shots that cover a timeline span (from edit_graph spine blocks).
-    find_broll_matches(graph, transcript_segment)
+    find_broll_matches(graph, transcript_segment_id)
         Shots whose content matches a speech segment (from edit_graph
         broll_cover nodes).
+    find_shot_colour(graph, clip_id)
+        The colour track's registration for one shot: its measured
+        row (exposure, white balance, contrast, saturation, skin
+        vector), its delivered grade (the per-clip CDL) and its
+        camera match against the scene's reference - or None where
+        the run registered none for this shot.
+
+The colour registration
+-----------------------
+Shot nodes carry a `colour` payload when the colour track has run:
+the measurement the grade step took from the frames, the grade it
+delivered, and the camera match it derived between the angles on the
+same scene. Other tracks read it through `find_shot_colour` - the
+style track's "color palette, contrast" extraction, a future
+scene-consistency track - without re-measuring the footage. A shot
+the colour track never measured carries no `colour` key: an absent
+measurement is absent, never a default.
 
 This module imports nothing from steps or processes: it reads state
 through the same readers every consumer has.
@@ -197,6 +214,15 @@ def edges_of_type(graph: dict, rel_type: str) -> list:
 GRAPH_FILE_NAME = "project_graph.json"
 """The state file the graph is written to, beside `pipeline_data.json`."""
 
+COLOUR_CAPABILITY = "color_grade.resolve"
+"""The capability id the colour track's output is recorded under.
+
+The grade step's post-bridge: its `color_grade_spec`, the bridge's
+measured `clip_exposure` rows and the derived `camera_match` all land
+in this one record (library/tools/capability_outputs.py partitions a
+node's output; the undeclared keys belong to the run capability).
+"""
+
 
 def _graph_path(project_folder: str) -> Path:
     return Path(project_folder) / GRAPH_FILE_NAME
@@ -219,6 +245,9 @@ def _input_fingerprint(project_folder: str, root: Path | None = None) -> str:
         "catalog": catalog,
         "recorded": recorded,
         "state": state,
+        # The colour track's output is a graph input like any other: a
+        # re-grade changes the shot payloads, so the cache must rebuild.
+        "colour": _build_colour(project_folder),
     }
     for clip in catalog:
         digest, _ = source_memory.digest_for_clip(project_folder, clip, recorded)
@@ -290,6 +319,7 @@ def build_graph(project_folder: str, root: Path | None = None) -> dict:
 
     persons = _build_persons(project_folder, root)
     shots = _build_shots(catalog)
+    colour = _build_colour(project_folder)
     world_models = _build_world_models(project_folder, catalog, recorded, root)
     scenes = _build_scenes(world_models)
     transcript_segments = _build_transcript_segments(world_models)
@@ -298,6 +328,10 @@ def build_graph(project_folder: str, root: Path | None = None) -> dict:
     for person in persons:
         add_node(graph, person)
     for shot in shots:
+        if colour:
+            record = _colour_for_clip(colour, shot["payload"].get("clip_id"))
+            if record:
+                shot["payload"]["colour"] = record
         add_node(graph, shot)
     for scene in scenes:
         add_node(graph, scene)
@@ -625,6 +659,59 @@ def _load_state(project_folder: str) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _build_colour(project_folder: str) -> dict:
+    """The colour track's recorded output, or {} where the run produced none.
+
+    Read through `capability_outputs`, the same reader
+    `source_memory.load_catalog` uses - never a direct state key.
+    """
+    state = _load_state(project_folder)
+    from library.tools import capability_outputs
+    record = capability_outputs.read(state, COLOUR_CAPABILITY)
+    return record if isinstance(record, dict) else {}
+
+
+def _colour_for_clip(colour: dict, clip_id: str) -> dict | None:
+    """The colour record for one clip: measurement, grade, match.
+
+    Each half is the verbatim row the colour track produced - the
+    measured `clip_exposure` row, the `per_clip_adjustments` entry
+    carrying the delivered CDL, and the `camera_match` row whose
+    camera group holds this clip. A half that was never produced is
+    None, and a clip with no half at all is None: the graph does not
+    invent a measurement it does not have.
+    """
+    measurement = None
+    for row in _as_list(colour.get("clip_exposure")):
+        if isinstance(row, dict) and row.get("clip_id") == clip_id:
+            measurement = row
+            break
+
+    grade = None
+    spec = colour.get("color_grade_spec")
+    if isinstance(spec, dict):
+        for adj in _as_list(spec.get("per_clip_adjustments")):
+            if isinstance(adj, dict) and adj.get("clip_id") == clip_id:
+                grade = adj
+                break
+
+    match = None
+    match_record = colour.get("camera_match")
+    if isinstance(match_record, dict):
+        for row in _as_list(match_record.get("matches")):
+            if isinstance(row, dict) and clip_id in _as_list(row.get("clips")):
+                match = row
+                break
+
+    if measurement is None and grade is None and match is None:
+        return None
+    return {
+        "measurement": measurement,
+        "grade": grade,
+        "match": match,
+    }
+
+
 # ── The query API ─────────────────────────────────────────────────
 
 
@@ -803,6 +890,22 @@ def find_broll_matches(graph: dict, transcript_segment_id: str) -> list:
     return matches
 
 
+def find_shot_colour(graph: dict, clip_id: str) -> dict | None:
+    """The colour track's registration for one shot, or None.
+
+    The shot node's `colour` payload: `measurement` (the measured row -
+    exposure, white balance, contrast, saturation, skin vector),
+    `grade` (the delivered per-clip CDL) and `match` (this shot's
+    camera against the scene's reference). A shot the colour track
+    never measured returns None - an absent measurement is absent,
+    never a default.
+    """
+    shot = node(graph, f"shot:{clip_id}")
+    if not shot:
+        return None
+    return shot["payload"].get("colour")
+
+
 # ── CLI ───────────────────────────────────────────────────────────
 
 
@@ -823,6 +926,8 @@ def main(argv=None) -> int:
     p_query.add_argument("--person", help="person id for reaction shots")
     p_query.add_argument("--t", type=float, help="time for reaction shots")
     p_query.add_argument("--clip", help="clip id for alternate takes")
+    p_query.add_argument("--colour", action="store_true",
+                         help="the colour registration for --clip")
     p_query.add_argument("--timeline-start", type=float)
     p_query.add_argument("--timeline-end", type=float)
     p_query.add_argument("--memory-root")
@@ -849,11 +954,16 @@ def main(argv=None) -> int:
             results = find_alternate_takes(graph, args.clip)
             print(json.dumps(results, indent=2))
             return 0
+        if args.colour and args.clip:
+            results = find_shot_colour(graph, args.clip)
+            print(json.dumps(results, indent=2))
+            return 0
         if args.timeline_start is not None and args.timeline_end is not None:
             results = find_coverage(graph, args.timeline_start, args.timeline_end)
             print(json.dumps(results, indent=2))
             return 0
-        print("query needs --person + --t, --clip, or --timeline-start + --timeline-end",
+        print("query needs --person + --t, --clip, --colour + --clip, "
+              "or --timeline-start + --timeline-end",
               file=sys.stderr)
         return 2
 

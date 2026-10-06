@@ -532,6 +532,161 @@ def test_load_or_build_rebuilds_when_an_input_changes(
     assert graph2["node_count"] > graph1["node_count"]
 
 
+# ── The colour registration ─────────────────────────────────────
+
+
+def _colour_state(per_clip_adjustments=None, clip_exposure=None,
+                  camera_match=None):
+    """A colour track's recorded output, as the grade step leaves it."""
+    record = {}
+    if clip_exposure is not None:
+        record["clip_exposure"] = clip_exposure
+    if per_clip_adjustments is not None:
+        record["color_grade_spec"] = {
+            "per_clip_adjustments": per_clip_adjustments,
+        }
+    if camera_match is not None:
+        record["camera_match"] = camera_match
+    return {"capability_outputs": {
+        "footage.catalog": {"clip_catalog": [
+            {"clip_id": "clip_001", "source_file": "/camA/take1.MXF",
+             "duration_seconds": 10.0},
+            {"clip_id": "clip_002", "source_file": "/camB/take1.MXF",
+             "duration_seconds": 10.0},
+        ]},
+        "color_grade.resolve": record,
+    }}
+
+
+def test_build_graph_registers_the_colour_measurements_on_shot_nodes(
+        tmp_path):
+    """The colour track's three readings land on the shot nodes: the
+    measured row (exposure, white balance, contrast, saturation, skin
+    vector), the delivered grade, and the camera match against the
+    scene's reference. Other tracks read them through find_shot_colour
+    without re-measuring the footage."""
+    project = tmp_path / "project"
+    project.mkdir()
+    state = _colour_state(
+        clip_exposure=[
+            {"clip_id": "clip_001", "luma": 145.5, "contrast": 42.0,
+             "saturation": 0.31, "skin_rgb": [180, 150, 130],
+             "neutral_rb": 1.02, "neutral_gb": 0.99},
+            {"clip_id": "clip_002", "luma": 53.1, "contrast": 38.0,
+             "saturation": 0.28, "skin_rgb": [170, 140, 120],
+             "neutral_rb": 0.97, "neutral_gb": 1.01},
+        ],
+        per_clip_adjustments=[
+            {"clip_id": "clip_001", "correction_terms": ["exposure_stops"],
+             "cdl_values": {"slope_r": 0.87, "slope_g": 0.9, "slope_b": 0.95,
+                            "offset_r": 0.0, "offset_g": 0.0, "offset_b": 0.0,
+                            "power_r": 1.0, "power_g": 1.0, "power_b": 1.0,
+                            "saturation": 1.0}},
+        ],
+        camera_match={"matches": [
+            {"camera": "camB", "clips": ["clip_002"],
+             "saturation_factor": 1.02, "skin_slope": [1.03, 1.0, 0.97],
+             "contrast_ratio": 1.1, "gap_direction": "cools"},
+        ]},
+    )
+    (project / "pipeline_data.json").write_text(
+        json.dumps(state), encoding="utf-8")
+
+    graph = project_graph.build_graph(str(project))
+
+    shot_1 = project_graph.node(graph, "shot:clip_001")
+    colour_1 = shot_1["payload"]["colour"]
+    assert colour_1["measurement"]["luma"] == 145.5
+    assert colour_1["measurement"]["saturation"] == 0.31
+    assert colour_1["grade"]["correction_terms"] == ["exposure_stops"]
+    assert colour_1["grade"]["cdl_values"]["slope_r"] == 0.87
+    # clip_001 is the reference camera: it has no match row of its own.
+    assert colour_1["match"] is None
+
+    shot_2 = project_graph.node(graph, "shot:clip_002")
+    colour_2 = shot_2["payload"]["colour"]
+    assert colour_2["measurement"]["luma"] == 53.1
+    assert colour_2["match"]["saturation_factor"] == 1.02
+    assert colour_2["match"]["gap_direction"] == "cools"
+    # The colourist left clip_002 alone: no grade entry exists.
+    assert colour_2["grade"] is None
+
+
+def test_a_shot_with_no_colour_registration_carries_no_colour_key(
+        tmp_path):
+    """A project the colour track never ran has no colour payload.
+    An absent measurement is absent, never a default."""
+    project = tmp_path / "project"
+    project.mkdir()
+    state = {"capability_outputs": {
+        "footage.catalog": {"clip_catalog": [
+            {"clip_id": "clip_001", "source_file": "/camA/take1.MXF",
+             "duration_seconds": 10.0},
+        ]},
+    }}
+    (project / "pipeline_data.json").write_text(
+        json.dumps(state), encoding="utf-8")
+
+    graph = project_graph.build_graph(str(project))
+
+    shot = project_graph.node(graph, "shot:clip_001")
+    assert "colour" not in shot["payload"]
+
+
+def test_find_shot_colour_returns_the_registered_record_and_none_for_an_unregistered_shot(
+        tmp_path):
+    """The query other tracks call. A registered shot returns its three
+    readings; an unregistered one returns None - the query does not
+    invent a measurement."""
+    project = tmp_path / "project"
+    project.mkdir()
+    state = _colour_state(
+        clip_exposure=[
+            {"clip_id": "clip_001", "luma": 145.5, "contrast": 42.0,
+             "saturation": 0.31, "skin_rgb": [180, 150, 130]},
+        ],
+    )
+    (project / "pipeline_data.json").write_text(
+        json.dumps(state), encoding="utf-8")
+
+    graph = project_graph.build_graph(str(project))
+
+    colour = project_graph.find_shot_colour(graph, "clip_001")
+    assert colour["measurement"]["luma"] == 145.5
+    assert project_graph.find_shot_colour(graph, "clip_002") is None
+    assert project_graph.find_shot_colour(graph, "clip_999") is None
+
+
+def test_the_cache_rebuilds_when_the_colour_output_changes(tmp_path):
+    """The colour output is a graph input: a re-grade changes the shot
+    payloads, so the cached graph must not survive it. Before the
+    fingerprint covered the colour record, a re-grade left every
+    consumer reading the stale graph."""
+    project = tmp_path / "project"
+    project.mkdir()
+    state = _colour_state(
+        clip_exposure=[
+            {"clip_id": "clip_001", "luma": 145.5, "contrast": 42.0,
+             "saturation": 0.31, "skin_rgb": [180, 150, 130]},
+        ],
+    )
+    (project / "pipeline_data.json").write_text(
+        json.dumps(state), encoding="utf-8")
+
+    graph1 = project_graph.load_or_build(str(project))
+    assert project_graph.find_shot_colour(
+        graph1, "clip_001")["measurement"]["luma"] == 145.5
+
+    state["capability_outputs"]["color_grade.resolve"][
+        "clip_exposure"][0]["luma"] = 60.0
+    (project / "pipeline_data.json").write_text(
+        json.dumps(state), encoding="utf-8")
+
+    graph2 = project_graph.load_or_build(str(project))
+    assert project_graph.find_shot_colour(
+        graph2, "clip_001")["measurement"]["luma"] == 60.0
+
+
 # ── Fixtures ─────────────────────────────────────────────────────
 
 
