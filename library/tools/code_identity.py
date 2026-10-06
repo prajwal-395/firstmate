@@ -464,6 +464,18 @@ EXEMPT_IMPORTS = {
     # scan, the over-invalidation rot EXEMPT_IMPORTS exists to stop.
     "library/tools/operations.py",
     "library/tools/dag_adapter.py",
+    # Execution plumbing: the Fabric task record, the single-machine
+    # scheduler loop and the lease layer decide where and when a
+    # step's units run, never the bytes they measure - and declaring
+    # them would drag the broker and manifest probe graphs into each
+    # importing step's hash through the coverage test's transitive
+    # scan (measured 2026-10-06: 200+ files ending at reel_build
+    # itself). The equivalence test in
+    # tests/unit/picture/test_m2_scheduled_frames.py pins it: one
+    # frame sample's bytes are identical scheduled or inline.
+    "library/tools/task_graph.py",
+    "library/tools/fabric_scheduler.py",
+    "library/tools/resource_leases.py",
     # Centralized path configuration: every entry is a location or an
     # environment override, so a change here fails loud (a binary not
     # found) rather than as a silently stale cached value.  Declaring it

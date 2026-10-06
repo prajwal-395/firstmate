@@ -117,6 +117,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import wave
 from pathlib import Path
@@ -1177,35 +1178,103 @@ def build_project_frames(project_folder: str,
 
     Same reporting shape as `build_project`: offline or undigestable
     clips are reported, not failed.
+
+    The per-clip units run through the Ren Fabric single-machine
+    scheduler (`library/tools/fabric_scheduler.py`) - one task per
+    clip, no dependencies, so a project's frame samples decode in
+    parallel instead of one core burning while the rest idle. The
+    report shape is unchanged: rows come back in catalog order
+    whatever order the clips finish in. Each task holds an EXCLUSIVE
+    lease on its content digest while it samples, because sampling
+    replaces the digest's frame directory - two clips sharing one
+    digest (duplicate files) serialize instead of one deleting the
+    directory out from under the other. Concurrent decodes are
+    bounded by the machine's own core count: a whole-file ffmpeg
+    decode per clip with no bound is a fork bomb on a large catalog.
+
+    The scheduler's checkpoint is the run's own ledger; resume
+    across runs stays where it was, in the slot freshness the lane
+    checks before building (`slot_is_fresh`).
     """
+    from library.tools.fabric_scheduler import Scheduler
+    from library.tools.resource_leases import LeaseDeclaration, ResourceRef
+    from library.tools.task_graph import Task, TaskGraph
+
     catalog = load_catalog(project_folder)
     recorded = load_recorded_fingerprints(project_folder)
-    results, failed = [], []
+    order: List[str] = []
+    rows: Dict[str, dict] = {}
+    units: List[tuple] = []
     for clip in catalog:
         clip_id = clip.get("clip_id")
         if clip_ids and clip_id not in clip_ids:
             continue
+        order.append(clip_id)
         path = clip.get("source_file") or clip.get("path") or ""
         if not path or not os.path.isfile(path):
-            results.append({"clip_id": clip_id, "source_file": path,
-                            "skipped": "media-offline"})
+            rows[clip_id] = {"clip_id": clip_id, "source_file": path,
+                             "skipped": "media-offline"}
             continue
         digest, _ = digest_for_clip(project_folder, clip, recorded)
         if digest is None:
-            results.append({"clip_id": clip_id, "source_file": path,
-                            "skipped": "no content digest"})
+            rows[clip_id] = {"clip_id": clip_id, "source_file": path,
+                             "skipped": "no content digest"}
             continue
+        units.append((clip_id, path, digest))
+
+    by_task = {f"m2:{clip_id}": (clip_id, path, digest)
+               for clip_id, path, digest in units}
+    accounts: Dict[str, dict] = {}
+    accounts_lock = threading.Lock()
+    decode_slots = threading.Semaphore(os.cpu_count() or 1)
+
+    def run_one(task) -> int:
+        clip_id, path, digest = by_task[task.id]
         try:
-            account = build_frames(path, digest, root, width, use_hwaccel)
+            with decode_slots:
+                account = build_frames(path, digest, root, width,
+                                       use_hwaccel)
         except Exception as exc:
-            failed.append(clip_id)
-            results.append({"clip_id": clip_id, "source_file": path,
-                            "failed": f"{type(exc).__name__}: {exc}"})
+            account = {"clip_id": clip_id, "source_file": path,
+                       "failed": f"{type(exc).__name__}: {exc}"}
+        with accounts_lock:
+            accounts[clip_id] = {"clip_id": clip_id, **account}
+        return 0 if "failed" not in accounts[clip_id] else 1
+
+    graph = TaskGraph(tasks={
+        f"m2:{clip_id}": Task(
+            id=f"m2:{clip_id}",
+            name=f"M2 frames for {clip_id}",
+            resources=LeaseDeclaration(
+                exclusive=frozenset({ResourceRef("clip", digest)})),
+        )
+        for clip_id, _path, digest in units
+    })
+    with tempfile.TemporaryDirectory(prefix="m2-frames-") as scratch:
+        state_path = Path(scratch) / "m2.state.json"
+        # No live manifest: these tasks declare no worker requirements
+        # (an ffmpeg absence surfaces per clip, exactly as the serial
+        # loop reported it), so matching is vacuous and producing the
+        # live manifest would only pay its probe cost - ~17 s against
+        # an unreachable Resolve. The scheduler still gives the run
+        # its threads, its digest leases and its checkpoint. The day a
+        # task here declares a requirement, produce the live manifest
+        # and pass it instead.
+        Scheduler(graph, {}, state_path, runner=run_one).run()
+
+    failed = []
+    for clip_id in order:
+        if clip_id in rows:
             continue
-        results.append({"clip_id": clip_id, **account})
+        account = accounts.get(clip_id)
+        if account is None:
+            account = {"clip_id": clip_id, "failed": "not-run"}
+        rows[clip_id] = account
+        if "failed" in account:
+            failed.append(clip_id)
     return {"project_folder": os.path.abspath(project_folder),
             "memory_root": str(source_dir("x", root).parent),
-            "clips": results,
+            "clips": [rows[clip_id] for clip_id in order],
             "failed": failed}
 
 
