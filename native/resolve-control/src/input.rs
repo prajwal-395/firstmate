@@ -126,44 +126,66 @@ const kCGKeyboardEventKeycode: u32 = 9;
 /// event loops only accept per-pid routes behind a leading `mouseMoved`,
 /// per cua-driver's canvas-app finding), then down/up, all through the
 /// SkyLight channel. Focus-without-raise stays a separate explicit step.
-fn skylight_click(pid: i32, sx: f64, sy: f64, clicks: u32) -> DriverResult<()> {
+/// A SkyLight click, cua-style: a HIDSystemState event source, a leading
+/// `mouseMoved` priming cursor-tracking state, 12ms, down, 28ms (an
+/// NSButton's tracking loop polls for the up), up - every event stamped
+/// with the window-local point and f1/f3/f7/f40/f51/f58/f91/f92 under one
+/// click-group id. `window_id` 0 skips the window routing stamps.
+fn skylight_click(
+    pid: i32,
+    window_id: u32,
+    rel_x: f64,
+    rel_y: f64,
+    frame: &Frame,
+    clicks: u32,
+) -> DriverResult<()> {
+    let sx = frame.x + rel_x;
+    let sy = frame.y + rel_y;
+    let group_id = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.subsec_nanos() as i64)
+        .unwrap_or(0);
     unsafe {
+        let source = skylight::event_source().ok_or_else(|| {
+            DriverError::SkyLightUnavailable("no HIDSystemState event source".into())
+        })?;
         let moved = CGEventCreateMouseEvent(
-            std::ptr::null(), CGEventType::MouseMoved, CGPoint { x: sx, y: sy }, CGMouseButton::Left,
+            source, CGEventType::MouseMoved, CGPoint { x: sx, y: sy }, CGMouseButton::Left,
         );
         if moved.is_null() {
             return Err(DriverError::Internal("failed to create skylight move".into()));
         }
+        skylight::stamp_event(moved, pid, window_id, rel_x, rel_y, 0, 0, 3, group_id)?;
         skylight::post_to_pid(pid, moved)?;
         CFRelease(moved as *const c_void);
+        std::thread::sleep(std::time::Duration::from_millis(12));
 
         for click_num in 0..clicks {
-            let down = CGEventCreateMouseEvent(std::ptr::null(), CGEventType::LeftMouseDown, CGPoint { x: sx, y: sy }, CGMouseButton::Left);
+            let state = click_num as i64 + 1;
+            let down = CGEventCreateMouseEvent(source, CGEventType::LeftMouseDown, CGPoint { x: sx, y: sy }, CGMouseButton::Left);
             if down.is_null() { return Err(DriverError::Internal("failed to create skylight down".into())); }
-            if click_num > 0 {
-                CGEventSetIntegerValueField(down, kCGMouseEventClickState, click_num as i64 + 1);
-            }
+            skylight::stamp_event(down, pid, window_id, rel_x, rel_y, state, 0, 3, group_id)?;
             skylight::post_to_pid(pid, down)?;
             CFRelease(down as *const c_void);
+            std::thread::sleep(std::time::Duration::from_millis(28));
 
-            let up = CGEventCreateMouseEvent(std::ptr::null(), CGEventType::LeftMouseUp, CGPoint { x: sx, y: sy }, CGMouseButton::Left);
+            let up = CGEventCreateMouseEvent(source, CGEventType::LeftMouseUp, CGPoint { x: sx, y: sy }, CGMouseButton::Left);
             if up.is_null() { return Err(DriverError::Internal("failed to create skylight up".into())); }
-            if click_num > 0 {
-                CGEventSetIntegerValueField(up, kCGMouseEventClickState, click_num as i64 + 1);
-            }
+            skylight::stamp_event(up, pid, window_id, rel_x, rel_y, state, 0, 3, group_id)?;
             skylight::post_to_pid(pid, up)?;
             CFRelease(up as *const c_void);
         }
+        CFRelease(source);
     }
     Ok(())
 }
 
 pub fn click(route: Route, x: f64, y: f64, window_frame: &Frame, clicks: u32) -> DriverResult<()> {
+    if let Route::SkyLight { pid, window_id } = route {
+        return skylight_click(pid, window_id, x, y, window_frame, clicks);
+    }
     let sx = window_frame.x + x;
     let sy = window_frame.y + y;
-    if let Route::SkyLight { pid, .. } = route {
-        return skylight_click(pid, sx, sy, clicks);
-    }
     unsafe {
         for click_num in 0..clicks {
             let down = CGEventCreateMouseEvent(std::ptr::null(), CGEventType::LeftMouseDown, CGPoint { x: sx, y: sy }, CGMouseButton::Left);
@@ -341,5 +363,26 @@ mod tests {
             post_target(Route::SkyLight { pid: 11, window_id: 22 }),
             PostTarget::SkyLightPid(11)
         );
+    }
+
+    #[test]
+    fn stamps_land_on_the_event() {
+        // Build, stamp, read back through the PUBLIC getter (f1 is a
+        // public field): proves stamp_event writes what it claims without
+        // posting anything. The private indexes (f40/f51/f58/f91/f92) go
+        // through the same call, which would refuse on missing symbols.
+        unsafe {
+            let event = CGEventCreateMouseEvent(
+                std::ptr::null(),
+                CGEventType::LeftMouseDown,
+                CGPoint { x: 10.0, y: 20.0 },
+                CGMouseButton::Left,
+            );
+            assert!(!event.is_null());
+            skylight::stamp_event(event, 1234, 99, 10.0, 20.0, 2, 0, 3, 777)
+                .expect("stamps must apply");
+            assert_eq!(CGEventGetIntegerValueField(event, kCGMouseEventClickState), 2);
+            CFRelease(event as *const c_void);
+        }
     }
 }

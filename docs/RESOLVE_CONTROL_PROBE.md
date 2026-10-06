@@ -270,3 +270,37 @@ Drive-by fix in the same edit: `Route::Foreground` posted by calling
 `post()` recursively - unbounded recursion that stack-overflowed the
 driver on any foreground input. It posts at the HID tap now (pinned by
 `input::tests::foreground_resolves_to_the_hid_tap`, no acting involved).
+
+## SkyLight v2 (2026-10-06) - full recipe, still filtered
+
+The captain pointed at trycua/cua (MIT licence, Cua AI 2025 - read as
+reference, nothing vendored) and the negative above became a diff task:
+close every field gap against cua-driver's proven recipe, re-measure.
+cua's backgrounded click (`platform-macos/src/input/mouse.rs`,
+`click_at_xy_inner` - the variant that drives native AppKit, no
+Chromium primer) versus what we posted:
+
+| Element | Ours (v1) | cua-driver | Ours (v2) |
+|---|---|---|---|
+| Event source | null | HIDSystemState | HIDSystemState |
+| Stamps | f1 only on multi-click | f1/f3/f7/f40/f51/f58/f91/f92 + window location, one group id | all, via `SLEventSetIntegerValueField` + `CGEventSetWindowLocation` (resolved at run time, refused if missing) |
+| Sequence | down/up back-to-back | move, 12ms, down, 28ms (tracking-loop poll), up | same |
+| Focus settle | none | 50ms after the records | 50ms inside `skylight_focus` |
+| Focus restore | none | defocus target + refocus previous key window | `skylight_restore` (driver remembers the dance) |
+| Focus record bytes | 0x04/0x08/0x8a/0x3c | identical | unchanged (was already right) |
+
+Re-measured live in Ren Qualification (already open - a sibling lane's
+unrestored session, replied not-mine; no switching performed, page
+restored afterwards): drift 0.000, stamped click 0.07s round trip,
+0.000 changed, page still `edit` by scripting ground truth, cursor and
+frontmost (Comet, pid 578) unchanged throughout, restore clean. The aim
+was verified dead-center on-capture on the identical layout. The full
+AppKit-proven recipe does not move Qt either: Resolve's Qt loop sits in
+the canvas bucket with Blender/Unity (per-pid routes filtered no matter
+the stamps; only a `cghidEventTap` leading-`mouseMoved` - i.e. briefly
+going foreground - reaches them). The one avenue not yet recorded is a
+listen-only event tap on Codex's own session, which needs the captain to
+cue a Codex background task; cua-driver's source (which Codex's approach
+mirrors) served as ground truth instead. Consequence stands: Qt clicks
+stay on the foreground route or the AX menu bar; SkyLight stays flagged
+for Chrome, where cua proves it works.

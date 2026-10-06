@@ -103,6 +103,10 @@ pub struct Driver {
     main_window_id: Option<u32>,
     main_window_frame: Option<Frame>,
     main_window_scale: f64,
+    /// The last focus dance (previous pid/wid, target pid/wid) for
+    /// `skylight_restore`. One slot: a new dance replaces it, a restore
+    /// consumes it.
+    last_focus_dance: Option<(i32, u32, i32, u32)>,
 }
 
 impl Driver {
@@ -114,6 +118,7 @@ impl Driver {
             main_window_id: None,
             main_window_frame: None,
             main_window_scale: 1.0,
+            last_focus_dance: None,
         }
     }
 
@@ -185,6 +190,7 @@ impl Driver {
             "key" => self.key(&req.params),
             "click" => self.click(&req.params),
             "skylight_focus" => self.skylight_focus(),
+            "skylight_restore" => self.skylight_restore(),
             "drag" => self.drag(&req.params),
             "scroll" => self.scroll(&req.params),
             "capture_window" => self.capture_window(&req.params),
@@ -524,10 +530,50 @@ impl Driver {
         self.ensure_permissions()?;
         let pid = self.ensure_resolve()? as i32;
         let (window_id, _, _) = self.main_window()?;
+        let previous_pid = ax::frontmost_pid().map(|p| p as i32);
+        let previous_wid = previous_pid.and_then(|p| {
+            capture::windows_for_pid(p as u32)
+                .into_iter()
+                .max_by_key(|(_, _, f)| (f.width * f.height) as i64)
+                .map(|(id, _, _)| id)
+        });
         let (before, after) =
             crate::skylight::focus_without_raise(pid, window_id, ax::frontmost_pid)?;
+        self.last_focus_dance = match (previous_pid, previous_wid) {
+            (Some(pp), Some(pw)) => Some((pp, pw, pid, window_id)),
+            _ => None,
+        };
         Ok(serde_json::json!({
             "focused": true,
+            "frontmost_before": before,
+            "frontmost_after": after,
+        }))
+    }
+
+    /// Hand key focus back after a background click: defocus Resolve,
+    /// refocus the previous dance's app and window. The focus dance leaves
+    /// the previous app frontmost (NSWorkspace never changed) but steals
+    /// its key window - without this, the captain's keystrokes would route
+    /// to Resolve until he clicks. No dance recorded is refused; the
+    /// previous window is the dance-time largest, an approximation the
+    /// response names by id so the caller can judge it.
+    fn skylight_restore(&mut self) -> DriverResult<Json> {
+        self.ensure_permissions()?;
+        let (previous_pid, previous_wid, target_pid, target_wid) =
+            self.last_focus_dance.ok_or_else(|| {
+                DriverError::SkyLightUnavailable("no focus dance to restore".into())
+            })?;
+        let (before, after) = crate::skylight::restore_focus(
+            target_pid,
+            target_wid,
+            previous_pid,
+            previous_wid,
+            ax::frontmost_pid,
+        )?;
+        self.last_focus_dance = None;
+        Ok(serde_json::json!({
+            "restored": true,
+            "previous_window": previous_wid,
             "frontmost_before": before,
             "frontmost_after": after,
         }))

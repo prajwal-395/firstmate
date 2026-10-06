@@ -57,6 +57,7 @@ char *window_helper_list(void) {
             NSNumber *wid = info[@"kCGWindowNumber"];
             NSString *name = dict_string(info, @"kCGWindowName");
             NSString *owner = dict_string(info, @"kCGWindowOwnerName");
+            NSNumber *ownerPid = info[@"kCGWindowOwnerPID"];
             NSDictionary *bounds = info[@"kCGWindowBounds"];
 
             CGFloat x = dict_cgfloat(bounds, @"X");
@@ -69,8 +70,8 @@ char *window_helper_list(void) {
             first = NO;
 
             [json appendFormat:
-                @"{\"id\":%@,\"title\":\"%@\",\"owner\":\"%@\",\"frame\":{\"x\":%@,\"y\":%@,\"width\":%@,\"height\":%@},\"backing_scale\":%@}",
-                wid, json_escape(name), json_escape(owner),
+                @"{\"id\":%@,\"title\":\"%@\",\"owner\":\"%@\",\"owner_pid\":%@,\"frame\":{\"x\":%@,\"y\":%@,\"width\":%@,\"height\":%@},\"backing_scale\":%@}",
+                wid, json_escape(name), json_escape(owner), ownerPid ?: @0,
                 fmt(x), fmt(y), fmt(w), fmt(h), fmt(s)];
         }
 

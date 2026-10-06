@@ -1,12 +1,23 @@
 //! SkyLight background input: focus-without-raise plus per-pid event post.
 //!
-//! The recipe is cua-driver's (`SkyLightEventPost.swift` in trycua/cua,
+//! The recipe is cua-driver's (trycua/cua, `platform-macos/src/input/`,
 //! itself ported from yabai's `window_manager_focus_window_without_raise`
 //! and `window_manager_make_key_window`): `SLPSPostEventRecordTo` flips a
 //! window's AppKit-active state without raising it, and `SLEventPostToPid`
 //! posts a synthesized event to one process through an auth-signed
 //! WindowServer channel that bypasses `IOHIDPostEvent`. The captain's
 //! cursor never moves and nothing is raised.
+//!
+//! A backgrounded click is a stamped sequence, not bare down/up (cua's
+//! `click_at_xy_inner` / `click_at_xy_chromium`, which drive Chromium AND
+//! native AppKit this way): a HIDSystemState event source, a leading
+//! `mouseMoved` priming cursor-tracking state, 12ms, down, 28ms (an
+//! NSButton's tracking loop polls for the up), up - every event carrying
+//! the window-local point plus f1/f3/f7/f40/f51/f58/f91/f92 and one
+//! click-group id, posted without the auth envelope for the mouse path.
+//! A bare down/up with a null source is what Qt ignored in the first
+//! measurement (probe doc 2026-10-06); the field-by-field diff against
+//! cua-driver is what this module now implements.
 //!
 //! Every symbol is resolved at run time with `dlopen` + `dlsym` against
 //! `/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight` -
@@ -51,6 +62,14 @@ type GetWindowOwnerFn = unsafe extern "C" fn(cid: u32, wid: u32, owner: *mut u32
 type GetConnectionPsnFn = unsafe extern "C" fn(cid: u32, psn: *mut Psn) -> i32;
 type MainConnectionFn = unsafe extern "C" fn() -> u32;
 type GetProcessPsnFn = unsafe extern "C" fn(pid: i32, psn: *mut Psn) -> i32;
+type SetIntFieldFn = unsafe extern "C" fn(event: *mut c_void, field: u32, value: i64);
+type SetWindowLocationFn = unsafe extern "C" fn(event: *mut c_void, x: f64, y: f64);
+type EventSourceCreateFn = unsafe extern "C" fn(state: i32) -> *mut c_void;
+
+/// `kCGEventSourceStateHIDSystemState`: events the target reads as live
+/// HID input. A null source is what cua's recipe replaces - a bare event
+/// with no source is one of the differences Qt ignored.
+pub const EVENT_SOURCE_HID_SYSTEM_STATE: i32 = 1;
 
 unsafe fn resolve<T>(name: &[u8]) -> Option<T> {
     let handle = dlopen(SKYLIGHT_PATH.as_ptr() as *const c_char, RTLD_LAZY);
@@ -177,6 +196,48 @@ pub fn focus_without_raise(
             ));
         }
     }
+    // cua's settle: AppKit updates its active/key-window routing after the
+    // records land; the click stream must not race it.
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    Ok((before, frontmost_pid()))
+}
+
+/// Hand key focus back after a background click: defocus the target,
+/// refocus the previous process's window. The focus dance leaves the
+/// previous app frontmost (NSWorkspace never changed) but its key window
+/// stops receiving keyboard input until the user clicks it again - without
+/// restore, the captain's keystrokes would route to the target.
+pub fn restore_focus(
+    target_pid: i32,
+    target_wid: u32,
+    previous_pid: i32,
+    previous_wid: u32,
+    frontmost_pid: impl Fn() -> Option<u32>,
+) -> DriverResult<(Option<u32>, Option<u32>)> {
+    if !focus_available() {
+        return Err(DriverError::SkyLightUnavailable(
+            "focus chain incomplete".into(),
+        ));
+    }
+    let before = frontmost_pid();
+    unsafe {
+        let post: PostRecordFn = resolve(cstr!("SLPSPostEventRecordTo"))
+            .ok_or_else(|| DriverError::SkyLightUnavailable("SLPSPostEventRecordTo vanished".into()))?;
+        let target = target_psn(target_pid, target_wid)?;
+        let previous = target_psn(previous_pid, previous_wid)?;
+        let defocus = focus_record(target_wid, false);
+        if post(&target, defocus.as_ptr()) != 0 {
+            return Err(DriverError::SkyLightUnavailable(
+                "restore defocus post failed".into(),
+            ));
+        }
+        let focus = focus_record(previous_wid, true);
+        if post(&previous, focus.as_ptr()) != 0 {
+            return Err(DriverError::SkyLightUnavailable(
+                "restore focus post failed".into(),
+            ));
+        }
+    }
     Ok((before, frontmost_pid()))
 }
 
@@ -186,6 +247,76 @@ pub unsafe fn post_to_pid(pid: i32, event: *mut c_void) -> DriverResult<()> {
         DriverError::SkyLightUnavailable("SLEventPostToPid does not resolve".into())
     })?;
     post(pid, event);
+    Ok(())
+}
+
+/// A HIDSystemState event source for stamped events, or `None` when
+/// `CGEventSourceCreate` does not resolve (public framework - always
+/// present on macOS; `None` is a defensive fallback, never expected).
+pub fn event_source() -> Option<*mut c_void> {
+    unsafe {
+        let create: EventSourceCreateFn = resolve(cstr!("CGEventSourceCreate"))?;
+        let source = create(EVENT_SOURCE_HID_SYSTEM_STATE);
+        if source.is_null() {
+            return None;
+        }
+        Some(source)
+    }
+}
+
+/// Whether the raw-field stamp path resolves (`SLEventSetIntegerValueField`
+/// for the private indexes plus `CGEventSetWindowLocation`). The public
+/// `CGEventSetIntegerValueField` cannot reach f40/f51/f58/f91/f92.
+pub fn stamps_available() -> bool {
+    unsafe {
+        resolve::<SetIntFieldFn>(cstr!("SLEventSetIntegerValueField")).is_some()
+            && resolve::<SetWindowLocationFn>(cstr!("CGEventSetWindowLocation")).is_some()
+    }
+}
+
+/// Stamp one backgrounded mouse event cua-style: click state, button,
+/// subtype, the pid filter (f40), the window routing (f51/f91/f92), the
+/// click-group id (f58) shared across the gesture, and the window-local
+/// point alongside the screen-space location. Window id 0 skips the
+/// routing stamps (no window to route to); the pid filter always stamps.
+/// Missing stamp symbols are refused rather than half-stamped: a
+/// half-stamped event is a new unknown, not the measured recipe.
+pub fn stamp_event(
+    event: *mut c_void,
+    pid: i32,
+    window_id: u32,
+    window_x: f64,
+    window_y: f64,
+    click_state: i64,
+    button: i64,
+    subtype: i64,
+    group_id: i64,
+) -> DriverResult<()> {
+    unsafe {
+        let set: SetIntFieldFn =
+            resolve(cstr!("SLEventSetIntegerValueField")).ok_or_else(|| {
+                DriverError::SkyLightUnavailable(
+                    "SLEventSetIntegerValueField does not resolve".into(),
+                )
+            })?;
+        let set_location: SetWindowLocationFn =
+            resolve(cstr!("CGEventSetWindowLocation")).ok_or_else(|| {
+                DriverError::SkyLightUnavailable(
+                    "CGEventSetWindowLocation does not resolve".into(),
+                )
+            })?;
+        set(event, 1, click_state);
+        set(event, 3, button);
+        set(event, 7, subtype);
+        set(event, 40, pid as i64);
+        if window_id != 0 {
+            set(event, 51, window_id as i64);
+            set(event, 58, group_id);
+            set(event, 91, window_id as i64);
+            set(event, 92, window_id as i64);
+        }
+        set_location(event, window_x, window_y);
+    }
     Ok(())
 }
 
@@ -216,6 +347,14 @@ mod tests {
         assert!(
             focus_available(),
             "the focus chain must resolve on macOS 26"
+        );
+        assert!(
+            event_source().is_some(),
+            "CGEventSourceCreate must yield a source"
+        );
+        assert!(
+            stamps_available(),
+            "SLEventSetIntegerValueField and CGEventSetWindowLocation must resolve"
         );
     }
 }

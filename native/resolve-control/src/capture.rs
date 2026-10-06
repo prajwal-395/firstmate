@@ -236,6 +236,49 @@ pub fn get_window_list() -> Vec<(CGWindowID, String, String, Frame, f64)> {
     }
 }
 
+/// Every window owned by `pid`: id, title, frame. The focus restore
+/// needs the previous app's window; the listing the protocol exposes
+/// (`get_windows`) is Resolve-filtered, so this reads the helper JSON
+/// directly (`owner_pid` rides the helper output).
+pub fn windows_for_pid(pid: u32) -> Vec<(CGWindowID, String, Frame)> {
+    unsafe {
+        let json_str = window_helper_list();
+        if json_str.is_null() { return vec![]; }
+        let cstr = std::ffi::CStr::from_ptr(json_str);
+        let json_string = cstr.to_string_lossy().into_owned();
+        let json: serde_json::Value = match serde_json::from_str(&json_string) {
+            Ok(v) => v,
+            Err(_) => {
+                window_helper_free(json_str);
+                return vec![];
+            }
+        };
+        window_helper_free(json_str);
+        let mut out = Vec::new();
+        if let Some(arr) = json.as_array() {
+            for item in arr {
+                if item.get("owner_pid").and_then(|v| v.as_u64()).unwrap_or(0) as u32 != pid {
+                    continue;
+                }
+                let frame = item.get("frame").and_then(|f| {
+                    Some(Frame {
+                        x: f.get("x")?.as_f64()?,
+                        y: f.get("y")?.as_f64()?,
+                        width: f.get("width")?.as_f64()?,
+                        height: f.get("height")?.as_f64()?,
+                    })
+                }).unwrap_or(Frame { x: 0.0, y: 0.0, width: 0.0, height: 0.0 });
+                out.push((
+                    item.get("id").and_then(|v| v.as_u64()).unwrap_or(0) as CGWindowID,
+                    item.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                    frame,
+                ));
+            }
+        }
+        out
+    }
+}
+
 extern "C" {
     pub fn CFDictionaryGetTypeID() -> u64;
     pub fn CFDictionaryGetValue(dict: *const c_void, key: *const c_void) -> *const c_void;
