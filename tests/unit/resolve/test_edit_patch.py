@@ -1515,10 +1515,43 @@ def test_mask_edit_keeps_the_keys_of_inputs_it_does_not_name(world):
     assert tool.GetInput("Width", 24) == 0.5
 
 
+def test_mask_create_refuses_unknown_provider(world):
+    """Defect: mask.create ignored `provider` entirely, so an op claiming
+    a Magic Mask provider silently got a Fusion matte - the wrong
+    capability executed and verified. An unknown provider fails the
+    patch and places nothing."""
+    receipt = _mask(world, "mask-create-bad-provider", [{
+        "op": "mask.create", "provider": "magic_matte"}])
+    assert receipt["status"] == "verification_failed"
+    assert "unknown" in receipt["stopped"]["raised"]
+    assert world[2].GetFusionCompNameList() == []
+
+
+def test_mask_create_names_unimplemented_magic_mask_provider(world):
+    """The plan's providers are vocabulary, not silent Fusion mattes: an
+    op claiming one is refused by name until its slice implements it."""
+    receipt = _mask(world, "mask-create-unimplemented", [{
+        "op": "mask.create", "provider": "resolve_magic_mask_api"}])
+    assert receipt["status"] == "verification_failed"
+    assert "not implemented" in receipt["stopped"]["raised"]
+    assert world[2].GetFusionCompNameList() == []
+
+
 def test_mask_track_refuses_unknown_provider(world):
     _mask(world, "mask-create-9", [{"op": "mask.create"}])
     receipt = _mask(world, "mask-track-bad-provider", [{
-        "op": "mask.track", "provider": "resolve_magic_mask_api",
+        "op": "mask.track", "provider": "magic_matte",
+        "track": {"keyframes": TRACK}}])
+    assert receipt["status"] == "verification_failed"
+    assert "unknown" in receipt["stopped"]["raised"]
+
+
+def test_mask_track_names_unimplemented_magic_mask_provider(world):
+    """The plan's providers are vocabulary on mask.track too: an op
+    claiming one is refused by name until its slice implements it."""
+    _mask(world, "mask-create-9b", [{"op": "mask.create"}])
+    receipt = _mask(world, "mask-track-unimplemented", [{
+        "op": "mask.track", "provider": "resolve_magic_mask_ui",
         "track": {"keyframes": TRACK}}])
     assert receipt["status"] == "verification_failed"
     assert "not implemented" in receipt["stopped"]["raised"]

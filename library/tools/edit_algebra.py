@@ -782,9 +782,45 @@ def _replace_matte(item, matte_name, geometry, keyframes, label):
     _rename_matte(item, new_name, matte_name, label)
 
 
+#: The mask providers (the Resolve Hands plan, section 8): no parallel
+#: magic_mask.* vocabulary is invented - the algebra already has
+#: mask.create / mask.edit / mask.track, and a provider says which
+#: engine executes the op. `fusion_matte` is the implemented one (a
+#: Fusion RectangleMask comp). The two Magic Mask providers are named
+#: here so an op that claims one fails loudly instead of silently
+#: getting a Fusion matte - the wrong capability executed and verified.
+MASK_PROVIDERS = ("fusion_matte", "resolve_magic_mask_api",
+                  "resolve_magic_mask_ui")
+
+
+def _mask_provider(op, label):
+    """The provider executing one mask op, refused by name when unknown."""
+    provider = op.get("provider", "fusion_matte")
+    if provider not in MASK_PROVIDERS:
+        raise RuntimeError(
+            f"{label}: provider {provider!r} is unknown; one of "
+            f"{list(MASK_PROVIDERS)}")
+    return provider
+
+
+def _refuse_unimplemented_mask_provider(op, label):
+    """Refuse a named-but-unimplemented mask provider, by name."""
+    raise RuntimeError(
+        f"{label}: provider {op.get('provider')!r} is not implemented; "
+        f"only 'fusion_matte' executes today")
+
+
 def _apply_mask_create(op, _timeline, item, project=None):
-    """Import a static, full-frame matte comp and give it the matte's name."""
+    """Import a static, full-frame matte comp and give it the matte's name.
+
+    The provider must be fusion_matte (the only provider implemented);
+    any other is refused by name. An op claiming a Magic Mask provider
+    used to silently get a Fusion matte here - the wrong capability
+    executed and verified.
+    """
     _refuse_unmarked_matte(op, "mask.create")
+    if _mask_provider(op, "mask.create") != "fusion_matte":
+        _refuse_unimplemented_mask_provider(op, "mask.create")
     if op["matte"] in (item.GetFusionCompNameList() or []):
         raise RuntimeError(
             f"mask.create: clip already carries matte {op['matte']!r}")
@@ -872,11 +908,9 @@ def _apply_mask_track(op, _timeline, item, project=None):
     static value (Fusion keeps none beside a spline), so the inverse of
     a first track is an EMPTY track carrying the previous geometry.
     """
-    provider = op.get("provider", "fusion_matte")
+    provider = _mask_provider(op, "mask.track")
     if provider != "fusion_matte":
-        raise RuntimeError(
-            f"mask.track: provider {provider!r} is not implemented; "
-            f"only 'fusion_matte' is supported")
+        _refuse_unimplemented_mask_provider(op, "mask.track")
     _refuse_unmarked_matte(op, "mask.track")
     state = _current_matte(item, op["matte"], "mask.track")
     _replace_matte(item, op["matte"],
@@ -1408,7 +1442,9 @@ ALGEBRA: dict[str, AlgebraOp] = {
         key=lambda op: ("clip", op["unique_id"], "mask", op["matte"]),
         merge="exclusive",
         inverse=_pair("mask.delete"),
-        note="Place a full-frame matte comp; the matte read verifies."),
+        note="Place a full-frame matte comp; the matte read verifies. "
+             "The `provider` names the engine - fusion_matte executes; "
+             "the Magic Mask providers are refused until implemented."),
     "mask.delete": AlgebraOp(
         id="mask.delete", domain="fusion",
         required=("unique_id", "matte"),
@@ -1438,7 +1474,10 @@ ALGEBRA: dict[str, AlgebraOp] = {
         key=lambda op: ("clip", op["unique_id"], "mask", op["matte"]),
         merge="replace",
         inverse=_self("the inverse carries the previous keyframes "
-                      "(empty means none) and the previous geometry")),
+                      "(empty means none) and the previous geometry"),
+        note="Key the matte's track; the keyframes read back verifies. "
+             "The `provider` names the engine - fusion_matte executes; "
+             "the Magic Mask providers are refused until implemented."),
 
     # ── multicam (domain: picture_transform) ────────────────────────
     "multicam.angle": AlgebraOp(
