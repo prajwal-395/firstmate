@@ -26,7 +26,7 @@
 #   Ship/scout launches always supply fm-dod-lib.sh's current worker role scope
 #   using the same private launch-brief overlay. This never rewrites a project's
 #   instruction files or a secondmate's charter.
-#        fm-spawn.sh <task-id> --relaunch [--harness <name>] [--model <name>] [--effort <level>]
+#        fm-spawn.sh <task-id> --relaunch [--harness <name>] [--model <name>] [--effort <level>] [--opencode-workspace <main|secondary>]
 #   --relaunch launches a replacement agent for an EXISTING task into that
 #   task's own recorded endpoint and worktree instead of creating either. It is
 #   the launch half of the control plane (bin/fm-control.sh relaunch), which
@@ -533,6 +533,12 @@ if ! declare -f fm_opencode_pin_task >/dev/null 2>&1; then
   # shellcheck source=/dev/null
   . "$SCRIPT_DIR/fm-opencode-descent-lib.sh"
 fi
+if ! declare -f fm_opencode_second_org >/dev/null 2>&1; then
+  # The second Go workspace pin (workspace config, pinned database, lane
+  # markers); guarded like every other shared source here.
+  # shellcheck source=/dev/null
+  . "$SCRIPT_DIR/fm-opencode-second-lib.sh"
+fi
 # fm-pr-lib.sh is a canonical lint root in its own right. Keep it an analysis
 # boundary here: following its graph from this large runtime exceeds the
 # bounded CI lint worker while adding no uncovered file.
@@ -583,6 +589,8 @@ DISPATCH_ROUTE_EFFORT=
 DISPATCH_ROUTE_LADDER=
 DISPATCH_FALLBACK_SELECTED=
 DISPATCH_META_OVERRIDE_REASON=
+OPENCODE_WORKSPACE_ARG=
+OPENCODE_WORKSPACE_SET=0
 RELAUNCH=0
 POS=()
 want_value=
@@ -601,6 +609,7 @@ for a in "$@"; do
       yolo) YOLO=$a; YOLO_SET=1 ;;
       traceparent) TRACEPARENT_ARG=$a; TRACEPARENT_SET=1 ;;
       dispatch-ladder) DISPATCH_LADDER=$a; DISPATCH_LADDER_SET=1 ;;
+      opencode-workspace) OPENCODE_WORKSPACE_ARG=$a; OPENCODE_WORKSPACE_SET=1 ;;
       *) echo "error: internal parser state for --$want_value" >&2; exit 1 ;;
     esac
     want_value=
@@ -627,6 +636,8 @@ for a in "$@"; do
     --traceparent=*) TRACEPARENT_ARG=${a#--traceparent=}; TRACEPARENT_SET=1 ;;
     --dispatch-ladder) want_value=dispatch-ladder ;;
     --dispatch-ladder=*) DISPATCH_LADDER=${a#--dispatch-ladder=}; DISPATCH_LADDER_SET=1 ;;
+    --opencode-workspace) want_value=opencode-workspace ;;
+    --opencode-workspace=*) OPENCODE_WORKSPACE_ARG=${a#--opencode-workspace=}; OPENCODE_WORKSPACE_SET=1 ;;
     *) POS+=("$a") ;;
   esac
 done
@@ -641,6 +652,15 @@ done
 [ "$MODE_SET" -eq 0 ] || [ -n "$MODE" ] || { echo "error: --mode requires a non-empty value" >&2; exit 1; }
 [ "$YOLO_SET" -eq 0 ] || [ -n "$YOLO" ] || { echo "error: --yolo requires a non-empty value" >&2; exit 1; }
 [ "$TRACEPARENT_SET" -eq 0 ] || [ -n "$TRACEPARENT_ARG" ] || { echo "error: --traceparent requires a non-empty value" >&2; exit 1; }
+[ "$OPENCODE_WORKSPACE_SET" -eq 0 ] || [ -n "$OPENCODE_WORKSPACE_ARG" ] || { echo "error: --opencode-workspace requires a non-empty value" >&2; exit 1; }
+case "$OPENCODE_WORKSPACE_ARG" in
+  ''|main|secondary) ;;
+  *) echo "error: --opencode-workspace must be main or secondary (got '$OPENCODE_WORKSPACE_ARG')" >&2; exit 1 ;;
+esac
+if [ "$OPENCODE_WORKSPACE_SET" -eq 1 ] && [ "$RELAUNCH" -eq 0 ]; then
+  echo "error: --opencode-workspace applies only to --relaunch; a fresh launch routes through the opencode ladder" >&2
+  exit 1
+fi
 # A parent-delivered carrier replaces this home's own resolution, so it is
 # refused unless it is a secondmate spawn carrying a strictly valid W3C value.
 # Nothing else may reach the pane's TRACEPARENT export.
@@ -1424,6 +1444,7 @@ RAW_LAUNCH=0
 # validation teardown uses, so a malformed, ambiguous, or foreign record
 # refuses here exactly as it refuses there.
 RELAUNCH_PRIOR_HARNESS=
+RELAUNCH_PRIOR_WORKSPACE=main
 if [ "$RELAUNCH" -eq 1 ]; then
   [ "${#POS[@]}" -eq 1 ] || {
     echo "error: --relaunch takes the task id only; its project or home comes from the task's own record" >&2
@@ -1504,6 +1525,13 @@ if [ "$RELAUNCH" -eq 1 ]; then
     echo "error: task $ID's recorded worktree '${RELAUNCH_WT:-none}' is missing; refusing to relaunch without the local copy its work lives in" >&2
     exit 1
   }
+  # The workspace pin survives a relaunch without flags: recovery and routine
+  # respawns keep the workspace already recorded for the task, while an
+  # explicit --opencode-workspace moves it (the descent's fourth-rung move).
+  # Anything but an explicit secondary marker reads as the main workspace,
+  # which is also what every record written before markers existed carries.
+  RELAUNCH_PRIOR_WORKSPACE=$(fm_meta_get "$RELAUNCH_META" opencode_workspace)
+  [ "$RELAUNCH_PRIOR_WORKSPACE" = secondary ] || RELAUNCH_PRIOR_WORKSPACE=main
   if [ "$KIND" = secondmate ]; then
     FIRSTMATE_HOME=$(fm_meta_get "$RELAUNCH_META" home)
     [ -n "$FIRSTMATE_HOME" ] || FIRSTMATE_HOME=$RELAUNCH_WT
@@ -2129,10 +2157,15 @@ case "$HARNESS" in
     # because this case is on the one path every opencode crewmate and scout
     # launch already takes, so an ordinary dispatch has nowhere to route
     # around it. A cap routes to the first uncapped rung, and exhaustion of all
-    # three refuses the new spawn. MODEL_SET is left as it was: the
+    # rungs refuses the new spawn. MODEL_SET is left as it was: the
     # meta record below reads MODEL itself, so the routed tier is what
-    # recovery relaunches on.
-    if [ "$DISPATCH_LADDER_RESOLVED" -eq 0 ]; then
+    # recovery relaunches on. A relaunch already pinned to the second
+    # workspace skips the gate: the descent decided that move against the
+    # fourth rung's own cap, and the main Go rung's proven cap would refuse a
+    # request naming the same model id.
+    _FM_OPENCODE_RELAUNCH_WS=$RELAUNCH_PRIOR_WORKSPACE
+    [ "$OPENCODE_WORKSPACE_SET" -eq 0 ] || _FM_OPENCODE_RELAUNCH_WS=$OPENCODE_WORKSPACE_ARG
+    if [ "$DISPATCH_LADDER_RESOLVED" -eq 0 ] && { [ "$RELAUNCH" -eq 0 ] || [ "$_FM_OPENCODE_RELAUNCH_WS" != secondary ]; }; then
       _FM_OPENCODE_LADDER_NOTE=$(mktemp "${TMPDIR:-/tmp}/fm-opencode-ladder.XXXXXX" 2>/dev/null) || _FM_OPENCODE_LADDER_NOTE=
       [ -n "$_FM_OPENCODE_LADDER_NOTE" ] || { echo "error: could not prepare opencode ladder decision" >&2; exit 1; }
       _FM_OPENCODE_LADDER_REQUEST=${MODEL:-}
@@ -2156,6 +2189,7 @@ case "$HARNESS" in
       rm -f "$_FM_OPENCODE_LADDER_NOTE"
       unset _FM_OPENCODE_LADDER_NOTE _FM_OPENCODE_LADDER_MODEL _FM_OPENCODE_LADDER_REQUEST
     fi
+    unset _FM_OPENCODE_RELAUNCH_WS
     # The descent tick cannot see FM_OPENCODE_LADDER_OVERRIDE where it runs -
     # the watcher is a long-lived process that predates the instruction - so
     # a launch held on free on the captain's word is recorded per task where
@@ -2258,6 +2292,32 @@ case "$HARNESS" in
     fm_agy_suppress_feedback_survey
     ;;
 esac
+
+# The second-workspace pin (bin/fm-opencode-second-lib.sh owns the
+# mechanism). A fresh ladder-routed Go launch rides the fourth rung only
+# while the first Go rung holds a proven cap and the fourth rung is uncapped;
+# an explicit Go request keeps the main workspace (with a proven main-Go cap
+# the gate above already refused it). A relaunch keeps the recorded workspace
+# unless --opencode-workspace moves it, and a harness switch away from
+# opencode drops the pin. Without a configured second workspace this is the
+# main workspace, exactly as today.
+OPENCODE_WORKSPACE=main
+OPENCODE_SECOND_DB=
+if [ "$HARNESS" = opencode ]; then
+  if [ "$RELAUNCH" -eq 1 ]; then
+    if [ "$OPENCODE_WORKSPACE_SET" -eq 1 ]; then
+      OPENCODE_WORKSPACE=$OPENCODE_WORKSPACE_ARG
+    else
+      OPENCODE_WORKSPACE=$RELAUNCH_PRIOR_WORKSPACE
+    fi
+  elif [ "$MODEL" = "$FM_OPENCODE_LADDER_GO" ] \
+    && fm_opencode_ladder_go_second_ready "$STATE"; then
+    OPENCODE_WORKSPACE=secondary
+  fi
+fi
+if [ "$OPENCODE_WORKSPACE" = secondary ]; then
+  OPENCODE_SECOND_DB=$(fm_opencode_second_db) || exit 1
+fi
 
 # config/secondmate-harness may carry optional model/effort tokens alongside the
 # harness ("<harness> [<model>] [<effort>]"). They apply only when this is a
@@ -4728,7 +4788,7 @@ SPAWN_META_PATH=$SPAWN_META_TMP
 preserve_relaunch_meta() {
   awk -F= '
     BEGIN {
-      split("window endpoint_task_id worktree project harness kind mode yolo tasktmp model effort busy_gen spawn_gen spawned_at traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx dispatch_source dispatch_reason dispatch_route_harness dispatch_route_model dispatch_route_effort dispatch_ladder dispatch_fallback dispatch_override_reason", keys, " ")
+      split("window endpoint_task_id worktree project harness kind mode yolo tasktmp model effort busy_gen spawn_gen spawned_at traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx dispatch_source dispatch_reason dispatch_route_harness dispatch_route_model dispatch_route_effort dispatch_ladder dispatch_fallback dispatch_override_reason opencode_workspace", keys, " ")
       for (i in keys) owned[keys[i]] = 1
     }
     !($1 in owned)
@@ -4746,6 +4806,12 @@ preserve_relaunch_meta() {
   echo "tasktmp=$TASK_TMP"
   echo "model=${MODEL:-default}"
   echo "effort=${EFFORT:-default}"
+  # The second-workspace pin, written only when it differs from the default:
+  # absence means the main workspace, exactly as every record written before
+  # markers existed reads.
+  if [ "$OPENCODE_WORKSPACE" = secondary ] && [ "$HARNESS" = opencode ]; then
+    echo "opencode_workspace=secondary"
+  fi
   [ -z "$DISPATCH_SOURCE" ] || echo "dispatch_source=$DISPATCH_SOURCE"
   [ -z "$DISPATCH_REASON" ] || echo "dispatch_reason=$DISPATCH_REASON"
   [ -z "$DISPATCH_ROUTE_HARNESS" ] || echo "dispatch_route_harness=$DISPATCH_ROUTE_HARNESS"
@@ -4934,6 +5000,18 @@ esac
 # an unset value is the single-store default and needs no prefix.
 if [ "$HARNESS" = claude ] && [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
   LAUNCH="CLAUDE_CONFIG_DIR=$(shell_quote "$CLAUDE_CONFIG_DIR") $LAUNCH"
+fi
+# A secondary-workspace opencode launch rides its pinned console database so
+# the vendor attributes the session to the second workspace even though the
+# machine-wide active workspace is elsewhere. The database was ensured where
+# the workspace resolved above, before any endpoint or record existed; a
+# missing path here is refused rather than launched unpinned.
+if [ "$HARNESS" = opencode ] && [ "$OPENCODE_WORKSPACE" = secondary ]; then
+  [ -n "$OPENCODE_SECOND_DB" ] || {
+    echo "error: task $ID is pinned to the second OpenCode workspace but its database is missing; refusing to launch unpinned" >&2
+    exit 1
+  }
+  LAUNCH="OPENCODE_DB=$(shell_quote "$OPENCODE_SECOND_DB") $LAUNCH"
 fi
 if [ "$KIND" = secondmate ]; then
   sq_home=$(shell_quote "$PROJ_ABS")

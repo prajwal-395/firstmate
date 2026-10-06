@@ -343,7 +343,7 @@ test_rung_cap_commands_reject_the_same_set() {
 test_rung_cap_accepted_rungs_work_end_to_end() {
   # Every unexpired rung reset record reads blocked until its exact reset.
   local rung d_long d_short out
-  for rung in free go plus; do
+  for rung in free go plus go-second; do
     d_long="$TMP_ROOT/rung-e2e-$rung-blocked"; mkdir -p "$d_long"
     "$HELPER" record-cap "$d_long" "$rung" "$(ms_from_now 79200)" \
       || fail "record-cap refused a quota-scale observation for rung '$rung'"

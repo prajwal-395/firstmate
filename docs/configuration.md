@@ -506,12 +506,12 @@ The selected profile is the first eligible profile in the matched rule's (or def
 A `use` array is written in rung order, and spawn-time gates decide the rung that launches.
 When a default array selects a governed OpenCode or Codex Plus profile, the resolver appends `--dispatch-ladder opencode` so the spawn gate chooses from current cap records.
 The agy array goes through `fm_agy_ladder_gate` in rung order, with a refusal escalated.
-The opencode default order is free, Codex Plus (`gpt-6-luna` at the effort declared for its Codex profile, or `xhigh` when that profile omits effort), then Go.
-OpenCode free caps use the vendor retry horizon; Codex Plus and Go caps use fresh `quota-axi` zero-availability evidence with a reset time, with Codex Plus also accepting a lane usage-limit message that states its reset, and Go also accepting reactive vendor-cap evidence.
-Each rung's `state/.opencode-cap-<rung>` record is shared by dispatch, spawning, and running-worker descent through `bin/fm-opencode-retry.sh`.
+The opencode default order is free, Codex Plus (`gpt-6-luna` at the effort declared for its Codex profile, or `xhigh` when that profile omits effort), then Go, then Go on the second workspace when one is configured (see "Second OpenCode Go workspace" below).
+OpenCode free caps use the vendor retry horizon; Codex Plus and Go caps use fresh `quota-axi` zero-availability evidence with a reset time, with Codex Plus also accepting a lane usage-limit message that states its reset, and the first Go rung also accepting reactive vendor-cap evidence, while the second Go rung is reactive-only because `quota-axi` exposes a single `opencode-go` row with no workspace dimension.
+Each rung's `state/.opencode-cap-<rung>` record is shared by dispatch, spawning, and running-worker descent through `bin/fm-opencode-retry.sh`; each Go workspace keeps its own cap record and reset time, so capping one never marks the other capped.
 Unknown or stale quota data does not count as capped, and a recorded rung becomes eligible again after its reset time.
-If all three default OpenCode rungs are proven capped, `fm-spawn.sh` resolves the optional `exhausted_ladder_fallback`. It tries the configured profiles in `use` first, then the configured agy ladder as a last resort; any selected agy rung still passes through the agy gate. If the fallback is absent or has no eligible profile, spawn is refused with the cap evidence. This is reached only from the deterministic default OpenCode route, so exact project rules such as Lucie's never use it. The declaration is temporary and can be removed by deleting `exhausted_ladder_fallback`.
-Running workers descend across harnesses when their current rung is capped and a later rung is available; climb-back for running workers is not performed.
+If every default OpenCode rung is proven capped (three without a second workspace, four with one), `fm-spawn.sh` resolves the optional `exhausted_ladder_fallback`. It tries the configured profiles in `use` first, then the configured agy ladder as a last resort; any selected agy rung still passes through the agy gate. If the fallback is absent or has no eligible profile, spawn is refused with the cap evidence. This is reached only from the deterministic default OpenCode route, so exact project rules such as Lucie's never use it. The declaration is temporary and can be removed by deleting `exhausted_ladder_fallback`.
+Running workers descend across harnesses when their current rung is capped and a later rung is available; a capped main-workspace Go lane descends to Go on the second workspace while that rung is configured and uncapped. Climb-back for running workers is not performed.
 Order only ever decides among candidates quota has not already ruled out, so an exhausted first rung is skipped rather than chosen by position, and a paid rung after a free one is never named ahead of it.
 Text output prints every candidate beside its evidence or the reason it is ineligible, including when an approval-gated result emits no profile.
 Duplicate concrete profiles with the same harness, model, and effort inside one rule or default array are configuration errors rather than ties.
@@ -524,6 +524,19 @@ By accepted design, a `clear` result does not enforce catalog/authentication, re
 `fm-spawn.sh` enforces the returned profile. A different explicit profile requires `--dispatch-override-reason` containing the current captain instruction; the exact reason is stored in task metadata for review.
 
 The optional `exhausted_ladder_fallback` object is independent of Jev and easy to remove. `use` adds one profile or an ordered profile array that is tried first. `include_agy_ladder: true` appends the configured `agy_ladder` candidates using `agy_effort` (default `high`) as the last resort. At least one of those sources must be enabled. Fallback profile declarations use the same validation, provider mapping, quota eligibility, and declared-order rules as ordinary profiles.
+
+## Second OpenCode Go workspace (config/opencode-second-org)
+
+When one OpenCode account holds a second workspace with its own Go subscription, firstmate spends it as a fourth ladder rung after the first Go rung caps: order is exhaustion, never an even split.
+Write the second workspace id alone into the gitignored `config/opencode-second-org` (exactly one line).
+A missing file means the three-rung ladder exactly as before, while a malformed file refuses the launch that needs it.
+No token, key, or workspace id goes in tracked files, commit messages, or PR bodies.
+On the first launch that needs it, firstmate builds the gitignored `config/opencode-second.db`: a migrated database seeded from this machine's console login and pinned to the configured workspace.
+On every later launch that needs it the login rows are re-copied from the live database and re-pinned, so the pin never carries a stale token, and a pin that will not refresh is discarded and rebuilt.
+Before the launch rides the pin, the pinned config must resolve the `opencode` provider to the secondary workspace; anything else refuses the launch, so a mis-pinned session can never bill the wrong workspace.
+That launch carries `OPENCODE_DB` at the pinned database, so the vendor attributes the session to the second workspace even though the machine-wide active workspace is elsewhere; `opencode console switch` is never used because it would move every worker's next launch at once.
+The model id is unchanged on both Go rungs; the task record carries `opencode_workspace=secondary` for a pinned lane and nothing for the main workspace, and `bin/fm-control.sh relaunch --opencode-workspace <main|secondary>` moves the pin while a flagless relaunch preserves it.
+`bin/fm-opencode-second-lib.sh` owns the pin mechanics; `bin/fm-opencode-ladder-lib.sh` owns the rung policy.
 
 The resolver and bootstrap copy an environment-provided key into a non-exported private variable and unset `TYPESAFE_API_KEY` and `AI_GATEWAY_API_KEY` before launching child processes, so each secret is absent from child environments.
 Each key also flows from the primary home's `.env` into every LOCAL secondmate home's `.env` through the primary-authoritative inheritance contract, so mates resolve with Jev too.

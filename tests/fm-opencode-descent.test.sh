@@ -138,6 +138,8 @@ record_cap() {  # <state-dir> <id> <offset-secs> [model]
 # The tick moves a worker through bin/fm-control.sh relaunch. Tests override
 # that binary so no real agent is ever stopped: the stub records its argv,
 # fails on demand, and publishes the Go record the way a real relaunch would.
+# A --opencode-workspace secondary move additionally writes the workspace
+# marker the way bin/fm-spawn.sh --relaunch records it.
 STUB="$TMP_ROOT/control-stub.sh"
 STUB_LOG="$TMP_ROOT/control-argv.log"
 cat > "$STUB" <<'SH'
@@ -150,12 +152,18 @@ if [ "${FM_STUB_PUBLISH_GO:-0}" = 1 ]; then
   shift
   model=
   harness=
+  workspace=
   while [ "$#" -gt 0 ]; do
-    case "$1" in --model) model=$2; shift 2 ;; --harness) harness=$2; shift 2 ;; *) shift ;; esac
+    case "$1" in --model) model=$2; shift 2 ;; --harness) harness=$2; shift 2 ;; --opencode-workspace) workspace=$2; shift 2 ;; *) shift ;; esac
   done
   meta="$FM_STUB_STATE/$id.meta"
   sed -e "s|^model=.*|model=$model|" -e "s|^harness=.*|harness=$harness|" "$meta" > "$meta.new" \
     && mv "$meta.new" "$meta"
+  if [ "$workspace" = secondary ]; then
+    grep -v '^opencode_workspace=' "$meta" > "$meta.new" \
+      && printf 'opencode_workspace=secondary\n' >> "$meta.new" \
+      && mv "$meta.new" "$meta"
+  fi
 fi
 exit 0
 SH
@@ -742,4 +750,113 @@ test_descended_cap_survives_task_cleanup() {
   pass "a descended cap stays readable after that task's cleanup"
 }
 
+# --- second Go workspace (fourth rung) ---------------------------------------
+# A capped main-workspace Go lane descends within the Go tier: same model id,
+# workspace marker moved, per-workspace cap records. A capped
+# second-workspace lane has no later rung.
+
+second_config() {  # <name> -> config dir with a second workspace
+  local dir="$TMP_ROOT/cfg-$1"
+  rm -rf "$dir"
+  mkdir -p "$dir"
+  printf '%s' 'org_01FIXTURESECONDARY00' > "$dir/opencode-second-org"
+  printf '%s\n' "$dir"
+}
+
+mark_secondary() {  # <state-dir> <id>: pin the lane's record to the workspace
+  printf '%s\n' 'opencode_workspace=secondary' >> "$1/$2.meta"
+}
+
+test_go_lane_descends_to_second_workspace() {
+  local state out cfg
+  state=$(fresh_state gosecond)
+  cfg=$(second_config gosecond)
+  stub_env "$state" 0 1
+  write_meta "$state" lane1 opencode "$GO" scout
+  arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
+  record_cap "$state" lane1 78840 "$GO" || fail "record refused fixture"
+  out=$(FM_CONFIG_OVERRIDE="$cfg" run_tick "$state") || fail "tick must never fail"
+  case "$out" in
+    relaunched' '*'second workspace'*) : ;;
+    *) fail "a capped main Go lane must descend to the second workspace, said: ${out:-<silent>}" ;;
+  esac
+  case "$(stub_calls)" in
+    *'--opencode-workspace secondary'*) : ;;
+    *) fail "the move must carry the workspace through the control plane, called: $(stub_calls)" ;;
+  esac
+  [ "$(fm_meta_get "$state/lane1.meta" opencode_workspace)" = secondary ] \
+    || fail "the move must be written to the durable record"
+  [ ! -e "$state/lane1.opencode-retry" ] \
+    || fail "the dead session's sidecar must be cleared after the move"
+  pass "a capped main Go lane descends to the second workspace"
+}
+
+test_go_lane_refused_when_second_capped() {
+  local state out cfg
+  state=$(fresh_state gosecondcapped)
+  cfg=$(second_config gosecondcapped)
+  stub_env "$state" 0 1
+  write_meta "$state" lane1 opencode "$GO" scout
+  arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
+  record_cap "$state" lane1 78840 "$GO" || fail "record refused fixture"
+  "$RETRY" record-cap "$state" go-second "$(ms_from_now 78840)" || fail "record refused fourth-rung fixture"
+  out=$(FM_CONFIG_OVERRIDE="$cfg" run_tick "$state") || fail "tick must never fail"
+  case "$out" in
+    refused' '*) : ;;
+    *) fail "a capped Go lane with a capped fourth rung must surface, said: ${out:-<silent>}" ;;
+  esac
+  stub_called && fail "no move may reach the control plane past two capped Go rungs"
+  pass "a capped Go lane surfaces when the second workspace is capped too"
+}
+
+test_secondary_go_lane_has_no_later_rung() {
+  local state out cfg
+  state=$(fresh_state secondgo)
+  cfg=$(second_config secondgo)
+  stub_env "$state" 0 1
+  write_meta "$state" lane1 opencode "$GO" scout
+  mark_secondary "$state" lane1
+  arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
+  record_cap "$state" lane1 78840 "$GO" || fail "record refused fixture"
+  out=$(FM_CONFIG_OVERRIDE="$cfg" run_tick "$state") || fail "tick must never fail"
+  case "$out" in
+    refused' '*'later rung'*) : ;;
+    *) fail "a capped second-workspace Go lane must surface, said: ${out:-<silent>}" ;;
+  esac
+  stub_called && fail "a fourth-rung lane has nowhere to move to"
+  [ -f "$state/.opencode-cap-go-second" ] \
+    || fail "a secondary cap must preserve to the fourth rung record"
+  [ ! -f "$state/.opencode-cap-go" ] \
+    || fail "a secondary cap must not mark the main Go rung capped"
+  pass "a capped second-workspace Go lane surfaces instead of moving"
+}
+
+test_free_lane_overflows_to_second_workspace() {
+  local state out cfg
+  state=$(fresh_state freeoverflow)
+  cfg=$(second_config freeoverflow)
+  stub_env "$state" 0 1
+  write_meta "$state" lane1 opencode "$FREE" scout
+  arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
+  record_cap "$state" lane1 78840 "$FREE" || fail "record refused fixture"
+  "$RETRY" record-cap "$state" plus "$(ms_from_now 78840)" || fail "record refused Plus fixture"
+  "$RETRY" record-cap "$state" go "$(ms_from_now 78840)" || fail "record refused Go fixture"
+  out=$(FM_CONFIG_OVERRIDE="$cfg" run_tick "$state") || fail "tick must never fail"
+  case "$out" in
+    relaunched' '*'second workspace'*) : ;;
+    *) fail "a free lane past three capped rungs must overflow to the second workspace, said: ${out:-<silent>}" ;;
+  esac
+  case "$(stub_calls)" in
+    *'--opencode-workspace secondary'*) : ;;
+    *) fail "the overflow must carry the workspace through the control plane, called: $(stub_calls)" ;;
+  esac
+  [ "$(fm_meta_get "$state/lane1.meta" opencode_workspace)" = secondary ] \
+    || fail "the overflow must be written to the durable record"
+  pass "a free lane overflows past three capped rungs to the second workspace"
+}
+
 test_descended_cap_survives_task_cleanup
+test_go_lane_descends_to_second_workspace
+test_go_lane_refused_when_second_capped
+test_secondary_go_lane_has_no_later_rung
+test_free_lane_overflows_to_second_workspace
