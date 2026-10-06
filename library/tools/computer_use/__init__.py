@@ -13,6 +13,17 @@ of its protocol:
     client.py    the driver's Python client: spawn, call, element refs,
                  error mapping. A refusal from the driver is surfaced
                  here, never worked around.
+    observe.py   the model's observation: the capture at point size,
+                 the projected AX surface, OCR labels.
+    actions.py   the action vocabulary the model may return, translated
+                 into driver calls.
+    loop.py      the observe-decide-act loop with per-step verification,
+                 the step budget, and the lease discipline.
+    scripts.py   deterministic UI scripts: anchor resolution, per-step
+                 verification, LLM fallback for a failed step.
+    model.py     the decide half: the observation to one action through
+                 an OpenAI-compatible endpoint, with token ledgering
+                 and the dollar budget.
 
 The design report is `data/vep-computer-use-architecture/report.md`
 (firstmate); the measured facts it rests on are in

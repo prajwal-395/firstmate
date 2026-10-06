@@ -24,8 +24,10 @@ from __future__ import annotations
 import argparse
 import sys
 
-from library.tools.computer_use.client import DriverClient, DriverError
+from library.tools.computer_use.client import DriverClient
 from library.tools.computer_use.loop import run_loop
+from library.tools.computer_use.model import ENV_URL, ModelConfig, ModelSession
+from library.tools.ren_refusal import RenRefusal
 
 
 def _status(client: DriverClient) -> int:
@@ -62,14 +64,19 @@ def _status(client: DriverClient) -> int:
     return 0
 
 
-def _run(client: DriverClient, goal: str) -> int:
+def _run(
+    client: DriverClient, goal: str, model_kind: str, max_cost_usd: float | None
+) -> int:
     """Run the observe-decide-act loop on a goal.
 
-    The model is a stub for now - it returns `done` immediately. The
-    production model sends the observation to a hosted model API (Claude
-    Sonnet 5) or the local Gemma server and parses the response into an
-    action. The loop, the observation and the action schema are the
-    deliverable; the model is the pluggable half.
+    `--model stub` (the default) returns `done` immediately, for
+    offline work against the mock driver. `--model api` decides each
+    step through `ModelSession`: the observation goes to the
+    OpenAI-compatible endpoint in `$COMPUTER_USE_MODEL_URL` (default:
+    the resident local server) and the reply parses into one action,
+    with token usage in the perf ledger and the dollar budget enforced.
+    `$COMPUTER_USE_MODEL_NAME` selects the model;
+    `--max-cost-usd` (or `$COMPUTER_USE_MAX_COST_USD`) caps the spend.
 
     The loop runs inside `qualification_project.borrowed()`: the
     captain's project is saved, the qualification project is opened for
@@ -82,8 +89,15 @@ def _run(client: DriverClient, goal: str) -> int:
     from library.tools.resolve_lock import resolve_lease
     from library.tools.resolved.jobs import QUALIFICATION_PROJECT
 
-    def model(observation: Observation) -> dict:
-        return {"action": "done"}
+    if model_kind == "api":
+        config = ModelConfig.from_env()
+        if max_cost_usd is not None:
+            config.max_cost_usd = max_cost_usd
+        model = ModelSession(config=config)
+    else:
+
+        def model(observation: Observation) -> dict:
+            return {"action": "done"}
 
     resolve = connect_resolve()
     with resolve_lease(
@@ -104,6 +118,19 @@ def main(argv=None) -> int:
     sub.add_parser("status", help="what the driver can see right now (read only)")
     run_parser = sub.add_parser("run", help="run the observe-decide-act loop on a task")
     run_parser.add_argument("goal", help="the task for the loop to perform")
+    run_parser.add_argument(
+        "--model",
+        choices=("stub", "api"),
+        default="stub",
+        help="stub returns done immediately (offline default); api decides "
+        f"each step through the endpoint in ${ENV_URL}",
+    )
+    run_parser.add_argument(
+        "--max-cost-usd",
+        type=float,
+        default=None,
+        help="cap the decide calls' spend (overrides $COMPUTER_USE_MAX_COST_USD)",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -111,8 +138,8 @@ def main(argv=None) -> int:
             if args.subcommand == "status":
                 return _status(client)
             if args.subcommand == "run":
-                return _run(client, args.goal)
-    except DriverError as exc:
+                return _run(client, args.goal, args.model, args.max_cost_usd)
+    except RenRefusal as exc:
         print(exc.render(), file=sys.stderr)
         return 4
     return 2
