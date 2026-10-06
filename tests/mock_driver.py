@@ -248,22 +248,20 @@ def handle(request: dict) -> dict:
             time.sleep(min(float(predicate.get("duration", 0.0)), 0.05))
             return reply({"met": True, "elapsed": 0.0})
         if pred_type == "text_visible":
-            return reply({"met": (predicate.get("text") or "") in "Master", "elapsed": 0.0})
+            return reply({"met": (predicate.get("text") or "") in "Master Media", "elapsed": 0.0})
         return _refuse(request_id, "INVALID_PARAMS", f"unknown predicate type: {pred_type}")
     if method == "read_text":
+        scale = float(os.environ.get("MOCK_WINDOW_SCALE", "1.0"))
+        base_frame = {"x": 21.98, "y": 96.66, "width": 46.15, "height": 10.99}
+        frame = {k: v * scale for k, v in base_frame.items()}
         return reply(
             {
-                "text": "Master",
+                "text": "Master Media",
                 "elements": [
                     {
                         "text": "Master",
                         "confidence": 0.99,
-                        "frame": {
-                            "x": 21.98,
-                            "y": 96.66,
-                            "width": 46.15,
-                            "height": 10.99,
-                        },
+                        "frame": frame,
                     }
                 ],
             }
