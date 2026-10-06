@@ -177,6 +177,14 @@ class BranchRefused(RuntimeError):
     """
 
 
+class TagRefused(RuntimeError):
+    """A tag that could not be recorded or read.
+
+    Raised, not swallowed, so the caller can say which name and which
+    target failed: a dangling or silently-moved tag never lands.
+    """
+
+
 # ── Where entries live ───────────────────────────────────────────
 
 
@@ -660,6 +668,100 @@ def merge_commits(project_folder, *, timeline: str, left: str, right: str,
         project_folder, parent=left, second_parent=right,
         intent=intent, changes=merged, agent="creative_merge",
         timeline=timeline)
+
+
+# ── Tags: named pointers to commits ────────────────────────────
+#
+# A tag names a commit worth keeping - "v1", "before-grade". The tag is
+# a pointer, not a copy: the commit it names is immutable, so moving a
+# tag never rewrites history. The target is read before anything is
+# written, so a tag for a commit no record answers is refused and a
+# dangling pointer never lands; and a name that already points
+# somewhere is refused unless the caller says `move`, so what "v1"
+# means is never rewritten in silence.
+
+TAG_FORMAT = "creative_tag/1"
+TAG_DIRNAME = "tags"
+TAG_FILENAME = "tag.json"
+
+
+def tag_root(project_folder) -> str:
+    return os.path.join(str(project_folder), "pipeline_output", "review",
+                        TAG_DIRNAME)
+
+
+def _tag_path(project_folder, name: str) -> str:
+    return os.path.join(tag_root(project_folder), name, TAG_FILENAME)
+
+
+def record_tag(project_folder, *, name: str, commit: str, note: str = "",
+               move: bool = False) -> dict:
+    """Record a tag: a name pointing at a commit. Returns the tag.
+
+    The target is READ before anything is written: a tag for a commit
+    id no commit answers is refused with `TagRefused`, so a dangling
+    pointer never lands. A name that already points at a commit is
+    refused unless `move` is passed, so a name is never rewritten in
+    silence. A moved tag is re-pointed now - the commits it pointed at
+    before are untouched, because a tag is a pointer, not history.
+    """
+    from library.tools.versions import store
+
+    if not str(name or "").strip():
+        raise TagRefused("a tag needs a name - "
+                         "name the version this commit is")
+    try:
+        read_commit(project_folder, commit)
+    except UndoRefused as missing:
+        raise TagRefused(
+            f"tag {name!r} cannot point at {commit!r}: no commit with "
+            f"that id is recorded ({missing.args[0] if missing.args else missing})",
+            "list what is recorded with `ren commits <project> --list`"
+        ) from missing
+    path = _tag_path(project_folder, name)
+    if os.path.isfile(path) and not move:
+        current = read_tag(project_folder, name)
+        raise TagRefused(
+            f"tag {name!r} already points at "
+            f"{str(current.get('commit') or '')[:12]} - pass move=True "
+            f"to move it, so a name is never rewritten in silence")
+    tag = {
+        "format": TAG_FORMAT,
+        "name": name,
+        "commit": commit,
+        "note": note,
+        "created_at": _now(),
+    }
+    store.write_record(path, tag, prefix=".tag-")
+    return tag
+
+
+def read_tag(project_folder, name: str) -> dict:
+    path = _tag_path(project_folder, name)
+    try:
+        with open(path, encoding="utf-8") as handle:
+            tag = json.load(handle)
+    except (OSError, ValueError) as unreadable:
+        raise TagRefused(
+            f"tag {name!r} could not be read at {path} ({unreadable})"
+        ) from unreadable
+    if tag.get("format") != TAG_FORMAT:
+        raise TagRefused(
+            f"{path} is {tag.get('format')!r}, not {TAG_FORMAT!r}")
+    return tag
+
+
+def list_tags(project_folder) -> list:
+    """Every recorded tag, by name."""
+    root = tag_root(project_folder)
+    if not os.path.isdir(root):
+        return []
+    tags = []
+    for name in sorted(os.listdir(root)):
+        path = os.path.join(root, name, TAG_FILENAME)
+        if os.path.isfile(path):
+            tags.append(read_tag(project_folder, name))
+    return tags
 
 
 # ── Capture: the touch's side ────────────────────────────────────
