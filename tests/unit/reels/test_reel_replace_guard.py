@@ -414,6 +414,55 @@ def test_legacy_empty_lut_pending_change_is_normalized_before_promotion(tmp_path
     assert promotion["carried"] == ["legacy-empty-lut"]
 
 
+def test_a_pending_fusion_change_of_only_mattes_none_does_not_refuse(tmp_path):
+    """Reels 03 and 08, 2026-10-05: #1816 made a fresh comparison read
+    `mattes: None` as no matte, but records pending from before it kept
+    their `fusion` delta and the guard still refused both reels on
+    eleven items nobody touched. A real matte stays pending."""
+    from library.tools import plan_provenance
+
+    final = "Reel 03 - pending mattes no-op"
+    review_dir = tmp_path / "pipeline_output" / "review"
+    item = {
+        "track_type": "video", "track_index": 1, "track_name": "Akshita",
+        "name": "LC4932.MXF", "source_identity": "file:/media/LC4932.MXF",
+        "source_in_frame": 0, "source_out_frame": 100,
+        "record_in": 0, "record_out": 100, "duration": 100,
+        "enabled": True, "transform": {}, "composite": {},
+        "fusion": {"comp_count": 0, "comp_names": [], "media_windows": []},
+        "color": {"cdl": {}, "color_group": ""},
+        "clip_color": "", "flags": [], "markers": [],
+    }
+    reread = {**item, "fusion": {**item["fusion"], "mattes": None}}
+    matted = {**item, "fusion": {**item["fusion"],
+                                 "mattes": {"Matte 1": {"kind": "ellipse"}}}}
+
+    def pending(record_id, after_item):
+        return {"id": record_id, "timeline": final,
+                "before_snapshot": {"items": [item]},
+                "after_snapshot": {"items": [after_item]},
+                "changes": [{"kind": "item_changed",
+                             "identity": reel_replace_guard.stable_item_key(item),
+                             "before": item, "after": after_item,
+                             "changed": {"fusion": {
+                                 "before": item["fusion"],
+                                 "after": after_item["fusion"]}}}],
+                "status": "pending"}
+
+    plan_provenance.record_timeline_snapshot(
+        str(review_dir), final, {"items": [item]}, action="test baseline")
+    plan_provenance.record_editor_changes(
+        str(review_dir), final,
+        [pending("mattes-none", reread), pending("real-matte", matted)])
+
+    detection = reel_replace_guard.detect_editor_changes(
+        str(tmp_path), final, {"items": [item]}, {"items": [item]})
+
+    by_id = {record["id"]: record for record in detection["pending"]}
+    assert by_id["mattes-none"]["changes"] == []
+    assert len(by_id["real-matte"]["changes"]) == 1
+
+
 def test_a_transform_rounded_below_a_display_unit_is_not_an_editor_change():
     """Reel 13, 2026-10-05: the rebuild computed Tilt -174.01 where the
     captain's reel held -174.01025 - one value the Inspector shows the

@@ -461,8 +461,19 @@ def _same_preservation_value(field: str, before, after) -> bool:
     return _same_value(before, after)
 
 
+# Fields whose read gained a no-op shape after records were written: an
+# empty LUT list (color) and `mattes: None` (fusion, #1786). A pending
+# record of either compares the same today and is no edit.
+_LEGACY_NO_OP_FIELDS = ("color", "fusion")
+
+
 def _normalize_pending_editor_record(record: dict) -> dict:
-    """Drop legacy empty-LUT color deltas without touching other edits."""
+    """Drop legacy no-op color and fusion deltas without touching other edits.
+
+    #1816 taught the comparison that `mattes: None` is no matte, but
+    records already pending kept their `fusion` delta and still refused
+    Reels 03 and 08 on items nobody touched.
+    """
     normalized_changes = []
     for change in record.get("changes", ()):
         if change.get("kind") != "item_changed":
@@ -474,14 +485,14 @@ def _normalize_pending_editor_record(record: dict) -> dict:
             continue
         meaningful = {}
         for field, values in changed.items():
-            no_op_color = (
-                field == "color"
+            no_op = (
+                field in _LEGACY_NO_OP_FIELDS
                 and isinstance(values, dict)
                 and "before" in values
                 and "after" in values
                 and _same_preservation_value(field, values["before"], values["after"])
             )
-            if not no_op_color:
+            if not no_op:
                 meaningful[field] = values
         if not meaningful:
             continue
@@ -896,10 +907,10 @@ def detect_editor_changes(project_folder: str, final: str, live: dict,
         plan_provenance.record_editor_changes(review_dir, final, detected)
 
     pending = plan_provenance.pending_editor_changes(review_dir, final)
-    # Pending records predate the empty-LUT normalization above. Remove
-    # legacy empty-LUT color no-ops in memory so they do not keep refusing a
-    # replacement after this fix ships. Other fields and structural changes
-    # are left exactly as recorded.
+    # Pending records predate the empty-LUT and `mattes` normalizations
+    # above. Remove those legacy no-ops in memory so they do not keep
+    # refusing a replacement after this fix ships. Other fields and
+    # structural changes are left exactly as recorded.
     normalized_pending = [
         _normalize_pending_editor_record(record) for record in pending
     ]
