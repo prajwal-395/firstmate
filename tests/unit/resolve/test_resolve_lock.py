@@ -29,7 +29,7 @@ from library.tools.resolve_lock import (
 from tests.resolve_double import FakeProject, FakeTimeline
 import json
 import sqlite3
-from library.tools import perf_ledger, resource_scheduler
+from library.tools import event_log, perf_ledger, resource_scheduler
 from library.tools.resolved import __main__ as resolved_cli, kpi
 from library.tools.resolved.store import (
     IdempotencyConflict, JobStore,
@@ -179,6 +179,7 @@ def test_a_reentrant_lease_keeps_the_flock_really_held(lock_dir, unguarded):
     probe_inside = threading.Event()
     exclusive_released = threading.Event()
     release_probe = threading.Event()
+    result_written = threading.Event()
 
     def exclusive_holder():
         with resolve_lease("live run", exclusive=True, timeout=1.0):
@@ -187,13 +188,18 @@ def test_a_reentrant_lease_keeps_the_flock_really_held(lock_dir, unguarded):
         exclusive_released.set()
 
     def reentrant_probe():
-        assert exclusive_acquired.wait(5.0)
-        with resolve_lease("watchdog probe", exclusive=False, timeout=1.0):
-            probe_inside.set()
-            assert exclusive_released.wait(5.0)
-            result["held"] = resolve_lock.held()
-            result["exclusive_held"] = resolve_lock.exclusive_held()
-            assert release_probe.wait(5.0)
+        try:
+            assert exclusive_acquired.wait(5.0)
+            with resolve_lease("watchdog probe", exclusive=False,
+                               timeout=1.0):
+                probe_inside.set()
+                assert exclusive_released.wait(5.0)
+                result["held"] = resolve_lock.held()
+                result["exclusive_held"] = resolve_lock.exclusive_held()
+                result_written.set()
+                assert release_probe.wait(5.0)
+        finally:
+            release_probe.set()
 
     a = threading.Thread(target=exclusive_holder)
     b = threading.Thread(target=reentrant_probe)
@@ -201,6 +207,9 @@ def test_a_reentrant_lease_keeps_the_flock_really_held(lock_dir, unguarded):
     b.start()
     a.join()
     # The outer exclusive lease has released; the probe is still inside.
+    # Wait for the probe to write its result before asserting, so a slow
+    # probe does not read as a missing key.
+    assert result_written.wait(5.0)
     assert result["held"] is True
     assert result["exclusive_held"] is False
     assert _exclusive_flock_busy(lock_dir), (
@@ -1444,3 +1453,77 @@ def test_scriptapp_refuses_before_connect_when_no_lease_is_held(
             "test scriptapp boundary", exclusive=False, timeout=1.0):
         assert scriptapp_preserving_locale(module) is connected
     assert calls == ["Resolve"]
+
+
+# ── The event log: the instance lease leaves a record ────────────────
+
+def test_an_acquired_instance_lease_emits_an_event(lock_dir, unguarded,
+                                                   tmp_path, monkeypatch):
+    """The instance lease's acquisition is on the record.
+
+    Defect caught: an instance lease that does not emit leaves no
+    event when a worker is killed mid-section, and the next worker
+    cannot tell whether the dead one's Resolve writes finished or were
+    interrupted mid-cursor - the exact gap the event log exists to
+    close.
+    """
+    log = tmp_path / "event_log.jsonl"
+    monkeypatch.setenv(event_log.EVENT_LOG_ENV, str(log))
+    with resolve_lease("build reel", exclusive=True, timeout=1.0):
+        pass
+    lines = [json.loads(line) for line in
+             log.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert [e["type"] for e in lines] == [
+        event_log.INSTANCE_LEASE_ACQUIRED,
+        event_log.INSTANCE_LEASE_RELEASED]
+    assert lines[0]["task"] == "build reel"
+    assert lines[0]["fields"]["exclusive"] is True
+
+
+def test_an_instance_lease_with_no_env_var_emits_nothing(lock_dir, tmp_path,
+                                                          monkeypatch):
+    """A lease with no event log named leaves no event, not a wrong one.
+
+    Defect caught: a lease that emits into a default or shared log
+    when no project is named mixes one project's operations into
+    another's, and a resumed worker reads events that are not its own.
+    """
+    monkeypatch.delenv(event_log.EVENT_LOG_ENV, raising=False)
+    with resolve_lease("build reel", exclusive=True, timeout=1.0):
+        pass
+    assert not (tmp_path / "event_log.jsonl").exists()
+
+
+def test_a_reentrant_holder_exiting_last_still_emits_the_release(
+        lock_dir, unguarded, tmp_path, monkeypatch):
+    """The release event fires exactly once whoever exits last.
+
+    Defect caught: emitting the release from the caller's `finally`
+    misses the case where a reentrant holder outlives the outer
+    acquisition (the watchdog case from #1846) - the outer path's
+    `depth == 0` check runs while the reentrant holder is still
+    inside, so no release event is written and a resumed worker
+    cannot tell the instance was released.
+    """
+    log = tmp_path / "event_log.jsonl"
+    monkeypatch.setenv(event_log.EVENT_LOG_ENV, str(log))
+    release_probe = threading.Event()
+    exclusive_acquired = threading.Event()
+
+    def reentrant_probe():
+        assert exclusive_acquired.wait(5.0)
+        with resolve_lease("watchdog probe", exclusive=False, timeout=1.0):
+            assert release_probe.wait(5.0)
+
+    b = threading.Thread(target=reentrant_probe)
+    b.start()
+    with resolve_lease("live run", exclusive=True, timeout=1.0):
+        exclusive_acquired.set()
+        pass
+    release_probe.set()
+    b.join()
+    lines = [json.loads(line) for line in
+             log.read_text(encoding="utf-8").splitlines() if line.strip()]
+    releases = [e for e in lines
+                if e["type"] == event_log.INSTANCE_LEASE_RELEASED]
+    assert len(releases) == 1

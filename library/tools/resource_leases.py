@@ -56,7 +56,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, FrozenSet, Optional, Set, Tuple
 
-from library.tools import resolve_lock
+from library.tools import event_log, resolve_lock
 from library.tools.resolve_lock import ResolveBusy, default_owner, lock_dir
 
 #: The spec's resource kinds, verbatim. One enumeration - a caller may
@@ -576,6 +576,23 @@ def _live_leases(now: Optional[float] = None) -> list:
             if not lease.is_expired(now=now)]
 
 
+def _emit(project: str, event_type: str, **fields) -> None:
+    """Emit one lease event into the project's event log, or silently skip.
+
+    The event log is per-project; a lease whose caller named no project
+    leaves no event, which is the honest answer - the lease is
+    machine-wide and the project is the caller's to declare. A failure
+    to emit must never take down a real lease: the lease is the fence,
+    the event log is the record of it.
+    """
+    if not project:
+        return
+    try:
+        event_log.emit(project, event_type, **fields)
+    except OSError:
+        pass
+
+
 def _conflict(lease: ResourceLease, declaration: LeaseDeclaration) -> Optional[str]:
     return lease.declaration.conflicts_with(declaration)
 
@@ -618,10 +635,16 @@ class ResourceLeaseHandle:
     `heartbeat` is the explicit form - a caller that prefers to
     heartbeat itself (a long synchronous section with no thread) can
     call it and pass `heartbeat_thread=False` to the context manager.
+
+    `project` is the project folder this lease's events are emitted
+    into, where the caller named one - the event log is per-project,
+    and a lease that cannot name its project leaves no event for a
+    resumed worker to read.
     """
 
     record: ResourceLease
     _heartbeat: Optional[_Heartbeat] = field(default=None, repr=False)
+    project: str = ""
 
     def heartbeat(self) -> None:
         """Say "I am still here", or raise where the lease is gone.
@@ -643,6 +666,11 @@ class ResourceLeaseHandle:
                     leases[index] = self.record
                     _write_leases(leases)
                     return
+            _emit(self.project, event_log.LEASE_EXPIRED,
+                  task=self.record.purpose,
+                  owner=self.record.owner, pid=self.record.pid,
+                  host=self.record.host,
+                  heartbeat_interval=self.record.heartbeat_interval)
             raise ResourceLeaseExpired(
                 f"the lease for {self.record.purpose!r} is gone - its "
                 f"heartbeat went stale and a waiter evicted it",
@@ -666,6 +694,10 @@ class ResourceLeaseHandle:
                                  and lease.since == self.record.since)]
             if len(remaining) != len(leases):
                 _write_leases(remaining)
+                _emit(self.project, event_log.LEASE_RELEASED,
+                      task=self.record.purpose,
+                      owner=self.record.owner, pid=self.record.pid,
+                      host=self.record.host)
 
 
 @contextmanager
@@ -673,7 +705,8 @@ def resource_lease(declaration: LeaseDeclaration, purpose: str,
                    wait: bool = True, timeout: Optional[float] = None,
                    heartbeat_interval: float = DEFAULT_HEARTBEAT_INTERVAL,
                    owner: Optional[str] = None,
-                   heartbeat_thread: bool = True):
+                   heartbeat_thread: bool = True,
+                   project: str = ""):
     """Hold a resource lease for one task's destructive section.
 
     Acquire the lease, heartbeat it, and release it on exit. The
@@ -693,6 +726,10 @@ def resource_lease(declaration: LeaseDeclaration, purpose: str,
     it will heartbeat - the source of the expiry. The default is
     `DEFAULT_HEARTBEAT_INTERVAL`, a technical fallback for a holder
     that states none.
+
+    `project` names the project folder this lease's events are emitted
+    into - the event log is per-project, and a lease that names none
+    leaves no event for a resumed worker to read.
 
     Raises `ResourceLeaseBusy` naming the conflicting holder and
     resource where the wait ran out, and `ResourceLeaseExpired` from
@@ -737,6 +774,11 @@ def resource_lease(declaration: LeaseDeclaration, purpose: str,
                         declaration=declaration)
                     _write_leases([*live, record])
                     acquired = record
+                    _emit(project, event_log.LEASE_ACQUIRED,
+                          task=purpose, owner=owner_name,
+                          pid=record.pid, host=record.host,
+                          heartbeat_interval=interval,
+                          resources=str(declaration.to_record()))
                     break
             if not wait:
                 lease, why = blockers[0]
@@ -756,7 +798,7 @@ def resource_lease(declaration: LeaseDeclaration, purpose: str,
                     "wait for the holder to finish, or come back later - "
                     "re-run the same command")
             time.sleep(min(_POLL_SECONDS, max(0.0, deadline - time.time())))
-        handle = ResourceLeaseHandle(record=acquired)
+        handle = ResourceLeaseHandle(record=acquired, project=project)
         if heartbeat_thread:
             handle._heartbeat = _Heartbeat(handle)
             handle._heartbeat.start()
@@ -774,6 +816,9 @@ def resource_lease(declaration: LeaseDeclaration, purpose: str,
                                      and lease.since == acquired.since)]
                 if len(remaining) != len(leases):
                     _write_leases(remaining)
+                    _emit(project, event_log.LEASE_RELEASED,
+                          task=acquired.purpose, owner=acquired.owner,
+                          pid=acquired.pid, host=acquired.host)
         raise
 
 

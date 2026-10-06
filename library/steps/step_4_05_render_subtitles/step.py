@@ -2343,7 +2343,8 @@ def rerender_and_swap(project_folder: str, pairs: list,
         report["error"] = str(exc)
         return report
     try:
-        swap_report = _swap_caption_files(project, mapping)
+        swap_report = _swap_caption_files(project, mapping,
+                                          project_folder=project_folder)
     except CaptionSwapError as exc:
         report["ok"] = False
         report["error"] = str(exc)

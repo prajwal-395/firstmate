@@ -97,7 +97,7 @@ from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from library.tools import perf_ledger
+from library.tools import event_log, perf_ledger
 from library.tools.ren_refusal import RenRefusal
 from typing import Optional
 
@@ -447,12 +447,24 @@ def _release_lease() -> None:
     """Last one out: drop the machine-wide flock, the lease file and the
     inherited env. Called when the final holder exits, so `held()` is
     true only while the flock is really held - a reentrant holder that
-    outlives the outer acquisition keeps the fence until it exits."""
+    outlives the outer acquisition keeps the fence until it exits.
+
+    The release event is emitted HERE, not in the caller's `finally`:
+    a reentrant holder that outlives the outer acquisition (the
+    watchdog case from #1846) exits last, and the release must fire
+    exactly once whoever exits last. Emitting from the caller's
+    `finally` would miss it when the outer path's `depth == 0` check
+    runs while a reentrant holder is still inside.
+    """
     global _lease_hold
     hold = _lease_hold
     if hold is None:
         return
     _lease_hold = None
+    if hold["exclusive"]:
+        _emit_instance_event(
+            event_log.INSTANCE_LEASE_RELEASED,
+            hold["purpose"], hold["exclusive"])
     if hold["previous_inherit"] is None:
         os.environ.pop(INHERIT_ENV, None)
     else:
@@ -716,6 +728,7 @@ def resolve_lease(purpose: str, exclusive: bool = True,
                 _lease_hold = {
                     "handle": handle,
                     "exclusive": exclusive,
+                    "purpose": purpose,
                     "previous_inherit": os.environ.get(INHERIT_ENV),
                     "previous_inherit_mode": os.environ.get(INHERIT_MODE_ENV),
                 }
@@ -731,6 +744,10 @@ def resolve_lease(purpose: str, exclusive: bool = True,
                 perf_ledger.record(perf_ledger.RESOLVE_WAIT, wait_seconds,
                                    started_at=acquire_start, outcome="granted",
                                    purpose=purpose, exclusive=exclusive)
+                _emit_instance_event(event_log.INSTANCE_LEASE_ACQUIRED,
+                                     purpose, exclusive,
+                                     wait_seconds=wait_seconds,
+                                     waited_on=waited_on)
                 try:
                     with perf_ledger.span(perf_ledger.RESOLVE_HOLD,
                                           purpose=purpose, exclusive=exclusive,
@@ -952,6 +969,27 @@ def _write_lease(lease: Lease) -> None:
         lease_path().write_text(
             json.dumps(asdict(lease), indent=2) + "\n", encoding="utf-8")
     except OSError:  # pragma: no cover - diagnostic only, never a decision
+        pass
+
+
+def _emit_instance_event(event_type: str, purpose: str,
+                         exclusive: bool, **fields) -> None:
+    """Emit one instance-lease event into the project's event log.
+
+    The instance lease is machine-wide and called from places that do
+    not all carry a project folder, so the log's path comes from the
+    `REN_EVENT_LOG` environment variable the runner sets when it knows
+    the project. A writer that has neither the env var nor a project
+    folder emits nothing, which is the honest answer - the lease is the
+    fence, the event log is the record of it.
+    """
+    path = os.environ.get(event_log.EVENT_LOG_ENV)
+    if not path:
+        return
+    try:
+        event_log.emit_path(path, event_type, task=purpose,
+                            exclusive=exclusive, **fields)
+    except OSError:
         pass
 
 

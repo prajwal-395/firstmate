@@ -495,3 +495,69 @@ def test_take_track_lock_refuses_an_unparseable_track_name(lock_dir):
     timeline = FakeTimeline()
     assert take_track_lock(timeline, ResourceRef("track", "Reel 03")) is False
     assert take_track_lock(timeline, ResourceRef("track", "Reel 03:video")) is False
+
+
+# ── The event log: a lease leaves a record a resumed worker reads ─────
+
+@pytest.fixture
+def project(tmp_path):
+    """A project folder with a LOGS area, never a real one."""
+    folder = tmp_path / "project"
+    (folder / "pipeline_output" / "logs").mkdir(parents=True)
+    return folder
+
+
+def test_an_acquired_lease_emits_an_event(lock_dir, project):
+    """The lease's acquisition is on the record for a resumed worker.
+
+    Defect caught: a lease that does not emit leaves no event when a
+    worker is killed mid-section, and the next worker cannot tell what
+    the dead one held - the exact gap the event log exists to close.
+    """
+    decl = LeaseDeclaration(write=frozenset({ResourceRef("clip", "A004_C013")}))
+    with resource_lease(decl, "caption swap", heartbeat_interval=30.0,
+                        project=str(project)):
+        pass
+    from library.tools import event_log
+    events = event_log.read_events(str(project))
+    assert [e["type"] for e in events] == [
+        event_log.LEASE_ACQUIRED, event_log.LEASE_RELEASED]
+    assert events[0]["task"] == "caption swap"
+    assert events[0]["fields"]["pid"] == events[1]["fields"]["pid"]
+
+
+def test_a_lease_with_no_project_emits_nothing(lock_dir):
+    """A lease that names no project leaves no event, not a wrong one.
+
+    Defect caught: a lease that emits into a default or shared log
+    when the caller named no project mixes one project's operations
+    into another's, and a resumed worker reads events that are not its
+    own.
+    """
+    decl = LeaseDeclaration(write=frozenset({ResourceRef("clip", "A004_C013")}))
+    with resource_lease(decl, "caption swap", heartbeat_interval=30.0):
+        pass
+    from library.tools import event_log
+    assert event_log.read_events(str(lock_dir)) == []
+
+
+def test_an_expired_lease_emits_an_expiry_event(lock_dir, project):
+    """A lease whose heartbeat went stale says so on the record.
+
+    Defect caught: an expiry that is only raised to the holder leaves
+    no event for a resumed worker, which cannot tell whether the dead
+    one's section finished or was killed mid-write - the difference
+    between continuing from the checkpoint and re-doing completed work.
+    """
+    decl = LeaseDeclaration(write=frozenset({ResourceRef("clip", "A004_C013")}))
+    with resource_lease(decl, "caption swap", heartbeat_interval=0.2,
+                        project=str(project), heartbeat_thread=False) as first:
+        first.heartbeat()
+        time.sleep(0.5)
+        with resource_lease(decl, "the next holder", wait=False,
+                           heartbeat_interval=30.0):
+            with pytest.raises(ResourceLeaseExpired):
+                first.heartbeat()
+    from library.tools import event_log
+    events = event_log.read_events(str(project))
+    assert event_log.LEASE_EXPIRED in [e["type"] for e in events]

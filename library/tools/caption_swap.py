@@ -161,7 +161,8 @@ def find_placements(project, basenames: set) -> dict:
     return found
 
 
-def swap_files(project, old_to_new: dict, stream=sys.stderr) -> dict:
+def swap_files(project, old_to_new: dict, stream=sys.stderr,
+               project_folder: str = "") -> dict:
     """Point every placement of each old file at its new file, verified.
 
     `old_to_new` maps an old pool path (or basename) to the new file's
@@ -172,6 +173,10 @@ def swap_files(project, old_to_new: dict, stream=sys.stderr) -> dict:
     placement that moved or lost its trim, or a pool item that still
     reports the old path, fails the run by name rather than reading as
     swapped.
+
+    `project_folder` names the project folder this swap's lease events
+    are emitted into - the event log is per-project, and a swap that
+    names none leaves no event for a resumed worker to read.
 
     The inventory, the swaps and the post-check hold ONE exclusive
     lease, so a placement cannot appear between the scan and the swap.
@@ -219,6 +224,7 @@ def swap_files(project, old_to_new: dict, stream=sys.stderr) -> dict:
                                      for path in pool_paths}),
             ),
             purpose="caption swap re-rendered segments",
+            project=project_folder,
         ):
             for old_path, group in sorted(by_old.items()):
                 new_path = group["new"]

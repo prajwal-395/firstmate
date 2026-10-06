@@ -78,7 +78,7 @@ from library.tools.model_task import (  # noqa: F401 - re-exports
 from library.tools import footage_identity, code_identity, step_ledger
 from library.tools import capability_outputs, stable_json
 from library.tools.project_layout import Area, ProjectLayout
-from library.tools import perf_ledger, provenance
+from library.tools import event_log, perf_ledger, provenance
 from library.tools import external_inputs, run_scope
 from library.tools.ren_refusal import RenRefusal
 from library.tools.versions import runs
@@ -2245,6 +2245,16 @@ def _run_step_work(project_dir: str, node_id: str, impl: dict, inputs: dict,
     # coordinator appends to the project's shared ledger.
     with tempfile.TemporaryDirectory(prefix="ren-step-perf-") as temp_dir:
         worker_ledger = Path(temp_dir) / perf_ledger.LEDGER_FILE
+        # The event log is per-project and shared: every worker appends
+        # to the same file, so the path goes in the environment for the
+        # worker and its children to inherit. Without this, the instance
+        # lease's events never fire - the log is a record, not a fence,
+        # and a hook that never fires is worse than no hook. The previous
+        # value is restored when the node finishes, so a long-lived
+        # process (and tests) do not keep writing to one project's log.
+        previous_event_log = os.environ.get(event_log.EVENT_LOG_ENV)
+        os.environ[event_log.EVENT_LOG_ENV] = str(
+            event_log.log_path(project_dir))
         perf = perf_ledger.begin(
             project_dir, node_id, run_id, node=node_id,
             ledger_path_override=worker_ledger)
@@ -2294,6 +2304,10 @@ def _run_step_work(project_dir: str, node_id: str, impl: dict, inputs: dict,
         if capability_row is not None:
             worker_rows.append(capability_row)
         result["perf_rows"] = worker_rows
+        if previous_event_log is None:
+            os.environ.pop(event_log.EVENT_LOG_ENV, None)
+        else:
+            os.environ[event_log.EVENT_LOG_ENV] = previous_event_log
         return result
 
 
