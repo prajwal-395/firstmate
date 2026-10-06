@@ -283,3 +283,91 @@ def test_plan_summary_statistics():
     assert summary["gesture_matched_blocks"] == 1
     assert summary["spine_clip_used"] == 2
     assert summary["unique_clips_used"] == 2
+
+
+def _make_duplicate_catalog():
+    """Two catalog entries for one take: the duplicate is byte-identical
+    footage under a different name."""
+    entry = {
+        "duration_seconds": 60.0,
+        "width": 1920,
+        "height": 1080,
+        "frame_rate": 30.0,
+    }
+    return [
+        {"clip_id": "clip_a", "source_file": "/footage/a.mp4", **entry},
+        {"clip_id": "clip_dup", "source_file": "/footage/dup.mp4", **entry},
+    ]
+
+
+def _make_duplicate_semantic():
+    """The same measurements under both ids: without the dedup read the
+    duplicate is a fully qualified candidate, an apparent second angle."""
+    doc = {
+        "analysis_metadata": {"pipeline_version": "v3"},
+        "scene": [{"start": 0, "end": 60, "location": "studio", "type": "interview"}],
+        "camera": [{"start": 0, "end": 60, "framing": "medium", "stability": "stable"}],
+        "assessment": {
+            "content_type": "interview",
+            "speech_present": True,
+            "usable_portions": "0-60",
+        },
+        "actions": [
+            {
+                "window": [0, 60],
+                "actions": [
+                    {
+                        "start": 0,
+                        "end": 60,
+                        "action": "person sitting talking",
+                        "body_language": "neutral posture",
+                        "speech_cue": "speaking",
+                    }
+                ],
+            }
+        ],
+    }
+    import copy
+    return {"clip_a": doc, "clip_dup": copy.deepcopy(doc)}
+
+
+def _make_duplicate_spine():
+    """Three speech blocks, all on the group's first clip."""
+    return {
+        "structure": [
+            {
+                "position": position,
+                "block_type": "speech",
+                "clip_id": "clip_a",
+                "source_start": float((position - 1) * 10),
+                "source_end": float(position * 10),
+                "timeline_start": float((position - 1) * 10),
+                "timeline_end": float(position * 10),
+            }
+            for position in (1, 2, 3)
+        ]
+    }
+
+
+def test_duplicate_group_is_placed_as_one_take():
+    """A duplicate group is one take under different names: the plan never
+    places two clips of one group as different takes.
+
+    The defect the PR 1863 review named: the dedup docstring claimed the
+    picture plan treats the group as one take while nothing in the plan
+    read `duplicate_groups`, so the duplicate stood as a candidate - an
+    apparent second angle of identical footage. Only the group's first
+    clip is now a candidate, so the duplicate is neither selected nor
+    even considered.
+    """
+    catalog = _make_duplicate_catalog()
+    semantic = _make_duplicate_semantic()
+    spine = _make_duplicate_spine()
+
+    plan = build_picture_plan(spine, catalog, semantic, [["clip_a", "clip_dup"]])
+
+    for block_plan in plan["blocks"]:
+        assert block_plan["selected_clip_id"] == "clip_a"
+        assert "clip_dup" not in [
+            c["clip_id"] for c in block_plan["candidates"]
+        ]

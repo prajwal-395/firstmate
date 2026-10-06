@@ -445,7 +445,8 @@
       "from": "catalog",
       "to": "plan_picture",
       "data_mapping": {
-        "clip_catalog": "clip_catalog"
+        "clip_catalog": "clip_catalog",
+        "duplicate_groups": "duplicate_groups"
       }
     },
     {

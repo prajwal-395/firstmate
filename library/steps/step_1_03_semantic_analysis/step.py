@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__))))))
 from library.tools.vision_schema_adapter import adapt_semantic_document, is_v3_profile
 from library.tools.project_layout import Area, ProjectLayout
-from library.tools import code_identity
+from library.tools import code_identity, footage_identity
 
 # Per-clip ceiling for the vision analyser. It was 600s, which is under
 # what a long clip needs: measured on this machine, a 3.6s clip costs 86s
@@ -131,6 +131,28 @@ def _analyse_missing(missing_paths, base_cmd, analysis_dir, run=None,
         print(f"  ⚠ {failure} on {os.path.basename(remaining[0])}, skipping",
               file=sys.stderr)
         pending = remaining[1:]
+
+
+def _alias_duplicate_profile(analysis_dir, dup_path, dup_stem, orig_stem):
+    """Give a duplicate clip the analyzed original's profile, by copy.
+
+    The duplicate was skipped (same bytes as the original), so it has no
+    profile of its own.  Copy the original's profile to the duplicate's
+    stem, rewriting the path keys so the join maps it to the duplicate's
+    clip_id - a lookup by either id then resolves to the same analysis.
+    """
+    src = os.path.join(analysis_dir, f"clip_profile_{orig_stem}_v3.json")
+    dst = os.path.join(analysis_dir, f"clip_profile_{dup_stem}_v3.json")
+    if not os.path.exists(src):
+        return
+    with open(src, encoding="utf-8") as handle:
+        profile = json.load(handle)
+    resolved = os.path.realpath(dup_path)
+    for key in ("file_path", "path", "source_file"):
+        if key in profile:
+            profile[key] = resolved
+    with open(dst, "w", encoding="utf-8") as handle:
+        json.dump(profile, handle, indent=2)
 
 
 # Profiles are keyed by the media file's STEM, and that is deliberate.
@@ -380,6 +402,8 @@ def analyse_semantics(raw_footage_files: list, project_folder: str = "",
     # Find clips that need analysis
     all_clips = []
     missing_clips = []
+    analyzed_digests: dict = {}
+    duplicates: list = []
     for file_info in raw_footage_files:
         if isinstance(file_info, dict):
             fpath = file_info["path"]
@@ -390,8 +414,15 @@ def analyse_semantics(raw_footage_files: list, project_folder: str = "",
 
         all_clips.append(fpath)
         stem = os.path.splitext(os.path.basename(fpath))[0]
-        if stem not in existing_profiles:
-            missing_clips.append({"path": fpath, "clip_id": clip_id})
+        if stem in existing_profiles:
+            continue
+        digest = footage_identity.fingerprint(fpath)["content_digest"]
+        if digest in analyzed_digests:
+            duplicates.append(
+                (fpath, clip_id, stem, analyzed_digests[digest]))
+            continue
+        analyzed_digests[digest] = stem
+        missing_clips.append({"path": fpath, "clip_id": clip_id})
 
     print(f"Semantic Analysis: {len(all_clips)} total clips, {len(existing_profiles)} already analyzed, {len(missing_clips)} remaining", file=sys.stderr)
 
@@ -414,6 +445,8 @@ def analyse_semantics(raw_footage_files: list, project_folder: str = "",
                          base_cmd, analysis_dir,
                          on_profile=publish_completed_profiles,
                          on_clip_failure=mark_clip_missing)
+        for dup_path, _dup_clip_id, dup_stem, orig_stem in duplicates:
+            _alias_duplicate_profile(analysis_dir, dup_path, dup_stem, orig_stem)
         publish_completed_profiles()
     else:
         print("All clips already have vision profiles, skipping analysis.", file=sys.stderr)

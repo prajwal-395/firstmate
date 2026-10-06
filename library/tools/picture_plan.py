@@ -254,7 +254,7 @@ def _carries_speech(semantic_doc: dict) -> bool:
 
 
 def _candidate_clips(clip_catalog: list, block: dict,
-                     semantic: dict) -> list:
+                     semantic: dict, skip: set | None = None) -> list:
     """All clips that could cover this block, scored and sorted.
 
     A clip is a candidate if it has a semantic description and its
@@ -280,6 +280,8 @@ def _candidate_clips(clip_catalog: list, block: dict,
             continue
         clip_id = clip.get("clip_id") or ""
         if not clip_id:
+            continue
+        if skip and clip_id in skip:
             continue
         if clip_id not in semantic:
             continue
@@ -340,18 +342,26 @@ def _score_candidate(candidate: dict, block: dict, semantic: dict,
 
 
 def build_picture_plan(timed_spine: dict, clip_catalog: list,
-                        semantic_docs: list) -> dict:
+                        semantic_docs: list,
+                        duplicate_groups: list | None = None) -> dict:
     """Build a global picture plan for the whole edit.
 
     For each block in the spine, selects the best clip considering
     the whole edit: gesture coverage, continuity, variety, and
     illustration of the spoken content.
 
+    A duplicate group is one take under different names: only its first
+    clip is a candidate, so the plan never places two clips of one
+    duplicate group as different takes.
+
     Returns a dict with:
         blocks: per-block shot selections
         summary: aggregate statistics
     """
     semantic = build_semantic_lookup(semantic_docs, clip_catalog)
+    skip = set()
+    for group in duplicate_groups or []:
+        skip.update(group[1:])
     blocks = _as_list(timed_spine.get("structure"))
 
     used_clips: dict = {}
@@ -365,7 +375,7 @@ def build_picture_plan(timed_spine: dict, clip_catalog: list,
             continue
 
         block_text = _block_text(block, semantic)
-        candidates = _candidate_clips(clip_catalog, block, semantic)
+        candidates = _candidate_clips(clip_catalog, block, semantic, skip)
 
         if not candidates:
             block_plans.append({

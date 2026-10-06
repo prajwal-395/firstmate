@@ -41,8 +41,10 @@ def main():
     timed_spine = data["timed_spine"]
     clip_catalog = data["clip_catalog"]
     semantic_docs = data.get("semantic_analysis_documents", {})
+    duplicate_groups = data.get("duplicate_groups", [])
 
-    plan = build_picture_plan(timed_spine, clip_catalog, semantic_docs)
+    plan = build_picture_plan(
+        timed_spine, clip_catalog, semantic_docs, duplicate_groups)
 
     print(json.dumps({"picture_plan": plan}))
 

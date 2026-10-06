@@ -699,9 +699,10 @@ def detect_duplicate_groups(entries: list) -> list:
     size plus the digest of the first and last mebibyte, the identity
     `footage_identity.fingerprint` already gives the rest of the
     pipeline.  A card copied to a backup, or the same take imported
-    twice under different names, is then ONE take the editor can
-    choose between, not two clips competing for the same moment - and
-    the vision analysis is not paid twice for identical bytes.
+    twice under different names, is then ONE take: the semantic
+    analysis skips a duplicate (the vision analysis is not paid twice
+    for identical bytes) and the picture plan treats the group as one
+    take.
 
     The fingerprint is the pipeline's identity standard, not a
     whole-file hash: two mebibytes a clip cost milliseconds, and a
