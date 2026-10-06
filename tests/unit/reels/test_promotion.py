@@ -30,6 +30,14 @@ from __future__ import annotations
 import json
 from unittest.mock import patch
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _leases_off_machine(tmp_path, monkeypatch):
+    """Proof removal declares its timeline now: leases stay in tmp."""
+    directory = tmp_path / "locks"
+    directory.mkdir()
+    monkeypatch.setenv("PIPELINE_RESOLVE_LOCK_DIR", str(directory))
 from library.tools import reel_replace_guard as guard
 from library.tools.reel_build import (
     ReelBuildError,

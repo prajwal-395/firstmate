@@ -7,6 +7,8 @@ import json
 import os
 import sqlite3
 import sys
+import threading
+import time
 import pytest
 from pathlib import Path
 from library.tools import resolve_bin_layout as bins
@@ -1372,3 +1374,56 @@ def _head(root) -> str:
     return subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(root),
                           capture_output=True, text=True,
                           encoding="utf-8", check=False).stdout.strip()
+
+
+def test_remove_proof_waits_for_a_touchup_on_the_proof_timeline(tmp_path, project_root):
+    """A proof removal and a writer on its timeline serialise: wait.
+
+    Defect caught: with no declaration the removal deletes a timeline
+    another pass is holding - the catastrophic DeleteClips case aimed
+    at a live target. On origin/main removal returns before the holder
+    releases.
+    """
+    from library.tools.execution import remove_proof
+    from library.tools.resource_leases import (
+        LeaseDeclaration, ResourceRef, resource_lease)
+    proj = FakeProject("Fake")
+    pool = proj.GetMediaPool()
+    root = pool.GetRootFolder()
+    reels = pool.AddSubFolder(root, bins.REELS_BIN)
+    pool.AddSubFolder(reels, bins.REELS_PROOF_BIN)  # becomes current
+    pool.next_timeline = FakeTimeline(CAPTAINS_PROOF_TIMELINE,
+                                      pool_uid="t-proof")
+    pool.CreateEmptyTimeline(CAPTAINS_PROOF_TIMELINE)
+    pool.SetCurrentFolder(root)
+    plan = {
+        "timeline": {"item_id": "t-proof", "name": CAPTAINS_PROOF_TIMELINE,
+                     "folder": f"{bins.REELS_BIN}/{bins.REELS_PROOF_BIN}"},
+        "bins": [],
+        "verified_untouched": [],
+    }
+    holder_decl = LeaseDeclaration(
+        write=frozenset(
+            {ResourceRef("timeline", CAPTAINS_PROOF_TIMELINE)}),
+        exclusive=frozenset(
+            {ResourceRef("timeline", CAPTAINS_PROOF_TIMELINE)}),
+    )
+    released_at: list = []
+
+    def hold():
+        with resource_lease(holder_decl, "touch up the proof",
+                           heartbeat_interval=30.0):
+            time.sleep(2.0)
+        released_at.append(time.monotonic())
+
+    holder = threading.Thread(target=hold)
+    holder.start()
+    time.sleep(0.3)  # let the touch-up acquire first
+    result = remove_proof.remove_proof(
+        proj, plan, str(tmp_path / "proof.json"))
+    returned_at = time.monotonic()
+    holder.join(30.0)
+    assert released_at, "the touch-up never released"
+    assert returned_at >= released_at[0], \
+        "removal returned mid-touch-up"
+    assert result["timeline"] == CAPTAINS_PROOF_TIMELINE

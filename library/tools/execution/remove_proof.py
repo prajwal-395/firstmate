@@ -38,6 +38,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from library.tools import journal_naming
+from library.tools.resource_leases import (
+    LeaseDeclaration,
+    ResourceRef,
+    resource_lease,
+)
 
 from library.tools.proof_cleanup import (
     PROTECTED_TIMELINES,
@@ -89,104 +94,130 @@ def remove_proof(project, plan: dict, journal_path: str) -> dict:
             raise ProofRemovalRefused(
                 holds.refusal_message(timeline["name"],
                                       live_holds[timeline["name"]]))
-    try:
-        artefacts, _, _, _ = read_pool(project)
-        by_id = {a.item_id: a for a in artefacts}
+    # What this run may delete, named before the first deletion:
+    # the proof timeline itself, every retired bin path, and the
+    # contents by file path (the spelling the prune pass uses)
+    # falling back to item id. A prune on a shared file, or a
+    # filing pass re-homing a shared bin, serialises against the
+    # removal instead of racing it.
+    _proof_bins = set()
+    _proof_files = set()
+    for _bin in plan.get("bins", []):
+        if "/".join(_bin["path"]):
+            _proof_bins.add("/".join(_bin["path"]))
+        for _content in (_bin.get("contents") or []):
+            _file = _content.get("file_path", "")
+            _proof_files.add(_file if _file
+                             else _content["item_id"])
+    with resource_lease(
+        LeaseDeclaration(
+            exclusive=(
+                frozenset({ResourceRef("timeline", timeline["name"])})
+                | frozenset({ResourceRef("media_pool_bin", _bin)
+                             for _bin in _proof_bins})
+                | frozenset({ResourceRef("clip", _file)
+                             for _file in _proof_files})),
+        ),
+        purpose=f"remove proof {timeline['name']}",
+    ):
+        try:
+            artefacts, _, _, _ = read_pool(project)
+            by_id = {a.item_id: a for a in artefacts}
 
-        live = by_id.get(timeline["item_id"])
-        if live is None or live.kind != "timeline" \
-                or live.name != timeline["name"]:
-            raise ProofRemovalRefused(
-                f"timeline {timeline['name']!r} is not in the pool as "
-                f"planned. Nothing was removed.")
-
-        proxies: dict = {}
-
-        def index_clips(folder) -> None:
-            for clip in (folder.GetClipList() or []):
-                proxies[clip.GetUniqueId()] = clip
-            for sub in (folder.GetSubFolderList() or []):
-                index_clips(sub)
-
-        index_clips(pool.GetRootFolder())
-
-        timeline_proxy = proxies.get(timeline["item_id"])
-        if timeline_proxy is None:
-            raise ProofRemovalRefused(
-                f"timeline {timeline['name']!r} has no pool item. "
-                f"Nothing was removed.")
-        if (timeline_proxy.GetClipProperty("Type") or "") != "Timeline":
-            raise ProofRemovalRefused(
-                f"{timeline['name']!r} no longer reports Type "
-                f"'Timeline' in the pool. Nothing was removed.")
-
-        targets = [(timeline["name"], timeline_proxy, "timeline", "")]
-        doomed = timeline["name"]
-        for bin_entry in plan["bins"]:
-            for content in bin_entry.get("contents") or []:
-                artefact = by_id.get(content["item_id"])
-                survivors = (set(artefact.placed_by or ())
-                             - {doomed} if artefact is not None else set())
-                if artefact is None or artefact.kind != "clip" \
-                        or survivors:
-                    raise ProofRemovalRefused(
-                        f"{content['name']!r} is still played by a "
-                        f"surviving timeline. Nothing was removed.")
-                proxy = proxies.get(content["item_id"])
-                if proxy is None:
-                    raise ProofRemovalRefused(
-                        f"{content['name']!r} is in the plan and not in "
-                        f"the pool. Nothing was removed.")
-                if (proxy.GetClipProperty("Type") or "") == "Timeline":
-                    raise ProofRemovalRefused(
-                        f"{content['name']!r} reports Type 'Timeline' "
-                        f"in the pool. Nothing was removed.")
-                targets.append((content["name"], proxy, "clip",
-                                content.get("file_path", "")))
-
-        if not pool.DeleteClips([proxy for _, proxy, _, _ in targets]):
-            raise ProofRemovalRefused(
-                f"DeleteClips returned a falsy answer for "
-                f"{len(targets)} item(s) of proof "
-                f"{timeline['name']!r}. The bin(s) are still there "
-                f"and nothing further was removed.")
-        journal["removed_items"] = [
-            {"name": name, "kind": kind, "file_path": file_path}
-            for name, _proxy, kind, file_path in targets]
-
-        tree = read_bin_tree(project)
-        for bin_entry in sorted(
-                plan["bins"], key=lambda e: ([-len(e["path"])]
-                                             + list(e["path"]))):
-            path = tuple(bin_entry["path"])
-            folder = tree.get(path)
-            if folder is None:
+            live = by_id.get(timeline["item_id"])
+            if live is None or live.kind != "timeline" \
+                    or live.name != timeline["name"]:
                 raise ProofRemovalRefused(
-                    f"{'/'.join(path)!r} is not in the pool. The "
-                    f"timeline and items are already gone; the "
-                    f"journal names them.")
-            kept_below = sorted(
-                "/".join(b) for b in tree
-                if len(b) > len(path) and b[:len(path)] == path)
-            if kept_below:
+                    f"timeline {timeline['name']!r} is not in the pool as "
+                    f"planned. Nothing was removed.")
+
+            proxies: dict = {}
+
+            def index_clips(folder) -> None:
+                for clip in (folder.GetClipList() or []):
+                    proxies[clip.GetUniqueId()] = clip
+                for sub in (folder.GetSubFolderList() or []):
+                    index_clips(sub)
+
+            index_clips(pool.GetRootFolder())
+
+            timeline_proxy = proxies.get(timeline["item_id"])
+            if timeline_proxy is None:
                 raise ProofRemovalRefused(
-                    f"{'/'.join(path)!r} still has sub-bin(s) below "
-                    f"it: {', '.join(kept_below)}. Nothing further "
-                    f"was removed.")
-            if not pool.DeleteFolders([folder]):
+                    f"timeline {timeline['name']!r} has no pool item. "
+                    f"Nothing was removed.")
+            if (timeline_proxy.GetClipProperty("Type") or "") != "Timeline":
                 raise ProofRemovalRefused(
-                    f"DeleteFolders({'/'.join(path)!r}) returned a "
-                    f"falsy answer. Nothing further was removed.")
-            journal["bins"].append({
-                "path": "/".join(path),
-                "contents": bin_entry.get("contents") or []})
-            del tree[path]
-    finally:
-        if before_current:
-            pool.SetCurrentFolder(before_current)
-        Path(journal_path).parent.mkdir(parents=True, exist_ok=True)
-        Path(journal_path).write_text(
-            json.dumps(journal, indent=2), encoding="utf-8")
+                    f"{timeline['name']!r} no longer reports Type "
+                    f"'Timeline' in the pool. Nothing was removed.")
+
+            targets = [(timeline["name"], timeline_proxy, "timeline", "")]
+            doomed = timeline["name"]
+            for bin_entry in plan["bins"]:
+                for content in bin_entry.get("contents") or []:
+                    artefact = by_id.get(content["item_id"])
+                    survivors = (set(artefact.placed_by or ())
+                                 - {doomed} if artefact is not None else set())
+                    if artefact is None or artefact.kind != "clip" \
+                            or survivors:
+                        raise ProofRemovalRefused(
+                            f"{content['name']!r} is still played by a "
+                            f"surviving timeline. Nothing was removed.")
+                    proxy = proxies.get(content["item_id"])
+                    if proxy is None:
+                        raise ProofRemovalRefused(
+                            f"{content['name']!r} is in the plan and not in "
+                            f"the pool. Nothing was removed.")
+                    if (proxy.GetClipProperty("Type") or "") == "Timeline":
+                        raise ProofRemovalRefused(
+                            f"{content['name']!r} reports Type 'Timeline' "
+                            f"in the pool. Nothing was removed.")
+                    targets.append((content["name"], proxy, "clip",
+                                    content.get("file_path", "")))
+
+            if not pool.DeleteClips([proxy for _, proxy, _, _ in targets]):
+                raise ProofRemovalRefused(
+                    f"DeleteClips returned a falsy answer for "
+                    f"{len(targets)} item(s) of proof "
+                    f"{timeline['name']!r}. The bin(s) are still there "
+                    f"and nothing further was removed.")
+            journal["removed_items"] = [
+                {"name": name, "kind": kind, "file_path": file_path}
+                for name, _proxy, kind, file_path in targets]
+
+            tree = read_bin_tree(project)
+            for bin_entry in sorted(
+                    plan["bins"], key=lambda e: ([-len(e["path"])]
+                                                 + list(e["path"]))):
+                path = tuple(bin_entry["path"])
+                folder = tree.get(path)
+                if folder is None:
+                    raise ProofRemovalRefused(
+                        f"{'/'.join(path)!r} is not in the pool. The "
+                        f"timeline and items are already gone; the "
+                        f"journal names them.")
+                kept_below = sorted(
+                    "/".join(b) for b in tree
+                    if len(b) > len(path) and b[:len(path)] == path)
+                if kept_below:
+                    raise ProofRemovalRefused(
+                        f"{'/'.join(path)!r} still has sub-bin(s) below "
+                        f"it: {', '.join(kept_below)}. Nothing further "
+                        f"was removed.")
+                if not pool.DeleteFolders([folder]):
+                    raise ProofRemovalRefused(
+                        f"DeleteFolders({'/'.join(path)!r}) returned a "
+                        f"falsy answer. Nothing further was removed.")
+                journal["bins"].append({
+                    "path": "/".join(path),
+                    "contents": bin_entry.get("contents") or []})
+                del tree[path]
+        finally:
+            if before_current:
+                pool.SetCurrentFolder(before_current)
+            Path(journal_path).parent.mkdir(parents=True, exist_ok=True)
+            Path(journal_path).write_text(
+                json.dumps(journal, indent=2), encoding="utf-8")
 
     journal["journal_path"] = journal_path
     return {"timeline": timeline["name"],
