@@ -278,3 +278,55 @@ def test_a_resumed_task_continues_from_the_killed_workers_checkpoint(
         resource_leases.event_log.LEASE_ACQUIRED,
         resource_leases.event_log.LEASE_RELEASED,
     ]
+
+
+# ── The reader front door ──────────────────────────────────────────
+
+def test_main_checkpoint_prints_the_newest_checkpoint_state(project,
+                                                           capsys):
+    """A resumed worker asks where its task stopped, through the reader.
+
+    Defect caught: `last_checkpoint` exists but no reader reaches it -
+    the resume answer lives one import away from every worker, so the
+    killed worker's state is readable only in-process, never through
+    the log's own front door (`ren events --checkpoint`).
+    """
+    from library.tools.event_log import _main
+    checkpoint(project, "ren-04", step="acquire_lease")
+    checkpoint(project, "ren-04", step="render_preview")
+    checkpoint(project, "qc-02", step="grade")
+    assert _main([str(project), "--checkpoint", "ren-04"]) == 0
+    out = capsys.readouterr().out
+    assert "render_preview" in out
+    assert "acquire_lease" not in out
+    assert "grade" not in out
+
+
+def test_main_checkpoint_with_none_is_honest(project, capsys):
+    """No checkpoint reads as start-over, never another task's state.
+
+    Defect caught: a reader that prints the newest checkpoint of ANY
+    task when the asked one has none resumes a worker from state it
+    never reached.
+    """
+    from library.tools.event_log import _main
+    checkpoint(project, "ren-04", step="acquire_lease")
+    assert _main([str(project), "--checkpoint", "ren-09"]) == 0
+    assert "start from the beginning" in capsys.readouterr().out
+
+
+def test_main_lists_events_oldest_first(project, capsys):
+    """The listing still works: every event in order, one per line.
+
+    Guard: the checkpoint flag must not change the default listing -
+    a reader that lists newest-first, or drops events, misleads the
+    worker about what already ran.
+    """
+    from library.tools.event_log import _main
+    emit(project, "lease_acquired", task="ren-04")
+    checkpoint(project, "ren-04", step="render_preview")
+    assert _main([str(project)]) == 0
+    lines = capsys.readouterr().out.strip().splitlines()
+    assert len(lines) == 2
+    assert "lease_acquired" in lines[0]
+    assert "checkpoint" in lines[1]

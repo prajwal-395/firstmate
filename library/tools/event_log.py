@@ -278,7 +278,7 @@ def checkpoint(project_folder, task: str, **state: Any) -> dict:
 
 
 def _main(argv=None) -> int:
-    """`python -m library.tools.event_log <project> [--task <id>] [--since <seq>]."""
+    """`python -m library.tools.event_log <project> [--task <id>] [--since <seq>] [--checkpoint <id>]."""
     parser = argparse.ArgumentParser(
         prog="python -m library.tools.event_log",
         description="Read a project's event log: every operation its "
@@ -288,7 +288,22 @@ def _main(argv=None) -> int:
                         help="only this worker's events")
     parser.add_argument("--since", type=int, default=0,
                         help="only events after this sequence number")
+    parser.add_argument("--checkpoint", default="",
+                        help="print the newest checkpoint state for this "
+                             "task id and exit - what a resumed worker "
+                             "continues from")
     args = parser.parse_args(argv)
+    if args.checkpoint:
+        found = last_checkpoint(args.project, args.checkpoint)
+        if found is None:
+            print(f"event log: no checkpoint for task {args.checkpoint} - "
+                  f"start from the beginning.")
+        else:
+            state = (found.get("fields") or {}).get("state") or {}
+            print(f"checkpoint {found.get('seq')} {found.get('at')} "
+                  f"{found.get('task', '')} "
+                  f"{json.dumps(state, sort_keys=True)}")
+        return 0
     events = read_events(args.project, task=args.task, since=args.since)
     for event in events:
         fields = event.get("fields") or {}
