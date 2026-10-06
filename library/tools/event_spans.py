@@ -815,17 +815,37 @@ def catalog_sources(project_folder: str) -> List[Tuple[str, str, str]]:
 
 def build_project_events(project_folder: str,
                          root: Optional[Path] = None) -> dict:
-    """M7 for every catalog source that carries M3 and M3b."""
-    results, failed = [], []
-    for clip_id, digest, path in catalog_sources(project_folder):
+    """M7 for every catalog source that carries M3 and M3b.
+
+    One lane per distinct digest: catalog_sources dedups serially up
+    front, and each unit is pure compute over its M3/M3b records plus
+    one atomic slot write - no shared model, no lock, no warm-up. Input
+    order is restored, so the report is identical to serial.
+    """
+    from collections import deque
+
+    from library.tools.concurrency_routing import run_lanes
+
+    def _one(job):
+        clip_id, digest, path = job
         try:
             account = build_source_events(digest, path, root)
         except Exception as exc:
-            failed.append(clip_id)
-            results.append({"clip_id": clip_id, "content_digest": digest,
-                            "failed": f"{type(exc).__name__}: {exc}"})
-            continue
-        results.append({"clip_id": clip_id, **account})
+            return ({"clip_id": clip_id, "content_digest": digest,
+                     "failed": f"{type(exc).__name__}: {exc}"}, clip_id)
+        return ({"clip_id": clip_id, **account}, None)
+
+    results, failed = [], []
+    measured = {}
+    units = catalog_sources(project_folder)
+    for row, failed_id in run_lanes(_one, units):
+        measured.setdefault(row["clip_id"], deque()).append(row)
+        if failed_id is not None:
+            failed.append(failed_id)
+    for clip_id, _digest, _path in units:
+        queue = measured.get(clip_id)
+        if queue:
+            results.append(queue.popleft())
     return {"project_folder": str(Path(project_folder).resolve()),
             "clips": results, "failed": failed}
 

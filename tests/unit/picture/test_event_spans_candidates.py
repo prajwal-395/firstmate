@@ -187,3 +187,58 @@ def test_the_prompt_judges_a_sequence_so_an_event_description_works():
     prompt = span_verification.PROMPT.format(n=4, statement="enters the frame")
     assert "enters the frame" in prompt
     assert "across the sequence" in prompt
+
+
+class TestEventLanes:
+    """`build_project_events` runs one lane per distinct digest on the
+    bounded FREE lanes. Dedup already happens serially in
+    catalog_sources; each unit is pure compute plus one atomic slot
+    write, so the lanes take no lock. A wiring that silently
+    serializes must fail the overlap assertion here, not in
+    production."""
+
+    def test_rows_match_serial_contract_and_lanes_overlap(
+            self, monkeypatch):
+        import threading
+        import time
+
+        from library.tools import event_spans
+        from library.tools.concurrency_routing import lane_width
+
+        units = [(f"clip_{i:03d}", "d" * 63 + str(i),
+                  f"/cam/C{i:03d}.MOV") for i in (1, 2, 3)]
+        monkeypatch.setattr(event_spans, "catalog_sources",
+                            lambda project_folder: list(units))
+
+        spans = []
+        spans_lock = threading.Lock()
+
+        def fake_build(digest, path, root=None):
+            if digest.endswith("2"):
+                raise RuntimeError("no M3 persons")
+            start = time.monotonic()
+            time.sleep(0.2)
+            with spans_lock:
+                spans.append((start, time.monotonic()))
+            return {"content_digest": digest, "faces_assigned": 1}
+
+        monkeypatch.setattr(event_spans, "build_source_events",
+                            fake_build)
+
+        report = event_spans.build_project_events("/proj")
+
+        rows = report["clips"]
+        assert [r["clip_id"] for r in rows] == [
+            "clip_001", "clip_002", "clip_003"]
+        assert report["failed"] == ["clip_002"]
+        assert rows[1]["failed"] == "RuntimeError: no M3 persons"
+        assert rows[0]["faces_assigned"] == 1
+
+        width = lane_width()
+        peak, depth, events = 0, 0, sorted(
+            [(s, 1) for s, _ in spans] + [(e, -1) for _, e in spans])
+        for _, delta in events:
+            depth += delta
+            peak = max(peak, depth)
+        assert peak >= min(2, width), (
+            f"lanes never overlapped (peak {peak}, width {width})")
