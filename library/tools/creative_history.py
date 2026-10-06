@@ -1,10 +1,11 @@
 """Read (and name) a project's creative history: commits, branches, tags.
 
-The `ren` read verbs over the commit graph `undo_journal` records -
-`ren commits`, `ren branches`, `ren tag` - reached as
+The `ren` verbs over the commit graph `undo_journal` records -
+`ren commits`, `ren branches`, `ren tag`, `ren revert` - reached as
 `python3 -m library.tools.creative_history <mode> <project> [...]`,
 one mode per verb the way `resolve_axi ownership` is one mode of its
-module. Read-only, except `tag <name> <commit>` which records the tag.
+module. Read-only, except `tag <name> <commit>` and `revert
+<commit>`, which record.
 
 A commit id may be given whole or as a unique leading prefix. An
 unknown id is refused naming what was looked up; a prefix two commits
@@ -18,7 +19,7 @@ import argparse
 import json
 import sys
 
-MODES = ("commits", "branches", "tag")
+MODES = ("commits", "branches", "tag", "revert")
 
 
 class HistoryRefused(RuntimeError):
@@ -111,7 +112,8 @@ def _cmd_commits(project: str, args) -> int:
         return 2
     if args.name is not None or args.commit is not None:
         print("creative_history: commits takes no name or commit - "
-              "a tag does (`ren tag <project> <name> <commit>`)",
+              "a tag names one (`ren tag <project> <name> <commit>`), "
+              "a revert takes one (`ren revert <project> <commit>`)",
               file=sys.stderr)
         return 2
     if args.show is not None:
@@ -157,7 +159,8 @@ def _cmd_branches(project: str, args) -> int:
     if args.name is not None or args.commit is not None:
         print("creative_history: branches takes no name or commit - "
               "a branch is read with --show, a version named with "
-              "`ren tag <project> <name> <commit>`",
+              "`ren tag <project> <name> <commit>`, a change reverted "
+              "with `ren revert <project> <commit>`",
               file=sys.stderr)
         return 2
     if args.show is not None:
@@ -237,19 +240,66 @@ def _cmd_tag(project: str, args) -> int:
     return 0
 
 
+def _cmd_revert(project: str, args) -> int:
+    from library.tools import undo_journal as uj
+
+    if args.timeline is not None or args.show is not None:
+        print("creative_history: --timeline/--show select commits - "
+              "a revert takes its target as a positional "
+              "(`ren revert <project> <commit>`)",
+              file=sys.stderr)
+        return 2
+    if args.list or args.move:
+        print("creative_history: --list/--move name versions - a revert "
+              "records a commit (`ren revert <project> <commit>`)",
+              file=sys.stderr)
+        return 2
+    target_ref = args.commit or args.name
+    if args.name is not None and args.commit is not None:
+        print("creative_history: revert takes one commit, not two - "
+              "`ren revert <project> <commit>`",
+              file=sys.stderr)
+        return 2
+    if target_ref is None:
+        print("creative_history: revert needs a commit "
+              "(`ren revert <project> <commit>`)",
+              file=sys.stderr)
+        return 2
+    try:
+        target = _resolve_commit(project, target_ref)
+    except HistoryRefused as refused:
+        print(f"creative_history: {refused}", file=sys.stderr)
+        return 2
+    try:
+        reverted = uj.revert_commit(project, target.get("id"),
+                                    note=args.note or "")
+    except uj.RevertRefused as refused:
+        print(f"creative_history: {refused}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps(reverted, indent=2, sort_keys=True, default=str))
+    else:
+        print(f"reverted {_short(target.get('id'))} -> "
+              f"{_short(reverted.get('id'))} "
+              f"[{reverted.get('timeline')}] {reverted.get('intent')}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="creative_history",
         description="Read (and name) a project's creative history: the "
                     "commits touch-ups record, the branches that point at "
-                    "them, the tags that name versions. Read-only, except "
-                    "`tag <name> <commit>`.")
+                    "them, the tags that name versions, the reverts of "
+                    "earlier changes. Read-only, except `tag <name> "
+                    "<commit>` and `revert <commit>`.")
     parser.add_argument("mode", choices=MODES)
     parser.add_argument("project", help="a project slug or path")
     parser.add_argument("name", nargs="?",
-                        help="tag: the version name to record")
+                        help="tag: the version name to record; "
+                             "revert: the commit to revert")
     parser.add_argument("commit", nargs="?",
-                        help="tag: the commit it points at "
+                        help="tag: the commit the version points at "
                              "(whole id or unique prefix)")
     parser.add_argument("--timeline",
                         help="commits: only this timeline's chain (exact name)")
@@ -259,7 +309,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--list", action="store_true",
                         help="tag: list tags instead of recording one")
     parser.add_argument("--note", default="",
-                        help="tag: why this commit is worth keeping")
+                        help="tag: why this commit is worth keeping; "
+                             "revert: why it is reverted")
     parser.add_argument("--move", action="store_true",
                         help="tag: move a name that already points somewhere")
     parser.add_argument("--json", action="store_true")
@@ -278,6 +329,8 @@ def main(argv=None) -> int:
         return _cmd_commits(project, args)
     if args.mode == "branches":
         return _cmd_branches(project, args)
+    if args.mode == "revert":
+        return _cmd_revert(project, args)
     return _cmd_tag(project, args)
 
 

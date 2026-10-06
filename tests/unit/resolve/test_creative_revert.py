@@ -21,15 +21,17 @@ Each test names a defect the revert closes:
   stands on a history that does not contain it;
 - a `ren revert` for an id nothing answers that succeeds, so a revert
   of nothing is recorded;
+- a `ren revert` that takes whole ids only, so the captain pastes
+  64 hex characters where a short prefix names the commit;
 - a verb registered in only one of the two front doors (`ren` Python
   vs the native CLI), so it is unreachable even though it is
   implemented.
 
 Reverts are recorded offline under `pipeline_output/review/` as
 versioned text, like the commits, so every project is under `tmp_path`
-and no Resolve is touched. Commit ids are whole: unique-prefix
-addressing belongs to the history reads, and this slice stays exact
-so the two never duplicate addressing logic.
+and no Resolve is touched. `ren revert` is a mode of the history CLI
+(`creative_history`), so commit addressing is whole-or-unique-prefix
+everywhere, never duplicated per verb.
 """
 from __future__ import annotations
 
@@ -42,7 +44,7 @@ if str(REPO) not in sys.path:
 
 from library.tools import timeline_diff  # noqa: E402
 from library.tools import undo_journal as uj  # noqa: E402
-from library.tools import creative_revert as revert_verb  # noqa: E402
+from library.tools import creative_history as ch  # noqa: E402
 from ren import commands as ren_commands  # noqa: E402
 
 
@@ -265,22 +267,30 @@ def test_revert_refuses_a_commit_off_its_timeline_line(tmp_path):
         raise AssertionError("an off-line commit was reverted")
 
 
-def test_verb_refuses_an_unknown_id_and_reverts_a_known_one(tmp_path, capsys):
-    """`ren revert` exits 2 naming an unknown id, 0 with a revert line."""
+def test_verb_refuses_an_unknown_id_and_reverts_a_known_prefix(tmp_path,
+                                                              capsys):
+    """`ren revert` exits 2 naming an unknown id, 0 on a prefix revert.
+
+    The defects: a revert of nothing recorded as a commit, and a
+    revert that takes whole ids only, so the captain pastes 64 hex
+    characters where a short prefix names the commit.
+    """
     project = _project(tmp_path)
     target = _commit(project, "Reel 1", timeline_diff.diff_timelines(
         _tracks_with("clip_001", 0, 100),
         _tracks_with("clip_001", 50, 150)))
-    assert revert_verb.main([project, "deadbeef"]) == 2
+    assert ch.main(["revert", project, "deadbeef"]) == 2
     assert "deadbeef" in capsys.readouterr().err
-    assert revert_verb.main([project, target["id"]]) == 0
+    assert ch.main(["revert", project, target["id"][:12]]) == 0
     out = capsys.readouterr().out
     assert target["id"][:12] in out
     assert "reverted" in out
+    replayed = uj.latest_commit_for_timeline(project, "Reel 1")
+    assert replayed["artifacts"] == {"reverts": target["id"]}
 
 
 def test_revert_verb_is_registered_in_both_front_doors():
-    """`revert` reaches past both verb lists.
+    """`revert` reaches past both verb lists, through the history CLI.
 
     The defect the two registries' own comments warn about: a verb
     the Python list knows but the native list does not is
@@ -288,7 +298,8 @@ def test_revert_verb_is_registered_in_both_front_doors():
     the implementation.
     """
     by_name = {verb.name: verb for verb in ren_commands.VERBS}
-    assert by_name["revert"].module_argv == ("library.tools.creative_revert",)
+    assert by_name["revert"].module_argv == ("library.tools.creative_history",
+                                             "revert")
     native = (REPO / "native" / "ren-cli" / "src" / "commands.rs").read_text(
         encoding="utf-8")
     assert 'name: "revert"' in native
