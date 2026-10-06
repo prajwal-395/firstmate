@@ -1510,8 +1510,13 @@ _REGISTRY: tuple[Operation, ...] = (
         execution=ExecutionPolicy(phases=(
             ExecutionPhase(
                 name="dispatch",
+                resolve_mode=RESOLVE_EXCLUSIVE,
                 entry_points=("library.tools.reel_build.rebuild_reels_in_project",),
-                why="Derivation is free; Resolve holds are taken around placement."),
+                why=("The whole build holds the exclusive instance lease, "
+                     "connect through promotion: measured 2026-10-05, three "
+                     "concurrent live builds interleaved their writes in the "
+                     "gaps between per-section holds and one build's staging "
+                     "timeline was deleted under it.")),
             ExecutionPhase(
                 name="apply", resolve_mode=RESOLVE_EXCLUSIVE,
                 locality=LOCALITY_TIMELINE,

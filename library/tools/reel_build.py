@@ -12107,17 +12107,18 @@ def _file_reel_summary(project_folder: str, *, number: int, name: str,
         pass
 
 
+@under_lease("build reels", exclusive=True)
 def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
-                             verify: bool = True, only=None,
-                             name_suffix: str = "",
-                             organise: bool = True,
-                             intent_file: str = "",
-                             allow_drops=None,
-                             supersede=None,
-                             retain=None,
-                             accept_editor_changes=None,
-                             reuse_unchanged: bool = True,
-                             placement_mode: str = "auto") -> dict:
+                              verify: bool = True, only=None,
+                              name_suffix: str = "",
+                              organise: bool = True,
+                              intent_file: str = "",
+                              allow_drops=None,
+                              supersede=None,
+                              retain=None,
+                              accept_editor_changes=None,
+                              reuse_unchanged: bool = True,
+                              placement_mode: str = "auto") -> dict:
     """Build every approved reel, and RETURN the record of what was placed.
 
     NOTHING APPROVED IS DELETED BEFORE THE GATE PASSES. This used to
@@ -12235,11 +12236,25 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     Running the verifier in both places would report one set of
     findings twice under two step ids.
 
-    THE LEASE this call holds is the placement it exists to protect,
-    never the whole build. The instance cursor (AGENTS.md 5,
-    `library/tools/resolve_lock.py`) is established and written
-    through in narrow sections, and each holds the instance only
-    for itself:
+    THE LEASE this call holds is the WHOLE BUILD, start to finish.
+    It takes the exclusive instance lease (`"build reels"`,
+    EXCLUSIVE) at its first line and holds it to its last - connect,
+    derivation, placement, the gate, promotion, the sweep. A second
+    build waits at its own first acquisition (its connect, which is
+    the whole build too) and refuses with a named reason after the
+    bounded wait if the first never finishes. Measured 2026-10-05:
+    three workers ran live builds in the captain's project at once
+    and their writes interleaved in the gaps between the old
+    per-section holds - one build died reading a timeline count that
+    no longer matched the project, another's staging timeline was
+    deleted under it. The per-write cursor check makes each write
+    land where it was aimed; it cannot protect a READ from a
+    concurrent deletion, and it cannot stop one build's discard path
+    from deleting another's staging.
+
+    The per-section holds below remain, as reentrant no-ops under
+    the outer hold. They document each section's critical section
+    and are correct if the outer hold is ever removed:
 
     - connect (`"build reels connect"`, EXCLUSIVE, seconds): the
       scripting handshake blocks unboundedly while another lane
@@ -12254,8 +12269,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
       the carried self-read, the rebuild-need decision and the
       placement. The per-reel derivation before it - Remotion caption
       and card renders, model-answer reads, digest computation -
-      touches no Resolve state and holds nothing, so lanes overlap
-      there and serialise only here.
+      touches no Resolve state, so it runs under the outer hold
+      without contending.
     - the batch Fusion comp pass (`"apply fusion comps"`, EXCLUSIVE):
       one subprocess, one Resolve connection, one lease for every
       reel's comps. The per-reel subprocess was 17.0-63.7s of FIXED
@@ -12265,13 +12280,10 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
       hold, and the freeze-tail read-back follows the comp pass that
       it depends on.
     - the gate and the sweep (`"verify built reels"`,
-      `"sweep all reels"`, SHARED): reads that must grade a stable
-      staging, several of which run together while no writer runs.
-      The advisory surveys (prebuild census, divergence) are read
-      through their own per-timeline shared leases instead - a
-      minutes-long outer read hold would block every other lane's
-      placement, which is the serialisation this shape exists to
-      end. Promotion holds its own exclusive lease
+      `"sweep all reels"`, SHARED): reads that grade a stable
+      staging. The advisory surveys (prebuild census, divergence)
+      are read through their own per-timeline shared leases.
+      Promotion holds its own exclusive lease
       (`promote_staged_reels`); both discard paths take one.
 
     Two lanes building the SAME project at once are still a
@@ -12280,8 +12292,10 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     would place beside the first under the same names, and the
     per-reel sidecar merges are read-modify-write. The stale-debris
     refusal above is what says so loudly instead of grading one
-    run's content as another's. Cross-project overlap is the
-    parallelism this shape provides.
+    run's content as another's. The whole-build hold does not fix
+    that either - it serialises the two builds, and the second one
+    then refuses on the debris the first left, which is the loud
+    answer.
 
     The RETURN VALUE is what the edge to `verify_reels` carries.
     `timelines_built` names what is IN RESOLVE right now - the staging

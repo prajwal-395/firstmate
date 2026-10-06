@@ -500,30 +500,33 @@ def test_each_detector_shape_names_its_own_missing_half(
 # --------------------------------------------------------------------------
 # From test_reel_build_lease_shape.py
 #
-# The reel build holds the placement, not the build.
+# The reel build holds the exclusive Resolve lease for its WHOLE body.
 #
-# `rebuild_reels_in_project` used to hold the machine-wide EXCLUSIVE
-# Resolve lease for its entire body - minutes of Remotion caption
-# renders and model-answer reads - while the cursor writes that lease
-# exists to protect take seconds per reel. Reel throughput was capped
-# at one build at a time however many lanes ran.
+# `rebuild_reels_in_project` used to take per-section holds and release
+# them between sections - derivation held NOTHING, one exclusive hold
+# per reel covered the carried self-read and the decision, the placement
+# plan was prepared holding nothing, and handle-only gate/survey reads
+# ran under shared holds. Three concurrent live builds interleaved
+# their writes in those gaps (2026-10-05): one build died reading a
+# timeline count that no longer matched the project, another's staging
+# timeline was deleted under it.
 #
-# The shape pinned here: derivation holds NOTHING, one exclusive hold
-# per reel covers the carried self-read and the decision, the placement
-# plan is prepared holding nothing, a second exclusive hold covers the
-# placement and the Fusion comp pass, and handle-only gate/survey reads
-# run under shared holds. Cursor-moving drift and digest reads take
-# exclusive holds. A test that only asserts "the build takes
+# The shape pinned here: ONE exclusive hold ("build reels") is taken at
+# the build's first line and held to its last - connect, derivation,
+# placement, gate, promotion, sweep. The per-section holds remain as
+# reentrant no-ops under it. A test that only asserts "the build takes
 # a lease" would pass on both shapes; these fail on the old one.
 #
-# The failure mode the narrower hold must still survive is
-# demonstrated deliberately below: a writer that never takes the lease
-# (the captain editing by hand) moving the cursor mid-placement. The
-# per-write check re-establishes the cursor before every append, so
-# the placement lands where it was aimed with or without a whole-build
-# hold - and the control shows what the same interleaving does to
-# writes without the check (2026-09-04: 579 captions onto the wrong
-# reel while every call returned True).
+# The failure mode a foreign writer can still cause is demonstrated
+# deliberately below: a writer that never takes the lease (the captain
+# editing by hand) moving the cursor mid-placement. The per-write check
+# re-establishes the cursor before every append, so the placement lands
+# where it was aimed - and the control shows what the same interleaving
+# does to writes without the check (2026-09-04: 579 captions onto the
+# wrong reel while every call returned True).
+#
+# The two-process regression test that proves two concurrent builds
+# never interleave is `tests/unit/reels/test_reel_build_whole_lease.py`.
 
 MASTER = "GEO Podcast - Synced"
 ORGANISE = False
@@ -651,10 +654,13 @@ def _placing(resolve_project):
 def _spied_leases(events):
     """Record every hold this build takes, and what is open when.
 
-    Patches the name the build calls - `reel_build.resolve_lease` -
-    so holds taken inside other modules (snapshots, promotion) stay
-    out of the record: this is the build's own shape, not the
-    machine's.
+    Patches BOTH names a lease can be taken through - the decorator's
+    `resolve_lock.resolve_lease` (the outer whole-build hold) and the
+    build's own `reel_build.resolve_lease` (the inner per-section
+    holds) - so the record shows the whole shape: the outer hold and
+    the inner holds nested under it. Holds taken inside other modules
+    (snapshots, promotion) stay out of the record: this is the build's
+    own shape, not the machine's.
     """
     real_lease = resolve_lock.resolve_lease
     open_stack = []
@@ -674,7 +680,8 @@ def _spied_leases(events):
     def snapshot():
         return list(open_stack)
 
-    with patch.object(rb, "resolve_lease", spy_lease):
+    with patch.object(resolve_lock, "resolve_lease", spy_lease), \
+            patch.object(rb, "resolve_lease", spy_lease):
         yield snapshot
 
 
@@ -748,45 +755,47 @@ def _holds_open(entry):
 
 
 @pytest.mark.usefixtures("mock_dvr")
-def test_derivation_holds_no_lease(built_with_spies):
-    """The minutes parallelise: caption rendering and every other
-    derivation step run with no hold open.
+def test_derivation_runs_under_the_whole_build_hold(built_with_spies):
+    """The whole build holds the exclusive lease: caption rendering and
+    every other derivation step run under the outer "build reels"
+    hold, never outside it.
 
     Read with the inventory test below: derivation events must
-    appear, and must appear outside every hold the inventory names.
-    A derivation step that started taking a hold would show up here
-    with the stack open.
+    appear, and must appear under the hold the inventory names. A
+    derivation step that stopped taking the hold would show up here
+    with the stack empty.
     """
     derivations = [e for e in built_with_spies["events"]
                    if e[0] == "derivation"]
     assert derivations, "the build never derived - the spy missed"
     for entry in derivations:
-        assert _holds_open(entry) == [], (
+        assert _holds_open(entry) == [("build reels", True)], (
             f"derivation ran under {_holds_open(entry)}")
 
 
 @pytest.mark.usefixtures("mock_dvr")
-def test_placement_holds_one_exclusive_hold(built_with_spies):
-    """The seconds serialise: the placer runs under exactly one hold,
-    and it is exclusive."""
+def test_placement_holds_the_whole_build_hold(built_with_spies):
+    """The seconds serialise: the placer runs under the outer
+    whole-build hold and its own per-reel hold, both exclusive."""
     places = [e for e in built_with_spies["events"]
               if e[0] == "place-call"]
     assert len(places) == 1
     assert _holds_open(places[0]) == [
+        ("build reels", True),
         ("place Reel 01 (rebuild staging)", True)]
 
 
 @pytest.mark.usefixtures("mock_dvr")
-def test_placement_planning_holds_nothing(built_with_spies):
-    """FREE -> RESOLVE -> FREE: the reel's placement plan - offsets,
-    angle plan, freeze render, post header, track plan, promoted
-    artefacts - is computed between the decision hold and the
-    placement hold, holding neither. It used to run inside
-    `build_reel_timeline`, under the placement's exclusive hold."""
+def test_placement_planning_runs_under_the_whole_build_hold(
+        built_with_spies):
+    """The reel's placement plan - offsets, angle plan, freeze render,
+    post header, track plan, promoted artefacts - is computed under
+    the outer whole-build hold. It used to run holding nothing,
+    between the decision hold and the placement hold."""
     events = built_with_spies["events"]
     prepares = [e for e in events if e[0] == "prepare-call"]
     assert len(prepares) == 1
-    assert _holds_open(prepares[0]) == []
+    assert _holds_open(prepares[0]) == [("build reels", True)]
     order = [e[1] for e in events if e[0] == "lease-enter"]
     decide = order.index("decide Reel 01 (rebuild staging)")
     place = order.index("place Reel 01 (rebuild staging)")
@@ -798,12 +807,15 @@ def test_placement_planning_holds_nothing(built_with_spies):
 @pytest.mark.usefixtures("mock_dvr")
 def test_the_gate_reads_under_a_shared_hold(built_with_spies):
     """The gate must grade a stable staging, and several such reads
-    run together while no writer runs - so shared, never exclusive."""
+    run together while no writer runs - so shared, never exclusive.
+    Both run under the outer whole-build hold."""
     verifies = [e for e in built_with_spies["events"]
                 if e[0] == "verify-call"]
     assert len(verifies) == 2  # the scoped gate, then the sweep
-    assert _holds_open(verifies[0]) == [("verify built reels", False)]
-    assert _holds_open(verifies[1]) == [("sweep all reels", False)]
+    assert _holds_open(verifies[0]) == [
+        ("build reels", True), ("verify built reels", False)]
+    assert _holds_open(verifies[1]) == [
+        ("build reels", True), ("sweep all reels", False)]
 
 
 @pytest.mark.usefixtures("mock_dvr")
@@ -818,6 +830,11 @@ def test_cursor_moving_self_reads_take_exclusive_holds(built_with_spies):
     assert leases == [(purpose, True) for purpose in (
         "build reels drift baseline", "build reels master digest",
         "build reels drift end")]
+    # And the whole-build hold is the FIRST hold the build takes: every
+    # inner hold, these included, is nested under it.
+    enters = [e[1] for e in built_with_spies["events"]
+              if e[0] == "lease-enter"]
+    assert enters[0] == "build reels", enters
 
 
 # ── The failure mode, demonstrated deliberately ───────────────────────

@@ -52,21 +52,24 @@ def test_a_cursor_operation_runs_beside_no_other_cursor_operation_or_read():
     assert not may_run_together(READ, PROMOTE)
 
 
-def test_a_build_runs_beside_reads_and_other_builds():
-    """The ceiling this table exists to raise.
+def test_a_build_runs_beside_nothing_that_takes_the_lease():
+    """The build holds the exclusive instance lease for its whole body.
 
-    The build holds the instance only around its own cursor
-    sections - one exclusive hold per placed reel, shared holds for
-    the gate and the surveys - so a second build's derivation and a
-    reader's read proceed while the first build derives. The holds
-    inside serialise the placements; the dispatch does not
-    serialise the builds.
+    It used to hold the instance only around its own cursor sections,
+    so a second build's derivation and a reader's read proceeded while
+    the first build derived. Three concurrent live builds interleaved
+    their writes in those gaps (2026-10-05): one build died reading a
+    timeline count that no longer matched the project, another's
+    staging timeline was deleted under it. The build now takes the
+    exclusive lease at its first line and holds it to its last, so it
+    runs beside nothing that takes the lease - a second build waits at
+    its own first acquisition rather than interleaving.
     """
-    assert may_run_together(BUILD, READ)
-    assert may_run_together(READ, BUILD)
-    assert may_run_together(BUILD, BUILD)
-    assert may_run_together(BUILD, PROMOTE)
-    assert may_run_together(PROMOTE, BUILD)
+    assert not may_run_together(BUILD, READ)
+    assert not may_run_together(READ, BUILD)
+    assert not may_run_together(BUILD, BUILD)
+    assert not may_run_together(BUILD, PROMOTE)
+    assert not may_run_together(PROMOTE, BUILD)
 
 
 def test_declaration_writes_are_dispatched_together():
@@ -90,7 +93,7 @@ def test_an_unlisted_entry_point_reads_as_free_and_says_why():
 
 def test_each_class_costs_what_it_declares():
     for entry, exclusive, lease in (
-        (BUILD, False, False),
+        (BUILD, True, True),
         (PROMOTE, True, True),
         (READ, False, True),
         (RECORD, False, False),

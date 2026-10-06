@@ -808,15 +808,17 @@ def under_lease(purpose: str, exclusive: bool | None = None,
     A `RESOLVE_CURSOR` operation in `concurrency_routing.OPERATIONS`
     whose whole body drives Resolve takes the lease here rather than at
     a seam inside it. That is deliberately COARSE, and the cost is
-    stated where it is paid. The one operation that outgrew the shape
-    is the reel build: `rebuild_reels_in_project` is minutes of
-    caption renders and model-answer reads around seconds of
-    placement, so it takes per-section holds inside its own body
-    (one exclusive hold per placed reel, shared holds for the gate
-    and the surveys) and is routed FREE - two reel builds into one
-    instance meet only at those holds. The parallelism the routing
-    table protects is ACROSS operations, and for that build also
-    within it.
+    stated where it is paid. The reel build is the case that proves
+    the rule: `rebuild_reels_in_project` used to take per-section
+    holds inside its own body and was routed FREE, and three
+    concurrent live builds interleaved their writes in the gaps
+    (2026-10-05 - one build died reading a timeline count that no
+    longer matched the project, another's staging timeline was
+    deleted under it). It now takes the exclusive lease for its whole
+    duration, and a second build waits at its own first acquisition
+    rather than interleaving. The per-write cursor check makes each
+    write land where it was aimed; it cannot protect a READ from a
+    concurrent deletion.
     """
     import functools
 

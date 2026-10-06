@@ -35,14 +35,19 @@ The four classes
                    the LLM calls, every test whose Resolve is a mock.
                    Unbounded parallelism, and it is most of a build.
 
-The whole point of the split is the last row. A reel build is minutes
-of `FREE` around seconds of `RESOLVE_CURSOR`, so the build row itself
-is `FREE`: the cursor sections take their own holds inside the body
-(one exclusive hold per placed reel, shared holds for the gate and
-the surveys - see `rebuild_reels_in_project`'s THE LEASE section),
-and two builds meet only there. Routing the build as one unit would
-serialise the minutes to protect the seconds and delete the
-parallelism this exists to provide.
+The whole point of the split is the last row. A reel build USED to
+be minutes of `FREE` around seconds of `RESOLVE_CURSOR`, and its row
+was `FREE` for that reason. Measured 2026-10-05: three concurrent
+live builds interleaved their writes in the gaps between those
+per-section holds - one build died reading a timeline count that no
+longer matched the project, another's staging timeline was deleted
+under it. The build now holds the exclusive instance lease for its
+whole duration (see `rebuild_reels_in_project`'s THE LEASE section),
+so its row is `RESOLVE_CURSOR`: a second build waits at its own
+first acquisition rather than interleaving. The per-write cursor
+check makes each write land where it was aimed; it cannot protect a
+READ from a concurrent deletion, and it cannot stop one build's
+discard path from deleting another's staging.
 
 What is NOT in this table
 -------------------------
