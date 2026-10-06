@@ -129,6 +129,29 @@ There is no default cleanup. Leave the list empty when no source earns
 it - the build cleans nothing it was not asked for, and a floor with no
 entry is a measurement, not a request.
 
+## Dialogue dynamics (a third, separate decision)
+
+Read the per-block `speech_lufs` down the `mix_windows` table and the
+per-source `floor.level_dbfs` in `cleanup_context.sources`. Where the
+voice swings loud against its own room from block to block, name the
+mild compression that holds it together; where it already sits even,
+name nothing. In `dynamics_plan`:
+
+- `dialogue_compression` - `threshold_db`, `ratio`, `attack_ms`,
+  `release_ms`, `why` (all required) plus optional `knee_db` and
+  `makeup_gain_db` (0.0 where omitted). Threshold in dBFS against the
+  measured speech, ratio 1..20, attack/release in ms. Or null: no
+  source earns compression. There is no default compressor - null
+  plans none, and the mix ships without compression.
+- `master_limiter_release_ms` - the master limiter release in ms
+  beside the delivery true-peak ceiling, or null for no limiter
+  processing.
+- `why` - REQUIRED: the measured numbers behind each value (which
+  blocks peak where, what the floor sits at).
+
+A value outside the deliverable ranges refuses the step so you re-plan;
+an unknown key refuses the same way.
+
 ## What is not yours here
 
 The three other words are not levels and are not asked for.

@@ -41,7 +41,12 @@ from library.steps.step_5_02_audio_mix.mix import (
 )
 from library.tools import decided_value
 from library.tools import music_over_speech
-from library.tools.audio_chain import AudioChainError, validate_intent
+from library.tools.audio_chain import (
+    AudioChainError,
+    validate_dynamics,
+    validate_intent,
+    validate_limiter,
+)
 from library.tools.dialogue_cleanup import (
     CLEANUP_ENTRY_KEYS,
     plan_dialogue_eq,
@@ -72,6 +77,16 @@ DUCKING_PLAN_KEYS = frozenset({
 })
 DELIVERY_PLAN_KEYS = frozenset({
     "dialogue_target_lufs", "true_peak_ceiling_dbtp", "why",
+})
+DYNAMICS_PLAN_KEYS = frozenset({
+    "dialogue_compression", "master_limiter_release_ms", "why",
+})
+DIALOGUE_COMPRESSION_KEYS = frozenset({
+    "threshold_db", "ratio", "attack_ms", "release_ms",
+    "knee_db", "makeup_gain_db", "why",
+})
+DIALOGUE_COMPRESSION_REQUIRED_KEYS = frozenset({
+    "threshold_db", "ratio", "attack_ms", "release_ms", "why",
 })
 
 
@@ -242,35 +257,40 @@ def resolve_audio_mix(data: dict) -> dict:
         dialogue_lufs_target=result["audio_mix_spec"][
             "delivery_lufs_target"],
         true_peak_ceiling=result["audio_mix_spec"][
-            "delivery_true_peak_ceiling_dbtp"])
+            "delivery_true_peak_ceiling_dbtp"],
+        dynamics=resolve_dynamics_plan(
+            data, true_peak_ceiling=result["audio_mix_spec"][
+                "delivery_true_peak_ceiling_dbtp"]))
     return result
 
 
 def resolve_fairlight_chain(data: dict, dialogue_lufs_target: float,
-                             true_peak_ceiling: float) -> dict:
-    """The dialogue-bus EQ this run's own spectra ask for, as intent.
+                             true_peak_ceiling: float,
+                             dynamics: dict | None = None) -> dict:
+    """The dialogue-bus chain this run earned, as intent.
 
-    Measures each played dialogue source's speech and floor spectra
-    (`source_spectra` - one decode per source, the chain planner's own
-    read; the cleanup_context record carries levels, not spectra, and
-    spectra stay out of the prompt tables), derives the bus EQ
+    The EQ half is derived: each played dialogue source's speech and
+    floor spectra (`source_spectra` - one decode per source, the chain
+    planner's own read; the cleanup_context record carries levels, not
+    spectra, and spectra stay out of the prompt tables), bus-averaged
     (`plan_dialogue_eq` - duration-weighted across the sources that
-    answered), and validates the whole intent through
-    `audio_chain.validate_intent` - the validator's first production
-    caller. The intent's targets are the delivery numbers this step
-    already resolved (the program loudness target and the true-peak
-    ceiling the QC gate reads), never constants restated here.
+    answered). The dynamics half is DECLARED: `resolve_dynamics_plan`
+    validated the model's answer through the intent schema, so the
+    threshold, ratio and limiter release already read in Resolve's
+    units. The whole intent validates through
+    `audio_chain.validate_intent`. The targets are the delivery
+    numbers this step already resolved (the program loudness target
+    and the true-peak ceiling the QC gate reads), never constants
+    restated here.
 
-    The intent carries the dialogue EQ track only. The limiter
-    PROCESSING entry and the dynamics wait for the executor slice: an
-    entry nothing can apply yet is not shipped - only the ceiling
-    travels, as the target the verifier will judge the render against.
-    A source that cannot be measured (no floor, no played speech, an
-    unreadable file) plans nothing and is named in `unplanned`; one
-    bad source never sinks the bus chain. The plan applies nothing -
+    A dialogue track ships when the run earned EQ bands, declared
+    compression, or both; a master track ships when the run declared
+    a limiter release, carrying the delivery ceiling with it. A source
+    that cannot be measured (no floor, no played speech, an unreadable
+    file) plans nothing and is named in `unplanned`; one bad source
+    never sinks the bus chain. The plan applies nothing -
     compile_manifest carries `audio_mix_spec` (this key with it) onto
-    the assembly manifest, where the Fairlight UI executor will read
-    it.
+    the assembly manifest, where the Fairlight UI executor reads it.
     """
     sources = (data.get("cleanup_context") or {}).get("sources", []) or []
     structure = (data.get("audio_spine") or {}).get("structure", []) or []
@@ -316,12 +336,29 @@ def resolve_fairlight_chain(data: dict, dialogue_lufs_target: float,
 
     plan = plan_dialogue_eq(
         measured, measured[0]["spectrum_edges_hz"] if measured else [])
+    dynamics = dynamics or {}
+    compression = dynamics.get("dialogue_compression")
+    limiter_release = dynamics.get("master_limiter_release_ms")
     tracks: list = []
+    dialogue: dict = {
+        "track": "dialogue",
+        "role": "dialogue",
+    }
     if plan["bands"]:
+        dialogue["eq"] = plan["bands"]
+    if compression is not None:
+        dialogue["dynamics"] = {key: compression[key] for key in
+                                ("threshold_db", "ratio", "attack_ms",
+                                 "release_ms", "knee_db",
+                                 "makeup_gain_db")}
+    if len(dialogue) > 2:
+        tracks.append(dialogue)
+    if limiter_release is not None:
         tracks.append({
-            "track": "dialogue",
-            "role": "dialogue",
-            "eq": plan["bands"],
+            "track": "master",
+            "role": "master",
+            "limiter": {"ceiling_dbTP": float(true_peak_ceiling),
+                        "release_ms": float(limiter_release)},
         })
     intent = {
         "tracks": tracks,
@@ -343,23 +380,33 @@ def resolve_fairlight_chain(data: dict, dialogue_lufs_target: float,
                      "reason": f"schema refusal: {exc}"}]}
 
     if tracks:
-        print(f"  Fairlight chain: dialogue EQ "
-              f"{', '.join(b['type'] + ' ' + str(b['frequency_hz']) + ' Hz'
-                           for b in plan['bands'])} "
+        described = []
+        if plan["bands"]:
+            described.append("EQ " + ", ".join(
+                b['type'] + ' ' + str(b['frequency_hz']) + ' Hz'
+                for b in plan['bands']))
+        if compression is not None:
+            described.append(
+                f"compression {compression['threshold_db']:.1f} dB @ "
+                f"{compression['ratio']:.1f}:1")
+        if limiter_release is not None:
+            described.append("master limiter")
+        print(f"  Fairlight chain: dialogue {' + '.join(described)} "
               f"(targets {dialogue_lufs_target:.1f} LUFS, "
               f"{true_peak_ceiling:.1f} dBTP)", file=sys.stderr)
     else:
-        print(f"  Fairlight chain: no dialogue EQ earned - "
-              f"{plan.get('why_empty', 'see basis')} "
+        print(f"  Fairlight chain: nothing earned - "
+              f"{plan.get('why_empty', 'no EQ bands survived')} and no "
+              f"dynamics declared "
               f"({len(unplanned)} source(s) unplanned)",
               file=sys.stderr)
     return {"intent": intent,
             "basis": dict(plan.get("basis", {})),
             "dropped": list(plan.get("dropped", [])),
             "unplanned": unplanned,
-            "executor": ("unassigned - a later slice wires the Fairlight "
-                         "UI executor; the build applies nothing from "
-                         "this plan yet")}
+            "executor": ("unassigned - the Fairlight UI executor reads "
+                         "this intent off the manifest; the build "
+                         "applies nothing from this plan yet")}
 
 
 def resolve_music_ducking_plan(data: dict) -> dict:
@@ -457,6 +504,132 @@ def resolve_audio_delivery_plan(data: dict) -> dict:
         resolved[key] = (None if value is None else
                          _finite_plan_number(value, key))
     return resolved
+
+
+def resolve_dynamics_plan(data: dict,
+                          true_peak_ceiling: float) -> dict:
+    """Validate the prompt's dialogue compression and limiter release.
+
+    Opt-in like cleanup: a missing plan, or null members, means no
+    compression and no limiter processing - there is no default
+    compressor, because a default threshold, ratio or release would be
+    taste the engine invented. Every stated number is validated
+    through the intent schema (`audio_chain.validate_dynamics` /
+    `validate_limiter`, the ceiling travelling with the release), so
+    an out-of-range value refuses through the post-bridge retry path
+    and the model re-plans instead of the mix carrying dynamics
+    nothing can deliver. `knee_db`/`makeup_gain_db` default to the
+    schema's 0.0 where the answer omits them.
+    """
+    plan = data.get("dynamics_plan")
+    if plan is None:
+        return {"dialogue_compression": None,
+                "master_limiter_release_ms": None,
+                "why": "No dynamics plan was declared; the mix ships "
+                       "without compression or limiter processing."}
+    if not isinstance(plan, dict):
+        raise RenRefusal(
+            what="the dynamics plan is not an object",
+            why="the Fairlight executor cannot read dynamics from this "
+                "answer.",
+            fix=("return dialogue_compression, "
+                 "master_limiter_release_ms, and why in one object"),
+        )
+    refuse_unknown_keys([plan], DYNAMICS_PLAN_KEYS, step="audio_mix",
+                         plan="dynamics_plan")
+    if set(plan) != DYNAMICS_PLAN_KEYS:
+        missing = sorted(DYNAMICS_PLAN_KEYS - set(plan))
+        raise RenRefusal(
+            what="the dynamics plan is incomplete",
+            why=f"the answer omitted {', '.join(missing)}.",
+            fix="return all three dynamics_plan keys",
+        )
+    why = plan["why"]
+    if not isinstance(why, str) or not why.strip():
+        raise RenRefusal(
+            what="the dynamics plan has no reason",
+            why="the compression and release have no stated basis in "
+                "the measured speech.",
+            fix="state what in the measured levels earns each value",
+        )
+    compression = plan["dialogue_compression"]
+    if compression is not None:
+        compression = _resolve_dialogue_compression(compression)
+    release = plan["master_limiter_release_ms"]
+    if release is not None:
+        release = _finite_plan_number(release,
+                                      "master_limiter_release_ms")
+        try:
+            validate_limiter({"ceiling_dbTP": float(true_peak_ceiling),
+                              "release_ms": release})
+        except AudioChainError as exc:
+            raise RenRefusal(
+                what="the limiter release cannot be delivered",
+                why=str(exc),
+                fix="re-plan the release inside the intent scale",
+            ) from exc
+    return {"dialogue_compression": compression,
+            "master_limiter_release_ms": release,
+            "why": why.strip()}
+
+
+def _resolve_dialogue_compression(entry: dict) -> dict:
+    """One validated compression entry, or a refusal naming the field."""
+    if not isinstance(entry, dict):
+        raise RenRefusal(
+            what="the dialogue compression is not an object",
+            why="threshold, ratio, attack, release and why cannot be "
+                "read from this answer.",
+            fix="return the five required compression keys as an object",
+        )
+    refuse_unknown_keys([entry], DIALOGUE_COMPRESSION_KEYS,
+                         step="audio_mix", plan="dynamics_plan")
+    missing = sorted(DIALOGUE_COMPRESSION_REQUIRED_KEYS - set(entry))
+    if missing:
+        raise RenRefusal(
+            what="the dialogue compression is incomplete",
+            why=f"the answer omitted {', '.join(missing)}.",
+            fix="return threshold_db, ratio, attack_ms, release_ms "
+                "and why",
+        )
+    why = entry["why"]
+    if not isinstance(why, str) or not why.strip():
+        raise RenRefusal(
+            what="the dialogue compression has no reason",
+            why="the threshold and ratio have no stated basis in the "
+                "measured speech.",
+            fix="state what in the measured levels earns the compression",
+        )
+    raw = {}
+    for key in ("threshold_db", "ratio", "attack_ms", "release_ms",
+                "knee_db", "makeup_gain_db"):
+        value = entry.get(key, 0.0)
+        if value is None and key in ("knee_db", "makeup_gain_db"):
+            value = 0.0
+        if value is None or isinstance(value, bool) or not isinstance(
+                value, (int, float)):
+            raise RenRefusal(
+                what=f"the compression {key} is not a number",
+                why="the Fairlight executor reads JSON numbers, not "
+                    "text or nulls.",
+                fix=f"re-plan {key} as a finite numeric value",
+            )
+        raw[key] = value
+    try:
+        checked = validate_dynamics(raw)
+    except AudioChainError as exc:
+        raise RenRefusal(
+            what="the dialogue compression cannot be delivered",
+            why=str(exc),
+            fix="re-plan the compression inside the intent scale",
+        ) from exc
+    return {"threshold_db": checked.threshold_db,
+            "ratio": checked.ratio,
+            "attack_ms": checked.attack_ms,
+            "release_ms": checked.release_ms,
+            "knee_db": checked.knee_db,
+            "makeup_gain_db": checked.makeup_gain_db,
+            "why": why.strip()}
 
 
 def _finite_plan_number(value, label: str) -> float:
