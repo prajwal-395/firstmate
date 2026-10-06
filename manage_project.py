@@ -1074,6 +1074,87 @@ def cmd_variant(args):
     print(variants.render_choice(report))
 
 
+def cmd_explore_variants(args):
+    """Branch-parallel variant exploration off one base commit.
+
+    The spec's "Branch parallelism": fork one base into one isolated
+    branch per variant direction, offline, then compare. `propose`
+    records the exploration (branches, leases, events); `list` reads
+    back what is recorded for comparison. Direction text arrives on
+    `--direction NAME=TEXT` - project or user data, never a value the
+    engine invents - and a variant with none is refused. See
+    library/tools/variant_exploration.py and AGENTS.md 17.
+    """
+    from library.tools import undo_journal as _journal
+    from library.tools import variant_exploration as _vx
+
+    project_folder = _reel_project_folder(args.project)
+
+    if args.explore_command == "list":
+        records = _vx.list_explorations(project_folder)
+        if not records:
+            print("No variant explorations are recorded in this project.")
+            print(f"  Propose one with: ren explore-variants "
+                  f"{args.project} propose --direction NAME='what it tries' "
+                  f"... [--base <commit>] [--timeline NAME]")
+            return
+        for record in records:
+            print(f"── exploration {record['id'][:12]} "
+                  f"({record.get('created_at', '')[:19]}) ──")
+            print(f"  base      {record['base'][:12]}")
+            if record.get("timeline"):
+                print(f"  timeline  {record['timeline']}")
+            print(f"  agent     {record['agent']}")
+            for variant in record.get("variants") or ():
+                print(f"  variant   {variant['name']}")
+                print(f"    branch    {variant['branch']}")
+                print(f"    tries     {variant['direction']}")
+        return
+
+    directions = []
+    for raw in args.direction or ():
+        name, sep, text = str(raw).partition("=")
+        if not sep:
+            print(f"Error: --direction {raw!r} needs NAME=TEXT form",
+                  file=sys.stderr)
+            sys.exit(2)
+        directions.append({"name": name, "direction": text})
+
+    base = args.base
+    if not base:
+        if not args.timeline:
+            print("Error: pass --base <commit> or --timeline NAME to "
+                  "explore from its latest commit", file=sys.stderr)
+            sys.exit(2)
+        latest = _journal.latest_commit_for_timeline(
+            project_folder, args.timeline)
+        if latest is None:
+            raise RenRefusal(
+                f"timeline {args.timeline!r} has no commit to explore from",
+                "variant branches fork a base commit, and no touch has "
+                "recorded one on this timeline yet",
+                "run the pipeline or a touch-up on this timeline first, "
+                "then re-run with --base <commit>") from None
+        base = latest["id"]
+
+    from library.tools.resolve_lock import default_owner
+    try:
+        record = _vx.explore_variants(
+            project_folder, base=base, variants=directions,
+            agent=args.agent or default_owner(),
+            timeline=args.timeline or "")
+    except _vx.VariantRefused as refused:
+        print(refused.render(), file=sys.stderr)
+        sys.exit(REFUSAL_EXIT_CODE)
+    print(f"Exploration {record['id'][:12]} off base "
+          f"{record['base'][:12]}: {len(record['variants'])} variant(s), "
+          f"each on its own branch.")
+    for variant in record["variants"]:
+        print(f"  {variant['name']}: branch {variant['branch']!r} "
+              f"- tries: {variant['direction']}")
+    print(f"  Compare them with: ren explore-variants {args.project} list")
+
+
 def cmd_organize(args):
     """Bring a project folder onto the layout - or undo one that was.
 
@@ -3761,6 +3842,36 @@ def main():
     v_merge.add_argument("--target", default=None)
 
     p_variant.set_defaults(func=cmd_variant)
+
+    p_explore = _add_command(sub, "explore-variants")
+    p_explore.add_argument("project",
+                           help="Project slug, or an absolute path")
+    e_sub = p_explore.add_subparsers(dest="explore_command", required=True)
+
+    e_propose = e_sub.add_parser(
+        "propose",
+        help="Fork one base commit into one isolated branch per direction")
+    e_propose.add_argument("--direction", action="append", default=[],
+                           metavar="NAME=TEXT",
+                           help="One variant: its branch slug and the "
+                                "project/user text saying what it tries. "
+                                "Repeatable - one per variant.")
+    e_propose.add_argument("--base", default="",
+                           help="The base commit every variant forks. "
+                                "Default: the --timeline's latest commit.")
+    e_propose.add_argument("--timeline", default="",
+                           help="The timeline the base is for, and whose "
+                                "latest commit is the base when --base is "
+                                "absent.")
+    e_propose.add_argument("--agent", default="",
+                           help="The worker planning the variants. "
+                                "Default: this lane or process.")
+
+    e_list = e_sub.add_parser(
+        "list", help="What explorations are recorded, for comparison")
+    del e_list
+
+    p_explore.set_defaults(func=cmd_explore_variants)
 
     p_worktree = _add_command(sub, "worktree")
     p_worktree.add_argument("project",

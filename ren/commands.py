@@ -140,6 +140,7 @@ VERBS = (
     Verb("discharge", "Reels", "Discharge a dropped note a promotion filed", subcommand="discharge-uncarried",
          detail="Discharge a dropped captain's note a promotion filed, so its reel can be signed off"),
     Verb("variant", "Reels", "Two versions of one reel: new, build, list, diff, choose, merge", subcommand="variant"),
+    Verb("explore-variants", "Reels", "Fork one base commit into one isolated branch per direction: propose, list", subcommand="explore-variants"),
     Verb("worktree", "Reels", "A task's own checkout of the project store: add, list, commit, merge, remove",
          subcommand="worktree",
          detail="Give a task its own checkout of the project's git store on branch ren/<task>, outside the project folder, and merge it back. Never moves the project checkout's branch; touches no Resolve"),
