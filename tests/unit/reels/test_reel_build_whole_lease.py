@@ -647,3 +647,244 @@ def test_the_build_holds_one_exclusive_lease_for_whole_body(
     # The body's markers all fired, and the build placed its reel.
     assert markers == ["derive", "prepare", "place"], markers
     assert "Reel 01" in project.names(), project.names()
+
+
+# ── The second interleaving: the gap between build and verify ───────
+#
+# 2026-10-05, after the whole-build hold above landed: a 6-reel
+# `build-reels` run's `rebuild_reels_in_project` released its hold at
+# 20:24:01.307 when `reel.build` returned, and a caption smoke queued
+# on `resolve_lease("master caption live smoke", capability=
+# "render.build", phase="apply", timeline=<master>)` was granted the
+# instance 2ms later. `reel.ask` and `reel.verify` - the gate AND the
+# promotion - are later capabilities of the same run, and they ran
+# with only their own per-section holds: the verify read the master
+# and all six stagings changed under it ("timelines were MODIFIED
+# during verification", the cursor on Reel 01 where its first read had
+# found the master) and nothing was promoted. The fix is one exclusive
+# hold around the whole capability loop in `run_reels.run`.
+#
+# Both processes share one file-backed fake Resolve (current timeline
+# and timeline inventory), so a write by one is a change the other's
+# gate reads - the property the live run lost.
+
+_RUN_WORKER = textwrap.dedent("""
+    import json
+    import os
+    import sys
+    import time
+    from contextlib import contextmanager, nullcontext
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock, patch
+
+    role, lock_dir, log_path, state_path, project_dir = sys.argv[1:6]
+    os.environ["PIPELINE_RESOLVE_LOCK_DIR"] = lock_dir
+    os.environ["PIPELINE_RESOLVE_LEASE_TIMEOUT"] = "60"
+    sys.path.insert(0, __REPO__)
+    sys.modules["DaVinciResolveScript"] = MagicMock()
+
+    from library.tools import resolve_lock
+
+    @contextmanager
+    def no_broker_turn(*args, **kwargs):
+        yield None
+    resolve_lock._broker_turn = no_broker_turn
+
+    MASTER = __MASTER__
+    STAGING = "Reel 01 (rebuild staging)"
+
+    def log(event):
+        with open(log_path, "a", encoding="utf-8") as handle:
+            handle.write("%.3f %s %s\\n" % (time.time(), role, event))
+
+    def read_state():
+        with open(state_path, encoding="utf-8") as handle:
+            return json.load(handle)
+
+    def write_state(state):
+        temporary = state_path + ".%d" % os.getpid()
+        with open(temporary, "w", encoding="utf-8") as handle:
+            json.dump(state, handle)
+        os.replace(temporary, state_path)
+
+    def set_current(name):
+        state = read_state()
+        state["current"] = name
+        write_state(state)
+
+    if role == "smoke":
+        # The smoke's own lease, verbatim in shape: a timeline-scoped
+        # exclusive grant that duplicates the master, moves the cursor
+        # onto the copy and deletes it again.
+        with resolve_lock.resolve_lease(
+                "master caption live smoke", capability="render.build",
+                phase="apply", project="Mock Project", timeline=MASTER):
+            log("write-start")
+            state = read_state()
+            state["timelines"].append(MASTER + " (caption smoke)")
+            state["current"] = MASTER + " (caption smoke)"
+            write_state(state)
+            time.sleep(0.3)
+            state = read_state()
+            state["timelines"].remove(MASTER + " (caption smoke)")
+            state["current"] = "Reel 01"
+            write_state(state)
+            log("write-end")
+        sys.exit(0)
+
+    # role == "build": the real `run_reels.run` loop, whose capabilities
+    # take the holds their real bodies take.
+    def build(project_folder, **_):
+        @resolve_lock.under_lease("build reels", exclusive=True)
+        def body():
+            log("build-start")
+            state = read_state()
+            state["timelines"].append(STAGING)
+            state["current"] = STAGING
+            write_state(state)
+            time.sleep(0.5)
+        body()
+        return {}
+
+    def ask(project_folder, **_):
+        # The real ask derives for seconds before its read (2.8s
+        # measured), holding nothing.
+        time.sleep(1.0)
+        with resolve_lock.resolve_lease(
+                "read master timeline for reel asks", exclusive=False):
+            read_state()
+        return {}
+
+    def verify(project_folder, **_):
+        with resolve_lock.resolve_lease(
+                "verify reel conformance", exclusive=False):
+            before = read_state()
+            time.sleep(1.0)
+            after = read_state()
+        if before != after or before["current"] != STAGING:
+            log("verify-modified")
+            raise RuntimeError(
+                "timelines were MODIFIED during verification: the build "
+                "left %r, the gate read %r then %r" % (
+                    STAGING, before, after))
+        with resolve_lock.resolve_lease("promote staged reels",
+                                        exclusive=True):
+            state = read_state()
+            state["timelines"][state["timelines"].index(STAGING)] = "Reel 01"
+            state["current"] = "Reel 01"
+            write_state(state)
+        log("verify-end")
+        return {}
+
+    bodies = {"reel.build": build, "reel.ask": ask, "reel.verify": verify}
+
+    class FakeOperation:
+        def __init__(self, name):
+            self.name = name
+            self.caller_supplied = name not in bodies
+
+        def execute(self, project_folder, **kwargs):
+            payload = bodies[self.name](project_folder, **kwargs)
+            return SimpleNamespace(refused=False, error="",
+                                   status="completed", payload=payload)
+
+    from library.processes.reels import run_reels
+    from library.tools import operations, project_format, provenance
+
+    args = SimpleNamespace(skip_captions=False, only_reel=None,
+                           name_suffix="", allow_drop=None,
+                           supersede=None, retain=None)
+    with patch.object(project_format, "ensure_project_format"), \\
+            patch.object(operations, "get", FakeOperation), \\
+            patch.object(provenance, "observing_operation",
+                         lambda *a, **k: nullcontext()), \\
+            patch.object(run_reels, "record_project_output"), \\
+            patch.object(run_reels, "commit_run_tail"):
+        code = run_reels.run(project_dir, args)
+    log("run-end %d" % code)
+    sys.exit(code)
+""").replace("__REPO__", repr(str(REPO_ROOT))).replace(
+    "__MASTER__", repr(MASTER))
+
+
+def _start_run_worker(role, lock_dir, log, state, project_dir):
+    env = dict(os.environ)
+    env[resolve_lock.LOCK_DIR_ENV] = str(lock_dir)
+    env.pop(resolve_lock.INHERIT_ENV, None)
+    env.pop(resolve_lock.INHERIT_MODE_ENV, None)
+    return subprocess.Popen(
+        [sys.executable, "-c", _RUN_WORKER, role, str(lock_dir), str(log),
+         str(state), str(project_dir)],
+        env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, encoding="utf-8")
+
+
+def _role_events(log: Path) -> list:
+    if not log.exists():
+        return []
+    rows = []
+    for line in log.read_text(encoding="utf-8").splitlines():
+        stamp, role, event = line.split(" ", 2)
+        rows.append((float(stamp), role, event))
+    return rows
+
+
+@pytest.mark.serial(
+    reason="Two real processes contend for one flock; keep child "
+           "startup out of xdist saturation.")
+def test_a_writer_queued_behind_a_build_cannot_land_before_its_verify(
+        tmp_path):
+    """The smoke that queued behind the build's hold waits for the gate
+    and the promotion too, not just for `reel.build`.
+
+    The build-reels run starts first; the smoke starts once the build
+    is inside its build hold, so it queues exactly as it did live. On
+    the old shape the build's hold ends where `reel.build` returns, the
+    smoke takes the instance in the gap before `reel.ask`, moves the
+    cursor and changes the inventory, and the verify reads the change
+    and fails. Under one hold for the whole run the smoke's first write
+    comes after the promotion.
+    """
+    lock_dir = tmp_path / "locks"
+    lock_dir.mkdir()
+    log = tmp_path / "run.log"
+    state = tmp_path / "resolve_state.json"
+    state.write_text(json.dumps({"current": MASTER,
+                                 "timelines": [MASTER, "Reel 11"]}),
+                     encoding="utf-8")
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+
+    build = _start_run_worker("build", lock_dir, log, state, project_dir)
+    try:
+        deadline = time.time() + 60
+        while not any(event == "build-start"
+                      for _, _, event in _role_events(log)):
+            assert time.time() < deadline, _role_events(log)
+            assert build.poll() is None, build.communicate()
+            time.sleep(0.05)
+        smoke = _start_run_worker("smoke", lock_dir, log, state, project_dir)
+        try:
+            out_s, err_s = smoke.communicate(timeout=120)
+        finally:
+            if smoke.poll() is None:
+                smoke.kill()
+                smoke.communicate(timeout=10)
+        out_b, err_b = build.communicate(timeout=120)
+    finally:
+        if build.poll() is None:
+            build.kill()
+            build.communicate(timeout=10)
+
+    events = _role_events(log)
+    assert smoke.returncode == 0, (out_s, err_s)
+    assert build.returncode == 0, (
+        f"the build-reels run failed - the smoke landed inside it. "
+        f"Events: {events}\n{err_b}")
+    verify_end = next(t for t, role, event in events
+                      if role == "build" and event == "verify-end")
+    smoke_start = next(t for t, role, event in events
+                       if role == "smoke" and event == "write-start")
+    assert smoke_start >= verify_end, (
+        f"the smoke wrote at {smoke_start:.3f}, before the build's gate "
+        f"and promotion ended at {verify_end:.3f}. Events: {events}")

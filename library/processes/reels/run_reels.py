@@ -30,6 +30,7 @@ edit_video runner's own writer because it owns the backup rule
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import json
 import sys
@@ -136,63 +137,81 @@ def run(project_folder: str, args) -> int:
     except RenRefusal as refused:
         print(refused.render(), file=sys.stderr)
         return REFUSAL_EXIT_CODE
-    from library.tools import capabilities, operations, processes, provenance
-
-    for spec in capabilities.run_order(processes.REELS):
-        op = operations.get(spec.id)
-        if op.caller_supplied:
-            # Caller-supplied operations take arguments only a caller
-            # supplies - the touchup's change spec, the stills grab's
-            # reel label and frames - handed in by the fix or gate that
-            # computed them. This loop is not such a caller, so it does
-            # not drive them: as coded it walked every owned op, and on a
-            # ready project `reel.build` completed and the loop then
-            # REFUSED at `reel.touchup` (`spec` unbound) before
-            # `reel.ask` ever ran. Skipped, never executed, and nothing
-            # is recorded for one. (The dry run's old-path walk in
-            # `library/tools/ren_dry_run.py` reads the same flag.)
-            print(f"{op.name}: skipped (caller-supplied)", file=sys.stderr)
-            continue
-        # The execution receipt, keyed by capability id: before this a
-        # reel build wrote its files and provenance recorded nothing.
-        from library.tools.ren_refusal import RenRefusal
+    # ONE HOLD for the whole run: build, ask, the gate and promotion.
+    # `rebuild_reels_in_project` holds the exclusive instance lease for
+    # its own body, and that body ends where `reel.build` returns -
+    # the gate (`reel.verify`) and the promotion inside it are later
+    # capabilities of this loop. Measured 2026-10-05: a 6-reel build's
+    # hold released at 20:24:01.307, a queued caption smoke was granted
+    # the instance 2ms later, and the verify that followed read the
+    # master and all six stagings changed under it ("timelines were
+    # MODIFIED during verification", the cursor on Reel 01 where the
+    # gate's first read had found the master). The inner holds are
+    # reentrant no-ops under this one, and a child inherits it.
+    from library.tools import (capabilities, operations, processes,
+                               provenance, resolve_lock)
+    with contextlib.ExitStack() as held:
         try:
-            with provenance.observing_operation(project_folder, op.name):
-                result = op.execute(
-                    project_folder,
-                    skip_captions=args.skip_captions,
-                    only_reels=args.only_reel or None,
-                    timeline_name_suffix=args.name_suffix,
-                    allow_drops=args.allow_drop or None,
-                    accept_editor_changes=getattr(
-                        args, "accept_editor_changes", None) or None,
-                    supersede=args.supersede or None,
-                    retain=args.retain or None,
-                    rebuild_all=bool(getattr(args, "rebuild_all", False)),
-                    placement_mode=getattr(args, "placement_mode", "auto"))
-        except RenRefusal as refused:
-            # A step-level refusal with a known next step (the replace
-            # guard's `--allow-drop` declaration): no traceback, exit 4,
-            # nothing after it ran and no closing commit.
-            from library.tools.ren_refusal import REFUSAL_EXIT_CODE
-            print(f"REFUSED: {op.name}", file=sys.stderr)
-            print(refused.render(), file=sys.stderr)
+            held.enter_context(
+                resolve_lock.resolve_lease("build reels", exclusive=True))
+        except resolve_lock.ResolveBusy as busy:
+            print(busy.render(), file=sys.stderr)
             return REFUSAL_EXIT_CODE
-        if result.refused:
-            from library.tools.ren_refusal import REFUSAL_EXIT_CODE
-            print(f"REFUSED: {op.name}", file=sys.stderr)
-            print(result.error, file=sys.stderr)
-            return REFUSAL_EXIT_CODE
+        for spec in capabilities.run_order(processes.REELS):
+            op = operations.get(spec.id)
+            if op.caller_supplied:
+                # Caller-supplied operations take arguments only a caller
+                # supplies - the touchup's change spec, the stills grab's
+                # reel label and frames - handed in by the fix or gate that
+                # computed them. This loop is not such a caller, so it does
+                # not drive them: as coded it walked every owned op, and on a
+                # ready project `reel.build` completed and the loop then
+                # REFUSED at `reel.touchup` (`spec` unbound) before
+                # `reel.ask` ever ran. Skipped, never executed, and nothing
+                # is recorded for one. (The dry run's old-path walk in
+                # `library/tools/ren_dry_run.py` reads the same flag.)
+                print(f"{op.name}: skipped (caller-supplied)", file=sys.stderr)
+                continue
+            # The execution receipt, keyed by capability id: before this a
+            # reel build wrote its files and provenance recorded nothing.
+            from library.tools.ren_refusal import RenRefusal
+            try:
+                with provenance.observing_operation(project_folder, op.name):
+                    result = op.execute(
+                        project_folder,
+                        skip_captions=args.skip_captions,
+                        only_reels=args.only_reel or None,
+                        timeline_name_suffix=args.name_suffix,
+                        allow_drops=args.allow_drop or None,
+                        accept_editor_changes=getattr(
+                            args, "accept_editor_changes", None) or None,
+                        supersede=args.supersede or None,
+                        retain=args.retain or None,
+                        rebuild_all=bool(getattr(args, "rebuild_all", False)),
+                        placement_mode=getattr(args, "placement_mode", "auto"))
+            except RenRefusal as refused:
+                # A step-level refusal with a known next step (the replace
+                # guard's `--allow-drop` declaration): no traceback, exit 4,
+                # nothing after it ran and no closing commit.
+                from library.tools.ren_refusal import REFUSAL_EXIT_CODE
+                print(f"REFUSED: {op.name}", file=sys.stderr)
+                print(refused.render(), file=sys.stderr)
+                return REFUSAL_EXIT_CODE
+            if result.refused:
+                from library.tools.ren_refusal import REFUSAL_EXIT_CODE
+                print(f"REFUSED: {op.name}", file=sys.stderr)
+                print(result.error, file=sys.stderr)
+                return REFUSAL_EXIT_CODE
 
-        # RECORD the capability's result the way a run records one, so
-        # the next capability's gathered inputs can carry it and so the
-        # build is readable afterwards by everything that reads the
-        # records - the traceback, `status`, the deliverer.
-        record_project_output(project_folder, op.name, result.payload,
-                              only_reels=args.only_reel or None)
-        print(f"{op.name}: {result.status}", file=sys.stderr)
-        report_rebuild_need(result.payload)
-        report_reel_verification(result.payload)
+            # RECORD the capability's result the way a run records one, so
+            # the next capability's gathered inputs can carry it and so the
+            # build is readable afterwards by everything that reads the
+            # records - the traceback, `status`, the deliverer.
+            record_project_output(project_folder, op.name, result.payload,
+                                  only_reels=args.only_reel or None)
+            print(f"{op.name}: {result.status}", file=sys.stderr)
+            report_rebuild_need(result.payload)
+            report_reel_verification(result.payload)
 
     # ══════════════════════════════════════════════════════════════
     # THE CLOSING COMMIT (library/tools/versions/store.py)

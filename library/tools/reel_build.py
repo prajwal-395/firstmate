@@ -12252,6 +12252,13 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     concurrent deletion, and it cannot stop one build's discard path
     from deleting another's staging.
 
+    Under the `reels` process this hold is itself nested: the gate and
+    the promotion are the LATER `reel.verify` capability, so
+    `run_reels.run` holds the same lease around the whole run, and this
+    one is reentrant there. Measured 2026-10-05: with only this hold, a
+    queued smoke was granted the instance 2ms after `reel.build`
+    returned and the verify read its changes.
+
     The per-section holds below remain, as reentrant no-ops under
     the outer hold. They document each section's critical section
     and are correct if the outer hold is ever removed:
