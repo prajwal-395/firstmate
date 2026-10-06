@@ -18,6 +18,7 @@ from .lowering import (
     lower_full_frame_card,
     lower_motion_graphics,
     lower_post_header,
+    lower_staged_scene,
     lower_subtitle_overlay,
     lower_timed_text_overlay,
 )
@@ -81,6 +82,7 @@ __all__ = [
     "lower_full_frame_card",
     "lower_motion_graphics",
     "lower_post_header",
+    "lower_staged_scene",
     "lower_subtitle_overlay",
     "lower_timed_text_overlay",
     "read_scene",

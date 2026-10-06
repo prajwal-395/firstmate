@@ -50,6 +50,7 @@ class NodeType(str, Enum):
     FILTER = "filter"
     EFFECT = "effect"
     AUDIO = "audio"
+    HTML = "html"
 
 
 class EasingKind(str, Enum):
@@ -156,6 +157,12 @@ class TextContent(BaseModel):
     CSS's. ``text_shadow`` is a CSS ``text-shadow`` list - an outline is
     expressed the way the compositions express it, as zero-blur offset
     shadows.
+
+    ``runs`` carries the node's inline runs when the text is styled run by
+    run (StagedScene's model): each run its own size, weight, colour,
+    letter-spacing and reveal, sharing baselines. ``layout`` is ``"native"``
+    (the engine lays the text out with CSS's rules) or ``"browser"`` (a
+    browser measured the boxes and the engine draws at those positions).
     """
 
     text: str
@@ -169,13 +176,23 @@ class TextContent(BaseModel):
     letter_spacing: float | None = None
     text_transform: str | None = None
     text_shadow: str | None = None
+    runs: list[TextRun] = Field(default_factory=list)
+    layout: str | None = None
+    reveal_ramp: float | None = None
+    """Seconds a run's reveal fade takes, ending on its ``reveal_at``."""
 
 
 class ShapeContent(BaseModel):
-    """The content of a Shape node."""
+    """The content of a Shape node.
+
+    ``fill`` is a colour or a gradient (``Paint``); ``pattern`` is an
+    image tile. ``clip`` on the node accepts ``inset()`` and ``polygon()``
+    in the node's box, the CSS clip-path strings StagedScene already uses.
+    """
 
     shape: str
-    fill: str | None = None
+    fill: Paint | None = None
+    pattern: PatternFill | None = None
     stroke: str | None = None
     stroke_width: float | None = None
     path: str | None = None
@@ -199,13 +216,21 @@ class SVGContent(BaseModel):
 
     viewBox: str | None = None
     path: str | None = None
-    fill: str | None = None
+    fill: Paint | None = None
 
 
 class ShaderContent(BaseModel):
-    """The content of a Shader node. Uniforms are renderer-neutral names."""
+    """The content of a Shader node.
 
+    ``program`` names a shader from a Ren-owned registry (vignette, cone,
+    grain, bokeh); ``uniforms`` are renderer-neutral names, animatable as
+    ``shader.<name>``; ``inputs`` are image names or ``pass:<group id>``
+    for the two-pass route (render a subtree, shade its pixels).
+    """
+
+    program: str | None = None
     uniforms: dict[str, float] = Field(default_factory=dict)
+    inputs: list[str] = Field(default_factory=list)
 
 
 class FilterContent(BaseModel):
@@ -228,6 +253,192 @@ class AudioContent(BaseModel):
     src: str
     start: float = 0.0
     duration: float | None = None
+
+
+class PaintStop(BaseModel):
+    """One gradient stop.
+
+    Stops interpolate PREMULTIPLIED: a stop that fades to transparent keeps
+    its colour and sets ``opacity: 0`` rather than passing through black,
+    the way CSS ``linear-gradient`` to ``transparent`` behaves.
+    """
+
+    offset: float
+    color: str
+    opacity: float = 1.0
+
+
+class LinearGradient(BaseModel):
+    """A CSS ``linear-gradient`` over the node's box.
+
+    ``angle`` is degrees in CSS semantics (0 up, 90 right). The gradient
+    line runs through the box centre along ``(sin A, -cos A)`` and is
+    ``|w sin A| + |h cos A|`` long, so the stops land where CSS puts them.
+    Maps 1:1 to CSS ``linear-gradient`` and SVG ``linearGradient``.
+    """
+
+    kind: Literal["linear"]
+    angle: float
+    stops: list[PaintStop]
+
+
+class RadialGradient(BaseModel):
+    """A CSS ``radial-gradient`` ellipse, radii in percent of the box.
+
+    Maps 1:1 to CSS ``radial-gradient(ellipse ...)`` and SVG
+    ``radialGradient``.
+    """
+
+    kind: Literal["radial"]
+    radius_x: float
+    radius_y: float
+    stops: list[PaintStop]
+
+
+class ConicGradient(BaseModel):
+    """A CSS ``conic-gradient``.
+
+    usvg paints no conic gradient, so the FFrames adapter draws it with a
+    shader; the browser adapters draw it with CSS ``conic-gradient``
+    directly. Declared for vocabulary completeness.
+    """
+
+    kind: Literal["conic"]
+    angle: float
+    stops: list[PaintStop]
+
+
+Paint = Union[str, LinearGradient, RadialGradient, ConicGradient]
+"""A node's fill: a solid colour (``str``) or a gradient.
+
+A plain string is a solid colour, the way every composition states one
+today, so a scene that names no gradient keeps its meaning. A gradient
+maps 1:1 to CSS ``linear-gradient`` / ``radial-gradient`` /
+``conic-gradient`` and to SVG ``linearGradient`` / ``radialGradient``.
+"""
+
+
+class BlurFilter(BaseModel):
+    """A CSS ``blur()``.
+
+    ``sigma`` equals the CSS radius - measured against Chrome, not
+    halved. Maps 1:1 to CSS ``filter: blur()`` and SVG ``feGaussianBlur``.
+    """
+
+    kind: Literal["blur"]
+    sigma: float
+
+
+class DropShadowFilter(BaseModel):
+    """A CSS ``drop-shadow()``.
+
+    ``sigma`` equals the CSS blur radius (measured: 1.0x, not b/2).
+    Maps 1:1 to CSS ``filter: drop-shadow()`` and SVG ``feDropShadow``.
+    """
+
+    kind: Literal["drop_shadow"]
+    dx: float
+    dy: float
+    sigma: float
+    color: str
+
+
+Filter = Union[BlurFilter, DropShadowFilter]
+"""One filter in a node's ordered ``filters`` list.
+
+An ordered list applied in CSS order: filter, then clip, then mask, then
+opacity. Each filter maps 1:1 to a CSS ``filter`` function and an SVG
+filter primitive.
+"""
+
+
+class PatternFill(BaseModel):
+    """An image tile repeated across the node's box (the ground's grain).
+
+    ``src`` is a file path or data URI. ``tile_width`` / ``tile_height``
+    are pixels; ``None`` uses the image's own size. Maps 1:1 to CSS
+    ``background-image: url(); background-repeat: repeat`` and SVG
+    ``pattern``.
+    """
+
+    src: str
+    tile_width: float | None = None
+    tile_height: float | None = None
+    opacity: float = 1.0
+
+
+class TextRun(BaseModel):
+    """One inline run of a text node's line.
+
+    Runs share a baseline and flow inline the way StagedScene's
+    ``SceneRun`` does: each carries its own size, weight, colour,
+    letter-spacing and reveal time, and ``new_line`` starts a fresh line.
+    Every run's face is a static instance at its declared weight, because
+    usvg cannot apply a variable font's ``wght`` axis and would draw the
+    default (Thin) instance.
+
+    Maps 1:1 to a CSS inline ``<span>`` and to an SVG ``text`` run.
+    """
+
+    text: str
+    font_size: float | None = None
+    font_weight: float | None = None
+    color: str | None = None
+    letter_spacing: float | None = None
+    reveal_at: float | None = None
+    new_line: bool = False
+
+
+class CameraContent(BaseModel):
+    """The camera over the world: ``scale rotate translate`` about the frame
+    centre, and ``focus`` as a blur on the world group.
+
+    Maps 1:1 to a CSS transform on the world element plus a ``blur()``
+    filter, and to an SVG group transform plus ``feGaussianBlur``.
+    """
+
+    scale: float = 1.0
+    rotate: float = 0.0
+    translate: list[float] = Field(default_factory=lambda: [0.0, 0.0])
+    focus: float = 0.0
+
+
+class Keyframe(BaseModel):
+    """One key of a track.
+
+    ``ease`` names the segment ENDING at this key, the way StagedScene's
+    keyframes do; the first key's ease is never read. Absent means linear.
+    """
+
+    at: float
+    value: float
+    ease: str | None = None
+
+
+class Track(BaseModel):
+    """A multi-key track: one property's value over time, ease per segment.
+
+    StagedScene's ``valueAt`` semantics: held flat outside the keys, eased
+    by the arriving key. Maps 1:1 to a GSAP multi-key tween and to an
+    SVG/IR sampled track.
+    """
+
+    target: str
+    property: str
+    keys: list[Keyframe]
+
+
+class HTMLContent(BaseModel):
+    """A node only the browser draws: an HTML/CSS layer.
+
+    ``engine`` is ``"browser"`` - the escape hatch for content FFrames'
+    SVG has no answer for (conic gradients, arbitrary HTML, emoji). The
+    browser adapters draw it as an HTML layer; FFrames refuses it by name
+    rather than approximating it.
+    """
+
+    engine: str = "browser"
+    html: str | None = None
 
 
 class Animation(BaseModel):
@@ -263,7 +474,14 @@ class Timing(BaseModel):
 
 
 class Node(BaseModel):
-    """One node in the scene graph."""
+    """One node in the scene graph.
+
+    ``mask`` names a node whose alpha masks this one; ``clip`` is a CSS
+    ``clip-path`` (``inset()`` or ``polygon()``) in the node's box; ``blend``
+    is a CSS ``mix-blend-mode``; ``filters`` is an ordered CSS filter list
+    applied filter -> clip -> mask -> opacity; ``camera`` is this node's
+    camera content when it is a camera; ``tracks`` are multi-key tracks.
+    """
 
     id: str
     type: NodeType
@@ -274,25 +492,35 @@ class Node(BaseModel):
     mask: str | None = None
     clip: str | None = None
     blend: str = "normal"
+    filters: list[Filter] = Field(default_factory=list)
     timing: Timing | None = None
     animations: list[Animation] = Field(default_factory=list)
+    tracks: list[Track] = Field(default_factory=list)
     text: TextContent | None = None
     shape: ShapeContent | None = None
     image: ImageContent | None = None
     svg: SVGContent | None = None
     shader: ShaderContent | None = None
+    camera: CameraContent | None = None
     filter: FilterContent | None = None
     effect: EffectContent | None = None
     audio: AudioContent | None = None
+    html: HTMLContent | None = None
     children: list[str] = Field(default_factory=list)
 
 
 class Scene(BaseModel):
-    """A complete scene: the renderer-neutral description of one composition."""
+    """A complete scene: the renderer-neutral description of one composition.
+
+    ``hold_frames`` is the frame quantiser: every Nth frame is drawn twice
+    (motion on twos when 2). It belongs at scene level, not as ``steps()``
+    on each tween.
+    """
 
     version: int = 1
     fps: float
     width: int
     height: int
     duration: float
+    hold_frames: int | None = None
     nodes: list[Node] = Field(default_factory=list)

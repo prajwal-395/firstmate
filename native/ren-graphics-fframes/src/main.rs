@@ -1,34 +1,110 @@
 //! ren-graphics-fframes: Ren's precompiled FFrames renderer.
 //!
 //! `ren-graphics-fframes render scene.json <frames_dir>` reads a Ren Graphics
-//! IR scene (library/graphics_ir/scene.schema.json), builds one SVG per frame,
-//! and rasterises it through FFrames/Skia on Metal into straight-alpha RGBA
-//! PNGs. `render scene.json --raw` writes the same straight-alpha RGBA frames
-//! to stdout instead - a small header (width, height as u32 LE) then
-//! ``width * height * 4`` bytes per frame - so the encoder can pipe them
-//! straight into ffmpeg without a PNG round-trip. It draws exactly what the
-//! scene says - every position, colour, face and weight is the scene's; this
-//! binary states no style of its own.
+//! IR scene (library/graphics_ir/scene.schema.json), builds each frame as a
+//! usvgr nested tree, and rasterises it through FFrames/Skia on Metal into
+//! straight-alpha RGBA PNGs. `render scene.json --raw` writes the same
+//! straight-alpha RGBA frames to stdout instead - a small header (width,
+//! height as u32 LE) then ``width * height * 4`` bytes per frame - so the
+//! encoder can pipe them straight into ffmpeg without a PNG round-trip. It
+//! draws exactly what the scene says - every position, colour, face and
+//! weight is the scene's; this binary states no style of its own.
 //!
-//! Text follows CSS: a node's bounds is its box, each `\n`-separated line is
-//! one line box `line_height` ems tall (`normal` when absent), the baseline
-//! sits half the leading below the line top plus the face's ascent (typo
-//! metrics when the face asks for them, else hhea), and `text_shadow` is a CSS
-//! `text-shadow` list painted beneath the text. Transforms pivot on the
-//! node's box centre, CSS's default `transform-origin`.
+//! The tree is built as nested nodes (compile-time-svgtree mode) rather than
+//! an SVG string, because only a nested tree can carry a shader layer's image
+//! handle and per-frame images. Every text node's face is a static instance
+//! at its declared weight (the Python side stages them), because usvg cannot
+//! apply a variable font's ``wght`` axis and would draw the default (Thin)
+//! instance.
+//!
+//! Text follows CSS: a node's bounds is its box, runs flow inline sharing
+//! baselines, the line box spans the highest top to the lowest bottom
+//! including the block's strut, a face's ascent and descent are rounded to
+//! whole pixels before half-leading is taken, and the ascent side gets the
+//! floor of half the leading (the two Blink rules). Transforms pivot on the
+//! node's box centre, CSS's default ``transform-origin``.
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use base64::Engine as _;
 use fframes::{AudioMap, Color, Duration, FFramesContext, Frame, FrameRenderer, RgbaFrame, Svgr, Video};
 use fframes::{DynamicMediaProvider, RawFontData};
+use fframes::usvgr::svgtree::{
+    AId, Attribute, EId, NestedNodeData, NestedNodeKind, NestedSvgDocument, StringStorage,
+    SvgAttributeValue,
+};
 use fframes_skia_renderer::metal::SkiaMetalCtx;
 use fframes_skia_renderer::{SkiaBackend, SkiaFrameRenderer};
 use serde::Deserialize;
+
+// ── A minimal element builder that lowers to usvgr's nested tree ────────────
+
+enum AttrVal {
+    S(String),
+}
+
+struct El {
+    tag: &'static str,
+    attrs: Vec<(&'static str, AttrVal)>,
+    children: Vec<El>,
+    text: Option<String>,
+}
+
+impl El {
+    fn new(tag: &'static str) -> Self {
+        El { tag, attrs: Vec::new(), children: Vec::new(), text: None }
+    }
+    fn a(mut self, name: &'static str, v: impl ToString) -> Self {
+        self.attrs.push((name, AttrVal::S(v.to_string())));
+        self
+    }
+    fn c(mut self, child: El) -> Self {
+        self.children.push(child);
+        self
+    }
+    fn push(&mut self, child: El) {
+        self.children.push(child);
+    }
+    fn t(mut self, text: &str) -> Self {
+        self.text = Some(text.to_string());
+        self
+    }
+    fn lower(self) -> NestedNodeData<'static> {
+        let tag = EId::from_str(self.tag)
+            .unwrap_or_else(|| panic!("unknown element {}", self.tag));
+        let attrs: Vec<Attribute<'static>> = self
+            .attrs
+            .into_iter()
+            .map(|(name, v)| Attribute {
+                name: AId::from_str(name)
+                    .unwrap_or_else(|| panic!("unknown attribute {name}")),
+                value: match v {
+                    AttrVal::S(s) => SvgAttributeValue::StringStorage(StringStorage::new_owned(s)),
+                },
+            })
+            .collect();
+        let mut children: Vec<Option<NestedNodeData<'static>>> =
+            self.children.into_iter().map(|c| Some(c.lower())).collect();
+        if let Some(text) = self.text {
+            children.push(Some(NestedNodeData {
+                kind: NestedNodeKind::Text(StringStorage::new_owned(text)),
+                attrs: Box::new([]),
+                children: vec![],
+                static_hash: None,
+            }));
+        }
+        NestedNodeData {
+            kind: NestedNodeKind::Element { tag_name: tag },
+            attrs: attrs.into_boxed_slice(),
+            children,
+            static_hash: None,
+        }
+    }
+}
 
 // ── Scene IR schema ────────────────────────────────────────────────
 
@@ -39,10 +115,13 @@ struct Scene {
     width: u32,
     height: u32,
     duration: f32,
+    #[serde(default)]
+    hold_frames: Option<u32>,
     nodes: Vec<IRNode>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[allow(dead_code)] // filter/effect/audio/html content is vocabulary the adapter does not draw yet
 struct IRNode {
     id: String,
     #[serde(rename = "type")]
@@ -56,9 +135,19 @@ struct IRNode {
     #[serde(default)]
     z_index: Option<i32>,
     #[serde(default)]
+    mask: Option<String>,
+    #[serde(default)]
+    clip: Option<String>,
+    #[serde(default)]
+    blend: Option<String>,
+    #[serde(default)]
+    filters: Vec<IRFilter>,
+    #[serde(default)]
     timing: Option<IRTiming>,
     #[serde(default)]
     animations: Vec<IRAnimation>,
+    #[serde(default)]
+    tracks: Vec<IRTrack>,
     #[serde(default)]
     text: Option<IRTextContent>,
     #[serde(default)]
@@ -67,6 +156,18 @@ struct IRNode {
     image: Option<IRImageContent>,
     #[serde(default)]
     svg: Option<IRSVGContent>,
+    #[serde(default)]
+    shader: Option<IRShaderContent>,
+    #[serde(default)]
+    camera: Option<IRCameraContent>,
+    #[serde(default)]
+    filter: Option<IRFilterContent>,
+    #[serde(default)]
+    effect: Option<IREffectContent>,
+    #[serde(default)]
+    audio: Option<IRAudioContent>,
+    #[serde(default)]
+    html: Option<IRHTMLContent>,
     #[serde(default)]
     children: Vec<String>,
 }
@@ -134,6 +235,7 @@ fn default_power() -> f32 { 2.0 }
 fn default_step_direction() -> String { "end".to_string() }
 
 #[derive(Debug, Deserialize, Clone)]
+#[allow(dead_code)] // the browser-layout hint is not yet consumed
 struct IRTextContent {
     text: String,
     #[serde(default)]
@@ -156,13 +258,38 @@ struct IRTextContent {
     text_transform: Option<String>,
     #[serde(default)]
     text_shadow: Option<String>,
+    #[serde(default)]
+    runs: Vec<IRTextRun>,
+    #[serde(default)]
+    layout: Option<String>,
+    #[serde(default)]
+    reveal_ramp: Option<f32>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct IRTextRun {
+    text: String,
+    #[serde(default)]
+    font_size: Option<f32>,
+    #[serde(default)]
+    font_weight: Option<f32>,
+    #[serde(default)]
+    color: Option<String>,
+    #[serde(default)]
+    letter_spacing: Option<f32>,
+    #[serde(default)]
+    reveal_at: Option<f32>,
+    #[serde(default)]
+    new_line: bool,
 }
 
 #[derive(Debug, Deserialize, Clone)]
 struct IRShapeContent {
     shape: String,
     #[serde(default)]
-    fill: Option<String>,
+    fill: Option<IRPaint>,
+    #[serde(default)]
+    pattern: Option<IRPatternFill>,
     #[serde(default)]
     stroke: Option<String>,
     #[serde(default)]
@@ -171,6 +298,44 @@ struct IRShapeContent {
     path: Option<String>,
     #[serde(default)]
     corner_radius: Option<f32>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(untagged)]
+enum IRPaint {
+    Solid(String),
+    Gradient(IRGradient),
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct IRGradient {
+    kind: String,
+    #[serde(default)]
+    angle: Option<f32>,
+    #[serde(default)]
+    radius_x: Option<f32>,
+    #[serde(default)]
+    radius_y: Option<f32>,
+    stops: Vec<IRPaintStop>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct IRPaintStop {
+    offset: f32,
+    color: String,
+    #[serde(default)]
+    opacity: Option<f32>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct IRPatternFill {
+    src: String,
+    #[serde(default)]
+    tile_width: Option<f32>,
+    #[serde(default)]
+    tile_height: Option<f32>,
+    #[serde(default)]
+    opacity: Option<f32>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -185,7 +350,88 @@ struct IRSVGContent {
     #[serde(default)]
     path: Option<String>,
     #[serde(default)]
-    fill: Option<String>,
+    fill: Option<IRPaint>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[allow(dead_code)] // shaders warn and skip at draw time
+struct IRShaderContent {
+    #[serde(default)]
+    program: Option<String>,
+    #[serde(default)]
+    uniforms: HashMap<String, f32>,
+    #[serde(default)]
+    inputs: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct IRCameraContent {
+    #[serde(default)]
+    scale: Option<f32>,
+    #[serde(default)]
+    rotate: Option<f32>,
+    #[serde(default)]
+    translate: Option<Vec<f32>>,
+    #[serde(default)]
+    focus: Option<f32>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[allow(dead_code)] // the Filter node type is not yet drawn
+struct IRFilterContent {
+    filter: String,
+    #[serde(default)]
+    amount: Option<f32>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[allow(dead_code)] // the Effect node type is not yet drawn
+struct IREffectContent {
+    effect: String,
+    #[serde(default)]
+    params: HashMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[allow(dead_code)] // the Audio node type is not yet drawn
+struct IRAudioContent {
+    src: String,
+    #[serde(default)]
+    start: f32,
+    #[serde(default)]
+    duration: Option<f32>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[allow(dead_code)] // the html node refuses by name at draw time
+struct IRHTMLContent {
+    #[serde(default)]
+    engine: Option<String>,
+    #[serde(default)]
+    html: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum IRFilter {
+    Blur { sigma: f32 },
+    DropShadow { dx: f32, dy: f32, sigma: f32, color: String },
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[allow(dead_code)] // tracks are sampled by property; target is redundant on the node
+struct IRTrack {
+    target: String,
+    property: String,
+    keys: Vec<IRKeyframe>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct IRKeyframe {
+    at: f32,
+    value: f32,
+    #[serde(default)]
+    ease: Option<String>,
 }
 
 // ── Easing evaluation (matches library/graphics_ir/easing.py) ──────
@@ -197,9 +443,7 @@ fn apply_easing(easing: &IREasing, t: f32, fps: f32) -> f32 {
             let clamped = t.clamp(0.0, 1.0);
             1.0 - (1.0 - clamped).powf(*power)
         }
-        IREasing::CubicBezier { x1, y1, x2, y2 } => {
-            cubic_bezier(*x1, *y1, *x2, *y2, t)
-        }
+        IREasing::CubicBezier { x1, y1, x2, y2 } => cubic_bezier(*x1, *y1, *x2, *y2, t),
         IREasing::Spring { stiffness, damping, mass } => {
             spring_progress(t, *stiffness, *damping, *mass, fps)
         }
@@ -214,6 +458,23 @@ fn apply_easing(easing: &IREasing, t: f32, fps: f32) -> f32 {
                 (clamped * *steps as f32).ceil() / *steps as f32
             }
         }
+    }
+}
+
+/// StagedScene's ease names, for keyframe tracks. Cubic, the way
+/// `valueAt` draws them in the Remotion and HyperFrames compositions.
+fn track_ease(name: Option<&str>, x: f32) -> f32 {
+    match name.unwrap_or("linear") {
+        "in" => x * x * x,
+        "out" => 1.0 - (1.0 - x).powi(3),
+        "inOut" => {
+            if x < 0.5 {
+                4.0 * x * x * x
+            } else {
+                1.0 - (-2.0 * x + 2.0).powi(3) / 2.0
+            }
+        }
+        _ => x,
     }
 }
 
@@ -299,7 +560,7 @@ fn spring_progress(t: f32, stiffness: f32, damping: f32, mass: f32, fps: f32) ->
     current
 }
 
-// ── Animation sampling (matches library/graphics_ir/evaluator.py) ──
+// ── Animation and track sampling (matches library/graphics_ir/evaluator.py) ──
 
 fn sample_animation(anim: &IRAnimation, time_seconds: f32, fps: f32) -> IRValue {
     if time_seconds < anim.start {
@@ -328,6 +589,33 @@ fn interpolate(from: &IRValue, to: &IRValue, progress: f32) -> IRValue {
     }
 }
 
+/// A track's value at time ``t``: held flat outside the keys, eased by the
+/// arriving key (StagedScene's `valueAt` semantics).
+fn track_value(keys: &[IRKeyframe], t: f32, neutral: f32) -> f32 {
+    if keys.is_empty() {
+        return neutral;
+    }
+    if t <= keys[0].at {
+        return keys[0].value;
+    }
+    let last = &keys[keys.len() - 1];
+    if t >= last.at {
+        return last.value;
+    }
+    for i in 1..keys.len() {
+        let a = &keys[i - 1];
+        let b = &keys[i];
+        if t <= b.at {
+            if b.at == a.at {
+                return b.value;
+            }
+            let x = ((t - a.at) / (b.at - a.at)).clamp(0.0, 1.0);
+            return a.value + (b.value - a.value) * track_ease(b.ease.as_deref(), x);
+        }
+    }
+    last.value
+}
+
 fn sample_node_animations(node: &IRNode, time_seconds: f32, fps: f32) -> Vec<(String, IRValue)> {
     let mut by_property: Vec<(String, Vec<&IRAnimation>)> = Vec::new();
     for anim in &node.animations {
@@ -351,6 +639,14 @@ fn sample_node_animations(node: &IRNode, time_seconds: f32, fps: f32) -> Vec<(St
     result
 }
 
+/// The sampled value of one of a node's tracks at time ``t``.
+fn sample_node_tracks(node: &IRNode, t: f32) -> Vec<(String, f32)> {
+    node.tracks
+        .iter()
+        .map(|track| (track.property.clone(), track_value(&track.keys, t, 0.0)))
+        .collect()
+}
+
 // ── Faces and their vertical metrics ───────────────────────────────
 
 /// Ascent, descent (positive) and line gap, in ems.
@@ -359,10 +655,6 @@ struct FaceMetrics {
     ascent: f32,
     descent: f32,
     line_gap: f32,
-}
-
-fn face_query_family(text: &IRTextContent) -> Option<&str> {
-    text.font_family.as_deref()
 }
 
 /// The metrics of the face each text node draws with, keyed by node id.
@@ -386,7 +678,7 @@ fn text_metrics(scene: &Scene) -> HashMap<String, FaceMetrics> {
     for node in &scene.nodes {
         let Some(text) = &node.text else { continue };
         let weight = text.font_weight.unwrap_or(400.0).round().clamp(1.0, 1000.0) as u16;
-        let family_name = face_query_family(text).map(|s| s.to_string());
+        let family_name = text.font_family.as_deref().map(|s| s.to_string());
         let lookup = |db: &fontdb::Database| {
             let families = match &family_name {
                 Some(name) => vec![fontdb::Family::Name(name), fontdb::Family::SansSerif],
@@ -438,6 +730,48 @@ fn text_metrics(scene: &Scene) -> HashMap<String, FaceMetrics> {
     out
 }
 
+// ── Advances: hmtx advance widths, cached per font ─────────────────
+
+/// Horizontal advance widths of one face, from its ``hmtx`` table.
+///
+/// Kerning is deliberately not applied: measured against Chrome on this
+/// scene's text, the per-run kerning total is 0.16-1.72 px, far inside the
+/// parity gate's 1% pct8 budget. The glyphs within each run are still kerned
+/// by the shaper; only the run's trailing width is unkerned.
+#[derive(Clone)]
+struct Advances {
+    upem: f32,
+    data: Vec<u8>,
+    cache: HashMap<char, u32>,
+}
+
+fn load_advances(path: &Path) -> Advances {
+    let data = fs::read(path).unwrap_or_default();
+    let upem = ttf_parser::Face::parse(&data, 0)
+        .map(|f| f.units_per_em())
+        .unwrap_or(1000) as f32;
+    Advances { upem, data, cache: HashMap::new() }
+}
+
+impl Advances {
+    fn advance(&mut self, ch: char) -> u32 {
+        *self.cache.entry(ch).or_insert_with(|| {
+            if let Ok(f) = ttf_parser::Face::parse(&self.data, 0) {
+                if let Some(g) = f.glyph_index(ch) {
+                    return f.glyph_hor_advance(g).unwrap_or(0) as u32;
+                }
+            }
+            0
+        })
+    }
+
+    /// Advance width of *text* at *size* pixels, unkerned.
+    fn width(&mut self, text: &str, size: f32) -> f32 {
+        let units: u32 = text.chars().map(|ch| self.advance(ch)).sum();
+        units as f32 * size / self.upem
+    }
+}
+
 // ── Paint helpers ──────────────────────────────────────────────────
 
 /// A CSS colour as an SVG paint plus its opacity.
@@ -456,15 +790,6 @@ fn paint(colour: &str) -> (String, f32) {
         return (lower[..7].to_string(), alpha);
     }
     (c.to_string(), 1.0)
-}
-
-fn paint_attrs(kind: &str, colour: &str) -> String {
-    let (value, alpha) = paint(colour);
-    if alpha < 1.0 {
-        format!(r#" {kind}="{}" {kind}-opacity="{}""#, escape_xml(&value), alpha)
-    } else {
-        format!(r#" {kind}="{}""#, escape_xml(&value))
-    }
 }
 
 /// One entry of a CSS `text-shadow` list.
@@ -572,6 +897,28 @@ fn parse_inset(value: &str) -> Option<[f32; 4]> {
     }
 }
 
+/// A CSS `polygon(x% y%, ...)` in a w x h box at (bx, by), as SVG points.
+///
+/// Percentages resolve against the node's box, and ``userSpaceOnUse`` puts
+/// the points in the element's user space, so the box origin is added.
+fn css_polygon(value: &str, bx: f32, by: f32, w: f32, h: f32) -> Vec<(f32, f32)> {
+    let inner = value.trim().trim_start_matches("polygon(").trim_end_matches(')');
+    inner
+        .split(',')
+        .map(|pair| {
+            let v: Vec<f32> = pair
+                .split_whitespace()
+                .map(|s| s.trim_end_matches('%').parse::<f32>().unwrap())
+                .collect();
+            (bx + v[0] / 100.0 * w, by + v[1] / 100.0 * h)
+        })
+        .collect()
+}
+
+fn points_attr(pts: &[(f32, f32)]) -> String {
+    pts.iter().map(|(x, y)| format!("{x:.4},{y:.4}")).collect::<Vec<_>>().join(" ")
+}
+
 /// The encoded bytes an image node names: a base64 data URI or a file.
 fn image_bytes(src: &str) -> Result<Vec<u8>, String> {
     if let Some(rest) = src.strip_prefix("data:") {
@@ -593,54 +940,145 @@ fn escape_xml(text: &str) -> String {
         .replace('"', "&quot;")
 }
 
-// ── SVG building ───────────────────────────────────────────────────
-
-/// One frame's SVG, with the defs its filters and clips need.
-struct FrameSvg {
-    defs: String,
-    body: String,
-    filters: HashMap<String, String>,
-    next_id: usize,
-    width: u32,
-    height: u32,
-}
-
-impl FrameSvg {
-    fn blur_filter(&mut self, std_deviation: f32) -> String {
-        let key = format!("{:.3}", std_deviation);
-        if let Some(id) = self.filters.get(&key) {
-            return id.clone();
-        }
-        let id = format!("f{}", self.next_id);
-        self.next_id += 1;
-        let (w, h) = (self.width as f32, self.height as f32);
-        self.defs.push_str(&format!(
-            r#"<filter id="{id}" filterUnits="userSpaceOnUse" x="{}" y="{}" width="{}" height="{}"><feGaussianBlur stdDeviation="{}"/></filter>"#,
-            -w, -h, 3.0 * w, 3.0 * h, std_deviation
-        ));
-        self.filters.insert(key, id.clone());
-        id
-    }
-
-    fn clip_rect(&mut self, x: f32, y: f32, w: f32, h: f32) -> String {
-        let id = format!("c{}", self.next_id);
-        self.next_id += 1;
-        self.defs.push_str(&format!(
-            r#"<clipPath id="{id}" clipPathUnits="userSpaceOnUse"><rect x="{x}" y="{y}" width="{}" height="{}"/></clipPath>"#,
-            w.max(0.0),
-            h.max(0.0)
-        ));
-        id
-    }
-}
+// ── The scene, rendered as a nested tree ────────────────────────────
 
 struct SceneVideo {
     scene: Scene,
     node_map: HashMap<String, IRNode>,
     roots: Vec<String>,
     metrics: HashMap<String, FaceMetrics>,
-    /// Image node id -> the name its pixels are preloaded under.
+    /// Image or pattern node id -> the name its pixels are preloaded under.
     images: HashMap<String, String>,
+    /// Font file path -> its advance widths.
+    advances: HashMap<String, Advances>,
+}
+
+/// What one frame's tree is built against.
+struct RenderContext<'a> {
+    defs: El,
+    next_id: usize,
+    width: f32,
+    height: f32,
+    images: &'a HashMap<String, String>,
+    advances: &'a mut HashMap<String, Advances>,
+}
+
+impl RenderContext<'_> {
+    fn next(&mut self, prefix: &str) -> String {
+        self.next_id += 1;
+        format!("{}{}", prefix, self.next_id)
+    }
+}
+
+/// How visible a run is at time `t`: the ramp ENDS on `reveal_at`.
+fn run_opacity(t: f32, reveal_at: Option<f32>, ramp: f32) -> f32 {
+    let Some(r) = reveal_at else { return 1.0 };
+    if ramp <= 0.0 {
+        return if t >= r { 1.0 } else { 0.0 };
+    }
+    if t >= r {
+        return 1.0;
+    }
+    if t <= r - ramp {
+        return 0.0;
+    }
+    (t - (r - ramp)) / ramp
+}
+
+/// The block's strut: Chrome's default serif at 16 px, measured with
+/// fontTools. The line box includes it the way CSS 2.1 10.8 says.
+const STRUT_SIZE: f32 = 16.0;
+const STRUT_A: f32 = 0.891;
+const STRUT_D: f32 = 0.216;
+
+/// One inline box's (above, below) the baseline, Blink's way: the face's
+/// ascent and descent are rounded to whole pixels before half-leading is
+/// taken, and the ascent side gets the FLOOR of half the leading.
+fn inline_box(size: f32, a: f32, d: f32, line_height: f32) -> (f32, f32) {
+    let ra = (a * size).round();
+    let rd = (d * size).round();
+    let leading_px = line_height - (ra + rd);
+    let up = (leading_px / 2.0).floor();
+    (ra + up, rd + (leading_px - up))
+}
+
+/// One laid-out run: where it goes and how it draws.
+struct RunLayout {
+    text: String,
+    x: f32,
+    baseline: f32,
+    size: f32,
+    weight: f32,
+    colour: String,
+    letter_spacing: f32,
+    opacity: f32,
+}
+
+/// Lay a text node's runs out inline, sharing baselines, the way the
+/// browser does for StagedScene's text body.
+fn layout_runs(
+    text: &IRTextContent,
+    t: f32,
+    m: &FaceMetrics,
+    bounds: &IRBounds,
+    advances: &mut Advances,
+) -> Vec<RunLayout> {
+    let fallback_size = text.font_size.unwrap_or(16.0);
+    let mut lines: Vec<Vec<&IRTextRun>> = vec![vec![]];
+    for run in &text.runs {
+        if run.new_line && !lines.last().map(|l| l.is_empty()).unwrap_or(true) {
+            lines.push(vec![]);
+        }
+        lines.last_mut().unwrap().push(run);
+    }
+    let strut = inline_box(STRUT_SIZE, STRUT_A, STRUT_D, STRUT_SIZE);
+    let ramp = text.reveal_ramp.unwrap_or(0.0);
+    let mut top = 0.0_f32;
+    let mut out = Vec::new();
+    for line in &lines {
+        let mut above = strut.0;
+        let mut below = strut.1;
+        let mut widths = Vec::new();
+        for run in line {
+            let size = run.font_size.unwrap_or(fallback_size);
+            let lh = text.line_height.map(|l| l * size).unwrap_or(size);
+            let (a, b) = inline_box(size, m.ascent, m.descent, lh);
+            above = above.max(a);
+            below = below.max(b);
+            let ls = run.letter_spacing.unwrap_or(0.0);
+            let w = advances.width(&run.text, size) + ls * run.text.chars().count() as f32;
+            widths.push(w);
+        }
+        let line_w: f32 = widths.iter().sum();
+        let align = text.text_align.as_deref().unwrap_or("left");
+        let mut x = match align {
+            "right" | "end" => bounds.width - line_w,
+            "center" | "middle" => (bounds.width - line_w) / 2.0,
+            _ => 0.0,
+        };
+        let baseline = top + above;
+        for (run, w) in line.iter().zip(widths) {
+            let size = run.font_size.unwrap_or(fallback_size);
+            let colour = run
+                .color
+                .clone()
+                .or_else(|| text.color.clone())
+                .unwrap_or_else(|| "#000000".to_string());
+            out.push(RunLayout {
+                text: run.text.clone(),
+                x: x + bounds.x,
+                baseline: baseline + bounds.y,
+                size,
+                weight: run.font_weight.unwrap_or(text.font_weight.unwrap_or(400.0)),
+                colour,
+                letter_spacing: run.letter_spacing.unwrap_or(0.0),
+                opacity: run_opacity(t, run.reveal_at, ramp),
+            });
+            x += w;
+        }
+        top += above + below;
+    }
+    out
 }
 
 impl Video for SceneVideo {
@@ -658,27 +1096,16 @@ impl Video for SceneVideo {
     }
 
     fn render_frame(&self, frame: Frame, _ctx: &FFramesContext) -> Svgr<'_> {
-        let time_seconds = frame.index as f32 / self.scene.fps;
-        let mut out = FrameSvg {
-            defs: String::new(),
-            body: String::new(),
-            filters: HashMap::new(),
-            next_id: 0,
-            width: self.scene.width,
-            height: self.scene.height,
-        };
-        for id in &self.roots {
-            if let Some(node) = self.node_map.get(id) {
-                self.render_node(&mut out, node, time_seconds);
+        let mut held = frame.index;
+        if let Some(hold) = self.scene.hold_frames {
+            if hold > 1 {
+                let hold = hold as usize;
+                held = held / hold * hold;
             }
         }
-        Svgr::from(format!(
-            r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" width="{w}" height="{h}"><defs>{}</defs>{}</svg>"#,
-            out.defs,
-            out.body,
-            w = self.scene.width,
-            h = self.scene.height
-        ))
+        let t = held as f32 / self.scene.fps;
+        let root = self.frame_tree(t);
+        Svgr { svg_tree: NestedSvgDocument::from_nodes(vec![Some(root.lower())]) }
     }
 }
 
@@ -702,24 +1129,48 @@ fn pair(value: Option<&IRValue>) -> Option<(f32, f32)> {
 }
 
 impl SceneVideo {
-    fn render_node(&self, out: &mut FrameSvg, node: &IRNode, t: f32) {
+    fn frame_tree(&self, t: f32) -> El {
+        let (w, h) = (self.scene.width as f32, self.scene.height as f32);
+        let mut ctx = RenderContext {
+            defs: El::new("defs"),
+            next_id: 0,
+            width: w,
+            height: h,
+            images: &self.images,
+            advances: &mut self.advances.clone(),
+        };
+        let mut root = El::new("svg")
+            .a("width", w)
+            .a("height", h)
+            .a("viewBox", format!("0 0 {w} {h}"));
+        for id in &self.roots {
+            if let Some(node) = self.node_map.get(id) {
+                root = root.c(self.render_node(&mut ctx, node, t));
+            }
+        }
+        root.c(ctx.defs)
+    }
+
+    fn render_node(&self, ctx: &mut RenderContext, node: &IRNode, t: f32) -> El {
         if let Some(timing) = &node.timing {
             if t < timing.start {
-                return;
+                return El::new("g");
             }
             if let Some(dur) = timing.duration {
                 if t >= timing.start + dur {
-                    return;
+                    return El::new("g");
                 }
             }
         }
 
         let anims = sample_node_animations(node, t, self.scene.fps);
         let get = |prop: &str| anims.iter().find(|(p, _)| p == prop).map(|(_, v)| v);
+        let tracks = sample_node_tracks(node, t);
+        let track = |prop: &str| tracks.iter().find(|(p, _)| p == prop).map(|(_, v)| *v);
 
         let opacity = number(get("opacity")).or(node.opacity).unwrap_or(1.0);
         if opacity <= 0.0 {
-            return;
+            return El::new("g");
         }
 
         // CSS/GSAP order: translate, then rotate and scale about the box centre.
@@ -758,33 +1209,47 @@ impl SceneVideo {
             ));
         }
 
-        let mut attrs = String::new();
+        let mut g = El::new("g");
         if !transform.is_empty() {
-            attrs.push_str(&format!(r#" transform="{}""#, transform.trim()));
+            g = g.a("transform", transform.trim());
         }
         if opacity < 1.0 {
-            attrs.push_str(&format!(r#" opacity="{opacity}""#));
+            g = g.a("opacity", opacity);
         }
-        if let Some(blur) = number(get("blur")) {
-            if blur > 0.0 {
-                let id = out.blur_filter(blur);
-                attrs.push_str(&format!(r#" filter="url(#{id})""#));
+        // CSS order: filter, then clip-path, then mask, then blend.
+        for filter in &node.filters {
+            g = self.apply_filter(ctx, g, filter);
+        }
+        // A clip animation (a light's cone, baked per frame by the lowering)
+        // overrides the node's static clip.
+        let clip_string = match get("clip") {
+            Some(IRValue::Text(c)) => Some(c.clone()),
+            _ => None,
+        };
+        let clip_string = clip_string.as_deref().or(node.clip.as_deref()).filter(|c| !c.is_empty());
+        if let Some(clip) = clip_string {
+            if let Some(b) = node.bounds {
+                g = self.apply_clip(ctx, g, clip, b);
             }
         }
-        if let (Some(IRValue::Text(clip)), Some(b)) = (get("clip"), node.bounds) {
-            if let Some([top, right, bottom, left]) = parse_inset(clip) {
-                let x = b.x + b.width * left / 100.0;
-                let y = b.y + b.height * top / 100.0;
-                let w = b.width * (1.0 - (left + right) / 100.0);
-                let h = b.height * (1.0 - (top + bottom) / 100.0);
-                let id = out.clip_rect(x, y, w, h);
-                attrs.push_str(&format!(r#" clip-path="url(#{id})""#));
+        if let Some(mask) = node.mask.as_deref().filter(|m| !m.is_empty()) {
+            let id = ctx.next("m");
+            let mut mask_el = El::new("mask").a("id", &id);
+            if let Some(src) = self.node_map.get(mask) {
+                let src_node = src.clone();
+                mask_el = mask_el.c(self.render_node(ctx, &src_node, t));
+            } else {
+                eprintln!("WARNING: mask of node {} names unknown node {mask}; nothing masked", node.id);
             }
+            ctx.defs.push(mask_el);
+            g = g.a("mask", format!("url(#{id})"));
+        }
+        if let Some(blend) = node.blend.as_deref().filter(|b| *b != "normal" && !b.is_empty()) {
+            g = g.a("mix-blend-mode", blend);
         }
 
-        out.body.push_str(&format!("<g{attrs}>"));
         match node.node_type.as_str() {
-            "group" | "scene" | "ground" | "camera" => {
+            "group" | "scene" | "ground" => {
                 let mut children: Vec<&IRNode> = node
                     .children
                     .iter()
@@ -792,8 +1257,44 @@ impl SceneVideo {
                     .collect();
                 children.sort_by_key(|n| n.z_index.unwrap_or(0));
                 for child in children {
-                    self.render_node(out, child, t);
+                    g = g.c(self.render_node(ctx, child, t));
                 }
+            }
+            "camera" => {
+                let cam = node.camera.as_ref().cloned().unwrap_or(IRCameraContent {
+                    scale: None, rotate: None, translate: None, focus: None,
+                });
+                let scale = track("camera.scale").or(cam.scale).unwrap_or(1.0);
+                let roll = track("camera.rotate").or(cam.rotate).unwrap_or(0.0);
+                let ccx = track("camera.translateX")
+                    .or_else(|| cam.translate.as_ref().filter(|v| v.len() >= 2).map(|v| v[0]))
+                    .unwrap_or(0.0);
+                let ccy = track("camera.translateY")
+                    .or_else(|| cam.translate.as_ref().filter(|v| v.len() >= 2).map(|v| v[1]))
+                    .unwrap_or(0.0);
+                let focus = track("camera.focus").or(cam.focus).unwrap_or(0.0);
+                let mut inner = El::new("g");
+                let mut children: Vec<&IRNode> = node
+                    .children
+                    .iter()
+                    .filter_map(|id| self.node_map.get(id))
+                    .collect();
+                children.sort_by_key(|n| n.z_index.unwrap_or(0));
+                for child in children {
+                    inner = inner.c(self.render_node(ctx, child, t));
+                }
+                let cam_transform = format!(
+                    "translate({},{}) scale({}) rotate({}) translate({},{}) translate({},{})",
+                    ctx.width / 2.0, ctx.height / 2.0, scale, roll, -ccx, -ccy,
+                    -ctx.width / 2.0, -ctx.height / 2.0
+                );
+                let mut world = El::new("g").a("transform", cam_transform);
+                if focus > 0.0 {
+                    let id = ctx.next("f");
+                    ctx.defs.push(blur_filter(&id, focus, ctx.width, ctx.height));
+                    world = world.a("filter", format!("url(#{id})"));
+                }
+                g = g.c(world.c(inner));
             }
             "text" => {
                 if let Some(text) = &node.text {
@@ -801,147 +1302,363 @@ impl SceneVideo {
                         Some(IRValue::Text(c)) => Some(c.clone()),
                         _ => text.color.clone(),
                     };
-                    self.draw_text(out, node, text, colour.as_deref());
+                    g = self.draw_text(ctx, node, text, colour.as_deref(), t);
                 }
             }
-            "shape" => draw_shape(out, node),
+            "shape" => g = self.draw_shape(ctx, g, node),
             "image" => {
-                if let (Some(key), Some(b)) = (self.images.get(&node.id), node.bounds) {
-                    out.body.push_str(&format!(
-                        r#"<image x="{}" y="{}" width="{}" height="{}" preserveAspectRatio="xMidYMid meet" href="{}"/>"#,
-                        b.x, b.y, b.width, b.height, escape_xml(key)
-                    ));
+                if let (Some(key), Some(b)) = (ctx.images.get(&node.id), node.bounds) {
+                    g = g.c(El::new("image")
+                        .a("x", b.x).a("y", b.y).a("width", b.width).a("height", b.height)
+                        .a("preserveAspectRatio", "xMidYMid meet")
+                        .a("href", key));
                 }
             }
-            "svg" => draw_svg_path(out, node),
-            _ => {}
+            "svg" => g = self.draw_svg_path(g, node),
+            "shader" => {
+                eprintln!(
+                    "WARNING: shader node {} names program {:?}, which this build does not draw; skipped",
+                    node.id, node.shader.as_ref().and_then(|s| s.program.as_deref())
+                );
+            }
+            "html" => {
+                eprintln!(
+                    "ERROR: html node {} names engine {:?}, which FFrames cannot draw; refusing",
+                    node.id, node.html.as_ref().and_then(|h| h.engine.as_deref())
+                );
+                std::process::exit(1);
+            }
+            other => eprintln!("WARNING: node type {other:?} of node {} is not drawn", node.id),
         }
-        out.body.push_str("</g>");
+        g
     }
 
-    fn draw_text(&self, out: &mut FrameSvg, node: &IRNode, text: &IRTextContent, colour: Option<&str>) {
+    fn apply_filter(&self, ctx: &mut RenderContext, g: El, filter: &IRFilter) -> El {
+        match filter {
+            IRFilter::Blur { sigma } => {
+                if *sigma > 0.0 {
+                    let id = ctx.next("f");
+                    ctx.defs.push(blur_filter(&id, *sigma, ctx.width, ctx.height));
+                    g.a("filter", format!("url(#{id})"))
+                } else {
+                    g
+                }
+            }
+            IRFilter::DropShadow { dx, dy, sigma, color } => {
+                let id = ctx.next("ds");
+                let (col, alpha) = paint(color);
+                // CSS drop-shadow draws the original with a shadow behind
+                // it: feDropShadow alone would replace the image with its
+                // shadow, so the original is merged back over it.
+                ctx.defs.push(
+                    El::new("filter")
+                        .a("id", &id)
+                        .a("filterUnits", "userSpaceOnUse")
+                        .a("x", -ctx.width).a("y", -ctx.height)
+                        .a("width", 3.0 * ctx.width).a("height", 3.0 * ctx.height)
+                        .c(El::new("feDropShadow")
+                            .a("dx", dx).a("dy", dy)
+                            .a("stdDeviation", sigma)
+                            .a("flood-color", &col)
+                            .a("flood-opacity", alpha))
+                        .c(El::new("feMerge")
+                            .c(El::new("feMergeNode"))
+                            .c(El::new("feMergeNode").a("in", "SourceGraphic")))
+                );
+                g.a("filter", format!("url(#{id})"))
+            }
+        }
+    }
+
+    fn apply_clip(&self, ctx: &mut RenderContext, g: El, clip: &str, b: IRBounds) -> El {
+        if let Some([top, right, bottom, left]) = parse_inset(clip) {
+            let x = b.x + b.width * left / 100.0;
+            let y = b.y + b.height * top / 100.0;
+            let w = b.width * (1.0 - (left + right) / 100.0);
+            let h = b.height * (1.0 - (top + bottom) / 100.0);
+            let id = ctx.next("c");
+            ctx.defs.push(
+                El::new("clipPath").a("id", &id).a("clipPathUnits", "userSpaceOnUse")
+                    .c(El::new("rect").a("x", x).a("y", y)
+                        .a("width", w.max(0.0)).a("height", h.max(0.0)))
+            );
+            return g.a("clip-path", format!("url(#{id})"));
+        }
+        if clip.trim().starts_with("polygon(") {
+            let pts = css_polygon(clip, b.x, b.y, b.width, b.height);
+            let id = ctx.next("cp");
+            ctx.defs.push(
+                El::new("clipPath").a("id", &id).a("clipPathUnits", "userSpaceOnUse")
+                    .c(El::new("polygon").a("points", points_attr(&pts)))
+            );
+            return g.a("clip-path", format!("url(#{id})"));
+        }
+        g
+    }
+
+    fn draw_text(&self, ctx: &mut RenderContext, node: &IRNode, text: &IRTextContent, colour: Option<&str>, t: f32) -> El {
         let Some(b) = node.bounds else {
             eprintln!("WARNING: text node {} has no bounds; nothing drawn", node.id);
-            return;
+            return El::new("g");
         };
-        let Some(m) = self.metrics.get(&node.id).copied() else { return };
-        let size = text.font_size.unwrap_or(16.0);
-        let line_box = text
-            .line_height
-            .map(|l| l * size)
-            .unwrap_or((m.ascent + m.descent + m.line_gap) * size);
-        // CSS counts letter spacing after the last glyph too, so a centred
-        // or right-aligned line sits that much further left than SVG puts it.
-        let spacing = text.letter_spacing.unwrap_or(0.0);
-        let (anchor, x) = match text.text_align.as_deref() {
-            Some("center") => ("middle", b.x + b.width / 2.0 - spacing / 2.0),
-            Some("right") | Some("end") => ("end", b.x + b.width - spacing),
-            _ => ("start", b.x),
+        let Some(m) = self.metrics.get(&node.id).copied() else {
+            return El::new("g");
         };
-        let mut font = String::new();
-        if let Some(family) = &text.font_family {
-            font.push_str(&format!(r#" font-family="'{}'""#, escape_xml(family)));
-        }
-        font.push_str(&format!(r#" font-size="{size}""#));
-        if let Some(weight) = text.font_weight {
-            font.push_str(&format!(r#" font-weight="{}""#, weight.round()));
-        }
-        if let Some(spacing) = text.letter_spacing {
-            if spacing != 0.0 {
-                font.push_str(&format!(r#" letter-spacing="{spacing}""#));
-            }
-        }
+        let mut g = El::new("g");
+        let shown = apply_text_transform(&text.text, text.text_transform.as_deref());
         let fill = colour.unwrap_or("#000000");
         let shadows = text.text_shadow.as_deref().map(parse_text_shadow).unwrap_or_default();
-        let shown = apply_text_transform(&text.text, text.text_transform.as_deref());
 
-        for (i, line) in shown.split('\n').enumerate() {
-            if line.trim().is_empty() {
+        if text.runs.is_empty() {
+            // Whole-text: one style, lines split on \n.
+            let size = text.font_size.unwrap_or(16.0);
+            let line_box = text
+                .line_height
+                .map(|l| l * size)
+                .unwrap_or((m.ascent + m.descent + m.line_gap) * size);
+            let spacing = text.letter_spacing.unwrap_or(0.0);
+            let (anchor, x) = match text.text_align.as_deref() {
+                Some("center") => ("middle", b.x + b.width / 2.0 - spacing / 2.0),
+                Some("right") | Some("end") => ("end", b.x + b.width - spacing),
+                _ => ("start", b.x),
+            };
+            for (i, line) in shown.split('\n').enumerate() {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                let top = b.y + i as f32 * line_box;
+                let baseline = top + (line_box - (m.ascent + m.descent) * size) / 2.0 + m.ascent * size;
+                let content = escape_xml(line);
+                for shadow in shadows.iter().rev() {
+                    g = g.c(self.text_el(ctx, &content, x, baseline, size, text.font_family.as_deref(),
+                        text.font_weight, shadow.colour.as_deref().unwrap_or(fill), anchor, Some(shadow)));
+                }
+                g = g.c(self.text_el(ctx, &content, x, baseline, size, text.font_family.as_deref(),
+                    text.font_weight, fill, anchor, None));
+            }
+            return g;
+        }
+
+        // Runs: inline flow sharing baselines.
+        let mut advances = text
+            .font_file
+            .as_deref()
+            .and_then(|p| ctx.advances.get(p).cloned())
+            .unwrap_or_else(|| load_advances(Path::new("")));
+        let runs = layout_runs(text, t, &m, &b, &mut advances);
+        for run in &runs {
+            if run.opacity <= 0.0 {
                 continue;
             }
-            let top = b.y + i as f32 * line_box;
-            let baseline = top + (line_box - (m.ascent + m.descent) * size) / 2.0 + m.ascent * size;
-            let content = escape_xml(line);
-            // CSS paints the first shadow on top, so the last goes down first.
-            for shadow in shadows.iter().rev() {
-                let mut extra = String::new();
-                if shadow.blur > 0.0 {
-                    let id = out.blur_filter(shadow.blur / 2.0);
-                    extra.push_str(&format!(r#" filter="url(#{id})""#));
+            let mut el = self.text_el(ctx, &escape_xml(&run.text), run.x, run.baseline, run.size,
+                text.font_family.as_deref(), Some(run.weight), &run.colour, "start", None);
+            if run.letter_spacing != 0.0 {
+                el = el.a("letter-spacing", run.letter_spacing);
+            }
+            if run.opacity < 1.0 {
+                el = el.a("opacity", run.opacity);
+            }
+            g = g.c(el);
+        }
+        g
+    }
+
+    fn text_el(&self, ctx: &mut RenderContext, content: &str, x: f32, y: f32, size: f32,
+               family: Option<&str>, weight: Option<f32>, colour: &str, anchor: &str,
+               shadow: Option<&Shadow>) -> El {
+        let mut el = El::new("text")
+            .a("x", x).a("y", y)
+            .a("text-anchor", anchor)
+            .a("space", "preserve");
+        if let Some(family) = family {
+            el = el.a("font-family", format!("'{}'", escape_xml(family)));
+        }
+        el = el.a("font-size", size);
+        if let Some(weight) = weight {
+            el = el.a("font-weight", weight.round());
+        }
+        let (dx, dy) = shadow.map(|s| (s.dx, s.dy)).unwrap_or((0.0, 0.0));
+        if dx != 0.0 || dy != 0.0 {
+            el = el.a("transform", format!("translate({dx},{dy})"));
+        }
+        if let Some(s) = shadow {
+            if s.blur > 0.0 {
+                // A text shadow's blur is a gaussian with sigma = the CSS
+                // value (measured), painted beneath the text.
+                let id = ctx.next("ts");
+                ctx.defs.push(blur_filter(&id, s.blur / 2.0, ctx.width, ctx.height));
+                el = el.a("filter", format!("url(#{id})"));
+            }
+        }
+        el = el.a("fill", colour);
+        el.t(content)
+    }
+
+    fn draw_shape(&self, ctx: &mut RenderContext, g: El, node: &IRNode) -> El {
+        let (Some(shape), Some(b)) = (&node.shape, node.bounds) else { return g };
+        let mut g = g;
+        // Pattern fill (the ground's grain tile).
+        if let Some(pattern) = &shape.pattern {
+            if let Some(key) = ctx.images.get(&node.id) {
+                let id = ctx.next("pat");
+                let (tw, th) = match (pattern.tile_width, pattern.tile_height) {
+                    (Some(tw), Some(th)) => (tw, th),
+                    _ => (b.width, b.height),
+                };
+                ctx.defs.push(
+                    El::new("pattern")
+                        .a("id", &id)
+                        .a("patternUnits", "userSpaceOnUse")
+                        .a("width", tw).a("height", th)
+                        .c(El::new("image")
+                            .a("width", tw).a("height", th)
+                            .a("preserveAspectRatio", "none")
+                            .a("href", key))
+                );
+                let mut rect = El::new("rect")
+                    .a("x", b.x).a("y", b.y).a("width", b.width).a("height", b.height)
+                    .a("fill", format!("url(#{id})"));
+                if let Some(o) = pattern.opacity {
+                    if o < 1.0 {
+                        rect = rect.a("opacity", o);
+                    }
                 }
-                let shadow_paint = paint_attrs("fill", shadow.colour.as_deref().unwrap_or(fill));
-                out.body.push_str(&format!(
-                    r#"<g transform="translate({},{})"{extra}><text x="{x}" y="{baseline}" text-anchor="{anchor}" xml:space="preserve"{font}{shadow_paint}>{content}</text></g>"#,
-                    shadow.dx, shadow.dy
-                ));
+                g = g.c(rect);
+                return g;
             }
-            out.body.push_str(&format!(
-                r#"<text x="{x}" y="{baseline}" text-anchor="{anchor}" xml:space="preserve"{font}{}>{content}</text>"#,
-                paint_attrs("fill", fill)
-            ));
         }
+        // Gradient or solid fill.
+        let fill = match &shape.fill {
+            Some(IRPaint::Gradient(grad)) => self.gradient_fill(ctx, grad, &b),
+            Some(IRPaint::Solid(col)) => col.clone(),
+            None => "none".to_string(),
+        };
+        let mut el = match shape.shape.as_str() {
+            "rect" => {
+                let r = shape.corner_radius.unwrap_or(0.0).min(b.width / 2.0).min(b.height / 2.0);
+                El::new("rect")
+                    .a("x", b.x).a("y", b.y).a("width", b.width).a("height", b.height)
+                    .a("rx", r).a("ry", r)
+            }
+            "circle" | "ellipse" => El::new("ellipse")
+                .a("cx", b.x + b.width / 2.0).a("cy", b.y + b.height / 2.0)
+                .a("rx", b.width / 2.0).a("ry", b.height / 2.0),
+            "path" => {
+                if let Some(path) = &shape.path {
+                    El::new("path").a("d", path)
+                } else {
+                    return g;
+                }
+            }
+            other => {
+                eprintln!("WARNING: shape {other:?} of node {} is not drawn", node.id);
+                return g;
+            }
+        };
+        el = el.a("fill", fill);
+        if let Some(stroke) = &shape.stroke {
+            el = el.a("stroke", stroke);
+            el = el.a("stroke-width", shape.stroke_width.unwrap_or(1.0));
+        }
+        g.c(el)
+    }
+
+    fn gradient_fill(&self, ctx: &mut RenderContext, grad: &IRGradient, b: &IRBounds) -> String {
+        let stops: Vec<El> = grad.stops.iter().map(|s| {
+            let mut stop = El::new("stop")
+                .a("offset", s.offset)
+                .a("stop-color", &s.color);
+            if let Some(o) = s.opacity {
+                if o < 1.0 {
+                    stop = stop.a("stop-opacity", o);
+                }
+            }
+            stop
+        }).collect();
+        match grad.kind.as_str() {
+            "linear" => {
+                // CSS angle semantics over the box: the line runs through the
+                // centre along (sin A, -cos A), |w sin A| + |h cos A| long.
+                let angle = grad.angle.unwrap_or(0.0);
+                let a = angle.to_radians();
+                let (dx, dy) = (a.sin(), -a.cos());
+                let half = ((b.width * a.sin()).abs() + (b.height * a.cos()).abs()) / 2.0;
+                let (g0, g1) = (
+                    (b.x + b.width / 2.0 - dx * half, b.y + b.height / 2.0 - dy * half),
+                    (b.x + b.width / 2.0 + dx * half, b.y + b.height / 2.0 + dy * half),
+                );
+                let id = ctx.next("lg");
+                let mut lg = El::new("linearGradient")
+                    .a("id", &id)
+                    .a("gradientUnits", "userSpaceOnUse")
+                    .a("x1", g0.0).a("y1", g0.1).a("x2", g1.0).a("y2", g1.1);
+                for s in stops {
+                    lg = lg.c(s);
+                }
+                ctx.defs.push(lg);
+                format!("url(#{id})")
+            }
+            "radial" => {
+                let id = ctx.next("rg");
+                let rx = grad.radius_x.unwrap_or(50.0) / 100.0 * b.width;
+                let ry = grad.radius_y.unwrap_or(50.0) / 100.0 * b.height;
+                let mut rg = El::new("radialGradient")
+                    .a("id", &id)
+                    .a("gradientUnits", "userSpaceOnUse")
+                    .a("cx", b.x + b.width / 2.0).a("cy", b.y + b.height / 2.0)
+                    .a("r", rx)
+                    .a("gradientTransform", format!(
+                        "translate({},{}) scale(1,{}) translate({},{})",
+                        b.x + b.width / 2.0, b.y + b.height / 2.0, ry / rx.max(1.0),
+                        -(b.x + b.width / 2.0), -(b.y + b.height / 2.0)));
+                for s in stops {
+                    rg = rg.c(s);
+                }
+                ctx.defs.push(rg);
+                format!("url(#{id})")
+            }
+            _ => {
+                eprintln!("WARNING: gradient kind {:?} is not drawn; using none", grad.kind);
+                "none".to_string()
+            }
+        }
+    }
+
+    fn draw_svg_path(&self, g: El, node: &IRNode) -> El {
+        let (Some(svg), Some(b)) = (&node.svg, node.bounds) else { return g };
+        let Some(path) = &svg.path else { return g };
+        let view: Vec<f32> = svg
+            .view_box
+            .as_deref()
+            .unwrap_or("")
+            .split(|c: char| c == ' ' || c == ',')
+            .filter_map(|p| p.parse::<f32>().ok())
+            .collect();
+        let (vx, vy, vw, vh) = if view.len() == 4 && view[2] > 0.0 && view[3] > 0.0 {
+            (view[0], view[1], view[2], view[3])
+        } else {
+            (0.0, 0.0, b.width.max(1.0), b.height.max(1.0))
+        };
+        let fill = match &svg.fill {
+            Some(IRPaint::Solid(col)) => col.clone(),
+            _ => "#000000".to_string(),
+        };
+        g.c(El::new("path")
+            .a("d", path)
+            .a("transform", format!(
+                "translate({},{}) scale({},{}) translate({},{})",
+                b.x, b.y, b.width / vw, b.height / vh, -vx, -vy))
+            .a("fill", fill))
     }
 }
 
-fn draw_shape(out: &mut FrameSvg, node: &IRNode) {
-    let (Some(shape), Some(b)) = (&node.shape, node.bounds) else { return };
-    let mut style = paint_attrs("fill", shape.fill.as_deref().unwrap_or("none"));
-    if let Some(stroke) = &shape.stroke {
-        style.push_str(&paint_attrs("stroke", stroke));
-        style.push_str(&format!(r#" stroke-width="{}""#, shape.stroke_width.unwrap_or(1.0)));
-    }
-    match shape.shape.as_str() {
-        "rect" => {
-            let r = shape.corner_radius.unwrap_or(0.0).min(b.width / 2.0).min(b.height / 2.0);
-            out.body.push_str(&format!(
-                r#"<rect x="{}" y="{}" width="{}" height="{}" rx="{r}" ry="{r}"{style}/>"#,
-                b.x, b.y, b.width, b.height
-            ));
-        }
-        "circle" | "ellipse" => {
-            out.body.push_str(&format!(
-                r#"<ellipse cx="{}" cy="{}" rx="{}" ry="{}"{style}/>"#,
-                b.x + b.width / 2.0,
-                b.y + b.height / 2.0,
-                b.width / 2.0,
-                b.height / 2.0
-            ));
-        }
-        "path" => {
-            if let Some(path) = &shape.path {
-                out.body.push_str(&format!(r#"<path d="{}"{style}/>"#, escape_xml(path)));
-            }
-        }
-        other => eprintln!("WARNING: shape {other:?} of node {} is not drawn", node.id),
-    }
-}
-
-fn draw_svg_path(out: &mut FrameSvg, node: &IRNode) {
-    let (Some(svg), Some(b)) = (&node.svg, node.bounds) else { return };
-    let Some(path) = &svg.path else { return };
-    let view: Vec<f32> = svg
-        .view_box
-        .as_deref()
-        .unwrap_or("")
-        .split(|c: char| c == ' ' || c == ',')
-        .filter_map(|p| p.parse::<f32>().ok())
-        .collect();
-    let (vx, vy, vw, vh) = if view.len() == 4 && view[2] > 0.0 && view[3] > 0.0 {
-        (view[0], view[1], view[2], view[3])
-    } else {
-        (0.0, 0.0, b.width.max(1.0), b.height.max(1.0))
-    };
-    out.body.push_str(&format!(
-        r#"<path d="{}" transform="translate({},{}) scale({},{}) translate({},{})"{}/>"#,
-        escape_xml(path),
-        b.x,
-        b.y,
-        b.width / vw,
-        b.height / vh,
-        -vx,
-        -vy,
-        paint_attrs("fill", svg.fill.as_deref().unwrap_or("#000000"))
-    ));
+fn blur_filter(id: &str, std_dev: f32, w: f32, h: f32) -> El {
+    El::new("filter")
+        .a("id", id)
+        .a("filterUnits", "userSpaceOnUse")
+        .a("x", -w).a("y", -h)
+        .a("width", 3.0 * w).a("height", 3.0 * h)
+        .c(El::new("feGaussianBlur").a("stdDeviation", std_dev))
 }
 
 // ── Main ───────────────────────────────────────────────────────────
@@ -993,9 +1710,9 @@ fn main() {
 /// The scene's fonts and images, handed to FFrames as its media.
 ///
 /// FFrames resolves an `<image href>` only against preloaded image data,
-/// so every image node's pixels are decoded here once and named; the
-/// returned map is node id -> that name. The bytes live for the whole
-/// process, which is one render.
+/// so every image node's pixels - and every pattern fill's tile - are
+/// decoded here once and named; the returned map is the owning node's id ->
+/// that name. The bytes live for the whole process, which is one render.
 fn scene_media(scene: &Scene) -> Result<(DynamicMediaProvider<'static>, HashMap<String, String>), String> {
     let mut fonts: Vec<RawFontData> = Vec::new();
     let mut seen: HashSet<PathBuf> = HashSet::new();
@@ -1019,13 +1736,24 @@ fn scene_media(scene: &Scene) -> Result<(DynamicMediaProvider<'static>, HashMap<
     let mut images = HashMap::new();
     let mut names = HashMap::new();
     for node in &scene.nodes {
-        let Some(image) = &node.image else { continue };
-        let bytes: &'static [u8] = Box::leak(image_bytes(&image.src)?.into_boxed_slice());
-        let name = format!("ren-image-{}", names.len());
-        let data = fframes::media::ImageData::new_from_bytes(&name, bytes)
-            .map_err(|e| format!("image of node {} does not decode: {:?}", node.id, e))?;
-        images.insert(name.clone(), data);
-        names.insert(node.id.clone(), name);
+        if let Some(image) = &node.image {
+            let bytes: &'static [u8] = Box::leak(image_bytes(&image.src)?.into_boxed_slice());
+            let name = format!("ren-image-{}", names.len());
+            let data = fframes::media::ImageData::new_from_bytes(&name, bytes)
+                .map_err(|e| format!("image of node {} does not decode: {:?}", node.id, e))?;
+            images.insert(name.clone(), data);
+            names.insert(node.id.clone(), name);
+        }
+        if let Some(shape) = &node.shape {
+            if let Some(pattern) = &shape.pattern {
+                let bytes: &'static [u8] = Box::leak(image_bytes(&pattern.src)?.into_boxed_slice());
+                let name = format!("ren-pattern-{}", names.len());
+                let data = fframes::media::ImageData::new_from_bytes(&name, bytes)
+                    .map_err(|e| format!("pattern of node {} does not decode: {:?}", node.id, e))?;
+                images.insert(name.clone(), data);
+                names.insert(node.id.clone(), name);
+            }
+        }
     }
     let provider = DynamicMediaProvider::new(
         Default::default(),
@@ -1060,6 +1788,16 @@ fn setup_render(scene: Scene) -> Result<RenderSetup, String> {
         scene.nodes.iter().map(|n| (n.id.clone(), n.clone())).collect();
     let metrics = text_metrics(&scene);
 
+    // Precompute advance widths for every text node's font.
+    let mut advances: HashMap<String, Advances> = HashMap::new();
+    for node in &scene.nodes {
+        let Some(text) = &node.text else { continue };
+        let Some(path) = text.font_file.as_deref() else { continue };
+        if !advances.contains_key(path) {
+            advances.insert(path.to_string(), load_advances(Path::new(path)));
+        }
+    }
+
     let needs_system = scene
         .nodes
         .iter()
@@ -1068,7 +1806,8 @@ fn setup_render(scene: Scene) -> Result<RenderSetup, String> {
     let (width, height) = (scene.width, scene.height);
     let total_frames = frame_count(&scene);
 
-    let video = SceneVideo { scene, node_map, roots, metrics, images };
+    let video = SceneVideo { scene, node_map, roots, metrics, images, advances };
+
     let metal_ctx = SkiaMetalCtx::new(width as usize, height as usize)
         .map_err(|e| format!("cannot create Metal context: {}", e))?;
     Ok(RenderSetup { video, media, metal_ctx, needs_system, width, height, total_frames })

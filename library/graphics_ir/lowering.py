@@ -23,6 +23,7 @@ a project file itself.
 from __future__ import annotations
 
 import math
+from pathlib import Path
 from typing import Any, Optional
 
 from .layout import (
@@ -33,18 +34,26 @@ from .layout import (
 )
 from .model import (
     Animation,
+    BlurFilter,
     Bounds,
+    CameraContent,
+    DropShadowFilter,
     EaseEasing,
     ImageContent,
+    Keyframe,
     LinearEasing,
     Node,
     NodeType,
+    PaintStop,
+    RadialGradient,
     Scene,
     ShapeContent,
     StepsEasing,
     SVGContent,
     TextContent,
+    TextRun,
     Timing,
+    Track,
 )
 
 EPS = 0.001
@@ -1218,3 +1227,351 @@ def _build_mg_element(
         children=children,
     )
     return group_node, child_nodes
+
+
+def _staged_easing(name: str | None):
+    if name is None or name == "linear":
+        return LinearEasing()
+    power = {"in": 2.0, "out": 2.0, "inOut": 2.0}.get(name, 2.0)
+    return EaseEasing(power=power)
+
+
+def _staged_track(target: str, prop: str, keys: list[dict]) -> Track | None:
+    if len(keys) < 2:
+        return None
+    kfs = [Keyframe(at=k["at"], value=k["value"], ease=k.get("ease")) for k in keys]
+    return Track(target=target, property=prop, keys=kfs)
+
+
+def _staged_animations(node_id: str, prop: str, keys: list[dict]) -> list[Animation]:
+    if len(keys) < 2:
+        return []
+    anims = []
+    for i in range(len(keys) - 1):
+        t0, v0 = keys[i]["at"], keys[i]["value"]
+        t1, v1 = keys[i + 1]["at"], keys[i + 1]["value"]
+        ease = keys[i + 1].get("ease")
+        anims.append(Animation(
+            target=node_id, property=prop,
+            from_value=v0, to_value=v1,
+            start=t0, duration=t1 - t0,
+            easing=_staged_easing(ease),
+        ))
+    return anims
+
+
+def lower_staged_scene(props: dict[str, Any]) -> Scene:
+    """Lower StagedScene props to an IR scene.
+
+    StagedScene is the animation-first declaration the Remotion and
+    HyperFrames adapters render: a ground, a camera, and layers of
+    discs, rules, images, text and lights, each with keyframed
+    animations. This lowers the same declaration to the IR so FFrames
+    draws it.
+
+    Text runs are laid out with CSS's rules (the two Blink rounding
+    rules), measured with the static instance at each run's declared
+    weight. Every text node's face is a static instance because usvg
+    cannot apply a variable font's ``wght`` axis.
+    """
+    fps = float(props["fps"])
+    width = int(props["width"])
+    height = int(props["height"])
+    duration_in_frames = int(props["durationInFrames"])
+    duration = duration_in_frames / fps
+    hold_frames = props.get("holdFrames")
+    font_family = props.get("fontFamily", "Montserrat")
+    font_file = props.get("fontFile")
+
+    nodes: list[Node] = []
+    camera_tracks: list[Track] = []
+
+    ground = props.get("ground")
+    if ground:
+        ground_node = _lower_staged_ground(ground, width, height, font_file)
+        if ground_node:
+            nodes.append(ground_node)
+
+    camera = props.get("camera")
+    if camera:
+        cam_node, cam_tracks = _lower_staged_camera(camera, width, height)
+        if cam_node:
+            nodes.append(cam_node)
+            camera_tracks.extend(cam_tracks)
+
+    for layer in props.get("layers", []):
+        node = _lower_staged_layer(layer, width, height, font_family, font_file, fps)
+        if node:
+            nodes.append(node)
+
+    return Scene(
+        version=1, fps=fps, width=width, height=height,
+        duration=duration, hold_frames=hold_frames, nodes=nodes,
+    )
+
+
+def _lower_staged_ground(ground: dict, width: int, height: int, font_file: str | None) -> Node | None:
+    colour = ground.get("colour", "#000000")
+    shape = ShapeContent(shape="rect", fill=colour)
+    pattern = None
+    texture = ground.get("texture")
+    if texture:
+        from .model import PatternFill
+        pattern = PatternFill(
+            src=texture,
+            tile_width=None,
+            tile_height=None,
+            opacity=ground.get("textureOpacity", 1.0),
+        )
+        shape.pattern = pattern
+    vignette = ground.get("vignette")
+    filters = []
+    if vignette:
+        from .model import ShaderContent
+        return Node(
+            id="ground", type=NodeType.SHAPE,
+            shape=ShapeContent(shape="rect", fill=colour, pattern=pattern),
+            bounds=Bounds(x=0, y=0, width=width, height=height),
+            shader=ShaderContent(
+                program="vignette",
+                uniforms={
+                    "strength": vignette.get("strength", 0.5),
+                    "radiusX": vignette.get("radiusX", 0.8),
+                    "radiusY": vignette.get("radiusY", 0.55),
+                },
+            ),
+        )
+    return Node(
+        id="ground", type=NodeType.SHAPE, shape=shape,
+        bounds=Bounds(x=0, y=0, width=width, height=height),
+    )
+
+
+def _lower_staged_camera(camera: dict, width: int, height: int) -> tuple[Node | None, list[Track]]:
+    tracks: list[Track] = []
+    cam = CameraContent()
+    for prop, track_name in (("zoom", "camera.scale"), ("x", "camera.translateX"),
+                             ("y", "camera.translateY"), ("roll", "camera.rotate"),
+                             ("focus", "camera.focus")):
+        keys = camera.get(prop)
+        if keys and len(keys) >= 2:
+            t = _staged_track("camera", track_name, keys)
+            if t:
+                tracks.append(t)
+    if not tracks:
+        return None, []
+    return Node(id="camera", type=NodeType.CAMERA, camera=cam), tracks
+
+
+def _lower_staged_layer(layer: dict, width: int, height: int,
+                         font_family: str, font_file: str | None,
+                         fps: float) -> Node | None:
+    kind = layer.get("kind")
+    layer_id = layer.get("id", "layer")
+    if kind == "disc":
+        return _lower_staged_disc(layer, layer_id, width, height)
+    if kind == "rule":
+        return _lower_staged_rule(layer, layer_id, width, height)
+    if kind == "image":
+        return _lower_staged_image(layer, layer_id, width, height)
+    if kind == "text":
+        return _lower_staged_text(layer, layer_id, width, height, font_family, font_file, fps)
+    if kind == "light":
+        return _lower_staged_light(layer, layer_id, width, height)
+    return None
+
+
+def _lower_staged_disc(layer: dict, layer_id: str, width: int, height: int) -> Node:
+    unit = width
+    cx = (layer.get("x", 0.0) + 0.5) * unit
+    cy = (layer.get("y", 0.0) + 0.5) * unit
+    size = layer.get("size", 1.0) * unit
+    r = size / 2
+    bounds = Bounds(x=cx - r, y=cy - r, width=size, height=size)
+    opacity_keys = layer.get("opacity")
+    anims = _staged_animations(layer_id, "opacity", opacity_keys) if opacity_keys else []
+    blur = layer.get("blur")
+    filters = []
+    if blur:
+        filters.append(BlurFilter(kind="blur", sigma=blur * unit))
+    return Node(
+        id=layer_id, type=NodeType.SHAPE,
+        shape=ShapeContent(shape="circle", fill=layer.get("colour", "#000000")),
+        bounds=bounds, opacity=1.0, animations=anims, filters=filters,
+    )
+
+
+def _lower_staged_rule(layer: dict, layer_id: str, width: int, height: int) -> Node:
+    unit = width
+    cx = (layer.get("x", 0.0) + 0.5) * unit
+    cy = (layer.get("y", 0.0) + 0.5) * unit
+    length = layer.get("length", 1.0) * unit
+    thickness = layer.get("thickness", 0.01) * unit
+    bounds = Bounds(x=cx - length / 2, y=cy - thickness / 2, width=length, height=thickness)
+    return Node(
+        id=layer_id, type=NodeType.SHAPE,
+        shape=ShapeContent(shape="rect", fill=layer.get("colour", "#000000")),
+        bounds=bounds, opacity=layer.get("opacity", 1.0),
+    )
+
+
+def _lower_staged_image(layer: dict, layer_id: str, width: int, height: int) -> Node:
+    unit = width
+    placement = layer.get("placement", {})
+    w = placement.get("width", 0.5) * unit
+    x_keys = placement.get("x") if isinstance(placement.get("x"), list) else None
+    y_keys = placement.get("y") if isinstance(placement.get("y"), list) else None
+    rotate_keys = placement.get("rotate") if isinstance(placement.get("rotate"), list) else None
+    opacity_keys = placement.get("opacity") if isinstance(placement.get("opacity"), list) else None
+    x0 = (x_keys[0]["value"] if isinstance(x_keys, list) and x_keys else 0.0)
+    y_val = placement.get("y", 0.0)
+    y0 = (y_keys[0]["value"] if isinstance(y_keys, list) and y_keys else y_val)
+    cx = (x0 + 0.5) * unit
+    cy = (y0 + 0.5) * unit
+    bounds = Bounds(x=cx - w / 2, y=cy - w / 2, width=w, height=w)
+    anims = []
+    if x_keys:
+        anims.extend(_staged_animations(layer_id, "transform.translateX", x_keys))
+    if y_keys:
+        anims.extend(_staged_animations(layer_id, "transform.translateY", y_keys))
+    if rotate_keys:
+        anims.extend(_staged_animations(layer_id, "transform.rotate", rotate_keys))
+    if opacity_keys:
+        anims.extend(_staged_animations(layer_id, "opacity", opacity_keys))
+    clip = placement.get("clipPath")
+    shadow = layer.get("shadow")
+    filters = []
+    if shadow:
+        filters.append(DropShadowFilter(
+            kind="drop_shadow",
+            dx=shadow.get("dx", 0) * unit,
+            dy=shadow.get("dy", 0) * unit,
+            sigma=shadow.get("blur", 0) * unit,
+            color=shadow.get("colour", "rgba(0,0,0,0.5)"),
+        ))
+    return Node(
+        id=layer_id, type=NodeType.IMAGE,
+        image=ImageContent(src=layer.get("src", "")),
+        bounds=bounds, animations=anims, filters=filters,
+        clip=clip,
+    )
+
+
+def _lower_staged_text(layer: dict, layer_id: str, width: int, height: int,
+                        font_family: str, font_file: str | None,
+                        fps: float) -> Node:
+    unit = width
+    placement = layer.get("placement", {})
+    box_w = placement.get("width", 0.8) * unit
+    px = (placement.get("x", 0.0) + 0.5) * unit - box_w / 2
+    py = (placement.get("y", 0.0) + 0.5) * unit
+    align = layer.get("align", "left")
+    text_align = {"left": "left", "center": "center", "right": "right"}.get(align, "left")
+    runs_out: list[TextRun] = []
+    lines: list[list[dict]] = [[]]
+    for run in layer.get("runs", []):
+        if run.get("newLine") and lines[-1]:
+            lines.append([])
+        lines[-1].append(run)
+    from .layout import measure_text
+    from . import fonts as fonts_mod
+    font_path = font_file
+    if font_path is None:
+        font_path = str(Path(__file__).resolve().parent.parent.parent /
+                        "remotion-subtitles" / "public" / "fonts" / "Montserrat-Variable.ttf")
+    vm = fonts_mod.vertical_metrics(font_path)
+    A, D = vm.ascent, vm.descent
+    STRUT_A, STRUT_D = 0.891, 0.216
+    STRUT_SIZE = 16.0
+    leading = layer.get("leading")
+    reveal_ramp = layer.get("revealRamp", 0.067)
+    shadow = layer.get("shadow")
+    text_shadow = None
+    if shadow:
+        text_shadow = f"{shadow.get('dx', 0) * unit:g}px {shadow.get('dy', 0) * unit:g}px {shadow.get('blur', 0) * unit:g}px {shadow.get('colour', 'rgba(0,0,0,0.5)')}"
+    top = 0.0
+    for line in lines:
+        def inline(size, a, d):
+            lh = leading * unit if leading is not None else size
+            ra, rd = round(a * size), round(d * size)
+            leading_px = lh - (ra + rd)
+            up = math.floor(leading_px / 2)
+            return ra + up, rd + (leading_px - up)
+        above, below = inline(STRUT_SIZE, STRUT_A, STRUT_D)
+        widths = []
+        for run in line:
+            size = run["size"] * unit
+            ab, be = inline(size, A, D)
+            above, below = max(above, ab), max(below, be)
+            ls = run.get("letterSpacing", 0) * unit
+            adv = fonts_mod.advances(font_path, run["weight"]).width(run["text"], size)
+            widths.append(adv + ls * len(run["text"]))
+        line_w = sum(widths)
+        x = 0.0 if align == "left" else (box_w - line_w) if align == "right" else (box_w - line_w) / 2
+        baseline = top + above
+        for run, w in zip(line, widths):
+            size = run["size"] * unit
+            runs_out.append(TextRun(
+                text=run["text"], font_size=size, font_weight=run["weight"],
+                color=run["colour"], letter_spacing=run.get("letterSpacing", 0) * unit,
+                reveal_at=run.get("revealAt"),
+            ))
+            x += w
+        top += above + below
+    box_h = top
+    bounds = Bounds(x=px, y=py, width=box_w, height=box_h)
+    return Node(
+        id=layer_id, type=NodeType.TEXT,
+        text=TextContent(
+            text="", font_family=font_family, font_file=font_path,
+            text_align=text_align, runs=runs_out,
+            reveal_ramp=reveal_ramp, text_shadow=text_shadow,
+        ),
+        bounds=bounds,
+    )
+
+
+def _lower_staged_light(layer: dict, layer_id: str, width: int, height: int) -> Node:
+    unit = width
+    cx = (layer.get("x", 0.0) + 0.5) * unit
+    cy = (layer.get("y", 0.0) + 0.5) * unit
+    angle_keys = layer.get("angle")
+    length_keys = layer.get("length")
+    spread_keys = layer.get("spreadDeg")
+    opacity_keys = layer.get("opacity")
+    angle0 = angle_keys[0]["value"] if angle_keys else 0.0
+    length0 = length_keys[0]["value"] if length_keys else 0.1
+    spread0 = spread_keys[0]["value"] if spread_keys else 45.0
+    half_spread = math.radians(spread0 / 2)
+    cone_len = length0 * unit
+    x0 = cx - cone_len * math.sin(half_spread)
+    x1 = cx + cone_len * math.sin(half_spread)
+    y0 = cy - cone_len * math.cos(half_spread)
+    bounds = Bounds(x=x0, y=y0, width=x1 - x0, height=cone_len)
+    anims = []
+    if angle_keys:
+        anims.extend(_staged_animations(layer_id, "transform.rotate", angle_keys))
+    if length_keys:
+        anims.extend(_staged_animations(layer_id, "width", length_keys))
+    if spread_keys:
+        anims.extend(_staged_animations(layer_id, "width", spread_keys))
+    if opacity_keys:
+        anims.extend(_staged_animations(layer_id, "opacity", opacity_keys))
+    falloff = layer.get("falloff", 0.5)
+    colour = layer.get("colour", "#FFFFFF")
+    return Node(
+        id=layer_id, type=NodeType.SHAPE,
+        shape=ShapeContent(
+            shape="path",
+            fill=RadialGradient(
+                kind="radial", radius_x=0.5, radius_y=1.0,
+                stops=[
+                    PaintStop(offset=0.0, color=colour, opacity=1.0),
+                    PaintStop(offset=falloff, color=colour, opacity=0.5),
+                    PaintStop(offset=1.0, color=colour, opacity=0.0),
+                ],
+            ),
+            path=f"M {cx} {cy} L {x0} {y0} L {x1} {y0} Z",
+        ),
+        bounds=bounds, animations=anims,
+    )

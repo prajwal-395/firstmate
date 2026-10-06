@@ -356,6 +356,14 @@ ENVIRONMENT_CONDITIONS = (
         capability="ml_worker_client",
         install_hint="cargo build in native/",
     ),
+    EnvironmentCondition(
+        pattern=r"Remotion not available",
+        false_when="the Node dependencies are installed and this checkout "
+                   "is bound to them (scripts/install_node_deps.sh), "
+                   "and npx is on PATH",
+        capability="remotion",
+        install_hint="scripts/install_node_deps.sh",
+    ),
 )
 
 

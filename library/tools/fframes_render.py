@@ -437,8 +437,10 @@ FFRAMES_COMPOSITIONS = (
     "FullFrameCard",
     "MotionGraphics",
     "PostHeader",
+    "StagedScene",
 )
-"""The compositions with an FFrames form: all five, through the IR lowering."""
+"""The compositions with an FFrames form: the five standard ones plus
+StagedScene, each through its IR lowering."""
 
 DEFAULT_FAMILY = {"TimedTextOverlay": "Helvetica"}
 """The family each template falls back to when the props name none -
@@ -559,6 +561,14 @@ def resolve_props(composition: str, props: dict, project_folder: str = "") -> di
             style["fontFile"] = font_file
     if isinstance(resolved.get("image"), str) and resolved["image"]:
         resolved["image"] = _project_file(resolved["image"], project_folder, "image")
+    ground = resolved.get("ground")
+    if isinstance(ground, dict) and isinstance(ground.get("texture"), str) \
+            and ground["texture"]:
+        ground["texture"] = _project_file(ground["texture"], project_folder, "texture")
+    for layer in resolved.get("layers") or []:
+        if isinstance(layer, dict) and isinstance(layer.get("src"), str) \
+                and layer["src"]:
+            layer["src"] = _project_file(layer["src"], project_folder, "image")
     for element in resolved.get("elements") or []:
         if isinstance(element, dict) and isinstance(element.get("asset"), str) \
                 and element["asset"]:
@@ -576,6 +586,7 @@ def lower_composition(composition: str, props: dict):
         "FullFrameCard": lowering.lower_full_frame_card,
         "MotionGraphics": lowering.lower_motion_graphics,
         "PostHeader": lowering.lower_post_header,
+        "StagedScene": lowering.lower_staged_scene,
     }.get(composition)
     if lower is None:
         raise FFramesRenderError(

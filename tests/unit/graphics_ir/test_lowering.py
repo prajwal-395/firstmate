@@ -1,6 +1,7 @@
 import pytest
 
 from library.graphics_ir.evaluator import evaluate
+from library.graphics_ir.model import Node, NodeType, Scene
 from library.graphics_ir.lowering import (
     lower_full_frame_card,
     lower_motion_graphics,
@@ -193,3 +194,23 @@ class TestPostHeaderLowering:
         assert len(scene.nodes) > 0
         state = evaluate(scene, 0)
         assert state == {}
+
+
+def test_a_string_fill_still_means_a_solid_colour():
+    """A plain string ``fill`` is a solid colour, not a gradient.
+
+    The five standard compositions state their fills as strings; the
+    vocabulary must not turn those into gradients. This pins the
+    compatibility existing scenes rely on.
+    """
+    from library.graphics_ir.model import ShapeContent
+    from library.graphics_ir.serialization import deserialize, serialize
+
+    node = Node(
+        id="s",
+        type=NodeType.SHAPE,
+        shape=ShapeContent(shape="rect", fill="#fff"),
+    )
+    scene = Scene(version=1, fps=30, width=1080, height=1920, duration=1.0, nodes=[node])
+    back = deserialize(serialize(scene))
+    assert back.nodes[0].shape.fill == "#fff"

@@ -117,6 +117,26 @@
       "title": "AudioContent",
       "type": "object"
     },
+    "BlurFilter": {
+      "description": "A CSS ``blur()``.\n\n``sigma`` equals the CSS radius - measured against Chrome, not\nhalved. Maps 1:1 to CSS ``filter: blur()`` and SVG ``feGaussianBlur``.",
+      "properties": {
+        "kind": {
+          "const": "blur",
+          "title": "Kind",
+          "type": "string"
+        },
+        "sigma": {
+          "title": "Sigma",
+          "type": "number"
+        }
+      },
+      "required": [
+        "kind",
+        "sigma"
+      ],
+      "title": "BlurFilter",
+      "type": "object"
+    },
     "Bounds": {
       "description": "A node's bounding box in delivery-frame pixels.",
       "properties": {
@@ -144,6 +164,63 @@
         "height"
       ],
       "title": "Bounds",
+      "type": "object"
+    },
+    "CameraContent": {
+      "description": "The camera over the world: ``scale rotate translate`` about the frame\ncentre, and ``focus`` as a blur on the world group.\n\nMaps 1:1 to a CSS transform on the world element plus a ``blur()``\nfilter, and to an SVG group transform plus ``feGaussianBlur``.",
+      "properties": {
+        "scale": {
+          "default": 1.0,
+          "title": "Scale",
+          "type": "number"
+        },
+        "rotate": {
+          "default": 0.0,
+          "title": "Rotate",
+          "type": "number"
+        },
+        "translate": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Translate",
+          "type": "array"
+        },
+        "focus": {
+          "default": 0.0,
+          "title": "Focus",
+          "type": "number"
+        }
+      },
+      "title": "CameraContent",
+      "type": "object"
+    },
+    "ConicGradient": {
+      "description": "A CSS ``conic-gradient``.\n\nusvg paints no conic gradient, so the FFrames adapter draws it with a\nshader; the browser adapters draw it with CSS ``conic-gradient``\ndirectly. Declared for vocabulary completeness.",
+      "properties": {
+        "kind": {
+          "const": "conic",
+          "title": "Kind",
+          "type": "string"
+        },
+        "angle": {
+          "title": "Angle",
+          "type": "number"
+        },
+        "stops": {
+          "items": {
+            "$ref": "#/$defs/PaintStop"
+          },
+          "title": "Stops",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "angle",
+        "stops"
+      ],
+      "title": "ConicGradient",
       "type": "object"
     },
     "CubicBezierEasing": {
@@ -179,6 +256,41 @@
         "y2"
       ],
       "title": "CubicBezierEasing",
+      "type": "object"
+    },
+    "DropShadowFilter": {
+      "description": "A CSS ``drop-shadow()``.\n\n``sigma`` equals the CSS blur radius (measured: 1.0x, not b/2).\nMaps 1:1 to CSS ``filter: drop-shadow()`` and SVG ``feDropShadow``.",
+      "properties": {
+        "kind": {
+          "const": "drop_shadow",
+          "title": "Kind",
+          "type": "string"
+        },
+        "dx": {
+          "title": "Dx",
+          "type": "number"
+        },
+        "dy": {
+          "title": "Dy",
+          "type": "number"
+        },
+        "sigma": {
+          "title": "Sigma",
+          "type": "number"
+        },
+        "color": {
+          "title": "Color",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "dx",
+        "dy",
+        "sigma",
+        "color"
+      ],
+      "title": "DropShadowFilter",
       "type": "object"
     },
     "EaseEasing": {
@@ -244,6 +356,30 @@
       "title": "FilterContent",
       "type": "object"
     },
+    "HTMLContent": {
+      "description": "A node only the browser draws: an HTML/CSS layer.\n\n``engine`` is ``\"browser\"`` - the escape hatch for content FFrames'\nSVG has no answer for (conic gradients, arbitrary HTML, emoji). The\nbrowser adapters draw it as an HTML layer; FFrames refuses it by name\nrather than approximating it.",
+      "properties": {
+        "engine": {
+          "default": "browser",
+          "title": "Engine",
+          "type": "string"
+        },
+        "html": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Html"
+        }
+      },
+      "title": "HTMLContent",
+      "type": "object"
+    },
     "ImageContent": {
       "description": "The content of an Image node. ``src`` is a file path or data URI.\n\nThe image is contained in the node's bounds, centred, aspect kept\n(CSS ``object-fit: contain``).",
       "properties": {
@@ -270,6 +406,37 @@
       "title": "ImageContent",
       "type": "object"
     },
+    "Keyframe": {
+      "description": "One key of a track.\n\n``ease`` names the segment ENDING at this key, the way StagedScene's\nkeyframes do; the first key's ease is never read. Absent means linear.",
+      "properties": {
+        "at": {
+          "title": "At",
+          "type": "number"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        },
+        "ease": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ease"
+        }
+      },
+      "required": [
+        "at",
+        "value"
+      ],
+      "title": "Keyframe",
+      "type": "object"
+    },
     "LinearEasing": {
       "description": "No easing: progress equals time.",
       "properties": {
@@ -283,8 +450,36 @@
       "title": "LinearEasing",
       "type": "object"
     },
+    "LinearGradient": {
+      "description": "A CSS ``linear-gradient`` over the node's box.\n\n``angle`` is degrees in CSS semantics (0 up, 90 right). The gradient\nline runs through the box centre along ``(sin A, -cos A)`` and is\n``|w sin A| + |h cos A|`` long, so the stops land where CSS puts them.\nMaps 1:1 to CSS ``linear-gradient`` and SVG ``linearGradient``.",
+      "properties": {
+        "kind": {
+          "const": "linear",
+          "title": "Kind",
+          "type": "string"
+        },
+        "angle": {
+          "title": "Angle",
+          "type": "number"
+        },
+        "stops": {
+          "items": {
+            "$ref": "#/$defs/PaintStop"
+          },
+          "title": "Stops",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "angle",
+        "stops"
+      ],
+      "title": "LinearGradient",
+      "type": "object"
+    },
     "Node": {
-      "description": "One node in the scene graph.",
+      "description": "One node in the scene graph.\n\n``mask`` names a node whose alpha masks this one; ``clip`` is a CSS\n``clip-path`` (``inset()`` or ``polygon()``) in the node's box; ``blend``\nis a CSS ``mix-blend-mode``; ``filters`` is an ordered CSS filter list\napplied filter -> clip -> mask -> opacity; ``camera`` is this node's\ncamera content when it is a camera; ``tracks`` are multi-key tracks.",
       "properties": {
         "id": {
           "title": "Id",
@@ -354,6 +549,20 @@
           "title": "Blend",
           "type": "string"
         },
+        "filters": {
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/BlurFilter"
+              },
+              {
+                "$ref": "#/$defs/DropShadowFilter"
+              }
+            ]
+          },
+          "title": "Filters",
+          "type": "array"
+        },
         "timing": {
           "anyOf": [
             {
@@ -370,6 +579,13 @@
             "$ref": "#/$defs/Animation"
           },
           "title": "Animations",
+          "type": "array"
+        },
+        "tracks": {
+          "items": {
+            "$ref": "#/$defs/Track"
+          },
+          "title": "Tracks",
           "type": "array"
         },
         "text": {
@@ -427,6 +643,17 @@
           ],
           "default": null
         },
+        "camera": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CameraContent"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "filter": {
           "anyOf": [
             {
@@ -453,6 +680,17 @@
           "anyOf": [
             {
               "$ref": "#/$defs/AudioContent"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "html": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HTMLContent"
             },
             {
               "type": "null"
@@ -491,10 +729,111 @@
         "mask",
         "filter",
         "effect",
-        "audio"
+        "audio",
+        "html"
       ],
       "title": "NodeType",
       "type": "string"
+    },
+    "PaintStop": {
+      "description": "One gradient stop.\n\nStops interpolate PREMULTIPLIED: a stop that fades to transparent keeps\nits colour and sets ``opacity: 0`` rather than passing through black,\nthe way CSS ``linear-gradient`` to ``transparent`` behaves.",
+      "properties": {
+        "offset": {
+          "title": "Offset",
+          "type": "number"
+        },
+        "color": {
+          "title": "Color",
+          "type": "string"
+        },
+        "opacity": {
+          "default": 1.0,
+          "title": "Opacity",
+          "type": "number"
+        }
+      },
+      "required": [
+        "offset",
+        "color"
+      ],
+      "title": "PaintStop",
+      "type": "object"
+    },
+    "PatternFill": {
+      "description": "An image tile repeated across the node's box (the ground's grain).\n\n``src`` is a file path or data URI. ``tile_width`` / ``tile_height``\nare pixels; ``None`` uses the image's own size. Maps 1:1 to CSS\n``background-image: url(); background-repeat: repeat`` and SVG\n``pattern``.",
+      "properties": {
+        "src": {
+          "title": "Src",
+          "type": "string"
+        },
+        "tile_width": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tile Width"
+        },
+        "tile_height": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tile Height"
+        },
+        "opacity": {
+          "default": 1.0,
+          "title": "Opacity",
+          "type": "number"
+        }
+      },
+      "required": [
+        "src"
+      ],
+      "title": "PatternFill",
+      "type": "object"
+    },
+    "RadialGradient": {
+      "description": "A CSS ``radial-gradient`` ellipse, radii in percent of the box.\n\nMaps 1:1 to CSS ``radial-gradient(ellipse ...)`` and SVG\n``radialGradient``.",
+      "properties": {
+        "kind": {
+          "const": "radial",
+          "title": "Kind",
+          "type": "string"
+        },
+        "radius_x": {
+          "title": "Radius X",
+          "type": "number"
+        },
+        "radius_y": {
+          "title": "Radius Y",
+          "type": "number"
+        },
+        "stops": {
+          "items": {
+            "$ref": "#/$defs/PaintStop"
+          },
+          "title": "Stops",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "radius_x",
+        "radius_y",
+        "stops"
+      ],
+      "title": "RadialGradient",
+      "type": "object"
     },
     "SVGContent": {
       "description": "The content of an SVG node: one path in ``viewBox`` units, scaled\nto fill the node's bounds.",
@@ -529,6 +868,15 @@
               "type": "string"
             },
             {
+              "$ref": "#/$defs/LinearGradient"
+            },
+            {
+              "$ref": "#/$defs/RadialGradient"
+            },
+            {
+              "$ref": "#/$defs/ConicGradient"
+            },
+            {
               "type": "null"
             }
           ],
@@ -540,21 +888,40 @@
       "type": "object"
     },
     "ShaderContent": {
-      "description": "The content of a Shader node. Uniforms are renderer-neutral names.",
+      "description": "The content of a Shader node.\n\n``program`` names a shader from a Ren-owned registry (vignette, cone,\ngrain, bokeh); ``uniforms`` are renderer-neutral names, animatable as\n``shader.<name>``; ``inputs`` are image names or ``pass:<group id>``\nfor the two-pass route (render a subtree, shade its pixels).",
       "properties": {
+        "program": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Program"
+        },
         "uniforms": {
           "additionalProperties": {
             "type": "number"
           },
           "title": "Uniforms",
           "type": "object"
+        },
+        "inputs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Inputs",
+          "type": "array"
         }
       },
       "title": "ShaderContent",
       "type": "object"
     },
     "ShapeContent": {
-      "description": "The content of a Shape node.",
+      "description": "The content of a Shape node.\n\n``fill`` is a colour or a gradient (``Paint``); ``pattern`` is an\nimage tile. ``clip`` on the node accepts ``inset()`` and ``polygon()``\nin the node's box, the CSS clip-path strings StagedScene already uses.",
       "properties": {
         "shape": {
           "title": "Shape",
@@ -566,11 +933,31 @@
               "type": "string"
             },
             {
+              "$ref": "#/$defs/LinearGradient"
+            },
+            {
+              "$ref": "#/$defs/RadialGradient"
+            },
+            {
+              "$ref": "#/$defs/ConicGradient"
+            },
+            {
               "type": "null"
             }
           ],
           "default": null,
           "title": "Fill"
+        },
+        "pattern": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PatternFill"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "stroke": {
           "anyOf": [
@@ -687,7 +1074,7 @@
       "type": "object"
     },
     "TextContent": {
-      "description": "The content of a Text node.\n\n``font_file`` is the path to the font file, so every engine draws the\nsame face, at ``font_weight``. ``font_family`` is the family name for\nengines that need one. Colours are project data, never defaults.\n\n``text`` is already broken into lines (``\\n``) by the lowering; the\nnode's ``bounds`` is its CSS box and each line is aligned inside its\nwidth per ``text_align``. ``line_height`` is in ems; ``None`` is CSS\n``normal``. ``text_transform`` and ``letter_spacing`` (pixels) are\nCSS's. ``text_shadow`` is a CSS ``text-shadow`` list - an outline is\nexpressed the way the compositions express it, as zero-blur offset\nshadows.",
+      "description": "The content of a Text node.\n\n``font_file`` is the path to the font file, so every engine draws the\nsame face, at ``font_weight``. ``font_family`` is the family name for\nengines that need one. Colours are project data, never defaults.\n\n``text`` is already broken into lines (``\\n``) by the lowering; the\nnode's ``bounds`` is its CSS box and each line is aligned inside its\nwidth per ``text_align``. ``line_height`` is in ems; ``None`` is CSS\n``normal``. ``text_transform`` and ``letter_spacing`` (pixels) are\nCSS's. ``text_shadow`` is a CSS ``text-shadow`` list - an outline is\nexpressed the way the compositions express it, as zero-blur offset\nshadows.\n\n``runs`` carries the node's inline runs when the text is styled run by\nrun (StagedScene's model): each run its own size, weight, colour,\nletter-spacing and reveal, sharing baselines. ``layout`` is ``\"native\"``\n(the engine lays the text out with CSS's rules) or ``\"browser\"`` (a\nbrowser measured the boxes and the engine draws at those positions).",
       "properties": {
         "text": {
           "title": "Text",
@@ -812,12 +1199,122 @@
           ],
           "default": null,
           "title": "Text Shadow"
+        },
+        "runs": {
+          "items": {
+            "$ref": "#/$defs/TextRun"
+          },
+          "title": "Runs",
+          "type": "array"
+        },
+        "layout": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Layout"
+        },
+        "reveal_ramp": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reveal Ramp"
         }
       },
       "required": [
         "text"
       ],
       "title": "TextContent",
+      "type": "object"
+    },
+    "TextRun": {
+      "description": "One inline run of a text node's line.\n\nRuns share a baseline and flow inline the way StagedScene's\n``SceneRun`` does: each carries its own size, weight, colour,\nletter-spacing and reveal time, and ``new_line`` starts a fresh line.\nEvery run's face is a static instance at its declared weight, because\nusvg cannot apply a variable font's ``wght`` axis and would draw the\ndefault (Thin) instance.\n\nMaps 1:1 to a CSS inline ``<span>`` and to an SVG ``text`` run.",
+      "properties": {
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "font_size": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Font Size"
+        },
+        "font_weight": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Font Weight"
+        },
+        "color": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Color"
+        },
+        "letter_spacing": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Letter Spacing"
+        },
+        "reveal_at": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reveal At"
+        },
+        "new_line": {
+          "default": false,
+          "title": "New Line",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "TextRun",
       "type": "object"
     },
     "Timing": {
@@ -842,6 +1339,33 @@
         }
       },
       "title": "Timing",
+      "type": "object"
+    },
+    "Track": {
+      "description": "A multi-key track: one property's value over time, ease per segment.\n\nStagedScene's ``valueAt`` semantics: held flat outside the keys, eased\nby the arriving key. Maps 1:1 to a GSAP multi-key tween and to an\nSVG/IR sampled track.",
+      "properties": {
+        "target": {
+          "title": "Target",
+          "type": "string"
+        },
+        "property": {
+          "title": "Property",
+          "type": "string"
+        },
+        "keys": {
+          "items": {
+            "$ref": "#/$defs/Keyframe"
+          },
+          "title": "Keys",
+          "type": "array"
+        }
+      },
+      "required": [
+        "target",
+        "property",
+        "keys"
+      ],
+      "title": "Track",
       "type": "object"
     },
     "Transform": {
@@ -909,7 +1433,7 @@
       "type": "object"
     }
   },
-  "description": "A complete scene: the renderer-neutral description of one composition.",
+  "description": "A complete scene: the renderer-neutral description of one composition.\n\n``hold_frames`` is the frame quantiser: every Nth frame is drawn twice\n(motion on twos when 2). It belongs at scene level, not as ``steps()``\non each tween.",
   "properties": {
     "version": {
       "default": 1,
@@ -931,6 +1455,18 @@
     "duration": {
       "title": "Duration",
       "type": "number"
+    },
+    "hold_frames": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Hold Frames"
     },
     "nodes": {
       "items": {
