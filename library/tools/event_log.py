@@ -95,6 +95,8 @@ BRANCH_COMMITTED = "branch_committed"
 """A task worktree's allow-listed text committed."""
 TIMELINE_OPERATIONS = "timeline_operations"
 """The N operations one committed patch ran, with its verdict."""
+PREVIEW_RENDERED = "preview_rendered"
+"""A finished timeline exported and its build record committed."""
 
 
 def log_path(project_folder) -> Path:

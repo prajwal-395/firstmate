@@ -1095,6 +1095,21 @@ def record_reel_promotion(project_folder: str, resolve_project_name: str,
     return report
 
 
+def _emit_preview_event(project_folder: str, timeline_name: str) -> None:
+    """Emit one preview event into the project's event log, or skip.
+
+    The export is the act, the event log is the record of it: a
+    failure to emit must never take down a build record, the same rule
+    the lease layer (`resource_leases._emit`) holds.
+    """
+    try:
+        from library.tools import event_log
+        event_log.emit(project_folder, event_log.PREVIEW_RENDERED,
+                       timeline=timeline_name)
+    except OSError:
+        pass
+
+
 def record_finished_timeline(resolve, timeline, project_folder: str,
                              timeline_name: str) -> dict:
     """Export the finished timeline and commit the per-build record.
@@ -1155,6 +1170,8 @@ def record_finished_timeline(resolve, timeline, project_folder: str,
                            otio_text, timeline_state)
         result = commit_build(project_folder)
         report.update(result)
+        if report.get("committed"):
+            _emit_preview_event(project_folder, timeline_name or "untitled")
         if not report.get("committed") and not report.get("reason"):
             report["reason"] = result.get("reason", "")
         return report
