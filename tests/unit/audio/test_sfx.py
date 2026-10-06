@@ -1578,3 +1578,91 @@ def test_at_most_two_moments_highest_confidence_first(tmp_path):
     assert "Thump" in cell and "Door slam" in cell
     assert "Clang" not in cell
     assert cell.index("Thump") < cell.index("Door slam")
+
+
+# --------------------------------------------------------------------------
+# Let the music breathe (audio-intelligence track).
+#
+# The defect these pin: the SFX signal path snapped punchy sounds onto
+# downbeats and swells onto energy peaks, but nothing kept a sound off
+# a music-section arrival - an impact planned a frame before the chorus
+# stepped on it. Now a non-anchored SFX overlapping a section start
+# moves one measured beat past it (the arrival lands first); dialogue
+# still gets the final say via the speech shift after it, and an anchor
+# wins over both.
+# --------------------------------------------------------------------------
+
+from library.steps.step_4_04_plan_sfx.post_bridge import (  # noqa: E402
+    _avoid_music_arrival,
+    _median_beat_interval,
+)
+
+
+def test_median_beat_interval_needs_two_rising_beats():
+    assert _median_beat_interval([0.5, 1.0, 1.5]) == 0.5
+    assert _median_beat_interval([1.0]) is None
+    assert _median_beat_interval([]) is None
+
+
+def test_an_sfx_on_an_arrival_moves_a_beat_past_it():
+    start, hit = _avoid_music_arrival(
+        7.9, 0.3, [(8.0, "chorus")], 0.5, 6.0, 12.0)
+    assert start == pytest.approx(8.5)
+    assert hit == (8.0, "chorus")
+
+
+def test_an_sfx_clear_of_arrivals_holds():
+    start, hit = _avoid_music_arrival(
+        9.0, 0.3, [(8.0, "chorus")], 0.5, 6.0, 12.0)
+    assert start == pytest.approx(9.0)
+    assert hit is None
+
+
+def test_an_unsourcable_window_holds_the_sfx():
+    for interval in (None, 0.0):
+        start, hit = _avoid_music_arrival(
+            7.9, 0.3, [(8.0, "chorus")], interval, 6.0, 12.0)
+        assert start == pytest.approx(7.9)
+        assert hit is None
+
+
+def _breathe_grids(chorus_start=8.0):
+    beats = [round(0.5 * k, 4) for k in range(1, 21)]
+    return {
+        "tempo": {"beats": beats},
+        "section_grid": {
+            "available": True,
+            "sections": [{"label": "chorus", "start": chorus_start,
+                           "end": chorus_start + 8.0}],
+        },
+    }
+
+
+def test_an_impact_before_the_chorus_lets_it_breathe(sfx_library):
+    """End to end through the post-bridge: the impact planned at 7.9s
+    steps on the 8.0s chorus arrival, so it lands at 8.5s - one measured
+    beat past - and the record names the arrival."""
+    payload = _payload(
+        [{"spine_block_position": 2, "timeline_start": 7.9,
+          "sfx_id": IMPACT, "volume_db": -14,
+          "rationale": "on the moment"}],
+        peaks=(), onsets=())
+    payload["music_analysis"] = _breathe_grids()
+    placed, _ = _run(payload, sfx_library)
+    assert placed[0]["timeline_in"] == pytest.approx(8.5, abs=0.01)
+    assert "chorus" in placed[0]["placement_method"]
+    assert "breathes" in placed[0]["placement_method"]
+
+
+def test_an_anchored_sound_stays_on_the_arrival(sfx_library):
+    """The plan named the word, so the anchor wins exactly - even on
+    the chorus arrival the breathe shift would have moved."""
+    payload = _payload(
+        [{"spine_block_position": 1, "sfx_id": IMPACT,
+          "volume_db": -14, "anchor": {"word": "tell"},
+          "rationale": "on the word"}],
+        blocks=_fade_spine()["structure"], peaks=(), onsets=())
+    payload["music_analysis"] = _breathe_grids()
+    placed, _ = _run(payload, sfx_library)
+    assert placed[0]["timeline_in"] == pytest.approx(8.0, abs=0.05)
+    assert "breathes" not in placed[0]["placement_method"]

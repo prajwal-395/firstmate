@@ -309,6 +309,53 @@ def _avoid_speech_collision(
     return max(block_start, min(best_gap_start, block_end - sfx_duration))
 
 
+def _median_beat_interval(beats: list) -> float | None:
+    """The median interval of the measured beat grid, or None.
+
+    None when the grid cannot source a window (fewer than two rising
+    beats): the caller holds the SFX where it is rather than moving it
+    by a window nothing measured.
+    """
+    gaps = [b - a for a, b in zip(beats, beats[1:]) if b > a]
+    if not gaps:
+        return None
+    gaps.sort()
+    return gaps[len(gaps) // 2]
+
+
+def _avoid_music_arrival(
+    sfx_time: float,
+    sfx_duration: float,
+    arrivals: list,
+    beat_interval: float | None,
+    block_start: float,
+    block_end: float,
+) -> tuple:
+    """Shift an SFX off a music-section arrival so the music breathes.
+
+    `arrivals` are (start_seconds, label) section starts in timeline
+    seconds; the keep-clear around each is one `beat_interval` past its
+    start - the track's own pulse, never a chosen second count. An SFX
+    overlapping that window moves to start one beat after the arrival
+    (the arrival lands first, the sound follows); anything clear stays.
+    Returns (start, hit) where hit is (arrival_start, label) or None -
+    None also when the window is unsourcable, so an unmeasured grid
+    holds the SFX rather than inventing a move for it.
+    """
+    if not arrivals or not beat_interval or beat_interval <= 0:
+        return sfx_time, None
+    sfx_end = sfx_time + sfx_duration
+    for arrival_start, label in sorted(arrivals):
+        if (sfx_time <= arrival_start + beat_interval
+                and arrival_start <= sfx_end):
+            shifted = max(block_start,
+                          min(arrival_start + beat_interval,
+                              block_end - sfx_duration))
+            if shifted != sfx_time:
+                return shifted, (arrival_start, label)
+    return sfx_time, None
+
+
 def find_sfx_placement(
     envelope: str,
     timeline_start: float,
@@ -598,8 +645,7 @@ def resolve_sfx(
     # music file's clock: a bar start read without the offset is off by
     # wherever the bed starts. See library/tools/music_section.py.
     from library.tools.beat_grid import downbeat_positions
-    beat_grid = downbeat_positions(music_analysis, music_selection)
-    # State what the SFX snapped to: a detected grid is bar starts the
+    beat_grid = downbeat_positions(music_analysis, music_selection)    # State what the SFX snapped to: a detected grid is bar starts the
     # tracker heard, an estimated one is every 4th beat and can sit a
     # beat off (rung-1 finding 3). The numbers above are either way;
     # the run record says which.
@@ -608,6 +654,19 @@ def resolve_sfx(
     _method = _tempo.get("method") or "no tracker"
     print(f"  downbeat grid: {len(beat_grid)} bar starts "
           f"({_source}, {_method})", file=sys.stderr)
+
+    # The music's own arrivals, so a sound can be held off them. Section
+    # starts in timeline seconds (music_sections, same clock as the beat
+    # grid above) and the keep-clear window between them: the median
+    # measured beat interval, never a chosen second count. Either
+    # missing holds every SFX where the signal path put it.
+    from library.tools.beat_grid import beat_positions as _timeline_beats
+    from library.tools.music_sections import sections_timeline as _sections
+    _arrival_rows = _sections(music_analysis, music_selection)
+    arrivals = [(s["start_seconds"], s["label"]) for s in _arrival_rows
+                if isinstance(s.get("start_seconds"), (int, float))]
+    beat_interval = _median_beat_interval(
+        _timeline_beats(music_analysis, music_selection))
 
     # There is no density scaling here, and there must not be one again.
     #
@@ -769,6 +828,7 @@ def resolve_sfx(
         # gap would un-ask the question. Anchorless entries travel the
         # signal path unchanged.
         anchored = None
+        arrival_hit = None
         if sfx.get("anchor") is not None:
             anchored = resolve_anchor(
                 sfx["anchor"], block=block,
@@ -789,6 +849,17 @@ def resolve_sfx(
             word_times_tl = _get_word_times_in_block(block)
             tl_end = block["timeline_end"]
             tl_block_start = block["timeline_start"]
+
+            # Let the music breathe: hold the sound off a section
+            # arrival it would step on, one measured beat past it. Runs
+            # BEFORE the speech shift below, so dialogue keeps the final
+            # say - intelligibility outranks breathing, and the record
+            # names both moves. Anchored entries never reach this path:
+            # the plan named the exact moment.
+            refined_start, arrival_hit = _avoid_music_arrival(
+                refined_start, duration, arrivals, beat_interval,
+                tl_block_start, tl_end,
+            )
 
             if not is_layer:
                 refined_start = _avoid_speech_collision(
@@ -843,6 +914,11 @@ def resolve_sfx(
             placement_method += (
                 "; placed as an atmospheric layer under the picture, not "
                 "shifted into a word gap")
+        if arrival_hit is not None:
+            arrival_start, arrival_label = arrival_hit
+            placement_method += (
+                f"; held off the {arrival_label} arrival at "
+                f"{arrival_start:.2f}s by one beat so the music breathes")
         if lead > 0:
             placement_method += (
                 f"; arrives {lead}s before the cut (J-cut lead)")
