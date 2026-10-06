@@ -140,7 +140,24 @@ def record(project_folder, final: str, *, kind: str, rows: Mapping,
     document["reels"][final] = history
     document["format"] = REEL_VERSIONS_FORMAT
     _write(project_folder, document)
+    _emit_version_event(project_folder, entry["version"], kind, final)
     return entry
+
+
+def _emit_version_event(project_folder, version: int, kind: str,
+                        final: str) -> None:
+    """Emit one version event into the project's event log, or skip.
+
+    The version is the act, the event log is the record of it: a
+    failure to emit must never take down a version, the same rule the
+    lease layer (`resource_leases._emit`) holds.
+    """
+    try:
+        from library.tools import event_log
+        event_log.emit(project_folder, event_log.REEL_VERSION_RECORDED,
+                       final=final, version=version, kind=kind)
+    except OSError:
+        pass
 
 
 def mark_undone(project_folder, final: str, version: int,

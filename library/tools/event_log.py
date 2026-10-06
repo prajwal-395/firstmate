@@ -97,6 +97,8 @@ TIMELINE_OPERATIONS = "timeline_operations"
 """The N operations one committed patch ran, with its verdict."""
 PREVIEW_RENDERED = "preview_rendered"
 """A finished timeline exported and its build record committed."""
+REEL_VERSION_RECORDED = "reel_version_recorded"
+"""A reel version appended to the versions ledger."""
 
 
 def log_path(project_folder) -> Path:
