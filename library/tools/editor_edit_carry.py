@@ -150,6 +150,65 @@ def _governs(edit: dict, item: dict) -> bool:
                                   edit["source_out_frame"]))
 
 
+def _edit_source_file(edit: dict) -> str:
+    """The source file the edited item played, as a path.
+
+    An edit recorded after 2026-10-06 carries `source_file`; an older
+    one names the file by its `file:` identity, which IS the path. A
+    `media:` identity names a pool item, not a file, so an edit that
+    has only that matches nothing here.
+    """
+    source_file = str(edit.get("source_file") or "")
+    if source_file:
+        return source_file
+    identity = str(edit.get("source_identity") or "")
+    return identity[len("file:"):] if identity.startswith("file:") else ""
+
+
+def _file_items(edit: dict, items: list[dict]) -> list[dict]:
+    """Staged items playing `edit`'s source FILE over its range on its row.
+
+    The fallback when no staged item matches the recorded media
+    identity: the same source file under two pool items (an accidental
+    duplicate import) plays the same range under a different identity,
+    and the edit is about the passage, not the pool item. A planned
+    graphic matches by `graphic_identity`, never by file.
+    """
+    if edit.get("graphic_identity"):
+        return []
+    wanted = _edit_source_file(edit)
+    if not wanted:
+        return []
+    return [item for item in items
+            if _row(item) == edit["row"]
+            and str(item.get("source_file") or "") == wanted
+            and _source(item) == (edit["source_in_frame"],
+                                  edit["source_out_frame"])]
+
+
+def _landed_items(edit: dict, items: list[dict]) -> tuple[list, str | None]:
+    """The staged items `edit` lands on, and why not when it has none.
+
+    Media identity first - the recorded pool item. When no staged item
+    matches it, the source FILE, by `_file_items`. Two file matches are
+    one passage the edit cannot choose between, so they refuse by name;
+    zero falls through to the caller's not-carried path.
+    """
+    exact = [item for item in items if _governs(edit, item)]
+    if exact:
+        return exact, None
+    by_file = _file_items(edit, items)
+    if len(by_file) > 1:
+        names = ", ".join(repr(item.get("name")) for item in by_file)
+        return [], (f"  {edit['kind']} {edit['row']} {edit['name']!r} source "
+                    f"{_span(edit['source_in_frame'], edit['source_out_frame'])}: "
+                    f"staging plays that passage as {len(by_file)} items "
+                    f"under source file {_edit_source_file(edit)!r} "
+                    f"({names}), so the edit has no single item to land "
+                    f"on{_touch_suffix(edit)}")
+    return by_file, None
+
+
 def _overlaps(edit: dict, item: dict) -> bool:
     """`item` plays at least one frame of the passage `edit` names."""
     if (_row(item) != edit["row"]
@@ -182,6 +241,7 @@ def _base(final: str, kind: str, item: dict, *, field: str, record: dict,
         "track_name": item.get("track_name"),
         "name": item.get("name"),
         "source_identity": item.get("source_identity"),
+        "source_file": item.get("source_file"),
         "source_in_frame": item.get("source_in_frame"),
         "source_out_frame": item.get("source_out_frame"),
         "record_in_when_detected": item.get("record_in"),
@@ -215,6 +275,7 @@ def _picture_anchor(snapshot: dict, frame) -> dict | None:
                 and item["record_in"] <= frame < item["record_out"]):
             return {"anchor_row": _row(item),
                     "anchor_source_identity": item.get("source_identity"),
+                    "anchor_source_file": str(item.get("source_file") or ""),
                     "anchor_source_frame":
                         item["source_in_frame"] + frame - item["record_in"]}
     return None
@@ -978,6 +1039,18 @@ def derive_touch_edits(final: str, live_snapshot: dict,
                  item.get("source_out_frame")) == (
                      live.get("source_in_frame"),
                      live.get("source_out_frame"))]
+        if not same_passage:
+            # The same file under two pool items: staging plays the
+            # touched passage under the other one's identity.
+            wanted_file = str(live.get("source_file") or "")
+            same_passage = [
+                item for item in staged_items
+                if _row(item) == row
+                and str(item.get("source_file") or "") == wanted_file
+                and (item.get("source_in_frame"),
+                     item.get("source_out_frame")) == (
+                         live.get("source_in_frame"),
+                         live.get("source_out_frame"))]
         if len(same_passage) == 1:
             return same_passage[0]
         at_record = [item for item in same_passage
@@ -1173,21 +1246,26 @@ def plan_application(edits: list[dict], staged: dict, final: str) -> dict:
             else:
                 plan["trim"].append(step)
             continue
-        exact = [item for item in items if _governs(edit, item)]
+        exact, problem = _landed_items(edit, items)
+        if problem:
+            problems.append(problem)
+            continue
         if edit["kind"] == "split":
             parts = list((edit.get("after") or {}).get("parts") or ())
             if len(exact) != 1:
                 part_items = []
                 expected_parts = [part for part in parts
                                   if not part.get("removed")]
+                file_matches = _file_items(edit, items)
                 for part in expected_parts:
                     matches = [item for item in items
-                               if _row(item) == edit["row"]
-                               and item.get("source_identity") ==
-                               edit["source_identity"]
-                               and _source(item) == (
-                                   part.get("source_in_frame"),
-                                   part.get("source_out_frame"))]
+                                if _row(item) == edit["row"]
+                                and _source(item) == (
+                                    part.get("source_in_frame"),
+                                    part.get("source_out_frame"))
+                                and (item.get("source_identity") ==
+                                     edit["source_identity"]
+                                     or item in file_matches)]
                     if len(matches) != 1:
                         part_items = []
                         break
@@ -1242,14 +1320,13 @@ def plan_application(edits: list[dict], staged: dict, final: str) -> dict:
             continue
         if edit["kind"] in ("cut", "trim", "extend"):
             held = (edit["kind"] in ("trim", "extend")
-                    and [item for item in items
-                         if _governs(_kept(edit), item)])
+                    and _landed_items(_kept(edit), items)[0])
             partial = [item for item in items
                        if _overlaps(edit, item) and item not in exact
                        and item not in (held or ())]
             if edit["kind"] == "cut" and not exact:
                 deferred = any(
-                    _governs(split, item)
+                    item in _landed_items(split, items)[0]
                     and any(part.get("removed") is True
                             and (part.get("source_in_frame"),
                                  part.get("source_out_frame"))
@@ -1610,21 +1687,32 @@ class _CompFreeRederiver:
 
 def _locate(tracks: list, edit: dict, source=None):
     """`(track, index, clip)` on staging playing `source` (default: the
-    edit's own passage), or None."""
+    edit's own passage), or None.
+
+    A clip matches by media identity, or - when no clip carries that
+    identity - by the source FILE over the same range: the same file
+    under two pool items plays the same passage under a different
+    identity (`_file_items`). Two matches are one passage and refuse.
+    """
     from library.tools import composed_edit as _ce
 
     wanted = source or (edit["source_in_frame"], edit["source_out_frame"])
+    file_name = _edit_source_file(edit)
     hits = []
     for track in tracks:
         row = _guard.row_key(track["type"], track["name"])
         if row != edit["row"]:
             continue
         for index, clip in enumerate(track.get("clips") or ()):
-            if (_guard.item_source_identity(
-                    {**clip, "track_name": track["name"]})
-                    == edit["source_identity"]
-                    and (clip.get("source_in_frame"),
-                         clip.get("source_out_frame")) == tuple(wanted)):
+            if (clip.get("source_in_frame"),
+                clip.get("source_out_frame")) != tuple(wanted):
+                continue
+            if _guard.item_source_identity(
+                    {**clip, "track_name": track["name"]}) == \
+                    edit["source_identity"]:
+                hits.append((track, index, clip))
+            elif (file_name and not edit.get("graphic_identity")
+                  and str(clip.get("source_file") or "") == file_name):
                 hits.append((track, index, clip))
     if len(hits) != 1:
         return None
@@ -2082,14 +2170,22 @@ def _apply_moves(project_folder: str, project, staged, edits: list,
 
 
 def _anchor_frame(picture_clips: list, anchor: dict):
-    """The record frame where V1 plays the anchor's source frame."""
+    """The record frame where V1 plays the anchor's source frame.
+
+    A picture clip matches by media identity, or by the source FILE when
+    the anchor's clip is gone from staging under another pool item - the
+    same file under two pool items (`_file_items`).
+    """
     frame = anchor["anchor_source_frame"]
+    wanted_file = str(anchor.get("anchor_source_file") or "")
     for clip in picture_clips:
         identity = clip.get("source_identity") or \
             _guard.item_source_identity(
                 {**clip, "track_name": clip.get("track_name", "")})
         if identity != anchor["anchor_source_identity"]:
-            continue
+            if not (wanted_file
+                    and str(clip.get("source_file") or "") == wanted_file):
+                continue
         start, end = clip.get("source_in_frame"), clip.get("source_out_frame")
         if isinstance(start, int) and isinstance(end, int) and \
                 start <= frame < end:
@@ -2237,10 +2333,12 @@ def verify_carried_edits(report: dict, staged_after: dict,
             continue
         if edit["kind"] in ("trim", "extend"):
             kept = _kept(edit)
-            exact = [item for item in items if _governs(kept, item)]
+            exact, problem = _landed_items(kept, items)
             beyond = [item for item in items
                       if _overlaps(edit, item) and item not in exact]
-            if len(exact) != 1 or beyond:
+            if problem:
+                missed.append(problem)
+            elif len(exact) != 1 or beyond:
                 missed.append(
                     f"  {edit['kind']} {edit['row']} {edit['name']!r} source "
                     f"{passage} to {_span(kept['source_in_frame'], kept['source_out_frame'])}: "
@@ -2248,8 +2346,10 @@ def verify_carried_edits(report: dict, staged_after: dict,
                     + (", ".join(_span(*_source(item))
                                  for item in exact + beyond) or "none of it"))
             continue
-        exact = [item for item in items if _governs(edit, item)]
-        if len(exact) != 1:
+        exact, problem = _landed_items(edit, items)
+        if problem:
+            missed.append(problem)
+        elif len(exact) != 1:
             missed.append(
                 f"  {edit['kind']} {edit['row']} {edit['name']!r} source "
                 f"{passage}: staging now plays it {len(exact)} time(s)"

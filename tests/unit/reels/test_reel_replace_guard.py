@@ -352,6 +352,38 @@ def test_empty_node_lut_shapes_do_not_make_a_color_edit():
         )
 
 
+def test_a_stored_baseline_without_source_file_diffs_clean_against_a_live_read():
+    """A baseline recorded before snapshots carried `source_file` has no
+    such key; a live read that carries it on every item must not read as
+    an editor change on every item. Reel 09, 2026-10-06: the stored
+    snapshot diffed against a live read with the key produced 64 items,
+    64 `item_changed`, field `{'source_file'}` - every promoted reel
+    would have refused its next build."""
+    baseline = {
+        "track_type": "video",
+        "track_index": 1,
+        "track_name": "Speaker",
+        "name": "speaker.mov",
+        "source_identity": "media:pool-A",
+        "source_in_frame": 0,
+        "source_out_frame": 100,
+        "record_in": 0,
+        "record_out": 100,
+        "duration": 100,
+        "enabled": True,
+        "transform": {},
+        "composite": {},
+        "fusion": {},
+        "color": {},
+        "clip_color": "",
+        "flags": [],
+        "markers": [],
+    }
+    live = {**baseline, "source_file": "/media/speaker.mov"}
+    assert reel_replace_guard.snapshot_diff({"items": [baseline]},
+                                            {"items": [live]}) == []
+
+
 def test_legacy_empty_lut_pending_change_is_normalized_before_promotion(tmp_path):
     from library.tools import plan_provenance
 

@@ -292,6 +292,13 @@ def snapshot_items(tracks) -> list[dict]:
             item = {key: detail.get(key) for key in
                     PRESERVATION_FIELDS if key in detail}
             item["source_identity"] = item_source_identity(detail)
+            # Carried for the file-identity fallback
+            # (`_same_file_candidates`, `editor_edit_carry._file_items`)
+            # and deliberately NOT compared: the stored baselines predate
+            # it, and a key every live read has that no baseline holds
+            # would read as an editor change on every item (Reel 09,
+            # 2026-10-06: 64 items, 64 phantom changes).
+            item["source_file"] = detail.get("source_file") or ""
             item["unique_id"] = str(detail.get("unique_id") or "")
             # Headroom is needed before a source-window extension is
             # composed. It is not a preservation delta by itself: the
@@ -623,6 +630,41 @@ def _replanned_caption_cards(change: dict, staged: dict) -> list[dict]:
             and segment(other) == wanted]
 
 
+#: What a change matched by source file must still hold: every preserved
+#: field but the media pool identity, which is the whole reason it
+#: matched by file - the same file under two pool items is two identities.
+_FILE_MATCH_FIELDS = tuple(
+    field for field in PRESERVATION_FIELDS if field != "source_identity")
+
+
+def _same_file_candidates(change: dict, staged: dict) -> list[dict]:
+    """Staged items playing the changed item's source FILE over its range.
+
+    The same source file under two media pool items (an accidental
+    duplicate import) is two identities, and a rebuild that picks the
+    other one leaves the change nothing to match by identity. The file is
+    the rebuild-invariant half of that identity, so a staged item playing
+    the same file over the same range on the same row is the same
+    placement. Zero or 2+ candidates leave the change unmatched - never
+    guessed onto one of them.
+    """
+    item = change.get("after") or change.get("before") or {}
+    source_file = str(item.get("source_file") or "")
+    if not source_file:
+        return []
+    start, end = item.get("source_in_frame"), item.get("source_out_frame")
+    if not isinstance(start, int) or not isinstance(end, int):
+        return []
+    row = (item.get("track_type"), item.get("track_index"),
+           item.get("track_name"))
+    return [other for other in staged.get("items", ())
+            if (other.get("track_type"), other.get("track_index"),
+                other.get("track_name")) == row
+            and str(other.get("source_file") or "") == source_file
+            and (other.get("source_in_frame"),
+                 other.get("source_out_frame")) == (start, end)]
+
+
 def _note_content(marker: dict) -> tuple:
     return tuple(_canonical(marker.get(field)) for field in
                  ("color", "name", "note", "duration", "custom_data"))
@@ -675,9 +717,14 @@ def _change_is_carried(change: dict, staged: dict) -> bool:
                     and item.get("track_name") == row_name
                     and item.get("graphic_identity") == identity
                 ]
+        fields = PRESERVATION_FIELDS
+        if not candidates:
+            file_candidates = _same_file_candidates(change, staged)
+            if len(file_candidates) == 1:
+                candidates = file_candidates
+                fields = _FILE_MATCH_FIELDS
         if kind == "item_removed":
             return not candidates
-        fields = PRESERVATION_FIELDS
         if not candidates and _note_landed_on_row(change, staged):
             return True
         if not candidates:
@@ -692,8 +739,9 @@ def _change_is_carried(change: dict, staged: dict) -> bool:
                            for field in fields)
                        for item in candidates)
         wanted = change["changed"]
-        if fields is _CAPTION_SPAN_FIELDS:
-            # The render's name and source frames are not the editor's.
+        if fields is _CAPTION_SPAN_FIELDS or fields is _FILE_MATCH_FIELDS:
+            # The render's name and source frames are not the editor's; a
+            # file-matched item's pool identity is not either.
             wanted = {field: values for field, values in wanted.items()
                       if field in fields}
         return any(all(_same_preservation_value(

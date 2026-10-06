@@ -617,6 +617,27 @@ def _item(
     }
 
 
+def _pool_item(
+    row,
+    name,
+    pool_id,
+    source_in,
+    source_out,
+    record_in,
+    record_out,
+    track_type="video",
+    track_index=1,
+):
+    """An item as the live timeline records it under a media pool id:
+    `source_identity` names the pool item, `source_file` the file it
+    plays - the two halves of one placement."""
+    item = _item(row, name, source_in, source_out, record_in, record_out,
+                 track_type=track_type, track_index=track_index)
+    item["source_identity"] = f"media:{pool_id}"
+    item["source_file"] = f"/media/{name}"
+    return item
+
+
 def _change_record(before_items, after_items, *, before_unit=(3840, 2160),
                    after_unit=(3840, 2160), after_end=None):
     before = {"metadata": {"transform_unit_resolution": before_unit},
@@ -799,6 +820,63 @@ def test_a_tail_extension_is_verified_against_its_new_source_window():
             {"edits": [extension]}, {"items": [original]}, FINAL)
 
 
+def test_an_extend_carries_when_staging_plays_the_same_file_under_another_pool_id():
+    """Reel 13, 2026-10-05: the captain's +6-frame extend on LC4932 could
+    not map when the same source file existed as two pool items - an
+    accidental duplicate import - and the rebuild picked the other one.
+    Same file, same source range, different media identity: the edit
+    lands by file."""
+    original = _pool_item("V1", "LC4932.MXF", "pool-A", 47_563, 48_022,
+                          100, 559)
+    extended = {**original, "source_out_frame": 48_028, "record_out": 565,
+                "duration": 465}
+    record = _change_record([original], [extended])
+
+    edits, uncarried = carry.derive_edits(record)
+    assert uncarried == []
+    (extension,) = [edit for edit in edits if edit["kind"] == "extend"]
+    assert extension["source_file"] == "/media/LC4932.MXF"
+
+    # Staging plays the unextended passage under the OTHER pool item of
+    # the same file: same source_file, different source_identity.
+    staged_item = {**original, "source_identity": "media:pool-B",
+                   "left_offset": 0, "right_offset": 6}
+    plan = carry.plan_application([extension], {"items": [staged_item]},
+                                  FINAL)
+    assert [step["item"]["source_identity"] for step in plan["trim"]] == \
+        ["media:pool-B"]
+
+    carried = [{**staged_item, "source_out_frame": 48_028,
+                "record_out": 565, "duration": 465}]
+    carry.verify_carried_edits({"edits": [extension]},
+                               {"items": carried}, FINAL)
+    with pytest.raises(carry.EditorEditCarryRefused,
+                       match="extend video:V1"):
+        carry.verify_carried_edits({"edits": [extension]},
+                                   {"items": [staged_item]}, FINAL)
+
+
+def test_a_passage_played_by_two_pool_items_of_one_file_refuses_as_ambiguous():
+    """The same file under two pool items, placed twice on one row, is two
+    staged items the edit cannot choose between - refused by name, the
+    same rule the captain set for note carry."""
+    original = _pool_item("V1", "LC4932.MXF", "pool-A", 47_563, 48_022,
+                          100, 559)
+    extended = {**original, "source_out_frame": 48_028, "record_out": 565,
+                "duration": 465}
+    record = _change_record([original], [extended])
+    edits, _ = carry.derive_edits(record)
+    (extension,) = [edit for edit in edits if edit["kind"] == "extend"]
+
+    staged = [{**original, "source_identity": "media:pool-B",
+               "left_offset": 0, "right_offset": 6},
+              {**original, "source_identity": "media:pool-C",
+               "left_offset": 0, "right_offset": 6}]
+    with pytest.raises(carry.EditorEditCarryRefused,
+                       match="no single item to land on"):
+        carry.plan_application([extension], {"items": staged}, FINAL)
+
+
 @pytest.mark.usefixtures("mock_dvr")
 def test_a_tail_extension_and_ripple_are_written_on_the_resolve_double(
         tmp_path):
@@ -858,9 +936,17 @@ def _card(digest, source_in, source_out, record_in, *, right=12):
     return {**card, "left_offset": source_in, "right_offset": right}
 
 
-def _picture():
-    return [_item("Akshita", "LC4932.MXF", 47563, 48022, 1038, 1497),
-            _item("Akshita", "LC4932.MXF", 12006, 12318, 1497, 1809)]
+def _picture(pool_id=None):
+    """The Reel 13 V1 picture; `pool_id` reads it under a media pool item,
+    as the live timeline records a duplicate import."""
+    def picture(name, source_in, source_out, record_in, record_out):
+        if pool_id is None:
+            return _item("Akshita", name, source_in, source_out, record_in,
+                         record_out)
+        return _pool_item("Akshita", name, pool_id, source_in, source_out,
+                          record_in, record_out)
+    return [picture("LC4932.MXF", 47563, 48022, 1038, 1497),
+            picture("LC4932.MXF", 12006, 12318, 1497, 1809)]
 
 
 def _caption_record():
@@ -908,6 +994,32 @@ def test_caption_card_spans_carry_onto_the_replanned_cards():
     carry.verify_carried_edits({"edits": edits}, {"items": carried}, FINAL)
     again = carry.plan_application(edits, {"items": carried}, FINAL)
     assert sorted(again["already_held"]) == sorted(e["id"] for e in edits)
+
+
+def test_a_caption_span_anchors_onto_a_picture_under_another_pool_id():
+    """The span's picture anchor is read off staging's V1, so it is read
+    by the picture's media identity; when the rebuild plays that picture
+    under the other pool item of the same file (Reel 13's LC4932), the
+    anchor still lands by file."""
+    before = [*_picture("pool-A"),
+              _card("0e607e0c", 12, 53, 1043)]
+    after = [*_picture("pool-A"),
+             {**_card("0e607e0c", 12, 59, 1043), "right_offset": 6}]
+    edits, uncarried = carry.derive_edits(_change_record(before, after))
+    assert uncarried == []
+    (span,) = edits
+    assert span["kind"] == "caption_span"
+
+    # Staging's V1 plays the same picture file under another pool item.
+    staged = [*_picture("pool-B"), _card("d6c65589", 12, 53, 1043)]
+    plan = carry.plan_application([span], {"items": staged}, FINAL)
+    landed = {step["item"]["name"]: step["edit"]["after"]
+              for step in plan["trim"]}
+    assert landed == {
+        f"{SEGMENT}_d6c65589.mov": {"source_in_frame": 12,
+                                    "source_out_frame": 59, "head": 0,
+                                    "tail": -6, "record_in": 1043},
+    }
 
 
 def test_caption_span_refuses_when_no_card_starts_where_his_did():
@@ -1035,9 +1147,50 @@ def test_the_guard_reads_a_note_that_landed_on_its_row_as_carried():
     assert guard._change_is_carried(change, landed)
     assert not guard._change_is_carried(change, {"items": [png]})
     elsewhere = {"items": [{**png, "track_index": 6,
-                            "track_name": "Motion Graphics",
-                            "markers": [note]}]}
+                             "track_name": "Motion Graphics",
+                             "markers": [note]}]}
     assert not guard._change_is_carried(change, elsewhere)
+
+
+def test_the_guard_reads_a_change_onto_the_same_file_under_another_pool_id():
+    """The promotion guard matches a change by media pool identity; when
+    the rebuild plays the same file under the other pool item of a
+    duplicate import, the change is carried by file instead. The extend
+    reads as a removal plus an addition; both must be carried."""
+    before = _pool_item("V1", "LC4932.MXF", "pool-A", 47_563, 48_022,
+                        100, 559)
+    after = {**before, "source_out_frame": 48_028, "record_out": 565,
+             "duration": 465}
+    changes = [c for c in guard.snapshot_diff({"items": [before]},
+                                              {"items": [after]})
+               if c["kind"].startswith("item_")]
+    assert [c["kind"] for c in changes] == ["item_removed", "item_added"]
+    carried = {**before, "source_identity": "media:pool-B",
+               "source_out_frame": 48_028, "record_out": 565,
+               "duration": 465}
+    assert all(guard._change_is_carried(c, {"items": [carried]})
+               for c in changes)
+    unextended = {**before, "source_identity": "media:pool-B"}
+    assert not any(guard._change_is_carried(c, {"items": [unextended]})
+                   for c in changes)
+
+
+def test_the_guard_refuses_a_change_two_pool_items_of_one_file_could_be():
+    """Two staged items play the same file over the changed range under
+    different pool ids: the change cannot choose between them, so it is
+    not carried - never guessed onto one."""
+    before = _pool_item("V1", "LC4932.MXF", "pool-A", 47_563, 48_022,
+                        100, 559)
+    after = {**before, "source_out_frame": 48_028, "record_out": 565,
+             "duration": 465}
+    (added,) = [c for c in guard.snapshot_diff({"items": [before]},
+                                              {"items": [after]})
+                if c["kind"] == "item_added"]
+    extended = {**before, "source_out_frame": 48_028, "record_out": 565,
+                "duration": 465}
+    assert not guard._change_is_carried(
+        added, {"items": [{**extended, "source_identity": "media:pool-B"},
+                           {**extended, "source_identity": "media:pool-C"}]})
 
 
 def test_the_guard_finds_a_replanned_caption_card_at_his_span():
