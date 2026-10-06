@@ -79,6 +79,7 @@ import tempfile
 from pathlib import Path
 
 from library.tools.versions import store, variants
+from library.tools import event_log
 
 ROOT_ENV = "REN_WORKTREES"
 BRANCH_PREFIX = "ren/"
@@ -157,8 +158,11 @@ def add(project_folder: str, task: str, base: str | None = None) -> dict:
         return {"added": False,
                 "reason": f"git worktree add failed: "
                           f"{proc.stderr.strip()[-200:]}"}
-    return {"added": True, "task": task_slug(task), "branch": branch,
-            "path": str(path), "base": start.stdout.strip()[:12]}
+    result = {"added": True, "task": task_slug(task), "branch": branch,
+              "path": str(path), "base": start.stdout.strip()[:12]}
+    _emit_branch_event(project_folder, event_log.BRANCH_CREATED,
+                       task=result["task"], branch=branch, base=result["base"])
+    return result
 
 
 def list_tasks(project_folder: str) -> list[dict]:
@@ -195,7 +199,25 @@ def commit(project_folder: str, task: str, message: str) -> dict:
     if opened is None:
         return {"committed": False,
                 "reason": f"no worktree is open for task {task!r}"}
-    return store.commit_build(opened["path"], message)
+    result = store.commit_build(opened["path"], message)
+    if result.get("committed"):
+        _emit_branch_event(project_folder, event_log.BRANCH_COMMITTED,
+                           task=opened["task"], branch=opened["branch"])
+    return result
+
+
+def _emit_branch_event(project_folder: str, event_type: str,
+                       **fields) -> None:
+    """Emit one branch event into the project's event log, or skip.
+
+    The branch is the act, the event log is the record of it: a
+    failure to emit must never take down task work, the same rule the
+    lease layer (`resource_leases._emit`) holds.
+    """
+    try:
+        event_log.emit(project_folder, event_type, **fields)
+    except OSError:
+        pass
 
 
 def merge(project_folder: str, task: str) -> dict:

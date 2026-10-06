@@ -89,6 +89,10 @@ REEL_SIGNED_OFF = "reel_signed_off"
 """A built reel's durable approval, the spec's QC-passed event."""
 SIGNOFF_WITHDRAWN = "signoff_withdrawn"
 """An approval taken back, the spec's QC-rejected event."""
+BRANCH_CREATED = "branch_created"
+"""A task worktree opened on a new `ren/<task>` branch."""
+BRANCH_COMMITTED = "branch_committed"
+"""A task worktree's allow-listed text committed."""
 
 
 def log_path(project_folder) -> Path:
