@@ -41,6 +41,7 @@ from library.tools.shot_colour import STILL_WIDTH, extract_still
 from library.tools.vfx_carriers import (
     picture_carriers,
 )
+from library.tools.vfx_detection import detect_vfx_needs
 from library.tools.vision_schema_adapter import (
     adapt_semantic_document,
     is_v3_profile,
@@ -583,11 +584,23 @@ def main():
     # handoff.md ("Context data available"), not shipped beside the table.
     # They travelled as a `vfx_candidates_legend` dict only while that
     # file was under the captain's freeze, lifted 2026-09-09.
+    vfx_detections = detect_vfx_needs(
+        temporal_index=data.get("temporal_event_indices"),
+        semantic_docs=data.get("semantic_analysis_documents"),
+        clip_catalog=data.get("clip_catalog"),
+        color_grade_spec=data.get("color_grade_spec"),
+        behind_subject_overlays=data.get("behind_subject_overlays"),
+        a_roll_assignments=data.get("a_roll_assignments"),
+        b_roll_assignments=data.get("b_roll_assignments"),
+        b_roll_interjections=data.get("b_roll_interjections"),
+    )
+
     compressed = {
         "vfx_candidates_toon": vfx_toon,
         "vfx_shot_stills": stills_block,
         "still_motion_notes": observe_vfx_stills(
             still_paths, project_folder),
+        "vfx_detections": vfx_detections,
         # The enforced zoom bound, rendered into the handoff's marker
         # (see `zoom_bound_additions`): one source for the prompt and
         # the comp builder. `__`-prefixed keys never reach validation
