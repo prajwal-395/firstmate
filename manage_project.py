@@ -1959,6 +1959,28 @@ def cmd_build_reels(args):
     exactly as `run` calls the edit_video runner. No build path lives
     here.
     """
+    from library.tools.worker_requirements import check_build, is_refusal
+    refusals = check_build()
+    # An `unknown:` entry says what the checks could not determine (a
+    # busy Resolve, an unreadable edition) - it reports and never
+    # gates. The build is refused only by a measured absence, never
+    # by an undeterminable answer. First thing the command does -
+    # before it resolves the project, takes the exclusive instance
+    # lease or connects to Resolve - so a worker that cannot build
+    # refuses by name instead of burning a 19.4-67.1s Resolve pass
+    # per reel to discover it. The gate lives at this CLI edge
+    # rather than inside `rebuild_reels_in_project` because that
+    # function is the unit under test for fifteen test files that
+    # stub the worker's graphics and Resolve around it; a gate there
+    # would grade the test double, not the worker.
+    blocking = [entry for entry in refusals if is_refusal(entry)]
+    if blocking:
+        raise RenRefusal(
+            "this worker cannot build the reels: " + "; ".join(blocking),
+            "the build needs what `ren doctor` reports missing",
+            "run `ren worker manifest` to see this worker's "
+            "advertisement, and `ren doctor` to repair the missing "
+            "needs")
     from library.processes.reels import run_reels
 
     code = run_reels.run(_reel_project_folder(args.project), args)

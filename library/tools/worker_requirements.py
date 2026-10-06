@@ -191,3 +191,49 @@ def check_render(produce=None) -> list:
         return match_requirements(manifest, render_requirements(), checks=checks)
     manifest = produce()
     return match_requirements(manifest, render_requirements())
+
+
+def build_requirements() -> TaskRequirements:
+    """What a reel-build task needs from a worker.
+
+    The build is the other expensive thing the captain asks for - a
+    reel's Resolve pass is 19.4-67.1s, so it is the path that checks
+    its requirements against the local manifest before starting and
+    refuses by name. It declares ONLY the needs a build provably
+    cannot run without - a Resolve scripting connection into the
+    Studio edition, which every placement needs. Everything else the
+    `reel.build` capability carries (the graphics group, models,
+    plugins) is refused just-in-time where it is actually consumed -
+    `reel_look` refuses a punch-in the worker cannot draw, `deliver`
+    gates the render - because a capability-level declaration ropes
+    in needs that do not stop a real build: the test machine and the
+    captain's own Mac both report `python.graphics` unmet (cv2
+    without its Haar cascade, opencv headless) while building reels
+    fine, so refusing on it would refuse real production work.
+    """
+    return TaskRequirements(needs=("resolve.scripting", "resolve.studio"))
+
+
+def check_build(produce=None) -> list:
+    """The requirements this worker fails for a reel build, each named;
+    an `unknown:` entry says what the checks could not determine and
+    does not refuse.
+
+    The build path calls this before starting; a non-empty list of
+    REFUSALS refuses the build by name. `produce` is injectable so a
+    test can pin the check against a fixture manifest; the default is
+    the live manifest, matched against the very checks that produced
+    it - a refusal names the needs those checks actually fail, never
+    a need the worker has. The live probe is scoped to the two
+    declared needs, so the check costs one Resolve probe group and
+    examines nothing it does not gate on.
+    """
+    if produce is None:
+        from library.tools.worker_manifest import produce_manifest
+        from ren import doctor
+        needs = build_requirements().needs
+        checks = doctor.run_checks(needs=needs)
+        manifest = produce_manifest(checks=checks)
+        return match_requirements(manifest, build_requirements(), checks=checks)
+    manifest = produce()
+    return match_requirements(manifest, build_requirements())
