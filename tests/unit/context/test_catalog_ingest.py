@@ -16,6 +16,9 @@ The defects these close, each measured on a fixture:
 * Two files the catalog called identical except for pixel format: a
   bt709 and a smpte170m file cataloged indistinguishably - only pix_fmt
   was read - although their pixels decode off different bases.
+* A file declaring who shot it that the catalog could not name: no
+  make or model was read, so two files from one body grouped by
+  filename with nothing to say they share a camera.
 
 Every fixture is built under ``tmp_path``; no test reaches a real
 project.  ffmpeg fixtures skip when ffmpeg is missing.
@@ -235,6 +238,41 @@ def test_a_file_without_color_tags_records_none(tmp_path):
     assert md["color_space"] is None
     assert md["color_transfer"] is None
     assert md["color_primaries"] is None
+
+
+# ── Camera make and model ──────────────────────────────────────
+
+def _camera_tagged_mkv(tmp_path, name, make=None, model=None):
+    """A real file declaring who shot it. Matroska keeps arbitrary
+    format tags (MAKE/MODEL); the mov/mp4 muxer drops the keys a
+    camera writes, so it cannot carry this fixture. The record reads
+    the same tag names either way."""
+    args = ["-f", "lavfi", "-i",
+            "testsrc=size=320x240:rate=30:duration=1",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p"]
+    if make is not None:
+        args += ["-metadata", f"make={make}"]
+    if model is not None:
+        args += ["-metadata", f"model={model}"]
+    return _build(tmp_path, name, *args)
+
+
+def test_a_declared_camera_is_recorded(tmp_path):
+    """On origin/main the catalog read no make or model, so two files
+    from one body grouped by filename with nothing to say they share
+    a camera."""
+    path = _camera_tagged_mkv(tmp_path, "cam.mkv", "Sony", "ILME-FX6")
+    md = catalog_step.extract_metadata(path)
+    assert md["camera_make"] == "Sony"
+    assert md["camera_model"] == "ILME-FX6"
+
+
+def test_a_file_without_camera_tags_records_none(tmp_path):
+    """An unidentified source is never assigned a body."""
+    path = _cfr_mp4(tmp_path)
+    md = catalog_step.extract_metadata(path)
+    assert md["camera_make"] is None
+    assert md["camera_model"] is None
 
 
 # ── Duplicate footage ─────────────────────────────────────────────

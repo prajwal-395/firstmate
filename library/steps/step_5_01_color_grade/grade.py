@@ -498,6 +498,30 @@ def add_source_color(rows: list, clip_catalog) -> list:
     return rows
 
 
+def add_camera_identity(rows: list, clip_catalog) -> list:
+    """Who the catalog says shot each measured clip, beside the match.
+
+    `camera_match` groups rows by filename stem when no camera label
+    travels on the row - and two files from one body then read as two
+    groups, with no way to tell. The recorded make/model travels here
+    so the match can say which stem-groups claim one body. Joined by
+    `clip_id` like `add_source_color`.
+
+    A make without a model (or the reverse) identifies nothing and is
+    dropped to None with the rest: a half identity that grouped would
+    merge every "Sony" in the project into one camera.
+    """
+    by_clip = {clip.get("clip_id"): clip for clip in clip_catalog or []
+               if clip.get("clip_id")}
+    for row in rows:
+        clip = by_clip.get(row.get("clip_id")) or {}
+        make = clip.get("camera_make")
+        model = clip.get("camera_model")
+        row["camera_identity"] = (
+            {"make": make, "model": model} if make and model else None)
+    return rows
+
+
 def cut_adjacency(entries: list, rows: list) -> list:
     """One row per cut where the CLIP changes, with the gap in stops.
 

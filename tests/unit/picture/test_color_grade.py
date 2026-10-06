@@ -1636,3 +1636,90 @@ def test_a_clip_missing_from_the_catalog_says_so():
                              "color_range": "tv"}])
 
     assert rows[0]["source_color"] is None
+
+
+# ── Recorded camera identity beside the match ────────────────────
+
+def test_rows_carry_who_the_catalog_says_shot_them():
+    """The match groups by filename stem when no camera label travels
+    on the row.  On origin/main nothing joined the recorded make/model
+    onto the rows, so two files from one body read as two groups with
+    no way to tell."""
+    from library.steps.step_5_01_color_grade.grade import (
+        add_camera_identity,
+    )
+
+    rows = [{"clip_id": "clip_001"}, {"clip_id": "clip_002"},
+            {"clip_id": "clip_003"}, {"clip_id": "clip_004"}]
+    catalog = [
+        {"clip_id": "clip_001", "camera_make": "Sony",
+         "camera_model": "ILME-FX6"},
+        {"clip_id": "clip_002", "camera_make": "Sony",
+         "camera_model": "ILME-FX6"},
+        # A make without a model identifies nothing.
+        {"clip_id": "clip_003", "camera_make": "Sony",
+         "camera_model": None},
+    ]
+
+    add_camera_identity(rows, catalog)
+
+    assert rows[0]["camera_identity"] == {"make": "Sony",
+                                          "model": "ILME-FX6"}
+    assert rows[1]["camera_identity"] == {"make": "Sony",
+                                          "model": "ILME-FX6"}
+    assert rows[2]["camera_identity"] is None
+    assert rows[3]["camera_identity"] is None
+
+
+def _identity_row(clip, source, neutral, rb, gb, make=None, model=None):
+    row = _row(clip, "", neutral, rb, gb, source=source)
+    row["camera_identity"] = (
+        {"make": make, "model": model} if make and model else None)
+    return row
+
+
+def test_two_stem_groups_sharing_one_recorded_body_are_stated():
+    """Two files, two stems, one recorded Sony ILME-FX6: the groups
+    stay separate (each keeps its own neutral) but the match states
+    they claim one body - what one slope would fix.  On origin/main
+    the match had no identity reading, so the shared body went
+    unstated and the colourist matched per filename."""
+    rows = [
+        _identity_row("a1", "/footage/LC4932.MXF",
+                      (53.36, 52.53, 53.18), 1.0033, 0.9877,
+                      "Sony", "ILME-FX6"),
+        _identity_row("b1", "/footage/LCATL0013.MXF",
+                      (44.25, 45.52, 46.42), 0.9532, 0.9806,
+                      "Sony", "ILME-FX6"),
+    ]
+    out = cm.derive_camera_match(rows)
+
+    assert {out["reference"]["camera"]} | {
+        m["camera"] for m in out["matches"]} == {"LC4932", "LCATL0013"}
+    assert out["shared_identity"] == [
+        {"make": "Sony", "model": "ILME-FX6",
+         "groups": ["LC4932", "LCATL0013"]}]
+    assert out["reference"]["recorded_identity"] == {
+        "make": "Sony", "model": "ILME-FX6"}
+
+
+def test_groups_with_different_bodies_share_nothing():
+    """Different recorded bodies, and rows with no recording at all:
+    nothing shared, nothing claimed - the match reads exactly as
+    before."""
+    rows = [
+        _identity_row("a1", "/footage/LC4932.MXF",
+                      (53.36, 52.53, 53.18), 1.0033, 0.9877,
+                      "Sony", "ILME-FX6"),
+        _identity_row("b1", "/footage/LCATL0013.MXF",
+                      (44.25, 45.52, 46.42), 0.9532, 0.9806,
+                      "Apple", "iPhone 16"),
+        _identity_row("c1", "/footage/UNTRACKED.MXF",
+                      (50.0, 50.0, 50.0), 1.0, 1.0),
+    ]
+    out = cm.derive_camera_match(rows)
+
+    assert out["shared_identity"] == []
+    assert out["matches"][0]["recorded_identity"] in (
+        {"make": "Sony", "model": "ILME-FX6"},
+        {"make": "Apple", "model": "iPhone 16"})

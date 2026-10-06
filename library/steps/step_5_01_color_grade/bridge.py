@@ -53,6 +53,7 @@ import sys
 
 from library.steps.step_5_01_color_grade.grade import (
     LUMA_SCOPE,
+    add_camera_identity,
     add_scene_descriptions,
     add_source_color,
     collect_entries,
@@ -246,6 +247,7 @@ def main():
     add_scene_descriptions(rows, data.get("semantic_analysis_documents"),
                            data.get("clip_catalog"))
     add_source_color(rows, data.get("clip_catalog"))
+    add_camera_identity(rows, data.get("clip_catalog"))
     attach_sources(rows, entries, project_folder)
 
     stills_block, still_paths = draw_shot_stills(rows, project_folder)

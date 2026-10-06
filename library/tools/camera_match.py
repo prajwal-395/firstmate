@@ -14,7 +14,12 @@ What this derives, from the shot-colour rows (library/tools/shot_colour):
   one, else the source file's stem (recorded as `grouped_by`, so a
   reader knows which). Two clips from one file are one angle; two files
   from one camera are two groups and say so - grouping by filename
-  cannot know they share a body.
+  cannot know they share a body. Where the catalog recorded who shot
+  each source (`camera_make`/`camera_model`, joined onto the rows in
+  step 5.01), each group carries its `recorded_identity` and groups
+  sharing one body are stated together in `shared_identity` - so the
+  colourist sees what one slope would fix. The arithmetic never
+  regroups: each group keeps its own measured neutral.
 * the REFERENCE: the group whose neutral sits nearest true neutral
   (`|R/B - 1| + |G/B - 1|` smallest). Not the brightest, not the first:
   the match target is the angle with the least cast, stated on the row.
@@ -200,6 +205,11 @@ def group_key(row: dict) -> tuple:
 
     Returns `(key, grouped_by)`: the cut's own `camera` label where one
     travels on the row, else the source file's stem, else the clip id.
+    The recorded make/model does NOT regroup here: each group keeps its
+    first row's neutral and regrouping would silently drop the others'
+    measurements. Identity is REPORTED beside the groups
+    (`recorded_identity`, `shared_identity`) so the colourist sees
+    which stem-groups claim one body - the engine merges nothing.
     """
     camera = str(row.get("camera") or "").strip()
     if camera:
@@ -209,6 +219,46 @@ def group_key(row: dict) -> tuple:
     if stem:
         return stem, "source file stem"
     return str(row.get("clip_id") or "?"), "clip id (no source file)"
+
+
+def identity_key(row: dict):
+    """The recorded body one measured row claims, or None.
+
+    Read off the row's `camera_identity` (joined from the catalog's
+    `camera_make`/`camera_model` in step 5.01): a (make, model) pair.
+    A make without a model, or the reverse, identifies nothing - one
+    half would merge every body sharing it.
+    """
+    identity = row.get("camera_identity") or {}
+    make = identity.get("make")
+    model = identity.get("model")
+    if make and model:
+        return (make, model)
+    return None
+
+
+def _shared_identity(measured: list) -> list:
+    """Stem-groups claiming one recorded body, stated for the colourist.
+
+    Two files from one body group by stem and read as two angles; where
+    both carry the same recorded make/model, one slope may serve both -
+    or the two bodies may be two units of one model, which grades the
+    same. Either way the match arithmetic is unchanged (each group
+    keeps its own neutral): this is the observation that stops the
+    colourist re-deriving what one slope would fix, or accepting a
+    slope across bodies that never shared one. Empty when no two
+    groups share a recorded identity.
+    """
+    by_identity: dict = {}
+    for group in measured:
+        identity = group.get("recorded_identity")
+        if identity is None:
+            continue
+        key = (identity["make"], identity["model"])
+        by_identity.setdefault(key, []).append(group["camera"])
+    return [{"make": make, "model": model, "groups": cameras}
+            for (make, model), cameras in sorted(by_identity.items())
+            if len(cameras) > 1]
 
 
 def apply_slope(neutral_rgb: list, slope: list) -> list:
@@ -262,11 +312,20 @@ def derive_camera_match(rows: list,
         key, grouped_by = group_key(row)
         if key not in groups:
             groups[key] = {"camera": key, "grouped_by": grouped_by,
-                           "clips": [], "row": row}
+                           "clips": [], "row": row, "identities": set()}
             order.append(key)
         groups[key]["clips"].append(row.get("clip_id", "?"))
+        claimed = identity_key(row)
+        if claimed is not None:
+            groups[key]["identities"].add(claimed)
 
     measured = [groups[key] for key in order]
+    for group in measured:
+        identities = sorted(group.pop("identities"))
+        group["recorded_identity"] = (
+            {"make": identities[0][0], "model": identities[0][1]}
+            if len(identities) == 1 else None)
+    shared = _shared_identity(measured)
     if len(measured) < 2:
         return {
             "method": ("per-channel slope reference/measured on the "
@@ -276,6 +335,7 @@ def derive_camera_match(rows: list,
             "reference": None,
             "matches": [],
             "skipped": skipped,
+            "shared_identity": shared,
             "note": ("fewer than two camera groups carry a measured "
                      "neutral, so there is nothing to match - this is a "
                      "stated absence, not an identity match"),
@@ -315,6 +375,7 @@ def derive_camera_match(rows: list,
         matches.append({
             "camera": group["camera"],
             "clips": list(group["clips"]),
+            "recorded_identity": group["recorded_identity"],
             "reference_camera": reference["camera"],
             "reference_clips": list(reference["clips"]),
             "neutral_before": {
@@ -375,11 +436,13 @@ def derive_camera_match(rows: list,
         "reference": {
             "camera": reference["camera"],
             "clips": list(reference["clips"]),
+            "recorded_identity": reference["recorded_identity"],
             "why": ("its neutral sits nearest true neutral "
                     f"(R/B {ref['neutral_rb']}, G/B {ref['neutral_gb']})"),
         },
         "matches": matches,
         "skipped": skipped,
+        "shared_identity": shared,
         "note": ("a STATED, MEASURED proposal: accept by copying a slope, "
                  "a saturation factor or a skin slope into "
                  "color_correction with a why, override with your own - "

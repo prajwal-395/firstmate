@@ -597,6 +597,26 @@ def extract_metadata(filepath: str, program_stream=None,
     color_primaries = _color_tag("color_primaries")
     color_range = _color_tag("color_range")
 
+    # Who shot this, as the container declares: file-level `make` /
+    # `model` tags where a camera or phone wrote them (QuickTime
+    # `com.apple.quicktime.make/model`, matroska MAKE/MODEL, plain
+    # `make`/`model`), else the video stream's own tags. Format tags
+    # first: identity is a property of the file, not of one stream.
+    # Absent stays None - an unidentified source is never assigned a
+    # body, and downstream groups it by filename as before.
+    def _camera_tag(*names):
+        for source in (fmt_tags, video_stream.get("tags") or {}):
+            for name in names:
+                value = source.get(name)
+                if value:
+                    return value
+        return None
+
+    camera_make = _camera_tag(
+        "make", "MAKE", "com.apple.quicktime.make", "manufacturer")
+    camera_model = _camera_tag(
+        "model", "MODEL", "com.apple.quicktime.model")
+
     return {
         "duration_seconds": round(float(fmt.get("duration", 0)), 3),
         "width": int(video_stream.get("width", 0)),
@@ -607,6 +627,8 @@ def extract_metadata(filepath: str, program_stream=None,
         "is_vfr": frame_rate_info["is_vfr"],
         "timecode_start": timecode_start,
         "video_codec": video_stream.get("codec_name", "unknown"),
+        "camera_make": camera_make,
+        "camera_model": camera_model,
         # Every stream the source carries, with whatever tells them
         # apart. Downstream places exactly one of them; the choice is
         # recorded in `program_stream`, or refused in its place.
