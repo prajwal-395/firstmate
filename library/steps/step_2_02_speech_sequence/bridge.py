@@ -136,6 +136,35 @@ def main():
             })
             
     topics_toon = format_toon(["clip_id", "topics"], topic_rows)
+
+    # The measured delivery of each take, so passages can be compared
+    # across takes, not just within one clip. When the same content was
+    # recorded more than once, the transcript rows alone cannot say
+    # which take is stronger - the vision pass's delivery descriptions
+    # (pace, effort, pauses; posture, gesture, expression) can. One row
+    # per transcript clip with a measured description; a clip the vision
+    # pass never described is left out, the way undescribed clips are
+    # left out of the topics table. The descriptions are the fact; which
+    # take to use is the sequence's call (AGENTS.md 10.5).
+    from library.tools.take_selection import delivery_descriptions
+
+    delivery_by_clip = delivery_descriptions(semantic_lookup)
+    transcript_clips = sorted({r["clip_id"] for r in transcript_rows})
+    delivery_rows = []
+    for catalog_id in transcript_clips:
+        described = delivery_by_clip.get(str(catalog_id)) or {}
+        cue = described.get("speech_cue")
+        language = described.get("body_language")
+        if cue is None and language is None:
+            continue
+        delivery_rows.append({
+            "clip_id": catalog_id,
+            "speech_cue": cue if cue is not None else "unmeasured",
+            "body_language": (language if language is not None
+                              else "unmeasured"),
+        })
+    delivery_toon = format_toon(
+        ["clip_id", "speech_cue", "body_language"], delivery_rows)
     
     if not transcript_rows:
         # No transcribed speech - but a BROKEN index and an EMPTY one
@@ -181,6 +210,7 @@ def main():
             "transcripts_toon": format_toon(
                 ["clip_id", "start", "end", "text"], []),
             "topics_toon": topics_toon,
+            "delivery_toon": delivery_toon,
             "speech_sequence": {
                 "body_sequence": [],
                 "excluded_passages": [{
@@ -197,6 +227,7 @@ def main():
     compressed = {
         "transcripts_toon": transcript_toon,
         "topics_toon": topics_toon,
+        "delivery_toon": delivery_toon,
     }
 
     

@@ -136,7 +136,7 @@ measured (a head trim can land mid-word, and the request owns that
 cut); only the played bounds move. Where the request states no trim,
 state none - never invent one to "tighten" a passage.
 
-Input data is provided in TOON format. Arrays use header notation: [N]{field1,field2,...} followed by rows. The available fields are `clip_id`, `start`, `end`, and `text` for transcripts, and `clip_id`, `topics` for topics.
+Input data is provided in TOON format. Arrays use header notation: [N]{field1,field2,...} followed by rows. The available fields are `clip_id`, `start`, `end`, and `text` for transcripts, `clip_id`, `topics` for topics, and `clip_id`, `speech_cue`, `body_language` for delivery. The delivery table carries the vision pass's measured delivery descriptions per take - pace, effort, pauses; posture, gesture, expression - so passages can be compared across takes, not just within one clip. A take the vision pass never described is left out; `unmeasured` in one column means only that side was never described. The descriptions are the fact; which take to use is the sequence's call.
 
 **Excluded passages**: Document what was considered and why it was cut —
 for transparency and potential revision.

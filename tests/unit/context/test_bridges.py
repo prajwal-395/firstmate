@@ -468,11 +468,13 @@ def test_the_index_dir_is_found_without_a_recorded_index_dir(tmp_path):
 
 # ── The topics table ──────────────────────────────────────────────────
 
-def test_the_bridge_emits_only_its_two_context_tables(tmp_path):
-    """Topics come from the assessment keywords, and the output is CONTEXT
-    ONLY: a `speech_sequence` built from every region was the raw
-    transcript wearing the output's name, and `--auto` took it as the
-    step's answer."""
+def test_the_bridge_emits_only_its_three_context_tables(tmp_path):
+    """Topics come from the assessment keywords, delivery from the
+    vision pass's per-take descriptions (no blocks here, so the
+    delivery table is empty), and the output is CONTEXT ONLY: a
+    `speech_sequence` built from every region was the raw transcript
+    wearing the output's name, and `--auto` took it as the step's
+    answer."""
     proc = run_bridge_2(_payload(_project(tmp_path)))
     _, rows = parse_table(json.loads(proc.stdout)["topics_toon"])
     assert {r["clip_id"]: r["topics"] for r in rows} == {
@@ -480,7 +482,63 @@ def test_the_bridge_emits_only_its_two_context_tables(tmp_path):
         "clip_002": "street",
     }
 
-    assert set(json.loads(proc.stdout)) == {"transcripts_toon", "topics_toon"}
+    out = json.loads(proc.stdout)
+    assert set(out) == {"transcripts_toon", "topics_toon",
+                        "delivery_toon"}
+    fields, delivery_rows = parse_table(out["delivery_toon"])
+    assert fields == ["clip_id", "speech_cue", "body_language"]
+    assert delivery_rows == []
+
+
+# ── The delivery table ──────────────────────────────────────────────
+#
+# Step 2.02 chooses which take plays: when the same content was
+# recorded more than once, the transcript rows alone cannot say which
+# take is stronger. The bridge states each take's measured delivery
+# descriptions beside the transcript, so passages can be compared
+# across takes. A take the vision pass never described is left out;
+# `unmeasured` in one column means only that side was never described.
+
+DELIVERY_DOCS = [
+    {"clip_id": "clip_001",
+     "blocks": [{"speech_cue": "brisk, no pauses",
+                 "body_language": "still, direct gaze"}]},
+    {"clip_id": "clip_002",
+     "blocks": [{"speech_cue": "flat, trailing off",
+                 "body_language": ""}]},
+]
+
+
+def _delivery_payload(project: Path, docs) -> dict:
+    payload = _payload(project)
+    payload["semantic_analysis_documents"] = docs
+    return payload
+
+
+def test_the_delivery_table_states_each_take_side_by_side(tmp_path):
+    """Measured delivery descriptions reach the table per take, so the
+    sequence can prefer the stronger take; a half-described take reads
+    `unmeasured` in the undescribed column, never a blank."""
+    proc = run_bridge_2(
+        _delivery_payload(_project(tmp_path), DELIVERY_DOCS))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    _, rows = parse_table(json.loads(proc.stdout)["delivery_toon"])
+    assert {r["clip_id"]: (r["speech_cue"], r["body_language"])
+            for r in rows} == {
+        "clip_001": ("brisk, no pauses", "still, direct gaze"),
+        "clip_002": ("flat, trailing off", "unmeasured"),
+    }
+
+
+def test_a_take_the_vision_pass_never_described_is_left_out(tmp_path):
+    """No description, no row - an undescribed take is omitted, the way
+    undescribed clips are left out of the topics table."""
+    docs = [dict(DELIVERY_DOCS[0]),
+            {"clip_id": "clip_002", "blocks": []}]
+    proc = run_bridge_2(_delivery_payload(_project(tmp_path), docs))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    _, rows = parse_table(json.loads(proc.stdout)["delivery_toon"])
+    assert [r["clip_id"] for r in rows] == ["clip_001"]
 
 
 # ── No speech in the footage ────────────────────────────────────────

@@ -6,6 +6,7 @@ itself is skipped, and a clip with no alternates gets an empty list.
 """
 from library.tools.take_selection import (
     collect_take_alternates,
+    delivery_descriptions,
     index_semantic_documents,
 )
 
@@ -142,3 +143,37 @@ class TestCollectTakeAlternates:
         """A bare list of documents is indexed by clip_id."""
         raw = [{"clip_id": "c2", "blocks": []}]
         assert list(index_semantic_documents(raw)) == ["c2"]
+
+
+class TestDeliveryDescriptions:
+    """Per-clip delivery descriptions: measured or None, never defaulted."""
+
+    def test_measured_descriptions_collected_per_clip(self):
+        raw = {"semantic_analysis_documents": [
+            {"clip_id": "c1", "blocks": [
+                {"speech_cue": "brisk, no pauses",
+                 "body_language": "still"}]},
+            {"clip_id": "c2", "blocks": [
+                {"speech_cue": "measured pause before key line",
+                 "body_language": "smiles, leans forward"}]},
+        ]}
+        assert delivery_descriptions(raw) == {
+            "c1": {"speech_cue": "brisk, no pauses",
+                   "body_language": "still"},
+            "c2": {"speech_cue": "measured pause before key line",
+                   "body_language": "smiles, leans forward"},
+        }
+
+    def test_absent_description_is_none_not_empty(self):
+        """A clip the vision pass never described reads None per field."""
+        raw = {"c1": _semantic([{"speech_cue": None,
+                                 "body_language": ""}])}
+        assert delivery_descriptions(raw) == {
+            "c1": {"speech_cue": None, "body_language": None},
+        }
+
+    def test_accepts_an_indexed_map(self):
+        semantic = {"c1": _semantic([{"speech_cue": "brisk"}])}
+        descriptions = delivery_descriptions(semantic)
+        assert descriptions["c1"]["speech_cue"] == "brisk"
+        assert descriptions["c1"]["body_language"] is None

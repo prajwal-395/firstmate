@@ -88,6 +88,21 @@ def _delivery_description(semantic_doc: dict) -> dict:
     }
 
 
+def delivery_descriptions(raw: dict | list | None) -> dict:
+    """The measured delivery descriptions per clip, keyed by clip_id.
+
+    Accepts the raw step 1.03 shape or an already-indexed map (see
+    `index_semantic_documents`). Every indexed clip gets an entry with
+    `speech_cue` and `body_language`, each the measured description
+    or None when unmeasured. A clip the vision pass never described
+    is absent from the input, never defaulted here.
+    """
+    return {
+        clip_id: _delivery_description(doc)
+        for clip_id, doc in index_semantic_documents(raw).items()
+    }
+
+
 def _face_presence_mean(temporal_index: dict) -> float | None:
     """The clip's mean measured face presence, 0-1.
 
