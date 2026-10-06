@@ -93,6 +93,8 @@ BRANCH_CREATED = "branch_created"
 """A task worktree opened on a new `ren/<task>` branch."""
 BRANCH_COMMITTED = "branch_committed"
 """A task worktree's allow-listed text committed."""
+TIMELINE_OPERATIONS = "timeline_operations"
+"""The N operations one committed patch ran, with its verdict."""
 
 
 def log_path(project_folder) -> Path:

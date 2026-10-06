@@ -819,12 +819,39 @@ def apply_patch(patch, *, resolve, project, timeline,
         "postcondition_failures": post_failures,
         "exclusive_hold_seconds": round(hold_seconds, 4),
     }
-    return _receipt_of(store.record(
+    generation = store.record(
         project=project_name, timeline_id=timeline_id,
         timeline_name=timeline_name, snapshot=after, source=shadow.PATCH,
         expected_head=head.generation,
         patch={**patch.to_dict(), "operations": recorded_operations},
-        receipt=receipt))
+        receipt=receipt)
+    _emit_patch_event(project_folder, receipt, generation.generation)
+    return _receipt_of(generation)
+
+
+def _emit_patch_event(project_folder: str | None, receipt: dict,
+                      generation: int) -> None:
+    """Emit one patch event into the project's event log, or skip.
+
+    The patch is the act, the event log is the record of it: a failure
+    to emit must never take down a commit, the same rule the lease
+    layer (`resource_leases._emit`) holds. A patch applied without a
+    project folder leaves no event, which is the honest answer - the
+    log is per-project and the caller named none. An idempotent retry
+    emits nothing: the retry writes nothing new, so there is no new
+    operation to record.
+    """
+    if not project_folder:
+        return
+    try:
+        from library.tools import event_log
+        event_log.emit(project_folder, event_log.TIMELINE_OPERATIONS,
+                       patch_id=receipt["patch_id"],
+                       status=receipt["status"],
+                       operation_count=len(receipt["operations"]),
+                       generation=generation)
+    except OSError:
+        pass
 
 
 def _receipt_of(generation: shadow.Generation) -> dict:
