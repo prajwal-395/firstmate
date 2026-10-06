@@ -45,6 +45,78 @@ MEASURE_MARGIN_DB = 3.0
 # excludes exactly the nothing while keeping any real ISO.
 MEASURE_SILENCE_DB = -60.0
 
+# How far r_frame_rate and avg_frame_rate may diverge before the stream
+# is variable.  Measured, not invented: every constant-frame-rate
+# fixture probed (h264/mp4, mpeg2/MXF, mpeg2/TS, h264/AVI, vp9/WebM,
+# h264/M4V, bt709 and smpte170m tags, timecode MOV) reports the two
+# rates EQUAL, so any divergence beyond ratio rounding is variable.
+# 0.1% of the rate absorbs float rounding in ffmpeg's ratio math and
+# nothing else: real variable footage diverges by whole frames per
+# second (one measured fixture: r=30/1, avg=1395/59 ~ 23.6, 93 frames
+# over 3.93 s).
+VFR_RELATIVE_TOLERANCE = 0.001
+
+
+def _parse_frame_rate(value) -> float | None:
+    """`"30/1"` or `"30"` into fps, or None when there is no rate.
+
+    `"0/0"` - what variable-frame-rate phone footage reports - is None:
+    zero over zero is no rate at all, and the catalog must not read it
+    as 0.0.
+    """
+    if not value:
+        return None
+    text = str(value)
+    try:
+        if "/" in text:
+            num, den = text.split("/", 1)
+            den_f = float(den)
+            if den_f == 0:
+                return None
+            return round(float(num) / den_f, 3)
+        return round(float(text), 3)
+    except (ValueError, ZeroDivisionError):
+        return None
+
+
+def resolve_frame_rate(video_stream: dict) -> dict:
+    """The rate Resolve will use, the measured average, and whether VFR.
+
+    The catalog used to read `r_frame_rate` only.  Two measured
+    failures follow from that: a variable-frame-rate file whose
+    `r_frame_rate` is `0/0` (phones, screen recordings) arrived as
+    None and was SKIPPED as missing a required field - the footage was
+    lost - and one whose rates diverge was cataloged with no record
+    that it was variable and no average for the consumers that need
+    true timing.
+
+    `frame_rate` is the rate Resolve places the media at: its own
+    `GetClipProperty("FPS")` reads the container's nominal rate
+    (`_source_fps`, step_6_01_render/resolve_build_timeline.py), so
+    the nominal rate is what the catalog carries; when the container
+    has no nominal rate (`0/0`) the average is the only rate there is.
+    `avg_frame_rate` and `is_vfr` travel beside it for the consumers
+    that need true timing.  A constant file reports both rates equal.
+    """
+    r_rate = _parse_frame_rate(video_stream.get("r_frame_rate"))
+    avg_rate = _parse_frame_rate(video_stream.get("avg_frame_rate"))
+    is_vfr = False
+    if r_rate is None:
+        # No nominal rate: either no rate at all (a still - no rate is
+        # the honest answer and the entry is refused downstream), or a
+        # variable file whose average is the only rate there is.
+        is_vfr = avg_rate is not None
+    elif avg_rate is not None:
+        is_vfr = abs(r_rate - avg_rate) > max(
+            0.01, VFR_RELATIVE_TOLERANCE * r_rate)
+    frame_rate = r_rate if r_rate is not None else avg_rate
+    return {
+        "frame_rate": frame_rate,
+        "frame_rate_nominal": r_rate,
+        "avg_frame_rate": avg_rate,
+        "is_vfr": is_vfr,
+    }
+
 
 def describe_audio_streams(probe: dict) -> list:
     """Every audio stream ffprobe reports, with whatever tells them
@@ -449,18 +521,20 @@ def extract_metadata(filepath: str, program_stream=None,
                 creation_time = val
                 break
 
-    # Parse frame rate from video stream
-    frame_rate = None
-    fps_str = video_stream.get("r_frame_rate", "")
-    if fps_str and "/" in fps_str:
-        num, den = fps_str.split("/")
-        if int(den) > 0:
-            frame_rate = round(int(num) / int(den), 3)
-    elif fps_str:
-        try:
-            frame_rate = float(fps_str)
-        except ValueError:
-            pass
+    # Timecode, when the container carries it: the sync reference every
+    # professional camera writes.  The catalog never read it, so a
+    # stranger's timecode-synced multicam footage synced by nothing but
+    # the transcript n-gram route.  Recorded as the raw tag; parsing it
+    # into seconds is the consumer's decision.
+    timecode_start = (video_stream.get("tags") or {}).get("timecode")
+    if not timecode_start:
+        timecode_start = fmt_tags.get("timecode")
+
+    # Frame rate from BOTH rates ffprobe reports, with the variable
+    # decision - see `resolve_frame_rate` for the measured failures
+    # this closes.
+    frame_rate_info = resolve_frame_rate(video_stream)
+    frame_rate = frame_rate_info["frame_rate"]
 
     # Extract rotation from video stream side_data or tags
     rotation = 0
@@ -510,6 +584,10 @@ def extract_metadata(filepath: str, program_stream=None,
         "width": int(video_stream.get("width", 0)),
         "height": int(video_stream.get("height", 0)),
         "frame_rate": frame_rate,
+        "frame_rate_nominal": frame_rate_info["frame_rate_nominal"],
+        "avg_frame_rate": frame_rate_info["avg_frame_rate"],
+        "is_vfr": frame_rate_info["is_vfr"],
+        "timecode_start": timecode_start,
         "video_codec": video_stream.get("codec_name", "unknown"),
         # Every stream the source carries, with whatever tells them
         # apart. Downstream places exactly one of them; the choice is
@@ -756,6 +834,18 @@ def catalog_footage(raw_footage_files: list, program_stream=None,
         print(f"REPORT: Mixed frame rates detected: {fps_counts}", file=sys.stderr)
     if len(res_counts) > 1:
         print(f"REPORT: Mixed resolutions detected: {res_counts}", file=sys.stderr)
+    vfr_files = [entry for entry in entries if entry.get("is_vfr")]
+    if vfr_files:
+        print(
+            "REPORT: Variable frame rate footage (cataloged at the "
+            "measured average, not the nominal rate): "
+            + ", ".join(
+                f"{entry['filename']} (nominal="
+                f"{entry.get('frame_rate_nominal')}, avg="
+                f"{entry.get('avg_frame_rate')})"
+                for entry in vfr_files),
+            file=sys.stderr,
+        )
 
     # --- Verification ---
     # No null values for critical fields
