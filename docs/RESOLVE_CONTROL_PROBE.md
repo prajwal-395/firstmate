@@ -161,16 +161,26 @@ Delivery state of the two new methods:
 
 - `list_commands` - measured live above; read-only, so it runs without a lease
   and without the scripting API.
-- `run_command` - implemented and unit-tested (path validation, ambiguity
-  refusal, the qualification gate). Its live proof is **blocked twice over**:
-  the action must run inside `qualification_project.borrowed()`, which needs
-  the exclusive instance lease, and the serving broker (pid 62586) is latched
-  DEGRADED - its watchdog marked Resolve unresponsive and the mark now refuses
-  every lease, including the watchdog's own recovery probe, so it cannot clear
-  itself. Resolve itself is responsive (the broker's cached handle answers a
-  health round trip). The broker needs a restart, which is firstmate's, not
-  the driver lane's. The screen is also locked, so `capture_window` /
-  `read_text` return `SCREEN_LOCKED` (correctly) until the captain unlocks.
+- `run_command` - live proof 2026-10-06 (broker 90166, restarted on the
+  watchdog fix; Resolve PID 86907; inside `borrowed()`, Ren Qualification
+  read back by name, exclusive lease): `Workspace > Switch to Page >
+  Media` pressed (`pressed: true`), page polled edit -> media;
+  `Workspace > Switch to Page > Edit` pressed, page polled media ->
+  edit; Resolve alive and the scripting API answering after every event;
+  page held stable 10s before the borrow exited. Captain read back after
+  the restore: "Podcast (field test)", 33 timelines, same timeline id,
+  edit page - identical. Two things the run taught: the page switch lands
+  seconds AFTER the press returns, so a caller polls `GetCurrentPage()`
+  instead of asserting immediately; and the borrow must not exit while an
+  event may still be in flight - the first attempt asserted at once, exited,
+  and the late Media press flipped the captain's page to media
+  post-restore (33 timelines and the timeline id untouched). Remediated at
+  once with `OpenPage("edit")`, read back edit. Refusal direction measured
+  the same day: with the captain's project open, `run_command` refuses with
+  `PROJECT_NOT_QUALIFICATION` (nothing sent); `list_commands` stays
+  read-only (1261 commands, no lease). A locked screen still refuses
+  captures/OCR/input with `SCREEN_LOCKED`; the screen was unlocked for
+  this run.
 
 ## Bugs found and fixed during the probe
 
