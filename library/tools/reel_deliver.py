@@ -169,11 +169,13 @@ def resolve_deliver_settings(project_folder: str) -> dict:
 
     The frame is always DECLARED (delivery_format.py owns it). The
     container/codec and the filename are declared only when the project
-    declares them; otherwise the mechanism's fallback, said plainly.
+    declares them; otherwise the mechanism's fallback, said plainly. The
+    output transform is the color lane's merged declaration, read-only.
     """
     from library.tools.delivery_format import (
         delivery_format_name,
         resolve_delivery_format,
+        resolve_output_transform,
     )
 
     declaration = read_deliver_declaration(project_folder)
@@ -221,6 +223,23 @@ def resolve_deliver_settings(project_folder: str) -> dict:
                 "arrival, so the deliverable ships in the wrong codec",
                 f"set pipeline.deliver_preset codec to {spec.codec!r} "
                 f"in project.yaml, or drop it for the fallback")
+    # The color half of the deliverable (capability 18 of the captain's
+    # complete-stack spec, 2026-10-06): the output transform this
+    # deliverable ships under, CONSUMED from the color lane's merged
+    # declaration (PR 1852) - project override > brand template >
+    # Rec.709 default - and recorded on the settings so the deliver
+    # sidecar names it per deliverable. No color code here: the
+    # enumeration, the precedence and the validation are the color
+    # lane's; this only reads the answer. See
+    # library/tools/delivery_format.py.
+    from library.tools.brand_registry import resolve_project_template
+    template_name = (
+        _project_pipeline_block(project_folder).get("brand_template")
+        or "").strip()
+    output_transform = resolve_output_transform(
+        resolve_project_template(
+            template_name, project_folder=project_folder),
+        project_folder=project_folder)
 
     return {
         "format": fmt,
@@ -228,6 +247,9 @@ def resolve_deliver_settings(project_folder: str) -> dict:
         "width": width,
         "height": height,
         "format_name": delivery_format_name(project_folder),
+        "output_transform": output_transform["name"],
+        "output_color_space": output_transform["output_color_space"],
+        "output_transform_source": output_transform["source"],
         "naming": naming or FALLBACK_NAMING,
         "extension": ext,
         "preset_declared": bool(preset),
