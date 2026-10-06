@@ -11,11 +11,16 @@ One verb, one module, extended as the layer grows:
     run        the observe-decide-act loop on a task. Runs inside
                `qualification_project.borrowed()` once the broker is
                back; until then it is an offline tool against the mock
-               driver.
+               driver. `--recipe NAME` executes the stored recipe first
+               and plans only where no recipe runs.
 
     script     run a deterministic UI script from a JSON file. Runs
                 inside `qualification_project.borrowed()` like `run`;
                 `--teach` writes LLM-taught anchors back to the file.
+
+    recipe-save  name a verified script file as a recipe for later
+               runs: `recipe-save NAME --script script.json
+               [--layout LAYOUT]`.
 
 `--target` selects the app (resolve today; canva reports its
 declaration and gate, and refuses `run` - no Chrome executor exists
@@ -85,7 +90,13 @@ def _status(client: DriverClient) -> int:
 
 
 def _run(
-    client: DriverClient, goal: str, model_kind: str, max_cost_usd: float | None
+    client: DriverClient,
+    goal: str,
+    model_kind: str,
+    max_cost_usd: float | None,
+    recipe: str | None = None,
+    recipes_dir: str | None = None,
+    layout: str | None = None,
 ) -> int:
     """Run the observe-decide-act loop on a goal.
 
@@ -97,6 +108,12 @@ def _run(
     with token usage in the perf ledger and the dollar budget enforced.
     `$COMPUTER_USE_MODEL_NAME` selects the model;
     `--max-cost-usd` (or `$COMPUTER_USE_MAX_COST_USD`) caps the spend.
+
+    `--recipe NAME` executes the stored recipe first: a committed
+    recipe ends the run without the model ever being asked, and an
+    unknown name, a moved layout or a failed recipe falls through to
+    the planner. `--recipes-dir` overrides `$PIPELINE_RECIPES_DIR`;
+    `--layout` is the opaque layout string the recipe was verified on.
 
     The loop runs inside `qualification_project.borrowed()`: the
     captain's project is saved, the qualification project is opened for
@@ -123,8 +140,26 @@ def _run(
             return {"action": "done"}
 
     resolve = connect_resolve()
+    store = None
+    if recipe is not None:
+        import os
+        from pathlib import Path
+
+        from library.tools.computer_use.scripts import (
+            RECIPES_ROOT_ENV,
+            RecipeStore,
+            default_recipes_root,
+        )
+
+        override = recipes_dir or os.environ.get(RECIPES_ROOT_ENV, "")
+        root = Path(override).expanduser() if override else default_recipes_root()
+        store = RecipeStore(root)
     with resolve_lease("computer-use"), borrowed(resolve):
-        result = run_loop(client, model, goal)
+        if recipe is None:
+            result = run_loop(client, model, goal)
+        else:
+            result = run_loop(client, model, goal, recipe=recipe,
+                              store=store, layout=layout)
     print(f"outcome: {result.outcome}")
     for step in result.steps:
         print(f"  {step['action']}: {step['outcome']}")
@@ -227,6 +262,26 @@ def _anchor_count(script: Script) -> int:
     return sum(len(step.anchors) for step in script.steps)
 
 
+def _recipe_save(name: str, script_path: str, layout: str | None) -> int:
+    """Name a verified script file as a recipe for later runs."""
+    import json
+
+    from pathlib import Path
+
+    from library.tools.computer_use.scripts import (
+        RecipeStore,
+        Script,
+        default_recipes_root,
+    )
+
+    raw = Path(script_path).read_text(encoding="utf-8")
+    script = Script.from_dict(json.loads(raw))
+    store = RecipeStore(default_recipes_root())
+    saved = store.save(name, script, layout)
+    print(f"recipe {name} saved to {saved}")
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         prog="ren computer-use", description="Computer use above the native driver."
@@ -273,10 +328,32 @@ def main(argv=None) -> int:
         action="store_true",
         help="write LLM-taught anchors back to the file",
     )
+    run_parser.add_argument(
+        "--recipe",
+        default=None,
+        help="execute the stored recipe first; plan only where no recipe runs",
+    )
+    run_parser.add_argument(
+        "--recipes-dir",
+        default=None,
+        help="recipes root (overrides $PIPELINE_RECIPES_DIR)",
+    )
+    run_parser.add_argument(
+        "--layout",
+        default=None,
+        help="the layout string the recipe was verified on",
+    )
+    save_parser = sub.add_parser(
+        "recipe-save", help="name a verified script file as a recipe")
+    save_parser.add_argument("name", help="the recipe name (a lower-case slug)")
+    save_parser.add_argument("--script", required=True,
+                             help="the verified script JSON file")
+    save_parser.add_argument("--layout", default=None,
+                             help="the layout string the script was verified on")
     args = parser.parse_args(argv)
 
     try:
-        target = select_target(args.target)
+        target = select_target(getattr(args, "target", "resolve"))
         if args.subcommand == "status":
             if target.name == "canva":
                 return _canva_status(target)
@@ -285,13 +362,17 @@ def main(argv=None) -> int:
         if args.subcommand == "run":
             require_executor(target)
             with DriverClient() as client:
-                return _run(client, args.goal, args.model, args.max_cost_usd)
+                return _run(client, args.goal, args.model, args.max_cost_usd,
+                            recipe=args.recipe, recipes_dir=args.recipes_dir,
+                            layout=args.layout)
         if args.subcommand == "script":
             require_executor(target)
             with DriverClient() as client:
                 return _script(
                     client, args.file, args.model, args.max_cost_usd, args.teach
                 )
+        if args.subcommand == "recipe-save":
+            return _recipe_save(args.name, args.script, args.layout)
     except RenRefusal as exc:
         print(exc.render(), file=sys.stderr)
         return 4

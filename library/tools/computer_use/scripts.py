@@ -34,9 +34,13 @@ from __future__ import annotations
 
 import base64
 import json
+import os
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from io import BytesIO
+from pathlib import Path
+from typing import Optional
 
 from library.tools.computer_use.client import DriverClient, DriverError
 from library.tools.computer_use.observe import Observation, build_observation
@@ -50,6 +54,18 @@ ANCHOR_VIAS = ("ax_path", "ocr", "template", "offset", "position")
 #: The verification kinds. An unknown kind is refused at parse time, never
 #: silently passed at run time.
 EXPECT_VIAS = ("text_visible", "element_visible", "pixels_changed", "seconds")
+
+#: Successful runs before a learned route counts as a recipe (the plan's
+#: section 6: "after several successful runs"). The source is the plan's
+#: own word - three is the smallest count "several" names.
+PROMOTE_AFTER = 3
+
+#: Names the recipes root outright, for a machine whose layout differs.
+RECIPES_ROOT_ENV = "PIPELINE_RECIPES_DIR"
+
+#: A recipe name is a filename - lower-case slugs only, so a name can
+#: never escape the store directory.
+RECIPE_NAME_RE = re.compile(r"[a-z0-9][a-z0-9_-]*")
 
 
 class ScriptError(RenRefusal):
@@ -482,3 +498,127 @@ def _record_learned_anchor(step: ScriptStep, action) -> None:
                 },
             )
         )
+
+
+def default_recipes_root() -> Path:
+    """The per-machine recipes directory.
+
+    `PIPELINE_RECIPES_DIR` names it outright. Otherwise it lives under
+    `vep_home()` - one shared location per machine, outside every
+    checkout - so a disposable worktree never takes the learned routes
+    with it.
+    """
+    explicit = os.environ.get(RECIPES_ROOT_ENV, "")
+    if explicit:
+        return Path(explicit).expanduser()
+    from library.tools.shared_environment import vep_home
+
+    return vep_home() / "recipes"
+
+
+@dataclass
+class RecipeStore:
+    """Named, persisted, verified scripts - the plan's section 4.
+
+    A verified script becomes a named recipe here; the loop executes
+    the named recipe BEFORE any computer-use planning, and an unknown
+    name (or a layout the recipe was not verified on) falls through
+    to the planner. `layout` is an opaque string the caller supplies -
+    the layout fingerprint where the observation carries one - compared
+    by equality: same layout runs, a moved layout re-plans, and there
+    is no middle that needs a cutoff. Successes count consecutive
+    committed runs; a failure resets to zero, so a flaky route never
+    promotes.
+    """
+
+    root: Path
+
+    def _path(self, name: str) -> Path:
+        if not RECIPE_NAME_RE.fullmatch(name):
+            raise ValueError(
+                f"a recipe name is a lower-case slug, got {name!r}")
+        return self.root / f"{name}.json"
+
+    def save(self, name: str, script: Script, layout: Optional[str]) -> Path:
+        """Name a verified script. Overwrites the name it is given -
+        re-verifying a route replaces the old one, and the success
+        count restarts because the steps may have changed."""
+        path = self._path(name)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps({
+                "name": name,
+                "layout": layout,
+                "successes": 0,
+                "script": script.to_dict(),
+            }, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        return path
+
+    def load(self, name: str) -> Optional[tuple[Script, dict]]:
+        """The named recipe, or None where no verified route exists.
+
+        None is the planner's cue, not an error: an unknown name means
+        the computer-use loop discovers the route.
+        """
+        try:
+            raw = self._path(name).read_text(encoding="utf-8")
+        except (OSError, ValueError):
+            return None
+        try:
+            record = json.loads(raw)
+            script = Script.from_dict(record["script"])
+        except (ValueError, KeyError, TypeError, AttributeError):
+            return None
+        return script, record
+
+    def record_result(self, name: str, ok: bool) -> Optional[int]:
+        """Count one execution toward (or against) promotion.
+
+        A committed run increments the consecutive successes; anything
+        else resets to zero. Returns the new count, or None where the
+        name is not a stored recipe.
+        """
+        loaded = self.load(name)
+        if loaded is None:
+            return None
+        script, record = loaded
+        record["successes"] = int(record.get("successes") or 0) + 1 if ok else 0
+        record["script"] = script.to_dict()
+        self._path(name).write_text(
+            json.dumps(record, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        return int(record["successes"])
+
+    def is_promoted(self, name: str) -> bool:
+        """A recipe with PROMOTE_AFTER consecutive committed runs."""
+        loaded = self.load(name)
+        if loaded is None:
+            return False
+        return int(loaded[1].get("successes") or 0) >= PROMOTE_AFTER
+
+
+def run_recipe(
+    client: DriverClient,
+    store: RecipeStore,
+    name: str,
+    layout: Optional[str] = None,
+) -> Optional[ScriptResult]:
+    """Execute the named recipe BEFORE any computer-use planning.
+
+    Unknown name, unreadable record or a layout the recipe was not
+    verified on returns None - the caller plans instead. A recipe
+    that runs records its own result toward promotion, so the store
+    learns which routes hold without the planner watching.
+    """
+    loaded = store.load(name)
+    if loaded is None:
+        return None
+    script, record = loaded
+    if record.get("layout") != layout:
+        return None
+    result = run_script(client, script)
+    store.record_result(name, result.outcome == "done")
+    return result
