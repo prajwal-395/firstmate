@@ -96,3 +96,35 @@ def test_canva_run_refuses_before_any_driver_spawns(monkeypatch, capsys):
     err = capsys.readouterr().err
     assert "no executor" in err
     assert "--target resolve" in err
+
+
+def test_run_takes_a_plain_lease_then_borrows(monkeypatch, capsys):
+    """`run` takes the lease WITHOUT the broker's qualification
+    interlock and then borrows: the interlock grants only when Ren
+    Qualification is already open, so passing it refuses before
+    `borrowed()` can open the project whenever the captain's project
+    is open (measured live 2026-10-06) - the verb could never start."""
+    _stub_resolve(monkeypatch)
+    lease_kwargs: list = []
+    borrowed_with: list = []
+
+    import library.tools.resolve_lock as lock_module
+    import library.tools.qualification_project as qual_module
+
+    def recording_lease(purpose, **kw):
+        lease_kwargs.append((purpose, kw))
+        return nullcontext()
+
+    def recording_borrowed(resolve):
+        borrowed_with.append(resolve)
+        return nullcontext()
+
+    monkeypatch.setattr(lock_module, "resolve_lease", recording_lease)
+    monkeypatch.setattr(qual_module, "borrowed", recording_borrowed)
+    monkeypatch.setattr(
+        main_module, "run_loop", lambda client, model, goal: LoopResult(outcome="done")
+    )
+
+    assert main_module.main(["run", "switch pages"]) == 0
+    assert lease_kwargs == [("computer-use", {})]
+    assert len(borrowed_with) == 1

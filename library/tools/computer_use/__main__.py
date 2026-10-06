@@ -89,13 +89,16 @@ def _run(
     The loop runs inside `qualification_project.borrowed()`: the
     captain's project is saved, the qualification project is opened for
     the driver's gates, and the captain's project is restored on exit.
-    The exclusive instance lease is taken for the duration.
+    The exclusive instance lease is taken for the duration - a plain
+    lease, not the broker's qualification interlock, which refuses
+    before `borrowed()` can open the project whenever the captain's
+    project is open (measured 2026-10-06: the interlock granted nothing
+    with 'Podcast (field test)' open). `borrowed()` is the guarantee.
     """
     from library.tools.computer_use.observe import Observation
     from library.tools.marker_feedback import connect_resolve
     from library.tools.qualification_project import borrowed
     from library.tools.resolve_lock import resolve_lease
-    from library.tools.resolved.jobs import QUALIFICATION_PROJECT
 
     if model_kind == "api":
         config = ModelConfig.from_env()
@@ -108,9 +111,7 @@ def _run(
             return {"action": "done"}
 
     resolve = connect_resolve()
-    with resolve_lease(
-        "computer-use", qualification_project=QUALIFICATION_PROJECT
-    ), borrowed(resolve):
+    with resolve_lease("computer-use"), borrowed(resolve):
         result = run_loop(client, model, goal)
     print(f"outcome: {result.outcome}")
     for step in result.steps:
