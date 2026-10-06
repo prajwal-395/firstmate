@@ -295,31 +295,62 @@ def build_project_expressions(project_folder: str,
                               root: Optional[Path] = None) -> dict:
     """M3c for every catalog source that carries M3."""
     recorded = source_memory.load_recorded_fingerprints(project_folder)
-    results, failed, seen = [], [], set()
+    # The digest dedup is decided serially up front, as in the person
+    # lanes: two clips of one file share a digest and the second
+    # reports "reused" without measuring, and a shared `seen` set
+    # cannot decide that across lanes. Digest resolution is read-only;
+    # the lanes then measure only first occurrences, and the assembly
+    # restores catalog order - identical to the serial loop.
+    jobs, skipped = [], {}
+    seen = set()
     for clip in source_memory.load_catalog(project_folder):
         clip_id = clip.get("clip_id")
         if clip_ids and clip_id not in clip_ids:
             continue
         path = clip.get("source_file") or clip.get("path") or ""
         if not path or not os.path.isfile(path):
-            results.append({"clip_id": clip_id, "source_file": path,
-                            "skipped": "media-offline"})
+            skipped[clip_id] = {"clip_id": clip_id, "source_file": path,
+                                "skipped": "media-offline"}
             continue
-        digest, _ = source_memory.digest_for_clip(project_folder, clip, recorded)
+        digest, _ = source_memory.digest_for_clip(project_folder, clip,
+                                                  recorded)
         if digest is None or digest in seen:
-            results.append({"clip_id": clip_id, "source_file": path,
-                            "skipped": "no content digest" if digest is None
-                            else "reused"})
+            skipped[clip_id] = {"clip_id": clip_id, "source_file": path,
+                                "skipped": "no content digest"
+                                if digest is None else "reused"}
             continue
         seen.add(digest)
+        jobs.append((clip_id, path, digest))
+
+    # Pure rule-based classification over per-call data (ffmpeg crops,
+    # numpy/cv2 features, threshold vocabulary): no shared model, so
+    # the lanes need no warm-up and take no lock.
+    from collections import deque
+
+    from library.tools.concurrency_routing import run_lanes
+
+    def _one(job):
+        clip_id, path, digest = job
         try:
             account = build_source_expressions(path, digest, root)
         except Exception as exc:
-            failed.append(clip_id)
-            results.append({"clip_id": clip_id, "content_digest": digest,
-                            "failed": f"{type(exc).__name__}: {exc}"})
-            continue
-        results.append({"clip_id": clip_id, **account})
+            return ({"clip_id": clip_id, "content_digest": digest,
+                     "failed": f"{type(exc).__name__}: {exc}"}, clip_id)
+        return ({"clip_id": clip_id, **account}, None)
+
+    results, failed = [], []
+    measured = {}
+    for row, failed_id in run_lanes(_one, jobs):
+        measured.setdefault(row["clip_id"], deque()).append(row)
+        if failed_id is not None:
+            failed.append(failed_id)
+    for clip in source_memory.load_catalog(project_folder):
+        clip_id = clip.get("clip_id")
+        queue = measured.get(clip_id)
+        if queue:
+            results.append(queue.popleft())
+        elif clip_id in skipped:
+            results.append(skipped[clip_id])
     return {"project_folder": os.path.abspath(project_folder),
             "clips": results, "failed": failed}
 
