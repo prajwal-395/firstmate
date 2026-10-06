@@ -39,6 +39,9 @@ checks the window boundary again on every coordinate action.
 The receipt (the plan's section 18) carries operation, provider, observed
 before/after, actions, verification and result. It is returned as the
 job's result and, where the transaction names a `review_dir`, filed into
+the project's event log as a `ui_transaction` event - the UI path's
+answer to the API edit's `timeline_operations` event, and therefore a
+project-graph operation node - and, where it also names a timeline, into
 Ren's edit history (`reel_edit_history`) as a `ui_transaction` entry with
 the provider and UI-action fields in its refs - the per-reel account
 `ren undo --list` and the history chain read.
@@ -671,17 +674,24 @@ def run(job: dict, resolve, project=None, factory=None) -> dict:
 
 
 def _file_receipt(job: dict, spec: dict, receipt: dict) -> None:
-    """File the receipt into Ren's edit history, where one is named.
+    """File the receipt into Ren's records, where one is named.
 
-    The per-reel account `reel_edit_history` keeps: one `ui_transaction`
-    entry with the provider and the UI-action fields in its refs, linked
-    to the job that ran it. Never fails the transaction - a receipt that
-    cannot be filed is said on stderr and the job's own result still
-    carries it.
+    Two records, one receipt: the event log gains a `ui_transaction`
+    event carrying the receipt's operation, provider, observed
+    before/after, actions, verification and outcome - the UI path's
+    answer to the API edit's `TIMELINE_OPERATIONS` event, and therefore
+    a project-graph operation node and a `ren events` row with no
+    further wiring - and, where the transaction names a `review_dir`
+    and a timeline, the per-reel account `reel_edit_history` keeps one
+    `ui_transaction` entry with the provider and the UI-action fields
+    in its refs, linked to the job that ran it. Never fails the
+    transaction - a receipt that cannot be filed is said on stderr and
+    the job's own result still carries it.
     """
     review_dir = spec.get("review_dir") or ""
     if not review_dir:
         return
+    _emit_receipt_event(str(review_dir), spec, receipt)
     final = spec.get("timeline") or ""
     if not final:
         return
@@ -710,3 +720,37 @@ def _file_receipt(job: dict, spec: dict, receipt: dict) -> None:
         import sys
         print(f"  UI transaction receipt unrecorded for {final}: {exc!r} - "
               f"the job's result still carries it", file=sys.stderr)
+
+
+def _emit_receipt_event(review_dir: str, spec: dict, receipt: dict) -> None:
+    """Emit one receipt event into the project's event log, or skip.
+
+    The transaction is the act, the event log is the record of it: a
+    failure to emit must never take down a transaction, the same rule
+    the patch path (`edit_patch._emit_patch_event`) holds. A receipt
+    filed without a project folder leaves no event, which is the
+    honest answer - the log is per-project and the caller named none.
+    The folder is the one owning `review_dir` (`reel_edit_history`
+    already maps that layout); a failed transaction emits too, with
+    its outcome naming the failure - a run that did not land is a fact
+    the history must hold, not a silent no-op.
+    """
+    try:
+        from library.tools import event_log
+        from library.tools import reel_edit_history as history
+
+        project_folder = history._project_folder_for(review_dir)
+        event_log.emit(project_folder, event_log.UI_TRANSACTION,
+                       job_id=receipt["job_id"],
+                       timeline=str(spec.get("timeline") or ""),
+                       operation=receipt["operation"],
+                       provider=receipt["provider"],
+                       status=receipt["status"],
+                       observed_before=receipt["observed_before"],
+                       observed_after=receipt["observed_after"],
+                       actions=receipt["actions"],
+                       verification=receipt["verification"],
+                       restored=receipt["restored"],
+                       result=receipt["result"])
+    except OSError:
+        pass

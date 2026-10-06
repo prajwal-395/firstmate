@@ -95,6 +95,12 @@ BRANCH_COMMITTED = "branch_committed"
 """A task worktree's allow-listed text committed."""
 TIMELINE_OPERATIONS = "timeline_operations"
 """The N operations one committed patch ran, with its verdict."""
+UI_TRANSACTION = "ui_transaction"
+"""One committed resolve.ui_transaction receipt: its operation, provider,
+observed before/after, actions, verification and outcome. The UI path's
+answer to `TIMELINE_OPERATIONS` - the API edit's event - so `ren events`
+and the project graph's operation nodes read UI operations the same way
+they read API edits."""
 PREVIEW_RENDERED = "preview_rendered"
 """A finished timeline exported and its build record committed."""
 REEL_VERSION_RECORDED = "reel_version_recorded"

@@ -13,10 +13,14 @@ refuses the job when the driver is not installed.
 """
 
 import json
+import os
 import time
 
 import pytest
 
+from library.tools import event_log
+from library.tools import project_graph
+from library.tools import reel_edit_history as history
 from library.tools import resolve_lock
 from library.tools.resolved import jobs as job_kinds
 from library.tools.resolved import scheduler
@@ -939,6 +943,152 @@ def test_receipt_filed_on_failure(broker, backend, tmp_path):
     ui_entries = [e for e in entries if e["act"] == ACT_UI_TRANSACTION]
     assert len(ui_entries) == 1
     assert ui_entries[0]["refs"]["result"]["error"]
+
+
+RECORDED_RECEIPT = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__)))),
+    "fixtures", "ui_transaction_receipt.json")
+
+
+def _ui_events(project_folder):
+    return [e for e in event_log.read_events(str(project_folder))
+            if e["type"] == event_log.UI_TRANSACTION]
+
+
+def _ui_event_rows(project_folder):
+    graph = project_graph.new_graph()
+    project_graph._derive_event_nodes(graph, str(project_folder))
+    return project_graph.find_project_events(
+        graph, event_type=event_log.UI_TRANSACTION)
+
+
+# ── Receipts reach the event log and the project graph ────────────────
+
+def test_committed_receipt_emits_event_and_graph_node(broker, backend,
+                                                     tmp_path):
+    """The receipt answers `ren events` and the graph, not just history.
+
+    Defect caught: the receipt is filed into the reel's history but
+    never emitted, so the operation is invisible in the event log and
+    no operation node ever names it - `what did Ren do` answers API
+    edits and misses every UI act.
+    """
+    review_dir = str(tmp_path / "review")
+    params = {
+        "project": "Scratch", "timeline": "Reel 07",
+        "actions": [{"action": "press", "target": {
+            "kind": "accessibility_element", "role": "button",
+            "label": "Color"}}],
+        "verification": {"kind": "api_readback", "getter": "page",
+                         "equals": "edit"},
+        "review_dir": review_dir,
+    }
+    submitted = _submit(broker, params)
+    job = _wait_terminal(broker, submitted["id"])
+    assert job["result"]["status"] == "committed"
+    folder = history._project_folder_for(review_dir)
+    events = _ui_events(folder)
+    assert len(events) == 1
+    fields = events[0]["fields"]
+    assert fields["operation"] == "resolve.ui_transaction"
+    assert fields["provider"] == "resolve.ui"
+    assert fields["job_id"] == job["id"]
+    assert fields["timeline"] == "Reel 07"
+    assert fields["status"] == "committed"
+    assert fields["observed_before"]["page"] == "edit"
+    assert fields["observed_after"]["page"] == "edit"
+    assert fields["actions"] == ["press"]
+    assert fields["verification"]["matched"] is True
+    assert fields["result"] == {"committed": True}
+    rows = _ui_event_rows(folder)
+    assert len(rows) == 1
+    assert rows[0]["fields"]["job_id"] == job["id"]
+
+
+def test_recorded_receipt_fixture_files_history_and_event(tmp_path):
+    """A recorded receipt replays offline: history entry, event, node.
+
+    Defect caught: replaying a recorded receipt with no live Resolve
+    files the history entry but emits no event, so the offline proof
+    the UI-receipts slice owes - `ren events` shows it, the graph
+    names it - cannot pass without a running broker.
+    """
+    with open(RECORDED_RECEIPT, encoding="utf-8") as handle:
+        recorded = json.load(handle)
+    spec = dict(recorded["spec"])
+    review_dir = str(tmp_path / "review")
+    spec["review_dir"] = review_dir
+    ui_transaction._file_receipt(recorded["job"], spec,
+                                 recorded["receipt"])
+    entries = history.recorded_history(review_dir, "Reel 07")
+    ui_entries = [e for e in entries if e["act"] == ACT_UI_TRANSACTION]
+    assert len(ui_entries) == 1
+    assert ui_entries[0]["refs"]["provider"] == "resolve.ui"
+    folder = history._project_folder_for(review_dir)
+    events = _ui_events(folder)
+    assert len(events) == 1
+    assert events[0]["fields"]["operation"] == "resolve.ui_transaction"
+    assert events[0]["fields"]["status"] == "committed"
+    assert events[0]["fields"]["observed_before"]["page"] == "edit"
+    assert events[0]["fields"]["observed_after"]["page"] == "color"
+    rows = _ui_event_rows(folder)
+    assert [row["fields"]["job_id"] for row in rows] == [
+        "job-recorded-001"]
+
+
+def test_failed_receipt_emits_event_naming_the_outcome(broker, backend,
+                                                      tmp_path):
+    """A UI attempt that did not land is operation history too.
+
+    Defect caught: only committed receipts emit, so a transaction
+    that failed verification leaves no event - and the resuming
+    worker cannot tell an unattempted operation from a failed one.
+    """
+    review_dir = str(tmp_path / "review")
+    params = {
+        "project": "Scratch", "timeline": "Reel 07",
+        "actions": [{"action": "press", "target": {
+            "kind": "accessibility_element", "role": "button",
+            "label": "Nonexistent"}}],
+        "review_dir": review_dir,
+    }
+    submitted = _submit(broker, params)
+    job = _wait_terminal(broker, submitted["id"])
+    assert job["result"]["status"] == "failed"
+    events = _ui_events(history._project_folder_for(review_dir))
+    assert len(events) == 1
+    assert events[0]["fields"]["status"] == "failed"
+    assert events[0]["fields"]["result"]["error"]
+
+
+def test_emit_failure_never_fails_the_transaction(broker, backend, tmp_path,
+                                                  monkeypatch):
+    """The transaction is the act, the event is its record.
+
+    Defect caught: an emit that raises through `run` turns a logging
+    failure into a failed transaction - the same refusal the patch
+    path already refuses to make (`edit_patch._emit_patch_event`).
+    """
+    def _boom(*args, **kwargs):
+        raise OSError("disk gone")
+    monkeypatch.setattr(event_log, "emit", _boom)
+    review_dir = str(tmp_path / "review")
+    params = {
+        "project": "Scratch", "timeline": "Reel 07",
+        "actions": [{"action": "press", "target": {
+            "kind": "accessibility_element", "role": "button",
+            "label": "Color"}}],
+        "verification": {"kind": "api_readback", "getter": "page",
+                         "equals": "edit"},
+        "review_dir": review_dir,
+    }
+    submitted = _submit(broker, params)
+    job = _wait_terminal(broker, submitted["id"])
+    assert job["result"]["status"] == "committed", job["result"]
+    entries = history.recorded_history(review_dir, "Reel 07")
+    assert len([e for e in entries
+                if e["act"] == ACT_UI_TRANSACTION]) == 1
 
 
 # ── The runner, directly ────────────────────────────────────────────
