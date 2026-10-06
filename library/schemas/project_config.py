@@ -182,6 +182,16 @@ class PipelineConfig:
     # A name from library/tools/delivery_format.DELIVERY_FORMATS; an
     # unknown one raises rather than quietly reverting to the default.
     delivery_format: str = ""
+    # The delivery platform this project ships to: a NAME from
+    # library/tools/delivery_spec.DELIVERY_SPECS (tiktok,
+    # instagram_reels, youtube_shorts, linkedin, master). Empty means
+    # "take the brand template's", which in turn defaults to the
+    # registry's default platform. The mastering and QC paths read the
+    # named platform's loudness target and true-peak ceiling instead of
+    # the default's, so a render for the wrong spec is caught. An
+    # unknown name raises rather than quietly reverting - a silent
+    # fallback is how a master ships to the wrong platform's spec.
+    delivery_platform: str = ""
     # The deliver verb's preset and file naming (`deliver-reel` reads
     # them through library/tools/reel_deliver.py). Both UNDECLARED by
     # default: an empty preset / empty naming means the captain has not
@@ -414,6 +424,14 @@ class ProjectConfig:
                     f"{self.pipeline.delivery_format} must be one of "
                     f"{sorted(DELIVERY_FORMATS)}"
                 )
+        if self.pipeline.delivery_platform:
+            from library.tools.delivery_spec import spec_names
+            if self.pipeline.delivery_platform not in spec_names():
+                errors.append(
+                    f"Invalid pipeline.delivery_platform: "
+                    f"{self.pipeline.delivery_platform} must be one of "
+                    f"{spec_names()}"
+                )
         if self.pipeline.deliver_preset is not None:
             # Structural only: a mapping of format/codec strings. Empty
             # (or absent) means undeclared, which is valid - the verb
@@ -612,6 +630,7 @@ def _dict_to_project_config(data: dict,
     pipeline = PipelineConfig(
         brand_template=pipeline_data.get("brand_template", ""),
         delivery_format=pipeline_data.get("delivery_format", "") or "",
+        delivery_platform=pipeline_data.get("delivery_platform", "") or "",
         deliver_preset=pipeline_data.get("deliver_preset"),
         deliver_naming=pipeline_data.get("deliver_naming", "") or "",
         framing_intent=pipeline_data.get("framing_intent"),
@@ -729,6 +748,10 @@ def project_config_to_dict(config: ProjectConfig) -> dict:
         "pipeline": {
             "brand_template": config.pipeline.brand_template,
             "delivery_format": config.pipeline.delivery_format,
+            # Only when declared: an empty platform in every project.yaml
+            # would read as a decision nobody made.
+            **({} if not config.pipeline.delivery_platform
+               else {"delivery_platform": config.pipeline.delivery_platform}),
             # Only when declared: an empty preset/naming in every
             # project.yaml would read as decisions nobody made.
             **({} if not config.pipeline.deliver_preset

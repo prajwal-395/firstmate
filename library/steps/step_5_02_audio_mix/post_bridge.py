@@ -195,19 +195,25 @@ def resolve_audio_mix(data: dict) -> dict:
                  row.get("word_gap_level_db") is not None)
             for row in automation),
     }
-    from library.tools.master_loudness import (
-        DELIVERY_LUFS_TARGET,
-        DEFAULT_TRUE_PEAK_CEILING_DBTP,
-    )
+    # The delivery spec the project's named platform selects. The LLM's
+    # explicit audio_delivery_plan wins where it states one (a stated
+    # preference); the platform spec is the fallback where it does not,
+    # so a project that names a platform is mastered to THAT platform's
+    # loudness target and true-peak ceiling rather than the default's -
+    # and the QC gate reads the same spec, so a render for the wrong
+    # spec is caught. See library/tools/delivery_spec.py.
+    from library.tools.delivery_spec import resolve_delivery_spec_for_project
+    delivery_spec = resolve_delivery_spec_for_project(
+        data.get("project_folder", ""))
     result["audio_mix_spec"]["audio_delivery_plan"] = delivery
     result["audio_mix_spec"]["delivery_lufs_target"] = (
         delivery["dialogue_target_lufs"]
         if delivery["dialogue_target_lufs"] is not None
-        else DELIVERY_LUFS_TARGET)
+        else delivery_spec.loudness_target_lufs)
     result["audio_mix_spec"]["delivery_true_peak_ceiling_dbtp"] = (
         delivery["true_peak_ceiling_dbtp"]
         if delivery["true_peak_ceiling_dbtp"] is not None
-        else DEFAULT_TRUE_PEAK_CEILING_DBTP)
+        else delivery_spec.true_peak_ceiling_dbtp)
     result["audio_mix_spec"]["master_limiter"]["threshold_db"] = (
         result["audio_mix_spec"]["delivery_true_peak_ceiling_dbtp"])
     # The captain's named spans where the bed is deliberately over the

@@ -111,10 +111,19 @@ def run(video_path: str,
                 declared_silence_spans = ending_spans["silence"]
         from library.tools.dirty_regions import scope_for
         dirty = scope_for(video_path, dirty_receipts)
+        # The loudness target the project's named platform selects, so
+        # the gate judges the render against the platform it was made
+        # for rather than the bare default. See
+        # library/tools/delivery_spec.py.
+        from library.tools.delivery_spec import (
+            resolve_delivery_spec_for_project)
+        target_lufs = resolve_delivery_spec_for_project(
+            project_folder).loudness_target_lufs
         if dirty is None or dirty["whole_reel"]:
             if dirty is not None:
                 scope = f"whole file: {dirty['whole_reel_reason']}"
-            results.append(render_qa.measure_lufs(video_path))
+            results.append(render_qa.measure_lufs(
+                video_path, target_lufs=target_lufs))
             results.append(render_qa.detect_black_frames(
                 video_path, declared_beats=declared_black_beats,
                 declared_ending_spans=declared_ending_black_spans))
@@ -125,7 +134,8 @@ def run(video_path: str,
             from library.tools.dirty_regions import AUDIO, describe
             scope = f"scoped to the touch: {describe(dirty)}"
             if AUDIO in dirty["dirty_domains"]:
-                results.append(render_qa.measure_lufs(video_path))
+                results.append(render_qa.measure_lufs(
+                    video_path, target_lufs=target_lufs))
             else:
                 not_rechecked.append("lufs")
             scoped, skipped = render_qa.run_scoped_render_qa(

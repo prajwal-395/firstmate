@@ -264,7 +264,15 @@ def test_deliver_renders_exactly_the_reel_timeline(tmp_path):
                 "timeline_name": timeline_name, "format": fmt,
                 "codec": codec}
 
-    def fake_master(report, output_path):
+    def fake_master(report, output_path, target_lufs=-14.0,
+                    true_peak_ceiling=-1.0):
+        # This project names no platform, so mastering reads the
+        # registry's default targets - the same spec every other path
+        # resolves. See library/tools/delivery_spec.py.
+        from library.tools.delivery_spec import DEFAULT_DELIVERY_SPEC
+        assert target_lufs == DEFAULT_DELIVERY_SPEC.loudness_target_lufs
+        assert (true_peak_ceiling
+                == DEFAULT_DELIVERY_SPEC.true_peak_ceiling_dbtp)
         Path(output_path).write_bytes(Path(report["output_path"]).read_bytes())
         return {**report, "raw_output_path": report["output_path"],
                 "output_path": output_path,

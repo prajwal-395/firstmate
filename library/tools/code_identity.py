@@ -105,6 +105,10 @@ STEP_IMPLEMENTATION_DEPS = {
         # root decides what the scan sees.  Scan is seconds, so a rare
         # schema edit re-scanning is the cheap, correct trade.
         "library/schemas/project_config.py",
+        # Imported by project_config: the delivery-platform registry
+        # pipeline.delivery_platform validates against, so a fix here
+        # changes what the scan accepts.
+        "library/tools/delivery_spec.py",
         # Imported by project_config: the `$HOME` / `$PROJECT` token
         # expansion path declarations are read through, so a fix here
         # changes what the scan accepts.
@@ -141,6 +145,10 @@ STEP_IMPLEMENTATION_DEPS = {
         # Its declaration parsing: the source block is read through the
         # project config schema.
         "library/schemas/project_config.py",
+        # Imported by project_config: the delivery-platform registry
+        # pipeline.delivery_platform validates against, so a fix here
+        # changes what the catalog open accepts.
+        "library/tools/delivery_spec.py",
         # Imported by project_config: the `$HOME` / `$PROJECT` token
         # expansion path declarations are read through (same chain as
         # the scan row above).
@@ -236,6 +244,9 @@ STEP_IMPLEMENTATION_DEPS = {
         # Imported by footage_identity: its declaration parsing (same
         # chain as the scan row above).
         "library/schemas/project_config.py",
+        # Imported by project_config: the delivery-platform registry
+        # pipeline.delivery_platform validates against (same chain).
+        "library/tools/delivery_spec.py",
         # Imported by project_config: the `$HOME` / `$PROJECT` token
         # expansion path declarations are read through (same chain).
         "library/tools/portable_paths.py",
@@ -260,6 +271,9 @@ STEP_IMPLEMENTATION_DEPS = {
         # the language and footage-root reads, so a schema fix changes
         # what the step accepts.
         "library/schemas/project_config.py",
+        # Imported by project_config: the delivery-platform registry
+        # pipeline.delivery_platform validates against (same chain).
+        "library/tools/delivery_spec.py",
         # Imported by project_config: the `$HOME` / `$PROJECT` token
         # expansion path declarations are read through (same chain).
         "library/tools/portable_paths.py",

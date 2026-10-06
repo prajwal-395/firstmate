@@ -14,6 +14,12 @@ def _output_transform_names() -> List[str]:
     from library.tools.delivery_format import output_transform_names
     return output_transform_names()
 
+
+def _delivery_platform_names() -> List[str]:
+    """Enumerated delivery platforms, imported late to keep this module leaf-level."""
+    from library.tools.delivery_spec import spec_names
+    return spec_names()
+
 @dataclass
 class StyleSlots:
     color_palette: List[str] = field(default_factory=list)
@@ -129,6 +135,15 @@ class BrandTemplate:
     # slot. Step 5.01 used to hardcode "Rec.709, Gamma 2.4" as an engine
     # constant; a project that delivers HDR now declares it here.
     output_transform: str = ""
+    # The delivery platform this series ships to (capability 18 of the
+    # captain's complete-stack spec, 2026-10-06). A name from
+    # library/tools/delivery_spec.DELIVERY_SPECS; empty means "declares
+    # nothing" and yields the registry's default platform. The
+    # mastering and QC paths read the named platform's loudness target
+    # and true-peak ceiling, so a series declares once what every video
+    # in it is mastered to. Same top-level slot as delivery_format: it
+    # is what the series delivers, not a creative direction.
+    delivery_platform: str = ""
     style: StyleSlots = field(default_factory=StyleSlots)
     effect: EffectSlots = field(default_factory=EffectSlots)
     content: ContentSlots = field(default_factory=ContentSlots)
@@ -151,6 +166,7 @@ class BrandTemplate:
         return cls(series_id=series_id,
                    delivery_format=data.get("delivery_format", "") or "",
                    output_transform=data.get("output_transform", "") or "",
+                   delivery_platform=data.get("delivery_platform", "") or "",
                    style=style, effect=effect, content=content)
 
     @staticmethod
@@ -168,6 +184,11 @@ class BrandTemplate:
                     "type": "string",
                     "enum": _output_transform_names(),
                     "description": "The color transform the graded picture is delivered in. Omit for the Rec.709 Gamma 2.4 SDR default. See library/tools/delivery_format.py."
+                },
+                "delivery_platform": {
+                    "type": "string",
+                    "enum": _delivery_platform_names(),
+                    "description": "The platform this series ships to. Omit for the default platform. The mastering and QC paths read its loudness target and true-peak ceiling. See library/tools/delivery_spec.py."
                 },
                 "style": {
                     "type": "object",

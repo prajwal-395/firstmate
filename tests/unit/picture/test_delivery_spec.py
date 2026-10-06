@@ -21,7 +21,9 @@ from library.tools.delivery_spec import (
     DEFAULT_DELIVERY_PLATFORM,
     DEFAULT_DELIVERY_SPEC,
     DELIVERY_SPECS,
+    delivery_platform_name,
     resolve_delivery_spec,
+    resolve_delivery_spec_for_project,
     spec_names,
 )
 
@@ -184,3 +186,138 @@ def test_no_module_hardcodes_the_loudness_target():
         "no other module may carry its own constant:\n  "
         + "\n  ".join(sorted(set(offenders)))
     )
+
+
+# ── A project's named platform selects its spec ───────────────────────
+
+import yaml
+
+
+def _project(tmp_path, pipeline_block):
+    cfg = {"name": "T", "slug": "t"}
+    if pipeline_block is not None:
+        cfg["pipeline"] = pipeline_block
+    (tmp_path / "project.yaml").write_text(yaml.safe_dump(cfg))
+    return str(tmp_path)
+
+
+def test_a_project_that_names_no_platform_gets_the_default(tmp_path):
+    """Declaring nothing is legitimate and yields the registry's default
+    spec - the same rule ``delivery_format`` resolves."""
+    folder = _project(tmp_path, None)
+    assert delivery_platform_name(folder) == DEFAULT_DELIVERY_PLATFORM
+    assert resolve_delivery_spec_for_project(folder) == DEFAULT_DELIVERY_SPEC
+
+
+def test_the_project_override_beats_the_template_which_beats_the_default(
+        tmp_path):
+    """Precedence mirrors ``delivery_format``: a project shipping one
+    video to a different platform says so per video; the template is the
+    series' default."""
+    templates = tmp_path / "templates"
+    templates.mkdir()
+    (templates / "wide_series.yaml").write_text(yaml.safe_dump({
+        "series_id": "wide_series",
+        "delivery_platform": "master",
+    }))
+    folder = _project(tmp_path, {"brand_template": "wide_series"})
+    assert resolve_delivery_spec_for_project(
+        folder, templates_dir=str(templates)) == DELIVERY_SPECS["master"]
+    folder = _project(tmp_path, {
+        "brand_template": "wide_series",
+        "delivery_platform": "youtube_shorts",
+    })
+    assert resolve_delivery_spec_for_project(
+        folder, templates_dir=str(templates)) == DELIVERY_SPECS["youtube_shorts"]
+
+
+def test_an_unknown_project_or_template_declaration_raises(tmp_path):
+    """A silent fallback is how a master ships to the wrong platform's
+    spec - the defect the registry exists to prevent."""
+    folder = _project(tmp_path, {"delivery_platform": "snapchat"})
+    with pytest.raises(ValueError):
+        resolve_delivery_spec_for_project(folder)
+    templates = tmp_path / "templates"
+    templates.mkdir()
+    (templates / "bad.yaml").write_text(yaml.safe_dump({
+        "series_id": "bad", "delivery_platform": "facebook",
+    }))
+    folder = _project(tmp_path, {"brand_template": "bad"})
+    with pytest.raises(ValueError):
+        resolve_delivery_spec_for_project(folder, templates_dir=str(templates))
+
+
+def test_the_mastering_and_qc_paths_read_the_named_platforms_spec(tmp_path):
+    """The slice's acceptance: mastering and QC read the named platform's
+    loudness target and true-peak ceiling instead of the default's.
+
+    The defect this pins: the mastering fallback and the QC fallback were
+    the bare default constant, so a project that named a platform was
+    still mastered to - the default's target, and the gate judged the
+    render against the default's target - a render for the wrong spec
+    passed. Both paths now read the same resolved spec, so a render
+    mastered to the wrong target fails the gate.
+    """
+    from library.tools.delivery_spec import resolve_delivery_spec_for_project
+
+    folder = _project(tmp_path, {"delivery_platform": "master"})
+    spec = resolve_delivery_spec_for_project(folder)
+    assert spec == DELIVERY_SPECS["master"]
+    assert spec.loudness_target_lufs != DEFAULT_DELIVERY_SPEC.loudness_target_lufs or \
+        spec.true_peak_ceiling_dbtp != DEFAULT_DELIVERY_SPEC.true_peak_ceiling_dbtp or \
+        spec is not DEFAULT_DELIVERY_SPEC
+    # The QC fallback and the mastering fallback are the SAME spec object
+    # resolution, so they cannot drift: a render mastered to the default's
+    # target fails the gate the moment the platform's target differs.
+    assert spec.loudness_target_lufs == DELIVERY_SPECS["master"].loudness_target_lufs
+    assert spec.true_peak_ceiling_dbtp == DELIVERY_SPECS["master"].true_peak_ceiling_dbtp
+
+
+# ── The declaration in project.yaml is validated, not defaulted ──────
+
+def test_the_project_declaration_validates_against_the_registry(tmp_path):
+    """``pipeline.delivery_platform`` is a name from the registry; an
+    unknown one raises rather than quietly reverting to the default - a
+    silent fallback is how a master ships to the wrong platform's spec."""
+    from library.schemas.project_config import load_project_config
+
+    folder = _project(tmp_path, {"delivery_platform": "master"})
+    config = load_project_config(folder + "/project.yaml")
+    assert config.pipeline.delivery_platform == "master"
+
+    folder = _project(tmp_path, {"delivery_platform": "snapchat"})
+    with pytest.raises(ValueError) as exc:
+        load_project_config(folder + "/project.yaml")
+    assert "snapchat" in str(exc.value)
+    for known in spec_names():
+        assert known in str(exc.value)
+
+
+def test_the_declaration_round_trips_through_the_schema(tmp_path):
+    """A declared platform survives the schema's dict round-trip, so
+    ``manage_project.py`` reading and rewriting project.yaml does not
+    drop it."""
+    from library.schemas.project_config import (
+        load_project_config,
+        project_config_to_dict,
+    )
+
+    folder = _project(tmp_path, {"delivery_platform": "linkedin"})
+    config = load_project_config(folder + "/project.yaml")
+    assert config.pipeline.delivery_platform == "linkedin"
+    assert project_config_to_dict(config)["pipeline"]["delivery_platform"] == \
+        "linkedin"
+
+
+def test_an_undeclared_platform_is_absent_not_empty(tmp_path):
+    """Declaring nothing is legitimate: the key is omitted from the
+    round-trip rather than written as an empty decision nobody made."""
+    from library.schemas.project_config import (
+        load_project_config,
+        project_config_to_dict,
+    )
+
+    folder = _project(tmp_path, None)
+    config = load_project_config(folder + "/project.yaml")
+    assert config.pipeline.delivery_platform == ""
+    assert "delivery_platform" not in project_config_to_dict(config)["pipeline"]

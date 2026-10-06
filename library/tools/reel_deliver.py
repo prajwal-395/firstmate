@@ -184,6 +184,43 @@ def resolve_deliver_settings(project_folder: str) -> dict:
     fmt = (preset.get("format") or "").strip() or FALLBACK_FORMAT
     codec = (preset.get("codec") or "").strip() or FALLBACK_CODEC
     ext = CONTAINER_EXTENSIONS.get(fmt.lower(), fmt.lower())
+    if preset:
+        # The platform cross-check (capability 18 of the captain's
+        # complete-stack spec, 2026-10-06): a declared preset the
+        # project's named platform does not accept is refused here, at
+        # the declaration - before a render the platform re-encodes on
+        # arrival. Only the DECLARED halves are checked; the mechanism's
+        # own fallback is mp4/H264, which is what the registry rows
+        # accept, so declaring nothing never refuses. Comparison is
+        # case-insensitive: `h264` names the same codec as `H264`. See
+        # library/tools/delivery_spec.py.
+        from library.tools.delivery_spec import (
+            delivery_platform_name,
+            resolve_delivery_spec_for_project,
+        )
+        spec = resolve_delivery_spec_for_project(project_folder)
+        platform = delivery_platform_name(project_folder)
+        declared_format = (preset.get("format") or "").strip()
+        if (declared_format
+                and declared_format.lower() != spec.container.lower()):
+            raise DeliverRefused(
+                f"pipeline.deliver_preset format {declared_format!r} is "
+                f"not what platform {platform!r} accepts "
+                f"({spec.container})",
+                "the platform re-encodes an unexpected container on "
+                "arrival, so the deliverable ships in the wrong file",
+                f"set pipeline.deliver_preset format to "
+                f"{spec.container!r} in project.yaml, or drop it for "
+                f"the fallback")
+        declared_codec = (preset.get("codec") or "").strip()
+        if declared_codec and declared_codec.upper() != spec.codec.upper():
+            raise DeliverRefused(
+                f"pipeline.deliver_preset codec {declared_codec!r} is "
+                f"not what platform {platform!r} accepts ({spec.codec})",
+                "the platform re-encodes an unexpected codec on "
+                "arrival, so the deliverable ships in the wrong codec",
+                f"set pipeline.deliver_preset codec to {spec.codec!r} "
+                f"in project.yaml, or drop it for the fallback")
 
     return {
         "format": fmt,
@@ -697,7 +734,18 @@ def deliver_reel(project_folder: str, reel: Optional[int],
     final_path = os.path.join(
         dest_dir, os.path.splitext(os.path.basename(out_name))[0] + extension)
     from library.tools.master_loudness import master_render_report
-    report = master_render_report(report, final_path)
+    # The delivery spec the project's named platform selects: the master
+    # is normalized to THAT platform's loudness target and true-peak
+    # ceiling, not the bare default - the same resolved spec the plan
+    # (step 5.02) and the gates (step 6.02, verify_render) read, so a
+    # render mastered to the wrong target fails the gate. See
+    # library/tools/delivery_spec.py.
+    from library.tools.delivery_spec import resolve_delivery_spec_for_project
+    delivery_spec = resolve_delivery_spec_for_project(project_folder)
+    report = master_render_report(
+        report, final_path,
+        target_lufs=delivery_spec.loudness_target_lufs,
+        true_peak_ceiling=delivery_spec.true_peak_ceiling_dbtp)
     verdict = verify_deliverable(
         report["output_path"], expected_seconds,
         settings["width"], settings["height"])

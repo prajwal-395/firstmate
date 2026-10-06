@@ -30,8 +30,6 @@ import traceback
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 from library.tools.project_layout import Area, ProjectLayout
 from library.tools.render_qa import (
-    DEFAULT_LUFS_TARGET,
-    DEFAULT_TRUE_PEAK_CEILING_DBTP,
     RenderQAResult,
     run_full_render_qa,
 )
@@ -740,15 +738,24 @@ def validate_output(rendered_output: dict, assembly_manifest: dict,
     qa_results = []
     music_path, music_automation, music_offset = _music_bed(assembly_manifest)
     audio_mix = assembly_manifest.get("audio_mix", {}) or {}
+    # The delivery spec the project's named platform selects. The plan's
+    # own declared targets win where it states them (step 5.02 writes the
+    # platform spec's values there when the plan declares none); this is
+    # the fallback when the manifest carries no target, and it is the
+    # platform's spec rather than the bare default - so a render for the
+    # wrong spec is caught even when the plan said nothing. See
+    # library/tools/delivery_spec.py.
+    from library.tools.delivery_spec import resolve_delivery_spec_for_project
+    delivery_spec = resolve_delivery_spec_for_project(project_folder)
     try:
         ending_spans = render_qa.declared_ending_spans(assembly_manifest)
         qa_results = run_full_render_qa(
             video_path, expected_duration,
             target_lufs=float(audio_mix.get(
-                "delivery_lufs_target", DEFAULT_LUFS_TARGET)),
+                "delivery_lufs_target", delivery_spec.loudness_target_lufs)),
             true_peak_ceiling=float(audio_mix.get(
                 "delivery_true_peak_ceiling_dbtp",
-                DEFAULT_TRUE_PEAK_CEILING_DBTP)),
+                delivery_spec.true_peak_ceiling_dbtp)),
             declared_black_beats=_declared_black_beats(assembly_manifest),
             declared_ending_black_spans=ending_spans["black"],
             declared_silence_spans=ending_spans["silence"],

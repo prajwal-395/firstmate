@@ -72,7 +72,7 @@ The catalog's `source_resolution` DESCRIBES the footage and is never a render ta
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 
 @dataclass(frozen=True)
@@ -250,3 +250,67 @@ def resolve_delivery_spec(platform: str = "") -> DeliverySpec:
             "Add a row to library/tools/delivery_spec.py to introduce one."
         )
     return DELIVERY_SPECS[key]
+
+
+def _project_pipeline_block(project_folder: Optional[str]) -> dict:
+    """The `pipeline:` mapping of a project's project.yaml, or {}.
+
+    One parse, in library/tools/brand_registry.py - this module, that one
+    and delivery_format all read the same block.
+    """
+    from library.tools.brand_registry import project_pipeline_block
+    return project_pipeline_block(project_folder)
+
+
+def delivery_platform_name(project_folder: Optional[str] = None,
+                           templates_dir: Optional[str] = None) -> str:
+    """The declared delivery platform, by precedence.
+
+    project.yaml ``pipeline.delivery_platform``  >  the brand template's
+    ``delivery_platform``  >  :data:`DEFAULT_DELIVERY_PLATFORM`.
+
+    The project override wins because a series shipping one video to a
+    different platform says so per video; the template is the series'
+    default. An unknown name RAISES at the declaration that named it -
+    a silent fallback is exactly how a master ships to the wrong
+    platform's spec. An empty name is not a declaration and yields the
+    default, the same rule ``delivery_format.delivery_format_name``
+    applies.
+    """
+    pipeline_block = _project_pipeline_block(project_folder)
+
+    override = (pipeline_block.get("delivery_platform") or "").strip()
+    if override:
+        resolve_delivery_spec(override)  # raise here, naming the project
+        return override
+
+    template_name = (pipeline_block.get("brand_template") or "").strip()
+    from library.tools.brand_registry import resolve_project_template
+    template = resolve_project_template(
+        template_name, templates_dir=templates_dir,
+        project_folder=project_folder)
+    declared = (getattr(template, "delivery_platform", "") or "").strip()
+    if declared:
+        resolve_delivery_spec(declared)  # raise here, naming the template
+        return declared
+
+    return DEFAULT_DELIVERY_PLATFORM
+
+
+def resolve_delivery_spec_for_project(
+        project_folder: Optional[str] = None,
+        templates_dir: Optional[str] = None) -> DeliverySpec:
+    """The :class:`DeliverySpec` the project's named platform selects.
+
+    This is the ONE call the mastering and QC paths make. It is
+    deliberately a function of the project rather than a value threaded
+    through the DAG: a value in flight can be renamed, defaulted and
+    lost, which is the dominant bug class in this pipeline, and the
+    loudness target was lost that way already - the gate's default and
+    the mastering default were two constants that could drift (closed
+    on 2026-10-06 by the registry; this closes the other half, a
+    project that names a platform getting THAT platform's spec rather
+    than the default's).
+    """
+    return resolve_delivery_spec(
+        delivery_platform_name(project_folder, templates_dir=templates_dir))
