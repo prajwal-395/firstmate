@@ -184,6 +184,8 @@ VERBS = (
          module_argv=("library.tools.qualification_project",)),
     Verb("computer-use", "Resolve", "Drive Resolve's UI from a model: status, run a task, or run a scripted UI task (status|run|script)",
          module_argv=("library.tools.computer_use",)),
+    Verb("effects", "Resolve", "Search the installed ResolveFX/OFX effects: route and verification state (read only)",
+         module_argv=("library.tools.resolvefx_effects",)),
 
     Verb("search", "Footage", "Find where in a project's footage something happens",
          module_argv=(_FOOTAGE_QUERY, "search")),

@@ -421,3 +421,59 @@ def clear_cache() -> None:
     global _cached_entries, _miss_refresh_done
     _cached_entries = None
     _miss_refresh_done = False
+
+
+def _describe(entry: EffectEntry) -> str:
+    """One entry on one line: what the apply step needs to route it."""
+    if entry.application == "api":
+        route = f"api {entry.api_method}"
+    else:
+        route = "ui"
+    if entry.verified:
+        versions = ", ".join(entry.resolve_versions)
+        state = f"verified on {versions}" if versions else "verified"
+    else:
+        state = "unverified"
+    if entry.parameters:
+        params = f"{len(entry.parameters)} parameter(s): " + ", ".join(
+            p.name for p in entry.parameters)
+    else:
+        params = "no parameters"
+    return f"{entry.name} [{route}] {state}, {params}"
+
+
+def main(argv=None) -> int:
+    """`ren effects [words]` - search the installed ResolveFX/OFX effects.
+
+    The registry's reader: what #1813 populated is unreachable to an
+    agent except by importing internals, so nothing - no planner, no
+    recipe - could ask what is installed. An empty query lists every
+    installed effect; words filter by intent. Each line carries the
+    application route and the verification state the apply step
+    decides on. Read only: where no broker serves, the refusal names
+    it instead of tracing back.
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="ren effects",
+        description="Search the installed ResolveFX/OFX effects.")
+    parser.add_argument("words", nargs="*",
+                        help="intent words; empty lists every effect")
+    args = parser.parse_args(argv)
+    try:
+        found = find_by_intent(" ".join(args.words))
+    except EffectsCacheUnavailable as exc:
+        print(str(exc))
+        return 1
+    if not found:
+        print(f"no installed effect matches {' '.join(args.words)!r} - "
+              f"list what is installed with `ren effects`")
+        return 1
+    for entry in found:
+        print(_describe(entry))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
