@@ -31,7 +31,7 @@ LAYERS = ("unit", "contracts", "scenarios", "qualification", "tooling")
 #: shared tool modules that belong to no pipeline subsystem - the ML
 #: worker protocol, the edit backend, the JUnit lanes.
 SUBSYSTEMS = ("audio", "captions", "context", "graphics_ir", "picture",
-              "reels", "resolve", "tools")
+               "reels", "resolve", "tools", "computer_use")
 
 
 def _parts(path) -> tuple[str, ...]:

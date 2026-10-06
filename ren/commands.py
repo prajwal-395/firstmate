@@ -165,6 +165,8 @@ VERBS = (
           detail="Observe every reel in the open project at a slow cadence, recording observed generations and setting a soft captain-may-be-editing flag. Uses the broker's lowest priority. Hosted by the broker: starts and stops with it, follows the open project."),
     Verb("qualification", "Resolve", "Build the Ren Qualification project live tests use, or qualify the broker on it (media|reset|qualify)",
          module_argv=("library.tools.qualification_project",)),
+    Verb("computer-use", "Resolve", "Drive Resolve's UI from a model: status, run a task, or run a scripted UI task (status|run|script)",
+         module_argv=("library.tools.computer_use",)),
 
     Verb("search", "Footage", "Find where in a project's footage something happens",
          module_argv=(_FOOTAGE_QUERY, "search")),

@@ -215,6 +215,7 @@ const VERBS: &[Verb] = &[
     Verb { name: "resolved", group: "Resolve", summary: "Run or ask the broker that schedules the one Resolve (serve|ensure|status|list|submit|result|stop|kpi)" },
     Verb { name: "shadow-watch", group: "Resolve", summary: "Watch a project's reels for hand edits on a schedule (standalone; the broker hosts it)" },
     Verb { name: "qualification", group: "Resolve", summary: "Build the Ren Qualification project live tests use, or qualify the broker on it (media|reset|qualify)" },
+    Verb { name: "computer-use", group: "Resolve", summary: "Drive Resolve's UI from a model: status, run a task, or run a scripted UI task (status|run|script)" },
     Verb { name: "search", group: "Footage", summary: "Find where in a project's footage something happens" },
     Verb { name: "search-index", group: "Footage", summary: "Build the footage search index (writes into the project's scratch)" },
     Verb { name: "analyze", group: "Footage", summary: "Analyse a folder of footage without editing: steps, per-source memory, indexes" },
