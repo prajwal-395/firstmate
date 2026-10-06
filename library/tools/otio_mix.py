@@ -87,6 +87,7 @@ from __future__ import annotations
 
 import json
 import os
+from typing import Optional
 
 # ── The format ──────────────────────────────────────────────────────
 
@@ -113,6 +114,26 @@ AUDIO_TRACK_KIND = "Audio"
 # between `round(seconds * fps)` in two places does not drop a level.
 MATCH_TOLERANCE_FRAMES = 2
 LEVEL_TOLERANCE_DB = 0.05
+
+
+def track_role(track_name: str) -> Optional[str]:
+    """The stem a mix track feeds: ``"dialogue"``, ``"music"``, ``"sfx"``.
+
+    A1 carries production dialogue (played at unity, never a target),
+    A2 carries the music bed (the per-block curve), A3 and up carry
+    sound effects (static levels). A name outside the ``A`` tracks is
+    not a mix track and reads as None. One owner for the rule:
+    ``mix_targets`` below and the delivery lane's stem plan both read
+    this, so a track renamed in one cannot mean something else in the
+    other.
+    """
+    if not isinstance(track_name, str) or not track_name.startswith("A"):
+        return None
+    if track_name == "A1":
+        return "dialogue"
+    if track_name == "A2":
+        return "music"
+    return "sfx"
 
 
 class OtioMixError(RuntimeError):
@@ -578,7 +599,7 @@ def mix_targets(manifest: dict, *, fps: float) -> list:
         })
 
     for name, track in sorted(tracks.items()):
-        if not name.startswith("A") or name in ("A1", "A2"):
+        if track_role(name) != "sfx":
             continue
         for clip in track.get("clips", []) or []:
             source = clip.get("source_file", "")
