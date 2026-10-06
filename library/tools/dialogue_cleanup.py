@@ -24,6 +24,13 @@ What this module owns (one enumeration, like every vocabulary here):
   states what the build can actually do.
 - `measure_source` and `spans_by_source`: the noise record for each
   played source, absences stated.
+- `validate_leveler_properties` and `apply_dialogue_leveler`: the
+  per-clip Dialogue Leveler through `TimelineItem.SetProperties`,
+  judged by `GetProperties` re-read with the same discipline as
+  Voice Isolation. Applied directly, never a cleanup-plan tool (the
+  plan half is a later slice); the six keys are Resolve's own, and an
+  `EQBand1Frequency` refuses as an unknown key - that refusal IS the
+  recorded measurement that track EQ has no scripting API.
 - `source_spectra` and `plan_dialogue_eq`: the Fairlight chain's
   measurement half - per-source speech/floor spectra on the analyzer's
   own bands, and the dialogue-bus EQ (high-pass + one peaking cut)
@@ -1286,6 +1293,197 @@ def apply_voice_isolation(timeline, track: int, amount: int) -> dict:
             "build, or re-plan with deepfilternet.",
         )
     return {"track": track, "amount": amount, "verified": "re-reads equal"}
+
+
+# ── Dialogue Leveler application ─────────────────────────────────────
+
+#: The TimelineItemProperties keys the Dialogue Leveler answers, read
+#: off the installed scripting stub (DaVinciResolveScript.pyi, class
+#: TimelineItemProperties). Per-clip dynamics through
+#: `TimelineItem.SetProperties`, judged by `GetProperties` re-read.
+#: An older Resolve whose properties lack these keys refuses by name
+#: below - the missing keys are the measurement, never an assumed
+#: default. What the stub does NOT list among the Audio keys is the
+#: measured gap this lane records: no per-band EQ key exists
+#: (AudioVolume/Pan/Pitch/VoiceIsolation/DialogueLeveler only), so
+#: track EQ stays UI-only and out of this module.
+LEVELER_PROPERTY_KEYS = (
+    "AudioDialogueLevelerEnabled",
+    "AudioDialogueLevelerMode",
+    "AudioDialogueLevelerReduceLoudDialogue",
+    "AudioDialogueLevelerLiftSoftDialogue",
+    "AudioDialogueLevelerBackgroundReduction",
+    "AudioDialogueLevelerOutputGain",
+)
+
+#: The output gain's own scale, read off the stub (0.0 to 6.0 dB).
+LEVELER_OUTPUT_GAIN_MIN = 0.0
+LEVELER_OUTPUT_GAIN_MAX = 6.0
+
+
+def _refuse_leveler(what: str, why: str, fix: str) -> DialogueCleanupRefused:
+    return DialogueCleanupRefused(what=what, why=why, fix=fix)
+
+
+def validate_leveler_properties(raw: dict) -> dict:
+    """The six leveler controls, checked against Resolve's own scale.
+
+    Every key required - a leveler with an undeclared mode or gain
+    would land at whatever the panel last held, which is state, not a
+    plan. The mode is Resolve's own float enum (read live off the
+    `DIALOGUE_LEVELER_MODE_*` constants, never retyped here); the
+    three shaping switches are booleans; the output gain is the
+    stub's 0.0..6.0 dB. Unknown keys refuse - an `EQBand1Frequency`
+    is how a track-EQ hope would smuggle itself onto a clip that
+    cannot carry one.
+    """
+    if not isinstance(raw, dict):
+        raise _refuse_leveler(
+            "dialogue cleanup cannot be applied: leveler properties "
+            "are not an object",
+            "the six controls cannot be read from this plan.",
+            "plan the six leveler keys as an object.",
+        )
+    unknown = sorted(set(raw) - set(LEVELER_PROPERTY_KEYS))
+    if unknown:
+        raise _refuse_leveler(
+            f"dialogue cleanup cannot be applied: unknown leveler "
+            f"keys {unknown}",
+            "a clip carries no control by that name - an EQ band key "
+            "here is the track-EQ gap wearing a plan's clothes.",
+            "drop the unknown keys or plan them where they belong.",
+        )
+    missing = [key for key in LEVELER_PROPERTY_KEYS if key not in raw]
+    if missing:
+        raise _refuse_leveler(
+            f"dialogue cleanup cannot be applied: leveler keys missing "
+            f"{missing}",
+            "an undeclared control would land at the panel's leftover "
+            "state.",
+            "declare all six leveler keys explicitly.",
+        )
+    for key in ("AudioDialogueLevelerEnabled",
+                "AudioDialogueLevelerReduceLoudDialogue",
+                "AudioDialogueLevelerLiftSoftDialogue",
+                "AudioDialogueLevelerBackgroundReduction"):
+        if not isinstance(raw[key], bool):
+            raise _refuse_leveler(
+                f"dialogue cleanup cannot be applied: {key} "
+                f"{raw[key]!r} is not a boolean",
+                "the shaping switches take true/false.",
+                f"re-plan {key} as a boolean.",
+            )
+    mode = raw["AudioDialogueLevelerMode"]
+    if isinstance(mode, bool) or not isinstance(mode, (int, float)):
+        raise _refuse_leveler(
+            "dialogue cleanup cannot be applied: leveler mode "
+            f"{mode!r} is not a number",
+            "the mode is Resolve's own float enum.",
+            "re-plan the mode from the DIALOGUE_LEVELER_MODE_* "
+            "constants.",
+        )
+    gain = raw["AudioDialogueLevelerOutputGain"]
+    if (isinstance(gain, bool) or not isinstance(gain, (int, float))
+            or not LEVELER_OUTPUT_GAIN_MIN <= float(gain)
+            <= LEVELER_OUTPUT_GAIN_MAX):
+        raise _refuse_leveler(
+            "dialogue cleanup cannot be applied: output gain "
+            f"{gain!r} is outside Resolve's "
+            f"{LEVELER_OUTPUT_GAIN_MIN:g}..{LEVELER_OUTPUT_GAIN_MAX:g} dB",
+            "the gain is Resolve's own scale, passed through.",
+            "re-plan the output gain inside 0.0..6.0 dB.",
+        )
+    return {"AudioDialogueLevelerEnabled": bool(raw[
+        "AudioDialogueLevelerEnabled"]),
+        "AudioDialogueLevelerMode": float(mode),
+        "AudioDialogueLevelerReduceLoudDialogue": bool(raw[
+            "AudioDialogueLevelerReduceLoudDialogue"]),
+        "AudioDialogueLevelerLiftSoftDialogue": bool(raw[
+            "AudioDialogueLevelerLiftSoftDialogue"]),
+        "AudioDialogueLevelerBackgroundReduction": bool(raw[
+            "AudioDialogueLevelerBackgroundReduction"]),
+        "AudioDialogueLevelerOutputGain": float(gain)}
+
+
+def apply_dialogue_leveler(timeline_item, properties: dict) -> dict:
+    """Set the Dialogue Leveler on one timeline clip, judged by re-read.
+
+    The same discipline as `apply_voice_isolation`: the write is
+    claimed only when `GetProperties` re-reads every set key equal
+    (booleans exact, numbers within 1e-6 - the re-read crosses into
+    Resolve and back). A True that leveled nothing fails naming both.
+    `timeline_item` is duck-typed so fakes judge the discipline in
+    tests.
+    """
+    checked = validate_leveler_properties(properties)
+    try:
+        current = timeline_item.GetProperties() or {}
+    except Exception as exc:
+        raise _refuse_leveler(
+            "dialogue cleanup cannot be applied: the clip would not "
+            f"report its properties ({exc})",
+            "without a property read the build cannot say the clip "
+            "can carry a leveler.",
+            "verify the timeline clip in Resolve and re-run the build.",
+        ) from exc
+    absent = [key for key in LEVELER_PROPERTY_KEYS if key not in current]
+    if absent:
+        raise _refuse_leveler(
+            f"dialogue cleanup cannot be applied: this Resolve reports "
+            f"no {absent}",
+            "a clip without leveler properties is an older Resolve - "
+            "claiming the set would be the fake success rung 1 removed.",
+            "re-plan with voice_isolation or deepfilternet, or run a "
+            "Resolve whose scripting exposes the leveler.",
+        )
+    try:
+        wrote = bool(timeline_item.SetProperties(dict(checked)))
+    except Exception as exc:
+        raise _refuse_leveler(
+            "dialogue cleanup cannot be applied: SetProperties raised "
+            f"({exc})",
+            "the call declined instead of answering True.",
+            "verify the timeline clip in Resolve and re-run the build.",
+        ) from exc
+    if not wrote:
+        raise _refuse_leveler(
+            "dialogue cleanup cannot be applied: SetProperties "
+            "answered False",
+            "False is Resolve declining the write - claiming it would "
+            "be the fake success rung 1 removed.",
+            "verify the timeline clip in Resolve and re-run the build.",
+        )
+    try:
+        back = timeline_item.GetProperties() or {}
+    except Exception as exc:
+        raise _refuse_leveler(
+            "dialogue cleanup cannot be applied: the leveler re-read "
+            f"raised ({exc})",
+            "a write without a read-back is an unjudged placement.",
+            "verify by hand in Resolve and re-run the build.",
+        ) from exc
+    mismatched = []
+    for key in LEVELER_PROPERTY_KEYS:
+        want = checked[key]
+        got = back.get(key)
+        if isinstance(want, bool):
+            # Resolve may re-read a boolean as 0/1 - compare by value,
+            # never by identity.
+            if not isinstance(got, (bool, int)) or bool(got) != want:
+                mismatched.append(key)
+        elif (not isinstance(got, (int, float))
+              or abs(float(got) - want) > 1e-6):
+            mismatched.append(key)
+    if mismatched:
+        raise _refuse_leveler(
+            f"dialogue cleanup cannot be applied: SetProperties "
+            f"reports True and re-reads {back!r} for {checked!r}",
+            "True that leveled nothing is the defect this read-back "
+            "exists to catch.",
+            "verify by hand in Resolve and re-run the build.",
+        )
+    return {"verified": "re-reads equal",
+            "properties": dict(checked)}
 
 
 # ── The OTIO half of a stem ──────────────────────────────────────────
