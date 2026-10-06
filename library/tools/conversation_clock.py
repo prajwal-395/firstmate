@@ -390,6 +390,114 @@ def cross_check_against_timeline(project_folder: str, source_file_a: str,
 # ── Reading the clock back, and mapping a moment across sources ────
 
 
+TIMECODE_AGREEMENT_TOLERANCE_SECONDS = 1.0
+"""How far the timecode-implied offset may sit from the n-gram offset
+and still count as agreeing. The SAME 1.0 s the Resolve cut
+cross-check allows (`cross_check_against_timeline`): the n-gram side
+is a median of word starts, so frame-exact recorded timecode can only
+agree with it within word-boundary noise. Mechanical, not creative
+(AGENTS.md 10.5)."""
+
+
+def _timecode_seconds(tag, fps) -> Optional[float]:
+    """Seconds since 00:00:00:00 for a catalog `timecode_start` tag.
+
+    None means the tag is missing, unreadable, or the rate unusable -
+    absent, never defaulted: a clip with no recorded timecode simply
+    has no timecode reading, the same way a source outside every group
+    has no clock record. Parsing itself is `marker_capture`'s
+    drop-frame-aware reader, extended here rather than paralleled.
+    """
+    if not tag or not isinstance(tag, str):
+        return None
+    try:
+        rate = float(fps)
+    except (TypeError, ValueError):
+        return None
+    if rate <= 0:
+        return None
+    try:
+        from library.tools import marker_capture
+    except ImportError:  # imported as `tools.*` from inside library/
+        from tools import marker_capture
+    try:
+        frames = marker_capture.timecode_to_frames(tag, rate)
+    except marker_capture.CaptureError:
+        return None
+    nominal = int(round(rate))
+    if nominal <= 0:
+        return None
+    return frames / nominal
+
+
+def timecode_offset_seconds(clip_a: dict, clip_b: dict) -> Optional[dict]:
+    """The offset two catalog clips' RECORDED timecodes imply, or None.
+
+    `offset_seconds` follows this module's convention (`pairwise_offset`):
+    `a_time == b_time + offset_seconds`. Each side is read at its own
+    catalog `frame_rate` - the nominal rate the catalog holds since the
+    VFR fix, which is what the camera's frame field counts in.
+
+    `approximate` is True when either side is VFR: under a variable
+    rate the frame field has no fixed meaning, so the number is honest
+    about being read at nominal. A stranger's phone footage synced by
+    this number is warned, not silently trusted to the frame.
+    """
+    a_seconds = _timecode_seconds(
+        (clip_a or {}).get("timecode_start"), (clip_a or {}).get("frame_rate"))
+    b_seconds = _timecode_seconds(
+        (clip_b or {}).get("timecode_start"), (clip_b or {}).get("frame_rate"))
+    if a_seconds is None or b_seconds is None:
+        return None
+    approximate = bool((clip_a or {}).get("is_vfr")
+                       or (clip_b or {}).get("is_vfr"))
+    return {
+        "offset_seconds": round(a_seconds - b_seconds, 3),
+        "approximate": approximate,
+        "timecode_a": clip_a.get("timecode_start"),
+        "timecode_b": clip_b.get("timecode_start"),
+    }
+
+
+def timecode_cross_check(clip: dict, reference_clip: dict,
+                         ngram_offset_seconds: Optional[float]
+                         ) -> Optional[dict]:
+    """The cameras' own recorded timecodes against the n-gram offset.
+
+    The catalog recorded `timecode_start` and nothing ever read it, so
+    an n-gram offset contradicting what the cameras wrote went out
+    reported as clean. This is the same shape as
+    `cross_check_against_timeline` for the other independent reading:
+    None when either side carries no usable tag (never a default), else
+    the implied offset in the `offset_to_reference_seconds` convention
+    (`reference_time - this_time`, hence the argument order), whether it
+    agrees, and the difference.
+
+    A disagreement does NOT move the clock: the n-gram measurement
+    stays authoritative and the contradiction is reported, with the
+    tags that were read, for a human to settle. Timecode runs
+    continuous across takes on one camera, so two clips can share a
+    window by coincidence; promoting timecode over content would sync
+    different scenes.
+    """
+    implied = timecode_offset_seconds(reference_clip, clip)
+    if implied is None:
+        return None
+    offset = implied["offset_seconds"]
+    difference = (round(offset - ngram_offset_seconds, 3)
+                  if ngram_offset_seconds is not None else None)
+    return {
+        "offset_seconds": offset,
+        "approximate": implied["approximate"],
+        "timecode": clip.get("timecode_start"),
+        "reference_timecode": reference_clip.get("timecode_start"),
+        "agrees_with_ngram_offset": (
+            difference is not None
+            and abs(difference) <= TIMECODE_AGREEMENT_TOLERANCE_SECONDS),
+        "difference_from_ngram_offset_seconds": difference,
+    }
+
+
 def read_clock(content_digest: str, root: Optional[Path] = None
               ) -> Optional[dict]:
     """A source's M6 record, or None when it has none (not in any
@@ -466,6 +574,7 @@ def build_project(project_folder: str, root: Optional[Path] = None) -> dict:
     catalog = source_memory.load_catalog(project_folder)
     recorded = source_memory.load_recorded_fingerprints(project_folder)
     digest_to_path: Dict[str, str] = {}
+    digest_to_clip: Dict[str, dict] = {}
     docs_by_digest: Dict[str, dict] = {}
     word_counts: Dict[str, int] = {}
     skipped = []
@@ -483,6 +592,7 @@ def build_project(project_folder: str, root: Optional[Path] = None) -> dict:
                             "content_digest": digest, "reason": f"m1-{status}"})
             continue
         digest_to_path[digest] = path
+        digest_to_clip[digest] = clip
         docs_by_digest[digest] = doc
         word_counts[digest] = doc.get("word_count", 0)
 
@@ -499,6 +609,7 @@ def build_project(project_folder: str, root: Optional[Path] = None) -> dict:
             info = clocks[digest]
             reference = info["reference_digest"]
             cross_check = None
+            tc_check = None
             if digest != reference:
                 # `offset_to_reference_seconds` means reference_time -
                 # this_time; pass (reference, this) so the cross-check's
@@ -506,6 +617,9 @@ def build_project(project_folder: str, root: Optional[Path] = None) -> dict:
                 cross_check = cross_check_against_timeline(
                     project_folder, digest_to_path[reference],
                     digest_to_path[digest],
+                    info["offset_to_reference_seconds"])
+                tc_check = timecode_cross_check(
+                    digest_to_clip[digest], digest_to_clip[reference],
                     info["offset_to_reference_seconds"])
             record = {
                 "content_digest": digest,
@@ -518,6 +632,7 @@ def build_project(project_folder: str, root: Optional[Path] = None) -> dict:
                 "path_to_reference": info["path_to_reference"],
                 "direct_measurement": info["direct_measurement"],
                 "resolve_cross_check": cross_check,
+                "timecode_cross_check": tc_check,
                 "ngram_size": NGRAM_SIZE,
                 "built_at": built_at,
             }
@@ -531,6 +646,7 @@ def build_project(project_folder: str, root: Optional[Path] = None) -> dict:
                     info["offset_to_reference_seconds"],
                 "direct_measurement": info["direct_measurement"],
                 "resolve_cross_check": cross_check,
+                "timecode_cross_check": tc_check,
             })
         group_reports.append({
             "group_id": gid,
@@ -554,6 +670,8 @@ def status_report(project_folder: str, root: Optional[Path] = None) -> dict:
         digest, basis = source_memory.digest_for_clip(
             project_folder, clip, recorded)
         record = read_clock(digest, root) if digest else None
+        tc_check = (record.get("timecode_cross_check")
+                    if record else None)
         rows.append({
             "clip_id": clip.get("clip_id"),
             "content_digest": digest,
@@ -564,6 +682,9 @@ def status_report(project_folder: str, root: Optional[Path] = None) -> dict:
                              if record else None),
             "offset_to_reference_seconds":
                 record.get("offset_to_reference_seconds") if record else None,
+            "timecode_agrees_with_ngram_offset": (
+                tc_check.get("agrees_with_ngram_offset")
+                if tc_check else None),
         })
     return {"project_folder": str(Path(project_folder).resolve()), "clips": rows}
 
