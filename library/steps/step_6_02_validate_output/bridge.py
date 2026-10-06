@@ -799,6 +799,59 @@ def validate_output(rendered_output: dict, assembly_manifest: dict,
             f"Render QA did not run ({type(e).__name__}: {e}) - no "
             f"automated check measured this render")]
 
+    # ── Close the loop on masking (evaluation track) ──
+    #
+    # P3 reports a window missing its declared separation, but a reported
+    # miss corrects nothing. The correction loop deepens that window's
+    # target_level_db by the measured shortfall, writes it onto the live
+    # automation the manifest holds (the post-step state dump carries it
+    # to the next build), re-renders the mix offline and re-measures on
+    # the re-rendered samples. The captain's music-over-speech spans are
+    # never touched. See library/tools/mix_correction.py.
+    if music_path and music_automation and music_offset is not None:
+        try:
+            from library.tools.mix_correction import correct_masking
+
+            p3_value = None
+            for _result in qa_results:
+                if getattr(_result, "metric", "") == "speech_above_bed":
+                    _value = getattr(_result, "value", None)
+                    if isinstance(_value, dict):
+                        p3_value = _value
+                    break
+
+            def _write_levels(index, level):
+                entry = music_automation[index]
+                if isinstance(entry, dict):
+                    entry["target_level_db"] = level
+
+            corrections = correct_masking(
+                video_path, music_path, music_automation, music_offset,
+                p3_value=p3_value, write_levels=_write_levels,
+                spine_blocks=assembly_manifest.get("_spine_blocks") or [])
+            if corrections:
+                qa_results.append(RenderQAResult(
+                    "masking_correction",
+                    all(c["passed"] for c in corrections),
+                    {"corrections": corrections},
+                    {"gates": False},
+                    "warning" if not all(
+                        c["passed"] for c in corrections) else "info",
+                    f"{len(corrections)} masked window(s) corrected by "
+                    f"the loop" if all(
+                        c["passed"] for c in corrections)
+                    else f"{len(corrections)} masked window(s) could not "
+                         f"be fully corrected - see the loop record"))
+        except Exception as e:
+            print(f"Error running masking correction: {e}",
+                  file=sys.stderr)
+            traceback.print_exc()
+            qa_results.append(RenderQAResult(
+                "masking_correction", False, str(e), None, "error",
+                f"Masking correction did not run "
+                f"({type(e).__name__}: {e}) - a correction that did not "
+                f"run must not read as masking corrected"))
+
     # Subtitle QA
     subtitles = assembly_manifest.get("subtitles", [])
     if subtitles:

@@ -194,6 +194,7 @@ def _verify_render_args(inputs: dict) -> dict:
         "expected_duration": duration,
         "expected_resolution": project.get("resolution"),
         "expected_fps": project.get("frame_rate"),
+        "assembly_manifest": manifest,
         "declared_black_beats": declared_black_beat_ranges(
             manifest.get("_spine_blocks") or []),
         "declared_ending_black_spans": endings["black"],

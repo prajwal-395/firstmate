@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -361,8 +362,50 @@ def run_scoped_recheck(video_path: str, dirty: Dict[str, Any], *,
     else:
         results.append(render_qa.measure_caption_legibility(
             video_path, dirty_segs))
-        results.append(render_qa.measure_caption_obscuring(
-            video_path, dirty_segs))
+        obscuring = render_qa.measure_caption_obscuring(
+            video_path, dirty_segs)
+        results.append(obscuring)
+        # Close the loop (evaluation track): a caption the touch made
+        # obscuring is not only reported - the correction loop moves it by
+        # the measured clearance, writes the corrected placement onto the
+        # manifest segment the build reads (`tight_box.placement`, which
+        # `place_overlay_segment` reads and refuses when absent), and
+        # re-measures on an offline re-render of the overlay with the
+        # correction applied.  The write lands on the manifest dict the
+        # pipeline holds, so the post-step state dump carries it to the
+        # next build; the correction record below carries the placement
+        # too, so the finding survives even where the inputs were a
+        # copy.  The face detections are reused from
+        # measure_caption_obscuring - Haar over a span is the expensive
+        # part and running it twice is the defect this removes.
+        from library.tools.caption_correction import correct_caption_obscuring
+
+        def _write_placement(seg, placement):
+            track = (assembly_manifest or {}).get("subtitle_overlay", {})
+            for manifest_seg in track.get("segments", []):
+                if manifest_seg.get("overlay_path") == seg.path:
+                    tight = manifest_seg.setdefault("tight_box", {})
+                    tight["placement"] = placement
+                    return
+
+        obscuring_value = obscuring.value
+        corrections = correct_caption_obscuring(
+            video_path, dirty_segs,
+            obscuring_result=(obscuring_value
+                              if isinstance(obscuring_value, dict) else None),
+            write_placement=_write_placement)
+        if corrections:
+            results.append(render_qa.RenderQAResult(
+                "caption_obscuring_correction",
+                all(c["passed"] for c in corrections),
+                {"corrections": corrections},
+                {"gates": False},
+                "warning" if not all(c["passed"] for c in corrections)
+                else "info",
+                f"{len(corrections)} obscuring caption(s) corrected by "
+                f"the loop" if all(c["passed"] for c in corrections)
+                else f"{len(corrections)} obscuring caption(s) could not "
+                     f"be fully corrected - see the loop record"))
 
     return results, not_rechecked
 

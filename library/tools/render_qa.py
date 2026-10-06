@@ -2235,6 +2235,8 @@ def measure_caption_obscuring(
                 "caption_box": [round(v, 1) for v in box],
                 "faces": len(faces),
                 "overlapping_faces": len(hits),
+                "face_boxes": [list(f["box"]) for f in faces],
+                "frame_h": float(frame_h),
             }
             measured.append(row)
             if hits:
