@@ -298,7 +298,10 @@ class FakeDriver:
                                          params.get("timeout", 5.0))
             return {"met": met}
         if method == "read_text":
-            return {"text": self._backend.read_text(params.get("region"))}
+            elements: list = []
+            _collect_labeled_frames(self._backend.get_ax_tree(), elements)
+            return {"text": self._backend.read_text(params.get("region")),
+                    "elements": elements}
         if method == "get_pointer_state":
             return self._backend.get_pointer_state()
         if method == "get_frontmost_app":
@@ -413,6 +416,19 @@ def _collect_text(element, region, out):
         out.append(label)
     for child in element.get("children") or ():
         _collect_text(child, region, out)
+
+
+def _collect_labeled_frames(element, out):
+    """The OCR half the real driver returns: each label with its frame
+    in window points. Nodes without bounds are skipped - a label with
+    no frame is not clickable, and resolving it to the screen origin
+    would click somewhere it is not."""
+    label = str(element.get("label") or element.get("title") or "")
+    bounds = element.get("bounds") or {}
+    if label and bounds:
+        out.append({"text": label, "frame": dict(bounds)})
+    for child in element.get("children") or ():
+        _collect_labeled_frames(child, out)
 
 
 def _in_bounds(element, region):
@@ -767,6 +783,92 @@ def test_ambiguous_element_match_is_refused(broker, backend):
     assert "elements match" in result["result"]["error"]
     assert backend.element("color-switch").get("pressed") is not True
     assert backend.element("color-bypass").get("pressed") is not True
+
+
+def test_click_on_a_text_anchor_clicks_the_label_center(broker, backend):
+    """A text_anchor resolves through OCR at run time: the 'Magic Mask'
+    label (bounds 300,200 120x30) is clicked at its center. A target
+    that read coordinates off the spec would KeyError on the missing
+    'x' - the label's position is measured, never declared."""
+    params = {
+        "project": "Scratch", "timeline": "Reel 07",
+        "actions": [{"action": "click", "target": {
+            "kind": "text_anchor", "text": "Magic Mask"}}],
+    }
+    submitted = _submit(broker, params)
+    job = _wait_terminal(broker, submitted["id"])
+    result = job["result"]
+    assert result["status"] == "committed", result
+    assert backend._pointer == {"x": 360.0, "y": 215.0}
+
+
+def test_click_on_an_absent_label_is_refused_by_name(broker, backend):
+    """A label that is not on screen refuses naming the text - the
+    layout moved or the panel is closed. Acting on a stale coordinate
+    instead would click whatever sits there now."""
+    params = {
+        "project": "Scratch", "timeline": "Reel 07",
+        "actions": [{"action": "click", "target": {
+            "kind": "text_anchor", "text": "Ghost Label"}}],
+    }
+    submitted = _submit(broker, params)
+    job = _wait_terminal(broker, submitted["id"])
+    result = job["result"]
+    assert result["status"] == "failed"
+    assert "Ghost Label" in result["result"]["error"]
+
+
+def test_prepare_refuses_press_on_a_text_anchor(backend):
+    """press acts on AX elements, never on labels: the pairing is
+    refused when the spec is validated, not after the job runs. A
+    press that reached execution would fall through every route and
+    die on a KeyError instead of a named refusal."""
+    with pytest.raises(job_kinds.JobRefused):
+        job_kinds.prepare("resolve.ui_transaction", {
+            "project": "Scratch",
+            "actions": [{"action": "press", "target": {
+                "kind": "text_anchor", "text": "Magic Mask"}}],
+        })
+
+
+def test_prepare_refuses_anchors_without_what_resolves_them(backend):
+    """A text_anchor without text and an icon_anchor without an image
+    name nothing to resolve - refused at validation, never matched
+    against every label on screen."""
+    for target in ({"kind": "text_anchor"},
+                   {"kind": "text_anchor", "text": ""},
+                   {"kind": "icon_anchor"}):
+        with pytest.raises(job_kinds.JobRefused):
+            job_kinds.prepare("resolve.ui_transaction", {
+                "project": "Scratch",
+                "actions": [{"action": "click", "target": target}],
+            })
+
+
+def test_target_to_anchor_maps_each_kind_to_the_scripts_vocabulary():
+    """The broker's target kinds are the scripts layer's anchors under
+    their plan names: text_anchor rides ocr, icon_anchor rides
+    template, both coordinate kinds ride position. A mapping that
+    dropped the threshold or the coordinates would silently run the
+    template match or the click with defaults that are not the
+    transaction's."""
+    assert ui_transaction._target_to_anchor(
+        {"kind": "text_anchor", "text": "Person"}).to_dict() == {
+            "via": "ocr", "params": {"text": "Person"}}
+    assert ui_transaction._target_to_anchor(
+        {"kind": "icon_anchor", "image": "mask.png",
+         "threshold": 0.8}).to_dict() == {
+            "via": "template",
+            "params": {"image": "mask.png", "threshold": 0.8}}
+    assert ui_transaction._target_to_anchor(
+        {"kind": "viewer_coordinate", "x": 10, "y": 20}).to_dict() == {
+            "via": "position", "params": {"x": 10, "y": 20}}
+    assert ui_transaction._target_to_anchor(
+        {"kind": "window_relative_coordinate", "x": 10,
+         "y": 20}).to_dict() == {
+            "via": "position", "params": {"x": 10, "y": 20}}
+    assert ui_transaction._target_to_anchor(
+        {"kind": "accessibility_element", "title": "Color"}) is None
 
 
 def test_prepare_refuses_malformed_path(backend):

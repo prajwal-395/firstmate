@@ -184,6 +184,19 @@ def _validate_action(action, index: int, params: dict) -> None:
         if "x" not in target or "y" not in target:
             raise JobRefused(
                 f"action {index}: a {kind} target needs 'x' and 'y'")
+    if kind == "text_anchor" and not target.get("text"):
+        raise JobRefused(
+            f"action {index}: a text_anchor target needs 'text', "
+            f"the OCR label to click")
+    if kind == "icon_anchor" and not target.get("image"):
+        raise JobRefused(
+            f"action {index}: an icon_anchor target needs 'image', "
+            f"the template file to match")
+    if kind != "accessibility_element" and name not in ("click", "double_click"):
+        raise JobRefused(
+            f"action {index}: {name!r} cannot act on a {kind} target - "
+            f"only click and double_click resolve anchors; "
+            f"press, choose and set_value act on accessibility_element")
 
 
 def _validate_verification(verification) -> None:
@@ -407,6 +420,8 @@ def _resolve_element(driver, target: dict) -> str:
 
 def _execute_action(driver, action: dict) -> None:
     """Run one declared action through the driver - one driver call."""
+    from library.tools.computer_use.scripts import Anchor, resolve_anchor
+
     name = action["action"]
     target = action.get("target") or {}
     kind = target.get("kind")
@@ -426,7 +441,29 @@ def _execute_action(driver, action: dict) -> None:
             raise JobRefused(
                 f"action {name!r} cannot act on an accessibility_element")
         return
+    if name in ("click", "double_click") and kind != "accessibility_element":
+        anchor = _target_to_anchor(target)
+        resolved = resolve_anchor(driver, anchor) if anchor else None
+        if resolved is None:
+            raise JobRefused(
+                f"action {name!r} on a {kind} target resolved nothing: "
+                f"{target!r} matches nothing on screen - the layout "
+                f"moved or the label is not visible")
+        method, params = resolved
+        if method != "click":
+            raise JobRefused(
+                f"action {name!r} on a {kind} target resolved to "
+                f"{method!r}, not a point to click")
+        if name == "double_click":
+            params = {**params, "clicks": 2}
+        driver.call("click", params)
+        return
     if name == "click":
+        if kind == "accessibility_element":
+            raise JobRefused(
+                "a click on an accessibility_element names no point - "
+                "press, choose, set_value or focus act on elements, "
+                "click acts on anchors and coordinates")
         driver.call("click", {"x": float(target["x"]), "y": float(target["y"])})
         return
     if name == "double_click":
@@ -453,6 +490,33 @@ def _execute_action(driver, action: dict) -> None:
                             "modifiers": list(target.get("modifiers") or ())})
         return
     raise JobRefused(f"action {name!r} has no target route")
+
+
+def _target_to_anchor(target: dict):
+    """Map a non-element target to the scripts layer's anchor.
+
+    The anchor vocabulary (`computer_use.scripts`) is the runtime half
+    of these target kinds: text_anchor resolves like the `ocr` anchor,
+    icon_anchor like `template`, both coordinate kinds like `position`.
+    The driver speaks window points only - there is no viewer-rect
+    geometry to map viewer space through, so both coordinate kinds are
+    interpreted in that one space until it exists. Returns None for
+    accessibility_element, which resolves through `_resolve_element`.
+    """
+    from library.tools.computer_use.scripts import Anchor
+
+    kind = target.get("kind")
+    if kind == "text_anchor":
+        return Anchor(via="ocr", params={"text": str(target.get("text") or "")})
+    if kind == "icon_anchor":
+        params: dict = {"image": target.get("image")}
+        if target.get("threshold") is not None:
+            params["threshold"] = target["threshold"]
+        return Anchor(via="template", params=params)
+    if kind in ("viewer_coordinate", "window_relative_coordinate"):
+        return Anchor(via="position", params={"x": target.get("x"),
+                                              "y": target.get("y")})
+    return None
 
 
 def _execute_wait(driver, action: dict) -> None:
