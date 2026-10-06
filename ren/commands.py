@@ -209,6 +209,11 @@ VERBS = (
          detail="`ren fabric schedule <graph.json>` runs a task graph on this machine: "
                 "places ready tasks whose capabilities this worker's manifest meets "
                 "and whose leases are free, and resumes from the last checkpoint."),
+    Verb("events", "Fabric", "Read a project's event-sourced operation log",
+         module_argv=("library.tools.event_log",),
+         detail="Read the operations a project's workers performed, oldest first: "
+                "`ren events <project>` lists every event, `--task` one worker's, "
+                "`--since` only what came after a sequence number. Read only."),
 )
 
 
