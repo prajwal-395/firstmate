@@ -35,6 +35,11 @@ from typing import Any, Optional
 
 from library.tools.overlay_carriage import apply_clip_attributes
 from library.tools.resolve_lock import resolve_lease
+from library.tools.resource_leases import (
+    LeaseDeclaration,
+    ResourceRef,
+    resource_lease,
+)
 
 SUBTITLES_TRACK_NAME = "Subtitles"
 """The timeline row captions live on (`library/tools/timeline_layout.py`
@@ -88,6 +93,14 @@ def _pool_path(pool_item) -> str:
         return pool_item.GetClipProperty("File Path") or ""
     except Exception:  # noqa: BLE001 - an unreadable property is not a path
         return ""
+
+
+def _project_name(project) -> str:
+    """The project's own name, for the resource lease declaration."""
+    try:
+        return project.GetName() or "project"
+    except Exception:  # noqa: BLE001 - an unreadable name still needs a ref
+        return "project"
 
 
 def find_placements(project, basenames: set) -> dict:
@@ -189,76 +202,94 @@ def swap_files(project, old_to_new: dict, stream=sys.stderr) -> dict:
                 by_old.setdefault(placement.pool_path, {
                     "new": new, "items": []})["items"].append(placement)
         print(f"  distinct old files placed: {len(by_old)}", file=stream)
-        for old_path, group in sorted(by_old.items()):
-            new_path = group["new"]
-            seen: dict[int, Any] = {}
-            for placement in group["items"]:
-                seen.setdefault(id(placement.pool_item),
-                                placement.pool_item)
-            for pool_item in seen.values():
-                try:
-                    ok = pool_item.ReplaceClip(new_path)
-                except Exception as exc:  # noqa: BLE001 - refused loudly
-                    ok = False
-                    replace_error = str(exc)
-                else:
-                    replace_error = ""
-                if not ok:
-                    failure = (f"ReplaceClip refused for "
-                               f"{os.path.basename(old_path)}"
-                               f"{f': {replace_error}' if replace_error else ''}")
-                    report["failed"].append({"old": old_path,
-                                             "new": new_path,
-                                             "reason": failure})
-                    raise CaptionSwapError(failure, report)
-                apply_clip_attributes(pool_item, new_path)
-            for placement in group["items"]:
-                back = _pool_path(placement.item.GetMediaPoolItem())
-                if back != new_path:
-                    failure = (f"read-back mismatch on "
-                               f"{placement.timeline}: {back!r} is not "
-                               f"{new_path!r}")
-                    report["failed"].append({"old": old_path,
-                                             "new": new_path,
-                                             "reason": failure})
-                    raise CaptionSwapError(failure, report)
-                try:
-                    now = (placement.item.GetStart(),
-                           placement.item.GetEnd())
-                    now_left_offset = placement.item.GetLeftOffset()
-                except Exception as exc:  # noqa: BLE001 - unreadable moved
-                    failure = (f"placement on {placement.timeline} "
-                               f"cannot be re-read after the swap: {exc}")
-                    report["failed"].append({"old": old_path,
-                                             "new": new_path,
-                                             "reason": failure})
-                    raise CaptionSwapError(failure, report)
-                if now != (placement.start, placement.end):
-                    failure = (f"placement moved on {placement.timeline}: "
-                               f"{placement.start}-{placement.end} is now "
-                               f"{now[0]}-{now[1]}")
-                    report["failed"].append({"old": old_path,
-                                             "new": new_path,
-                                             "reason": failure})
-                    raise CaptionSwapError(failure, report)
-                if now_left_offset != placement.left_offset:
-                    failure = (
-                        f"source trim moved on {placement.timeline}: "
-                        f"{placement.left_offset!r} is now "
-                        f"{now_left_offset!r}")
-                    report["failed"].append({"old": old_path,
-                                             "new": new_path,
-                                             "reason": failure})
-                    raise CaptionSwapError(failure, report)
-                report["swapped"].append({
-                    "timeline": placement.timeline,
-                    "old": os.path.basename(old_path),
-                    "new": os.path.basename(new_path),
-                    "start": placement.start, "end": placement.end,
-                    "left_offset": placement.left_offset})
-            print(f"  swapped {os.path.basename(old_path)} -> "
-                  f"{os.path.basename(new_path)} on "
-                  f"{len(group['items'])} placement(s)", file=stream)
+        # The resource lease declares what this run touches BEFORE the
+        # destructive change: the project it read, and the pool items
+        # it replaces - WRITE + EXCLUSIVE, the spec's own pairing, so
+        # no other agent may move or delete a clip mid-swap. The
+        # instance lease above is the coarse fence; this is the
+        # fine-grained declaration that lets a compatible task (one
+        # touching other clips) be in flight at the same time.
+        pool_paths = sorted(by_old)
+        with resource_lease(
+            LeaseDeclaration(
+                read=frozenset({ResourceRef("project", _project_name(project))}),
+                write=frozenset({ResourceRef("clip", path)
+                                 for path in pool_paths}),
+                exclusive=frozenset({ResourceRef("clip", path)
+                                     for path in pool_paths}),
+            ),
+            purpose="caption swap re-rendered segments",
+        ):
+            for old_path, group in sorted(by_old.items()):
+                new_path = group["new"]
+                seen: dict[int, Any] = {}
+                for placement in group["items"]:
+                    seen.setdefault(id(placement.pool_item),
+                                    placement.pool_item)
+                for pool_item in seen.values():
+                    try:
+                        ok = pool_item.ReplaceClip(new_path)
+                    except Exception as exc:  # noqa: BLE001 - refused loudly
+                        ok = False
+                        replace_error = str(exc)
+                    else:
+                        replace_error = ""
+                    if not ok:
+                        failure = (f"ReplaceClip refused for "
+                                   f"{os.path.basename(old_path)}"
+                                   f"{f': {replace_error}' if replace_error else ''}")
+                        report["failed"].append({"old": old_path,
+                                                 "new": new_path,
+                                                 "reason": failure})
+                        raise CaptionSwapError(failure, report)
+                    apply_clip_attributes(pool_item, new_path)
+                for placement in group["items"]:
+                    back = _pool_path(placement.item.GetMediaPoolItem())
+                    if back != new_path:
+                        failure = (f"read-back mismatch on "
+                                   f"{placement.timeline}: {back!r} is not "
+                                   f"{new_path!r}")
+                        report["failed"].append({"old": old_path,
+                                                 "new": new_path,
+                                                 "reason": failure})
+                        raise CaptionSwapError(failure, report)
+                    try:
+                        now = (placement.item.GetStart(),
+                               placement.item.GetEnd())
+                        now_left_offset = placement.item.GetLeftOffset()
+                    except Exception as exc:  # noqa: BLE001 - unreadable moved
+                        failure = (f"placement on {placement.timeline} "
+                                   f"cannot be re-read after the swap: {exc}")
+                        report["failed"].append({"old": old_path,
+                                                 "new": new_path,
+                                                 "reason": failure})
+                        raise CaptionSwapError(failure, report)
+                    if now != (placement.start, placement.end):
+                        failure = (f"placement moved on {placement.timeline}: "
+                                   f"{placement.start}-{placement.end} is now "
+                                   f"{now[0]}-{now[1]}")
+                        report["failed"].append({"old": old_path,
+                                                 "new": new_path,
+                                                 "reason": failure})
+                        raise CaptionSwapError(failure, report)
+                    if now_left_offset != placement.left_offset:
+                        failure = (
+                            f"source trim moved on {placement.timeline}: "
+                            f"{placement.left_offset!r} is now "
+                            f"{now_left_offset!r}")
+                        report["failed"].append({"old": old_path,
+                                                 "new": new_path,
+                                                 "reason": failure})
+                        raise CaptionSwapError(failure, report)
+                    report["swapped"].append({
+                        "timeline": placement.timeline,
+                        "old": os.path.basename(old_path),
+                        "new": os.path.basename(new_path),
+                        "start": placement.start, "end": placement.end,
+                        "left_offset": placement.left_offset})
+                print(f"  swapped {os.path.basename(old_path)} -> "
+                      f"{os.path.basename(new_path)} on "
+                      f"{len(group['items'])} placement(s)", file=stream)
         post = find_placements(project, set(mapping))
         # `find_placements` takes its own (shared, reentrant) lease, so
         # calling it from inside the exclusive hold is a no-op nesting,
