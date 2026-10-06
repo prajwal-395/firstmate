@@ -83,6 +83,11 @@ from __future__ import annotations
 import sys
 
 from library.tools.resolve_lock import under_lease
+from library.tools.resource_leases import (
+    LeaseDeclaration,
+    ResourceRef,
+    resource_lease,
+)
 
 #: Rows a marker anchor is read from, topmost picture first. Captions
 #: and frame overlays run the length of a reel and would anchor every
@@ -569,23 +574,35 @@ def place(timeline, carried) -> list:
     than assumed placed - AGENTS.md 5: judge a Resolve call by what it
     RETURNS. A frame that already carries a marker is one such
     decline, and saying so is the point.
+
+    The carry declares the replacement timeline WRITE before the
+    first marker: a touch-up restructuring the replacement mid-carry
+    moves frames under the notes, and the captain's words land where
+    the footage was. WRITE, not EXCLUSIVE, like the master marking.
     """
+    timeline_name = timeline.GetName()
     failed = []
     start = timeline.GetStartFrame()
-    for marker in carried:
-        ok = timeline.AddMarker(
-            start + int(marker["to_frame"]), marker["color"] or "Blue",
-            marker["name"], marker["note"], marker["duration"],
-            marker.get("custom_data") or "")
-        if not ok and _already_carries(
-                timeline, int(marker["to_frame"]), marker):
-            continue
-        if not ok:
-            failed.append(marker)
-            print(f"  MARKER NOT CARRIED: Resolve declined "
-                  f"{marker['name']!r} at frame {marker['to_frame']} - "
-                  f"the captain wrote: {marker['note'].strip()!r}",
-                  file=sys.stderr, flush=True)
+    with resource_lease(
+        LeaseDeclaration(
+            write=frozenset({ResourceRef("timeline", timeline_name)}),
+        ),
+        purpose=f"carry markers onto {timeline_name}",
+    ):
+        for marker in carried:
+            ok = timeline.AddMarker(
+                start + int(marker["to_frame"]), marker["color"] or "Blue",
+                marker["name"], marker["note"], marker["duration"],
+                marker.get("custom_data") or "")
+            if not ok and _already_carries(
+                    timeline, int(marker["to_frame"]), marker):
+                continue
+            if not ok:
+                failed.append(marker)
+                print(f"  MARKER NOT CARRIED: Resolve declined "
+                      f"{marker['name']!r} at frame {marker['to_frame']} - "
+                      f"the captain wrote: {marker['note'].strip()!r}",
+                      file=sys.stderr, flush=True)
     return failed
 
 

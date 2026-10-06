@@ -9,6 +9,16 @@ they answer is the one `promote_staged_reels` drives.
 from library.tools import marker_carry
 from unittest.mock import patch
 import pytest
+import threading
+import time
+
+
+@pytest.fixture(autouse=True)
+def _leases_off_machine(tmp_path, monkeypatch):
+    """Carried markers declare their timeline now: leases stay in tmp."""
+    directory = tmp_path / "locks"
+    directory.mkdir()
+    monkeypatch.setenv("PIPELINE_RESOLVE_LOCK_DIR", str(directory))
 from tests.promotion_test_helpers import (
     install_fake_timeline_snapshots,
     no_a_roll_track_plans,
@@ -69,6 +79,9 @@ class _Timeline:
         self._start = start
         self._decline = set(decline)
         self.added = []
+
+    def GetName(self):
+        return "Reel 13 (rebuild staging)"
 
     def GetStartFrame(self):
         return self._start
@@ -367,6 +380,9 @@ class _Occupied:
 
     def GetStartFrame(self):
         return 0
+
+    def GetName(self):
+        return "Reel 13 (rebuild staging)"
 
     def AddMarker(self, *args):
         return False
@@ -1876,3 +1892,64 @@ def test_an_added_green_reply_is_not_a_failure():
                 _timeline_2("Green", "reply", "done", 1526)],
             "clip_items": []}
     assert compare(captured, live) == []
+
+
+# ── The carry declares the replacement timeline ──────────────────────
+
+def _carried_note(to_frame=1680):
+    return {"to_frame": to_frame, "color": "Blue", "name": "feedback",
+            "note": "hold this two beats longer", "duration": 1,
+            "custom_data": ""}
+
+
+def test_carrying_places_the_note_on_the_replacement():
+    """The wired path still carries: the note lands, nothing fails.
+
+    Defect caught: a declaration that refuses its own carry turns the
+    captain's words into a refusal, and the replacement ships without
+    them.
+    """
+    replacement = _Timeline(
+        [("SpeakerOne", [_Item(1579, 1889, "/f/LC4932.MXF", left=1000)])])
+    assert marker_carry.place(replacement, [_carried_note()]) == []
+    assert replacement.added == [
+        (1680, "Blue", "feedback", "hold this two beats longer", 1, "")]
+
+
+def test_carrying_waits_for_a_touchup_on_the_replacement():
+    """Notes and restructuring on one timeline serialise: carry waits.
+
+    Defect caught: with no declaration the carry writes the captain's
+    words onto a replacement a touch-up is restructuring - they land
+    where the footage was. On origin/main the carry returns before
+    the holder releases.
+    """
+    from library.tools.resource_leases import (
+        LeaseDeclaration, ResourceRef, resource_lease)
+    replacement = _Timeline(
+        [("SpeakerOne", [_Item(1579, 1889, "/f/LC4932.MXF", left=1000)])])
+    touchup = LeaseDeclaration(
+        write=frozenset(
+            {ResourceRef("timeline", "Reel 13 (rebuild staging)")}),
+        exclusive=frozenset(
+            {ResourceRef("timeline", "Reel 13 (rebuild staging)")}),
+    )
+    released_at: list = []
+
+    def restructure():
+        with resource_lease(touchup, "touch up the replacement",
+                           heartbeat_interval=30.0):
+            time.sleep(2.0)
+        released_at.append(time.monotonic())
+
+    holder = threading.Thread(target=restructure)
+    holder.start()
+    time.sleep(0.3)  # let the touch-up acquire first
+    assert marker_carry.place(replacement, [_carried_note()]) == []
+    returned_at = time.monotonic()
+    holder.join(30.0)
+    assert released_at, "the touch-up never released"
+    assert returned_at >= released_at[0], \
+        "the carry returned mid-touch-up"
+    assert replacement.added == [
+        (1680, "Blue", "feedback", "hold this two beats longer", 1, "")]
