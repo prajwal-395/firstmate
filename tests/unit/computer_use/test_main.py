@@ -128,3 +128,71 @@ def test_run_takes_a_plain_lease_then_borrows(monkeypatch, capsys):
     assert main_module.main(["run", "switch pages"]) == 0
     assert lease_kwargs == [("computer-use", {})]
     assert len(borrowed_with) == 1
+
+
+def test_script_runs_the_file_with_no_model(monkeypatch, capsys, tmp_path):
+    """`script` executes the file's steps deterministically - the model
+    module is never touched. A script verb that planned would spend
+    inference on a route already verified deterministic."""
+    _stub_resolve(monkeypatch)
+    path = tmp_path / "media.json"
+    path.write_text(
+        '{"goal": "switch pages", "steps": [{"action": "press", '
+        '"anchors": [{"via": "ax_path", "path": ["Workspace"]}]}]}',
+        encoding="utf-8",
+    )
+    seen: list = []
+
+    from library.tools.computer_use.scripts import ScriptResult
+
+    def recording_run(client, script):
+        seen.append(script.to_dict())
+        return ScriptResult(outcome="done", steps=[
+            {"step": 0, "action": "press", "outcome": "ok", "via": "ax_path"}])
+
+    monkeypatch.setattr(main_module, "run_script", recording_run)
+
+    assert main_module.main(["script", str(path)]) == 0
+    assert seen[0]["goal"] == "switch pages"
+    out = capsys.readouterr().out
+    assert "outcome: done" in out
+    assert "via ax_path" in out
+
+
+def test_script_with_an_unreadable_file_is_refused(monkeypatch, capsys):
+    """A missing script file is a typed refusal naming the file, not a
+    traceback - the verb must say which path to fix."""
+    _stub_resolve(monkeypatch)
+
+    assert main_module.main(["script", "/no/such/script.json"]) == 4
+    err = capsys.readouterr().err
+    assert "/no/such/script.json" in err
+
+
+def test_script_with_a_malformed_file_is_refused(monkeypatch, capsys, tmp_path):
+    """A file that is not a script is refused before anything runs - a
+    verb that ran it halfway would act on half a route."""
+    _stub_resolve(monkeypatch)
+    path = tmp_path / "broken.json"
+    path.write_text(
+        '{"goal": "switch pages", "steps": [{"action": "click", '
+        '"anchors": [], "expect": {"via": "teleport"}}]}',
+        encoding="utf-8",
+    )
+
+    assert main_module.main(["script", str(path)]) == 4
+    assert "not a runnable script" in capsys.readouterr().err
+
+
+def test_script_on_canva_refuses_before_any_driver_spawns(monkeypatch, capsys):
+    """`script --target canva` refuses like run does - there is no
+    Chrome executor, and spawning Resolve's driver for a Canva task
+    would act on the wrong app."""
+    def _boom(*args, **kwargs):
+        raise AssertionError("no driver may spawn for a refused target")
+
+    monkeypatch.setattr(main_module, "DriverClient", _boom)
+
+    assert main_module.main(
+        ["script", "/no/such/script.json", "--target", "canva"]) == 4
+    assert "no executor" in capsys.readouterr().err

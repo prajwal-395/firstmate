@@ -13,7 +13,8 @@ One verb, one module, extended as the layer grows:
                back; until then it is an offline tool against the mock
                driver.
 
-    script     (PR 4) run a deterministic UI script.
+    script     run a deterministic UI script file - the anchors
+               re-resolve at run time, no model is asked.
 
 `--target` selects the app (resolve today; canva reports its
 declaration and gate, and refuses `run` - no Chrome executor exists
@@ -29,6 +30,7 @@ import sys
 from library.tools.computer_use.client import DriverClient
 from library.tools.computer_use.loop import run_loop
 from library.tools.computer_use.model import ENV_URL, ModelConfig, ModelSession
+from library.tools.computer_use.scripts import Script, run_script
 from library.tools.computer_use.targets import (
     AppTarget,
     canva_scratch_designs,
@@ -119,6 +121,49 @@ def _run(
     return 0 if result.outcome == "done" else 1
 
 
+def _script(client: DriverClient, script_path: str) -> int:
+    """Run a deterministic UI script file - no model, no planning.
+
+    The file is the `Script` JSON the mapping runs write: steps with
+    anchors re-resolved at run time and per-step expectations. A file
+    that is not a script is refused naming what it is missing, never
+    run halfway. The Resolve setup mirrors `_run`: the qualification
+    project is borrowed for the driver's gates, restored on exit.
+    """
+    import json
+    from pathlib import Path
+
+    from library.tools.marker_feedback import connect_resolve
+    from library.tools.qualification_project import borrowed
+    from library.tools.resolve_lock import resolve_lease
+
+    try:
+        raw = Path(script_path).read_text(encoding="utf-8")
+    except OSError as exc:
+        raise RenRefusal(
+            f"the script file {script_path} could not be read",
+            str(exc),
+            "pass the path of a script JSON file the mapping run wrote",
+            code="SCRIPT_UNREADABLE",
+        ) from exc
+    try:
+        script = Script.from_dict(json.loads(raw))
+    except (ValueError, KeyError, TypeError, AttributeError) as exc:
+        raise RenRefusal(
+            f"the file {script_path} is not a runnable script",
+            str(exc),
+            "run the mapping run again and pass the script file it wrote",
+            code="SCRIPT_INVALID",
+        ) from exc
+    resolve = connect_resolve()
+    with resolve_lease("computer-use"), borrowed(resolve):
+        result = run_script(client, script)
+    print(f"outcome: {result.outcome}")
+    for step in result.steps:
+        print(f"  {step['action']}: {step['outcome']} via {step.get('via')}")
+    return 0 if result.outcome == "done" else 1
+
+
 def _canva_status(target: AppTarget) -> int:
     """What the Canva target is and what it may touch - no driver claims.
 
@@ -170,6 +215,10 @@ def main(argv=None) -> int:
         default=None,
         help="cap the decide calls' spend (overrides $COMPUTER_USE_MAX_COST_USD)",
     )
+    script_parser = sub.add_parser(
+        "script", help="run a deterministic UI script file (no model)")
+    script_parser.add_argument("path", help="the script JSON file to run")
+    _target_flag(script_parser)
     args = parser.parse_args(argv)
 
     try:
@@ -183,6 +232,10 @@ def main(argv=None) -> int:
             require_executor(target)
             with DriverClient() as client:
                 return _run(client, args.goal, args.model, args.max_cost_usd)
+        if args.subcommand == "script":
+            require_executor(target)
+            with DriverClient() as client:
+                return _script(client, args.path)
     except RenRefusal as exc:
         print(exc.render(), file=sys.stderr)
         return 4
