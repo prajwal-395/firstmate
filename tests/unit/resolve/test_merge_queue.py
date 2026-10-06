@@ -66,14 +66,14 @@ def _lined_project(tmp_path):
         project, parent=root["id"], intent="tighten", changes=[],
         agent="reel_touchup", timeline="Reel 01 - lab")
     uj.record_branch(project, name="variant faster-intro",
-                     base=root["id"], timeline="Reel 01 - lab",
+                     base=root["id"], timeline="variant faster-intro",
                      note="tighten the opening")
     candidate_a = uj.record_commit(
         project, parent=root["id"], intent="faster",
         changes=_move_change("clip_001", 10),
         agent="ren-worker-07", timeline="variant faster-intro")
     uj.record_branch(project, name="variant emotional-intro",
-                     base=root["id"], timeline="Reel 01 - lab",
+                     base=root["id"], timeline="variant emotional-intro",
                      note="hold the reaction")
     candidate_b = uj.record_commit(
         project, parent=root["id"], intent="emotional",
@@ -192,3 +192,181 @@ def test_list_filters_by_status(tmp_path):
     assert uj.list_queue_entries(project, status=uj.ENTRY_MERGED) == []
     with pytest.raises(QueueRefused):
         uj.read_queue_entry(project, "no-such-entry")
+
+
+# ── The evaluation and merge passes ───────────────────────────────────
+#
+# Each test names a defect the two passes close:
+#
+# - an evaluation that merges (the pass must record verdicts only);
+# - a batch failure that names no candidate (the verdicts ARE the
+#   split - each candidate is judged alone);
+# - a second candidate merged over the first's landed changes in
+#   silence (the head moves per entry, and a conflict with it rejects
+#   with the clips named);
+# - a merge onto a branch that moved after evaluation (stale refuses,
+#   and only a re-evaluation clears it);
+# - a merge without a passing evaluation (the freshness the queue
+#   exists to enforce, skipped).
+
+
+def _queued_pair(tmp_path):
+    """Two queued candidates that both move clip_001, differently."""
+    project, master, _old_a, _old_b = _lined_project(tmp_path)
+    root = uj.read_commit(project, master)["parent"]
+    candidate_a = uj.record_commit(
+        project, parent=root,
+        intent="faster", changes=_move_change("clip_001", 10),
+        agent="ren-worker-07",
+        timeline="variant faster-intro")["id"]
+    candidate_b = uj.record_commit(
+        project, parent=root,
+        intent="emotional", changes=_move_change("clip_001", 50),
+        agent="ren-worker-08",
+        timeline="variant emotional-intro")["id"]
+    entry_a = uj.queue_merge(
+        project, branch="variant faster-intro", candidate=candidate_a,
+        master=master, submitted_by="ren-worker-07")
+    entry_b = uj.queue_merge(
+        project, branch="variant emotional-intro", candidate=candidate_b,
+        master=master, submitted_by="ren-worker-08")
+    return project, master, entry_a, entry_b
+
+
+def test_evaluate_passes_what_merges_and_names_what_does_not(tmp_path):
+    """One pass over the batch: a clean candidate passes with its
+    measured facts, a clashing one fails naming the clips - and no
+    commit is created, because evaluation reads."""
+    project, master, candidate_a, _b = _lined_project(tmp_path)
+    root = uj.read_commit(project, master)["parent"]
+    # The master side moves clip_009 after the root, so a candidate
+    # touching clip_009 clashes while one touching clip_001 passes.
+    # (A candidate extending the master is a fast-forward - it cannot
+    # fail evaluation; only the master's own movement since the
+    # common ancestor makes a failure.)
+    master_side = uj.record_commit(
+        project, parent=master, intent="master moves clip_009",
+        changes=_move_change("clip_009", 40),
+        agent="human-prajwal", timeline="Reel 01 - lab")["id"]
+    recorded_master = uj.record_commit(
+        project, parent=master_side, intent="master head",
+        changes=[], agent="human-prajwal",
+        timeline="Reel 01 - lab")["id"]
+    clashing = uj.record_commit(
+        project, parent=master, intent="branch moves clip_009",
+        changes=_move_change("clip_009", 70),
+        agent="ren-worker-08",
+        timeline="variant clashing")["id"]
+    uj.record_branch(project, name="variant clashing",
+                     base=master, timeline="variant clashing",
+                     note="clash")
+    queued_ok = uj.queue_merge(
+        project, branch="variant faster-intro", candidate=candidate_a,
+        master=recorded_master, submitted_by="ren-worker-07")
+    uj.queue_merge(
+        project, branch="variant clashing", candidate=clashing,
+        master=recorded_master, submitted_by="ren-worker-08")
+    before = len(uj.list_commits(project))
+
+    decided = uj.evaluate_batch(project)
+
+    by_branch = {e["branch"]: e for e in decided}
+    assert by_branch["variant faster-intro"]["status"] == uj.ENTRY_EVALUATED_PASS
+    assert by_branch["variant clashing"]["status"] == uj.ENTRY_EVALUATED_FAIL
+    assert "clip_009" in by_branch["variant clashing"]["evaluation"]["reason"]
+    assert by_branch["variant clashing"]["evaluation"]["master_clips"] == [
+        "clip_009"]
+    facts = by_branch["variant faster-intro"]["evaluation"]
+    assert facts["candidate_changes"] == 1
+    assert facts["candidate_clips"] == ["clip_001"]
+    assert facts["branch_digest"]
+    assert len(uj.list_commits(project)) == before
+    kinds = [e["type"] for e in event_log.read_events(project)]
+    assert kinds.count("merge_evaluated") == 2
+    assert uj.read_queue_entry(
+        project, queued_ok["id"])["status"] == uj.ENTRY_EVALUATED_PASS
+
+
+def test_evaluate_refuses_decided_entries(tmp_path):
+    """A decided entry re-evaluated would overwrite its verdict in
+    silence - only queued (or stale) entries evaluate."""
+    project, master, _a, _b = _lined_project(tmp_path)
+    project, master, entry_a, _b2 = _queued_pair(tmp_path)
+    uj.evaluate_batch(project, [entry_a["id"]])
+    with pytest.raises(QueueRefused, match="not queued"):
+        uj.evaluate_batch(project, [entry_a["id"]])
+    # Merging without a pass is refused even where the merge would
+    # succeed: the freshness check is the point, not the outcome.
+    fresh = uj.queue_merge(
+        project, branch="variant emotional-intro",
+        candidate=uj.read_queue_entry(
+            project, _b2["id"])["candidate"],
+        master=master, submitted_by="ren-worker-08")
+    assert fresh["id"] == _b2["id"]
+    with pytest.raises(QueueRefused, match="not evaluated_pass"):
+        uj.merge_passing(project, [fresh["id"]])
+
+
+def test_merge_passes_in_order_and_splits_the_batch(tmp_path):
+    """Both candidates pass solo evaluation; the first merges, and the
+    second - now conflicting with the first's landed changes - is
+    rejected naming clip_001 while the first stays merged. The batch
+    split names its candidate."""
+    project, master, entry_a, entry_b = _queued_pair(tmp_path)
+    uj.evaluate_batch(project)
+
+    done = uj.merge_passing(project)
+
+    by_branch = {e["branch"]: e for e in done}
+    assert by_branch["variant faster-intro"]["status"] == uj.ENTRY_MERGED
+    assert by_branch["variant emotional-intro"]["status"] == uj.ENTRY_REJECTED
+    assert "clip_001" in by_branch["variant emotional-intro"]["merge_error"]
+    merged = uj.read_queue_entry(project, entry_a["id"])
+    assert merged["status"] == uj.ENTRY_MERGED
+    commit = uj.read_commit(project, merged["merge_commit"])
+    assert commit["parent"] == master
+    assert commit["second_parent"] == merged["candidate"]
+    assert commit["timeline"] == "Reel 01 - lab"
+    kinds = [e["type"] for e in event_log.read_events(project)]
+    assert kinds.count("merge_merged") == 1
+    assert kinds.count("merge_rejected") == 1
+
+
+def test_stale_branch_refuses_until_re_evaluated(tmp_path):
+    """A commit landing on the branch after evaluation makes the merge
+    refuse as stale - and only a re-evaluation (fresh snapshots) clears
+    it, never a retry."""
+    project, master, entry_a, _b = _queued_pair(tmp_path)
+    uj.evaluate_batch(project, [entry_a["id"]])
+    uj.record_commit(
+        project, parent=entry_a["candidate"], intent="late planning",
+        changes=[], agent="ren-worker-07",
+        timeline="variant faster-intro")
+
+    (stale,) = uj.merge_passing(project, [entry_a["id"]])
+
+    assert stale["status"] == uj.ENTRY_STALE
+    assert uj.read_queue_entry(
+        project, entry_a["id"])["status"] == uj.ENTRY_STALE
+
+    with pytest.raises(QueueRefused, match="not evaluated_pass"):
+        uj.merge_passing(project, [entry_a["id"]])
+
+    uj.evaluate_batch(project, [entry_a["id"]])
+    (merged,) = uj.merge_passing(project, [entry_a["id"]])
+    assert merged["status"] == uj.ENTRY_MERGED
+
+
+def test_re_recorded_branch_refuses_on_digest(tmp_path):
+    """The freshness check is two clocks: re-recording the branch
+    (same tip, new note) changes the digest, and the merge refuses
+    even though no commit landed."""
+    project, master, entry_a, _b = _queued_pair(tmp_path)
+    uj.evaluate_batch(project, [entry_a["id"]])
+    uj.record_branch(project, name="variant faster-intro",
+                     base=master, timeline="variant faster-intro",
+                     note="re-planned overnight")
+
+    (stale,) = uj.merge_passing(project, [entry_a["id"]])
+
+    assert stale["status"] == uj.ENTRY_STALE

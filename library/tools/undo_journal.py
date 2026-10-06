@@ -1143,6 +1143,189 @@ def queue_merge(project_folder, *, branch: str, candidate: str,
     return entry
 
 
+def _evaluation_facts(project_folder, *, master: str, candidate: str,
+                      preview: Mapping) -> dict:
+    """The measured comparison one evaluation records.
+
+    Counts and clip names read off the commits' recorded `timeline_diff`
+    changes - the same signals the merge itself refuses on. No score:
+    a verdict is pass/fail with the reason, and the choice of what the
+    verdict MEANS stays the model's or the user's (AGENTS.md 10.4 -
+    passage engagement is an ordering with no score, and so is this).
+    """
+    common = preview.get("common")
+    if not common:
+        return {"master_changes": 0, "candidate_changes": 0,
+                "master_clips": [], "candidate_clips": []}
+    master_changes = _changes_since(project_folder, master, common)
+    candidate_changes = _changes_since(project_folder, candidate, common)
+    return {
+        "master_changes": len(master_changes),
+        "candidate_changes": len(candidate_changes),
+        "master_clips": sorted(
+            {c.get("item") for c in master_changes if c.get("item")}),
+        "candidate_clips": sorted(
+            {c.get("item") for c in candidate_changes if c.get("item")}),
+    }
+
+
+def evaluate_batch(project_folder, entry_ids=None) -> list:
+    """Evaluate the queued entries together against their masters.
+
+    One pass, per-candidate verdicts - the verdicts ARE the batch
+    split: each candidate merges against its master independently, so
+    a failure already names its candidate and no bisect loop is
+    needed. A verdict records the preview's reason plus the measured
+    facts (change counts and clip names per side), and snapshots the
+    branch digest and tip sequence the merge pass re-verifies -
+    nothing merges if the branch moved after this moment. Records
+    verdicts only; no commit is created here. Entries that are not
+    queued refuse by name: re-evaluating a decided entry would
+    overwrite its verdict in silence.
+    """
+    from library.tools import event_log
+
+    if entry_ids is None:
+        entries = list_queue_entries(project_folder, status=ENTRY_QUEUED)
+    else:
+        entries = [read_queue_entry(project_folder, entry_id)
+                   for entry_id in entry_ids]
+        for entry in entries:
+            if entry.get("status") not in (ENTRY_QUEUED, ENTRY_STALE):
+                raise QueueRefused(
+                    f"entry {entry['id'][:12]} is "
+                    f"{entry.get('status')}, not queued",
+                    "evaluating a decided entry would overwrite its "
+                    "verdict in silence - a stale entry may re-evaluate, "
+                    "because its snapshots are what went old",
+                    "evaluate what is queued or stale - "
+                    "`merge-queue <project> list --status queued`")
+    decided = []
+    for entry in entries:
+        preview = merge_preview(
+            project_folder, left=entry["master"],
+            right=entry["candidate"])
+        branch_record = read_branch(project_folder, entry["branch"])
+        evaluation = {
+            "verdict": "pass" if preview["mergeable"] else "fail",
+            "reason": preview.get("reason") or "",
+            "evaluated_master": entry["master"],
+            "common": preview.get("common"),
+            "fast_forward": bool(preview.get("fast_forward")),
+            "branch_digest": _branch_digest(branch_record),
+            "tip_sequence": _tip_sequence(
+                project_folder, entry.get("branch_timeline") or ""),
+            "evaluated_at": _now(),
+        }
+        evaluation.update(_evaluation_facts(
+            project_folder, master=entry["master"],
+            candidate=entry["candidate"], preview=preview))
+        entry["evaluation"] = evaluation
+        entry["status"] = (ENTRY_EVALUATED_PASS if preview["mergeable"]
+                           else ENTRY_EVALUATED_FAIL)
+        _write_queue_entry(project_folder, entry)
+        event_log.emit(
+            str(project_folder), "merge_evaluated",
+            task=entry.get("submitted_by") or "",
+            entry=entry["id"], branch=entry["branch"],
+            verdict=evaluation["verdict"], reason=evaluation["reason"])
+        decided.append(entry)
+    return decided
+
+
+def merge_passing(project_folder, entry_ids=None) -> list:
+    """Merge the passing entries into the next version, in order.
+
+    Each entry merges against the CURRENT head of its master timeline
+    - re-read per entry, so the head moves as siblings land and a
+    later candidate meets the batch's earlier merges, not the master
+    it was evaluated against. Two gates per entry, in this order:
+    freshness (the branch digest and tip sequence must read as they
+    did at evaluation - a branch that changed after evaluation goes
+    stale and waits for a re-evaluation, it never merges); then the
+    merge itself, where a conflict with the moving head rejects THIS
+    entry with the clips named and the batch continues. A merge commit
+    is the next version: both parents recorded, agent creative_merge.
+    Entries that never passed evaluation refuse by name.
+    """
+    from library.tools import event_log
+
+    if entry_ids is None:
+        entries = list_queue_entries(
+            project_folder, status=ENTRY_EVALUATED_PASS)
+    else:
+        entries = [read_queue_entry(project_folder, entry_id)
+                   for entry_id in entry_ids]
+        for entry in entries:
+            if entry.get("status") != ENTRY_EVALUATED_PASS:
+                raise QueueRefused(
+                    f"entry {entry['id'][:12]} is "
+                    f"{entry.get('status')}, not evaluated_pass",
+                    "merging without a passing evaluation skips the "
+                    "freshness the queue exists to enforce",
+                    "evaluate it first - "
+                    "`merge-queue <project> evaluate`")
+    merged = []
+    for entry in entries:
+        evaluation = entry.get("evaluation") or {}
+        branch_record = read_branch(project_folder, entry["branch"])
+        if (_branch_digest(branch_record)
+                != evaluation.get("branch_digest")
+                or _tip_sequence(project_folder,
+                                 entry.get("branch_timeline") or "")
+                != evaluation.get("tip_sequence")):
+            entry["status"] = ENTRY_STALE
+            _write_queue_entry(project_folder, entry)
+            event_log.emit(
+                str(project_folder), "merge_stale",
+                task=entry.get("submitted_by") or "",
+                entry=entry["id"], branch=entry["branch"],
+                reason="the branch changed after it was evaluated - "
+                       "re-evaluate before merging")
+            merged.append(entry)
+            continue
+        head = latest_commit_for_timeline(
+            project_folder, entry.get("master_timeline") or "")
+        if head is None:
+            raise QueueRefused(
+                f"master timeline {entry.get('master_timeline')!r} has "
+                f"no head commit",
+                "the next version stands on the master's head, and it "
+                "is gone",
+                "recover the master's commits from the project's git "
+                "history")
+        try:
+            merge_commit = merge_commits(
+                project_folder, timeline=entry.get("master_timeline") or "",
+                left=head["id"], right=entry["candidate"],
+                note=f"merge {entry['branch']} ({entry['id'][:12]})")
+        except MergeConflict as conflict:
+            # args[0] is the message; args[1] is the clip list where
+            # the raise site names one. The reason a submitter is sent
+            # back is prose, not a tuple repr.
+            reason = str(conflict.args[0]) if conflict.args else str(conflict)
+            entry["status"] = ENTRY_REJECTED
+            entry["merge_error"] = reason
+            _write_queue_entry(project_folder, entry)
+            event_log.emit(
+                str(project_folder), "merge_rejected",
+                task=entry.get("submitted_by") or "",
+                entry=entry["id"], branch=entry["branch"],
+                reason=reason)
+            merged.append(entry)
+            continue
+        entry["status"] = ENTRY_MERGED
+        entry["merge_commit"] = merge_commit["id"]
+        _write_queue_entry(project_folder, entry)
+        event_log.emit(
+            str(project_folder), "merge_merged",
+            task=entry.get("submitted_by") or "",
+            entry=entry["id"], branch=entry["branch"],
+            merge_commit=merge_commit["id"])
+        merged.append(entry)
+    return merged
+
+
 # ── Capture: the touch's side ────────────────────────────────────
 
 

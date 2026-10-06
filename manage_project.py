@@ -1230,13 +1230,62 @@ def cmd_merge_queue(args):
     The captain's merge-queue direction (2026-10-06): candidate
     branches queue against the master, one evaluation pass compares
     them with measured signals, the passing ones merge into the next
-    version. `queue` submits a branch's candidate commit; `list` reads
-    back what is queued and decided. See library/tools/undo_journal.py
-    (the queue lives on the existing merge slice) and AGENTS.md 17.
+    version. `queue` submits a branch's candidate commit; `evaluate`
+    runs the one pass over what is queued; `merge` merges what passed,
+    re-verifying freshness first; `list` reads back what is queued
+    and decided. See library/tools/undo_journal.py (the queue lives
+    on the existing merge slice) and AGENTS.md 17.
     """
     from library.tools import undo_journal as _journal
 
     project_folder = _reel_project_folder(args.project)
+
+    if args.queue_command == "evaluate":
+        wanted = args.entry or None
+        try:
+            decided = _journal.evaluate_batch(project_folder, wanted)
+        except _journal.QueueRefused as refused:
+            print(refused.render(), file=sys.stderr)
+            sys.exit(REFUSAL_EXIT_CODE)
+        if not decided:
+            print("Nothing is queued - evaluate needs a proposal first.")
+            print(f"  Queue one with: ren merge-queue {args.project} "
+                  f"queue --branch NAME --candidate <commit> "
+                  f"--master <commit> --submitted-by WHO")
+            return
+        for entry in decided:
+            verdict = entry["evaluation"]["verdict"]
+            facts = entry["evaluation"]
+            print(f"  {entry['branch']}: {verdict}"
+                  + (f" - {facts['reason']}" if facts["reason"] else "")
+                  + f" (master +{facts['master_changes']}, "
+                  f"candidate +{facts['candidate_changes']})")
+        return
+
+    if args.queue_command == "merge":
+        wanted = args.entry or None
+        try:
+            done = _journal.merge_passing(project_folder, wanted)
+        except _journal.QueueRefused as refused:
+            print(refused.render(), file=sys.stderr)
+            sys.exit(REFUSAL_EXIT_CODE)
+        if not done:
+            print("Nothing passed evaluation - merge needs a pass first.")
+            print(f"  Evaluate with: ren merge-queue {args.project} "
+                  f"evaluate")
+            return
+        for entry in done:
+            status = entry["status"]
+            detail = ""
+            if status == _journal.ENTRY_MERGED:
+                detail = f"as {entry['merge_commit'][:12]}"
+            elif entry.get("merge_error"):
+                detail = f"- {entry['merge_error']}"
+            elif status == _journal.ENTRY_STALE:
+                detail = ("- the branch changed after evaluation; "
+                          "re-evaluate it")
+            print(f"  {entry['branch']}: {status} {detail}".rstrip())
+        return
 
     if args.queue_command == "list":
         entries = _journal.list_queue_entries(
@@ -4061,6 +4110,21 @@ def main():
     q_list.add_argument("--status", default="",
                         help="One queue status; default: every entry")
     del q_list
+
+    q_eval = q_sub.add_parser(
+        "evaluate",
+        help="Run the one evaluation pass over what is queued")
+    q_eval.add_argument("--entry", action="append", default=[],
+                        metavar="ID",
+                        help="Evaluate only this queued entry; repeatable. "
+                             "Default: every queued entry.")
+
+    q_merge = q_sub.add_parser(
+        "merge", help="Merge what passed, re-verifying freshness first")
+    q_merge.add_argument("--entry", action="append", default=[],
+                         metavar="ID",
+                         help="Merge only this passing entry; repeatable. "
+                              "Default: every evaluated_pass entry.")
 
     p_queue.set_defaults(func=cmd_merge_queue)
 

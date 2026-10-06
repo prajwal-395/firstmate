@@ -203,7 +203,7 @@ const VERBS: &[Verb] = &[
     Verb { name: "discharge", group: "Reels", summary: "Discharge a dropped note a promotion filed" },
     Verb { name: "variant", group: "Reels", summary: "Two versions of one reel: new, build, list, diff, choose, merge" },
     Verb { name: "explore-variants", group: "Reels", summary: "Fork one base commit into one isolated branch per direction: propose, plan, list, dispatch" },
-    Verb { name: "merge-queue", group: "Reels", summary: "Queue a branch's candidate against the master: queue, list" },
+    Verb { name: "merge-queue", group: "Reels", summary: "Queue a branch's candidate against the master: queue, list, evaluate, merge" },
     Verb { name: "worktree", group: "Reels", summary: "A task's own checkout of the project store: add, list, commit, merge, remove" },
     Verb { name: "rounds", group: "Reels", summary: "What changed between two feedback rounds" },
     Verb { name: "revert", group: "Reels", summary: "Revert a creative commit: record its inverse as a new commit" },

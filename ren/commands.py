@@ -141,7 +141,7 @@ VERBS = (
          detail="Discharge a dropped captain's note a promotion filed, so its reel can be signed off"),
     Verb("variant", "Reels", "Two versions of one reel: new, build, list, diff, choose, merge", subcommand="variant"),
     Verb("explore-variants", "Reels", "Fork one base commit into one isolated branch per direction: propose, plan, list, dispatch", subcommand="explore-variants"),
-    Verb("merge-queue", "Reels", "Queue a branch's candidate against the master: queue, list", subcommand="merge-queue"),
+    Verb("merge-queue", "Reels", "Queue a branch's candidate against the master: queue, list, evaluate, merge", subcommand="merge-queue"),
     Verb("worktree", "Reels", "A task's own checkout of the project store: add, list, commit, merge, remove",
          subcommand="worktree",
          detail="Give a task its own checkout of the project's git store on branch ren/<task>, outside the project folder, and merge it back. Never moves the project checkout's branch; touches no Resolve"),
