@@ -110,6 +110,11 @@ GRAPHIC = "graphic"
 REFERENCE = "reference"
 TIMELINE = "timeline"
 EDIT = "edit"
+COLOUR_READING = "colour_reading"
+VFX_DETECTION = "vfx_detection"
+ONSET_CLASS = "onset_class"
+DEAD_SECTION = "dead_section"
+VERSION = "version"
 
 NODE_TYPES = (
     PERSON,
@@ -121,6 +126,11 @@ NODE_TYPES = (
     REFERENCE,
     TIMELINE,
     EDIT,
+    COLOUR_READING,
+    VFX_DETECTION,
+    ONSET_CLASS,
+    DEAD_SECTION,
+    VERSION,
 )
 
 
@@ -345,6 +355,8 @@ def build_graph(project_folder: str, root: Path | None = None) -> dict:
     _derive_audio_edges(graph, audio_events)
     _derive_edit_graph_nodes(graph, project_folder)
     _derive_intent_nodes(graph, project_folder)
+    _derive_analysis_nodes(graph, project_folder, catalog, recorded)
+    _derive_version_nodes(graph, project_folder)
 
     return graph
 
@@ -710,6 +722,153 @@ def _colour_for_clip(colour: dict, clip_id: str) -> dict | None:
         "grade": grade,
         "match": match,
     }
+
+
+def _derive_analysis_nodes(graph: dict, project_folder: str,
+                           catalog: list, recorded: dict) -> None:
+    """Analysis nodes from the temporal index and vfx detections.
+
+    Colour readings, onset classes and dead sections come from each
+    clip's temporal index file. VFX detections come from the edit
+    graph's vfx nodes. A clip with no temporal index contributes
+    nothing - the graph builds from whatever exists.
+    """
+    for clip in catalog:
+        clip_id = clip.get("clip_id")
+        if not clip_id:
+            continue
+        digest, _ = source_memory.digest_for_clip(project_folder, clip, recorded)
+        if digest is None:
+            continue
+        index = _read_temporal_index(
+            project_folder, clip_id, clip.get("source_file") or "")
+        if not index:
+            continue
+        _add_colour_readings(graph, clip_id, index)
+        _add_onset_classes(graph, clip_id, index)
+        _add_dead_sections(graph, clip_id, index)
+
+    _add_vfx_detections(graph, project_folder)
+
+
+def _read_temporal_index(project_folder: str, clip_id: str,
+                         source_file: str) -> dict | None:
+    base = Path(project_folder)
+    stem = Path(source_file).stem if source_file else clip_id
+    for sub in (
+        base / "pipeline_output" / "steps" / "1_04_temporal_index" / "index",
+        base / "raw" / "analysis" / "temporal_index",
+    ):
+        if not sub.is_dir():
+            continue
+        for idx_file in sorted(sub.glob("clip_*.json")):
+            try:
+                idx = json.loads(idx_file.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if stem in idx.get("source_file", ""):
+                return idx
+    return None
+
+
+def _add_colour_readings(graph: dict, clip_id: str, index: dict) -> None:
+    curves = index.get("color_curves") or {}
+    hues = curves.get("hue_values") or []
+    if not hues:
+        return
+    add_node(graph, {
+        "node_id": f"colour:{clip_id}",
+        "node_type": COLOUR_READING,
+        "label": f"colour readings for {clip_id}",
+        "payload": {
+            "clip_id": clip_id,
+            "hue_values": hues,
+            "brightness_values": curves.get("brightness_values") or [],
+            "temperature_values": curves.get("temperature_values") or [],
+        },
+    })
+
+
+def _add_onset_classes(graph: dict, clip_id: str, index: dict) -> None:
+    onsets = index.get("onset_classes") or []
+    if not onsets:
+        return
+    add_node(graph, {
+        "node_id": f"onset:{clip_id}",
+        "node_type": ONSET_CLASS,
+        "label": f"onset classes for {clip_id}",
+        "payload": {
+            "clip_id": clip_id,
+            "onsets": onsets,
+        },
+    })
+
+
+def _add_dead_sections(graph: dict, clip_id: str, index: dict) -> None:
+    unusable = index.get("unusable_ranges") or []
+    if not unusable:
+        return
+    add_node(graph, {
+        "node_id": f"dead:{clip_id}",
+        "node_type": DEAD_SECTION,
+        "label": f"dead sections for {clip_id}",
+        "payload": {
+            "clip_id": clip_id,
+            "unusable_ranges": unusable,
+        },
+    })
+
+
+def _add_vfx_detections(graph: dict, project_folder: str) -> None:
+    state = _load_state(project_folder)
+    if not state:
+        return
+    egraph = edit_graph.build_graph(state)
+    for enode in egraph.get("nodes") or []:
+        if enode.get("node_type") != edit_graph.VFX:
+            continue
+        payload = enode.get("payload") or {}
+        add_node(graph, {
+            "node_id": f"vfx:{enode['node_id']}",
+            "node_type": VFX_DETECTION,
+            "label": enode.get("label") or enode["node_id"],
+            "payload": {
+                "edit_node_id": enode["node_id"],
+                "clip_id": payload.get("clip_id"),
+                "position": payload.get("position"),
+                "effect": payload.get("effect"),
+            },
+        })
+
+
+def _derive_version_nodes(graph: dict, project_folder: str) -> None:
+    """Version nodes from the reel versions ledger.
+
+    Each version of each reel is a node, so the graph answers "what
+    versions exist for this reel" and "what did version 3 change".
+    """
+    try:
+        from library.tools.versions import reel_versions
+        ledger = reel_versions.read(project_folder)
+    except (OSError, ValueError, RuntimeError):
+        return
+    for final, versions in (ledger.get("reels") or {}).items():
+        for entry in versions or []:
+            version_num = entry.get("version")
+            if version_num is None:
+                continue
+            add_node(graph, {
+                "node_id": f"version:{final}:{version_num}",
+                "node_type": VERSION,
+                "label": f"version {version_num} of {final}",
+                "payload": {
+                    "final": final,
+                    "version": version_num,
+                    "kind": entry.get("kind"),
+                    "at": entry.get("at"),
+                    "rows_digest": entry.get("rows_digest"),
+                },
+            })
 
 
 # ── The query API ─────────────────────────────────────────────────

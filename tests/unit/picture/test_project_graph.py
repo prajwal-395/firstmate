@@ -687,6 +687,279 @@ def test_the_cache_rebuilds_when_the_colour_output_changes(tmp_path):
         graph2, "clip_001")["measurement"]["luma"] == 60.0
 
 
+# ── Analysis nodes ────────────────────────────────────────────────
+
+
+def test_colour_readings_are_registered_from_temporal_index(
+        tmp_path, monkeypatch):
+    """A clip's colour_curves in the temporal index become a
+    colour_reading node in the graph."""
+    memory_root = tmp_path / "memory"
+    monkeypatch.setenv("PIPELINE_SOURCE_MEMORY_ROOT", str(memory_root))
+
+    project = tmp_path / "project"
+    project.mkdir()
+
+    digest_a = "a" * 64
+    state = {
+        "capability_outputs": {
+            "footage.catalog": {"clip_catalog": [
+                {"clip_id": "clip_001", "source_file": "/camA/take1.MXF",
+                 "duration_seconds": 10.0},
+            ]},
+        },
+        "source_fingerprints": {
+            "clip_001": {"content_digest": digest_a},
+        },
+    }
+    (project / "pipeline_data.json").write_text(
+        json.dumps(state), encoding="utf-8")
+
+    _write_world_model(memory_root, digest_a, {
+        "timeline": [],
+        "entities": {"face_tracks": [], "voice_tracks": []},
+        "multicam": None,
+    })
+    _write_identity(memory_root, digest_a, {
+        "faces": [], "voices": [], "speech_face_links": [],
+    })
+
+    idx_dir = (project / "pipeline_output" / "steps" / "1_04_temporal_index"
+               / "index")
+    idx_dir.mkdir(parents=True)
+    (idx_dir / "clip_001.json").write_text(json.dumps({
+        "source_file": "/camA/take1.MXF",
+        "color_curves": {
+            "hue_values": [120, 125, 130],
+            "brightness_values": [0.5, 0.6, 0.7],
+            "temperature_values": [5500, 5600, 5700],
+        },
+        "onset_classes": [{"time": 1.0, "kind": "strong"}],
+        "unusable_ranges": [{"start": 5.0, "end": 7.0}],
+    }), encoding="utf-8")
+
+    graph = project_graph.build_graph(str(project))
+
+    colour_nodes = [n for n in graph["nodes"]
+                    if n["node_type"] == project_graph.COLOUR_READING]
+    assert len(colour_nodes) == 1
+    assert colour_nodes[0]["payload"]["clip_id"] == "clip_001"
+    assert colour_nodes[0]["payload"]["hue_values"] == [120, 125, 130]
+
+
+def test_onset_classes_are_registered_from_temporal_index(
+        tmp_path, monkeypatch):
+    """A clip's onset_classes in the temporal index become an
+    onset_class node in the graph."""
+    memory_root = tmp_path / "memory"
+    monkeypatch.setenv("PIPELINE_SOURCE_MEMORY_ROOT", str(memory_root))
+
+    project = tmp_path / "project"
+    project.mkdir()
+
+    digest_a = "a" * 64
+    state = {
+        "capability_outputs": {
+            "footage.catalog": {"clip_catalog": [
+                {"clip_id": "clip_001", "source_file": "/camA/take1.MXF",
+                 "duration_seconds": 10.0},
+            ]},
+        },
+        "source_fingerprints": {
+            "clip_001": {"content_digest": digest_a},
+        },
+    }
+    (project / "pipeline_data.json").write_text(
+        json.dumps(state), encoding="utf-8")
+
+    _write_world_model(memory_root, digest_a, {
+        "timeline": [],
+        "entities": {"face_tracks": [], "voice_tracks": []},
+        "multicam": None,
+    })
+    _write_identity(memory_root, digest_a, {
+        "faces": [], "voices": [], "speech_face_links": [],
+    })
+
+    idx_dir = (project / "pipeline_output" / "steps" / "1_04_temporal_index"
+               / "index")
+    idx_dir.mkdir(parents=True)
+    (idx_dir / "clip_001.json").write_text(json.dumps({
+        "source_file": "/camA/take1.MXF",
+        "onset_classes": [{"time": 1.0, "kind": "strong"},
+                          {"time": 3.0, "kind": "weak"}],
+    }), encoding="utf-8")
+
+    graph = project_graph.build_graph(str(project))
+
+    onset_nodes = [n for n in graph["nodes"]
+                   if n["node_type"] == project_graph.ONSET_CLASS]
+    assert len(onset_nodes) == 1
+    assert onset_nodes[0]["payload"]["clip_id"] == "clip_001"
+    assert len(onset_nodes[0]["payload"]["onsets"]) == 2
+
+
+def test_dead_sections_are_registered_from_temporal_index(
+        tmp_path, monkeypatch):
+    """A clip's unusable_ranges in the temporal index become a
+    dead_section node in the graph."""
+    memory_root = tmp_path / "memory"
+    monkeypatch.setenv("PIPELINE_SOURCE_MEMORY_ROOT", str(memory_root))
+
+    project = tmp_path / "project"
+    project.mkdir()
+
+    digest_a = "a" * 64
+    state = {
+        "capability_outputs": {
+            "footage.catalog": {"clip_catalog": [
+                {"clip_id": "clip_001", "source_file": "/camA/take1.MXF",
+                 "duration_seconds": 10.0},
+            ]},
+        },
+        "source_fingerprints": {
+            "clip_001": {"content_digest": digest_a},
+        },
+    }
+    (project / "pipeline_data.json").write_text(
+        json.dumps(state), encoding="utf-8")
+
+    _write_world_model(memory_root, digest_a, {
+        "timeline": [],
+        "entities": {"face_tracks": [], "voice_tracks": []},
+        "multicam": None,
+    })
+    _write_identity(memory_root, digest_a, {
+        "faces": [], "voices": [], "speech_face_links": [],
+    })
+
+    idx_dir = (project / "pipeline_output" / "steps" / "1_04_temporal_index"
+               / "index")
+    idx_dir.mkdir(parents=True)
+    (idx_dir / "clip_001.json").write_text(json.dumps({
+        "source_file": "/camA/take1.MXF",
+        "unusable_ranges": [{"start": 5.0, "end": 7.0}],
+    }), encoding="utf-8")
+
+    graph = project_graph.build_graph(str(project))
+
+    dead_nodes = [n for n in graph["nodes"]
+                  if n["node_type"] == project_graph.DEAD_SECTION]
+    assert len(dead_nodes) == 1
+    assert dead_nodes[0]["payload"]["clip_id"] == "clip_001"
+    assert dead_nodes[0]["payload"]["unusable_ranges"] == [
+        {"start": 5.0, "end": 7.0}]
+
+
+def test_vfx_detections_are_registered_from_edit_graph(
+        tmp_path, monkeypatch):
+    """VFX nodes in the edit graph become vfx_detection nodes in the
+    project graph."""
+    memory_root = tmp_path / "memory"
+    monkeypatch.setenv("PIPELINE_SOURCE_MEMORY_ROOT", str(memory_root))
+
+    project = tmp_path / "project"
+    project.mkdir()
+
+    digest_a = "a" * 64
+    state = {
+        "capability_outputs": {
+            "footage.catalog": {"clip_catalog": [
+                {"clip_id": "clip_001", "source_file": "/camA/take1.MXF",
+                 "duration_seconds": 10.0},
+            ]},
+            "vfx.resolve": {"enhancement_spec": [
+                {"position": 1, "clip_id": "clip_001",
+                 "effect": "stabilization"},
+            ]},
+        },
+        "source_fingerprints": {
+            "clip_001": {"content_digest": digest_a},
+        },
+    }
+    (project / "pipeline_data.json").write_text(
+        json.dumps(state), encoding="utf-8")
+
+    _write_world_model(memory_root, digest_a, {
+        "timeline": [],
+        "entities": {"face_tracks": [], "voice_tracks": []},
+        "multicam": None,
+    })
+    _write_identity(memory_root, digest_a, {
+        "faces": [], "voices": [], "speech_face_links": [],
+    })
+
+    graph = project_graph.build_graph(str(project))
+
+    vfx_nodes = [n for n in graph["nodes"]
+                 if n["node_type"] == project_graph.VFX_DETECTION]
+    assert len(vfx_nodes) == 1
+    assert vfx_nodes[0]["payload"]["clip_id"] == "clip_001"
+    assert vfx_nodes[0]["payload"]["effect"] == "stabilization"
+
+
+# ── Version nodes ─────────────────────────────────────────────────
+
+
+def test_version_nodes_are_registered_from_reel_versions_ledger(
+        tmp_path, monkeypatch):
+    """Each version in the reel versions ledger becomes a version
+    node in the graph."""
+    memory_root = tmp_path / "memory"
+    monkeypatch.setenv("PIPELINE_SOURCE_MEMORY_ROOT", str(memory_root))
+
+    project = tmp_path / "project"
+    project.mkdir()
+
+    digest_a = "a" * 64
+    state = {
+        "capability_outputs": {
+            "footage.catalog": {"clip_catalog": [
+                {"clip_id": "clip_001", "source_file": "/camA/take1.MXF",
+                 "duration_seconds": 10.0},
+            ]},
+        },
+        "source_fingerprints": {
+            "clip_001": {"content_digest": digest_a},
+        },
+    }
+    (project / "pipeline_data.json").write_text(
+        json.dumps(state), encoding="utf-8")
+
+    _write_world_model(memory_root, digest_a, {
+        "timeline": [],
+        "entities": {"face_tracks": [], "voice_tracks": []},
+        "multicam": None,
+    })
+    _write_identity(memory_root, digest_a, {
+        "faces": [], "voices": [], "speech_face_links": [],
+    })
+
+    review_dir = project / "pipeline_output" / "review"
+    review_dir.mkdir(parents=True)
+    (review_dir / "reel_versions.json").write_text(json.dumps({
+        "format": "reel_versions/1",
+        "reels": {
+            "reel_001": [
+                {"version": 1, "kind": "build", "at": "2026-10-06T10:00:00+00:00",
+                 "rows": {}, "rows_digest": "abc123"},
+                {"version": 2, "kind": "touch", "at": "2026-10-06T11:00:00+00:00",
+                 "rows": {}, "rows_digest": "def456"},
+            ],
+        },
+    }), encoding="utf-8")
+
+    graph = project_graph.build_graph(str(project))
+
+    version_nodes = [n for n in graph["nodes"]
+                     if n["node_type"] == project_graph.VERSION]
+    assert len(version_nodes) == 2
+    assert version_nodes[0]["payload"]["final"] == "reel_001"
+    assert version_nodes[0]["payload"]["version"] == 1
+    assert version_nodes[0]["payload"]["kind"] == "build"
+    assert version_nodes[1]["payload"]["version"] == 2
+
+
 # ── Fixtures ─────────────────────────────────────────────────────
 
 
