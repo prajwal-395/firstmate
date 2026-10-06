@@ -381,14 +381,36 @@ def _matte_value_failure(label, got, expected):
     return f"{label} reads {got!r}, not {expected!r}"
 
 
+def _verify_magic_mask_provider(op, after):
+    """The verify half of a Magic Mask op, judged without the shadow.
+
+    The ported core (`native/ren-core`) models the Fusion engine only:
+    it knows matte comps, not node graphs, so a Magic Mask op routed
+    to it would be judged by the wrong engine. The api provider's
+    apply already claimed True-plus-node-gain at the live handles
+    (nothing to re-judge); a ui op reaching verify means its apply
+    refusal was bypassed, which fails closed. Returns the failure or
+    None, like every verify.
+    """
+    provider = op.get("provider", "fusion_matte")
+    if provider == "resolve_magic_mask_api":
+        return None
+    return (f"{op.get('op')}: provider {provider!r} executes outside "
+            f"the patch - verify reached an op its apply must refuse")
+
+
 def _verify_mask_create(op, after):
     """The matte comp reads back on the clip with a RectangleMask."""
+    if op.get("provider", "fusion_matte") != "fusion_matte":
+        return _verify_magic_mask_provider(op, after)
     _state, failure = _matte_read(op, after)
     return failure
 
 
 def _verify_mask_delete(op, after):
     """The matte comp no longer reads back on the clip."""
+    if op.get("provider", "fusion_matte") != "fusion_matte":
+        return _verify_magic_mask_provider(op, after)
     clip = _clip(after, op["unique_id"])
     if clip is None:
         return f"clip {op['unique_id']!r} is not on the timeline"
@@ -400,6 +422,8 @@ def _verify_mask_delete(op, after):
 
 def _verify_mask_edit(op, after):
     """The matte reads back with the declared static geometry."""
+    if op.get("provider", "fusion_matte") != "fusion_matte":
+        return _verify_magic_mask_provider(op, after)
     state, failure = _matte_read(op, after)
     if failure:
         return failure
@@ -419,6 +443,8 @@ def _verify_mask_track(op, after):
     keyed that was not declared - an empty track reads back unkeyed,
     which is what the inverse of a first track relies on.
     """
+    if op.get("provider", "fusion_matte") != "fusion_matte":
+        return _verify_magic_mask_provider(op, after)
     from library.tools.reel_read import MATTE_PARAMS
 
     state, failure = _matte_read(op, after)
@@ -810,17 +836,141 @@ def _refuse_unimplemented_mask_provider(op, label):
         f"only 'fusion_matte' executes today")
 
 
-def _apply_mask_create(op, _timeline, item, project=None):
-    """Import a static, full-frame matte comp and give it the matte's name.
+#: The modes `TimelineItem.CreateMagicMask` takes - the same gate
+#: `resolve-axi sense mask` enforces, so neither the algebra nor the
+#: CLI ever asks the API for a mode it refuses.
+MAGIC_MASK_MODES = ("F", "B", "BI")
 
-    The provider must be fusion_matte (the only provider implemented);
-    any other is refused by name. An op claiming a Magic Mask provider
+#: The recipe verb that executes the UI provider's ops. EditPatch
+#: carries no driver - a UI seed click or tracker press cannot run
+#: inside a patch - so these ops name their executor instead of a
+#: Fusion matte. The recipe builders (`magic_mask.seed_script` /
+#: `track_script`) ARE the provider's implementation: seed_script is
+#: what a mask.create/ui op runs, track_script what a mask.track/ui
+#: op runs.
+MAGIC_MASK_RECIPE_VERB = "ren computer-use script"
+
+
+def _magic_mask_mode(op, label):
+    """The CreateMagicMask mode the op names, refused when unknown."""
+    mode = op.get("mode", "BI")
+    if mode not in MAGIC_MASK_MODES:
+        raise RuntimeError(
+            f"{label}: bad Magic Mask mode {mode!r}; one of "
+            f"{list(MAGIC_MASK_MODES)}")
+    return mode
+
+
+def _require_magic_seed(op, label):
+    """The MaskSeed receipt an api create runs on, refused when absent.
+
+    Measured (`resolve_axi sense_mask`, `neural_engine`): a bare
+    `CreateMagicMask` call answers False - the API starts tracking
+    from a seeded click, and without the seed there is nothing to
+    start from. The seed's viewer point is the click the UI phase
+    made; the object id binds the mask that follows to the subject
+    Ren determined.
+    """
+    seed = op.get("seed")
+    if not isinstance(seed, dict):
+        raise RuntimeError(
+            f"{label}: provider 'resolve_magic_mask_api' needs 'seed', "
+            f"the MaskSeed receipt whose viewer point the UI phase "
+            f"clicked - an unseeded call answers False")
+    viewer = seed.get("viewer") or {}
+    if not isinstance(viewer.get("x"), (int, float)) or not isinstance(
+            viewer.get("y"), (int, float)):
+        raise RuntimeError(
+            f"{label}: the seed carries no viewer point "
+            f"({seed.get('viewer')!r}) - nothing says where the click "
+            f"landed")
+    if not seed.get("object_id"):
+        raise RuntimeError(
+            f"{label}: the seed names no object "
+            f"({seed.get('object_id')!r}) - the mask would bind to "
+            f"no tracked subject")
+    return seed
+
+
+def _node_count(item):
+    """The clip's Color-page node count, or None where unreadable."""
+    try:
+        graph = item.GetNodeGraph()
+    except Exception:                                   # noqa: BLE001
+        return None
+    if graph is None:
+        return None
+    try:
+        return int(graph.GetNumNodes())
+    except Exception:                                   # noqa: BLE001
+        return None
+
+
+def _call_create_magic_mask(op, item, label, *, gain_required):
+    """Run one CreateMagicMask call and judge it by the node graph.
+
+    The claim rule is `sense_mask`'s: True plus a gained node claims
+    the mask, anything else is a refusal with the measured reason.
+    `gain_required` is the creation half (a started mask adds its
+    node); a re-track claims the accepted call - tracking moves an
+    existing mask, which gains nothing - and the mask read-back that
+    follows judges it.
+    """
+    mode = _magic_mask_mode(op, label)
+    before = _node_count(item)
+    if gain_required and before is None:
+        raise RuntimeError(
+            f"{label}: the clip's node graph does not read, so a "
+            f"started mask could never be verified - refusing before "
+            f"anything runs")
+    try:
+        started = bool(item.CreateMagicMask(mode))
+    except Exception as exc:                             # noqa: BLE001
+        raise RuntimeError(
+            f"{label}: CreateMagicMask({mode}) raised ({exc}) - "
+            f"verify by hand")
+    if not started:
+        raise RuntimeError(
+            f"{label}: CreateMagicMask({mode}) answered False "
+            f"(nodes {before}) - no mask started, nothing claimed")
+    if gain_required:
+        after = _node_count(item)
+        if after == before:
+            raise RuntimeError(
+                f"{label}: CreateMagicMask reports True but the node "
+                f"count reads back unchanged ({before}) - unverified, "
+                f"refusing to claim it")
+    return True
+
+
+def _refuse_ui_provider(op, label, recipe):
+    """Refuse a UI-provider op with the route that executes it."""
+    raise RuntimeError(
+        f"{label}: provider 'resolve_magic_mask_ui' executes through "
+        f"the recipe verb ({MAGIC_MASK_RECIPE_VERB} --recipe {recipe}), "
+        f"not in a patch - EditPatch carries no driver for the UI "
+        f"click this op needs")
+
+
+def _apply_mask_create(op, _timeline, item, project=None):
+    """Start the mask the provider names and claim it by read-back.
+
+    fusion_matte imports a static, full-frame matte comp and gives it
+    the matte's name. resolve_magic_mask_api starts the native mask
+    from the op's seed click (True plus a gained node claims it).
+    resolve_magic_mask_ui never runs in a patch - it names the recipe
+    verb that clicks the seed. An op claiming a Magic Mask provider
     used to silently get a Fusion matte here - the wrong capability
     executed and verified.
     """
     _refuse_unmarked_matte(op, "mask.create")
-    if _mask_provider(op, "mask.create") != "fusion_matte":
-        _refuse_unimplemented_mask_provider(op, "mask.create")
+    provider = _mask_provider(op, "mask.create")
+    if provider == "resolve_magic_mask_ui":
+        _refuse_ui_provider(op, "mask.create", "magic-mask-seed")
+    if provider == "resolve_magic_mask_api":
+        _require_magic_seed(op, "mask.create")
+        return _call_create_magic_mask(
+            op, item, "mask.create", gain_required=True)
     if op["matte"] in (item.GetFusionCompNameList() or []):
         raise RuntimeError(
             f"mask.create: clip already carries matte {op['matte']!r}")
@@ -862,7 +1012,13 @@ def _apply_mask_delete(op, _timeline, item, project=None):
     a passthrough comp (MediaIn -> MediaOut, which draws nothing) and
     renamed to the name Resolve gives a clip's first comp. The matte is
     gone either way, which is what the verify reads.
+
+    Deleting is a Fusion-comp act whatever the provider: a Magic Mask
+    provider names how the mask was made, and unmaking one is not a
+    comp delete. Non-fusion providers are refused by name.
     """
+    if _mask_provider(op, "mask.delete") != "fusion_matte":
+        _refuse_unimplemented_mask_provider(op, "mask.delete")
     names = list(item.GetFusionCompNameList() or [])
     if op["matte"] not in names:
         raise RuntimeError(
@@ -884,8 +1040,12 @@ def _apply_mask_edit(op, _timeline, item, project=None):
     """Set the matte's static geometry, keeping every key it carries.
 
     A declared input that is keyed loses its keys (it is now static); an
-    input the edit does not name keeps its value and its keys.
+    input the edit does not name keeps its value and its keys. Editing
+    is a Fusion-geometry act: a Magic Mask carries no static geometry
+    to set, so non-fusion providers are refused by name.
     """
+    if _mask_provider(op, "mask.edit") != "fusion_matte":
+        _refuse_unimplemented_mask_provider(op, "mask.edit")
     _refuse_unmarked_matte(op, "mask.edit")
     state = _current_matte(item, op["matte"], "mask.edit")
     geometry = {**state["geometry"], **op["geometry"]}
@@ -899,18 +1059,31 @@ def _apply_mask_edit(op, _timeline, item, project=None):
 
 
 def _apply_mask_track(op, _timeline, item, project=None):
-    """Replace the matte's keyframes with the declared track.
+    """Track the mask through the clip.
 
-    The provider must be fusion_matte (the only provider implemented);
-    any other is refused by name. Keys are clip-relative comp frames.
-    An input the track does not key takes `geometry`'s value when the op
-    carries one, else its current value. Baking keys loses an input's
-    static value (Fusion keeps none beside a spline), so the inverse of
-    a first track is an EMPTY track carrying the previous geometry.
+    fusion_matte replaces the matte's keyframes with the declared
+    track (keys are clip-relative comp frames). resolve_magic_mask_api
+    re-tracks through the mask engine itself: the op's keyframes are
+    the fusion provider's vocabulary and must be empty here - a keyed
+    api track names two engines at once. resolve_magic_mask_ui never
+    runs in a patch - it names the recipe verb that presses the
+    tracker. Baking keys loses an input's static value (Fusion keeps
+    none beside a spline), so the inverse of a first fusion track is
+    an EMPTY track carrying the previous geometry.
     """
     provider = _mask_provider(op, "mask.track")
-    if provider != "fusion_matte":
-        _refuse_unimplemented_mask_provider(op, "mask.track")
+    if provider == "resolve_magic_mask_ui":
+        _refuse_ui_provider(op, "mask.track", "magic-mask-track")
+    if provider == "resolve_magic_mask_api":
+        keyframes = (op.get("track") or {}).get("keyframes") or []
+        if keyframes:
+            raise RuntimeError(
+                f"mask.track: provider 'resolve_magic_mask_api' carries "
+                f"{len(keyframes)} keyframe(s) - keyframes are the "
+                f"fusion_matte provider's vocabulary; the api provider "
+                f"tracks through the mask engine, so its track is empty")
+        return _call_create_magic_mask(
+            op, item, "mask.track", gain_required=False)
     _refuse_unmarked_matte(op, "mask.track")
     state = _current_matte(item, op["matte"], "mask.track")
     _replace_matte(item, op["matte"],
@@ -1443,8 +1616,11 @@ ALGEBRA: dict[str, AlgebraOp] = {
         merge="exclusive",
         inverse=_pair("mask.delete"),
         note="Place a full-frame matte comp; the matte read verifies. "
-             "The `provider` names the engine - fusion_matte executes; "
-             "the Magic Mask providers are refused until implemented."),
+             "The `provider` names the engine: fusion_matte places the "
+             "comp; resolve_magic_mask_api starts the native mask from "
+             "the op's seed (True plus a gained node claims it); "
+             "resolve_magic_mask_ui names the recipe verb that clicks "
+             "the seed and never runs in a patch."),
     "mask.delete": AlgebraOp(
         id="mask.delete", domain="fusion",
         required=("unique_id", "matte"),
@@ -1476,8 +1652,11 @@ ALGEBRA: dict[str, AlgebraOp] = {
         inverse=_self("the inverse carries the previous keyframes "
                       "(empty means none) and the previous geometry"),
         note="Key the matte's track; the keyframes read back verifies. "
-             "The `provider` names the engine - fusion_matte executes; "
-             "the Magic Mask providers are refused until implemented."),
+             "The `provider` names the engine: fusion_matte keys the "
+             "comp; resolve_magic_mask_api re-tracks through the mask "
+             "engine (empty track - keyframes are the fusion "
+             "vocabulary); resolve_magic_mask_ui names the recipe verb "
+             "that presses the tracker and never runs in a patch."),
 
     # ── multicam (domain: picture_transform) ────────────────────────
     "multicam.angle": AlgebraOp(
@@ -2147,8 +2326,26 @@ def key(op):
     return spec.key(op)
 
 
+def _beyond_ported_core(op) -> bool:
+    """Whether an op's judgement lives outside the ported core.
+
+    `native/ren-core` models the Fusion engine: matte comps, keys,
+    geometry. A mask op naming a Magic Mask provider is judged by a
+    different engine (the Color-page node graph, read at the live
+    handles by the apply) - routing it to the port would judge it by
+    matte comps it never places. Such ops stay on the Python verify
+    whatever the backend switch says; removing this carve-out is part
+    of porting the providers to Rust, not a cleanup.
+    """
+    return ((op.get("op") or "") in ("mask.create", "mask.delete",
+                                     "mask.edit", "mask.track")
+            and op.get("provider", "fusion_matte") != "fusion_matte")
+
+
 def verify(op, after):
     """The read-back judgement of one op, on the active backend."""
+    if _beyond_ported_core(op):
+        return _verify_magic_mask_provider(op, after)
     rust = edit_backend.rust()
     if rust is not None:
         return rust.verify(op, after)

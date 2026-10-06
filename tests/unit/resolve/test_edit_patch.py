@@ -1527,14 +1527,167 @@ def test_mask_create_refuses_unknown_provider(world):
     assert world[2].GetFusionCompNameList() == []
 
 
-def test_mask_create_names_unimplemented_magic_mask_provider(world):
-    """The plan's providers are vocabulary, not silent Fusion mattes: an
-    op claiming one is refused by name until its slice implements it."""
-    receipt = _mask(world, "mask-create-unimplemented", [{
+def _seed_receipt(**overrides):
+    """A MaskSeed receipt as `compute_seed` writes it - the api
+    provider's required input."""
+    receipt = {"clip_id": "talk", "frame": 48, "seed_frame": 48,
+               "subject": "speaker",
+               "source": {"x": 1132.0, "y": 449.0},
+               "viewer": {"x": 1719.0, "y": 622.0},
+               "object_id": "obj_1", "sample_index": 2}
+    receipt.update(overrides)
+    return receipt
+
+
+def _mask_api(item, ok=True, gain=True):
+    """Give the world's item a CreateMagicMask double: `ok` answers
+    the call, `gain` grows the node graph with it - the two halves of
+    the claim rule, flipped independently."""
+    seen = []
+
+    def create(mode):
+        seen.append(mode)
+        if not ok:
+            return False
+        if gain:
+            item.nodes += 1
+        return True
+
+    item.CreateMagicMask = create
+    return seen
+
+
+def test_mask_create_api_claims_true_plus_node_gain(world):
+    """The api provider starts the native mask from the op's seed: True
+    plus a gained node commits, and no Fusion comp is placed."""
+    item = world[2]
+    seen = _mask_api(item)
+    receipt = _mask(world, "mask-create-api", [{
+        "op": "mask.create", "provider": "resolve_magic_mask_api",
+        "seed": _seed_receipt()}])
+    assert receipt["status"] == "committed", receipt
+    assert seen == ["BI"]
+    assert item.GetFusionCompNameList() == []
+
+
+def test_mask_create_api_refuses_an_unseeded_call(world):
+    """Defect the seed requirement exists for: a bare CreateMagicMask
+    answers False (measured), so an op without the click's seed would
+    fail at the API with nothing naming the missing click."""
+    receipt = _mask(world, "mask-create-api-noseed", [{
         "op": "mask.create", "provider": "resolve_magic_mask_api"}])
     assert receipt["status"] == "verification_failed"
-    assert "not implemented" in receipt["stopped"]["raised"]
+    assert "needs 'seed'" in receipt["stopped"]["raised"]
+
+
+def test_mask_create_api_refuses_a_seed_without_a_point(world):
+    receipt = _mask(world, "mask-create-api-nopoint", [{
+        "op": "mask.create", "provider": "resolve_magic_mask_api",
+        "seed": _seed_receipt(viewer={"x": 1719.0})}])
+    assert receipt["status"] == "verification_failed"
+    assert "no viewer point" in receipt["stopped"]["raised"]
+
+
+def test_mask_create_api_refuses_false(world):
+    _mask_api(world[2], ok=False)
+    receipt = _mask(world, "mask-create-api-false", [{
+        "op": "mask.create", "provider": "resolve_magic_mask_api",
+        "seed": _seed_receipt()}])
+    assert receipt["status"] == "verification_failed"
+    assert "answered False" in receipt["stopped"]["raised"]
+
+
+def test_mask_create_api_refuses_true_without_gain(world):
+    """True without a gained node claims nothing: `sense_mask`
+    measured True-with-unchanged-count, and claiming it would say a
+    mask started that reads back absent."""
+    _mask_api(world[2], ok=True, gain=False)
+    receipt = _mask(world, "mask-create-api-nogain", [{
+        "op": "mask.create", "provider": "resolve_magic_mask_api",
+        "seed": _seed_receipt()}])
+    assert receipt["status"] == "verification_failed"
+    assert "unchanged" in receipt["stopped"]["raised"]
+
+
+def test_mask_create_api_refuses_a_bad_mode(world):
+    receipt = _mask(world, "mask-create-api-badmode", [{
+        "op": "mask.create", "provider": "resolve_magic_mask_api",
+        "mode": "SLOW", "seed": _seed_receipt()}])
+    assert receipt["status"] == "verification_failed"
+    assert "bad Magic Mask mode" in receipt["stopped"]["raised"]
+
+
+def test_mask_create_ui_names_the_recipe_verb(world):
+    """EditPatch carries no driver, so the ui provider never runs in a
+    patch: it is refused with the route that executes it, and places
+    nothing."""
+    receipt = _mask(world, "mask-create-ui", [{
+        "op": "mask.create", "provider": "resolve_magic_mask_ui",
+        "seed": _seed_receipt()}])
+    assert receipt["status"] == "verification_failed"
+    assert "magic-mask-seed" in receipt["stopped"]["raised"]
     assert world[2].GetFusionCompNameList() == []
+
+
+def test_mask_track_api_claims_the_accepted_call(world):
+    """A re-track claims the accepted call: tracking moves the
+    existing mask, which gains no node - demanding a gain here would
+    refuse every track."""
+    item = world[2]
+    seen = _mask_api(item, ok=True, gain=False)
+    receipt = _mask(world, "mask-track-api", [{
+        "op": "mask.track", "provider": "resolve_magic_mask_api",
+        "track": {"keyframes": []}}])
+    assert receipt["status"] == "committed", receipt
+    assert seen == ["BI"]
+
+
+def test_mask_track_api_refuses_a_keyed_track(world):
+    """Keyframes are the fusion provider's vocabulary: a keyed api
+    track names two engines at once, so it is refused by name."""
+    receipt = _mask(world, "mask-track-api-keyed", [{
+        "op": "mask.track", "provider": "resolve_magic_mask_api",
+        "track": {"keyframes": TRACK}}])
+    assert receipt["status"] == "verification_failed"
+    assert "fusion_matte provider's vocabulary" in receipt["stopped"]["raised"]
+
+
+def test_mask_track_api_refuses_false(world):
+    _mask_api(world[2], ok=False)
+    receipt = _mask(world, "mask-track-api-false", [{
+        "op": "mask.track", "provider": "resolve_magic_mask_api",
+        "track": {"keyframes": []}}])
+    assert receipt["status"] == "verification_failed"
+    assert "answered False" in receipt["stopped"]["raised"]
+
+
+def test_mask_track_ui_names_the_recipe_verb(world):
+    _mask(world, "mask-create-9c", [{"op": "mask.create"}])
+    receipt = _mask(world, "mask-track-ui", [{
+        "op": "mask.track", "provider": "resolve_magic_mask_ui",
+        "track": {"keyframes": TRACK}}])
+    assert receipt["status"] == "verification_failed"
+    assert "magic-mask-track" in receipt["stopped"]["raised"]
+
+
+def test_mask_edit_refuses_a_magic_mask_provider(world):
+    """Defect, same family as create's: mask.edit ignored `provider`,
+    so an api edit would rewrite Fusion geometry on a mask that has
+    none. Editing is a Fusion-geometry act."""
+    _mask(world, "mask-create-9d", [{"op": "mask.create"}])
+    receipt = _mask(world, "mask-edit-api", [{
+        "op": "mask.edit", "provider": "resolve_magic_mask_api",
+        "geometry": {"Width": 0.2}}])
+    assert receipt["status"] == "verification_failed"
+    assert "not implemented" in receipt["stopped"]["raised"]
+
+
+def test_mask_delete_refuses_a_magic_mask_provider(world):
+    _mask(world, "mask-create-9e", [{"op": "mask.create"}])
+    receipt = _mask(world, "mask-delete-api", [{
+        "op": "mask.delete", "provider": "resolve_magic_mask_api"}])
+    assert receipt["status"] == "verification_failed"
+    assert "not implemented" in receipt["stopped"]["raised"]
 
 
 def test_mask_track_refuses_unknown_provider(world):
@@ -1546,12 +1699,25 @@ def test_mask_track_refuses_unknown_provider(world):
     assert "unknown" in receipt["stopped"]["raised"]
 
 
-def test_mask_track_names_unimplemented_magic_mask_provider(world):
-    """The plan's providers are vocabulary on mask.track too: an op
-    claiming one is refused by name until its slice implements it."""
-    _mask(world, "mask-create-9b", [{"op": "mask.create"}])
-    receipt = _mask(world, "mask-track-unimplemented", [{
-        "op": "mask.track", "provider": "resolve_magic_mask_ui",
-        "track": {"keyframes": TRACK}}])
-    assert receipt["status"] == "verification_failed"
-    assert "not implemented" in receipt["stopped"]["raised"]
+def test_verify_routes_magic_mask_ops_around_the_ported_core(monkeypatch):
+    """The ported core models the Fusion engine only: a Magic Mask op
+    routed to it would be judged by matte comps it never places. The
+    router answers api ops from Python without consulting Rust, and
+    still consults it for the fusion path."""
+    from library.tools import edit_algebra
+
+    consulted = []
+
+    class _Rust:
+        @staticmethod
+        def verify(op, after):
+            consulted.append(op.get("op"))
+            return "rust-says"
+
+    monkeypatch.setattr(edit_algebra.edit_backend, "rust", lambda: _Rust())
+    api = {"op": "mask.create", "unique_id": "a", "matte": "logo-matte",
+           "provider": "resolve_magic_mask_api", "seed": _seed_receipt()}
+    assert edit_algebra.verify(api, {}) is None
+    fusion = {"op": "mask.create", "unique_id": "a", "matte": "logo-matte"}
+    assert edit_algebra.verify(fusion, {}) == "rust-says"
+    assert consulted == ["mask.create"]
