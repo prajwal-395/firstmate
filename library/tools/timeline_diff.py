@@ -332,3 +332,96 @@ def invert_changes(changes: Sequence[Mapping]) -> list[dict]:
                 f"clips it would restore")
         inverse.append(change)
     return inverse
+
+
+_STATE_KEYS = ("start", "end", "duration", "source_in", "source_out",
+               "left_offset", "right_offset")
+"""The comparable fields of one timeline item, in `_clip_state` order."""
+
+
+def _same_state(first, second) -> bool:
+    """Two clip states agree on every comparable field."""
+    return all((first or {}).get(key) == (second or {}).get(key)
+               for key in _STATE_KEYS)
+
+
+def clip_states(tracks) -> dict:
+    """Every clip's comparable state, keyed by `(row, item)`.
+
+    Values are LISTS in start order: a clip appearing twice on one
+    row keeps both states, so a proof never silently picks one. A
+    tracks value that does not read as track rows raises
+    `ValueError` naming what failed, so the caller refuses the
+    destination instead of proving against garbage.
+    """
+    if isinstance(tracks, (str, bytes, Mapping)) or not isinstance(
+            tracks, Sequence):
+        raise ValueError(
+            "destination tracks do not read as a list of track rows")
+    states: dict = {}
+    for track in tracks:
+        if not isinstance(track, Mapping):
+            raise ValueError(
+                "destination tracks do not read as a list of track rows")
+        clips = track.get("clips") or ()
+        if isinstance(clips, (str, bytes, Mapping)) or not isinstance(
+                clips, Sequence):
+            raise ValueError(
+                "destination tracks do not read as a list of track rows")
+        ordered = sorted(
+            (clip for clip in clips if isinstance(clip, Mapping)),
+            key=lambda entry: (entry.get("record_in") or 0))
+        row = _row_label((track.get("type"), track.get("index")))
+        for clip in ordered:
+            states.setdefault((row, clip.get("name") or ""),
+                              []).append(_clip_state(clip))
+    return states
+
+
+def changes_hold(changes: Sequence[Mapping], tracks) -> list:
+    """The picked changes that do NOT hold against current track reads.
+
+    Returns problem strings, empty when every change still applies:
+    a state change (move, trim, replace, J-cut, remove) needs its
+    `before` state present exactly once; an add needs its clip
+    absent. A whole-row change (`item` is empty, the state a clip
+    count, not the clips) and a clip appearing twice on one row are
+    unprovable and reported, never guessed. Raises `ValueError` when
+    the tracks do not read as track rows.
+    """
+    states = clip_states(tracks)
+    problems: list = []
+    for change in changes or ():
+        op = change.get("op")
+        row, item = change.get("row"), change.get("item")
+        before = change.get("before")
+        if not item:
+            problems.append(
+                f"{op} on {row}: the record names a clip count, not "
+                f"the clips - no current state can prove it")
+            continue
+        found = states.get((row, item), [])
+        if op == OP_ADD:
+            if found:
+                problems.append(
+                    f"add {item!r} on {row}: the clip is already there")
+            continue
+        if not _is_clip_state(before):
+            problems.append(
+                f"{op} {item!r} on {row}: the change carries no "
+                f"before state to prove")
+            continue
+        if not found:
+            problems.append(
+                f"{op} {item!r} on {row}: the clip is gone from the "
+                f"current reads")
+        elif len(found) > 1:
+            problems.append(
+                f"{op} {item!r} on {row}: the clip appears "
+                f"{len(found)} times - the proof cannot tell which "
+                f"the change meant")
+        elif not _same_state(found[0], before):
+            problems.append(
+                f"{op} {item!r} on {row}: the clip no longer reads "
+                f"as the change left it")
+    return problems

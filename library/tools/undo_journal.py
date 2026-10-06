@@ -779,10 +779,11 @@ def merge_commits(project_folder, *, timeline: str, left: str, right: str,
 # store can prove the picked spans still hold there. To move a change
 # across lines, apply it as a touch-up against the live timeline.
 
-def cherry_pick(project_folder, commit_id: str, note: str = "") -> dict:
+def cherry_pick(project_folder, commit_id: str, note: str = "",
+                dest_tracks=None) -> dict:
     """Replay a commit's changes as a new commit. Returns it.
 
-    Three refusals, all `CherryPickRefused` and all by name. A merge
+    Four refusals, all `CherryPickRefused` and all by name. A merge
     is refused: its changes are the union of both sides, so replaying
     them would replay the main line too - pick the brought-in commits
     instead. A commit outside its timeline's line is refused: the
@@ -791,7 +792,16 @@ def cherry_pick(project_folder, commit_id: str, note: str = "") -> dict:
     clips: replaying the old changes would silently clobber the later
     touch. An empty replay - a commit that changed nothing - is
     refused: it would rewrite no history and only pollute it.
+
+    When `dest_tracks` - the destination timeline's current track
+    reads - is supplied, every replayed change must still hold there
+    (`timeline_diff.changes_hold`): a change the destination no
+    longer reads as left is refused naming it, so a replay proven
+    against a stale chain cannot silently clobber a timeline that
+    moved on outside the record.
     """
+    from library.tools import timeline_diff
+
     target = read_commit(project_folder, commit_id)
     timeline = target.get("timeline") or ""
     if target.get("second_parent"):
@@ -820,6 +830,17 @@ def cherry_pick(project_folder, commit_id: str, note: str = "") -> dict:
             f"commit {commit_id[:12]} cannot be replayed: later commits "
             f"also changed {', '.join(conflicts)} - replaying the old "
             f"changes would silently clobber the later touch")
+    if dest_tracks is not None:
+        try:
+            problems = timeline_diff.changes_hold(changes, dest_tracks)
+        except ValueError as unreadable:
+            raise CherryPickRefused(
+                f"commit {commit_id[:12]} cannot be proven against "
+                f"the destination reads ({unreadable})") from unreadable
+        if problems:
+            raise CherryPickRefused(
+                f"commit {commit_id[:12]} no longer applies to the "
+                f"destination reads: " + "; ".join(problems[:5]))
     intent = note or (f"cherry-pick {commit_id[:12]} "
                       f"({target.get('intent') or 'no intent'})")
     return record_commit(

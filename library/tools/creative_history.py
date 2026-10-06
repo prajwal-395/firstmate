@@ -244,6 +244,30 @@ def _cmd_tag(project: str, args) -> int:
     return 0
 
 
+def _read_dest_tracks(path):
+    """The destination's current track reads from a JSON file, or None.
+
+    Accepts a bare tracks list or an object with a `tracks` key (a
+    timeline export reads back in the latter shape). A missing or
+    unparsable file is refused naming the path; the SHAPE is the
+    store's to judge, so a well-formed file of the wrong shape
+    reaches `cherry_pick` and is refused there.
+    """
+    if path is None:
+        return None
+    try:
+        with open(path, encoding="utf-8") as handle:
+            document = json.load(handle)
+    except (OSError, ValueError) as unreadable:
+        raise HistoryRefused(
+            f"destination tracks at {path!r} could not be read "
+            f"({unreadable}) - pass a JSON file holding the "
+            f"destination timeline's current track reads") from unreadable
+    if isinstance(document, dict):
+        document = document.get("tracks")
+    return document
+
+
 def _cmd_cherry_pick(project: str, args) -> int:
     from library.tools import undo_journal as uj
 
@@ -275,8 +299,14 @@ def _cmd_cherry_pick(project: str, args) -> int:
         print(f"creative_history: {refused}", file=sys.stderr)
         return 2
     try:
+        dest_tracks = _read_dest_tracks(args.dest_tracks)
+    except HistoryRefused as refused:
+        print(f"creative_history: {refused}", file=sys.stderr)
+        return 2
+    try:
         replayed = uj.cherry_pick(project, target.get("id"),
-                                  note=args.note or "")
+                                  note=args.note or "",
+                                  dest_tracks=dest_tracks)
     except uj.CherryPickRefused as refused:
         print(f"creative_history: {refused}", file=sys.stderr)
         return 1
@@ -363,6 +393,11 @@ def build_parser() -> argparse.ArgumentParser:
                         help="tag: why this commit is worth keeping; "
                              "cherry-pick: why it is replayed; "
                              "revert: why it is reverted")
+    parser.add_argument("--dest-tracks", default=None,
+                        help="cherry-pick: JSON file with the destination "
+                             "timeline's current track reads (a tracks "
+                             "list, or an object with a tracks key) - "
+                             "every replayed change must still hold there")
     parser.add_argument("--move", action="store_true",
                         help="tag: move a name that already points somewhere")
     parser.add_argument("--json", action="store_true")
@@ -376,6 +411,12 @@ def main(argv=None) -> int:
         project = _resolve_project(args.project)
     except HistoryRefused as refused:
         print(f"creative_history: {refused}", file=sys.stderr)
+        return 2
+    if args.mode != "cherry-pick" and args.dest_tracks is not None:
+        print("creative_history: --dest-tracks proves a replay - "
+              "`ren cherry-pick <project> <commit> --dest-tracks <file>` "
+              "is the read that takes it",
+              file=sys.stderr)
         return 2
     if args.mode == "commits":
         return _cmd_commits(project, args)

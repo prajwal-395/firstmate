@@ -251,3 +251,70 @@ def test_cherry_pick_takes_one_commit_not_two(tmp_path, capsys):
     assert ch.main(["cherry-pick", project, source["id"],
                     source["id"]]) == 2
     assert "one commit" in capsys.readouterr().err
+
+
+def _proof_tracks(clip_name, record_in=0, record_out=100):
+    """A V1 track read with one clip - the destination's currency."""
+    return [{"type": "video", "index": 1, "name": "V1", "clips": [
+        {"name": clip_name, "record_in": record_in,
+         "record_out": record_out, "duration": record_out - record_in,
+         "source_in_frame": 0,
+         "source_out_frame": record_out - record_in,
+         "left_offset": 0, "right_offset": 0},
+    ]}]
+
+
+def _proof_file(tmp_path, tracks):
+    """The destination's current reads as a `--dest-tracks` file."""
+    path = Path(tmp_path) / "dest.json"
+    path.write_text(json.dumps(tracks), encoding="utf-8")
+    return str(path)
+
+
+def test_cherry_pick_proves_against_dest_tracks(tmp_path, capsys):
+    """`--dest-tracks` proves the replay against current reads.
+
+    The defects: a stale destination replayed because the chain was
+    clean - the timeline moved on outside the record; and a missing
+    proof file succeeding, so a typo proves against nothing.
+    """
+    from library.tools import timeline_diff
+
+    project = _project(tmp_path)
+    current = _proof_tracks("clip_001", 0, 100)
+    source = uj.record_commit(
+        project, parent=None, intent="tighten opening",
+        changes=timeline_diff.diff_timelines(
+            current, _proof_tracks("clip_001", 50, 150)),
+        agent="reel_touchup", timeline="Reel 1")
+    uj.record_commit(
+        project, parent=source["id"], intent="other reel work",
+        changes=timeline_diff.diff_timelines(
+            _proof_tracks("clip_002", 0, 100),
+            _proof_tracks("clip_002", 20, 120)),
+        agent="reel_touchup", timeline="Reel 1")
+    assert ch.main(["cherry-pick", project, source["id"][:12],
+                    "--dest-tracks",
+                    str(Path(tmp_path) / "missing.json")]) == 2
+    assert ch.main(["cherry-pick", project, source["id"][:12],
+                    "--dest-tracks",
+                    _proof_file(tmp_path,
+                                _proof_tracks("clip_001", 70, 170))]) == 1
+    assert "clip_001" in capsys.readouterr().err
+    assert ch.main(["cherry-pick", project, source["id"][:12],
+                    "--dest-tracks", _proof_file(tmp_path, current)]) == 0
+    assert "replayed" in capsys.readouterr().out
+
+
+def test_dest_tracks_belongs_to_cherry_pick_alone(tmp_path, capsys):
+    """`--dest-tracks` outside a replay is refused, not ignored.
+
+    The defect: silently dropping the proof flag on a read, so the
+    captain believes the listing was proven against current reads
+    when nothing was proven.
+    """
+    project = _project(tmp_path)
+    _commit(project, "Reel 1", "tighten opening")
+    assert ch.main(["commits", project, "--dest-tracks",
+                    _proof_file(tmp_path, [])]) == 2
+    assert "cherry-pick" in capsys.readouterr().err
