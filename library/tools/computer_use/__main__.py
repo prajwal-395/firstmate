@@ -13,8 +13,9 @@ One verb, one module, extended as the layer grows:
                back; until then it is an offline tool against the mock
                driver.
 
-    script     run a deterministic UI script file - the anchors
-               re-resolve at run time, no model is asked.
+    script     run a deterministic UI script from a JSON file. Runs
+                inside `qualification_project.borrowed()` like `run`;
+                `--teach` writes LLM-taught anchors back to the file.
 
 `--target` selects the app (resolve today; canva reports its
 declaration and gate, and refuses `run` - no Chrome executor exists
@@ -25,12 +26,21 @@ interpreter (`ren/commands.py`, the one registry).
 from __future__ import annotations
 
 import argparse
+import dataclasses
+import json
 import sys
+from pathlib import Path
 
 from library.tools.computer_use.client import DriverClient
 from library.tools.computer_use.loop import run_loop
 from library.tools.computer_use.model import ENV_URL, ModelConfig, ModelSession
-from library.tools.computer_use.scripts import Script, run_script
+from library.tools.computer_use.observe import Observation
+from library.tools.computer_use.scripts import (
+    Script,
+    ScriptStep,
+    load_script,
+    run_script,
+)
 from library.tools.computer_use.targets import (
     AppTarget,
     canva_scratch_designs,
@@ -121,49 +131,6 @@ def _run(
     return 0 if result.outcome == "done" else 1
 
 
-def _script(client: DriverClient, script_path: str) -> int:
-    """Run a deterministic UI script file - no model, no planning.
-
-    The file is the `Script` JSON the mapping runs write: steps with
-    anchors re-resolved at run time and per-step expectations. A file
-    that is not a script is refused naming what it is missing, never
-    run halfway. The Resolve setup mirrors `_run`: the qualification
-    project is borrowed for the driver's gates, restored on exit.
-    """
-    import json
-    from pathlib import Path
-
-    from library.tools.marker_feedback import connect_resolve
-    from library.tools.qualification_project import borrowed
-    from library.tools.resolve_lock import resolve_lease
-
-    try:
-        raw = Path(script_path).read_text(encoding="utf-8")
-    except OSError as exc:
-        raise RenRefusal(
-            f"the script file {script_path} could not be read",
-            str(exc),
-            "pass the path of a script JSON file the mapping run wrote",
-            code="SCRIPT_UNREADABLE",
-        ) from exc
-    try:
-        script = Script.from_dict(json.loads(raw))
-    except (ValueError, KeyError, TypeError, AttributeError) as exc:
-        raise RenRefusal(
-            f"the file {script_path} is not a runnable script",
-            str(exc),
-            "run the mapping run again and pass the script file it wrote",
-            code="SCRIPT_INVALID",
-        ) from exc
-    resolve = connect_resolve()
-    with resolve_lease("computer-use"), borrowed(resolve):
-        result = run_script(client, script)
-    print(f"outcome: {result.outcome}")
-    for step in result.steps:
-        print(f"  {step['action']}: {step['outcome']} via {step.get('via')}")
-    return 0 if result.outcome == "done" else 1
-
-
 def _canva_status(target: AppTarget) -> int:
     """What the Canva target is and what it may touch - no driver claims.
 
@@ -188,6 +155,76 @@ def _target_flag(parser) -> None:
         default="resolve",
         help="which app the loop may act on (default: resolve)",
     )
+
+
+def _script(
+    client: DriverClient,
+    path: str,
+    model_kind: str,
+    max_cost_usd: float | None,
+    teach: bool,
+) -> int:
+    """Run a deterministic UI script from a JSON file.
+
+    `--model stub` (the default) runs deterministic only: a step no
+    anchor resolves fails the script. `--model api` falls back to the
+    decide session, which sees the observation with the failed step
+    appended to its history. Learned anchors live in memory; `--teach`
+    writes them back to the file so the next run is deterministic,
+    otherwise the verb names how many were learned and the flag that
+    would keep them.
+
+    Like `run`, the script runs inside
+    `qualification_project.borrowed()`: the captain's project is saved
+    and restored around the run.
+    """
+    from library.tools.marker_feedback import connect_resolve
+    from library.tools.qualification_project import borrowed
+    from library.tools.resolve_lock import resolve_lease
+
+    script = load_script(path)
+    before = _anchor_count(script)
+    if model_kind == "api":
+        config = ModelConfig.from_env()
+        if max_cost_usd is not None:
+            config.max_cost_usd = max_cost_usd
+        session = ModelSession(config=config)
+
+        def llm(obs: Observation, step: ScriptStep) -> dict:
+            taught = dataclasses.replace(
+                obs,
+                history=[
+                    *obs.history,
+                    {
+                        "action": f"script:{step.action}",
+                        "outcome": "no anchor resolved",
+                    },
+                ],
+            )
+            return session(taught)
+
+    else:
+        llm = None
+
+    resolve = connect_resolve()
+    with resolve_lease("computer-use"), borrowed(resolve):
+        result = run_script(client, script, llm=llm)
+    print(f"outcome: {result.outcome}")
+    for entry in result.steps:
+        print(f"  step {entry['step']} {entry['action']}: {entry['outcome']} (via {entry['via']})")
+    learned = _anchor_count(script) - before
+    if learned and teach:
+        Path(path).write_text(
+            json.dumps(script.to_dict(), indent=2) + "\n", encoding="utf-8"
+        )
+        print(f"taught {learned} anchor(s) - saved to {path}")
+    elif learned:
+        print(f"{learned} anchor(s) learned - pass --teach to save them to {path}")
+    return 0 if result.outcome == "done" else 1
+
+
+def _anchor_count(script: Script) -> int:
+    return sum(len(step.anchors) for step in script.steps)
 
 
 def main(argv=None) -> int:
@@ -215,10 +252,27 @@ def main(argv=None) -> int:
         default=None,
         help="cap the decide calls' spend (overrides $COMPUTER_USE_MAX_COST_USD)",
     )
-    script_parser = sub.add_parser(
-        "script", help="run a deterministic UI script file (no model)")
-    script_parser.add_argument("path", help="the script JSON file to run")
+    script_parser = sub.add_parser("script", help="run a deterministic UI script from a file")
+    script_parser.add_argument("file", help="the script JSON file to run")
     _target_flag(script_parser)
+    script_parser.add_argument(
+        "--model",
+        choices=("stub", "api"),
+        default="stub",
+        help="stub runs deterministic only (a step no anchor resolves fails); "
+        f"api falls back to the endpoint in ${ENV_URL}",
+    )
+    script_parser.add_argument(
+        "--max-cost-usd",
+        type=float,
+        default=None,
+        help="cap the decide calls' spend (overrides $COMPUTER_USE_MAX_COST_USD)",
+    )
+    script_parser.add_argument(
+        "--teach",
+        action="store_true",
+        help="write LLM-taught anchors back to the file",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -235,7 +289,9 @@ def main(argv=None) -> int:
         if args.subcommand == "script":
             require_executor(target)
             with DriverClient() as client:
-                return _script(client, args.path)
+                return _script(
+                    client, args.file, args.model, args.max_cost_usd, args.teach
+                )
     except RenRefusal as exc:
         print(exc.render(), file=sys.stderr)
         return 4

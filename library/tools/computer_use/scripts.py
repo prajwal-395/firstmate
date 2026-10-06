@@ -33,12 +33,14 @@ deterministic.
 from __future__ import annotations
 
 import base64
+import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from io import BytesIO
 
 from library.tools.computer_use.client import DriverClient, DriverError
 from library.tools.computer_use.observe import Observation, build_observation
+from library.tools.ren_refusal import RenRefusal
 from library.tools.resolve_lock import resolve_lease
 
 #: The anchor kinds, in priority order. A script lists its anchors in
@@ -48,6 +50,10 @@ ANCHOR_VIAS = ("ax_path", "ocr", "template", "offset", "position")
 #: The verification kinds. An unknown kind is refused at parse time, never
 #: silently passed at run time.
 EXPECT_VIAS = ("text_visible", "element_visible", "pixels_changed", "seconds")
+
+
+class ScriptError(RenRefusal):
+    """A script file that could not be read or run - refused with the fix."""
 
 
 @dataclass
@@ -141,6 +147,54 @@ class ScriptResult:
 
     outcome: str
     steps: list[dict] = field(default_factory=list)
+
+
+def load_script(path) -> Script:
+    """Read a script file into a `Script`.
+
+    A missing file, malformed JSON or an unknown expect kind is a
+    `ScriptError` naming the file - the caller's input is wrong, which
+    is a refusal with a fix, not a traceback.
+    """
+    from pathlib import Path
+
+    file = Path(path)
+    try:
+        text = file.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ScriptError(
+            f"the script file {file} could not be read",
+            str(exc),
+            f"pass a readable script JSON file: ren computer-use script <file>",
+            code="SCRIPT_UNREADABLE",
+        ) from exc
+    try:
+        data = json.loads(text)
+    except ValueError as exc:
+        raise ScriptError(
+            f"the script file {file} is not JSON",
+            str(exc),
+            f"fix the JSON in {file} and retry",
+            code="SCRIPT_NOT_JSON",
+        ) from exc
+    try:
+        script = Script.from_dict(data)
+    except (ValueError, KeyError, AttributeError, TypeError) as exc:
+        raise ScriptError(
+            f"the script file {file} is not a script",
+            str(exc),
+            f"each step needs an action, anchors and a known expect via "
+            f"({', '.join(EXPECT_VIAS)}) - fix {file} and retry",
+            code="SCRIPT_INVALID",
+        ) from exc
+    if not script.steps:
+        raise ScriptError(
+            f"the script file {file} has no steps",
+            "an empty script runs nothing",
+            f"add at least one step to {file} and retry",
+            code="SCRIPT_EMPTY",
+        )
+    return script
 
 
 def resolve_anchor(client: DriverClient, anchor: Anchor) -> tuple[str, dict] | None:

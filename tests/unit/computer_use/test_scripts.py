@@ -13,7 +13,9 @@ from library.tools.computer_use.scripts import (
     Anchor,
     Expect,
     Script,
+    ScriptError,
     ScriptStep,
+    load_script,
     resolve_anchor,
     run_script,
 )
@@ -427,3 +429,28 @@ def test_an_unknown_expect_via_is_rejected_at_script_from_dict():
         assert False, "should have raised ValueError"
     except ValueError as exc:
         assert "typo" in str(exc)
+
+
+def test_load_script_refuses_a_missing_file(tmp_path):
+    """A script path that names nothing refuses with the fix - the
+    caller's input is wrong, which is a refusal, not a traceback."""
+    import pytest
+
+    with pytest.raises(ScriptError) as excinfo:
+        load_script(tmp_path / "absent.json")
+
+    assert excinfo.value.code == "SCRIPT_UNREADABLE"
+
+
+def test_load_script_refuses_an_empty_script(tmp_path):
+    """Valid JSON with no steps is refused - an empty script runs
+    nothing, and running nothing successfully would read as done."""
+    import pytest
+
+    path = tmp_path / "empty.json"
+    path.write_text('{"goal": "nothing", "steps": []}', encoding="utf-8")
+
+    with pytest.raises(ScriptError) as excinfo:
+        load_script(path)
+
+    assert excinfo.value.code == "SCRIPT_EMPTY"

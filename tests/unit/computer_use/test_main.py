@@ -1,12 +1,16 @@
-"""The `ren computer-use run` wiring, pinned against stubbed Resolve.
+"""The `ren computer-use run` / `script` wiring, pinned against stubbed Resolve.
 
 The model module is only shipped if the verb actually calls it: these
 tests catch the flags being parsed and ignored - `--model api` running
-the stub, or `--max-cost-usd` never reaching the session.
+the stub, or `--max-cost-usd` never reaching the session. The script
+tests catch the advertised verb staying unwired: the registry has
+promised `script` since PR 4, so a module that rejects it is the
+defect.
 """
 
 from __future__ import annotations
 
+import json
 from contextlib import contextmanager, nullcontext
 
 from library.tools.computer_use import __main__ as main_module
@@ -21,13 +25,19 @@ class _FakeClient:
         return False
 
 
-def _stub_resolve(monkeypatch):
-    monkeypatch.setattr(main_module, "DriverClient", lambda: _FakeClient())
+def _stub_resolve(monkeypatch, client=None):
+    monkeypatch.setattr(
+        main_module, "DriverClient", lambda: _FakeClient() if client is None else client
+    )
     monkeypatch.setattr(
         "library.tools.marker_feedback.connect_resolve", lambda: object()
     )
     monkeypatch.setattr(
         "library.tools.resolve_lock.resolve_lease",
+        lambda purpose, **kw: nullcontext(),
+    )
+    monkeypatch.setattr(
+        "library.tools.computer_use.scripts.resolve_lease",
         lambda purpose, **kw: nullcontext(),
     )
     monkeypatch.setattr(
@@ -145,7 +155,8 @@ def test_script_runs_the_file_with_no_model(monkeypatch, capsys, tmp_path):
 
     from library.tools.computer_use.scripts import ScriptResult
 
-    def recording_run(client, script):
+    def recording_run(client, script, llm=None):
+        assert llm is None, "default stub model must not plan"
         seen.append(script.to_dict())
         return ScriptResult(outcome="done", steps=[
             {"step": 0, "action": "press", "outcome": "ok", "via": "ax_path"}])
@@ -181,7 +192,7 @@ def test_script_with_a_malformed_file_is_refused(monkeypatch, capsys, tmp_path):
     )
 
     assert main_module.main(["script", str(path)]) == 4
-    assert "not a runnable script" in capsys.readouterr().err
+    assert "is not a script" in capsys.readouterr().err
 
 
 def test_script_on_canva_refuses_before_any_driver_spawns(monkeypatch, capsys):
@@ -196,3 +207,114 @@ def test_script_on_canva_refuses_before_any_driver_spawns(monkeypatch, capsys):
     assert main_module.main(
         ["script", "/no/such/script.json", "--target", "canva"]) == 4
     assert "no executor" in capsys.readouterr().err
+
+
+def _write_script(tmp_path, steps):
+    path = tmp_path / "task.json"
+    path.write_text(
+        json.dumps({"goal": "do the thing", "steps": steps}), encoding="utf-8"
+    )
+    return path
+
+
+def test_script_verb_runs_a_deterministic_file(client, monkeypatch, tmp_path, capsys):
+    """The advertised `script` verb runs a file through the real runner
+    against the mock driver - a module that rejects its own advertised
+    subcommand is the defect this catches."""
+    _stub_resolve(monkeypatch, client)
+    path = _write_script(
+        tmp_path,
+        [
+            {
+                "action": "open",
+                "anchors": [{"via": "ax_path", "params": {"path": ["Workspace"]}}],
+                "expect": {"via": "pixels_changed"},
+            }
+        ],
+    )
+
+    assert main_module.main(["script", str(path)]) == 0
+    assert "outcome: done" in capsys.readouterr().out
+
+
+def test_script_verb_refuses_a_malformed_file(monkeypatch, tmp_path, capsys):
+    """A file that is not JSON refuses naming the file - user input
+    wrong is a refusal with a fix, never a traceback."""
+    _stub_resolve(monkeypatch)
+    path = tmp_path / "broken.json"
+    path.write_text("{not json", encoding="utf-8")
+
+    assert main_module.main(["script", str(path)]) == 4
+    err = capsys.readouterr().err
+    assert "broken.json" in err
+    assert "not JSON" in err
+
+
+def test_teach_saves_the_llms_anchor(client, monkeypatch, tmp_path, capsys):
+    """With `--teach`, the anchor the fallback LLM taught is written
+    back to the file - without persistence the teaching evaporates and
+    every run pays the model again. The session sees the failed step in
+    the observation history."""
+    _stub_resolve(monkeypatch, client)
+    seen: list = []
+
+    class _StubSession:
+        def __init__(self, config):
+            self.config = config
+
+        def __call__(self, obs):
+            seen.append(obs)
+            return {"action": "click", "x": 100.0, "y": 100.0}
+
+    monkeypatch.setattr(main_module, "ModelSession", _StubSession)
+    path = _write_script(
+        tmp_path,
+        [
+            {
+                "action": "click",
+                "anchors": [{"via": "ocr", "params": {"text": "Not On Screen"}}],
+                "expect": {"via": "pixels_changed"},
+            }
+        ],
+    )
+
+    assert main_module.main(["script", str(path), "--model", "api", "--teach"]) == 0
+    assert "saved to" in capsys.readouterr().out
+    taught = json.loads(path.read_text(encoding="utf-8"))
+    anchors = taught["steps"][0]["anchors"]
+    assert {"via": "position", "params": {"x": 100.0, "y": 100.0, "why": "llm"}} in anchors
+    assert seen[0].history[-1] == {
+        "action": "script:click",
+        "outcome": "no anchor resolved",
+    }
+
+
+def test_learned_anchors_evaporate_without_teach(client, monkeypatch, tmp_path, capsys):
+    """Without `--teach` the file is untouched and the verb says which
+    flag would keep the learned anchors - persistence is opt-in, never
+    a surprise rewrite of the caller's file."""
+    _stub_resolve(monkeypatch, client)
+
+    class _StubSession:
+        def __init__(self, config):
+            pass
+
+        def __call__(self, obs):
+            return {"action": "click", "x": 100.0, "y": 100.0}
+
+    monkeypatch.setattr(main_module, "ModelSession", _StubSession)
+    path = _write_script(
+        tmp_path,
+        [
+            {
+                "action": "click",
+                "anchors": [{"via": "ocr", "params": {"text": "Not On Screen"}}],
+                "expect": {"via": "pixels_changed"},
+            }
+        ],
+    )
+    before = path.read_text(encoding="utf-8")
+
+    assert main_module.main(["script", str(path), "--model", "api"]) == 0
+    assert "--teach" in capsys.readouterr().out
+    assert path.read_text(encoding="utf-8") == before
