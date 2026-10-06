@@ -24,7 +24,14 @@ from library.tools.computer_use.client import DriverClient, DriverError
 #: translation and asserts the driver accepts every call.
 VALID_ACTIONS: dict[str, dict] = {
     "press": {"action": "press", "path": ["Workspace", "Switch to Page", "Media"]},
+    "choose": {"action": "choose", "path": ["Workspace", "Switch to Page", "Media"]},
+    "set_value": {
+        "action": "set_value",
+        "path": ["Workspace", "Switch to Page", "Media"],
+        "value": "Person",
+    },
     "click": {"action": "click", "x": 100.0, "y": 100.0},
+    "double_click": {"action": "double_click", "x": 100.0, "y": 100.0},
     "key": {"action": "key", "key": "shift+4"},
     "type": {"action": "type", "text": "render"},
     "drag": {
@@ -159,3 +166,40 @@ def test_parse_key_splits_modifiers_and_normalizes_case():
     assert parse_key("cmd+shift+t") == ("t", ["cmd", "shift"])
     assert parse_key("CMD+S") == ("s", ["cmd"])
     assert parse_key("escape") == ("escape", [])
+
+
+def test_set_value_resolves_the_path_then_sets_not_presses(client: DriverClient):
+    """A set_value is find_element then set_value with the value. A
+    translation that pressed instead would open the control's menu
+    rather than set the field - choosing 'Person' in Magic Mask by
+    pressing its field opens the dropdown and stops there."""
+    calls = drive(client, Action.from_dict(VALID_ACTIONS["set_value"]))
+    assert [method for method, _ in calls] == ["find_element", "set_value"]
+    assert calls[1][1]["value"] == "Person"
+    assert calls[1][1]["element"].startswith("ax-")
+
+
+def test_a_set_value_without_a_value_is_refused():
+    """set_value without the value is a model error, refused with the
+    vocabulary - the driver would receive an empty write otherwise."""
+    with pytest.raises(ActionError) as missing:
+        Action.from_dict(
+            {"action": "set_value", "path": ["Workspace", "Switch to Page"]}
+        )
+    assert "value" in str(missing.value)
+
+
+def test_double_click_is_one_driver_call_with_two_clicks(client: DriverClient):
+    """A double_click is a single click call carrying clicks=2. Two
+    separate clicks would land as select-then-select - opening a clip's
+    rename or nothing - instead of the open the double click means."""
+    calls = drive(client, Action.from_dict(VALID_ACTIONS["double_click"]))
+    assert calls == [("click", {"x": 100.0, "y": 100.0, "clicks": 2})]
+
+
+def test_choose_resolves_then_presses_like_a_menu_choice(client: DriverClient):
+    """choose records the intent was a choice, but the driver only
+    presses: the translation is find_element then press. A choose that
+    clicked coordinates would depend on the menu's screen position."""
+    calls = drive(client, Action.from_dict(VALID_ACTIONS["choose"]))
+    assert [method for method, _ in calls] == ["find_element", "press"]

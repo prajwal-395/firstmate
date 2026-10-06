@@ -7,10 +7,15 @@ out. The driver's gates apply unchanged: the qualification project,
 background input, the locked screen. The loop (PR 3) drives the
 translation; this module owns the vocabulary and nothing else.
 
-The vocabulary is the driver's method set, nothing more:
+The vocabulary is the plan's section 3 (what the driver can carry):
 
     press      an AX menu path - {"action": "press", "path": ["Workspace", "Switch to Page", "Media"]}
+    choose     a choice off a menu path - resolved the same way, pressed
+               the same way; the kind records the intent was a choice
+    set_value  a value into the element a path resolves -
+               {"action": "set_value", "path": [...], "value": "Person"}
     click      a window point - {"action": "click", "x": 100.0, "y": 200.0}
+    double_click a window point, one driver call with two clicks
     key        a keystroke - {"action": "key", "key": "shift+4"}
     type       text into the focused element - {"action": "type", "text": "render"}
     drag       between two points - {"action": "drag", "start_x": ..., "start_y": ..., "end_x": ..., "end_y": ...}
@@ -33,8 +38,8 @@ from typing import Generator
 from library.tools.computer_use.client import DriverClient, DriverError
 
 #: The actions the model may return, and the driver calls behind them.
-ACTION_KINDS = ("press", "click", "key", "type", "drag", "scroll",
-                "wait", "screenshot")
+ACTION_KINDS = ("press", "choose", "set_value", "click", "double_click",
+                "key", "type", "drag", "scroll", "wait", "screenshot")
 
 #: Terminal signals - they end the loop and translate to no driver call.
 TERMINAL_KINDS = ("done", "need_input", "budget_exhausted")
@@ -48,7 +53,10 @@ MODIFIERS = ("cmd", "shift", "option", "ctrl", "fn")
 #: less clear refusal.
 REQUIRED_PARAMS: dict[str, tuple[str, ...]] = {
     "press": ("path",),
+    "choose": ("path",),
+    "set_value": ("path", "value"),
     "click": ("x", "y"),
+    "double_click": ("x", "y"),
     "key": ("key",),
     "type": ("text",),
     "drag": ("start_x", "start_y", "end_x", "end_y"),
@@ -68,10 +76,11 @@ class Action:
 
     `params` holds the action's parameters after validation - the path,
     the coordinates, the key. Translation is a generator because `press`
-    is two driver calls: `find_element` to resolve the path to a ref, then
-    `press` with the ref the driver issued. The generator yields a
-    `(method, params)` call, receives the driver's result, and yields the
-    next - the loop drives it.
+    (and `choose`, and `set_value`) is two driver calls: `find_element`
+    to resolve the path to a ref, then the act itself with the ref the
+    driver issued. The generator yields a `(method, params)` call,
+    receives the driver's result, and yields the next - the loop drives
+    it.
     """
 
     kind: str
@@ -125,7 +134,7 @@ class Action:
         """
         if self.is_terminal:
             return
-        if self.kind == "press":
+        if self.kind in ("press", "choose", "set_value"):
             path = self.params["path"]
             found = yield ("find_element", {"path": list(path)})
             elements = found.get("elements") if isinstance(found, dict) else None
@@ -134,9 +143,17 @@ class Action:
                     "ELEMENT_NOT_FOUND",
                     f"no element matches the menu path {list(path)}",
                 )
-            yield ("press", {"element": elements[0]["ref"]})
+            ref = elements[0]["ref"]
+            if self.kind == "set_value":
+                yield ("set_value", {"element": ref,
+                                     "value": str(self.params["value"])})
+            else:
+                yield ("press", {"element": ref})
         elif self.kind == "click":
             yield ("click", {"x": self.params["x"], "y": self.params["y"]})
+        elif self.kind == "double_click":
+            yield ("click", {"x": self.params["x"], "y": self.params["y"],
+                             "clicks": 2})
         elif self.kind == "key":
             key, modifiers = parse_key(self.params["key"])
             yield ("key", {"key": key, "modifiers": modifiers})
@@ -195,13 +212,21 @@ def parse_key(combo: str) -> tuple[str, list[str]]:
 
 def _check_params(kind: str, params: dict) -> None:
     """The per-kind shape checks beyond presence."""
-    if kind == "press":
+    if kind in ("press", "choose"):
         path = params["path"]
         if not isinstance(path, list) or not path or not all(
             isinstance(p, str) and p for p in path
         ):
-            raise ActionError("press path is a non-empty list of menu titles")
-    elif kind in ("click", "scroll"):
+            raise ActionError(f"{kind} path is a non-empty list of menu titles")
+    elif kind == "set_value":
+        path = params["path"]
+        if not isinstance(path, list) or not path or not all(
+            isinstance(p, str) and p for p in path
+        ):
+            raise ActionError("set_value path is a non-empty list of menu titles")
+        if not isinstance(params["value"], str):
+            raise ActionError("set_value value is a string")
+    elif kind in ("click", "double_click", "scroll"):
         for name in ("x", "y"):
             if not isinstance(params[name], (int, float)):
                 raise ActionError(f"{kind} {name} is a number")
