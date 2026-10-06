@@ -54,6 +54,11 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(_TOOLS_DIR))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 from library.tools.resolve_lock import under_lease
+from library.tools.resource_leases import (
+    LeaseDeclaration,
+    ResourceRef,
+    resource_lease,
+)
 from library.tools.resolve_locale import LazyResolveScript
 
 # Imported on the first `scriptapp` call, not here: importing the bindings
@@ -1100,6 +1105,40 @@ def apply_fusion_comps_with_resolve(resolve, manifest, project_folder,
     return True
 
 
+def _pass_lease(manifest, timeline_name):
+    """One batch entry's compositions, declared before the pass writes.
+
+    The refs are the comps this pass imports: the per-clip labels plus
+    the generator overlay names, each scoped by timeline - a bare
+    label like `clip_0` exists on every reel, and an unscoped ref
+    would serialise every reel's comps against each other. Two passes
+    importing different comps run together; two passes importing the
+    same comp serialise - the spec's "two agents altering the same
+    Fusion composition: probably serialize". WRITE plus EXCLUSIVE: an
+    import replaces comp state.
+
+    The single-reel entry point takes no lease yet: without an
+    `expected_timeline` the timeline name is known only after the
+    destination guard connects, and a label-only ref is a declaration
+    nobody can match. That path is the follow-up, not this slice.
+    """
+    effects = (manifest.get("fusion_effects", {}) or {})
+    labels = list((effects.get("per_clip", {}) or {}).keys())
+    labels.extend(
+        str(gen.get("effect_name", ""))
+        for gen in (effects.get("generator_overlays", []) or [])
+        if gen.get("effect_name"))
+    return resource_lease(
+        LeaseDeclaration(
+            write=frozenset({ResourceRef("fusion_comp", f"{timeline_name}:{label}")
+                             for label in labels}),
+            exclusive=frozenset({ResourceRef("fusion_comp", f"{timeline_name}:{label}")
+                                 for label in labels}),
+        ),
+        purpose=f"apply fusion comps on {timeline_name}",
+    )
+
+
 @under_lease("apply fusion comps")
 def apply_fusion_comps_batch(entries, project_folder,
                              expected_project=None, step_id="render"):
@@ -1126,11 +1165,12 @@ def apply_fusion_comps_batch(entries, project_folder,
 
     results = {}
     for manifest, expected_timeline in entries:
-        results[expected_timeline] = apply_fusion_comps_with_resolve(
-            resolve, manifest, project_folder,
-            expected_project=expected_project,
-            expected_timeline=expected_timeline,
-            step_id=step_id)
+        with _pass_lease(manifest, expected_timeline):
+            results[expected_timeline] = apply_fusion_comps_with_resolve(
+                resolve, manifest, project_folder,
+                expected_project=expected_project,
+                expected_timeline=expected_timeline,
+                step_id=step_id)
     return results
 
 
