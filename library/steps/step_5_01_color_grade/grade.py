@@ -398,11 +398,25 @@ def measure_clips(entries: list, project_folder: str) -> list:
         row["neutral_rb"] = colour["neutral_rb"]
         row["neutral_gb"] = colour["neutral_gb"]
         row["neutral_fraction"] = colour["neutral_fraction"]
+        row["contrast"] = colour["contrast"]
+        row["saturation"] = colour["saturation"]
+        row["saturation_samples"] = colour["saturation_samples"]
+        row["skin_rgb"] = colour["skin_rgb"]
+        row["skin_fraction"] = colour["skin_fraction"]
         row["colour_method"] = colour["colour_method"]
         row["colour_samples"] = colour["colour_samples"]
         if colour.get("colour_unmeasured_because"):
             row["colour_unmeasured_because"] = colour[
                 "colour_unmeasured_because"]
+        if colour.get("contrast_unmeasured_because"):
+            row["contrast_unmeasured_because"] = colour[
+                "contrast_unmeasured_because"]
+        if colour.get("saturation_unmeasured_because"):
+            row["saturation_unmeasured_because"] = colour[
+                "saturation_unmeasured_because"]
+        if colour.get("skin_unmeasured_because"):
+            row["skin_unmeasured_because"] = colour[
+                "skin_unmeasured_because"]
         seen[clip_id] = row
         rows.append(row)
     return rows

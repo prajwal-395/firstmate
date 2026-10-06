@@ -1001,7 +1001,13 @@ def _evidence_for(graph: dict, candidate: dict) -> list:
     if node_type == MUSIC_BEHAVIOR:
         return ["music_analysis:tempo"]
     if node_type == GRADE_CORRECTION:
-        return [f"clip_catalog:{clip_id}"] if clip_id else []
+        # A grade rests on the clip's identity AND its measured colour:
+        # the per-shot chroma/contrast/saturation/skin rows the 5.01
+        # bridge took (library/tools/shot_colour.py). A planner asking
+        # "what does this grade rest on" gets the measurement beside the
+        # catalog entry.
+        return ([f"clip_catalog:{clip_id}", f"shot_colour:{clip_id}"]
+                if clip_id else [])
     if node_type == MIX_WINDOW:
         return ["music_analysis:tempo"]
     return []

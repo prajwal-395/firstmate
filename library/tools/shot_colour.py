@@ -22,6 +22,21 @@ What this measures, per source file:
   separates the camera from the content.
 * luma is NOT measured here. `grade.measure_luma` owns it (ffprobe
   signalstats YAVG); this module reads pixels for chroma.
+* `contrast` - the p95-p5 spread of per-pixel luma over the same
+  sampled pixels, 0-255. The spread and NOT the level: a dark frame
+  and a bright frame with the same spread read the same, and a flat
+  field reads 0.0 - measured flat, not absent. The level is `luma`'s
+  reading; the two are kept apart the way the neutral and the
+  whole-frame mean are.
+* `saturation` - the mean of (channel spread / brightness) over the
+  pixels bright enough to carry a ratio. 0 is any grey; higher is
+  further from its own grey. A frame with no pixel above the luma
+  floor is ABSENT with the reason - a near-black pixel's ratio is
+  arithmetic on noise.
+* the skin-tone vector - mean RGB of the pixels the skin rule accepts.
+  A shot with no skin in it is ABSENT with the reason, never a
+  whole-frame mean wearing a skin's name: the same defect the neutral
+  rule was written to stop.
 
 The neutral rule is stated, not tuned: a pixel counts when its channel
 spread is within `max(NEUTRAL_ABS_FLOOR, NEUTRAL_REL_TOL * brightness)`
@@ -85,6 +100,30 @@ NEUTRAL_HI = 225.0
 #: grey in it says so instead of borrowing the whole-frame mean.
 NEUTRAL_MIN_FRACTION = 0.01
 
+#: Contrast: the two percentiles whose spread IS the reading. Stated,
+#: not tuned - the same rule `render_qa` measures chroma with, one
+#: percentile pair per module and each module saying which.
+CONTRAST_P_HI = 95.0
+CONTRAST_P_LO = 5.0
+
+#: Saturation: the luma floor a pixel must reach to carry a chroma
+#: ratio. Below it the ratio is arithmetic on noise - the same reason
+#: the neutral rule keeps crushed blacks out of the grey.
+SATURATION_MIN_LUMA = 25.0
+
+#: The skin rule, stated not tuned: red over green over blue, a spread
+#: wide enough to be a hue and not sensor noise, brightness inside the
+#: band where skin lives, and red/green under a ceiling that keeps
+#: saturated oranges (a sunset wall, a wooden desk) out. Fewer than
+#: `SKIN_MIN_FRACTION` of the sampled pixels and the vector is ABSENT
+#: with the reason - a shot with no skin says so instead of borrowing
+#: the whole-frame mean.
+SKIN_MIN_SPREAD = 15.0
+SKIN_LO = 40.0
+SKIN_HI = 235.0
+SKIN_MAX_RG = 1.6
+SKIN_MIN_FRACTION = 0.005
+
 #: ffmpeg gets a hard ceiling so one unreadable file cannot wedge a run.
 FFMPEG_TIMEOUT_SECONDS = 60
 
@@ -102,6 +141,11 @@ def _unmeasured(reason: str) -> dict:
         "neutral_rb": None,
         "neutral_gb": None,
         "neutral_fraction": 0.0,
+        "contrast": None,
+        "saturation": None,
+        "saturation_samples": 0,
+        "skin_rgb": None,
+        "skin_fraction": 0.0,
         "colour_method": COLOUR_UNMEASURED,
         "colour_samples": 0,
         "colour_unmeasured_because": reason,
@@ -199,14 +243,108 @@ def neutral_of(pixels: np.ndarray) -> dict:
     }
 
 
+def _picture_pixels(pixels: np.ndarray) -> np.ndarray:
+    """Any pixel table as one (N, 3) float array."""
+    return np.asarray(pixels, dtype=np.float64).reshape(-1, 3)
+
+
+def contrast_of(pixels: np.ndarray) -> dict:
+    """The luma spread of one pixel table: `p95 - p5`, 0-255.
+
+    Pure function over pixels so tests can hold exact swatches to it
+    without ffmpeg, the same shape as `neutral_of`.  The spread and NOT
+    the level: a dark frame and a bright frame with the same spread read
+    the same, because contrast is how far apart the darks and lights
+    sit and not where they sit.  A flat field reads 0.0 - measured flat,
+    not absent - and an empty table is the only absence.
+    """
+    table = _picture_pixels(pixels)
+    if table.shape[0] == 0:
+        return {"contrast": None,
+                "reason": "no sampled pixels to take a spread over"}
+    luma = table.mean(axis=1)
+    hi = float(np.percentile(luma, CONTRAST_P_HI))
+    lo = float(np.percentile(luma, CONTRAST_P_LO))
+    return {"contrast": round(hi - lo, 2)}
+
+
+def saturation_of(pixels: np.ndarray) -> dict:
+    """The mean chroma ratio of one pixel table, or the absence.
+
+    Per pixel: `(max - min) / mean` - the spread of its channels over its
+    brightness. 0 for any grey whatever its level; higher the further
+    the colour sits from its own grey.  Only pixels at or above
+    `SATURATION_MIN_LUMA` vote: a near-black pixel's ratio divides by
+    noise.  No voter is an ABSENCE with the reason, never 0.0 - a dark
+    frame and a grey frame are different facts, and reading one as the
+    other is how a saturation correction lands on the wrong shot.
+    """
+    table = _picture_pixels(pixels)
+    if table.shape[0] == 0:
+        return {"saturation": None, "saturation_samples": 0,
+                "absent": True, "reason": "no sampled pixels"}
+    brightness = table.mean(axis=1)
+    spread = table.max(axis=1) - table.min(axis=1)
+    lit = brightness >= SATURATION_MIN_LUMA
+    if not lit.any():
+        return {"saturation": None, "saturation_samples": 0,
+                "absent": True,
+                "reason": (f"no sampled pixel reached luma "
+                           f"{SATURATION_MIN_LUMA:g}; a dark frame carries "
+                           f"no chroma ratio")}
+    ratios = spread[lit] / brightness[lit]
+    return {"saturation": round(float(ratios.mean()), 4),
+            "saturation_samples": int(lit.sum()),
+            "absent": False}
+
+
+def skin_tone_of(pixels: np.ndarray) -> dict:
+    """The skin-tone vector of one pixel table: mean RGB of the skin pixels.
+
+    The rule is stated on the module constants; what matters here is the
+    absence.  Fewer than `SKIN_MIN_FRACTION` of the sampled pixels and
+    the vector is ABSENT with the reason - a whole-frame mean wearing a
+    skin's name would put a "skin vector" on a shot of a grey wall, and
+    a skin-tone correction balanced off it would grade the wall.
+    """
+    table = _picture_pixels(pixels)
+    total = table.shape[0]
+    if total == 0:
+        return {"skin_rgb": None, "skin_fraction": 0.0,
+                "absent": True, "reason": "no sampled pixels"}
+    red, green, blue = table[:, 0], table[:, 1], table[:, 2]
+    brightness = table.mean(axis=1)
+    mask = ((red > green) & (green > blue)
+            & ((red - blue) >= SKIN_MIN_SPREAD)
+            & (brightness >= SKIN_LO) & (brightness <= SKIN_HI)
+            & (red <= SKIN_MAX_RG * green))
+    selected = table[mask]
+    fraction = float(len(selected)) / float(total)
+    if len(selected) == 0 or fraction < SKIN_MIN_FRACTION:
+        return {"skin_rgb": None, "skin_fraction": round(fraction, 4),
+                "absent": True,
+                "reason": (f"only {fraction:.4f} of sampled pixels read as "
+                           f"skin (needs {SKIN_MIN_FRACTION}); this shot "
+                           f"carries no skin to read a vector from")}
+    mean = selected.mean(axis=0)
+    return {"skin_rgb": [round(float(mean[0]), 2),
+                         round(float(mean[1]), 2),
+                         round(float(mean[2]), 2)],
+            "skin_fraction": round(fraction, 4),
+            "absent": False}
+
+
 def measure_shot_colour(source_file: str) -> dict:
     """Measure one source file's colour, or say plainly nothing did.
 
     Returns a record carrying `mean_rgb` ([r, g, b] or None),
     `rb_all`/`gb_all` (whole-frame balance), the neutral reading
     (`neutral_rgb`, `neutral_rb`, `neutral_gb`, `neutral_fraction`),
-    `colour_method`, `colour_samples` (frames read) and, where the
-    measurement did not happen, `colour_unmeasured_because`.
+    `contrast` (p95-p5 luma spread), `saturation` (mean chroma ratio
+    over the lit pixels), the skin reading (`skin_rgb`,
+    `skin_fraction`), `colour_method`, `colour_samples` (frames read)
+    and, where a reading did not happen, its own
+    `*_unmeasured_because`.
 
     A failure is REPORTED, never returned as zeros: a zeros row reads
     as measured black, which balances to nothing.
@@ -245,6 +383,23 @@ def measure_shot_colour(source_file: str) -> dict:
     record["neutral_fraction"] = neutral["neutral_fraction"]
     if neutral["absent"]:
         record["colour_unmeasured_because"] = neutral["reason"]
+
+    contrast = contrast_of(pixels)
+    record["contrast"] = contrast["contrast"]
+    if contrast.get("reason"):
+        record["contrast_unmeasured_because"] = contrast["reason"]
+
+    saturation = saturation_of(pixels)
+    record["saturation"] = saturation["saturation"]
+    record["saturation_samples"] = saturation["saturation_samples"]
+    if saturation.get("absent"):
+        record["saturation_unmeasured_because"] = saturation["reason"]
+
+    skin = skin_tone_of(pixels)
+    record["skin_rgb"] = skin["skin_rgb"]
+    record["skin_fraction"] = skin["skin_fraction"]
+    if skin.get("absent"):
+        record["skin_unmeasured_because"] = skin["reason"]
     return record
 
 

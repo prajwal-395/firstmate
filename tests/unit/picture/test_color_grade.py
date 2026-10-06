@@ -199,6 +199,13 @@ def test_rows_carry_the_chroma_half(tmp_path):
     assert by_clip["clip_cool"]["neutral_rb"] < 1.0
     assert by_clip["clip_warm"]["mean_rgb"][0] > \
         by_clip["clip_warm"]["mean_rgb"][2]
+    # The contrast/saturation/skin readings travel on the same row, so
+    # the colourist is shown them without a second measurement pass.
+    for clip in ("clip_warm", "clip_cool"):
+        assert by_clip[clip]["contrast"] == pytest.approx(0.0, abs=2.0)
+        assert by_clip[clip]["saturation"] == pytest.approx(0.0, abs=0.1)
+        assert by_clip[clip]["skin_rgb"] is None
+        assert "skin_unmeasured_because" in by_clip[clip]
 
 
 @pytest.mark.skipif(not FFMPEG, reason="ffmpeg/ffprobe not on PATH")
@@ -852,6 +859,120 @@ def test_extract_still_draws_inside_the_sampled_span(tmp_path):
     assert sc.extract_still(str(tmp_path / "missing.mp4"),
                             str(tmp_path / "nope.jpg")) is False
     assert not (tmp_path / "nope.jpg").exists()
+
+
+# ── Contrast, saturation, skin: the readings a cast cannot hide in ──
+#
+# The colourist used to see luma and the neutral balance only. A flat
+# shot and a contrasty one, a grey one and a saturated one, a shot of a
+# face and a shot of a wall all read the same, so a correction that
+# needed those numbers had nothing to ground in. Each test names the
+# defect it stops: a level wearing a contrast's name, a dark frame
+# reading as measured zero saturation, a whole-frame mean wearing a
+# skin vector's name.
+
+
+def test_contrast_is_the_spread_not_the_level():
+    """A dark frame and a bright frame with the same spread read the
+    same: contrast is how far apart the darks and lights sit, not where
+    they sit. A flat field reads 0.0 - measured flat, not absent."""
+    assert sc.contrast_of(_swatch((120, 120, 120)))["contrast"] == 0.0
+    dark = sc.contrast_of(_swatch((30, 30, 30)))["contrast"]
+    bright = sc.contrast_of(_swatch((200, 200, 200)))["contrast"]
+    assert dark == 0.0 and bright == 0.0
+    # Half the pixels at 40, half at 200: the p95-p5 spread is the
+    # distance between the two populations, whichever end is which.
+    pixels = np.concatenate([_swatch((40, 40, 40)).reshape(-1, 3),
+                             _swatch((200, 200, 200)).reshape(-1, 3)])
+    out = sc.contrast_of(pixels)
+    assert out["contrast"] == pytest.approx(160.0, abs=1.0)
+    # An empty table is the only absence - and it says so.
+    out = sc.contrast_of(np.zeros((0, 3)))
+    assert out["contrast"] is None
+    assert "no sampled pixels" in out["reason"]
+
+
+def test_saturation_separates_grey_from_chroma():
+    """0 is any grey whatever its level; higher is further from its own
+    grey. A frame with no pixel above the luma floor is an ABSENCE with
+    the reason, never 0.0 - a dark frame and a grey frame are different
+    facts, and reading one as the other is how a saturation correction
+    lands on the wrong shot."""
+    assert sc.saturation_of(_swatch((120, 120, 120)))["saturation"] \
+        == pytest.approx(0.0, abs=1e-6)
+    assert sc.saturation_of(_swatch((30, 30, 30)))["saturation"] \
+        == pytest.approx(0.0, abs=1e-6)
+    red = sc.saturation_of(_swatch((200, 20, 20)))
+    assert red["saturation"] == pytest.approx(2.25, abs=0.05)
+    assert red["saturation_samples"] == 64 * 48
+    # Half grey, half red: the mean of the two ratios.
+    pixels = np.concatenate([_swatch((120, 120, 120)).reshape(-1, 3),
+                             _swatch((200, 20, 20)).reshape(-1, 3)])
+    out = sc.saturation_of(pixels)
+    assert out["saturation"] == pytest.approx(1.125, abs=0.05)
+    # A near-black frame: no voter, so an absence with the reason.
+    out = sc.saturation_of(_swatch((10, 10, 10)))
+    assert out["saturation"] is None
+    assert out["absent"] is True
+    assert "no sampled pixel reached luma" in out["reason"]
+
+
+def test_skin_vector_is_absent_without_skin():
+    """A shot of a grey wall carries no skin vector: the absence SAYS
+    so with the reason and the fraction, never a whole-frame mean
+    wearing a skin's name - the same defect the neutral rule was
+    written to stop. A saturated orange fails the R/G ceiling, so a
+    sunset wall does not vote as skin."""
+    out = sc.skin_tone_of(_swatch((120, 120, 120)))
+    assert out["skin_rgb"] is None
+    assert out["absent"] is True
+    assert "no skin" in out["reason"]
+    assert out["skin_fraction"] == 0.0
+    # The geo-podcast shape: a neutral wall behind a face. The wall's
+    # balance is not skin; the face's is, and the vector is the face's.
+    wall = _swatch((53, 52, 53), width=64, height=36)
+    face = (np.ones((12, 64, 3)) * np.array([180, 130, 110])).astype(float)
+    pixels = np.concatenate([wall.reshape(-1, 3), face.reshape(-1, 3)])
+    out = sc.skin_tone_of(pixels)
+    assert out["absent"] is False
+    assert out["skin_rgb"] == [180.0, 130.0, 110.0]
+    assert out["skin_fraction"] == pytest.approx(0.25, abs=0.01)
+    # A saturated orange: red/green 1.67 is over the ceiling, so it is
+    # content with a hue, not skin.
+    out = sc.skin_tone_of(_swatch((200, 120, 60)))
+    assert out["skin_rgb"] is None
+    assert out["absent"] is True
+
+
+@pytest.mark.skipif(not FFMPEG_2, reason="ffmpeg not on PATH")
+def test_measured_video_reports_contrast_saturation_and_skin(tmp_path):
+    """End to end off generated files: a saturated red field measures
+    saturated with no skin, a grey field measures flat and grey. The
+    readings travel on the record beside the neutral, each with its
+    own absence where it did not happen."""
+    red = str(tmp_path / "red.mp4")
+    grey = str(tmp_path / "grey.mp4")
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-f", "lavfi",
+         "-i", "color=c=0xC81414:s=160x120:d=12",
+         "-pix_fmt", "yuv420p", red],
+        check=True)
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-f", "lavfi",
+         "-i", "color=c=0x787878:s=160x120:d=12",
+         "-pix_fmt", "yuv420p", grey],
+        check=True)
+    out = sc.measure_shot_colour(red)
+    assert out["colour_method"] == sc.COLOUR_METHOD
+    assert out["saturation"] == pytest.approx(2.25, abs=0.3)
+    assert out["contrast"] == pytest.approx(0.0, abs=2.0)
+    assert out["skin_rgb"] is None
+    assert "skin_unmeasured_because" in out
+    out = sc.measure_shot_colour(grey)
+    assert out["saturation"] == pytest.approx(0.0, abs=0.05)
+    assert out["contrast"] == pytest.approx(0.0, abs=2.0)
+    assert out["skin_rgb"] is None
+    assert "skin_unmeasured_because" in out
 
 
 # --------------------------------------------------------------------------

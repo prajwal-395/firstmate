@@ -70,7 +70,12 @@ from library.tools.series_look import (
 )
 from library.tools.shot_colour import (
     CHROMA_SAMPLE_SECONDS,
+    CONTRAST_P_HI,
+    CONTRAST_P_LO,
     COLOUR_SCOPE,
+    SATURATION_MIN_LUMA,
+    SKIN_MAX_RG,
+    SKIN_MIN_SPREAD,
     STILL_WIDTH,
     extract_still,
 )
@@ -278,6 +283,26 @@ def main():
                 "G/B on the same detected neutral region. `neutral_rgb` "
                 "is the region's mean triple, `neutral_fraction` how "
                 "much of the sampled picture voted for it."),
+            "contrast": (
+                f"p{CONTRAST_P_HI:g}-p{CONTRAST_P_LO:g} spread of per-pixel "
+                f"luma over the same {CHROMA_FRAMES} frames, 0-255. The "
+                f"spread and not the level: a dark frame and a bright "
+                f"frame with the same spread read the same, and a flat "
+                f"field reads 0.0 - measured flat, not absent."),
+            "saturation": (
+                f"mean of (channel spread / brightness) over the pixels "
+                f"at or above luma {SATURATION_MIN_LUMA:g} of the same "
+                f"frames. 0 is any grey; higher is further from its own "
+                f"grey. A null with `saturation_unmeasured_because` means "
+                f"no pixel was bright enough to carry a ratio - a dark "
+                f"frame, said plainly."),
+            "skin_rgb": (
+                f"mean RGB of the pixels the skin rule accepts (red over "
+                f"green over blue, channel spread >= {SKIN_MIN_SPREAD:g}, "
+                f"luma 40-235, R/G <= {SKIN_MAX_RG:g}). `skin_fraction` is "
+                f"how much of the sampled picture voted. A null with "
+                f"`skin_unmeasured_because` means no skin cleared the "
+                f"floor - balance nothing off it."),
             "stops_between": (
                 "log2(incoming_luma / outgoing_luma) - the gap across one "
                 "cut, in stops. `unmeasured` means one of the two ends was "
