@@ -1363,6 +1363,18 @@ _REGISTRY: tuple[Operation, ...] = (
         ),
     ),
     Operation(
+        name="picture.plan",
+        summary="Build the global picture plan selecting shots against the whole edit",
+        owning_dir="step_3_00_plan_picture", body="step.py",
+        attr="main",
+        produces=("picture_plan",),
+        consumes=("timed_spine", "clip_catalog"),
+        # Deterministic data transformation: reads the meshed spine and
+        # the catalog, and writes the per-block shot-selection plan that
+        # assign_aroll and select_broll satisfy.  The semantic documents
+        # reach it through the DAG edge as an optional input.
+    ),
+    Operation(
         name="aroll.assign",
         summary="Map speech blocks and hook to their A-roll source files",
         owning_dir="step_3_01_assign_aroll", body="step.py",

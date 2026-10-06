@@ -552,6 +552,13 @@
       }
     },
     {
+      "from": "creative_direction",
+      "to": "plan_subtitles",
+      "data_mapping": {
+        "creative_direction": "creative_direction"
+      }
+    },
+    {
       "from": "assign_aroll",
       "to": "plan_transitions",
       "data_mapping": {

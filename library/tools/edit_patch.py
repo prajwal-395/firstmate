@@ -108,7 +108,7 @@ CONFLICT_DOMAINS = frozenset({
 #: reports, and nothing else - a composite or retime key is another
 #: domain's write.
 TRANSFORM_KEYS = frozenset({
-    "Pan", "Tilt", "ZoomX", "ZoomY", "ZoomGang", "RotationAngle",
+    "Pan", "Tilt", "Scaling", "ZoomX", "ZoomY", "ZoomGang", "RotationAngle",
     "AnchorPointX", "AnchorPointY", "Pitch", "Yaw", "FlipX", "FlipY",
     "CropLeft", "CropRight", "CropTop", "CropBottom", "CropSoftness",
     "CropRetain", "Opacity",
@@ -203,6 +203,26 @@ class EditPatch:
         # mid-apply), refuse in tests/dev.
         protocol_conformance.validate(out, "edit-patch")
         return out
+
+
+def _intent_form(operations) -> list:
+    """The identity form of operations for idempotency comparison.
+
+    `clip.insert`'s apply writes the Resolve-assigned unique id back onto
+    the op (and records the client id on `client_unique_id`), so a
+    recorded patch's operations are post-apply while a retry's intent is
+    pre-apply.  Normalising both sides to the client id makes the
+    comparison stable: the Resolve-assigned id is a result, not part of
+    the patch's identity.
+    """
+    out = []
+    for op in operations:
+        op = dict(op)
+        if "client_unique_id" in op:
+            op["unique_id"] = op["client_unique_id"]
+            del op["client_unique_id"]
+        out.append(op)
+    return out
 
 
 def _refuse(patch: EditPatch, what: str, why: str, fix: str):
@@ -557,6 +577,8 @@ def apply_live_patch(*, project, timeline, capability: str,
                 and (generation.patch or {}).get("id") == patch_id):
             prior = generation.patch
             prior_intent = {key: prior[key] for key in intent}
+            prior_intent["operations"] = _intent_form(
+                prior.get("operations") or ())
             if json.dumps(prior_intent, ensure_ascii=False, sort_keys=True,
                           separators=(",", ":"), default=str) != json.dumps(
                               intent, ensure_ascii=False, sort_keys=True,
@@ -625,6 +647,12 @@ def apply_patch(patch, *, resolve, project, timeline,
     """
     del resolve
     patch = EditPatch.from_dict(patch)
+    # The pre-apply operations, snapshotted before the apply mutates
+    # them (clip.insert writes the Resolve-assigned unique id back onto
+    # the op).  The recorded patch carries THIS form so a retry's intent
+    # compares equal to what was recorded - the post-apply unique id is
+    # a result, not part of the patch's identity.
+    recorded_operations = tuple(dict(op) for op in patch.operations)
     store = store or shadow.ShadowStore()
     project_name, timeline_id, timeline_name = shadow.timeline_key(
         project, timeline)
@@ -643,7 +671,12 @@ def apply_patch(patch, *, resolve, project, timeline,
     # answers with the receipt it got, and writes nothing again.
     for gen in store.history(project_name, timeline_id):
         if gen.source == shadow.PATCH and gen.patch["id"] == patch.id:
-            if gen.patch != patch.to_dict():
+            recorded = {**gen.patch,
+                         "operations": _intent_form(
+                             gen.patch.get("operations") or ())}
+            attempted = {**patch.to_dict(),
+                         "operations": _intent_form(patch.operations)}
+            if recorded != attempted:
                 _refuse(
                     patch,
                     "this id was already committed with different contents",
@@ -683,11 +716,6 @@ def apply_patch(patch, *, resolve, project, timeline,
         handles = (_live_handles(timeline)
                    if any(OPERATIONS[op["op"]].item
                           for op in patch.operations) else {})
-        # The record holds the operations AS SUBMITTED. An apply may
-        # learn and write back a Resolve-assigned id (`clip.insert`),
-        # and a mutated record makes an idempotent retry of the same key
-        # refuse - the fresh intent no longer matches the recorded one.
-        submitted = [dict(op) for op in patch.operations]
         id_map: dict = {}
         ran = []
         stopped = None
@@ -795,7 +823,7 @@ def apply_patch(patch, *, resolve, project, timeline,
         project=project_name, timeline_id=timeline_id,
         timeline_name=timeline_name, snapshot=after, source=shadow.PATCH,
         expected_head=head.generation,
-        patch={**patch.to_dict(), "operations": submitted},
+        patch={**patch.to_dict(), "operations": recorded_operations},
         receipt=receipt))
 
 

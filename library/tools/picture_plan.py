@@ -234,9 +234,13 @@ def _candidate_clips(clip_catalog: list, block: dict,
 
     A clip is a candidate if it has a semantic description and its
     source range overlaps the block's source range. The spine's own
-    clip is always a candidate.
+    clip is always a candidate.  A clip whose own duration cannot hold
+    the block's source range is not a candidate: the assignment step
+    refuses a range that runs past the clip's end, so selecting one
+    here would plan a block that cannot be cut.
     """
     block_clip_id = block.get("clip_id") or ""
+    block_source_end = float(block.get("source_end") or 0.0)
 
     candidates = []
     for clip in clip_catalog:
@@ -250,10 +254,13 @@ def _candidate_clips(clip_catalog: list, block: dict,
         observations = clip_observations(semantic[clip_id])
         if not observations.get("description"):
             continue
+        duration = float(clip.get("duration_seconds") or 0.0)
+        if duration + 0.5 < block_source_end:
+            continue
         candidates.append({
             "clip_id": clip_id,
             "source_file": clip.get("source_file") or clip.get("path") or "",
-            "duration_seconds": float(clip.get("duration_seconds") or 0.0),
+            "duration_seconds": duration,
             "analysis": observations,
             "semantic_doc": semantic[clip_id],
             "is_spine_clip": clip_id == block_clip_id,

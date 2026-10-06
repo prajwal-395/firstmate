@@ -77,7 +77,9 @@ from library.tools.stable_json import dumps_stable
 
 ENGINE_CODE_TREES = (
     "library/tools",
+    "library/dashboard",
     "library/schemas",
+    "library/graphics_ir",
     "library/steps/step_7_01_build_reels",
     "library/steps/step_7_02_verify_reels",
     "library/steps/step_4_01_plan_subtitles",

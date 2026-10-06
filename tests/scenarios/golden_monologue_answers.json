@@ -12,10 +12,48 @@
     "talk: 'a plan you can see beats a plan you remember'",
     "talk: 'so write it down today'"
    ],
-   "rationale": "There is one speaker and one thought; the two B-roll clips (broll_1 planner, broll_2 whiteboard) are the visible plan the line names."
+    "rationale": "There is one speaker and one thought; the two B-roll clips (broll_1 planner, broll_2 whiteboard) are the visible plan the line names."
+   },
+   "intent_model": {
+    "beats": [
+     {
+      "beat_id": "beat:1",
+      "purpose": "open on the lesson: the one thing learned this week",
+      "setup_for": "beat:2",
+      "payoff_of": null,
+      "span": {"clip_id": "clip_003", "source_start": 0.5, "source_end": 4.0}
+     },
+     {
+      "beat_id": "beat:2",
+      "purpose": "show the planner and the whiteboard as the visible proof the line names",
+      "setup_for": "beat:3",
+      "payoff_of": "beat:1",
+      "span": {"clip_id": "clip_001", "source_start": 0.0, "source_end": 5.0}
+     },
+     {
+      "beat_id": "beat:3",
+      "purpose": "close on the instruction: write it down today",
+      "setup_for": null,
+      "payoff_of": "beat:2",
+      "span": {"clip_id": "clip_003", "source_start": 8.5, "source_end": 11.5}
+     }
+    ],
+    "claims": [
+     {"claim_id": "claim:1", "statement": "a plan you can see beats a plan you remember", "supports": []},
+     {"claim_id": "claim:2", "statement": "so write it down today", "supports": ["claim:1"]}
+    ],
+    "key_moments": [
+     {"moment_id": "moment:1", "description": "a plan you can see beats a plan you remember", "span": {"clip_id": "clip_003", "source_start": 4.5, "source_end": 7.45}},
+     {"moment_id": "moment:2", "description": "so write it down today", "span": {"clip_id": "clip_003", "source_start": 8.5, "source_end": 9.95}}
+    ],
+    "pacing_curve": [
+     {"beat_id": "beat:1", "energy": 0.3, "target_asl": 2.0},
+     {"beat_id": "beat:2", "energy": 0.5, "target_asl": 1.5},
+     {"beat_id": "beat:3", "energy": 0.4, "target_asl": 2.0}
+    ]
+   },
+   "could_not_determine": []
   },
-  "could_not_determine": []
- },
  "music_selection": {
   "music_selection": {
    "title": "bed",
@@ -51,36 +89,39 @@
  "speech_sequence": {
   "speech_sequence": {
    "body_sequence": [
-    {
-     "clip_id": "clip_003",
-     "text": "the one thing i learned this week is simple",
-     "source_start": 0.5,
-     "source_end": 3.15,
-     "engagement": {
-      "rank": 2,
-      "basis": "it sets up the lesson but says nothing yet"
+     {
+      "clip_id": "clip_003",
+      "text": "the one thing i learned this week is simple",
+      "source_start": 0.5,
+      "source_end": 3.15,
+      "serves_beats": ["beat:1"],
+      "engagement": {
+       "rank": 2,
+       "basis": "it sets up the lesson but says nothing yet"
+      }
+     },
+     {
+      "clip_id": "clip_003",
+      "text": "a plan you can see beats a plan you remember",
+      "source_start": 4.5,
+      "source_end": 7.45,
+      "serves_beats": ["beat:2"],
+      "engagement": {
+       "rank": 1,
+       "basis": "the whole idea in one line"
+      }
+     },
+     {
+      "clip_id": "clip_003",
+      "text": "so write it down today",
+      "source_start": 8.5,
+      "source_end": 9.95,
+      "serves_beats": ["beat:3"],
+      "engagement": {
+       "rank": 3,
+       "basis": "a plain instruction that lands the ending"
+      }
      }
-    },
-    {
-     "clip_id": "clip_003",
-     "text": "a plan you can see beats a plan you remember",
-     "source_start": 4.5,
-     "source_end": 7.45,
-     "engagement": {
-      "rank": 1,
-      "basis": "the whole idea in one line"
-     }
-    },
-    {
-     "clip_id": "clip_003",
-     "text": "so write it down today",
-     "source_start": 8.5,
-     "source_end": 9.95,
-     "engagement": {
-      "rank": 3,
-      "basis": "a plain instruction that lands the ending"
-     }
-    }
    ],
    "excluded_passages": []
   },

@@ -218,11 +218,11 @@ def test_a_whole_pipeline_collapses_to_the_step_that_still_has_work(
     because they were made elsewhere, so the only thing left to do is
     judge the master.
 
-    Twenty-seven steps become one, and nothing was taken on faith - the
+    Twenty-eight steps become one, and nothing was taken on faith - the
     manifest passed the validator step 5.04 runs on its own output and
     the master was decoded by ffprobe.
 
-    Two of the twenty-six are SUPPLIED rather than merely unneeded, and
+    Two of the twenty-seven are SUPPLIED rather than merely unneeded, and
     the distinction is the point: `compile_manifest` and `render` are the
     steps that would have MADE the two values, so they leave the universe
     entirely rather than sitting in `skipped` as work this run declined.
@@ -253,7 +253,7 @@ def test_a_whole_pipeline_collapses_to_the_step_that_still_has_work(
                               "render": ("render_output",)}
     assert "compile_manifest" not in scope.universe
     assert "render" not in scope.universe
-    assert len(scope.skipped) + len(scope.supplied) == 27
+    assert len(scope.skipped) + len(scope.supplied) == 28
 
 
 def _render_a_real_video(path):

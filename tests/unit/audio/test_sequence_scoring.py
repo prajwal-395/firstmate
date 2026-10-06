@@ -154,16 +154,27 @@ class TestPerformance:
         assert elapsed_ms < 10.0, f"scoring took {elapsed_ms:.1f} ms"
 
     def test_reordering_twenty_passages_under_100ms(self):
-        """Re-ordering 20 passages completes in under 100 ms."""
+        """Re-ordering 20 passages completes in under 100 ms of CPU time.
+
+        Measures process CPU time, not wall clock: the defect this
+        catches is the local search becoming accidentally exponential
+        (e.g. trying all permutations), which no machine load causes
+        and no load average hides. A bounded local search over 20
+        passages - max 10 iterations of O(n^2) adjacent swaps and
+        single-passage moves - completes in single-digit milliseconds.
+        """
         import time
         passages = [
             _passage(f"passage number {i} about topic {i % 5}")
             for i in range(20)
         ]
-        start = time.perf_counter()
+        start = time.process_time()
         reorder_passages(passages)
-        elapsed_ms = (time.perf_counter() - start) * 1000
-        assert elapsed_ms < 100.0, f"re-ordering took {elapsed_ms:.1f} ms"
+        elapsed_ms = (time.process_time() - start) * 1000
+        assert elapsed_ms < 100.0, (
+            f"re-ordering took {elapsed_ms:.1f} ms of CPU time - the "
+            f"local search is bounded (max 10 iterations of O(n^2) "
+            f"moves), so this names an accidental exponential")
 
 
 # ── Continuity and variety ─────────────────────────────────────────

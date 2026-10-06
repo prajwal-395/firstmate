@@ -28,6 +28,15 @@ from library.tools.safe_area import safe_area_for_frame
 import os
 import sys
 from pathlib import Path
+
+
+@pytest.fixture(autouse=True)
+def _isolated_shadow_db(tmp_path, monkeypatch):
+    """Isolate the shadow store: the fake timelines share deterministic
+    identities, so the machine-local store would collide across tests
+    and across runs (a retry's idempotency would answer from a record
+    belonging to a different timeline instance)."""
+    monkeypatch.setenv("REN_SHADOW_DB", str(tmp_path / "shadow.sqlite3"))
 import json
 import yaml
 from library.tools import full_frame_element as ffe
@@ -743,7 +752,8 @@ def test_a_tail_card_lands_on_the_row_named_for_its_role_not_v1(tmp_path):
         cards=[_tail_card(tmp_path)],
         semantic_segments=[_semantic(0.0, 48)],
         master_timeline=None, program_channels={"1": 1, "2": 1},
-        card_row_role="semantic")
+        card_row_role="semantic",
+        timeline_name="Reel 99 - semantic")
     names = _card_row_names(timeline)
     assert names[1] == "SpeakerOne"
     assert _row_of(timeline, "logo_reveal.mov") == 4
@@ -768,7 +778,8 @@ def test_a_tail_card_lands_on_the_row_named_for_its_role_not_v1(tmp_path):
         23.976, 1080, 1920, str(tmp_path), _transcript(),
         cards=[_tail_card(tmp_path)],
         master_timeline=None, program_channels={"1": 1, "2": 1},
-        card_row_role="motion_graphics")
+        card_row_role="motion_graphics",
+        timeline_name="Reel 99 - motion")
     names = _card_row_names(timeline)
     assert names[1] == "SpeakerOne"
     row = _row_of(timeline, "logo_reveal.mov")

@@ -2382,10 +2382,10 @@ def test_an_insert_instruction_routes_through_the_program_to_the_algebra(
         "anchor": {"kind": "reel"},
         "reel": "Reel 09 - hook",
         "ops": [
-            {"op": "clip.insert",
-             "params": {"unique_id": "clip_017", "track_type": "video",
-                        "track_index": 1, "record_in": 20, "record_out": 50,
-                        "media_pool_item": "pool_017"},
+             {"op": "clip.insert",
+              "params": {"unique_id": "clip_017", "track_type": "video",
+                         "track_index": 1, "record_in": 20, "record_out": 50,
+                         "media_pool_item": "pool_017"},
              "text": "insert the clip at 20 seconds"},
         ],
     }

@@ -13,6 +13,12 @@
         "description": "State input: audio_spine. Reads structure and optional max_words, the request-stated caption word ceiling emitted by mesh_spine; the brand caption_words_per_card and declared default apply only when the request states no count."
       },
       {
+        "name": "creative_direction",
+        "type": "object",
+        "required": true,
+        "description": "State input: creative_direction. The inherited direction the caption-aggression taste slot is decided against (library/tools/decided_value.py)."
+      },
+      {
         "name": "project_fps",
         "type": "number",
         "required": false,

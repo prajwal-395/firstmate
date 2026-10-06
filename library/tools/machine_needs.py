@@ -158,6 +158,7 @@ CAPABILITY_NEEDS: dict = {
     "music.resolve": CapabilityNeeds(_MODEL + ("config.music_library",)),
     "duration_zone.build": CapabilityNeeds(),
     "spine.mesh": CapabilityNeeds(_MODEL),
+    "picture.plan": CapabilityNeeds(),
     "aroll.assign": CapabilityNeeds(),
     "aroll.splice": CapabilityNeeds(),
     "broll.resolve": CapabilityNeeds(_MODEL),

@@ -162,7 +162,7 @@ def test_an_uncited_heavy_lock_site_is_named(monkeypatch):
         op, execution=replace(
             op.execution,
             phases=tuple(p for p in op.execution.phases
-                         if p.name != "placement")))
+                         if p.name != "apply")))
     monkeypatch.setattr(operations, "_REGISTRY", tuple(registry))
     found = contract_audit.problems()
     assert any(
@@ -178,7 +178,7 @@ def test_a_cited_heavy_lock_site_that_takes_no_lock_is_named(monkeypatch):
     op = registry[index]
     phases = tuple(
         replace(p, lock_sites=("library.tools.reel_build:build_reels_typo",))
-        if p.name == "placement" else p
+        if p.name == "apply" else p
         for p in op.execution.phases)
     registry[index] = replace(op, execution=replace(op.execution,
                                                    phases=phases))

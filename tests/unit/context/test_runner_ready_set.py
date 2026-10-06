@@ -368,7 +368,7 @@ def test_only_confirmed_unused_mappings_were_removed():
 
     assert set(inputs("step_4_01_plan_subtitles")) == {
         "audio_spine", "project_fps", "brand_effect", "brand_style",
-        "timeline_notes", "project_folder"}
+        "timeline_notes", "project_folder", "creative_direction"}
     assert "enhancement_spec" not in inputs("step_5_03_creative_cohesion")
     compile_inputs = inputs("step_5_04_compile_manifest")
     assert "temporal_index" not in compile_inputs

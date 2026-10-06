@@ -28,7 +28,8 @@ TESTS_ROOT = Path(__file__).resolve().parent
 LAYERS = ("unit", "contracts", "scenarios", "qualification", "tooling")
 
 #: `unit/` subdirectories, one per subsystem.
-SUBSYSTEMS = ("audio", "captions", "context", "picture", "reels", "resolve")
+SUBSYSTEMS = ("audio", "captions", "context", "graphics_ir", "picture",
+              "reels", "resolve")
 
 
 def _parts(path) -> tuple[str, ...]:

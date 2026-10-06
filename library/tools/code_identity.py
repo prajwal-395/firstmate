@@ -301,6 +301,11 @@ STEP_IMPLEMENTATION_DEPS = {
         # The executed sound-event measurement: PANNs AudioSet spans
         # per clip, so a fix here changes the cached sound_events.
         "library/tools/analysis/sound_event_pipeline.py",
+        # Imported by step.py's measure_audio_classification: the
+        # cross-clip speech level, music genre and ambience
+        # classifications that land in the cached per-clip index, so
+        # a fix here changes what the index measured.
+        "library/tools/audio_classification.py",
         # The confidence vocabulary carried in the cached segments
         # (avg_logprob): the transcription path keys its numbers here.
         "library/tools/transcript_confidence.py",

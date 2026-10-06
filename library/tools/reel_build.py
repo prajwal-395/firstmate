@@ -9036,7 +9036,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                 "source_out": _card_frames,
             }],
             conflict_domains=("timeline_structure",),
-            idempotency_key=f"reel-build:{name}:card:{card.render_name}",
+            idempotency_key=f"reel-build:{name}:card:{card.render_name}:{dest_row}",
             project_folder=project_folder)
         if _receipt["status"] != "committed":
             raise ReelBuildError(

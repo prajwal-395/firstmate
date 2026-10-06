@@ -1118,18 +1118,20 @@ def test_the_step_record_carries_a_placement_for_tight(tmp_path):
 
 
 def test_every_overlay_row_goes_through_the_one_placer():
-    """Captions, motion graphics AND timed text.
+    """Motion graphics AND timed text.
 
     Timed text used to carry its own inline `AppendToTimeline`, which
     made it the one overlay row nobody ever asked Resolve what it held.
     A second placer is also a second chance to land one frame off.
+    Captions ride the EditPatch path (D1b), which carries its own
+    read-back receipt; the placer is for the rows that are not patches.
     """
     source = open(os.path.join(
         PROJECT_ROOT, "library", "steps", "step_6_01_render",
         "resolve_build_timeline.py"), encoding="utf-8").read()
-    # One call each for captions, motion graphics and timed text.
+    # One call each for motion graphics and timed text.
     assert "    place_overlay_segment,\n" in source
-    assert source.count("place_overlay_segment(") >= 3
+    assert source.count("place_overlay_segment(") >= 2
     assert '"trackIndex": _tt_row' not in source, (
         "timed text appends inline again, outside the one placer")
     assert '"trackIndex": _caption_row' not in source
