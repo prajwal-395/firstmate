@@ -460,8 +460,12 @@ extern "C" {
 }
 
 pub fn find_resolve_pid() -> Option<u32> {
+    find_pid("com.blackmagic-design.DaVinciResolve")
+}
+
+pub fn find_pid(bundle_id: &str) -> Option<u32> {
     unsafe {
-        let bid = b"com.blackmagic-design.DaVinciResolve\0";
+        let bid = format!("{bundle_id}\0");
         let pid = nsworkspace_find_pid(bid.as_ptr());
         if pid > 0 {
             return Some(pid as u32);
@@ -469,6 +473,11 @@ pub fn find_resolve_pid() -> Option<u32> {
     }
     None
 }
+
+/// The pid of one running app by bundle id, or nothing when it is not
+/// running. Measured on this Mac 2026-10-06: Resolve answers
+/// `com.blackmagic-design.DaVinciResolve`, Chrome `com.google.Chrome`
+/// (`defaults read ... CFBundleIdentifier`).
 
 pub unsafe fn activate_app_with_pid(pid: u32) -> bool {
     nsworkspace_activate_pid(pid as i64) != 0

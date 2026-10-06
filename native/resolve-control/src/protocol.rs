@@ -68,6 +68,7 @@ pub fn err_code(e: &DriverError) -> &'static str {
         DriverError::ProjectNotQualification(_) => "PROJECT_NOT_QUALIFICATION",
         DriverError::ScreenLocked => "SCREEN_LOCKED",
         DriverError::ForegroundNotAllowed(_) => "FOREGROUND_NOT_ALLOWED",
+        DriverError::TargetNotRunning(_) => "TARGET_NOT_RUNNING",
         DriverError::SkyLightUnavailable(_) => "SKYLIGHT_UNAVAILABLE",
         DriverError::AmbiguousCommand(_, _) => "AMBIGUOUS_COMMAND",
         DriverError::Internal(_) => "INTERNAL",
@@ -88,6 +89,7 @@ pub enum DriverError {
     ProjectNotQualification(String),
     ScreenLocked,
     ForegroundNotAllowed(String),
+    TargetNotRunning(String),
     SkyLightUnavailable(String),
     AmbiguousCommand(Vec<String>, usize),
     Internal(String),
@@ -113,6 +115,8 @@ impl DriverError {
             DriverError::ScreenLocked => "the screen is locked: captures would be blank and input would reach the lock screen".to_string(),
             DriverError::ForegroundNotAllowed(m) => format!(
                 "{} would take the captain's screen, cursor or keyboard; pass \"allow_foreground\": true to allow it", m),
+            DriverError::TargetNotRunning(t) => format!(
+                "the target app is not running: {}", t),
             DriverError::SkyLightUnavailable(m) => format!(
                 "SkyLight background input unavailable: {}; pass \"allow_skylight\": true only when the driver reports it available", m),
             DriverError::AmbiguousCommand(path, n) => format!(
@@ -177,6 +181,16 @@ pub struct Frame {
 impl Frame {
     pub fn contains(&self, x: f64, y: f64) -> bool {
         x >= self.x && x <= self.x + self.width && y >= self.y && y <= self.y + self.height
+    }
+
+    /// Window-relative containment: input coordinates arrive relative
+    /// to the window's own origin (the driver adds the frame offset
+    /// when posting), so the check runs against (0,0)-(width,height).
+    /// The old callers passed relative points to `contains` and only
+    /// passed because Resolve's window sits at x=0 - a Chrome window at
+    /// x=400 refused every click (measured 2026-10-06).
+    pub fn contains_rel(&self, x: f64, y: f64) -> bool {
+        x >= 0.0 && x <= self.width && y >= 0.0 && y <= self.height
     }
 
     pub fn center(&self) -> (f64, f64) {

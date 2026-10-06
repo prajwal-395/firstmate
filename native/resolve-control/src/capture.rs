@@ -241,6 +241,16 @@ pub fn get_window_list() -> Vec<(CGWindowID, String, String, Frame, f64)> {
 /// (`get_windows`) is Resolve-filtered, so this reads the helper JSON
 /// directly (`owner_pid` rides the helper output).
 pub fn windows_for_pid(pid: u32) -> Vec<(CGWindowID, String, Frame)> {
+    all_windows_with_pids()
+        .into_iter()
+        .filter(|(p, _, _, _, _)| *p == pid)
+        .map(|(_, id, _, title, frame)| (id, title, frame))
+        .collect()
+}
+
+/// Every window on the session: owner pid, id, owner name, title, frame.
+/// Chrome targeting filters this by owner name plus pid pin.
+pub fn all_windows_with_pids() -> Vec<(u32, CGWindowID, String, String, Frame)> {
     unsafe {
         let json_str = window_helper_list();
         if json_str.is_null() { return vec![]; }
@@ -257,9 +267,6 @@ pub fn windows_for_pid(pid: u32) -> Vec<(CGWindowID, String, Frame)> {
         let mut out = Vec::new();
         if let Some(arr) = json.as_array() {
             for item in arr {
-                if item.get("owner_pid").and_then(|v| v.as_u64()).unwrap_or(0) as u32 != pid {
-                    continue;
-                }
                 let frame = item.get("frame").and_then(|f| {
                     Some(Frame {
                         x: f.get("x")?.as_f64()?,
@@ -269,7 +276,9 @@ pub fn windows_for_pid(pid: u32) -> Vec<(CGWindowID, String, Frame)> {
                     })
                 }).unwrap_or(Frame { x: 0.0, y: 0.0, width: 0.0, height: 0.0 });
                 out.push((
+                    item.get("owner_pid").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
                     item.get("id").and_then(|v| v.as_u64()).unwrap_or(0) as CGWindowID,
+                    item.get("owner").and_then(|v| v.as_str()).unwrap_or("").to_string(),
                     item.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string(),
                     frame,
                 ));

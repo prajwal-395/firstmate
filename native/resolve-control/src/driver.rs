@@ -73,6 +73,29 @@ fn allows_skylight(params: &Json) -> bool {
     params.get("allow_skylight").and_then(|v| v.as_bool()).unwrap_or(false)
 }
 
+/// Which app an input call drives. Absent means Resolve - every existing
+/// caller keeps working. `"chrome"` addresses one pinned Chrome process's
+/// window for the SkyLight channel (the only channel Chromium accepts;
+/// the CGEvent path is refused for it); any other name is refused, never
+/// guessed. Pinning by pid is what keeps test input off the captain's
+/// windows when several Chromes run: several processes and no pin is
+/// refused outright.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TargetKind {
+    Resolve,
+    Chrome,
+}
+
+pub fn target_kind(params: &Json) -> DriverResult<TargetKind> {
+    match params.get("target").and_then(|v| v.as_str()) {
+        None => Ok(TargetKind::Resolve),
+        Some("chrome") => Ok(TargetKind::Chrome),
+        Some(other) => Err(DriverError::InvalidParams(format!(
+            "unknown target {other:?} - the targets are: resolve (default), chrome"
+        ))),
+    }
+}
+
 /// Refuse `method` unless it only looks or the open project is the
 /// qualification project. `press_role` is the AX role of a `press` target:
 /// pressing a menu-bar item only opens its menu, so it is a read; pressing a
@@ -158,6 +181,7 @@ impl Driver {
     }
 
     fn handle(&mut self, req: &Request) -> DriverResult<Json> {
+        let target = target_kind(&req.params)?;
         let press_role = if req.method == "press" {
             protocol::get_param_str(&req.params, "element")
                 .ok()
@@ -166,12 +190,36 @@ impl Driver {
         } else {
             None
         };
-        action_gate(&req.method, press_role.as_deref(), || self.current_project_name())?;
+        // The qualification gate is Resolve's: a Chrome call answers to
+        // the scratch-design policy above the driver (explicit target
+        // plus explicit SkyLight opt-in here), never to Ren Qualification.
+        if target == TargetKind::Resolve {
+            action_gate(&req.method, press_role.as_deref(), || self.current_project_name())?;
+        }
         if PIXEL_METHODS.contains(&req.method.as_str()) && capture::screen_locked() {
             return Err(DriverError::ScreenLocked);
         }
-        if INPUT_EVENT_METHODS.contains(&req.method.as_str())
-            || FOREGROUND_ONLY_METHODS.contains(&req.method.as_str())
+        // Measured first: click and focus. Every other method with a
+        // chrome target is refused naming that - a drag the channel never
+        // carried would read as success while changing nothing. Resolve
+        // methods take no target either.
+        const CHROME_METHODS: &[&str] = &["click", "skylight_focus"];
+        if target == TargetKind::Chrome && !CHROME_METHODS.contains(&req.method.as_str()) {
+            if FOREGROUND_ONLY_METHODS.contains(&req.method.as_str()) {
+                return Err(DriverError::InvalidParams(format!(
+                    "{} is a Resolve method and takes no target",
+                    req.method
+                )));
+            }
+            return Err(DriverError::ActionNotSupported(format!(
+                "{} has no chrome route yet - the measured chrome methods are: {}",
+                req.method,
+                CHROME_METHODS.join(", ")
+            )));
+        }
+        if target == TargetKind::Resolve
+            && (INPUT_EVENT_METHODS.contains(&req.method.as_str())
+                || FOREGROUND_ONLY_METHODS.contains(&req.method.as_str()))
         {
             let pid = self.ensure_resolve()?;
             foreground_gate(&req.method, allows_foreground(&req.params), ax::frontmost_pid, pid)?;
@@ -189,7 +237,7 @@ impl Driver {
             "type_text" => self.type_text(&req.params),
             "key" => self.key(&req.params),
             "click" => self.click(&req.params),
-            "skylight_focus" => self.skylight_focus(),
+            "skylight_focus" => self.skylight_focus(&req.params),
             "skylight_restore" => self.skylight_restore(),
             "drag" => self.drag(&req.params),
             "scroll" => self.scroll(&req.params),
@@ -214,6 +262,11 @@ impl Driver {
 
     fn route(&mut self, params: &Json) -> DriverResult<input::Route> {
         if allows_foreground(params) {
+            if target_kind(params)? == TargetKind::Chrome {
+                return Err(DriverError::InvalidParams(
+                    "chrome has no foreground route; pass \"allow_skylight\": true".into(),
+                ));
+            }
             Ok(input::Route::Foreground)
         } else if allows_skylight(params) {
             if !crate::skylight::available() {
@@ -221,14 +274,72 @@ impl Driver {
                     "SLEventPostToPid does not resolve on this machine".into(),
                 ));
             }
-            let pid = self.ensure_resolve()? as i32;
-            let (window_id, _, _) = self.main_window()?;
-            Ok(input::Route::SkyLight { pid, window_id })
+            match target_kind(params)? {
+                TargetKind::Chrome => {
+                    let (pid, window_id, _) = self.chrome_window(params)?;
+                    Ok(input::Route::SkyLight { pid: pid as i32, window_id, chromium: true })
+                }
+                TargetKind::Resolve => {
+                    let pid = self.ensure_resolve()? as i32;
+                    let (window_id, _, _) = self.main_window()?;
+                    Ok(input::Route::SkyLight { pid, window_id, chromium: false })
+                }
+            }
         } else {
+            if target_kind(params)? == TargetKind::Chrome {
+                return Err(DriverError::ActionNotSupported(
+                    "chrome clicks need \"allow_skylight\": true - Chromium filters the CGEventPostToPid path".into(),
+                ));
+            }
             let pid = self.ensure_resolve()? as i32;
             let (window_id, _, _) = self.main_window()?;
             Ok(input::Route::Background { pid, window_id })
         }
+    }
+
+    /// Chrome's window for one pinned process: the largest window owned
+    /// by `"pid"` (or the only Chrome process when `"pid"` is absent).
+    /// Several Chromes and no pin is refused - with the captain's Chrome
+    /// running, largest-wins across processes would post test input into
+    /// his window. No cache: tabs come and go. Pids come from
+    /// `capture::windows_for_pid`, which reads `owner_pid` off the
+    /// window list (not the owner name, which every Chrome shares).
+    /// Chrome's window for one pinned process: the largest window owned
+    /// by `"pid"` (or the only Chrome process when `"pid"` is absent).
+    /// Several Chromes and no pin is refused - with the captain's Chrome
+    /// running, largest-wins across processes would post test input into
+    /// his window. No cache: tabs come and go.
+    fn chrome_window(&mut self, params: &Json) -> DriverResult<(u32, u32, Frame)> {
+        let pinned = params.get("pid").and_then(|v| v.as_u64()).map(|p| p as u32);
+        let windows: Vec<(u32, u32, Frame)> = capture::all_windows_with_pids()
+            .into_iter()
+            .filter(|(pid, _, owner, _, _)| {
+                owner.contains("Chrome") && pinned.map(|p| *pid == p).unwrap_or(true)
+            })
+            .map(|(pid, id, _, _, frame)| (pid, id, frame))
+            .collect();
+        if windows.is_empty() {
+            return Err(DriverError::TargetNotRunning(match pinned {
+                Some(pid) => format!("no Chrome window for pid {pid}"),
+                None => "Chrome is not running".into(),
+            }));
+        }
+        if pinned.is_none() {
+            let mut pids: Vec<u32> = windows.iter().map(|(pid, _, _)| *pid).collect();
+            pids.sort_unstable();
+            pids.dedup();
+            if pids.len() != 1 {
+                return Err(DriverError::InvalidParams(format!(
+                    "{} Chrome processes own windows; pass \"pid\" to pin one",
+                    pids.len()
+                )));
+            }
+        }
+        windows
+            .into_iter()
+            .max_by_key(|(_, _, f)| (f.width * f.height) as i64)
+            .map(|(pid, id, frame)| (pid, id, frame))
+            .ok_or_else(|| DriverError::TargetNotRunning("Chrome is running with no windows".into()))
     }
 
     fn ensure_permissions(&self) -> DriverResult<()> {
@@ -515,8 +626,13 @@ impl Driver {
         let x = protocol::get_param_f64(params, "x")?;
         let y = protocol::get_param_f64(params, "y")?;
         let clicks = protocol::get_param_u64(params, "clicks").unwrap_or(1);
-        let (_, frame, _) = self.main_window()?;
-        if !frame.contains(x, y) { return Err(DriverError::OutsideResolve); }
+        // The containment frame follows the target: Resolve's main
+        // window, or the pinned Chrome window a chrome click must land in.
+        let frame = match target_kind(params)? {
+            TargetKind::Chrome => self.chrome_window(params)?.2,
+            TargetKind::Resolve => self.main_window()?.1,
+        };
+        if !frame.contains_rel(x, y) { return Err(DriverError::OutsideResolve); }
         input::click(self.route(params)?, x, y, &frame, clicks as u32)?;
         Ok(serde_json::json!({"clicked": true}))
     }
@@ -526,10 +642,19 @@ impl Driver {
     /// response carries the frontmost pid before and after so the caller
     /// verifies nothing was stolen - a focus that raises is a failed
     /// focus, reported in the numbers, not in a prose claim.
-    fn skylight_focus(&mut self) -> DriverResult<Json> {
+    fn skylight_focus(&mut self, params: &Json) -> DriverResult<Json> {
         self.ensure_permissions()?;
-        let pid = self.ensure_resolve()? as i32;
-        let (window_id, _, _) = self.main_window()?;
+        let (pid, window_id) = match target_kind(params)? {
+            TargetKind::Chrome => {
+                let (pid, window_id, _) = self.chrome_window(params)?;
+                (pid as i32, window_id)
+            }
+            TargetKind::Resolve => {
+                let pid = self.ensure_resolve()? as i32;
+                let (window_id, _, _) = self.main_window()?;
+                (pid, window_id)
+            }
+        };
         let previous_pid = ax::frontmost_pid().map(|p| p as i32);
         let previous_wid = previous_pid.and_then(|p| {
             capture::windows_for_pid(p as u32)
@@ -587,7 +712,7 @@ impl Driver {
         let ey = protocol::get_param_f64(params, "end_y")?;
         let duration = protocol::get_param_f64(params, "duration").unwrap_or(0.3);
         let (_, frame, _) = self.main_window()?;
-        if !frame.contains(sx, sy) || !frame.contains(ex, ey) { return Err(DriverError::OutsideResolve); }
+        if !frame.contains_rel(sx, sy) || !frame.contains_rel(ex, ey) { return Err(DriverError::OutsideResolve); }
         input::drag(self.route(params)?, sx, sy, ex, ey, &frame, duration)?;
         Ok(serde_json::json!({"dragged": true}))
     }
@@ -599,7 +724,7 @@ impl Driver {
         let dx = protocol::get_param_f64(params, "delta_x").unwrap_or(0.0);
         let dy = protocol::get_param_f64(params, "delta_y").unwrap_or(0.0);
         let (_, frame, _) = self.main_window()?;
-        if !frame.contains(x, y) { return Err(DriverError::OutsideResolve); }
+        if !frame.contains_rel(x, y) { return Err(DriverError::OutsideResolve); }
         input::scroll(self.route(params)?, x, y, &frame, dx, dy)?;
         Ok(serde_json::json!({"scrolled": true}))
     }
@@ -899,6 +1024,35 @@ mod tests {
         for method in ["click", "drag", "scroll", "key", "type_text"] {
             assert!(foreground_gate(method, false, || Some(1234), 571).is_ok(), "{method}");
         }
+    }
+
+    #[test]
+    fn target_defaults_to_resolve_and_chrome_is_named() {
+        use serde_json::json;
+        assert_eq!(target_kind(&json!({})).unwrap(), TargetKind::Resolve);
+        assert_eq!(target_kind(&json!({"target": "chrome"})).unwrap(), TargetKind::Chrome);
+    }
+
+    #[test]
+    fn an_unknown_target_is_refused_not_guessed() {
+        use serde_json::json;
+        let got = target_kind(&json!({"target": "safari"}));
+        assert!(
+            matches!(got, Err(DriverError::InvalidParams(_))),
+            "an unknown target must refuse, never resolve to something"
+        );
+    }
+
+    #[test]
+    fn containment_is_window_relative() {
+        use crate::protocol::Frame;
+        // A Chrome window at x=400: the window-relative point (351,29)
+        // is inside it. The old screen-space check refused it - the
+        // first SkyLight Chrome click died here, not in WindowServer.
+        let frame = Frame { x: 400.0, y: 200.0, width: 1000.0, height: 700.0 };
+        assert!(frame.contains_rel(351.0, 29.0));
+        assert!(!frame.contains_rel(1001.0, 29.0));
+        assert!(!frame.contains_rel(351.0, 701.0));
     }
 
     #[test]

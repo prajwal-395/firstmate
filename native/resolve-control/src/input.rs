@@ -79,7 +79,7 @@ extern "C" {
 /// does not move, but Qt-drawn controls may accept what they filter on the
 /// `CGEventPostToPid` path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Route { Background { pid: i32, window_id: u32 }, Foreground, SkyLight { pid: i32, window_id: u32 } }
+pub enum Route { Background { pid: i32, window_id: u32 }, Foreground, SkyLight { pid: i32, window_id: u32, chromium: bool } }
 
 /// kCGMouseEventWindowUnderMousePointer and ...ThatCanHandleThisEvent: a
 /// background mouse event names the window it is for, since the window server
@@ -130,7 +130,10 @@ const kCGKeyboardEventKeycode: u32 = 9;
 /// `mouseMoved` priming cursor-tracking state, 12ms, down, 28ms (an
 /// NSButton's tracking loop polls for the up), up - every event stamped
 /// with the window-local point and f1/f3/f7/f40/f51/f58/f91/f92 under one
-/// click-group id. `window_id` 0 skips the window routing stamps.
+/// click-group id. Chromium targets additionally get the off-screen
+/// primer down/up at (-1,-1) with f0 gesture phases (cua's
+/// `chromium_click_route_plan`): it ticks Chromium's user-activation gate
+/// so the real click lands as a trusted continuation.
 fn skylight_click(
     pid: i32,
     window_id: u32,
@@ -138,9 +141,17 @@ fn skylight_click(
     rel_y: f64,
     frame: &Frame,
     clicks: u32,
+    chromium: bool,
 ) -> DriverResult<()> {
     let sx = frame.x + rel_x;
     let sy = frame.y + rel_y;
+    // Chromium takes both locations in screen space; AppKit takes the
+    // window-local point (cua's two paths differ here - verified against
+    // chromium_click_route_plan vs click_at_xy_inner).
+    let (win_x, win_y) = if chromium { (sx, sy) } else { (rel_x, rel_y) };
+    // Chromium timing is its own plan (15/1/100/1/0); AppKit leans on the
+    // tracking-loop gaps (12/28).
+    let (move_ms, down_ms) = if chromium { (15, 1) } else { (12, 28) };
     let group_id = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.subsec_nanos() as i64)
@@ -155,23 +166,44 @@ fn skylight_click(
         if moved.is_null() {
             return Err(DriverError::Internal("failed to create skylight move".into()));
         }
-        skylight::stamp_event(moved, pid, window_id, rel_x, rel_y, 0, 0, 3, group_id)?;
+        skylight::stamp_event(moved, pid, window_id, win_x, win_y, 0, 0, 3, group_id, None)?;
         skylight::post_to_pid(pid, moved)?;
         CFRelease(moved as *const c_void);
-        std::thread::sleep(std::time::Duration::from_millis(12));
+        std::thread::sleep(std::time::Duration::from_millis(move_ms));
+
+        // Chromium primer: an off-screen down/up ticks the user-activation
+        // gate so the real click lands as a trusted continuation. The
+        // (-1,-1) point hits no window; without it, activation-gated
+        // controls swallow the click silently.
+        if chromium {
+            let prime_down = CGEventCreateMouseEvent(source, CGEventType::LeftMouseDown, CGPoint { x: -1.0, y: -1.0 }, CGMouseButton::Left);
+            if prime_down.is_null() { return Err(DriverError::Internal("failed to create primer down".into())); }
+            skylight::stamp_event(prime_down, pid, window_id, -1.0, -1.0, 1, 0, 3, group_id, chromium.then_some(1))?;
+            skylight::post_to_pid(pid, prime_down)?;
+            CFRelease(prime_down as *const c_void);
+            std::thread::sleep(std::time::Duration::from_millis(1));
+
+            let prime_up = CGEventCreateMouseEvent(source, CGEventType::LeftMouseUp, CGPoint { x: -1.0, y: -1.0 }, CGMouseButton::Left);
+            if prime_up.is_null() { return Err(DriverError::Internal("failed to create primer up".into())); }
+            skylight::stamp_event(prime_up, pid, window_id, -1.0, -1.0, 1, 0, 3, group_id, chromium.then_some(2))?;
+            skylight::post_to_pid(pid, prime_up)?;
+            CFRelease(prime_up as *const c_void);
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
 
         for click_num in 0..clicks {
             let state = click_num as i64 + 1;
+            let phase: Option<i64> = chromium.then_some(3);
             let down = CGEventCreateMouseEvent(source, CGEventType::LeftMouseDown, CGPoint { x: sx, y: sy }, CGMouseButton::Left);
             if down.is_null() { return Err(DriverError::Internal("failed to create skylight down".into())); }
-            skylight::stamp_event(down, pid, window_id, rel_x, rel_y, state, 0, 3, group_id)?;
+            skylight::stamp_event(down, pid, window_id, win_x, win_y, state, 0, 3, group_id, phase)?;
             skylight::post_to_pid(pid, down)?;
             CFRelease(down as *const c_void);
-            std::thread::sleep(std::time::Duration::from_millis(28));
+            std::thread::sleep(std::time::Duration::from_millis(down_ms));
 
             let up = CGEventCreateMouseEvent(source, CGEventType::LeftMouseUp, CGPoint { x: sx, y: sy }, CGMouseButton::Left);
             if up.is_null() { return Err(DriverError::Internal("failed to create skylight up".into())); }
-            skylight::stamp_event(up, pid, window_id, rel_x, rel_y, state, 0, 3, group_id)?;
+            skylight::stamp_event(up, pid, window_id, win_x, win_y, state, 0, 3, group_id, phase)?;
             skylight::post_to_pid(pid, up)?;
             CFRelease(up as *const c_void);
         }
@@ -181,8 +213,8 @@ fn skylight_click(
 }
 
 pub fn click(route: Route, x: f64, y: f64, window_frame: &Frame, clicks: u32) -> DriverResult<()> {
-    if let Route::SkyLight { pid, window_id } = route {
-        return skylight_click(pid, window_id, x, y, window_frame, clicks);
+    if let Route::SkyLight { pid, window_id, chromium } = route {
+        return skylight_click(pid, window_id, x, y, window_frame, clicks, chromium);
     }
     let sx = window_frame.x + x;
     let sy = window_frame.y + y;
@@ -360,7 +392,7 @@ mod tests {
             PostTarget::Pid(11)
         );
         assert_eq!(
-            post_target(Route::SkyLight { pid: 11, window_id: 22 }),
+            post_target(Route::SkyLight { pid: 11, window_id: 22, chromium: true }),
             PostTarget::SkyLightPid(11)
         );
     }
@@ -379,7 +411,7 @@ mod tests {
                 CGMouseButton::Left,
             );
             assert!(!event.is_null());
-            skylight::stamp_event(event, 1234, 99, 10.0, 20.0, 2, 0, 3, 777)
+            skylight::stamp_event(event, 1234, 99, 10.0, 20.0, 2, 0, 3, 777, None)
                 .expect("stamps must apply");
             assert_eq!(CGEventGetIntegerValueField(event, kCGMouseEventClickState), 2);
             CFRelease(event as *const c_void);

@@ -304,3 +304,34 @@ cue a Codex background task; cua-driver's source (which Codex's approach
 mirrors) served as ground truth instead. Consequence stands: Qt clicks
 stay on the foreground route or the AX menu bar; SkyLight stays flagged
 for Chrome, where cua proves it works.
+
+## Chrome SkyLight input (2026-10-06) - posted clean, renderer drops it
+
+Driver: `"target": "chrome"` with pid pinning (`owner_pid` off the
+window list; several Chromes and no pin is refused), `Route::SkyLight`
+with the Chromium recipe (primer, f0 phases, screen-space window
+location, 15/1/100/1/0 timings), `click` + `skylight_focus` only -
+everything else with a chrome target is refused by name. Plus a real
+bug found by the new target: `Frame::contains` compared window-relative
+points against the screen-space frame and passed only because Resolve
+sits at x=0; `contains_rel` fixes it for click/drag/scroll (pinned by
+`containment_is_window_relative`).
+
+Measured live against a throwaway-profile Chrome (backgrounded `open
+-g`, about:blank, temp profile, killed afterwards; the captain's Chrome
+with its Lavish window was pid-pinned away from every call and verified
+intact after): focus-without-raise lands with frontmost/cursor
+unchanged; the new-tab (+) click posts clean (0.07-0.19s round trips)
+at tap-verified coordinates, yet the tab count stays 1 across four
+recipe variants (AppKit stamps, +primer, no-f0, cua-exact). A
+listen-only annotated tap (type 2 - the plain session tap never sees
+these posts) shows our events entering the stream with the full stamp
+set, f40=target pid, f51/f91/f92=window, one shared f58, phases 1/2/3 -
+a superset of a genuine HID click captured the same way (which carries
+sequential f0, unique f58, no routing fields). So the bytes match or
+exceed both references and Chromium 154 still drops them. Open
+hypotheses, in order: the renderer filter changed since cua's tested
+Chrome 153, or the trust bit includes the poster's code signature
+(cua-driver and Codex ship signed; this binary is ad-hoc). Decisive
+next step reserved: run cua-driver itself against the same window -
+needs an install decision, not taken here.

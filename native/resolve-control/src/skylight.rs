@@ -277,7 +277,10 @@ pub fn stamps_available() -> bool {
 /// Stamp one backgrounded mouse event cua-style: click state, button,
 /// subtype, the pid filter (f40), the window routing (f51/f91/f92), the
 /// click-group id (f58) shared across the gesture, and the window-local
-/// point alongside the screen-space location. Window id 0 skips the
+/// point alongside the screen-space location. `phase` overwrites the
+/// event-number field (f0) with cua's gesture-phase marker when set
+/// (Chromium primer/target sequencing); `None` leaves the number the
+/// system assigned, as real HID clicks carry. Window id 0 skips the
 /// routing stamps (no window to route to); the pid filter always stamps.
 /// Missing stamp symbols are refused rather than half-stamped: a
 /// half-stamped event is a new unknown, not the measured recipe.
@@ -291,6 +294,7 @@ pub fn stamp_event(
     button: i64,
     subtype: i64,
     group_id: i64,
+    phase: Option<i64>,
 ) -> DriverResult<()> {
     unsafe {
         let set: SetIntFieldFn =
@@ -309,6 +313,9 @@ pub fn stamp_event(
         set(event, 3, button);
         set(event, 7, subtype);
         set(event, 40, pid as i64);
+        if let Some(phase) = phase {
+            set(event, 0, phase);
+        }
         if window_id != 0 {
             set(event, 51, window_id as i64);
             set(event, 58, group_id);
