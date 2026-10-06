@@ -2156,6 +2156,7 @@ def _cleanup_refused_staging(project, pool, staging, restore_to, receipt,
     gone.  Returns the cleanup report.
     """
     from library.tools.reel_build import timelines_to_replace
+    from library.tools.resolve_lock import assert_current_timeline
     from library.tools.versions import store as _store
 
     found = timelines_to_replace(project, {staging})
@@ -2185,7 +2186,7 @@ def _cleanup_refused_staging(project, pool, staging, restore_to, receipt,
     current = project.GetCurrentTimeline()
     if (current is not None and restore_to is not None
             and current.GetName() == staging):
-        project.SetCurrentTimeline(restore_to)
+        assert_current_timeline(project, restore_to)
         report["cursor_restored_to"] = restore_to.GetName()
     pool.DeleteTimelines([staged])
     return report
