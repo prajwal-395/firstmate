@@ -901,6 +901,102 @@ class TestVerifyReel:
 # ── Read-only proof ──────────────────────────────────────────────────
 
 
+def test_the_hash_check_abort_still_leaves_the_findings_it_computed(
+        tmp_path, capsys):
+    """The 2026-10-05 6-reel rebuild defect, named: the verifier graded
+    Reel 23, computed its nine conformance errors, printed only the
+    count, and then the read-only hash check aborted BEFORE the JSON
+    report was written - so the per-reel findings existed only in memory
+    and were lost, and nobody could say what Reel 23's errors were.
+
+    The abort itself stands: a timeline modified during verification
+    must still refuse to grade. What must not happen again is the
+    silence: the findings computed before the abort are persisted, and
+    the abort message says where they were written.
+    """
+    import io
+
+    from tests.resolve_double import FakeProject, FakeResolve, FakeTimeline
+    from library.tools.reel_conformance_verifier import run_verification
+    from library.tools.timeline_ingest import TimelineClip, TimelineSnapshot
+
+    MASTER = "GEO Podcast - Synced"
+    REEL = "Reel 23 - the-defect"
+    FPS = 24000 / 1001
+
+    master = FakeTimeline(MASTER, settings={
+        "timelineResolutionWidth": "1080",
+        "timelineResolutionHeight": "1920",
+    })
+    fake = FakeProject([master, FakeTimeline(REEL)], current=master)
+
+    def _clip(start_frame, end_frame):
+        return TimelineClip(
+            resolve_item_id=f"uid-{start_frame}-{end_frame}",
+            track_type="video", track_index=1, track_name="V1",
+            speaker="SpeakerOne", source_file="/footage/a.MXF",
+            source_in=start_frame / FPS, source_out=end_frame / FPS,
+            source_in_frame=start_frame, source_out_frame=end_frame,
+            source_frames=100000,
+            timeline_start=start_frame / FPS,
+            timeline_end=end_frame / FPS, name="a.MXF")
+
+    def _reel_snapshot(second_end):
+        # A 50-frame black hole between the two V1 clips: F1, an error.
+        return TimelineSnapshot(
+            project_name="Mock Project", timeline_name=REEL,
+            fps=FPS, reported_fps=23.976,
+            width=1080, height=1920,
+            start_frame=0, end_frame=second_end,
+            clips=(_clip(0, 100), _clip(150, second_end)))
+
+    reads = {"reel": 0}
+
+    def fake_snapshot(timeline, project_name):
+        if timeline.GetName() == MASTER:
+            return TimelineSnapshot(
+                project_name=project_name, timeline_name=MASTER,
+                fps=FPS, reported_fps=23.976,
+                width=1080, height=1920,
+                start_frame=0, end_frame=240, clips=())
+        reads["reel"] += 1
+        # The after-read extends the second clip: the timeline CHANGED
+        # underneath the verifier, which is what the hash check catches.
+        return _reel_snapshot(250 if reads["reel"] > 1 else 240)
+
+    json_path = str(tmp_path / "conformance_report.json")
+    with patch("library.tools.marker_feedback.connect_resolve") as connect, \
+            patch("library.tools.timeline_ingest.resolve_project_exactly",
+                  return_value=fake), \
+            patch("library.tools.timeline_ingest.snapshot_timeline",
+                  side_effect=fake_snapshot):
+        connect.return_value = FakeResolve()
+        code = run_verification(
+            project_name="Mock Project",
+            master_name=MASTER,
+            transcript={"segments": []},
+            json_path=json_path,
+            only_reels=[REEL],
+            out=io.StringIO())
+
+    captured = capsys.readouterr()
+    # The abort stands: a modified timeline still refuses to grade.
+    assert code == 2
+    assert "FATAL: timelines were MODIFIED during verification" in captured.err
+    # And the abort message says where the findings were written.
+    assert json_path in captured.err
+
+    with open(json_path, encoding="utf-8") as handle:
+        report = json.load(handle)
+    assert report["read_only_proof"]["all_identical"] is False
+    assert [row["reel_name"] for row in report["reels"]] == [REEL]
+    findings = report["reels"][0]["findings"]
+    f1 = [f for f in findings if f["class"] == "F1"]
+    assert len(f1) == 1
+    assert "black hole" in f1[0]["message"]
+    assert f1[0]["severity"] == "error"
+
+
 # ── CLI ──────────────────────────────────────────────────────────────
 
 class TestCLI:

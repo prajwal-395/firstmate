@@ -16425,4 +16425,6 @@ def verify_built_reels(project_folder: str, resolve_project_name: str, master_ti
             "this run, so a scoped name matches nothing in Resolve). "
             "Verification never graded, so NO staging is discarded - "
             "the FATAL line above names what is missing and the "
-            f"report (if any) is at {json_path}.")
+            f"report (if any) is at {json_path}. On a read-only "
+            "violation that report holds the per-reel findings the "
+            "verifier computed before it refused to grade.")

@@ -6938,6 +6938,62 @@ def declared_variants(project_folder) -> set:
     return declared_variant_timelines(str(project_folder))
 
 
+def _build_verification_report(*, project_name, master_name, reel_results,
+                              read_only_proof, plan_source,
+                              provenance_findings, motion_graphics_tightness,
+                              quality_bar, plan_creative_quality):
+    """The report a run writes, built once and shared by the pass and the
+    abort path.
+
+    A run that aborts AFTER grading (the read-only hash check below) has
+    per-reel findings the operator needs: on the 2026-10-05 6-reel
+    rebuild the hash-check abort fired before the report was written, so
+    Reel 23's nine computed errors existed only in memory and were lost.
+    One builder is what lets the abort path persist exactly what a pass
+    would have written.
+    """
+    report = VerificationReport(
+        project_name=project_name,
+        master_timeline=master_name,
+        reel_results=reel_results,
+        read_only_proof=read_only_proof,
+        plan_source=plan_source,
+        provenance_findings=provenance_findings,
+        motion_graphics_tightness=motion_graphics_tightness,
+    )
+    report.quality_bar = quality_bar
+    report.plan_creative_quality = plan_creative_quality
+    return report
+
+
+def _write_verification_report(json_path, report, project_folder, only_reels,
+                               err) -> bool:
+    """Write the machine-readable report. True when it wrote.
+
+    The abort path calls this too: the findings are already computed, and
+    a run that refuses to grade must still leave them somewhere a later
+    run can read - the abort message names this path.
+    """
+    if not json_path:
+        return False
+    json_data = report.as_dict()
+    # Recorded spelling corrections on the regenerated verdicts
+    # (the 3.04 keep-exclusion precedent): verdict and finding
+    # texts quoting speech the correction respelt carry the
+    # corrected spelling, deterministically. Codes and severities
+    # are not text and never move.
+    from library.tools.display_respell import apply_post_pass
+    apply_post_pass(json_data, project_folder or "",
+                    "conformance verifier (conformance_report)")
+    if only_reels is None:
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(json_data, f, indent=2, default=str)
+    else:
+        _write_scoped_report(json_path, json_data, only_reels)
+    print(f"JSON written to {json_path}", file=err)
+    return True
+
+
 @under_lease("verify reel conformance", exclusive=False)
 def run_verification(
     project_name: str,
@@ -7853,6 +7909,28 @@ def run_verification(
     except Exception as exc:  # noqa: BLE001 - an unmeasurable read refuses
         print(f"FATAL: cannot read a timeline after grading in its own "
               f"Pan/Tilt units ({exc}).", file=err)
+        # The findings are computed; the after-read is not. Persist them
+        # before refusing - the proof below says the after-read failed,
+        # which is the truth about this run.
+        report = _build_verification_report(
+            project_name=project_name, master_name=master_name,
+            reel_results=reel_results,
+            read_only_proof={
+                "all_identical": None,
+                "timelines_checked": 0,
+                "timelines": {},
+                "after_read_failed": f"{exc}",
+            },
+            plan_source=plan_source,
+            provenance_findings=provenance_findings,
+            motion_graphics_tightness=motion_graphics_tightness,
+            quality_bar=bar_report, plan_creative_quality=pcq_report)
+        if _write_verification_report(json_path, report, project_folder,
+                                      only_reels, err):
+            print(f"The {len(reel_results)} per-reel finding set(s) "
+                  f"computed before this abort are in that report - read "
+                  f"them there; this run still refuses to grade.",
+                  file=err)
         return 2
 
     # ── Read-only proof ──────────────────────────────────────────────
@@ -7883,24 +7961,37 @@ def run_verification(
         for name, row in proof_rows.items():
             if not row["identical"]:
                 print(f"  CHANGED: {name}", file=err)
+        # The per-reel findings are computed, and this run still refuses
+        # to grade: a timeline that moved underneath the verifier cannot
+        # be graded against what it was. But the findings are the only
+        # account of what the timelines WERE - when this abort fired
+        # before the report was written (2026-10-05, 6-reel rebuild),
+        # Reel 23's nine computed errors existed only in memory and
+        # were lost. Persist them first, then refuse.
+        report = _build_verification_report(
+            project_name=project_name, master_name=master_name,
+            reel_results=reel_results, read_only_proof=read_only_proof,
+            plan_source=plan_source, provenance_findings=provenance_findings,
+            motion_graphics_tightness=motion_graphics_tightness,
+            quality_bar=bar_report, plan_creative_quality=pcq_report)
+        if _write_verification_report(json_path, report, project_folder,
+                                      only_reels, err):
+            print(f"The {len(reel_results)} per-reel finding set(s) "
+                  f"computed before this abort are in that report - read "
+                  f"them there; this run still refuses to grade.",
+                  file=err)
         return 2
 
     print(f"Read-only proof: ALL {len(proof_rows)} timelines identical "
           f"before/after.", file=err)
 
     # ── Build the report ─────────────────────────────────────────────
-    report = VerificationReport(
-        project_name=project_name,
-        master_timeline=master_name,
-        reel_results=reel_results,
-        read_only_proof=read_only_proof,
-        plan_source=plan_source,
-        provenance_findings=provenance_findings,
+    report = _build_verification_report(
+        project_name=project_name, master_name=master_name,
+        reel_results=reel_results, read_only_proof=read_only_proof,
+        plan_source=plan_source, provenance_findings=provenance_findings,
         motion_graphics_tightness=motion_graphics_tightness,
-    )
-
-    report.quality_bar = bar_report
-    report.plan_creative_quality = pcq_report
+        quality_bar=bar_report, plan_creative_quality=pcq_report)
 
     # ── Print human-readable output ──────────────────────────────────
     print(file=out)
@@ -7931,22 +8022,8 @@ def run_verification(
               f"across {len(reel_results)} reels.", file=out)
 
     # ── Write JSON ───────────────────────────────────────────────────
-    if json_path:
-        json_data = report.as_dict()
-        # Recorded spelling corrections on the regenerated verdicts
-        # (the 3.04 keep-exclusion precedent): verdict and finding
-        # texts quoting speech the correction respelt carry the
-        # corrected spelling, deterministically. Codes and severities
-        # are not text and never move.
-        from library.tools.display_respell import apply_post_pass
-        apply_post_pass(json_data, project_folder or "",
-                        "conformance verifier (conformance_report)")
-        if only_reels is None:
-            with open(json_path, "w", encoding="utf-8") as f:
-                json.dump(json_data, f, indent=2, default=str)
-        else:
-            _write_scoped_report(json_path, json_data, only_reels)
-        print(f"JSON written to {json_path}", file=err)
+    _write_verification_report(json_path, report, project_folder,
+                               only_reels, err)
 
     return 1 if report.has_errors else 0
 
