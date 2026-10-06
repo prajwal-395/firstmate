@@ -17,7 +17,11 @@ carries it:
 * **plugins** - Resolve effect names; a plugin the worker's Resolve has not
   got installed is failed.
 * **models** - model labels; a model the worker has not cached complete is
-    failed.
+  failed.
+
+A capability whose required needs the checks could not DETERMINATE is
+UNKNOWN: the gate says so, naming them, and does not refuse - an
+undeterminable answer is not a measured absence.
 
     from library.tools.worker_manifest import produce_manifest
     from library.tools.worker_requirements import TaskRequirements, match_requirements
@@ -49,25 +53,55 @@ class TaskRequirements:
     models: tuple = ()
 
 
+UNKNOWN_PREFIX = "unknown:"
+"""An entry that says what the worker's checks could not determine. It
+reports and never gates - the same line `library/tools/undetermined.py`
+draws between an admitted absence and a measured one."""
+
+
+def is_refusal(entry: str) -> bool:
+    """Whether an entry from `match_requirements` blocks the task.
+
+    An `unknown:` entry is not a refusal: a requirement the checks could
+    not determine is not proven unmet, and refusing on it is what blocked
+    every real delivery when the Resolve probe was merely busy (PR 1871
+    review).
+    """
+    return not entry.startswith(UNKNOWN_PREFIX)
+
+
 def failing_needs(checks: list) -> set:
-    """The need ids doctor's checks report as failing."""
-    return {check.need for check in checks if not check.ok and check.need}
+    """The need ids doctor's checks report as failing - ran and said no.
+
+    An undetermined check is not here: a check that could not determine
+    its answer is not a measured absence.
+    """
+    return {check.need for check in checks
+            if not check.ok and not check.undetermined and check.need}
+
+
+def undetermined_needs(checks: list) -> set:
+    """The need ids doctor's checks could not determine."""
+    return {check.need for check in checks if check.undetermined and check.need}
 
 
 def match_requirements(manifest: dict, requirements: TaskRequirements,
                        checks: list | None = None) -> list:
     """One refusal per unmet requirement, each named; empty when the worker
-    satisfies them all.
+    satisfies them all. An `unknown:` entry says what the checks could not
+    determine - it is not a refusal.
 
-    `checks` are doctor's own checks, from which the failing needs are read;
-    without them only the capabilities, plugins and models sections are
-    matched (a caller that has not run the checks cannot name a failing
-    need, and does not guess).
+    `checks` are doctor's own checks, from which the failing and
+    undetermined needs are read; without them only the capabilities,
+    plugins and models sections are matched (a caller that has not run
+    the checks cannot name a failing need, and does not guess).
     """
     from library.tools import machine_needs
 
     refusals: list = []
     capabilities = manifest.get("capabilities", {})
+    failing = failing_needs(checks) if checks is not None else set()
+    undetermined = undetermined_needs(checks) if checks is not None else set()
     for capability in requirements.capabilities:
         verdict = capabilities.get(capability)
         if verdict is None:
@@ -75,13 +109,20 @@ def match_requirements(manifest: dict, requirements: TaskRequirements,
                 f"capability {capability}: not a capability this worker "
                 f"advertises (known: {', '.join(sorted(capabilities))})")
         elif verdict == machine_needs.UNAVAILABLE:
-            _missing = machine_needs.needs_of(capability).requires
+            _missing = [need for need in machine_needs.needs_of(capability).requires
+                        if need in failing]
+            message = f"capability {capability}: unavailable on this worker"
+            if _missing:
+                message += f" (missing {', '.join(_missing)})"
+            refusals.append(message)
+        elif verdict == machine_needs.UNKNOWN:
+            _could_not = [need for need in machine_needs.needs_of(capability).requires
+                          if need in undetermined]
             refusals.append(
-                f"capability {capability}: unavailable on this worker "
-                f"(missing {', '.join(_missing)})")
+                f"{UNKNOWN_PREFIX} capability {capability} - could not determine "
+                f"{', '.join(_could_not) or 'its needs'} on this worker")
 
     if checks is not None:
-        failing = failing_needs(checks)
         for need in requirements.needs:
             if need in failing:
                 refusals.append(
@@ -110,5 +151,43 @@ def match_requirements(manifest: dict, requirements: TaskRequirements,
 
 def can_perform(manifest: dict, requirements: TaskRequirements,
                 checks: list | None = None) -> bool:
-    """Whether the worker satisfies every requirement - the scheduler's gate."""
-    return not match_requirements(manifest, requirements, checks)
+    """Whether the worker satisfies every requirement - the scheduler's gate.
+
+    An `unknown:` entry is not a refusal: a requirement no verdict could
+    be reached for is not proven unmet.
+    """
+    return not any(is_refusal(entry)
+                   for entry in match_requirements(manifest, requirements, checks))
+
+
+def render_requirements() -> TaskRequirements:
+    """What a render task needs from a worker.
+
+    The render is the expensive thing the captain asks for, so it is the
+    path that checks its requirements against the local manifest before
+    starting and refuses by name. `render.build` carries Resolve
+    scripting, the Studio edition and ffmpeg.
+    """
+    return TaskRequirements(capabilities=("render.build",))
+
+
+def check_render(produce=None) -> list:
+    """The requirements this worker fails for a render, each named; an
+    `unknown:` entry says what the checks could not determine and does
+    not refuse.
+
+    The render path calls this before starting; a non-empty list of
+    REFUSALS refuses the render by name. `produce` is injectable so a
+    test can pin the check against a fixture manifest; the default is the
+    live manifest, matched against the very checks that produced it - a
+    refusal names the needs those checks actually fail, never a need the
+    worker has.
+    """
+    if produce is None:
+        from library.tools.worker_manifest import produce_manifest
+        from ren import doctor
+        checks = doctor.run_checks()
+        manifest = produce_manifest(checks=checks)
+        return match_requirements(manifest, render_requirements(), checks=checks)
+    manifest = produce()
+    return match_requirements(manifest, render_requirements())

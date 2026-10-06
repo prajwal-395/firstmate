@@ -250,21 +250,36 @@ def needs_of(capability_id: str) -> CapabilityNeeds:
 AVAILABLE = "available"
 DEGRADED = "degraded"
 UNAVAILABLE = "unavailable"
+UNKNOWN = "unknown"
+"""A required need the worker's checks could not DETERMINATE - the check
+itself failed, or the fact is unreadable from the running app. The gate
+says UNKNOWN and does not refuse: an undeterminable answer is not a
+measured absence (PR 1871 review)."""
 
 
-def availability(capability_id: str, failing) -> tuple:
-    """`(verdict, missing, degraded)` given the ids of the needs that FAIL.
+def availability(capability_id: str, failing, undetermined=()) -> tuple:
+    """`(verdict, missing, degraded, undetermined_missing)` given the ids
+    of the needs that FAIL and the ids of the needs the checks could not
+    DETERMINE.
 
-    `missing` are required needs that fail (UNAVAILABLE); `degraded` is
-    `{need: what degrades}` for optional needs that fail (DEGRADED).
+    `missing` are required needs that fail (UNAVAILABLE);
+    `undetermined_missing` are required needs no verdict could be reached
+    for (UNKNOWN) - a determinate failure outranks them, so a capability
+    with both is UNAVAILABLE and still names what it could not read;
+    `degraded` is `{need: what degrades}` for optional needs that fail
+    (DEGRADED).
     """
     failing = set(failing)
+    undetermined = set(undetermined)
     needs = needs_of(capability_id)
     missing = tuple(n for n in needs.requires if n in failing)
+    undetermined_missing = tuple(n for n in needs.requires if n in undetermined)
     degraded = {n: why for n, why in needs.degrades.items() if n in failing}
     if missing:
-        return UNAVAILABLE, missing, degraded
-    return (DEGRADED if degraded else AVAILABLE), missing, degraded
+        return UNAVAILABLE, missing, degraded, undetermined_missing
+    if undetermined_missing:
+        return UNKNOWN, missing, degraded, undetermined_missing
+    return (DEGRADED if degraded else AVAILABLE), missing, degraded, undetermined_missing
 
 
 def problems() -> list:

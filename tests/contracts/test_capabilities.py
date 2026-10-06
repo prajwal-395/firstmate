@@ -73,7 +73,7 @@ def test_a_failing_optional_need_degrades_and_a_required_one_refuses():
     assert mn.availability("footage.search", {"model.search_embedding"})[0] \
         == mn.DEGRADED
     assert mn.availability("render.build", {"resolve.studio"}) \
-        == (mn.UNAVAILABLE, ("resolve.studio",), {})
+        == (mn.UNAVAILABLE, ("resolve.studio",), {}, ())
     assert mn.availability("project.inspect", {"resolve.studio"})[0] \
         == mn.AVAILABLE
 

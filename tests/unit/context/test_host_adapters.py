@@ -156,7 +156,7 @@ def test_one_ok_host_satisfies_chat_harness_even_when_another_is_not(tmp_path, m
     assert not detail.ok and detail.need == "chat_harness.opencode"
     assert "not a subscription" in detail.detail
 
-    verdict, _missing, degraded = doctor.capability_report(checks)["creative.direct"]
+    verdict, _missing, degraded, _undetermined = doctor.capability_report(checks)["creative.direct"]
     assert verdict == machine_needs.AVAILABLE and not degraded
     assert doctor.required_failures(checks) == []
 

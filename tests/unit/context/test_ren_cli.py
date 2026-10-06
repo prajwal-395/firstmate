@@ -221,9 +221,12 @@ def test_every_need_is_checked_by_some_doctor_line():
         "a need no doctor line checks would always read as available")
 
 
-def test_resolve_down_or_a_dying_probe_is_a_fail_line_not_a_crash(
+def test_resolve_down_is_a_fail_line_and_a_dying_probe_is_unknown_not_a_crash(
         monkeypatch, capsys):
-    """A bare `scriptapp` inside the doctor would give a traceback."""
+    """A bare `scriptapp` inside the doctor would give a traceback. A
+    Resolve that is down is a measured absence (FAIL); a probe that dies
+    could not determine the answer (UNKNOWN, never a refusal - PR 1871
+    review refused every real delivery on a busy probe)."""
     monkeypatch.setattr(doctor, "resolve_running", lambda: False)
     probe = doctor.probe_resolve(python="/nonexistent/python3")
     connection, edition = doctor.resolve_checks(probe)
@@ -237,8 +240,8 @@ def test_resolve_down_or_a_dying_probe_is_a_fail_line_not_a_crash(
 
     code = doctor.main(["--for", "reel.touchup"], probe=dies)
     out = capsys.readouterr().out
-    assert code == 1
-    assert "FAIL  Resolve scripting" in out and "fusionscript segfaulted" in out
+    assert code == 0
+    assert "UNKNOWN  Resolve scripting" in out and "fusionscript segfaulted" in out
 
 
 def _stub_deepfilter(monkeypatch, usable, binary="/vep/bin/deep-filter",
@@ -270,7 +273,7 @@ def test_deepfilter_present_absent_or_broken(monkeypatch):
     assert not check.ok and "not installed" in check.detail
     assert "ren setup --with deepfilter" in check.fix
     assert doctor.required_failures([check]) == []
-    verdict, _missing, degraded = doctor.capability_report([check])["audio_mix.resolve"]
+    verdict, _missing, degraded, _undetermined = doctor.capability_report([check])["audio_mix.resolve"]
     assert verdict == machine_needs.DEGRADED and "deepfilter" in degraded
 
     _stub_deepfilter(monkeypatch, True, version=None)
@@ -394,7 +397,7 @@ def test_memory_line_names_the_floor_and_the_cost_of_missing_it(monkeypatch):
     assert f"{machine_needs.GEMMA_RESIDENT_GB:.1f} GB" in check.detail
     assert "swap" in check.detail
 
-    verdict, _missing, degraded = doctor.capability_report(
+    verdict, _missing, degraded, _undetermined = doctor.capability_report(
         [check])["semantics.analyse"]
     assert verdict == machine_needs.DEGRADED
     assert any("swap" in why for why in degraded.values())

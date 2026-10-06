@@ -84,6 +84,7 @@ from pathlib import Path
 from typing import Optional
 
 from library.tools.ren_refusal import RenRefusal
+from library.tools.worker_requirements import check_render, is_refusal
 
 
 class DeliverRefused(RenRefusal):
@@ -622,6 +623,19 @@ def deliver_reel(project_folder: str, reel: Optional[int],
     timeline and reads it; no timeline, marker or candidate is written.
     """
     from library.tools.project_layout import Area, ProjectLayout
+
+    refusals = check_render()
+    # An `unknown:` entry says what the checks could not determine (a busy
+    # Resolve, an unreadable edition) - it reports and never gates. The
+    # render is refused only by a measured absence, never by an
+    # undeterminable answer (PR 1871 review).
+    blocking = [entry for entry in refusals if is_refusal(entry)]
+    if blocking:
+        raise DeliverRefused(
+            "this worker cannot render the reel",
+            "; ".join(blocking),
+            "run `ren worker manifest` to see this worker's advertisement, "
+            "and `ren doctor` to repair the missing needs")
 
     project_folder = os.path.abspath(project_folder)
     settings = resolve_deliver_settings(project_folder)

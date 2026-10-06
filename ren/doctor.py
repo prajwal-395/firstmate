@@ -89,6 +89,14 @@ class Check:
     fix: str = ""
     need: str = ""
     """The `machine_needs.NEEDS` id this line checks; "" for none."""
+    undetermined: bool = False
+    """The check could not determine the answer - it raised, the probe was
+    refused or timed out, or the fact is unreadable from the running app.
+
+    Three states, not two: a check that ran and said no is a FAILURE, and
+    a check that could not run is not one. Reading `undetermined` as a
+    failing need is what made the worker manifest advertise a capable
+    machine as missing macOS (PR 1871 review)."""
 
 
 # ── Resolve ──────────────────────────────────────────────────────────
@@ -164,7 +172,8 @@ def resolve_checks(probe: dict) -> list:
     elif probe.get("timed_out"):
         connection = Check("Resolve scripting", False, probe["error"],
                            "Resolve is busy, or another Ren process holds the "
-                           "Resolve lease; run `ren doctor` again when it is idle")
+                           "Resolve lease; run `ren doctor` again when it is idle",
+                           undetermined=True)
     elif not probe.get("running"):
         connection = Check("Resolve scripting", False, "DaVinci Resolve is not running",
                            "open DaVinci Resolve Studio, then run `ren doctor` again")
@@ -175,7 +184,8 @@ def resolve_checks(probe: dict) -> list:
                            "and RESOLVE_SCRIPT_LIB in `ren config`")
     else:
         why = probe.get("error") or "Resolve is running but refused the connection"
-        connection = Check("Resolve scripting", False, why, enable)
+        connection = Check("Resolve scripting", False, why, enable,
+                           undetermined=True)
 
     product = probe.get("product", "")
     version = probe.get("version", "")
@@ -192,7 +202,8 @@ def resolve_checks(probe: dict) -> list:
                         "there is no scripting connection (see above). The free "
                         f"edition never connects: {FREE_EDITION_WHY}",
                         "fix the Resolve scripting line; if this is the free "
-                        "edition, install DaVinci Resolve Studio")
+                        "edition, install DaVinci Resolve Studio",
+                        undetermined=True)
     connection.need, edition.need = "resolve.scripting", "resolve.studio"
     return [connection, edition]
 
@@ -283,7 +294,8 @@ def python_checks() -> list:
         if found["unchecked"]:
             checks.append(Check(name, False,
                                 "cannot compare versions: `packaging` is not installed",
-                                f"{interpreter} -m pip install packaging", need=need))
+                                f"{interpreter} -m pip install packaging", need=need,
+                                undetermined=True))
         elif problems:
             checks.append(Check(name, False,
                                 f"{len(problems)} not satisfied: " + "; ".join(problems),
@@ -950,12 +962,15 @@ looked up by name when it runs, so a test can stand one in."""
 
 
 def _guarded(name: str, fn, needs: tuple):
-    """A check that raises is a line per need naming the exception, never a traceback."""
+    """A check that raises is a line per need naming the exception, never
+    a traceback - and marked undetermined: the check could not determine
+    the answer, which is not the same as the worker lacking the need."""
     try:
         result = fn()
     except Exception as exc:  # noqa: BLE001 - doctor must finish
         return [Check(name, False, f"the check itself failed: {type(exc).__name__}: {exc}",
-                      "report this; the rest of the checks still ran", need=need)
+                      "report this; the rest of the checks still ran", need=need,
+                      undetermined=True)
                 for need in needs or ("",)]
     return result if isinstance(result, list) else [result]
 
@@ -979,24 +994,38 @@ def run_checks(probe=None, needs=None) -> list:
 
 def required_failures(checks: list) -> list:
     """Failing lines every capability needs, or that name no need at all -
-    a failure doctor cannot attribute is never quietly optional."""
+    a failure doctor cannot attribute is never quietly optional.
+
+    An undetermined line is not here: a check that could not determine
+    its answer is not a measured failure, and counting it as one is what
+    made `ren doctor` report a capable machine as broken."""
     from library.tools.machine_needs import BASELINE
     return [check for check in checks
-            if not check.ok and (check.need in BASELINE or not check.need)]
+            if not check.ok and not check.undetermined
+            and (check.need in BASELINE or not check.need)]
 
 
 def capability_report(checks: list) -> dict:
-    """`{capability: (verdict, missing, degraded)}` from the failing needs."""
+    """`{capability: (verdict, missing, degraded, undetermined)}` from the
+    checks - the needs that fail, and the needs the checks could not
+    determine, which is what makes a verdict UNKNOWN rather than
+    UNAVAILABLE."""
     from library.tools import machine_needs
-    failing = {check.need for check in checks if not check.ok and check.need}
-    return {capability: machine_needs.availability(capability, failing)
-            for capability in sorted(machine_needs.CAPABILITY_NEEDS)}
+    failing = {check.need for check in checks
+               if not check.ok and not check.undetermined and check.need}
+    undetermined = {check.need for check in checks
+                    if check.undetermined and check.need}
+    return {capability: machine_needs.availability(
+        capability, failing, undetermined)
+        for capability in sorted(machine_needs.CAPABILITY_NEEDS)}
 
 
 def _line(check: Check, width: int) -> list:
     from library.tools.machine_needs import BASELINE
     if check.ok:
         mark = "PASS"
+    elif check.undetermined:
+        mark = "UNKNOWN"
     else:
         mark = "FAIL" if (check.need in BASELINE or not check.need) else "MISS"
     lines = [f"{mark}  {check.name.ljust(width)}  {check.detail}"]
@@ -1015,22 +1044,27 @@ def render(checks: list) -> str:
              f"{info['channel']}) - "
              f"what can this Mac do with Ren? (read-only: changes nothing)",
              f"Python compatibility: {info['requires_python']}",
-             "FAIL: every capability needs it.  MISS: limits the capabilities below.",
+             "FAIL: every capability needs it.  MISS: limits the capabilities below.  "
+             "UNKNOWN: the check could not determine the answer.",
              f"Engine: {_engine_root()}",
              ""]
     for check in checks:
         lines += _line(check, width)
 
     report = capability_report(checks)
-    by_verdict = {verdict: [c for c, (v, _, _) in report.items() if v == verdict]
-                  for verdict in (machine_needs.UNAVAILABLE, machine_needs.DEGRADED,
-                                  machine_needs.AVAILABLE)}
+    by_verdict = {verdict: [c for c, (v, _, _, _) in report.items() if v == verdict]
+                  for verdict in (machine_needs.UNAVAILABLE, machine_needs.UNKNOWN,
+                                  machine_needs.DEGRADED, machine_needs.AVAILABLE)}
     cap_width = max(len(c) for c in report)
     lines += ["", "Capabilities:"]
     for capability in by_verdict[machine_needs.UNAVAILABLE]:
         missing = report[capability][1]
         lines.append(f"  unavailable  {capability.ljust(cap_width)}  "
                      f"missing {', '.join(missing)}")
+    for capability in by_verdict[machine_needs.UNKNOWN]:
+        undetermined = report[capability][3]
+        lines.append(f"  unknown      {capability.ljust(cap_width)}  "
+                     f"could not determine {', '.join(undetermined)}")
     for capability in by_verdict[machine_needs.DEGRADED]:
         degraded = report[capability][2]
         lines.append(f"  degraded     {capability.ljust(cap_width)}  "
@@ -1041,12 +1075,14 @@ def render(checks: list) -> str:
                                subsequent_indent=" " * 15)
 
     failed = required_failures(checks)
-    missing = sum(not check.ok for check in checks) - len(failed)
+    undetermined = sum(check.undetermined for check in checks)
+    missing = sum(not check.ok and not check.undetermined for check in checks) - len(failed)
     lines += ["",
               (f"{sum(check.ok for check in checks)} passed, {len(failed)} required "
-               f"failed, {missing} missing. Capabilities: "
+               f"failed, {missing} missing, {undetermined} undetermined. Capabilities: "
                f"{len(by_verdict[machine_needs.AVAILABLE])} available, "
                f"{len(by_verdict[machine_needs.DEGRADED])} degraded, "
+               f"{len(by_verdict[machine_needs.UNKNOWN])} unknown, "
                f"{len(by_verdict[machine_needs.UNAVAILABLE])} unavailable."),
               "`ren doctor --for <capability>` checks one capability's needs."]
     return "\n".join(lines)
@@ -1054,14 +1090,22 @@ def render(checks: list) -> str:
 
 def render_for(capability: str, checks: list) -> str:
     from library.tools import machine_needs
-    verdict, missing, degraded = machine_needs.availability(
-        capability, {check.need for check in checks if not check.ok})
+    failing = {check.need for check in checks
+               if not check.ok and not check.undetermined and check.need}
+    undetermined = {check.need for check in checks
+                    if check.undetermined and check.need}
+    verdict, missing, degraded, undetermined_missing = \
+        machine_needs.availability(capability, failing, undetermined)
     needs = machine_needs.needs_of(capability)
     lines = [f"ren doctor --for {capability} (read-only: changes nothing)", ""]
     width = max((len(check.name) for check in checks), default=0)
     for check in checks:
-        mark = "PASS" if check.ok else (
-            "FAIL" if check.need in needs.requires else "MISS")
+        if check.ok:
+            mark = "PASS"
+        elif check.undetermined:
+            mark = "UNKNOWN"
+        else:
+            mark = "FAIL" if check.need in needs.requires else "MISS"
         lines.append(f"{mark}  {check.name.ljust(width)}  {check.detail}")
         if not check.ok and check.fix:
             lines.append(f"      {' ' * width}  fix: {check.fix}")
@@ -1071,6 +1115,7 @@ def render_for(capability: str, checks: list) -> str:
     else:
         lines.append(f"{capability}: {verdict}")
     lines += [f"  without {need}: {why}" for need, why in degraded.items()]
+    lines += [f"  could not determine {need}" for need in undetermined_missing]
     return "\n".join(lines)
 
 
@@ -1093,12 +1138,17 @@ def main(argv=None, probe=None) -> int:
         except machine_needs.UnknownCapability as exc:
             parser.error(exc.args[0])
         checks = run_checks(probe, needs=set(needs.requires) | set(needs.degrades))
-        verdict, missing, degraded = machine_needs.availability(
-            args.capability, {check.need for check in checks if not check.ok})
+        failing = {check.need for check in checks
+                   if not check.ok and not check.undetermined and check.need}
+        undetermined = {check.need for check in checks
+                        if check.undetermined and check.need}
+        verdict, missing, degraded, undetermined_missing = \
+            machine_needs.availability(args.capability, failing, undetermined)
         if args.json:
             print(json.dumps({"ren": ren_build,
                               "capability": args.capability, "verdict": verdict,
                               "missing": list(missing), "degraded": degraded,
+                              "undetermined": list(undetermined_missing),
                               "checks": [asdict(check) for check in checks]}, indent=1))
         else:
             print(render_for(args.capability, checks))
@@ -1111,8 +1161,9 @@ def main(argv=None, probe=None) -> int:
             "ren": ren_build,
             "checks": [asdict(check) for check in checks],
             "required_failures": [check.name for check in failed],
-            "capabilities": {c: {"verdict": v, "missing": list(m), "degraded": d}
-                             for c, (v, m, d) in capability_report(checks).items()},
+            "capabilities": {c: {"verdict": v, "missing": list(m), "degraded": d,
+                                "undetermined": list(u)}
+                             for c, (v, m, d, u) in capability_report(checks).items()},
         }, indent=1))
     else:
         print(render(checks))

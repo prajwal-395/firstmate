@@ -10,7 +10,10 @@ ones:
               cached per machine by `resolvefx_effects`), plus the
               scripting/edition verdict from doctor's Resolve probe.
 * capabilities - `machine_needs.availability` over every capability id,
-              given the needs doctor's checks report as failing.
+              given the needs doctor's checks report as failing and the
+              needs those checks could not determine (UNKNOWN, not
+              UNAVAILABLE - a check that could not run is not a missing
+              need).
 * models    - `ren doctor`'s HuggingFace/torch checkpoint probes.
 * fonts     - `render_fonts`' bundled and accepted-system families.
 * state     - whether the broker reports a running job.
@@ -109,11 +112,18 @@ def _resolve_section(checks: list, resolve_cache: dict | None) -> dict:
     }
 
 
-def _capability_section(failing: set) -> dict:
-    """Every capability id and its verdict, from `machine_needs.availability`."""
+def _capability_section(failing: set, undetermined: set) -> dict:
+    """Every capability id and its verdict, from `machine_needs.availability`.
+
+    The undetermined needs travel with the failing ones: a required need
+    no verdict could be reached for makes the capability UNKNOWN, not
+    UNAVAILABLE - the advertisement must not claim a worker lacks a need
+    its checks could not read.
+    """
     from library.tools import machine_needs
     return {
-        capability: machine_needs.availability(capability, failing)[0]
+        capability: machine_needs.availability(
+            capability, failing, undetermined)[0]
         for capability in sorted(machine_needs.CAPABILITY_NEEDS)
     }
 
@@ -202,12 +212,15 @@ def produce_manifest(
     if broker_running is None:
         broker_running = _broker_running()
 
-    failing = {check.need for check in checks if not check.ok and check.need}
+    failing = {check.need for check in checks
+               if not check.ok and not check.undetermined and check.need}
+    undetermined = {check.need for check in checks
+                    if check.undetermined and check.need}
     return {
         "worker": _worker_id(),
         "machine": _machine_section(),
         "resolve": _resolve_section(checks, resolve_cache),
-        "capabilities": _capability_section(failing),
+        "capabilities": _capability_section(failing, undetermined),
         "models": _model_section(model_cache),
         "fonts": _font_section(),
         "state": "busy" if broker_running else "idle",
