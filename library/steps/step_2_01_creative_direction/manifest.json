@@ -58,7 +58,7 @@
         "name": "reference_style",
         "type": "object",
         "required": false,
-         "description": "The declared reference video's Style Representation, measured from the reference's own pixels and frames (library/tools/reference_style): shot-length distribution, transition vocabulary, pacing, palette, contrast, caption and type style, camera-movement distribution, graphic density. Injected by the runner when the project's video preferences declare a `reference`; absent otherwise. Read as CONSTRAINTS the direction serves - the reference's cut rhythm, its colours, its contrast, its text style and its motion are facts to honour, not taste to re-decide. Content is never measured: the reference's words and subject are its own."
+         "description": "The declared reference video's Style Representation, measured from the reference's own pixels and frames (library/tools/reference_style): shot-length distribution, transition vocabulary, pacing, palette, contrast, caption and type style, camera-movement distribution, graphic density, music-to-edit sync. Injected by the runner when the project's video preferences declare a `reference`; absent otherwise. Read as CONSTRAINTS the direction serves - the reference's cut rhythm, its colours, its contrast, its text style, its motion and whether its cuts land on its beats are facts to honour, not taste to re-decide. Content is never measured: the reference's words and subject are its own."
       }
     ],
     "outputs": [

@@ -24,6 +24,7 @@ if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
 from library.tools import reference_style as RS  # noqa: E402
+from library.tools import beat_grid as BG  # noqa: E402
 
 HAS_FFMPEG = (shutil.which("ffmpeg") is not None
               and shutil.which("ffprobe") is not None)
@@ -708,3 +709,145 @@ def test_an_encoded_reference_measures_its_graphic_density(tmp_path):
     assert style["sampled_frames"] >= 1
     assert style["median_elements"] >= 1.0
     assert style["max_elements"] >= style["min_elements"]
+
+
+# ── The music-sync half ─────────────────────────────────────────────
+
+def test_a_cut_belongs_to_its_nearest_beat(tmp_path):
+    """A cut is anchored by search, never by hint proximity.
+
+    The failure it pins: anchoring from the occurrence nearest a hint
+    (the spine's own rule works from hints) would attach the cut at
+    1.49 s to the beat at 2.0 s and report -0.51 - a cut dragging
+    behind the beat, when it sits +0.49 after the beat at 1.0 s.
+    """
+    assert BG.nearest_beat_offsets([1.49], [1.0, 2.0]) == [0.49]
+
+
+def test_the_onbeat_window_comes_from_the_beats_themselves():
+    """The on-beat window is the grid's own spacing, not a constant.
+
+    The failure it pins: a fixed window (say 0.1 s) would call a
+    60-BPM reference's swinging cuts off-beat while flattering a
+    160-BPM one - the window must widen and narrow with the tempo it
+    measures.
+    """
+    assert BG.onbeat_tolerance_seconds(
+        [round(i * 0.5, 3) for i in range(9)]) == 0.25
+    assert BG.onbeat_tolerance_seconds([0.0, 1.0, 2.0, 3.0]) == 0.5
+    assert BG.onbeat_tolerance_seconds([1.0]) == 0.0
+
+
+def _boundaries_at(*times, duration=8.0):
+    """Shot boundaries at the given times, without decoding video."""
+    return {
+        "boundaries": [{"time_seconds": t, "transition": "hard_cut",
+                        "luma_jump": 50.0, "saturation_jump": 59.0}
+                       for t in times],
+        "thresholds": {},
+        "fps": 30.0,
+        "duration_seconds": duration,
+    }
+
+
+def test_a_reference_with_no_audio_has_no_sync(monkeypatch, tmp_path):
+    """A silent reference says nothing about cutting on the beat.
+
+    The failure it pins: reporting on_beat_share 0.0 for a reference
+    with no audio would read as "cuts free of the music" - a style
+    judgement about music that does not exist.
+    """
+    monkeypatch.setattr(RS, "measure_shot_boundaries",
+                        lambda path: _boundaries_at(1.0, 2.0, 3.0))
+    monkeypatch.setattr(RS, "_extract_reference_audio", lambda path: None)
+    sync = RS.measure_reference_music_sync(str(tmp_path / "silent.mp4"))
+    assert sync["beats_available"] is False
+    assert "audio" in sync["reason"]
+    assert sync["cuts"] == 3
+
+
+def test_a_rhythm_too_sparse_to_cut_against_has_no_sync(monkeypatch,
+                                                        tmp_path):
+    """Fewer beats than a rhythm is an absence, not a share.
+
+    The failure it pins: three stray onsets across eight seconds would
+    still yield an on_beat_share - a number computed over a grid too
+    sparse to be music the reference cuts against.
+    """
+    monkeypatch.setattr(RS, "measure_shot_boundaries",
+                        lambda path: _boundaries_at(1.0, 2.0, 3.0))
+    monkeypatch.setattr(RS, "_extract_reference_audio",
+                        lambda path: str(tmp_path / "aud" / "audio.wav"))
+    import library.tools.analysis.music_pipeline as music_pipeline
+    monkeypatch.setattr(music_pipeline, "analyze_tempo_beats",
+                        lambda path: {"method": "test", "bpm": 90.0,
+                                      "beats": [0.5, 1.0, 2.5],
+                                      "downbeats": [],
+                                      "downbeat_source": None})
+    sync = RS.measure_reference_music_sync(str(tmp_path / "sparse.mp4"))
+    assert sync["beats_available"] is False
+    assert "fewer than" in sync["reason"]
+
+
+def _click_track(path, seconds=6, interval=0.5, sample_rate=22050):
+    """A click track: impulses on a grid, as a wav file."""
+    import wave
+    import numpy as np
+    track = np.zeros(int(seconds * sample_rate))
+    step = int(interval * sample_rate)
+    for index in range(0, len(track), step):
+        track[index] = 0.9
+    pcm = (track * 32767).astype(np.int16)
+    with wave.open(str(path), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(sample_rate)
+        handle.writeframes(pcm.tobytes())
+
+
+@pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg/ffprobe not available")
+def test_an_encoded_reference_cut_on_its_clicks_measures_full_sync(
+        tmp_path):
+    """The music-sync half on real encoded audio and video, end to end.
+
+    This test encodes media because sync is a fact about the
+    reference's actual audio against its actual cuts - a measurement
+    fed synthetic beat lists cannot prove the audio is extracted, the
+    tempo tracked and the cuts aligned.  Six one-second shots in
+    alternating colours cut on every other click of a 120-BPM track.
+    """
+    pytest.importorskip("librosa")
+    from PIL import Image
+    segments = []
+    for index in range(6):
+        colour = (200, 30, 30) if index % 2 == 0 else (30, 30, 200)
+        frame = tmp_path / f"seg_{index}.png"
+        Image.new("RGB", (320, 240), colour).save(str(frame))
+        segment = tmp_path / f"seg_{index}.mp4"
+        subprocess.run(
+            ["ffmpeg", "-y", "-v", "error", "-loop", "1", "-i", str(frame),
+             "-t", "1", "-r", "30", "-c:v", "libx264", "-pix_fmt",
+             "yuv420p", str(segment)],
+            check=True, capture_output=True, text=True, encoding="utf-8")
+        segments.append(segment)
+    listing = tmp_path / "segments.txt"
+    listing.write_text("".join(f"file '{s}'\n" for s in segments),
+                       encoding="utf-8")
+    silent = tmp_path / "silent.mp4"
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0",
+         "-i", str(listing), "-c", "copy", str(silent)],
+        check=True, capture_output=True, text=True, encoding="utf-8")
+    clicks = tmp_path / "clicks.wav"
+    _click_track(clicks)
+    video = tmp_path / "reference.mp4"
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-i", str(silent), "-i", str(clicks),
+         "-c:v", "copy", "-c:a", "aac", "-shortest", str(video)],
+        check=True, capture_output=True, text=True, encoding="utf-8")
+    sync = RS.measure_reference_music_sync(str(video))
+    assert sync["beats_available"] is True
+    assert sync["cuts"] == 5
+    assert sync["on_beat_share"] == 1.0
+    assert sync["bpm"] == pytest.approx(120.0, abs=5.0)
+    assert sync["median_abs_offset_seconds"] < 0.1

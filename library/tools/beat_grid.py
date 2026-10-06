@@ -170,6 +170,63 @@ def _times(music_analysis: Optional[Dict[str, Any]], key: str,
     return out
 
 
+def nearest_beat_offsets(cut_times: List[float], beats: List[float]
+                         ) -> List[float]:
+    """Each cut's signed offset to its nearest beat, in seconds.
+
+    Positive means the cut lands after the beat.  A cut is anchored by
+    SEARCH over every beat, never by hint proximity: the nearest beat
+    is the minimum absolute distance, full stop.  Cuts and beats that
+    do not parse as times are absent, never zero - a zero offset would
+    read as cut exactly on a beat.
+    """
+    clean = []
+    for beat in beats:
+        try:
+            clean.append(float(beat))
+        except (TypeError, ValueError):
+            continue
+    offsets = []
+    for cut in cut_times:
+        try:
+            moment = float(cut)
+        except (TypeError, ValueError):
+            continue
+        if not clean:
+            break
+        nearest = min(clean, key=lambda b: abs(moment - b))
+        offsets.append(round(moment - nearest, 4))
+    return offsets
+
+
+def onbeat_tolerance_seconds(beats: List[float]) -> float:
+    """How near a beat a cut must land to read as cut on it, in seconds.
+
+    Half the median inter-beat interval, from the beats themselves: a
+    cut inside this window is nearer that beat than its neighbour, so
+    it reads as cut to the beat rather than between beats.  The value
+    is the grid's own spacing, not a constant a stranger's tempo would
+    have to share.  0.0 where fewer than two beats parse - no interval,
+    no window.
+    """
+    intervals = []
+    clean = []
+    for beat in beats:
+        try:
+            clean.append(float(beat))
+        except (TypeError, ValueError):
+            continue
+    ordered = sorted(clean)
+    for index in range(1, len(ordered)):
+        gap = ordered[index] - ordered[index - 1]
+        if gap > 0:
+            intervals.append(gap)
+    if not intervals:
+        return 0.0
+    import statistics
+    return round(statistics.median(intervals) / 2.0, 4)
+
+
 
 def bpm(music_analysis: Optional[Dict[str, Any]]) -> Optional[float]:
     """Detected BPM, from the same place the beats come from.

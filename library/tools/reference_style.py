@@ -592,6 +592,114 @@ def measure_reference_graphic_density(video_path: str) -> dict:
         _drop_frames(frames)
 
 
+# ── The music-sync half ────────────────────────────────────────────
+#
+# Whether the reference cuts on the beat.  The cuts come from the same
+# shot boundaries the editorial half measures; the beats come from the
+# reference's own audio track, read by the music pipeline's tempo
+# tracker (`analyze_tempo_beats` - beat_this preferred, librosa
+# fallback), never synthesised.  A reference whose audio carries no
+# detectable rhythm has no sync to measure, and says so.
+
+
+def _extract_reference_audio(video_path: str):
+    """The reference's audio as a temporary wav path, or None.
+
+    Mono 22050 Hz, the rate the tempo tracker reads.  None when the
+    reference carries no extractable audio - a silent reference, not
+    an error.  The caller removes the file's directory with
+    `_drop_frames`, the same way sampled frames are removed.
+    """
+    import tempfile
+    audio_dir = tempfile.mkdtemp(prefix="vep_reference_audio_")
+    out_path = os.path.join(audio_dir, "audio.wav")
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-i", video_path, "-vn",
+         "-ac", "1", "-ar", "22050", out_path],
+        capture_output=True, text=True, encoding="utf-8",
+        errors="replace", timeout=300)
+    if os.path.isfile(out_path) and os.path.getsize(out_path) > 0:
+        return out_path
+    import shutil
+    shutil.rmtree(audio_dir, ignore_errors=True)
+    return None
+
+
+def _absent_music_sync(video_path: str, cuts: int, reason: str) -> dict:
+    """No sync measurement, with the reason it is absent.
+
+    A reference with no rhythm says nothing about cutting on the
+    beat - an absence the direction reads as "no constraint", never a
+    zero share a reader could mistake for "cuts free of the music".
+    """
+    return {
+        "source": video_path,
+        "beats_available": False,
+        "reason": reason,
+        "cuts": cuts,
+    }
+
+
+def measure_reference_music_sync(video_path: str) -> dict:
+    """The music-sync half of the Style Representation, as one dict.
+
+    Each cut's offset to its nearest beat, the share of cuts landing
+    inside the on-beat window, and the same share against downbeats.
+    The window is half the median inter-beat interval of the
+    reference's OWN beats (`library.tools.beat_grid`) - a cut inside
+    it is nearer that beat than its neighbour.  No constant decides
+    what "on the beat" means for a stranger's tempo.
+    """
+    from library.tools.beat_grid import (
+        MIN_USABLE_BEATS,
+        nearest_beat_offsets,
+        onbeat_tolerance_seconds,
+    )
+    measured = measure_shot_boundaries(video_path)
+    cuts = [b["time_seconds"] for b in measured["boundaries"]]
+    audio_path = _extract_reference_audio(video_path)
+    if audio_path is None:
+        return _absent_music_sync(video_path, len(cuts),
+                                  "no extractable audio stream")
+    try:
+        from library.tools.analysis.music_pipeline import (
+            analyze_tempo_beats)
+        tempo = analyze_tempo_beats(audio_path)
+    finally:
+        _drop_frames([audio_path])
+    beats = tempo.get("beats") or []
+    if len(beats) < MIN_USABLE_BEATS:
+        return _absent_music_sync(
+            video_path, len(cuts),
+            f"only {len(beats)} beats detected "
+            f"(fewer than {MIN_USABLE_BEATS}) - no rhythm to cut against")
+    tolerance = onbeat_tolerance_seconds(beats)
+    offsets = nearest_beat_offsets(cuts, beats)
+    on_beat = sum(1 for o in offsets if abs(o) <= tolerance)
+    downbeats = tempo.get("downbeats") or []
+    down_offsets = nearest_beat_offsets(cuts, downbeats)
+    on_downbeat = sum(1 for o in down_offsets if abs(o) <= tolerance)
+    return {
+        "source": video_path,
+        "beats_available": True,
+        "bpm": tempo.get("bpm"),
+        "beat_count": len(beats),
+        "downbeat_source": tempo.get("downbeat_source"),
+        "cuts": len(cuts),
+        "onbeat_tolerance_seconds": tolerance,
+        "tolerance_derived_as": "half the median inter-beat interval "
+                                "of this reference's own beats",
+        "median_abs_offset_seconds": (
+            round(statistics.median([abs(o) for o in offsets]), 4)
+            if offsets else 0.0),
+        "on_beat_cuts": on_beat,
+        "on_beat_share": round(on_beat / len(offsets), 4) if offsets else 0.0,
+        "on_downbeat_cuts": on_downbeat,
+        "on_downbeat_share": (round(on_downbeat / len(down_offsets), 4)
+                              if down_offsets else 0.0),
+    }
+
+
 # ── The graphics half ──────────────────────────────────────────────
 #
 # The palette and the contrast are measured from the reference's
@@ -783,17 +891,20 @@ def measure_reference_style(video_path: str) -> dict:
 
     The editorial half (shot lengths, transitions, pacing), the
     graphics half (palette, contrast), the text half (captions, type),
-    the camera-movement half (motion-energy distribution) and the
-    graphic-density half (per-frame element counts).  CONTENT is never
-    read: the reference's words, faces and subject are its own; only
-    how it looks, how it is cut, how its text is set, how much motion
-    it carries and how densely its frames are filled are measured.
+    the camera-movement half (motion-energy distribution), the
+    graphic-density half (per-frame element counts) and the music-sync
+    half (cut-to-beat alignment).  CONTENT is never read: the
+    reference's words, faces and subject are its own; only how it
+    looks, how it is cut, how its text is set, how much motion it
+    carries, how densely its frames are filled and whether its cuts
+    land on its beats are measured.
     """
     editorial = measure_reference_editorial_style(video_path)
     graphical = measure_reference_graphical_style(video_path)
     text = measure_reference_text_style(video_path)
     camera = measure_reference_camera_movement(video_path)
     density = measure_reference_graphic_density(video_path)
+    sync = measure_reference_music_sync(video_path)
     return {
         "source": video_path,
         "duration_seconds": editorial["duration_seconds"],
@@ -806,6 +917,7 @@ def measure_reference_style(video_path: str) -> dict:
         "text": text,
         "camera_movement": camera,
         "graphic_density": density,
+        "music_sync": sync,
     }
 
 
