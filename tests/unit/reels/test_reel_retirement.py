@@ -30,6 +30,14 @@ from library.tools.resolve_organization import (
 from tests.resolve_double import make_project
 
 
+@pytest.fixture(autouse=True)
+def _leases_off_machine(tmp_path, monkeypatch):
+    """Retirement declares its bins now: leases stay in tmp."""
+    directory = tmp_path / "locks"
+    directory.mkdir()
+    monkeypatch.setenv("PIPELINE_RESOLVE_LOCK_DIR", str(directory))
+
+
 REEL = "Reel 09 - your-website-is-only-20-percent"
 OTHER = "Reel 13 - the-accounting-firm"
 

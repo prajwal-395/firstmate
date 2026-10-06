@@ -56,6 +56,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from library.tools import journal_naming
+from library.tools.resource_leases import (
+    LeaseDeclaration,
+    ResourceRef,
+    resource_lease,
+)
 
 JOURNAL_PREFIX = "resolve_retirements"
 JOURNAL_GLOB = f"{JOURNAL_PREFIX}*.json"
@@ -124,138 +129,162 @@ def retire_bins(project, retirements: list[dict],
         for sub in (folder.GetSubFolderList() or []):
             index_clips(sub, into)
 
-    try:
-        ordered = sorted((tuple(r["path"]) for r in retirements),
-                         key=lambda p: (-len(p), list(p)))
-        for path in ordered:
-            entry = by_path[path]
-            planned_contents = list(entry.get("contents") or [])
-            artefacts, _, _, _ = read_pool(project)
-            timeline_names = frozenset(
-                a.name for a in artefacts if a.kind == "timeline")
-            # An emptied canonical per-reel leaf retires like a legacy
-            # shell (both populations retire only once empty); a leaf
-            # retiring WITH contents goes through the dead-leaf
-            # re-proof below instead.
-            is_shell = (is_retired_scheme_bin(path, timeline_names)
-                        or (not planned_contents
-                            and is_retired_canonical_bin(
-                                path, timeline_names)))
-            dead_here = None
-            if not is_shell and planned_contents:
-                if project_root is None:
-                    raise RetirementRefused(
-                        f"{'/'.join(path)!r} retires with "
-                        f"{len(planned_contents)} item(s), and no "
-                        f"project root was given to re-prove they are "
-                        f"the pipeline's. Nothing further was retired.")
-                fresh_dead, _declined = plan_dead_render_bins(
-                    artefacts, list(read_bin_tree(project)),
-                    project_root, timeline_names)
-                matches = [d for d in fresh_dead
-                           if tuple(d["path"]) == path]
-                if not matches:
-                    raise RetirementRefused(
-                        f"{'/'.join(path)!r} no longer proves dead - "
-                        f"a timeline of that name may have landed, or "
-                        f"something inside it is now placed. Nothing "
-                        f"further was retired.")
-                dead_here = matches[0]
-                fresh_ids = {c["item_id"]
-                             for c in dead_here.get("contents") or []}
-                planned_ids = {c["item_id"] for c in planned_contents}
-                if fresh_ids != planned_ids:
-                    raise RetirementRefused(
-                        f"{'/'.join(path)!r} holds a different item set "
-                        f"than the plan named "
-                        f"(plan {sorted(planned_ids)}, "
-                        f"pool {sorted(fresh_ids)}). Nothing further "
-                        f"was retired.")
-            if not is_shell and dead_here is None:
-                raise RetirementRefused(
-                    f"{'/'.join(path)!r} is not a pipeline legacy bin "
-                    f"or a proven-dead per-reel bin. "
-                    f"Nothing further was retired.")
-            if is_shell:
-                holding = [a for a in artefacts
-                           if (tuple(a.folder_path)[:len(path)] == path
-                               and len(tuple(a.folder_path)) >= len(path))]
-                if holding:
-                    raise RetirementRefused(
-                        f"{'/'.join(path)!r} is no longer empty - "
-                        f"{len(holding)} item(s) sit in it, first "
-                        f"{holding[0].name!r}. Nothing further was retired.")
-            tree = read_bin_tree(project)
-            kept_below = sorted(
-                "/".join(b) for b in tree
-                if len(b) > len(path) and b[:len(path)] == path)
-            if kept_below:
-                raise RetirementRefused(
-                    f"{'/'.join(path)!r} still has sub-bin(s) below it: "
-                    f"{', '.join(kept_below)}. Retiring it would take a "
-                    f"bin this plan did not retire. Nothing further was "
-                    f"retired.")
-            removed_contents: list[dict] = []
-            if dead_here is not None:
-                proxies: dict = {}
-                index_clips(pool.GetRootFolder(), proxies)
-                targets = []
-                for content in planned_contents:
-                    proxy = proxies.get(content["item_id"])
-                    if proxy is None:
+    # What this run may delete, named before the first deletion:
+    # every retired bin path, plus the files of dead contents by
+    # file path (the spelling the prune pass uses for the same
+    # items) falling back to item id where a content names no
+    # file. A prune on a shared file serialises against the
+    # retirement instead of deleting under it.
+    _retired_bins = set()
+    _retired_files = set()
+    for _retirement in retirements:
+        _retired_bins.add("/".join(_retirement["path"]))
+        for _content in (_retirement.get("contents") or []):
+            _file = _content.get("file_path", "")
+            _retired_files.add(_file if _file
+                               else _content["item_id"])
+    with resource_lease(
+        LeaseDeclaration(
+            exclusive=frozenset(
+                {ResourceRef("media_pool_bin", _bin)
+                 for _bin in _retired_bins}
+                | {ResourceRef("clip", _file)
+                   for _file in _retired_files}),
+        ),
+        purpose="retire empty bins",
+    ):
+        try:
+            ordered = sorted((tuple(r["path"]) for r in retirements),
+                             key=lambda p: (-len(p), list(p)))
+            for path in ordered:
+                entry = by_path[path]
+                planned_contents = list(entry.get("contents") or [])
+                artefacts, _, _, _ = read_pool(project)
+                timeline_names = frozenset(
+                    a.name for a in artefacts if a.kind == "timeline")
+                # An emptied canonical per-reel leaf retires like a legacy
+                # shell (both populations retire only once empty); a leaf
+                # retiring WITH contents goes through the dead-leaf
+                # re-proof below instead.
+                is_shell = (is_retired_scheme_bin(path, timeline_names)
+                            or (not planned_contents
+                                and is_retired_canonical_bin(
+                                    path, timeline_names)))
+                dead_here = None
+                if not is_shell and planned_contents:
+                    if project_root is None:
                         raise RetirementRefused(
-                            f"{content['name']!r} is in the plan and not "
-                            f"in the pool. Nothing further was retired.")
-                    # Re-read the KIND off the live proxy, never trust
-                    # the plan: DeleteClips on a timeline's pool item
-                    # deletes the timeline.
-                    if (proxy.GetClipProperty("Type") or "") == "Timeline":
+                            f"{'/'.join(path)!r} retires with "
+                            f"{len(planned_contents)} item(s), and no "
+                            f"project root was given to re-prove they are "
+                            f"the pipeline's. Nothing further was retired.")
+                    fresh_dead, _declined = plan_dead_render_bins(
+                        artefacts, list(read_bin_tree(project)),
+                        project_root, timeline_names)
+                    matches = [d for d in fresh_dead
+                               if tuple(d["path"]) == path]
+                    if not matches:
                         raise RetirementRefused(
-                            f"{content['name']!r} reports Type 'Timeline' "
-                            f"in the pool and the plan calls it a clip. "
-                            f"DeleteClips would delete the timeline. "
-                            f"Nothing further was retired.")
-                    targets.append((content, proxy))
-                for start in range(0, len(targets), 100):
-                    chunk = targets[start:start + 100]
-                    if not pool.DeleteClips(
-                            [proxy for _, proxy in chunk]):
+                            f"{'/'.join(path)!r} no longer proves dead - "
+                            f"a timeline of that name may have landed, or "
+                            f"something inside it is now placed. Nothing "
+                            f"further was retired.")
+                    dead_here = matches[0]
+                    fresh_ids = {c["item_id"]
+                                 for c in dead_here.get("contents") or []}
+                    planned_ids = {c["item_id"] for c in planned_contents}
+                    if fresh_ids != planned_ids:
                         raise RetirementRefused(
-                            f"DeleteClips returned a falsy answer for "
-                            f"{len(chunk)} item(s) under "
-                            f"{'/'.join(path)!r} after "
-                            f"{len(removed_contents)} had been removed. "
-                            f"The journal names those; every file is "
-                            f"still on disk.")
-                    for content, _proxy in chunk:
-                        removed_contents.append({
-                            "item_id": content["item_id"],
-                            "name": content["name"],
-                            "file_path": content.get("file_path", ""),
-                            "from": content.get(
-                                "folder", "/".join(path)),
-                        })
+                            f"{'/'.join(path)!r} holds a different item set "
+                            f"than the plan named "
+                            f"(plan {sorted(planned_ids)}, "
+                            f"pool {sorted(fresh_ids)}). Nothing further "
+                            f"was retired.")
+                if not is_shell and dead_here is None:
+                    raise RetirementRefused(
+                        f"{'/'.join(path)!r} is not a pipeline legacy bin "
+                        f"or a proven-dead per-reel bin. "
+                        f"Nothing further was retired.")
+                if is_shell:
+                    holding = [a for a in artefacts
+                               if (tuple(a.folder_path)[:len(path)] == path
+                                   and len(tuple(a.folder_path)) >= len(path))]
+                    if holding:
+                        raise RetirementRefused(
+                            f"{'/'.join(path)!r} is no longer empty - "
+                            f"{len(holding)} item(s) sit in it, first "
+                            f"{holding[0].name!r}. Nothing further was retired.")
                 tree = read_bin_tree(project)
-            folder = tree.get(path)
-            if folder is None:
-                raise RetirementRefused(
-                    f"{'/'.join(path)!r} is not in the pool. Nothing "
-                    f"further was retired.")
-            if not pool.DeleteFolders([folder]):
-                raise RetirementRefused(
-                    f"DeleteFolders({ '/'.join(path)!r}) returned a falsy "
-                    f"answer. The bin is still there and nothing further "
-                    f"was retired.")
-            journal["retired"].append({"path": "/".join(path),
-                                       "occupancy_before":
-                                           len(removed_contents),
-                                       "contents": removed_contents})
-    finally:
-        if before_current:
-            pool.SetCurrentFolder(before_current)
-        Path(journal_path).parent.mkdir(parents=True, exist_ok=True)
-        Path(journal_path).write_text(
-            json.dumps(journal, indent=2), encoding="utf-8")
+                kept_below = sorted(
+                    "/".join(b) for b in tree
+                    if len(b) > len(path) and b[:len(path)] == path)
+                if kept_below:
+                    raise RetirementRefused(
+                        f"{'/'.join(path)!r} still has sub-bin(s) below it: "
+                        f"{', '.join(kept_below)}. Retiring it would take a "
+                        f"bin this plan did not retire. Nothing further was "
+                        f"retired.")
+                removed_contents: list[dict] = []
+                if dead_here is not None:
+                    proxies: dict = {}
+                    index_clips(pool.GetRootFolder(), proxies)
+                    targets = []
+                    for content in planned_contents:
+                        proxy = proxies.get(content["item_id"])
+                        if proxy is None:
+                            raise RetirementRefused(
+                                f"{content['name']!r} is in the plan and not "
+                                f"in the pool. Nothing further was retired.")
+                        # Re-read the KIND off the live proxy, never trust
+                        # the plan: DeleteClips on a timeline's pool item
+                        # deletes the timeline.
+                        if (proxy.GetClipProperty("Type") or "") == "Timeline":
+                            raise RetirementRefused(
+                                f"{content['name']!r} reports Type 'Timeline' "
+                                f"in the pool and the plan calls it a clip. "
+                                f"DeleteClips would delete the timeline. "
+                                f"Nothing further was retired.")
+                        targets.append((content, proxy))
+                    for start in range(0, len(targets), 100):
+                        chunk = targets[start:start + 100]
+                        if not pool.DeleteClips(
+                                [proxy for _, proxy in chunk]):
+                            raise RetirementRefused(
+                                f"DeleteClips returned a falsy answer for "
+                                f"{len(chunk)} item(s) under "
+                                f"{'/'.join(path)!r} after "
+                                f"{len(removed_contents)} had been removed. "
+                                f"The journal names those; every file is "
+                                f"still on disk.")
+                        for content, _proxy in chunk:
+                            removed_contents.append({
+                                "item_id": content["item_id"],
+                                "name": content["name"],
+                                "file_path": content.get("file_path", ""),
+                                "from": content.get(
+                                    "folder", "/".join(path)),
+                            })
+                    tree = read_bin_tree(project)
+                folder = tree.get(path)
+                if folder is None:
+                    raise RetirementRefused(
+                        f"{'/'.join(path)!r} is not in the pool. Nothing "
+                        f"further was retired.")
+                if not pool.DeleteFolders([folder]):
+                    raise RetirementRefused(
+                        f"DeleteFolders({ '/'.join(path)!r}) returned a falsy "
+                        f"answer. The bin is still there and nothing further "
+                        f"was retired.")
+                journal["retired"].append({"path": "/".join(path),
+                                           "occupancy_before":
+                                               len(removed_contents),
+                                           "contents": removed_contents})
+        finally:
+            if before_current:
+                pool.SetCurrentFolder(before_current)
+            Path(journal_path).parent.mkdir(parents=True, exist_ok=True)
+            Path(journal_path).write_text(
+                json.dumps(journal, indent=2), encoding="utf-8")
 
     journal["journal_path"] = journal_path
     return {"retired": [r["path"] for r in journal["retired"]],
@@ -286,19 +315,30 @@ def revert(project, journal_path: str) -> dict:
     before_current = pool.GetCurrentFolder()
 
     recreated = []
-    try:
-        paths = sorted(
-            (tuple(r["path"].split("/")) for r in journal.get("retired", [])),
-            key=len)
-        for path in paths:
-            parent = root
-            for depth, part in enumerate(path):
-                parent = ensure_folder(pool, parent, part,
-                                       created=recreated,
-                                       at_path=path[:depth])
-    finally:
-        if before_current:
-            pool.SetCurrentFolder(before_current)
+    # Re-creating a shell races a retirement deleting it: the
+    # revert declares the same bin paths it re-creates.
+    with resource_lease(
+        LeaseDeclaration(
+            exclusive=frozenset(
+                {ResourceRef("media_pool_bin", r["path"])
+                 for r in journal.get("retired", [])
+                 if r.get("path")}),
+        ),
+        purpose="revert retired bins",
+    ):
+        try:
+            paths = sorted(
+                (tuple(r["path"].split("/")) for r in journal.get("retired", [])),
+                key=len)
+            for path in paths:
+                parent = root
+                for depth, part in enumerate(path):
+                    parent = ensure_folder(pool, parent, part,
+                                           created=recreated,
+                                           at_path=path[:depth])
+        finally:
+            if before_current:
+                pool.SetCurrentFolder(before_current)
 
     journal["reverted_at"] = datetime.now(timezone.utc).isoformat()
     Path(journal_path).write_text(
