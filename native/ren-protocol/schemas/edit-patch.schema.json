@@ -1190,6 +1190,56 @@
           ]
         },
         {
+          "description": "Declared, NOT executable: the Graph API exposes no window calls.",
+          "type": "object",
+          "properties": {
+            "geometry": true,
+            "node_index": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "op": {
+              "type": "string",
+              "const": "color.window.create"
+            },
+            "shape": {
+              "type": "string"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "node_index",
+            "shape",
+            "geometry"
+          ]
+        },
+        {
+          "description": "Declared, NOT executable: removing a window is the same GUI route.",
+          "type": "object",
+          "properties": {
+            "node_index": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "op": {
+              "type": "string",
+              "const": "color.window.delete"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "node_index"
+          ]
+        },
+        {
           "description": "Place a matte; the Fusion comp list verifies.",
           "type": "object",
           "properties": {

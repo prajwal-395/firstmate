@@ -367,6 +367,21 @@ pub(crate) fn algebra() -> &'static [OpDeclaration] {
         item: true, has_apply: true,
         inverse: Inverse { op: None, self_inverse: true, reason: String::from("the inverse carries the previous node grade") },
     },
+    // ── power windows (domain: color) ──────────────────────────
+    OpDeclaration {
+        id: "color.window.create", domain: "color",
+        required: &["unique_id", "node_index", "shape", "geometry"],
+        merge: MergeSemantics::Exclusive, temporal: TemporalEffect::Local,
+        item: true, has_apply: false,
+        inverse: Inverse { op: Some(String::from("color.window.delete")), self_inverse: false, reason: String::from("delete removes the window create placed") },
+    },
+    OpDeclaration {
+        id: "color.window.delete", domain: "color",
+        required: &["unique_id", "node_index"],
+        merge: MergeSemantics::Exclusive, temporal: TemporalEffect::Local,
+        item: true, has_apply: false,
+        inverse: Inverse { op: Some(String::from("color.window.create")), self_inverse: false, reason: String::from("create draws the window delete removed, with its shape and geometry") },
+    },
     // ── mask (domain: fusion) ──────────────────────────────────────
     OpDeclaration {
         id: "mask.create", domain: "fusion",
@@ -772,6 +787,10 @@ pub fn span(op: &EditOp, base: &Snapshot) -> Option<(i64, i64)> {
         EditOp::GradeNodeReorder { unique_id, .. } => item_span(base, &unique_id.0),
         EditOp::GradeNodeSet { unique_id, .. } => item_span(base, &unique_id.0),
 
+        // ── power windows ──────────────────────────────────────
+        EditOp::WindowCreate { unique_id, .. } => item_span(base, &unique_id.0),
+        EditOp::WindowDelete { unique_id, .. } => item_span(base, &unique_id.0),
+
         // ── mask ────────────────────────────────────────────────
         EditOp::MaskCreate { unique_id, .. } => item_span(base, &unique_id.0),
         EditOp::MaskDelete { unique_id, .. } => item_span(base, &unique_id.0),
@@ -1080,6 +1099,15 @@ pub fn key(op: &EditOp) -> Vec<KeyPart> {
             KeyPart::Num(*node_index),
         ],
 
+        // ── power windows ──────────────────────────────────────
+        EditOp::WindowCreate { unique_id, node_index, .. }
+        | EditOp::WindowDelete { unique_id, node_index } => vec![
+            KeyPart::Text("clip".to_string()),
+            KeyPart::Text(unique_id.0.clone()),
+            KeyPart::Text("window".to_string()),
+            KeyPart::Num(*node_index),
+        ],
+
         // ── mask ────────────────────────────────────────────────
         EditOp::MaskCreate { unique_id, matte }
         | EditOp::MaskDelete { unique_id, matte }
@@ -1281,6 +1309,8 @@ pub fn op_unique_id(op: &EditOp) -> Option<String> {
         EditOp::GradeNodeRemove { unique_id, .. } => Some(unique_id.0.clone()),
         EditOp::GradeNodeReorder { unique_id, .. } => Some(unique_id.0.clone()),
         EditOp::GradeNodeSet { unique_id, .. } => Some(unique_id.0.clone()),
+        EditOp::WindowCreate { unique_id, .. } => Some(unique_id.0.clone()),
+        EditOp::WindowDelete { unique_id, .. } => Some(unique_id.0.clone()),
         EditOp::MaskCreate { unique_id, .. } => Some(unique_id.0.clone()),
         EditOp::MaskDelete { unique_id, .. } => Some(unique_id.0.clone()),
         EditOp::MaskEdit { unique_id, .. } => Some(unique_id.0.clone()),
@@ -1360,6 +1390,8 @@ pub fn op_frame(op: &EditOp) -> Option<i64> {
         EditOp::GradeNodeRemove { .. } => None,
         EditOp::GradeNodeReorder { .. } => None,
         EditOp::GradeNodeSet { .. } => None,
+        EditOp::WindowCreate { .. } => None,
+        EditOp::WindowDelete { .. } => None,
         EditOp::MaskCreate { .. } => None,
         EditOp::MaskDelete { .. } => None,
         EditOp::MaskEdit { .. } => None,

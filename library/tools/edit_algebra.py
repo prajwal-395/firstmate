@@ -943,6 +943,22 @@ def _call_create_magic_mask(op, item, label, *, gain_required):
     return True
 
 
+#: The Power Window shapes the Color page's Window palette offers. The
+#: recipe draws the named shape; the create key below refuses anything
+#: else, so a planner cannot invent one and hand the recipe garbage.
+WINDOW_SHAPES = ("circle", "linear", "polygon", "powercurve", "gradient")
+
+
+def _window_create_key(op):
+    """What a window create writes, refusing an invented shape."""
+    shape = op.get("shape")
+    if shape not in WINDOW_SHAPES:
+        raise ValueError(
+            f"color.window.create: bad window shape {shape!r}; one of "
+            f"{list(WINDOW_SHAPES)}")
+    return ("clip", op["unique_id"], "window", int(op["node_index"]))
+
+
 def _refuse_ui_provider(op, label, recipe):
     """Refuse a UI-provider op with the route that executes it."""
     raise RuntimeError(
@@ -1604,6 +1620,36 @@ ALGEBRA: dict[str, AlgebraOp] = {
              "re-read. The only node-grade op the Resolve 21.1 API can "
              "execute - SetCDL with NodeIndex is measured, AddNode is "
              "not in the API."),
+
+    # ── power windows (domain: color) ──────────────────────────────
+    "color.window.create": AlgebraOp(
+        id="color.window.create", domain="color",
+        required=("unique_id", "node_index", "shape", "geometry"),
+        span=_item_span, item=True,
+        verify=lambda op, after: None,
+        key=_window_create_key,
+        merge="exclusive",
+        inverse=_pair("color.window.delete",
+                      "delete removes the window create placed"),
+        note="Declared, NOT executable: the Resolve 21.1 Graph API "
+             "exposes no window calls - GetNodeGraph reads topology, "
+             "never a window. The window is drawn in the GUI by the "
+             "recipe verb and judged on sampled frames, which land "
+             "with the tracking slice."),
+    "color.window.delete": AlgebraOp(
+        id="color.window.delete", domain="color",
+        required=("unique_id", "node_index"),
+        span=_item_span, item=True,
+        verify=lambda op, after: None,
+        key=lambda op: ("clip", op["unique_id"], "window",
+                        int(op["node_index"])),
+        merge="exclusive",
+        inverse=_pair("color.window.create",
+                      "create draws the window delete removed, with "
+                      "its shape and geometry"),
+        note="Declared, NOT executable: removing a window is the same "
+             "GUI route as creating one. The pair exists so the undo "
+             "chain terminates in the algebra."),
 
     # ── mask (domain: fusion) ──────────────────────────────────────
     "mask.create": AlgebraOp(

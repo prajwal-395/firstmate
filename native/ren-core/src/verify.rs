@@ -750,6 +750,8 @@ pub fn verify(op: &EditOp, after: &Snapshot) -> Option<String> {
         EditOp::GradeNodeRemove { .. } => None,
         EditOp::GradeNodeReorder { .. } => None,
         EditOp::GradeNodeSet { .. } => verify_grade_node_set(op, after),
+        EditOp::WindowCreate { .. } => None,
+        EditOp::WindowDelete { .. } => None,
         EditOp::MaskCreate { .. }
         | EditOp::MaskDelete { .. }
         | EditOp::MaskEdit { .. }

@@ -269,6 +269,22 @@ pub enum EditOp {
         params: Value,
     },
 
+    // ── power windows (domain: color) ──────────────────────────
+    /// Declared, NOT executable: the Graph API exposes no window calls.
+    #[serde(rename = "color.window.create")]
+    WindowCreate {
+        unique_id: ClipId,
+        node_index: i64,
+        shape: String,
+        geometry: Value,
+    },
+    /// Declared, NOT executable: removing a window is the same GUI route.
+    #[serde(rename = "color.window.delete")]
+    WindowDelete {
+        unique_id: ClipId,
+        node_index: i64,
+    },
+
     // ── mask (domain: fusion) ──────────────────────────────────────
     /// Place a matte; the Fusion comp list verifies.
     #[serde(rename = "mask.create")]
@@ -489,6 +505,8 @@ impl EditOp {
             EditOp::GradeNodeRemove { .. } => "grade.node_remove",
             EditOp::GradeNodeReorder { .. } => "grade.node_reorder",
             EditOp::GradeNodeSet { .. } => "grade.node_set",
+            EditOp::WindowCreate { .. } => "color.window.create",
+            EditOp::WindowDelete { .. } => "color.window.delete",
             EditOp::MaskCreate { .. } => "mask.create",
             EditOp::MaskDelete { .. } => "mask.delete",
             EditOp::MaskEdit { .. } => "mask.edit",
