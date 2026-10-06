@@ -511,6 +511,87 @@ def measure_reference_camera_movement(video_path: str) -> dict:
     }
 
 
+# ── The graphic-density half ─────────────────────────────────────────
+#
+# How many distinct visual elements the reference's frames carry, as a
+# distribution.  The signal is the number of distinct colour regions per
+# frame - a proxy for graphic density that counts overlays, text blocks
+# and subject as separate elements without needing to classify them.
+# A frame with a person, a caption and a logo carries more elements than
+# a frame with a person alone.
+
+
+def _frame_element_count(frame_path: str) -> int:
+    """Distinct colour regions in one frame, as an element count.
+
+    The frame's pixels are quantized to a small palette; each quantized
+    colour covering more than `_MIN_ELEMENT_COVERAGE` of the frame is
+    one element.  The count is a proxy - it cannot tell a graphic from
+    a subject - but it is the reference's own visual density, and the
+    graphics IR reads it as a style fact.  An unreadable frame is 0:
+    it was never decoded, so there is no measurement to report.
+
+    The resize is NEAREST, not the default bilinear: bilinear blends
+    the boundary between two regions into intermediate shades that
+    were never in the frame, and each shade wide enough to clear the
+    coverage floor would count as a false element.
+    """
+    import numpy as np
+    from PIL import Image
+    try:
+        with Image.open(frame_path) as image:
+            image = image.convert("RGB").resize(
+                (_SAMPLE_SIZE, _SAMPLE_SIZE), Image.NEAREST)
+            pixels = np.asarray(image, dtype=np.uint8).reshape(-1, 3)
+    except (OSError, ValueError):
+        return 0
+    if len(pixels) == 0:
+        return 0
+    quantized = (pixels // _ELEMENT_QUANTIZE) * _ELEMENT_QUANTIZE
+    _, counts = np.unique(quantized, axis=0, return_counts=True)
+    elements = sum(1 for c in counts if c / len(pixels) >= _MIN_ELEMENT_COVERAGE)
+    return elements
+
+
+def measure_reference_graphic_density(video_path: str) -> dict:
+    """The graphic-density half of the Style Representation, as one dict.
+
+    The distribution of per-frame element counts: the median, the mean,
+    the range, and the elements per minute.  No threshold classifies a
+    frame as dense or sparse - the distribution IS the measurement.
+    """
+    measured = measure_shot_boundaries(video_path)
+    duration = measured["duration_seconds"]
+    times = _reference_frame_times(measured["boundaries"], duration)
+    frames = _extract_frames(video_path, times)
+    try:
+        counts = [_frame_element_count(path) for path in frames]
+        counts = [c for c in counts if c > 0]
+        if not counts:
+            return {
+                "source": video_path,
+                "sampled_frames": 0,
+                "median_elements": 0.0,
+                "mean_elements": 0.0,
+                "min_elements": 0,
+                "max_elements": 0,
+                "elements_per_minute": 0.0,
+            }
+        per_minute = (statistics.fmean(counts) / duration * 60.0
+                      if duration > 0 else 0.0)
+        return {
+            "source": video_path,
+            "sampled_frames": len(counts),
+            "median_elements": round(statistics.median(counts), 3),
+            "mean_elements": round(statistics.fmean(counts), 3),
+            "min_elements": min(counts),
+            "max_elements": max(counts),
+            "elements_per_minute": round(per_minute, 3),
+        }
+    finally:
+        _drop_frames(frames)
+
+
 # ── The graphics half ──────────────────────────────────────────────
 #
 # The palette and the contrast are measured from the reference's
@@ -532,6 +613,16 @@ _PALETTE_COLOURS = 5
 # The frame size the pixels are sampled at.  Small because the
 # palette and the contrast are distribution facts, not detail facts.
 _SAMPLE_SIZE = 48
+
+# The colour quantization step for element counting.  Presentation
+# bins the way a ruler's marks are - they do not decide what a colour
+# is, they only group what was measured.
+_ELEMENT_QUANTIZE = 32
+
+# The minimum share of the frame a quantized colour must cover to
+# count as one element.  A region smaller than this is noise, not
+# an element.
+_MIN_ELEMENT_COVERAGE = 0.02
 
 
 def _reference_frame_times(boundaries: list, duration: float) -> list:
@@ -691,16 +782,18 @@ def measure_reference_style(video_path: str) -> dict:
     """The whole Style Representation, as one dict.
 
     The editorial half (shot lengths, transitions, pacing), the
-    graphics half (palette, contrast), the text half (captions, type)
-    and the camera-movement half (motion-energy distribution).
-    CONTENT is never read: the reference's words, faces and subject are
-    its own; only how it looks, how it is cut, how its text is set and
-    how much motion it carries are measured.
+    graphics half (palette, contrast), the text half (captions, type),
+    the camera-movement half (motion-energy distribution) and the
+    graphic-density half (per-frame element counts).  CONTENT is never
+    read: the reference's words, faces and subject are its own; only
+    how it looks, how it is cut, how its text is set, how much motion
+    it carries and how densely its frames are filled are measured.
     """
     editorial = measure_reference_editorial_style(video_path)
     graphical = measure_reference_graphical_style(video_path)
     text = measure_reference_text_style(video_path)
     camera = measure_reference_camera_movement(video_path)
+    density = measure_reference_graphic_density(video_path)
     return {
         "source": video_path,
         "duration_seconds": editorial["duration_seconds"],
@@ -712,6 +805,7 @@ def measure_reference_style(video_path: str) -> dict:
         "contrast": graphical["contrast"],
         "text": text,
         "camera_movement": camera,
+        "graphic_density": density,
     }
 
 

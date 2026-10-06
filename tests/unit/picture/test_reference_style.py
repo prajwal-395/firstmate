@@ -642,3 +642,69 @@ def test_an_encoded_reference_measures_its_camera_movement(tmp_path):
     assert style["shots"] >= 1
     assert style["median_motion_energy"] >= 0.0
     assert style["max_motion_energy"] >= style["min_motion_energy"]
+# ── The graphic-density half ────────────────────────────────────────
+
+def test_a_frame_of_one_colour_carries_one_element(tmp_path):
+    """A solid frame is one element, not many.
+
+    The failure it pins: counting every distinct quantized colour
+    would report a solid frame as dense - compression noise alone would
+    give it a dozen colours, and the graphics IR would read a clean
+    reference as a busy one.
+    """
+    frame = tmp_path / "frame.png"
+    _solid_frame(frame, (128, 128, 128))
+    assert RS._frame_element_count(str(frame)) == 1
+
+
+def test_a_frame_with_two_distinct_regions_carries_two_elements(tmp_path):
+    """Each region covering enough of the frame is one element.
+
+    The failure it pins: a frame with a subject and a background
+    reported as one element would understate the reference's density -
+    the graphics IR would plan fewer graphics than the reference carries.
+    """
+    from PIL import Image
+    frame = tmp_path / "frame.png"
+    image = Image.new("RGB", (64, 64), (200, 30, 30))
+    for x in range(32, 64):
+        for y in range(64):
+            image.putpixel((x, y), (30, 30, 200))
+    image.save(str(frame))
+    assert RS._frame_element_count(str(frame)) == 2
+
+
+def test_a_frame_with_no_pixels_has_no_element_count(tmp_path):
+    """An unreadable frame is absent, not zero elements.
+
+    The failure it pins: reporting zero elements for a frame that was
+    never decoded would let a reader compare against a measurement that
+    does not exist.
+    """
+    assert RS._frame_element_count(str(tmp_path / "missing.png")) == 0
+
+
+@pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg/ffprobe not available")
+def test_an_encoded_reference_measures_its_graphic_density(tmp_path):
+    """The graphic-density half on real encoded pixels, end to end.
+
+    This test encodes media because element density is a fact about the
+    reference's actual pixels - a measurement fed only synthetic frames
+    cannot prove the frames are extracted and counted.  A solid-color
+    video yields one element per frame.
+    """
+    import subprocess
+    from PIL import Image
+    image = Image.new("RGB", (320, 240), (128, 128, 128))
+    frame = tmp_path / "frame.png"
+    image.save(str(frame))
+    video = tmp_path / "reference.mp4"
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-loop", "1", "-i", str(frame),
+         "-t", "2", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+         str(video)],
+        check=True, capture_output=True, text=True, encoding="utf-8")
+    style = RS.measure_reference_graphic_density(str(video))
+    assert style["sampled_frames"] >= 1
+    assert style["median_elements"] >= 1.0
+    assert style["max_elements"] >= style["min_elements"]
