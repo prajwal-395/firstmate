@@ -38,6 +38,9 @@ class Verb:
 
 _FOOTAGE_QUERY = "library.tools.analysis.footage_query"
 
+# A new verb is registered a SECOND time in `native/ren-cli/src/commands.rs`
+# (`VERBS`), and the two lists must stay in sync: the native front door
+# refuses a verb its own list does not know before exec'ing this module.
 VERBS = (
     Verb("doctor", "Setup", "Check what this Mac can do with Ren (--for <capability>); changes nothing",
          builtin="doctor"),
@@ -62,6 +65,11 @@ VERBS = (
          builtin="rollback",
          detail="Switch the current pointer back to the previously active engine version. "
                 "This changes no project files."),
+    Verb("update", "Setup", "Move this Ren install to a released version",
+         builtin="update",
+         detail="Fetch the release artifact that .github/workflows/release.yml builds, "
+                "verify its checksum, and activate it. Usage: `ren update [--url <artifact-url>] "
+                "[--tag vX.Y.Z]`"),
     Verb("taste", "Setup", "Record an explicit creative preference shared across projects",
          module_argv=("library.tools.taste_profile",)),
     Verb("init", "Setup", "Create the projects root folder", subcommand="init-root"),

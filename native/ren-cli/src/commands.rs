@@ -148,6 +148,11 @@ struct Verb {
 }
 
 /// `ren.commands.VERBS` - the one registry `ren --help` renders.
+///
+/// A new verb is registered a SECOND time here, and the two lists must
+/// stay in sync: the native front door refuses a verb this list does not
+/// know before exec'ing the Python implementation, so a verb missing
+/// from here is unreachable even though Python knows it.
 const VERBS: &[Verb] = &[
     Verb { name: "doctor", group: "Setup", summary: "Check what this Mac can do with Ren (--for <capability>); changes nothing" },
     Verb { name: "setup", group: "Setup", summary: "Install Ren's runtime and system prerequisites; optional verified packs with --with" },
@@ -157,6 +162,7 @@ const VERBS: &[Verb] = &[
     Verb { name: "version", group: "Setup", summary: "Show the Ren build (version, commit, channel, engine root)" },
     Verb { name: "upgrade", group: "Setup", summary: "Install and verify an engine tree, then activate it" },
     Verb { name: "rollback", group: "Setup", summary: "Switch to the previously active Ren version" },
+    Verb { name: "update", group: "Setup", summary: "Move this Ren install to a released version" },
     Verb { name: "taste", group: "Setup", summary: "Record an explicit creative preference shared across projects" },
     Verb { name: "init", group: "Setup", summary: "Create the projects root folder" },
     Verb { name: "setup-hooks", group: "Setup", summary: "Install the marker-feedback hook for a host (plan by default)" },

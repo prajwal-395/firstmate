@@ -152,6 +152,14 @@ def main(argv=None) -> int:
         except RenRefusal as refused:
             print(refused.render(), file=sys.stderr)
             return REFUSAL_EXIT_CODE
+    if verb.builtin == "update":
+        from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
+        from ren import update
+        try:
+            return update.main(rest)
+        except RenRefusal as refused:
+            print(refused.render(), file=sys.stderr)
+            return REFUSAL_EXIT_CODE
     if verb.subcommand:
         _exec_vep(vep, engine_root, [str(manage_project), verb.subcommand, *rest])
     _exec_vep(vep, engine_root, ["-m", *verb.module_argv, *rest])

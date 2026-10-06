@@ -1,27 +1,34 @@
 #!/usr/bin/env bash
-# Install Ren from this checkout, or fetch a pinned GitHub source archive
-# when run as the one-line installer. No git clone or developer toolchain.
+# Install Ren from a released v* tag, or build from a checkout with
+# --source. The release route fetches the engine artifact that
+# .github/workflows/release.yml builds and verifies it against the
+# release's SHA256SUMS.txt. No Apple Developer ID or notarization.
 
 set -euo pipefail
 
 REPOSITORY="prajwal-395/video_editing_pilot"
-DEFAULT_REF="main"
 HOME_DIR="${PIPELINE_VEP_HOME:-}"
 SOURCE_DIR="${REN_INSTALL_SOURCE:-}"
+URL="${REN_INSTALL_URL:-}"
+TAG="${REN_INSTALL_TAG:-}"
 SKIP_SYSTEM_DEPS=0
 SETUP_ARGS=()
 
 usage() {
     cat <<'EOF'
-Usage: install_ren.sh [--source <checkout>] [--home <Ren home>]
-                      [--with <panns|mfa|ecapa|deepfilter>]...
-                      [--skip-system-deps]
+Usage: install_ren.sh [--source <checkout>] [--url <artifact-url>]
+                       [--tag <vX.Y.Z>] [--home <Ren home>]
+                       [--with <panns|mfa|ecapa|deepfilter>]...
+                       [--skip-system-deps]
 
-With no --source, downloads a pinned GitHub source archive for main.
-Homebrew installs uv, Node.js, and ffmpeg; Ren installs its Python 3.12
-runtime and hash-locked Python dependencies in PIPELINE_VEP_HOME.
---skip-system-deps is for managed machines that already provide every
-required tool.
+Fetches the engine artifact from the newest released v* tag (or --tag),
+verifies it against the release's SHA256SUMS.txt, and installs it. --url
+fetches the artifact from a specific URL instead (https or file), reading
+its checksum from <dir>/SHA256SUMS.txt. --source builds from a checkout
+instead (developers). Homebrew installs uv, Node.js, and ffmpeg; Ren
+installs its Python 3.12 runtime and hash-locked Python dependencies in
+PIPELINE_VEP_HOME. --skip-system-deps is for managed machines that
+already provide every required tool.
 EOF
 }
 
@@ -30,6 +37,16 @@ while [ "$#" -gt 0 ]; do
         --source)
             [ "$#" -ge 2 ] || { echo "--source needs a path" >&2; exit 2; }
             SOURCE_DIR="$2"
+            shift 2
+            ;;
+        --url)
+            [ "$#" -ge 2 ] || { echo "--url needs a URL" >&2; exit 2; }
+            URL="$2"
+            shift 2
+            ;;
+        --tag)
+            [ "$#" -ge 2 ] || { echo "--tag needs a release tag" >&2; exit 2; }
+            TAG="$2"
             shift 2
             ;;
         --home)
@@ -146,39 +163,90 @@ if [ -n "$SOURCE_DIR" ]; then
         exit 2
     fi
     SOURCE_SHA="$(git -C "$SOURCE_DIR" rev-parse --verify HEAD 2>/dev/null || true)"
+    SOURCE_CHANNEL="main"
 else
-    REF="${REN_INSTALL_REF:-$DEFAULT_REF}"
-    case "$REF" in
-        *[!A-Za-z0-9._/-]*|*..*|/*)
-            echo "REN_INSTALL_REF contains unsupported characters: $REF" >&2
-            exit 2
-            ;;
-    esac
-    echo "Resolving $REPOSITORY ref $REF..."
-    curl -fsSL --retry 2 \
-        "https://api.github.com/repos/$REPOSITORY/commits/$REF" \
-        -o "$WORK/commit.json"
-    SOURCE_SHA="$("$PYTHON" -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["sha"])' "$WORK/commit.json")"
-    case "$SOURCE_SHA" in
-        [0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) ;;
-        *) echo "GitHub did not return a commit SHA for $REF" >&2; exit 1 ;;
-    esac
-    echo "Downloading source archive $SOURCE_SHA..."
-    curl -fsSL --retry 2 \
-        "https://github.com/$REPOSITORY/archive/$SOURCE_SHA.tar.gz" \
-        -o "$WORK/source.tar.gz"
-    mkdir -p "$WORK/source"
-    tar -xzf "$WORK/source.tar.gz" --strip-components=1 -C "$WORK/source"
-    SOURCE_DIR="$WORK/source"
+    if [ -n "$URL" ]; then
+        ZIP_URL="$URL"
+        SUMS_URL="$(dirname "$URL")/SHA256SUMS.txt"
+        ASSET_NAME="$(basename "$URL")"
+    else
+        if [ -n "$TAG" ]; then
+            case "$TAG" in
+                v[!A-Za-z0-9._/-]*|*..*|/*)
+                    echo "--tag must be a release tag like v0.1.0: $TAG" >&2
+                    exit 2
+                    ;;
+            esac
+            API_ENDPOINT="tags/$TAG"
+        else
+            API_ENDPOINT="latest"
+        fi
+        echo "Resolving Ren release ($API_ENDPOINT)..."
+        if ! curl -fsSL --retry 2 -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPOSITORY/releases/$API_ENDPOINT" \
+            -o "$WORK/release.json"; then
+            echo "Could not reach GitHub to resolve the Ren release. Check the network and retry." >&2
+            exit 1
+        fi
+        read -r TAG ASSET_NAME ZIP_URL SUMS_URL <<< "$("$PYTHON" - "$WORK/release.json" <<'PY'
+import json
+import sys
+
+try:
+    data = json.load(open(sys.argv[1], encoding="utf-8"))
+except ValueError:
+    sys.exit("GitHub did not return a readable Ren release.")
+assets = {asset["name"]: asset["browser_download_url"] for asset in data.get("assets", [])}
+name = f"ren-engine-{data['tag_name']}.zip"
+for needed in (name, "SHA256SUMS.txt"):
+    if needed not in assets:
+        sys.exit(f"the Ren release {data['tag_name']} has no {needed} asset")
+print(data["tag_name"], name, assets[name], assets["SHA256SUMS.txt"])
+PY
+)"
+        if [ -z "$ASSET_NAME" ]; then
+            echo "GitHub did not return a Ren release with an engine artifact." >&2
+            exit 1
+        fi
+    fi
+    echo "Downloading $ASSET_NAME..."
+    if ! curl -fsSL --retry 2 "$SUMS_URL" -o "$WORK/SHA256SUMS.txt"; then
+        echo "Could not download the release checksum manifest. Check the network and retry." >&2
+        exit 1
+    fi
+    if ! curl -fsSL --retry 2 "$ZIP_URL" -o "$WORK/$ASSET_NAME"; then
+        echo "Could not download $ASSET_NAME. Check the network and retry." >&2
+        exit 1
+    fi
+    echo "Verifying $ASSET_NAME against SHA256SUMS.txt..."
+    if ! (cd "$WORK" && grep -F "$ASSET_NAME" SHA256SUMS.txt | shasum -a 256 --check -); then
+        echo "$ASSET_NAME does not match the checksum published in SHA256SUMS.txt." >&2
+        echo "The download is corrupt or the release is incomplete; refusing to install it." >&2
+        exit 1
+    fi
+    echo "Extracting the engine tree..."
+    if ! unzip -q "$WORK/$ASSET_NAME" -d "$WORK"; then
+        echo "Could not extract $ASSET_NAME." >&2
+        exit 1
+    fi
+    SOURCE_DIR="$WORK/ren-engine"
+    SOURCE_SHA=""
+    SOURCE_CHANNEL="stable"
 fi
 
 export PYTHONPATH="$SOURCE_DIR${PYTHONPATH:+:$PYTHONPATH}"
 if [ ! -f "$HOME_DIR/current/manage_project.py" ]; then
-    echo "Building the immutable Ren engine tree..."
-    "$PYTHON" -m ren.package_engine --src "$SOURCE_DIR" \
-        --home "$HOME_DIR" --channel main --sha "$SOURCE_SHA"
+    echo "Installing the immutable Ren engine tree..."
+    if [ -n "$SOURCE_SHA" ]; then
+        "$PYTHON" -m ren.package_engine --src "$SOURCE_DIR" \
+            --home "$HOME_DIR" --channel "$SOURCE_CHANNEL" --sha "$SOURCE_SHA"
+    else
+        "$PYTHON" -m ren.package_engine --src "$SOURCE_DIR" \
+            --home "$HOME_DIR" --channel "$SOURCE_CHANNEL"
+    fi
 else
     echo "Ren already has an engine at $HOME_DIR/current; continuing setup without replacing it."
+    echo "Run `ren update` to move it to the newest release."
 fi
 
 export PIPELINE_PYTHON="$PYTHON"

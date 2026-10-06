@@ -6,16 +6,51 @@ On an Apple Silicon Mac, run the installer from Terminal:
 
     curl -fsSL https://raw.githubusercontent.com/prajwal-395/video_editing_pilot/main/scripts/install_ren.sh | bash
 
-The installer resolves main to a commit, downloads its source archive
-without Git, builds an immutable engine under the current Ren home, and runs
-ren setup. Setup installs the Homebrew system tools, Ren-managed Python
-3.12 runtime, the hash-locked Python environment, and the lockfile-keyed Node
-dependencies. It creates the configured projects, SFX, and music folders,
-then runs ren doctor.
+The installer resolves the newest released `v*` tag, downloads the engine
+artifact that `.github/workflows/release.yml` builds, verifies it against the
+release's `SHA256SUMS.txt`, and installs the immutable engine under the
+current Ren home. It then runs ren setup. Setup installs the Homebrew system
+tools, Ren-managed Python 3.12 runtime, the hash-locked Python environment,
+and the lockfile-keyed Node dependencies. It creates the configured projects,
+SFX, and music folders, then runs ren doctor.
 
-The current installer builds from the main branch. It is an unsigned preview
-installation; signed and notarized release distribution is a separate
-release-engineering milestone.
+The terminal install route is unsigned: it needs no Apple Developer ID and
+no notarization. The signed and notarized macOS app bundle
+(`ren-engine-v*-macos.zip`) is a separate release-engineering milestone.
+
+To install a specific release, or to fetch the artifact from a URL you
+control (a mirror, or a local file for testing):
+
+    curl -fsSL .../install_ren.sh | bash -- --tag v0.1.0
+    curl -fsSL .../install_ren.sh | bash -- --url file:///path/to/ren-engine-v0.1.0.zip
+
+`--url` reads the checksum from `<dir>/SHA256SUMS.txt` beside the artifact.
+
+### Updating
+
+Move an installed Ren to the newest release:
+
+    ren update
+
+`ren update` fetches the release artifact, verifies its checksum, and
+activates it through the same verify-then-switch path as
+`ren upgrade <engine-source>`: the candidate must pass ren doctor and the
+project-format check before the active version moves. Undo it with
+`ren rollback`. To update from a specific URL or tag:
+
+    ren update --url file:///path/to/ren-engine-v0.1.0.zip
+    ren update --tag v0.1.0
+
+### Homebrew
+
+A Homebrew tap formula lives in `homebrew-tap/Formula/ren.rb`. Once the tap
+is published:
+
+    brew install ren
+    ren setup
+
+The formula fetches the same release artifact and installs it into the Ren
+home, so `ren update` and `ren rollback` work the same as the curl route.
 
 When the engine is already installed, run ren setup to repair its runtime
 or add a verified optional pack. Ren supports these opt-in packs:

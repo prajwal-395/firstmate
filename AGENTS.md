@@ -28,15 +28,14 @@ An agent: goal -> inspect state -> search footage/read Resolve -> pick a capabil
 - `remotion-subtitles/`: Node.js React app that renders subtitle overlays.
 - `scripts/`: bash helpers for environment setup and maintenance.
 - `tests/`: a directory per LAYER - what a test establishes - `unit/<subsystem>/`, `contracts/`, `scenarios/`, `qualification/`, `tooling/`: `tests/layers.py`.
-- `ren/`: the installed `ren` CLI, the ONE front door - `ren --help` lists its verbs, `ren doctor` checks the machine. One registry, `ren/commands.py`, feeds `manage_project.py`. Machine paths: `~/.config/ren/config.env` (`library/tools/paths.py`). `ren undo`: touch in place, rebuild by version (`library/tools/undo_journal.py`).
+- `ren/`: the installed `ren` CLI, the ONE front door - `ren --help` lists its verbs, `ren doctor` checks the machine. One registry, `ren/commands.py`, feeds `manage_project.py` - and a new verb is registered a SECOND time in `native/ren-cli/src/commands.rs`. Machine paths: `~/.config/ren/config.env`. `ren undo`: touch in place, rebuild by version (`library/tools/undo_journal.py`).
 - `requirements.txt`: Python dependencies.
 
 **Footage search is a capability, not a pipeline stage: agents query it.**
 `ren search` / `ren search-index` reach `library/tools/analysis/footage_query.py` ("where in all my footage
 does X happen"); it imports nothing from steps or processes (`tests/unit/picture/test_footage_query.py`).
 [`docs/FOOTAGE_INDEX_PROTOTYPE.md`](docs/FOOTAGE_INDEX_PROTOTYPE.md) has what it measured, the
-measured score floor that lets it answer "not in this footage", and the 66x reduction of
-`temporal_index` that is worth doing without it.
+measured score floor that lets it answer "not in this footage".
 
 ## 3. Pipeline execution
 
