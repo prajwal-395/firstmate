@@ -31,9 +31,19 @@ spine's clip reference) and scores each on:
     variety           is the same camera/location over-used in the edit?
     illustration      does the B-roll illustrate what is said?
 
-The best-scoring clip is selected for each block. The plan is global: it
-considers all blocks at once, so variety is optimized across the whole
+The best-scoring clip is selected for each block. The plan is global:
+it considers all blocks at once, so variety is optimized across the whole
 edit, not per-block.
+
+A speech block's A-roll is the picture OF the speech - step 3.01 assigns
+"the video from the same source file and timestamps as the speech
+audio", and the timeline SOP keeps "a-roll picture and its speech ...
+travel together, linked".  So for a speech block the plan may override
+the spine's clip only with another shot that carries the speech - an
+angle of the speaker, which is what the override is for.  A clip the
+semantic pass measured no speech in is not an angle of the speaker;
+it is B-roll, and B-roll belongs on its own track (step 3.02), never
+on the A-roll track over a speech block.
 
 This module imports nothing from steps or processes: it reads state
 through the same readers every consumer has.
@@ -47,6 +57,7 @@ from library.tools.spine_contract import (
     PICTURE_BLOCK_TYPES,
     SPEECH_BLOCK_TYPES,
 )
+from library.tools.vision_schema_adapter import adapt_semantic_document
 
 GESTURE_KEYWORDS = frozenset({
     "gesture", "gestures", "gesturing",
@@ -228,6 +239,20 @@ def _block_text(block: dict, semantic: dict) -> str:
     return " ".join(parts)
 
 
+def _carries_speech(semantic_doc: dict) -> bool:
+    """True when the semantic pass measured speech in this clip.
+
+    `speech_present` is True-or-None-never-False (see
+    library/tools/analysis/vision_pipeline_v3.py): True only on
+    evidence - speech regions or a transcript - and None when nothing
+    measured it.  Eligibility requires the evidence, never the absence
+    of it: an unmeasured clip is not a clip the speech is in.
+    """
+    adapted = adapt_semantic_document(semantic_doc)
+    assessment = adapted.get("assessment") or {}
+    return assessment.get("speech_present") is True
+
+
 def _candidate_clips(clip_catalog: list, block: dict,
                      semantic: dict) -> list:
     """All clips that could cover this block, scored and sorted.
@@ -238,9 +263,16 @@ def _candidate_clips(clip_catalog: list, block: dict,
     the block's source range is not a candidate: the assignment step
     refuses a range that runs past the clip's end, so selecting one
     here would plan a block that cannot be cut.
+
+    For a speech block, a clip other than the spine's own is a
+    candidate only when it carries the speech (see `_carries_speech`):
+    the A-roll over a speech block is the speaker's picture, so the
+    plan's override may choose among the speaker's angles, never a
+    B-roll cutaway - that is step 3.02's job, on its own track.
     """
     block_clip_id = block.get("clip_id") or ""
     block_source_end = float(block.get("source_end") or 0.0)
+    speech_block = block.get("block_type") in SPEECH_BLOCK_TYPES
 
     candidates = []
     for clip in clip_catalog:
@@ -250,6 +282,10 @@ def _candidate_clips(clip_catalog: list, block: dict,
         if not clip_id:
             continue
         if clip_id not in semantic:
+            continue
+        is_spine_clip = clip_id == block_clip_id
+        if speech_block and not is_spine_clip \
+                and not _carries_speech(semantic[clip_id]):
             continue
         observations = clip_observations(semantic[clip_id])
         if not observations.get("description"):
@@ -263,7 +299,7 @@ def _candidate_clips(clip_catalog: list, block: dict,
             "duration_seconds": duration,
             "analysis": observations,
             "semantic_doc": semantic[clip_id],
-            "is_spine_clip": clip_id == block_clip_id,
+            "is_spine_clip": is_spine_clip,
         })
     return candidates
 

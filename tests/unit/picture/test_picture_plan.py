@@ -60,6 +60,7 @@ def _make_semantic():
             "camera": [{"start": 0, "end": 60, "framing": "medium", "stability": "stable"}],
             "assessment": {
                 "content_type": "interview",
+                "speech_present": True,
                 "usable_portions": "0-60",
             },
             "actions": [
@@ -83,6 +84,7 @@ def _make_semantic():
             "camera": [{"start": 0, "end": 60, "framing": "medium", "stability": "stable"}],
             "assessment": {
                 "content_type": "interview",
+                "speech_present": True,
                 "usable_portions": "0-60",
             },
             "actions": [
@@ -233,6 +235,26 @@ def test_select_shot_for_block_entry_point():
 
     assert result["selected_clip_id"] == "clip_side"
     assert result["candidates"][0]["scores"]["gesture_coverage"] > 0
+
+
+def test_speech_free_clip_cannot_override_a_speech_block():
+    """A clip the semantic pass measured no speech in is not an angle
+    of the speaker, so it may not override the spine's clip on a speech
+    block - whatever its gesture coverage.  The A-roll over a speech
+    block is the speaker's picture; a speech-free clip is B-roll, and
+    B-roll belongs on its own track (step 3.02).
+    """
+    catalog = _make_catalog()
+    semantic = _make_semantic()
+    # The side angle becomes a B-roll cutaway: same gesture coverage,
+    # but the semantic pass measured no speech in it.
+    semantic["clip_side"]["assessment"]["speech_present"] = False
+
+    plan = build_picture_plan(_make_spine(), catalog, semantic)
+
+    block_2 = next(b for b in plan["blocks"] if b["spine_block_position"] == 2)
+    assert block_2["selected_clip_id"] == "clip_main"
+    assert [c["clip_id"] for c in block_2["candidates"]] == ["clip_main"]
 
 
 def test_no_candidates_falls_back_to_spine_clip():
