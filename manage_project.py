@@ -1086,7 +1086,7 @@ def cmd_explore_variants(args):
     comparison. Direction text arrives on
     `--direction NAME=TEXT` - project or user data, never a value the
     engine invents - and a variant with none is refused. See
-    library/tools/variant_exploration.py and AGENTS.md 17.
+    library/tools/variant_exploration.py.
     """
     from library.tools import undo_journal as _journal
     from library.tools import variant_exploration as _vx
@@ -1234,7 +1234,7 @@ def cmd_merge_queue(args):
     runs the one pass over what is queued; `merge` merges what passed,
     re-verifying freshness first; `list` reads back what is queued
     and decided. See library/tools/undo_journal.py (the queue lives
-    on the existing merge slice) and AGENTS.md 17.
+    on the existing merge slice).
     """
     from library.tools import undo_journal as _journal
 
