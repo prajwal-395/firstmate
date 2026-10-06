@@ -29,6 +29,14 @@ from library.tools.resolve_organization import (
 )
 import json
 from library.tools.execution import organise_media_pool as ex
+
+
+@pytest.fixture(autouse=True)
+def _leases_off_machine(tmp_path, monkeypatch):
+    """Filing declares its items now: every apply takes a lease."""
+    directory = tmp_path / "locks"
+    directory.mkdir()
+    monkeypatch.setenv("PIPELINE_RESOLVE_LOCK_DIR", str(directory))
 from library.tools.resolve_organization import (
     BIN_SOURCE,
     CURRENT,

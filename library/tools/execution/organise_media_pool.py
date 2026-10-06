@@ -98,6 +98,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from library.tools import journal_naming
+from library.tools.resource_leases import (
+    LeaseDeclaration,
+    ResourceRef,
+    resource_lease,
+)
 from library.tools.resolve_lock import under_lease
 
 from library.tools.resolve_organization import (
@@ -306,6 +311,12 @@ def apply_plan(project, plan: Plan, artefacts: list[Artefact],
     it carried BEFORE - so `revert` needs nothing but the file.  It is
     written even when a later step fails, because a half-applied move
     that nobody recorded is the one outcome with no way back.
+
+    The moves declare the filed items EXCLUSIVE by file path - the
+    spelling the swap, relink and prune passes use for the same items -
+    before the first `MoveClips`. Filing re-homes; a prune deleting an
+    item this pass is moving serialises against it instead of deleting
+    from a bin it already left.
     """
     pool = project.GetMediaPool()
     root = pool.GetRootFolder()
@@ -332,68 +343,93 @@ def apply_plan(project, plan: Plan, artefacts: list[Artefact],
         "folders_created": [],
     }
 
-    try:
-        by_destination: dict[tuple[str, ...], list] = {}
-        for verdict in plan.moves:
-            clip = clip_by_id.get(verdict.item_id)
-            if clip is None:
-                raise OrganizationError(
-                    f"{verdict.name!r} is in the plan and not in the "
-                    f"media pool. Nothing was moved.")
-            by_destination.setdefault(verdict.destination, []).append(
-                (verdict, clip))
-
-        for destination, entries in by_destination.items():
-            folder = _resolve_path(pool, root, destination, created)
-            moved = pool.MoveClips([clip for _, clip in entries], folder)
-            if not moved:
-                raise OrganizationError(
-                    f"MoveClips into {'/'.join(destination)} returned "
-                    f"{moved!r} for {len(entries)} item(s). "
-                    f"{len(journal['moves'])} item(s) had already moved - "
-                    f"the journal at the path this call was given reverts "
-                    f"them.")
-            for verdict, _clip in entries:
-                journal["moves"].append({
-                    "item_id": verdict.item_id,
-                    "name": verdict.name,
-                    "kind": verdict.kind,
-                    "from": "/".join(by_id[verdict.item_id].folder_path),
-                    "to": "/".join(destination),
-                })
-
-        for stamp in plan.stamps:
-            clip = clip_by_id.get(stamp["item_id"])
-            if clip is None:
-                continue
-            entry = {"item_id": stamp["item_id"], "name": stamp["name"],
-                     "before": {}, "after": {}}
-            for key, value in stamp["fields"].items():
-                entry["before"][key] = clip.GetMetadata(key) or ""
-                if not clip.SetMetadata(key, value):
+    moved_paths = set()
+    for verdict in plan.moves:
+        artefact = by_id.get(verdict.item_id)
+        # A bin or timeline in the plan names no file; it is declared
+        # by id, which still serialises it against the revert below.
+        # An unnamed ref would be refused - a declaration nobody can
+        # match is not a declaration.
+        if artefact is not None and artefact.file_path:
+            moved_paths.add(artefact.file_path)
+        else:
+            moved_paths.add(verdict.item_id)
+    stamped_paths = set()
+    for stamp in plan.stamps:
+        artefact = by_id.get(stamp["item_id"])
+        if artefact is not None and artefact.file_path:
+            stamped_paths.add(artefact.file_path)
+        else:
+            stamped_paths.add(stamp["item_id"])
+    with resource_lease(
+        LeaseDeclaration(
+            exclusive=frozenset({ResourceRef("clip", path)
+                                 for path in moved_paths | stamped_paths}),
+        ),
+        purpose=f"file the media pool ({plan.root_bin})",
+    ):
+        try:
+            by_destination: dict[tuple[str, ...], list] = {}
+            for verdict in plan.moves:
+                clip = clip_by_id.get(verdict.item_id)
+                if clip is None:
                     raise OrganizationError(
-                        f"SetMetadata({key!r}, ...) returned False on "
-                        f"{stamp['name']!r}. Resolve refuses a key it does "
-                        f"not already know and stores nothing; the moves "
-                        f"already made are in the journal.")
-                entry["after"][key] = value
-            entry["before"]["ClipColor"] = clip.GetClipProperty("Clip Color") or ""
-            if not clip.SetClipColor(stamp["clip_color"]):
-                raise OrganizationError(
-                    f"SetClipColor({stamp['clip_color']!r}) returned False "
-                    f"on {stamp['name']!r}.")
-            entry["after"]["ClipColor"] = stamp["clip_color"]
-            journal["stamps"].append(entry)
-    finally:
-        # In `finally` because a raise part-way through has still made
-        # bins and still moved items, and a journal that omits them is
-        # the one outcome with no way back.
-        journal["folders_created"] = list(created)
-        if before_current:
-            pool.SetCurrentFolder(before_current)
-        Path(journal_path).parent.mkdir(parents=True, exist_ok=True)
-        Path(journal_path).write_text(
-            json.dumps(journal, indent=2), encoding="utf-8")
+                        f"{verdict.name!r} is in the plan and not in the "
+                        f"media pool. Nothing was moved.")
+                by_destination.setdefault(verdict.destination, []).append(
+                    (verdict, clip))
+
+            for destination, entries in by_destination.items():
+                folder = _resolve_path(pool, root, destination, created)
+                moved = pool.MoveClips([clip for _, clip in entries], folder)
+                if not moved:
+                    raise OrganizationError(
+                        f"MoveClips into {'/'.join(destination)} returned "
+                        f"{moved!r} for {len(entries)} item(s). "
+                        f"{len(journal['moves'])} item(s) had already moved - "
+                        f"the journal at the path this call was given reverts "
+                        f"them.")
+                for verdict, _clip in entries:
+                    journal["moves"].append({
+                        "item_id": verdict.item_id,
+                        "name": verdict.name,
+                        "kind": verdict.kind,
+                        "from": "/".join(by_id[verdict.item_id].folder_path),
+                        "to": "/".join(destination),
+                    })
+
+            for stamp in plan.stamps:
+                clip = clip_by_id.get(stamp["item_id"])
+                if clip is None:
+                    continue
+                entry = {"item_id": stamp["item_id"], "name": stamp["name"],
+                         "before": {}, "after": {}}
+                for key, value in stamp["fields"].items():
+                    entry["before"][key] = clip.GetMetadata(key) or ""
+                    if not clip.SetMetadata(key, value):
+                        raise OrganizationError(
+                            f"SetMetadata({key!r}, ...) returned False on "
+                            f"{stamp['name']!r}. Resolve refuses a key it does "
+                            f"not already know and stores nothing; the moves "
+                            f"already made are in the journal.")
+                    entry["after"][key] = value
+                entry["before"]["ClipColor"] = clip.GetClipProperty("Clip Color") or ""
+                if not clip.SetClipColor(stamp["clip_color"]):
+                    raise OrganizationError(
+                        f"SetClipColor({stamp['clip_color']!r}) returned False "
+                        f"on {stamp['name']!r}.")
+                entry["after"]["ClipColor"] = stamp["clip_color"]
+                journal["stamps"].append(entry)
+        finally:
+            # In `finally` because a raise part-way through has still made
+            # bins and still moved items, and a journal that omits them is
+            # the one outcome with no way back.
+            journal["folders_created"] = list(created)
+            if before_current:
+                pool.SetCurrentFolder(before_current)
+            Path(journal_path).parent.mkdir(parents=True, exist_ok=True)
+            Path(journal_path).write_text(
+                json.dumps(journal, indent=2), encoding="utf-8")
 
     journal["journal_path"] = journal_path
     return journal
@@ -429,42 +465,54 @@ def revert(project, journal_path: str) -> dict:
     index_clips(root)
 
     undone, missing = [], []
-    try:
-        by_origin: dict[str, list] = {}
-        for move in journal.get("moves", []):
-            clip = clip_by_id.get(move["item_id"])
-            if clip is None:
-                missing.append(move["name"])
-                continue
-            by_origin.setdefault(move["from"], []).append((move, clip))
+    # The journal names items by id, not by file - the declaration
+    # follows the journal. A revert racing a prune on one item
+    # serialises on the id; the spelling differs from the filing
+    # pass (which declares file paths), and that difference is
+    # stated here rather than hidden.
+    with resource_lease(
+        LeaseDeclaration(
+            exclusive=frozenset({ResourceRef("clip", move["item_id"])
+                                 for move in journal.get("moves", [])}),
+        ),
+        purpose="revert the media pool filing",
+    ):
+        try:
+            by_origin: dict[str, list] = {}
+            for move in journal.get("moves", []):
+                clip = clip_by_id.get(move["item_id"])
+                if clip is None:
+                    missing.append(move["name"])
+                    continue
+                by_origin.setdefault(move["from"], []).append((move, clip))
 
-        for origin, entries in by_origin.items():
-            path = tuple(p for p in origin.split("/") if p)
-            folder = _find_path(root, path) if path else root
-            if folder is None:
-                missing.extend(move["name"] for move, _ in entries)
-                continue
-            if not pool.MoveClips([clip for _, clip in entries], folder):
-                raise OrganizationError(
-                    f"MoveClips back into {origin or '(root)'} returned "
-                    f"False for {len(entries)} item(s).")
-            undone.extend(move["name"] for move, _ in entries)
+            for origin, entries in by_origin.items():
+                path = tuple(p for p in origin.split("/") if p)
+                folder = _find_path(root, path) if path else root
+                if folder is None:
+                    missing.extend(move["name"] for move, _ in entries)
+                    continue
+                if not pool.MoveClips([clip for _, clip in entries], folder):
+                    raise OrganizationError(
+                        f"MoveClips back into {origin or '(root)'} returned "
+                        f"False for {len(entries)} item(s).")
+                undone.extend(move["name"] for move, _ in entries)
 
-        for stamp in journal.get("stamps", []):
-            clip = clip_by_id.get(stamp["item_id"])
-            if clip is None:
-                continue
-            for key, value in stamp["before"].items():
-                if key == "ClipColor":
-                    if value:
-                        clip.SetClipColor(value)
+            for stamp in journal.get("stamps", []):
+                clip = clip_by_id.get(stamp["item_id"])
+                if clip is None:
+                    continue
+                for key, value in stamp["before"].items():
+                    if key == "ClipColor":
+                        if value:
+                            clip.SetClipColor(value)
+                        else:
+                            clip.ClearClipColor()
                     else:
-                        clip.ClearClipColor()
-                else:
-                    clip.SetMetadata(key, value)
-    finally:
-        if before_current:
-            pool.SetCurrentFolder(before_current)
+                        clip.SetMetadata(key, value)
+        finally:
+            if before_current:
+                pool.SetCurrentFolder(before_current)
 
     journal["reverted_at"] = datetime.now(timezone.utc).isoformat()
     Path(journal_path).write_text(
