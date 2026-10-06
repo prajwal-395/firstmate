@@ -1809,3 +1809,94 @@ def test_the_graph_rebuilds_when_a_commit_lands(tmp_path, monkeypatch):
     after = project_graph.load_or_build(str(project))
     assert [r["intent"] for r in
             project_graph.find_commits(after)] == ["tighten opening"]
+
+
+# ── Operation nodes from the event log ────────────────────────────
+
+
+def _project_with_log(tmp_path):
+    """A project folder with a LOGS area, never a real one."""
+    project = tmp_path / "project"
+    (project / "pipeline_output" / "logs").mkdir(parents=True)
+    return project
+
+
+def test_worker_operations_are_registered_as_operation_nodes(tmp_path):
+    """The graph answers what the workers did, not just what they made.
+
+    Defect caught: the event log holds every lease, checkpoint and
+    sign-off, but the graph - the model other tracks read - has no
+    node for any of them, so "what operations ran on this project"
+    is unanswerable without re-reading the log file.
+    """
+    from library.tools import event_log
+
+    project = _project_with_log(tmp_path)
+    event_log.emit(str(project), "lease_acquired", task="ren-04",
+                   resource="timeline:scene-3")
+    event_log.emit(str(project), "checkpoint", task="ren-04",
+                   done=["scene-3"])
+    event_log.emit(str(project), "reel_signed_off", task="qc-02",
+                   reel="Reel 09", by_="captain")
+
+    graph = project_graph.build_graph(str(project))
+
+    ops = [n for n in graph["nodes"]
+           if n["node_type"] == project_graph.OPERATION]
+    assert [n["node_id"] for n in ops] == [
+        "operation:1", "operation:2", "operation:3"]
+    assert ops[0]["payload"]["type"] == "lease_acquired"
+    assert ops[0]["payload"]["task"] == "ren-04"
+    assert ops[0]["payload"]["fields"] == {
+        "resource": "timeline:scene-3"}
+    assert ops[2]["payload"]["fields"]["reel"] == "Reel 09"
+
+
+def test_find_project_events_filters_by_task_and_type(tmp_path):
+    """A resumed worker reads only its own operations.
+
+    Defect caught: without task/type filters the scheduler replays
+    every worker's history to find one task's last operation - the
+    same whole-file scan `read_events(since=...)` already avoids.
+    """
+    from library.tools import event_log
+
+    project = _project_with_log(tmp_path)
+    event_log.emit(str(project), "lease_acquired", task="ren-04")
+    event_log.emit(str(project), "checkpoint", task="ren-04")
+    event_log.emit(str(project), "lease_acquired", task="ren-05")
+
+    graph = project_graph.build_graph(str(project))
+
+    assert [r["seq"] for r in project_graph.find_project_events(graph)] == [
+        1, 2, 3]
+    assert [r["seq"] for r in project_graph.find_project_events(
+        graph, task="ren-04")] == [1, 2]
+    assert [r["seq"] for r in project_graph.find_project_events(
+        graph, event_type="lease_acquired")] == [1, 3]
+    assert [r["seq"] for r in project_graph.find_project_events(
+        graph, task="ren-04", event_type="checkpoint")] == [2]
+    assert project_graph.find_project_events(graph, task="ren-99") == []
+
+
+def test_load_or_build_rebuilds_when_a_new_operation_lands(tmp_path):
+    """A new operation changes what the graph says happened.
+
+    Defect caught: a fingerprint that ignores the event log serves
+    the cached graph after a worker signs a reel off - the approval
+    is in the log but the graph still says it never happened.
+    """
+    from library.tools import event_log
+
+    project = _project_with_log(tmp_path)
+    event_log.emit(str(project), "lease_acquired", task="ren-04")
+
+    graph1 = project_graph.load_or_build(str(project))
+    assert len(project_graph.find_project_events(graph1)) == 1
+
+    event_log.emit(str(project), "reel_signed_off", task="qc-02",
+                   reel="Reel 09")
+
+    graph2 = project_graph.load_or_build(str(project))
+    assert [r["type"] for r in project_graph.find_project_events(
+        graph2)] == ["lease_acquired", "reel_signed_off"]

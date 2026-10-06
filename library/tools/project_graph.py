@@ -127,6 +127,7 @@ VERSION = "version"
 EDITORIAL_FINDING = "editorial_finding"
 VARIANT = "variant"
 COMMIT = "commit"
+OPERATION = "operation"
 
 NODE_TYPES = (
     PERSON,
@@ -146,6 +147,7 @@ NODE_TYPES = (
     EDITORIAL_FINDING,
     VARIANT,
     COMMIT,
+    OPERATION,
 )
 
 
@@ -347,6 +349,14 @@ def _input_fingerprint(project_folder: str, root: Path | None = None) -> str:
         # Creative commits are a graph input like the explorations:
         # a new commit changes the graph, so the cache must rebuild.
         "creative_commits": _commit_records_digest(project_folder),
+        # The event log is the operation history: a new lease, a new
+        # checkpoint, a new sign-off changes what the graph says
+        # happened, so the cache must rebuild. Raw bytes, not parsed
+        # records - the fingerprint only asks whether the input
+        # changed. A project with no log yet reads as absent, and a
+        # run mid-write reads as whatever bytes are on disk.
+        "event_log": _read_raw_bytes(
+            _event_log_path(project_folder)),
     }
     for clip in catalog:
         digest, _ = source_memory.digest_for_clip(project_folder, clip, recorded)
@@ -387,6 +397,23 @@ def _reel_versions_path(project_folder: str) -> Path | None:
         from tools.versions import reel_versions
     try:
         return Path(reel_versions.path_for(project_folder))
+    except Exception:
+        return None
+
+
+def _event_log_path(project_folder: str) -> Path | None:
+    """Where the project's event log lives, or None when unknown.
+
+    Resolved through the log's own module - the graph never hardcodes
+    the log's location, for the same reason it never hardcodes the
+    manifest's (`_assembly_manifest_path`).
+    """
+    try:
+        from library.tools import event_log
+    except ImportError:
+        from tools import event_log
+    try:
+        return Path(event_log.log_path(project_folder))
     except Exception:
         return None
 
@@ -575,6 +602,7 @@ def build_graph(project_folder: str, root: Path | None = None) -> dict:
     _derive_editorial_nodes(graph, project_folder)
     _derive_variant_nodes(graph, project_folder)
     _derive_commit_nodes(graph, project_folder)
+    _derive_event_nodes(graph, project_folder)
 
     return graph
 
@@ -1289,10 +1317,52 @@ def _derive_variant_nodes(graph: dict, project_folder: str) -> None:
                     "branch": variant.get("branch"),
                     "timeline": node_timeline,
                     "base": variant.get("base") or record.get("base"),
-                    "agent": record.get("agent"),
-                    "at": record.get("created_at"),
-                },
-            })
+                "agent": record.get("agent"),
+                "at": record.get("created_at"),
+            },
+        })
+
+
+def _derive_event_nodes(graph: dict, project_folder: str) -> None:
+    """Operation nodes from the project's event log.
+
+    The event log is the operation history the Fabric spec asks for:
+    every lease a worker took, every checkpoint it left, every reel it
+    signed off. The graph answers content questions ("what covers this
+    span"); without these nodes it cannot answer "what did the workers
+    DO" - which is the question a resumed task and the scheduler ask.
+    Each event becomes one node keyed by its sequence number, carrying
+    the event verbatim, so the log stays the canonical record and the
+    graph never re-describes an operation. A project with no log yet
+    contributes nothing - the graph builds from whatever exists.
+    """
+    try:
+        from library.tools import event_log
+    except ImportError:
+        from tools import event_log
+    try:
+        events = event_log.read_events(project_folder)
+    except (OSError, ValueError):
+        return
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        seq = event.get("seq")
+        if seq is None:
+            continue
+        add_node(graph, {
+            "node_id": f"operation:{seq}",
+            "node_type": OPERATION,
+            "label": f"{event.get('type')} {seq}",
+            "payload": {
+                "seq": seq,
+                "at": event.get("at"),
+                "host": event.get("host"),
+                "task": event.get("task"),
+                "type": event.get("type"),
+                "fields": event.get("fields") or {},
+            },
+        })
 
 
 def _derive_commit_nodes(graph: dict, project_folder: str) -> None:
@@ -1741,6 +1811,38 @@ def find_variant_branches(graph: dict, exploration: str | None = None,
             "at": payload.get("at"),
         })
     rows.sort(key=lambda r: (str(r["at"] or ""), str(r["name"] or "")))
+    return rows
+
+
+def find_project_events(graph: dict, task: str | None = None,
+                        event_type: str | None = None) -> list:
+    """The operations the graph registered, oldest first.
+
+    Each row carries the operation verbatim - its sequence number,
+    when and where it ran, which worker's task it belonged to, what
+    happened and the event's own fields. Filter by worker task, by
+    event type, or both; a project whose workers did nothing reads as
+    no rows. This is how a resumed task and the scheduler read the
+    operation history without re-reading the log file.
+    """
+    rows = []
+    for candidate in graph["nodes"]:
+        if candidate["node_type"] != OPERATION:
+            continue
+        payload = candidate["payload"] or {}
+        if task is not None and payload.get("task") != task:
+            continue
+        if event_type is not None and payload.get("type") != event_type:
+            continue
+        rows.append({
+            "node_id": candidate["node_id"],
+            "seq": payload.get("seq"),
+            "at": payload.get("at"),
+            "task": payload.get("task"),
+            "type": payload.get("type"),
+            "fields": payload.get("fields") or {},
+        })
+    rows.sort(key=lambda r: (r["seq"] is None, r["seq"] or 0))
     return rows
 
 
