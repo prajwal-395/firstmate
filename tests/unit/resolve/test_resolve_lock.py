@@ -103,6 +103,116 @@ def test_the_lease_is_reentrant_within_a_process(lock_dir, unguarded):
         assert resolve_lock.held()
 
 
+def test_a_reentrant_lease_survives_the_outer_release(lock_dir, unguarded):
+    """A reentrant shared lease must stay held when the outer exclusive
+    lease releases.
+
+    Root cause of the stuck-degraded latch (live 2026-10-06): the
+    watchdog's probe takes a reentrant shared lease while a live run holds
+    the exclusive lease. The release path zeroed `_depth` instead of
+    decrementing it, so the probe's connect ran with `held()` False and the
+    handshake guard refused it - latching the broker degraded with Resolve
+    healthy.
+    """
+    result = {}
+    exclusive_acquired = threading.Event()
+
+    def exclusive_holder():
+        with resolve_lease("live run", exclusive=True, timeout=1.0):
+            exclusive_acquired.set()
+            time.sleep(0.4)
+
+    def reentrant_probe():
+        assert exclusive_acquired.wait(5.0)
+        with resolve_lease("watchdog probe", exclusive=False, timeout=1.0):
+            time.sleep(0.6)
+            result["held"] = resolve_lock.held()
+
+    a = threading.Thread(target=exclusive_holder)
+    b = threading.Thread(target=reentrant_probe)
+    a.start()
+    b.start()
+    a.join()
+    b.join()
+    assert result["held"] is True
+
+
+_EXCLUSIVE_FLOCK_PROBE = textwrap.dedent("""
+    import fcntl
+    with open({path!r}, "a+") as handle:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            print("BUSY")
+        else:
+            print("FREE")
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+""")
+
+
+def _exclusive_flock_busy(lock_dir) -> bool:
+    """True where a second process cannot take the exclusive flock.
+
+    The flock is the fence; `held()` is only this process's reading of
+    it. A second process attempting a non-blocking exclusive flock on
+    the same path is the independent check that the fence is really up.
+    """
+    probe = subprocess.run(
+        [sys.executable, "-c", _EXCLUSIVE_FLOCK_PROBE.format(
+            path=str(lock_dir / resolve_lock.LOCK_FILENAME))],
+        capture_output=True, text=True, encoding="utf-8", timeout=30)
+    return probe.stdout.strip() == "BUSY"
+
+
+def test_a_reentrant_lease_keeps_the_flock_really_held(lock_dir, unguarded):
+    """The machine-wide flock must stay held while a reentrant holder
+    outlives the outer acquisition - `held()` True is not the fence.
+
+    Review of #1846: the outer release dropped the flock
+    unconditionally, so a probe overlapping a live run's release read
+    `held()` True with the fence gone - another process could take the
+    exclusive lease and both would touch Resolve. Last-one-out: the
+    process keeps the flock until the LAST holder exits.
+    """
+    result = {}
+    exclusive_acquired = threading.Event()
+    probe_inside = threading.Event()
+    exclusive_released = threading.Event()
+    release_probe = threading.Event()
+
+    def exclusive_holder():
+        with resolve_lease("live run", exclusive=True, timeout=1.0):
+            exclusive_acquired.set()
+            assert probe_inside.wait(5.0)
+        exclusive_released.set()
+
+    def reentrant_probe():
+        assert exclusive_acquired.wait(5.0)
+        with resolve_lease("watchdog probe", exclusive=False, timeout=1.0):
+            probe_inside.set()
+            assert exclusive_released.wait(5.0)
+            result["held"] = resolve_lock.held()
+            result["exclusive_held"] = resolve_lock.exclusive_held()
+            assert release_probe.wait(5.0)
+
+    a = threading.Thread(target=exclusive_holder)
+    b = threading.Thread(target=reentrant_probe)
+    a.start()
+    b.start()
+    a.join()
+    # The outer exclusive lease has released; the probe is still inside.
+    assert result["held"] is True
+    assert result["exclusive_held"] is False
+    assert _exclusive_flock_busy(lock_dir), (
+        "the machine-wide flock was dropped while the probe was inside - "
+        "another process can take the exclusive lease")
+    release_probe.set()
+    b.join()
+    assert not resolve_lock.held()
+    assert not _exclusive_flock_busy(lock_dir), (
+        "the flock is still held after the last holder exited")
+
+
 def test_a_shared_holder_may_not_upgrade_in_place(lock_dir, unguarded):
     with resolve_lease("read", exclusive=False, timeout=1.0):
         with pytest.raises(ResolveBusy, match="cannot upgrade in place"):

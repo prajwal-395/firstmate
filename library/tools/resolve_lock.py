@@ -401,6 +401,15 @@ def _wait_for_captain(purpose: str, timeout: float) -> None:
 
 _depth = 0
 _mode: Optional[str] = None
+# The mode of every remaining holder, in acquisition order; `_mode` is
+# the outermost remaining holder's, so it drops to a reentrant holder's
+# mode when the outer one releases (last-one-out - held() must be true
+# only while the flock is really held, review of #1846).
+_modes: list = []
+# The machine-wide flock record while any holder is inside. The handle
+# stays open - and the flock held - until the LAST holder exits, so a
+# reentrant holder is never left with held() True and the fence gone.
+_lease_hold: Optional[dict] = None
 # Timeline cursor moves made under this process's outermost lease, for
 # its `resolve_hold` row in the perf ledger, and the last timeline that
 # lease set (`assert_current_timeline`).
@@ -432,6 +441,30 @@ def _unflock(handle) -> None:
     except ImportError:  # pragma: no cover - not POSIX
         return
     fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def _release_lease() -> None:
+    """Last one out: drop the machine-wide flock, the lease file and the
+    inherited env. Called when the final holder exits, so `held()` is
+    true only while the flock is really held - a reentrant holder that
+    outlives the outer acquisition keeps the fence until it exits."""
+    global _lease_hold
+    hold = _lease_hold
+    if hold is None:
+        return
+    _lease_hold = None
+    if hold["previous_inherit"] is None:
+        os.environ.pop(INHERIT_ENV, None)
+    else:
+        os.environ[INHERIT_ENV] = hold["previous_inherit"]
+    if hold["previous_inherit_mode"] is None:
+        os.environ.pop(INHERIT_MODE_ENV, None)
+    else:
+        os.environ[INHERIT_MODE_ENV] = hold["previous_inherit_mode"]
+    if hold["exclusive"]:
+        _clear_lease()
+    _unflock(hold["handle"])
+    hold["handle"].close()
 
 
 def holder() -> Optional[Lease]:
@@ -588,11 +621,15 @@ def resolve_lease(purpose: str, exclusive: bool = True,
                 "asking for it EXCLUSIVE",
                 "a shared parent lease cannot authorize a cursor write",
                 "take the exclusive lease at the outer call")
-        _depth, _mode = 1, inherited_mode
+        _depth = 1
+        _modes.append(inherited_mode)
+        _mode = _modes[0] if _modes else None
         try:
             yield holder()
         finally:
-            _depth, _mode = 0, None
+            _depth -= 1
+            _modes.remove(inherited_mode)
+            _mode = _modes[0] if _modes else None
         return
     if _depth > 0:
         if exclusive and _mode == "shared":
@@ -605,10 +642,16 @@ def resolve_lease(purpose: str, exclusive: bool = True,
                 "this is a caller bug, not a usage bug - take the "
                 "exclusive lease at the outer call")
         _depth += 1
+        _modes.append("exclusive" if exclusive else "shared")
+        _mode = _modes[0] if _modes else None
         try:
             yield holder()
         finally:
             _depth -= 1
+            _modes.remove("exclusive" if exclusive else "shared")
+            _mode = _modes[0] if _modes else None
+            if _depth == 0:
+                _release_lease()
         return
 
     resolved_timeout = (default_timeout() if timeout is None
@@ -669,9 +712,16 @@ def resolve_lease(purpose: str, exclusive: bool = True,
                               since=time.time(),
                               wait_seconds=wait_seconds,
                               waited_on=waited_on)
-                _depth, _mode = 1, "exclusive" if exclusive else "shared"
-                previous_inherit = os.environ.get(INHERIT_ENV)
-                previous_inherit_mode = os.environ.get(INHERIT_MODE_ENV)
+                global _lease_hold
+                _lease_hold = {
+                    "handle": handle,
+                    "exclusive": exclusive,
+                    "previous_inherit": os.environ.get(INHERIT_ENV),
+                    "previous_inherit_mode": os.environ.get(INHERIT_MODE_ENV),
+                }
+                _depth = 1
+                _modes.append("exclusive" if exclusive else "shared")
+                _mode = _modes[0] if _modes else None
                 os.environ[INHERIT_ENV] = str(os.getpid())
                 os.environ[INHERIT_MODE_ENV] = "exclusive" if exclusive else "shared"
                 if exclusive:
@@ -691,20 +741,24 @@ def resolve_lease(purpose: str, exclusive: bool = True,
                             held["held_s"] = round(time.time() - granted_at, 3)
                         held["timeline_switches"] = _cursor_switches
                 finally:
-                    _depth, _mode = 0, None
-                    if previous_inherit is None:
-                        os.environ.pop(INHERIT_ENV, None)
-                    else:
-                        os.environ[INHERIT_ENV] = previous_inherit
-                    if previous_inherit_mode is None:
-                        os.environ.pop(INHERIT_MODE_ENV, None)
-                    else:
-                        os.environ[INHERIT_MODE_ENV] = previous_inherit_mode
-                    if exclusive:
-                        _clear_lease()
-                    _unflock(handle)
+                    # Decrement, never zero: a reentrant holder (the
+                    # watchdog's probe, a nested section) may still be
+                    # inside its own `with` block. While one remains the
+                    # process keeps the flock, the handle, the lease file
+                    # and the inherited env - `held()` is true only while
+                    # the fence is really held (last-one-out, review of
+                    # #1846). The LAST holder's exit releases all of it.
+                    _depth -= 1
+                    _modes.remove("exclusive" if exclusive else "shared")
+                    _mode = _modes[0] if _modes else None
+                    if _depth == 0:
+                        _release_lease()
             finally:
-                handle.close()
+                if _lease_hold is None:
+                    # Refused, or already released by the last holder's
+                    # exit. A reentrant holder still inside means the
+                    # handle must stay open - closing it drops the flock.
+                    handle.close()
     finally:
         if granted_at is None:
             # A refused acquisition lost its seconds as surely as a

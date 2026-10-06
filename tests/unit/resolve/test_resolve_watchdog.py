@@ -1,18 +1,36 @@
 """The Resolve-degraded watchdog, health status, and post-restart check."""
 
+import contextlib
+import os
+import shutil
 import threading
 import time
+from pathlib import Path
 
 import pytest
 
 from library.tools import resolve_lock
 from library.tools import resolve_watchdog as wd
 from library.tools import timeline_shadow as shadow
+from library.tools.marker_feedback import ResolveUnavailable
+from library.tools.resolve_locale import scriptapp_preserving_locale
+from library.tools.resolved import client
 from library.tools.resolved import jobs as job_kinds
 from library.tools.resolved.server import Broker
+from library.tools.resolved.server import serve
 from library.tools.resolved.store import JobStore
 from tests.resolve_double import (FakeResolve, FakeTimeline, make_pool_clip,
                                  make_project, place_clip)
+
+
+class _FakeDvr:
+    """A DaVinciResolveScript double: `scriptapp` returns the fake Resolve."""
+
+    def __init__(self, resolve):
+        self._resolve = resolve
+
+    def scriptapp(self, name: str = "Resolve"):
+        return self._resolve
 
 
 @pytest.fixture
@@ -488,3 +506,172 @@ def test_watchdog_contention_does_not_mark_degraded(unguarded):
             assert not watchdog.is_degraded()
     finally:
         watchdog.stop()
+
+
+@contextlib.contextmanager
+def _serving_broker(connect):
+    """Run the real broker (`serve`) in a thread until the block exits.
+
+    The watchdog inside the broker is the production one: it takes its
+    lease through the broker's own `acquire` gate, exactly as it does when
+    the broker serves a live project. The socket path is short - AF_UNIX
+    bounds it - and the directory is removed on exit.
+
+    The serve thread is JOINED before the directory goes: the shutdown
+    reply is served before the serve loop has exited, and the loop's own
+    finally unlinks the socket path - a later test binding the same path
+    would otherwise have its socket deleted under it (measured 2026-10-06:
+    the second broker served a thread alive with `socket exists=False`).
+    """
+    socket_dir = Path("/tmp") / f"vep-wd-{os.getpid()}"
+    socket_dir.mkdir(parents=True, exist_ok=True)
+    socket_path = socket_dir / "b.sock"
+    thread = threading.Thread(target=serve, args=(socket_path, connect),
+                              daemon=True, name="test-broker-serve")
+    thread.start()
+    try:
+        deadline = time.time() + 15
+        while client.ping(socket_path) is None:
+            if time.time() >= deadline:
+                raise AssertionError("test broker did not start serving")
+            time.sleep(0.01)
+        yield socket_path
+    finally:
+        client.call({"op": "shutdown"}, path=socket_path)
+        thread.join(timeout=15)
+        shutil.rmtree(socket_dir, ignore_errors=True)
+
+
+def _wait_watchdog(socket_path: Path, predicate, timeout: float,
+                   message: str) -> dict:
+    deadline = time.time() + timeout
+    while True:
+        status = client.watchdog_status(socket_path)
+        if predicate(status):
+            return status
+        if time.time() >= deadline:
+            raise AssertionError(f"{message}: {status}")
+        time.sleep(0.05)
+
+
+def test_watchdog_recovers_when_resolve_is_relaunched():
+    """A Resolve that goes away and is relaunched must not wedge the broker.
+
+    Drives the real broker with a fake Resolve that goes away (connect
+    raises) and comes back (connect returns). The defect: once the watchdog
+    marks degraded, the broker refuses the watchdog's own lease submissions,
+    so the recovery probe can never take its lease, never connect, and never
+    clear the mark - the broker stays wedged until an operator restart.
+    """
+    resolve = FakeResolve()
+    gone = threading.Event()
+
+    def connect():
+        if gone.is_set():
+            raise ResolveUnavailable("Resolve is not running")
+        return resolve
+
+    with _serving_broker(connect) as socket_path:
+        gone.set()
+        status = _wait_watchdog(
+            socket_path, lambda s: s.get("degraded"), 45, "never degraded")
+        assert status["degraded"] is True
+
+        gone.clear()
+        status = _wait_watchdog(
+            socket_path, lambda s: not s.get("degraded"), 45,
+            f"watchdog stuck degraded after relaunch: {status}")
+        assert status["responsive"] is True
+
+
+def test_watchdog_probe_connects_after_exclusive_lease_released(monkeypatch):
+    """The probe right after an exclusive lease releases must still connect.
+
+    Live evidence 2026-10-06: the production broker latched DEGRADED with
+    "connect failed: refusing Resolve scriptapp handshake outside the
+    instance lease" on the probe 31s after a live run's exclusive lease
+    released, Resolve alive throughout. The watchdog takes its own shared
+    lease, so `held()` must be True on the connect - if the probe's lease
+    acquisition is skipped or refused, the connect runs outside any lease
+    and the handshake guard refuses it, latching the broker degraded with
+    Resolve healthy.
+    """
+    resolve = FakeResolve()
+    held_seen = []
+
+    def connect():
+        held_seen.append(resolve_lock.held())
+        return scriptapp_preserving_locale(_FakeDvr(resolve))
+
+    # No hosted shadow watcher: its own shared lease could race the live
+    # run's exclusive acquisition, and the connects that must be under the
+    # watchdog's lease are the watchdog's alone.
+    monkeypatch.setenv("REN_SHADOW_WATCHER", "0")
+
+    with _serving_broker(connect) as socket_path:
+        status = _wait_watchdog(
+            socket_path,
+            lambda s: s.get("connected") and s.get("responsive"),
+            45, "watchdog never became healthy")
+        assert status["degraded"] is False
+
+        with resolve_lock.resolve_lease("live run", exclusive=True,
+                                       honor_captain=False, timeout=10.0):
+            pass
+
+        status = _wait_watchdog(
+            socket_path,
+            lambda s: s.get("connected") and s.get("responsive"),
+            45, "watchdog did not reconnect after exclusive lease released")
+        assert status["degraded"] is False, (
+            f"watchdog latched degraded with Resolve alive: {status}")
+        assert held_seen and all(held_seen), (
+            f"connect ran outside the instance lease: held={held_seen}")
+
+
+def test_watchdog_probe_survives_concurrent_exclusive_release(
+        monkeypatch, unguarded):
+    """A probe that overlaps a live run's exclusive lease release must connect.
+
+    Live evidence 2026-10-06: the production broker latched DEGRADED with
+    "connect failed: refusing Resolve scriptapp handshake outside the
+    instance lease" on a probe that overlapped a live run's exclusive lease
+    release, Resolve alive throughout. The probe takes a reentrant shared
+    lease while the live run holds the exclusive one; the release path
+    zeroed `_depth`, so the probe's connect ran with `held()` False and the
+    handshake guard refused it.
+    """
+    resolve = FakeResolve()
+    connect_started = threading.Event()
+    release_connect = threading.Event()
+    held_seen = []
+
+    def connect():
+        connect_started.set()
+        assert release_connect.wait(15.0)
+        held_seen.append(resolve_lock.held())
+        return scriptapp_preserving_locale(_FakeDvr(resolve))
+
+    # The test process's lease and the broker's watchdog share this process;
+    # keep the broker's grant path out of the way so a lease is a direct
+    # flock, as it is when no broker serves.
+    monkeypatch.setattr(client, "ensure", lambda *a, **k: None)
+    monkeypatch.setattr(client, "serving", lambda *a, **k: False)
+    # No hosted shadow watcher: its own connect would race the live run's
+    # exclusive lease and swallow the refusal, and the gated connect must
+    # be the watchdog's probe, not the watcher's.
+    monkeypatch.setenv("REN_SHADOW_WATCHER", "0")
+
+    with _serving_broker(connect) as socket_path:
+        with resolve_lock.resolve_lease("live run", exclusive=True,
+                                       honor_captain=False, timeout=15.0):
+            assert connect_started.wait(45.0), "watchdog never probed"
+        release_connect.set()
+        status = _wait_watchdog(
+            socket_path,
+            lambda s: s.get("connected") and s.get("responsive"),
+            45, "watchdog did not recover after exclusive release")
+        assert status["degraded"] is False, (
+            f"watchdog latched degraded with Resolve alive: {status}")
+        assert held_seen and all(held_seen), (
+            f"probe connect ran outside the instance lease: held={held_seen}")
