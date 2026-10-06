@@ -2264,13 +2264,32 @@ def _apply_under_lease(project_folder: str, spec: Mapping, final: str,
                        rederiver_override, resolve_app,
                        started: float) -> dict:
     from library.tools.resolve_lock import under_lease
+    from library.tools.resource_leases import (
+        LeaseDeclaration,
+        ResourceRef,
+        resource_lease,
+    )
 
     @under_lease(f"touch up {final}")
     def _guarded():
-        return _apply_connected(
-            project_folder, spec, final, resolve_name,
-            declared_drops, declared_supersede, accept_editor_changes, connect,
-            rederiver_override, resolve_app, started)
+        # The resource lease declares what this touch-up touches BEFORE
+        # the destructive change: the project it reads, and the timeline
+        # it rewrites - WRITE + EXCLUSIVE, the spec's own pairing, so
+        # no other agent may move or delete a clip in this timeline
+        # mid-touch-up. The instance lease above is the coarse fence;
+        # this is the fine-grained declaration.
+        with resource_lease(
+            LeaseDeclaration(
+                read=frozenset({ResourceRef("project", resolve_name)}),
+                write=frozenset({ResourceRef("timeline", final)}),
+                exclusive=frozenset({ResourceRef("timeline", final)}),
+            ),
+            purpose=f"touch up {final}",
+        ):
+            return _apply_connected(
+                project_folder, spec, final, resolve_name,
+                declared_drops, declared_supersede, accept_editor_changes,
+                connect, rederiver_override, resolve_app, started)
 
     return _guarded()
 

@@ -339,24 +339,79 @@ def _hierarchical_conflict(parent_mode: str, child_mode: str) -> bool:
     | parent \\ child | READ | WRITE | EXCLUSIVE |
     |-----------------|------|-------|-----------|
     | READ            | no   | YES   | YES       |
-    | WRITE           | no   | YES   | YES       |
+    | WRITE           | YES  | YES   | YES       |
     | EXCLUSIVE       | YES  | YES   | YES       |
 
     READ on the parent conflicts with WRITE and EXCLUSIVE on the child
     (reading the whole timeline is invalidated when a track changes or
     is deleted - deleting a clip invalidates the read at least as much
-    as editing it). WRITE on the parent conflicts with WRITE and
-    EXCLUSIVE on the child (restructuring the timeline can move or drop
-    the track). EXCLUSIVE on the parent conflicts with anything on the
-    child (deleting the timeline deletes every track and clip in it).
+    as editing it). WRITE on the parent conflicts with anything on the
+    child: a restructure can move, drop or rename a track or clip, so a
+    child reader's view is invalidated exactly as a child writer's is.
+    EXCLUSIVE on the parent conflicts with anything on the child
+    (deleting the timeline deletes every track and clip in it).
     """
-    if parent_mode == EXCLUSIVE:
-        return True
-    if parent_mode == WRITE and child_mode in (WRITE, EXCLUSIVE):
+    if parent_mode in (WRITE, EXCLUSIVE):
         return True
     if parent_mode == READ and child_mode in (WRITE, EXCLUSIVE):
         return True
     return False
+
+
+def _track_lock_parts(ref: ResourceRef) -> Optional[Tuple[str, int]]:
+    """`(trackType, index)` for a `track` resource ref, else None.
+
+    A track is named `timeline:trackType:index` - the last two
+    colons separate the timeline, the track type and the 1-based track
+    number. None where the ref is not a track or the name does not
+    parse: a track that cannot be read cannot be locked.
+    """
+    if ref.kind != "track":
+        return None
+    head, sep, tail = ref.name.rpartition(":")
+    if not sep or not head:
+        return None
+    timeline, track_type = head.rsplit(":", 1) if ":" in head else (head, "")
+    if not track_type or not tail:
+        return None
+    try:
+        return track_type, int(tail)
+    except ValueError:
+        return None
+
+
+def take_track_lock(timeline, ref: ResourceRef) -> bool:
+    """Take Resolve's NATIVE track lock for a track resource.
+
+    The one lock Resolve scripts can take (per the collaboration
+    scout), taken ALONGSIDE the Ren-side resource lease, never instead
+    of it: the Ren-side lease is what lets a compatible task be in
+    flight, and this is what stops a writer that never asked the Ren
+    layer at all. Returns True where the lock was taken, False where
+    the ref is not a track or the name does not parse - a track that
+    cannot be read cannot be locked, and the Ren-side lease still
+    applies.
+    """
+    parts = _track_lock_parts(ref)
+    if parts is None:
+        return False
+    track_type, index = parts
+    try:
+        return bool(timeline.SetTrackLock(track_type, index, True))
+    except Exception:  # noqa: BLE001 - a lock that cannot be taken is reported
+        return False
+
+
+def release_track_lock(timeline, ref: ResourceRef) -> bool:
+    """Release the native track lock `take_track_lock` took."""
+    parts = _track_lock_parts(ref)
+    if parts is None:
+        return False
+    track_type, index = parts
+    try:
+        return bool(timeline.SetTrackLock(track_type, index, False))
+    except Exception:  # noqa: BLE001 - a release that cannot be taken is reported
+        return False
 
 
 @dataclass

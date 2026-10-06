@@ -204,12 +204,29 @@ def _apply_master_under_lease(project_folder: str, spec: Mapping,
                               master: str, resolve_name: str,
                               accept_editor_changes, connect) -> dict:
     from library.tools.resolve_lock import under_lease
+    from library.tools.resource_leases import (
+        LeaseDeclaration,
+        ResourceRef,
+        resource_lease,
+    )
 
     @under_lease(f"touch up {master}")
     def _guarded():
-        return _apply_master_connected(
-            project_folder, spec, master, resolve_name,
-            accept_editor_changes, connect)
+        # The resource lease declares what this master touch-up touches
+        # BEFORE the destructive change: the project it reads, and the
+        # master timeline it rewrites - WRITE + EXCLUSIVE, so no other
+        # agent may move or delete a clip in the master mid-touch-up.
+        with resource_lease(
+            LeaseDeclaration(
+                read=frozenset({ResourceRef("project", resolve_name)}),
+                write=frozenset({ResourceRef("timeline", master)}),
+                exclusive=frozenset({ResourceRef("timeline", master)}),
+            ),
+            purpose=f"touch up {master}",
+        ):
+            return _apply_master_connected(
+                project_folder, spec, master, resolve_name,
+                accept_editor_changes, connect)
 
     return _guarded()
 

@@ -21,8 +21,10 @@ from library.tools.resource_leases import (
     ResourceLeaseBusy,
     ResourceLeaseExpired,
     ResourceRef,
+    release_track_lock,
     resource_lease,
     status,
+    take_track_lock,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -143,16 +145,28 @@ def test_a_write_on_a_track_does_not_conflict_with_a_write_on_another_timeline(l
     assert other_timeline.conflicts_with(track_edit) is None
 
 
-def test_a_write_on_a_timeline_does_not_conflict_with_a_read_on_a_track_inside_it(lock_dir):
-    """Reading a track while the timeline is being written is fine - the track itself does not change.
+def test_a_write_on_a_timeline_conflicts_with_a_read_on_a_track_inside_it(lock_dir):
+    """A restructure can move or drop a track, invalidating a reader's view.
 
-    Defect caught: a check that refuses any parent-write beside any
-    child-access serialises readers against every timeline write,
-    which is the over-serialisation the layer exists to avoid.
+    Defect caught: a mode table where WRITE on the parent does not
+    conflict with READ on the child lets a reader observe a track that
+    a restructure is about to move - the read returns a stale view.
     """
     restructure = LeaseDeclaration(write=frozenset({ResourceRef("timeline", "Reel 03")}))
     track_read = LeaseDeclaration(read=frozenset({ResourceRef("track", "Reel 03:video:3")}))
-    assert restructure.conflicts_with(track_read) is None
+    assert restructure.conflicts_with(track_read) is not None
+
+
+def test_a_read_on_a_timeline_does_not_conflict_with_a_read_on_a_track_inside_it(lock_dir):
+    """Two readers - one of the whole timeline, one of a track - run together.
+
+    Defect caught: a check that refuses any parent-read beside any
+    child-access serialises readers against each other, which is the
+    over-serialisation the layer exists to avoid.
+    """
+    timeline_read = LeaseDeclaration(read=frozenset({ResourceRef("timeline", "Reel 03")}))
+    track_read = LeaseDeclaration(read=frozenset({ResourceRef("track", "Reel 03:video:3")}))
+    assert timeline_read.conflicts_with(track_read) is None
 
 
 def test_a_write_on_a_timeline_conflicts_with_a_write_on_a_clip_placed_in_it(lock_dir):
@@ -426,3 +440,58 @@ def test_the_status_line_names_the_holder_and_the_resource(lock_dir):
         assert "caption swap" in line
         assert "Reel 03" in line
         assert "caption_track" in line
+
+
+# ── The native track lock, taken alongside the Ren-side lease ────────
+
+def test_take_track_lock_locks_the_named_track(lock_dir):
+    """Resolve's native track lock is taken for a track resource.
+
+    Defect caught: a Ren-side lease with no native enforcement lets a
+    writer that never asked the Ren layer write the track anyway - the
+    instance lease is the coarse fence, this is the fine-grained one.
+    """
+    class FakeTimeline:
+        def __init__(self):
+            self.locks = []
+
+        def SetTrackLock(self, track_type, index, locked):
+            self.locks.append((track_type, index, locked))
+            return True
+
+    timeline = FakeTimeline()
+    ref = ResourceRef("track", "Reel 03:video:3")
+    assert take_track_lock(timeline, ref) is True
+    assert timeline.locks == [("video", 3, True)]
+    assert release_track_lock(timeline, ref) is True
+    assert timeline.locks[-1] == ("video", 3, False)
+
+
+def test_take_track_lock_refuses_a_ref_that_is_not_a_track(lock_dir):
+    """A non-track ref has no native lock to take.
+
+    Defect caught: a helper that assumes every ref is a track calls
+    SetTrackLock with a nonsense track type and crashes the caller.
+    """
+    class FakeTimeline:
+        def SetTrackLock(self, track_type, index, locked):
+            raise AssertionError("must not be called for a non-track ref")
+
+    timeline = FakeTimeline()
+    assert take_track_lock(timeline, ResourceRef("clip", "A004_C013")) is False
+    assert take_track_lock(timeline, ResourceRef("timeline", "Reel 03")) is False
+
+
+def test_take_track_lock_refuses_an_unparseable_track_name(lock_dir):
+    """A track name that does not parse cannot be locked.
+
+    Defect caught: a helper that assumes the name parses calls
+    SetTrackLock with a non-integer index and crashes the caller.
+    """
+    class FakeTimeline:
+        def SetTrackLock(self, track_type, index, locked):
+            raise AssertionError("must not be called for an unparseable ref")
+
+    timeline = FakeTimeline()
+    assert take_track_lock(timeline, ResourceRef("track", "Reel 03")) is False
+    assert take_track_lock(timeline, ResourceRef("track", "Reel 03:video")) is False

@@ -4461,14 +4461,37 @@ def build_timeline(
         manifest, subtitle_overlay_path, motion_graphics_path, project_folder)
     if prepared["errors"]:
         return {"success": False, "errors": prepared["errors"]}
-    return _build_timeline_under_lease(
-        manifest,
-        subtitle_overlay_path=subtitle_overlay_path,
-        motion_graphics_path=motion_graphics_path,
-        project_name=project_name,
-        project_folder=project_folder,
-        _prepared=prepared,
+    # The resource lease declares what the build touches BEFORE the
+    # destructive change: the project it writes into, and the timeline
+    # it builds - WRITE + EXCLUSIVE, so no other agent may move or
+    # delete a clip in this timeline mid-build. This covers every
+    # write the build makes: clips, tracks, overlays, captions,
+    # grades. The instance lease `_build_timeline_under_lease` takes
+    # is the coarse fence; this is the fine-grained declaration.
+    from library.tools.resource_leases import (
+        LeaseDeclaration,
+        ResourceRef,
+        resource_lease,
     )
+    read_refs = set()
+    if project_name:
+        read_refs.add(ResourceRef("project", project_name))
+    with resource_lease(
+        LeaseDeclaration(
+            read=frozenset(read_refs),
+            write=frozenset({ResourceRef("timeline", prepared["timeline_name"])}),
+            exclusive=frozenset({ResourceRef("timeline", prepared["timeline_name"])}),
+        ),
+        purpose=f"build timeline {prepared['timeline_name']}",
+    ):
+        return _build_timeline_under_lease(
+            manifest,
+            subtitle_overlay_path=subtitle_overlay_path,
+            motion_graphics_path=motion_graphics_path,
+            project_name=project_name,
+            project_folder=project_folder,
+            _prepared=prepared,
+        )
 
 
 # The routed operation is the public entry point. Its lease is deliberately
