@@ -257,6 +257,67 @@ def _overlay_segments(assembly_manifest: dict):
     return segments
 
 
+def recheck_dead_sections(assembly_manifest: dict, project_folder: str = ""):
+    """Close the loop on the as-built sequence's dead sections, or None.
+
+    None when there is nothing to close: the plan-time analysis found no
+    dead sections and never errored, so a re-measure would trivially
+    pass - running it would imply work that never happened. Otherwise
+    the loop re-measures the manifest spine with the production
+    analysis, restructures, and returns the `pacing_correction` result
+    carrying the verified trim set. Report-only: it never gates, the
+    way the caption and masking corrections never gate.
+    """
+    from library.tools.edit_correction import correct_pacing
+
+    spine = assembly_manifest.get("_spine_blocks") or []
+    if not spine:
+        return None
+    if not assembly_manifest.get("dead_sections") \
+            and not assembly_manifest.get("dead_sections_error"):
+        return None
+
+    indices = {}
+    if project_folder:
+        layout = ProjectLayout(project_folder)
+        for block in spine:
+            if not isinstance(block, dict):
+                continue
+            clip_id = str(block.get("clip_id", ""))
+            if not clip_id or clip_id in indices:
+                continue
+            path = layout.read_path(Area.TEMPORAL_INDEX, f"{clip_id}.json")
+            try:
+                if not path.is_file():
+                    continue
+                with open(path, encoding="utf-8") as handle:
+                    document = json.load(handle)
+            except (OSError, ValueError):
+                continue
+            if isinstance(document, dict):
+                indices[clip_id] = document
+    if not indices:
+        return RenderQAResult(
+            "pacing_correction", False, None, {"gates": False}, "warning",
+            "dead sections are outstanding from plan time but no "
+            "temporal index is on disk - the loop cannot re-measure "
+            "what was never measured")
+
+    record = correct_pacing(spine, indices)
+    passed = bool(record.get("passed"))
+    return RenderQAResult(
+        "pacing_correction",
+        passed,
+        {"recheck": record},
+        {"gates": False},
+        "info" if passed else "warning",
+        f"{len(record.get('sections') or [])} dead section(s) rechecked, "
+        f"{len(record.get('applied_trims') or [])} trim(s) verified"
+        if passed else
+        f"{len(record.get('remaining') or [])} dead section(s) remain "
+        f"after the loop - see the loop record")
+
+
 def _music_bed(assembly_manifest: dict):
     """(music file, automation windows, offset) for speech-above-bed.
 
@@ -858,6 +919,31 @@ def validate_output(rendered_output: dict, assembly_manifest: dict,
                 f"Masking correction did not run "
                 f"({type(e).__name__}: {e}) - a correction that did not "
                 f"run must not read as masking corrected"))
+
+    # ── Close the loop on dead sections (evaluation track) ──
+    #
+    # Plan time proposes trims for dead sections; a section the plan
+    # declined - or one never analysed - ships in the render. The loop
+    # re-measures the as-built spine with the production analysis,
+    # applies the head/tail trims to a restructured copy, ripples and
+    # re-measures until it is clean, and records the verified trim set
+    # the next planning pass takes verbatim. It runs only when there is
+    # something to close: plan-time sections outstanding, or a plan-time
+    # analysis that errored and never measured. See
+    # library/tools/edit_correction.py.
+    try:
+        pacing_result = recheck_dead_sections(
+            assembly_manifest, project_folder)
+        if pacing_result is not None:
+            qa_results.append(pacing_result)
+    except Exception as e:
+        print(f"Error running pacing correction: {e}", file=sys.stderr)
+        traceback.print_exc()
+        qa_results.append(RenderQAResult(
+            "pacing_correction", False, str(e), None, "error",
+            f"Pacing correction did not run ({type(e).__name__}: {e}) - "
+            f"a correction that did not run must not read as dead "
+            f"sections removed"))
 
     # Subtitle QA
     subtitles = assembly_manifest.get("subtitles", [])
