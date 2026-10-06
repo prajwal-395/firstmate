@@ -1444,10 +1444,12 @@ def _lower_staged_disc(layer: dict, layer_id: str, width: int, height: int) -> N
 def _lower_staged_rule(layer: dict, layer_id: str, width: int, height: int) -> Node:
     unit = width
     cx = width / 2.0 + layer.get("x", 0.0) * unit
-    cy = height / 2.0 + layer.get("y", 0.0) * unit
+    # The template centres the bar horizontally on its anchor but hangs
+    # its TOP from the anchor's height - only x is halved.
     length = layer.get("length", 1.0) * unit
     thickness = layer.get("thickness", 0.01) * unit
-    bounds = Bounds(x=cx - length / 2, y=cy - thickness / 2, width=length, height=thickness)
+    top = height / 2.0 + layer.get("y", 0.0) * unit
+    bounds = Bounds(x=cx - length / 2, y=top, width=length, height=thickness)
     return Node(
         id=layer_id, type=NodeType.SHAPE,
         shape=ShapeContent(shape="rect", fill=layer.get("colour", "#000000")),
