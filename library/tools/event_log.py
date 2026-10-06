@@ -109,6 +109,15 @@ PERMISSION_REFUSED = "permission_refused"
 """A federated write point refused a named participant: their level
 does not grant the operation. Emitted by `fabric_permissions.require`
 before it raises, so "who was refused what" reads back from the log."""
+PROPOSAL_RECORDED = "proposal_recorded"
+PROPOSAL_ANSWERED = "proposal_answered"
+PROPOSAL_ACCEPTED = "proposal_accepted"
+"""The federation's proposal lifecycle, one event each. A participant
+with Suggest records a proposal (operation + rationale); another
+participant's Ren answers conflict/alternative/accept; a participant
+with Approve accepts, and only the accept applies - through the normal
+branch/merge path. `fabric_permissions` is the writer; the merge queue
+(variant exploration) coordinates through these same events."""
 
 
 def log_path(project_folder) -> Path:

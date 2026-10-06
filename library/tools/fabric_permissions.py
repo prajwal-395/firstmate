@@ -32,6 +32,12 @@ Reachability
 ------------
     python -m library.tools.fabric_permissions <project> roster
 
+Proposals (the federation's negotiation) live here too, because every
+step of one is an authority check: recording and answering need
+Suggest, accepting needs Approve, and the accept runs the operation
+through the normal branch/merge path under the approver's own name -
+so the merge gate checks the approver like any other merger.
+
 `tests/unit/resolve/test_fabric_permissions.py`.
 """
 
@@ -41,6 +47,7 @@ import argparse
 import json
 import os
 import tempfile
+import uuid
 from datetime import datetime, timezone
 from typing import Dict, Optional
 
@@ -71,6 +78,10 @@ class RosterUnreadable(RuntimeError):
 
 class PermissionRefused(RenRefusal):
     """A named participant was refused an operation their level does not grant."""
+
+
+class ProposalRefused(RenRefusal):
+    """A proposal act was refused: unknown id, decided already, or malformed."""
 
 
 def path_for(project_folder) -> str:
@@ -269,6 +280,182 @@ def require(project_folder, actor: str, required: str,
             f"have a participant with {required} (or above) approve or "
             f"perform this, or grant {name} a higher level")
     return held
+
+
+# ── Proposals: federated negotiation on the event log ───────────────
+
+#: What a proposal may ask to run. One entry today: merging a prepared
+#: branch tip through the normal merge path. The table grows only with
+#: a path that applies it - an operation nothing applies is not Proposed.
+PROPOSAL_OPERATIONS = ("merge",)
+
+#: How another participant's Ren may answer a proposal. An `accept`
+#: answer is support, never approval: nothing applies until a
+#: participant with Approve accepts.
+PROPOSAL_ANSWERS = ("conflict", "alternative", "accept")
+
+
+def _proposal_events(project_folder) -> list:
+    """Every proposal-lifecycle event on this project, oldest first."""
+    return [event for event in event_log.read_events(project_folder)
+            if event.get("type") in (event_log.PROPOSAL_RECORDED,
+                                    event_log.PROPOSAL_ANSWERED,
+                                    event_log.PROPOSAL_ACCEPTED)]
+
+
+def _check_operation(operation: dict) -> dict:
+    """The operation as the apply path will run it, or refused.
+
+    A merge names the timeline and both commits. Anything else -
+    unknown kind, missing side - is refused at record time: a proposal
+    that cannot be applied must never reach an approver.
+    """
+    if not isinstance(operation, dict):
+        raise ProposalRefused(
+            "a proposal needs an operation dict, not "
+            f"{type(operation).__name__}",
+            "the accept runs the operation through the branch/merge "
+            "path, and a path cannot run what is not described",
+            "pass operation={'kind': 'merge', 'timeline': ..., "
+            "'left': ..., 'right': ...}")
+    kind = operation.get("kind")
+    if kind not in PROPOSAL_OPERATIONS:
+        raise ProposalRefused(
+            f"proposal operation {kind!r} is not applicable",
+            f"the operations an accept can run are "
+            f"{', '.join(PROPOSAL_OPERATIONS)} - nothing else has an "
+            f"apply path",
+            "propose a merge of a prepared branch tip, or leave the "
+            "change to a participant who can branch it")
+    missing = [key for key in ("timeline", "left", "right")
+               if not operation.get(key)]
+    if missing:
+        raise ProposalRefused(
+            f"a merge proposal needs {', '.join(missing)}",
+            "the accept merges two commits on one timeline, and a "
+            "merge with an unnamed side cannot run",
+            f"name {', '.join(missing)} in the operation")
+    return {"kind": "merge", "timeline": str(operation["timeline"]),
+            "left": str(operation["left"]), "right": str(operation["right"]),
+            "note": str(operation.get("note") or "")}
+
+
+def record_proposal(project_folder, author: str, operation: dict,
+                    rationale: str) -> dict:
+    """Record a proposal: an operation plus why. Needs Suggest.
+
+    Returns the event as written, carrying the proposal id answers
+    and the accept name. The rationale is required and non-empty: a
+    proposal with nothing to say is not negotiation, and the
+    negotiation in the spec's example ("hold the reaction 1.4s
+    longer") always says why.
+    """
+    require(project_folder, author, SUGGEST,
+            task="record a proposal")
+    checked = _check_operation(operation)
+    if not str(rationale or "").strip():
+        raise ProposalRefused(
+            f"{author}'s proposal carries no rationale",
+            "a proposal is an operation plus why - the answerers "
+            "negotiate against the reason, not just the edit",
+            "say why the change serves the production")
+    proposal_id = "prop-" + uuid.uuid4().hex[:10]
+    return event_log.emit(
+        project_folder, event_log.PROPOSAL_RECORDED, task=str(author),
+        proposal_id=proposal_id, author=str(author),
+        operation=checked, rationale=str(rationale).strip())
+
+
+def proposal_status(project_folder, proposal_id: str) -> dict:
+    """Where a proposal stands: recorded answers plus decided or not.
+
+    Read from the log's own events, so two Rens never disagree about
+    what was proposed: the log is the shared state, not messages
+    passed between them.
+    """
+    events = [event for event in _proposal_events(project_folder)
+              if (event.get("fields") or {}).get("proposal_id") == proposal_id]
+    if not events:
+        raise ProposalRefused(
+            f"proposal {proposal_id!r} was never recorded",
+            "answers and accepts name a recorded proposal id",
+            "record it first with record_proposal, or check the id")
+    recorded = events[0]
+    answers = [event for event in events
+               if event.get("type") == event_log.PROPOSAL_ANSWERED]
+    accepted = [event for event in events
+                if event.get("type") == event_log.PROPOSAL_ACCEPTED]
+    return {
+        "proposal_id": proposal_id,
+        "status": "accepted" if accepted else "recorded",
+        "recorded": recorded,
+        "answers": answers,
+        "accepted": accepted[0] if accepted else None,
+    }
+
+
+def answer_proposal(project_folder, proposal_id: str, author: str,
+                    kind: str, *, note: str = "") -> dict:
+    """Answer a proposal: conflict, alternative, or accept. Needs Suggest.
+
+    An `accept` answer is one participant's support - it applies
+    nothing. Only `accept_proposal` by a participant with Approve
+    applies, which is what keeps the client's Ren (observe+suggest)
+    from merging by agreeing with itself. Answering a decided
+    proposal is refused: the negotiation is over.
+    """
+    require(project_folder, author, SUGGEST,
+            task=f"answer proposal {proposal_id}")
+    if kind not in PROPOSAL_ANSWERS:
+        raise ProposalRefused(
+            f"{kind!r} is not an answer",
+            f"a proposal is answered with {', '.join(PROPOSAL_ANSWERS)}",
+            "say whether the proposal conflicts, offer an alternative, "
+            "or accept it")
+    state = proposal_status(project_folder, proposal_id)
+    if state["status"] != "recorded":
+        raise ProposalRefused(
+            f"proposal {proposal_id} is already {state['status']}",
+            "the negotiation ended when it was accepted - a later "
+            "answer would negotiate against applied work",
+            "record a new proposal against the current chain")
+    return event_log.emit(
+        project_folder, event_log.PROPOSAL_ANSWERED, task=str(author),
+        proposal_id=proposal_id, author=str(author), kind=kind,
+        note=str(note or ""))
+
+
+def accept_proposal(project_folder, proposal_id: str, approver: str) -> dict:
+    """Accept a proposal: approve AND apply. Needs Approve.
+
+    The operation runs through the normal merge path under the
+    approver's own name (`merge_commits(actor=approver)`), so the
+    merge gate checks the approver like any other merger. The accept
+    event lands AFTER the merge succeeds and carries its id: a log
+    that claims "accepted" for a merge that never landed would be the
+    hole the event-sourcing exists to close. A merge the path refuses
+    (conflicting clips) propagates, and the proposal stays open.
+    """
+    require(project_folder, approver, APPROVE,
+            task=f"accept proposal {proposal_id}")
+    state = proposal_status(project_folder, proposal_id)
+    if state["status"] != "recorded":
+        raise ProposalRefused(
+            f"proposal {proposal_id} is already {state['status']}",
+            "an accept applies the operation, and applying twice "
+            "would merge the same change a second time",
+            "record a new proposal against the current chain")
+    operation = (state["recorded"].get("fields") or {}).get("operation") or {}
+    from library.tools import undo_journal as _journal
+    merged = _journal.merge_commits(
+        project_folder, timeline=operation["timeline"],
+        left=operation["left"], right=operation["right"],
+        note=operation.get("note") or f"proposal {proposal_id}",
+        actor=approver)
+    return event_log.emit(
+        project_folder, event_log.PROPOSAL_ACCEPTED, task=str(approver),
+        proposal_id=proposal_id, approver=str(approver),
+        merge=merged["id"])
 
 
 def _main(argv=None) -> int:

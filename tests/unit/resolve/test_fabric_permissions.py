@@ -240,7 +240,218 @@ def test_a_refused_merge_is_an_event_in_the_log(project):
     assert refusals[0]["fields"]["required"] == "merge"
 
 
-# ── The graph registration ────────────────────────────────────────
+# ── Proposals: federated negotiation ────────────────────────────────
+
+def _merge_operation(left_id, right_id):
+    return {"kind": "merge", "timeline": "Reel 01",
+            "left": left_id, "right": right_id,
+            "note": "hold the reaction longer"}
+
+
+def _tracks_with(clip_name, record_in=0, record_out=100):
+    """A track read with one clip at a given span."""
+    return [{"type": "video", "index": 1, "name": "V1", "clips": [
+        {"name": clip_name, "record_in": record_in,
+         "record_out": record_out, "duration": record_out - record_in,
+         "source_in_frame": 0,
+         "source_out_frame": record_out - record_in,
+         "left_offset": 0, "right_offset": 0},
+    ]}]
+
+
+def _move_change(clip_name, new_start):
+    """A real `timeline_diff` move change for one clip."""
+    from library.tools import timeline_diff
+    return timeline_diff.diff_timelines(
+        _tracks_with(clip_name, 0, 100),
+        _tracks_with(clip_name, new_start, new_start + 100))
+
+
+def test_an_observer_cannot_record_a_proposal(project):
+    """Proposing needs Suggest: observe alone never opens negotiation.
+
+    Defect caught: a record path that checks nothing lets any listed
+    name - including a read-only observer - put operations in front of
+    an approver. On origin/main there is no proposal path at all.
+    """
+    permissions.grant(project, "viewer", permissions.OBSERVE)
+    left, right = _commit_chain(project)
+    with pytest.raises(permissions.PermissionRefused):
+        permissions.record_proposal(
+            project, "viewer", _merge_operation(left["id"], right["id"]),
+            "hold the reaction longer")
+
+
+def test_a_client_records_and_an_editor_answers_conflict(project):
+    """The spec's negotiation: propose with a reason, answer by name.
+
+    Defect caught: a proposal that stores the operation but drops the
+    rationale leaves answerers negotiating against an edit with no
+    reason - the spec's example ("hold reaction 1.4s longer" /
+    "would break music sync") is reason against reason.
+    """
+    permissions.grant(project, "client", permissions.SUGGEST)
+    permissions.grant(project, "editor", permissions.EXECUTE)
+    left, right = _commit_chain(project)
+    recorded = permissions.record_proposal(
+        project, "client", _merge_operation(left["id"], right["id"]),
+        "hold the reaction shot longer")
+    proposal_id = recorded["fields"]["proposal_id"]
+    permissions.answer_proposal(project, proposal_id, "editor",
+                                "conflict", note="would break music sync")
+    state = permissions.proposal_status(project, proposal_id)
+    assert state["status"] == "recorded"
+    assert (state["recorded"]["fields"]["rationale"]
+            == "hold the reaction shot longer")
+    assert len(state["answers"]) == 1
+    assert state["answers"][0]["fields"]["kind"] == "conflict"
+
+
+def test_an_accept_answer_from_a_non_approver_applies_nothing(project):
+    """An accept ANSWER is support, never approval.
+
+    Defect caught: a flow that treats any accept-shaped answer as
+    approval lets the editor's Ren merge by agreeing - and the
+    client's Ren could merge by agreeing with itself. Nothing applies
+    until a participant with Approve accepts.
+    """
+    permissions.grant(project, "client", permissions.SUGGEST)
+    permissions.grant(project, "editor", permissions.EXECUTE)
+    left, right = _commit_chain(project)
+    recorded = permissions.record_proposal(
+        project, "client", _merge_operation(left["id"], right["id"]),
+        "hold the reaction shot longer")
+    proposal_id = recorded["fields"]["proposal_id"]
+    permissions.answer_proposal(project, proposal_id, "editor", "accept")
+    assert permissions.proposal_status(
+        project, proposal_id)["status"] == "recorded"
+    assert all(commit.get("second_parent") is None
+               for commit in uj.list_commits(project))
+
+
+def test_the_approver_accepts_through_the_normal_merge_path(project):
+    """Approval applies: the merge lands under the approver's name.
+
+    Defect caught: an accept that records approval but never runs the
+    operation leaves "accepted" proposals with no timeline effect -
+    the human approved and nothing happened. The accept runs
+    `merge_commits(actor=approver)`, so the merge gate checks the
+    approver exactly as it checks any merger.
+    """
+    permissions.grant(project, "client", permissions.SUGGEST)
+    permissions.grant(project, "director", permissions.APPROVE)
+    left, right = _commit_chain(project)
+    recorded = permissions.record_proposal(
+        project, "client", _merge_operation(left["id"], right["id"]),
+        "hold the reaction shot longer")
+    proposal_id = recorded["fields"]["proposal_id"]
+    accepted = permissions.accept_proposal(project, proposal_id, "director")
+    assert accepted["fields"]["approver"] == "director"
+    merged = uj.read_commit(project, accepted["fields"]["merge"])
+    assert merged["second_parent"] == right["id"]
+    assert permissions.proposal_status(
+        project, proposal_id)["status"] == "accepted"
+
+
+def test_a_second_accept_is_refused(project):
+    """An accept applies once: deciding a decided proposal is refused.
+
+    Defect caught: an accept path that never checks decided state
+    merges the same change a second time - or records a second
+    "accepted" event for work that applied once, and the log claims
+    two applications.
+    """
+    permissions.grant(project, "client", permissions.SUGGEST)
+    permissions.grant(project, "director", permissions.APPROVE)
+    left, right = _commit_chain(project)
+    recorded = permissions.record_proposal(
+        project, "client", _merge_operation(left["id"], right["id"]),
+        "hold the reaction shot longer")
+    proposal_id = recorded["fields"]["proposal_id"]
+    permissions.accept_proposal(project, proposal_id, "director")
+    with pytest.raises(permissions.ProposalRefused) as refused:
+        permissions.accept_proposal(project, proposal_id, "director")
+    assert "already accepted" in str(refused.value)
+
+
+def test_a_refused_merge_leaves_the_proposal_open(project):
+    """The accept lands AFTER the merge: a refused merge applies nothing.
+
+    Defect caught: an accept that emits "accepted" before running the
+    operation claims in the log what the merge path refused -
+    conflicting clips merged nowhere, yet approved on paper. Here both
+    sides move clip_001, the merge refuses by name, and the proposal
+    stays open for a revised one.
+    """
+    permissions.grant(project, "client", permissions.SUGGEST)
+    permissions.grant(project, "director", permissions.APPROVE)
+    root = uj.record_commit(project, parent=None, intent="first",
+                            changes=[], agent="reel_touchup",
+                            timeline="Reel 01")
+    left = uj.record_commit(project, parent=root["id"], intent="left",
+                            changes=_move_change("clip_001", 50),
+                            agent="editor", timeline="Reel 01")
+    right = uj.record_commit(project, parent=root["id"], intent="right",
+                             changes=_move_change("clip_001", 60),
+                             agent="colourist", timeline="Reel 01")
+    recorded = permissions.record_proposal(
+        project, "client", _merge_operation(left["id"], right["id"]),
+        "hold the reaction shot longer")
+    proposal_id = recorded["fields"]["proposal_id"]
+    with pytest.raises(uj.MergeConflict):
+        permissions.accept_proposal(project, proposal_id, "director")
+    assert permissions.proposal_status(
+        project, proposal_id)["status"] == "recorded"
+
+
+def test_branch_creation_needs_branch_level(project):
+    """Branching is submitting: an observer never opens one.
+
+    Defect caught: a branch path that checks nothing lets an observer
+    open a line of development - the submit half of the federation
+    with no authority behind it. Execute outranks Branch, so the
+    editor's own touch-up branches keep working.
+    """
+    permissions.grant(project, "viewer", permissions.OBSERVE)
+    permissions.grant(project, "editor", permissions.EXECUTE)
+    root = uj.record_commit(project, parent=None, intent="first",
+                            changes=[], agent="reel_touchup",
+                            timeline="Reel 01")
+    with pytest.raises(permissions.PermissionRefused):
+        uj.record_branch(project, name="viewer-try", base=root["id"],
+                         timeline="Reel 01", actor="viewer")
+    branch = uj.record_branch(project, name="editor-try", base=root["id"],
+                              timeline="Reel 01", actor="editor")
+    assert branch["base"] == root["id"]
+
+
+def test_open_proposals_register_as_graph_nodes(project):
+    """The graph answers what awaits approval; decided ones leave it.
+
+    Defect caught: a proposal store nothing reads is not shipped -
+    the graph is the shared state other tracks feed, so an undecided
+    proposal must be a node in it, and an accepted one's outcome (its
+    merge commit) is what remains.
+    """
+    permissions.grant(project, "client", permissions.SUGGEST)
+    permissions.grant(project, "director", permissions.APPROVE)
+    left, right = _commit_chain(project)
+    first = permissions.record_proposal(
+        project, "client", _merge_operation(left["id"], right["id"]),
+        "hold the reaction shot longer")
+    second = permissions.record_proposal(
+        project, "client", _merge_operation(left["id"], right["id"]),
+        "try the alt ending")
+    permissions.accept_proposal(
+        project, first["fields"]["proposal_id"], "director")
+    graph = project_graph.build_graph(project)
+    awaiting = project_graph.open_proposals(graph)
+    assert [entry["proposal_id"] for entry in awaiting] == [
+        second["fields"]["proposal_id"]]
+    assert awaiting[0]["rationale"] == "try the alt ending"
+
+
+# ── The graph registration: participants ──────────────────────────
 
 def test_the_graph_registers_roster_participants(project):
     """The project graph answers who holds what.

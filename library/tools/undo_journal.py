@@ -595,7 +595,8 @@ def _branch_path(project_folder, name: str) -> str:
 
 def record_branch(project_folder, *, name: str, base: str,
                   timeline: str, note: str = "",
-                  source_tracks=None, branch_tracks=None) -> dict:
+                  source_tracks=None, branch_tracks=None,
+                  actor=None) -> dict:
     """Record a branch: a named pointer to a commit. Returns the branch.
 
     DuplicateTimeline-backed: the branch is materialized as a duplicated
@@ -609,7 +610,17 @@ def record_branch(project_folder, *, name: str, base: str,
     refused - a branch starts from a clean duplicate, not from a
     diverged copy. The proof is the branch's contract with the timeline
     it is materialized on.
+
+    `actor` names the federated participant the branch runs as. A named
+    actor must hold Branch on this project's roster
+    (`fabric_permissions`): branching is how a participant submits
+    work, so an observer may never open one. `None` (the default) is
+    the local operator's own act and is never checked.
     """
+    if actor is not None:
+        from library.tools import fabric_permissions as _permissions
+        _permissions.require(project_folder, actor, _permissions.BRANCH,
+                             task=f"branch {name}")
     from library.tools.versions import store
 
     if source_tracks is not None and branch_tracks is not None:

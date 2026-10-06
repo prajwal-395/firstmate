@@ -129,6 +129,7 @@ VARIANT = "variant"
 COMMIT = "commit"
 OPERATION = "operation"
 PARTICIPANT = "participant"
+PROPOSAL = "proposal"
 
 NODE_TYPES = (
     PERSON,
@@ -150,6 +151,7 @@ NODE_TYPES = (
     COMMIT,
     OPERATION,
     PARTICIPANT,
+    PROPOSAL,
 )
 
 
@@ -606,6 +608,7 @@ def build_graph(project_folder: str, root: Path | None = None) -> dict:
     _derive_commit_nodes(graph, project_folder)
     _derive_event_nodes(graph, project_folder)
     _derive_participant_nodes(graph, project_folder)
+    _derive_proposal_nodes(graph, project_folder)
 
     return graph
 
@@ -1463,6 +1466,51 @@ def participants_with(graph: dict, level: str) -> list:
                 held, level):
             found.append(payload)
     return found
+
+
+def _derive_proposal_nodes(graph: dict, project_folder: str) -> None:
+    """Proposal nodes from the federation's open proposals.
+
+    Each undecided proposal is a node carrying its author, operation
+    and rationale, so the graph answers "what awaits approval" without
+    reading the event log directly. Decided proposals register no node:
+    an accepted proposal's outcome is the merge commit it applied.
+    """
+    try:
+        from library.tools import fabric_permissions
+        from library.tools import event_log
+        recorded = [event for event in event_log.read_events(project_folder)
+                    if event.get("type") == event_log.PROPOSAL_RECORDED]
+        accepted = {(event.get("fields") or {}).get("proposal_id")
+                    for event in event_log.read_events(project_folder)
+                    if event.get("type") == event_log.PROPOSAL_ACCEPTED}
+    except (OSError, ValueError):
+        return
+    for event in recorded:
+        fields = event.get("fields") or {}
+        proposal_id = fields.get("proposal_id")
+        if not proposal_id or proposal_id in accepted:
+            continue
+        operation = fields.get("operation") or {}
+        add_node(graph, {
+            "node_id": f"proposal:{proposal_id}",
+            "node_type": PROPOSAL,
+            "label": f"proposal by {fields.get('author')}",
+            "payload": {
+                "proposal_id": proposal_id,
+                "author": fields.get("author"),
+                "operation": operation.get("kind"),
+                "timeline": operation.get("timeline"),
+                "rationale": fields.get("rationale"),
+            },
+        })
+
+
+def open_proposals(graph: dict) -> list:
+    """The undecided proposals awaiting approval, oldest first."""
+    return [candidate.get("payload") or {}
+            for candidate in graph.get("nodes") or []
+            if candidate.get("node_type") == PROPOSAL]
 
 
 def find_reaction_shots(graph: dict, person_id: str,
