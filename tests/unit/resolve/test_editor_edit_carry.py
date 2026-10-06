@@ -14,6 +14,16 @@ import time
 
 @pytest.fixture(autouse=True)
 def _leases_off_machine(tmp_path, monkeypatch):
+    """Composed edits declare their staging now: leases stay in tmp."""
+    directory = tmp_path / "locks"
+    directory.mkdir()
+    monkeypatch.setenv("PIPELINE_RESOLVE_LOCK_DIR", str(directory))
+import threading
+import time
+
+
+@pytest.fixture(autouse=True)
+def _leases_off_machine(tmp_path, monkeypatch):
     """Carried edits declare their staging now: leases stay in tmp."""
     directory = tmp_path / "locks"
     directory.mkdir()
@@ -2084,3 +2094,86 @@ def test_carrying_waits_for_a_touchup_on_the_staging():
     assert released_at, "the touch-up never released"
     assert returned_at >= released_at[0], \
         "the carry returned mid-touch-up"
+
+
+# ── The composed funnel declares the staging timeline ────────────────
+
+def _composed_staging():
+    from tests.resolve_double import FakeProject, FakeTimeline
+    staging = FakeTimeline(STAGING)
+    project = FakeProject("Mock Project", [staging], current=staging)
+    return project, staging
+
+
+def _mock_compose(monkeypatch, calls):
+    from types import SimpleNamespace
+    import library.tools.composed_edit as ce
+
+    def fake_apply(**kwargs):
+        calls.append(kwargs.get("changes"))
+        return SimpleNamespace(plan=[], verified={}, rederived=[])
+
+    monkeypatch.setattr(ce, "apply_composed_edit", fake_apply)
+
+
+def test_a_composed_edit_runs_through_its_lease(tmp_path, monkeypatch):
+    """The wired funnel still runs: the inner edit executes, verified.
+
+    Defect caught: a declaration that refuses its own funnel turns
+    every split, trim and move into a refusal, and carried edits stop
+    reaching staging.
+    """
+    from library.tools import editor_edit_carry as carry_mod
+    from library.tools.resolve_lock import assume_sole_writer
+    calls = []
+    _mock_compose(monkeypatch, calls)
+    project, staging = _composed_staging()
+    with assume_sole_writer("test: fakes have no instance to contend for"):
+        report = carry_mod._composed(
+            str(tmp_path), project, staging, [], [], None,
+            "splits", FINAL)
+    assert calls == [[]]
+    assert report["verified"] == {}
+
+
+def test_a_composed_edit_waits_for_a_touchup_on_the_staging(
+        tmp_path, monkeypatch):
+    """Composed writes and restructuring on one staging serialise: wait.
+
+    Defect caught: with no declaration the funnel replaces items while
+    a touch-up restructures the same staging - the edit lands where
+    the items were. On origin/main the funnel returns before the
+    holder releases.
+    """
+    from library.tools import editor_edit_carry as carry_mod
+    from library.tools.resolve_lock import assume_sole_writer
+    from library.tools.resource_leases import (
+        LeaseDeclaration, ResourceRef, resource_lease)
+    calls = []
+    _mock_compose(monkeypatch, calls)
+    project, staging = _composed_staging()
+    touchup = LeaseDeclaration(
+        write=frozenset({ResourceRef("timeline", STAGING)}),
+        exclusive=frozenset({ResourceRef("timeline", STAGING)}),
+    )
+    released_at: list = []
+
+    def restructure():
+        with resource_lease(touchup, "touch up the staging",
+                           heartbeat_interval=30.0):
+            time.sleep(2.0)
+        released_at.append(time.monotonic())
+
+    holder = threading.Thread(target=restructure)
+    holder.start()
+    time.sleep(0.3)  # let the touch-up acquire first
+    with assume_sole_writer("test: fakes have no instance to contend for"):
+        carry_mod._composed(
+            str(tmp_path), project, staging, [], [], None,
+            "splits", FINAL)
+    returned_at = time.monotonic()
+    holder.join(30.0)
+    assert released_at, "the touch-up never released"
+    assert returned_at >= released_at[0], \
+        "the funnel returned mid-touch-up"
+    assert calls == [[]]

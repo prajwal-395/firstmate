@@ -1765,6 +1765,11 @@ def _composed(project_folder: str, project, staged, tracks: list,
     from library.tools import reel_retirement
     from library.tools.reel_build import BACKUP_SUFFIX
     from library.tools.resolve_lock import assert_current_timeline
+    from library.tools.resource_leases import (
+        LeaseDeclaration,
+        ResourceRef,
+        resource_lease,
+    )
 
     pool = project.GetMediaPool()
     staged_name = staged.GetName()
@@ -1775,45 +1780,57 @@ def _composed(project_folder: str, project, staged, tracks: list,
             f"REFUSING to replace {final!r}: Resolve would not duplicate "
             f"the staging as {reference_name!r} to carry grades from. "
             f"Nothing was renamed.")
-    try:
-        assert_current_timeline(project, staged)
-        by_frame = {}
-        for row, handles in _ce._rows_of(reference).items():
-            for handle in handles:
-                by_frame[(row, _ce._read(handle, "GetStart", None))] = handle
-        grade_sources = {
-            (change.row, change.item_index):
-                by_frame[(change.row, change.previous_record)]
-            for change in changes
-            if (change.row, change.previous_record) in by_frame}
-        work = _work_dir(project_folder, staged.GetName(), phase)
-        receipt = _ce.apply_composed_edit(
-            timeline=staged, media_pool=pool, changes=changes,
-            insertions=insertions,
-            comp_dir=os.path.join(work, "comps"),
-            withheld_dir=os.path.join(work, "withheld"),
-            rederiver=rederiver, grade_sources=grade_sources,
-            link_rows={}, picture_row="V1", still_placer=still_placer,
-            write_context={"project_folder": project_folder,
-                           "timeline_name": staged_name})
-    finally:
-        reel_retirement.delete_backups(project, pool,
-                                       {reference_name: reference})
-    before = {(_ce.row_label(track["type"], int(track["index"])), index): clip
-              for track in tracks
-              for index, clip in enumerate(track.get("clips") or ())}
-    rows = _ce._rows_of(staged)
-    for change in changes:
-        clip = before[(change.row, change.item_index)]
-        landed = [handle for handle in rows.get(change.row) or ()
-                  if _ce._read(handle, "GetStart", None)
-                  == change.record_frame]
-        if len(landed) != 1:
-            continue
-        if clip.get("enabled") is False:
-            landed[0].SetClipEnabled(False)
-        if clip.get("clip_color"):
-            landed[0].SetClipColor(clip["clip_color"])
+    # The funnel every split, trim and move passes through: items are
+    # replaced, grades re-derived and the reference deleted. One
+    # declaration for the staged timeline covers the whole composed
+    # edit, so a touch-up on the same staging serialises against it
+    # instead of moving items the edit just placed.
+    with resource_lease(
+        LeaseDeclaration(
+            write=frozenset({ResourceRef("timeline", staged_name)}),
+            exclusive=frozenset({ResourceRef("timeline", staged_name)}),
+        ),
+        purpose=f"composed {phase} onto {staged_name}",
+    ):
+        try:
+            assert_current_timeline(project, staged)
+            by_frame = {}
+            for row, handles in _ce._rows_of(reference).items():
+                for handle in handles:
+                    by_frame[(row, _ce._read(handle, "GetStart", None))] = handle
+            grade_sources = {
+                (change.row, change.item_index):
+                    by_frame[(change.row, change.previous_record)]
+                for change in changes
+                if (change.row, change.previous_record) in by_frame}
+            work = _work_dir(project_folder, staged.GetName(), phase)
+            receipt = _ce.apply_composed_edit(
+                timeline=staged, media_pool=pool, changes=changes,
+                insertions=insertions,
+                comp_dir=os.path.join(work, "comps"),
+                withheld_dir=os.path.join(work, "withheld"),
+                rederiver=rederiver, grade_sources=grade_sources,
+                link_rows={}, picture_row="V1", still_placer=still_placer,
+                write_context={"project_folder": project_folder,
+                               "timeline_name": staged_name})
+        finally:
+            reel_retirement.delete_backups(project, pool,
+                                           {reference_name: reference})
+        before = {(_ce.row_label(track["type"], int(track["index"])), index): clip
+                  for track in tracks
+                  for index, clip in enumerate(track.get("clips") or ())}
+        rows = _ce._rows_of(staged)
+        for change in changes:
+            clip = before[(change.row, change.item_index)]
+            landed = [handle for handle in rows.get(change.row) or ()
+                      if _ce._read(handle, "GetStart", None)
+                      == change.record_frame]
+            if len(landed) != 1:
+                continue
+            if clip.get("enabled") is False:
+                landed[0].SetClipEnabled(False)
+            if clip.get("clip_color"):
+                landed[0].SetClipColor(clip["clip_color"])
     return {"plan": receipt.plan, "verified": receipt.verified,
             "rederived": receipt.rederived}
 
