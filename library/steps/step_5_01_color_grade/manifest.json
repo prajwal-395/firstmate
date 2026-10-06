@@ -107,7 +107,7 @@
       {
         "name": "camera_match",
         "type": "object",
-        "description": "Bridge output: the measured camera-match proposal - per-camera neutral balances on the shared set, the reference camera (nearest true neutral), one slope triple per other camera, the level half in stops and the predicted after. STATED, never applied: the colourist accepts by copying a slope into color_correction with a why, or overrides with their own. See library/tools/camera_match.py."
+        "description": "Bridge output: the measured camera-match proposal - per-camera neutral balances on the shared set, the reference camera (nearest true neutral), one slope triple per other camera, the level half in stops, the predicted after, the chroma half (saturation factor, skin slope, stated contrast ratio - each absent with its reason where a side did not measure), and the declared look's words and slope direction beside the gap's. STATED, never applied: the colourist accepts by copying a slope, a saturation factor or a skin slope into color_correction with a why, or overrides with their own. See library/tools/camera_match.py."
       },
       {
         "name": "color_grade_spec",

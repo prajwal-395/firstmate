@@ -81,10 +81,10 @@ from library.tools.shot_colour import (
 )
 
 
-def declared_look_view(series_look) -> dict:
+def declared_look_view(look) -> dict:
     """What the project declared as its look, or the absence of it.
 
-    The declaration arrives already resolved - the project's own
+    The look arrives already resolved - the project's own
     `style.series_look` wins over its brand template's
     (`effective_series_look`) - so this function only renders the view.
 
@@ -93,7 +93,6 @@ def declared_look_view(series_look) -> dict:
     different facts, and only one of them means the colourist's
     correction IS the grade.
     """
-    look = resolve_look(series_look)
     view = {"declared": look is not None, "notes": describe_look(look)}
     if look is None:
         view["what_that_means_for_you"] = (
@@ -250,16 +249,17 @@ def main():
     stills_block, still_paths = draw_shot_stills(rows, project_folder)
 
     style = (data.get("brand_template") or {}).get("style", {})
+    look = resolve_look(effective_series_look(
+        style, data.get("project_folder", "")))
 
     print(json.dumps({
         "clip_exposure": rows,
         "cut_adjacency": cut_adjacency(entries, rows),
-        "declared_look": declared_look_view(effective_series_look(
-            style, data.get("project_folder", ""))),
+        "declared_look": declared_look_view(look),
         "shot_stills": stills_block,
         "still_colour_notes": observe_shot_stills(
             still_paths, project_folder),
-        "camera_match": derive_camera_match(rows),
+        "camera_match": derive_camera_match(rows, look=look),
         "grade_terms_legend": {
             "luma": (
                 f"{LUMA_SCOPE}. It does not know where the light is in the "
@@ -319,10 +319,25 @@ def main():
                 "a STATED, MEASURED proposal that brings the angles "
                 "together - per-camera neutral balances, the reference "
                 "(nearest true neutral), one slope triple per other "
-                "camera, and the predicted after. The engine applies "
-                "nothing: accept by copying a slope into "
-                "`color_correction` with a `why`, override with your "
-                "own. Verify the angles share the set first."),
+                "camera, and the predicted after. Two angles can agree "
+                "in neutral and still not match, so each row also "
+                "carries the chroma half: `saturation_factor` (the CDL "
+                "saturation term that lands this camera's chroma ratio "
+                "on the reference's), `skin_slope` (the per-channel "
+                "slope that lands this camera's skin vector on the "
+                "reference's), and `contrast_ratio` (STATED, not a "
+                "term - the CDL has no contrast term). Each is absent "
+                "with its reason where a side did not measure. The "
+                "declared look's own words and slope travel beside "
+                "every row - `look_direction` and `gap_direction` say "
+                "whether the look already travels the way the cameras "
+                "differ, and `same_direction_as_look` says whether it "
+                "does. That is arithmetic on two slope triples, not a "
+                "verdict: a deliberate mood change and a mismatch are "
+                "yours to separate. The engine applies nothing: accept "
+                "by copying a slope, a saturation factor or a skin "
+                "slope into `color_correction` with a `why`, override "
+                "with your own. Verify the angles share the set first."),
             **term_legend(),
         },
     }))

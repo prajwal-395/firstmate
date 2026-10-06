@@ -737,6 +737,178 @@ def test_groups_fall_back_to_file_stem_and_say_so():
     assert cameras == {"LC4932", "LCATL0013"}
 
 
+def test_match_proposes_saturation_skin_and_contrast_beyond_the_neutral():
+    """Two angles that agree in neutral balance and not in chroma: the
+    proposal carries the corrections that land this camera on the
+    reference - the saturation factor, the skin slope - and states the
+    contrast ratio the CDL has no term for.
+
+    Fails on origin/main: the match stopped at the neutral slope, so a
+    camera pair balanced on the wall but greyer, flatter and off in
+    skin on one body shipped no grounding for the grade that fixes it.
+    """
+    rows = [_row("a1", "camA", (53.36, 52.53, 53.18), 1.0033, 0.9877),
+            _row("b1", "camB", (44.25, 45.52, 46.42), 0.9532, 0.9806)]
+    rows[0]["saturation"] = 0.30
+    rows[1]["saturation"] = 0.15
+    rows[0]["skin_rgb"] = [180.0, 140.0, 110.0]
+    rows[1]["skin_rgb"] = [150.0, 120.0, 95.0]
+    rows[0]["contrast"] = 60.0
+    rows[1]["contrast"] = 40.0
+    out = cm.derive_camera_match(rows)
+    match = out["matches"][0]
+    # The saturation factor is the CDL saturation term that lands this
+    # camera's chroma ratio on the reference's - exact, by the same
+    # construction as the neutral slope's predicted after.
+    assert match["saturation_before"] == 0.15
+    assert match["reference_saturation"] == 0.30
+    assert match["saturation_factor"] == pytest.approx(2.0)
+    assert match["saturation_before"] * match["saturation_factor"] \
+        == pytest.approx(match["reference_saturation"])
+    # The skin slope is the per-channel reference/measured triple: this
+    # camera's skin vector through it IS the reference's.
+    assert match["skin_slope"] == [
+        pytest.approx(round(180.0 / 150.0, 4)),
+        pytest.approx(round(140.0 / 120.0, 4)),
+        pytest.approx(round(110.0 / 95.0, 4))]
+    through = [round(rows[1]["skin_rgb"][i] * match["skin_slope"][i], 2)
+               for i in range(3)]
+    assert through == pytest.approx([180.0, 140.0, 110.0], abs=0.01)
+    # The contrast ratio is STATED, not a term: the CDL has none
+    # (color_correction.WITHHELD_TERMS), so the colourist reads it.
+    assert match["contrast_before"] == 40.0
+    assert match["reference_contrast"] == 60.0
+    assert match["contrast_ratio"] == pytest.approx(1.5)
+
+
+def test_unmeasured_chroma_is_absent_with_the_reason():
+    """A ratio off an unmeasured side is the defect the neutral rule was
+    written for, repeated on the chroma half: each factor is absent
+    with the reason, never a number borrowed from the whole frame."""
+    rows = [_row("a1", "camA", (53.0, 52.0, 53.0), 1.0, 0.98),
+            _row("b1", "camB", (44.0, 45.0, 46.0), 0.9565, 0.9783)]
+    rows[0]["saturation"] = 0.30
+    rows[0]["skin_rgb"] = [180.0, 140.0, 110.0]
+    rows[0]["contrast"] = 60.0
+    rows[1]["saturation"] = None
+    rows[1]["saturation_unmeasured_because"] = \
+        "no sampled pixel reached luma 25; a dark frame carries no chroma ratio"
+    rows[1]["skin_rgb"] = None
+    rows[1]["skin_unmeasured_because"] = \
+        "only 0.0010 of sampled pixels read as skin (needs 0.005)"
+    rows[1]["contrast"] = None
+    rows[1]["contrast_unmeasured_because"] = "no sampled pixels"
+    out = cm.derive_camera_match(rows)
+    match = out["matches"][0]
+    assert match["saturation_factor"] is None
+    assert "this camera unmeasured" in match["saturation_unmeasured_because"]
+    assert "dark frame" in match["saturation_unmeasured_because"]
+    assert match["skin_slope"] is None
+    assert "this camera unmeasured" in match["skin_unmeasured_because"]
+    assert match["contrast_ratio"] is None
+    assert "this camera unmeasured" in match["contrast_unmeasured_because"]
+    # A measured 0.0 (a grey frame) is a measurement, and the absence
+    # of a ratio is said - never a factor of zero.
+    rows[1]["saturation"] = 0.0
+    rows[1].pop("saturation_unmeasured_because")
+    out = cm.derive_camera_match(rows)
+    match = out["matches"][0]
+    assert match["saturation_factor"] is None
+    assert "no ratio exists off zero" in match["saturation_unmeasured_because"]
+    # The reference side unmeasured is the same absence, named on the
+    # reference - and never a crash dividing by a missing number.
+    rows[0]["saturation"] = None
+    rows[0]["saturation_unmeasured_because"] = "no grey in this shot"
+    rows[1]["saturation"] = 0.15
+    rows[1].pop("saturation_unmeasured_because", None)
+    out = cm.derive_camera_match(rows)
+    match = out["matches"][0]
+    assert match["saturation_factor"] is None
+    assert "the reference unmeasured" in match["saturation_unmeasured_because"]
+
+
+def _look(slope, name="Series look", intent="warm the set"):
+    """A resolved declared look carrying one CDL slope."""
+    from library.tools.series_look import resolve_look
+    return resolve_look({
+        "name": name,
+        "intent": intent,
+        "cdl": {"slope": list(slope), "offset": [0.0, 0.0, 0.0],
+                "power": [1.0, 1.0, 1.0], "saturation": 1.0},
+    })
+
+
+def test_look_direction_travels_beside_the_gap():
+    """The declared look's words and slope direction sit beside the
+    measured gap's - the colourist reads "the look declares X" beside
+    "the cameras differ by Y" and separates a deliberate mood change
+    from a mismatch.
+
+    Fails on origin/main: the match carried no look, so a gap that
+    travels the way the look does was indistinguishable from one that
+    fights it.
+    """
+    rows = [_row("a1", "camA", (53.36, 52.53, 53.18), 1.0033, 0.9877),
+            _row("b1", "camB", (44.25, 45.52, 46.42), 0.9532, 0.9806)]
+    # The measured gap slope is reference/measured per channel:
+    # (1.206, 1.154, 1.146) - red over blue, so the gap warms.
+    out = cm.derive_camera_match(rows, look=_look((1.1, 1.0, 0.9)))
+    match = out["matches"][0]
+    # The look's words travel verbatim, never paraphrased.
+    assert match["look_name"] == "Series look"
+    assert match["look_intent"] == "warm the set"
+    assert match["look_slope"] == [1.1, 1.0, 0.9]
+    assert match["look_direction"] == "warms"
+    assert match["gap_direction"] == "warms"
+    assert match["same_direction_as_look"] is True
+    # A look that cools against a warm gap is said to fight it.
+    out = cm.derive_camera_match(rows, look=_look((0.9, 1.0, 1.1)))
+    match = out["matches"][0]
+    assert match["look_direction"] == "cools"
+    assert match["gap_direction"] == "warms"
+    assert match["same_direction_as_look"] is False
+    # A neutral look has no direction beside a warm gap.
+    out = cm.derive_camera_match(rows, look=_look((1.0, 1.0, 1.0)))
+    match = out["matches"][0]
+    assert match["look_direction"] == "neutral"
+    assert match["same_direction_as_look"] is False
+
+
+def test_no_look_leaves_the_look_fields_absent_but_the_gap_direction():
+    """A project that declares no look gets no look fields - the gap's
+    own direction still travels, because it is measured, not judged."""
+    rows = [_row("a1", "camA", (53.36, 52.53, 53.18), 1.0033, 0.9877),
+            _row("b1", "camB", (44.25, 45.52, 46.42), 0.9532, 0.9806)]
+    out = cm.derive_camera_match(rows)
+    match = out["matches"][0]
+    assert match["look_name"] is None
+    assert match["look_intent"] == ""
+    assert match["look_slope"] is None
+    assert match["look_direction"] is None
+    assert match["same_direction_as_look"] is None
+    assert match["gap_direction"] == "warms"
+
+
+def test_look_without_a_cdl_has_no_direction_but_still_travels():
+    """A look declaring no CDL carries no slope direction - there is no
+    triple to read - but its words still reach the colourist."""
+    from library.tools.series_look import resolve_look
+    look = resolve_look({
+        "name": "Contrast only",
+        "intent": "a flatter series",
+        "contrast": 0.9,
+    })
+    rows = [_row("a1", "camA", (53.36, 52.53, 53.18), 1.0033, 0.9877),
+            _row("b1", "camB", (44.25, 45.52, 46.42), 0.9532, 0.9806)]
+    out = cm.derive_camera_match(rows, look=look)
+    match = out["matches"][0]
+    assert match["look_name"] == "Contrast only"
+    assert match["look_slope"] is None
+    assert match["look_direction"] is None
+    assert match["same_direction_as_look"] is None
+    assert match["gap_direction"] == "warms"
+
+
 # --------------------------------------------------------------------------
 # From test_shot_colour.py
 #

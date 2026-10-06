@@ -39,12 +39,71 @@ run that never reaches a colourist ships no match.
 Two angles already together (neutral distance under `MATCH_TOLERANCE`)
 are SAID, with a neutral slope: "these match" is the measurement's own
 conclusion and leaving the row out would read as "not examined".
+
+The chroma half: saturation, skin, contrast
+-------------------------------------------
+Two angles can agree in neutral balance and still not match: the same
+wall under the same light reads GREYER on one camera, a face reads a
+different vector, one shot is flatter. The neutral slope cannot see any
+of that - it is a ratio on one measured vector - so the match stopped
+exactly where a multicam grade's hardest half begins. This carries the
+other three measured readings (library/tools/shot_colour) beside the
+slope, each as the same arithmetic the slope is:
+
+* `saturation_factor` - reference saturation over this camera's, the
+  CDL `saturation` term that lands this camera's chroma ratio on the
+  reference's - the same ratio of two stated measurements the neutral
+  slope is, reported to prove the arithmetic, not to assert the
+  render. What the render does is read back in Resolve.
+* `skin_slope` - one per-channel `reference / measured` triple on the
+  skin vector, the `slope` term that lands this camera's skin on the
+  reference's. Whether to apply it whole-frame or scoped to the face
+  (`subject_grade`) is the colourist's; the triple is stated either
+  way, the way the neutral slope is.
+* `contrast_ratio` - reference p95-p5 spread over this camera's,
+  STATED and not a term: the CDL has no contrast term
+  (`color_correction.WITHHELD_TERMS` - a pivot contrast would need a
+  per-clip Fusion comp, which is a question this change does not
+  answer). The colourist reads the ratio and judges.
+
+Each is ABSENT with its reason where a side did not measure - a ratio
+off an unmeasured saturation is the same defect as a match off a
+whole-frame mean wearing a neutral's name. A measured 0.0 (a grey
+frame, a flat field) is a measurement and reads as the absence of a
+ratio, never as a factor of zero.
+
+The creative intent travels beside the match, never into it
+------------------------------------------------------------
+A measured gap between two angles has two readings - a MISMATCH the
+grade should fix, or a DELIBERATE mood change the grade must leave
+alone - and only the creative intent separates them. That intent is
+the project's declared look (`series_look`), which exists before the
+colourist answers. It is carried VERBATIM: the look's own words and
+its declared slope, so the colourist reads "the look declares X"
+beside "the cameras differ by Y" and decides. The engine does not
+read the prose - a reading of "this shift is fine" would be the engine
+inventing a judgement (AGENTS.md 10.5), and the proposal stands
+whatever the look says.
+
+What IS derived is the direction of the look's own slope beside the
+direction of the measured gap: `look_direction` and `gap_direction`
+("warms" when the slope boosts red over blue, "cools" when it boosts
+blue, "neutral" when the two channels move together) and
+`same_direction_as_look`. A description of two slope triples'
+arithmetic, not a verdict - the colourist is told whether the
+declared look already travels the way the cameras differ, and what to
+do with that remains theirs. `gap_direction` is derived from the
+measured slope alone and travels even where the project declares no
+look; `look_direction` and `same_direction_as_look` are absent
+(None) where it declares none.
 """
 
 from __future__ import annotations
 
 import math
 import os
+
+from library.tools.series_look import DeclaredLook
 
 #: Below this neutral distance two angles are reported as already
 #: matched, with a neutral slope. A distance is |d(R/B)| + |d(G/B)| on
@@ -60,6 +119,80 @@ def _neutral_distance(first: dict, second: dict) -> float:
 def _cast_distance(neutral: dict) -> float:
     """How far one neutral sits from true neutral (1.0, 1.0)."""
     return abs(neutral["neutral_rb"] - 1.0) + abs(neutral["neutral_gb"] - 1.0)
+
+
+def _ratio(reference, measured) -> float | None:
+    """`reference / measured`, the factor that lands one on the other.
+
+    None where no ratio exists - either side unmeasured, or a zero
+    denominator. A measured 0.0 is a measurement (a grey frame, a flat
+    field), and the absence of a ratio is said rather than shipped as a
+    factor of zero.
+    """
+    if reference is None or measured is None or not measured:
+        return None
+    return round(float(reference) / float(measured), 4)
+
+
+def _ratio_absence(row: dict, ref: dict, key: str) -> str:
+    """Why a two-sided ratio on one measured key could not be taken.
+
+    Names the side(s) that did not measure, carrying the reason the
+    measurement itself recorded. Empty where the ratio exists.
+    """
+    missing = []
+    for label, side in (("this camera", row), ("the reference", ref)):
+        if side.get(key) is None:
+            because = side.get(f"{key}_unmeasured_because")
+            missing.append(f"{label} unmeasured - {because}" if because
+                           else f"{label} unmeasured")
+    if missing:
+        return "; ".join(missing)
+    if not row.get(key):
+        return f"this camera measured {key} 0.0; no ratio exists off zero"
+    return ""
+
+
+def _skin_slope(ref: dict, row: dict) -> list | None:
+    """Per-channel `reference / measured` on the skin vector, or None.
+
+    The same arithmetic as the neutral slope, on the second measured
+    vector - absent where either side carries no skin, or a skin
+    channel measured zero.
+    """
+    ref_skin, row_skin = ref.get("skin_rgb"), row.get("skin_rgb")
+    if not ref_skin or not row_skin:
+        return None
+    slope = [_ratio(float(ref_skin[i]), float(row_skin[i]))
+             for i in range(3)]
+    if any(v is None for v in slope):
+        return None
+    return slope
+
+
+def _skin_absence(row: dict, ref: dict) -> str:
+    """Why the skin slope could not be taken, or "" where it could."""
+    missing = []
+    for label, side in (("this camera", row), ("the reference", ref)):
+        if side.get("skin_rgb") is None:
+            because = side.get("skin_unmeasured_because")
+            missing.append(f"{label} unmeasured - {because}" if because
+                           else f"{label} unmeasured")
+    if missing:
+        return "; ".join(missing)
+    if any(not v for v in row.get("skin_rgb") or []):
+        return "a skin channel measured zero; no ratio exists"
+    return ""
+
+
+def _slope_direction(slope: list) -> str:
+    """Where one slope triple travels: "warms" boosting red over blue,
+    "cools" boosting blue, "neutral" when the two move together."""
+    if slope[0] > slope[2]:
+        return "warms"
+    if slope[2] > slope[0]:
+        return "cools"
+    return "neutral"
 
 
 def group_key(row: dict) -> tuple:
@@ -84,7 +217,8 @@ def apply_slope(neutral_rgb: list, slope: list) -> list:
             for i in range(3)]
 
 
-def derive_camera_match(rows: list) -> dict:
+def derive_camera_match(rows: list,
+                        look: DeclaredLook | None = None) -> dict:
     """Derive the per-camera match from measured shot-colour rows.
 
     Args:
@@ -92,13 +226,21 @@ def derive_camera_match(rows: list) -> dict:
             (or `camera`), `neutral_rgb`, `neutral_rb`, `neutral_gb`
             and `neutral_fraction`. Rows whose neutral is None are
             skipped with the reason - never matched off whole-frame.
+        look: the project's resolved `series_look` declaration, or
+            None where it declares none. Carried verbatim beside every
+            match row - the colourist reads the look's own words next
+            to the measured gap and decides. Never read into the
+            arithmetic.
 
     Returns:
         A record carrying `method`, `grouped_by`, `reference` (the
         camera the match lands on, or None), `matches` (one per
         non-reference group: before/after balances, the slope, the
-        level half in stops) and `skipped` (every group or row that
-        did not reach the derivation, with why).
+        level half in stops, the chroma half - the saturation factor,
+        the skin slope and the stated contrast ratio, each absent with
+        its reason where a side did not measure - and the look's words
+        and slope direction beside the gap's) and `skipped` (every
+        group or row that did not reach the derivation, with why).
     """
     groups: dict = {}
     order: list = []
@@ -163,6 +305,13 @@ def derive_camera_match(rows: list) -> dict:
                  if other_mean > 0 and ref_mean > 0 else None)
         after = apply_slope(other, slope)
         blue = after[2]
+        saturation_factor = _ratio(ref.get("saturation"),
+                                    row.get("saturation"))
+        skin_slope = _skin_slope(ref, row)
+        contrast_ratio = _ratio(ref.get("contrast"), row.get("contrast"))
+        gap_direction = _slope_direction(slope)
+        look_direction = (_slope_direction(list(look.slope))
+                          if look is not None and look.has_cdl else None)
         matches.append({
             "camera": group["camera"],
             "clips": list(group["clips"]),
@@ -187,13 +336,40 @@ def derive_camera_match(rows: list) -> dict:
                 "rb": (round(after[0] / blue, 4) if blue else None),
                 "gb": (round(after[1] / blue, 4) if blue else None),
             },
+            "saturation_before": row.get("saturation"),
+            "reference_saturation": ref.get("saturation"),
+            "saturation_factor": saturation_factor,
+            "saturation_unmeasured_because": (
+                _ratio_absence(row, ref, "saturation")
+                if saturation_factor is None else ""),
+            "skin_before": row.get("skin_rgb"),
+            "reference_skin": ref.get("skin_rgb"),
+            "skin_slope": skin_slope,
+            "skin_unmeasured_because": (
+                _skin_absence(row, ref) if skin_slope is None else ""),
+            "contrast_before": row.get("contrast"),
+            "reference_contrast": ref.get("contrast"),
+            "contrast_ratio": contrast_ratio,
+            "contrast_unmeasured_because": (
+                _ratio_absence(row, ref, "contrast")
+                if contrast_ratio is None else ""),
+            "look_name": look.name if look is not None else None,
+            "look_intent": look.intent if look is not None else "",
+            "look_slope": ([round(float(v), 4) for v in look.slope]
+                           if look is not None and look.has_cdl else None),
+            "look_direction": look_direction,
+            "gap_direction": gap_direction,
+            "same_direction_as_look": (
+                look_direction == gap_direction
+                if look_direction is not None else None),
             "already_matched": (
                 _neutral_distance(row, ref) < MATCH_TOLERANCE),
         })
 
     return {
         "method": ("per-channel slope reference/measured on the shared "
-                   "neutral; slope-only, level decomposed as level_stops "
+                   "neutral, plus the chroma half - saturation factor, "
+                   "skin slope, stated contrast ratio "
                    "(library/tools/camera_match)"),
         "grouped_by": reference["grouped_by"],
         "reference": {
@@ -204,8 +380,14 @@ def derive_camera_match(rows: list) -> dict:
         },
         "matches": matches,
         "skipped": skipped,
-        "note": ("a STATED, MEASURED proposal: accept by copying a slope "
-                 "into color_correction with a why, override with your "
-                 "own - the engine applies nothing on its own. Verify "
-                 "the angles share the set before accepting."),
+        "note": ("a STATED, MEASURED proposal: accept by copying a slope, "
+                 "a saturation factor or a skin slope into "
+                 "color_correction with a why, override with your own - "
+                 "the engine applies nothing on its own. The contrast "
+                 "ratio is stated, not a term: the CDL has none. The "
+                 "declared look's words and slope direction travel "
+                 "beside the gap's, never into the arithmetic - a "
+                 "deliberate mood change and a mismatch are the "
+                 "colourist's to separate. Verify the angles share the "
+                 "set before accepting."),
     }
