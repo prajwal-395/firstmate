@@ -234,6 +234,11 @@ def _apply_master_connected(project_folder: str, spec: Mapping, master: str,
 
     project = connect(resolve_name)
     pool = project.GetMediaPool()
+    # What the cursor was when this touch found it, so a refused or
+    # failed one can put it back: the lease below moves it onto the
+    # master timeline and then the staging, and a touch that refuses
+    # must leave the project - cursor included - as it found it.
+    pre_touch_current = project.GetCurrentTimeline()
     found = {t.GetName(): t for t in
              timelines_to_replace(project, {master})}
     if master not in found:
@@ -328,10 +333,23 @@ def _apply_master_connected(project_folder: str, spec: Mapping, master: str,
                 qualification, receipt, accept_editor_changes, master,
                 stage_started, journal)
     except Exception as failed:
-        # The master timeline still stands under its own name; the
-        # staging holds the half-done edit for diagnosis.  Delete
-        # nothing: a failed touch-up must never widen into a loss.
-        receipt["staging_left_standing"] = staging
+        # A refused or failed touch cleans up after itself: its staging
+        # is a duplicate of the master timeline, which still stands
+        # under its own name, so the half-finished edit is exported to
+        # the recovery archive and the staging deleted - the project
+        # left as the touch found it, cursor included.  The inventory
+        # below then reads a net-zero timeline count, which is the
+        # truth: this touch created and destroyed its own staging.
+        # The cleanup is best effort: a failure inside it is recorded
+        # on the receipt and the original refusal still propagates, with
+        # the journal and inventory steps below still run.
+        try:
+            receipt["staging_cleanup"] = _reel_touchup._cleanup_refused_staging(
+                project, pool, staging,
+                pre_touch_current if pre_touch_current is not None else source,
+                receipt, project_folder)
+        except Exception as cleanup_failed:  # noqa: BLE001 - never mask
+            receipt["staging_cleanup_error"] = repr(cleanup_failed)
         if journal.get("status") == _journal.STATUS_OPEN:
             _journal.fail_entry(project_folder, journal, repr(failed))
         _provenance.finish_timeline_inventory(

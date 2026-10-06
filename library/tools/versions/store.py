@@ -271,6 +271,70 @@ def _recovery_archive_stem(timeline_name: str) -> str:
     return f"{safe}--{digest}"
 
 
+def export_timeline_recovery_archive(
+        resolve, timeline, timeline_name: str,
+        project_folder: str, label: str = "") -> dict:
+    """Export one timeline to its `recovery_archives` `.drt`, atomically.
+
+    The same destination and scratch-staged replace the build's per-reel
+    export uses, for a timeline the build did not promote - a refused
+    touch's staging - so the half-finished edit is recoverable rather
+    than debris in the captain's project.  The export reads an existing
+    timeline handle and writes a file; it does not create or switch
+    timelines.
+
+    Best effort by construction: the caller deletes the staging
+    whatever happens, so a failed export is reported on the result,
+    never raised - a cleanup that failed must not mask the refusal it
+    is cleaning up.
+    """
+    result = {"archived": False}
+    try:
+        from library.tools.project_layout import Area, ProjectLayout
+
+        layout = ProjectLayout(project_folder)
+        archive_dir = (layout.write_dir(Area.REVIEW)
+                       / DRT_RECOVERY_DIRNAME)
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        scratch_dir = layout.write_dir(Area.SCRATCH)
+    except Exception as exc:  # noqa: BLE001 - archive is best effort
+        result["reason"] = f"archive directory unavailable: {exc!r}"
+        return result
+
+    export_flag = getattr(resolve, "EXPORT_DRT", None)
+    if export_flag is None:
+        result["reason"] = "Resolve does not expose EXPORT_DRT"
+        return result
+
+    destination = archive_dir / f"{_recovery_archive_stem(timeline_name)}.drt"
+    try:
+        import tempfile
+
+        from library.tools.resolve_deadline import call_with_deadline
+
+        # Scratch is ignored by the project store. Export there first,
+        # then atomically replace the current per-reel archive only
+        # after Resolve returned success and left non-empty bytes.
+        with tempfile.TemporaryDirectory(
+                prefix="drt-recovery-", dir=scratch_dir) as temporary:
+            staged = Path(temporary) / destination.name
+            exported = call_with_deadline(
+                f"DRT recovery export for {label or timeline_name}",
+                timeline.Export, str(staged), export_flag,
+                timeout_s=30.0)
+            if not exported or not staged.is_file():
+                raise RuntimeError(
+                    f"Timeline.Export returned {exported!r} or left "
+                    "no .drt file")
+            if staged.stat().st_size == 0:
+                raise RuntimeError("Resolve left an empty .drt file")
+            os.replace(staged, destination)
+        result.update({"archived": True, "path": str(destination)})
+    except Exception as exc:  # noqa: BLE001 - preserve promotion
+        result["reason"] = f"DRT export failed: {exc!r}"
+    return result
+
+
 def _export_reel_recovery_archives(
         resolve, project, names: list[str], timelines: dict,
         fusion_comp_export: dict, project_folder: str) -> dict:
@@ -282,21 +346,6 @@ def _export_reel_recovery_archives(
     """
     report: dict = {"reels": {}, "files": [], "errors": []}
     comp_reels = fusion_comp_export.get("reels") or {}
-    try:
-        from library.tools.project_layout import Area, ProjectLayout
-
-        layout = ProjectLayout(project_folder)
-        archive_dir = (layout.write_dir(Area.REVIEW)
-                       / DRT_RECOVERY_DIRNAME)
-        archive_dir.mkdir(parents=True, exist_ok=True)
-        scratch_dir = layout.write_dir(Area.SCRATCH)
-    except Exception as exc:  # noqa: BLE001 - archive is best effort
-        for name in names:
-            reason = f"archive directory unavailable: {exc!r}"
-            report["reels"][name] = {"archived": False, "reason": reason}
-            report["errors"].append(f"{name}: {reason}")
-        return report
-
     export_flag = getattr(resolve, "EXPORT_DRT", None)
     for name in names:
         result = {"archived": False}
@@ -332,35 +381,14 @@ def _export_reel_recovery_archives(
             report["errors"].append(f"{name}: {reason}")
             continue
 
-        destination = archive_dir / f"{_recovery_archive_stem(name)}.drt"
-        try:
-            import tempfile
-
-            from library.tools.resolve_deadline import call_with_deadline
-
-            # Scratch is ignored by the project store. Export there first,
-            # then atomically replace the current per-reel archive only
-            # after Resolve returned success and left non-empty bytes.
-            with tempfile.TemporaryDirectory(
-                    prefix="drt-recovery-", dir=scratch_dir) as temporary:
-                staged = Path(temporary) / destination.name
-                exported = call_with_deadline(
-                    f"DRT recovery export for {name}",
-                    timelines[name].Export, str(staged), export_flag,
-                    timeout_s=30.0)
-                if not exported or not staged.is_file():
-                    raise RuntimeError(
-                        f"Timeline.Export returned {exported!r} or left "
-                        "no .drt file")
-                if staged.stat().st_size == 0:
-                    raise RuntimeError("Resolve left an empty .drt file")
-                os.replace(staged, destination)
-            result.update({"archived": True, "path": str(destination)})
-            report["files"].append(str(destination))
-        except Exception as exc:  # noqa: BLE001 - preserve promotion
-            reason = f"DRT export failed: {exc!r}"
-            result["reason"] = reason
-            report["errors"].append(f"{name}: {reason}")
+        archive = export_timeline_recovery_archive(
+            resolve, timelines[name], name, project_folder)
+        if archive["archived"]:
+            result.update({"archived": True, "path": archive["path"]})
+            report["files"].append(archive["path"])
+        else:
+            result["reason"] = archive["reason"]
+            report["errors"].append(f"{name}: {archive['reason']}")
     report["files"].sort()
     return report
 

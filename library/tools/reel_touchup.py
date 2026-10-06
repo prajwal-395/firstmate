@@ -2137,6 +2137,60 @@ def _plan_post_edit_counts(tracks: Sequence[Mapping],
     return counts
 
 
+def _cleanup_refused_staging(project, pool, staging, restore_to, receipt,
+                             project_folder, resolve_app=None) -> dict:
+    """A refused or failed touch cleans up its own staging.
+
+    The staging is a duplicate of the approved timeline, which still
+    stands under its own name - so the half-finished edit is exported
+    to the recovery archive the build uses (recoverable, not debris)
+    and then deleted, leaving the project's timeline count as the
+    touch found it.  The cursor goes back to what this touch found,
+    but only where this touch's own lease is what moved it onto the
+    staging; a cursor the captain moved mid-section is his, not ours
+    to move.
+
+    Export first, then delete: a staging whose `.drt` did not land is
+    LEFT STANDING, with the reason on the receipt, because the archive
+    is the only copy of the half-finished edit once the staging is
+    gone.  Returns the cleanup report.
+    """
+    from library.tools.reel_build import timelines_to_replace
+    from library.tools.versions import store as _store
+
+    found = timelines_to_replace(project, {staging})
+    if not found:
+        return {"staging": staging, "cleaned": False,
+                "reason": "the staging is no longer in the project"}
+    staged = found[0]
+    if resolve_app is None:
+        from library.tools.reel_build import _connect_resolve
+        resolve_app = _connect_resolve()
+    archive = _store.export_timeline_recovery_archive(
+        resolve_app, staged, staging, project_folder,
+        label=f"refused touch {staging}")
+    if not archive["archived"]:
+        return {
+            "staging": staging,
+            "cleaned": False,
+            "staging_left_standing": staging,
+            "reason": archive.get("reason", ""),
+            "archive": archive,
+        }
+    report: dict = {
+        "staging": staging,
+        "cleaned": True,
+        "archive": archive,
+    }
+    current = project.GetCurrentTimeline()
+    if (current is not None and restore_to is not None
+            and current.GetName() == staging):
+        project.SetCurrentTimeline(restore_to)
+        report["cursor_restored_to"] = restore_to.GetName()
+    pool.DeleteTimelines([staged])
+    return report
+
+
 def apply_touchup(project_folder: str, spec: Mapping,
                   resolve_project_name: str = "",
                   allow_drops=None,
@@ -2241,6 +2295,11 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
 
     project = connect(resolve_name)
     pool = project.GetMediaPool()
+    # What the cursor was when this touch found it, so a refused or
+    # failed one can put it back: the lease below moves it onto the
+    # approved timeline and then the staging, and a touch that refuses
+    # must leave the project - cursor included - as it found it.
+    pre_touch_current = project.GetCurrentTimeline()
     found = {t.GetName(): t for t in
              timelines_to_replace(project, {final})}
     if final not in found:
@@ -2383,10 +2442,23 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
                          accept_editor_changes, final, stage_started, journal,
                          resolve_app=resolve_app)
     except Exception as failed:
-        # The approved timeline still stands under its own name; the
-        # staging holds the half-done edit for diagnosis.  Delete
-        # nothing: a failed touchup must never widen into a loss.
-        receipt["staging_left_standing"] = staging
+        # A refused or failed touch cleans up after itself: its staging
+        # is a duplicate of the approved timeline, which still stands
+        # under its own name, so the half-finished edit is exported to
+        # the recovery archive and the staging deleted - the project
+        # left as the touch found it, cursor included.  The inventory
+        # below then reads a net-zero timeline count, which is the
+        # truth: this touch created and destroyed its own staging.
+        # The cleanup is best effort: a failure inside it is recorded
+        # on the receipt and the original refusal still propagates, with
+        # the journal and inventory steps below still run.
+        try:
+            receipt["staging_cleanup"] = _cleanup_refused_staging(
+                project, pool, staging,
+                pre_touch_current if pre_touch_current is not None else source,
+                receipt, project_folder, resolve_app=resolve_app)
+        except Exception as cleanup_failed:  # noqa: BLE001 - never mask
+            receipt["staging_cleanup_error"] = repr(cleanup_failed)
         if journal.get("status") == _journal.STATUS_OPEN:
             _journal.fail_entry(project_folder, journal, repr(failed))
         _provenance.finish_timeline_inventory(
