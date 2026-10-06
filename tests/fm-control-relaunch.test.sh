@@ -1602,6 +1602,89 @@ test_relaunch_does_not_disarm_a_live_pr_poll() {
   pass "fm-control relaunch: a live PR poll survives the replacement launch publication"
 }
 
+# Moving an opencode Go lane between workspaces keeps the model id and flips
+# the workspace marker; without the flag a relaunch preserves the recorded
+# workspace. The fixture opencode migrates the pin database and serves the
+# fixture login while the real sqlite3 does the seeding, so this case needs
+# sqlite3 and says so when it is absent.
+test_relaunch_opencode_workspace_moves_and_preserves_the_pin() {
+  local dir out rc datadir pins_before
+  command -v sqlite3 >/dev/null 2>&1 || {
+    pass "workspace pin moves need sqlite3 (absent here; live proof covers the real path)"
+    return 0
+  }
+  dir=$(new_case wspin wq1)
+  add_ship_task "$dir" wq1 opencode
+  printf 'model=%s\n' 'opencode-go/muse-spark-1.3-contributor' >> "$dir/home/state/wq1.meta"
+  printf 'opencode' > "$dir/fake/becomes"
+  printf 'zsh' > "$dir/fake/command"
+  mkdir -p "$dir/home/config"
+  printf '%s' 'org_01FIXTURESECONDARY00' > "$dir/home/config/opencode-second-org"
+  datadir="$dir/opencode-data"
+  mkdir -p "$datadir"
+  sqlite3 "$datadir/opencode.db" \
+    'CREATE TABLE account (id text PRIMARY KEY, email text NOT NULL, url text NOT NULL, access_token text NOT NULL, refresh_token text NOT NULL, token_expiry integer, time_created integer NOT NULL, time_updated integer NOT NULL);' \
+    || fail "the fixture login could not be built"
+  sqlite3 "$datadir/opencode.db" \
+    'CREATE TABLE account_state (id integer PRIMARY KEY, active_account_id text, active_org_id text);' \
+    || fail "the fixture login could not be built"
+  sqlite3 "$datadir/opencode.db" \
+    "INSERT INTO account VALUES('acc_01FIXTURE','fixture@example.invalid','https://opencode.ai/console','tok-access','tok-refresh',1893456000,1780000000,1780000000);" \
+    || fail "the fixture login could not be built"
+  sqlite3 "$datadir/opencode.db" \
+    "INSERT INTO account_state VALUES(1,'acc_01FIXTURE','wrk_01FIXTUREMAIN');" \
+    || fail "the fixture login could not be built"
+  cat > "$dir/fakebin/opencode" <<SH
+#!/usr/bin/env bash
+set -u
+if [ "\${1:-}" = debug ] && [ "\${2:-}" = config ]; then
+  [ -n "\${OPENCODE_DB:-}" ] || exit 1
+  sqlite3 "\$OPENCODE_DB" 'CREATE TABLE IF NOT EXISTS account (id text PRIMARY KEY, email text NOT NULL, url text NOT NULL, access_token text NOT NULL, refresh_token text NOT NULL, token_expiry integer, time_created integer NOT NULL, time_updated integer NOT NULL);' || exit 1
+  sqlite3 "\$OPENCODE_DB" 'CREATE TABLE IF NOT EXISTS account_state (id integer PRIMARY KEY, active_account_id text, active_org_id text);' || exit 1
+  exit 0
+fi
+if [ "\${1:-}" = debug ] && [ "\${2:-}" = paths ]; then
+  printf 'data %s\n' "$datadir"
+  exit 0
+fi
+exit 1
+SH
+  chmod +x "$dir/fakebin/opencode"
+
+  export FM_FAKE_OPENCODE_DATA="$datadir"
+  out=$(run_control "$dir" wq1 relaunch --harness opencode \
+    --model opencode-go/muse-spark-1.3-contributor \
+    --opencode-workspace secondary --note "descending to the second workspace"); rc=$?
+  expect_code 0 "$rc" "a workspace move should relaunch"$'\n'"$out"
+  [ "$(meta_field "$dir" wq1 opencode_workspace)" = secondary ] \
+    || fail "the move must be written to the durable record"
+  assert_grep "OPENCODE_DB='$dir/home/config/opencode-second.db'" "$dir/fake/literal" \
+    "the replacement launch must carry the pinned database"
+  unset FM_FAKE_OPENCODE_DATA
+
+  export FM_FAKE_OPENCODE_DATA="$datadir"
+  out=$(run_control "$dir" wq1 relaunch --harness opencode \
+    --model opencode-go/muse-spark-1.3-contributor \
+    --note "routine respawn keeps the workspace"); rc=$?
+  expect_code 0 "$rc" "a flagless relaunch should preserve the pin"$'\n'"$out"
+  [ "$(meta_field "$dir" wq1 opencode_workspace)" = secondary ] \
+    || fail "a flagless relaunch must preserve the recorded workspace"
+  unset FM_FAKE_OPENCODE_DATA
+
+  pins_before=$(grep -c "OPENCODE_DB=" "$dir/fake/literal")
+  export FM_FAKE_OPENCODE_DATA="$datadir"
+  out=$(run_control "$dir" wq1 relaunch --harness opencode \
+    --model opencode-go/muse-spark-1.3-contributor \
+    --opencode-workspace main --note "moving back"); rc=$?
+  expect_code 0 "$rc" "a move back to main should relaunch"$'\n'"$out"
+  unset FM_FAKE_OPENCODE_DATA
+  [ "$(meta_field "$dir" wq1 opencode_workspace)" = "" ] \
+    || fail "moving back to main must clear the marker"
+  [ "$(grep -c "OPENCODE_DB=" "$dir/fake/literal")" = "$pins_before" ] \
+    || fail "the main-workspace replacement must launch unpinned"
+  pass "fm-control relaunch: --opencode-workspace moves the pin and its absence preserves it"
+}
+
 test_same_harness_relaunch_keeps_identity_and_reuses_the_endpoint
 test_relaunch_from_linked_home_preserves_recorded_worktree
 test_relaunch_preserves_durable_task_metadata
@@ -1656,3 +1739,4 @@ test_spawn_relaunch_refuses_a_pane_outside_the_worktree
 test_relaunch_reverifies_an_already_in_flight_item_instead_of_rewriting_it
 test_relaunch_moves_a_drifted_item_back_in_flight
 test_relaunch_does_not_disarm_a_live_pr_poll
+test_relaunch_opencode_workspace_moves_and_preserves_the_pin

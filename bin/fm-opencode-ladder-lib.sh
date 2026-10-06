@@ -4,20 +4,28 @@
 # Sourced by bin/fm-spawn.sh. Sourcing has no side effects beyond the rung
 # constants below.
 #
-# THE POLICY. The standing rule for opencode dispatch is a fixed three-rung
-# ladder: free, Codex Plus (gpt-6-luna at the configured Codex profile effort,
-# falling back to xhigh), then paid Go. Work runs
-# on free first; new spawns fall through only when the preceding rung is
-# exhausted. The rungs are stated once, here, as constants - there is
-# no config order to derive, because the order is fixed by economics rather
-# than ranked by the captain.
+# THE POLICY. The standing rule for opencode dispatch is a fixed ladder:
+# free, Codex Plus (gpt-6-luna at the configured Codex profile effort,
+# falling back to xhigh), then paid Go, then paid Go on the second workspace.
+# Work runs on free first; new spawns fall through only when the preceding
+# rung is exhausted. Order is exhaustion, not load balancing: a spawn reaches
+# the fourth rung only when the first Go rung has a proven, unexpired cap.
+# The fourth rung exists only when a second workspace is configured
+# (bin/fm-opencode-second-lib.sh); without one the ladder is three rungs,
+# byte-for-byte what it was. The rungs are stated once, here, as constants -
+# there is no config order to derive, because the order is fixed by economics
+# rather than ranked by the captain.
 #
 # QUOTA SOURCES. OpenCode free is reactive because quota-axi has no free row:
 # bin/fm-opencode-retry.sh records the vendor retry horizon and the pane-text
 # detector covers an idle refusal. Codex and OpenCode Go use fresh known zero
-# quota rows only when quota-axi supplies a valid reset timestamp; Go also
-# accepts reactive vendor evidence. All durable reset records use the same
-# state/.opencode-cap-<rung> store and become eligible exactly at reset.
+# quota rows only when quota-axi supplies a valid reset timestamp; the first
+# Go rung also accepts reactive vendor evidence, while the second Go rung is
+# reactive-only because quota-axi's single opencode-go row has no workspace
+# dimension (bin/fm-opencode-second-lib.sh). All durable reset records use
+# the same state/.opencode-cap-<rung> store and become eligible exactly at
+# reset. Each Go workspace keeps its own cap record and reset time, so
+# capping one never marks the other capped.
 #
 # RESET LIFECYCLE. Vendor retry `next` and quota-axi `resetsAt` are written as
 # epoch milliseconds by bin/fm-opencode-retry.sh. A cap stops applying at that
@@ -39,8 +47,9 @@
 #
 # FAILURE DIRECTION. Unknown or stale quota data never counts as exhaustion.
 # A free cap may fall through despite an absent model binding; a destination
-# rung with its own unexpired cap is skipped. If all three are capped, return 3
-# marks proven exhaustion so fm-spawn can try a declared default fallback; when
+# rung with its own unexpired cap is skipped. If every rung is capped -
+# three without a second workspace, four with one - return 3 marks proven
+# exhaustion so fm-spawn can try a declared default fallback; when
 # none exists, dispatch is refused with every rung and reset time named.
 #
 # THE OVERRIDE. FM_OPENCODE_LADDER_OVERRIDE, set to a non-empty reason, holds
@@ -99,6 +108,12 @@ FM_OPENCODE_LADDER_FREE_RUNG='free'
 FM_OPENCODE_LADDER_GO_RUNG='go'
 # shellcheck disable=SC2034 # Static consumer in fm-opencode-retry.sh reads this rung name.
 FM_OPENCODE_LADDER_PLUS_RUNG='plus'
+# The second Go workspace rung. `go-second` keeps its own cap record
+# (state/.opencode-cap-go-second), written only from reactive vendor evidence
+# on lanes the task meta pins to that workspace. bin/fm-opencode-retry.sh
+# reads this line as part of the accepted set - that static read is the use.
+# shellcheck disable=SC2034
+FM_OPENCODE_LADDER_GO_SECOND_RUNG='go-second'
 
 # quota-axi exhaustion is deliberately strict: fresh known zero availability
 # plus a valid future reset records a durable cap. Unknown or stale readings do
@@ -131,7 +146,7 @@ fm_opencode_ladder_quota_caps() {  # <state-dir>
 }
 
 fm_opencode_ladder_go_reactive_capped() {  # <state-dir>
-  local state_dir=$1 f id out status horizon model go_bare model_bare
+  local state_dir=$1 f id out status horizon model go_bare model_bare lane_ws
   [ -d "$state_dir" ] || return 1
   if out=$("$_FM_OPENCODE_LADDER_RETRY" check-cap "$state_dir" go 2>/dev/null); then
     case "$out" in *'status=blocked'*) return 0 ;; esac
@@ -140,6 +155,11 @@ fm_opencode_ladder_go_reactive_capped() {  # <state-dir>
   for f in "$state_dir"/*.opencode-retry; do
     [ -e "$f" ] || continue
     id=${f##*/}; id=${id%.opencode-retry}
+    # A secondary-workspace lane's evidence belongs to the fourth rung, never
+    # to the main Go rung: without the split one capped workspace would mark
+    # the other capped. Lanes with no marker read as main, exactly as today.
+    lane_ws=$(fm_opencode_lane_workspace "$state_dir" "$id" 2>/dev/null) || lane_ws=$FM_OPENCODE_WORKSPACE_MAIN
+    [ "$lane_ws" = "$FM_OPENCODE_WORKSPACE_SECOND" ] && continue
     out=$("$_FM_OPENCODE_LADDER_RETRY" check "$state_dir" "$id" 2>/dev/null) || continue
     status=''; horizon=''; model=''
     for word in $out; do
@@ -154,6 +174,62 @@ fm_opencode_ladder_go_reactive_capped() {  # <state-dir>
     fi
   done
   return 1
+}
+
+# fm_opencode_ladder_go_second_reactive_capped: the fourth rung's reactive
+# verdict. A blocked sidecar bound to the Go tier on a secondary-workspace
+# lane preserves a go-second rung cap; the rung's own record also counts, so
+# a cap outlives its discovering lane. Returns 0 when the fourth rung is
+# proven capped, 1 otherwise. The second workspace has no quota-axi row, so
+# this reactive evidence is the whole of the fourth rung's exhaustion signal.
+fm_opencode_ladder_go_second_reactive_capped() {  # <state-dir>
+  local state_dir=$1 f id out status horizon model go_bare model_bare lane_ws
+  [ -d "$state_dir" ] || return 1
+  if out=$("$_FM_OPENCODE_LADDER_RETRY" check-cap "$state_dir" "$FM_OPENCODE_LADDER_GO_SECOND_RUNG" 2>/dev/null); then
+    case "$out" in *'status=blocked'*) return 0 ;; esac
+  fi
+  go_bare=$(fm_opencode_ladder_bare_model "$FM_OPENCODE_LADDER_GO")
+  for f in "$state_dir"/*.opencode-retry; do
+    [ -e "$f" ] || continue
+    id=${f##*/}; id=${id%.opencode-retry}
+    lane_ws=$(fm_opencode_lane_workspace "$state_dir" "$id" 2>/dev/null) || continue
+    [ "$lane_ws" = "$FM_OPENCODE_WORKSPACE_SECOND" ] || continue
+    out=$("$_FM_OPENCODE_LADDER_RETRY" check "$state_dir" "$id" 2>/dev/null) || continue
+    status=''; horizon=''; model=''
+    for word in $out; do
+      case "$word" in status=*) status=${word#status=} ;; horizon_s=*) horizon=${word#horizon_s=} ;; model=*) model=${word#model=} ;; esac
+    done
+    [ "$status" = blocked ] || continue
+    case "$horizon" in ''|*[!0-9]*) continue ;; esac
+    model_bare=$(fm_opencode_ladder_bare_model "$model")
+    if [ "$model_bare" = "$go_bare" ]; then
+      "$_FM_OPENCODE_LADDER_RETRY" record-cap "$state_dir" "$FM_OPENCODE_LADDER_GO_SECOND_RUNG" "$((($(date +%s) + horizon) * 1000))" 2>/dev/null || true
+      return 0
+    fi
+  done
+  return 1
+}
+
+# fm_opencode_ladder_go_main_capped: is the first Go rung proven capped on
+# the CURRENT evidence in <state-dir>? Reactive vendor evidence on
+# main-workspace lanes, or the rung's own unexpired record.
+fm_opencode_ladder_go_main_capped() {  # <state-dir>
+  local state_dir=$1
+  fm_opencode_ladder_go_reactive_capped "$state_dir" && return 0
+  [ "$("$_FM_OPENCODE_LADDER_RETRY" check-cap "$state_dir" "$FM_OPENCODE_LADDER_GO_RUNG" 2>/dev/null | sed -n 's/^status=//p')" = blocked ]
+}
+
+# fm_opencode_ladder_go_second_ready: is the fourth rung the live one for a
+# new spawn? All three require: a second workspace is configured, the first
+# Go rung has a proven unexpired cap, and the fourth rung is itself uncapped.
+# Absence of a configured second workspace reads as not-ready, which keeps
+# the ladder at three rungs.
+fm_opencode_ladder_go_second_ready() {  # <state-dir> [config-dir]
+  local state_dir=$1
+  fm_opencode_second_configured "${2:-}" || return 1
+  fm_opencode_ladder_go_main_capped "$state_dir" || return 1
+  fm_opencode_ladder_go_second_reactive_capped "$state_dir" && return 1
+  return 0
 }
 
 fm_opencode_ladder_plus_capped() {  # <state-dir>
@@ -174,6 +250,13 @@ _FM_OPENCODE_LADDER_RETRY="$_FM_OPENCODE_LADDER_LIB_DIR/fm-opencode-retry.sh"
 # shellcheck source=/dev/null
 if ! declare -f fm_backend_capture >/dev/null 2>&1; then
   . "$_FM_OPENCODE_LADDER_LIB_DIR/fm-backend.sh"
+fi
+# The second-workspace pin (workspace config, pinned database, lane markers).
+# Guarded like every other shared source here: callers on the dispatch path
+# (bin/fm-spawn.sh) load it before this file.
+# shellcheck source=/dev/null
+if ! declare -f fm_opencode_second_org >/dev/null 2>&1; then
+  . "$_FM_OPENCODE_LADDER_LIB_DIR/fm-opencode-second-lib.sh"
 fi
 
 # Lines of rendered pane tail handed to the detector for the idle shape.
@@ -368,13 +451,13 @@ fm_opencode_ladder_free_capped() {  # <state-dir>
 }
 
 # fm_opencode_ladder_model: the model id a launch with <requested> should run.
-# Prints exactly one line - the effective model id - on stdout. All three
-# governed requests pass through the same ordered cap gate. Returns 3 only when
+# Prints exactly one line - the effective model id - on stdout. All governed
+# requests pass through the same ordered cap gate. Returns 3 only when
 # every default ladder rung is proven capped; callers may then consult the
 # separately declared exhausted-ladder fallback. Other refusals return 1.
 fm_opencode_ladder_model() {  # <requested> <state-dir>
   local requested=${1:-} state_dir=${2:-} cap='' horizon='' bound=''
-  local word free_capped=0 plus_capped=0 go_capped=0
+  local word free_capped=0 plus_capped=0 go_capped=0 second_capped=0 second_ready=0
   if [ -z "$requested" ] || [ "$requested" = default ]; then
     requested=$FM_OPENCODE_LADDER_FREE
   fi
@@ -408,7 +491,14 @@ fm_opencode_ladder_model() {  # <requested> <state-dir>
     explicit_plus_cap=$("$_FM_OPENCODE_LADDER_RETRY" check-cap "$state_dir" "$FM_OPENCODE_LADDER_PLUS_RUNG" 2>/dev/null) || explicit_plus_cap=
     case "$explicit_plus_cap" in *'status=blocked'*)
       explicit_go_cap=$("$_FM_OPENCODE_LADDER_RETRY" check-cap "$state_dir" "$FM_OPENCODE_LADDER_GO_RUNG" 2>/dev/null) || explicit_go_cap=
-      case "$explicit_go_cap" in *'status=blocked'*) printf 'error: requested Codex Plus and Go rungs are capped\n' >&2; return 1 ;; esac
+      case "$explicit_go_cap" in *'status=blocked'*)
+        if fm_opencode_ladder_go_second_ready "$state_dir"; then
+          printf '%s\n' "$FM_OPENCODE_LADDER_GO"
+          printf 'notice: opencode ladder: Codex Plus and Go are capped; dispatching on Go %s on the second workspace\n' "$FM_OPENCODE_LADDER_GO" >&2
+          return 0
+        fi
+        printf 'error: requested Codex Plus and Go rungs are capped\n' >&2; return 1 ;;
+      esac
       printf '%s\n' "$FM_OPENCODE_LADDER_GO"
       printf 'notice: opencode ladder: Codex Plus is capped; dispatching on Go %s\n' "$FM_OPENCODE_LADDER_GO" >&2
       return 0 ;;
@@ -424,16 +514,30 @@ fm_opencode_ladder_model() {  # <requested> <state-dir>
     esac
   fi
   fm_opencode_ladder_plus_capped "$state_dir" && plus_capped=1
-  { fm_opencode_ladder_go_reactive_capped "$state_dir" ||
-    [ "$("$_FM_OPENCODE_LADDER_RETRY" check-cap "$state_dir" "$FM_OPENCODE_LADDER_GO_RUNG" 2>/dev/null | sed -n 's/^status=//p')" = blocked ]; } && go_capped=1
+  fm_opencode_ladder_go_main_capped "$state_dir" && go_capped=1
+  # The fourth rung's reactive scan runs for its preservation side effect
+  # whenever a second workspace is configured - even while the main Go rung
+  # is uncapped and routing stays there - so a proven secondary cap is
+  # recorded when observed, not only once the main rung caps. Without a
+  # configured second workspace nothing here runs at all.
+  if fm_opencode_second_configured; then
+    fm_opencode_ladder_go_second_reactive_capped "$state_dir" && second_capped=1
+    [ "$go_capped" -eq 1 ] && [ "$second_capped" -eq 0 ] && second_ready=1
+  fi
   [ "$free_capped" -eq 1 ] || { printf '%s\n' "$FM_OPENCODE_LADDER_FREE"; return 0; }
-  if [ "$plus_capped" -eq 1 ] && [ "$go_capped" -eq 1 ] && [ -z "${FM_OPENCODE_LADDER_OVERRIDE:-}" ]; then
+  if [ "$plus_capped" -eq 1 ] && [ "$go_capped" -eq 1 ] && [ "$second_ready" -eq 0 ] && [ -z "${FM_OPENCODE_LADDER_OVERRIDE:-}" ]; then
     local free_until plus_until go_until
     free_until=$("$_FM_OPENCODE_LADDER_RETRY" check-cap "$state_dir" "$FM_OPENCODE_LADDER_FREE_RUNG" 2>/dev/null | sed -n 's/.*reset_at=//p')
     plus_until=$("$_FM_OPENCODE_LADDER_RETRY" check-cap "$state_dir" "$FM_OPENCODE_LADDER_PLUS_RUNG" 2>/dev/null | sed -n 's/.*reset_at=//p')
     go_until=$("$_FM_OPENCODE_LADDER_RETRY" check-cap "$state_dir" "$FM_OPENCODE_LADDER_GO_RUNG" 2>/dev/null | sed -n 's/.*reset_at=//p')
-    printf 'error: opencode ladder exhausted: free capped until %s; Codex Plus capped until %s; Go capped until %s\n' \
+    printf 'error: opencode ladder exhausted: free capped until %s; Codex Plus capped until %s; Go capped until %s' \
       "${free_until:-unknown}" "${plus_until:-unknown}" "${go_until:-unknown}" >&2
+    if fm_opencode_second_configured; then
+      local go_second_until
+      go_second_until=$("$_FM_OPENCODE_LADDER_RETRY" check-cap "$state_dir" "$FM_OPENCODE_LADDER_GO_SECOND_RUNG" 2>/dev/null | sed -n 's/.*reset_at=//p')
+      printf '; Go (second workspace) capped until %s' "${go_second_until:-unknown}" >&2
+    fi
+    printf '\n' >&2
     return 3
   fi
   if [ -n "${FM_OPENCODE_LADDER_OVERRIDE:-}" ]; then
@@ -457,6 +561,11 @@ fm_opencode_ladder_model() {  # <requested> <state-dir>
   if [ "$go_capped" -eq 0 ]; then
     printf '%s\n' "$FM_OPENCODE_LADDER_GO"
     printf 'notice: opencode ladder: free and Codex Plus are capped; dispatching on Go %s\n' "$FM_OPENCODE_LADDER_GO" >&2
+    return 0
+  fi
+  if [ "$second_ready" -eq 1 ]; then
+    printf '%s\n' "$FM_OPENCODE_LADDER_GO"
+    printf 'notice: opencode ladder: free, Codex Plus, and Go are capped; dispatching on Go %s on the second workspace\n' "$FM_OPENCODE_LADDER_GO" >&2
     return 0
   fi
 }

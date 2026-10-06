@@ -6,6 +6,7 @@
 #        fm-control.sh <task-id> exit [--reason <text>]
 #        fm-control.sh <task-id> relaunch [--harness <name>] [--model <name>]
 #                                         [--effort <level>]
+#                                         [--opencode-workspace <main|secondary>]
 #                                         (--note <text> | --note-file <path>)
 #        fm-control.sh <task-id> rebind
 #        fm-control.sh <task-id> repair-posture
@@ -45,7 +46,11 @@
 #   relaunch   Transactionally replace the running agent with a new one, in the
 #              SAME worktree, on the same or a newly chosen
 #              harness/model/effort - so switching harness is one ordinary use
-#              of this verb. The endpoint is reused when it is still there;
+#              of this verb. --opencode-workspace moves an opencode Go lane
+#              between the main and second workspace without changing its model
+#              id (bin/fm-opencode-second-lib.sh owns the pin); without the
+#              flag the replacement keeps the workspace already recorded for
+#              the task. The endpoint is reused when it is still there;
 #              when the recorded one is provably gone, the launch owner creates
 #              a replacement in the recorded worktree and publishes it, and
 #              every postcondition here is then read from that published
@@ -244,9 +249,11 @@ fi
 NEW_HARNESS=
 NEW_MODEL=
 NEW_EFFORT=
+NEW_WORKSPACE=
 HARNESS_SET=0
 MODEL_SET=0
 EFFORT_SET=0
+WORKSPACE_SET=0
 NOTE=
 NOTE_SET=0
 REASON=
@@ -261,6 +268,7 @@ for control_arg in "$@"; do
       harness) NEW_HARNESS=$control_arg; HARNESS_SET=1 ;;
       model) NEW_MODEL=$control_arg; MODEL_SET=1 ;;
       effort) NEW_EFFORT=$control_arg; EFFORT_SET=1 ;;
+      opencode-workspace) NEW_WORKSPACE=$control_arg; WORKSPACE_SET=1 ;;
       note) NOTE=$control_arg; NOTE_SET=1 ;;
       note_file)
         [ -f "$control_arg" ] || die "--note-file '$control_arg' is not a readable file"
@@ -281,6 +289,8 @@ for control_arg in "$@"; do
     --model=*) NEW_MODEL=${control_arg#--model=}; MODEL_SET=1 ;;
     --effort) control_want_value=effort ;;
     --effort=*) NEW_EFFORT=${control_arg#--effort=}; EFFORT_SET=1 ;;
+    --opencode-workspace) control_want_value=opencode-workspace ;;
+    --opencode-workspace=*) NEW_WORKSPACE=${control_arg#--opencode-workspace=}; WORKSPACE_SET=1 ;;
     --note) control_want_value=note ;;
     --note=*) NOTE=${control_arg#--note=}; NOTE_SET=1 ;;
     --note-file) control_want_value=note_file ;;
@@ -298,8 +308,8 @@ if [ -n "$control_want_value" ]; then
 fi
 
 if [ "$VERB" != relaunch ]; then
-  [ "$HARNESS_SET" = 0 ] && [ "$MODEL_SET" = 0 ] && [ "$EFFORT_SET" = 0 ] && [ "$NOTE_SET" = 0 ] \
-    || die "--harness, --model, --effort, and --note apply to 'relaunch' only"
+  [ "$HARNESS_SET" = 0 ] && [ "$MODEL_SET" = 0 ] && [ "$EFFORT_SET" = 0 ] && [ "$NOTE_SET" = 0 ] && [ "$WORKSPACE_SET" = 0 ] \
+    || die "--harness, --model, --effort, --opencode-workspace, and --note apply to 'relaunch' only"
 fi
 if [ "$VERB" = repair-posture ]; then
   [ "$#" -eq 0 ] || die "repair-posture does not accept arguments"
@@ -314,6 +324,10 @@ fi
 case "$NEW_EFFORT" in
   ''|default|low|medium|high|xhigh|max|ultra) ;;
   *) die "--effort must be one of default, low, medium, high, xhigh, max, ultra" ;;
+esac
+case "$NEW_WORKSPACE" in
+  ''|main|secondary) ;;
+  *) die "--opencode-workspace must be main or secondary (got '$NEW_WORKSPACE')" ;;
 esac
 
 # --- exact task-id resolution ----------------------------------------------
@@ -971,6 +985,7 @@ do_relaunch() {
   spawn_args=("$ID" --relaunch --harness "$TARGET_HARNESS")
   [ "$TARGET_MODEL" = default ] || spawn_args+=(--model "$TARGET_MODEL")
   [ "$TARGET_EFFORT" = default ] || spawn_args+=(--effort "$TARGET_EFFORT")
+  [ "$WORKSPACE_SET" = 0 ] || spawn_args+=(--opencode-workspace "$NEW_WORKSPACE")
   if FM_CONTROL_RELAUNCH_TX="$RELAUNCH_TX" \
       "$SCRIPT_DIR/fm-spawn.sh" "${spawn_args[@]}" >/dev/null; then
     RELAUNCH_META_PUBLISHED=1

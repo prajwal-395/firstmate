@@ -80,6 +80,13 @@ export -n AI_GATEWAY_API_KEY_PRIVATE 2>/dev/null || true
 unset AI_GATEWAY_API_KEY
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if ! declare -f fm_opencode_second_configured >/dev/null 2>&1; then
+  # The second-workspace predicate for the fallback cap listing below;
+  # guarded like every other shared source.
+  # shellcheck source=/dev/null
+  . "$SCRIPT_DIR/fm-opencode-second-lib.sh"
+fi
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-$FM_ROOT}"
 CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
@@ -606,4 +613,16 @@ for rung in free plus go; do
       ;;
   esac
 done
+# The fourth rung reports only when it exists: without a configured second
+# workspace the listing above is the whole ladder, exactly as before.
+if fm_opencode_second_configured "$CONFIG" 2>/dev/null; then
+  cap=$("$SCRIPT_DIR/fm-opencode-retry.sh" check-cap "$STATE" go-second 2>/dev/null) || cap=
+  case "$cap" in
+    *'status=blocked'*)
+      reset_at=$(printf '%s\n' "$cap" | sed -n 's/.*reset_at=//p')
+      reset_iso=$(jq -nr --arg reset "$reset_at" 'try ($reset | tonumber | gmtime | strftime("%Y-%m-%dT%H:%M:%SZ")) catch "unknown"' 2>/dev/null)
+      printf '  cap: %s capped until %s\n' 'OpenCode Go (second workspace)' "${reset_iso:-unknown}"
+      ;;
+  esac
+fi
 exit 0

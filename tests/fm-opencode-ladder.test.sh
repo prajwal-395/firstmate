@@ -782,6 +782,152 @@ JSON
   pass "rung records skip Codex until reset and use it again afterward"
 }
 
+# --- second Go workspace (fourth rung) -----------------------------------------
+# The fourth rung exists only with config/opencode-second-org: a new spawn
+# reaches it only when the first Go rung holds a proven, unexpired cap, each
+# workspace keeps its own cap record, and exhaustion fires only once all four
+# are capped. Model ids are identical on both Go rungs
+# (opencode-go/muse-spark-1.3-contributor); the lane's task-meta marker is
+# what binds reactive evidence to a workspace.
+
+second_config() {  # <name> -> config dir with a second workspace
+  local dir="$TMP_ROOT/cfg-$1"
+  rm -rf "$dir"
+  mkdir -p "$dir"
+  printf '%s' 'org_01FIXTURESECONDARY00' > "$dir/opencode-second-org"
+  printf '%s\n' "$dir"
+}
+
+empty_config() {  # <name> -> config dir with no second workspace
+  local dir="$TMP_ROOT/cfg-$1"
+  rm -rf "$dir"
+  mkdir -p "$dir"
+  printf '%s\n' "$dir"
+}
+
+cap_three_rungs() {  # <state-dir>: proven caps on free, Codex Plus, and Go
+  local state=$1
+  "$HELPER" record-cap "$state" free "$(ms_from_now 78840)" || fail "record refused free cap"
+  "$HELPER" record-cap "$state" plus "$(ms_from_now 78840)" || fail "record refused Plus cap"
+  "$HELPER" record-cap "$state" go "$(ms_from_now 78840)" || fail "record refused Go cap"
+}
+
+test_go_capped_routes_to_second_workspace() {
+  local state out cfg
+  state=$(fresh_state second-route)
+  cfg=$(second_config route)
+  cap_three_rungs "$state"
+  out=$(FM_CONFIG_OVERRIDE="$cfg" run_gate "$state" "$FREE") || fail "a live fourth rung must accept the spawn, said: $out"
+  split_gate "$out"
+  [ "$GOT" = "$GO" ] || fail "a capped Go rung must route to Go on the second workspace, got '$GOT'"
+  case "$NOTE" in *'second workspace'*) : ;; *) fail "the fourth-rung route must say so: ${NOTE:-<silent>}" ;; esac
+  pass "a capped Go rung routes the next spawn to the second workspace"
+}
+
+test_fourth_rung_exhaustion_refuses() {
+  local state note got rc cfg
+  state=$(fresh_state second-out)
+  cfg=$(second_config out)
+  cap_three_rungs "$state"
+  "$HELPER" record-cap "$state" go-second "$(ms_from_now 78840)" || fail "record refused fourth-rung cap"
+  note=$(mktemp "$TMP_ROOT/second-out.XXXXXX")
+  got=$(FM_CONFIG_OVERRIDE="$cfg" PATH="$QUOTA_BIN:$PATH" fm_opencode_ladder_model "$FREE" "$state" 2>"$note")
+  rc=$?
+  [ "$rc" = 3 ] || fail "four-rung exhaustion must return 3, returned $rc (got '$got')"
+  case "$(cat "$note")" in *'Go (second workspace) capped until'*) : ;; *) fail "refusal must name the fourth reset time: $(cat "$note")" ;; esac
+  pass "all four capped rungs refuse with every reset time named"
+}
+
+test_second_rung_cap_never_marks_main_go() {
+  local state out cfg
+  state=$(fresh_state second-alone)
+  cfg=$(second_config alone)
+  "$HELPER" record-cap "$state" free "$(ms_from_now 78840)" || fail "record refused free cap"
+  "$HELPER" record-cap "$state" plus "$(ms_from_now 78840)" || fail "record refused Plus cap"
+  "$HELPER" record-cap "$state" go-second "$(ms_from_now 78840)" || fail "record refused fourth-rung cap"
+  out=$(FM_CONFIG_OVERRIDE="$cfg" run_gate "$state" "$FREE") || fail "an uncapped main Go rung must accept the spawn"
+  split_gate "$out"
+  [ "$GOT" = "$GO" ] || fail "an uncapped main Go rung must route to Go, got '$GOT'"
+  case "$NOTE" in *'second workspace'*) fail "a main-Go route must not mention the second workspace: $NOTE" ;; esac
+  pass "a fourth-rung cap never marks the main Go rung capped"
+}
+
+test_secondary_lane_evidence_feeds_fourth_rung() {
+  local state out cfg
+  state=$(fresh_state second-reactive)
+  cfg=$(second_config reactive)
+  "$HELPER" record-cap "$state" free "$(ms_from_now 78840)" || fail "record refused free cap"
+  "$HELPER" record-cap "$state" plus "$(ms_from_now 78840)" || fail "record refused Plus cap"
+  write_lane_meta "$state" seclane "$GO"
+  printf '%s\n' 'opencode_workspace=secondary' >> "$state/seclane.meta"
+  record_cap "$state" seclane 78840 "$GO_BARE" || fail "record refused the secondary lane observation"
+  out=$(FM_CONFIG_OVERRIDE="$cfg" run_gate "$state" "$FREE") || fail "gate must run the reactive split"
+  split_gate "$out"
+  [ "$GOT" = "$GO" ] || fail "the gate must still route Go, got '$GOT'"
+  [ -f "$state/.opencode-cap-go-second" ] || fail "secondary-lane evidence must preserve a fourth-rung cap"
+  [ ! -f "$state/.opencode-cap-go" ] || fail "secondary-lane evidence must not mark the main Go rung capped"
+  case "$NOTE" in *'second workspace'*) fail "with main Go uncapped the route stays on the main rung: $NOTE" ;; esac
+  pass "reactive evidence on a secondary lane feeds the fourth rung only"
+}
+
+test_main_lane_evidence_feeds_main_go() {
+  local state out cfg
+  state=$(fresh_state main-reactive)
+  cfg=$(second_config mainreactive)
+  "$HELPER" record-cap "$state" free "$(ms_from_now 78840)" || fail "record refused free cap"
+  "$HELPER" record-cap "$state" plus "$(ms_from_now 78840)" || fail "record refused Plus cap"
+  write_lane_meta "$state" mainlane "$GO"
+  record_cap "$state" mainlane 78840 "$GO_BARE" || fail "record refused the main lane observation"
+  out=$(FM_CONFIG_OVERRIDE="$cfg" run_gate "$state" "$FREE") || fail "gate must run the reactive split"
+  split_gate "$out"
+  [ "$GOT" = "$GO" ] || fail "the gate must route Go, got '$GOT'"
+  [ -f "$state/.opencode-cap-go" ] || fail "main-lane evidence must preserve a main Go cap"
+  [ ! -f "$state/.opencode-cap-go-second" ] || fail "main-lane evidence must not mark the fourth rung capped"
+  case "$NOTE" in *'second workspace'*) : ;; *) fail "a capped main Go rung must route to the second workspace: ${NOTE:-<silent>}" ;; esac
+  pass "reactive evidence on a main lane feeds the main Go rung only"
+}
+
+test_explicit_go_refuses_despite_live_second_rung() {
+  local state note got cfg
+  state=$(fresh_state explicit-go-second)
+  cfg=$(second_config explicitgo)
+  cap_three_rungs "$state"
+  note=$(mktemp "$TMP_ROOT/explicit-go-second.XXXXXX")
+  got=$(FM_CONFIG_OVERRIDE="$cfg" PATH="$QUOTA_BIN:$PATH" fm_opencode_ladder_model "$GO" "$state" 2>"$note")
+  rc=$?
+  [ "$rc" = 1 ] || fail "an explicit Go request must refuse with 1 past a proven cap, returned $rc (got '$got')"
+  case "$(cat "$note")" in *'requested Go rung is capped'*) : ;; *) fail "explicit Go refusal must name the requested rung: $(cat "$note")" ;; esac
+  pass "an explicit Go request refuses past a proven cap even with a live fourth rung"
+}
+
+test_plus_request_falls_to_second_workspace() {
+  local state out cfg
+  state=$(fresh_state plus-second)
+  cfg=$(second_config plussecond)
+  "$HELPER" record-cap "$state" plus "$(ms_from_now 78840)" || fail "record refused Plus cap"
+  "$HELPER" record-cap "$state" go "$(ms_from_now 78840)" || fail "record refused Go cap"
+  out=$(FM_CONFIG_OVERRIDE="$cfg" run_gate "$state" gpt-6-luna) || fail "a live fourth rung must accept the Plus request"
+  split_gate "$out"
+  [ "$GOT" = "$GO" ] || fail "capped Plus and Go must fall to the second workspace, got '$GOT'"
+  case "$NOTE" in *'second workspace'*) : ;; *) fail "the fourth-rung route must say so: ${NOTE:-<silent>}" ;; esac
+  pass "a capped Plus request falls through Go to the second workspace"
+}
+
+test_unconfigured_exhaustion_ignores_second_record() {
+  local state note got rc cfg
+  state=$(fresh_state second-compat)
+  cfg=$(empty_config compat)
+  cap_three_rungs "$state"
+  "$HELPER" record-cap "$state" go-second "$(ms_from_now 78840)" || fail "record refused fourth-rung cap"
+  note=$(mktemp "$TMP_ROOT/second-compat.XXXXXX")
+  got=$(FM_CONFIG_OVERRIDE="$cfg" PATH="$QUOTA_BIN:$PATH" fm_opencode_ladder_model "$FREE" "$state" 2>"$note")
+  rc=$?
+  [ "$rc" = 3 ] || fail "three-rung exhaustion must return 3, returned $rc (got '$got')"
+  case "$(cat "$note")" in *'second workspace'*) fail "unconfigured refusal must not mention the fourth rung: $(cat "$note")" ;; esac
+  case "$(cat "$note")" in *'free capped until'*'Codex Plus capped until'*'Go capped until'*) : ;; *) fail "refusal must name the three reset times: $(cat "$note")" ;; esac
+  pass "without a second workspace the ladder refuses exactly as before"
+}
+
 test_fresh_home_dispatches_free
 test_explicit_free_stays_free_when_healthy
 test_recorded_refusal_falls_through_to_codex
@@ -811,3 +957,11 @@ test_default_resolver_codex_profile_still_enters_ladder_gate
 test_preserved_rung_cap_falls_through_to_go
 test_expired_rung_cap_climbs_back_to_free
 test_free_then_codex_cap_skips_to_go_and_returns_after_reset
+test_go_capped_routes_to_second_workspace
+test_fourth_rung_exhaustion_refuses
+test_second_rung_cap_never_marks_main_go
+test_secondary_lane_evidence_feeds_fourth_rung
+test_main_lane_evidence_feeds_main_go
+test_explicit_go_refuses_despite_live_second_rung
+test_plus_request_falls_to_second_workspace
+test_unconfigured_exhaustion_ignores_second_record

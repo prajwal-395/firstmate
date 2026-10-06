@@ -679,6 +679,28 @@ test_verb_allowlist_is_closed() {
   pass "fm-control: the verb list is closed - no raw keys, arbitrary text, or clear verb"
 }
 
+test_relaunch_rejects_a_bad_workspace() {
+  local dir out rc
+  dir=$(new_case workspace-bad)
+  add_task "$dir" t1 claude
+  out=$(run_control "$dir" t1 relaunch --opencode-workspace bogus --note x); rc=$?
+  expect_code 1 "$rc" "a bogus workspace must be refused"
+  assert_contains "$out" "--opencode-workspace must be main or secondary" \
+    "the refusal should name the accepted values"
+  pass "fm-control: relaunch refuses a workspace outside main|secondary"
+}
+
+test_workspace_flag_is_relaunch_only() {
+  local dir out rc
+  dir=$(new_case workspace-verb)
+  add_task "$dir" t1 claude
+  out=$(run_control "$dir" t1 interrupt --opencode-workspace secondary); rc=$?
+  expect_code 1 "$rc" "a non-relaunch verb must not accept the workspace flag"
+  assert_contains "$out" "apply to 'relaunch' only" \
+    "the refusal should scope the flag to relaunch"
+  pass "fm-control: --opencode-workspace applies to relaunch only"
+}
+
 test_resume_is_refused_with_its_reason() {
   local dir out rc
   dir=$(new_case resume)
@@ -1283,6 +1305,8 @@ test_record_bound_to_another_task_is_refused
 test_remote_secondmate_is_refused_by_placement
 test_interrupt_and_exit_lock_before_task_state_resolution
 test_verb_allowlist_is_closed
+test_relaunch_rejects_a_bad_workspace
+test_workspace_flag_is_relaunch_only
 test_resume_is_refused_with_its_reason
 test_claude_bare_resume_repair_keeps_the_same_session_and_task_record
 test_claude_bare_resume_repair_respects_auto_mode

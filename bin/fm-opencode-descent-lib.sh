@@ -52,11 +52,17 @@
 # validation and bin/fm-busy-lib.sh owns the OpenCode session latch.
 #
 # WHAT MOVES, AND WHAT ONLY SURFACES. A capped free lane moves to Codex Plus
-# unless Plus is capped, then to Go; a capped Plus lane moves to Go. Go has no
-# later rung. A secondmate or a lane with no recorded model is refused rather
-# than moved blind. Off-ladder models are never governed. A move the durable
-# record did not follow is reported as `unrecorded`. Each episode gets one
-# automatic attempt, and a refusal wake hands the retry to firstmate.
+# unless Plus is capped, then to Go, then to Go on the second workspace when
+# one is configured; a capped Plus lane moves to Go, then to second-workspace
+# Go; a capped main-workspace Go lane moves to second-workspace Go. The fourth
+# rung is exhaustion order, not overflow: it is only a target while the first
+# Go rung holds a proven cap and the fourth rung itself is uncapped, and the
+# lane's model id is unchanged - the task meta's workspace marker is what
+# moves it. Second-workspace Go has no later rung. A secondmate or a lane
+# with no recorded model is refused rather than moved blind. Off-ladder
+# models are never governed. A move the durable record did not follow is
+# reported as `unrecorded`. Each episode gets one automatic attempt, and a
+# refusal wake hands the retry to firstmate.
 #
 # THERE IS NO CLIMB-BACK FOR RUNNING WORKERS, BY DESIGN. A healthy lane on a
 # later rung is making progress; moving it back would risk its conversation
@@ -408,6 +414,7 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
   local state_dir=$1 now=${2:-} rc=0
   local meta id harness model model_bare kind cap horizon bound note ctl_out reason
   local plus_bare target_model target_harness target_rung target_cap
+  local target_workspace lane_ws recorded_ws expected_ws
   local recorded after next rest hold_reason when
   local free_bare go_bare
   local -a relaunch_args
@@ -485,7 +492,9 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
     # with it after a move; the cap itself is a property of the rung and the
     # vendor horizon, so it is recorded rung-scoped through
     # bin/fm-opencode-retry.sh record-cap before any per-lane decision below.
-    # Text-only evidence carries no trustworthy horizon and is never
+    # A Go-tier cap on a secondary-workspace lane belongs to the fourth rung,
+    # never to the main Go rung: one capped workspace must not mark the other
+    # capped. Text-only evidence carries no trustworthy horizon and is never
     # preserved. Failures are swallowed: preservation must never break the
     # evaluation, and the per-task evidence still drives this lane.
     case "$horizon" in
@@ -495,7 +504,11 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
           free|unbound)
             "$_FM_OPENCODE_DESCENT_RETRY" record-cap "$state_dir" free "$next" 2>/dev/null || true ;;
           go)
-            "$_FM_OPENCODE_DESCENT_RETRY" record-cap "$state_dir" go "$next" 2>/dev/null || true ;;
+            if [ "$(fm_opencode_lane_workspace "$state_dir" "$id" 2>/dev/null)" = "$FM_OPENCODE_WORKSPACE_SECOND" ]; then
+              "$_FM_OPENCODE_DESCENT_RETRY" record-cap "$state_dir" "$FM_OPENCODE_LADDER_GO_SECOND_RUNG" "$next" 2>/dev/null || true
+            else
+              "$_FM_OPENCODE_DESCENT_RETRY" record-cap "$state_dir" go "$next" 2>/dev/null || true
+            fi ;;
         esac
         ;;
     esac
@@ -538,16 +551,43 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
     fi
     target_model=$FM_OPENCODE_LADDER_PLUS_MODEL
     target_harness=codex
+    target_workspace=$FM_OPENCODE_WORKSPACE_MAIN
     [ "$model_bare" = "$plus_bare" ] && { target_model=$FM_OPENCODE_LADDER_GO; target_harness=opencode; }
     target_rung=plus
     [ "$target_model" = "$FM_OPENCODE_LADDER_GO" ] && target_rung=go
     target_cap=$("$_FM_OPENCODE_DESCENT_RETRY" check-cap "$state_dir" "$target_rung" 2>/dev/null) || target_cap=
+    # A capped Go lane descends within the Go tier: main-workspace Go moves to
+    # Go on the second workspace while that rung is configured and uncapped,
+    # and a second-workspace Go lane has no later rung. The model id is the
+    # same on both; the workspace marker is what moves.
     if [ "$model_bare" = "$go_bare" ]; then
-      if fm_opencode_descent_escalate_once "$state_dir" "$id" "$next"; then
-        printf 'refused %s is on the Go tier %s and it is capped too (%s); the ladder has no third rung - firstmate decision needed\n' \
-          "$id" "$model" "$when"
+      lane_ws=$(fm_opencode_lane_workspace "$state_dir" "$id" 2>/dev/null) || lane_ws=$FM_OPENCODE_WORKSPACE_MAIN
+      if [ "$lane_ws" = "$FM_OPENCODE_WORKSPACE_SECOND" ]; then
+        if fm_opencode_descent_escalate_once "$state_dir" "$id" "$next"; then
+          printf 'refused %s is on Go on the second workspace %s and it is capped too (%s); the ladder has no later rung - firstmate decision needed\n' \
+            "$id" "$model" "$when"
+        fi
+        continue
       fi
-      continue
+      if fm_opencode_second_configured \
+        && ! fm_opencode_ladder_go_second_reactive_capped "$state_dir"; then
+        target_model=$FM_OPENCODE_LADDER_GO
+        target_harness=opencode
+        target_workspace=$FM_OPENCODE_WORKSPACE_SECOND
+        target_rung=$FM_OPENCODE_LADDER_GO_SECOND_RUNG
+        target_cap=
+      else
+        if fm_opencode_descent_escalate_once "$state_dir" "$id" "$next"; then
+          if fm_opencode_second_configured; then
+            printf 'refused %s is on the Go tier %s and it is capped too (%s); Go on the second workspace is capped as well - firstmate decision needed\n' \
+              "$id" "$model" "$when"
+          else
+            printf 'refused %s is on the Go tier %s and it is capped too (%s); the ladder has no later rung - firstmate decision needed\n' \
+              "$id" "$model" "$when"
+          fi
+        fi
+        continue
+      fi
     fi
     if [ "$kind" = secondmate ]; then
       if fm_opencode_descent_escalate_once "$state_dir" "$id" "$next"; then
@@ -565,6 +605,18 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
           target_rung=go
           target_cap=$("$_FM_OPENCODE_DESCENT_RETRY" check-cap "$state_dir" "$target_rung" 2>/dev/null) || target_cap=
         fi
+        case "$target_cap" in *'status=blocked'*)
+          # The last overflow: Go on the second workspace, only while that
+          # rung is configured and uncapped. The model id stays the Go id;
+          # the workspace marker carries the move.
+          if [ "$target_model" = "$FM_OPENCODE_LADDER_GO" ] \
+            && fm_opencode_second_configured \
+            && ! fm_opencode_ladder_go_second_reactive_capped "$state_dir"; then
+            target_workspace=$FM_OPENCODE_WORKSPACE_SECOND
+            target_rung=$FM_OPENCODE_LADDER_GO_SECOND_RUNG
+            target_cap=
+          fi ;;
+        esac
         case "$target_cap" in *'status=blocked'*)
           if fm_opencode_descent_escalate_once "$state_dir" "$id" "$next"; then
             printf 'refused %s cannot descend from %s because every later rung is capped\n' "$id" "$model"
@@ -586,9 +638,14 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
     if [ "$bound" = unbound ]; then
       note="$note, with no model binding on the cap evidence - biasing toward Go rather than stalling"
     fi
-    note="$note); the capped session is parked with no forward progress. Relaunched onto $target_harness rung $target_model. Continue the task from this note plus the brief and committed work."
+    if [ "$target_workspace" = "$FM_OPENCODE_WORKSPACE_SECOND" ]; then
+      note="$note); the capped session is parked with no forward progress. Relaunched onto $target_harness rung $target_model on the second workspace. Continue the task from this note plus the brief and committed work."
+    else
+      note="$note); the capped session is parked with no forward progress. Relaunched onto $target_harness rung $target_model. Continue the task from this note plus the brief and committed work."
+    fi
     relaunch_args=("$id" relaunch --harness "$target_harness" --model "$target_model" --note "$note")
     [ "$target_harness" != codex ] || relaunch_args+=(--effort "$(fm_opencode_ladder_plus_effort)")
+    [ "$target_workspace" != "$FM_OPENCODE_WORKSPACE_SECOND" ] || relaunch_args+=(--opencode-workspace secondary)
     ctl_out=$(FM_HOME="${FM_HOME:-}" FM_STATE_OVERRIDE="$state_dir" \
       "$(fm_opencode_descent_control)" "${relaunch_args[@]}" 2>&1) && rc=0 || rc=$?
     if [ "$rc" -ne 0 ]; then
@@ -602,14 +659,23 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
     fi
     # THE MOVE IS NOT FINISHED UNTIL IT IS WRITTEN DOWN. Recovery relaunches
     # from the durable record, so a record still naming free would bring the
-    # next relaunch straight back onto the capped tier.
+    # next relaunch straight back onto the capped tier. A move within the Go
+    # tier keeps the same model id, so the workspace marker is verified too:
+    # a record still pinned to the main workspace would bring the next
+    # relaunch straight back onto the capped rung.
     recorded=$(fm_meta_get "$meta" model 2>/dev/null) || recorded=''
-    if [ "$recorded" = "$target_model" ]; then
+    recorded_ws=$(fm_meta_get "$meta" opencode_workspace 2>/dev/null) || recorded_ws=''
+    [ "$target_workspace" = "$FM_OPENCODE_WORKSPACE_SECOND" ] && expected_ws=$FM_OPENCODE_WORKSPACE_SECOND || expected_ws=''
+    if [ "$recorded" = "$target_model" ] && [ "$recorded_ws" = "$expected_ws" ]; then
       # The dead session's backoff describes nobody now; leaving it behind
       # would brand the replacement lane capped on its first evaluation.
       "$_FM_OPENCODE_DESCENT_RETRY" clear "$state_dir" "$id" 2>/dev/null || true
       fm_opencode_descent_clear_task "$state_dir" "$id"
-      printf 'relaunched %s %s -> %s\n' "$id" "$model" "$target_model"
+      if [ "$target_workspace" = "$FM_OPENCODE_WORKSPACE_SECOND" ]; then
+        printf 'relaunched %s %s -> %s on the second workspace\n' "$id" "$model" "$target_model"
+      else
+        printf 'relaunched %s %s -> %s\n' "$id" "$model" "$target_model"
+      fi
     else
       after=${recorded:-<unreadable>}
       if fm_opencode_descent_escalate_once "$state_dir" "$id" "$next"; then

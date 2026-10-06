@@ -1439,9 +1439,124 @@ test_non_claude_harness_ignores_claude_permission_mode() {
   pass "config/claude-permission-mode changes claude launches only"
 }
 
+# A capped main Go rung with a configured second workspace pins the launch
+# per-launch: the task record carries the workspace marker and the emitted
+# command carries OPENCODE_DB at the pinned database. The fixture opencode
+# migrates the pin database and serves the fixture login while the real
+# sqlite3 does the seeding, so the pinned case needs sqlite3 and says so
+# when it is absent; the refusal and default cases need nothing live.
+make_second_workspace_fixture() {  # <case-dir> <fakebin>: fixture login + fake opencode
+  local dir=$1 fakebin=$2 datadir
+  datadir="$dir/opencode-data"
+  mkdir -p "$datadir"
+  sqlite3 "$datadir/opencode.db" \
+    'CREATE TABLE account (id text PRIMARY KEY, email text NOT NULL, url text NOT NULL, access_token text NOT NULL, refresh_token text NOT NULL, token_expiry integer, time_created integer NOT NULL, time_updated integer NOT NULL);' \
+    || return 1
+  sqlite3 "$datadir/opencode.db" \
+    'CREATE TABLE account_state (id integer PRIMARY KEY, active_account_id text, active_org_id text);' \
+    || return 1
+  sqlite3 "$datadir/opencode.db" \
+    "INSERT INTO account VALUES('acc_01FIXTURE','fixture@example.invalid','https://opencode.ai/console','tok-access','tok-refresh',1893456000,1780000000,1780000000);" \
+    || return 1
+  sqlite3 "$datadir/opencode.db" \
+    "INSERT INTO account_state VALUES(1,'acc_01FIXTURE','wrk_01FIXTUREMAIN');" \
+    || return 1
+  cat > "$fakebin/opencode" <<'SH'
+#!/usr/bin/env bash
+set -u
+if [ "${1:-}" = debug ] && [ "${2:-}" = config ]; then
+  [ -n "${OPENCODE_DB:-}" ] || exit 1
+  sqlite3 "$OPENCODE_DB" 'CREATE TABLE IF NOT EXISTS account (id text PRIMARY KEY, email text NOT NULL, url text NOT NULL, access_token text NOT NULL, refresh_token text NOT NULL, token_expiry integer, time_created integer NOT NULL, time_updated integer NOT NULL);' || exit 1
+  sqlite3 "$OPENCODE_DB" 'CREATE TABLE IF NOT EXISTS account_state (id integer PRIMARY KEY, active_account_id text, active_org_id text);' || exit 1
+  exit 0
+fi
+if [ "${1:-}" = debug ] && [ "${2:-}" = paths ]; then
+  printf 'data %s\n' "${FM_FAKE_OPENCODE_DATA:-/nonexistent}"
+  exit 0
+fi
+exit 1
+SH
+  chmod +x "$fakebin/opencode"
+  printf '%s\n' "$datadir"
+}
+
+record_rung_cap() {  # <home> <rung>: proven unexpired rung cap in the home state
+  local ms
+  ms=$(( ($(date +%s) + 78840) * 1000 ))
+  "$ROOT/bin/fm-opencode-retry.sh" record-cap "$1/state" "$2" "$ms"
+}
+
+test_opencode_second_workspace_pins_launch() {
+  local rec id out status launch datadir
+  command -v sqlite3 >/dev/null 2>&1 || {
+    pass "second-workspace pin needs sqlite3 (absent here; live proof covers the real path)"
+    return 0
+  }
+  id=profile-second-workspace-z30
+  rec=$(make_spawn_case profile-second-workspace opencode "$id")
+  read_case_record "$rec"
+  printf '%s' 'org_01FIXTURESECONDARY00' > "$HOME_DIR/config/opencode-second-org"
+  record_rung_cap "$HOME_DIR" free || fail "record refused free cap"
+  record_rung_cap "$HOME_DIR" plus || fail "record refused Plus cap"
+  record_rung_cap "$HOME_DIR" go || fail "record refused Go cap"
+  datadir=$(make_second_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") \
+    || fail "the fixture login could not be built"
+
+  # Exported, not prefixed: the fixture opencode reads it in the spawn's own
+  # process, which a command-prefix assignment cannot reach. Unset right
+  # after so no later case inherits it.
+  export FM_FAKE_OPENCODE_DATA="$datadir"
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  unset FM_FAKE_OPENCODE_DATA
+  expect_code 0 "$status" "a capped Go rung with a live fourth rung should spawn: $out"  assert_grep 'model=opencode-go/muse-spark-1.3-contributor' "$HOME_DIR/state/$id.meta" "the routed Go model was not recorded"
+  assert_grep 'opencode_workspace=secondary' "$HOME_DIR/state/$id.meta" "the workspace pin was not recorded"
+  launch=$(cat "$LAUNCH_LOG")
+  assert_contains "$launch" "OPENCODE_DB='$HOME_DIR/config/opencode-second.db'" \
+    "the launch did not carry the pinned database"
+  assert_contains "$launch" "--model 'opencode-go/muse-spark-1.3-contributor'" \
+    "the launch did not carry the Go model id"
+  pass "a capped Go rung pins the launch to the second workspace"
+}
+
+test_opencode_main_workspace_launch_is_unpinned() {
+  local rec id out status launch
+  id=profile-main-workspace-z31
+  rec=$(make_spawn_case profile-main-workspace opencode "$id")
+  read_case_record "$rec"
+  record_rung_cap "$HOME_DIR" free || fail "record refused free cap"
+  record_rung_cap "$HOME_DIR" plus || fail "record refused Plus cap"
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  expect_code 0 "$status" "an uncapped Go rung should spawn on the main workspace: $out"
+  assert_grep 'model=opencode-go/muse-spark-1.3-contributor' "$HOME_DIR/state/$id.meta" "the routed Go model was not recorded"
+  assert_not_contains "$(cat "$HOME_DIR/state/$id.meta")" "opencode_workspace" "a main-workspace launch must record no marker"
+  launch=$(cat "$LAUNCH_LOG")
+  assert_not_contains "$launch" "OPENCODE_DB=" "a main-workspace launch must not pin a database"
+  pass "an uncapped Go rung launches unpinned exactly as before"
+}
+
+test_opencode_workspace_flag_refuses_fresh_spawn() {
+  local rec id out status
+  id=profile-workspace-flag-z32
+  rec=$(make_spawn_case profile-workspace-flag opencode "$id")
+  read_case_record "$rec"
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --opencode-workspace secondary)
+  status=$?
+  expect_code 1 "$status" "a fresh spawn must not accept an explicit workspace"
+  assert_contains "$out" "--opencode-workspace applies only to --relaunch" "the refusal must name the relaunch-only rule"
+  [ ! -s "$LAUNCH_LOG" ] || fail "a refused spawn must launch nothing"
+  pass "a fresh spawn refuses an explicit workspace and routes through the ladder"
+}
+
 test_launch_brief_text_is_absent_from_recorded_argv
 test_worker_launch_delivers_role_scope
 test_no_profile_keeps_claude_profile_defaults
+test_opencode_second_workspace_pins_launch
+test_opencode_main_workspace_launch_is_unpinned
+test_opencode_workspace_flag_refuses_fresh_spawn
 test_non_cursor_launch_clears_inherited_cursor_markers
 test_relative_home_overrides_launch_with_absolute_cross_process_paths
 test_home_defaults_preserve_absolute_or_resolve_relative_paths
