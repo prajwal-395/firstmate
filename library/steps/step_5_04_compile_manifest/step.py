@@ -3088,10 +3088,20 @@ def compile_manifest(out_dir: str, *, object_segmentation=None,
     if jl_offsets:
         from library.tools import jl_cut as _jl
         from library.tools import room_tone as _room
+        from library.tools import asset_transformations as _routing
+
+        project_folder = os.path.dirname(os.path.abspath(out_dir))
+
+        def _route_fill(source_file, speech_spans, fill_seconds,
+                        out_path, project_folder):
+            return _routing.route_room_tone_fill(
+                source_file, speech_spans, fill_seconds,
+                project_folder)
 
         jl_result = _jl.apply_jl_cuts(
             v1_clips, jl_offsets, structure, fps,
-            _room.measure_room_tone, _room.stage_fill, out_dir)
+            _room.measure_room_tone, _room.stage_fill, out_dir,
+            route_fn=_route_fill, project_folder=project_folder)
         v1_clips = jl_result["v1_clips"]
         jl_cuts = jl_result["applied"]
         room_tone_measurements = jl_result["room_tone"]

@@ -403,7 +403,8 @@ def resolve_audio_cut(*, kind: str, entry: dict, outgoing: dict,
 
 def apply_jl_cuts(v1_clips: list, jl_entries: list, spine_blocks: list,
                   fps: float, measure_fn, stage_fill_fn,
-                  stage_dir: str) -> dict:
+                  stage_dir: str, route_fn=None,
+                  project_folder: str = "") -> dict:
     """Trim speech-row audio for each J/L join and fill the opened gap.
 
     `v1_clips` are the compiled V1 clip dicts (each carrying
@@ -415,6 +416,11 @@ def apply_jl_cuts(v1_clips: list, jl_entries: list, spine_blocks: list,
     `incoming_position`). `measure_fn(source_file, speech_spans)` and
     `stage_fill_fn(source_file, record, fill_seconds, out_path)` are
     the `room_tone` measurements (injected so tests use fakes).
+    `route_fn(source_file, speech_spans, fill_seconds, out_path,
+    project_folder)` routes the fill through the asset routing layer
+    instead, writing the decision record; when it is given, the
+    measure/stage pair is not consulted. `project_folder` is the
+    project root the routing ledger is written under.
 
     Every edge is computed in FRAMES: the timeline places and links
     by frame, and seconds carry up to half a frame of slop - which is
@@ -625,11 +631,18 @@ def apply_jl_cuts(v1_clips: list, jl_entries: list, spine_blocks: list,
         # fill abuts the trim exactly (within a millisecond): coverage
         # of the speech row stays continuous, so no join drops to
         # digital silence.
-        if fill_source not in room_tone:
-            spans = _source_speech_spans(
-                in_block if kind == "j_cut" else out_block)
+        spans = _source_speech_spans(
+            in_block if kind == "j_cut" else out_block)
+        fill_name = (f"roomtone_{out_pos}_{in_pos}_{kind}_"
+                     f"{len(fills):02d}.wav")
+        fill_path = os.path.join(stage_dir, "room_tone", fill_name)
+        fill_start_frame = min(audio_frame, boundary_frame)
+        fill_end_frame = max(audio_frame, boundary_frame)
+        fill_seconds = (fill_end_frame - fill_start_frame) / fps
+        if route_fn is not None:
             try:
-                room_tone[fill_source] = measure_fn(fill_source, spans)
+                staged = route_fn(fill_source, spans, fill_seconds,
+                                  fill_path, project_folder)
             except Exception as exc:
                 if isinstance(exc, RenRefusal):
                     raise _refuse(
@@ -642,15 +655,30 @@ def apply_jl_cuts(v1_clips: list, jl_entries: list, spine_blocks: list,
                         exc.fix,
                     ) from exc
                 raise
-        record = room_tone[fill_source]
-        fill_name = (f"roomtone_{out_pos}_{in_pos}_{kind}_"
-                     f"{len(fills):02d}.wav")
-        fill_path = os.path.join(stage_dir, "room_tone", fill_name)
-        fill_start_frame = min(audio_frame, boundary_frame)
-        fill_end_frame = max(audio_frame, boundary_frame)
-        fill_seconds = (fill_end_frame - fill_start_frame) / fps
-        staged = stage_fill_fn(fill_source, record, fill_seconds,
-                               fill_path)
+            record = {"level_dbfs": staged["level_dbfs"]}
+            if staged.get("measurement") is not None:
+                room_tone[fill_source] = staged["measurement"]
+        else:
+            if fill_source not in room_tone:
+                try:
+                    room_tone[fill_source] = measure_fn(fill_source,
+                                                        spans)
+                except Exception as exc:
+                    if isinstance(exc, RenRefusal):
+                        raise _refuse(
+                            f"the {kind} join {out_pos}->{in_pos} "
+                            f"needs room tone from "
+                            f"{os.path.basename(fill_source)}: "
+                            f"{exc.what}",
+                            f"the fill IS the cut's second half - an "
+                            f"unfillable gap is a gap left as digital "
+                            f"silence. ({exc.why})",
+                            exc.fix,
+                        ) from exc
+                    raise
+            record = room_tone[fill_source]
+            staged = stage_fill_fn(fill_source, record, fill_seconds,
+                                   fill_path)
         fills.append({
             "source_file": staged["path"],
             "room_source_file": fill_source,
