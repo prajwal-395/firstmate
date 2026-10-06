@@ -3015,3 +3015,132 @@ def test_failed_write_marks_journal_entry_failed(edit_patched, tmp_path,
     entries = _journal_entries(project_folder)
     assert len(entries) == 1
     assert entries[0]["status"] == "failed"
+
+
+# ── api intellisearch-query: indexing is not querying ──────────────
+#
+# The lane's first question: does Resolve 21 expose IntelliSearch QUERY
+# through scripting (stubs/whats-new first)? The defect these pin is
+# "IntelliSearch is scriptable" read off the one verb that only indexes -
+# AnalyzeForIntellisearch takes a pool clip and returns a bool.
+
+
+def _whats_new(*changelogs):
+    return json.dumps({"entries": [
+        {"version": f"21.0.{i}", "date": "2026-01-01", "changelog": text}
+        for i, text in enumerate(changelogs)]})
+
+
+def test_probe_refuses_to_count_indexing_as_querying(canned, capsys):
+    canned.responses["search_scripting_api"] = (
+        "MediaPoolItem.AnalyzeForIntellisearch(faces, mode) - "
+        "analyse a pool clip for IntelliSearch")
+    canned.responses["get_scripting_api"] = (
+        "class MediaPoolItem:\n"
+        "\tdef AnalyzeForIntellisearch(self, faces: bool, "
+        "better: bool) -> bool: ...")
+    canned.responses["get_whats_new"] = _whats_new("* fixes galore")
+    from library.tools.resolve_axi import cmd_api_intellisearch_query
+    assert cmd_api_intellisearch_query(_ns(since="21.0", full=True)) == 0
+    out = capsys.readouterr().out
+    assert "query_via_scripting: unavailable" in out
+    assert "AnalyzeForIntellisearch" in out
+    assert "indexes a pool clip" in out
+
+
+def test_probe_does_not_count_reset_as_a_query(canned, capsys):
+    """The regression, measured live 2026-10-06: the first verdict rule
+    matched `search` inside the `IntelliSearch` token itself, so
+    `Project.ResetIntellisearchAnalysis` - which clears the analysis,
+    not asks it - was reported as a query verb with "available". The
+    match runs on the name minus the token it is named for."""
+    canned.responses["search_scripting_api"] = (
+        "Project.ResetIntellisearchAnalysis() - resets intellisearch "
+        "analysis for the project")
+    canned.responses["get_scripting_api"] = (
+        "class Project:\n"
+        "\tdef ResetIntellisearchAnalysis(self) -> bool: ...")
+    canned.responses["get_whats_new"] = _whats_new("* fixes galore")
+    from library.tools.resolve_axi import cmd_api_intellisearch_query
+    assert cmd_api_intellisearch_query(_ns(since="21.0", full=True)) == 0
+    out = capsys.readouterr().out
+    assert "query_via_scripting: unavailable" in out
+    assert "ResetIntellisearchAnalysis" in out
+    assert "query_via_scripting: available" not in out
+
+
+def test_probe_reports_a_query_verb_when_the_stubs_name_one(
+        canned, capsys):
+    canned.responses["search_scripting_api"] = (
+        "MediaPool.QueryIntelliSearch(query) - search the pool "
+        "with IntelliSearch")
+    canned.responses["get_scripting_api"] = (
+        "class MediaPool:\n"
+        "\tdef QueryIntelliSearch(self, query: str) -> list: ...")
+    canned.responses["get_whats_new"] = _whats_new(
+        "* IntelliSearch query API added")
+    from library.tools.resolve_axi import cmd_api_intellisearch_query
+    assert cmd_api_intellisearch_query(_ns(since="21.0", full=True)) == 0
+    out = capsys.readouterr().out
+    assert "query_via_scripting: available" in out
+    assert "QueryIntelliSearch" in out
+    assert "21.0.0" in out
+
+
+def test_probe_says_unreachable_not_unavailable(monkeypatch, capsys):
+    """A dead backend is "could not ask", never "Resolve has no query
+    verb" - the second would retire the AX lane on no evidence."""
+    from library.tools.native_mcp import NativeMcpError
+    monkeypatch.setattr(
+        "library.tools.native_mcp.call",
+        lambda tool, args=None, timeout=90: (_ for _ in ()).throw(
+            NativeMcpError("wrapper is down")))
+    from library.tools.resolve_axi import cmd_api_intellisearch_query
+    assert cmd_api_intellisearch_query(_ns(since="21.0", full=False)) == 1
+    out = capsys.readouterr().out
+    assert "wrapper is down" in out
+    assert "query_via_scripting" not in out
+
+
+def test_verdict_ignores_what_is_not_a_line():
+    verdict = resolve_axi.intellisearch_query_verdict(
+        ["def AnalyzeForIntellisearch(...) ...", 42, None])
+    assert verdict["query_via_scripting"] == "unavailable"
+    assert verdict["index_only_verbs"] == ["AnalyzeForIntellisearch"]
+    assert verdict["query_verbs"] == []
+
+
+def test_probe_is_wired_as_an_api_verb(monkeypatch, capsys):
+    responses = {
+        "search_scripting_api":
+            "MediaPoolItem.AnalyzeForIntellisearch ...",
+        "get_scripting_api": "class MediaPoolItem: ...",
+        "get_whats_new": _whats_new("* fixes"),
+    }
+    monkeypatch.setattr(resolve_axi, "_native",
+                        lambda tool, args, fix: (responses[tool], ""))
+    assert resolve_axi.main(["api", "intellisearch-query"]) == 0
+    assert "query_via_scripting: unavailable" in capsys.readouterr().out
+
+
+def test_probe_runs_locally_even_when_broker_serves(monkeypatch, capsys):
+    """The defect, measured live: the probe routed through a serving
+    broker, whose allowlist (running main) refused the new verb with
+    "resolve-axi does not accept ['api', 'intellisearch-query']". A
+    docs-only read runs locally like its sibling api verbs, never
+    through the broker."""
+    from library.tools.resolved import client
+
+    monkeypatch.setattr(client, "serving", lambda *a, **k: True)
+    monkeypatch.setattr(resolve_axi, "_through_broker",
+                        lambda *_args: pytest.fail("probe used the broker"))
+    monkeypatch.setattr(
+        resolve_axi, "_native",
+        lambda tool, args, fix: ({
+            "search_scripting_api":
+                "MediaPoolItem.AnalyzeForIntellisearch ...",
+            "get_scripting_api": "class MediaPoolItem: ...",
+            "get_whats_new": _whats_new("* fixes"),
+        }[tool], ""))
+    assert resolve_axi.main(["api", "intellisearch-query"]) == 0
+    assert "query_via_scripting: unavailable" in capsys.readouterr().out

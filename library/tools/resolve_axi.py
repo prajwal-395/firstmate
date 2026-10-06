@@ -329,7 +329,8 @@ def _lease(exclusive: bool):
 # These verbs use the native MCP or local files only.
 _LOCAL_COMMANDS = frozenset({
     "cmd_api_search", "cmd_api_stubs", "cmd_api_docs",
-    "cmd_api_whats_new", "cmd_luts_list", "cmd_luts_update",
+    "cmd_api_whats_new", "cmd_api_intellisearch_query",
+    "cmd_luts_list", "cmd_luts_update",
     "cmd_luts_delete", "cmd_luts_generate", "cmd_setup_hooks",
     "cmd_update",
 })
@@ -1774,6 +1775,154 @@ def cmd_api_whats_new(args) -> int:
           if rows and not args.full else "",
           help_block([f"{TOOL} api whats-new --since {args.since} --full"]
                      if rows and not args.full else [])])
+    return 0
+
+
+# ── api intellisearch-query: does scripting expose IntelliSearch search? ──
+#
+# Ren search stays primary; Resolve IntelliSearch may contribute extra
+# evidence. The scripting API is known to expose ONE IntelliSearch verb,
+# `MediaPoolItem.AnalyzeForIntellisearch`, which INDEXES a pool clip and
+# answers no question (`sense intellisearch`). This probe asks the three
+# knowledge routes whether a QUERY verb exists too, and says which. The
+# verdict rule is conservative on purpose: an index-only verb counted as
+# query access would send the AX lane home early with nothing to drive.
+
+#: IntelliSearch scripting verbs that only index. Their existence proves
+#: nothing about querying: each takes a pool clip and answers True/False.
+INTELLISEARCH_INDEX_ONLY_VERBS = ("AnalyzeForIntellisearch",)
+
+#: What a query-shaped verb name carries. A verb that ASKS has one of
+#: these in its name; `Analyze` indexes, `Reset` clears. The match runs
+#: on the name with the `IntelliSearch` token itself removed - every
+#: IntelliSearch verb contains `search` inside its own name, which is
+#: how `ResetIntellisearchAnalysis` was once reported as a query verb
+#: (measured live 2026-10-06). The probe prints every IntelliSearch
+#: line it found beside the verdict, so a reviewer reads the evidence,
+#: not just the summary.
+_INTELLISEARCH_QUERY_NAME = ("search", "query", "find", "match", "result")
+
+
+def _intellisearch_remainder(name: str) -> str:
+    """The verb name minus the `IntelliSearch` token it is named for."""
+    import re
+
+    return re.sub(r"intellisearch", "", name, flags=re.IGNORECASE)
+
+
+def intellisearch_query_verdict(intelli_lines: list) -> dict:
+    """Whether the scripting surface exposes an IntelliSearch QUERY verb.
+
+    `intelli_lines` are the stub/search lines naming IntelliSearch.
+    Returns `query_via_scripting` ("available"/"unavailable"), the
+    query-shaped verbs, the index-only verbs, the other IntelliSearch
+    verbs (reset and friends - neither), and the reason in words.
+    Never raises: unparseable input is no query verb, said plainly.
+    """
+    import re
+
+    names = []
+    for line in intelli_lines or []:
+        if not isinstance(line, str):
+            continue
+        for found in re.findall(
+                r"[A-Za-z_][A-Za-z0-9_]*[Ii]ntelli[A-Za-z0-9_]*", line):
+            if found not in names:
+                names.append(found)
+    lowered_index = {verb.lower() for verb in INTELLISEARCH_INDEX_ONLY_VERBS}
+    index_only = [name for name in names if name.lower() in lowered_index]
+    query_shaped = [
+        name for name in names
+        if name.lower() not in lowered_index
+        and any(part in _intellisearch_remainder(name).lower()
+                for part in _INTELLISEARCH_QUERY_NAME)]
+    other = [name for name in names
+             if name not in index_only and name not in query_shaped]
+    if query_shaped:
+        return {"query_via_scripting": "available",
+                "query_verbs": query_shaped,
+                "index_only_verbs": index_only,
+                "other_verbs": other,
+                "reason": (f"{', '.join(query_shaped)} asks - drive it, "
+                           f"not the UI")}
+    roles = ([f"{verb} indexes a pool clip" for verb in index_only]
+             + [f"{verb} manages the analysis without asking" for verb in other])
+    if roles:
+        return {"query_via_scripting": "unavailable",
+                "query_verbs": [],
+                "index_only_verbs": index_only,
+                "other_verbs": other,
+                "reason": (f"{'; '.join(roles)} - "
+                           f"nothing here answers a question")}
+    return {"query_via_scripting": "unavailable",
+            "query_verbs": [],
+            "index_only_verbs": [],
+            "other_verbs": [],
+            "reason": "no IntelliSearch verb in the scripting surface at all"}
+
+
+def cmd_api_intellisearch_query(args) -> int:
+    """Probe the scripting surface for an IntelliSearch QUERY verb.
+
+    Reads the API the way the lane spec asks - stubs and whats-new
+    first - and reports the measured answer: `available` names the verb
+    to drive, `unavailable` sends the collector down the AX/UI route.
+    Documentation only: it never touches any project.
+    """
+    search_text, _ = _native("search_scripting_api", {"pattern": "[Ii]ntelli"},
+                             f"{TOOL} api intellisearch-query --help")
+    if search_text is None:
+        return 1
+    stub_text, _ = _native("get_scripting_api",
+                           {"types": ["MediaPool", "MediaPoolItem"]},
+                           f"{TOOL} api intellisearch-query --help")
+    if stub_text is None:
+        return 1
+    changelog_text, _ = _native("get_whats_new", {"since": args.since},
+                                f"{TOOL} api intellisearch-query --help")
+    if changelog_text is None:
+        return 1
+    search_lines = [line for line in _unwrap_text(search_text).splitlines()
+                    if line.strip()]
+    stub_lines = [line for line in _unwrap_text(stub_text).splitlines()
+                  if "ntelli" in line.lower()]
+    try:
+        entries = json.loads(changelog_text).get("entries", [])
+    except ValueError:
+        return fail(f"the native changelog came back unparseable.",
+                    f"{TOOL} api whats-new --since {args.since}")
+    if not isinstance(entries, list):
+        entries = []
+    mentions = [{"version": e.get("version", ""), "date": e.get("date", "")}
+                for e in entries
+                if isinstance(e, dict) and "ntelli" in str(
+                    e.get("changelog", "")).lower()]
+    verdict = intellisearch_query_verdict(search_lines + stub_lines)
+    lines = search_lines + [line for line in stub_lines
+                            if line not in search_lines]
+    shown = lines if args.full else lines[:API_SEARCH_ROWS]
+    rest = len(lines) - len(shown)
+    parts = [kv_block("intellisearch_query", {
+                "since": args.since,
+                "query_via_scripting": verdict["query_via_scripting"],
+                "reason": verdict["reason"],
+            }),
+            table("intellisearch_lines",
+                  [{"line": line} for line in shown], ["line"]),
+            (f"+{rest} more line(s) - re-run with --full")
+            if rest else ""]
+    if mentions:
+        parts.append(table("changelog_mentions", mentions,
+                           ["version", "date"]))
+    if verdict["query_via_scripting"] == "available":
+        parts.append(help_block(
+            [f"{TOOL} run --help (call it and shape rows for "
+             f"ren search --external-hits)"]))
+    else:
+        parts.append(help_block(
+            [f"{TOOL} sense intellisearch --help (index-only; querying "
+             f"goes through the UI route)"]))
+    emit(parts)
     return 0
 
 
@@ -6569,7 +6718,7 @@ def build_parser() -> Parser:
 
     p = subs.add_parser("api", help="the native MCP's knowledge tools "
                                    "as TOON: stubs, search, docs, "
-                                   "whats-new")
+                                   "whats-new, intellisearch-query")
     asubs = p.add_subparsers(dest="api_command", required=True)
     q = asubs.add_parser("search", help="search the scripting API "
                                         "stubs by pattern")
@@ -6600,6 +6749,17 @@ def build_parser() -> Parser:
     q.add_argument("--full", action="store_true",
                    help="include each release's changelog text")
     q.set_defaults(func=cmd_api_whats_new)
+    q = asubs.add_parser("intellisearch-query", help="probe the scripting "
+                                                     "API for an "
+                                                     "IntelliSearch QUERY "
+                                                     "verb (indexing is not "
+                                                     "querying)")
+    q.add_argument("--since", default="21.0",
+                   help="changelog floor for IntelliSearch mentions "
+                        "(default 21.0, the IntelliSearch generation)")
+    q.add_argument("--full", action="store_true",
+                   help="all matching lines instead of the first 50")
+    q.set_defaults(func=cmd_api_intellisearch_query)
 
     p = subs.add_parser("luts", help="the shared LUT shelf: list "
                                      "locally, write wrapped with "
