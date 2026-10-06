@@ -1228,6 +1228,101 @@ def test_reaction_cutaway_links_both_clips_and_the_reacting_person(
     assert person["node_type"] == project_graph.PERSON
 
 
+def _decision_manifest():
+    """A reaction cutaway carrying the planner's EDIT DECISION record."""
+    manifest = _editorial_manifest()
+    manifest["reaction_cutaways"] = [
+        {"speech_block_position": 1, "speech_clip_id": "clip_001",
+         "speaking_person_id": "person_001",
+         "speech_timeline_start": 2.0, "speech_timeline_end": 8.0,
+         "reaction_clip_id": "clip_002",
+         "reacting_person_id": "person_002",
+         "reaction_source_start": 1.0, "reaction_source_end": 4.0,
+         "timing": {"speech_moment": 8.0, "reaction_land": 8.0,
+                    "offset_seconds": 0.0},
+         "reason": "person_002 is visible in clip_002 while speaking",
+         "decision": {
+             "action": "Use clip_002 from 1.000s to 4.000s "
+                       "as reaction cutaway at 8.000s",
+             "reason": "person_002 is visible in clip_002 while speaking",
+             "evidence": {
+                 "speech_shot": "shot:clip_001",
+                 "reaction_shot": "shot:clip_002",
+                 "speaking_person": "person_001",
+                 "reacting_person": "person_002",
+                 "speech_span": [0.0, 5.0],
+                 "reaction_span": [1.0, 4.0],
+                 "speech_moment": 8.0,
+             },
+             "constraints": {
+                 "reaction_not_in_spine": "clip_002 is in no spine block",
+             },
+             "style_source": None,
+             "confidence": 0.6,
+             "confidence_source": "measured span overlap",
+         }},
+    ]
+    return manifest
+
+
+def test_reaction_decisions_found_by_either_named_clip(
+        tmp_path, monkeypatch):
+    """A decision is returned for the speech clip and for the reaction
+    clip, and for no clip it never names. On origin/main the query
+    does not exist."""
+    project = _editorial_project(tmp_path, monkeypatch, _decision_manifest())
+
+    graph = project_graph.build_graph(str(project))
+
+    for clip_id in ("clip_001", "clip_002"):
+        rows = project_graph.find_reaction_decisions(graph, clip_id=clip_id)
+        assert len(rows) == 1
+        assert rows[0]["node_id"] == "editorial:reaction_cutaway:0"
+        assert rows[0]["decision"]["action"].startswith("Use clip_002")
+    assert project_graph.find_reaction_decisions(
+        graph, clip_id="clip_007") == []
+
+
+def test_reaction_decisions_found_by_speech_time(tmp_path, monkeypatch):
+    """A time inside the speech span the decision reacts to returns it;
+    a time outside returns nothing - the match is temporal, not
+    positional. On origin/main the query does not exist."""
+    project = _editorial_project(tmp_path, monkeypatch, _decision_manifest())
+
+    graph = project_graph.build_graph(str(project))
+
+    assert len(project_graph.find_reaction_decisions(
+        graph, at_time=5.0)) == 1
+    assert project_graph.find_reaction_decisions(graph, at_time=50.0) == []
+
+
+def test_findings_without_decisions_read_as_no_rows(tmp_path, monkeypatch):
+    """A cutaway the compile recorded before decisions existed carries
+    no decision and yields no row - absence is absence, never a
+    synthesised record. On origin/main the query does not exist."""
+    project = _editorial_project(
+        tmp_path, monkeypatch, _editorial_manifest())
+
+    graph = project_graph.build_graph(str(project))
+
+    assert project_graph.find_reaction_decisions(graph) == []
+
+
+def test_decision_evidence_refs_resolve_in_the_graph(tmp_path, monkeypatch):
+    """The shots a decision's evidence names are nodes in the same
+    graph - refs a reader cannot resolve are not shipped. On
+    origin/main the query does not exist."""
+    project = _editorial_project(tmp_path, monkeypatch, _decision_manifest())
+
+    graph = project_graph.build_graph(str(project))
+
+    rows = project_graph.find_reaction_decisions(graph)
+    assert len(rows) == 1
+    evidence = rows[0]["decision"]["evidence"]
+    for ref in (evidence["speech_shot"], evidence["reaction_shot"]):
+        assert project_graph.node(graph, ref) != {}
+
+
 def test_no_editorial_nodes_without_a_compile(tmp_path, monkeypatch):
     """A project the compile never reached builds a graph with no
     editorial nodes - absence is absence, never an empty finding."""

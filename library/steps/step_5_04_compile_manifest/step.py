@@ -3610,12 +3610,16 @@ def compile_manifest(out_dir: str, *, object_segmentation=None,
         graph = _pg.load_or_build(_project_root)
         reaction_cutaways = _rc.select_reaction_cutaways(structure, graph)
         for cutaway in reaction_cutaways:
+            decision = cutaway.get("decision") or {}
+            confidence = decision.get("confidence")
             print(
                 f"  Reaction cutaway: block "
                 f"{cutaway['speech_block_position']!r} at "
                 f"{cutaway['timing']['reaction_land']:.1f}s: "
                 f"{cutaway['reacting_person_id']} in "
-                f"{cutaway['reaction_clip_id']}",
+                f"{cutaway['reaction_clip_id']}"
+                f"{f' (confidence {confidence:.3f})' if isinstance(confidence, (int, float)) else ''}"
+                f" - {decision.get('action', '')}",
                 file=sys.stderr)
     except Exception as exc:
         reaction_cutaways_error = str(exc)

@@ -162,3 +162,84 @@ class TestSelectReactionCutaways:
         assert len(result) == 1
         assert result[0]["timing"]["reaction_land"] == 3.5
         assert result[0]["timing"]["offset_seconds"] == 0.5
+
+
+class TestDecisionRecord:
+    def test_confidence_tracks_measured_co_presence(self):
+        """A reactor visible through the whole speech scores above one
+        flashing past it - confidence is the measured overlap share,
+        not a stated number. On origin/main no confidence is recorded."""
+        blocks = [
+            _block(1, "c1", 0.0, 10.0, 0.0, 10.0,
+                   [_word(1.0, 3.0)]),
+        ]
+        full = select_reaction_cutaways(
+            blocks,
+            _graph(speaking_edges=[("p1", "c1", 1.0, 3.0)],
+                   reaction_edges=[("p2", "c2", 1.0, 3.0)]))
+        marginal = select_reaction_cutaways(
+            blocks,
+            _graph(speaking_edges=[("p1", "c1", 1.0, 8.0)],
+                   reaction_edges=[("p2", "c2", 7.5, 8.5)]))
+        assert full[0]["decision"]["confidence"] == 1.0
+        assert marginal[0]["decision"]["confidence"] == round(0.5 / 7.0, 3)
+        assert marginal[0]["decision"]["confidence"] < \
+            full[0]["decision"]["confidence"]
+
+    def test_zero_length_speech_span_has_no_confidence(self):
+        """A speaking span with no length cannot carry a share, so the
+        confidence is absent rather than a default number. On
+        origin/main no confidence is recorded."""
+        blocks = [
+            _block(1, "c1", 0.0, 10.0, 0.0, 10.0,
+                   [_word(1.0, 3.0)]),
+        ]
+        graph = _graph(
+            speaking_edges=[("p1", "c1", 2.0, 2.0)],
+            reaction_edges=[("p2", "c2", 1.0, 3.0)],
+        )
+        result = select_reaction_cutaways(blocks, graph)
+        assert len(result) == 1
+        assert result[0]["decision"]["confidence"] is None
+
+    def test_style_source_is_absent_unless_stated(self):
+        """No project preference stated means no style source - the
+        planner invents no taste - while a caller-stated one flows
+        through. On origin/main the parameter does not exist."""
+        blocks = [
+            _block(1, "c1", 0.0, 10.0, 0.0, 10.0,
+                   [_word(1.0, 3.0)]),
+        ]
+        graph = _graph(
+            speaking_edges=[("p1", "c1", 1.0, 3.0)],
+            reaction_edges=[("p2", "c2", 1.0, 3.0)],
+        )
+        assert select_reaction_cutaways(
+            blocks, graph)[0]["decision"]["style_source"] is None
+        assert select_reaction_cutaways(
+            blocks, graph,
+            style_source="captain prefers reaction cutaways",
+        )[0]["decision"]["style_source"] == \
+            "captain prefers reaction cutaways"
+
+    def test_evidence_cites_the_measured_spans(self):
+        """The decision's evidence refs name the graph nodes and carry
+        the person-track spans verbatim - a later reader re-checks the
+        same measurement, not a re-derivation. On origin/main there is
+        no decision to cite anything."""
+        blocks = [
+            _block(1, "c1", 0.0, 10.0, 0.0, 10.0,
+                   [_word(1.0, 3.0), _word(5.0, 8.0)]),
+        ]
+        graph = _graph(
+            speaking_edges=[("p1", "c1", 1.0, 8.0)],
+            reaction_edges=[("p2", "c2", 2.0, 6.0)],
+        )
+        evidence = select_reaction_cutaways(
+            blocks, graph)[0]["decision"]["evidence"]
+        assert evidence["speech_shot"] == "shot:c1"
+        assert evidence["reaction_shot"] == "shot:c2"
+        assert evidence["speaking_person"] == "p1"
+        assert evidence["reacting_person"] == "p2"
+        assert evidence["speech_span"] == [1.0, 8.0]
+        assert evidence["reaction_span"] == [2.0, 6.0]

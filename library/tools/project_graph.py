@@ -61,6 +61,10 @@ Queries
         vector), its delivered grade (the per-clip CDL) and its
         camera match against the scene's reference - or None where
         the run registered none for this shot.
+    find_reaction_decisions(graph, clip_id, at_time)
+        The reaction-cutaway EDIT DECISIONs the run recorded,
+        optionally for one clip (speech or reaction) or one timeline
+        time (inside the speech span the decision reacts to).
 
 The colour registration
 -----------------------
@@ -1411,6 +1415,57 @@ def _finding_clip_ids(record: dict) -> set:
     return ids
 
 
+def find_reaction_decisions(graph: dict, clip_id: str | None = None,
+                            at_time: float | None = None) -> list:
+    """The reaction-cutaway EDIT DECISIONs the run recorded.
+
+    Each row is one planner's decision: what it did (action), why
+    (reason), what it rests on (evidence refs to measured graph nodes),
+    what it must satisfy (constraints), whose taste it serves
+    (style source, absent unless stated) and how strongly the measured
+    overlap supports it (confidence). Filter by clip - the speech clip
+    or the reaction clip the decision names - or by timeline time,
+    which matches the speech span the decision reacts to. A finding the
+    compile recorded before decisions existed carries no decision and
+    reads as no row: an absent decision is absent, never synthesised.
+    A time filter a decision cannot be placed in (no speech span on
+    record) matches nothing.
+    """
+    rows = []
+    for candidate in graph["nodes"]:
+        if candidate["node_type"] != EDITORIAL_FINDING:
+            continue
+        payload = candidate["payload"] or {}
+        if payload.get("kind") != FINDING_REACTION_CUTAWAY:
+            continue
+        record = payload.get("record") or {}
+        decision = record.get("decision")
+        if not isinstance(decision, dict):
+            continue
+        if clip_id is not None and clip_id not in _finding_clip_ids(record):
+            continue
+        if at_time is not None:
+            start = record.get("speech_timeline_start")
+            end = record.get("speech_timeline_end")
+            if (not isinstance(start, (int, float))
+                    or not isinstance(end, (int, float))):
+                continue
+            if not (start <= at_time <= end):
+                continue
+        rows.append({
+            "node_id": candidate["node_id"],
+            "speech_block_position": record.get("speech_block_position"),
+            "speech_clip_id": record.get("speech_clip_id"),
+            "reaction_clip_id": record.get("reaction_clip_id"),
+            "speech_timeline_start": record.get("speech_timeline_start"),
+            "speech_timeline_end": record.get("speech_timeline_end"),
+            "reaction_land": (record.get("timing") or {}).get(
+                "reaction_land"),
+            "decision": decision,
+        })
+    return rows
+
+
 def find_vfx_detections(graph: dict, clip_id: str | None = None) -> list:
     """The VFX detections the graph registered, optionally for one clip.
 
@@ -1459,6 +1514,9 @@ def main(argv=None) -> int:
                          help="the colour registration for --clip")
     p_query.add_argument("--timeline-start", type=float)
     p_query.add_argument("--timeline-end", type=float)
+    p_query.add_argument("--decisions", action="store_true",
+                         help="reaction-cutaway EDIT DECISIONs, "
+                              "optionally for --clip or at --t")
     p_query.add_argument("--memory-root")
 
     args = parser.parse_args(argv)
@@ -1475,6 +1533,11 @@ def main(argv=None) -> int:
 
     if args.command == "query":
         graph = build_graph(args.project, root)
+        if args.decisions:
+            results = find_reaction_decisions(
+                graph, args.clip, args.t)
+            print(json.dumps(results, indent=2))
+            return 0
         if args.person and args.t is not None:
             results = find_reaction_shots(graph, args.person, args.t)
             print(json.dumps(results, indent=2))
@@ -1491,8 +1554,8 @@ def main(argv=None) -> int:
             results = find_coverage(graph, args.timeline_start, args.timeline_end)
             print(json.dumps(results, indent=2))
             return 0
-        print("query needs --person + --t, --clip, --colour + --clip, "
-              "or --timeline-start + --timeline-end",
+        print("query needs --decisions, --person + --t, --clip, "
+              "--colour + --clip, or --timeline-start + --timeline-end",
               file=sys.stderr)
         return 2
 

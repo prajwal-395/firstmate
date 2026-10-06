@@ -20,6 +20,14 @@ The selection rule
 Every selection records its evidence: the speaking person, the reacting
 person, the measured spans, and the timing.
 
+Each selection also carries a `decision` record in the captain's EDIT
+DECISION shape (action, reason, evidence refs to measured graph nodes,
+constraints, style source, confidence). The confidence is measured, not
+stated: the share of the speaking span the reactor is visible for, from
+the same person-track spans the selection itself rests on. The style
+source is whatever the caller states from project data, or absent - the
+planner invents no taste.
+
 This module imports nothing from steps or processes: it reads the
 measurements a state carries, the same reader every consumer has.
 """
@@ -29,6 +37,84 @@ from __future__ import annotations
 #: Zero - the reaction comes in at the end of the speech it reacts to.
 #: A caller may state its own offset; nothing here invents one.
 REACTION_LAND_OFFSET = 0.0
+
+
+def _overlap_seconds(start_a, end_a, start_b, end_b) -> float:
+    """Measured co-presence of two spans, in seconds, never negative."""
+    try:
+        return max(0.0, min(float(end_a), float(end_b))
+                   - max(float(start_a), float(start_b)))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _decision_confidence(speech_start, speech_end,
+                         reaction_start, reaction_end):
+    """Share of the speaking span the reactor is visible for, or None.
+
+    Purely measured: the overlap of the two person-track spans over the
+    speaking span's own length. A reactor visible through the whole
+    speech reads 1.0; one flashing past reads near 0. A span with no
+    length cannot carry a share, so the confidence is absent (None) -
+    never a default number standing in for a measurement.
+    """
+    try:
+        span = float(speech_end) - float(speech_start)
+    except (TypeError, ValueError):
+        return None
+    if span <= 0:
+        return None
+    return round(
+        _overlap_seconds(speech_start, speech_end,
+                         reaction_start, reaction_end) / span, 3)
+
+
+def _decision_record(speech_clip, speaking_person, speech_span,
+                     reaction_clip, reacting_person, reaction_span,
+                     speech_moment, reaction_land, offset_seconds,
+                     reason, style_source):
+    """One EDIT DECISION: why this cutaway, and what it rests on.
+
+    Evidence refs name graph nodes (`shot:<clip>`, the person ids the
+    person tracks resolve to) plus the measured spans verbatim - what a
+    later reader needs to re-check the decision against the same data.
+    Constraints are the selection's own rules, stated, not taste: the
+    reaction is in no spine block, the reactor is not the speaker, and
+    it lands at the end of the speech plus the caller-stated offset.
+    """
+    confidence = _decision_confidence(*speech_span, *reaction_span)
+    return {
+        "action": (
+            f"Use {reaction_clip} from {reaction_span[0]:.3f}s to "
+            f"{reaction_span[1]:.3f}s as reaction cutaway "
+            f"at {reaction_land:.3f}s"
+        ),
+        "reason": reason,
+        "evidence": {
+            "speech_shot": f"shot:{speech_clip}",
+            "reaction_shot": f"shot:{reaction_clip}",
+            "speaking_person": speaking_person,
+            "reacting_person": reacting_person,
+            "speech_span": list(speech_span),
+            "reaction_span": list(reaction_span),
+            "speech_moment": speech_moment,
+        },
+        "constraints": {
+            "reaction_not_in_spine":
+                f"{reaction_clip} is in no spine block",
+            "reactor_differs_from_speaker":
+                f"{reacting_person} is not the speaker {speaking_person}",
+            "lands_at_speech_moment":
+                f"lands at {reaction_land:.3f}s = end of speech "
+                f"+ caller-stated offset {offset_seconds}s",
+        },
+        "style_source": style_source,
+        "confidence": confidence,
+        "confidence_source": (
+            "measured span overlap from the project graph person tracks "
+            "(overlap / speaking-span length)"
+        ),
+    }
 
 
 def _source_to_timeline(source_seconds: float, block: dict) -> float:
@@ -89,6 +175,7 @@ def select_reaction_cutaways(
     spine_blocks: list,
     graph: dict,
     reaction_offset: float = REACTION_LAND_OFFSET,
+    style_source: str | None = None,
 ) -> list:
     """Select reaction cutaways for the sequence's speech moments.
 
@@ -99,6 +186,9 @@ def select_reaction_cutaways(
         reaction_offset: seconds after the speech moment where the
             reaction lands. The default is the end of the speech moment
             itself; a project may state its own.
+        style_source: where the taste for reaction cutaways comes from -
+            project data or a stated user preference the caller passes
+            in. None when nothing states one: the planner invents none.
 
     Returns a list of reaction cutaway records, one per speech moment
     that has a qualifying reaction shot, each with:
@@ -109,6 +199,9 @@ def select_reaction_cutaways(
         - reaction_source_start, reaction_source_end: the measured span
         - timing: speech_moment, reaction_land, offset_seconds
         - reason: why this is a reaction cutaway candidate
+        - decision: the EDIT DECISION record (action, reason, evidence
+          refs to measured graph nodes, constraints, style source,
+          measured confidence)
     """
     results = []
     spine_clips = {
@@ -139,11 +232,11 @@ def select_reaction_cutaways(
         if not speaking_persons:
             continue
 
-        for person_id, _speech_start, _speech_end in speaking_persons:
+        for person_id, speech_start, speech_end in speaking_persons:
             try:
                 from library.tools import project_graph
                 reactions = project_graph.find_reaction_shots(
-                    graph, person_id, _speech_start)
+                    graph, person_id, speech_start)
             except Exception:
                 continue
 
@@ -172,6 +265,13 @@ def select_reaction_cutaways(
                     continue
 
                 reaction_land = round(speech_moment + reaction_offset, 3)
+                moment = round(speech_moment, 3)
+                reason = (
+                    f"{reacting_person} is visible in "
+                    f"{reaction_clip} from {reaction_start:.3f}s to "
+                    f"{reaction_end:.3f}s while {person_id} speaks - "
+                    f"a reaction cutaway candidate"
+                )
 
                 results.append({
                     "speech_block_position": block.get("position"),
@@ -184,16 +284,18 @@ def select_reaction_cutaways(
                     "reaction_source_start": reaction_start,
                     "reaction_source_end": reaction_end,
                     "timing": {
-                        "speech_moment": round(speech_moment, 3),
+                        "speech_moment": moment,
                         "reaction_land": reaction_land,
                         "offset_seconds": reaction_offset,
                     },
-                    "reason": (
-                        f"{reacting_person} is visible in "
-                        f"{reaction_clip} from {reaction_start:.3f}s to "
-                        f"{reaction_end:.3f}s while {person_id} speaks - "
-                        f"a reaction cutaway candidate"
-                    ),
+                    "reason": reason,
+                    "decision": _decision_record(
+                        speech_clip, person_id,
+                        (speech_start, speech_end),
+                        reaction_clip, reacting_person,
+                        (reaction_start, reaction_end),
+                        moment, reaction_land, reaction_offset,
+                        reason, style_source),
                 })
 
     return results
