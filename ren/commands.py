@@ -184,9 +184,14 @@ VERBS = (
 
     Verb("worker", "Fabric", "This machine's Ren Fabric worker: its manifest, and whether a task's requirements match it",
          module_argv=("library.tools.worker_manifest",),
-         detail="`ren worker manifest` prints this machine's worker advertisement as JSON, "
+         detail="`ren worker manifest` prints this worker's advertisement as JSON, "
                 "assembled from the probes ren doctor and the broker already run. "
                 "`--check` exits 1 when a required need is unmet."),
+    Verb("schedule", "Fabric", "Run a Ren Fabric task graph on this machine",
+         module_argv=("library.tools.fabric_scheduler",),
+         detail="`ren fabric schedule <graph.json>` runs a task graph on this machine: "
+                "places ready tasks whose capabilities this worker's manifest meets "
+                "and whose leases are free, and resumes from the last checkpoint."),
 )
 
 

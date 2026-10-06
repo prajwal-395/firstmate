@@ -223,6 +223,7 @@ const VERBS: &[Verb] = &[
     Verb { name: "eval-search", group: "Footage", summary: "Score footage search against a pre-registered, hand-marked query set" },
     Verb { name: "eval", group: "Eval", summary: "Run the standing request-following eval (report only; gates nothing)" },
     Verb { name: "worker", group: "Fabric", summary: "This machine's Ren Fabric worker: its manifest, and whether a task's requirements match it" },
+    Verb { name: "schedule", group: "Fabric", summary: "Run a Ren Fabric task graph on this machine" },
 ];
 
 /// `ren.cli.usage` - the verb table, the build, and the engine.
