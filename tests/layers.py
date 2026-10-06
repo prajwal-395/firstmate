@@ -27,9 +27,11 @@ TESTS_ROOT = Path(__file__).resolve().parent
 
 LAYERS = ("unit", "contracts", "scenarios", "qualification", "tooling")
 
-#: `unit/` subdirectories, one per subsystem.
+#: `unit/` subdirectories, one per subsystem. `tools` is the engine's
+#: shared tool modules that belong to no pipeline subsystem - the ML
+#: worker protocol, the edit backend, the JUnit lanes.
 SUBSYSTEMS = ("audio", "captions", "context", "graphics_ir", "picture",
-              "reels", "resolve")
+              "reels", "resolve", "tools")
 
 
 def _parts(path) -> tuple[str, ...]:

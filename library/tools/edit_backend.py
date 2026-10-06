@@ -15,11 +15,13 @@ absent, the Python implementations run unchanged.
 A build that predates the tree it runs against is refused the same way.
 The extension carries a fingerprint of the `native/` sources it was
 built from (`ren_native.source_fingerprint()`, baked in by
-`native/ren-core/build.rs`); `rust()` compares it against the running
-tree and, on a mismatch, falls back to Python and says so once. The
-parity harness (`tests/unit/resolve/test_ren_core_parity.py`) skips
-naming a stale build rather than failing on an old binary, and still
-fails when a fresh build genuinely disagrees.
+`native/ren-core/build.rs`); `edit_backend.rust()` compares it against
+the running tree and, on a mismatch, falls back to Python and says so
+once. `ren setup` and `ren upgrade` run the rebuild;
+`ren doctor` names a stale one. The parity harness
+(`tests/unit/resolve/test_ren_core_parity.py`) skips naming a stale
+build rather than failing on an old binary, and still fails when a
+fresh build genuinely disagrees.
 """
 
 import os

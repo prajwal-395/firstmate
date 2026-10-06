@@ -29,6 +29,8 @@ import tempfile
 import time
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO))
 
@@ -42,6 +44,13 @@ for profile in ("release", "debug"):
     if candidate.is_file():
         RUST_BINARY = candidate
         break
+
+if RUST_BINARY is None:
+    pytest.skip(
+        "the ren-resolved binary is not built - cargo build --release "
+        "in native/ (the debug profile works too)",
+        allow_module_level=True,
+    )
 
 
 def _short_lock_dir(name: str) -> Path:

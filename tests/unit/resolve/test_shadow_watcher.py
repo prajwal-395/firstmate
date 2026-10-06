@@ -149,9 +149,10 @@ def test_watcher_fires_on_schedule(reel, monkeypatch):
     try:
         watcher.start(lambda: "Podcast", lambda name: project_folder)
         deadline = time.time() + 2.0
-        while not ticks and time.time() < deadline:
+        while len(ticks) < 3 and time.time() < deadline:
             time.sleep(0.01)
-        assert ticks == ["Podcast"]
+        assert len(ticks) >= 3, "the watcher did not keep firing on its cadence"
+        assert all(name == "Podcast" for name in ticks)
     finally:
         watcher.stop()
 

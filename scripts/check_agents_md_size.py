@@ -152,6 +152,16 @@ CEILING = 52936
 # path in the file grew by its layer. `## 9` paid by moving the 2026-09-03
 # regrowth measurement to docs/RULE_EVIDENCE.md#the-index-that-regrew,
 # leaving its rule and a [why]. The sum is unchanged.
+# LOWERED 2026-10-06 with `## 17`, from 810: the Rust-migration PRs grew
+# the section past its budget. The stale-`ren_native` row's detail moved to
+# the module that owns it - `library/tools/edit_backend.py`, whose docstring
+# now carries the fingerprint, the fallback, the `ren setup`/`ren upgrade`
+# rebuild and the `ren doctor` naming - and the `ren-core` and
+# `ren-resolved` rows became headline plus pointer, the switch detail being
+# verbatim in `native/ren-core/README.md` and the queue/scheduler/watchdog
+# inventory in `native/ren-resolved/README.md`. The budget is set to what
+# the section now MEASURES; the 16 characters left over went off the CEILING
+# rather than back into the spare.
 SECTION_BUDGETS = {
     "## How to read this file": 268,
     "## 1. Identity and purpose": 234,
@@ -170,7 +180,7 @@ SECTION_BUDGETS = {
     "## 14. General assets vs project assets": 2300,
     "## 15. Notes the captain types onto the timeline": 1521,
     "## 16. Motion graphics": 2349,
-    "## 17. Rust": 810,
+    "## 17. Rust": 794,
     "## Maintaining this file": 553,
 }
 

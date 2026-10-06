@@ -333,6 +333,29 @@ ENVIRONMENT_CONDITIONS = (
         install_hint="run scripts/build_ren_native.sh <venv-bin-dir> "
                      "(ren setup and ren upgrade build it automatically)",
     ),
+    # The ren-resolved broker daemon and the ml-worker-client are cargo
+    # build artifacts of this tree's native/ sources, in the same class as
+    # the ren_native extension above: the sources are always here, whether
+    # the binary is built varies by machine. A machine without the build
+    # skips the lease tests; the skip fires only where the binary is
+    # absent, so it is narrowing.
+    EnvironmentCondition(
+        pattern=r"the ren-resolved binary is not built",
+        false_when="the ren-resolved binary is built from this tree's "
+                   "native/ sources - cargo build --release in native/ - "
+                   "so the daemon-lease tests run",
+        capability="ren_resolved",
+        install_hint="cargo build --release in native/ (the debug profile "
+                     "works too)",
+    ),
+    EnvironmentCondition(
+        pattern=r"ml-worker-client binary not built",
+        false_when="the ml-worker-client binary is built from this "
+                   "tree's native/ sources - cargo build in native/ - so "
+                   "the crash-proof test runs",
+        capability="ml_worker_client",
+        install_hint="cargo build in native/",
+    ),
 )
 
 

@@ -723,11 +723,11 @@ One enumeration, `library/tools/marker_payload.py`.
 
 **`ren-protocol`** is the typed worker protocol: `native/ren-protocol/README.md`.
 
-**`ren-core`** is the editorial correctness core, exposed to Python as `ren_native` behind one switch (`REN_EDIT_BACKEND=rust`), Python the default: `native/ren-core/README.md`.
+**`ren-core`** is the editorial correctness core, exposed to Python as `ren_native`: `native/ren-core/README.md`.
 
-**A stale `ren_native` is refused, not used.** The build bakes a `native/` source fingerprint into the extension; `edit_backend.rust()` falls back to Python on a mismatch. `ren setup`/`ren upgrade` rebuild it; `ren doctor` names it.
+**A stale `ren_native` is refused, not used.** `library/tools/edit_backend.py`.
 
-**`ren-resolved` is the broker daemon in Rust** (queue, scheduler, watchdog, job store; the Python worker executes Resolve jobs over stdio). It speaks the existing socket protocol byte-compatibly - `REN_RESOLVED_DAEMON=rust` selects it, the client is unchanged: `native/ren-resolved/README.md`.
+**`ren-resolved` is the broker daemon in Rust**, speaking the existing socket protocol byte-compatibly - `REN_RESOLVED_DAEMON=rust` selects it, the client is unchanged: `native/ren-resolved/README.md`.
 
 ## Maintaining this file
 

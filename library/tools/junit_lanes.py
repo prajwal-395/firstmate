@@ -168,6 +168,11 @@ def undeclared_skips(xml_path: str) -> list[tuple[str, str]]:
         if skipped is None:
             continue
         reason = skipped.get("message", "")
+        if reason == "collection skipped":
+            # A collection-level skip (module-level pytest.skip) records
+            # the real reason in the element text, not the message - the
+            # same reason the root conftest's collectreport hook reads.
+            reason = (skipped.text or "").strip()
         if skip_audit.declared_condition(reason) is None:
             nodeid = f"{case.get('classname', '')}::{case.get('name', '')}"
             found.append((nodeid, reason))
