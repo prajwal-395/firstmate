@@ -213,7 +213,8 @@ class Scheduler:
         """
         try:
             lease_ctx = resource_leases.resource_lease(
-                task.resources, f"fabric task {task.id}", wait=False)
+                task.resources, f"fabric task {task.id}", wait=False,
+                heartbeat_interval=task.heartbeat_interval)
             lease = lease_ctx.__enter__()
         except ResourceLeaseBusy:
             return None
@@ -353,6 +354,15 @@ def _main(argv=None) -> int:
                           "own, from this run's declared expected "
                           "duration; a task's own timeout_seconds "
                           "always wins")
+    if argv is None:
+        argv = sys.argv[1:]
+    else:
+        argv = list(argv)
+    # `ren schedule` execs this module with the verb's own arguments,
+    # so a bare graph path runs it: the `run` subcommand is the only
+    # one and stays accepted explicitly.
+    if argv[:1] not in (["run"], ["-h"], ["--help"]):
+        argv = ["run", *argv]
     args = parser.parse_args(argv)
 
     try:

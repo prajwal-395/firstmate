@@ -405,3 +405,79 @@ def test_a_non_positive_run_flag_is_refused(lock_dir, tmp_path):
 
     with pytest.raises(ValueError, match="must be positive"):
         with_default_timeout(TaskGraph(tasks={}), 0)
+# ── Lease declarations ────────────────────────────────────────────
+
+def test_a_task_lease_carries_the_tasks_heartbeat_interval(
+        lock_dir, tmp_path, monkeypatch):
+    """The lease a task holds heartbeats on the task's own interval.
+
+    Defect caught: the scheduler dropped the declaration and every
+    task lease got the default, so a task that declared a short
+    interval for fast failover never got it - a dead holder's lease
+    lingered a full default interval before another worker could
+    take it.
+    """
+    from library.tools import resource_leases
+
+    seen = {}
+    real_lease = resource_leases.resource_lease
+
+    def recording_lease(declaration, purpose, **kwargs):
+        seen.update(kwargs)
+        return real_lease(declaration, purpose, **kwargs)
+
+    monkeypatch.setattr(resource_leases, "resource_lease", recording_lease)
+    graph = TaskGraph(tasks={
+        "a": Task(id="a", name="A", heartbeat_interval=7.5),
+    })
+    states = _scheduler(graph, _manifest(), tmp_path / "state.json",
+                        Recorder()).run()
+
+    assert states == {"a": DONE}
+    assert seen.get("heartbeat_interval") == 7.5
+
+
+# ── Verb dispatch ─────────────────────────────────────────────────
+
+def _write_graph_file(path, *tasks):
+    import json
+    path.write_text(json.dumps(
+        {"tasks": [task.to_record() for task in tasks]}, indent=2),
+        encoding="utf-8")
+    return path
+
+
+def _stub_manifest(monkeypatch):
+    from library.tools import worker_manifest
+    monkeypatch.setattr(
+        worker_manifest, "produce_manifest",
+        lambda *args, **kwargs: {"capabilities": {}})
+
+
+def test_a_bare_graph_path_runs(lock_dir, tmp_path, monkeypatch, capsys):
+    """`ren schedule <graph.json>` runs the graph: the `run`
+    subcommand is the only one, so a bare graph path means it.
+
+    Defect caught: the module required the subcommand while the verb
+    passes the graph path straight through, so the shipped entry
+    point exited 2 on exactly the invocation it advertises.
+    """
+    from library.tools import fabric_scheduler
+
+    _stub_manifest(monkeypatch)
+    graph_path = _write_graph_file(
+        tmp_path / "graph.json", Task(id="a", name="A"))
+    assert fabric_scheduler._main([str(graph_path)]) == 0
+    assert "a: done" in capsys.readouterr().out
+
+
+def test_an_explicit_run_subcommand_still_runs(
+        lock_dir, tmp_path, monkeypatch, capsys):
+    """The explicit `run` form keeps working beside the bare path."""
+    from library.tools import fabric_scheduler
+
+    _stub_manifest(monkeypatch)
+    graph_path = _write_graph_file(
+        tmp_path / "graph.json", Task(id="a", name="A"))
+    assert fabric_scheduler._main(["run", str(graph_path)]) == 0
+    assert "a: done" in capsys.readouterr().out

@@ -208,7 +208,7 @@ VERBS = (
                 "`--check` exits 1 when a required need is unmet."),
     Verb("schedule", "Fabric", "Run a Ren Fabric task graph on this machine",
          module_argv=("library.tools.fabric_scheduler",),
-         detail="`ren fabric schedule <graph.json>` runs a task graph on this machine: "
+         detail="`ren schedule <graph.json> [--timeout SECS]` runs a task graph on this machine: "
                 "places ready tasks whose capabilities this worker's manifest meets "
                 "and whose leases are free, and resumes from the last checkpoint."),
     Verb("events", "Fabric", "Read a project's event-sourced operation log",
