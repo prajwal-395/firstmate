@@ -815,6 +815,12 @@ run_spawn_case() {  # <bin-root> <fakebin> <log> <state> <data> <config> <proj> 
   local bin=$1 fb=$2 log=$3 state=$4 data=$5 config=$6 proj=$7; shift 7
   [ "${1:-}" = -- ] && shift
   : > "$log"
+  # The Treehouse project lock lives under the resolved root home's state/
+  # directory, which a real home always has from session bootstrap. This rig
+  # points FM_ROOT_OVERRIDE at the checkout itself, so ensure that directory
+  # the way bootstrap would: without it the first spawn in a fresh checkout
+  # refuses lock resolution for reasons unrelated to the case under test.
+  mkdir -p "$bin/state"
   env PATH="$fb:$PATH" FM_ROOT_OVERRIDE="$bin" HOME="$SPAWN_HOME" CLAUDE_CONFIG_DIR='' \
     FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" \
     FM_PROJECTS_OVERRIDE="$TMP_ROOT/unused-projects" \
