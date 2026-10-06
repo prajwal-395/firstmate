@@ -330,3 +330,56 @@ def test_contours_do_not_reach_the_prompt():
     assert "pitch_stats" in view["prosody"]["measured"]["clip_001"]["prosody"]
     assert "pitch_contour_10ms" not in view["prosody"]["measured"]["clip_001"]["prosody"]
     assert "intensity_contour_50ms" not in view["prosody"]["measured"]["clip_001"]["prosody"]
+
+
+class TestProsodyBatchLanes:
+    """The prosody batch must survive a bad clip in place and keep
+    input order, serially or on lanes. A batch assembly that collects
+    completion order scrambles which profile belongs to which clip;
+    one that lets a clip's `ProsodyUnavailable` escape aborts the
+    batch instead of recording that clip's failure."""
+
+    def test_batch_matches_serial_order_with_a_failure_in_place(
+            self, monkeypatch):
+        import time
+        from library.tools.analysis import speech_advanced_pipeline as pipe
+
+        def fake_advanced(path, speech_regions=None, output_dir=None,
+                          clip_id=None):
+            if clip_id == "clip_002":
+                raise pipe.ProsodyUnavailable("no voiced frames")
+            time.sleep(0.05 * (3 - int(clip_id[-1])))
+            return {"clip_id": clip_id, "prosody": {"stub": True}}
+
+        monkeypatch.setattr(pipe, "analyze_speech_advanced", fake_advanced)
+        audio_files = [{"path": f"/nonexistent/{c}.wav", "clip_id": c}
+                       for c in ("clip_001", "clip_002", "clip_003")]
+
+        results, failures = pipe.analyze_batch(
+            audio_files, {"clip_001": [{"start": 0, "end": 1}]}, "/tmp")
+
+        assert [r["clip_id"] for r in results] == ["clip_001", "clip_003"]
+        assert failures == [{"clip_id": "clip_002",
+                             "error": "no voiced frames"}]
+
+    def test_null_boundaries_analyse_without_regions(self, monkeypatch):
+        """A null `speech_boundaries` used to kill the whole batch with
+        `AttributeError` before any clip was measured; it means no
+        regions, not no batch."""
+        from library.tools.analysis import speech_advanced_pipeline as pipe
+
+        seen = {}
+
+        def fake_advanced(path, speech_regions=None, output_dir=None,
+                          clip_id=None):
+            seen[clip_id] = speech_regions
+            return {"clip_id": clip_id}
+
+        monkeypatch.setattr(pipe, "analyze_speech_advanced", fake_advanced)
+        results, failures = pipe.analyze_batch(
+            [{"path": "/nonexistent/a.wav", "clip_id": "clip_001"}],
+            None, "/tmp")
+
+        assert failures == []
+        assert [r["clip_id"] for r in results] == ["clip_001"]
+        assert seen == {"clip_001": None}

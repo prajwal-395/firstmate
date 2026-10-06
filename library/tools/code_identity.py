@@ -394,6 +394,13 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/analysis/speech_advanced_pipeline.py",
         # Imported by step.py: classifies the cached profile.
         "library/tools/prosody_profile.py",
+        # Imported by the pipeline's batch: the per-clip lanes, so a
+        # fix here changes how many clips measure at once.
+        "library/tools/concurrency_routing.py",
+        # Imported by concurrency_routing: the lane bound is this
+        # machine's measured core count. (Its capabilities read is
+        # exempt plumbing.)
+        "library/tools/resource_scheduler.py",
     ),
     "step_1_07_ocr_extraction": (
         # The whole measurement, imported by step.py.

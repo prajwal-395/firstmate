@@ -60,6 +60,8 @@ import time
 import numpy as np
 from pathlib import Path
 
+from library.tools.concurrency_routing import run_lanes
+
 
 class ProsodyUnavailable(RuntimeError):
     """No prosody could be measured for this clip.
@@ -573,6 +575,42 @@ def analyze_speech_advanced(
     return results
 
 
+def analyze_batch(audio_files: list, speech_boundaries: dict,
+                    output_dir: str) -> tuple:
+    """Run `analyze_speech_advanced` over a batch, one lane per clip.
+
+    The Fabric's read-only form for the prosody lane: each clip's
+    parselmouth pass is independent (its Sound object is a per-call
+    local; only constants sit at module level), each lane owns its
+    `<clip_id>_prosody.json` target, and the assembly restores input
+    order - so `(results, failures)` is identical to the serial loop's.
+    A clip parselmouth cannot analyse raises `ProsodyUnavailable`,
+    which becomes that clip's failure record here rather than aborting
+    the batch, exactly as the serial loop did.
+    """
+    def _one(job):
+        af, regions = job
+        clip_id = af.get("clip_id")
+        try:
+            return ("result", analyze_speech_advanced(
+                af["path"],
+                speech_regions=regions,
+                output_dir=output_dir,
+                clip_id=clip_id,
+            ))
+        except ProsodyUnavailable as exc:
+            print(f"  ✗ {clip_id}: {exc}", file=sys.stderr)
+            return ("failure", {"clip_id": clip_id, "error": str(exc)})
+
+    jobs = [(af, speech_boundaries.get(af.get("clip_id"))
+             if isinstance(speech_boundaries, dict) else None)
+            for af in audio_files or []]
+    results, failures = [], []
+    for kind, record in run_lanes(_one, jobs):
+        (results if kind == "result" else failures).append(record)
+    return results, failures
+
+
 def main():
     if len(sys.argv) > 1:
         import argparse
@@ -605,22 +643,8 @@ def main():
         output_dir = data.get("output_dir")
         speech_boundaries = data.get("speech_boundaries", {})
 
-        results = []
-        failures = []
-        for af in audio_files:
-            clip_id = af.get("clip_id")
-            regions = speech_boundaries.get(clip_id) if clip_id else None
-            try:
-                results.append(analyze_speech_advanced(
-                    af["path"],
-                    speech_regions=regions,
-                    output_dir=output_dir,
-                    clip_id=clip_id,
-                ))
-            except ProsodyUnavailable as exc:
-                failures.append({"clip_id": clip_id,
-                                 "error": str(exc)})
-                print(f"  ✗ {clip_id}: {exc}", file=sys.stderr)
+        results, failures = analyze_batch(
+            audio_files, speech_boundaries, output_dir)
 
         json.dump({"results": results, "failures": failures},
                   sys.stdout, indent=2)
