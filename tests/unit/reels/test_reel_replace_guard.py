@@ -521,3 +521,82 @@ def test_a_fusion_read_without_mattes_is_not_an_editor_change():
     assert reel_replace_guard._same_preservation_value("fusion", old, new)
     assert not reel_replace_guard._same_preservation_value(
         "fusion", old, {**old, "mattes": {"Matte 1": {"kind": "ellipse"}}})
+
+
+def test_a_carried_extend_matches_across_fresh_builds_by_file_and_span():
+    """Reel 13, 2026-10-06: the carried +6f LC4932 extend played
+    identically on staging (1038..1503 @ 47563..48028), but the fresh
+    comps, holds and grade differ field-by-field from the hand-tuned
+    live item, so the full preservation comparison refused a carried
+    edit and promotion stopped. Two LC4932 items share V1, so the file
+    match alone cannot tell them apart - the record span can."""
+    live = {
+        "track_type": "video", "track_index": 1, "track_name": "Akshita",
+        "name": "LC4932.MXF",
+        "source_file": "/media/LC4932.MXF",
+        "source_identity": "media:live-pool-item",
+        "source_in_frame": 47563, "source_out_frame": 48028,
+        "record_in": 1038, "record_out": 1503, "duration": 465,
+        "enabled": True,
+        "transform": {"Pan": -2.0, "Tilt": -174.01025},
+        "fusion": {"comp_count": 1, "comp_names": ["Composition 1"]},
+        "color": {"cdl": {"slope": 1.03}},
+        "clip_color": "", "flags": [], "markers": [],
+    }
+    fresh = {**live,
+             "source_identity": "media:fresh-pool-item",
+             "transform": {"Pan": 10.509, "Tilt": -174.01},
+             "fusion": {"comp_count": 1, "comp_names": ["reel_picture_04"]},
+             "color": {"cdl": {}, "node": "BAL/EXP"}}
+    other = {**fresh, "source_in_frame": 12006,
+             "source_out_frame": 12318, "record_in": 1503,
+             "record_out": 1815, "duration": 312}
+    change = {"kind": "item_added",
+              "identity": reel_replace_guard.stable_item_key(live),
+              "before": None, "after": live, "changed": {}}
+    assert reel_replace_guard._change_is_carried(
+        change, {"items": [fresh, other]})
+    assert not reel_replace_guard._change_is_carried(
+        change, {"items": [other]})
+    moved = {**fresh, "record_in": 1040, "record_out": 1505}
+    assert not reel_replace_guard._change_is_carried(
+        change, {"items": [moved, other]})
+
+
+def test_a_staging_that_ends_before_the_live_tail_refuses():
+    """Reel 13, 2026-10-06: the plan built the V1 tail to 1811 while the
+    approved live tail plays to 1815, and the item counts match, so the
+    row diff passed the shortfall silently. A shorter staging refuses
+    unless a row declaration puts the run in deliberate-restructuring
+    mode or the shortfall is explicitly accepted; a longer one passes,
+    and an unreadable end reads as unknown, never as a verdict."""
+    row = {
+        "key": "video:Akshita", "media_type": "video", "index": 1,
+        "name": "Akshita",
+        "items": [{"name": "LC4932.MXF", "start": 1038, "end": 1503,
+                   "duration": 465, "enabled": True}],
+        "count": 1, "frames": 465,
+    }
+    retired = {"video:Akshita": dict(row)}
+    incoming = {"video:Akshita": dict(row)}
+    with pytest.raises(reel_replace_guard.ReplaceGuardRefused,
+                       match="ends at frame 1,902.*4f before"):
+        reel_replace_guard.check_replacement(
+            "final", "staging", retired, incoming, retired_end=1906,
+            incoming_end=1902)
+    assert reel_replace_guard.check_replacement(
+        "final", "staging", retired, incoming, retired_end=1906,
+        incoming_end=1906)["refused"] is False
+    assert reel_replace_guard.check_replacement(
+        "final", "staging", retired, incoming, retired_end=1906,
+        incoming_end=1910)["refused"] is False
+    assert reel_replace_guard.check_replacement(
+        "final", "staging", retired, incoming, retired_end=1906,
+        incoming_end=1902,
+        allowed={"video:Akshita"})["refused"] is False
+    assert reel_replace_guard.check_replacement(
+        "final", "staging", retired, incoming, retired_end=1906,
+        incoming_end=1902,
+        accept_end_shortfall=True)["refused"] is False
+    assert reel_replace_guard.check_replacement(
+        "final", "staging", retired, incoming)["refused"] is False

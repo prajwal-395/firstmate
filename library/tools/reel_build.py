@@ -11034,10 +11034,17 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             incoming_rows = _guard.snapshot_timeline(
                 staged_found[staging], staging, side="staged")
             incoming_by_final[final] = incoming_rows
+            live_end = (live_snapshot.get("timeline") or {}).get("end_frame")
+            staged_end = (staged_after_snapshot.get("timeline") or {}).get(
+                "end_frame")
             replace_reports[final] = _guard.check_replacement(
                 final, staging, retired_rows, incoming_rows,
                 allowed=allowed_rows,
-                safe_disabled_drops=carry_safe_drops)
+                safe_disabled_drops=carry_safe_drops,
+                retired_end=live_end if isinstance(live_end, int) else None,
+                incoming_end=(staged_end if isinstance(staged_end, int)
+                              else None),
+                accept_end_shortfall=accept_editor)
             replace_reports[final] = _guard.include_disabled_carries(
                 {**replace_reports[final], "rows": enabled_state_report["rows"]},
                 disabled_state["carried"])

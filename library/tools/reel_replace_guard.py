@@ -665,6 +665,36 @@ def _same_file_candidates(change: dict, staged: dict) -> list[dict]:
                  other.get("source_out_frame")) == (start, end)]
 
 
+#: What a carried extend must still hold: the placement, not the
+#: fresh build's cosmetics. A rebuild re-derives the transform, the
+#: Fusion comps and the grade of every item it places, and the conformance
+#: and verify passes judge that render - the editor-change guard judges
+#: whether the editor's EDIT survived, which for an extend is the file and
+#: the source and record spans on the row. Measured 2026-10-06 (Reel 13):
+#: the carried +6f LC4932 extend played identically on staging, but the
+#: fresh comps and holds differ field-by-field from the hand-tuned live
+#: item, so the full preservation comparison refused a carried edit.
+_EXTEND_SPAN_FIELDS = (
+    "track_type", "track_index", "track_name", "source_file",
+    "source_in_frame", "source_out_frame", "record_in", "record_out",
+    "duration",
+)
+
+
+def _extend_span_candidates(change: dict, staged: dict) -> list[dict]:
+    """Staged items playing the added file over the added spans.
+
+    `_same_file_candidates` already filters by file, source span and row,
+    but two placements of one file on a row (Reel 13's V1 plays LC4932
+    twice) need the record span to tell them apart. Zero or 2+
+    candidates leave the change unmatched - never guessed onto one.
+    """
+    item = change.get("after") or {}
+    return [other for other in _same_file_candidates(change, staged)
+            if (other.get("record_in"), other.get("record_out"))
+            == (item.get("record_in"), item.get("record_out"))]
+
+
 def _note_content(marker: dict) -> tuple:
     return tuple(_canonical(marker.get(field)) for field in
                  ("color", "name", "note", "duration", "custom_data"))
@@ -734,10 +764,16 @@ def _change_is_carried(change: dict, staged: dict) -> bool:
             return False
         if kind == "item_added":
             wanted = change["after"]
-            return any(all(_same_preservation_value(
+            if any(all(_same_preservation_value(
                                field, item.get(field), wanted.get(field))
                            for field in fields)
-                       for item in candidates)
+                       for item in candidates):
+                return True
+            extended = _extend_span_candidates(change, staged)
+            return len(extended) == 1 and all(
+                _same_preservation_value(
+                    field, extended[0].get(field), wanted.get(field))
+                for field in _EXTEND_SPAN_FIELDS)
         wanted = change["changed"]
         if fields is _CAPTION_SPAN_FIELDS or fields is _FILE_MATCH_FIELDS:
             # The render's name and source frames are not the editor's; a
@@ -1544,8 +1580,9 @@ def parse_specs(raw, finals) -> dict:
 
 
 def check_replacement(final: str, staging: str, retired: dict,
-                      incoming: dict, allowed=None,
-                      safe_disabled_drops=None) -> dict:
+                       incoming: dict, allowed=None,
+                       safe_disabled_drops=None, retired_end=None,
+                       incoming_end=None, accept_end_shortfall=False) -> dict:
     """Refuse by name when the incoming timeline holds less, or report.
 
     Returns the per-reel report: every retired row with its counts on
@@ -1553,6 +1590,16 @@ def check_replacement(final: str, staging: str, retired: dict,
     which reduction. Raises `ReplaceGuardRefused` naming the row, the
     counts and what is missing for the first undeclared loss - with the
     exact declaration that would proceed deliberately.
+
+    `retired_end` / `incoming_end` are the two timelines' end frames.
+    When both read and the incoming tail ends before the retired one, a
+    shortfall no row loss names - measured 2026-10-06 (Reel 13: the plan
+    built the V1 tail to 1811 while the approved tail plays to 1815, and
+    the item counts match, so the row diff passed silently) - refuses
+    unless a row declaration puts the run in deliberate-restructuring
+    mode or the shortfall is explicitly accepted. A LONGER incoming
+    tail passes: extensions are additions, judged as items. Either end
+    unreadable skips the comparison, never verdicts on it.
     """
     allowed = set(allowed or ())
     safe_drop_entries = defaultdict(list)
@@ -1635,6 +1682,19 @@ def check_replacement(final: str, staging: str, retired: dict,
         "refused": bool(losses),
     }
     if not losses:
+        if (retired_end is not None and incoming_end is not None
+                and incoming_end < retired_end and not allowed
+                and not accept_end_shortfall):
+            raise ReplaceGuardRefused(
+                f"REFUSING to promote {final!r}: the staged rebuild ends "
+                f"at frame {incoming_end:,}f, "
+                f"{retired_end - incoming_end:,}f before the approved "
+                f"timeline's end at frame {retired_end:,}f (built as "
+                f"{staging!r}). Nothing was renamed; the approved "
+                f"timeline is still in the project.\n"
+                f"To proceed deliberately, pass --accept-editor-changes "
+                f"{final!r}.",
+                allow_drop_rows=())
         return report
     lines = [(
         f"REFUSING to promote {final!r}: the staged rebuild carries less "
