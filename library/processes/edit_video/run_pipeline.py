@@ -642,6 +642,55 @@ def load_pipeline_state(project_dir: str) -> dict:
         if loaded_prefs is not None:
             state["video_preferences"] = loaded_prefs
 
+    # A declared reference's Style Representation, measured from the
+    # reference's own pixels and frames (library/tools/reference_style).
+    # Measured ONCE and persisted beside a content digest of the
+    # reference file: a run whose reference is unchanged reuses the
+    # stored value instead of decoding it again, and a reference that
+    # was replaced by different bytes is re-measured.  The measurement
+    # is opt-in - it runs ffmpeg only when a reference exists - and it
+    # is CONTENT-free: the reference's words, faces and subject are
+    # never read, only how it is cut and how it looks.  Read by step
+    # 2.01's context.  A measurement that fails is recorded on the
+    # state, so the pacing slot says "reference declared but
+    # unmeasured" rather than silently falling to the next rung.
+    from library.tools import video_prefs as video_prefs_mod
+    from library.tools import reference_style as reference_style_mod
+    _prefs = state.get("video_preferences")
+    if _prefs is None:
+        _prefs = video_prefs_mod.load_video_preferences(project_dir)
+    _reference = (_prefs or {}).get("reference")
+    if not _reference:
+        state.pop("reference_style", None)
+        state.pop("reference_style_digest", None)
+        state.pop("reference_style_error", None)
+    else:
+        _reference_path = (_reference if os.path.isabs(_reference)
+                           else os.path.join(project_dir, _reference))
+        _digest = reference_style_mod.reference_digest(_reference_path)
+        if not _digest:
+            state.pop("reference_style", None)
+            state.pop("reference_style_digest", None)
+            state["reference_style_error"] = (
+                f"the declared reference {_reference} could not be read")
+        elif _digest == state.get("reference_style_digest"):
+            pass  # unchanged since the stored measurement - reuse it
+        else:
+            try:
+                state["reference_style"] = \
+                    reference_style_mod.measure_reference_style(
+                        _reference_path)
+                state["reference_style_digest"] = _digest
+                state.pop("reference_style_error", None)
+            except Exception as exc:  # noqa: BLE001
+                import sys as _sys_ref
+                state.pop("reference_style", None)
+                state.pop("reference_style_digest", None)
+                state["reference_style_error"] = str(exc)
+                print(f"  WARNING: could not measure the declared "
+                      f"reference {_reference}: {exc}",
+                      file=_sys_ref.stderr)
+
     # Fall back to manifest defaults for anything still missing
     manifest_path = LIBRARY_ROOT / "processes" / "edit_video" / "manifest.json"
     if manifest_path.exists():

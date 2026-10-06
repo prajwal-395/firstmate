@@ -53,6 +53,12 @@
         "type": "object",
         "required": false,
         "description": "The merged video preferences (style.yaml project layer, video.yaml per-video layer - see library/tools/video_prefs). Injected by the runner when the video declares any; absent otherwise. Read so the direction serves the project's own format, shape and preferences rather than an assumed one."
+      },
+      {
+        "name": "reference_style",
+        "type": "object",
+        "required": false,
+        "description": "The declared reference video's Style Representation, measured from the reference's own pixels and frames (library/tools/reference_style): shot-length distribution, transition vocabulary, pacing, palette, contrast. Injected by the runner when the project's video preferences declare a `reference`; absent otherwise. Read as CONSTRAINTS the direction serves - the reference's cut rhythm, its colours and its contrast are facts to honour, not taste to re-decide. Content is never measured: the reference's words and subject are its own."
       }
     ],
     "outputs": [
@@ -116,6 +122,7 @@
   },
   "context_fields": [
     "video_preferences",
+    "reference_style",
     "semantic_analysis_documents.*.clip_id",
     "semantic_analysis_documents.*.duration_s",
     "semantic_analysis_documents.*.analysis.scene",

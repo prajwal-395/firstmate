@@ -27,6 +27,15 @@ frame, style, soft length target, content rules) and it outranks any
 format assumption below. Where it is absent, nothing about the
 format is inferred: direct for the footage in front of you.
 
+Where the context carries a `reference_style` table, it is a reference
+video the project declared, measured from that video's own pixels: its
+shot-length distribution, transition vocabulary, pacing, palette and
+contrast. Those are CONSTRAINTS the direction serves, not taste to
+re-decide - a reference cut to a 1.2 s average with hard cuts and a
+high-contrast palette is a fact the edit and the graphics can honour,
+and the direction says how. Where it is absent, no reference was
+declared and no style is inferred.
+
 Your job is to SYNTHESIZE across all clips and identify the single strongest
 creative direction for the final video. Preflight analyzed each clip in
 isolation; this is the first time someone reads across all clips to find the

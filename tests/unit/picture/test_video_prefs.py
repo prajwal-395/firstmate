@@ -342,3 +342,47 @@ def test_select_reels_bridge_publishes_rules_and_soft_target(tmp_path):
         {"timeline_transcript": {}, "project_folder": _project(empty)})
     assert "target_length_seconds" not in out
     assert "content_rules" not in out
+
+
+# ── The reference ─────────────────────────────────────────────────
+
+def test_the_reference_field_reaches_the_merged_preferences(tmp_path):
+    """A declared reference is a preference like any other layer.
+
+    The failure it pins: a reference the loader reads but does not
+    return would be decoration - the style rung would never see it.
+    """
+    folder = _project(tmp_path, None, "reference: refs/punchy.mp4\n")
+    merged = V.load_video_preferences(folder)
+    assert merged["reference"] == "refs/punchy.mp4"
+    context = V.build_style_context(folder)
+    assert context["preferences"]["reference"] == "refs/punchy.mp4"
+
+
+def test_a_malformed_reference_refuses_by_name(tmp_path):
+    """A reference that is not a non-empty path refuses, naming it.
+
+    The failure it pins: a non-string reference (a number, a bool)
+    reaching the style rung would be measured as a path and fail
+    somewhere downstream with the file's name, not the declaration's.
+    """
+    for index, body in enumerate(("reference: 123\n",
+                                  "reference: ''\n",
+                                  "reference: true\n")):
+        folder = tmp_path / str(index)
+        folder.mkdir()
+        with pytest.raises(V.VideoPreferencesError, match="reference"):
+            V.load_video_preferences(_project(folder, None, body))
+
+
+def test_an_unknown_field_still_refuses_now_that_reference_is_known(
+        tmp_path):
+    """Adding `reference` must not open the unknown-field gate.
+
+    The failure it pins: a new known field accidentally widening the
+    accepted set, so a typo'd preference would load silently and read
+    as a declaration nobody made.
+    """
+    folder = _project(tmp_path, None, "refernce: refs/punchy.mp4\n")
+    with pytest.raises(V.VideoPreferencesError, match="refernce"):
+        V.load_video_preferences(folder)

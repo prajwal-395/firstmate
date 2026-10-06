@@ -52,6 +52,7 @@ VIDEO_FILENAME = "video.yaml"
 
 VIDEO_PREF_FIELDS = (
     "style",
+    "reference",
     "delivery_format",
     "color_grade",
     "subtitle_style",
@@ -178,6 +179,14 @@ def _check_fields(prefs: dict, where: str) -> Dict[str, Any]:
                 f"{where} declares `style` as {style!r}. It is the id "
                 "the selector reads - a non-empty string.")
         checked["style"] = style
+    if "reference" in prefs:
+        reference = prefs["reference"]
+        if not reference or not isinstance(reference, str):
+            raise VideoPreferencesError(
+                f"{where} declares `reference` as {reference!r}. It is "
+                "the path to the reference video whose style the edit "
+                "follows - a non-empty path.")
+        checked["reference"] = reference
     if "delivery_format" in prefs:
         from library.tools.delivery_format import DELIVERY_FORMATS
         name = prefs["delivery_format"]

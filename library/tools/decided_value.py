@@ -78,6 +78,7 @@ and constants it replaces: docs/evidence/decided_value.md.
 from __future__ import annotations
 
 import importlib
+import os
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -185,6 +186,13 @@ class Slot:
     # What a consumer must do when the answer is UNDETERMINED.  Prose,
     # read by a human; nothing branches on it.
     undetermined_means: str = ""
+    # A dotted path `module::function` measuring a project-declared
+    # reference into this slot's value, or None.  The project declares
+    # the reference (video preferences `reference`); the measurement
+    # reads it.  This is how a reference's style reaches a creative
+    # value as DATA the slot delivers - the measured rung, recorded
+    # with its source.
+    reference_measurement: str | None = None
 
     def scope_names(self) -> tuple[str, ...]:
         """The scopes to decide, or a single unscoped `("",)`."""
@@ -343,6 +351,8 @@ SLOTS: dict[str, Slot] = {
         ),
         preference_paths=(
             "pipeline.creative_preferences.pacing.target_asl_seconds",),
+        reference_measurement=(
+            "library.tools.reference_style::measure_reference_asl"),
         direction_key=None,
         no_direction_reason=(
             "no key step 2.01 is asked for states a target shot length; "
@@ -360,8 +370,9 @@ SLOTS: dict[str, Slot] = {
             superseded_by=(
                 "a spine whose blocks and duration every run that reaches "
                 "step 2.05 has - or a target the project states under "
-                "pipeline.creative_preferences or the user records in "
-                "their taste profile")),
+                "pipeline.creative_preferences, the ASL measured from a "
+                "reference the project declares, or one the user records "
+                "in their taste profile")),
     ),
     "transition.density_per_minute": Slot(
         key="transition.density_per_minute",
@@ -869,8 +880,84 @@ def stated_preference(key: str, project_folder: str, scope: str = ""):
                 elif not isinstance(declared, dict):
                     return declared, path
 
+    measured = reference_measurement_value(key, project_folder)
+    if measured is not None:
+        return measured
+
     from library.tools import taste_profile
     return taste_profile.stated_preference(key, scope)
+
+
+def reference_measurement_value(key: str, project_folder: str):
+    """The value measured from the project's declared reference, or None.
+
+    A slot that declares a ``reference_measurement`` is read from the
+    reference the project declares in its video preferences.  The
+    measurement is PERSISTED in the project's pipeline state beside a
+    content digest of the reference file: a run whose reference is
+    unchanged reads the stored value instead of decoding the reference
+    again.  The measured value's source is recorded beside it, so a
+    reader can tell a reference's own pixels from a number somebody
+    typed.  A project that declares no reference, or a slot that
+    declares no measurement, is ABSENT here - never filled in with a
+    default.
+    """
+    row = slot(key)
+    if not row.reference_measurement or not project_folder:
+        return None
+    from library.tools.video_prefs import load_video_preferences
+    prefs = load_video_preferences(project_folder)
+    reference = (prefs or {}).get("reference")
+    if not reference:
+        return None
+    reference_path = reference if os.path.isabs(reference) else os.path.join(
+        project_folder, reference)
+    if not os.path.isfile(reference_path):
+        return None
+    from library.tools import reference_style as reference_style_mod
+    stored, stored_digest, _ = reference_style_mod.stored_reference_style(
+        project_folder)
+    digest = reference_style_mod.reference_digest(reference_path)
+    if stored is not None and digest and stored_digest == digest:
+        value = (stored.get("shot_length_distribution", {})
+                 .get("asl_seconds"))
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return value, (f"the project's declared reference {reference}, "
+                           f"measured by {row.reference_measurement}")
+        return None
+    module_path, _, func_name = row.reference_measurement.partition("::")
+    try:
+        module = importlib.import_module(module_path)
+        measure = getattr(module, func_name)
+        value = measure(reference_path)
+    except (ImportError, AttributeError, ValueError, OSError):
+        return None
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return None
+    return value, (f"the project's declared reference {reference}, "
+                   f"measured by {row.reference_measurement}")
+
+
+def reference_measurement_error(key: str, project_folder: str) -> str:
+    """Why the declared reference is unmeasured, or "".
+
+    A reference the project declares whose measurement failed is
+    recorded on the state by the runner; the slot's decision says so
+    rather than silently falling to the next rung.  Empty when the
+    project declares no reference, the slot declares no measurement,
+    or the measurement succeeded.
+    """
+    row = slot(key)
+    if not row.reference_measurement or not project_folder:
+        return ""
+    from library.tools.video_prefs import load_video_preferences
+    prefs = load_video_preferences(project_folder)
+    reference = (prefs or {}).get("reference")
+    if not reference:
+        return ""
+    from library.tools import reference_style as reference_style_mod
+    _, _, error = reference_style_mod.stored_reference_style(project_folder)
+    return error
 
 
 def decide(key: str, *, scope: str = "", project_folder: str = "",
@@ -900,13 +987,16 @@ def decide(key: str, *, scope: str = "", project_folder: str = "",
                             why=note, source=path, **common)
         skipped.append({"basis": STATED, "why": note})
     else:
-        skipped.append({
-            "basis": STATED,
-            "why": (f"the project states no preference at "
-                    f"{row.preference_paths[0]}, and the user's profile "
-                    f"states no preference for {key}"
-                    if row.preference_paths else
-                    "this value has no place a project may state it")})
+        _why = (f"the project states no preference at "
+                f"{row.preference_paths[0]}, and the user's profile "
+                f"states no preference for {key}"
+                if row.preference_paths else
+                "this value has no place a project may state it")
+        _unmeasured = reference_measurement_error(key, project_folder)
+        if _unmeasured:
+            _why = (f"{_why}; the project's declared reference is "
+                    f"unmeasured: {_unmeasured}")
+        skipped.append({"basis": STATED, "why": _why})
 
     # 2. DIRECTED - a value the creative direction really declared.
     if row.direction_key:
