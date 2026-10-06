@@ -156,6 +156,11 @@ try:
 except ImportError:  # imported as a top-level module from library/tools
     from music_behavior import is_fade
 
+try:
+    from library.tools.delivery_spec import DEFAULT_DELIVERY_SPEC
+except ImportError:  # imported as a top-level module from library/tools
+    from delivery_spec import DEFAULT_DELIVERY_SPEC
+
 # Slack when matching detected black against a declared beat. blackdetect
 # reports whole-frame timestamps, so the segment it reports for a beat can
 # run a frame wider than the gap the manifest planned; 50ms covers a frame
@@ -182,15 +187,23 @@ class RenderQAResult:
 # video before it in the feed, which is a retention cost before a frame is
 # judged.  +/-1 is the tolerance the three destination platforms'
 # normalisation actually leaves.
-DEFAULT_LUFS_TOLERANCE = 1.0
-DEFAULT_LUFS_TARGET = -14.0
+#
+# The three values below are DATA now, not constants: they are the
+# delivery spec's own loudness target, tolerance and true-peak ceiling,
+# read from `library/tools/delivery_spec.py` so the gate's default IS the
+# registry's default and the two cannot drift. The spec carries -14.0,
+# +/-1.0 and -1.0 - the values these constants have always held - so
+# naming no platform changes nothing.
+DEFAULT_LUFS_TOLERANCE = DEFAULT_DELIVERY_SPEC.loudness_tolerance_lufs
+DEFAULT_LUFS_TARGET = DEFAULT_DELIVERY_SPEC.loudness_target_lufs
 
 # The ceiling is not a convention: it is the manifest's own
 # `audio_mix.master_limiter.threshold_db`, which every compiled manifest
 # so far declares as -1.0 with `enabled: true`.  A master above it is a
 # master whose declared limiter did not run, and it clips on any lossy
-# re-encode a platform performs.
-DEFAULT_TRUE_PEAK_CEILING_DBTP = -1.0
+# re-encode a platform performs. The value is the delivery spec's own
+# `true_peak_ceiling_dbtp` (see DEFAULT_LUFS_TARGET above).
+DEFAULT_TRUE_PEAK_CEILING_DBTP = DEFAULT_DELIVERY_SPEC.true_peak_ceiling_dbtp
 
 
 def measure_lufs(video_path: str, target_lufs: float = DEFAULT_LUFS_TARGET,
