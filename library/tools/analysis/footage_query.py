@@ -892,9 +892,11 @@ class FootageIndex:
         one shot - its measurement, its grade, its camera match),
         "reel versions" (which versions each reel has held),
         "editorial findings" (the compile's dead sections, trim
-        proposals, J/L placements and decisions, reaction cutaways)
-        and "VFX detections" (which effects the edit graph recorded
-        on which clips).
+        proposals, J/L placements and decisions, reaction cutaways),
+        "VFX detections" (which effects the edit graph recorded
+        on which clips) and "variant branches" (which branch each
+        recorded variant owns, the base it forked and the direction
+        it tries).
 
         The graph is DERIVED, never authored: it reads the project's
         catalog, world models, person tracks, edit graph, intent
@@ -965,12 +967,15 @@ class FootageIndex:
         elif query == "vfx_detections":
             report["results"] = project_graph.find_vfx_detections(
                 graph, kwargs.get("clip_id"))
+        elif query == "variant_branches":
+            report["results"] = project_graph.find_variant_branches(
+                graph, kwargs.get("exploration"), kwargs.get("timeline"))
         else:
             report["error"] = (
                 f"unknown project graph query {query!r}; "
                 "known: reaction_shots, alternate_takes, coverage, "
                 "broll_matches, shot_colour, reel_versions, "
-                "editorial_findings, vfx_detections")
+                "editorial_findings, vfx_detections, variant_branches")
         return report
 
     @staticmethod
@@ -1649,6 +1654,27 @@ class FootageIndex:
                     },
                 },
             },
+            {
+                "type": "function",
+                "function": {
+                    "name": "find_variant_branches",
+                    "description": (
+                        "List the variant branches the explorations recorded: "
+                        "which branch each variant owns, the base it forked, "
+                        "the direction it tries and who planned it. Use to "
+                        "compare the variants before the merge queue "
+                        "evaluates them."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "exploration": {"type": "string", "description": "Restrict to one exploration id. Omit for every exploration."},
+                            "timeline": {"type": "string", "description": "Restrict to variants of one timeline. Omit for every timeline."},
+                        },
+                        "required": [],
+                    },
+                },
+            },
         ]
 
 
@@ -1932,7 +1958,8 @@ def main(argv=None):
                                           "coverage", "broll_matches",
                                           "shot_colour", "reel_versions",
                                           "editorial_findings",
-                                          "vfx_detections"])
+                                          "vfx_detections",
+                                          "variant_branches"])
     p_pg.add_argument("--person", help="person id for reaction_shots")
     p_pg.add_argument("--t", type=float, help="time for reaction_shots")
     p_pg.add_argument("--clip", help="clip id for alternate_takes, shot_colour, "
@@ -1941,6 +1968,10 @@ def main(argv=None):
     p_pg.add_argument("--timeline-end", type=float, help="for coverage")
     p_pg.add_argument("--segment", help="transcript segment id for broll_matches")
     p_pg.add_argument("--final", help="reel id for reel_versions")
+    p_pg.add_argument("--exploration",
+                      help="exploration id for variant_branches")
+    p_pg.add_argument("--timeline-name",
+                      help="timeline for variant_branches")
     p_pg.add_argument("--kind", help="finding kind for editorial_findings: "
                                      "dead_section, dead_section_trim, "
                                      "jl_placement, jl_decision, "
@@ -2024,6 +2055,8 @@ def main(argv=None):
             segment_id=args.segment,
             final=args.final,
             kind=args.kind,
+            exploration=args.exploration,
+            timeline=args.timeline_name,
         )
         print(json.dumps(answer, indent=2))
         return 0

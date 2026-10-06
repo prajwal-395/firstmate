@@ -1534,3 +1534,121 @@ def test_load_or_build_still_caches_a_tmp_project(tmp_path, monkeypatch):
     assert (project / project_graph.GRAPH_FILE_NAME).is_file()
     second = project_graph.load_or_build(str(project))
     assert second["node_count"] == 0
+
+
+# ── Variant branches ────────────────────────────────────────────────
+
+def _variant_project(tmp_path, monkeypatch):
+    """A one-clip project with a base commit to explore from.
+
+    The graph builds from pipeline_data.json state; the exploration
+    records its own branches beside it. Leases are redirected to a
+    tmp lock dir so the fan-out never touches the machine's.
+    """
+    from library.tools import undo_journal as uj
+
+    locks = tmp_path / "locks"
+    locks.mkdir()
+    monkeypatch.setenv("PIPELINE_RESOLVE_LOCK_DIR", str(locks))
+
+    project = tmp_path / "project"
+    project.mkdir()
+    state = {"capability_outputs": {
+        "footage.catalog": {"clip_catalog": [
+            {"clip_id": "clip_001", "source_file": "/camA/take1.MXF",
+             "duration_seconds": 10.0},
+        ]},
+    }}
+    (project / "pipeline_data.json").write_text(
+        json.dumps(state), encoding="utf-8")
+    root = uj.record_commit(
+        str(project), parent=None, intent="first touch", changes=[],
+        agent="reel_touchup", timeline="Reel 01 - lab")
+    return project, root["id"]
+
+
+def _explore(project, base, names, timeline="Reel 01 - lab"):
+    from library.tools import variant_exploration as vx
+
+    return vx.explore_variants(
+        str(project), base=base,
+        variants=[{"name": name, "direction": f"try {name}"}
+                  for name in names],
+        agent="ren-worker-07", timeline=timeline)
+
+
+def test_variant_branches_become_nodes_for_comparison(tmp_path, monkeypatch):
+    """Each explored variant is a graph node carrying its branch, base
+    and direction verbatim - the comparison surface the merge queue
+    evaluates. On origin/main no exploration exists to register."""
+    project, base = _variant_project(tmp_path, monkeypatch)
+    _explore(project, base, ["faster-intro", "emotional-intro"])
+
+    graph = project_graph.build_graph(str(project))
+
+    nodes = [n for n in graph["nodes"]
+             if n["node_type"] == project_graph.VARIANT]
+    assert len(nodes) == 2
+    by_name = {n["payload"]["name"]: n["payload"] for n in nodes}
+    assert by_name["faster-intro"]["branch"] == "variant faster-intro"
+    assert by_name["faster-intro"]["base"] == base
+    assert by_name["faster-intro"]["direction"] == "try faster-intro"
+    assert by_name["faster-intro"]["agent"] == "ren-worker-07"
+
+    found = project_graph.find_variant_branches(graph)
+    assert [r["name"] for r in found] == ["emotional-intro", "faster-intro"]
+
+
+def test_no_variant_nodes_without_an_exploration(tmp_path, monkeypatch):
+    """A project that never explored gains no variant nodes - absence
+    is absence, never an empty variant."""
+    project, _base = _variant_project(tmp_path, monkeypatch)
+
+    graph = project_graph.build_graph(str(project))
+
+    assert [n for n in graph["nodes"]
+            if n["node_type"] == project_graph.VARIANT] == []
+    assert project_graph.find_variant_branches(graph) == []
+
+
+def test_the_cache_rebuilds_when_a_new_exploration_lands(
+        tmp_path, monkeypatch):
+    """Defect, same shape as the versions-ledger one: the explorations
+    are a graph input the fingerprint must cover, or a new exploration
+    keeps serving the old graph until some unrelated input changes."""
+    project, base = _variant_project(tmp_path, monkeypatch)
+    _explore(project, base, ["faster-intro"])
+
+    first = project_graph.load_or_build(str(project))
+    assert len(project_graph.find_variant_branches(first)) == 1
+
+    _explore(project, base, ["emotional-intro"])
+
+    second = project_graph.load_or_build(str(project))
+    assert [r["name"] for r in
+            project_graph.find_variant_branches(second)] == [
+        "emotional-intro", "faster-intro"]
+
+    third = project_graph.load_or_build(str(project))
+    assert third["node_count"] == second["node_count"]
+
+
+def test_find_variant_branches_filters_by_exploration_and_timeline(
+        tmp_path, monkeypatch):
+    """The comparison narrows to one exploration or one timeline - a
+    critic comparing Reel 01's variants must not see Reel 02's."""
+    project, base = _variant_project(tmp_path, monkeypatch)
+    first = _explore(project, base, ["faster-intro"],
+                     timeline="Reel 01 - lab")
+    second = _explore(project, base, ["cold-open"],
+                      timeline="Reel 02 - lab")
+    graph = project_graph.build_graph(str(project))
+
+    assert [r["name"] for r in project_graph.find_variant_branches(
+        graph, exploration=first["id"])] == ["faster-intro"]
+    assert [r["name"] for r in project_graph.find_variant_branches(
+        graph, timeline="Reel 02 - lab")] == ["cold-open"]
+    assert project_graph.find_variant_branches(
+        graph, exploration=second["id"],
+        timeline="Reel 01 - lab") == []
+    assert len(project_graph.find_variant_branches(graph)) == 2

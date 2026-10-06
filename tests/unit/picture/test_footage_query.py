@@ -1325,7 +1325,9 @@ def test_shot_colour_cli_reaches_the_index(tmp_path, monkeypatch):
                                    "timeline_end": None,
                                    "segment_id": None,
                                    "final": None,
-                                   "kind": None})]
+                                   "kind": None,
+                                   "exploration": None,
+                                   "timeline": None})]
 
 
 def test_shot_colour_is_in_the_llm_tool_definitions():
@@ -1527,3 +1529,93 @@ def test_new_graph_queries_are_in_the_llm_tool_definitions():
     assert by_name["find_editorial_findings"]["parameters"]["required"] == []
     assert by_name["find_reel_versions"]["parameters"]["required"] == []
     assert by_name["find_vfx_detections"]["parameters"]["required"] == []
+
+
+# --------------------------------------------------------------------------
+# Variant branches: the exploration's comparison surface, exposed to search
+#
+# The graph registers each explored variant, but without a query the
+# agent's route to the graph cannot answer "which variants are on the
+# table for this timeline". The defect: asking answers "unknown query".
+#
+
+def _explored_project(tmp_path, monkeypatch):
+    """A one-clip project with a two-variant exploration off a commit."""
+    from library.tools import undo_journal as uj
+    from library.tools import variant_exploration as vx
+
+    locks = tmp_path / "locks"
+    locks.mkdir()
+    monkeypatch.setenv("PIPELINE_RESOLVE_LOCK_DIR", str(locks))
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    state = {"capability_outputs": {
+        "footage.catalog": {"clip_catalog": [
+            {"clip_id": "clip_001", "source_file": "/camA/take1.MXF",
+             "duration_seconds": 10.0},
+        ]},
+    }}
+    (root / "pipeline_data.json").write_text(
+        json.dumps(state), encoding="utf-8")
+    base = uj.record_commit(
+        str(root), parent=None, intent="first touch", changes=[],
+        agent="reel_touchup", timeline="Reel 01 - lab")["id"]
+    record = vx.explore_variants(
+        str(root), base=base,
+        variants=[{"name": "faster-intro",
+                   "direction": "tighten the opening"},
+                  {"name": "emotional-intro",
+                   "direction": "hold the reaction"}],
+        agent="ren-worker-07", timeline="Reel 01 - lab")
+    return root, record["id"]
+
+
+def test_variant_branches_query_returns_the_exploration_variants(tmp_path,
+                                                                 monkeypatch):
+    """The explored variants answer through the search route with
+    branch, base and direction. On origin/main the query name is
+    unknown."""
+    root, _exploration = _explored_project(tmp_path, monkeypatch)
+    idx = FootageIndex(str(root))
+
+    report = idx.project_graph("variant_branches")
+
+    assert report["error"] is None
+    assert [r["name"] for r in report["results"]] == [
+        "emotional-intro", "faster-intro"]
+    assert report["results"][0]["branch"] == "variant emotional-intro"
+    assert report["results"][0]["direction"] == "hold the reaction"
+
+
+def test_variant_branches_query_filters_by_exploration_and_timeline(
+        tmp_path, monkeypatch):
+    """The comparison narrows to one exploration or one timeline; a
+    timeline with no variants reads as no rows."""
+    root, exploration = _explored_project(tmp_path, monkeypatch)
+    idx = FootageIndex(str(root))
+
+    report = idx.project_graph("variant_branches",
+                               exploration=exploration)
+    assert report["error"] is None
+    assert len(report["results"]) == 2
+
+    report = idx.project_graph("variant_branches",
+                               timeline="Reel 02 - lab")
+    assert report["error"] is None
+    assert report["results"] == []
+
+    report = idx.project_graph("variant_branches",
+                               exploration="no-such-exploration")
+    assert report["error"] is None
+    assert report["results"] == []
+
+
+def test_tool_definitions_carry_find_variant_branches(tmp_path):
+    """The agent's tool vocabulary names the new query - a capability
+    the tools list never offers is not offered."""
+    from library.tools import project_graph
+    functions = FootageIndex.get_tool_definitions()
+    by_name = {t["function"]["name"]: t["function"] for t in functions}
+    assert "find_variant_branches" in by_name
+    assert by_name["find_variant_branches"]["parameters"]["required"] == []

@@ -28,6 +28,7 @@ Nodes are the project's entities:
     reference           a reference to external material
     timeline            a built timeline/reel
     edit                an edit decision (edit_graph)
+    variant             one variant branch of a variant exploration
 
 Edges are typed relationships:
 
@@ -65,6 +66,10 @@ Queries
         The reaction-cutaway EDIT DECISIONs the run recorded,
         optionally for one clip (speech or reaction) or one timeline
         time (inside the speech span the decision reacts to).
+    find_variant_branches(graph, exploration, timeline)
+        The variant branches the explorations recorded: which branch
+        each variant owns, the base it forked and the direction it
+        tries - the comparison surface the merge queue evaluates.
 
 The colour registration
 -----------------------
@@ -120,6 +125,7 @@ ONSET_CLASS = "onset_class"
 DEAD_SECTION = "dead_section"
 VERSION = "version"
 EDITORIAL_FINDING = "editorial_finding"
+VARIANT = "variant"
 
 NODE_TYPES = (
     PERSON,
@@ -137,6 +143,7 @@ NODE_TYPES = (
     DEAD_SECTION,
     VERSION,
     EDITORIAL_FINDING,
+    VARIANT,
 )
 
 
@@ -328,6 +335,13 @@ def _input_fingerprint(project_folder: str, root: Path | None = None) -> str:
             _assembly_manifest_path(project_folder)),
         "reel_versions": _read_raw_bytes(
             _reel_versions_path(project_folder)),
+        # Variant explorations are a graph input like the versions
+        # ledger: a new exploration changes the graph, so the cache
+        # must rebuild. One digest over the exploration records -
+        # sorted names plus bytes - so a new or changed exploration
+        # invalidates and an untouched set reuses the cache.
+        "variant_explorations": _variant_explorations_digest(
+            project_folder),
     }
     for clip in catalog:
         digest, _ = source_memory.digest_for_clip(project_folder, clip, recorded)
@@ -389,6 +403,45 @@ def _read_raw_bytes(path: Path | None) -> str | None:
         return None
 
 
+def _variant_explorations_digest(project_folder) -> str | None:
+    """One digest over the variant exploration records, or None.
+
+    Sorted record paths plus bytes, hashed together - the directory
+    form of `_read_raw_bytes`: the fingerprint asks whether the input
+    changed, never what it says. A project with no explorations reads
+    as None, and a new or changed exploration changes the digest, so
+    the cache rebuilds exactly when the variant set moves.
+    """
+    import hashlib
+
+    try:
+        from library.tools import variant_exploration
+        root = Path(variant_exploration.exploration_root(project_folder))
+    except (OSError, ValueError):
+        return None
+    if not root.is_dir():
+        return None
+    try:
+        names = sorted(
+            entry.name for entry in root.iterdir()
+            if entry.is_dir() and (
+                entry / variant_exploration.EXPLORATION_FILENAME
+            ).is_file())
+    except OSError:
+        return None
+    if not names:
+        return None
+    digest = hashlib.sha256()
+    for name in names:
+        path = root / name / variant_exploration.EXPLORATION_FILENAME
+        try:
+            digest.update(name.encode("utf-8"))
+            digest.update(path.read_bytes())
+        except OSError:
+            return None
+    return digest.hexdigest()
+
+
 def _read_identity(digest: str, root: Path | None) -> dict | None:
     try:
         from library.tools import person_entity
@@ -435,8 +488,9 @@ def load_or_build(project_folder: str, root: Path | None = None) -> dict:
 def build_graph(project_folder: str, root: Path | None = None) -> dict:
     """Derive the project graph from the project's existing state.
 
-    Reads the catalog, world models, person tracks, edit graph and
-    intent model. A state key the run has not produced is simply absent
+    Reads the catalog, world models, person tracks, edit graph,
+    intent model, compile manifest, versions ledger and variant
+    explorations. A state key the run has not produced is simply absent
     - the graph builds from whatever exists.
     """
     graph = new_graph()
@@ -475,6 +529,7 @@ def build_graph(project_folder: str, root: Path | None = None) -> dict:
     _derive_analysis_nodes(graph, project_folder, catalog, recorded)
     _derive_version_nodes(graph, project_folder)
     _derive_editorial_nodes(graph, project_folder)
+    _derive_variant_nodes(graph, project_folder)
 
     return graph
 
@@ -1150,6 +1205,46 @@ def _derive_version_nodes(graph: dict, project_folder: str) -> None:
             })
 
 
+def _derive_variant_nodes(graph: dict, project_folder: str) -> None:
+    """Variant-branch nodes from the variant explorations.
+
+    Each variant of each exploration is a node carrying its branch,
+    base, direction and planning agent verbatim, so the critic - and
+    any other lane - references a variant by node id instead of
+    re-reading the exploration records. Like the version nodes, these
+    carry no edges: a variant links to nothing until the merge queue
+    evaluates it. A project with no explorations gains no nodes.
+    """
+    try:
+        from library.tools import variant_exploration
+        records = variant_exploration.list_explorations(project_folder)
+    except (OSError, ValueError, RuntimeError):
+        return
+    for record in records:
+        exploration = record.get("id") or ""
+        for variant in record.get("variants") or ():
+            name = variant.get("name") or ""
+            # The node's timeline is the line the variant explores -
+            # the exploration's timeline, not the branch double's own
+            # name. The double's name rides on `branch`.
+            node_timeline = record.get("timeline") or variant.get("timeline")
+            add_node(graph, {
+                "node_id": f"variant:{exploration[:12]}:{name}",
+                "node_type": VARIANT,
+                "label": f"variant {name}",
+                "payload": {
+                    "exploration": exploration,
+                    "name": name,
+                    "direction": variant.get("direction"),
+                    "branch": variant.get("branch"),
+                    "timeline": node_timeline,
+                    "base": variant.get("base") or record.get("base"),
+                    "agent": record.get("agent"),
+                    "at": record.get("created_at"),
+                },
+            })
+
+
 # ── The query API ─────────────────────────────────────────────────
 
 
@@ -1487,6 +1582,40 @@ def find_vfx_detections(graph: dict, clip_id: str | None = None) -> list:
             "position": payload.get("position"),
             "edit_node_id": payload.get("edit_node_id"),
         })
+    return rows
+
+
+def find_variant_branches(graph: dict, exploration: str | None = None,
+                          timeline: str | None = None) -> list:
+    """The variant branches the graph registered, oldest first.
+
+    Each row names the exploration, the variant, the branch it owns,
+    the base it forked, the direction it tries and who planned it -
+    the comparison surface the merge queue evaluates. Filter by
+    exploration id or by timeline; an exploration nothing recorded
+    reads as no rows.
+    """
+    rows = []
+    for candidate in graph["nodes"]:
+        if candidate["node_type"] != VARIANT:
+            continue
+        payload = candidate["payload"] or {}
+        if exploration is not None and payload.get("exploration") != exploration:
+            continue
+        if timeline is not None and payload.get("timeline") != timeline:
+            continue
+        rows.append({
+            "node_id": candidate["node_id"],
+            "exploration": payload.get("exploration"),
+            "name": payload.get("name"),
+            "direction": payload.get("direction"),
+            "branch": payload.get("branch"),
+            "timeline": payload.get("timeline"),
+            "base": payload.get("base"),
+            "agent": payload.get("agent"),
+            "at": payload.get("at"),
+        })
+    rows.sort(key=lambda r: (str(r["at"] or ""), str(r["name"] or "")))
     return rows
 
 
