@@ -16,6 +16,7 @@ from unittest.mock import patch
 import yaml
 from library.steps.step_5_01_color_grade import bridge as bridge_501
 from library.steps.step_5_01_color_grade.grade import (
+    add_source_color,
     collect_entries,
     measure_clips,
 )
@@ -1591,3 +1592,47 @@ class TestFiveOhOneCarries:
         assert len(spec["subject_grades"]) == 1
         assert spec["subject_grades"][0]["grade"]["gain"] == 1.173
         assert spec["subject_grade_drops"] == []
+
+
+# ── Source color tags beside the measurements ────────────────────
+
+def test_rows_carry_the_decode_basis_each_clip_was_measured_off():
+    """The colourist grades a sequence: a luma gap across a cut between
+    two different decode bases is a different fact from a gap within
+    one.  On origin/main the catalog recorded no color tags, so the
+    table never showed the basis and mixed-transfer footage graded
+    blind."""
+    rows = [{"clip_id": "clip_001"}, {"clip_id": "clip_002"},
+            {"clip_id": "clip_003"}]
+    catalog = [
+        {"clip_id": "clip_001", "color_space": "bt709",
+         "color_transfer": "bt709", "color_primaries": "bt709",
+         "color_range": "tv"},
+        {"clip_id": "clip_002", "color_space": "smpte170m",
+         "color_transfer": "smpte170m", "color_primaries": "smpte170m",
+         "color_range": "tv"},
+        {"clip_id": "clip_003", "color_space": None,
+         "color_transfer": None, "color_primaries": None,
+         "color_range": None},
+    ]
+
+    add_source_color(rows, catalog)
+
+    assert rows[0]["source_color"]["color_space"] == "bt709"
+    assert rows[1]["source_color"]["color_space"] == "smpte170m"
+    assert rows[0]["source_color"] != rows[1]["source_color"]
+    assert rows[2]["source_color"] is None
+
+
+def test_a_clip_missing_from_the_catalog_says_so():
+    """No catalog entry is an admitted absence, never an assumed
+    bt709."""
+    rows = [{"clip_id": "clip_009"}]
+
+    add_source_color(rows, [{"clip_id": "clip_001",
+                             "color_space": "bt709",
+                             "color_transfer": "bt709",
+                             "color_primaries": "bt709",
+                             "color_range": "tv"}])
+
+    assert rows[0]["source_color"] is None

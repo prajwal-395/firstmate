@@ -13,6 +13,9 @@ The defects these close, each measured on a fixture:
 * A container carrying a timecode tag synced by nothing: the catalog
   recorded no timecode, so timecode-referenced multicam footage had
   no timecode path at all.
+* Two files the catalog called identical except for pixel format: a
+  bt709 and a smpte170m file cataloged indistinguishably - only pix_fmt
+  was read - although their pixels decode off different bases.
 
 Every fixture is built under ``tmp_path``; no test reaches a real
 project.  ffmpeg fixtures skip when ffmpeg is missing.
@@ -191,6 +194,47 @@ def test_a_file_without_timecode_records_none(tmp_path):
     path = _cfr_mp4(tmp_path)
     md = catalog_step.extract_metadata(path)
     assert md["timecode_start"] is None
+
+
+# ── Source color tags ──────────────────────────────────────────
+
+def _color_tagged_mp4(tmp_path, name, primaries, transfer, matrix):
+    """A real file carrying VUI color tags, written by the
+    h264_metadata bitstream filter (output `-colorspace` flags alone
+    leave transfer/primaries as `unknown`)."""
+    return _build(
+        tmp_path, name,
+        "-f", "lavfi", "-i", "testsrc=size=320x240:rate=30:duration=1",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-bsf:v",
+        f"h264_metadata=colour_primaries={primaries}"
+        f":transfer_characteristics={transfer}"
+        f":matrix_coefficients={matrix}")
+
+
+def test_bt709_and_smpte170m_files_catalog_distinctly(tmp_path):
+    """The grade's numbers are decoded off these bases.  On origin/main
+    the catalog read only pix_fmt, so these two files cataloged
+    identically."""
+    bt709 = _color_tagged_mp4(tmp_path, "bt709.mp4", 1, 1, 1)
+    smpte = _color_tagged_mp4(tmp_path, "smpte.mp4", 6, 6, 6)
+    md_bt709 = catalog_step.extract_metadata(bt709)
+    md_smpte = catalog_step.extract_metadata(smpte)
+    assert (md_bt709["color_space"], md_bt709["color_transfer"],
+            md_bt709["color_primaries"]) == ("bt709", "bt709", "bt709")
+    assert (md_smpte["color_space"], md_smpte["color_transfer"],
+            md_smpte["color_primaries"]) == (
+                "smpte170m", "smpte170m", "smpte170m")
+
+
+def test_a_file_without_color_tags_records_none(tmp_path):
+    """ffprobe's `unknown` is no tag at all: recorded as None, never a
+    string two untagged files would falsely match on."""
+    path = _cfr_mp4(tmp_path)
+    md = catalog_step.extract_metadata(path)
+    assert md["color_space"] is None
+    assert md["color_transfer"] is None
+    assert md["color_primaries"] is None
 
 
 # ── Duplicate footage ─────────────────────────────────────────────

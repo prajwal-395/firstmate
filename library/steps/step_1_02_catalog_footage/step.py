@@ -577,7 +577,25 @@ def extract_metadata(filepath: str, program_stream=None,
                 source=os.path.basename(filepath),
                 measured_selection=_measured_selection)
         except ProgramStreamRefused as exc:
-            _program_refusal = str(exc)
+            _program_selection = None
+
+    # Source color tags, as the container wrote them: the grade's
+    # exposure/chroma numbers are decoded off these bases, and two
+    # clips the catalog called identical (bt709 vs smpte170m fixtures
+    # cataloged indistinguishably - only pix_fmt was read) decode
+    # differently. Recorded raw; ffprobe's "unknown" is no tag at all,
+    # so it normalises to None rather than a string two untagged files
+    # would falsely match on.
+    def _color_tag(field):
+        value = video_stream.get(field)
+        if not value or value == "unknown":
+            return None
+        return value
+
+    color_space = _color_tag("color_space")
+    color_transfer = _color_tag("color_transfer")
+    color_primaries = _color_tag("color_primaries")
+    color_range = _color_tag("color_range")
 
     return {
         "duration_seconds": round(float(fmt.get("duration", 0)), 3),
@@ -610,6 +628,10 @@ def extract_metadata(filepath: str, program_stream=None,
         "creation_time": creation_time,
         "rotation": rotation,
         "pixel_format": video_stream.get("pix_fmt", "unknown"),
+        "color_space": color_space,
+        "color_transfer": color_transfer,
+        "color_primaries": color_primaries,
+        "color_range": color_range,
         "has_audio": bool(described_streams),
     }
 

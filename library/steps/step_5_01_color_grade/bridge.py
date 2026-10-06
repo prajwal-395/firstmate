@@ -54,6 +54,7 @@ import sys
 from library.steps.step_5_01_color_grade.grade import (
     LUMA_SCOPE,
     add_scene_descriptions,
+    add_source_color,
     collect_entries,
     cut_adjacency,
     measure_clips,
@@ -244,6 +245,7 @@ def main():
     rows = measure_clips(entries, project_folder)
     add_scene_descriptions(rows, data.get("semantic_analysis_documents"),
                            data.get("clip_catalog"))
+    add_source_color(rows, data.get("clip_catalog"))
     attach_sources(rows, entries, project_folder)
 
     stills_block, still_paths = draw_shot_stills(rows, project_folder)
@@ -315,6 +317,14 @@ def main():
                 "the vision pass's own description of where this clip is "
                 "and how it is lit, joined onto the measurement by "
                 "library/tools/semantic_index.py."),
+            "source_color": (
+                "the color tags the source file carries (color_space, "
+                "color_transfer, color_primaries, color_range) - the "
+                "decode basis the luma and chroma numbers above were "
+                "measured off. A luma gap across a cut between two "
+                "different bases is a different fact from a gap within "
+                "one. Null means the catalog recorded no tags for this "
+                "source: grade it as an unknown basis, never as bt709."),
             "camera_match": (
                 "a STATED, MEASURED proposal that brings the angles "
                 "together - per-camera neutral balances, the reference "

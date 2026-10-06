@@ -470,6 +470,34 @@ def add_scene_descriptions(rows: list, documents, clip_catalog) -> list:
     return rows
 
 
+def add_source_color(rows: list, clip_catalog) -> list:
+    """The color tags each measured clip was decoded off, beside the numbers.
+
+    The exposure/chroma numbers are measured off decoded pixels, and the
+    decode basis differs per source: a bt709 clip and a smpte170m clip
+    the catalog once called identical do not decode the same. The
+    colourist grades a SEQUENCE, so a luma gap across a cut between two
+    different bases is a different fact from a gap within one - and they
+    cannot tell which without seeing the tags. Joined by `clip_id`
+    straight off the catalog (no stem join needed: both sides speak
+    `clip_XXX`).
+
+    A row whose source carries no tag says so: null means the catalog
+    recorded no color tags for this source (untagged file, or a catalog
+    written before the tags were recorded) - never an assumed bt709.
+    """
+    by_clip = {clip.get("clip_id"): clip for clip in clip_catalog or []
+               if clip.get("clip_id")}
+    for row in rows:
+        clip = by_clip.get(row.get("clip_id")) or {}
+        tags = {field: clip.get(field) for field in (
+            "color_space", "color_transfer", "color_primaries",
+            "color_range")}
+        row["source_color"] = (
+            tags if any(value for value in tags.values()) else None)
+    return rows
+
+
 def cut_adjacency(entries: list, rows: list) -> list:
     """One row per cut where the CLIP changes, with the gap in stops.
 
