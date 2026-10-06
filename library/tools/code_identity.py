@@ -388,6 +388,16 @@ STEP_IMPLEMENTATION_DEPS = {
         # beside the Haar path: a fix here changes the cached
         # vision_faces/vision_body_pose/vision_hand_pose/vision_person_mask.
         "library/steps/step_1_04_temporal_index/vision_measure.py",
+        # Imported by build_temporal_index: the per-clip lanes run on
+        # these bounded FREE lanes, so a fix here changes how many
+        # clips measure at once (and its transitive resource_scheduler
+        # read changes what the lanes admit).
+        "library/tools/concurrency_routing.py",
+        # Imported by concurrency_routing: the lane bound is this
+        # machine's measured core count, so a fix here changes the
+        # parallelism the cached index was measured under. (Its own
+        # capabilities read is exempt plumbing.)
+        "library/tools/resource_scheduler.py",
     ),
     "step_1_05_prosody_analysis": (
         # The executed measurement.
