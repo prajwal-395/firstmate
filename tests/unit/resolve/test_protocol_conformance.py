@@ -253,7 +253,7 @@ def test_the_committed_schemas_are_current():
     result = subprocess.run(
         [_cargo(), "run", "--bin", "emit-schemas", "--", "--check"],
         cwd=REPO_ROOT / "native", capture_output=True, encoding="utf-8",
-        timeout=300)
+        timeout=300, check=False)
     assert result.returncode == 0, result.stderr + result.stdout
 
 
@@ -398,8 +398,13 @@ def test_every_algebra_op_has_a_matching_edit_op_variant():
 def test_a_built_tree_holds_the_schemas_and_prepare_accepts_a_job(
     tmp_path, monkeypatch):
     """An installed engine validates broker jobs against the packaged
-    schemas: `package_engine` copies them (not the crate, not
-    `target/`), and a built tree's `jobs.prepare` accepts a normal job.
+    schemas: `package_engine` copies them, and a built tree's
+    `jobs.prepare` accepts a normal job.
+
+    The `ren-protocol` crate ships whole - the `ren_native` source
+    fingerprint is computed over its sources
+    (`library/tools/ren_native_source.py`), so an installed tree carries
+    them - while the build artifacts (`target/`) stay out.
     """
     from ren.package_engine import build_engine_tree
 
@@ -409,8 +414,8 @@ def test_a_built_tree_holds_the_schemas_and_prepare_accepts_a_job(
     schemas = dest / "native" / "ren-protocol" / "schemas"
     assert (schemas / "edit-patch.schema.json").is_file()
     assert (schemas / "job-shape.schema.json").is_file()
-    # The crate and the build artifacts stay out of the installed tree.
-    assert not (dest / "native" / "ren-protocol" / "src").exists()
+    # The crate ships for the fingerprint; the build artifacts do not.
+    assert (dest / "native" / "ren-protocol" / "src").is_dir()
     assert not (dest / "native" / "target").exists()
 
     # A built tree's prepare, pointed at the packaged schemas, accepts a

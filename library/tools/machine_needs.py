@@ -76,6 +76,8 @@ NEEDS: dict = {n.id: n for n in (
     Need("model.beat_this", "the beat_this downbeat checkpoint"),
     Need("model.panns", "the PANNs sound-event checkpoint"),
     Need("deepfilter", "the DeepFilterNet binary"),
+    Need("ren_native", "the ren_native Rust edit-algebra extension, built "
+         "from this engine's native/ sources"),
     Need("config.projects_root", "PIPELINE_PROJECTS_ROOT exists"),
     Need("config.sfx_library", "PIPELINE_SFX_LIBRARY names a library"),
     Need("config.music_library", "PIPELINE_MUSIC_LIBRARY names a library"),
@@ -125,6 +127,8 @@ _MEMORY_DEGRADE = ("the vision model will swap: the vision pass runs, "
 _RESOLVE = ("resolve.scripting", "resolve.studio")
 _REEL = _RESOLVE + ("python.graphics",)
 _REMOTION = ("node", "remotion")
+_REN_NATIVE_DEGRADE = ("the Python edit backend runs: correct, "
+                       "slower patch composition")
 _TRANSCRIBE = CapabilityNeeds(
     ("ffmpeg", "python.analysis", "transcriber.voz", "model.mfa"),
     {"python.identity": "no speaker identity: voices are not told apart",
@@ -162,10 +166,10 @@ CAPABILITY_NEEDS: dict = {
     "reel.select": CapabilityNeeds(_MODEL),
     "reel.reading_context": CapabilityNeeds(),
     "reel.judge": CapabilityNeeds(_MODEL),
-    "reel.build": CapabilityNeeds(_REEL),
-    "reel.touchup": CapabilityNeeds(_REEL),
+    "reel.build": CapabilityNeeds(_REEL, {"ren_native": _REN_NATIVE_DEGRADE}),
+    "reel.touchup": CapabilityNeeds(_REEL, {"ren_native": _REN_NATIVE_DEGRADE}),
     "reel.entry_motion": CapabilityNeeds(_REEL),
-    "reel.set_properties": CapabilityNeeds(_REEL),
+    "reel.set_properties": CapabilityNeeds(_REEL, {"ren_native": _REN_NATIVE_DEGRADE}),
     "reel.ask": CapabilityNeeds(_REEL),
     "reel.verify": CapabilityNeeds(_RESOLVE),
     "reel.gate_stills": CapabilityNeeds(_RESOLVE),
@@ -199,7 +203,8 @@ CAPABILITY_NEEDS: dict = {
         ("ffmpeg", "python.analysis", "python.graphics")),
     "manifest.compile": CapabilityNeeds(),
     "edit_graph.build": CapabilityNeeds(),
-    "render.build": CapabilityNeeds(_RESOLVE + ("ffmpeg",)),
+    "render.build": CapabilityNeeds(_RESOLVE + ("ffmpeg",),
+                                    {"ren_native": _REN_NATIVE_DEGRADE}),
     "validation.resolve": CapabilityNeeds(_MODEL),
 
     # FRONT_DOOR: served by a `ren` verb, not by the operation registry.

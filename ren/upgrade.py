@@ -213,6 +213,25 @@ def _verify_project_formats(engine_root: Path, home: Path) -> None:
             fixes)
 
 
+def _rebuild_ren_native(engine_root: Path, home: Path) -> None:
+    """Rebuild the ren_native extension from the new engine's Rust
+    sources once it is active.
+
+    Non-fatal by design: the Python edit backend is the fallback, so a
+    build that cannot run or fails is reported and the run keeps the
+    Python implementation - `ren doctor` names the missing build.
+    """
+    from ren.setup import VENV_DIRNAME, build_ren_native
+
+    code = build_ren_native(engine_root, home / VENV_DIRNAME / "bin",
+                            _candidate_env(engine_root, home))
+    if code == 0:
+        print("ren_native: rebuilt from the new engine's Rust sources.")
+    elif code is not None and code != 4:
+        print(f"ren_native: rebuild failed (exit {code}); the Python "
+              "edit backend runs.")
+
+
 def _restore_previous(home: Path, version: str | None) -> None:
     pointer = previous_link(home)
     if version is None:
@@ -273,6 +292,7 @@ def upgrade(source: str | Path, home: Path | None = None,
             except Exception:
                 _restore_previous(home, old_previous)
                 raise
+            _rebuild_ren_native(candidate, home)
             return candidate
         except RenRefusal:
             if candidate is not None:

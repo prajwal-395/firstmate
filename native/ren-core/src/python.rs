@@ -152,6 +152,15 @@ fn patch_op_ids() -> Vec<String> {
         .collect()
 }
 
+/// The `native/` source fingerprint this extension was baked with, or
+/// `"unknown"` when it was built without one. `edit_backend.rust()`
+/// compares it against the running tree and refuses a build that does
+/// not match.
+#[pyfunction]
+fn source_fingerprint() -> &'static str {
+    option_env!("REN_NATIVE_SOURCE_FINGERPRINT").unwrap_or("unknown")
+}
+
 /// The declaration for one algebra id: domain, required, merge,
 /// temporal, item, has_apply and the inverse.
 #[pyfunction]
@@ -374,6 +383,7 @@ fn problems(declarations: &Bound<'_, PyAny>, capability_ids: &Bound<'_, PyAny>) 
 fn ren_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(op_ids, m)?)?;
     m.add_function(wrap_pyfunction!(patch_op_ids, m)?)?;
+    m.add_function(wrap_pyfunction!(source_fingerprint, m)?)?;
     m.add_function(wrap_pyfunction!(declaration, m)?)?;
     m.add_function(wrap_pyfunction!(span, m)?)?;
     m.add_function(wrap_pyfunction!(key, m)?)?;

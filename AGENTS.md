@@ -717,13 +717,15 @@ One enumeration, `library/tools/marker_payload.py`.
 
 ## 17. Rust
 
-**One workspace, boring Rust over clever Rust.** Every crate is a member of the ONE Cargo workspace at `native/Cargo.toml` (shared target dir `native/target`, gitignored). Captain's rule: concrete structs and enums, limited generics, simple traits, explicit ownership, no async trait hierarchies.
+**One workspace, boring Rust.** Every crate is a member of the ONE Cargo workspace at `native/Cargo.toml` (shared target dir `native/target`, gitignored). Captain's rule: concrete types, limited generics, simple traits, explicit ownership.
 
 **`ren-cli`** is the native front door: `native/ren-cli/README.md`.
 
-**`ren-protocol`** is the typed worker protocol - JSON Schemas from the Serde types, Python conforms via `library/tools/protocol_conformance.py`: `native/ren-protocol/README.md`.
+**`ren-protocol`** is the typed worker protocol: `native/ren-protocol/README.md`.
 
-**`ren-core`** is the editorial correctness core (edit algebra, patch validation, conflict detection) over `ren-protocol`'s types, exposed to Python as `ren_native` behind one switch (`REN_EDIT_BACKEND=rust`), Python the default: `native/ren-core/README.md`.
+**`ren-core`** is the editorial correctness core, exposed to Python as `ren_native` behind one switch (`REN_EDIT_BACKEND=rust`), Python the default: `native/ren-core/README.md`.
+
+**A stale `ren_native` is refused, not used.** The build bakes a `native/` source fingerprint into the extension; `edit_backend.rust()` falls back to Python on a mismatch. `ren setup`/`ren upgrade` rebuild it; `ren doctor` names it.
 
 ## Maintaining this file
 

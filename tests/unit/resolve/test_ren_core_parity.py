@@ -17,6 +17,11 @@ run has active.
 Skipped, naming the missing build, when the extension is not
 importable: a tree without `scripts/build_ren_native.sh` runs the
 Python implementation unchanged, and there is nothing to compare.
+Skipped, naming the stale build, when the extension's baked-in source
+fingerprint does not match this tree: an older binary predates the
+algebra the current `library/tools` speaks, and `edit_backend.rust()`
+refuses it the same way. The skip is not a pass - a fresh build that
+genuinely disagrees still fails.
 
 One Python bug this harness caught, fixed rather than copied: the
 `mask.create`/`mask.edit` verify returned the `_verify_fusion_comps`
@@ -31,16 +36,57 @@ import copy
 import itertools
 import re
 from dataclasses import asdict, replace
+from pathlib import Path
 
 import pytest
 
 from library.tools import capabilities, edit_algebra, edit_patch, patch_algebra
 from library.tools import timeline_shadow as shadow
 
-ren_native = pytest.importorskip(
-    "ren_native",
-    reason="the ren_native extension is not built - run "
-           "scripts/build_ren_native.sh <venv-bin-dir>")
+
+def _load_ren_native():
+    """The ren_native extension, or a module-level skip naming why not.
+
+    Skipped, naming the missing build, when the extension is not
+    importable: a tree without `scripts/build_ren_native.sh` runs the
+    Python implementation unchanged, and there is nothing to compare.
+
+    Skipped, naming the stale build, when the extension's baked-in
+    source fingerprint does not match this tree: an older binary
+    predates the algebra the current `library/tools` speaks, and
+    `edit_backend.rust()` refuses it the same way. The skip is not a
+    pass - a fresh build that genuinely disagrees still fails below.
+    """
+    try:
+        import ren_native
+    except ImportError:
+        pytest.skip(
+            "the ren_native extension is not built - run "
+            "scripts/build_ren_native.sh <venv-bin-dir>",
+            allow_module_level=True,
+        )
+    from library.tools.ren_native_source import source_fingerprint
+
+    root = Path(__file__).resolve().parents[3]
+    current = source_fingerprint(root)
+    if current is None:
+        pytest.skip(
+            "the ren_native extension cannot be verified - this tree "
+            "carries no native/ sources",
+            allow_module_level=True,
+        )
+    baked = getattr(ren_native, "source_fingerprint", lambda: "unknown")()
+    if baked != current:
+        pytest.skip(
+            f"the ren_native extension is stale - built from a different "
+            f"tree (fingerprint {baked[:12]} vs this tree {current[:12]}); "
+            f"rebuild with scripts/build_ren_native.sh <venv-bin-dir>",
+            allow_module_level=True,
+        )
+    return ren_native
+
+
+ren_native = _load_ren_native()
 
 BASE = "Podcast"
 TIMELINE = "Reel 09"

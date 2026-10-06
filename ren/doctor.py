@@ -695,6 +695,49 @@ def deepfilternet_check() -> Check:
                  f"{version} at {binary}", need="deepfilter")
 
 
+# ── The ren_native Rust edit backend ─────────────────────────────────
+
+
+def ren_native_check() -> Check:
+    """Is the ren_native extension built, and from this tree?
+
+    The Rust edit backend is an optimisation with the Python
+    implementation as the fallback, so a missing or stale build is a
+    MISS, never a FAIL: the run keeps the Python backend. A stale build
+    - its baked-in source fingerprint does not match this engine's
+    `native/` sources - is named as such: it predates the algebra the
+    current `library/tools` speaks and would answer ops with verdicts
+    that no longer hold, so `edit_backend.rust()` refuses it.
+    """
+    from library.tools import ren_native_source
+
+    root = _engine_root()
+    try:
+        import ren_native
+    except Exception:  # noqa: BLE001 - doctor must finish
+        return Check(
+            "ren_native Rust backend", False,
+            "not built - the Python edit backend runs",
+            "run ren setup to build it from the engine's Rust sources",
+            need="ren_native")
+    baked = getattr(ren_native, "source_fingerprint", lambda: None)()
+    current = ren_native_source.source_fingerprint(root) if root else None
+    if baked is not None and baked == current:
+        return Check("ren_native Rust backend", True,
+                     f"built from this tree (source fingerprint {baked[:12]})",
+                     need="ren_native")
+    if current is None:
+        detail = ("built, but this engine tree carries no native/ sources "
+                  "to verify it against")
+    else:
+        detail = (f"stale - built from a different tree (fingerprint "
+                  f"{(baked or 'none')[:12]} vs this tree {current[:12]}); "
+                  f"the Python edit backend runs")
+    return Check("ren_native Rust backend", False, detail,
+                 "run ren setup to rebuild it from this engine's Rust sources",
+                 need="ren_native")
+
+
 # ── Configuration ────────────────────────────────────────────────────
 
 def config_checks() -> list:
@@ -896,6 +939,7 @@ GROUPS = (
      ("model.vision", "model.search_embedding", "model.beat_this", "model.panns")),
     ("transcription", "transcription_checks", ("transcriber.voz", "model.mfa")),
     ("dialogue cleanup DeepFilter", "deepfilternet_check", ("deepfilter",)),
+    ("ren_native Rust backend", "ren_native_check", ("ren_native",)),
     ("configuration", "config_checks",
      ("config.projects_root", "config.sfx_library", "config.music_library")),
     ("chat harness", "harness_check", ("chat_harness",)),

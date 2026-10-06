@@ -68,9 +68,15 @@ COPY_DIRS = (
     "hyperframes",
     ".agents/skills",
     "docs",
-    # The generated protocol schemas, not the crate: an installed engine
-    # validates broker jobs against them (protocol_conformance.py).
-    "native/ren-protocol/schemas",
+    # The Rust edit-algebra sources. The `ren_native` extension is built
+    # from them (scripts/build_ren_native.sh, run by `ren setup` and
+    # `ren upgrade`) and its source fingerprint is computed over them
+    # (library/tools/ren_native_source.py), so an installed engine tree
+    # carries both crates: without them the extension cannot be rebuilt
+    # or verified against the tree it runs from. `ren-protocol/schemas`
+    # comes along inside the whole `ren-protocol` crate above.
+    "native/ren-core",
+    "native/ren-protocol",
 )
 
 #: Single files copied beside them.
@@ -85,7 +91,7 @@ COPY_FILES = (
 #: never required.
 OPTIONAL = ()
 
-_GENERATED_NAMES = ("__pycache__", "node_modules", ".DS_Store", ".pytest_cache")
+_GENERATED_NAMES = ("__pycache__", "node_modules", ".DS_Store", ".pytest_cache", "target")
 _GENERATED_SUFFIXES = (".pyc", ".pyo")
 
 

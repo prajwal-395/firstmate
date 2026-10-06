@@ -315,6 +315,24 @@ ENVIRONMENT_CONDITIONS = (
                      "data/vep-grade-variants-to-choose-from/ stills into "
                      "the firstmate home",
     ),
+    # The ren_native Rust edit-algebra extension is a build artifact in
+    # the shared venv, not a fact about this repository: the tree always
+    # carries the native/ sources, and whether the venv holds a build
+    # from them - and a CURRENT one - varies by machine, exactly as the
+    # venv's installed packages do. A machine without a current build
+    # runs the Python backend, so the parity harness skips; the skip
+    # fires only where the build is absent or stale, so it is narrowing.
+    EnvironmentCondition(
+        pattern=r"the ren_native extension is (not built|stale)",
+        false_when="the ren_native extension is built from this tree's "
+                   "native/ sources - scripts/build_ren_native.sh bakes "
+                   "the source fingerprint in, and ren setup / ren "
+                   "upgrade run it automatically - so its fingerprint "
+                   "matches and the parity harness runs",
+        capability="ren_native",
+        install_hint="run scripts/build_ren_native.sh <venv-bin-dir> "
+                     "(ren setup and ren upgrade build it automatically)",
+    ),
 )
 
 
