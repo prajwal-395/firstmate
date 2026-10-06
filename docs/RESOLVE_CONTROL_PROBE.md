@@ -234,3 +234,39 @@ caller that needs current pixels activates Resolve first.
 13. `key` sent characters as their ASCII code (wrong virtual key; "4" sent
     something else) and any unknown name as key code 0, which is "a". It uses
     US ANSI key codes now and refuses unknown names; `type_text` sends Unicode.
+
+## SkyLight background input (2026-10-06) - the canvas-app outcome
+
+Measured live against Resolve 21 (PID 86907) on this Mac, inside
+`qualification_project.borrowed()` with Ren Qualification read back by
+name, Resolve occluded (frontmost ChatGPT), screen unlocked. Driver:
+`Route::SkyLight` (`SLEventPostToPid` via dlopen/dlsym, nothing linked)
+plus `skylight_focus` (`SLPSPostEventRecordTo` focus-without-raise, 248-byte
+record per cua-driver: length at 0x04, 0x0d at 0x08, focus/defocus marker
+at 0x8a, window id LE at 0x3c), both behind explicit per-call opt-in
+(`allow_skylight: true` / the `skylight_focus` method). All SkyLight
+symbols resolve on macOS 26, including the modern PSN lookup
+(`SLSGetWindowOwner` + `SLSGetConnectionPSN`).
+
+| Step | Result |
+|---|---|
+| `skylight_focus` | ok, 0.03-0.04s; frontmost pid unchanged (551 -> 551), cursor byte-identical |
+| SkyLight click, down/up, aim verified on-capture (red-circle crop on the Media page button) | posted, no error, 0.02-0.05s round trip; 0 pixels changed above ambient drift; page still `edit` (scripting ground truth) |
+| Same plus a leading `mouseMoved` (the canvas-app recipe) | identical: 0.000 changed fraction on a quiescent run, page still `edit` |
+| Cursor / frontmost across all runs | unchanged every read (cursor moved only by the captain's own hand between reads) |
+| Restore | page untouched so no restore needed; `borrowed()` exit re-read `Podcast (field test)` open, frontmost ChatGPT |
+
+So Resolve's Qt event loop filters SkyLight-posted background clicks the
+way it filters `CGEventPostToPid`: the channel delivers (no error, the
+focus dance lands) and Qt drops the event. This is the canvas-app outcome
+the background report predicted (Blender/Unity behave the same; Chrome
+does not - cua-driver proves SkyLight reaches Chromium). Consequence: the
+SkyLight route stays behind its flag for Chrome (PR 6 second half), and
+Qt-UI clicks stay on the foreground route (`allow_foreground`, explicitly
+allowed) or the AX menu bar. No-input drift (0.000-0.166 across runs) is
+the viewer area animating; the button bar never changed in any run.
+
+Drive-by fix in the same edit: `Route::Foreground` posted by calling
+`post()` recursively - unbounded recursion that stack-overflowed the
+driver on any foreground input. It posts at the HID tap now (pinned by
+`input::tests::foreground_resolves_to_the_hid_tap`, no acting involved).

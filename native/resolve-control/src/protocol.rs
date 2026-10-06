@@ -68,6 +68,7 @@ pub fn err_code(e: &DriverError) -> &'static str {
         DriverError::ProjectNotQualification(_) => "PROJECT_NOT_QUALIFICATION",
         DriverError::ScreenLocked => "SCREEN_LOCKED",
         DriverError::ForegroundNotAllowed(_) => "FOREGROUND_NOT_ALLOWED",
+        DriverError::SkyLightUnavailable(_) => "SKYLIGHT_UNAVAILABLE",
         DriverError::AmbiguousCommand(_, _) => "AMBIGUOUS_COMMAND",
         DriverError::Internal(_) => "INTERNAL",
     }
@@ -87,6 +88,7 @@ pub enum DriverError {
     ProjectNotQualification(String),
     ScreenLocked,
     ForegroundNotAllowed(String),
+    SkyLightUnavailable(String),
     AmbiguousCommand(Vec<String>, usize),
     Internal(String),
 }
@@ -111,6 +113,8 @@ impl DriverError {
             DriverError::ScreenLocked => "the screen is locked: captures would be blank and input would reach the lock screen".to_string(),
             DriverError::ForegroundNotAllowed(m) => format!(
                 "{} would take the captain's screen, cursor or keyboard; pass \"allow_foreground\": true to allow it", m),
+            DriverError::SkyLightUnavailable(m) => format!(
+                "SkyLight background input unavailable: {}; pass \"allow_skylight\": true only when the driver reports it available", m),
             DriverError::AmbiguousCommand(path, n) => format!(
                 "{} elements match the menu path {:?}; refine the path until it names one item", n, path),
             DriverError::Internal(m) => format!("internal error: {}", m),

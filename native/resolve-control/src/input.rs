@@ -1,4 +1,5 @@
 use crate::protocol::{DriverError, DriverResult, Frame};
+use crate::skylight;
 use std::ffi::c_void;
 
 #[repr(C)]
@@ -72,24 +73,47 @@ extern "C" {
 /// Where an event goes. `Background` delivers it to Resolve's process alone:
 /// the real cursor does not move and keyboard focus stays with the captain's
 /// app. `Foreground` posts it at the HID tap, as if typed or clicked by hand -
-/// it moves the cursor and reaches whatever is frontmost.
+/// it moves the cursor and reaches whatever is frontmost. `SkyLight` posts it
+/// to Resolve's process through the SkyLight channel (focus-without-raise is
+/// a separate explicit step, never implicit): like `Background` the cursor
+/// does not move, but Qt-drawn controls may accept what they filter on the
+/// `CGEventPostToPid` path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Route { Background { pid: i32, window_id: u32 }, Foreground }
+pub enum Route { Background { pid: i32, window_id: u32 }, Foreground, SkyLight { pid: i32, window_id: u32 } }
 
 /// kCGMouseEventWindowUnderMousePointer and ...ThatCanHandleThisEvent: a
 /// background mouse event names the window it is for, since the window server
 /// cannot find it under a cursor that is elsewhere.
 const MOUSE_WINDOW_FIELDS: [u32; 2] = [91, 92];
 
-unsafe fn post(route: Route, event: *mut c_void) {
-    match route {
-        Route::Background { pid, window_id } => {
-            for field in MOUSE_WINDOW_FIELDS {
-                CGEventSetIntegerValueField(event, field, window_id as i64);
+unsafe fn post(route: Route, event: *mut c_void) -> DriverResult<()> {
+    match post_target(route) {
+        PostTarget::HidTap => CGEventPost(CGEventTapLocation::HID, event),
+        PostTarget::Pid(pid) => {
+            if let Route::Background { window_id, .. } = route {
+                for field in MOUSE_WINDOW_FIELDS {
+                    CGEventSetIntegerValueField(event, field, window_id as i64);
+                }
             }
             CGEventPostToPid(pid, event)
         }
-        Route::Foreground => post(route, event),
+        PostTarget::SkyLightPid(pid) => skylight::post_to_pid(pid, event)?,
+    }
+    Ok(())
+}
+
+/// The delivery channel for a route, resolved without acting: HID tap for
+/// foreground, the pid for background, the SkyLight channel for SkyLight.
+/// `Background` stamps the window fields onto the event; the other two
+/// post it as built.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PostTarget { HidTap, Pid(i32), SkyLightPid(i32) }
+
+pub fn post_target(route: Route) -> PostTarget {
+    match route {
+        Route::Foreground => PostTarget::HidTap,
+        Route::Background { pid, .. } => PostTarget::Pid(pid),
+        Route::SkyLight { pid, .. } => PostTarget::SkyLightPid(pid),
     }
 }
 
@@ -98,9 +122,48 @@ const kCGMouseEventClickState: u32 = 1;
 const kCGMouseEventButtonNumber: u32 = 3;
 const kCGKeyboardEventKeycode: u32 = 9;
 
+/// A SkyLight click: a leading mouse-moved at the point (canvas-class
+/// event loops only accept per-pid routes behind a leading `mouseMoved`,
+/// per cua-driver's canvas-app finding), then down/up, all through the
+/// SkyLight channel. Focus-without-raise stays a separate explicit step.
+fn skylight_click(pid: i32, sx: f64, sy: f64, clicks: u32) -> DriverResult<()> {
+    unsafe {
+        let moved = CGEventCreateMouseEvent(
+            std::ptr::null(), CGEventType::MouseMoved, CGPoint { x: sx, y: sy }, CGMouseButton::Left,
+        );
+        if moved.is_null() {
+            return Err(DriverError::Internal("failed to create skylight move".into()));
+        }
+        skylight::post_to_pid(pid, moved)?;
+        CFRelease(moved as *const c_void);
+
+        for click_num in 0..clicks {
+            let down = CGEventCreateMouseEvent(std::ptr::null(), CGEventType::LeftMouseDown, CGPoint { x: sx, y: sy }, CGMouseButton::Left);
+            if down.is_null() { return Err(DriverError::Internal("failed to create skylight down".into())); }
+            if click_num > 0 {
+                CGEventSetIntegerValueField(down, kCGMouseEventClickState, click_num as i64 + 1);
+            }
+            skylight::post_to_pid(pid, down)?;
+            CFRelease(down as *const c_void);
+
+            let up = CGEventCreateMouseEvent(std::ptr::null(), CGEventType::LeftMouseUp, CGPoint { x: sx, y: sy }, CGMouseButton::Left);
+            if up.is_null() { return Err(DriverError::Internal("failed to create skylight up".into())); }
+            if click_num > 0 {
+                CGEventSetIntegerValueField(up, kCGMouseEventClickState, click_num as i64 + 1);
+            }
+            skylight::post_to_pid(pid, up)?;
+            CFRelease(up as *const c_void);
+        }
+    }
+    Ok(())
+}
+
 pub fn click(route: Route, x: f64, y: f64, window_frame: &Frame, clicks: u32) -> DriverResult<()> {
     let sx = window_frame.x + x;
     let sy = window_frame.y + y;
+    if let Route::SkyLight { pid, .. } = route {
+        return skylight_click(pid, sx, sy, clicks);
+    }
     unsafe {
         for click_num in 0..clicks {
             let down = CGEventCreateMouseEvent(std::ptr::null(), CGEventType::LeftMouseDown, CGPoint { x: sx, y: sy }, CGMouseButton::Left);
@@ -108,7 +171,7 @@ pub fn click(route: Route, x: f64, y: f64, window_frame: &Frame, clicks: u32) ->
             if click_num > 0 {
                 CGEventSetIntegerValueField(down, kCGMouseEventClickState, click_num as i64 + 1);
             }
-            post(route, down);
+            post(route, down)?;
             CFRelease(down as *const c_void);
 
             let up = CGEventCreateMouseEvent(std::ptr::null(), CGEventType::LeftMouseUp, CGPoint { x: sx, y: sy }, CGMouseButton::Left);
@@ -116,7 +179,7 @@ pub fn click(route: Route, x: f64, y: f64, window_frame: &Frame, clicks: u32) ->
             if click_num > 0 {
                 CGEventSetIntegerValueField(up, kCGMouseEventClickState, click_num as i64 + 1);
             }
-            post(route, up);
+            post(route, up)?;
             CFRelease(up as *const c_void);
         }
     }
@@ -131,17 +194,17 @@ pub fn drag(route: Route, start_x: f64, start_y: f64, end_x: f64, end_y: f64, wi
     unsafe {
         let down = CGEventCreateMouseEvent(std::ptr::null(), CGEventType::LeftMouseDown, CGPoint { x: sx, y: sy }, CGMouseButton::Left);
         if down.is_null() { return Err(DriverError::Internal("failed to create drag down".into())); }
-        post(route, down);
+        post(route, down)?;
         CFRelease(down as *const c_void);
 
         let move_ = CGEventCreateMouseEvent(std::ptr::null(), CGEventType::LeftMouseDragged, CGPoint { x: ex, y: ey }, CGMouseButton::Left);
         if move_.is_null() { return Err(DriverError::Internal("failed to create drag move".into())); }
-        post(route, move_);
+        post(route, move_)?;
         CFRelease(move_ as *const c_void);
 
         let up = CGEventCreateMouseEvent(std::ptr::null(), CGEventType::LeftMouseUp, CGPoint { x: ex, y: ey }, CGMouseButton::Left);
         if up.is_null() { return Err(DriverError::Internal("failed to create drag up".into())); }
-        post(route, up);
+        post(route, up)?;
         CFRelease(up as *const c_void);
     }
     Ok(())
@@ -159,7 +222,7 @@ pub fn scroll(route: Route, x: f64, y: f64, window_frame: &Frame, delta_x: f64, 
         // kCGScrollWheelEventDeltaAxis1 = 11 (vertical), kCGScrollWheelEventDeltaAxis2 = 12 (horizontal)
         CGEventSetIntegerValueField(scroll, 11, delta_y as i64);
         CGEventSetIntegerValueField(scroll, 12, delta_x as i64);
-        post(route, scroll);
+        post(route, scroll)?;
         CFRelease(scroll as *const c_void);
     }
     Ok(())
@@ -180,7 +243,7 @@ pub fn type_text(route: Route, text: &str) -> DriverResult<usize> {
                 let event = CGEventCreateKeyboardEvent(std::ptr::null(), 0, key_down);
                 if event.is_null() { return Err(DriverError::Internal("failed to create key event".into())); }
                 CGEventKeyboardSetUnicodeString(event, units.len() as u64, units.as_ptr());
-                post(route, event);
+                post(route, event)?;
                 CFRelease(event as *const c_void);
             }
         }
@@ -199,7 +262,7 @@ pub fn key(route: Route, key_name: &str, modifiers: &[String]) -> DriverResult<(
             let event = CGEventCreateKeyboardEvent(std::ptr::null(), key_code, key_down);
             if event.is_null() { return Err(DriverError::Internal("failed to create key event".into())); }
             CGEventSetFlags(event, flags.0);
-            post(route, event);
+            post(route, event)?;
             CFRelease(event as *const c_void);
         }
     }
@@ -254,4 +317,29 @@ pub fn get_pointer_state() -> DriverResult<(f64, f64, String)> {
 
 extern "C" {
     pub fn CGEventGetIntegerValueField(event: *mut c_void, field: u32) -> i64;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn foreground_resolves_to_the_hid_tap() {
+        // The old `post` called itself for this arm - unbounded recursion
+        // that stack-overflowed the driver on any foreground input. The
+        // tap mapping pins the fix without posting anything.
+        assert_eq!(post_target(Route::Foreground), PostTarget::HidTap);
+    }
+
+    #[test]
+    fn routes_resolve_to_their_channels() {
+        assert_eq!(
+            post_target(Route::Background { pid: 11, window_id: 22 }),
+            PostTarget::Pid(11)
+        );
+        assert_eq!(
+            post_target(Route::SkyLight { pid: 11, window_id: 22 }),
+            PostTarget::SkyLightPid(11)
+        );
+    }
 }

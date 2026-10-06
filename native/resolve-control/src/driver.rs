@@ -65,6 +65,14 @@ fn allows_foreground(params: &Json) -> bool {
     params.get("allow_foreground").and_then(|v| v.as_bool()).unwrap_or(false)
 }
 
+/// Opt in to the SkyLight channel per call. Like `allow_foreground` it is
+/// explicit - background input through a private framework is never the
+/// default route - but unlike it, SkyLight never takes the screen, cursor
+/// or keyboard, so no frontmost check applies.
+fn allows_skylight(params: &Json) -> bool {
+    params.get("allow_skylight").and_then(|v| v.as_bool()).unwrap_or(false)
+}
+
 /// Refuse `method` unless it only looks or the open project is the
 /// qualification project. `press_role` is the AX role of a `press` target:
 /// pressing a menu-bar item only opens its menu, so it is a read; pressing a
@@ -176,6 +184,7 @@ impl Driver {
             "type_text" => self.type_text(&req.params),
             "key" => self.key(&req.params),
             "click" => self.click(&req.params),
+            "skylight_focus" => self.skylight_focus(),
             "drag" => self.drag(&req.params),
             "scroll" => self.scroll(&req.params),
             "capture_window" => self.capture_window(&req.params),
@@ -200,6 +209,15 @@ impl Driver {
     fn route(&mut self, params: &Json) -> DriverResult<input::Route> {
         if allows_foreground(params) {
             Ok(input::Route::Foreground)
+        } else if allows_skylight(params) {
+            if !crate::skylight::available() {
+                return Err(DriverError::SkyLightUnavailable(
+                    "SLEventPostToPid does not resolve on this machine".into(),
+                ));
+            }
+            let pid = self.ensure_resolve()? as i32;
+            let (window_id, _, _) = self.main_window()?;
+            Ok(input::Route::SkyLight { pid, window_id })
         } else {
             let pid = self.ensure_resolve()? as i32;
             let (window_id, _, _) = self.main_window()?;
@@ -495,6 +513,24 @@ impl Driver {
         if !frame.contains(x, y) { return Err(DriverError::OutsideResolve); }
         input::click(self.route(params)?, x, y, &frame, clicks as u32)?;
         Ok(serde_json::json!({"clicked": true}))
+    }
+
+    /// Focus-without-raise Resolve's main window: defocus whoever is
+    /// frontmost, flip Resolve AppKit-active, raising nothing. The
+    /// response carries the frontmost pid before and after so the caller
+    /// verifies nothing was stolen - a focus that raises is a failed
+    /// focus, reported in the numbers, not in a prose claim.
+    fn skylight_focus(&mut self) -> DriverResult<Json> {
+        self.ensure_permissions()?;
+        let pid = self.ensure_resolve()? as i32;
+        let (window_id, _, _) = self.main_window()?;
+        let (before, after) =
+            crate::skylight::focus_without_raise(pid, window_id, ax::frontmost_pid)?;
+        Ok(serde_json::json!({
+            "focused": true,
+            "frontmost_before": before,
+            "frontmost_after": after,
+        }))
     }
 
     fn drag(&mut self, params: &Json) -> DriverResult<Json> {

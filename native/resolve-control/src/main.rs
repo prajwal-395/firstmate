@@ -4,6 +4,7 @@ mod driver;
 mod input;
 mod ocr;
 mod protocol;
+mod skylight;
 
 use driver::Driver;
 use std::io;
