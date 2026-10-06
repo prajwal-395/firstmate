@@ -307,3 +307,41 @@ def test_the_lease_is_taken_per_step(client: DriverClient, monkeypatch):
     result = run_script(client, script)
     assert result.outcome == "done"
     assert state["takes"] == 2
+
+
+def test_element_visible_sends_the_element_predicate(client: DriverClient):
+    """`element_visible` sends the element_visible predicate the driver
+    supports (role/title/title_contains), not a text_visible predicate."""
+    script = Script(
+        goal="click and verify an element",
+        steps=[
+            ScriptStep(
+                action="click",
+                anchors=[Anchor(via="position", params={"x": 100.0, "y": 100.0})],
+                expect=Expect(via="element_visible", params={"title": "Media"}),
+            ),
+        ],
+    )
+    result = run_script(client, script)
+    assert result.outcome == "done"
+
+
+def test_an_unknown_expect_via_is_rejected_at_script_from_dict():
+    """An unknown expect via raises ValueError at Script.from_dict - a
+    silent pass at run time would let a typo'd expectation verify every
+    step."""
+    data = {
+        "goal": "test",
+        "steps": [
+            {
+                "action": "click",
+                "anchors": [{"via": "position", "params": {"x": 1, "y": 2}}],
+                "expect": {"via": "typo", "params": {}},
+            }
+        ],
+    }
+    try:
+        Script.from_dict(data)
+        assert False, "should have raised ValueError"
+    except ValueError as exc:
+        assert "typo" in str(exc)

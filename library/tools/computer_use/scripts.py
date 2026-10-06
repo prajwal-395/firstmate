@@ -250,10 +250,14 @@ def verify_expect(
         )
         return bool(result.get("met"))
     if expect.via == "element_visible":
-        result = client.call(
-            "wait_for",
-            {"predicate": {"type": "text_visible", "text": expect.params.get("text", "")}},
-        )
+        predicate: dict = {"type": "element_visible"}
+        if expect.params.get("role"):
+            predicate["role"] = expect.params["role"]
+        if expect.params.get("title"):
+            predicate["title"] = expect.params["title"]
+        if expect.params.get("title_contains"):
+            predicate["title_contains"] = expect.params["title_contains"]
+        result = client.call("wait_for", {"predicate": predicate})
         return bool(result.get("met"))
     if expect.via == "seconds":
         result = client.call(

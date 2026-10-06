@@ -249,6 +249,11 @@ def handle(request: dict) -> dict:
             return reply({"met": True, "elapsed": 0.0})
         if pred_type == "text_visible":
             return reply({"met": (predicate.get("text") or "") in "Master Media", "elapsed": 0.0})
+        if pred_type == "element_visible":
+            title = predicate.get("title") or ""
+            title_contains = predicate.get("title_contains") or ""
+            met = bool(title or title_contains)
+            return reply({"met": met, "elapsed": 0.0})
         return _refuse(request_id, "INVALID_PARAMS", f"unknown predicate type: {pred_type}")
     if method == "read_text":
         scale = float(os.environ.get("MOCK_WINDOW_SCALE", "1.0"))
