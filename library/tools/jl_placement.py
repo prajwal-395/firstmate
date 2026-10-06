@@ -187,3 +187,80 @@ def find_jl_placements(spine_blocks: list) -> list:
         })
 
     return placements
+
+
+def placements_to_audio_offsets(placements: list, spine_blocks: list,
+                                fps: float) -> list:
+    """Convert J/L placement findings to audio_offset entries.
+
+    Each placement proposes a J/L cut at a speech boundary. This
+    converts them to the audio_offset format `apply_jl_cuts` consumes,
+    so the measurement can become sound rather than only a report.
+
+    The outgoing block's position is found from the spine: the
+    placement addresses the incoming block, and the outgoing block is
+    the one before it. A placement whose incoming block is the first
+    block (no outgoing) is skipped.
+
+    The audio cut is placed at the measured pause from the boundary:
+    a J cut reaches back (audio before picture), an L cut forward
+    (audio after picture). The offset IS the measured pause, so no
+    number is invented here.
+
+    Args:
+        placements: the placement records from find_jl_placements.
+        spine_blocks: the spine blocks, each with position,
+            timeline_start/timeline_end.
+        fps: the project frame rate.
+
+    Returns a list of audio_offset entries, each with kind,
+    picture_cut_timeline/frame, audio_cut_timeline/frame, lead_seconds,
+    method, outgoing_position and incoming_position.
+    """
+    offsets = []
+    blocks = [b for b in spine_blocks or [] if isinstance(b, dict)]
+
+    for placement in placements or []:
+        if not isinstance(placement, dict):
+            continue
+        incoming_pos = placement.get("cut_point_position")
+        if incoming_pos is None:
+            continue
+
+        outgoing_pos = None
+        for i, block in enumerate(blocks):
+            if block.get("position") == incoming_pos:
+                if i > 0:
+                    outgoing_pos = blocks[i - 1].get("position")
+                break
+        if outgoing_pos is None:
+            continue
+
+        kind = placement.get("kind")
+        if kind not in ("j_cut", "l_cut"):
+            continue
+        try:
+            offset = float(placement.get("offset_seconds", 0.0))
+            picture_cut = float(placement.get("timeline_position", 0.0))
+        except (TypeError, ValueError):
+            continue
+
+        if kind == "j_cut":
+            audio_cut = picture_cut - offset
+        else:
+            audio_cut = picture_cut + offset
+
+        offsets.append({
+            "kind": kind,
+            "picture_cut_timeline": round(picture_cut, 3),
+            "picture_cut_frame": int(round(picture_cut * fps)),
+            "audio_cut_timeline": round(audio_cut, 3),
+            "audio_cut_frame": int(round(audio_cut * fps)),
+            "audio_cut_exact": round(audio_cut, 3),
+            "lead_seconds": round(offset, 3),
+            "method": "measured-pause-placement",
+            "outgoing_position": outgoing_pos,
+            "incoming_position": incoming_pos,
+        })
+
+    return offsets

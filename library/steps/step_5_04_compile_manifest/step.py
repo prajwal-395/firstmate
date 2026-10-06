@@ -3357,14 +3357,36 @@ def compile_manifest(out_dir: str, *, object_segmentation=None,
             dead_sections_error = str(exc)
             print(f"  Dead section analysis failed: {exc}", file=sys.stderr)
 
+    # ── Propose trims for dead sections ──
+    # A dead section is a stretch where nothing is happening. The trim
+    # that removes it is a proposal: the planner takes it or rejects it
+    # with a reason. This records what the trim would do, so the
+    # decision is visible. The trim amount IS the measured dead
+    # duration - no number is invented here.
+    dead_section_trims = []
+    if dead_sections and dead_sections_error is None:
+        try:
+            dead_section_trims = _pacing.propose_trims_for_dead_sections(
+                dead_sections, structure)
+            for trim in dead_section_trims:
+                print(
+                    f"  Dead section trim: block {trim['block_position']!r} "
+                    f"{trim['trim_edge']} {trim['trim_seconds']:.3f}s",
+                    file=sys.stderr)
+        except Exception as exc:
+            print(
+                f"  Dead section trim proposal failed: "
+                f"{type(exc).__name__}: {exc}",
+                file=sys.stderr)
+
     # ── J/L-cut placement ──
     # Propose where the audio can cross at a speech boundary: the J kind
     # reaches back into the outgoing block's trailing pause, the L kind
     # forward into the incoming block's leading pause, and the offset is
-    # the measured pause - never a number invented here. Report-only: a
-    # placement is a finding, not a failure. Addresses the boundary the
-    # way jl_cut does (the incoming block's position), so a plan entry
-    # and a placement finding name the same join.
+    # the measured pause - never a number invented here. The planner (step
+    # 4.02) sees these as context and chooses which to use, within the
+    # measured bound; only the plan's chosen offsets are applied, as
+    # today. This records what the plan chose, so the decision is visible.
     jl_placements = []
     jl_placements_error = None
     try:
@@ -3379,6 +3401,48 @@ def compile_manifest(out_dir: str, *, object_segmentation=None,
     except Exception as exc:
         jl_placements_error = str(exc)
         print(f"  J/L placement analysis failed: {exc}", file=sys.stderr)
+
+    # ── Record what the plan chose ──
+    # Match each placement against the plan's jl_offsets by boundary.
+    # The plan's offset may be smaller than the measured pause (the
+    # planner's choice); the placement's offset is the bound. A placement
+    # the plan did not choose is recorded as not chosen, never applied
+    # here - whether and how far to J/L-cut is the plan's call.
+    jl_placement_results = []
+    if jl_placements and jl_placements_error is None:
+        plan_jl_by_boundary = {}
+        for offset in jl_offsets:
+            if isinstance(offset, dict):
+                key = (str(offset.get("outgoing_position")),
+                       str(offset.get("incoming_position")))
+                plan_jl_by_boundary[key] = offset
+        for place in jl_placements:
+            incoming_pos = place.get("cut_point_position")
+            outgoing_pos = None
+            for i, block in enumerate(structure):
+                if isinstance(block, dict) and \
+                        block.get("position") == incoming_pos:
+                    if i > 0 and isinstance(structure[i - 1], dict):
+                        outgoing_pos = structure[i - 1].get("position")
+                    break
+            key = (str(outgoing_pos), str(incoming_pos))
+            chosen = plan_jl_by_boundary.get(key)
+            if chosen is not None:
+                jl_placement_results.append({
+                    "cut_point_position": incoming_pos,
+                    "kind": place.get("kind"),
+                    "measured_offset_seconds": place.get("offset_seconds"),
+                    "chosen_offset_seconds": chosen.get("lead_seconds"),
+                    "status": "chosen",
+                })
+            else:
+                jl_placement_results.append({
+                    "cut_point_position": incoming_pos,
+                    "kind": place.get("kind"),
+                    "measured_offset_seconds": place.get("offset_seconds"),
+                    "chosen_offset_seconds": None,
+                    "status": "not_chosen",
+                })
 
     # ── Screen-direction continuity ──
     # Find cuts where the subject may cross the 180-degree line: a jump
@@ -3550,11 +3614,19 @@ def compile_manifest(out_dir: str, *, object_segmentation=None,
         # Report-only - read by the run log and the reviewer.
         "dead_sections": dead_sections,
         "dead_sections_error": dead_sections_error,
+        # Proposed trims for each dead section: what the trim would do
+        # and where it lands. The planner takes or rejects each with a
+        # reason - the proposal is the finding, not the application.
+        "dead_section_trims": dead_section_trims,
         # J/L-cut placements proposed at the sequence's speech boundaries,
         # each with the measured pauses the choice rested on. Report-only -
         # read by the run log and the reviewer.
         "jl_placements": jl_placements,
         "jl_placements_error": jl_placements_error,
+        # What happened to each placement: applied (became a J/L cut),
+        # skipped (the plan already had a cut there), or rejected (with
+        # the reason apply_jl_cuts refused it).
+        "jl_placement_results": jl_placement_results,
         # Screen-direction continuity: cuts where the subject may cross
         # the 180-degree line, each with the measured positions on both
         # sides. Report-only - read by the run log and the reviewer.

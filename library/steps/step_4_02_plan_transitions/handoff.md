@@ -267,6 +267,13 @@ it measures; none of them says what to conclude.
   carries, or `unmeasured` where the clip measured nothing. Read them
   to cut on action and to match direction across the cut (above);
   `unmeasured` is the absence of a measurement and NOT stillness.
+- `jl_placement`: **The measured J/L-cut room** at this boundary - the
+  kind the measurement supports (`j_cut` or `l_cut`), the offset in
+  seconds (the measured pause, which is the UPPER BOUND), and the
+  outgoing trailing / incoming leading pauses it was derived from.
+  `none` means the measurement found no room for a J/L cut here. The
+  planner may choose to use a placement (at any offset up to the
+  measured bound) or not; the measurement is context, not a decision.
 
 Use this data to decide which transitions to apply. Prefer placing major creative
 transitions on cuts with a nearby beat. Hard cuts don't need beat alignment.

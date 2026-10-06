@@ -109,6 +109,18 @@ def main():
 
     carriers = {str(row["position"]): row for row in cut_carriers(spine_blocks)}
 
+    # Measured J/L-cut room at each speech boundary: the outgoing block's
+    # trailing pause and the incoming block's leading pause. The planner
+    # can choose to use a placement (within the measured bound) or not;
+    # the measurement is context, not a decision. Computed here so the
+    # planner sees it beside the cut it is choosing for.
+    from library.tools import jl_placement as _jl_place
+
+    placements = _jl_place.find_jl_placements(spine_blocks)
+    placement_by_position = {}
+    for place in placements:
+        placement_by_position[str(place.get("cut_point_position"))] = place
+
     # Step 3.03 is asked to judge how each cut READS - Check 7 of its
     # handoff, "smooth | acceptable | jarring | broken" - and its answer
     # used to go nowhere: `cut_decisions` appeared once in the whole
@@ -178,6 +190,7 @@ def main():
         carrier = carriers.get(str(curr_block.get("position", i)), {})
 
         position = curr_block.get("position", i)
+        place = placement_by_position.get(str(position), {})
 
         cut_rows.append({
             "cut_point_position": position,
@@ -191,7 +204,14 @@ def main():
             "outgoing_motion": block_motion(prev_block),
             "incoming_motion": block_motion(curr_block),
             "outgoing_footage": get_desc(prev_sem),
-            "incoming_footage": get_desc(curr_sem)
+            "incoming_footage": get_desc(curr_sem),
+            "jl_placement": (
+                f"{place.get('kind', 'none')} offset "
+                f"{place.get('offset_seconds', 0):.3f}s "
+                f"(outgoing pause {place.get('outgoing_trailing_pause', 0):.3f}s, "
+                f"incoming pause {place.get('incoming_leading_pause', 0):.3f}s)"
+                if place else "none"
+            ),
         })
 
     # The end of the piece (rung 7, TR3.1): one row addressed "end",
@@ -223,7 +243,7 @@ def main():
             "incoming_footage": "nothing follows",
         })
 
-    cuts_toon = format_toon(["cut_point_position", "cut_time", "type", "can_carry_drawn_transition", "carry_basis", "narrative_verdict", "verdict_note", "beat_near_cut", "outgoing_motion", "incoming_motion", "outgoing_footage", "incoming_footage"], cut_rows)
+    cuts_toon = format_toon(["cut_point_position", "cut_time", "type", "can_carry_drawn_transition", "carry_basis", "narrative_verdict", "verdict_note", "beat_near_cut", "outgoing_motion", "incoming_motion", "outgoing_footage", "incoming_footage", "jl_placement"], cut_rows)
 
     # The four derived columns are DEFINED in this step's handoff.md
     # ("Context data available"), not shipped beside the table as data.

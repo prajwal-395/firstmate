@@ -510,3 +510,111 @@ def find_dead_sections(spine_blocks: list, temporal_indices: dict) -> list:
         seen.add(key)
         unique_dead.append(entry)
     return unique_dead
+
+
+def propose_trims_for_dead_sections(dead_sections: list,
+                                    spine_blocks: list) -> list:
+    """Propose trims that would shorten each dead section.
+
+    A dead section is a stretch of the timeline where no word is
+    sounding, the picture is static, and there is no audio activity.
+    The trim that removes it is a proposal: the planner takes it or
+    rejects it with a reason. This module does not apply the trim - it
+    records what the trim would do, so the decision is visible.
+
+    The trim shortens the block the dead section falls in: a dead
+    stretch at the block's start trims the block's start forward, a
+    dead stretch at its end trims the block's end back, and a dead
+    stretch in the middle is a pause the trim would close by pulling
+    the later speech earlier. The trim amount IS the measured dead
+    duration - no number is invented here.
+
+    A dead section that spans a block join is proposed as a trim on
+    each side: the outgoing block's end and the incoming block's start.
+
+    Args:
+        dead_sections: the dead section records from find_dead_sections.
+        spine_blocks: the spine blocks, each with position,
+            timeline_start/timeline_end.
+
+    Returns a list of proposed trim records, one per dead section,
+    each with:
+        - timeline_start, timeline_end, duration_seconds: the dead span
+        - block_position: the block the trim lands on
+        - trim_edge: start or end of the block
+        - trim_seconds: how much the trim would remove (the dead
+          duration, bounded by the block's measured span)
+        - reason: what the trim would do and why
+    """
+    proposals = []
+    blocks = [b for b in spine_blocks or [] if isinstance(b, dict)]
+
+    for section in dead_sections or []:
+        if not isinstance(section, dict):
+            continue
+        try:
+            dead_start = float(section.get("timeline_start", 0.0))
+            dead_end = float(section.get("timeline_end", 0.0))
+        except (TypeError, ValueError):
+            continue
+        duration = dead_end - dead_start
+        if duration <= 0:
+            continue
+
+        # Find the block(s) this dead section falls in
+        for block in blocks:
+            try:
+                tl_start = float(block.get("timeline_start", 0.0))
+                tl_end = float(block.get("timeline_end", 0.0))
+            except (TypeError, ValueError):
+                continue
+            if tl_start >= dead_end or tl_end <= dead_start:
+                continue
+
+            position = block.get("position")
+            block_span = tl_end - tl_start
+
+            # A dead stretch at the block's start trims the start forward
+            if dead_start <= tl_start and dead_end < tl_end:
+                trim = min(dead_end - tl_start, block_span)
+                proposals.append({
+                    "timeline_start": round(dead_start, 3),
+                    "timeline_end": round(dead_end, 3),
+                    "duration_seconds": round(duration, 3),
+                    "block_position": position,
+                    "trim_edge": "start",
+                    "trim_seconds": round(trim, 3),
+                    "reason": (
+                        f"dead section at the block's start: trim "
+                        f"{trim:.3f}s from the start to remove it"),
+                })
+            # A dead stretch at the block's end trims the end back
+            elif dead_end >= tl_end and dead_start > tl_start:
+                trim = min(tl_end - dead_start, block_span)
+                proposals.append({
+                    "timeline_start": round(dead_start, 3),
+                    "timeline_end": round(dead_end, 3),
+                    "duration_seconds": round(duration, 3),
+                    "block_position": position,
+                    "trim_edge": "end",
+                    "trim_seconds": round(trim, 3),
+                    "reason": (
+                        f"dead section at the block's end: trim "
+                        f"{trim:.3f}s from the end to remove it"),
+                })
+            # A dead stretch in the middle is a pause the trim would close
+            elif dead_start > tl_start and dead_end < tl_end:
+                proposals.append({
+                    "timeline_start": round(dead_start, 3),
+                    "timeline_end": round(dead_end, 3),
+                    "duration_seconds": round(duration, 3),
+                    "block_position": position,
+                    "trim_edge": "middle",
+                    "trim_seconds": round(duration, 3),
+                    "reason": (
+                        f"dead section mid-block: close the pause by "
+                        f"pulling the later speech {duration:.3f}s "
+                        f"earlier"),
+                })
+
+    return proposals
