@@ -3,8 +3,12 @@
 //! `ren-graphics-fframes render scene.json <frames_dir>` reads a Ren Graphics
 //! IR scene (library/graphics_ir/scene.schema.json), builds one SVG per frame,
 //! and rasterises it through FFrames/Skia on Metal into straight-alpha RGBA
-//! PNGs. It draws exactly what the scene says - every position, colour, face
-//! and weight is the scene's; this binary states no style of its own.
+//! PNGs. `render scene.json --raw` writes the same straight-alpha RGBA frames
+//! to stdout instead - a small header (width, height as u32 LE) then
+//! ``width * height * 4`` bytes per frame - so the encoder can pipe them
+//! straight into ffmpeg without a PNG round-trip. It draws exactly what the
+//! scene says - every position, colour, face and weight is the scene's; this
+//! binary states no style of its own.
 //!
 //! Text follows CSS: a node's bounds is its box, each `\n`-separated line is
 //! one line box `line_height` ems tall (`normal` when absent), the baseline
@@ -15,14 +19,15 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use base64::Engine as _;
-use fframes::{AudioMap, Color, Duration, FFramesContext, Frame, FrameRenderer, Svgr, Video};
+use fframes::{AudioMap, Color, Duration, FFramesContext, Frame, FrameRenderer, RgbaFrame, Svgr, Video};
 use fframes::{DynamicMediaProvider, RawFontData};
 use fframes_skia_renderer::metal::SkiaMetalCtx;
-use fframes_skia_renderer::SkiaFrameRenderer;
+use fframes_skia_renderer::{SkiaBackend, SkiaFrameRenderer};
 use serde::Deserialize;
 
 // ── Scene IR schema ────────────────────────────────────────────────
@@ -948,10 +953,11 @@ fn main() {
         return;
     }
     if args.len() < 3 || args[1] != "render" {
-        eprintln!("Usage: ren-graphics-fframes render <scene.json> [output_dir]");
+        eprintln!("Usage: ren-graphics-fframes render <scene.json> [output_dir] [--raw]");
         eprintln!("       ren-graphics-fframes --version");
         std::process::exit(1);
     }
+    let raw = args.iter().any(|a| a == "--raw");
     let scene_path = PathBuf::from(&args[2]);
     let output_dir = args.get(3).map(PathBuf::from).unwrap_or_else(|| PathBuf::from("frames"));
 
@@ -973,7 +979,12 @@ fn main() {
         eprintln!("ERROR: unsupported scene version: {}", scene.version);
         std::process::exit(1);
     }
-    if let Err(e) = render_scene(scene, &output_dir) {
+    let result = if raw {
+        render_scene_raw(scene)
+    } else {
+        render_scene(scene, &output_dir)
+    };
+    if let Err(e) = result {
         eprintln!("ERROR: render failed: {}", e);
         std::process::exit(1);
     }
@@ -1026,9 +1037,20 @@ fn scene_media(scene: &Scene) -> Result<(DynamicMediaProvider<'static>, HashMap<
     Ok((provider, names))
 }
 
-fn render_scene(scene: Scene, output_dir: &std::path::Path) -> Result<(), String> {
-    fs::create_dir_all(output_dir).map_err(|e| format!("cannot create output dir: {}", e))?;
+/// Everything a render needs once the scene is parsed: the video and its
+/// media, the Metal context, and the frame geometry. The previewer and
+/// renderer borrow these, so they are built by the caller from this.
+struct RenderSetup {
+    video: SceneVideo,
+    media: DynamicMediaProvider<'static>,
+    metal_ctx: SkiaMetalCtx,
+    needs_system: bool,
+    width: u32,
+    height: u32,
+    total_frames: usize,
+}
 
+fn setup_render(scene: Scene) -> Result<RenderSetup, String> {
     // Draw only the roots; a group draws its own children.
     let child_ids: HashSet<&String> = scene.nodes.iter().flat_map(|n| n.children.iter()).collect();
     let mut roots: Vec<&IRNode> = scene.nodes.iter().filter(|n| !child_ids.contains(&n.id)).collect();
@@ -1047,16 +1069,34 @@ fn render_scene(scene: Scene, output_dir: &std::path::Path) -> Result<(), String
     let total_frames = frame_count(&scene);
 
     let video = SceneVideo { scene, node_map, roots, metrics, images };
-    let mut options = fframes::RenderOptions::default();
-    options.load_system_fonts = needs_system;
-    options.media = Some(&media);
-    let mut previewer = fframes::Previewer::new(&video, &options)
-        .map_err(|e| format!("cannot create previewer: {}", e))?;
-
     let metal_ctx = SkiaMetalCtx::new(width as usize, height as usize)
         .map_err(|e| format!("cannot create Metal context: {}", e))?;
-    let mut renderer = SkiaFrameRenderer::new(&metal_ctx);
+    Ok(RenderSetup { video, media, metal_ctx, needs_system, width, height, total_frames })
+}
 
+/// The previewer and renderer over a setup. Both borrow the setup, so they
+/// cannot outlive it; the caller holds them together.
+fn build_renderer<'a>(setup: &'a RenderSetup)
+    -> Result<(fframes::Previewer<'a, 'a, SceneVideo>, SkiaFrameRenderer<'a, SkiaMetalCtx>), String> {
+    let mut options = fframes::RenderOptions::default();
+    options.load_system_fonts = setup.needs_system;
+    options.media = Some(&setup.media);
+    let previewer = fframes::Previewer::new(&setup.video, &options)
+        .map_err(|e| format!("cannot create previewer: {}", e))?;
+    let renderer = SkiaFrameRenderer::new(&setup.metal_ctx);
+    Ok((previewer, renderer))
+}
+
+/// Render every frame, handing each to ``emit``. Shared by the PNG and raw
+/// output modes so the two cannot drift.
+fn render_each_frame<'a, 'media: 'a, TVideo: Video, TBackend: SkiaBackend>(
+    previewer: &mut fframes::Previewer<'a, 'media, TVideo>,
+    renderer: &mut SkiaFrameRenderer<'_, TBackend>,
+    width: u32,
+    height: u32,
+    total_frames: usize,
+    mut emit: impl FnMut(&RgbaFrame) -> Result<(), String>,
+) -> Result<(), String> {
     for frame_idx in 0..total_frames {
         let tree = previewer
             .svg_tree(frame_idx)
@@ -1064,10 +1104,54 @@ fn render_scene(scene: Scene, output_dir: &std::path::Path) -> Result<(), String
         let pixels = renderer
             .render_tree(&tree, fframes::Color::TRANSPARENT, width, height)
             .map_err(|e| format!("frame {} render failed: {}", frame_idx, e))?;
-        let path = output_dir.join(format!("frame_{:06}.png", frame_idx + 1));
-        pixels.save_png(&path).map_err(|e| format!("cannot save PNG: {}", e))?;
+        emit(&pixels)?;
     }
+    Ok(())
+}
 
-    println!("Rendered {} frames to {}", total_frames, output_dir.display());
+fn render_scene(scene: Scene, output_dir: &std::path::Path) -> Result<(), String> {
+    fs::create_dir_all(output_dir).map_err(|e| format!("cannot create output dir: {}", e))?;
+    let setup = setup_render(scene)?;
+    let (mut previewer, mut renderer) = build_renderer(&setup)?;
+    let mut idx = 0usize;
+    render_each_frame(
+        &mut previewer,
+        &mut renderer,
+        setup.width,
+        setup.height,
+        setup.total_frames,
+        |pixels| {
+            let path = output_dir.join(format!("frame_{:06}.png", idx + 1));
+            idx += 1;
+            pixels.save_png(&path).map_err(|e| format!("cannot save PNG: {}", e))
+        },
+    )?;
+    println!("Rendered {} frames to {}", setup.total_frames, output_dir.display());
+    Ok(())
+}
+
+/// Raw RGBA mode: a header (width, height as u32 LE) then straight-alpha RGBA
+/// frames on stdout, so the encoder can pipe them into ffmpeg directly.
+fn render_scene_raw(scene: Scene) -> Result<(), String> {
+    let setup = setup_render(scene)?;
+    let (mut previewer, mut renderer) = build_renderer(&setup)?;
+    let stdout = std::io::stdout();
+    let mut out = stdout.lock();
+    out.write_all(&setup.width.to_le_bytes())
+        .map_err(|e| format!("cannot write width: {}", e))?;
+    out.write_all(&setup.height.to_le_bytes())
+        .map_err(|e| format!("cannot write height: {}", e))?;
+    render_each_frame(
+        &mut previewer,
+        &mut renderer,
+        setup.width,
+        setup.height,
+        setup.total_frames,
+        |pixels| {
+            out.write_all(&pixels.pixels)
+                .map_err(|e| format!("cannot write frame: {}", e))
+        },
+    )?;
+    out.flush().map_err(|e| format!("cannot flush stdout: {}", e))?;
     Ok(())
 }
