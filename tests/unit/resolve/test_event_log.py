@@ -330,3 +330,34 @@ def test_main_lists_events_oldest_first(project, capsys):
     assert len(lines) == 2
     assert "lease_acquired" in lines[0]
     assert "checkpoint" in lines[1]
+# ── The scoped log ─────────────────────────────────────────────────
+
+def test_scoped_log_points_and_removes(project, monkeypatch):
+    """A runner's lease events land in the run's project, then nowhere.
+
+    Defect caught: a runner that sets `REN_EVENT_LOG` without
+    restoring it leaks one project's log into a long-lived process -
+    every later lease event lands in the wrong project.
+    """
+    import os
+    from library.tools.event_log import EVENT_LOG_ENV, log_path, scoped_log
+    monkeypatch.delenv(EVENT_LOG_ENV, raising=False)
+    with scoped_log(str(project)) as path:
+        assert path == str(log_path(project))
+        assert os.environ[EVENT_LOG_ENV] == str(log_path(project))
+    assert EVENT_LOG_ENV not in os.environ
+
+
+def test_scoped_log_restores_a_previous_value(project, monkeypatch):
+    """A nested scope hands the outer log back, never the project's.
+
+    Defect caught: a scope that deletes the variable instead of
+    restoring it drops an outer run's log - the outer run's later
+    lease events go nowhere.
+    """
+    import os
+    from library.tools.event_log import EVENT_LOG_ENV, scoped_log
+    monkeypatch.setenv(EVENT_LOG_ENV, "/outer/log.jsonl")
+    with scoped_log(str(project)):
+        assert os.environ[EVENT_LOG_ENV] != "/outer/log.jsonl"
+    assert os.environ[EVENT_LOG_ENV] == "/outer/log.jsonl"

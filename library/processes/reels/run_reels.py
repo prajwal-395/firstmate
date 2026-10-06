@@ -148,9 +148,14 @@ def run(project_folder: str, args) -> int:
     # MODIFIED during verification", the cursor on Reel 01 where the
     # gate's first read had found the master). The inner holds are
     # reentrant no-ops under this one, and a child inherits it.
-    from library.tools import (capabilities, operations, processes,
+    from library.tools import (capabilities, event_log, operations, processes,
                                provenance, resolve_lock)
     with contextlib.ExitStack() as held:
+        # The run's lease events belong to this project: without this
+        # the instance lease's hook never fires here, the same gap the
+        # edit runner closed per step. Restored on every exit - a
+        # refusal returns through the stack like any other.
+        held.enter_context(event_log.scoped_log(project_folder))
         try:
             held.enter_context(
                 resolve_lock.resolve_lease("build reels", exclusive=True))

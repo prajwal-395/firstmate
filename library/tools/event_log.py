@@ -54,6 +54,7 @@ Reachability
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import socket
@@ -61,7 +62,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 from library.tools.project_file_lock import lock_project_file
 
@@ -124,6 +125,27 @@ def log_path(project_folder) -> Path:
     """Where this project's event log lives: `pipeline_output/logs/event_log.jsonl`."""
     from library.tools.project_layout import Area, ProjectLayout
     return ProjectLayout(project_folder).read_dir(Area.LOGS) / EVENT_LOG_FILE
+
+
+@contextlib.contextmanager
+def scoped_log(project_folder) -> Iterator[str]:
+    """Point `REN_EVENT_LOG` at this project's log, restoring after.
+
+    A runner enters this around the work whose lease events belong to
+    the project, so the machine-wide lease's hook fires into the
+    right log - and a long-lived process never keeps writing to one
+    project's log after the run ends. Yields the log path.
+    """
+    previous = os.environ.get(EVENT_LOG_ENV)
+    path = str(log_path(project_folder))
+    os.environ[EVENT_LOG_ENV] = path
+    try:
+        yield path
+    finally:
+        if previous is None:
+            os.environ.pop(EVENT_LOG_ENV, None)
+        else:
+            os.environ[EVENT_LOG_ENV] = previous
 
 
 def _now() -> str:
