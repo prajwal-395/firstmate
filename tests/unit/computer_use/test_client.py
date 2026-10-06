@@ -25,7 +25,8 @@ def test_press_reaches_the_driver_with_the_ref_find_element_issued(client):
     assert never_issued.value.driver_code == "ELEMENT_NOT_FOUND"
 
     found = client.call(
-        "find_element", {"path": ["Workspace", "Switch to Page", "Media"]}
+        "find_element", {"path": ["Workspace", "Switch to Page"],
+                         "title": "Media"}
     )
     ref = found["elements"][0]["ref"]
     assert client.call("press", {"element": ref}) == {"pressed": True}
@@ -39,7 +40,8 @@ def test_a_driver_refusal_becomes_a_ren_refusal_carrying_the_code(client, monkey
     vocabulary."""
     monkeypatch.setenv("MOCK_OPEN_PROJECT", "Podcast (field test)")
     found = client.call(
-        "find_element", {"path": ["Workspace", "Switch to Page", "Media"]}
+        "find_element", {"path": ["Workspace", "Switch to Page"],
+                         "title": "Media"}
     )
     with pytest.raises(DriverError) as refused:
         client.call("press", {"element": found["elements"][0]["ref"]})

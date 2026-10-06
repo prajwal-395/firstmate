@@ -89,7 +89,12 @@ def test_press_resolves_the_path_then_presses_the_ref(client: DriverClient):
     the tree does."""
     calls = drive(client, Action.from_dict(VALID_ACTIONS["press"]))
     assert [method for method, _ in calls] == ["find_element", "press"]
-    assert calls[0][1] == {"path": ["Workspace", "Switch to Page", "Media"]}
+    # The driver's filter matches `path` against the titles ABOVE the
+    # element and `title` against the element itself: the whole chain
+    # as `path` resolved nothing on live Resolve (the Magic Mask
+    # recipe's first step failed on it 2026-10-06).
+    assert calls[0][1] == {"path": ["Workspace", "Switch to Page"],
+                           "title": "Media"}
     assert calls[1][1]["element"].startswith("ax-")
 
 

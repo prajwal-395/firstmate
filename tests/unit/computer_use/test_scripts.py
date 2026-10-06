@@ -137,6 +137,30 @@ def test_an_ax_path_that_matches_nothing_is_skipped(client: DriverClient):
     assert result.steps[0]["via"] == "ax_path"
 
 
+def test_an_ax_path_splits_the_title_from_the_path(client: DriverClient,
+                                                      monkeypatch):
+    """The driver's filter matches `path` against the titles ABOVE the
+    element and `title` against the element itself: the whole chain as
+    `path` resolved nothing on live Resolve (the Magic Mask recipe's
+    first step failed on it 2026-10-06), while the mock accepted
+    either shape and hid the defect."""
+    seen: list = []
+    real_call = client.call
+
+    def record(method, params=None):
+        seen.append((method, dict(params or {})))
+        return real_call(method, params)
+
+    monkeypatch.setattr(client, "call", record)
+    resolved = resolve_anchor(
+        client, Anchor(via="ax_path",
+                       params={"path": ["Workspace", "Switch to Page", "Media"]}))
+    assert resolved is not None and resolved[0] == "press"
+    finds = [p for m, p in seen if m == "find_element"]
+    assert finds == [{"path": ["Workspace", "Switch to Page"],
+                      "title": "Media"}]
+
+
 def test_a_position_anchor_needs_no_resolution(client: DriverClient):
     """A position anchor is the last resort - it needs no resolution, just
     a `why`. It adapts to nothing, so it is the fallback when every

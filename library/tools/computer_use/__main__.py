@@ -14,9 +14,16 @@ One verb, one module, extended as the layer grows:
                driver. `--recipe NAME` executes the stored recipe first
                and plans only where no recipe runs.
 
-    script     run a deterministic UI script from a JSON file. Runs
-                inside `qualification_project.borrowed()` like `run`;
-                `--teach` writes LLM-taught anchors back to the file.
+    script     run one deterministic route with no model: either a
+                script FILE the mapping runs wrote (anchors re-resolve
+                at run time; `--teach` writes LLM-taught anchors back
+                to the file), or one NAMED recipe (`--recipe`) whose
+                builder carries the measured route. Recipe steps that
+                must land on Qt-drawn controls need `--allow-foreground`:
+                background input changes nothing there (measured), so
+                the flag posts at the HID tap and activates Resolve
+                first - explicitly, never by default, because it takes
+                the captain's screen.
 
     recipe-save  name a verified script file as a recipe for later
                runs: `recipe-save NAME --script script.json
@@ -166,6 +173,137 @@ def _run(
     return 0 if result.outcome == "done" else 1
 
 
+def _run_recipe(client: DriverClient, args) -> int:
+    """Run one named recipe's Script, deterministically, no model.
+
+    Inside `qualification_project.borrowed()` under the exclusive
+    lease, like `run`: the captain's project is saved, Ren
+    Qualification is opened and read back by name, the named timeline
+    is made current, the playhead is parked where the caller measured
+    it, and the captain's project is restored on exit - also when a
+    step fails. Each step is timed; the report names the step, its
+    anchor, its outcome and its seconds, which is the live evidence a
+    recipe's promotion is judged on.
+    """
+    import json
+    import time
+
+    from library.tools import magic_mask
+    from library.tools.mask_seed import MaskSeed, Point
+
+    if args.recipe == "magic-mask-seed":
+        if not args.seed:
+            print("ren: magic-mask-seed needs --seed, the MaskSeed "
+                  "receipt as JSON", file=sys.stderr)
+            return 2
+        if not args.timeline:
+            print("ren: magic-mask-seed needs --timeline, the Ren "
+                  "Qualification timeline by exact name", file=sys.stderr)
+            return 2
+        try:
+            raw = json.loads(args.seed)
+            seed = MaskSeed(
+                clip_id=raw["clip_id"], frame=int(raw["frame"]),
+                subject=raw["subject"],
+                source=Point(float(raw["source"]["x"]),
+                             float(raw["source"]["y"])),
+                viewer=Point(float(raw["viewer"]["x"]),
+                             float(raw["viewer"]["y"])),
+                object_id=raw["object_id"],
+                sample_index=int(raw["sample_index"]),
+                seed_frame=int(raw["seed_frame"]))
+        except (ValueError, KeyError, TypeError) as exc:
+            print(f"ren: --seed is a MaskSeed receipt as JSON: {exc}",
+                  file=sys.stderr)
+            return 2
+        try:
+            script = magic_mask.seed_script(seed, mode=args.mode)
+        except ValueError as exc:
+            print(f"ren: {exc}", file=sys.stderr)
+            return 2
+    elif args.recipe == "magic-mask-track":
+        if not args.timeline:
+            print("ren: magic-mask-track needs --timeline, the Ren "
+                  "Qualification timeline by exact name", file=sys.stderr)
+            return 2
+        if args.seed is not None:
+            print("ren: magic-mask-track takes no --seed - a seed no "
+                  "builder reads would run the wrong route", file=sys.stderr)
+            return 2
+        try:
+            script = magic_mask.track_script(args.direction)
+        except ValueError as exc:
+            print(f"ren: {exc}", file=sys.stderr)
+            return 2
+    else:
+        print(f"ren: unknown recipe {args.recipe!r}: magic-mask-seed "
+              f"or magic-mask-track", file=sys.stderr)
+        return 2
+
+    from library.tools.marker_feedback import connect_resolve
+    from library.tools.qualification_project import borrowed
+    from library.tools.resolve_lock import (
+        assert_current_timeline, resolve_lease)
+    from library.tools.resolved.jobs import QUALIFICATION_PROJECT
+
+    resolve = connect_resolve()
+    started = time.monotonic()
+    # A plain lease: this verb borrows Resolve and OPENS the
+    # qualification project itself, so the broker interlock (which
+    # refuses a qualification-marked lease while the captain's
+    # project is open - i.e. nearly always) would refuse before
+    # borrowed() can switch. Found live 2026-10-06 (SkyLight lane,
+    # PR 1933 follow-up); `run` carries the same shape.
+    with resolve_lease("computer-use script"), borrowed(resolve):
+        manager = resolve.GetProjectManager()
+        project = manager.LoadProject(QUALIFICATION_PROJECT)
+        if project is None or project.GetName() != QUALIFICATION_PROJECT:
+            print(f"ren: {QUALIFICATION_PROJECT!r} did not open for "
+                  f"the recipe", file=sys.stderr)
+            return 1
+        timeline = _exact_timeline(project, args.timeline)
+        if timeline is None:
+            print(f"ren: no timeline named exactly {args.timeline!r} "
+                  f"in {QUALIFICATION_PROJECT!r}", file=sys.stderr)
+            return 1
+        # The cursor move goes through the guarded setter: it sets
+        # and reads back by unique id, and refuses without the
+        # exclusive lease this verb holds.
+        assert_current_timeline(project, timeline)
+        if args.playhead_timecode:
+            timeline.SetCurrentTimecode(args.playhead_timecode)
+            if (timeline.GetCurrentTimecode() or "") != args.playhead_timecode:
+                print(f"ren: the playhead did not read back as "
+                      f"{args.playhead_timecode!r}", file=sys.stderr)
+                return 1
+        if args.allow_foreground:
+            client.call("activate_resolve", {"allow_foreground": True})
+        step_started = time.monotonic()
+        result = run_script(client, script, foreground=args.allow_foreground)
+        elapsed = time.monotonic() - step_started
+    print(f"recipe: {args.recipe}")
+    print(f"goal: {script.goal}")
+    for row in result.steps:
+        print(f"  step {row['step']} {row['action']}: {row['outcome']} "
+              f"via {row['via']}")
+    print(f"outcome: {result.outcome} in {elapsed:.1f}s "
+          f"(+ {(time.monotonic() - started - elapsed):.1f}s establish)")
+    return 0 if result.outcome == "done" else 1
+
+
+def _exact_timeline(project, name: str):
+    """The timeline with exactly this name, or None - never a prefix."""
+    try:
+        count = int(project.GetTimelineCount() or 0)
+    except Exception:                                   # noqa: BLE001
+        return None
+    for index in range(1, count + 1):
+        timeline = project.GetTimelineByIndex(index)
+        if timeline is not None and timeline.GetName() == name:
+            return timeline
+    return None
+
+
 def _canva_status(target: AppTarget) -> int:
     """What the Canva target is and what it may touch - no driver claims.
 
@@ -307,8 +445,34 @@ def main(argv=None) -> int:
         default=None,
         help="cap the decide calls' spend (overrides $COMPUTER_USE_MAX_COST_USD)",
     )
-    script_parser = sub.add_parser("script", help="run a deterministic UI script from a file")
-    script_parser.add_argument("file", help="the script JSON file to run")
+    script_parser = sub.add_parser(
+        "script", help="run one deterministic route, file or recipe (no model)")
+    script_parser.add_argument(
+        "file", nargs="?", default=None,
+        help="the script JSON file to run (omit with --recipe)")
+    script_parser.add_argument(
+        "--recipe", choices=("magic-mask-seed", "magic-mask-track"),
+        default=None,
+        help="run one named recipe instead of a file")
+    script_parser.add_argument(
+        "--timeline", default=None,
+        help="recipes: the Ren Qualification timeline, by exact name")
+    script_parser.add_argument(
+        "--seed", default=None,
+        help="magic-mask-seed: the MaskSeed receipt as JSON")
+    script_parser.add_argument(
+        "--mode", default="BI",
+        help="magic-mask-seed: the CreateMagicMask mode (F|B|BI)")
+    script_parser.add_argument(
+        "--direction", default="forward",
+        help="magic-mask-track: forward or backward")
+    script_parser.add_argument(
+        "--playhead-timecode", default=None,
+        help="park the playhead here first (read back before running)")
+    script_parser.add_argument(
+        "--allow-foreground", action="store_true",
+        help="post input at the HID tap and activate Resolve first; "
+        "takes the captain's screen, so it is never the default")
     _target_flag(script_parser)
     script_parser.add_argument(
         "--model",
@@ -366,11 +530,37 @@ def main(argv=None) -> int:
                             recipe=args.recipe, recipes_dir=args.recipes_dir,
                             layout=args.layout)
         if args.subcommand == "script":
-            require_executor(target)
-            with DriverClient() as client:
-                return _script(
-                    client, args.file, args.model, args.max_cost_usd, args.teach
-                )
+            if args.recipe and args.file:
+                print("ren: a run takes a recipe or a file, never both",
+                      file=sys.stderr)
+                return 2
+            if args.recipe:
+                if (args.model != "stub" or args.max_cost_usd is not None
+                        or args.teach):
+                    print("ren: --model/--max-cost-usd/--teach run with "
+                          "a file, not a recipe", file=sys.stderr)
+                    return 2
+                require_executor(target)
+                with DriverClient() as client:
+                    return _run_recipe(client, args)
+            if args.file:
+                if (args.seed is not None or args.timeline is not None
+                        or args.playhead_timecode is not None
+                        or args.allow_foreground
+                        or args.mode != "BI"
+                        or args.direction != "forward"):
+                    print("ren: --seed/--timeline/--playhead-timecode/"
+                          "--mode/--direction/--allow-foreground need "
+                          "--recipe", file=sys.stderr)
+                    return 2
+                require_executor(target)
+                with DriverClient() as client:
+                    return _script(
+                        client, args.file, args.model, args.max_cost_usd,
+                        args.teach)
+            print("ren: pass a script file or --recipe",
+                  file=sys.stderr)
+            return 2
         if args.subcommand == "recipe-save":
             return _recipe_save(args.name, args.script, args.layout)
     except RenRefusal as exc:

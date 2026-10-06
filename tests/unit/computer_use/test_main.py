@@ -318,3 +318,240 @@ def test_learned_anchors_evaporate_without_teach(client, monkeypatch, tmp_path, 
     assert main_module.main(["script", str(path), "--model", "api"]) == 0
     assert "--teach" in capsys.readouterr().out
     assert path.read_text(encoding="utf-8") == before
+
+
+class _FakeScriptClient:
+    def __init__(self):
+        self.calls: list = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def call(self, method, params=None):
+        self.calls.append((method, dict(params or {})))
+        return {}
+
+
+class _FakeScriptTimeline:
+    def __init__(self):
+        self.timecode = "00:00:00:00"
+
+    def GetName(self):
+        return "Q Spine"
+
+    def GetUniqueId(self):
+        return "timeline-q-spine"
+
+    def SetCurrentTimecode(self, timecode):
+        self.timecode = timecode
+        return True
+
+    def GetCurrentTimecode(self):
+        return self.timecode
+
+
+class _FakeScriptProject:
+    def __init__(self):
+        self.current = _FakeScriptTimeline()
+
+    def GetName(self):
+        return "Ren Qualification"
+
+    def GetTimelineCount(self):
+        return 1
+
+    def GetTimelineByIndex(self, index):
+        return _FakeScriptTimeline()
+
+    def GetCurrentTimeline(self):
+        return self.current
+
+    def SetCurrentTimeline(self, timeline):
+        self.current = timeline
+        return True
+
+
+class _FakeScriptManager:
+    def LoadProject(self, name):
+        return _FakeScriptProject()
+
+
+class _FakeScriptResolve:
+    def GetProjectManager(self):
+        return _FakeScriptManager()
+
+
+_SEED_JSON = (
+    '{"clip_id": "talk", "frame": 48, "subject": "speaker", '
+    '"source": {"x": 1132.0, "y": 449.0}, '
+    '"viewer": {"x": 1719.0, "y": 622.0}, '
+    '"object_id": "obj_1", "sample_index": 2, "seed_frame": 48}')
+
+
+def _stub_script(monkeypatch, outcome="done"):
+    from library.tools.computer_use.scripts import ScriptResult
+
+    runs: list = []
+    leases: list = []
+    clients: list = []
+    clients.append(_FakeScriptClient())
+    monkeypatch.setattr(main_module, "DriverClient", lambda: clients[0])
+    monkeypatch.setattr(
+        "library.tools.marker_feedback.connect_resolve",
+        lambda: _FakeScriptResolve())
+
+    def fake_lease(purpose, **kwargs):
+        leases.append((purpose, kwargs))
+        return nullcontext()
+
+    monkeypatch.setattr(
+        "library.tools.resolve_lock.resolve_lease", fake_lease)
+    # The verb routes its cursor move through the guarded setter, so
+    # the tests hold the (fake) lease the guard requires - the guard
+    # itself is pinned by the lease tests, not here.
+    monkeypatch.setattr(
+        "library.tools.resolve_lock.held", lambda: True)
+    monkeypatch.setattr(
+        "library.tools.resolve_lock.exclusive_held", lambda: True)
+    monkeypatch.setattr(
+        "library.tools.qualification_project.borrowed",
+        lambda resolve: nullcontext())
+
+    def fake_run_script(client, script, **kwargs):
+        runs.append((script, kwargs))
+        return ScriptResult(outcome=outcome, steps=[
+            {"step": 0, "action": "press", "outcome": "ok",
+             "via": "ax_path"}])
+
+    monkeypatch.setattr(main_module, "run_script", fake_run_script)
+    return runs, clients, leases
+
+
+def test_script_seed_runs_the_seed_recipe_offline(monkeypatch, capsys):
+    """`script magic-mask-seed` builds the seed Script from the receipt
+    JSON and runs it with no model and no foreground flag - the
+    offline default never takes the captain's screen."""
+    runs, _, _ = _stub_script(monkeypatch)
+    argv = ["script", "--recipe", "magic-mask-seed", "--timeline", "Q Spine",
+            "--seed", _SEED_JSON,
+            "--playhead-timecode", "00:00:02:00"]
+    assert main_module.main(argv) == 0
+    script, kwargs = runs[0]
+    assert kwargs == {"foreground": False}
+    assert "obj_1" in script.goal
+    assert [s.action for s in script.steps] == [
+        "press", "click", "click", "click"]
+    out = capsys.readouterr().out
+    assert "outcome: done" in out
+
+
+def test_script_seed_refuses_a_seed_it_cannot_parse(monkeypatch, capsys):
+    """A `--seed` that is not a MaskSeed receipt exits 2 before Resolve
+    is touched: no borrow, no timeline, no driver call can follow a
+    seed nobody parsed."""
+    runs, clients, _ = _stub_script(monkeypatch)
+    argv = ["script", "--recipe", "magic-mask-seed", "--timeline", "Q Spine",
+            "--seed", '{"viewer": {"x": 1}}']
+    assert main_module.main(argv) == 2
+    assert runs == [] and clients[0].calls == []
+    assert "--seed" in capsys.readouterr().err
+
+
+def test_script_track_selects_the_named_direction(monkeypatch, capsys):
+    """`script magic-mask-track --direction backward` runs the tracker
+    recipe whose click names Track Backward - a direction flag that
+    never reached the builder would track the wrong way."""
+    runs, _, _ = _stub_script(monkeypatch)
+    argv = ["script", "--recipe", "magic-mask-track", "--timeline", "Q Spine",
+            "--direction", "backward"]
+    assert main_module.main(argv) == 0
+    script, _ = runs[0]
+    assert script.steps[0].anchors[0].params["text"] == "Track Backward"
+
+
+def test_script_foreground_activates_and_flags_input(monkeypatch, capsys):
+    """`--allow-foreground` activates Resolve first and runs the Script
+    foreground - without both, a Qt-drawn click silently changes
+    nothing while the run reports ok."""
+    runs, clients, _ = _stub_script(monkeypatch)
+    argv = ["script", "--recipe", "magic-mask-track", "--timeline", "Q Spine",
+            "--direction", "forward", "--allow-foreground"]
+    assert main_module.main(argv) == 0
+    assert ("activate_resolve", {"allow_foreground": True}) in clients[0].calls
+    _, kwargs = runs[0]
+    assert kwargs == {"foreground": True}
+
+
+def test_script_failed_run_exits_nonzero(monkeypatch, capsys):
+    """A recipe whose step does not verify exits 1: the report names
+    the outcome instead of passing silently."""
+    _stub_script(monkeypatch, outcome="failed")
+    argv = ["script", "--recipe", "magic-mask-track", "--timeline", "Q Spine"]
+    assert main_module.main(argv) == 1
+    assert "outcome: failed" in capsys.readouterr().out
+
+
+def test_script_takes_a_plain_lease_it_borrows_under(monkeypatch, capsys):
+    """The verb borrows Resolve and opens the qualification project
+    itself, so a qualification-marked lease would be refused by the
+    broker interlock while the captain's project is open - nearly
+    always (found live 2026-10-06, SkyLight lane PR 1933)."""
+    runs, _, leases = _stub_script(monkeypatch)
+    argv = ["script", "--recipe", "magic-mask-track", "--timeline", "Q Spine"]
+    assert main_module.main(argv) == 0
+    assert runs != []
+    assert leases != []
+    assert all("qualification_project" not in kwargs
+               for _, kwargs in leases)
+
+
+def test_script_with_recipe_and_path_is_refused(monkeypatch, capsys):
+    """A run takes a recipe or a file, never both - running both
+    would act twice on the same Resolve."""
+    runs, _, _ = _stub_script(monkeypatch)
+    argv = ["script", "some.json", "--recipe", "magic-mask-track",
+            "--timeline", "Q Spine"]
+    assert main_module.main(argv) == 2
+    assert runs == []
+    assert "never both" in capsys.readouterr().err
+
+
+def test_script_with_neither_recipe_nor_path_is_refused(monkeypatch, capsys):
+    """A run with nothing to run exits 2 before Resolve is touched."""
+    runs, _, _ = _stub_script(monkeypatch)
+    assert main_module.main(["script"]) == 2
+    assert runs == []
+
+
+def test_script_file_with_recipe_flags_is_refused(monkeypatch, capsys):
+    """Recipe flags on a file run are refused, not silently ignored -
+    a --seed that never reached a builder would run the wrong route."""
+    runs, _, _ = _stub_script(monkeypatch)
+    argv = ["script", "some.json", "--seed", _SEED_JSON]
+    assert main_module.main(argv) == 2
+    assert runs == []
+    assert "--recipe" in capsys.readouterr().err
+
+
+def test_script_recipe_with_file_flags_is_refused(monkeypatch, capsys):
+    """File flags on a recipe run are refused: --teach would promise
+    to persist anchors no file receives, --model api a fallback the
+    deterministic run never calls."""
+    runs, _, _ = _stub_script(monkeypatch)
+    argv = ["script", "--recipe", "magic-mask-track", "--timeline",
+            "Q Spine", "--teach"]
+    assert main_module.main(argv) == 2
+    assert runs == []
+
+
+def test_script_track_with_seed_is_refused(monkeypatch, capsys):
+    """A --seed on the track recipe is refused: the tracker reads no
+    seed, so one passed would be dropped in silence."""
+    runs, _, _ = _stub_script(monkeypatch)
+    argv = ["script", "--recipe", "magic-mask-track", "--timeline",
+            "Q Spine", "--seed", _SEED_JSON]
+    assert main_module.main(argv) == 2
+    assert runs == []

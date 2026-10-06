@@ -71,6 +71,14 @@ RECIPES_ROOT_ENV = "PIPELINE_RECIPES_DIR"
 #: never escape the store directory.
 RECIPE_NAME_RE = re.compile(r"[a-z0-9][a-z0-9_-]*")
 
+#: Driver calls that post input events. In the background they go to
+#: Resolve's process alone - which the probe measured as changing
+#: nothing on Qt-drawn controls - so a recipe step that must land on
+#: one runs with `foreground=True` and the flag rides on exactly
+#: these calls. Anything else (find_element, captures, press) is
+#: unaffected: AX reaches the menu bar in the background.
+INPUT_CALLS = frozenset({"click", "drag", "scroll", "key", "type_text"})
+
 
 class ScriptError(RenRefusal):
     """A script file that could not be read or run - refused with the fix."""
@@ -228,7 +236,14 @@ def resolve_anchor(client: DriverClient, anchor: Anchor) -> tuple[str, dict] | N
         path = anchor.params.get("path")
         if not path:
             return None
-        found = client.call("find_element", {"path": list(path)})
+        # The driver's filter matches `path` against the titles ABOVE
+        # the element and `title` against the element itself
+        # (native/resolve-control/src/driver.rs): sending the whole
+        # chain as `path` resolves nothing live - the target's own
+        # title is not its ancestor.
+        *above, title = path
+        found = client.call("find_element", {"path": list(above),
+                                             "title": title})
         elements = found.get("elements") or []
         if not elements:
             return None
@@ -371,6 +386,8 @@ def run_script(
     client: DriverClient,
     script: Script,
     llm: Callable[[Observation, ScriptStep], dict] | None = None,
+    *,
+    foreground: bool = False,
 ) -> ScriptResult:
     """Run a script against the client.
 
@@ -380,10 +397,17 @@ def run_script(
     recorded back into the script as a new anchor, so the next run is
     deterministic. If the LLM also fails, the script aborts with the
     failure named.
+
+    `foreground` posts the input-event calls at the HID tap (the real
+    cursor) instead of to Resolve's process alone. Background input
+    changes nothing on Qt-drawn controls (measured), so a recipe that
+    clicks one runs foreground - explicitly, never by default, because
+    it takes the captain's screen, cursor or keyboard.
     """
     results: list[dict] = []
     for index, step in enumerate(script.steps):
-        outcome = _run_step(client, step, index, llm, script)
+        outcome = _run_step(client, step, index, llm, script,
+                            foreground=foreground)
         results.append(outcome)
         if outcome["outcome"] == "failed":
             return ScriptResult(outcome="failed", steps=results)
@@ -396,6 +420,8 @@ def _run_step(
     index: int,
     llm: Callable[[Observation, ScriptStep], dict] | None,
     script: Script,
+    *,
+    foreground: bool = False,
 ) -> dict:
     """Run one step: try each anchor in order, then fall back to the LLM.
 
@@ -408,6 +434,8 @@ def _run_step(
         if resolved is None:
             continue
         method, params = resolved
+        if foreground and method in INPUT_CALLS:
+            params = {**params, "allow_foreground": True}
         try:
             with resolve_lease("computer-use"):
                 before = build_observation(client, "", [], 0)

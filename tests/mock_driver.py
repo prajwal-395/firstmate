@@ -121,20 +121,25 @@ def _open_project() -> str:
     return os.environ.get("MOCK_OPEN_PROJECT", QUALIFICATION_PROJECT)
 
 
-def _find_by_path(path) -> list:
-    """Walk the AX tree and return the elements whose menu-title chain
-    matches the path, outermost first. A path that matches nothing
-    returns []."""
-    if not path:
-        return []
+def _find_by_path(path, title=None) -> list:
+    """Walk the AX tree and return the elements the real driver's
+    filter would match: `path` is the menu-title chain ABOVE the
+    element, `title` the element's own title (absent matches any
+    title under that chain - the same rule `find_element` applies
+    live in native/resolve-control/src/driver.rs). A pair that
+    matches nothing returns []."""
+    if path is None:
+        path = []
     matches = []
 
-    def walk(node, chain):
+    def walk(node, ancestors):
         role = node.get("role")
-        title = node.get("title")
-        here = chain + [title] if role in ("AXMenuBarItem", "AXMenuItem") and title else chain
-        if here == path:
+        node_title = node.get("title")
+        if ancestors == path and (title is None or node_title == title) and node_title:
             matches.append(node)
+        here = (ancestors + [node_title]
+                if role in ("AXMenuBarItem", "AXMenuItem") and node_title
+                else ancestors)
         for child in node.get("children") or []:
             walk(child, here)
 
@@ -158,8 +163,7 @@ def handle(request: dict) -> dict:
     if method == "get_accessibility_tree":
         return reply({"tree": AX_TREE})
     if method == "find_element":
-        path = params.get("path")
-        matches = _find_by_path(path)
+        matches = _find_by_path(params.get("path"), params.get("title"))
         return reply({"elements": matches})
     if method in ("press", "set_value", "focus"):
         if _open_project() != QUALIFICATION_PROJECT:

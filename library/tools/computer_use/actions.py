@@ -136,7 +136,13 @@ class Action:
             return
         if self.kind in ("press", "choose", "set_value"):
             path = self.params["path"]
-            found = yield ("find_element", {"path": list(path)})
+            # The driver's filter matches `path` against the titles
+            # ABOVE the element and `title` against the element itself
+            # (native/resolve-control/src/driver.rs) - the whole chain
+            # as `path` resolves nothing live.
+            *above, title = path
+            found = yield ("find_element", {"path": list(above),
+                                            "title": title})
             elements = found.get("elements") if isinstance(found, dict) else None
             if not elements:
                 raise DriverError(
