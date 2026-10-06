@@ -85,6 +85,10 @@ LEASE_RELEASED = "lease_released"
 LEASE_EXPIRED = "lease_expired"
 INSTANCE_LEASE_ACQUIRED = "instance_lease_acquired"
 INSTANCE_LEASE_RELEASED = "instance_lease_released"
+REEL_SIGNED_OFF = "reel_signed_off"
+"""A built reel's durable approval, the spec's QC-passed event."""
+SIGNOFF_WITHDRAWN = "signoff_withdrawn"
+"""An approval taken back, the spec's QC-rejected event."""
 
 
 def log_path(project_folder) -> Path:

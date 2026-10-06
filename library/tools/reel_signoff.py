@@ -230,6 +230,10 @@ def sign_off(project_folder, timeline: str, *, note: str = "",
     document["signoffs"][reel] = entry
     document["format"] = SIGNOFF_FORMAT
     _write(project_folder, document)
+    from library.tools import event_log as _signoff_event_log
+    _emit_signoff_event(project_folder, _signoff_event_log.REEL_SIGNED_OFF,
+                        reel=reel, by=entry["by"], round=round_number,
+                        rows_digest=entry["rows_digest"])
     # F-09: the sign-off is also a LEARNING, filed best-effort beside
     # the sign-off record - a later run proposing to rebuild or touch
     # up this reel reads that the captain already approved it.
@@ -259,7 +263,24 @@ def withdraw(project_folder, timeline: str, why: str = "") -> bool:
         "why": str(why or ""),
     })
     _write(project_folder, document)
+    from library.tools import event_log as _withdraw_event_log
+    _emit_signoff_event(project_folder, _withdraw_event_log.SIGNOFF_WITHDRAWN,
+                        reel=reel, why=str(why or ""))
     return True
+
+
+def _emit_signoff_event(project_folder, event_type: str, **fields) -> None:
+    """Emit one sign-off event into the project's event log, or skip.
+
+    The sign-off is the act, the event log is the record of it: a
+    failure to emit must never take down an approval any more than it
+    takes down a lease (`resource_leases._emit` holds the same way).
+    """
+    try:
+        from library.tools import event_log as _event_log
+        _event_log.emit(project_folder, event_type, **fields)
+    except OSError:
+        pass
 
 
 def signed_off(project_folder) -> dict:
