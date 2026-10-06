@@ -22,6 +22,11 @@
       "description": "One `resolve-axi` command line, run inside the broker so its reads\ncoalesce across agents. Reads only, and only the named allowlist.",
       "type": "string",
       "const": "resolve_axi"
+    },
+    {
+      "description": "Read the installed OFX/ResolveFX effects and the running Resolve\nversion, on the broker's own connection. Ren-owned and read-only:\nthe script is fixed in Ren, never caller-supplied.",
+      "type": "string",
+      "const": "fusion.registry_summary"
     }
   ]
 }

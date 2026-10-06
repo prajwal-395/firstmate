@@ -24,11 +24,18 @@ Kinds
                        nothing and is REJECTED, its fields kept in the
                        receipt's result so the caller can rebase.
 `resolve_axi`          One `resolve-axi` command line, run inside the
-                       broker so its reads coalesce across agents. Reads
-                       only, and only the named allowlist
-                       (`_BROKER_ALLOWLIST`): a command not on it is
-                       refused before it is queued, so a new resolve-axi
-                       verb is not broker-eligible by default.
+                        broker so its reads coalesce across agents. Reads
+                        only, and only the named allowlist
+                        (`_BROKER_ALLOWLIST`): a command not on it is
+                        refused before it is queued, so a new resolve-axi
+                        verb is not broker-eligible by default.
+`fusion.registry_summary`
+                       The installed OFX/ResolveFX effects and the
+                       running Resolve version, read on the broker's own
+                       connection. Ren-owned and read-only: what runs is
+                       fixed here, never caller-supplied, so the job
+                       carries no script text and needs no developer
+                       opt-in. Identical reads coalesce.
 """
 
 from __future__ import annotations
@@ -47,7 +54,8 @@ from library.tools.resolved.scheduler import EXCLUSIVE, PRIORITIES, SHARED
 #: tests used to run against whatever project was open - the captain's.
 QUALIFICATION_PROJECT = "Ren Qualification"
 
-KINDS = ("lease", "timeline.snapshot", "timeline.apply_patch", "resolve_axi")
+KINDS = ("lease", "timeline.snapshot", "timeline.apply_patch",
+         "resolve_axi", "fusion.registry_summary")
 
 
 #: The resolve-axi commands the broker will run, by name. The broker is
@@ -254,6 +262,14 @@ def prepare(kind: str, params: dict, qualification: bool = False) -> dict:
                  "project": project, "timeline": timeline,
                  "locality": phase.locality,
                  "coalesce_key": _coalesce_key(kind, patch_id)}
+    elif kind == "fusion.registry_summary":
+        # A project-less read: it names no project because it reads the
+        # Fusion registry, not a timeline. SHARED - it writes nothing.
+        shape = {"mode": SHARED,
+                 "priority": "read", "executed": True,
+                 "project": "", "timeline": "",
+                 "locality": "none",
+                 "coalesce_key": _coalesce_key(kind)}
     else:
         shape = dict(_resolve_axi_shape(params), executed=True)
     requested = params.get("priority")
@@ -321,6 +337,8 @@ def run(job: dict, resolve) -> Optional[dict]:
                 project=job.get("project"), timeline_name=job.get("timeline"),
                 run_id=job.get("id")):
             return _run_resolve_axi(params)
+    if kind == "fusion.registry_summary":
+        return _run_registry_summary(resolve)
     if kind == "timeline.apply_patch":
         # The external boundary: the patch arrives from the socket. The
         # mode decides - log in production (a hard refusal on the live
@@ -369,3 +387,22 @@ def _run_resolve_axi(params: dict) -> dict:
         os.chdir(previous)
     return {"exit_code": int(code or 0), "stdout": out.getvalue(),
             "stderr": err.getvalue()}
+
+
+def _run_registry_summary(resolve) -> dict:
+    """The installed OFX/ResolveFX effects and the running version.
+
+    Ren-owned and read-only: what runs is fixed here in Ren, never
+    caller-supplied, so the job carries no script text over the socket
+    and needs no developer opt-in. `REGI_ClassType == 3.0` is the
+    registry's own marker for an effect plugin.
+    """
+    summary = resolve.Fusion().GetRegSummary(0, False)
+    effects = []
+    for value in summary.values():
+        if value.get("REGI_ClassType") == 3.0:
+            effects.append({"id": value["REGS_ID"],
+                            "name": value["REGS_Name"]})
+    effects.sort(key=lambda e: e["name"])
+    return {"version": str(resolve.GetVersionString() or ""),
+            "effects": effects}

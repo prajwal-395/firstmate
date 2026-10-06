@@ -28,6 +28,11 @@ pub enum JobKind {
     /// coalesce across agents. Reads only, and only the named allowlist.
     #[serde(rename = "resolve_axi")]
     ResolveAxi,
+    /// Read the installed OFX/ResolveFX effects and the running Resolve
+    /// version, on the broker's own connection. Ren-owned and read-only:
+    /// the script is fixed in Ren, never caller-supplied.
+    #[serde(rename = "fusion.registry_summary")]
+    FusionRegistrySummary,
 }
 
 impl JobKind {
@@ -38,6 +43,7 @@ impl JobKind {
             JobKind::TimelineSnapshot => "timeline.snapshot",
             JobKind::TimelineApplyPatch => "timeline.apply_patch",
             JobKind::ResolveAxi => "resolve_axi",
+            JobKind::FusionRegistrySummary => "fusion.registry_summary",
         }
     }
 }

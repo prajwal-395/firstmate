@@ -59,6 +59,7 @@ from pathlib import Path
 
 from library.tools import dag_adapter
 from library.tools.operations import PatchSemantics
+from library.tools.scope import PROJECT
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 STEPS_ROOT = REPO_ROOT / "library" / "steps"
@@ -734,6 +735,38 @@ def problems(registry=None) -> list:
             out.append(f"area {spec.relpath} is owned by {spec.step!r}, "
                        f"which is not a node")
     return out
+
+
+def data_capabilities() -> tuple:
+    """Data-only capabilities: the ResolveFX/OFX effects provider registry.
+
+    These are not wired into the DAG or operations registry. They are data
+    the planner can query through `resolvefx_effects.find_by_intent`.
+    The installed list is built on the user's machine and cached per
+    machine, outside the repo.
+    """
+    from library.tools import resolvefx_effects
+    entries = resolvefx_effects.load_registry()
+    return tuple(
+        CapabilitySpec(
+            id=f"resolvefx.{e.id}",
+            summary=e.name,
+            scopes=(PROJECT,),
+            executor="data",
+            requires=(),
+            effects=(),
+            produces=(),
+            consumes=(),
+            assumes_machine=(),
+            assumes_outside=(),
+            needs_model_answer=False,
+            caller_supplied=False,
+            execution=None,
+            artifact_areas=(),
+            legacy=None,
+        )
+        for e in entries
+    )
 
 
 def describe() -> str:
