@@ -69,3 +69,30 @@ def test_api_model_builds_a_session_with_the_cost_flag(monkeypatch, capsys):
     assert main_module.main(["run", "goal", "--model", "api", "--max-cost-usd", "0.5"]) == 0
     assert built[0].max_cost_usd == 0.5
     assert built[0].endpoint.startswith("http")
+
+
+def test_canva_status_reports_the_declaration_without_a_driver(capsys):
+    """`status --target canva` needs no driver: it prints the window
+    match, the gate and the background capability - a status that
+    spawned the Resolve driver for a target it cannot see would be a
+    lie about what was read."""
+    assert main_module.main(["status", "--target", "canva"]) == 0
+    out = capsys.readouterr().out
+    assert "com.google.Chrome" in out
+    assert "background input: no" in out
+    assert "scratch designs allowlisted" in out
+
+
+def test_canva_run_refuses_before_any_driver_spawns(monkeypatch, capsys):
+    """`run --target canva` refuses with the missing-executor fix and
+    never constructs a driver - spawning Resolve's driver for a Canva
+    task would act on the wrong app."""
+    def _boom(*args, **kwargs):
+        raise AssertionError("no driver may spawn for a refused target")
+
+    monkeypatch.setattr(main_module, "DriverClient", _boom)
+
+    assert main_module.main(["run", "edit this design", "--target", "canva"]) == 4
+    err = capsys.readouterr().err
+    assert "no executor" in err
+    assert "--target resolve" in err

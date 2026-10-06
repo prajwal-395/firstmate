@@ -24,6 +24,10 @@ of its protocol:
     model.py     the decide half: the observation to one action through
                  an OpenAI-compatible endpoint, with token ledgering
                  and the dollar budget.
+    targets.py   where the loop may act: the AppTarget abstraction, the
+                 Resolve target (the driver executes), and the Canva
+                 target (a scratch-gated declaration with no executor
+                 yet).
 
 The design report is `data/vep-computer-use-architecture/report.md`
 (firstmate); the measured facts it rests on are in

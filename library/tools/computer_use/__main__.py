@@ -15,7 +15,9 @@ One verb, one module, extended as the layer grows:
 
     script     (PR 4) run a deterministic UI script.
 
-The verb execs `python -m library.tools.computer_use` under the engine
+`--target` selects the app (resolve today; canva reports its
+declaration and gate, and refuses `run` - no Chrome executor exists
+yet). The verb execs `python -m library.tools.computer_use` under the engine
 interpreter (`ren/commands.py`, the one registry).
 """
 
@@ -27,6 +29,12 @@ import sys
 from library.tools.computer_use.client import DriverClient
 from library.tools.computer_use.loop import run_loop
 from library.tools.computer_use.model import ENV_URL, ModelConfig, ModelSession
+from library.tools.computer_use.targets import (
+    AppTarget,
+    canva_scratch_designs,
+    require_executor,
+    select_target,
+)
 from library.tools.ren_refusal import RenRefusal
 
 
@@ -110,14 +118,44 @@ def _run(
     return 0 if result.outcome == "done" else 1
 
 
+def _canva_status(target: AppTarget) -> int:
+    """What the Canva target is and what it may touch - no driver claims.
+
+    There is no Chrome executor, so this reports the declaration: the
+    window match, the scratch-design gate state, and the background
+    capability with its reason. Read-only: no driver spawns.
+    """
+    designs = canva_scratch_designs()
+    print(f"target: {target.name} ({target.bundle_id}, {target.title_contains!r} windows)")
+    print(f"executor: none - the Chrome input route is unbuilt")
+    print(f"scratch designs allowlisted: {len(designs)}")
+    print(f"background input: {'yes' if target.background_input else 'no'} - {target.background_why}")
+    print(f"gate: {target.gate}")
+    return 0
+
+
+def _target_flag(parser) -> None:
+    """The `--target` flag, on every subcommand (options follow the verb)."""
+    parser.add_argument(
+        "--target",
+        choices=("resolve", "canva"),
+        default="resolve",
+        help="which app the loop may act on (default: resolve)",
+    )
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         prog="ren computer-use", description="Computer use above the native driver."
     )
     sub = parser.add_subparsers(dest="subcommand", required=True)
-    sub.add_parser("status", help="what the driver can see right now (read only)")
+    status_parser = sub.add_parser(
+        "status", help="what the driver can see right now (read only)"
+    )
+    _target_flag(status_parser)
     run_parser = sub.add_parser("run", help="run the observe-decide-act loop on a task")
     run_parser.add_argument("goal", help="the task for the loop to perform")
+    _target_flag(run_parser)
     run_parser.add_argument(
         "--model",
         choices=("stub", "api"),
@@ -134,10 +172,15 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        with DriverClient() as client:
-            if args.subcommand == "status":
+        target = select_target(args.target)
+        if args.subcommand == "status":
+            if target.name == "canva":
+                return _canva_status(target)
+            with DriverClient() as client:
                 return _status(client)
-            if args.subcommand == "run":
+        if args.subcommand == "run":
+            require_executor(target)
+            with DriverClient() as client:
                 return _run(client, args.goal, args.model, args.max_cost_usd)
     except RenRefusal as exc:
         print(exc.render(), file=sys.stderr)
