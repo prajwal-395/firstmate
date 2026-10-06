@@ -20,6 +20,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from library.tools import journal_naming
+from library.tools.resource_leases import (
+    LeaseDeclaration,
+    ResourceRef,
+    resource_lease,
+)
 
 from library.tools.master_markers import (
     MarkerRefused,
@@ -103,34 +108,49 @@ def apply_markers(plan: dict, journal_path: str) -> dict:
     markers rather than colliding with them - `AddMarker` returns False
     on an occupied frame, and a run that silently wrote nothing would
     read as a run that was already up to date.
+
+    The write declares the master timeline WRITE before the first
+    mutation, so a touch-up restructuring the master mid-run serialises
+    against it instead of moving footage under the markers. WRITE, not
+    EXCLUSIVE: marking moves no clip, so readers are only excluded
+    where the parent-child rule already excludes them.
     """
     master = plan["master"]
+    master_name = master.GetName()
     assert_no_collision(plan["markers"], plan["existing"])
 
-    removed = clear_markers(master)
     journal = {
         "marked_at": datetime.now(timezone.utc).isoformat(),
-        "timeline": master.GetName(),
-        "removed_first": removed,
+        "timeline": master_name,
+        "removed_first": [],
         "written": [],
     }
-    try:
-        for marker in plan["markers"]:
-            if not master.AddMarker(marker.frame, marker.colour, marker.name,
-                                    marker.note, marker.duration,
-                                    marker.custom_data):
-                raise MarkerRefused(
-                    f"AddMarker at frame {marker.frame} for "
-                    f"{marker.name!r} returned False. "
-                    f"{len(journal['written'])} marker(s) had been written; "
-                    f"the journal names them and `--clear` removes them.")
-            journal["written"].append(
-                {"frame": marker.frame, "duration": marker.duration,
-                 "name": marker.name, "colour": marker.colour})
-    finally:
-        Path(journal_path).parent.mkdir(parents=True, exist_ok=True)
-        Path(journal_path).write_text(
-            json.dumps(journal, indent=2), encoding="utf-8")
+    with resource_lease(
+        LeaseDeclaration(
+            write=frozenset({ResourceRef("timeline", master_name)}),
+        ),
+        purpose=f"mark the master {master_name}",
+    ):
+        # The clear runs inside the lease: it deletes markers, so it is
+        # part of the destructive section this declaration covers.
+        journal["removed_first"] = clear_markers(master)
+        try:
+            for marker in plan["markers"]:
+                if not master.AddMarker(marker.frame, marker.colour, marker.name,
+                                        marker.note, marker.duration,
+                                        marker.custom_data):
+                    raise MarkerRefused(
+                        f"AddMarker at frame {marker.frame} for "
+                        f"{marker.name!r} returned False. "
+                        f"{len(journal['written'])} marker(s) had been written; "
+                        f"the journal names them and `--clear` removes them.")
+                journal["written"].append(
+                    {"frame": marker.frame, "duration": marker.duration,
+                     "name": marker.name, "colour": marker.colour})
+        finally:
+            Path(journal_path).parent.mkdir(parents=True, exist_ok=True)
+            Path(journal_path).write_text(
+                json.dumps(journal, indent=2), encoding="utf-8")
     journal["journal_path"] = journal_path
     return journal
 
