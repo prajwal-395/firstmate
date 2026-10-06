@@ -49,6 +49,7 @@ def _measured_reference(monkeypatch):
     """
     monkeypatch.setattr(RS, "measure_reference_asl",
                         lambda path: MEASURED_ASL)
+    monkeypatch.setattr(RS, "reference_digest", lambda path: "abc123")
     return MEASURED_ASL
 
 
@@ -365,3 +366,84 @@ def test_an_unmeasurable_reference_is_said_not_silently_dropped(
     assert decision.basis != DV.STATED
     assert any("unmeasured" in row["why"] and "reference" in row["why"]
                for row in decision.rungs_skipped)
+
+
+# ── The subtitle slot's measured rung ──────────────────────────────
+
+SUBTITLE_SLOT = "subtitle.max_words_per_card"
+
+
+@pytest.mark.usefixtures("_isolate_user_taste_profile",
+                         "_measured_reference")
+class TestTheSubtitleSlotRung:
+
+    def _project_with_stored_style(self, tmp_path, style):
+        """A project whose state holds a measured representation.
+
+        The measurement is stubbed: what this rung owns is that the slot
+        READS the stored representation's words per caption, not that the
+        representation was measured (pinned by
+        tests/unit/picture/test_reference_style.py).  The reference file
+        is present and its digest matches the stored one, so the stored
+        path is the one under test.
+        """
+        import json
+        from library.tools.project_layout import ProjectLayout
+        (tmp_path / "reference.mp4").write_text(
+            "reference", encoding="utf-8")
+        state = {"reference_style": style,
+                 "reference_style_digest": "abc123"}
+        path = ProjectLayout(str(tmp_path)).pipeline_data_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(state, handle)
+        (tmp_path / "video.yaml").write_text(
+            "reference: reference.mp4\n", encoding="utf-8")
+        return str(tmp_path)
+
+    def test_the_slot_reads_the_stored_words_per_caption(self, tmp_path):
+        """The slot reads the representation, not a second decode.
+
+        The failure it pins: the subtitle slot measuring the reference
+        itself - an OCR pass every time the slot is decided, on top of
+        the runner's measurement for the step context.
+        """
+        folder = self._project_with_stored_style(tmp_path, {
+            "text": {"captions": {"mean_words": 4.0}},
+        })
+        value, source = DV.stated_preference(SUBTITLE_SLOT, folder)
+        assert value == 4.0
+        assert "reference.mp4" in source
+
+    def test_a_reference_without_captions_is_absent_for_the_slot(
+            self, tmp_path):
+        """No captions is not a zero-word caption.
+
+        The failure it pins: a reference without captions giving the
+        slot a measured value of 0 - the plan would read 0 as the
+        reference's word count and caption nothing.
+        """
+        folder = self._project_with_stored_style(tmp_path, {
+            "text": {"captions": {"presence": 0.0, "count": 0}},
+        })
+        assert DV.stated_preference(SUBTITLE_SLOT, folder) == (None, "")
+
+    def test_the_project_s_own_preference_outranks_the_reference(
+            self, tmp_path):
+        """An explicit preference is the project's own voice.
+
+        The failure it pins: letting a reference's measurement
+        override a preference the project states would make the
+        reference the chooser (AGENTS.md 10.5).
+        """
+        (tmp_path / "project.yaml").write_text(
+            "pipeline:\n"
+            "  creative_preferences:\n"
+            "    subtitle:\n"
+            "      max_words_per_card: 8\n", encoding="utf-8")
+        folder = self._project_with_stored_style(tmp_path, {
+            "text": {"captions": {"mean_words": 4.0}},
+        })
+        value, source = DV.stated_preference(SUBTITLE_SLOT, folder)
+        assert value == 8
+        assert "creative_preferences" in source

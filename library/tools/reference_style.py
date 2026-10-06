@@ -1,11 +1,13 @@
-"""Reference editorial-style measurement.
+"""Reference style measurement.
 
 Given a reference video, measure the style facts an edit can be
-constrained by: the shot-length distribution, the pacing, and the
-transition vocabulary.  This is the CONTENT-vs-STYLE separation the
-captain's spec section 6 names - the reference's WORDS are content and
-are never read here; only the cut pattern, the rhythm and the
-transition vocabulary are measured.
+constrained by: the shot-length distribution, the pacing, the
+transition vocabulary, the palette, the contrast, the caption and type
+style, and the camera-movement distribution.  This is the
+CONTENT-vs-STYLE separation the captain's spec section 6 names - the
+reference's WORDS are content and are never read here; only how it is
+cut, how it looks, how its text is set and how much motion it carries
+are measured.
 
 Everything here is a FACT (:data:`library.tools.editorial_types.FACT`):
 a measurement of the reference's pixels and cut points, never a
@@ -262,9 +264,45 @@ def measure_shot_boundaries(video_path: str) -> dict:
             "derived_as": "max(floor, margin x median frame-to-frame jump) "
                           "from this video's own delta distribution",
         },
+        "shot_motion": _shot_motion(deltas, boundaries, fps),
         "fps": fps,
         "duration_seconds": duration,
     }
+
+
+def _shot_motion(deltas: list, boundaries: list, fps: float) -> list:
+    """Mean frame-to-frame luma jump within each shot.
+
+    A shot's motion energy is the mean luma jump between consecutive
+    frames inside it.  This is not camera movement alone - a gesturing
+    subject in front of a locked-off camera also raises it - but it is
+    the reference's own motion distribution, and the editorial track
+    reads it as a style fact.
+    """
+    if not deltas or fps <= 0:
+        return []
+    cut_frames = [int(b["time_seconds"] * fps) for b in boundaries]
+    last_frame = deltas[-1]["frame"] + 1
+    intervals = []
+    start = 0
+    for cut in cut_frames:
+        if cut > start:
+            intervals.append((start, cut))
+        start = cut
+    if start < last_frame:
+        intervals.append((start, last_frame))
+    motion = []
+    for shot_start, shot_end in intervals:
+        jumps = [d["luma_jump"] for d in deltas
+                 if shot_start <= d["frame"] < shot_end]
+        if jumps:
+            motion.append({
+                "start_frame": shot_start,
+                "end_frame": shot_end,
+                "mean_luma_jump": round(statistics.fmean(jumps), 3),
+                "frames": len(jumps),
+            })
+    return motion
 
 
 def _video_fps(video_path: str) -> float:
@@ -429,6 +467,48 @@ def measure_reference_asl(reference_path: str) -> float:
     """
     style = measure_reference_editorial_style(reference_path)
     return style["shot_length_distribution"]["asl_seconds"]
+
+
+# ── The camera-movement half ─────────────────────────────────────────
+#
+# How much motion the reference's shots carry, as a distribution.  The
+# signal is the mean frame-to-frame luma jump within each shot - the
+# same delta the cut detector reads, averaged inside the shot instead
+# of at its boundary.  It is not camera movement alone: a gesturing
+# subject in front of a locked-off camera raises it exactly as a
+# shaking camera does.  It is the reference's own motion distribution,
+# and the editorial track reads it as a style fact - how much motion
+# this reference carries, not what moves.
+
+
+def measure_reference_camera_movement(video_path: str) -> dict:
+    """The camera-movement half of the Style Representation, as one dict.
+
+    The distribution of per-shot motion energies: the median, the mean,
+    the quartiles and the range.  No threshold classifies a shot as
+    static or moving - the distribution IS the measurement, and a
+    reader compares the project's own shots against it.
+    """
+    measured = measure_shot_boundaries(video_path)
+    motion = measured["shot_motion"]
+    if not motion:
+        return {
+            "source": video_path,
+            "shots": 0,
+            "median_motion_energy": 0.0,
+            "mean_motion_energy": 0.0,
+            "min_motion_energy": 0.0,
+            "max_motion_energy": 0.0,
+        }
+    energies = sorted(m["mean_luma_jump"] for m in motion)
+    return {
+        "source": video_path,
+        "shots": len(energies),
+        "median_motion_energy": round(statistics.median(energies), 3),
+        "mean_motion_energy": round(statistics.fmean(energies), 3),
+        "min_motion_energy": round(energies[0], 3),
+        "max_motion_energy": round(energies[-1], 3),
+    }
 
 
 # ── The graphics half ──────────────────────────────────────────────
@@ -610,14 +690,17 @@ def measure_reference_graphical_style(video_path: str) -> dict:
 def measure_reference_style(video_path: str) -> dict:
     """The whole Style Representation, as one dict.
 
-    The editorial half (shot lengths, transitions, pacing) and the
-    graphics half (palette, contrast), measured from the reference's
-    own pixels and frames.  CONTENT is never read: the reference's
-    words, faces and subject are its own; only how it looks and how
-    it is cut are measured.
+    The editorial half (shot lengths, transitions, pacing), the
+    graphics half (palette, contrast), the text half (captions, type)
+    and the camera-movement half (motion-energy distribution).
+    CONTENT is never read: the reference's words, faces and subject are
+    its own; only how it looks, how it is cut, how its text is set and
+    how much motion it carries are measured.
     """
     editorial = measure_reference_editorial_style(video_path)
     graphical = measure_reference_graphical_style(video_path)
+    text = measure_reference_text_style(video_path)
+    camera = measure_reference_camera_movement(video_path)
     return {
         "source": video_path,
         "duration_seconds": editorial["duration_seconds"],
@@ -627,7 +710,178 @@ def measure_reference_style(video_path: str) -> dict:
         "pacing": editorial["pacing"],
         "palette": graphical["palette"],
         "contrast": graphical["contrast"],
+        "text": text,
+        "camera_movement": camera,
     }
+
+
+# ── The text half ──────────────────────────────────────────────────
+#
+# Whether the reference carries captions, where they sit, how large
+# they are, what colour they are and how many words per caption - and
+# the same for non-caption text (titles, graphics).  The text's WORDS
+# are content: they are counted, never read for meaning.
+
+# A detection whose centre is below this normalized y is a caption.
+# The bottom third of the frame is where captions live; the middle and
+# the top are where titles and graphics live.
+_CAPTION_Y = 0.6
+
+# How many of the brightest pixels in a text box are read as the
+# text's own colour.  Text is usually the brightest thing in its box
+# (white or vivid on a darker background); the box's mean would be the
+# background.
+_TEXT_BRIGHTEST_FRACTION = 0.2
+
+
+def _frame_array(frame_path: str):
+    """A frame as an RGB numpy array, or None when unreadable."""
+    import numpy as np
+    from PIL import Image
+    try:
+        with Image.open(frame_path) as image:
+            return np.asarray(image.convert("RGB"), dtype=np.uint8)
+    except (OSError, ValueError):
+        return None
+
+
+def _text_colour(frame: np.ndarray, bbox_norm: tuple) -> str | None:
+    """The colour of the text in a detection, as hex, or None.
+
+    The brightest pixels in the box are the text itself; their mean is
+    the text's colour.  None when the box is empty or off-frame.
+    """
+    import numpy as np
+    if frame is None:
+        return None
+    height, width = frame.shape[:2]
+    x, y, w, h = bbox_norm
+    x0, y0 = int(x * width), int(y * height)
+    x1, y1 = int((x + w) * width), int((y + h) * height)
+    x0, y0 = max(0, x0), max(0, y0)
+    x1, y1 = min(width, x1), min(height, y1)
+    if x1 <= x0 or y1 <= y0:
+        return None
+    region = frame[y0:y1, x0:x1].reshape(-1, 3).astype(np.float64)
+    if len(region) == 0:
+        return None
+    luma = region @ np.array([0.299, 0.587, 0.114])
+    count = max(1, int(len(region) * _TEXT_BRIGHTEST_FRACTION))
+    brightest = region[np.argsort(luma)[-count:]]
+    mean = brightest.mean(axis=0)
+    return "#{:02x}{:02x}{:02x}".format(
+        int(mean[0]), int(mean[1]), int(mean[2]))
+
+
+def _ocr_detections(frame_path: str) -> list:
+    """OCR detections for one frame, or [] when OCR is unavailable.
+
+    The OCR model is a heavy dependency; a frame it cannot read, or an
+    environment without the model, yields no detections - the text
+    style is ABSENT for that frame, never an error.
+    """
+    frame = _frame_array(frame_path)
+    if frame is None:
+        return []
+    try:
+        from library.tools.analysis.ocr_extractor import OCRExtractor
+        extractor = OCRExtractor()
+        return extractor.extract_text_from_frame(frame)
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _classify_detections(detections: list, frame_path: str) -> dict:
+    """Caption and title readings from one frame's detections.
+
+    A detection is a caption when its centre sits in the bottom third
+    of the frame; everything else is a title or a graphic.  The words
+    are counted, never read.
+    """
+    frame = _frame_array(frame_path)
+    captions = []
+    titles = []
+    for detection in detections:
+        x, y, w, h = detection.bbox_normalized
+        centre_y = y + h / 2.0
+        words = len(str(detection.text).split())
+        entry = {
+            "words": words,
+            "height_fraction": round(h, 4),
+            "colour": _text_colour(frame, detection.bbox_normalized),
+        }
+        if centre_y >= _CAPTION_Y:
+            captions.append(entry)
+        else:
+            titles.append(entry)
+    return {"captions": captions, "titles": titles}
+
+
+def _summarise_text(readings: list, key: str) -> dict:
+    """The mean reading for captions or titles across sampled frames.
+
+    Presence is the fraction of frames carrying the kind; position,
+    size, colour and words are the means over the frames that carry
+    it.  A kind the reference never carries is ABSENT - zero presence,
+    never a default.
+    """
+    frames_with = [r for r in readings if r[key]]
+    if not frames_with:
+        return {"presence": 0.0, "count": 0}
+    entries = [e for r in frames_with for e in r[key]]
+    heights = [e["height_fraction"] for e in entries]
+    words = [e["words"] for e in entries]
+    colours = [e["colour"] for e in entries if e["colour"]]
+    return {
+        "presence": round(len(frames_with) / len(readings), 4),
+        "count": len(entries),
+        "mean_height_fraction": round(sum(heights) / len(heights), 4),
+        "mean_words": round(sum(words) / len(words), 3),
+        "colours": colours,
+    }
+
+
+def measure_reference_text_style(video_path: str) -> dict:
+    """The text half of the Style Representation, as one dict.
+
+    One frame per shot, read by OCR: whether the reference carries
+    captions, where they sit, how large, what colour, how many words
+    per caption - and the same for non-caption text.  The words are
+    counted, never read for meaning.
+    """
+    measured = measure_shot_boundaries(video_path)
+    duration = measured["duration_seconds"]
+    times = _reference_frame_times(measured["boundaries"], duration)
+    frames = _extract_frames(video_path, times)
+    try:
+        readings = []
+        for path in frames:
+            detections = _ocr_detections(path)
+            readings.append(_classify_detections(detections, path))
+        return {
+            "source": video_path,
+            "captions": _summarise_text(readings, "captions"),
+            "titles": _summarise_text(readings, "titles"),
+            "sampled_frames": len(readings),
+        }
+    finally:
+        _drop_frames(frames)
+
+
+def measure_reference_words_per_caption(video_path: str):
+    """The reference's mean words per caption, for the subtitle slot.
+
+    The one text value a reference's frames determine directly: how
+    many words the reference puts on one caption.  The subtitle slot
+    reads this as its measured rung - the project declared a reference,
+    and this is what measuring it says.  None when the reference
+    carries no captions - an absence, not a value: a reference without
+    captions says nothing about words per card, and the slot falls to
+    the next rung.
+    """
+    style = measure_reference_text_style(video_path)
+    captions = style["captions"]
+    return captions.get("mean_words")
 
 
 # ── Persistence: measure once, reuse when the reference is unchanged ──

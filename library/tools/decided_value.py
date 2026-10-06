@@ -480,6 +480,8 @@ SLOTS: dict[str, Slot] = {
             "library/steps/step_4_01_plan_subtitles/step.py",),
         preference_paths=(
             "pipeline.creative_preferences.subtitle.max_words_per_card",),
+        reference_measurement=(
+            "library.tools.reference_style::measure_reference_words_per_caption"),
         direction_key=None,
         no_direction_reason=(
             "no key step 2.01 is asked for states how many words a "
@@ -918,14 +920,13 @@ def reference_measurement_value(key: str, project_folder: str):
     stored, stored_digest, _ = reference_style_mod.stored_reference_style(
         project_folder)
     digest = reference_style_mod.reference_digest(reference_path)
+    module_path, _, func_name = row.reference_measurement.partition("::")
     if stored is not None and digest and stored_digest == digest:
-        value = (stored.get("shot_length_distribution", {})
-                 .get("asl_seconds"))
+        value = _stored_measurement(stored, func_name)
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             return value, (f"the project's declared reference {reference}, "
                            f"measured by {row.reference_measurement}")
         return None
-    module_path, _, func_name = row.reference_measurement.partition("::")
     try:
         module = importlib.import_module(module_path)
         measure = getattr(module, func_name)
@@ -936,6 +937,26 @@ def reference_measurement_value(key: str, project_folder: str):
         return None
     return value, (f"the project's declared reference {reference}, "
                    f"measured by {row.reference_measurement}")
+
+
+# How a stored representation answers a slot's declared measurement
+# function.  Each entry names the path it reads, so a second slot
+# reading a second value from the same representation cannot be given
+# the first slot's number.
+_STORED_MEASUREMENTS = {
+    "measure_reference_asl": (
+        lambda s: s.get("shot_length_distribution", {}).get("asl_seconds")),
+    "measure_reference_words_per_caption": (
+        lambda s: s.get("text", {}).get("captions", {}).get("mean_words")),
+}
+
+
+def _stored_measurement(stored: dict, func_name: str):
+    """The stored representation's answer to a measurement function."""
+    extractor = _STORED_MEASUREMENTS.get(func_name)
+    if extractor is None:
+        return None
+    return extractor(stored)
 
 
 def reference_measurement_error(key: str, project_folder: str) -> str:

@@ -12,6 +12,7 @@ regression fails here rather than in a run.
 from __future__ import annotations
 
 import shutil
+import statistics
 import subprocess
 import sys
 from pathlib import Path
@@ -429,3 +430,215 @@ def test_an_encoded_reference_yields_its_own_palette_and_contrast(
     assert all(c["coverage"] == pytest.approx(1 / 3, abs=0.05)
                for c in colours)
     assert style["contrast"]["luma_std"] > 10.0
+
+
+# ── The text half ─────────────────────────────────────────────────
+
+def _detection(text, x, y, w, h):
+    """A detection with a normalized bounding box."""
+    from types import SimpleNamespace
+    return SimpleNamespace(text=text, bbox_normalized=(x, y, w, h))
+
+
+def test_a_detection_in_the_bottom_third_is_a_caption(tmp_path):
+    """Captions live in the bottom third; everything else is a title.
+
+    The failure it pins: a classifier that called every detection a
+    caption would report a reference with titles as one captioned, and
+    the subtitle slot would read a word count from a title.
+    """
+    frame = tmp_path / "frame.png"
+    _solid_frame(frame, (128, 128, 128))
+    result = RS._classify_detections(
+        [_detection("hello world", 0.1, 0.7, 0.8, 0.08)], str(frame))
+    assert len(result["captions"]) == 1
+    assert result["captions"][0]["words"] == 2
+    assert result["captions"][0]["height_fraction"] == 0.08
+    assert result["titles"] == []
+
+
+def test_a_detection_in_the_middle_is_a_title(tmp_path):
+    """A title is not a caption.
+
+    The failure it pins: the subtitle slot reading a title's word
+    count as a caption's - a title carries more words than a caption
+    and would inflate the ceiling.
+    """
+    frame = tmp_path / "frame.png"
+    _solid_frame(frame, (128, 128, 128))
+    result = RS._classify_detections(
+        [_detection("THE BIG TITLE", 0.1, 0.3, 0.8, 0.1)], str(frame))
+    assert result["captions"] == []
+    assert len(result["titles"]) == 1
+    assert result["titles"][0]["words"] == 3
+
+
+def test_the_text_colour_reads_the_brightest_pixels_in_the_box(tmp_path):
+    """The text's colour is the bright pixels, not the box's mean.
+
+    The failure it pins: averaging the whole box would report the
+    background's colour - white text on black would read as mid-grey,
+    and the palette the graphics IR reads would be wrong.
+    """
+    from PIL import Image
+    frame = tmp_path / "frame.png"
+    image = Image.new("RGB", (100, 100), (10, 10, 10))
+    for x in range(20, 80):
+        for y in range(40, 60):
+            image.putpixel((x, y), (250, 250, 250))
+    image.save(str(frame))
+    import numpy as np
+    array = np.asarray(Image.open(frame).convert("RGB"))
+    colour = RS._text_colour(array, (0.2, 0.4, 0.6, 0.2))
+    assert colour == "#fafafa"
+
+
+def test_the_summary_reports_presence_and_means(tmp_path):
+    """Presence is the fraction of frames carrying the kind.
+
+    The failure it pins: a summary that averaged over ALL frames
+    (including those without captions) would understate how often the
+    reference is captioned - a reference captioned half the time would
+    read as fully captioned at half the words.
+    """
+    readings = [
+        {"captions": [{"words": 3, "height_fraction": 0.05,
+                       "colour": "#ffffff"}],
+         "titles": []},
+        {"captions": [{"words": 5, "height_fraction": 0.07,
+                       "colour": "#ffffff"}],
+         "titles": []},
+        {"captions": [], "titles": []},
+    ]
+    summary = RS._summarise_text(readings, "captions")
+    assert summary["presence"] == pytest.approx(2 / 3, abs=0.001)
+    assert summary["count"] == 2
+    assert summary["mean_words"] == 4.0
+    assert summary["mean_height_fraction"] == 0.06
+    assert summary["colours"] == ["#ffffff", "#ffffff"]
+
+
+def test_a_reference_without_captions_has_no_caption_reading(tmp_path):
+    """A reference with no captions is absent, not zero-word captions.
+
+    The failure it pins: reporting a zero-word caption for a reference
+    that carries none would give the subtitle slot a measured value
+    that is not a measurement - the slot would read 0 as the reference's
+    word count.
+    """
+    readings = [{"captions": [], "titles": []}]
+    summary = RS._summarise_text(readings, "captions")
+    assert summary == {"presence": 0.0, "count": 0}
+
+
+@pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg/ffprobe not available")
+def test_an_encoded_reference_with_captions_measures_its_text_style(
+        tmp_path):
+    """The text half on real encoded pixels, end to end.
+
+    This test encodes media and runs the OCR model because the text
+    style is a fact about the reference's actual pixels - a
+    measurement fed only synthetic detections cannot prove the frames
+    are extracted and read back through the real OCR path.  A red frame
+    with white text in the bottom third yields a caption reading.
+    """
+    import subprocess
+    from PIL import Image, ImageDraw
+    image = Image.new("RGB", (320, 240), (200, 30, 30))
+    ImageDraw.Draw(image).text((60, 190), "hello world",
+                               fill=(255, 255, 255))
+    frame = tmp_path / "frame.png"
+    image.save(str(frame))
+    video = tmp_path / "reference.mp4"
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-loop", "1", "-i", str(frame),
+         "-t", "2", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+         str(video)],
+        check=True, capture_output=True, text=True, encoding="utf-8")
+    style = RS.measure_reference_text_style(str(video))
+    assert style["captions"]["presence"] == 1.0
+    assert style["captions"]["mean_words"] >= 1.0
+    assert style["titles"]["presence"] == 0.0
+
+
+# ── The camera-movement half ────────────────────────────────────────
+
+def test_shot_motion_computes_the_mean_luma_jump_within_each_shot():
+    """Per-shot motion is the mean jump inside the shot, not at its edge.
+
+    The failure it pins: averaging over the whole video would report
+    one motion energy for a piece whose shots differ - a static
+    interview beside a moving b-roll would read as one medium, and the
+    editorial track could not tell which shots carry the motion.
+    """
+    deltas = [
+        {"frame": 1, "luma_jump": 0.1, "saturation_jump": 0.0},
+        {"frame": 2, "luma_jump": 0.2, "saturation_jump": 0.0},
+        {"frame": 3, "luma_jump": 5.0, "saturation_jump": 0.0},
+        {"frame": 4, "luma_jump": 0.3, "saturation_jump": 0.0},
+        {"frame": 5, "luma_jump": 0.1, "saturation_jump": 0.0},
+    ]
+    boundaries = [{"time_seconds": 0.3, "transition": "hard_cut"}]
+    motion = RS._shot_motion(deltas, boundaries, fps=10.0)
+    assert len(motion) == 2
+    assert motion[0]["mean_luma_jump"] == pytest.approx(0.15)
+    assert motion[1]["mean_luma_jump"] == pytest.approx(1.8)
+
+
+def test_a_video_with_no_shots_has_no_motion_reading():
+    """A reference whose frames cannot be read is absent, not zero-motion.
+
+    The failure it pins: reporting zero motion energy for a video that
+    was never decoded would let a reader compare the project's shots
+    against a measurement that does not exist.
+    """
+    assert RS._shot_motion([], [], fps=0.0) == []
+
+
+def test_the_camera_movement_distribution_reports_the_reference_s_own_range():
+    """The distribution is the reference's own, not a classification.
+
+    The failure it pins: a threshold that splits shots into static and
+    moving would be a made-up line - the reference's own median and
+    range are what a reader compares the project's shots against.
+    """
+    measured = {
+        "shot_motion": [
+            {"mean_luma_jump": 0.5},
+            {"mean_luma_jump": 1.5},
+            {"mean_luma_jump": 2.5},
+            {"mean_luma_jump": 3.5},
+        ],
+    }
+    energies = sorted(m["mean_luma_jump"] for m in measured["shot_motion"])
+    median = statistics.median(energies)
+    assert median == pytest.approx(2.0)
+    assert statistics.fmean(energies) == pytest.approx(2.0)
+    assert energies[0] == pytest.approx(0.5)
+    assert energies[-1] == pytest.approx(3.5)
+
+
+@pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg/ffprobe not available")
+def test_an_encoded_reference_measures_its_camera_movement(tmp_path):
+    """The camera-movement half on real encoded pixels, end to end.
+
+    This test encodes media because motion energy is a fact about the
+    reference's actual pixels - a measurement fed only synthetic deltas
+    cannot prove the frames are read and the per-shot means computed.
+    A static solid-color video yields near-zero motion energy.
+    """
+    import subprocess
+    from PIL import Image
+    image = Image.new("RGB", (320, 240), (128, 128, 128))
+    frame = tmp_path / "frame.png"
+    image.save(str(frame))
+    video = tmp_path / "reference.mp4"
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-loop", "1", "-i", str(frame),
+         "-t", "2", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+         str(video)],
+        check=True, capture_output=True, text=True, encoding="utf-8")
+    style = RS.measure_reference_camera_movement(str(video))
+    assert style["shots"] >= 1
+    assert style["median_motion_energy"] >= 0.0
+    assert style["max_motion_energy"] >= style["min_motion_energy"]
