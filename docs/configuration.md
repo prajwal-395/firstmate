@@ -531,7 +531,9 @@ When one OpenCode account holds a second workspace with its own Go subscription,
 Write the second workspace id alone into the gitignored `config/opencode-second-org` (exactly one line).
 A missing file means the three-rung ladder exactly as before, while a malformed file refuses the launch that needs it.
 No token, key, or workspace id goes in tracked files, commit messages, or PR bodies.
-On the first launch that needs it, firstmate builds the gitignored `config/opencode-second.db`: a migrated database seeded from this machine's console login and pinned to the configured workspace, healed back when its pin drifts.
+On the first launch that needs it, firstmate builds the gitignored `config/opencode-second.db`: a migrated database seeded from this machine's console login and pinned to the configured workspace.
+On every later launch that needs it the login rows are re-copied from the live database and re-pinned, so the pin never carries a stale token, and a pin that will not refresh is discarded and rebuilt.
+Before the launch rides the pin, the pinned config must resolve the `opencode` provider to the secondary workspace; anything else refuses the launch, so a mis-pinned session can never bill the wrong workspace.
 That launch carries `OPENCODE_DB` at the pinned database, so the vendor attributes the session to the second workspace even though the machine-wide active workspace is elsewhere; `opencode console switch` is never used because it would move every worker's next launch at once.
 The model id is unchanged on both Go rungs; the task record carries `opencode_workspace=secondary` for a pinned lane and nothing for the main workspace, and `bin/fm-control.sh relaunch --opencode-workspace <main|secondary>` moves the pin while a flagless relaunch preserves it.
 `bin/fm-opencode-second-lib.sh` owns the pin mechanics; `bin/fm-opencode-ladder-lib.sh` owns the rung policy.

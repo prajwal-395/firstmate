@@ -35,6 +35,18 @@
 # `config/opencode-second.db`; both paths stay out of secondmate inheritance
 # because that contract is allowlisted.
 #
+# FRESHNESS. The live login refreshes its token, so a pin copied once would
+# go stale: after a rotation the pinned copy diverges and a secondary
+# launch fails its console fetch or falls back to the auth.json key, which
+# bills the main workspace. The account rows are therefore re-copied from
+# the live database on every pinned launch, then re-pinned; a pin that
+# will not refresh is discarded and rebuilt.
+#
+# PROOF. Before a launch rides the pin, OPENCODE_DB=<pin> opencode debug
+# config must resolve the opencode provider name to the secondary
+# workspace. Anything else refuses the launch, so a mis-pinned session
+# can never bill the wrong workspace.
+#
 # ABSENCE IS TODAY. Every predicate below fails closed when the config file
 # is absent: no marker is written, no OPENCODE_DB prefix is added, and the
 # ladder keeps its three rungs byte-for-byte.
@@ -130,15 +142,53 @@ fm_opencode_second_live_db() {
   printf '%s\n' "$line"
 }
 
+# fm_opencode_second_refresh <db> <live-db> <org>: re-copy the console
+# login rows from the live database into the pinned database and re-pin
+# the active workspace to <org>. Returns 0 with the pin and the copied
+# token verified against the live database, 1 otherwise; the caller
+# discards and rebuilds a pin that will not refresh. Plain INSERT would
+# collide with the rows already there, so the dump is replayed as
+# INSERT OR REPLACE.
+fm_opencode_second_refresh() {  # <db> <live-db> <org>
+  local db=$1 live=$2 org=$3
+  [ -n "$db" ] && [ -n "$live" ] && [ -n "$org" ] || return 1
+  [ -f "$db" ] && [ -f "$live" ] || return 1
+  sqlite3 "$live" '.dump account account_state' 2>/dev/null \
+    | grep '^INSERT' 2>/dev/null \
+    | sed 's/^INSERT INTO /INSERT OR REPLACE INTO /' 2>/dev/null \
+    | sqlite3 "$db" 2>/dev/null || return 1
+  sqlite3 "$db" "UPDATE account_state SET active_org_id='$org' WHERE id=1;" 2>/dev/null || return 1
+  [ "$(sqlite3 "$db" 'SELECT active_org_id FROM account_state WHERE id=1;' 2>/dev/null)" = "$org" ] || return 1
+  [ "$(sqlite3 "$db" 'SELECT access_token FROM account LIMIT 1;' 2>/dev/null)" = "$(sqlite3 "$live" 'SELECT access_token FROM account LIMIT 1;' 2>/dev/null)" ] || return 1
+  return 0
+}
+
+# fm_opencode_second_verify <db> [workspace-name]: prove the pinned
+# database resolves the secondary workspace before a launch rides it.
+# Returns 0 only when OPENCODE_DB=<db> opencode debug config resolves
+# the opencode provider name to "<name> / OpenCode". Anything else - a
+# drifted pin, a stale token falling back past the console config - is
+# refused by the caller rather than launched.
+fm_opencode_second_verify() {  # <db> [workspace-name]
+  local db=$1 want=${2:-$FM_OPENCODE_WORKSPACE_SECOND} out
+  [ -n "$db" ] && [ -f "$db" ] || return 1
+  command -v opencode >/dev/null 2>&1 || return 1
+  out=$(OPENCODE_DB="$db" opencode debug config 2>/dev/null) || return 1
+  printf '%s' "$out" | grep -q "\"name\": \"$want / OpenCode\"" 2>/dev/null
+}
+
 # fm_opencode_second_db [config-dir]: print the pinned database path,
 # building it first when needed. Building migrates a fresh database through
 # opencode itself (an empty file is migrated on first load; a hand-seeded
 # schema collides with the migrator), then copies only the account rows from
 # the live login and pins the active workspace to the configured id. An
-# existing database whose pin drifted is healed back. Fails closed with the
-# reason on stderr: a launch that cannot prove its workspace never starts.
+# existing pin is never trusted: its login rows are re-copied from the live
+# database on every call and a pin that will not refresh is discarded and
+# rebuilt, so the pin cannot carry a stale token. Before the path is
+# published the pin must prove its workspace: a launch that cannot prove
+# it never starts. Fails closed with the reason on stderr.
 fm_opencode_second_db() {  # [config-dir]
-  local config_dir=${1:-} org db live tmp old_umask
+  local config_dir=${1:-} org db live tmp old_umask got_name
   config_dir=$(fm_opencode_second_config_dir "${config_dir:-}") || {
     echo "error: second OpenCode workspace is not configured" >&2
     return 1
@@ -156,20 +206,9 @@ fm_opencode_second_db() {  # [config-dir]
     echo "error: config directory is missing: $config_dir" >&2
     return 1
   }
-  # Healing an existing pin needs only the database itself; building one from
-  # scratch migrates through opencode, so the CLI is required only below.
-  if [ -f "$db" ]; then
-    if [ "$(sqlite3 "$db" 'SELECT active_org_id FROM account_state WHERE id=1;' 2>/dev/null)" = "$org" ]; then
-      printf '%s\n' "$db"
-      return 0
-    fi
-    if sqlite3 "$db" "UPDATE account_state SET active_org_id='$org' WHERE id=1;" 2>/dev/null \
-      && [ "$(sqlite3 "$db" 'SELECT active_org_id FROM account_state WHERE id=1;' 2>/dev/null)" = "$org" ]; then
-      printf '%s\n' "$db"
-      return 0
-    fi
-    rm -f "$db"
-  fi
+  # The CLI and the live login are needed on every pinned launch, not
+  # only when building from scratch: the pin is refreshed and proven
+  # below before any launch rides it.
   command -v opencode >/dev/null 2>&1 || {
     echo "error: second OpenCode workspace needs the opencode CLI on PATH" >&2
     return 1
@@ -178,37 +217,48 @@ fm_opencode_second_db() {  # [config-dir]
     echo "error: second OpenCode workspace needs a console login on this machine; no readable opencode database found" >&2
     return 1
   }
-  old_umask=$(umask)
-  umask 077
-  tmp="$db.tmp.$$"
-  rm -f "$tmp"
-  if ! OPENCODE_DB="$tmp" opencode debug config >/dev/null 2>&1; then
+  # A pin that will not refresh is discarded and rebuilt below.
+  if [ -f "$db" ] && ! fm_opencode_second_refresh "$db" "$live" "$org"; then
+    rm -f "$db"
+  fi
+  if [ ! -f "$db" ]; then
+    old_umask=$(umask)
+    umask 077
+    tmp="$db.tmp.$$"
     rm -f "$tmp"
+    if ! OPENCODE_DB="$tmp" opencode debug config >/dev/null 2>&1; then
+      rm -f "$tmp"
+      umask "$old_umask"
+      echo "error: second OpenCode workspace could not prepare its pinned database" >&2
+      return 1
+    fi
+    if ! sqlite3 "$live" '.dump account account_state' 2>/dev/null | grep '^INSERT' | sqlite3 "$tmp" 2>/dev/null; then
+      rm -f "$tmp"
+      umask "$old_umask"
+      echo "error: second OpenCode workspace could not copy the console login into its pinned database" >&2
+      return 1
+    fi
+    if ! sqlite3 "$tmp" "UPDATE account_state SET active_org_id='$org' WHERE id=1;" 2>/dev/null \
+      || [ "$(sqlite3 "$tmp" 'SELECT active_org_id FROM account_state WHERE id=1;' 2>/dev/null)" != "$org" ]; then
+      rm -f "$tmp"
+      umask "$old_umask"
+      echo "error: second OpenCode workspace could not pin its database to the configured workspace" >&2
+      return 1
+    fi
+    chmod 600 "$tmp" 2>/dev/null || true
+    if ! mv -f "$tmp" "$db" 2>/dev/null; then
+      rm -f "$tmp"
+      umask "$old_umask"
+      echo "error: second OpenCode workspace could not publish its pinned database" >&2
+      return 1
+    fi
     umask "$old_umask"
-    echo "error: second OpenCode workspace could not prepare its pinned database" >&2
+  fi
+  if ! fm_opencode_second_verify "$db"; then
+    got_name=$(OPENCODE_DB="$db" opencode debug config 2>/dev/null | grep -m1 '/ OpenCode"' | sed 's/^ *//' 2>/dev/null)
+    echo "error: second OpenCode workspace pin resolves ${got_name:-an unknown workspace}, not '$FM_OPENCODE_WORKSPACE_SECOND / OpenCode'; refusing the launch" >&2
     return 1
   fi
-  if ! sqlite3 "$live" '.dump account account_state' 2>/dev/null | grep '^INSERT' | sqlite3 "$tmp" 2>/dev/null; then
-    rm -f "$tmp"
-    umask "$old_umask"
-    echo "error: second OpenCode workspace could not copy the console login into its pinned database" >&2
-    return 1
-  fi
-  if ! sqlite3 "$tmp" "UPDATE account_state SET active_org_id='$org' WHERE id=1;" 2>/dev/null \
-    || [ "$(sqlite3 "$tmp" 'SELECT active_org_id FROM account_state WHERE id=1;' 2>/dev/null)" != "$org" ]; then
-    rm -f "$tmp"
-    umask "$old_umask"
-    echo "error: second OpenCode workspace could not pin its database to the configured workspace" >&2
-    return 1
-  fi
-  chmod 600 "$tmp" 2>/dev/null || true
-  if ! mv -f "$tmp" "$db" 2>/dev/null; then
-    rm -f "$tmp"
-    umask "$old_umask"
-    echo "error: second OpenCode workspace could not publish its pinned database" >&2
-    return 1
-  fi
-  umask "$old_umask"
   printf '%s\n' "$db"
 }
 
