@@ -8,6 +8,16 @@ from contextlib import ExitStack, nullcontext
 from unittest.mock import patch
 
 import pytest
+import threading
+import time
+
+
+@pytest.fixture(autouse=True)
+def _leases_off_machine(tmp_path, monkeypatch):
+    """Carried edits declare their staging now: leases stay in tmp."""
+    directory = tmp_path / "locks"
+    directory.mkdir()
+    monkeypatch.setenv("PIPELINE_RESOLVE_LOCK_DIR", str(directory))
 
 from library.tools import editor_edit_carry as carry
 from library.tools import reel_replace_guard as guard
@@ -2018,3 +2028,59 @@ def test_a_touch_write_that_changed_nothing_files_nothing():
         FINAL, live_on, staged_on,
         {"enabled": [{"row": "V1", "record_frame": 0, "enabled": True}]},
         journal_id="touch-7") == []
+
+
+# ── The carry declares the staging timeline ─────────────────────────
+
+_EMPTY_PLAN = {"set_enabled": [], "set_transform": [], "delete": []}
+
+
+@pytest.mark.usefixtures("mock_dvr")
+def test_an_empty_carry_plan_applies_nothing_and_refuses_nothing():
+    """The wired path still runs: nothing to write, nothing refused.
+
+    Defect caught: a declaration that refuses its own carry turns
+    every edit carry into a refusal, and editor edits stop reaching
+    rebuilds.
+    """
+    from tests.resolve_double import make_project
+    staging = FakeTimeline(STAGING)
+    project = make_project("Podcast")
+    assert carry.apply_plan(staging, project, dict(_EMPTY_PLAN), FINAL) == []
+
+
+@pytest.mark.usefixtures("mock_dvr")
+def test_carrying_waits_for_a_touchup_on_the_staging():
+    """Carried edits and restructuring on one staging serialise: wait.
+
+    Defect caught: with no declaration the carry edits items a
+    touch-up's deletes are shifting - handles land on items that are
+    gone. On origin/main the carry returns before the holder releases.
+    """
+    from library.tools.resource_leases import (
+        LeaseDeclaration, ResourceRef, resource_lease)
+    from tests.resolve_double import make_project
+    staging = FakeTimeline(STAGING)
+    project = make_project("Podcast")
+    touchup = LeaseDeclaration(
+        write=frozenset({ResourceRef("timeline", STAGING)}),
+        exclusive=frozenset({ResourceRef("timeline", STAGING)}),
+    )
+    released_at: list = []
+
+    def restructure():
+        with resource_lease(touchup, "touch up the staging",
+                           heartbeat_interval=30.0):
+            time.sleep(2.0)
+        released_at.append(time.monotonic())
+
+    holder = threading.Thread(target=restructure)
+    holder.start()
+    time.sleep(0.3)  # let the touch-up acquire first
+    assert carry.apply_plan(staging, project, dict(_EMPTY_PLAN),
+                            FINAL) == []
+    returned_at = time.monotonic()
+    holder.join(30.0)
+    assert released_at, "the touch-up never released"
+    assert returned_at >= released_at[0], \
+        "the carry returned mid-touch-up"

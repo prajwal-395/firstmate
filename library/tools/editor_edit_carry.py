@@ -1604,56 +1604,75 @@ def apply_plan(staged_timeline, project, plan: dict, final: str,
     """Write a plan's cuts and in-place edits. Returns what was written."""
     from library.tools import composed_edit, reel_read
     from library.tools.resolve_lock import cursor_excursion
+    from library.tools.resource_leases import (
+        LeaseDeclaration,
+        ResourceRef,
+        resource_lease,
+    )
 
     written = []
-    with cursor_excursion(project, staged_timeline,
-                          f"carry editor edits onto {final}"):
-        def rows():
-            return reel_read.live_items(staged_timeline,
-                                        resolve_project=project)
+    # The staging duplicate is rewritten in place - enabled flags,
+    # transforms, lifted and rippled deletes - so the carry declares
+    # the staged timeline WRITE+EXCLUSIVE before moving the cursor
+    # onto it. A touch-up on the same staging serialises against
+    # the carry instead of editing items the deletes are shifting.
+    with resource_lease(
+        LeaseDeclaration(
+            write=frozenset({ResourceRef("timeline",
+                                          staged_timeline.GetName())}),
+            exclusive=frozenset({ResourceRef("timeline",
+                                              staged_timeline.GetName())}),
+        ),
+        purpose=f"carry editor edits onto {final}",
+    ):
+        with cursor_excursion(project, staged_timeline,
+                              f"carry editor edits onto {final}"):
+            def rows():
+                return reel_read.live_items(staged_timeline,
+                                            resolve_project=project)
 
-        current = rows()
-        for step in plan["set_enabled"]:
-            handle = _handle(current, step["item"])
-            handle.SetClipEnabled(bool(step["edit"]["after"]))
-            written.append(step["edit"]["id"])
-        for step in plan["set_transform"]:
-            handle = _handle(current, step["item"])
-            source_identity = step["item"]
-            item_identity = {
-                key: source_identity[key]
-                for key in ("row", "record_in", "record_out", "name",
-                            "source_file", "source_in_frame",
-                            "source_out_frame")
-                if key in source_identity
-            }
-            composed_edit.set_properties(
-                handle, {step["key"]: step["edit"]["after"]},
-                write_context={"project_folder": project_folder or None,
-                               "timeline_name": timeline_name or None},
-                item_identity=item_identity,
-                old_properties={step["key"]: step["edit"]["before"]})
-            written.append(step["edit"]["id"])
-        # Lifts first, all at once: they move nothing. Rippled cuts
-        # last, latest record span first, one span per call, so no
-        # delete shifts an item a later one still has to find.
-        lifts = [step for step in plan["delete"]
-                 if not step["edit"].get("ripple")]
-        if lifts:
-            staged_timeline.DeleteClips(
-                [_handle(current, step["item"]) for step in lifts], False)
-            written.extend(step["edit"]["id"] for step in lifts)
-        spans: dict = {}
-        for step in plan["delete"]:
-            if step["edit"].get("ripple"):
-                key = (step["item"]["record_in"], step["item"]["record_out"])
-                spans.setdefault(key, []).append(step)
-        for key in sorted(spans, reverse=True):
             current = rows()
-            staged_timeline.DeleteClips(
-                [_handle(current, step["item"]) for step in spans[key]],
-                True)
-            written.extend(step["edit"]["id"] for step in spans[key])
+            for step in plan["set_enabled"]:
+                handle = _handle(current, step["item"])
+                handle.SetClipEnabled(bool(step["edit"]["after"]))
+                written.append(step["edit"]["id"])
+            for step in plan["set_transform"]:
+                handle = _handle(current, step["item"])
+                source_identity = step["item"]
+                item_identity = {
+                    key: source_identity[key]
+                    for key in ("row", "record_in", "record_out", "name",
+                                "source_file", "source_in_frame",
+                                "source_out_frame")
+                    if key in source_identity
+                }
+                composed_edit.set_properties(
+                    handle, {step["key"]: step["edit"]["after"]},
+                    write_context={"project_folder": project_folder or None,
+                                   "timeline_name": timeline_name or None},
+                    item_identity=item_identity,
+                    old_properties={step["key"]: step["edit"]["before"]})
+                written.append(step["edit"]["id"])
+            # Lifts first, all at once: they move nothing. Rippled cuts
+            # last, latest record span first, one span per call, so no
+            # delete shifts an item a later one still has to find.
+            lifts = [step for step in plan["delete"]
+                     if not step["edit"].get("ripple")]
+            if lifts:
+                staged_timeline.DeleteClips(
+                    [_handle(current, step["item"]) for step in lifts], False)
+                written.extend(step["edit"]["id"] for step in lifts)
+            spans: dict = {}
+            for step in plan["delete"]:
+                if step["edit"].get("ripple"):
+                    key = (step["item"]["record_in"], step["item"]["record_out"])
+                    spans.setdefault(key, []).append(step)
+            for key in sorted(spans, reverse=True):
+                current = rows()
+                staged_timeline.DeleteClips(
+                    [_handle(current, step["item"]) for step in spans[key]],
+                    True)
+                written.extend(step["edit"]["id"] for step in spans[key])
     return written
 
 
