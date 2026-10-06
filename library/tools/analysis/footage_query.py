@@ -888,7 +888,8 @@ class FootageIndex:
         visible while a speaker talks), "alternate takes" (other shots
         covering the same source), "coverage" (which shots cover a
         timeline span), "B-roll matching" (which shots match what is
-        being said).
+        being said), "shot colour" (the colour track's registration for
+        one shot - its measurement, its grade, its camera match).
 
         The graph is DERIVED, never authored: it reads the project's
         catalog, world models, person tracks, edit graph and intent
@@ -936,11 +937,18 @@ class FootageIndex:
                 return report
             report["results"] = project_graph.find_broll_matches(
                 graph, segment_id)
+        elif query == "shot_colour":
+            clip_id = kwargs.get("clip_id")
+            if not clip_id:
+                report["error"] = "shot_colour needs --clip"
+                return report
+            record = project_graph.find_shot_colour(graph, clip_id)
+            report["results"] = [record] if record is not None else []
         else:
             report["error"] = (
                 f"unknown project graph query {query!r}; "
                 "known: reaction_shots, alternate_takes, coverage, "
-                "broll_matches")
+                "broll_matches, shot_colour")
         return report
 
     @staticmethod
@@ -1536,6 +1544,26 @@ class FootageIndex:
                     },
                 },
             },
+            {
+                "type": "function",
+                "function": {
+                    "name": "find_shot_colour",
+                    "description": (
+                        "Get the colour track's registration for one shot: its measured "
+                        "row (exposure, white balance, contrast, saturation, skin vector), "
+                        "the grade delivered for it, and its camera match against the "
+                        "scene's reference. Use to ask what contrast a shot has or "
+                        "whether two angles match, without re-measuring the footage."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "clip_id": {"type": "string", "description": "The clip to read the colour registration for."},
+                        },
+                        "required": ["clip_id"],
+                    },
+                },
+            },
         ]
 
 
@@ -1816,10 +1844,11 @@ def main(argv=None):
     p_pg = sub.add_parser("project-graph", help="Query the Ren Project Graph")
     p_pg.add_argument("project")
     p_pg.add_argument("query", choices=["reaction_shots", "alternate_takes",
-                                          "coverage", "broll_matches"])
+                                          "coverage", "broll_matches",
+                                          "shot_colour"])
     p_pg.add_argument("--person", help="person id for reaction_shots")
     p_pg.add_argument("--t", type=float, help="time for reaction_shots")
-    p_pg.add_argument("--clip", help="clip id for alternate_takes")
+    p_pg.add_argument("--clip", help="clip id for alternate_takes and shot_colour")
     p_pg.add_argument("--timeline-start", type=float, help="for coverage")
     p_pg.add_argument("--timeline-end", type=float, help="for coverage")
     p_pg.add_argument("--segment", help="transcript segment id for broll_matches")

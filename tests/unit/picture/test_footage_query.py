@@ -1208,3 +1208,130 @@ def test_a_clock_measured_after_every_transcript_is_not_rebuilt(memory_root):
     os.utime(source_memory.source_dir(b) / source_memory.SLOT_TRANSCRIPT,
              (later, later))
     assert not footage_analysis.clock_is_fresh(sources, None)
+
+
+# --------------------------------------------------------------------------
+# Shot colour: the colour track's registration, exposed to search
+#
+# The colour track measures each shot (exposure, white balance, contrast,
+# saturation, skin vector), delivers a per-clip grade and matches cameras
+# within a scene; those readings land on the project graph's shot nodes.
+# The defect this guards: an agent asking "what contrast does this shot
+# have" or "do these two angles match" had no route to the measurement -
+# the graph held the registration but no query could reach it.
+#
+
+def _colour_project(tmp_path):
+    """A two-clip project carrying the colour track's recorded output."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    state = {"capability_outputs": {
+        "footage.catalog": {"clip_catalog": [
+            {"clip_id": "clip_001", "source_file": "/camA/take1.MXF",
+             "duration_seconds": 10.0},
+            {"clip_id": "clip_002", "source_file": "/camB/take1.MXF",
+             "duration_seconds": 10.0},
+        ]},
+        "color_grade.resolve": {
+            "clip_exposure": [
+                {"clip_id": "clip_001", "luma": 145.5, "contrast": 42.0,
+                 "saturation": 0.31, "skin_rgb": [180, 150, 130],
+                 "neutral_rb": 1.02, "neutral_gb": 0.99},
+                {"clip_id": "clip_002", "luma": 53.1, "contrast": 38.0,
+                 "saturation": 0.28, "skin_rgb": [170, 140, 120],
+                 "neutral_rb": 0.97, "neutral_gb": 1.01},
+            ],
+            "color_grade_spec": {"per_clip_adjustments": [
+                {"clip_id": "clip_001", "correction_terms": ["exposure_stops"],
+                 "cdl_values": {"slope_r": 0.87, "slope_g": 0.9,
+                                "slope_b": 0.95, "offset_r": 0.0,
+                                "offset_g": 0.0, "offset_b": 0.0,
+                                "power_r": 1.0, "power_g": 1.0,
+                                "power_b": 1.0, "saturation": 1.0}},
+            ]},
+            "camera_match": {"matches": [
+                {"camera": "camB", "clips": ["clip_002"],
+                 "saturation_factor": 1.02,
+                 "skin_slope": [1.03, 1.0, 0.97],
+                 "contrast_ratio": 1.1, "gap_direction": "cools"},
+            ]},
+        },
+    }}
+    (root / "pipeline_data.json").write_text(
+        json.dumps(state), encoding="utf-8")
+    return root
+
+
+def test_shot_colour_query_returns_the_registered_measurement(tmp_path):
+    """The query an agent asks reaches the colour track's three readings:
+    the measured row, the delivered grade and the camera match. On
+    origin/main the query name is unknown and the answer is an error."""
+    root = _colour_project(tmp_path)
+    idx = FootageIndex(str(root))
+
+    report = idx.project_graph("shot_colour", clip_id="clip_002")
+
+    assert report["error"] is None
+    assert len(report["results"]) == 1
+    record = report["results"][0]
+    assert record["measurement"]["luma"] == 53.1
+    assert record["measurement"]["neutral_rb"] == 0.97
+    assert record["match"]["gap_direction"] == "cools"
+    # The colourist left clip_002 alone: no grade entry exists.
+    assert record["grade"] is None
+
+
+def test_shot_colour_query_returns_nothing_for_an_unregistered_shot(tmp_path):
+    """A shot the colour track never measured reads as no results, not
+    as a default measurement."""
+    root = _colour_project(tmp_path)
+    idx = FootageIndex(str(root))
+
+    report = idx.project_graph("shot_colour", clip_id="clip_999")
+
+    assert report["error"] is None
+    assert report["results"] == []
+
+
+def test_shot_colour_query_refuses_without_a_clip(tmp_path):
+    root = _colour_project(tmp_path)
+    idx = FootageIndex(str(root))
+
+    report = idx.project_graph("shot_colour")
+
+    assert report["error"] == "shot_colour needs --clip"
+    assert report["results"] == []
+
+
+def test_shot_colour_cli_reaches_the_index(tmp_path, monkeypatch):
+    """`ren search-index project-graph shot_colour --clip` is the agent's
+    route to the same answer - the query name must be a CLI choice."""
+    root = _colour_project(tmp_path)
+    from library.tools.analysis import footage_query as fq
+
+    calls = []
+
+    def fake_project_graph(self, query, **kwargs):
+        calls.append((query, kwargs))
+        return {"query": query, "mode": "project_graph", "node_count": 0,
+                "edge_count": 0, "results": [], "error": None}
+
+    monkeypatch.setattr(FootageIndex, "project_graph", fake_project_graph)
+    assert fq.main(["project-graph", str(root), "shot_colour",
+                    "--clip", "clip_001"]) == 0
+    assert calls == [("shot_colour", {"person_id": None, "around_t": None,
+                                   "clip_id": "clip_001",
+                                   "timeline_start": None,
+                                   "timeline_end": None,
+                                   "segment_id": None})]
+
+
+def test_shot_colour_is_in_the_llm_tool_definitions():
+    """The tool definitions the LLM is handed carry find_shot_colour with
+    a required clip_id - the contract the agent's call depends on. On
+    origin/main the agent cannot ask for a shot's colour at all."""
+    functions = FootageIndex.get_tool_definitions()
+    by_name = {t["function"]["name"]: t["function"] for t in functions}
+    assert "find_shot_colour" in by_name
+    params = by_name["find_shot_colour"]["parameters"]
+    assert params["required"] == ["clip_id"]
