@@ -162,15 +162,28 @@ def clear_markers(master) -> list[int]:
     Selected by `customData`, never by colour and never by frame: the
     captain's own markers are green and are at frames of their choosing,
     and `DeleteMarkersByColor("Green")` would take them too.
+
+    Declares the master timeline WRITE like `apply_markers` does: a
+    clear is a delete, and a delete landing mid-touch-up removes
+    markers off footage that is moving. Called inside `apply_markers`
+    it is granted reentrantly - same thread, same timeline, same mode -
+    so the nested clear adds no second disk entry.
     """
-    ours = [frame for frame, marker in (master.GetMarkers() or {}).items()
-            if is_ours(marker.get("customData", ""))]
-    for frame in sorted(ours):
-        if not master.DeleteMarkerAtFrame(frame):
-            raise MarkerRefused(
-                f"DeleteMarkerAtFrame({frame}) returned False on "
-                f"{master.GetName()!r}. The markers this wrote cannot all "
-                f"be removed, so they are not additive.")
+    master_name = master.GetName()
+    with resource_lease(
+        LeaseDeclaration(
+            write=frozenset({ResourceRef("timeline", master_name)}),
+        ),
+        purpose=f"clear our markers off {master_name}",
+    ):
+        ours = [frame for frame, marker in (master.GetMarkers() or {}).items()
+                if is_ours(marker.get("customData", ""))]
+        for frame in sorted(ours):
+            if not master.DeleteMarkerAtFrame(frame):
+                raise MarkerRefused(
+                    f"DeleteMarkerAtFrame({frame}) returned False on "
+                    f"{master.GetName()!r}. The markers this wrote cannot all "
+                    f"be removed, so they are not additive.")
     return sorted(ours)
 
 

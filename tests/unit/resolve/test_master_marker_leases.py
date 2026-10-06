@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from library.tools.execution.mark_master import apply_markers
+from library.tools.execution.mark_master import apply_markers, clear_markers
 from library.tools.resource_leases import (
     LeaseDeclaration,
     ResourceRef,
@@ -102,3 +102,87 @@ def test_marking_waits_for_a_touchup_restructuring_the_master(
         "the marker write returned mid-touch-up"
     assert sorted(master.GetMarkers()) == [100, 200]
     assert len(journal["written"]) == 2
+
+
+def _ours_custom_data() -> str:
+    """A customData envelope `clear_markers` recognises as its own."""
+    from library.tools import marker_payload
+    envelope = marker_payload.new_envelope()
+    marker_payload.merge_record(envelope, {
+        "kind": "reel_span", "writer": "master_markers",
+        "writer_version": "1", "id": "test-span",
+        "at": marker_payload.utc_now(),
+    })
+    return marker_payload.dumps(envelope)
+
+
+def test_a_standalone_clear_waits_for_a_touchup_on_the_master(
+        lock_dir, sole_writer):
+    """Deleting markers is a delete: it serialises against a touch-up too.
+
+    Defect caught: the `--clear` path unwired takes markers off footage
+    a touch-up is moving - the delete lands by frame while the frames
+    are being restructured. On origin/main the clear returns before
+    the holder releases.
+    """
+    master = FakeTimeline("Master", markers={
+        100: {"color": "Blue", "name": "old", "note": "",
+              "duration": 10, "customData": _ours_custom_data()},
+    })
+    touchup = LeaseDeclaration(
+        write=frozenset({ResourceRef("timeline", "Master")}),
+        exclusive=frozenset({ResourceRef("timeline", "Master")}),
+    )
+    released_at: list = []
+
+    def restructure():
+        with resource_lease(touchup, "touch up Master",
+                           heartbeat_interval=30.0):
+            time.sleep(2.0)
+        released_at.append(time.monotonic())
+
+    holder = threading.Thread(target=restructure)
+    holder.start()
+    time.sleep(0.3)  # let the touch-up acquire first
+    removed = clear_markers(master)
+    returned_at = time.monotonic()
+    holder.join(30.0)
+    assert released_at, "the touch-up never released"
+    assert returned_at >= released_at[0], \
+        "the clear returned mid-touch-up"
+    assert removed == [100]
+    assert master.GetMarkers() == {}
+
+
+def test_the_nested_clear_inside_apply_adds_no_second_lease(
+        lock_dir, sole_writer, tmp_path):
+    """`apply_markers` clears first: the nested clear must not refuse itself.
+
+    Defect caught: wiring the clear without reentrancy makes every
+    apply die on its own inner clear - the outer WRITE meets the inner
+    WRITE on the same master and waits out its timeout. The nested
+    clear is granted memory-only, so one disk entry stands throughout
+    and the replace (clear ours, write new) completes.
+    """
+    from library.tools import resource_leases
+    master = FakeTimeline("Master", markers={
+        50: {"color": "Blue", "name": "stale", "note": "",
+             "duration": 10, "customData": _ours_custom_data()},
+    })
+    # In a thread with a join bound: without reentrancy the inner clear
+    # would wait out the full lease timeout on its own outer lease, so
+    # a composition break must FAIL rather than wedge the suite.
+    outcome: list = []
+
+    def run():
+        outcome.append(
+            apply_markers(_plan(master), str(tmp_path / "journal.json")))
+
+    worker = threading.Thread(target=run)
+    worker.start()
+    worker.join(60.0)
+    assert not worker.is_alive(), "apply wedged on its own inner clear"
+    (journal,) = outcome
+    assert journal["removed_first"] == [50]
+    assert sorted(master.GetMarkers()) == [100, 200]
+    assert resource_leases.status().startswith("resource leases: none stand")
