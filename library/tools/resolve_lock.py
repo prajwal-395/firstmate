@@ -92,6 +92,7 @@ import os
 import socket
 import sys
 import tempfile
+import threading
 import time
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
@@ -399,6 +400,19 @@ def _wait_for_captain(purpose: str, timeout: float) -> None:
 
 # ── The lease ───────────────────────────────────────────────────────
 
+#: Serializes this process's lease accounting. The broker daemon takes
+#: and releases leases from many threads (watchdog probes, grant and
+#: scheduler threads, job runs), and `_depth` / `_modes` below are plain
+#: globals: an increment lost between two threads drops `held()` under a
+#: live holder, the scripting handshake guard refuses its connect, and
+#: the watchdog latches DEGRADED with Resolve healthy (live 2026-10-06:
+#: holder none, every grant refused until an operator restarted the
+#: broker). Every transition - and every read that judges one - holds
+#: this lock, so a body inside `resolve_lease` always observes `held()`.
+#: The lock guards the accounting only, never a lease body: holding it
+#: across user code would serialize all Resolve work.
+_state_lock = threading.Lock()
+
 _depth = 0
 _mode: Optional[str] = None
 # The mode of every remaining holder, in acquisition order; `_mode` is
@@ -509,13 +523,15 @@ def holder() -> Optional[Lease]:
 
 def held() -> bool:
     """Does THIS process hold the instance (or stand in for holding it)?"""
-    return _depth > 0 or _sole_writer_reason is not None
+    with _state_lock:
+        return _depth > 0 or _sole_writer_reason is not None
 
 
 def exclusive_held() -> bool:
     """Does this process hold the instance exclusively?"""
-    return (_sole_writer_reason is not None
-            or (_depth > 0 and _mode == "exclusive"))
+    with _state_lock:
+        return (_sole_writer_reason is not None
+                or (_depth > 0 and _mode == "exclusive"))
 
 
 def last_timeline_identity():
@@ -552,6 +568,83 @@ def assume_sole_writer(reason: str):
         yield
     finally:
         _sole_writer_reason = previous
+
+
+def _take_holder(exclusive: bool, inherited) -> str | None:
+    """Atomically record this thread as a holder; returns its mode.
+
+    Returns None when no holder state can be recorded here, so the
+    caller takes the fence first (the fresh-acquisition path below).
+    The check and the increment are one critical section: two threads
+    racing it could otherwise both read depth 0, both write depth 1,
+    and the first release would drop `held()` under the survivor.
+    Raises ResolveBusy with the same words the inline paths raised.
+    """
+    global _depth, _mode
+    with _state_lock:
+        if _depth == 0:
+            if inherited is None:
+                return None
+            # A child inherits the parent's lease contract as well as
+            # its owner. Older/manual environments without the mode fail
+            # closed as shared, since they cannot authorize cursor
+            # movement.
+            inherited_mode = os.environ.get(INHERIT_MODE_ENV, "shared")
+            if exclusive and inherited_mode != "exclusive":
+                raise ResolveBusy(
+                    "this process inherited the Resolve instance SHARED and is "
+                    "asking for it EXCLUSIVE",
+                    "a shared parent lease cannot authorize a cursor write",
+                    "take the exclusive lease at the outer call")
+            _depth = 1
+            _modes.append(inherited_mode)
+            _mode = _modes[0] if _modes else None
+            return inherited_mode
+        if exclusive and _mode == "shared":
+            raise ResolveBusy(
+                "this process holds the Resolve instance SHARED and is "
+                "asking for it EXCLUSIVE",
+                "flock cannot upgrade in place without dropping first, "
+                "and dropping mid-section is exactly the window a "
+                "foreign writer moves the cursor in",
+                "this is a caller bug, not a usage bug - take the "
+                "exclusive lease at the outer call")
+        _depth += 1
+        mode = "exclusive" if exclusive else "shared"
+        _modes.append(mode)
+        _mode = _modes[0] if _modes else None
+        return mode
+
+
+def _acquire_fresh(mode: str) -> None:
+    """Record one more holder after the fence was taken.
+
+    Always increments, never assigns: two threads can both be past
+    their flock when shared, and assigning depth 1 would clobber the
+    other holder - the first release would then drop `held()` (and the
+    fence) under the survivor.
+    """
+    global _depth, _mode
+    with _state_lock:
+        _depth += 1
+        _modes.append(mode)
+        _mode = _modes[0] if _modes else None
+
+
+def _drop_holder(mode: str) -> None:
+    """Drop one holder; the last one out releases the fence.
+
+    Decrement, never zero blindly, and the release rides the same
+    critical section, so a release can never land between another
+    thread's increment and its body.
+    """
+    global _depth, _mode
+    with _state_lock:
+        _depth -= 1
+        _modes.remove(mode)
+        _mode = _modes[0] if _modes else None
+        if _depth == 0:
+            _release_lease()
 
 
 @contextmanager
@@ -596,7 +689,7 @@ def resolve_lease(purpose: str, exclusive: bool = True,
     section; the broker refuses it unless that project is the
     qualification project and is the one open.
     """
-    global _depth, _mode, _cursor_switches, _last_set_id
+    global _cursor_switches, _last_set_id
     locality = "timeline" if timeline else "project" if project else "none"
     if capability:
         from library.tools import capabilities
@@ -622,48 +715,12 @@ def resolve_lease(purpose: str, exclusive: bool = True,
         yield holder()
         return
     inherited = inherited_holder()
-    if _depth == 0 and inherited is not None:
-        # A child inherits the parent's lease contract as well as its
-        # owner. Older/manual environments without the mode fail closed
-        # as shared, since they cannot authorize cursor movement.
-        inherited_mode = os.environ.get(INHERIT_MODE_ENV, "shared")
-        if exclusive and inherited_mode != "exclusive":
-            raise ResolveBusy(
-                "this process inherited the Resolve instance SHARED and is "
-                "asking for it EXCLUSIVE",
-                "a shared parent lease cannot authorize a cursor write",
-                "take the exclusive lease at the outer call")
-        _depth = 1
-        _modes.append(inherited_mode)
-        _mode = _modes[0] if _modes else None
+    mode = _take_holder(exclusive, inherited)
+    if mode is not None:
         try:
             yield holder()
         finally:
-            _depth -= 1
-            _modes.remove(inherited_mode)
-            _mode = _modes[0] if _modes else None
-        return
-    if _depth > 0:
-        if exclusive and _mode == "shared":
-            raise ResolveBusy(
-                "this process holds the Resolve instance SHARED and is "
-                "asking for it EXCLUSIVE",
-                "flock cannot upgrade in place without dropping first, "
-                "and dropping mid-section is exactly the window a "
-                "foreign writer moves the cursor in",
-                "this is a caller bug, not a usage bug - take the "
-                "exclusive lease at the outer call")
-        _depth += 1
-        _modes.append("exclusive" if exclusive else "shared")
-        _mode = _modes[0] if _modes else None
-        try:
-            yield holder()
-        finally:
-            _depth -= 1
-            _modes.remove("exclusive" if exclusive else "shared")
-            _mode = _modes[0] if _modes else None
-            if _depth == 0:
-                _release_lease()
+            _drop_holder(mode)
         return
 
     resolved_timeout = (default_timeout() if timeout is None
@@ -732,9 +789,7 @@ def resolve_lease(purpose: str, exclusive: bool = True,
                     "previous_inherit": os.environ.get(INHERIT_ENV),
                     "previous_inherit_mode": os.environ.get(INHERIT_MODE_ENV),
                 }
-                _depth = 1
-                _modes.append("exclusive" if exclusive else "shared")
-                _mode = _modes[0] if _modes else None
+                _acquire_fresh("exclusive" if exclusive else "shared")
                 os.environ[INHERIT_ENV] = str(os.getpid())
                 os.environ[INHERIT_MODE_ENV] = "exclusive" if exclusive else "shared"
                 if exclusive:
@@ -758,18 +813,13 @@ def resolve_lease(purpose: str, exclusive: bool = True,
                             held["held_s"] = round(time.time() - granted_at, 3)
                         held["timeline_switches"] = _cursor_switches
                 finally:
-                    # Decrement, never zero: a reentrant holder (the
-                    # watchdog's probe, a nested section) may still be
-                    # inside its own `with` block. While one remains the
-                    # process keeps the flock, the handle, the lease file
-                    # and the inherited env - `held()` is true only while
-                    # the fence is really held (last-one-out, review of
-                    # #1846). The LAST holder's exit releases all of it.
-                    _depth -= 1
-                    _modes.remove("exclusive" if exclusive else "shared")
-                    _mode = _modes[0] if _modes else None
-                    if _depth == 0:
-                        _release_lease()
+                    # Decrement, never zero blindly: a reentrant holder
+                    # (the watchdog's probe, a nested section) may still be
+                    # inside its own `with` block - the last one out
+                    # releases, under the same lock as every increment, so
+                    # no release can land between another thread's
+                    # increment and its body.
+                    _drop_holder("exclusive" if exclusive else "shared")
             finally:
                 if _lease_hold is None:
                     # Refused, or already released by the last holder's

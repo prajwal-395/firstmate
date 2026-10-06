@@ -160,7 +160,8 @@ def _exclusive_flock_busy(lock_dir) -> bool:
     probe = subprocess.run(
         [sys.executable, "-c", _EXCLUSIVE_FLOCK_PROBE.format(
             path=str(lock_dir / resolve_lock.LOCK_FILENAME))],
-        capture_output=True, text=True, encoding="utf-8", timeout=30)
+        capture_output=True, text=True, encoding="utf-8", timeout=30,
+        check=False)
     return probe.stdout.strip() == "BUSY"
 
 
@@ -1527,3 +1528,57 @@ def test_a_reentrant_holder_exiting_last_still_emits_the_release(
     releases = [e for e in lines
                 if e["type"] == event_log.INSTANCE_LEASE_RELEASED]
     assert len(releases) == 1
+
+
+def test_concurrent_lease_bodies_always_observe_held(
+        lock_dir, unguarded, monkeypatch):
+    """Lease bodies on many threads never observe `held()` False.
+
+    Live evidence 2026-10-06: the production broker latched DEGRADED
+    with "connect failed: refusing Resolve scriptapp handshake outside
+    the instance lease" while holding nothing - and every later grant
+    was refused until an operator restarted the broker. The lease
+    accounting (`_depth` / `_modes`) was plain globals mutated from
+    every broker thread with no lock: a lost increment (or a fresh
+    `depth = 1` clobbering a concurrent holder) drops `held()` under a
+    live body, the handshake guard refuses its connect, and the
+    watchdog latches degraded with Resolve healthy.
+    """
+    from library.tools.resolved import client
+
+    monkeypatch.setattr(client, "ensure", lambda *a, **k: None)
+    monkeypatch.setattr(client, "serving", lambda *a, **k: False)
+    threads, rounds = 8, 150
+    gate = threading.Barrier(threads)
+    seen = [[] for _ in range(threads)]
+    failures = []
+
+    def hammer(index):
+        try:
+            for _ in range(rounds):
+                with resolve_lease("hammer", exclusive=False,
+                                   honor_captain=False, timeout=10.0):
+                    gate.wait(timeout=30.0)
+                    seen[index].append(resolve_lock.held())
+        except BaseException as exc:  # noqa: BLE001 - report, don't hang
+            failures.append(exc)
+
+    workers = [threading.Thread(target=hammer, args=(index,))
+               for index in range(threads)]
+    previous_interval = sys.getswitchinterval()
+    sys.setswitchinterval(0.000001)
+    try:
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join(timeout=300.0)
+    finally:
+        sys.setswitchinterval(previous_interval)
+    assert not any(worker.is_alive() for worker in workers)
+    assert not failures
+    assert all(all(body) for body in seen), (
+        "a lease body observed held() False - the accounting lost a "
+        "holder across threads")
+    assert all(len(body) == rounds for body in seen)
+    assert resolve_lock._depth == 0
+    assert not resolve_lock.held()
