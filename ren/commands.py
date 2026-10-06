@@ -161,6 +161,9 @@ VERBS = (
     Verb("tag", "Reels", "Name a creative commit a version (or list the names given)",
          module_argv=("library.tools.creative_history", "tag"),
          detail="`ren tag <project> <name> <commit>` points a version name at a commit by id or unique prefix; `--list` shows the names. A name that already points somewhere is refused unless `--move` is passed"),
+    Verb("cherry-pick", "Reels", "Replay a creative commit's changes as a new commit",
+         module_argv=("library.tools.creative_history", "cherry-pick"),
+         detail="`ren cherry-pick <project> <commit>` replays the commit's changes onto its timeline's head by id or unique prefix. Refuses a commit later commits also changed, a merge, or one outside its timeline's line"),
 
     Verb("pool-organize", "Resolve", "File a Resolve project's media pool", subcommand="resolve-organize",
          detail="File a Resolve project's media pool: reels by plan state, assets under the reel that uses them"),

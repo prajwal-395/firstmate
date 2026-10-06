@@ -194,6 +194,16 @@ class RevertRefused(RuntimeError):
     """
 
 
+class CherryPickRefused(RuntimeError):
+    """A commit whose changes could not be replayed.
+
+    Raised, not swallowed, naming the commit and what stands in the
+    way: a later commit that changed the same clips, a merge (pick the
+    brought-in commits instead), or a commit outside its timeline's
+    line.
+    """
+
+
 # ── Where entries live ───────────────────────────────────────────
 
 
@@ -740,6 +750,71 @@ def merge_commits(project_folder, *, timeline: str, left: str, right: str,
         project_folder, parent=left, second_parent=right,
         intent=intent, changes=merged, agent="creative_merge",
         timeline=timeline)
+
+
+# ── Cherry-picks: replay a commit's changes as a new commit ──────
+#
+# A cherry-pick replays what a commit DID onto the timeline's head -
+# re-applying a change a later revert undid, or one a bad merge lost -
+# as a new commit, so the replay carries its provenance
+# (`artifacts.cherry_picks` names the source) instead of arriving as a
+# hand-copied change nobody can trace. History only moves forward:
+# the picked commit stays readable beside its replay.
+#
+# Only the commit's OWN line: the pick stands on the head of the
+# timeline the commit is for, and the commit must be that head or an
+# ancestor of it. A pick from another line is refused naming both -
+# the record holds diffs, not destination state, so nothing in the
+# store can prove the picked spans still hold there. To move a change
+# across lines, apply it as a touch-up against the live timeline.
+
+def cherry_pick(project_folder, commit_id: str, note: str = "") -> dict:
+    """Replay a commit's changes as a new commit. Returns it.
+
+    Three refusals, all `CherryPickRefused` and all by name. A merge
+    is refused: its changes are the union of both sides, so replaying
+    them would replay the main line too - pick the brought-in commits
+    instead. A commit outside its timeline's line is refused: the
+    replay would stand on a history that does not contain it. A commit
+    whose clips later commits also changed is refused naming the
+    clips: replaying the old changes would silently clobber the later
+    touch. An empty replay - a commit that changed nothing - is
+    refused: it would rewrite no history and only pollute it.
+    """
+    target = read_commit(project_folder, commit_id)
+    timeline = target.get("timeline") or ""
+    if target.get("second_parent"):
+        raise CherryPickRefused(
+            f"commit {commit_id[:12]} is a merge - its changes are the "
+            f"union of both sides, so replaying them would replay the "
+            f"main line too; pick the commits it brought in instead")
+    head = latest_commit_for_timeline(project_folder, timeline)
+    if head is None or commit_id not in _ancestor_chain(
+            project_folder, head.get("id")):
+        raise CherryPickRefused(
+            f"commit {commit_id[:12]} is not on {timeline!r}'s line - "
+            f"a replay stands on the timeline's head, and this commit "
+            f"is not its head or an ancestor of it")
+    changes = [dict(change) for change in (target.get("changes") or ())]
+    if not changes:
+        raise CherryPickRefused(
+            f"commit {commit_id[:12]} changed nothing - an empty replay "
+            f"would rewrite no history and only pollute it")
+    later = _changes_since(project_folder, head.get("id"), commit_id)
+    picked_names = {c.get("item") for c in changes if c.get("item")}
+    later_names = {c.get("item") for c in later if c.get("item")}
+    conflicts = sorted(picked_names & later_names)
+    if conflicts:
+        raise CherryPickRefused(
+            f"commit {commit_id[:12]} cannot be replayed: later commits "
+            f"also changed {', '.join(conflicts)} - replaying the old "
+            f"changes would silently clobber the later touch")
+    intent = note or (f"cherry-pick {commit_id[:12]} "
+                      f"({target.get('intent') or 'no intent'})")
+    return record_commit(
+        project_folder, parent=head.get("id"), intent=intent,
+        changes=changes, agent="creative_cherry_pick", timeline=timeline,
+        artifacts={"cherry_picks": commit_id})
 
 
 # ── Tags: named pointers to commits ────────────────────────────

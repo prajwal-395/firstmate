@@ -1,6 +1,6 @@
-"""Creative history reads: `ren commits`, `ren branches`, `ren tag`.
+"""Creative history: `ren commits`, `ren branches`, `ren tag`, `ren cherry-pick`.
 
-Each test names a defect the read (or tag write) closes:
+Each test names a defect the read (or write) closes:
 
 - a commit list whose rows do not name their timeline, so two reels'
   interleaved chains cannot be told apart;
@@ -15,6 +15,12 @@ Each test names a defect the read (or tag write) closes:
   and a later read of the name fails instead of the write;
 - a re-`tag` that silently moves a name, so what "v1" means is
   rewritten without anyone saying so;
+- a replay with no provenance link, so a re-applied change reads as
+  a hand-copied one nobody can trace;
+- a replay over a later touch on the same clips, so the old changes
+  silently clobber the later work;
+- a replay call with two commits that guesses instead of refusing,
+  so the second commit is dropped without a word;
 - a verb registered in only one of the two front doors (`ren` Python
   vs the native CLI), so it is unreachable even though it is
   implemented.
@@ -179,17 +185,69 @@ def test_retag_with_move_repoints_and_leaves_commits_alone(tmp_path, capsys):
 
 
 def test_history_verbs_are_registered_in_both_front_doors():
-    """`commits`, `branches` and `tag` reach past both verb lists.
+    """`commits`, `branches`, `tag` and `cherry-pick` reach past both lists.
 
     The defect the two registries' own comments warn about: a verb the
     Python list knows but the native list does not is unreachable - the
     native front door refuses it before exec'ing the implementation.
     """
     by_name = {verb.name: verb for verb in ren_commands.VERBS}
-    for name in ("commits", "branches", "tag"):
+    for name in ("commits", "branches", "tag", "cherry-pick"):
         assert by_name[name].module_argv == (
             "library.tools.creative_history", name)
     native = (REPO / "native" / "ren-cli" / "src" / "commands.rs").read_text(
         encoding="utf-8")
-    for name in ("commits", "branches", "tag"):
+    for name in ("commits", "branches", "tag", "cherry-pick"):
         assert f'name: "{name}"' in native
+
+
+def test_cherry_pick_replays_by_prefix_and_records_provenance(tmp_path,
+                                                               capsys):
+    """`ren cherry-pick` replays the prefixed commit onto the head.
+
+    The defect: a replay path that only takes whole ids, or one that
+    records the replay without naming its source - the change arrives
+    with no trace of the commit it re-applies.
+    """
+    project = _project(tmp_path)
+    source = _commit(project, "Reel 1", "tighten opening")
+    head = uj.record_commit(
+        project, parent=source["id"], intent="other reel work",
+        changes=[{"op": "move", "item": "clip_002"}],
+        agent="reel_touchup", timeline="Reel 1")
+    assert ch.main(["cherry-pick", project, source["id"][:12]]) == 0
+    out = capsys.readouterr().out
+    assert "replayed" in out
+    assert source["id"][:12] in out
+    replayed = uj.latest_commit_for_timeline(project, "Reel 1")
+    assert replayed["parent"] == head["id"]
+    assert replayed["changes"] == source["changes"]
+    assert replayed["artifacts"] == {"cherry_picks": source["id"]}
+
+
+def test_cherry_pick_refuses_unknown_and_conflicted(tmp_path, capsys):
+    """Unknown ids exit 2; a clobbering replay exits 1 naming the clip.
+
+    The defects: a replay of nothing recorded as a commit, and a
+    replay that silently clobbers a later touch on the same clips.
+    """
+    project = _project(tmp_path)
+    source = _commit(project, "Reel 1", "tighten opening")
+    _commit(project, "Reel 1", "sharpen cut", parent=source["id"])
+    assert ch.main(["cherry-pick", project, "deadbeef"]) == 2
+    assert "deadbeef" in capsys.readouterr().err
+    assert ch.main(["cherry-pick", project, source["id"]]) == 1
+    assert "clip_001" in capsys.readouterr().err
+
+
+def test_cherry_pick_takes_one_commit_not_two(tmp_path, capsys):
+    """Two positionals are refused instead of guessing which replays.
+
+    The defect: silently replaying the first and ignoring the second,
+    so the captain's second commit is dropped without a word.
+    """
+    project = _project(tmp_path)
+    source = _commit(project, "Reel 1", "tighten opening")
+    assert ch.main(["cherry-pick", project, source["id"],
+                    source["id"]]) == 2
+    assert "one commit" in capsys.readouterr().err

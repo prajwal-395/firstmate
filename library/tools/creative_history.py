@@ -1,11 +1,12 @@
 """Read (and name) a project's creative history: commits, branches, tags.
 
 The `ren` verbs over the commit graph `undo_journal` records -
-`ren commits`, `ren branches`, `ren tag`, `ren revert` - reached as
+`ren commits`, `ren branches`, `ren tag`, `ren cherry-pick`,
+`ren revert` - reached as
 `python3 -m library.tools.creative_history <mode> <project> [...]`,
 one mode per verb the way `resolve_axi ownership` is one mode of its
-module. Read-only, except `tag <name> <commit>` and `revert
-<commit>`, which record.
+module. Read-only, except `tag <name> <commit>`,
+`cherry-pick <commit>` and `revert <commit>`, which record.
 
 A commit id may be given whole or as a unique leading prefix. An
 unknown id is refused naming what was looked up; a prefix two commits
@@ -19,7 +20,7 @@ import argparse
 import json
 import sys
 
-MODES = ("commits", "branches", "tag", "revert")
+MODES = ("commits", "branches", "tag", "cherry-pick", "revert")
 
 
 class HistoryRefused(RuntimeError):
@@ -113,6 +114,8 @@ def _cmd_commits(project: str, args) -> int:
     if args.name is not None or args.commit is not None:
         print("creative_history: commits takes no name or commit - "
               "a tag names one (`ren tag <project> <name> <commit>`), "
+              "a replay takes one "
+              "(`ren cherry-pick <project> <commit>`), "
               "a revert takes one (`ren revert <project> <commit>`)",
               file=sys.stderr)
         return 2
@@ -159,7 +162,8 @@ def _cmd_branches(project: str, args) -> int:
     if args.name is not None or args.commit is not None:
         print("creative_history: branches takes no name or commit - "
               "a branch is read with --show, a version named with "
-              "`ren tag <project> <name> <commit>`, a change reverted "
+              "`ren tag <project> <name> <commit>`, a change replayed "
+              "with `ren cherry-pick <project> <commit>`, reverted "
               "with `ren revert <project> <commit>`",
               file=sys.stderr)
         return 2
@@ -240,6 +244,51 @@ def _cmd_tag(project: str, args) -> int:
     return 0
 
 
+def _cmd_cherry_pick(project: str, args) -> int:
+    from library.tools import undo_journal as uj
+
+    if args.timeline is not None or args.show is not None:
+        print("creative_history: --timeline/--show select commits - "
+              "a replay takes its source as a positional "
+              "(`ren cherry-pick <project> <commit>`)",
+              file=sys.stderr)
+        return 2
+    if args.name is not None and args.commit is not None:
+        print("creative_history: cherry-pick takes one commit, not two - "
+              "`ren cherry-pick <project> <commit>`",
+              file=sys.stderr)
+        return 2
+    target_ref = args.commit or args.name
+    if not target_ref:
+        print("creative_history: cherry-pick needs a commit "
+              "(`ren cherry-pick <project> <commit>`)",
+              file=sys.stderr)
+        return 2
+    if args.list or args.move:
+        print("creative_history: --list/--move name versions - a replay "
+              "records a commit (`ren cherry-pick <project> <commit>`)",
+              file=sys.stderr)
+        return 2
+    try:
+        target = _resolve_commit(project, target_ref)
+    except HistoryRefused as refused:
+        print(f"creative_history: {refused}", file=sys.stderr)
+        return 2
+    try:
+        replayed = uj.cherry_pick(project, target.get("id"),
+                                  note=args.note or "")
+    except uj.CherryPickRefused as refused:
+        print(f"creative_history: {refused}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps(replayed, indent=2, sort_keys=True, default=str))
+    else:
+        print(f"replayed {_short(target.get('id'))} -> "
+              f"{_short(replayed.get('id'))} "
+              f"[{replayed.get('timeline')}] {replayed.get('intent')}")
+    return 0
+
+
 def _cmd_revert(project: str, args) -> int:
     from library.tools import undo_journal as uj
 
@@ -290,13 +339,15 @@ def build_parser() -> argparse.ArgumentParser:
         prog="creative_history",
         description="Read (and name) a project's creative history: the "
                     "commits touch-ups record, the branches that point at "
-                    "them, the tags that name versions, the reverts of "
-                    "earlier changes. Read-only, except `tag <name> "
-                    "<commit>` and `revert <commit>`.")
+                    "them, the tags that name versions, the replays and "
+                    "reverts of earlier changes. Read-only, except "
+                    "`tag <name> <commit>`, `cherry-pick <commit>` and "
+                    "`revert <commit>`.")
     parser.add_argument("mode", choices=MODES)
     parser.add_argument("project", help="a project slug or path")
     parser.add_argument("name", nargs="?",
                         help="tag: the version name to record; "
+                             "cherry-pick: the commit to replay; "
                              "revert: the commit to revert")
     parser.add_argument("commit", nargs="?",
                         help="tag: the commit the version points at "
@@ -310,6 +361,7 @@ def build_parser() -> argparse.ArgumentParser:
                         help="tag: list tags instead of recording one")
     parser.add_argument("--note", default="",
                         help="tag: why this commit is worth keeping; "
+                             "cherry-pick: why it is replayed; "
                              "revert: why it is reverted")
     parser.add_argument("--move", action="store_true",
                         help="tag: move a name that already points somewhere")
@@ -329,6 +381,8 @@ def main(argv=None) -> int:
         return _cmd_commits(project, args)
     if args.mode == "branches":
         return _cmd_branches(project, args)
+    if args.mode == "cherry-pick":
+        return _cmd_cherry_pick(project, args)
     if args.mode == "revert":
         return _cmd_revert(project, args)
     return _cmd_tag(project, args)

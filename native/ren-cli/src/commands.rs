@@ -213,6 +213,7 @@ const VERBS: &[Verb] = &[
     Verb { name: "commits", group: "Reels", summary: "Show a project's creative commits: what each touch-up changed and why" },
     Verb { name: "branches", group: "Reels", summary: "Show a project's creative branches: what each branch stands on" },
     Verb { name: "tag", group: "Reels", summary: "Name a creative commit a version (or list the names given)" },
+    Verb { name: "cherry-pick", group: "Reels", summary: "Replay a creative commit's changes as a new commit" },
     Verb { name: "pool-organize", group: "Resolve", summary: "File a Resolve project's media pool" },
     Verb { name: "pool-prune", group: "Resolve", summary: "Remove media-pool items no timeline plays" },
     Verb { name: "mark-master", group: "Resolve", summary: "Mark the master timeline where each reel was taken" },
