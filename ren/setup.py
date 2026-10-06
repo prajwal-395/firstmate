@@ -309,6 +309,32 @@ def _build_ren_native(engine: Path, venv_python: Path, env: dict) -> None:
               "backend runs.")
 
 
+def _build_fframes_runtime(engine: Path, env: dict) -> None:
+    """Build the default graphics renderer's binary, reporting the outcome.
+
+    Never fails the setup: without the binary the engine seam falls back
+    to the historical default and `ren doctor` names the missing build.
+    """
+    script = engine / "scripts" / "build_fframes_runtime.sh"
+    if not script.is_file():
+        return
+    try:
+        done = subprocess.run(
+            ["bash", str(script)],
+            env=env, capture_output=True, encoding="utf-8",
+            timeout=1800, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        print("fframes: could not run the build; the historical "
+              "default renders.")
+        return
+    if done.returncode == 0:
+        print("fframes: built the default renderer's binary.")
+    else:
+        print("fframes: build failed; the historical default renders "
+              "(`ren doctor` names the missing build).")
+
+
 def _make_user_folders(engine: Path) -> None:
     if str(engine) not in sys.path:
         sys.path.insert(0, str(engine))
@@ -457,6 +483,7 @@ def main(argv=None) -> int:
         venv_python = _setup_runtime(home, engine, uv, runtime_python, env)
         env["PIPELINE_PYTHON"] = str(venv_python)
         _build_ren_native(engine, venv_python, env)
+        _build_fframes_runtime(engine, env)
 
         installer = engine / "scripts" / "install_node_deps.sh"
         env["INSTALL_NODE_DEPS_PYTHON"] = str(venv_python)

@@ -204,12 +204,16 @@ def test_runtime_loaders_refuse_personal_models_in_public(monkeypatch):
         root=ROOT) == "model.laion_clap"
 
 
-def test_public_graphics_select_hyperframes_and_refuse_remotion(monkeypatch):
+def test_public_graphics_select_fframes_and_refuse_remotion(monkeypatch):
     from library.tools import graphics_renderer
 
     monkeypatch.setenv(edition.EDITION_ENV, edition.PUBLIC)
     monkeypatch.delenv(graphics_renderer.USER_SETTING_KEY, raising=False)
-    assert graphics_renderer.resolve_engine() == graphics_renderer.ENGINE_HYPERFRAMES
+    # The FFrames default needs a resolvable binary; stub the probe so
+    # this pins the selection, not the machine it runs on.
+    monkeypatch.setattr(graphics_renderer, "_fframes_binary",
+                        lambda: "/fake/ren-graphics-fframes")
+    assert graphics_renderer.resolve_engine() == graphics_renderer.ENGINE_FFRAMES
 
     monkeypatch.setenv(graphics_renderer.USER_SETTING_KEY,
                        graphics_renderer.ENGINE_REMOTION)

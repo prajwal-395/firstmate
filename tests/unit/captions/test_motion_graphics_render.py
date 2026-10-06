@@ -150,13 +150,17 @@ def _payload(tmp_path: Path, **kw):
     return payload
 
 
-def test_a_plan_renders_with_no_brand_template_at_all(tmp_path):
+def test_a_plan_renders_with_no_brand_template_at_all(tmp_path,
+                                                        monkeypatch):
     """The claim the old design could not make.
 
     No `brand_style`, no `brand_effect`, no template named anywhere -
     and Remotion is invoked, because the model planned a layer and the
-    template was never what decided.
+    template was never what decided. Pinned to Remotion: this test
+    asserts the Remotion invocation path, not the machine default.
     """
+    from library.tools.graphics_renderer import USER_SETTING_KEY
+    monkeypatch.setenv(USER_SETTING_KEY, "remotion")
     proc, log = _run_step(tmp_path, _payload(
         tmp_path, motion_graphics_plan=A_PLAN))
 
@@ -439,6 +443,12 @@ def _draw_clip(frames_dir, width, height, frames, *, draw=True,
 
 def _render(monkeypatch, planned, out_dir, draw=True, animated=True,
             alpha=255, **kwargs):
+    # These tests stub the Remotion render flow (subprocess.run draws
+    # canned frames), so they pin the engine instead of following the
+    # machine default into FFrames - without this, flipping the default
+    # silently re-routes the whole file onto an unstubbed path.
+    from library.tools.graphics_renderer import USER_SETTING_KEY
+    monkeypatch.setenv(USER_SETTING_KEY, "remotion")
     stub = _StubRun(draw=draw, animated=animated, alpha=alpha)
     monkeypatch.setattr(
         "library.steps.step_4_06_render_motion_graphics.post_bridge.subprocess.run",
@@ -755,9 +765,25 @@ def _project_with(tmp_path, value) -> str:
 def test_the_project_wins_over_the_user_and_both_lose_to_nothing(
         tmp_path, monkeypatch):
     monkeypatch.delenv(engines.USER_SETTING_KEY, raising=False)
+    # The default follows the build, on the real probe: no binary
+    # resolves to the historical Remotion default ...
+    monkeypatch.setattr(engines, "_fframes_binary", lambda: None)
     assert engines.resolve_engine(str(tmp_path)) == "remotion"
     assert engines.resolve_engine() == "remotion"
     assert not engines.is_hyperframes(str(tmp_path))
+
+    # ... while a binary on PATH resolves to FFrames.
+    monkeypatch.undo()
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    stub = bindir / engines.FFRAMES_BINARY_NAME
+    stub.write_bytes(b"#!/bin/sh\nexit 0\n")
+    stub.chmod(0o755)
+    monkeypatch.setenv("PATH",
+                       str(bindir) + os.pathsep + os.environ["PATH"])
+    monkeypatch.delenv(engines.USER_SETTING_KEY, raising=False)
+    assert engines.resolve_engine(str(tmp_path)) == "fframes"
+    assert engines.resolve_engine() == "fframes"
 
     # The user's machine setting selects, case- and space-insensitively.
     monkeypatch.setenv(engines.USER_SETTING_KEY, "  HyperFrames  ")

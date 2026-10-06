@@ -227,15 +227,15 @@ class PipelineConfig:
     # library/tools/overlay_mode.py.
     motion_graphics_overlay_geometry: str = "full"
     # Which graphics engine draws the programmatic pictures
-    # (`graphics_renderer`: remotion|hyperframes). Undeclared means
-    # Remotion, which is today's path exactly - nothing renders
-    # differently unless this names hyperframes. The project wins over
-    # the user's PIPELINE_GRAPHICS_RENDERER, because the look of a
-    # video belongs to the video. See
+    # (`graphics_renderer`: fframes|remotion|hyperframes). Undeclared
+    # means FFrames, which is today's path exactly - nothing renders
+    # differently unless this names another engine. The project wins
+    # over the user's PIPELINE_GRAPHICS_RENDERER, because the look of
+    # a video belongs to the video. See
     # library/tools/graphics_renderer.py, which is what the steps
     # read - this field exists so manage_project.py validates and
     # round-trips the key rather than dropping it.
-    graphics_renderer: str = "remotion"
+    graphics_renderer: str = "fframes"
     # The punched-in TV-frame look, in the {asset, punch_in, power}
     # shape a brand template's `style.tv_frame` uses and taking
     # precedence over it. None means "take the template's", which in
@@ -645,8 +645,8 @@ def _dict_to_project_config(data: dict,
             pipeline_data.get("motion_graphics_overlay_geometry", "full")
             or "full"),
         graphics_renderer=(
-            pipeline_data.get("graphics_renderer", "remotion")
-            or "remotion"),
+            pipeline_data.get("graphics_renderer", "fframes")
+            or "fframes"),
         tv_frame=pipeline_data.get("tv_frame"),
         safe_zones=pipeline_data.get("safe_zones"),
         creative_brief=_expand_path(
@@ -780,9 +780,9 @@ def project_config_to_dict(config: ProjectConfig) -> dict:
             **({} if config.pipeline.motion_graphics_overlay_geometry == "full"
                else {"motion_graphics_overlay_geometry":
                      config.pipeline.motion_graphics_overlay_geometry}),
-            # Only when non-default: `remotion` in every project.yaml
+            # Only when non-default: `fframes` in every project.yaml
             # would read as a decision nobody made.
-            **({} if config.pipeline.graphics_renderer == "remotion"
+            **({} if config.pipeline.graphics_renderer == "fframes"
                else {"graphics_renderer":
                      config.pipeline.graphics_renderer}),
             # Only when declared: the default policy is every platform

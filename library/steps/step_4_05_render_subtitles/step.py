@@ -291,8 +291,15 @@ def _reuse_key(props: dict, remotion_dir: str,
     orphaning a file no key can recompute.
     """
     from library.tools import hyperframes_render as _hf
-    renderer_dir = remotion_dir if engine == "remotion" else str(
-        _hf.hyperframes_dir(os.path.dirname(os.path.abspath(remotion_dir))))
+    from library.tools import fframes_render as _ff
+    repo_root = os.path.dirname(os.path.abspath(remotion_dir))
+    if engine == "fframes":
+        # The FFrames renderer tree is the checkout's own, shared by
+        # every project - never derived from a caller-supplied dir.
+        renderer_dir = str(_ff.fframes_source_dir())
+    else:
+        renderer_dir = remotion_dir if engine == "remotion" else str(
+            _hf.hyperframes_dir(repo_root))
     codec = (f"{OVERLAY_VIDEO_CODEC}/{OVERLAY_PIXEL_FORMAT}"
              if container == "video" else "png-sequence/rgba")
     return _content_key(

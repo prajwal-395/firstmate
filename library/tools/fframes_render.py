@@ -45,6 +45,13 @@ SEQUENCE_PATTERN = "frame_%06d.png"
 _PILOT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
+def fframes_source_dir(repo_root: Optional[str | Path] = None) -> Path:
+    """The ``native/ren-graphics-fframes`` crate directory: the fingerprint's tree."""
+    if repo_root is not None:
+        return Path(repo_root) / "native" / "ren-graphics-fframes"
+    return _PILOT_ROOT / "native" / "ren-graphics-fframes"
+
+
 class FFramesUnavailable(RuntimeError):
     """FFrames cannot render on this machine."""
 

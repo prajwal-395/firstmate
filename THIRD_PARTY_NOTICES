@@ -312,8 +312,9 @@ license     : Remotion Company License (source-available; NOT OSI
               https://www.remotion.dev/docs/license
 fetched     : npm-install (shipped renderer path for subtitles)
 commercial  : needs-paid-license
-note        : personal-only for the personal edition. The public
-              edition selects HyperFrames; unsupported project-owned
+note        : personal-only for the personal edition, kept as a
+              selectable fallback and the parity reference. FFrames is
+              the default in both editions; unsupported project-owned
               Remotion compositions refuse through the renderer gate.
 
 component-id : renderer.web_dependencies

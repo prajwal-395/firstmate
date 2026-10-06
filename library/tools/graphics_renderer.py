@@ -3,12 +3,18 @@
 One seam. Every render call site - step 4.05's caption cards, step 4.06's
 motion graphics, the timed-text segments, the bookend cards and the
 full-frame reel cards - asks this module which engine draws, and the
-answer is one of two names:
+answer is one of three names:
 
-* ``remotion`` - the personal edition's default. Public builds exclude
-  it because of its commercial license terms.
-* ``hyperframes`` - the public edition's default and an optional personal
-  renderer, drawn from ``hyperframes/compositions/`` and rendered through
+* ``fframes`` - the default in both editions: the precompiled
+  `ren-graphics-fframes` binary drawing the IR scene through nested
+  trees. Gated by the FFrames/Remotion pixel-parity test before it
+  became the default.
+* ``remotion`` - the previous default, kept as a selectable fallback
+  and the parity reference. Public builds exclude it because of its
+  commercial license terms.
+* ``hyperframes`` - an optional renderer and the per-layer escape
+  hatch for HTML/CSS-only content, drawn from
+  ``hyperframes/compositions/`` and rendered through
   ``library/tools/hyperframes_render.py``.
 
 Precedence is project over user over default. The per-user setting lives
@@ -19,7 +25,9 @@ The per-project preference is ``pipeline.graphics_renderer`` in the
 project's own ``project.yaml`` (``library/schemas/project_config.py``
 validates and round-trips the key), and a project that declares one
 wins over the user setting, because the look of a video belongs to the
-video rather than to the machine it happens to render on.
+video rather than to the machine it happens to render on. To switch
+back, set either one to ``remotion`` (personal edition) or
+``hyperframes``.
 
 An unknown name REFUSES rather than falling back: a fallback would draw
 with an engine nobody chose while reporting success, and a typo'd
@@ -29,6 +37,7 @@ selection would read as honoured.
 from __future__ import annotations
 
 import os
+import shutil
 from pathlib import Path
 from typing import Optional
 
@@ -36,11 +45,14 @@ ENGINE_REMOTION = "remotion"
 ENGINE_HYPERFRAMES = "hyperframes"
 ENGINE_FFRAMES = "fframes"
 
+FFRAMES_BINARY_NAME = "ren-graphics-fframes"
+"""The binary name, mirrored from `fframes_render` (which owns it)."""
+
 ENGINES = (ENGINE_REMOTION, ENGINE_HYPERFRAMES, ENGINE_FFRAMES)
 """Every graphics engine, complete. A port that adds one edits this tuple."""
 
-DEFAULT_ENGINE = ENGINE_REMOTION
-"""Personal checkouts keep their historical Remotion default."""
+DEFAULT_ENGINE = ENGINE_FFRAMES
+"""FFrames draws where its binary resolves; see `_default_engine`."""
 
 USER_SETTING_KEY = "PIPELINE_GRAPHICS_RENDERER"
 """The per-user key, read from the process environment.
@@ -146,13 +158,56 @@ def _read_pipeline_key(text: str, key: str) -> Optional[str]:
     return None
 
 
+def _fframes_binary() -> str | None:
+    """The FFrames binary path, or None when it is not on this machine.
+
+    PATH first, then the repo's release/debug targets - the same search
+    `fframes_render.fframes_binary` owns, answered here without importing
+    the render module: this seam is read by config parsing, which must
+    not reference the renderer it selects between.
+    """
+    found = shutil.which(FFRAMES_BINARY_NAME)
+    if found:
+        return found
+    root = Path(__file__).resolve().parent.parent.parent
+    for target_dir in ("release", "debug"):
+        candidate = (root / "native" / "target" / target_dir
+                     / FFRAMES_BINARY_NAME)
+        if candidate.is_file():
+            return str(candidate)
+    return None
+
+
+def _default_engine() -> str:
+    """FFrames where its binary resolves, else the historical edition default.
+
+    A machine without the built binary keeps drawing exactly what it drew
+    before the flip: Remotion on personal, HyperFrames on public. Never a
+    refusal over a missing build, never a silent swap - the fallback is
+    said on stderr with the fix (`ren setup` builds the binary).
+    """
+    import sys
+
+    from ren.edition import PUBLIC, current_edition
+
+    if _fframes_binary() is not None:
+        return DEFAULT_ENGINE
+    fallback = ENGINE_HYPERFRAMES if current_edition() == PUBLIC else ENGINE_REMOTION
+    print(f"graphics engine: FFrames is the default but "
+          f"{FFRAMES_BINARY_NAME} is not on PATH or in native/target/ "
+          f"(scripts/build_fframes_runtime.sh builds it); "
+          f"falling back to {fallback}",
+          file=sys.stderr)
+    return fallback
+
+
 def resolve_engine(project_folder: Optional[str] = None) -> str:
     """Which engine draws: the project, else the user, else the default.
 
     Project wins over user - the video's declaration over the machine's -
-    and both lose to the edition default: personal builds resolve to
-    Remotion, while public builds resolve to HyperFrames. An explicit
-    personal-only renderer refuses in a public build.
+    and both lose to FFrames, the default in both editions wherever its
+    binary resolves. An explicit personal-only renderer refuses in a
+    public build.
     """
     from ren.edition import PUBLIC, current_edition, require_component, select_component
 
@@ -169,20 +224,18 @@ def resolve_engine(project_folder: Optional[str] = None) -> str:
             }[selected]
             require_component(component_id, action="select")
             return selected
-        component_id = select_component(
-            "graphics rendering",
-            personal_component="renderer.remotion",
-            public_component="renderer.hyperframes")
-        if component_id == "renderer.remotion":
-            return ENGINE_REMOTION
-        if component_id == "renderer.fframes":
+        if _default_engine() == ENGINE_FFRAMES:
+            select_component(
+                "graphics rendering",
+                personal_component="renderer.fframes",
+                public_component="renderer.fframes")
             return ENGINE_FFRAMES
         return ENGINE_HYPERFRAMES
     if project:
         return project
     if user:
         return user
-    return DEFAULT_ENGINE
+    return _default_engine()
 
 
 def is_hyperframes(project_folder: Optional[str] = None) -> bool:

@@ -352,6 +352,10 @@ def _render_graphic(monkeypatch, planned, out_dir, label, remotion,
         post_bridge as mg,
     )
 
+    # The stub below fakes the Remotion file renderer, so pin that path
+    # instead of following the machine default into FFrames.
+    monkeypatch.setenv("PIPELINE_GRAPHICS_RENDERER", "remotion")
+
     def fake_render(props_path, dest_path, remotion_dir, name):
         from PIL import Image
 

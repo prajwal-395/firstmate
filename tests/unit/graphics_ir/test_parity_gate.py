@@ -70,8 +70,8 @@ _STAGED_SCENE = {
 
 def _fframes_available() -> bool:
     try:
-        fframes_render.fframes_available()
-        return True
+        usable, _ = fframes_render.fframes_available()
+        return bool(usable)
     except Exception:
         return False
 

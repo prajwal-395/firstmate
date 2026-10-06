@@ -25,7 +25,7 @@ SETTINGS = (
     ("PIPELINE_SFX_LIBRARY", "sound-effect library (audio files + profiles/)"),
     ("PIPELINE_MUSIC_LIBRARY", "music library"),
     ("PIPELINE_REMOTION_COMPOSITIONS", "project-owned Remotion compositions"),
-    ("PIPELINE_GRAPHICS_RENDERER", "graphics engine: remotion (default) or hyperframes"),
+    ("PIPELINE_GRAPHICS_RENDERER", "graphics engine: fframes (default), remotion or hyperframes"),
     ("PIPELINE_DEEPFILTER_BINARY", "deep-filter binary for dialogue cleanup (default <vep_home>/bin/deep-filter)"),
     ("REN_RETENTION", "lean (purge after sign-off) or keep; default lean"),
     ("HF_TOKEN", "HuggingFace token, for gated model downloads"),
@@ -56,11 +56,12 @@ STARTER = """\
 # journals; `keep` retains them all.
 # REN_RETENTION=lean
 
-# Which graphics engine draws the programmatic pictures: `remotion`
-# (the default - unset means Remotion, so nothing changes unless this
-# names hyperframes) or `hyperframes` (the fully open-source second
-# renderer). A project's own pipeline.graphics_renderer wins over this.
-# PIPELINE_GRAPHICS_RENDERER=remotion
+# Which graphics engine draws the programmatic pictures: `fframes`
+# (the default - unset means FFrames) or `remotion` (the previous
+# default, personal edition) or `hyperframes` (the open-source second
+# renderer and per-layer escape hatch). A project's own
+# pipeline.graphics_renderer wins over this.
+# PIPELINE_GRAPHICS_RENDERER=fframes
 
 # Where the DeepFilterNet binary lives for plan-requested dialogue
 # cleanup. Unset means `<vep_home>/bin/deep-filter` (where

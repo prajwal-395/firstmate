@@ -1,4 +1,4 @@
-"""One content-keyed render cache for every Remotion-drawn overlay.
+"""One content-keyed render cache for every programmatic overlay.
 
 Caption segments (step 4.05) and motion graphics (step 4.06) used to be
 NAMED FOR THE TIMELINE they belonged to, so three variant timelines
@@ -164,6 +164,42 @@ def hyperframes_fingerprint(hyperframes_dir: str) -> str:
     return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()[:32]
 
 
+def fframes_fingerprint(crate_dir: str) -> str:
+    """The identity of the FFrames adapter, IR lowering and staged font.
+
+    The same promise as `renderer_fingerprint`, for the third engine:
+    props do not capture the Rust adapter, the lowering that produced
+    the scene, or the static-instance cutter, so an edit to any of them
+    must mismatch every recorded key and re-render rather than serve
+    pixels the old code drew. `""` never matches, for the same reason.
+    Tracked inputs only - the staged per-card fonts and scene.json are
+    build output, and referenced brand files belong to the project
+    rather than to the renderer.
+    """
+    root = Path(crate_dir)
+    repo = root.parent.parent
+    files = {
+        root / "Cargo.toml",
+        root / "src" / "main.rs",
+        repo / "library" / "graphics_ir" / "model.py",
+        repo / "library" / "graphics_ir" / "lowering.py",
+        repo / "library" / "graphics_ir" / "fonts.py",
+        repo / "library" / "graphics_ir" / "layout.py",
+        repo / "library" / "tools" / "fframes_render.py",
+        repo / "remotion-subtitles" / "public" / "fonts" / "Montserrat-Variable.ttf",
+    }
+    if any(not path.is_file() for path in files):
+        return ""
+    parts = []
+    for path in sorted(files):
+        try:
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        except OSError:
+            return ""
+        parts.append(f"{path.relative_to(repo)}={digest}")
+    return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()[:32]
+
+
 def local_asset_fingerprint(assets: Mapping[str, str | os.PathLike]) -> str:
     """Digest the exact bytes of every local file a composition names.
 
@@ -215,6 +251,8 @@ def content_key(digest: str, renderer_dir: str, carriage: str,
     """
     if engine == "hyperframes":
         fingerprint = hyperframes_fingerprint(renderer_dir)
+    elif engine == "fframes":
+        fingerprint = fframes_fingerprint(renderer_dir)
     elif engine == "remotion":
         fingerprint = renderer_fingerprint(renderer_dir)
     else:

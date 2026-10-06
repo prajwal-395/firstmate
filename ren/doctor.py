@@ -373,14 +373,15 @@ def node_checks() -> list:
 
 
 def graphics_engine_checks() -> list:
-    """Which graphics engines can draw: Remotion, HyperFrames, and the pick.
+    """Which graphics engines can draw: FFrames, Remotion, HyperFrames, and the pick.
 
-    Remotion stays the default engine, so its absence is a FAIL -
-    nothing renders without it. HyperFrames is the opt-in second
-    engine (`PIPELINE_GRAPHICS_RENDERER=hyperframes` in
+    FFrames is the default engine, so a missing binary is a FAIL -
+    nothing renders without it. Remotion is the selectable fallback
+    and parity reference (`PIPELINE_GRAPHICS_RENDERER=remotion` in
     `~/.config/ren/config.env`, or `pipeline.graphics_renderer` in a
     project's `project.yaml`); its absence is reported, never a FAIL,
-    because no run needs it unless it is selected. The check itself is
+    because no run needs it unless it is selected. HyperFrames stays
+    opt-in the same way. The check itself is
     read-only: `npx --no-install` answers only when the pinned release
     is already resolvable, so asking never downloads anything.
     """
@@ -397,19 +398,19 @@ def graphics_engine_checks() -> list:
             npx = shutil.which("npx")
             checks.append(Check(
                 "graphics HyperFrames", bool(npx),
-                (f"selected public renderer; npx fetches the pinned CLI "
+                (f"opt-in renderer; npx fetches the pinned CLI "
                  f"on the first render ({selected})") if npx else
-                "selected public renderer, but npx is not on PATH",
+                "opt-in renderer, but npx is not on PATH",
                 "install Node.js (includes npx): brew install node" if not npx else "",
                 need="remotion"))
-            checks.append(Check("graphics selected", selected == "hyperframes",
+            checks.append(Check("graphics selected", selected == "fframes",
                                 f"{selected} (public edition)",
                                 "fix the public renderer selection",
                                 need="remotion"))
         except Exception as exc:  # noqa: BLE001 - doctor must finish
             checks.append(Check("graphics selected", False,
                                 f"the public renderer cannot be selected: {exc}",
-                                "select the public HyperFrames provider",
+                                "select the public FFrames provider",
                                 need="remotion"))
         return checks
     try:
@@ -418,12 +419,22 @@ def graphics_engine_checks() -> list:
             shared_environment.remotion_dir(_engine_root()))
     except Exception:  # noqa: BLE001 - doctor must finish
         remotion_ok = False
+    try:
+        from library.tools import fframes_render as ff
+        ff_usable, ff_detail = ff.fframes_available()
+    except Exception as exc:  # noqa: BLE001 - doctor must finish
+        ff_usable, ff_detail = False, f"the check itself failed: {exc}"
     checks.append(Check(
-        "graphics Remotion", remotion_ok,
+        "graphics FFrames", ff_usable,
         "the default engine (selected when nothing else is)"
-        if remotion_ok else "the default engine is not installed",
-        "" if remotion_ok else
-        "ren setup", need="remotion"))
+        if ff_usable else f"the default engine cannot render: {ff_detail}",
+        "" if ff_usable else
+        "build the binary with scripts/build_fframes_runtime.sh", need="remotion"))
+    checks.append(Check(
+        "graphics Remotion", True,
+        "selectable fallback and parity reference"
+        if remotion_ok else "not installed - fallback only (nothing needs it unless selected)",
+        ""))
     try:
         usable, detail = hf.hyperframes_available()
     except Exception as exc:  # noqa: BLE001 - doctor must finish

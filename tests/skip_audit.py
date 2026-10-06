@@ -364,6 +364,15 @@ ENVIRONMENT_CONDITIONS = (
         capability="remotion",
         install_hint="scripts/install_node_deps.sh",
     ),
+    EnvironmentCondition(
+        pattern=r"FFrames binary not available",
+        false_when="the ren-graphics-fframes binary is built from this "
+                   "tree's native/ sources "
+                   "(scripts/build_fframes_runtime.sh, also run by "
+                   "`ren setup`), so the renderer-dependent tests run",
+        capability="renderer.fframes",
+        install_hint="scripts/build_fframes_runtime.sh",
+    ),
 )
 
 

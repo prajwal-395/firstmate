@@ -453,6 +453,9 @@ def _mg_reuse_key(digest: str, remotion_dir: str,
         from library.tools import hyperframes_render as _hf
         renderer_dir = str(_hf.hyperframes_dir(
             os.path.dirname(os.path.abspath(remotion_dir))))
+    elif engine == "fframes":
+        from library.tools import fframes_render as _ff
+        renderer_dir = str(_ff.fframes_source_dir())
     else:
         renderer_dir = remotion_dir
     codec = codec or f"{OVERLAY_VIDEO_CODEC}/{OVERLAY_PIXEL_FORMAT}"
