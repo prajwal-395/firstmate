@@ -1335,7 +1335,23 @@ def detect_onsets(audio_path: str) -> list:
     anchor points for SFX placement.
 
     Returns a list of onset timestamps in seconds, with ~23ms precision
-    (librosa default hop_length=512 at sr=22050).
+    (librosa default hop_length=512 at sr=22050). The onset strengths
+    come from `detect_onsets_with_strength`, which shares this pass -
+    classifying an onset must never decode the clip a second time.
+    """
+    times, _strengths = detect_onsets_with_strength(audio_path)
+    return times
+
+
+def detect_onsets_with_strength(audio_path: str) -> tuple:
+    """Detect onsets and their strengths in ONE librosa pass.
+
+    The onset envelope (`librosa.onset.onset_strength`) is computed
+    here alongside detection, so the strength at each onset's own frame
+    travels with the times. Returns (times, strengths): onset
+    timestamps in seconds and the envelope value at each onset's
+    frame, parallel lists. Both empty when there are no onsets, no
+    audio, or no librosa.
     """
     try:
         import librosa
@@ -1346,21 +1362,70 @@ def detect_onsets(audio_path: str) -> list:
             onset_frames = librosa.onset.onset_detect(y=y, sr=sr)
         except AttributeError:
             onset_frames = librosa.onset.detect(y=y, sr=sr)
-        onset_times = librosa.frames_to_time(onset_frames, sr=sr)
-        return [round(float(t), 3) for t in onset_times]
+        onset_env = librosa.onset.onset_strength(y=y, sr=sr)
+        times = []
+        strengths = []
+        for frame in onset_frames:
+            idx = int(frame)
+            if idx >= len(onset_env):
+                continue
+            times.append(round(float(librosa.frames_to_time(frame, sr=sr)), 3))
+            strengths.append(round(float(onset_env[idx]), 4))
+        return times, strengths
 
     except ImportError:
         print(
             "  WARNING: librosa not available, skipping onset detection",
             file=sys.stderr,
         )
-        return []
+        return [], []
     except Exception as e:
         print(
             f"  WARNING: onset detection failed: {e}",
             file=sys.stderr,
         )
+        return [], []
+
+
+def classify_onsets(onset_times: list, onset_strengths: list) -> list | None:
+    """Classify onsets by strength: strong (top quartile) or weak.
+
+    The spec names "snap cuts to transients" as a reasoning the audio
+    intelligence track enables. Onsets and their strengths are
+    measured by `detect_onsets_with_strength` in one pass; this
+    classifies them so cut planners can prefer strong transients (drum
+    hits, hard attacks) over weak ones (note attacks, soft percussive
+    events).
+
+    The threshold is derived from the data's own distribution (75th
+    percentile of onset strengths), not hardcoded.
+
+    Returns a list of {"time": float, "strength": float, "kind": str}
+    in time order. [] when there are no onsets. None when the
+    strengths cannot be read (absent or out of step with the times) -
+    None, not [], so the caller records WHY on the index instead of
+    an empty list that reads as "no transients here".
+    """
+    if not onset_times:
         return []
+    if (not onset_strengths
+            or len(onset_strengths) != len(onset_times)):
+        return None
+
+    try:
+        import numpy as np
+    except ImportError:
+        return None
+
+    threshold = float(np.percentile(onset_strengths, 75))
+    classified = []
+    for t, strength in zip(onset_times, onset_strengths):
+        classified.append({
+            "time": float(t),
+            "strength": round(float(strength), 4),
+            "kind": "strong" if strength >= threshold else "weak",
+        })
+    return classified
 
 
 # ── 7. Word end times (convenience) ──────────────────────────────────
@@ -2803,12 +2868,14 @@ def _pretranscribe_misses(items: list, layout: ProjectLayout,
     """Extraction + onsets + ONE batched transcription for cache misses.
 
     `items` are `(key, source_path, index_path, require_picture)`;
-    returns `{key: (audio_path, onsets, regions, transcription)}` for
-    the misses only. The per-clip indexers take these rows and skip
-    their own extraction, onset and speech passes, so a run pays one
-    MFA invocation per language no matter how many clips miss. The
-    cache is read twice (here to filter, in the loop to serve) -
-    reads are milliseconds, MFA runs are not.
+    returns `{key: (audio_path, onsets, onset_strengths, regions,
+    transcription)}` for the misses only. The per-clip indexers take
+    these rows and skip their own extraction, onset and speech
+    passes, so a run pays one MFA invocation per language no matter
+    how many clips miss. Onset strengths travel with the times so
+    classification never decodes the clip a second time. The cache is
+    read twice (here to filter, in the loop to serve) - reads are
+    milliseconds, MFA runs are not.
     """
     audio_dir = str(layout.write_dir(Area.AUDIO_CACHE,
                                      step="temporal_index"))
@@ -2827,7 +2894,8 @@ def _pretranscribe_misses(items: list, layout: ProjectLayout,
         try:
             audio_path = clip_audio_16k(source_path, audio_dir,
                                         clip_id=key)
-            onsets = detect_onsets(audio_path)
+            onsets, onset_strengths = detect_onsets_with_strength(
+                audio_path)
         except Exception as e:
             # One clip's extraction or onset pass must not fail the
             # step: the clip falls out of the batch and takes the
@@ -2836,7 +2904,8 @@ def _pretranscribe_misses(items: list, layout: ProjectLayout,
                   f"single-shot fallback", file=sys.stderr)
             continue
         prepared.append({"key": key, "audio_path": audio_path,
-                         "onsets": onsets})
+                         "onsets": onsets,
+                         "onset_strengths": onset_strengths})
     if not prepared:
         return {}
     print(f"    Transcribing {len(prepared)} clip(s) in one batch...",
@@ -2865,7 +2934,7 @@ def _pretranscribe_misses(items: list, layout: ProjectLayout,
             batched[row["key"]] = (regions, transcription)
         regions, transcription = batched[row["key"]]
         out[row["key"]] = (row["audio_path"], row["onsets"],
-                           regions, transcription)
+                           row["onset_strengths"], regions, transcription)
     return out
 
 
@@ -2882,9 +2951,10 @@ def index_clip(
 
     Runs all sub-analyzers and produces a complete index document.
     `pretranscribed` is this clip's `_pretranscribe_misses` row
-    `(audio_path, onsets, regions, transcription)` - the batched run
-    path passes it so the clip skips its own extraction, onset and
-    speech passes; anything else transcribes single-shot.
+    `(audio_path, onsets, onset_strengths, regions, transcription)` -
+    the batched run path passes it so the clip skips its own
+    extraction, onset and speech passes; anything else transcribes
+    single-shot.
     """
     print(f"\n  Indexing {clip_id}: {Path(video_path).name}", file=sys.stderr)
     t0 = time.time()
@@ -2895,7 +2965,8 @@ def index_clip(
     # Extract audio (shared by speech + energy + audio event analyzers)
     audio_dir = str(layout.write_dir(Area.AUDIO_CACHE, step="temporal_index"))
     if pretranscribed is not None:
-        audio_path, onsets, speech, transcription = pretranscribed
+        (audio_path, onsets, _onset_strengths, speech,
+         transcription) = pretranscribed
     else:
         audio_path = clip_audio_16k(video_path, audio_dir, clip_id=clip_id)
 
@@ -3287,7 +3358,8 @@ def index_audio_clip(
     cache_dir = str(layout.write_dir(Area.AUDIO_CACHE,
                                      step="temporal_index"))
     if pretranscribed is not None:
-        wav_path, onsets, speech, transcription = pretranscribed
+        (wav_path, onsets, onset_strengths, speech,
+         transcription) = pretranscribed
     else:
         wav_path = extract_audio_16k(audio_path, cache_dir, clip_id=audio_id)
 
@@ -3296,7 +3368,7 @@ def index_audio_clip(
 
     if pretranscribed is None:
         print("    [2/5] Onset detection...", file=sys.stderr)
-        onsets = detect_onsets(wav_path)
+        onsets, onset_strengths = detect_onsets_with_strength(wav_path)
 
         print("    [3/5] Speech detection (Voz + MFA)...",
               file=sys.stderr)
@@ -3341,6 +3413,8 @@ def index_audio_clip(
 
     speech_activity = derive_speech_activity_curve(speech, duration)
 
+    onset_classes = classify_onsets(onsets, onset_strengths)
+
     elapsed = time.time() - t0
     print(f"    Done ({elapsed:.1f}s)", file=sys.stderr)
 
@@ -3359,6 +3433,17 @@ def index_audio_clip(
         "sound_event_method": sound_event_method,
         "audio_classification": audio_classification,
         "onset_times": onsets,
+        # Classified onsets (strong/weak at the data's own 75th
+        # percentile of strengths). None when the strengths could not
+        # be read, and `onset_classes_reason` says why - an empty list
+        # would read as "no transients here", which is a default
+        # reported as measured.
+        "onset_classes": onset_classes,
+        "onset_classes_reason": (
+            None if onset_classes is not None
+            else "onset strengths unreadable: the onset pass returned "
+                 "no strengths to classify"
+        ),
         "word_end_times": word_ends,
         "speech_activity": speech_activity,
     }

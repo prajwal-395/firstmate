@@ -345,6 +345,7 @@ def find_sfx_placement(
 
     # Convert temporal index data to timeline domain
     onset_times_src = temporal_index.get("onset_times", [])
+    onset_classes_src = temporal_index.get("onset_classes", [])
     energy_peaks_src = temporal_index.get("energy_curve", {}).get("peak_times", [])
     scene_boundaries_src = [s["time"] for s in temporal_index.get("scene_boundaries", [])]
 
@@ -356,15 +357,22 @@ def find_sfx_placement(
     peaks_tl = [_source_to_timeline(t, block) for t in energy_peaks_src if in_block_src(t)]
     scenes_tl = [_source_to_timeline(t, block) for t in scene_boundaries_src if in_block_src(t)]
 
+    # Classified onsets: prefer strong transients for punchy placement
+    strong_onsets_tl = []
+    if onset_classes_src:
+        strong_src = [c["time"] for c in onset_classes_src if c.get("kind") == "strong"]
+        strong_onsets_tl = [_source_to_timeline(t, block) for t in strong_src if in_block_src(t)]
+
     beat_grid = beat_grid or []
 
     # ── Envelope-specific placement strategies ──
 
     if envelope == "punchy":
         # A punchy sound is a single sharp attack, and it feels best when
-        # that attack lands exactly on a natural audio transient.
-        # Search within ±200ms of the intended position.
-        placed = _find_nearest(timeline_start, onsets_tl, max_dist=0.2)
+        # that attack lands exactly on a strong transient (drum hit, hard
+        # attack). Prefer strong transients; fall back to any onset.
+        search = strong_onsets_tl if strong_onsets_tl else onsets_tl
+        placed = _find_nearest(timeline_start, search, max_dist=0.2)
 
         # If no onset nearby, try energy peak
         if placed == timeline_start and peaks_tl:
