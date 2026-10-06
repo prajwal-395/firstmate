@@ -880,6 +880,69 @@ class FootageIndex:
         report["abstained"] = not hits
         return report
 
+    def project_graph(self, query: str, **kwargs) -> dict:
+        """Query the Ren Project Graph: people, shots, transcript, edits.
+
+        Answers the cross-source relational questions the project graph
+        exists for: "find the best reaction shot" (another person
+        visible while a speaker talks), "alternate takes" (other shots
+        covering the same source), "coverage" (which shots cover a
+        timeline span), "B-roll matching" (which shots match what is
+        being said).
+
+        The graph is DERIVED, never authored: it reads the project's
+        catalog, world models, person tracks, edit graph and intent
+        model. A state key the run has not produced is simply absent.
+        """
+        from library.tools import project_graph
+        graph = project_graph.load_or_build(self.project_folder)
+        report = {
+            "query": query,
+            "mode": "project_graph",
+            "node_count": graph["node_count"],
+            "edge_count": graph["edge_count"],
+            "results": [],
+            "error": None,
+        }
+        if query == "reaction_shots":
+            person_id = kwargs.get("person_id")
+            around_t = kwargs.get("around_t")
+            if not person_id or around_t is None:
+                report["error"] = (
+                    "reaction_shots needs --person and --t")
+                return report
+            report["results"] = project_graph.find_reaction_shots(
+                graph, person_id, around_t)
+        elif query == "alternate_takes":
+            clip_id = kwargs.get("clip_id")
+            if not clip_id:
+                report["error"] = "alternate_takes needs --clip"
+                return report
+            report["results"] = project_graph.find_alternate_takes(
+                graph, clip_id)
+        elif query == "coverage":
+            timeline_start = kwargs.get("timeline_start")
+            timeline_end = kwargs.get("timeline_end")
+            if timeline_start is None or timeline_end is None:
+                report["error"] = (
+                    "coverage needs --timeline-start and --timeline-end")
+                return report
+            report["results"] = project_graph.find_coverage(
+                graph, timeline_start, timeline_end)
+        elif query == "broll_matches":
+            segment_id = kwargs.get("segment_id")
+            if not segment_id:
+                report["error"] = "broll_matches needs --segment"
+                return report
+            report["results"] = project_graph.find_broll_matches(
+                graph, segment_id)
+        else:
+            report["error"] = (
+                f"unknown project graph query {query!r}; "
+                "known: reaction_shots, alternate_takes, coverage, "
+                "broll_matches")
+        return report
+
     @staticmethod
     def _text_matches(query_tokens: list, text: str) -> bool:
         """Whether a query token and an on-screen string refer to the same text.
@@ -1401,6 +1464,78 @@ class FootageIndex:
                     "parameters": {"type": "object", "properties": {}},
                 },
             },
+            {
+                "type": "function",
+                "function": {
+                    "name": "find_reaction_shots",
+                    "description": (
+                        "Find shots where another person is visible while a speaker talks. "
+                        "Use for reaction cutaways: 'find the best reaction shot' for a "
+                        "speaker at a given time."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "person_id": {"type": "string", "description": "The speaker's person_id (e.g. 'person_001')."},
+                            "around_t": {"type": "number", "description": "The time in the speaker's source timeline to look around."},
+                        },
+                        "required": ["person_id", "around_t"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "find_alternate_takes",
+                    "description": (
+                        "Find other shots covering the same content as a clip. An alternate "
+                        "take is a different clip where the same line is spoken. Use for "
+                        "coverage: 'what other angles cover this moment'."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "clip_id": {"type": "string", "description": "The clip to find alternates for."},
+                        },
+                        "required": ["clip_id"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "find_coverage",
+                    "description": (
+                        "Find which shots cover a timeline span. Use to check coverage: "
+                        "what footage is available for this part of the edit."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "timeline_start": {"type": "number", "description": "Start of the span in seconds."},
+                            "timeline_end": {"type": "number", "description": "End of the span in seconds."},
+                        },
+                        "required": ["timeline_start", "timeline_end"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "find_broll_matches",
+                    "description": (
+                        "Find shots whose content matches a speech segment. Use for B-roll "
+                        "selection: what footage illustrates what is being said."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "segment_id": {"type": "string", "description": "The transcript segment id (e.g. 'transcript:abc123:5')."},
+                        },
+                        "required": ["segment_id"],
+                    },
+                },
+            },
         ]
 
 
@@ -1678,6 +1813,18 @@ def main(argv=None):
     p_stale.add_argument("project")
     p_stale.add_argument("--index-dir")
 
+    p_pg = sub.add_parser("project-graph", help="Query the Ren Project Graph")
+    p_pg.add_argument("project")
+    p_pg.add_argument("query", choices=["reaction_shots", "alternate_takes",
+                                          "coverage", "broll_matches"])
+    p_pg.add_argument("--person", help="person id for reaction_shots")
+    p_pg.add_argument("--t", type=float, help="time for reaction_shots")
+    p_pg.add_argument("--clip", help="clip id for alternate_takes")
+    p_pg.add_argument("--timeline-start", type=float, help="for coverage")
+    p_pg.add_argument("--timeline-end", type=float, help="for coverage")
+    p_pg.add_argument("--segment", help="transcript segment id for broll_matches")
+    p_pg.add_argument("--index-dir")
+
     sub.add_parser("tools", help="Print LLM tool definitions as JSON")
 
     args = parser.parse_args(argv)
@@ -1741,6 +1888,20 @@ def main(argv=None):
         else:
             _print_sound_report(answer)
             print(f"\n{elapsed * 1000:.1f} ms")
+        return 0
+
+    if args.command == "project-graph":
+        idx = FootageIndex(args.project, index_dir=args.index_dir)
+        answer = idx.project_graph(
+            args.query,
+            person_id=args.person,
+            around_t=args.t,
+            clip_id=args.clip,
+            timeline_start=args.timeline_start,
+            timeline_end=args.timeline_end,
+            segment_id=args.segment,
+        )
+        print(json.dumps(answer, indent=2))
         return 0
 
     if args.command == "search" and args.ocr:
