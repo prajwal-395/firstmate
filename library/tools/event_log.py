@@ -105,6 +105,10 @@ PREVIEW_RENDERED = "preview_rendered"
 """A finished timeline exported and its build record committed."""
 REEL_VERSION_RECORDED = "reel_version_recorded"
 """A reel version appended to the versions ledger."""
+PERMISSION_REFUSED = "permission_refused"
+"""A federated write point refused a named participant: their level
+does not grant the operation. Emitted by `fabric_permissions.require`
+before it raises, so "who was refused what" reads back from the log."""
 
 
 def log_path(project_folder) -> Path:

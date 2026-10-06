@@ -128,6 +128,7 @@ EDITORIAL_FINDING = "editorial_finding"
 VARIANT = "variant"
 COMMIT = "commit"
 OPERATION = "operation"
+PARTICIPANT = "participant"
 
 NODE_TYPES = (
     PERSON,
@@ -148,6 +149,7 @@ NODE_TYPES = (
     VARIANT,
     COMMIT,
     OPERATION,
+    PARTICIPANT,
 )
 
 
@@ -603,6 +605,7 @@ def build_graph(project_folder: str, root: Path | None = None) -> dict:
     _derive_variant_nodes(graph, project_folder)
     _derive_commit_nodes(graph, project_folder)
     _derive_event_nodes(graph, project_folder)
+    _derive_participant_nodes(graph, project_folder)
 
     return graph
 
@@ -1407,6 +1410,59 @@ def _derive_commit_nodes(graph: dict, project_folder: str) -> None:
 
 
 # ── The query API ─────────────────────────────────────────────────
+
+
+def _derive_participant_nodes(graph: dict, project_folder: str) -> None:
+    """Participant nodes from the fabric permission roster.
+
+    Each federated participant is a node carrying the level they hold,
+    so the graph answers "who may approve this" without reading the
+    roster file directly. A project that never federated registers no
+    nodes - absence of the roster is absence of participants, not an
+    error.
+    """
+    try:
+        from library.tools import fabric_permissions
+        roster = fabric_permissions.read_roster(project_folder)
+    except (OSError, ValueError, RuntimeError):
+        return
+    for name in sorted((roster.get("participants") or {})):
+        entry = (roster.get("participants") or {}).get(name) or {}
+        if entry.get("level") not in fabric_permissions.LEVELS:
+            continue
+        add_node(graph, {
+            "node_id": f"participant:{name}",
+            "node_type": PARTICIPANT,
+            "label": name,
+            "payload": {
+                "participant": name,
+                "level": entry.get("level"),
+            },
+        })
+
+
+def participants_with(graph: dict, level: str) -> list:
+    """The rostered participants whose level grants `level`.
+
+    The ladder is the spec's own table order: asking who may approve
+    returns the approvers, the deliverers and the admins - everyone at
+    or above approve - and never the client's observe+suggest Ren.
+    """
+    from library.tools import fabric_permissions
+    if level not in fabric_permissions.LEVELS:
+        raise ValueError(
+            f"{level!r} is not an authority level - the levels are "
+            f"{', '.join(fabric_permissions.LEVELS)}.")
+    found = []
+    for candidate in graph.get("nodes") or []:
+        if candidate.get("node_type") != PARTICIPANT:
+            continue
+        payload = candidate.get("payload") or {}
+        held = payload.get("level")
+        if held in fabric_permissions.LEVELS and fabric_permissions.grants(
+                held, level):
+            found.append(payload)
+    return found
 
 
 def find_reaction_shots(graph: dict, person_id: str,

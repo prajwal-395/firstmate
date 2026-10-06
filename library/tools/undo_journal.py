@@ -703,7 +703,7 @@ def _changes_since(project_folder, commit_id: str, ancestor_id: str) -> list:
 
 
 def merge_commits(project_folder, *, timeline: str, left: str, right: str,
-                  note: str = "") -> dict:
+                  note: str = "", actor=None) -> dict:
     """Merge two commits on one timeline. Returns the merge commit.
 
     Each side's changes since their common ancestor are diffed (reusing
@@ -716,7 +716,18 @@ def merge_commits(project_folder, *, timeline: str, left: str, right: str,
     A fast-forward (one commit is the ancestor of the other) merges to
     the descendant: the merged changes are the descendant's changes
     since the ancestor, and no conflict is possible.
+
+    `actor` names the federated participant the merge runs as. A named
+    actor must hold Merge on this project's roster
+    (`fabric_permissions`): an editor may execute but never merge into
+    the shared chain, and the refusal is an event in the log. `None`
+    (the default) is the local operator's own act and is never
+    checked.
     """
+    if actor is not None:
+        from library.tools import fabric_permissions as _permissions
+        _permissions.require(project_folder, actor, _permissions.MERGE,
+                             task=f"merge {timeline}")
     if not left or not right:
         raise MergeConflict("both sides of a merge must be commits")
     if left == right:

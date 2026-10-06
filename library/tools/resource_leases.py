@@ -788,7 +788,8 @@ def resource_lease(declaration: LeaseDeclaration, purpose: str,
                    heartbeat_interval: float = DEFAULT_HEARTBEAT_INTERVAL,
                    owner: Optional[str] = None,
                    heartbeat_thread: bool = True,
-                   project: str = ""):
+                   project: str = "",
+                   actor: Optional[str] = None):
     """Hold a resource lease for one task's destructive section.
 
     Acquire the lease, heartbeat it, and release it on exit. The
@@ -797,6 +798,15 @@ def resource_lease(declaration: LeaseDeclaration, purpose: str,
     through the cursor; this is the fine-grained declaration that lets
     two compatible tasks be in flight at once and stops two conflicting
     ones from being so.
+
+    `actor` names the federated participant the acquisition runs as
+    (director, editor, client, ...). A named actor must hold Execute
+    on this project's permission roster (`fabric_permissions`): a
+    client's Ren may observe and suggest but never take a lease, and
+    the refusal is an event in the log. The check runs BEFORE the wait
+    loop and fails fast - a refused actor waits for nothing. `None`
+    (the default) is the local operator's own act and is never
+    checked, so every existing caller keeps working unchanged.
 
     `wait=True` (the default): a conflicting lease makes the acquisition
     WAIT - polling until the holder releases or its heartbeat expires -
@@ -816,6 +826,8 @@ def resource_lease(declaration: LeaseDeclaration, purpose: str,
     Raises `ResourceLeaseBusy` naming the conflicting holder and
     resource where the wait ran out, and `ResourceLeaseExpired` from
     the heartbeat where this lease was evicted mid-section.
+    Raises `fabric_permissions.PermissionRefused` where a named actor
+    lacks Execute - before waiting, and without taking any lease.
 
     Reentrant in the same thread: a nested declaration the outer lease
     already covers (same owner, same resources, mode equal or
@@ -824,6 +836,10 @@ def resource_lease(declaration: LeaseDeclaration, purpose: str,
     without refusing itself. The nested handle writes nothing to disk;
     the outer lease's heartbeat keeps the declaration alive.
     """
+    if actor is not None:
+        from library.tools import fabric_permissions as _permissions
+        _permissions.require(project, actor, _permissions.EXECUTE,
+                             task=purpose)
     if not isinstance(declaration, LeaseDeclaration):
         raise TypeError(
             f"resource_lease needs a LeaseDeclaration, not "
