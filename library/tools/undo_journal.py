@@ -150,6 +150,15 @@ class RollbackDiverged(RuntimeError):
     """A rolled-back rebuild that does not read as the version it targeted."""
 
 
+class CommitRecordError(RuntimeError):
+    """A creative commit that could not be recorded.
+
+    Non-fatal to the touch that caused it - the touch's own journal is
+    the way back - but it is RAISED, not swallowed, so the caller can
+    put the reason on the receipt and a missing commit is visible.
+    """
+
+
 # ── Where entries live ───────────────────────────────────────────
 
 
@@ -221,6 +230,225 @@ def list_entries(project_folder) -> list:
         if os.path.isfile(os.path.join(root, name, ENTRY_FILENAME)):
             entries.append(read_entry(project_folder, name))
     return entries
+
+
+# ── Creative commits: git semantics over creative state ────────────
+#
+# A commit records WHAT changed and WHY, with the identity the captain's
+# spec names: parent, intent, changes, agent, evaluation, artifacts. The
+# id is the SHA-256 of the commit's canonical JSON content - the same
+# identity pattern `plan_provenance.record_timeline_snapshot` uses - so
+# two commits with the same content are the same commit, and a changed
+# field changes the id.
+#
+# The changes list is a `timeline_diff.diff_timelines` output: typed
+# changes expressed as edit_graph mutations where the change is a graph
+# mutation. The commit is the unit a branch, a diff, a revert and a
+# cherry-pick are built on; this module records and reads it, and the
+# touch-up path (`reel_touchup`) is its first caller.
+
+COMMIT_FORMAT = "creative_commit/1"
+COMMIT_DIRNAME = "commits"
+COMMIT_FILENAME = "commit.json"
+
+
+def commit_root(project_folder) -> str:
+    return os.path.join(str(project_folder), "pipeline_output", "review",
+                        COMMIT_DIRNAME)
+
+
+def _commit_path(project_folder, commit_id: str) -> str:
+    return os.path.join(commit_root(project_folder), commit_id,
+                        COMMIT_FILENAME)
+
+
+def _commit_id(content: Mapping) -> str:
+    """SHA-256 of the commit's canonical JSON content.
+
+    The id covers exactly what the commit says - parent, intent,
+    changes, agent, evaluation, artifacts - and nothing else: not the
+    id itself, not a timestamp. Two commits with the same content are
+    the same commit; a changed field changes the id. This is the
+    `plan_provenance` identity pattern (SHA-256 of canonical JSON).
+    """
+    import hashlib
+
+    payload = json.dumps(dict(content), sort_keys=True,
+                         separators=(",", ":"), ensure_ascii=False,
+                         default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def record_commit(project_folder, *, parent: str | None,
+                  intent: str, changes: Sequence[Mapping],
+                  agent: str, timeline: str = "",
+                  evaluation: Mapping | None = None,
+                  artifacts: Mapping | None = None) -> dict:
+    """Record a creative commit. Returns the commit with its id.
+
+    The commit is written atomically under
+    `pipeline_output/review/commits/<id>/commit.json` - versioned text,
+    like the undo journal entries, so it diffs in the project's store.
+    A commit whose content hashes to an id already on disk is the SAME
+    commit: the existing record is returned, not a second one, so a
+    re-recorded touch never forks history.
+
+    `timeline` is the timeline (reel final name) the commit is FOR. It is
+    part of the commit's content and therefore of its id: a commit on
+    Reel 03 is a different commit from one on Reel 10, and a branch is
+    the timeline's own chain, not one global chain.
+    """
+    from library.tools.versions import store
+
+    content = {
+        "parent": parent,
+        "intent": intent,
+        "changes": [dict(change) for change in (changes or ())],
+        "agent": agent,
+        "timeline": timeline,
+        "evaluation": dict(evaluation or {}),
+        "artifacts": dict(artifacts or {}),
+    }
+    commit_id = _commit_id(content)
+    path = _commit_path(project_folder, commit_id)
+    if os.path.isfile(path):
+        # The same content is already recorded: return it as it stands,
+        # with the sequence it was given when it first landed. A
+        # re-recorded touch must not fork history, and must not renumber
+        # the commit it duplicates.
+        return read_commit(project_folder, commit_id)
+    commit = dict(content)
+    commit["format"] = COMMIT_FORMAT
+    commit["id"] = commit_id
+    commit["recorded_at"] = _now()
+    # The sequence is the commit's order on this branch, and it is NOT
+    # part of the id content: two commits with the same content are the
+    # same commit, but a branch needs a stable order to answer "what did
+    # this branch change". A second-resolution timestamp cannot give it -
+    # two commits recorded in the same second tie - so the sequence is
+    # counted from the commits already on disk.
+    sequence = 1
+    for existing in list_commits(project_folder):
+        sequence = max(sequence, int(existing.get("sequence") or 0) + 1)
+    commit["sequence"] = sequence
+    store.write_record(path, commit, prefix=".commit-")
+    return commit
+
+
+def read_commit(project_folder, commit_id: str) -> dict:
+    path = _commit_path(project_folder, commit_id)
+    try:
+        with open(path, encoding="utf-8") as handle:
+            commit = json.load(handle)
+    except (OSError, ValueError) as unreadable:
+        raise UndoRefused(
+            f"creative commit {commit_id!r} could not be read at {path}",
+            f"({unreadable})",
+            "recover the commit from the project's git history, or list "
+            "what is recorded with `ren commits <project> --list`"
+        ) from unreadable
+    if commit.get("format") != COMMIT_FORMAT:
+        raise UndoRefused(
+            f"{path} is {commit.get('format')!r}, not {COMMIT_FORMAT!r}",
+            "a commit in a foreign format cannot be trusted",
+            "recover the commit from the project's git history")
+    return commit
+
+
+def list_commits(project_folder) -> list:
+    """Every commit, in sequence order - the order they were recorded.
+
+    The sequence, not the timestamp, is the order: two commits recorded
+    in the same second tie on `recorded_at`, and a branch's history must
+    read in the order it was made.
+    """
+    root = commit_root(project_folder)
+    if not os.path.isdir(root):
+        return []
+    commits = []
+    for name in sorted(os.listdir(root)):
+        path = os.path.join(root, name, COMMIT_FILENAME)
+        if os.path.isfile(path):
+            commits.append(read_commit(project_folder, name))
+    return sorted(commits, key=lambda entry: int(entry.get("sequence") or 0))
+
+
+def latest_commit_for_timeline(project_folder, timeline: str) -> dict | None:
+    """The most recent commit FOR one timeline, by sequence.
+
+    A branch is the timeline's own chain: a touch on Reel 10 after one
+    on Reel 03 stands on Reel 10's last commit, not on Reel 03's. Taking
+    the parent from the whole project's latest commit would fork one
+    timeline's history into another's.
+    """
+    commits = [c for c in list_commits(project_folder)
+               if c.get("timeline") == timeline]
+    return commits[-1] if commits else None
+
+
+def record_touch_commit(project_folder, *, journal: Mapping,
+                        spec: Mapping, qualification=None,
+                        version: int | None = None) -> dict:
+    """Record the creative commit a touch-up is, from its closed journal.
+
+    The touch's journal already holds the before and after track reads;
+    this diffs them (`timeline_diff.diff_timelines`) into the commit's
+    changes and records the commit with the touch's intent, agent,
+    evaluation and artifacts. The parent is the most recent commit FOR
+    THIS TIMELINE, so a chain of touches on one reel is a chain of
+    commits, and two reels touched in turn are two independent chains.
+
+    Raises `CommitRecordError` on failure. The caller catches it: the
+    commit is non-fatal to the touch (the journal is the way back), but
+    the failure is visible - printed to stderr and put on the receipt -
+    never swallowed in silence.
+    """
+    from library.tools import timeline_diff
+
+    before_tracks = (journal.get("before") or {}).get("tracks") or []
+    after_tracks = (journal.get("after") or {}).get("tracks") or []
+    changes = timeline_diff.diff_timelines(before_tracks, after_tracks)
+    summary = timeline_diff.summarize(changes)
+    edits = list((spec or {}).get("edits") or ())
+    intent = (str((spec or {}).get("note") or "").strip()
+              or _intent_from_edits(edits, summary))
+    timeline = str(journal.get("final") or "")
+    parent_commit = latest_commit_for_timeline(project_folder, timeline)
+    parent = parent_commit.get("id") if parent_commit else None
+    evaluation = {}
+    if qualification is not None:
+        evaluation = {
+            "gate_class": getattr(qualification, "gate_class", ""),
+            "cost": getattr(qualification, "cost_statement", ""),
+        }
+    artifacts = {
+        "journal": journal.get("id"),
+        "reel": timeline,
+    }
+    if version is not None:
+        artifacts["version"] = version
+    return record_commit(
+        project_folder, parent=parent, intent=intent,
+        changes=changes, agent="reel_touchup", timeline=timeline,
+        evaluation=evaluation, artifacts=artifacts)
+
+
+def _intent_from_edits(edits: Sequence[Mapping], summary: Mapping) -> str:
+    """The commit's intent: the touch's own note, or its edits summarized.
+
+    A touch spec carries no prose intent, so the intent is derived from
+    what the touch does - the diff summary ("2 moves, 1 trim") plus the
+    edit ops. This is a mechanical summary of measured changes, not a
+    creative judgement: the captain's note, when the spec carries one,
+    wins.
+    """
+    parts = [f"{count} {op}" for op, count in sorted(summary.items())]
+    if parts:
+        return "touch: " + ", ".join(parts)
+    ops = sorted({str(edit.get("op") or "") for edit in edits if edit.get("op")})
+    if ops:
+        return "touch: " + ", ".join(ops)
+    return "touch"
 
 
 # ── Capture: the touch's side ────────────────────────────────────

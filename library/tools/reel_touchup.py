@@ -169,6 +169,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -2441,7 +2442,7 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
                          staged, staging, qualification, rederiver,
                          receipt, declared_drops, declared_supersede,
                          accept_editor_changes, final, stage_started, journal,
-                         resolve_app=resolve_app)
+                         spec, resolve_app=resolve_app)
     except Exception as failed:
         # A refused or failed touch cleans up after itself: its staging
         # is a duplicate of the approved timeline, which still stands
@@ -2683,7 +2684,8 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
                  qualification: Qualification, rederiver: Any,
                  receipt: dict, declared_drops, declared_supersede,
                  accept_editor_changes, final: str, stage_started: float,
-                 journal: dict, *, resolve_app=None) -> None:
+                 journal: dict, spec: Mapping, *,
+                 resolve_app=None) -> None:
     """Conform, compose, verify and promote the staging copy.
 
     Runs inside the cursor fence: the staging is the cursor for the
@@ -2816,7 +2818,7 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
 
     _promote(project_folder, project, pool, final, staging,
              declared_drops, declared_supersede, accept_editor_changes,
-             receipt, journal)
+             receipt, journal, spec, qualification)
 
 
 def _summarise_rows(tracks: Sequence[Mapping]) -> dict:
@@ -2833,7 +2835,7 @@ def _summarise_rows(tracks: Sequence[Mapping]) -> dict:
 def _promote(project_folder: str, project: Any, pool: Any,
              final: str, staging: str, declared_drops,
              declared_supersede, accept_editor_changes, receipt: dict,
-             journal: dict) -> None:
+             journal: dict, spec: Mapping, qualification) -> None:
     """Guard, swap names, carry markers, close the journal, delete the
     replaced generation, close the signature."""
     from library.tools import plan_provenance as _provenance
@@ -3022,6 +3024,20 @@ def _promote(project_folder: str, project: Any, pool: Any,
                          after_timeline=staged_found[staging],
                          rows=incoming_rows, project=project)
     receipt["version"] = journal["version"]
+    # The creative commit this touch is, recorded from the closed
+    # journal's before/after. Non-fatal: a commit that cannot be
+    # recorded never fails the touch (the journal is the way back), but
+    # it is VISIBLE - printed to stderr and put on the receipt - never
+    # swallowed in silence.
+    try:
+        receipt["commit"] = _journal.record_touch_commit(
+            project_folder, journal=journal, spec=spec,
+            qualification=qualification, version=journal.get("version"))
+    except _journal.CommitRecordError as unrecorded:
+        print(f"creative commit not recorded: {unrecorded}",
+              file=sys.stderr)
+        receipt["commit"] = None
+        receipt["commit_error"] = str(unrecorded)
     if journal.get("preservation_after") is not None:
         from library.tools import editor_edit_carry as _editor_carry
         prior = receipt["editor_changes"].get("carried_edits") or {}
