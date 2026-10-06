@@ -100,6 +100,7 @@
 # away-grant check, or a captain hold.
 #
 # Usage: fm-pr-merge.sh <task-id> <pr-url> [--attended-override] [--allow-red <check-name>] [-- <extra forge merge args>]
+# For projects without CI, verify open crew PRs as a batch first: bin/fm-batch-pr-verify.sh.
 #
 # On GitLab, this script confirms the MR is actually merged before reporting it;
 # an auto-merge-queued or unconfirmed request leaves the poll armed and records
