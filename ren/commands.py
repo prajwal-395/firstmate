@@ -181,6 +181,12 @@ VERBS = (
 
     Verb("eval", "Eval", "Run the standing request-following eval (report only; gates nothing)",
          module_argv=("library.tools.eval_harness",)),
+
+    Verb("worker", "Fabric", "This machine's Ren Fabric worker: its manifest, and whether a task's requirements match it",
+         module_argv=("library.tools.worker_manifest",),
+         detail="`ren worker manifest` prints this machine's worker advertisement as JSON, "
+                "assembled from the probes ren doctor and the broker already run. "
+                "`--check` exits 1 when a required need is unmet."),
 )
 
 
