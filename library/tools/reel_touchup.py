@@ -2970,7 +2970,8 @@ def _promote(project_folder: str, project: Any, pool: Any,
         os.path.join(project_folder, "pipeline_output", "review"),
         receipt["timeline_inventory_before"],
         _guard.timeline_inventory(project), operation="touchup",
-        ren_owned_ids=ren_owned_ids)
+        ren_owned_ids=ren_owned_ids,
+        operation_id=receipt["inventory_operation"])
     for record_id in (receipt.get("editor_changes") or {}).get("carried", ()):
         _provenance.resolve_editor_change(
             os.path.join(project_folder, "pipeline_output", "review"),

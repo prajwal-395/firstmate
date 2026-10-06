@@ -10742,7 +10742,8 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             _provenance.record_unattributed_timeline_changes(
                 review_dir, operation_start,
                 _guard.timeline_inventory(project),
-                operation="build promotion refusal")
+                operation="build promotion refusal",
+                operation_id=inventory_operation)
             _provenance.finish_timeline_inventory(
                 review_dir, inventory_operation,
                 _guard.timeline_inventory(project))
@@ -11386,7 +11387,8 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
                 ren_owned_ids.add(str(unique_id))
         _provenance.record_unattributed_timeline_changes(
             review_dir, operation_start, _guard.timeline_inventory(project),
-            operation="build promotion", ren_owned_ids=ren_owned_ids)
+            operation="build promotion", ren_owned_ids=ren_owned_ids,
+            operation_id=inventory_operation)
     except Exception as inventory_diff_failed:  # noqa: BLE001
         raise ReelBuildError(
             f"REFUSING to retire the previous timeline: the project "
@@ -14973,7 +14975,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 build_inventory_before,
                 _inventory_guard.timeline_inventory(project),
                 operation="reel build",
-                ren_owned_ids=staged_timeline_ids.values())
+                ren_owned_ids=staged_timeline_ids.values(),
+                operation_id=build_inventory_operation)
         _inventory_provenance.finish_timeline_inventory(
             os.path.join(project_folder, "pipeline_output", "review"),
             build_inventory_operation,

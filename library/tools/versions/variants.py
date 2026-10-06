@@ -1678,7 +1678,8 @@ def choose(project, pool, project_folder, reel_number: int,
     plan_provenance.record_unattributed_timeline_changes(
         review_dir, inventory_before,
         reel_replace_guard.timeline_inventory(project),
-        operation="variant choice", ren_owned_ids=ren_owned_ids)
+        operation="variant choice", ren_owned_ids=ren_owned_ids,
+        operation_id=inventory_operation)
     if editor_report:
         for record_id in editor_report.get("carried", ()):
             plan_provenance.resolve_editor_change(

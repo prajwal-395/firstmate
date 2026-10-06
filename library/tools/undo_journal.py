@@ -1123,7 +1123,8 @@ def _undo_touch_connected(project_folder, entry, connect,
             review_dir, inventory_before,
             reel_replace_guard.timeline_inventory(project),
             operation="failed undo touch",
-            ren_owned_ids={reference_id} if reference_id else ())
+            ren_owned_ids={reference_id} if reference_id else (),
+            operation_id=inventory_operation)
         plan_provenance.finish_timeline_inventory(
             review_dir, inventory_operation,
             reel_replace_guard.timeline_inventory(project))
@@ -1150,7 +1151,8 @@ def _undo_touch_connected(project_folder, entry, connect,
             review_dir, inventory_before,
             reel_replace_guard.timeline_inventory(project),
             operation="undo touch",
-            ren_owned_ids={str(reference_id)} if reference_id else ())
+            ren_owned_ids={str(reference_id)} if reference_id else (),
+            operation_id=inventory_operation)
     except Exception as snapshot_failed:  # noqa: BLE001
         try:
             reference_id = reference.GetUniqueId()
@@ -1160,7 +1162,8 @@ def _undo_touch_connected(project_folder, entry, connect,
             review_dir, inventory_before,
             reel_replace_guard.timeline_inventory(project),
             operation="undo touch snapshot failure",
-            ren_owned_ids={str(reference_id)} if reference_id else ())
+            ren_owned_ids={str(reference_id)} if reference_id else (),
+            operation_id=inventory_operation)
         plan_provenance.finish_timeline_inventory(
             review_dir, inventory_operation,
             reel_replace_guard.timeline_inventory(project))

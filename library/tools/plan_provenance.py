@@ -1209,6 +1209,108 @@ def _timeline_identity(entry: dict) -> str:
     return f"id:{unique_id}" if unique_id else f"name:{entry.get('name', '')}"
 
 
+def _started_at_or_before(item: dict, moment: str) -> bool:
+    """Whether an inventory entry started at or before `moment`."""
+    started_at = item.get("started_at")
+    if not started_at:
+        return False
+    try:
+        return datetime.fromisoformat(started_at) <= datetime.fromisoformat(
+            moment)
+    except (TypeError, ValueError):
+        return False
+
+
+def _latest_completed_at(doc: dict) -> Optional[str]:
+    """The after-timestamp of the most recent completed inventory op."""
+    for item in reversed(list(doc.get(TIMELINE_INVENTORY_KEY) or [])):
+        if item.get("after") is not None:
+            return item.get("completed_at")
+    return None
+
+
+def _lease_timeout_seconds() -> float:
+    """The resolve lease acquisition timeout - the longest an op can run.
+
+    A build's cursor sections are seconds; a whole reel build finishes
+    inside this. An inventory op that started longer ago than this and
+    still has not recorded its after is not running - it crashed.
+    """
+    from library.tools import resolve_lock
+    return resolve_lock.default_timeout()
+
+
+def _started_too_long_ago(item: dict, now: datetime) -> bool:
+    """Whether an in-flight entry started longer ago than the lease timeout."""
+    started_at = item.get("started_at")
+    if not started_at:
+        return False
+    try:
+        started = datetime.fromisoformat(started_at)
+    except (TypeError, ValueError):
+        return False
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    return (now - started).total_seconds() > _lease_timeout_seconds()
+
+
+def _in_flight_inventory_befores(doc: dict, *,
+                                  exclude: Optional[str] = None,
+                                  completed_after: Optional[str] = None,
+                                  now: Optional[datetime] = None
+                                  ) -> list[dict]:
+    """Identity-indexed before-states of ops that can still be running.
+
+    An op that started but has not recorded its 'after' is a possible
+    creator: anything its own before does not already list may be its
+    work rather than the editor's, so the inventory must not file such a
+    timeline as editor-owned - that filing would block the very op that
+    made it. `exclude` drops one op's own entry (the caller's), which
+    would otherwise explain away every change the caller detects.
+
+    The window is bounded twice. `completed_after` drops entries that
+    started at or before the most recent completion - they were running
+    concurrently with an op that has since finished and may have crashed.
+    The age bound drops entries that started longer ago than the resolve
+    lease timeout - an op that long-lived is not running, it was killed.
+    Only an entry inside both bounds can still be running.
+    """
+    if now is None:
+        now = datetime.now(timezone.utc)
+    befores = []
+    for item in doc.get(TIMELINE_INVENTORY_KEY) or []:
+        if item.get("after") is not None:
+            continue
+        if exclude is not None and item.get("id") == exclude:
+            continue
+        if (completed_after is not None
+                and _started_at_or_before(item, completed_after)):
+            continue
+        if _started_too_long_ago(item, now):
+            continue
+        befores.append({_timeline_identity(entry): entry
+                        for entry in item.get("before", ())})
+    return befores
+
+
+def _in_flight_op_made_current(befores: list[dict], current: dict) -> bool:
+    """Whether an in-flight op could have created or renamed `current`.
+
+    Only when every in-flight op's before already lists the timeline
+    under its current name does the change predate them all - and then it
+    belongs to the editor, not to Ren.
+    """
+    if not befores:
+        return False
+    identity = _timeline_identity(current)
+    name = current.get("name")
+    for before in befores:
+        old = before.get(identity)
+        if old is None or old.get("name") != name:
+            return True
+    return False
+
+
 def editor_timeline_identities(review_dir: str) -> dict:
     doc = read_provenance(review_dir) or {}
     return dict(doc.get(EDITOR_TIMELINES_KEY) or {})
@@ -1322,11 +1424,25 @@ def record_unattributed_timeline_changes(review_dir: str,
                                         before: list[dict],
                                         after: list[dict], *,
                                         operation: str,
-                                        ren_owned_ids=()) -> set[str]:
-    """Protect timeline additions or renames not explained by Ren's write."""
+                                        ren_owned_ids=(),
+                                        operation_id: Optional[str] = None,
+                                        now: Optional[datetime] = None
+                                        ) -> set[str]:
+    """Protect timeline additions or renames not explained by Ren's write.
+
+    An inventory op that started but has not recorded its 'after' counts
+    as a possible creator: a change its own before does not list may be
+    that op's work, not the editor's. `operation_id` names the calling op
+    so its own in-flight entry does not explain the change away. `now`
+    is the moment being judged; it defaults to the current time.
+    """
     previous = {_timeline_identity(entry): entry for entry in before}
     known_ren_ids = {f"id:{value}" for value in ren_owned_ids or () if value}
-    adopted = adopted_timeline_identities(review_dir)
+    doc = read_provenance(review_dir) or {}
+    adopted = dict(doc.get(ADOPTED_TIMELINES_KEY) or {})
+    in_flight = _in_flight_inventory_befores(
+        doc, exclude=operation_id,
+        completed_after=_latest_completed_at(doc), now=now)
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     detected = {}
     for current in after:
@@ -1335,7 +1451,8 @@ def record_unattributed_timeline_changes(review_dir: str,
         created = old is None
         renamed = old is not None and old.get("name") != current.get("name")
         if ((created or renamed) and identity not in known_ren_ids
-                and identity not in adopted):
+                and identity not in adopted
+                and not _in_flight_op_made_current(in_flight, current)):
             detected[identity] = {
                 "identity": identity,
                 "first_seen_at": now,
@@ -1360,16 +1477,21 @@ def record_unattributed_timeline_changes(review_dir: str,
 def begin_timeline_inventory(review_dir: str, operation: str,
                              before: list[dict], *,
                              ren_created_names=(),
-                             ren_created_ids=()) -> str:
-    """Persist project timeline inventory before a Ren operation."""
+                             ren_created_ids=(),
+                             now: Optional[datetime] = None) -> str:
+    """Persist project timeline inventory before a Ren operation.
+
+    `now` is the moment being judged; it defaults to the current time
+    and exists so the in-flight window bounds can be tested.
+    """
+    if now is None:
+        now = datetime.now(timezone.utc)
     operation_id = hashlib.sha256(
-        f"{datetime.now(timezone.utc).isoformat()}:{operation}".encode(
-            "utf-8")).hexdigest()[:20]
+        f"{now.isoformat()}:{operation}".encode("utf-8")).hexdigest()[:20]
     entry = {
         "id": operation_id,
         "operation": str(operation),
-        "started_at": datetime.now(timezone.utc).isoformat(
-            timespec="seconds"),
+        "started_at": now.isoformat(timespec="seconds"),
         "before": before,
         "after": None,
     }
@@ -1384,6 +1506,14 @@ def begin_timeline_inventory(review_dir: str, operation: str,
                           if item.get("after") is not None), None)
         previous = {_timeline_identity(item): item
                     for item in (completed or {}).get("after", ())}
+        # An op that started and never recorded an after counts as a
+        # possible creator: a timeline its own before does not list may
+        # be its work, not the editor's. Bounded by the most recent
+        # completion, so a crashed op's stale entry cannot excuse every
+        # later editor timeline.
+        in_flight = _in_flight_inventory_befores(
+            doc, completed_after=(completed or {}).get("completed_at"),
+            now=now)
         editor_timelines = dict(doc.get(EDITOR_TIMELINES_KEY) or {})
         adopted_timelines = dict(doc.get(ADOPTED_TIMELINES_KEY) or {})
         if completed is None:
@@ -1396,7 +1526,10 @@ def begin_timeline_inventory(review_dir: str, operation: str,
                 known_ren_target = (
                     identity in ren_created_identities
                     or current.get("name") in ren_created)
-                if not known_ren_target and identity not in adopted_timelines:
+                if (not known_ren_target
+                        and identity not in adopted_timelines
+                        and not _in_flight_op_made_current(in_flight,
+                                                           current)):
                     editor_timelines.setdefault(identity, {
                         "identity": identity,
                         "first_seen_at": entry["started_at"],
@@ -1415,7 +1548,9 @@ def begin_timeline_inventory(review_dir: str, operation: str,
                     identity in ren_created_identities
                     or current.get("name") in ren_created)
                 if ((newly_seen or renamed) and not is_ren_created
-                        and identity not in adopted_timelines):
+                        and identity not in adopted_timelines
+                        and not _in_flight_op_made_current(in_flight,
+                                                           current)):
                     editor_timelines.setdefault(identity, {
                         "identity": identity,
                         "first_seen_at": entry["started_at"],

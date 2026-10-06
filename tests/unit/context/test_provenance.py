@@ -9,6 +9,7 @@ of meaningless F1-F11 findings.
 """
 from __future__ import annotations
 import json
+from datetime import datetime, timedelta, timezone
 import pytest
 from library.tools.plan_provenance import (
     assert_not_editor_timeline,
@@ -142,6 +143,181 @@ class TestTimelinePreservation:
             assert_not_editor_timeline(
                 str(review), _Timeline("Captain Cut", "user-1"))
         finish_timeline_inventory(str(review), operation, live)
+
+    def test_in_flight_op_counts_as_a_possible_creator(self, tmp_path):
+        """The exact overlap: a second inventory op starts while a Ren
+        build is still in flight and sees the staging that build created.
+
+        The build op recorded its before (no staging) but has not
+        recorded its after. The second op must not file the staging as
+        editor-created - the in-flight build may own it - or the next
+        rebuild refuses against its own work.
+        """
+        review = tmp_path / "review"
+        review.mkdir()
+        reel_01 = {"name": "Reel 01", "unique_id": "ren-1",
+                   "settings": {}}
+        staging = {"name": "Reel 15 - slug (Ren staging)",
+                   "unique_id": "955e7280", "settings": {}}
+
+        build = begin_timeline_inventory(str(review), "reel build",
+                                         [reel_01],
+                                         ren_created_names={"Reel 01"})
+        second = begin_timeline_inventory(
+            str(review), "master_touchup", [reel_01, staging],
+            ren_created_names={"Reel 01"})
+
+        assert "id:955e7280" not in read_provenance(str(review)).get(
+            "editor_timeline_identities", {})
+        assert protected_timeline_names(
+            str(review), [reel_01, staging]) == set()
+        finish_timeline_inventory(str(review), second, [reel_01, staging])
+        finish_timeline_inventory(str(review), build,
+                                  [reel_01, staging])
+
+    def test_a_newly_seen_timeline_with_no_in_flight_op_is_still_filed(
+            self, tmp_path):
+        """The control for the overlap: with no op in flight, a timeline
+        the last completed inventory does not list is editor-created."""
+        review = tmp_path / "review"
+        review.mkdir()
+        reel_01 = {"name": "Reel 01", "unique_id": "ren-1",
+                   "settings": {}}
+        operation = begin_timeline_inventory(str(review), "baseline",
+                                             [reel_01],
+                                             ren_created_names={"Reel 01"})
+        finish_timeline_inventory(str(review), operation, [reel_01])
+        staging = {"name": "Reel 15 - slug (Ren staging)",
+                   "unique_id": "955e7280", "settings": {}}
+        begin_timeline_inventory(str(review), "next build",
+                                 [reel_01, staging],
+                                 ren_created_names={"Reel 01"})
+
+        assert protected_timeline_names(
+            str(review), [reel_01, staging]) == {
+            "Reel 15 - slug (Ren staging)"}
+
+    def test_in_flight_op_counts_as_a_possible_renamer(self, tmp_path):
+        """An in-flight op whose before holds the old name may have done
+        the rename; only a rename every in-flight before already shows
+        under the new name belongs to the editor."""
+        review = tmp_path / "review"
+        review.mkdir()
+        old = [{"name": "Reel 01 - alpha", "unique_id": "uid-01",
+                "settings": {}}]
+        begin_timeline_inventory(str(review), "reel build", old,
+                                 ren_created_names={"Reel 01 - alpha"})
+        renamed = [{"name": "Reel 01 - captain cut", "unique_id": "uid-01",
+                    "settings": {}}]
+        begin_timeline_inventory(str(review), "next build", renamed,
+                                 ren_created_names={"Reel 01 - alpha"})
+
+        assert "id:uid-01" not in read_provenance(str(review)).get(
+            "editor_timeline_identities", {})
+
+    def test_record_unattributed_ignores_an_in_flight_creator(
+            self, tmp_path):
+        """The second attribution path: a before/after diff that catches
+        a timeline an in-flight op created must not file it either."""
+        review = tmp_path / "review"
+        review.mkdir()
+        reel_01 = {"name": "Reel 01", "unique_id": "ren-1",
+                   "settings": {}}
+        staging = {"name": "Reel 15 - slug (Ren staging)",
+                   "unique_id": "955e7280", "settings": {}}
+        build = begin_timeline_inventory(str(review), "reel build",
+                                         [reel_01],
+                                         ren_created_names={"Reel 01"})
+        undo = begin_timeline_inventory(str(review), "undo touch",
+                                        [reel_01],
+                                        ren_created_names={"Reel 01"})
+
+        changed = record_unattributed_timeline_changes(
+            str(review), [reel_01], [reel_01, staging],
+            operation="undo touch", operation_id=undo)
+
+        assert changed == set()
+        assert "id:955e7280" not in read_provenance(str(review)).get(
+            "editor_timeline_identities", {})
+
+        finish_timeline_inventory(str(review), undo, [reel_01, staging])
+        finish_timeline_inventory(str(review), build,
+                                  [reel_01, staging])
+        changed = record_unattributed_timeline_changes(
+            str(review), [reel_01], [reel_01, staging],
+            operation="undo touch", operation_id=None)
+        assert changed == {"Reel 15 - slug (Ren staging)"}
+
+    def test_the_calling_ops_own_entry_does_not_explain_its_diff(
+            self, tmp_path):
+        """Passing operation_id excludes the caller's own in-flight
+        entry: the caller stays accountable for its own before/after
+        diff, and only OTHER in-flight ops protect a timeline."""
+        review = tmp_path / "review"
+        review.mkdir()
+        reel_01 = {"name": "Reel 01", "unique_id": "ren-1",
+                   "settings": {}}
+        staging = {"name": "Reel 15 - slug (Ren staging)",
+                   "unique_id": "955e7280", "settings": {}}
+        undo = begin_timeline_inventory(str(review), "undo touch",
+                                        [reel_01],
+                                        ren_created_names={"Reel 01"})
+
+        changed = record_unattributed_timeline_changes(
+            str(review), [reel_01], [reel_01, staging],
+            operation="undo touch", operation_id=undo)
+
+        assert changed == {"Reel 15 - slug (Ren staging)"}
+
+    def test_a_stale_in_flight_entry_does_not_excuse_a_later_editor_timeline(
+            self, tmp_path):
+        """A crashed op never records an after. Once a later op has
+        completed, the stale entry no longer counts as a possible
+        creator - otherwise every timeline the captain creates from then
+        on would be explained away and never protected."""
+        review = tmp_path / "review"
+        review.mkdir()
+        reel_01 = {"name": "Reel 01", "unique_id": "ren-1",
+                   "settings": {}}
+        begin_timeline_inventory(str(review), "reel build", [reel_01],
+                                 ren_created_names={"Reel 01"})
+        later = begin_timeline_inventory(str(review), "next build",
+                                         [reel_01],
+                                         ren_created_names={"Reel 01"})
+        finish_timeline_inventory(str(review), later, [reel_01])
+
+        captain_cut = {"name": "Captain Cut", "unique_id": "user-1",
+                       "settings": {}}
+        begin_timeline_inventory(str(review), "next build",
+                                 [reel_01, captain_cut],
+                                 ren_created_names={"Reel 01"})
+
+        assert protected_timeline_names(
+            str(review), [reel_01, captain_cut]) == {"Captain Cut"}
+
+    def test_a_crashed_op_beyond_the_lease_timeout_does_not_excuse_an_editor_timeline(
+            self, tmp_path):
+        """A crash with no later completion: once the lease timeout has
+        run out, the stale entry cannot still be running, so a timeline
+        the captain creates after the age bound is protected."""
+        review = tmp_path / "review"
+        review.mkdir()
+        reel_01 = {"name": "Reel 01", "unique_id": "ren-1",
+                   "settings": {}}
+        crashed_at = datetime.now(timezone.utc)
+        begin_timeline_inventory(str(review), "reel build", [reel_01],
+                                 ren_created_names={"Reel 01"},
+                                 now=crashed_at)
+        later = crashed_at + timedelta(seconds=1000)
+        captain_cut = {"name": "Captain Cut", "unique_id": "user-1",
+                       "settings": {}}
+        begin_timeline_inventory(str(review), "next build",
+                                 [reel_01, captain_cut],
+                                 ren_created_names={"Reel 01"},
+                                 now=later)
+
+        assert protected_timeline_names(
+            str(review), [reel_01, captain_cut]) == {"Captain Cut"}
 
     def test_ren_snapshot_history_does_not_replace_last_known(self, tmp_path):
         review = tmp_path / "review"
