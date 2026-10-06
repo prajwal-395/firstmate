@@ -3399,6 +3399,31 @@ def compile_manifest(out_dir: str, *, object_segmentation=None,
                 f"  Screen direction analysis failed: {exc}",
                 file=sys.stderr)
 
+    # ── Reaction cutaway selection ──
+    # Choose reaction shots from the project graph: for each speech
+    # moment, find shots where another person is visible while the
+    # speaker talks. Consumes project_graph.find_reaction_shots - the
+    # graph lane's query, not a second detector. Report-only: a
+    # reaction cutaway is a finding, not a failure.
+    reaction_cutaways = []
+    reaction_cutaways_error = None
+    try:
+        from library.tools import project_graph as _pg
+        from library.tools import reaction_cutaway as _rc
+        graph = _pg.load_or_build(_project_root)
+        reaction_cutaways = _rc.select_reaction_cutaways(structure, graph)
+        for cutaway in reaction_cutaways:
+            print(
+                f"  Reaction cutaway: block "
+                f"{cutaway['speech_block_position']!r} at "
+                f"{cutaway['timing']['reaction_land']:.1f}s: "
+                f"{cutaway['reacting_person_id']} in "
+                f"{cutaway['reaction_clip_id']}",
+                file=sys.stderr)
+    except Exception as exc:
+        reaction_cutaways_error = str(exc)
+        print(f"  Reaction cutaway analysis failed: {exc}", file=sys.stderr)
+
     manifest = {
         "project": {
             # The project says where its own build goes; a project that
@@ -3525,6 +3550,11 @@ def compile_manifest(out_dir: str, *, object_segmentation=None,
         # sides. Report-only - read by the run log and the reviewer.
         "screen_direction_issues": screen_direction_issues,
         "screen_direction_issues_error": screen_direction_issues_error,
+        # Reaction cutaways: shots where another person is visible while
+        # the speaker talks, selected from the project graph. Report-only -
+        # read by the run log and the reviewer.
+        "reaction_cutaways": reaction_cutaways,
+        "reaction_cutaways_error": reaction_cutaways_error,
         "neural_engine_directives": neural_engine_directives,
         "stabilization_authorizations": stabilization_authorizations,
         # The captain's named spans where the bed is deliberately over the
