@@ -428,3 +428,15 @@ def test_a_transform_rounded_below_a_display_unit_is_not_an_editor_change():
     # Other fields keep the read-noise tolerance only.
     assert not reel_replace_guard._same_preservation_value(
         "record_in", 1038.0, 1038.0005)
+
+
+def test_a_fusion_read_without_mattes_is_not_an_editor_change():
+    """PR 1786 added `mattes` (None when an item has no matte comp) to
+    every fusion read. A snapshot recorded before it has no such key, and
+    the guard refused Reels 03, 08 and 13 on "the Fusion comp changed"
+    for items nobody touched. A real matte is still a change."""
+    old = {"comp_count": 0, "comp_names": [], "media_windows": []}
+    new = {**old, "mattes": None}
+    assert reel_replace_guard._same_preservation_value("fusion", old, new)
+    assert not reel_replace_guard._same_preservation_value(
+        "fusion", old, {**old, "mattes": {"Matte 1": {"kind": "ellipse"}}})

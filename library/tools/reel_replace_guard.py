@@ -435,10 +435,27 @@ def _normalized_color(value):
     return normalized
 
 
+def _normalized_fusion(value):
+    """Treat a fusion read with no matte comps the same, before and after #1786.
+
+    PR 1786 (2026-10-05) added `mattes` to every fusion read, `None` on an
+    item with no matte comp. Every snapshot recorded before it lacks the
+    key, so a rebuild compared every untouched item's `{...}` against
+    `{..., 'mattes': None}` and refused six reels on "the Fusion comp
+    changed". An absent key and `None` both mean no matte comp; a real
+    matte still compares in full.
+    """
+    if isinstance(value, dict) and value.get("mattes") is None:
+        value = {key: item for key, item in value.items() if key != "mattes"}
+    return value
+
+
 def _same_preservation_value(field: str, before, after) -> bool:
     """Compare one preserved item field using its domain semantics."""
     if field == "color":
         before, after = _normalized_color(before), _normalized_color(after)
+    if field == "fusion":
+        before, after = _normalized_fusion(before), _normalized_fusion(after)
     if field == "transform":
         return _same_value(before, after, TRANSFORM_TOLERANCE)
     return _same_value(before, after)
