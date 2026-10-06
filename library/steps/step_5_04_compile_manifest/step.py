@@ -3309,6 +3309,96 @@ def compile_manifest(out_dir: str, *, object_segmentation=None,
                 f"{row['window_seconds']}s ({row['cuts']} cuts)",
                 file=sys.stderr)
 
+    # ── Dead section analysis ──
+    # Find stretches of the timeline where no word is sounding, the picture
+    # is static, and there is no audio activity. Report-only: a dead section
+    # is a finding, not a failure.
+    temporal_indices = {}
+    temporal_indices_error = None
+    try:
+        from library.tools.analysis.vision_pipeline_v3 import load_temporal_index
+        for block in structure:
+            if not isinstance(block, dict):
+                continue
+            clip_id = str(block.get("clip_id", ""))
+            if not clip_id or clip_id in temporal_indices:
+                continue
+            clip_path = clip_lookup.get(clip_id)
+            if clip_path:
+                temporal_indices[clip_id] = load_temporal_index(clip_path)
+    except Exception as exc:
+        temporal_indices_error = str(exc)
+        print(f"  Temporal index load failed: {exc}", file=sys.stderr)
+
+    dead_sections = []
+    dead_sections_error = None
+    if temporal_indices_error is None:
+        try:
+            dead_sections = _pacing.find_dead_sections(
+                structure, temporal_indices)
+            for section in dead_sections:
+                print(
+                    f"  Dead section: {section['timeline_start']:.1f}s - "
+                    f"{section['timeline_end']:.1f}s "
+                    f"({section['duration_seconds']:.1f}s): "
+                    f"{', '.join(section['reasons'])}",
+                    file=sys.stderr)
+        except Exception as exc:
+            dead_sections_error = str(exc)
+            print(f"  Dead section analysis failed: {exc}", file=sys.stderr)
+
+    # ── J/L-cut placement ──
+    # Propose where the audio can cross at a speech boundary: the J kind
+    # reaches back into the outgoing block's trailing pause, the L kind
+    # forward into the incoming block's leading pause, and the offset is
+    # the measured pause - never a number invented here. Report-only: a
+    # placement is a finding, not a failure. Addresses the boundary the
+    # way jl_cut does (the incoming block's position), so a plan entry
+    # and a placement finding name the same join.
+    jl_placements = []
+    jl_placements_error = None
+    try:
+        from library.tools import jl_placement as _jl_place
+        jl_placements = _jl_place.find_jl_placements(structure)
+        for place in jl_placements:
+            print(
+                f"  J/L placement: block {place['cut_point_position']!r} "
+                f"at {place['timeline_position']:.1f}s: "
+                f"{place['kind']} offset {place['offset_seconds']:.3f}s",
+                file=sys.stderr)
+    except Exception as exc:
+        jl_placements_error = str(exc)
+        print(f"  J/L placement analysis failed: {exc}", file=sys.stderr)
+
+    # ── Screen-direction continuity ──
+    # Find cuts where the subject may cross the 180-degree line: a jump
+    # from one side of the frame to the other at a block boundary. The
+    # measured signal is the subject's horizontal centre in the temporal
+    # index, read through subject_framing's reader. Report-only: a flip
+    # is also what a shot/reverse-shot dialogue cut looks like, so the
+    # finding says "potential" and the reviewer confirms. A boundary with
+    # an unmeasurable position on either side is skipped, never flagged.
+    screen_direction_issues = []
+    screen_direction_issues_error = None
+    if temporal_indices_error is None:
+        try:
+            from library.tools.continuity import find_screen_direction_issues
+            screen_direction_issues = find_screen_direction_issues(
+                structure, temporal_indices)
+            for issue in screen_direction_issues:
+                print(
+                    f"  Screen direction: cut "
+                    f"{issue['cut_point_position']!r} at "
+                    f"{issue['timeline_position']:.1f}s: "
+                    f"{issue['outgoing_side']} -> "
+                    f"{issue['incoming_side']}",
+                    file=sys.stderr)
+        except Exception as exc:
+            screen_direction_issues_error = str(exc)
+            print(
+                f"  Screen direction analysis failed: {exc}",
+                file=sys.stderr)
+
     manifest = {
         "project": {
             # The project says where its own build goes; a project that
@@ -3420,6 +3510,21 @@ def compile_manifest(out_dir: str, *, object_segmentation=None,
         # picture delivers, measured above. Report-only - read by the
         # run log and the reviewer, never a gate.
         "pacing_report": pacing_report,
+        # Dead sections: stretches of the timeline where no word is
+        # sounding, the picture is static, and there is no audio activity.
+        # Report-only - read by the run log and the reviewer.
+        "dead_sections": dead_sections,
+        "dead_sections_error": dead_sections_error,
+        # J/L-cut placements proposed at the sequence's speech boundaries,
+        # each with the measured pauses the choice rested on. Report-only -
+        # read by the run log and the reviewer.
+        "jl_placements": jl_placements,
+        "jl_placements_error": jl_placements_error,
+        # Screen-direction continuity: cuts where the subject may cross
+        # the 180-degree line, each with the measured positions on both
+        # sides. Report-only - read by the run log and the reviewer.
+        "screen_direction_issues": screen_direction_issues,
+        "screen_direction_issues_error": screen_direction_issues_error,
         "neural_engine_directives": neural_engine_directives,
         "stabilization_authorizations": stabilization_authorizations,
         # The captain's named spans where the bed is deliberately over the
