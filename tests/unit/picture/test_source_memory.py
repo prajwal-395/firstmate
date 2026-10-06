@@ -1572,3 +1572,46 @@ def test_write_scenes_serializes_the_measured_scene_pass(tmp_path, memory_root):
     assert doc["scenes"] == scenes
     assert doc["scene_boundaries"] == boundaries
     assert doc["scene_coverage"] == {"ratio": 1.0}
+
+
+class TestConcurrentSameSlotWrites:
+    """Two clips cut from one camera file share a digest slot, and the
+    read-only lanes index them at once. The slot writer used a
+    per-process temp name, so two threads shared ONE temp file: one
+    thread's rename moved it away while the other was still writing,
+    and the other's rename then raised `FileNotFoundError` - a lane
+    crashed on a clip that had measured fine. Temp names are unique
+    per call now, so every concurrent write lands intact."""
+
+    def test_same_slot_writes_each_land_intact(self, tmp_path):
+        import threading
+
+        path = tmp_path / "memory" / "sound.json"
+        payloads = [
+            {"writer": i, "events": [f"ev-{i}-{j}" for j in range(20)]}
+            for i in range(8)
+        ]
+        barrier = threading.Barrier(len(payloads))
+        failures = []
+
+        def hammer(payload):
+            barrier.wait(timeout=10)
+            for _ in range(25):
+                try:
+                    source_memory.write_json(path, payload)
+                except Exception as e:  # noqa: BLE001 - collected, asserted
+                    failures.append(repr(e))
+
+        threads = [threading.Thread(target=hammer, args=(p,))
+                   for p in payloads]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=60)
+        assert not any(t.is_alive() for t in threads)
+        assert failures == [], f"lanes crashed writing: {failures[:3]}"
+
+        final = json.loads(path.read_text(encoding="utf-8"))
+        assert final in payloads, f"slot holds a mixture: {final!r}"
+        debris = [p for p in path.parent.iterdir() if p.suffix == ".tmp"]
+        assert debris == [], f"temp debris left behind: {debris}"

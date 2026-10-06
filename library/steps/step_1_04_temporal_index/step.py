@@ -3600,7 +3600,19 @@ def build_temporal_index(
     pretranscribed = _pretranscribe_misses(
         items, layout, whisper_model_size, language)
 
-    for i, file_info in enumerate(raw_footage_files):
+    # The per-clip lanes run concurrently on bounded FREE lanes
+    # (`concurrency_routing.run_lanes`): the Fabric's read-only form -
+    # one lane each for speech, sound, motion and faces - on this
+    # machine first. Each lane owns its clip's index file and its
+    # per-digest slots (atomic replace), reads everything else, and
+    # returns its summary row; the assembly below restores input
+    # order, so the sequence is identical to the serial run. The
+    # Project Graph rebuilds once, downstream, when the next
+    # `load_or_build` sees the changed inputs - never once per clip.
+    from library.tools.concurrency_routing import run_lanes
+
+    def _index_one(job):
+        i, file_info = job
         if isinstance(file_info, dict):
             filepath = file_info["path"]
             filename = file_info.get("filename", Path(filepath).name)
@@ -3617,7 +3629,7 @@ def build_temporal_index(
 
         if not os.path.isfile(filepath):
             print(f"  WARNING: file not found, skipping", file=sys.stderr)
-            continue
+            return None, False
 
         # Batch transcription remains the first temporal-index stage. Once
         # it has completed, wait only for this clip's atomic semantic record;
@@ -3644,11 +3656,12 @@ def build_temporal_index(
                 semantic_document = semantic_by_clip.get(clip_id)
 
         index_path = os.path.join(index_dir, f"{clip_id}.json")
+        was_reused = False
 
         try:
             index = _load_cached_index(index_path, expected_language=language)
             if index is not None:
-                reused += 1
+                was_reused = True
                 # A cached document predating dense motion is UPGRADED,
                 # not re-transcribed: the backfill measures only the
                 # flow and rewrites the same file, so old projects gain
@@ -3758,7 +3771,7 @@ def build_temporal_index(
                 sound_event_method = (
                     "unmeasured: predates the event measurement")
             write_sound_memory(index, filepath)
-            results.append({
+            return {
                 "clip_id": clip_id,
                 "index_path": index_path,
                 "scenes": index["scene_boundaries"],
@@ -3794,17 +3807,23 @@ def build_temporal_index(
                 "regional_motion_reason": regional.get("reason"),
                 "regional_motion_spans": compact_regional_motion_analysis(
                     regional),
-            })
+            }, was_reused
 
         except Exception as e:
             print(
                 f"  ERROR: indexing failed for {filename}: {e}",
                 file=sys.stderr,
             )
-            results.append({
+            return {
                 "clip_id": clip_id,
                 "error": str(e),
-            })
+            }, False
+
+    for record, was_reused in run_lanes(
+            _index_one, enumerate(raw_footage_files)):
+        if record is not None:
+            results.append(record)
+        reused += was_reused
 
     return {
         "temporal_event_indices": results,

@@ -881,3 +881,100 @@ def test_write_sound_memory_serializes_the_measured_panns_events(
     assert doc["sound_events"] == index["sound_events"]
     assert doc["method"] == "panns-cnn14"
     assert doc["status"] == "measured"
+
+
+class TestParallelLanesKeepTheSerialContract:
+    """`build_temporal_index` runs its per-clip lanes concurrently.
+    The sequence it returns must be the serial sequence: input order,
+    one row per clip, a failing clip's error record in place, and the
+    reuse count counting cache hits. A lane assembly that collects
+    completion order, drops a clip, or counts reuse on the wrong side
+    of the cache read breaks every downstream consumer's ordering."""
+
+    @staticmethod
+    def _canned_index(clip_id):
+        return {
+            "clip_id": clip_id,
+            "duration": 4.0,
+            "source_file": f"/nonexistent/{clip_id}.mov",
+            "scene_boundaries": [{"time": 0.0, "score": 1.0,
+                                  "type": "start"}],
+            "speech_regions": [],
+            "energy_curve": {"sample_rate_hz": 30, "values": [],
+                             "peak_times": []},
+            "audio_events": [],
+            "motion_energy": {"sample_rate_hz": 30, "values": [],
+                              "peak_mean_abs_diff": 0.0,
+                              "peak_motion_times": [],
+                              "high_motion_times": []},
+            "face_presence": {},
+            "sound_events": [],
+            "sound_event_method": "unmeasured: stubbed",
+        }
+
+    def test_parallel_run_matches_serial_run_row_for_row(
+            self, tmp_path, monkeypatch):
+        from library.steps.step_1_04_temporal_index import step as ti
+        from library.tools.project_layout import ProjectLayout
+
+        project = tmp_path / "project"
+        ProjectLayout(str(project)).ensure()
+        clips = []
+        for name in ("clip_001", "clip_002", "clip_003"):
+            media = tmp_path / f"{name}.mov"
+            media.write_bytes(b"\x00")
+            clips.append({"path": str(media), "filename": f"{name}.mov",
+                          "clip_id": name})
+        catalog = [{"clip_id": c["clip_id"], "path": c["path"],
+                    "duration_seconds": 4.0} for c in clips]
+
+        def fake_cached(index_path, expected_language=None,
+                        require_picture=True):
+            # Clips 001 and 003 hit the cache (counted as reused);
+            # clip_002 misses it and then fails in `index_clip`
+            # below, the way a clip whose media breaks mid-index
+            # fails in production.
+            if "clip_002" in index_path:
+                return None
+            clip_id = os.path.splitext(os.path.basename(index_path))[0]
+            return dict(self._canned_index(clip_id))
+
+        def fake_index_clip(video_path, clip_id, layout,
+                            whisper_model_size="large-v3", language="en",
+                            pretranscribed=None):
+            if clip_id == "clip_002":
+                raise RuntimeError("unreadable media file")
+            return dict(self._canned_index(clip_id))
+
+        monkeypatch.setattr(ti, "_load_cached_index", fake_cached)
+        monkeypatch.setattr(ti, "index_clip", fake_index_clip)
+        monkeypatch.setattr(ti, "motion_backfill_needed", lambda index: False)
+        monkeypatch.setattr(ti, "sound_events_backfill_needed",
+                            lambda index: False)
+        monkeypatch.setattr(ti, "vision_backfill_needed", lambda index: False)
+        # Regional motion arrives through a function-local import inside
+        # `build_temporal_index`, so the stub goes on the owning module.
+        from library.tools import regional_motion
+        monkeypatch.setattr(
+            regional_motion, "build_analysis",
+            lambda *a, **k: {"spans": [], "measurement_status": "stubbed",
+                             "reason": "stub"})
+        monkeypatch.setattr(regional_motion, "compact_analysis",
+                            lambda regional: [])
+        monkeypatch.setattr(ti, "write_sound_memory", lambda *a, **k: None)
+
+        result = ti.build_temporal_index(
+            clips, ProjectLayout(str(project)),
+            semantic_analysis_documents=[],
+            clip_catalog=catalog)
+
+        rows = result["temporal_event_indices"]
+        assert [r["clip_id"] for r in rows] == [
+            "clip_001", "clip_002", "clip_003"]
+        assert "error" not in rows[0]
+        assert rows[1]["error"] == "unreadable media file"
+        assert "error" not in rows[2]
+        assert rows[0]["index_path"].endswith("clip_001.json")
+        assert result["total_indexed"] == 2
+        assert result["total_failed"] == 1
+        assert result["total_reused"] == 2

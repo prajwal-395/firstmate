@@ -35,6 +35,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import tempfile
 import wave
 from pathlib import Path
 from typing import Optional, Tuple
@@ -108,16 +109,31 @@ def load(key: str, root: Optional[Path] = None
 
 def store(key: str, aligned: dict, record: dict, heard: str,
           label: str = "", root: Optional[Path] = None) -> None:
-    """Record one hearing. Atomic, so a killed run never leaves half."""
+    """Record one hearing. Atomic, so a killed run never leaves half.
+
+    The temp name is unique per call (`mkstemp`), not per process:
+    two clips cut from the same samples share one audio key, and the
+    read-only lanes can store them at once - a pid-keyed temp meant
+    one thread's rename moved the shared file away while the other was
+    still writing, so the other's rename raised `FileNotFoundError`.
+    """
     target = store_dir(root)
     target.mkdir(parents=True, exist_ok=True)
     path = target / f"{key}.json"
-    tmp = target / f".{key}.{os.getpid()}.tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump({"version": STORE_VERSION, "pcm_sha256": key,
-                   "heard": heard, "label": label,
-                   "aligned": aligned, "record": record}, fh)
-    os.replace(tmp, path)
+    fd, staged_name = tempfile.mkstemp(
+        dir=str(target), prefix=f".{key}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump({"version": STORE_VERSION, "pcm_sha256": key,
+                       "heard": heard, "label": label,
+                       "aligned": aligned, "record": record}, fh)
+        os.replace(staged_name, path)
+    except BaseException:
+        try:
+            os.unlink(staged_name)
+        except OSError:
+            pass
+        raise
 
 
 def transcribe(wav_path: str, label: str = "",

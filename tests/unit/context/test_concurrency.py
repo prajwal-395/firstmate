@@ -556,3 +556,70 @@ def test_memory_reservation_must_be_outermost_and_ram_only(
                 "not a memory profile", "semantics.analyse:inference",
                 nested_profiles=()):
             pass
+
+
+# ── Bounded FREE lanes: the Fabric's read-only form, one machine ────
+
+def test_lanes_return_input_order_when_late_clips_finish_first():
+    """A lane runner that returns completion order scrambles the clip
+    sequence every downstream consumer reads in order (spine blocks,
+    coverage, the manifest validator's consecutive-V1 assertion)."""
+    from library.tools.concurrency_routing import run_lanes
+
+    def staggered(i):
+        time.sleep(0.05 * (5 - i))  # clip 0 finishes last
+        return i
+
+    assert run_lanes(staggered, range(6)) == [0, 1, 2, 3, 4, 5]
+
+
+def test_lanes_match_the_serial_sequence_exactly():
+    """The parallel run is identical to the serial run: same items,
+    same order, same per-item values - including a failing clip's
+    error record, which the caller returns rather than raises."""
+    from library.tools.concurrency_routing import run_lanes
+
+    def work(item):
+        if item == "clip_002":
+            return {"clip_id": item, "error": "boom"}
+        time.sleep(0.01)
+        return {"clip_id": item, "ok": True}
+
+    items = ["clip_001", "clip_002", "clip_003"]
+    assert run_lanes(work, items) == [work(i) for i in items]
+
+
+def test_lane_width_is_the_machines_measured_cores(monkeypatch):
+    """The bound comes from the machine, not from a number in the
+    routing table: a two-core Mac and a sixteen-core Studio answer
+    differently because they ARE different. A hardcoded width here
+    would starve one and oversubscribe the other."""
+    import os
+    from library.tools.concurrency_routing import lane_width
+
+    monkeypatch.setattr(os, "cpu_count", lambda: 3)
+    assert lane_width() == 3
+    monkeypatch.setattr(os, "cpu_count", lambda: 16)
+    assert lane_width() == 16
+    monkeypatch.setattr(os, "cpu_count", lambda: None)
+    assert lane_width() == 1
+
+
+def test_a_raise_inside_a_lane_aborts_the_batch():
+    """`fn` owns its per-item failures: a raise is the batch failing,
+    not one clip's error record. Callers that must survive a bad clip
+    (the temporal index) catch inside `fn`, exactly as their serial
+    loop did."""
+    from library.tools.concurrency_routing import run_lanes
+
+    def bad(i):
+        raise RuntimeError(f"clip {i} failed")
+
+    with pytest.raises(RuntimeError, match="clip 0 failed"):
+        run_lanes(bad, range(3))
+
+
+def test_no_items_means_no_work():
+    from library.tools.concurrency_routing import run_lanes
+
+    assert run_lanes(lambda i: i, []) == []

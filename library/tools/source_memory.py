@@ -116,6 +116,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import wave
 from pathlib import Path
@@ -575,12 +576,28 @@ def build_untranscribed_document(content_digest: str, source_file: str,
 
 def write_json(path: Path, payload: dict) -> None:
     """Atomic write: temp file plus rename, so a killed build never
-    leaves a half-written slot that reads as fresh."""
+    leaves a half-written slot that reads as fresh.
+
+    The temp name is unique per call (`mkstemp`), not per process:
+    two clips cut from one camera file share a digest slot, and the
+    read-only lanes index them at once - a pid-keyed temp meant one
+    thread's rename moved the shared file away while the other was
+    still writing, so the other's rename raised `FileNotFoundError`
+    (measured: 95 failures in 200 same-slot writes across 8 threads).
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.parent / f".{path.name}.{os.getpid()}.tmp"
-    with open(tmp, "w", encoding="utf-8") as handle:
-        json.dump(payload, handle, indent=1)
-    os.replace(tmp, path)
+    fd, staged_name = tempfile.mkstemp(
+        dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=1)
+        os.replace(staged_name, path)
+    except BaseException:
+        try:
+            os.unlink(staged_name)
+        except OSError:
+            pass
+        raise
 
 
 def read_m0(content_digest: str,

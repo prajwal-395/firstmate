@@ -64,7 +64,7 @@ among several.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Optional, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Tuple, TypeVar
 
 RESOLVE_CURSOR = "resolve_cursor"
 RESOLVE_READ = "resolve_read"
@@ -305,6 +305,63 @@ def may_run_together(first: str, second: str) -> bool:
     if b.is_exclusive() and a.takes_lease():
         return False
     return True
+
+
+# ── Bounded FREE lanes: read-only parallelism on this machine ────
+#
+# `FREE` above says a lane runs beside anything - unbounded. Across
+# clips that is the Ren Fabric read-only form ("worker 1 vision,
+# worker 2 motion ... nobody is mutating Resolve ... embarrassingly
+# parallel"), but unbounded threads on a large project are a fork bomb
+# wearing a table entry. So the bound is the machine's own measured
+# capacity, not a number in this file: `resource_scheduler.capacity()`
+# reads live `os.cpu_count()`, and one lane per core is what this
+# machine has, on this machine, now. A lane holds one clip's
+# interpreter work while its ffmpeg/model subprocesses run beside it.
+# The import stays inside the function: the scheduler reads
+# capability phases, which read this table's classes, so a top-level
+# import would cycle.
+#
+# `tests/unit/context/test_concurrency.py`.
+
+T = TypeVar("T")
+R = TypeVar("R")
+
+
+def lane_width() -> int:
+    """How many FREE lanes may run at once on this machine.
+
+    The measured core count (`resource_scheduler.capacity()["cpu"]`,
+    live `os.cpu_count()`), never below one. No constant in this
+    module names a machine: a two-core Mac and a sixteen-core Studio
+    answer differently because they ARE different.
+    """
+    from library.tools import resource_scheduler
+
+    return max(1, int(resource_scheduler.capacity()["cpu"]))
+
+
+def run_lanes(fn: Callable[[T], R], items: Iterable[T]) -> List[R]:
+    """Run `fn` over `items` on bounded FREE lanes, in input order.
+
+    Read-only work only: `fn` must neither take the Resolve lease nor
+    write a shared file (per-clip/per-digest files with atomic
+    replace are the shape that qualifies - each lane owns its
+    target). Results come back in the order `items` arrived, so a
+    caller that ran its loop serially yesterday gets the identical
+    sequence today. `fn` owns its per-item failures: a raise aborts
+    the batch with the first error, so a caller that must survive a
+    bad clip catches inside `fn` and returns its own error record,
+    exactly as its serial loop did.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    jobs = list(items)
+    if not jobs:
+        return []
+    with ThreadPoolExecutor(max_workers=lane_width(),
+                            thread_name_prefix="free-lane") as pool:
+        return list(pool.map(fn, jobs))
 
 
 def describe() -> str:
