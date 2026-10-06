@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MlWorkerProgress",
+  "description": "A progress event on a running request. The worker emits these on\nthe same channel as responses; a client that does not care can\nignore them.",
+  "type": "object",
+  "properties": {
+    "fraction": {
+      "description": "Fraction complete in 0.0..=1.0. A capability that cannot\nreport progress omits the field.",
+      "type": [
+        "number",
+        "null"
+      ],
+      "format": "double",
+      "default": null
+    },
+    "message": {
+      "description": "A human-readable status message.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null
+    },
+    "phase": {
+      "description": "The phase name, chosen by the capability (e.g. \"load_model\",\n\"encode\").",
+      "type": "string"
+    },
+    "request_id": {
+      "description": "The id of the request this progress is for.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "request_id",
+    "phase"
+  ]
+}

@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MlWorkerResponse",
+  "description": "One response to a request. Exactly one of payload, refusal or\nerror is set, matching the status.",
+  "type": "object",
+  "properties": {
+    "error": {
+      "description": "The typed error. Some when status is Error.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MlWorkerError"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "payload": {
+      "description": "The capability-specific output payload. Some when status is\nOk.",
+      "default": null
+    },
+    "refusal": {
+      "description": "The typed refusal. Some when status is Refused.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MlWorkerRefusal"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "request_id": {
+      "description": "The id of the request this responds to.",
+      "type": "string"
+    },
+    "status": {
+      "description": "The outcome.",
+      "$ref": "#/$defs/MlWorkerStatus"
+    }
+  },
+  "required": [
+    "request_id",
+    "status"
+  ],
+  "$defs": {
+    "MlWorkerError": {
+      "description": "A typed error: the worker ran the capability and it raised. The\nworker itself is still alive and can answer the next request.",
+      "type": "object",
+      "properties": {
+        "code": {
+          "description": "Stable machine-readable code.",
+          "type": "string"
+        },
+        "detail": {
+          "description": "The detail: the exception type and message, or the worker's\nown description of what went wrong.",
+          "type": "string"
+        },
+        "what": {
+          "description": "What happened.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "what",
+        "detail"
+      ]
+    },
+    "MlWorkerRefusal": {
+      "description": "A typed refusal: the worker will not run this request. A refusal\nis not a failure - nothing ran, nothing is half-written, and the\nnext step is known.",
+      "type": "object",
+      "properties": {
+        "code": {
+          "description": "Stable machine-readable code, keyed off by the support bundle\nand structured logs instead of parsing prose.",
+          "type": "string"
+        },
+        "fix": {
+          "description": "The exact next command or edit.",
+          "type": "string"
+        },
+        "what": {
+          "description": "What happened.",
+          "type": "string"
+        },
+        "why": {
+          "description": "Why it refused.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "what",
+        "why",
+        "fix"
+      ]
+    },
+    "MlWorkerStatus": {
+      "description": "The response's status. Every request gets exactly one response;\na refusal is a response with status Refused, not a hang or a\ncrash.",
+      "oneOf": [
+        {
+          "description": "The capability ran and produced a payload.",
+          "type": "string",
+          "const": "ok"
+        },
+        {
+          "description": "The worker refused the request: nothing ran, nothing is\nhalf-written, and the refusal says why and what to do instead.",
+          "type": "string",
+          "const": "refused"
+        },
+        {
+          "description": "The worker ran the capability and it raised. The error is\ntyped; the worker itself is still alive and can answer the\nnext request.",
+          "type": "string",
+          "const": "error"
+        }
+      ]
+    }
+  }
+}

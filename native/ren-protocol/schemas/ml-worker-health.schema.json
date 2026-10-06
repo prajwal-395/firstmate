@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MlWorkerHealth",
+  "description": "A health check request. The worker answers immediately with a\nhealth report, never a queue wait.",
+  "type": "object",
+  "properties": {
+    "request_id": {
+      "description": "The request's unique id, like any other request.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "request_id"
+  ]
+}

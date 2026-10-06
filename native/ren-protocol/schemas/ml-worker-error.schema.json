@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MlWorkerError",
+  "description": "A typed error: the worker ran the capability and it raised. The\nworker itself is still alive and can answer the next request.",
+  "type": "object",
+  "properties": {
+    "code": {
+      "description": "Stable machine-readable code.",
+      "type": "string"
+    },
+    "detail": {
+      "description": "The detail: the exception type and message, or the worker's\nown description of what went wrong.",
+      "type": "string"
+    },
+    "what": {
+      "description": "What happened.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "code",
+    "what",
+    "detail"
+  ]
+}

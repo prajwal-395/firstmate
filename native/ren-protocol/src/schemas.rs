@@ -18,6 +18,10 @@ use crate::capability::{
 use crate::edit::{Condition, EditOp, EditPatch, Inverse, Operation};
 use crate::ids::{ClipId, Generation, SnapshotHash, TimelineId};
 use crate::job::{JobKind, JobMode, JobPriority, JobShape, JobSubmission};
+use crate::ml_worker::{
+    MlWorkerCancel, MlWorkerError, MlWorkerHealth, MlWorkerHealthReport, MlWorkerMessage,
+    MlWorkerProgress, MlWorkerRefusal, MlWorkerRequest, MlWorkerResponse, MlWorkerStatus,
+};
 use crate::receipt::{
     GenerationRecord, JudgedOperation, Receipt, ReceiptStatus, Refusal, StoppedOperation,
 };
@@ -91,6 +95,20 @@ pub fn all_schemas() -> Vec<NamedSchema> {
         named("job-priority", "JobPriority", schema_for!(JobPriority)),
         named("job-submission", "JobSubmission", schema_for!(JobSubmission)),
         named("job-shape", "JobShape", schema_for!(JobShape)),
+        named("ml-worker-message", "MlWorkerMessage", schema_for!(MlWorkerMessage)),
+        named("ml-worker-request", "MlWorkerRequest", schema_for!(MlWorkerRequest)),
+        named("ml-worker-response", "MlWorkerResponse", schema_for!(MlWorkerResponse)),
+        named("ml-worker-status", "MlWorkerStatus", schema_for!(MlWorkerStatus)),
+        named("ml-worker-refusal", "MlWorkerRefusal", schema_for!(MlWorkerRefusal)),
+        named("ml-worker-error", "MlWorkerError", schema_for!(MlWorkerError)),
+        named("ml-worker-progress", "MlWorkerProgress", schema_for!(MlWorkerProgress)),
+        named("ml-worker-cancel", "MlWorkerCancel", schema_for!(MlWorkerCancel)),
+        named("ml-worker-health", "MlWorkerHealth", schema_for!(MlWorkerHealth)),
+        named(
+            "ml-worker-health-report",
+            "MlWorkerHealthReport",
+            schema_for!(MlWorkerHealthReport),
+        ),
     ]
 }
 

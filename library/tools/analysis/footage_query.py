@@ -185,12 +185,14 @@ def index_dir_for(project_folder) -> Path:
 # ─── Embedding ────────────────────────────────────────────────────
 
 
-def _load_embedder():
+def load_embedder():
     """Return ``(encode_fn, backend_name)`` or ``(None, reason)``.
 
     Tries `sentence-transformers` first so the precedent's exact code path
     is used where it exists, then plain `transformers` with mean pooling
     over the same checkpoint, which produces the same vectors.
+
+    Shared by footage search and the ML worker so the two never drift.
     """
     first_failure = ""
     try:
@@ -403,7 +405,7 @@ def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=Fal
     segments = build_segments(project_folder, kinds=kinds)
     segment_seconds = time.perf_counter() - t0
 
-    encode, backend = _load_embedder()
+    encode, backend = load_embedder()
     embed_seconds, dimension = 0.0, 0
     if encode is not None and segments:
         t0 = time.perf_counter()
@@ -524,7 +526,7 @@ class FootageIndex:
 
     def _encode_query(self, query: str):
         if self._embedder is None:
-            self._embedder, self._embed_backend = _load_embedder()
+            self._embedder, self._embed_backend = load_embedder()
         if self._embedder is None:
             return None
         return self._embedder([query])[0]
@@ -540,7 +542,7 @@ class FootageIndex:
         thing to hide behind lexical results.
         """
         if self._embedder is None:
-            self._embedder, self._embed_backend = _load_embedder()
+            self._embedder, self._embed_backend = load_embedder()
         return {"ready": self._embedder is not None,
                 "backend": self._embed_backend or "not loaded"}
 

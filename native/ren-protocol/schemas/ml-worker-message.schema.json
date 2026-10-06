@@ -1,0 +1,347 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MlWorkerMessage",
+  "description": "The message kinds the stdio protocol speaks. Every message carries\na `message` tag; this enum is the typed view of that tag.",
+  "oneOf": [
+    {
+      "description": "A request to run one capability.",
+      "type": "object",
+      "properties": {
+        "message": {
+          "type": "string",
+          "const": "request"
+        }
+      },
+      "$ref": "#/$defs/MlWorkerRequest",
+      "required": [
+        "message"
+      ]
+    },
+    {
+      "description": "The worker's answer to a request.",
+      "type": "object",
+      "properties": {
+        "message": {
+          "type": "string",
+          "const": "response"
+        }
+      },
+      "$ref": "#/$defs/MlWorkerResponse",
+      "required": [
+        "message"
+      ]
+    },
+    {
+      "description": "A progress event on a running request.",
+      "type": "object",
+      "properties": {
+        "message": {
+          "type": "string",
+          "const": "progress"
+        }
+      },
+      "$ref": "#/$defs/MlWorkerProgress",
+      "required": [
+        "message"
+      ]
+    },
+    {
+      "description": "A cancellation request for a running request.",
+      "type": "object",
+      "properties": {
+        "message": {
+          "type": "string",
+          "const": "cancel"
+        }
+      },
+      "$ref": "#/$defs/MlWorkerCancel",
+      "required": [
+        "message"
+      ]
+    },
+    {
+      "description": "A health check request.",
+      "type": "object",
+      "properties": {
+        "message": {
+          "type": "string",
+          "const": "health"
+        }
+      },
+      "$ref": "#/$defs/MlWorkerHealth",
+      "required": [
+        "message"
+      ]
+    },
+    {
+      "description": "The worker's health report.",
+      "type": "object",
+      "properties": {
+        "message": {
+          "type": "string",
+          "const": "health_report"
+        }
+      },
+      "$ref": "#/$defs/MlWorkerHealthReport",
+      "required": [
+        "message"
+      ]
+    }
+  ],
+  "$defs": {
+    "CapabilityId": {
+      "description": "A capability's stable id (`speech.enrich`, `spine.mesh`). The registry\nrefuses an empty id, one with spaces, or a duplicate\n(`capabilities.problems`).",
+      "type": "string"
+    },
+    "MlWorkerCancel": {
+      "description": "A cancellation request for a running request. Cooperative: the\nworker checks between batches and stops early. A cancel for an\nunknown or already-finished request id is answered with a\ntyped refusal, never a hang.",
+      "type": "object",
+      "properties": {
+        "request_id": {
+          "description": "The id of the request to cancel.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id"
+      ]
+    },
+    "MlWorkerError": {
+      "description": "A typed error: the worker ran the capability and it raised. The\nworker itself is still alive and can answer the next request.",
+      "type": "object",
+      "properties": {
+        "code": {
+          "description": "Stable machine-readable code.",
+          "type": "string"
+        },
+        "detail": {
+          "description": "The detail: the exception type and message, or the worker's\nown description of what went wrong.",
+          "type": "string"
+        },
+        "what": {
+          "description": "What happened.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "what",
+        "detail"
+      ]
+    },
+    "MlWorkerHealth": {
+      "description": "A health check request. The worker answers immediately with a\nhealth report, never a queue wait.",
+      "type": "object",
+      "properties": {
+        "request_id": {
+          "description": "The request's unique id, like any other request.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id"
+      ]
+    },
+    "MlWorkerHealthReport": {
+      "description": "The worker's health report.",
+      "type": "object",
+      "properties": {
+        "model": {
+          "description": "The model the worker serves, when it serves one.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "model_loaded": {
+          "description": "Whether the model is loaded into memory.",
+          "type": "boolean",
+          "default": false
+        },
+        "ready": {
+          "description": "Whether the worker is ready to accept requests.",
+          "type": "boolean"
+        },
+        "request_id": {
+          "description": "The id of the health request this reports for.",
+          "type": "string"
+        },
+        "uptime_seconds": {
+          "description": "Seconds since the worker process started.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double",
+          "default": null
+        }
+      },
+      "required": [
+        "request_id",
+        "ready"
+      ]
+    },
+    "MlWorkerProgress": {
+      "description": "A progress event on a running request. The worker emits these on\nthe same channel as responses; a client that does not care can\nignore them.",
+      "type": "object",
+      "properties": {
+        "fraction": {
+          "description": "Fraction complete in 0.0..=1.0. A capability that cannot\nreport progress omits the field.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double",
+          "default": null
+        },
+        "message": {
+          "description": "A human-readable status message.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "phase": {
+          "description": "The phase name, chosen by the capability (e.g. \"load_model\",\n\"encode\").",
+          "type": "string"
+        },
+        "request_id": {
+          "description": "The id of the request this progress is for.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id",
+        "phase"
+      ]
+    },
+    "MlWorkerRefusal": {
+      "description": "A typed refusal: the worker will not run this request. A refusal\nis not a failure - nothing ran, nothing is half-written, and the\nnext step is known.",
+      "type": "object",
+      "properties": {
+        "code": {
+          "description": "Stable machine-readable code, keyed off by the support bundle\nand structured logs instead of parsing prose.",
+          "type": "string"
+        },
+        "fix": {
+          "description": "The exact next command or edit.",
+          "type": "string"
+        },
+        "what": {
+          "description": "What happened.",
+          "type": "string"
+        },
+        "why": {
+          "description": "Why it refused.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "what",
+        "why",
+        "fix"
+      ]
+    },
+    "MlWorkerRequest": {
+      "description": "One request to run a capability. The payload is capability-specific\nJSON; the schema for each capability's payload is a separate\ngenerated schema.",
+      "type": "object",
+      "properties": {
+        "capability_id": {
+          "description": "The capability to run. The worker refuses an unknown id with\na typed refusal.",
+          "$ref": "#/$defs/CapabilityId"
+        },
+        "deadline_ms": {
+          "description": "Optional deadline in milliseconds from now. The worker refuses\na request that cannot meet the deadline with a typed refusal.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "default": null,
+          "minimum": 0
+        },
+        "payload": {
+          "description": "The capability-specific input payload."
+        },
+        "request_id": {
+          "description": "The request's unique id, chosen by the client. Correlates\nresponses and progress events to this request.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id",
+        "capability_id",
+        "payload"
+      ]
+    },
+    "MlWorkerResponse": {
+      "description": "One response to a request. Exactly one of payload, refusal or\nerror is set, matching the status.",
+      "type": "object",
+      "properties": {
+        "error": {
+          "description": "The typed error. Some when status is Error.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MlWorkerError"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "payload": {
+          "description": "The capability-specific output payload. Some when status is\nOk.",
+          "default": null
+        },
+        "refusal": {
+          "description": "The typed refusal. Some when status is Refused.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MlWorkerRefusal"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "request_id": {
+          "description": "The id of the request this responds to.",
+          "type": "string"
+        },
+        "status": {
+          "description": "The outcome.",
+          "$ref": "#/$defs/MlWorkerStatus"
+        }
+      },
+      "required": [
+        "request_id",
+        "status"
+      ]
+    },
+    "MlWorkerStatus": {
+      "description": "The response's status. Every request gets exactly one response;\na refusal is a response with status Refused, not a hang or a\ncrash.",
+      "oneOf": [
+        {
+          "description": "The capability ran and produced a payload.",
+          "type": "string",
+          "const": "ok"
+        },
+        {
+          "description": "The worker refused the request: nothing ran, nothing is\nhalf-written, and the refusal says why and what to do instead.",
+          "type": "string",
+          "const": "refused"
+        },
+        {
+          "description": "The worker ran the capability and it raised. The error is\ntyped; the worker itself is still alive and can answer the\nnext request.",
+          "type": "string",
+          "const": "error"
+        }
+      ]
+    }
+  }
+}

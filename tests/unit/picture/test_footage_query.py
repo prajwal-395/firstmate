@@ -184,7 +184,7 @@ def offline_index(project, tmp_path, monkeypatch):
             return np.vstack(rows) if rows else np.zeros((0, 26), dtype="float32")
         return encode, "test-stub"
 
-    monkeypatch.setattr(footage_query, "_load_embedder", fake_loader)
+    monkeypatch.setattr(footage_query, "load_embedder", fake_loader)
     index_dir = tmp_path / "index"
     stats = build_index(project, index_dir=index_dir)
     return FootageIndex(project, index_dir=index_dir), stats
@@ -321,7 +321,7 @@ def test_lexical_search_works_with_no_embedder_at_all(project, tmp_path, monkeyp
     installed in the environment this was built in, so "the embedder is
     missing" is the normal case, not the exotic one.
     """
-    monkeypatch.setattr(footage_query, "_load_embedder", lambda: (None, "none"))
+    monkeypatch.setattr(footage_query, "load_embedder", lambda: (None, "none"))
     before = sorted(p.relative_to(project) for p in project.rglob("*") if p.is_file())
     index_dir = tmp_path / "nodense"
     build_index(project, index_dir=index_dir)
@@ -509,7 +509,7 @@ def offline_index_2(project_2, tmp_path, monkeypatch):
             return np.vstack(rows) if rows else np.zeros((0, 26), dtype="float32")
         return encode, "test-stub"
 
-    monkeypatch.setattr(footage_query, "_load_embedder", fake_loader)
+    monkeypatch.setattr(footage_query, "load_embedder", fake_loader)
     index_dir = tmp_path / "index"
     build_index(root, index_dir=index_dir)
     return FootageIndex(root, index_dir=index_dir), digest_1, digest_2
@@ -605,7 +605,7 @@ def sound_index(project_2, memory_root, tmp_path, monkeypatch):
             return np.vstack(rows) if rows else np.zeros((0, 26), dtype="float32")
         return encode, "test-stub"
 
-    monkeypatch.setattr(footage_query, "_load_embedder", fake_loader)
+    monkeypatch.setattr(footage_query, "load_embedder", fake_loader)
     index_dir = tmp_path / "index"
     build_index(root, index_dir=index_dir)
     return FootageIndex(root, index_dir=index_dir)
@@ -731,7 +731,7 @@ def ocr_index(project_2, tmp_path, monkeypatch):
             return np.vstack(rows) if rows else np.zeros((0, 26), dtype="float32")
         return encode, "test-stub"
 
-    monkeypatch.setattr(footage_query, "_load_embedder", fake_loader)
+    monkeypatch.setattr(footage_query, "load_embedder", fake_loader)
     index_dir = tmp_path / "index"
     build_index(root, index_dir=index_dir)
     return FootageIndex(root, index_dir=index_dir)

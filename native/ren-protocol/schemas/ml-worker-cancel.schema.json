@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MlWorkerCancel",
+  "description": "A cancellation request for a running request. Cooperative: the\nworker checks between batches and stops early. A cancel for an\nunknown or already-finished request id is answered with a\ntyped refusal, never a hang.",
+  "type": "object",
+  "properties": {
+    "request_id": {
+      "description": "The id of the request to cancel.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "request_id"
+  ]
+}

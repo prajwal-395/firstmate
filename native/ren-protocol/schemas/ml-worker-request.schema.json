@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MlWorkerRequest",
+  "description": "One request to run a capability. The payload is capability-specific\nJSON; the schema for each capability's payload is a separate\ngenerated schema.",
+  "type": "object",
+  "properties": {
+    "capability_id": {
+      "description": "The capability to run. The worker refuses an unknown id with\na typed refusal.",
+      "$ref": "#/$defs/CapabilityId"
+    },
+    "deadline_ms": {
+      "description": "Optional deadline in milliseconds from now. The worker refuses\na request that cannot meet the deadline with a typed refusal.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint64",
+      "default": null,
+      "minimum": 0
+    },
+    "payload": {
+      "description": "The capability-specific input payload."
+    },
+    "request_id": {
+      "description": "The request's unique id, chosen by the client. Correlates\nresponses and progress events to this request.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "request_id",
+    "capability_id",
+    "payload"
+  ],
+  "$defs": {
+    "CapabilityId": {
+      "description": "A capability's stable id (`speech.enrich`, `spine.mesh`). The registry\nrefuses an empty id, one with spaces, or a duplicate\n(`capabilities.problems`).",
+      "type": "string"
+    }
+  }
+}

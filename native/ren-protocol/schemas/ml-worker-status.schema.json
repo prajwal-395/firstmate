@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MlWorkerStatus",
+  "description": "The response's status. Every request gets exactly one response;\na refusal is a response with status Refused, not a hang or a\ncrash.",
+  "oneOf": [
+    {
+      "description": "The capability ran and produced a payload.",
+      "type": "string",
+      "const": "ok"
+    },
+    {
+      "description": "The worker refused the request: nothing ran, nothing is\nhalf-written, and the refusal says why and what to do instead.",
+      "type": "string",
+      "const": "refused"
+    },
+    {
+      "description": "The worker ran the capability and it raised. The error is\ntyped; the worker itself is still alive and can answer the\nnext request.",
+      "type": "string",
+      "const": "error"
+    }
+  ]
+}

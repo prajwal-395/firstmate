@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MlWorkerHealthReport",
+  "description": "The worker's health report.",
+  "type": "object",
+  "properties": {
+    "model": {
+      "description": "The model the worker serves, when it serves one.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null
+    },
+    "model_loaded": {
+      "description": "Whether the model is loaded into memory.",
+      "type": "boolean",
+      "default": false
+    },
+    "ready": {
+      "description": "Whether the worker is ready to accept requests.",
+      "type": "boolean"
+    },
+    "request_id": {
+      "description": "The id of the health request this reports for.",
+      "type": "string"
+    },
+    "uptime_seconds": {
+      "description": "Seconds since the worker process started.",
+      "type": [
+        "number",
+        "null"
+      ],
+      "format": "double",
+      "default": null
+    }
+  },
+  "required": [
+    "request_id",
+    "ready"
+  ]
+}

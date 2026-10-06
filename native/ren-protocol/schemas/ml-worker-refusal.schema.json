@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MlWorkerRefusal",
+  "description": "A typed refusal: the worker will not run this request. A refusal\nis not a failure - nothing ran, nothing is half-written, and the\nnext step is known.",
+  "type": "object",
+  "properties": {
+    "code": {
+      "description": "Stable machine-readable code, keyed off by the support bundle\nand structured logs instead of parsing prose.",
+      "type": "string"
+    },
+    "fix": {
+      "description": "The exact next command or edit.",
+      "type": "string"
+    },
+    "what": {
+      "description": "What happened.",
+      "type": "string"
+    },
+    "why": {
+      "description": "Why it refused.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "code",
+    "what",
+    "why",
+    "fix"
+  ]
+}

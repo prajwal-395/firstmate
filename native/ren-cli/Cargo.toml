@@ -15,7 +15,12 @@ publish = false
 name = "ren"
 path = "src/main.rs"
 
+[[bin]]
+name = "ml-worker-client"
+path = "src/bin/ml_worker_client.rs"
+
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
+ren-protocol = { path = "../ren-protocol" }

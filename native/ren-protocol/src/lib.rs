@@ -14,6 +14,7 @@ pub mod capability;
 pub mod edit;
 pub mod ids;
 pub mod job;
+pub mod ml_worker;
 pub mod receipt;
 pub mod resource;
 pub mod scope;
@@ -28,6 +29,10 @@ pub use capability::{
 pub use edit::{Condition, EditOp, EditPatch, Inverse, Operation};
 pub use ids::{ClipId, Generation, SnapshotHash, TimelineId};
 pub use job::{JobKind, JobMode, JobPriority, JobShape, JobSubmission};
+pub use ml_worker::{
+    MlWorkerCancel, MlWorkerError, MlWorkerHealth, MlWorkerHealthReport, MlWorkerMessage,
+    MlWorkerProgress, MlWorkerRefusal, MlWorkerRequest, MlWorkerResponse, MlWorkerStatus,
+};
 pub use receipt::{
     GenerationRecord, JudgedOperation, Receipt, ReceiptStatus, Refusal, StoppedOperation,
 };
