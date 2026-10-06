@@ -45,6 +45,16 @@ TMP_ROOT=$(fm_test_tmproot fm-backend-tests)
 SPAWN_HOME="$TMP_ROOT/user-home"
 mkdir -p "$SPAWN_HOME"
 
+# Every spawn case below drives fm-spawn.sh with FM_ROOT_OVERRIDE=$ROOT and no
+# FM_HOME, so the checkout itself is the root home whose state/ anchors the
+# shared Treehouse project lock.
+# That directory is gitignored, so a fresh checkout (notably CI) has none and
+# the lock resolver refuses the unformed home before spawn reaches any of the
+# behavior under test.
+# Form the checkout-as-home here so the spawn cases exercise spawn behavior
+# instead of that refusal.
+mkdir -p "$ROOT/state"
+
 write_spawn_brief() {  # <file> <id>
   cat > "$1" <<EOF
 # Task
