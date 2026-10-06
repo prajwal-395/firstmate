@@ -81,6 +81,8 @@ NEEDS: dict = {n.id: n for n in (
     Need("config.music_library", "PIPELINE_MUSIC_LIBRARY names a library"),
     Need("chat_harness", "a chat harness signed in with a subscription, "
          "to answer the model's half"),
+    Need("shadow_watcher", "the timeline shadow watcher is running and "
+         "recording hand edits"),
 )}
 
 MEMORY_MINIMUM_GB = 16

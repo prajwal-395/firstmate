@@ -78,6 +78,7 @@ class Broker:
         self._cursor = ("", "")
         self._executor_queue: list = []
         self._stopping = False
+        self._resolve_lock = threading.Lock()
         self._threads = [
             threading.Thread(target=self._schedule_loop, daemon=True,
                              name="ren-resolved-scheduler"),
@@ -153,7 +154,7 @@ class Broker:
         with self._cond:
             while True:
                 job = self.store.get(job_id)
-                if job is None or job["state"] in TERMINAL:
+                if job is None or job["state"] in TERMINAL or self._stopping:
                     return job
                 remaining = deadline - time.time()
                 if remaining <= 0:
@@ -284,9 +285,10 @@ class Broker:
             return "failed", None, f"{type(exc).__name__}: {exc}"
 
     def _resolve_handle(self):
-        if self._resolve is None:
-            self._resolve = self._connect()
-        return self._resolve
+        with self._resolve_lock:
+            if self._resolve is None:
+                self._resolve = self._connect()
+            return self._resolve
 
 
 def _default_connect():
@@ -406,12 +408,58 @@ def serve(path: Optional[Path] = None, connect=None) -> None:
     server = _Server(str(path), _Handler)
     server.broker = broker
     os.chmod(path, 0o600)
+
+    # The shadow watcher lives inside the broker: it starts when the
+    # broker starts, stops when the broker stops, and follows whatever
+    # project is open. No one runs a command to start it.
+    from library.tools import shadow_watcher
+    from library.tools.resolve_lock import resolve_lease
+    from library.tools.resolved import jobs as broker_jobs
+
+    def project_name():
+        # A read of Resolve, so under a shared instance lease like the
+        # watchdog's probe: without one the handshake is refused, and a
+        # handle another job opened would be read outside any lease.
+        try:
+            with resolve_lease("shadow watcher: open project",
+                               exclusive=False, honor_captain=False,
+                               timeout=10.0):
+                return broker_jobs.open_project_name(broker._resolve_handle())
+        except Exception:
+            return None
+
+    def project_folder(name):
+        if not name:
+            return ""
+        # The project's absolute root - where its project.yaml was found -
+        # because the watcher files hand edits under it.
+        from library.tools.project_registry import (load_project_config,
+                                                    project_config_paths)
+        for yaml_path in project_config_paths():
+            try:
+                config = load_project_config(yaml_path, migrate_format=False)
+            except (ValueError, FileNotFoundError):
+                continue
+            if config.resolve.project_name == name:
+                return str(yaml_path.parent.absolute())
+        return ""
+
+    # Jobs go straight onto this broker's queue, never through the socket
+    # client: its `ensure` would start a broker from inside this one.
+    watcher = shadow_watcher.ShadowWatcher(
+        submit=lambda kind, params, owner="": broker.submit(
+            kind, params, owner=owner),
+        result=broker.result)
+    if shadow_watcher.hosting_enabled():
+        watcher.start(project_name, project_folder)
+
     try:
         # A short poll interval: `shutdown` is answered at once, but the
         # serve loop notices on its next tick - and a client that was
         # asked to stop should be gone by the time `stop` returns.
         server.serve_forever(poll_interval=0.05)
     finally:
+        watcher.stop()
         watchdog.stop()
         broker.stop()
         server.server_close()

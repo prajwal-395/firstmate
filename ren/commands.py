@@ -152,9 +152,9 @@ VERBS = (
          detail="log, show, clips, markers or diff a timeline's recorded generations (the shadow store). Never reads Resolve"),
     Verb("resolved", "Resolve", "Run or ask the broker that schedules the one Resolve (serve|ensure|status|list|submit|result|stop|kpi)",
           module_argv=("library.tools.resolved",)),
-    Verb("shadow-watch", "Resolve", "Watch a project's reels for hand edits on a schedule (opt-in)",
+    Verb("shadow-watch", "Resolve", "Watch a project's reels for hand edits on a schedule (standalone; the broker hosts it)",
           module_argv=("library.tools.shadow_watcher",),
-          detail="Observe every reel in the open project at a slow cadence, recording observed generations and setting a soft captain-may-be-editing flag. Uses the broker's lowest priority. Opt-in: never starts automatically."),
+          detail="Observe every reel in the open project at a slow cadence, recording observed generations and setting a soft captain-may-be-editing flag. Uses the broker's lowest priority. Hosted by the broker: starts and stops with it, follows the open project."),
     Verb("qualification", "Resolve", "Build the Ren Qualification project live tests use, or qualify the broker on it (media|reset|qualify)",
          module_argv=("library.tools.qualification_project",)),
 

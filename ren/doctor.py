@@ -40,6 +40,7 @@ import shutil
 import subprocess
 import sys
 import textwrap
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -826,6 +827,58 @@ def edition_check() -> Check:
     return Check("Ren edition", True, detail)
 
 
+def shadow_watcher_check() -> Check:
+    """Report the shadow watcher's state: alive, running but not recording,
+    or dead.
+
+    The watcher is hosted by the broker - it starts when the broker
+    starts and stops when the broker stops. It writes a heartbeat only
+    after a successful observation; a stale heartbeat means ticks are
+    failing (broker gone, Resolve closed). A dead watcher means captain
+    edits and stray changes go unrecorded.
+    """
+    from library.tools import shadow_watcher
+    heartbeat = shadow_watcher.read_heartbeat()
+    if heartbeat is not None:
+        if not heartbeat.get("project_folder"):
+            detail = (f"watching '{heartbeat['project']}' - not a Ren project, "
+                      f"nothing recorded")
+            return Check("shadow watcher", False, detail,
+                         "open a Ren project", need="shadow_watcher")
+        detail = (f"alive (pid {heartbeat['pid']} watching "
+                  f"{heartbeat['project'] or 'unknown'} at "
+                  f"{heartbeat['project_folder']}, "
+                  f"every {heartbeat['cadence']:.0f}s)")
+        return Check("shadow watcher", True, detail, need="shadow_watcher")
+
+    try:
+        heartbeat_path = shadow_watcher.heartbeat_path()
+        if heartbeat_path.exists():
+            record = json.loads(heartbeat_path.read_text(encoding="utf-8"))
+            since = float(record.get("since", 0) or 0)
+            pid = int(record.get("pid", 0) or 0)
+            project = str(record.get("project", ""))
+            age = time.time() - since if since else 0
+            detail = (f"running but not recording - last successful "
+                      f"observation {age:.0f}s ago (pid {pid} was watching "
+                      f"{project or 'unknown'}); captain edits go unrecorded")
+            return Check("shadow watcher", False, detail,
+                         "check the broker and Resolve",
+                         need="shadow_watcher")
+    except (OSError, ValueError, TypeError):
+        pass
+
+    from library.tools.resolved import client
+    if client.ping() is not None:
+        return Check("shadow watcher", False,
+                     "running but not recording - no successful observation yet",
+                     "check the broker and Resolve", need="shadow_watcher")
+    return Check("shadow watcher", False,
+                 "dead - the broker is not serving; captain edits go unrecorded",
+                 "start the broker (it starts automatically on the next ren command)",
+                 need="shadow_watcher")
+
+
 GROUPS = (
     # (name, the function that checks it, the needs its lines check)
     ("edition", "edition_check", ()),
@@ -846,6 +899,7 @@ GROUPS = (
     ("configuration", "config_checks",
      ("config.projects_root", "config.sfx_library", "config.music_library")),
     ("chat harness", "harness_check", ("chat_harness",)),
+    ("shadow watcher", "shadow_watcher_check", ("shadow_watcher",)),
 )
 """Every check, in the order a new machine should fix them. A function is
 looked up by name when it runs, so a test can stand one in."""

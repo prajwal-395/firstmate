@@ -236,6 +236,13 @@ os.environ.setdefault(
     os.environ.get(_resolve_lock.LOCK_DIR_ENV, ""))
 _SESSION_RESOLVE_DIR = tempfile.mkdtemp(prefix="ren-test-resolve-", dir="/tmp")
 os.environ[_resolve_lock.LOCK_DIR_ENV] = _SESSION_RESOLVE_DIR
+# A broker a test starts is a detached process this file's guards do not
+# reach; hosting the shadow watcher, it read the LIVE Resolve project
+# against the machine's shadow store. No test broker hosts it; the one
+# test of the hosting turns it back on in-process.
+import library.tools.shadow_watcher as _shadow_watcher
+
+os.environ[_shadow_watcher.HOSTED_ENV] = "0"
 
 
 def _restore_session_resolve_dir():

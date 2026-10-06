@@ -187,10 +187,12 @@ def pytest_configure(config):
         return orig_ensure(path=path, timeout=timeout)
 
     def start(path):
-        events["spawns"].append(
-            {"path": str(path), "default": _is_default(Path(path)),
-             "python": orig_python()})
-        return orig_start(path)
+        spawn = {"path": str(path), "default": _is_default(Path(path)),
+                 "python": orig_python(), "pid": None}
+        events["spawns"].append(spawn)
+        process = orig_start(path)
+        spawn["pid"] = getattr(process, "pid", None)
+        return process
 
     def ping(path=None):
         try:
@@ -312,11 +314,14 @@ def test_broker_exercising_suites_leave_no_broker_and_never_touch_default(
         "the subprocess run started no broker at all - it did not "
         "exercise the spawn path, so this check proved nothing.")
 
-    after_pids = _broker_pids()
-    assert after_pids == before_pids, (
-        "the subprocess run left broker processes behind: "
-        f"before={sorted(before_pids)} after={sorted(after_pids)} "
-        f"(new={sorted(after_pids - before_pids)}). "
+    # Only the brokers this run spawned: a machine-wide before/after diff
+    # also counts one a sibling xdist worker or another checkout starts
+    # meanwhile, and failed for a broker this run never touched.
+    spawned = {spawn["pid"] for spawn in events["spawns"] if spawn["pid"]}
+    left = sorted(spawned & _broker_pids())
+    assert not left, (
+        f"the subprocess run left broker processes behind: {left} "
+        f"(spawned {sorted(spawned)}, running before {sorted(before_pids)}). "
         "A detached broker outlives its test; stop what is started.")
 
     if before_serving is not None:

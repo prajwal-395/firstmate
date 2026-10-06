@@ -244,6 +244,7 @@ def test_broker_rejects_submissions_when_degraded(tmp_path):
             assert "test-holder" in str(exc)
             assert "test-job" in str(exc)
     finally:
+        broker.stop()
         watchdog.stop()
         store.close()
 
@@ -263,6 +264,7 @@ def test_broker_accepts_submissions_when_healthy(tmp_path):
         result = broker.submit("lease", {"exclusive": True})
         assert "id" in result
     finally:
+        broker.stop()
         watchdog.stop()
         store.close()
 
@@ -348,6 +350,7 @@ def test_broker_resumes_submissions_after_watchdog_recovers(tmp_path):
         assert "id" in result
     finally:
         hang.set()
+        broker.stop()
         watchdog.stop()
         store.close()
 
@@ -397,6 +400,7 @@ def test_recovery_reaches_broker_within_one_probe_interval(tmp_path):
         assert time.time() - recovered < wd.PROBE_INTERVAL_S
     finally:
         hang.set()
+        broker.stop()
         watchdog.stop()
         store.close()
 
