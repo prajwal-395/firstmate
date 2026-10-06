@@ -1902,6 +1902,46 @@ def find_project_events(graph: dict, task: str | None = None,
     return rows
 
 
+def find_audio_events(graph: dict, clip_id: str | None = None,
+                      label: str | None = None) -> list:
+    """The audio events the graph registered, optionally for one clip.
+
+    Each row names the clip whose source audio carries the event, the
+    measured label (music, laughter, applause - whatever the audio
+    analysis recorded), the source span and the confidence. A label
+    filter matches case-insensitively on substring: the analysis, not
+    the caller, owns the exact wording. A clip with no measured audio
+    reads as no rows - unmeasured is absent, never silent.
+    """
+    rows = []
+    for candidate in graph["nodes"]:
+        if candidate["node_type"] != AUDIO_EVENT:
+            continue
+        payload = candidate["payload"] or {}
+        if label is not None and label.lower() not in str(
+                payload.get("label") or "").lower():
+            continue
+        event_clip = None
+        for edge in edges_from(graph, candidate["node_id"]):
+            if edge["type"] == MUSIC_CHANGES_AT and edge["to"].startswith(
+                    "shot:"):
+                event_clip = edge["to"][len("shot:"):]
+                break
+        if clip_id is not None and event_clip != clip_id:
+            continue
+        rows.append({
+            "node_id": candidate["node_id"],
+            "clip_id": event_clip,
+            "label": payload.get("label"),
+            "start": payload.get("start"),
+            "end": payload.get("end"),
+            "confidence": payload.get("confidence"),
+        })
+    rows.sort(key=lambda r: (str(r["clip_id"]),
+                             r["start"] if r["start"] is not None else -1.0))
+    return rows
+
+
 # ── CLI ───────────────────────────────────────────────────────────
 
 

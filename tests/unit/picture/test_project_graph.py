@@ -1900,3 +1900,120 @@ def test_load_or_build_rebuilds_when_a_new_operation_lands(tmp_path):
     graph2 = project_graph.load_or_build(str(project))
     assert [r["type"] for r in project_graph.find_project_events(
         graph2)] == ["lease_acquired", "reel_signed_off"]
+
+
+# ── Audio events ────────────────────────────────────────────────────
+#
+# The graph registers what the audio analysis heard - music, laughter,
+# applause - as nodes linked to the shots whose sources carry them.
+# The defect: no query reached them, so "when does the music change"
+# (the spec's own example) answered "unknown query".
+#
+
+
+def _audio_event(node_id, digest, t, label, start, end, confidence=0.9):
+    return {
+        "node_id": node_id,
+        "node_type": project_graph.AUDIO_EVENT,
+        "label": label,
+        "payload": {
+            "content_digest": digest,
+            "t": t,
+            "label": label,
+            "start": start,
+            "end": end,
+            "confidence": confidence,
+        },
+    }
+
+
+def test_find_audio_events_returns_clip_label_span_and_confidence():
+    graph = project_graph.new_graph()
+    project_graph.add_node(graph, _shot("clip_001", content_digest="d" * 64))
+    project_graph.add_node(
+        graph, _audio_event("audio:ddd:5:0.0", "d" * 64, 5, "music", 0.0, 4.0))
+    project_graph.add_edge(graph, _edge(
+        "audio:ddd:5:0.0", "shot:clip_001", project_graph.MUSIC_CHANGES_AT,
+        {"t": 5}))
+
+    found = project_graph.find_audio_events(graph, "clip_001")
+
+    assert len(found) == 1
+    assert found[0]["clip_id"] == "clip_001"
+    assert found[0]["label"] == "music"
+    assert found[0]["start"] == 0.0
+    assert found[0]["end"] == 4.0
+    assert found[0]["confidence"] == 0.9
+
+
+def test_find_audio_events_filters_by_clip_and_label():
+    graph = project_graph.new_graph()
+    project_graph.add_node(graph, _shot("clip_001", content_digest="d" * 64))
+    project_graph.add_node(graph, _shot("clip_002", content_digest="e" * 64))
+    project_graph.add_node(
+        graph, _audio_event("audio:ddd:5:0.0", "d" * 64, 5, "music", 0.0, 4.0))
+    project_graph.add_node(
+        graph, _audio_event("audio:ddd:5:5.0", "d" * 64, 5, "laughter", 5.0, 6.5))
+    project_graph.add_node(
+        graph, _audio_event("audio:eee:2:1.0", "e" * 64, 2, "Music", 1.0, 3.0))
+    for event_id, shot_id, t in (("audio:ddd:5:0.0", "shot:clip_001", 5),
+                                 ("audio:ddd:5:5.0", "shot:clip_001", 5),
+                                 ("audio:eee:2:1.0", "shot:clip_002", 2)):
+        project_graph.add_edge(graph, _edge(
+            event_id, shot_id, project_graph.MUSIC_CHANGES_AT, {"t": t}))
+
+    assert len(project_graph.find_audio_events(graph)) == 3
+    assert len(project_graph.find_audio_events(graph, "clip_001")) == 2
+    # The label filter is the caller's own word, matched
+    # case-insensitively: the analysis owns the exact wording.
+    assert len(project_graph.find_audio_events(graph, label="music")) == 2
+    only = project_graph.find_audio_events(graph, "clip_001", "laughter")
+    assert [r["label"] for r in only] == ["laughter"]
+    assert project_graph.find_audio_events(graph, "clip_999") == []
+    assert project_graph.find_audio_events(graph, label="silence") == []
+
+
+def test_audio_events_are_registered_from_world_models(
+        tmp_path, monkeypatch):
+    """A world model's sound events become nodes linked to the shot
+    whose source carries them - the wiring the query reads."""
+    memory_root = tmp_path / "memory"
+    monkeypatch.setenv("PIPELINE_SOURCE_MEMORY_ROOT", str(memory_root))
+
+    project = tmp_path / "project"
+    project.mkdir()
+
+    digest_a = "a" * 64
+    (project / "pipeline_data.json").write_text(json.dumps({
+        "capability_outputs": {
+            "footage.catalog": {"clip_catalog": [
+                {"clip_id": "clip_001", "source_file": "/camA/take1.MXF",
+                 "duration_seconds": 10.0, "content_digest": digest_a},
+            ]},
+        },
+        "source_fingerprints": {
+            "clip_001": {"content_digest": digest_a},
+        },
+    }), encoding="utf-8")
+
+    _write_world_model(memory_root, digest_a, {
+        "timeline": [
+            {"t": 5,
+             "sound": {"events": [
+                 {"label": "music", "start": 0.0, "end": 4.0,
+                  "confidence": 0.9},
+             ]}},
+        ],
+        "entities": {"face_tracks": [], "voice_tracks": []},
+        "multicam": None,
+    })
+    _write_identity(memory_root, digest_a, {
+        "faces": [], "voices": [], "speech_face_links": [],
+    })
+
+    graph = project_graph.build_graph(str(project))
+
+    found = project_graph.find_audio_events(graph, "clip_001", "music")
+    assert len(found) == 1
+    assert found[0]["start"] == 0.0
+    assert found[0]["end"] == 4.0

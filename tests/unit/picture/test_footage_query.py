@@ -1327,7 +1327,8 @@ def test_shot_colour_cli_reaches_the_index(tmp_path, monkeypatch):
                                    "final": None,
                                    "kind": None,
                                    "exploration": None,
-                                   "timeline": None})]
+                                   "timeline": None,
+                                   "label": None})]
 
 
 def test_shot_colour_is_in_the_llm_tool_definitions():
@@ -1506,11 +1507,15 @@ def test_new_graph_queries_are_cli_choices(tmp_path, monkeypatch):
                     "--final", "reel_001"]) == 0
     assert fq.main(["project-graph", str(root), "vfx_detections",
                     "--clip", "clip_001"]) == 0
+    assert fq.main(["project-graph", str(root), "audio_events",
+                    "--clip", "clip_001", "--label", "music"]) == 0
     assert [c[0] for c in calls] == ["editorial_findings", "reel_versions",
-                                     "vfx_detections"]
+                                     "vfx_detections", "audio_events"]
     assert calls[0][1]["kind"] == "dead_section"
     assert calls[1][1]["final"] == "reel_001"
     assert calls[2][1]["clip_id"] == "clip_001"
+    assert calls[3][1]["clip_id"] == "clip_001"
+    assert calls[3][1]["label"] == "music"
 
 
 def test_new_graph_queries_are_in_the_llm_tool_definitions():
@@ -1521,7 +1526,7 @@ def test_new_graph_queries_are_in_the_llm_tool_definitions():
     functions = FootageIndex.get_tool_definitions()
     by_name = {t["function"]["name"]: t["function"] for t in functions}
     for name in ("find_reel_versions", "find_editorial_findings",
-                 "find_vfx_detections"):
+                 "find_vfx_detections", "find_audio_events"):
         assert name in by_name
     kind_param = by_name["find_editorial_findings"]["parameters"][
         "properties"]["kind"]
@@ -1619,3 +1624,83 @@ def test_tool_definitions_carry_find_variant_branches(tmp_path):
     by_name = {t["function"]["name"]: t["function"] for t in functions}
     assert "find_variant_branches" in by_name
     assert by_name["find_variant_branches"]["parameters"]["required"] == []
+    assert by_name["find_audio_events"]["parameters"]["required"] == []
+    audio_props = by_name["find_audio_events"]["parameters"]["properties"]
+    assert set(audio_props) == {"clip_id", "label"}
+
+
+# --------------------------------------------------------------------------
+# Audio events: what the analysis heard, exposed to search
+#
+# The graph registers every measured audio event, but the agent's route
+# to the graph never answered one. The defect: asking "when does the
+# music change" - the spec's own example - answered "unknown query".
+#
+
+def _audio_project(tmp_path, monkeypatch):
+    """A one-clip project whose world model carries sound events."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    digest = "a" * 64
+    state = {"capability_outputs": {
+        "footage.catalog": {"clip_catalog": [
+            {"clip_id": "clip_001", "source_file": "/camA/take1.MXF",
+             "duration_seconds": 10.0, "content_digest": digest},
+        ]},
+    },
+        "source_fingerprints": {
+            "clip_001": {"content_digest": digest},
+        },
+    }
+    (root / "pipeline_data.json").write_text(
+        json.dumps(state), encoding="utf-8")
+    memory_root = tmp_path / "memory"
+    monkeypatch.setenv("PIPELINE_SOURCE_MEMORY_ROOT", str(memory_root))
+    model_dir = memory_root / digest
+    model_dir.mkdir(parents=True)
+    (model_dir / "world_model.json").write_text(json.dumps({
+        "timeline": [
+            {"t": 5, "sound": {"events": [
+                {"label": "music", "start": 0.0, "end": 4.0,
+                 "confidence": 0.9},
+                {"label": "laughter", "start": 5.0, "end": 6.5,
+                 "confidence": 0.8},
+            ]}},
+        ],
+        "entities": {"face_tracks": [], "voice_tracks": []},
+        "multicam": None,
+    }), encoding="utf-8")
+    (model_dir / "identity.json").write_text(json.dumps({
+        "faces": [], "voices": [], "speech_face_links": [],
+    }), encoding="utf-8")
+    return root
+
+
+def test_audio_events_query_returns_what_was_heard(tmp_path, monkeypatch):
+    """The measured music span answers through the search route with
+    its clip, span and confidence. On origin/main the query name is
+    unknown and the answer is an error."""
+    root = _audio_project(tmp_path, monkeypatch)
+    idx = FootageIndex(str(root))
+
+    report = idx.project_graph("audio_events", clip_id="clip_001",
+                               label="music")
+
+    assert report["error"] is None
+    assert len(report["results"]) == 1
+    row = report["results"][0]
+    assert row["clip_id"] == "clip_001"
+    assert row["label"] == "music"
+    assert row["start"] == 0.0
+    assert row["end"] == 4.0
+
+
+def test_audio_events_query_reads_a_quiet_clip_as_empty(tmp_path, monkeypatch):
+    root = _audio_project(tmp_path, monkeypatch)
+    idx = FootageIndex(str(root))
+
+    report = idx.project_graph("audio_events", clip_id="clip_001",
+                               label="silence")
+
+    assert report["error"] is None
+    assert report["results"] == []

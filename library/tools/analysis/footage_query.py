@@ -894,7 +894,9 @@ class FootageIndex:
         "editorial findings" (the compile's dead sections, trim
         proposals, J/L placements and decisions, reaction cutaways),
         "VFX detections" (which effects the edit graph recorded
-        on which clips) and "variant branches" (which branch each
+        on which clips) and "audio events" (what the analysis heard
+        on which clip and when - music changes, laughter) and
+        "variant branches" (which branch each
         recorded variant owns, the base it forked and the direction
         it tries).
 
@@ -970,12 +972,16 @@ class FootageIndex:
         elif query == "variant_branches":
             report["results"] = project_graph.find_variant_branches(
                 graph, kwargs.get("exploration"), kwargs.get("timeline"))
+        elif query == "audio_events":
+            report["results"] = project_graph.find_audio_events(
+                graph, kwargs.get("clip_id"), kwargs.get("label"))
         else:
             report["error"] = (
                 f"unknown project graph query {query!r}; "
                 "known: reaction_shots, alternate_takes, coverage, "
                 "broll_matches, shot_colour, reel_versions, "
-                "editorial_findings, vfx_detections, variant_branches")
+                "editorial_findings, vfx_detections, variant_branches, "
+                "audio_events")
         return report
 
     @staticmethod
@@ -1675,6 +1681,26 @@ class FootageIndex:
                     },
                 },
             },
+            {
+                "type": "function",
+                "function": {
+                    "name": "find_audio_events",
+                    "description": (
+                        "List the audio events the analysis measured: what was "
+                        "heard on which clip and when - music changes, "
+                        "laughter, applause. Use to ask when the music "
+                        "changes without re-listening to the footage."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "clip_id": {"type": "string", "description": "Restrict to one clip. Omit for every clip."},
+                            "label": {"type": "string", "description": "Restrict to one kind of sound, e.g. music. Matched case-insensitively. Omit for every sound."},
+                        },
+                        "required": [],
+                    },
+                },
+            },
         ]
 
 
@@ -1959,11 +1985,12 @@ def main(argv=None):
                                           "shot_colour", "reel_versions",
                                           "editorial_findings",
                                           "vfx_detections",
-                                          "variant_branches"])
+                                          "variant_branches", "audio_events"])
     p_pg.add_argument("--person", help="person id for reaction_shots")
     p_pg.add_argument("--t", type=float, help="time for reaction_shots")
     p_pg.add_argument("--clip", help="clip id for alternate_takes, shot_colour, "
-                                     "editorial_findings and vfx_detections")
+                                     "editorial_findings, vfx_detections and "
+                                     "audio_events")
     p_pg.add_argument("--timeline-start", type=float, help="for coverage")
     p_pg.add_argument("--timeline-end", type=float, help="for coverage")
     p_pg.add_argument("--segment", help="transcript segment id for broll_matches")
@@ -1976,6 +2003,8 @@ def main(argv=None):
                                      "dead_section, dead_section_trim, "
                                      "jl_placement, jl_decision, "
                                      "reaction_cutaway")
+    p_pg.add_argument("--label", help="audio event label for audio_events, "
+                                      "e.g. music - matched case-insensitively")
     p_pg.add_argument("--index-dir")
 
     sub.add_parser("tools", help="Print LLM tool definitions as JSON")
@@ -2057,6 +2086,7 @@ def main(argv=None):
             kind=args.kind,
             exploration=args.exploration,
             timeline=args.timeline_name,
+            label=args.label,
         )
         print(json.dumps(answer, indent=2))
         return 0
