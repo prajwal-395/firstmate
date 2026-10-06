@@ -159,6 +159,24 @@ class CommitRecordError(RuntimeError):
     """
 
 
+class MergeConflict(RuntimeError):
+    """Two commits that change the same clip cannot be merged.
+
+    The conflict is BY NAME: the clips both sides changed are named in
+    the message, so the captain sees what collides, not just that
+    something does. Non-fatal to the touch that caused it - the journal
+    is the way back - but it is RAISED, not swallowed.
+    """
+
+
+class BranchRefused(RuntimeError):
+    """A branch that could not be recorded or proven.
+
+    Non-fatal to the touch that caused it, but RAISED, not swallowed,
+    so the caller can put the reason on the receipt.
+    """
+
+
 # ── Where entries live ───────────────────────────────────────────
 
 
@@ -283,7 +301,8 @@ def record_commit(project_folder, *, parent: str | None,
                   intent: str, changes: Sequence[Mapping],
                   agent: str, timeline: str = "",
                   evaluation: Mapping | None = None,
-                  artifacts: Mapping | None = None) -> dict:
+                  artifacts: Mapping | None = None,
+                  second_parent: str | None = None) -> dict:
     """Record a creative commit. Returns the commit with its id.
 
     The commit is written atomically under
@@ -297,6 +316,12 @@ def record_commit(project_folder, *, parent: str | None,
     part of the commit's content and therefore of its id: a commit on
     Reel 03 is a different commit from one on Reel 10, and a branch is
     the timeline's own chain, not one global chain.
+
+    `second_parent` is the second parent of a MERGE commit - the branch
+    that was merged in. It is present only on merge commits, so a regular
+    commit's id is unchanged by it: two commits with the same content are
+    the same commit, and a merge commit is a different commit from a
+    regular one.
     """
     from library.tools.versions import store
 
@@ -309,6 +334,8 @@ def record_commit(project_folder, *, parent: str | None,
         "evaluation": dict(evaluation or {}),
         "artifacts": dict(artifacts or {}),
     }
+    if second_parent is not None:
+        content["second_parent"] = second_parent
     commit_id = _commit_id(content)
     path = _commit_path(project_folder, commit_id)
     if os.path.isfile(path):
@@ -449,6 +476,190 @@ def _intent_from_edits(edits: Sequence[Mapping], summary: Mapping) -> str:
     if ops:
         return "touch: " + ", ".join(ops)
     return "touch"
+
+
+# ── Branches and merges: the commit graph ──────────────────────────
+#
+# A branch is a named pointer to a commit, materialized as a duplicated
+# timeline (Resolve's DuplicateTimeline - the "Resolve double"): the
+# branch's timeline starts identical to its base and diverges as it is
+# edited. A merge combines two commits on one timeline: each side's
+# changes since their common ancestor are diffed (the commits' recorded
+# `timeline_diff` changes), and if the changed clip names overlap the
+# merge is refused naming the conflicts. Otherwise the merged changes
+# are the union, recorded as a merge commit with both parents.
+
+BRANCH_FORMAT = "creative_branch/1"
+BRANCH_DIRNAME = "branches"
+BRANCH_FILENAME = "branch.json"
+
+
+def branch_root(project_folder) -> str:
+    return os.path.join(str(project_folder), "pipeline_output", "review",
+                        BRANCH_DIRNAME)
+
+
+def _branch_path(project_folder, name: str) -> str:
+    return os.path.join(branch_root(project_folder), name, BRANCH_FILENAME)
+
+
+def record_branch(project_folder, *, name: str, base: str,
+                  timeline: str, note: str = "",
+                  source_tracks=None, branch_tracks=None) -> dict:
+    """Record a branch: a named pointer to a commit. Returns the branch.
+
+    DuplicateTimeline-backed: the branch is materialized as a duplicated
+    timeline (the Resolve double), identical to its base until edited.
+    The branch record names the base commit and the timeline it lives
+    on, so a branch is the timeline's own line of development.
+
+    When `source_tracks` and `branch_tracks` are both supplied, the
+    branch is PROVEN against the double: `timeline_diff` between them
+    must be empty. A double that already differs from its source is
+    refused - a branch starts from a clean duplicate, not from a
+    diverged copy. The proof is the branch's contract with the timeline
+    it is materialized on.
+    """
+    from library.tools.versions import store
+
+    if source_tracks is not None and branch_tracks is not None:
+        from library.tools import timeline_diff
+        changes = timeline_diff.diff_timelines(source_tracks, branch_tracks)
+        if changes:
+            summary = ", ".join(
+                f"{change.get('op')} {change.get('item')!r}"
+                for change in changes[:5])
+            raise BranchRefused(
+                f"the double for branch {name!r} already differs from its "
+                f"source ({summary}) - a branch starts from a clean "
+                f"duplicate, not a diverged copy")
+    branch = {
+        "format": BRANCH_FORMAT,
+        "name": name,
+        "base": base,
+        "timeline": timeline,
+        "note": note,
+        "created_at": _now(),
+    }
+    store.write_record(_branch_path(project_folder, name), branch,
+                       prefix=".branch-")
+    return branch
+
+
+def read_branch(project_folder, name: str) -> dict:
+    path = _branch_path(project_folder, name)
+    try:
+        with open(path, encoding="utf-8") as handle:
+            branch = json.load(handle)
+    except (OSError, ValueError) as unreadable:
+        raise BranchRefused(
+            f"branch {name!r} could not be read at {path} ({unreadable})"
+        ) from unreadable
+    if branch.get("format") != BRANCH_FORMAT:
+        raise BranchRefused(
+            f"{path} is {branch.get('format')!r}, not {BRANCH_FORMAT!r}")
+    return branch
+
+
+def list_branches(project_folder) -> list:
+    """Every recorded branch, by name."""
+    root = branch_root(project_folder)
+    if not os.path.isdir(root):
+        return []
+    branches = []
+    for name in sorted(os.listdir(root)):
+        path = os.path.join(root, name, BRANCH_FILENAME)
+        if os.path.isfile(path):
+            branches.append(read_branch(project_folder, name))
+    return branches
+
+
+def _ancestor_chain(project_folder, commit_id: str) -> list:
+    """The commit's ancestor ids, nearest first, walking parents.
+
+    The chain includes `commit_id` itself and ends at the root (the
+    commit with no parent). A merge commit's second parent is not
+    followed: the first-parent chain is the line of development a
+    branch walks.
+    """
+    chain = []
+    seen = set()
+    current = commit_id
+    while current and current not in seen:
+        seen.add(current)
+        chain.append(current)
+        current = read_commit(project_folder, current).get("parent")
+    return chain
+
+
+def _changes_since(project_folder, commit_id: str, ancestor_id: str) -> list:
+    """The commit's changes since an ancestor, accumulated along the chain.
+
+    Each commit records its changes relative to its parent
+    (`timeline_diff` output); the changes since an ancestor are those
+    accumulated from the commit back to (not including) the ancestor.
+    """
+    chain = _ancestor_chain(project_folder, commit_id)
+    if ancestor_id not in chain:
+        raise MergeConflict(
+            f"{ancestor_id[:12]} is not an ancestor of {commit_id[:12]} - "
+            f"two commits with no common ancestor cannot be merged")
+    changes: list = []
+    for cid in chain:
+        if cid == ancestor_id:
+            break
+        changes.extend(read_commit(project_folder, cid).get("changes") or ())
+    return changes
+
+
+def merge_commits(project_folder, *, timeline: str, left: str, right: str,
+                  note: str = "") -> dict:
+    """Merge two commits on one timeline. Returns the merge commit.
+
+    Each side's changes since their common ancestor are diffed (reusing
+    the commits' recorded `timeline_diff` changes). If the changed clip
+    names overlap, the merge is REFUSED naming the conflicts - two
+    commits that change the same clip cannot be silently combined.
+    Otherwise the merged changes are the union, recorded as a merge
+    commit with both parents.
+
+    A fast-forward (one commit is the ancestor of the other) merges to
+    the descendant: the merged changes are the descendant's changes
+    since the ancestor, and no conflict is possible.
+    """
+    if not left or not right:
+        raise MergeConflict("both sides of a merge must be commits")
+    if left == right:
+        raise MergeConflict("a commit cannot be merged with itself")
+    left_chain = _ancestor_chain(project_folder, left)
+    right_chain = _ancestor_chain(project_folder, right)
+    common = next((cid for cid in left_chain if cid in right_chain), None)
+    if common is None:
+        raise MergeConflict(
+            f"{left[:12]} and {right[:12]} have no common ancestor - "
+            f"they cannot be merged")
+    if common == left or common == right:
+        # Fast-forward: one side is the ancestor of the other. The merge
+        # is the descendant; its changes since the ancestor are what the
+        # merge brings in, and no conflict is possible.
+        descendant = right if common == left else left
+        merged = _changes_since(project_folder, descendant, common)
+    else:
+        left_changes = _changes_since(project_folder, left, common)
+        right_changes = _changes_since(project_folder, right, common)
+        left_names = {c.get("item") for c in left_changes if c.get("item")}
+        right_names = {c.get("item") for c in right_changes if c.get("item")}
+        conflicts = sorted(left_names & right_names)
+        if conflicts:
+            raise MergeConflict(
+                f"conflicting changes to: {', '.join(conflicts)}",
+                conflicts)
+        merged = left_changes + right_changes
+    intent = note or f"merge {right[:12]} into {left[:12]}"
+    return record_commit(
+        project_folder, parent=left, second_parent=right,
+        intent=intent, changes=merged, agent="creative_merge",
+        timeline=timeline)
 
 
 # ── Capture: the touch's side ────────────────────────────────────

@@ -2449,6 +2449,25 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
         raise TouchupError(
             f"the staging copy did not land as {staging!r} - "
             f"nothing was edited and the approved timeline stands.")
+    # The staging double is a BRANCH off the final timeline's latest
+    # commit. Best-effort, like the commit - a branch that cannot be
+    # recorded never fails the touch (the journal is the way back), but
+    # it is VISIBLE on the receipt, never swallowed in silence. The
+    # branch's base is captured for the promotion's merge: a merge is
+    # recorded only when the timeline has moved on (the base is no
+    # longer the head), so a linear touch is just its commit.
+    try:
+        base = _journal.latest_commit_for_timeline(project_folder, final)
+        receipt["branch_base"] = base.get("id") if base else None
+        receipt["branch"] = _journal.record_branch(
+            project_folder, name=staging,
+            base=receipt["branch_base"],
+            timeline=final, note=f"touch {journal['id']}")
+    except _journal.BranchRefused as unbranched:
+        print(f"creative branch not recorded: {unbranched}",
+              file=sys.stderr)
+        receipt["branch"] = None
+        receipt["branch_error"] = str(unbranched)
     # `AppendToTimeline` writes to the CURRENT timeline, so the
     # staging must be the cursor before anything places - and a
     # foreign move mid-section must fail the touchup rather than
@@ -3057,6 +3076,26 @@ def _promote(project_folder: str, project: Any, pool: Any,
               file=sys.stderr)
         receipt["commit"] = None
         receipt["commit_error"] = str(unrecorded)
+    # The promotion MERGES the touch commit into the final timeline's
+    # chain - but only when the branches have DIVERGED: the touch
+    # commit's parent is no longer the timeline's head (another commit
+    # landed while the staging was in flight). A linear touch stands on
+    # the branch's own base, and recording a merge for it would fill
+    # history with no-op merges. Best-effort, like the commit.
+    commit = receipt.get("commit")
+    branch_base = receipt.get("branch_base")
+    if commit and commit.get("parent") and branch_base:
+        if commit["parent"] != branch_base:
+            try:
+                receipt["merge"] = _journal.merge_commits(
+                    project_folder, timeline=final,
+                    left=branch_base, right=commit["id"],
+                    note=f"touch {journal['id']}")
+            except _journal.MergeConflict as unmerged:
+                print(f"creative merge not recorded: {unmerged}",
+                      file=sys.stderr)
+                receipt["merge"] = None
+                receipt["merge_error"] = str(unmerged)
     if journal.get("preservation_after") is not None:
         from library.tools import editor_edit_carry as _editor_carry
         prior = receipt["editor_changes"].get("carried_edits") or {}
