@@ -20,6 +20,7 @@ through `library/tools/decided_value.py`.  Until 2026-09-16 it was five
 constants in `music_behavior`, and this file's whole reason to exist is
 that they are gone.
 """
+import math
 import os
 import sys
 
@@ -321,13 +322,19 @@ def _fit_gain_to_window(speech_lufs, separation_target, bed):
     if (not isinstance(separation_target, (int, float))
             or isinstance(separation_target, bool)):
         return None, "no separation was decided for this behaviour"
-    if not isinstance(speech_lufs, (int, float)):
+    # A non-finite reading is not a level. Digital silence measures
+    # `-inf` LUFS, and a gain fitted to it is `-inf`, which passes the
+    # numeric guard in `apply_word_gap_ducking` and dies on the
+    # -100..30 dB range check. Treat it as unmeasured instead.
+    if (not isinstance(speech_lufs, (int, float))
+            or not math.isfinite(speech_lufs)):
         return None, ("no measured speech under this window, so the gain "
                       "that would deliver the decided separation cannot "
                       "be fitted to it")
     integrated = (bed or {}).get("integrated_lufs")
-    if not (bed or {}).get("measured") or not isinstance(
-            integrated, (int, float)):
+    if (not (bed or {}).get("measured")
+            or not isinstance(integrated, (int, float))
+            or not math.isfinite(integrated)):
         return None, ("the bed's own loudness was not measured, so no "
                       "window can be fitted to it")
     gain = round(float(speech_lufs) - float(separation_target)
@@ -345,13 +352,15 @@ def _shortfall(target, delivered, speech_lufs, bed):
     """
     if (isinstance(target, (int, float))
             and not isinstance(target, bool)
-            and isinstance(delivered, (int, float))):
+            and isinstance(delivered, (int, float))
+            and math.isfinite(delivered)):
         return round(float(target) - float(delivered), 2), None
     if (not isinstance(target, (int, float))
             or isinstance(target, bool)):
         return None, ("no separation was decided for this behaviour, so "
                       "there is no target to miss")
-    if not isinstance(speech_lufs, (int, float)):
+    if (not isinstance(speech_lufs, (int, float))
+            or not math.isfinite(speech_lufs)):
         return None, ("no measured speech under this window: it keeps "
                       "the scope gain and its separation is unreported")
     return None, ("the bed's own loudness was not measured, so this "
@@ -388,7 +397,8 @@ def apply_word_gap_ducking(automation: list, audio_spine: dict,
         if not intervals:
             continue
         level = row["target_level_db"]
-        if not isinstance(level, (int, float)):
+        if (not isinstance(level, (int, float))
+                or not math.isfinite(level)):
             row["word_gap_unapplied_reason"] = (
                 "the block has words but no decided music level to duck")
             continue

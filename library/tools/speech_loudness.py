@@ -41,6 +41,7 @@ would read as silence.
 from __future__ import annotations
 
 import json
+import math
 import os
 import subprocess
 from typing import Optional
@@ -204,9 +205,14 @@ def separation_delivered_db(speech_lufs, bed_after_gain_lufs):
 
     Arithmetic over two measurements. It is not compared with anything:
     see :data:`NO_TARGET_IS_SUPPLIED`.
+
+    A non-finite reading is not a measurement: digital silence reports
+    `-inf` LUFS, and a separation computed from it is not a separation.
     """
     if not isinstance(speech_lufs, (int, float)):
         return None
     if not isinstance(bed_after_gain_lufs, (int, float)):
+        return None
+    if not math.isfinite(speech_lufs) or not math.isfinite(bed_after_gain_lufs):
         return None
     return round(float(speech_lufs) - float(bed_after_gain_lufs), 2)

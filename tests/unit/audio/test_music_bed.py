@@ -8,11 +8,16 @@ These drive `library/tools/music_bed.py` and the real `compile_manifest`
 against a fake project, so the thing asserted is a manifest that was
 compiled rather than one that was written down.
 """
+import math
 import os
 import sys
 import pytest
 from pathlib import Path
-from library.steps.step_5_02_audio_mix.mix import measure, solve_automation
+from library.steps.step_5_02_audio_mix.mix import (
+    apply_word_gap_ducking,
+    measure,
+    solve_automation,
+)
 from library.steps.step_5_04_compile_manifest.step import _spine_block_entry
 from library.tools.music_behavior import (
     MUSIC_BEHAVIORS,
@@ -347,6 +352,46 @@ def test_a_shortfall_is_reported_on_the_row_that_misses():
     assert any("2" in line and "no measured speech" in line
                for line in lines), lines
     assert not any(line.startswith("Window 1") for line in lines)
+
+
+def test_digital_speech_silence_fits_no_gain_and_names_it():
+    """Speech that measures -inf LUFS (digital silence) is unmeasured.
+
+    The golden-monologue defect: a block of pure digital silence measures
+    `integrated_lufs = -Infinity`, and the fit used that as a number, so
+    the window's clip gain came back -inf, passed the numeric guard in
+    `apply_word_gap_ducking`, and died on the -100..30 dB range check.
+    A non-finite reading is not a level: no gain is fitted, the window
+    keeps the scope gain, and the range check never sees a non-finite
+    number.
+    """
+    pre = _pre_output([float("-inf")])
+    reference_gain = round((-20.0 - SEPARATION) - BED_LUFS, 2)
+    automation, undetermined = mix_module.solve_automation(
+        pre, _by_scope(reference_gain))
+
+    (row,) = automation
+    assert undetermined == []
+    # No fitted gain: the window keeps the finite scope gain, never -inf.
+    assert row["target_level_db"] == reference_gain
+    assert math.isfinite(row["target_level_db"])
+    # The separation is unreported, named as unmeasured speech.
+    assert row["separation_delivered_db"] is None
+    assert row["separation_shortfall_db"] is None
+    assert "speech" in (row["shortfall_basis"] or "").lower()
+    # The word-gap range check is never reached with a non-finite level.
+    spine = {"structure": [{
+        "position": 1, "block_type": "speech", "clip_id": "clip-1",
+        "source_start": 0.0, "source_end": 5.0,
+        "timeline_start": 0.0, "timeline_end": 5.0,
+        "word_timestamps": [
+            {"word": "one", "source_start": 1.0, "source_end": 2.0},
+        ],
+    }]}
+    plan = {"enabled": True, "duck_db": 10.0, "release_ms": 300.0,
+            "why": "10 dB duck, 300 ms recovery"}
+    apply_word_gap_ducking(automation, spine, plan)
+    assert automation[0]["word_gap_level_db"] == reference_gain + 10.0
 
 
 def test_a_fallback_gain_carries_no_target_and_no_shortfall():
