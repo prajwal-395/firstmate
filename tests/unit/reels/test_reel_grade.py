@@ -18,7 +18,27 @@ from dataclasses import dataclass
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
 from library.tools import reel_look
+from library.tools.resource_leases import (
+    LeaseDeclaration,
+    ResourceRef,
+    resource_lease,
+)
 from library.tools.series_look import LookDeclarationError
+import threading
+import time
+
+
+@pytest.fixture(autouse=True)
+def _leases_off_machine(tmp_path, monkeypatch):
+    """Grade declarations lease off-machine, never in the real lock dir.
+
+    `apply_grade` now declares its `colour_grade` before either route
+    writes; every test through it takes a lease, so the whole file
+    contends in its own directory.
+    """
+    directory = tmp_path / "locks"
+    directory.mkdir()
+    monkeypatch.setenv("PIPELINE_RESOLVE_LOCK_DIR", str(directory))
 
 # A declared look's magnitudes, fixed here so the test never reaches a
 # real project (AGENTS.md 8) - the same copy
@@ -137,6 +157,9 @@ class _FakeItem:
 class _FakeTimeline:
     def __init__(self, by_row):
         self._by_row = by_row
+
+    def GetName(self):
+        return "Reel 03"
 
     def GetTrackCount(self, kind):
         assert kind == "video"
@@ -576,6 +599,9 @@ class _FakeTimeline_2:
     def __init__(self, by_row):
         self._by_row = by_row
 
+    def GetName(self):
+        return "Reel 03"
+
     def GetItemListInTrack(self, kind, index):
         assert kind == "video"
         return list(self._by_row.get(index, []))
@@ -790,3 +816,65 @@ def test_a_drx_that_says_yes_and_lands_no_nodes_is_not_verified():
     assert record["nodes"] == {"a.mxf": 1}
     assert record["verified"] is False
     assert any("not VERIFIED" in w for w in record["warnings"])
+
+
+# ── The grade declares its colour_grade before either route writes ────
+
+def _grade_plan():
+    return {"video_tracks": [
+        {"role": "a_roll", "occupant": "1", "index": 1},
+    ]}
+
+
+def test_grading_through_apply_grade_declares_and_still_lands():
+    """The wired path still grades: the CDL lands on every picture item.
+
+    Defect caught: a declaration that refuses its own write turns the
+    reel's grade into a refusal, and the reel ships ungraded.
+    """
+    footage = [_FakeItem("/footage/a.mxf"), _FakeItem("/footage/b.mxf")]
+    timeline = _FakeTimeline({1: footage})
+    record = reel_look.apply_grade(
+        timeline, _grade_plan(), dict(TEST_LOOK_CDL),
+        footage_sources={"/footage/a.mxf", "/footage/b.mxf"},
+        allow_unverified_cdl=True)
+    assert record["route"] == "cdl"
+    assert sorted(record["applied"]) == ["a.mxf", "b.mxf"]
+    assert all(len(item.cdl_calls) == 1 for item in footage)
+
+
+def test_grading_waits_for_a_grader_on_the_same_reel():
+    """Two graders, one reel: the second waits for the release.
+
+    Defect caught: with no declaration two color agents grade the same
+    reel at once - the spec's "two color agents modifying the same node
+    graph: serialize or branch", with neither taken. On origin/main the
+    grade returns before the holder releases.
+    """
+    footage = [_FakeItem("/footage/a.mxf")]
+    timeline = _FakeTimeline({1: footage})
+    other_grade = LeaseDeclaration(
+        write=frozenset({ResourceRef("colour_grade", "Reel 03")}),
+        exclusive=frozenset({ResourceRef("colour_grade", "Reel 03")}),
+    )
+    released_at: list = []
+
+    def grade_first():
+        with resource_lease(other_grade, "grade Reel 03 first",
+                           heartbeat_interval=30.0):
+            time.sleep(2.0)
+        released_at.append(time.monotonic())
+
+    holder = threading.Thread(target=grade_first)
+    holder.start()
+    time.sleep(0.3)  # let the first grader acquire first
+    record = reel_look.apply_grade(
+        timeline, _grade_plan(), dict(TEST_LOOK_CDL),
+        footage_sources={"/footage/a.mxf"},
+        allow_unverified_cdl=True)
+    returned_at = time.monotonic()
+    holder.join(30.0)
+    assert released_at, "the first grader never released"
+    assert returned_at >= released_at[0], \
+        "the grade returned mid-grade"
+    assert record["applied"] == ["a.mxf"]

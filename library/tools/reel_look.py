@@ -70,6 +70,11 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from library.tools.ren_refusal import RenRefusal
+from library.tools.resource_leases import (
+    LeaseDeclaration,
+    ResourceRef,
+    resource_lease,
+)
 
 FRAME_TRACK = 2
 """The reel video track the frame asset is placed on - for a
@@ -526,11 +531,12 @@ def apply_grade(timeline, track_plan, cdl_values: dict,
     record cannot claim otherwise. It is never defaulted on.
     """
     if power_grade and power_grade.get("path"):
-        record = apply_power_grade_to_footage(
-            timeline, track_plan, power_grade["path"],
-            footage_sources=footage_sources,
-            cdl_values=cdl_values,
-            cdl_node=power_grade.get("cdl_node"))
+        with _grade_lease(timeline):
+            record = apply_power_grade_to_footage(
+                timeline, track_plan, power_grade["path"],
+                footage_sources=footage_sources,
+                cdl_values=cdl_values,
+                cdl_node=power_grade.get("cdl_node"))
         record["route"] = "power_grade_drx"
         record["provenance"] = dict(power_grade.get("provenance") or {})
         return record
@@ -548,10 +554,36 @@ def apply_grade(timeline, track_plan, cdl_values: dict,
             "library/tools/color_page_grade.py). That route IS "
             "verified: the node graph reads back the nodes the file "
             "builds.")
-    record = apply_cdl(timeline, track_plan, cdl_values,
-                       footage_sources=footage_sources)
+    if cdl_values:
+        with _grade_lease(timeline):
+            record = apply_cdl(timeline, track_plan, cdl_values,
+                               footage_sources=footage_sources)
+    else:
+        record = apply_cdl(timeline, track_plan, cdl_values,
+                           footage_sources=footage_sources)
     record["route"] = "cdl" if cdl_values else "none"
     return record
+
+
+def _grade_lease(timeline):
+    """The reel's grade, declared before either route writes.
+
+    One `colour_grade` ref for the reel - the spec's own granularity
+    ("WRITE color-state/shots-1-40"): two graders on one reel
+    serialise, graders on different reels run together. WRITE plus
+    EXCLUSIVE, the pairing the spec's caption example uses - applying
+    a graph replaces node state, it does not nudge it. The refusal
+    and the no-look branches take nothing: a raise and a no-op are
+    not writes.
+    """
+    name = timeline.GetName()
+    return resource_lease(
+        LeaseDeclaration(
+            write=frozenset({ResourceRef("colour_grade", name)}),
+            exclusive=frozenset({ResourceRef("colour_grade", name)}),
+        ),
+        purpose=f"grade {name}",
+    )
 
 
 def _picture(placements: Sequence[dict]) -> List[dict]:
