@@ -25,6 +25,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
 
+from library.tools.ren_refusal import RenRefusal
+
 #: Marks the broker's own executor thread: the work it runs must not
 #: queue behind itself, and `resolve-axi` there runs rather than
 #: forwarding back to the broker.
@@ -194,6 +196,47 @@ def _engine_root() -> Optional[Path]:
     return None
 
 
+def _git_path(root: Path, flag: str) -> Optional[str]:
+    """The absolute path of a git dir flag, or None where git cannot answer.
+
+    `--path-format=absolute` (git 2.13+) is tried first; a relative
+    answer from an older git is resolved against `root`.
+    """
+    for args in (["rev-parse", "--path-format=absolute", flag],
+                 ["rev-parse", flag]):
+        try:
+            out = subprocess.run(
+                ["git", "-C", str(root), *args],
+                capture_output=True, text=True, timeout=5,
+                check=True).stdout.strip()
+        except (subprocess.SubprocessError, OSError):
+            continue
+        if out:
+            return out if out.startswith("/") else str(root / out)
+    return None
+
+
+def _is_linked_worktree(root: Optional[Path]) -> bool:
+    """True where `root` is a linked git worktree, never the installed engine.
+
+    A linked worktree (`git rev-parse --git-dir` differing from
+    `git rev-parse --git-common-dir`) is managed by a worktree tool and
+    may be reclaimed at any time - the same signal the Resolve
+    installers' durable-checkout guard used. A client running from one
+    must not auto-start the production broker: the broker would serve
+    production Resolve calls on unmerged code from a directory that may
+    not exist tomorrow. A checkout that is not a git repo at all (a
+    packaged install) is not a linked worktree and is allowed.
+    """
+    if root is None:
+        return False
+    git_dir = _git_path(root, "--git-dir")
+    common_dir = _git_path(root, "--git-common-dir")
+    if git_dir is None or common_dir is None:
+        return False
+    return os.path.realpath(git_dir) != os.path.realpath(common_dir)
+
+
 def _broker_python() -> str:
     """The interpreter the broker serves under: Ren's venv, not the caller's.
 
@@ -307,6 +350,24 @@ def ensure(path=None, timeout: float = START_TIMEOUT_SECONDS) -> Optional[dict]:
     answer = ping(target)
     if answer is not None:
         return answer
+    # Guard: a client from a linked worktree must not auto-start the
+    # production broker either. The ping above means a broker already
+    # serving is used; with none serving, starting one here would serve
+    # production Resolve calls on unmerged code from a directory a
+    # worktree tool may reclaim. `$REN_ENGINE_ROOT` is an explicit
+    # engine choice and overrides the worktree signal.
+    if (_is_default_socket(target)
+            and not os.environ.get("REN_ENGINE_ROOT")
+            and _is_linked_worktree(_engine_root())):
+        root = _engine_root()
+        raise RenRefusal(
+            what="not starting the production Resolve broker",
+            why=f"this client runs from a linked worktree ({root}), not "
+                "the installed engine - a broker started here would serve "
+                "production Resolve calls on unmerged code from a "
+                "directory a worktree tool may reclaim",
+            fix="run from the installed engine checkout, or set "
+                "REN_ENGINE_ROOT to the installed engine root")
     try:
         import fcntl
     except ImportError:  # pragma: no cover - not POSIX

@@ -21,9 +21,10 @@ from pathlib import Path
 import pytest
 
 from library.tools import resolve_lock
+from library.tools.ren_refusal import RenRefusal
 from library.tools.resolved import __main__ as resolved_cli
 from library.tools.resolved import client
-from library.tools.resolved.server import SOCKET_NAME
+from library.tools.resolved.server import SOCKET_NAME, serve
 
 
 @pytest.fixture
@@ -259,3 +260,139 @@ def test_a_lease_acquisition_starts_the_broker_on_demand(lock_dir, unguarded):
     deadline = time.time() + 10.0
     while client.ping(lock_dir / SOCKET_NAME) is not None and time.time() < deadline:
         time.sleep(0.05)
+
+
+# ── The worktree guard ────────────────────────────────────────────────
+
+def _production_socket() -> Path:
+    """The default socket, whatever this process isolated."""
+    return Path(tempfile.gettempdir()) / SOCKET_NAME
+
+
+def test_ensure_refuses_the_default_socket_from_a_linked_worktree(
+        tmp_path, monkeypatch):
+    """A client from a linked worktree must not auto-start the production broker.
+
+    The defect (2026-10-05): a worker's tests, a standalone shadow watcher
+    run from a worktree, and a live smoke each started a production broker
+    from their own branch checkout - one branch then refused every reel
+    build. The guard refuses, naming the reason; a broker already serving
+    is still used (the ping before the guard).
+    """
+    monkeypatch.setattr(client, "_in_pytest", lambda: False)
+    monkeypatch.setattr(client, "_is_linked_worktree", lambda root: True)
+    monkeypatch.delenv("REN_ENGINE_ROOT", raising=False)
+    started = []
+    pings = []
+    monkeypatch.setattr(client, "_start_detached",
+                        lambda path: started.append(Path(path)))
+    monkeypatch.setattr(client, "ping",
+                        lambda path=None: pings.append(path) or None)
+    with pytest.raises(RenRefusal) as exc_info:
+        client.ensure(path=_production_socket(), timeout=2)
+    assert started == []
+    assert len(pings) == 1, "the guard pinged once, then refused"
+    assert "linked worktree" in exc_info.value.why
+    assert exc_info.value.fix, "the refusal names its fix"
+
+
+def test_ensure_uses_a_broker_already_serving_from_a_linked_worktree(
+        tmp_path, monkeypatch):
+    """The guard refuses to START a broker, not to USE one serving."""
+    monkeypatch.setattr(client, "_in_pytest", lambda: False)
+    monkeypatch.setattr(client, "_is_linked_worktree", lambda root: True)
+    monkeypatch.delenv("REN_ENGINE_ROOT", raising=False)
+    serving = {"ok": True, "pid": 4242}
+    real_ping = client.ping
+    client.ping = lambda path=None: serving
+    started = []
+    monkeypatch.setattr(client, "_start_detached",
+                        lambda path: started.append(Path(path)))
+    try:
+        assert client.ensure(path=_production_socket(), timeout=2) is serving
+        assert started == []
+    finally:
+        client.ping = real_ping
+
+
+class _DeadProcess:
+    """A broker that died on startup: `poll` answers at once."""
+
+    def poll(self):
+        return 1
+
+
+def test_ensure_starts_the_default_socket_outside_a_worktree(
+        tmp_path, monkeypatch):
+    """A client from the installed engine (not a worktree) starts the broker."""
+    monkeypatch.setattr(client, "_in_pytest", lambda: False)
+    monkeypatch.setattr(client, "_is_linked_worktree", lambda root: False)
+    monkeypatch.delenv("REN_ENGINE_ROOT", raising=False)
+    monkeypatch.setattr(client, "ping", lambda path=None: None)
+    started = []
+
+    def fake_start(path):
+        started.append(Path(path))
+        return _DeadProcess()
+
+    monkeypatch.setattr(client, "_start_detached", fake_start)
+    assert client.ensure(path=_production_socket(), timeout=2) is None
+    assert len(started) == 1
+
+
+def test_ensure_allows_a_worktree_when_ren_engine_root_is_set(
+        tmp_path, monkeypatch):
+    """`$REN_ENGINE_ROOT` is an explicit engine choice and overrides the guard."""
+    monkeypatch.setattr(client, "_in_pytest", lambda: False)
+    monkeypatch.setattr(client, "_is_linked_worktree", lambda root: True)
+    monkeypatch.setenv("REN_ENGINE_ROOT", str(tmp_path))
+    monkeypatch.setattr(client, "ping", lambda path=None: None)
+    started = []
+
+    def fake_start(path):
+        started.append(Path(path))
+        return _DeadProcess()
+
+    monkeypatch.setattr(client, "_start_detached", fake_start)
+    assert client.ensure(path=_production_socket(), timeout=2) is None
+    assert len(started) == 1
+
+
+def test_is_linked_worktree_detects_a_real_worktree(tmp_path):
+    """The signal is git's own: git-dir differing from git-common-dir."""
+    git_env = {**os.environ,
+               "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+               "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+    primary = tmp_path / "primary"
+    primary.mkdir()
+    subprocess.run(["git", "init"], cwd=primary, capture_output=True,
+                   check=True)
+    subprocess.run(["git", "commit", "--allow-empty", "-m", "init"],
+                   cwd=primary, capture_output=True, check=True, env=git_env)
+    assert not client._is_linked_worktree(primary)
+    linked = tmp_path / "linked"
+    subprocess.run(["git", "worktree", "add", str(linked), "--detach"],
+                   cwd=primary, capture_output=True, check=True)
+    assert client._is_linked_worktree(linked)
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    assert not client._is_linked_worktree(plain)
+    assert not client._is_linked_worktree(None)
+
+
+# ── The bind race ─────────────────────────────────────────────────────
+
+def test_a_second_broker_refuses_to_bind_a_serving_socket(started, lock_dir):
+    """A second broker refuses to bind a path another live broker serves.
+
+    The race the bind lock closes: two brokers starting within a second
+    of each other (a watcher respawning after a deliberate restart) both
+    passed the ping - neither had bound yet - and the second's bind
+    orphaned the first, leaving two processes on one socket path.
+    """
+    socket_path = lock_dir / SOCKET_NAME
+    first = started()
+    assert first is not None and first["pid"] > 0
+    with pytest.raises(SystemExit):
+        serve(path=socket_path)
+    assert client.ping(socket_path)["pid"] == first["pid"]
