@@ -152,6 +152,73 @@ HYBRID_DENSE_WEIGHT = 0.6
 DENSE_SCORE_FLOOR = 0.40
 DENSE_WEAK_FLOOR = 0.28
 
+# ─── Floors per embedding backend ─────────────────────────────────
+#
+# One global floor cannot serve two encoders.  EmbeddingGemma 2 scores
+# absent queries at 0.65-0.70 where MiniLM stays <= 0.18 (scout
+# measurement: 17 podcast transcript segments, 6 queries - absent
+# "birthday cake" 0.664 and "motorcycle" 0.696 against one-to-three-word
+# filler segments, while MiniLM held both <= 0.18), so the 0.40 floor
+# that keeps MiniLM honest would return confident wrong rows for an
+# EmbeddingGemma index.  Each backend therefore carries its own
+# (confident, weak) pair, and search resolves the pair from the INDEX's
+# recorded backend - the matrix being judged was written by that
+# backend, not by whatever loads at query time.
+DENSE_FLOORS = {
+    # Keyed by a substring matched case-insensitively, the recorded
+    # embed_model first, then the recorded embed_backend.
+    "embeddinggemma": (
+        0.75, 0.60,
+        "PROVISIONAL - scout toy corpus (17 texts; absent max 0.696, "
+        "present min 0.841): confident sits above the absent max, weak "
+        "above MiniLM's absent band. Re-measure on 001/409 before "
+        "confident use.",
+    ),
+    "all-minilm-l6-v2": (
+        0.40, 0.28,
+        "001: 17 clips, 409 segments, 12 present + 8 absent queries - "
+        "the calibration table in the comment above.",
+    ),
+    "sentence-transformers": (
+        0.40, 0.28,
+        "same MiniLM calibration; backend name recorded when the model "
+        "string is absent (legacy index).",
+    ),
+    "transformers+mean-pooling": (
+        0.40, 0.28,
+        "same MiniLM calibration; fallback backend serving the same "
+        "MiniLM checkpoint.",
+    ),
+}
+
+
+def floors_for(embed_model=None, embed_backend=None):
+    """The ``(floor, weak_floor, source)`` that judges an index's matrix.
+
+    Matched against the backend that WROTE the index, because a cosine
+    means what its encoder says it means.  An explicit ``floor=``
+    argument to `search`/`search_report` still wins; this is only the
+    default.  An unrecognised backend fails closed at the strictest
+    measured confident floor, so a future encoder never inherits a
+    floor that would turn its absent queries into confident rows.
+    """
+    model = (embed_model or "").lower()
+    for key, (floor, weak, source) in DENSE_FLOORS.items():
+        if key in model:
+            return floor, weak, source
+    backend = (embed_backend or "").lower()
+    for key, (floor, weak, source) in DENSE_FLOORS.items():
+        if key in backend:
+            return floor, weak, source
+    if not model.strip() and not backend.strip():
+        return (DENSE_SCORE_FLOOR, DENSE_WEAK_FLOOR,
+                "no backend recorded (legacy or lexical-only index) - "
+                "MiniLM default")
+    strict = max(DENSE_FLOORS.values(), key=lambda entry: entry[0])
+    return (strict[0], strict[1],
+            f"unknown backend {embed_model!r}/{embed_backend!r} - fail "
+            "closed at the strictest measured floor")
+
 # How many weak rows a report carries.  It is context for an abstain,
 # not a second result list.
 WEAK_BAND_LIMIT = 5
@@ -692,8 +759,8 @@ class FootageIndex:
                 or "lexical" (BM25 only).  Hybrid is the recommendation;
                 the other two exist so a hit can be attributed.
             floor: minimum dense cosine for a segment to count as evidence.
-                Defaults to `DENSE_SCORE_FLOOR`.  Pass 0 to rank everything
-                the way an unfloored index would.
+                Defaults to this index's backend floor (`floors_for`).
+                Pass 0 to rank everything the way an unfloored index would.
 
         Returns:
             Segments ordered by relevance, each with `clip_id`, `start`,
@@ -719,12 +786,18 @@ class FootageIndex:
         from "the search is broken" will report the second when it means
         the first, so this hands it both.
         """
-        mode_floor = DENSE_SCORE_FLOOR if floor is None else float(floor)
+        if floor is None:
+            mode_floor, weak_floor, floor_source = floors_for(
+                self.payload.get("embed_model"), self.payload.get("embed_backend"))
+        else:
+            mode_floor, weak_floor = float(floor), DENSE_WEAK_FLOOR
+            floor_source = "explicit floor argument (--floor)"
         report = {
             "query": query,
             "mode": mode,
             "floor": mode_floor,
-            "weak_floor": DENSE_WEAK_FLOOR,
+            "weak_floor": weak_floor,
+            "floor_source": floor_source,
             "segment_count": len(self.segments),
             "embed_backend": self.payload.get("embed_backend"),
             "embed_model": self.payload.get("embed_model"),
@@ -777,7 +850,7 @@ class FootageIndex:
         # The weak band: what the floor turned away, and how close it came.
         # An abstain that cannot name its near miss reads as a broken search.
         if dense is not None and mode_floor > 0:
-            weak = mask & ~keep & (dense >= DENSE_WEAK_FLOOR)
+            weak = mask & ~keep & (dense >= weak_floor)
             report["weak"] = self._rank(query, combined, dense, lexical, weak, weak_k,
                                         rank_by=dense)
             rejected = mask & ~keep
@@ -1894,8 +1967,9 @@ def main(argv=None):
                                "resolve them)")
     p_search.add_argument("--mode", choices=["hybrid", "dense", "lexical"], default="hybrid")
     p_search.add_argument("--floor", type=float, default=None,
-                          help=f"minimum dense cosine to count as evidence "
-                               f"(default {DENSE_SCORE_FLOOR}; 0 disables the abstain)")
+                           help="minimum dense cosine to count as evidence "
+                                "(default: the built index's backend floor; "
+                                "0 disables the abstain)")
     p_search.add_argument("--person",
                           help="restrict to one person's measured face/voice "
                               "spans (person_id or declared name, e.g. "
@@ -1949,8 +2023,9 @@ def main(argv=None):
     p_hybrid.add_argument("-k", "--top-k", type=int, default=5)
     p_hybrid.add_argument("--mode", choices=["hybrid", "dense", "lexical"], default="hybrid")
     p_hybrid.add_argument("--floor", type=float, default=None,
-                          help=f"minimum dense cosine to count as evidence "
-                               f"(default {DENSE_SCORE_FLOOR}; 0 disables the abstain)")
+                           help="minimum dense cosine to count as evidence "
+                                "(default: the built index's backend floor; "
+                                "0 disables the abstain)")
     p_hybrid.add_argument("--kind", choices=list(SEGMENT_KINDS))
     p_hybrid.add_argument("--clip-id")
     p_hybrid.add_argument("--framing")
