@@ -1018,3 +1018,373 @@ def _write_identity(memory_root: Path, digest: str, identity: dict):
     path = memory_root / digest / "identity.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(identity), encoding="utf-8")
+
+
+# ── Editorial finding nodes ───────────────────────────────────────
+#
+# The compile reports dead sections, trim proposals, J/L placements
+# with the plan's decision on each, and selected reaction cutaways.
+# The defect: those findings lived only in assembly_manifest.json, so
+# the event log and the version work had no node to reference - every
+# consumer re-described the same timeline span in its own words.
+#
+
+
+def _write_manifest(project: Path, manifest: dict):
+    from library.tools.project_layout import ProjectLayout
+    out_dir = ProjectLayout(str(project)).step_dir(
+        "compile_manifest", create=True)
+    (out_dir / "assembly_manifest.json").write_text(
+        json.dumps(manifest), encoding="utf-8")
+
+
+def _editorial_project(tmp_path, monkeypatch, manifest):
+    """Two clips, a three-block spine, one person, and a manifest."""
+    memory_root = tmp_path / "memory"
+    monkeypatch.setenv("PIPELINE_SOURCE_MEMORY_ROOT", str(memory_root))
+
+    project = tmp_path / "project"
+    project.mkdir()
+
+    digest_a = "a" * 64
+    digest_b = "b" * 64
+    state = {
+        "capability_outputs": {
+            "footage.catalog": {"clip_catalog": [
+                {"clip_id": "clip_001", "source_file": "/camA/take1.MXF",
+                 "duration_seconds": 30.0},
+                {"clip_id": "clip_002", "source_file": "/camB/take1.MXF",
+                 "duration_seconds": 30.0},
+            ]},
+            "spine.mesh": {"audio_spine": {"structure": [
+                {"position": 1, "block_type": "body", "clip_id": "clip_001",
+                 "timeline_start": 0.0, "timeline_end": 10.0},
+                {"position": 2, "block_type": "body", "clip_id": "clip_001",
+                 "timeline_start": 10.0, "timeline_end": 20.0},
+                {"position": 3, "block_type": "body", "clip_id": "clip_002",
+                 "timeline_start": 20.0, "timeline_end": 30.0},
+            ]}},
+        },
+        "source_fingerprints": {
+            "clip_001": {"content_digest": digest_a},
+            "clip_002": {"content_digest": digest_b},
+        },
+    }
+    (project / "pipeline_data.json").write_text(
+        json.dumps(state), encoding="utf-8")
+
+    for digest in (digest_a, digest_b):
+        _write_world_model(memory_root, digest, {
+            "timeline": [],
+            "entities": {"face_tracks": [], "voice_tracks": []},
+            "multicam": None,
+        })
+    _write_identity(memory_root, digest_a, {
+        "faces": [], "voices": [], "speech_face_links": [],
+    })
+    _write_identity(memory_root, digest_b, {
+        "faces": [{"track_id": "face_002",
+                   "spans": [{"start": 0.0, "end": 5.0}],
+                   "embedding": [0.9] * 512}],
+        "voices": [{"track_id": "voice_002", "spans": [[0.0, 5.0]]}],
+        "speech_face_links": [{"face_track": "face_002",
+                               "voice_track": "voice_002"}],
+    })
+
+    _write_manifest(project, manifest)
+    return project
+
+
+def _editorial_manifest():
+    return {
+        "dead_sections": [
+            {"timeline_start": 14.0, "timeline_end": 17.5,
+             "duration_seconds": 3.5, "block_position": 2,
+             "clip_id": "clip_001",
+             "reasons": ["no speech", "static picture"]},
+        ],
+        "dead_section_trims": [
+            {"block_position": 2, "trim_edge": "tail", "trim_seconds": 3.5},
+        ],
+        "jl_placements": [
+            {"cut_point_position": 3, "kind": "j_cut",
+             "offset_seconds": 0.42, "timeline_position": 20.0},
+        ],
+        "jl_placement_results": [
+            {"cut_point_position": 3, "kind": "j_cut",
+             "measured_offset_seconds": 0.42,
+             "chosen_offset_seconds": 0.3, "status": "chosen"},
+        ],
+        "reaction_cutaways": [
+            {"speech_block_position": 1, "speech_clip_id": "clip_001",
+             "speaking_person_id": "person_001",
+             "speech_timeline_start": 2.0, "speech_timeline_end": 8.0,
+             "reaction_clip_id": "clip_002",
+             "reacting_person_id": "person_001",
+             "reaction_source_start": 1.0, "reaction_source_end": 4.0,
+             "timing": {"speech_moment": 8.0, "reaction_land": 8.0,
+                        "offset_seconds": 0.0},
+             "reason": "person_001 is visible in clip_002 while speaking"},
+        ],
+    }
+
+
+def _finding_nodes(graph, kind):
+    return [n for n in graph["nodes"]
+            if n["node_type"] == project_graph.EDITORIAL_FINDING
+            and n["payload"].get("kind") == kind]
+
+
+def test_compile_dead_sections_become_nodes_covering_their_clip(
+        tmp_path, monkeypatch):
+    """A dead section the compile reported is a node carrying the span
+    and reasons verbatim, linked to the shot it names. On origin/main
+    the manifest's findings reach no node at all."""
+    project = _editorial_project(
+        tmp_path, monkeypatch, _editorial_manifest())
+
+    graph = project_graph.build_graph(str(project))
+
+    nodes = _finding_nodes(graph, "dead_section")
+    assert len(nodes) == 1
+    assert nodes[0]["node_id"] == "editorial:dead_section:0"
+    record = nodes[0]["payload"]["record"]
+    assert record["timeline_start"] == 14.0
+    assert record["timeline_end"] == 17.5
+    assert record["reasons"] == ["no speech", "static picture"]
+    covers = [e for e in project_graph.edges_from(graph, nodes[0]["node_id"])
+              if e["type"] == project_graph.COVERS]
+    assert [e["to"] for e in covers] == ["shot:clip_001"]
+
+
+def test_jl_placement_resolves_its_block_to_the_clip_playing_there(
+        tmp_path, monkeypatch):
+    """A J/L placement names a block position, not a clip: the node
+    links to the clip the spine plays at that position, and the
+    decision node carries the plan's chosen offset beside the measured
+    bound. On origin/main neither node exists."""
+    project = _editorial_project(
+        tmp_path, monkeypatch, _editorial_manifest())
+
+    graph = project_graph.build_graph(str(project))
+
+    placements = _finding_nodes(graph, "jl_placement")
+    assert len(placements) == 1
+    covers = [e for e in
+              project_graph.edges_from(graph, placements[0]["node_id"])
+              if e["type"] == project_graph.COVERS]
+    # Position 3 plays clip_002 in the fixture spine.
+    assert [e["to"] for e in covers] == ["shot:clip_002"]
+
+    decisions = _finding_nodes(graph, "jl_decision")
+    assert len(decisions) == 1
+    decision = decisions[0]["payload"]["record"]
+    assert decision["status"] == "chosen"
+    assert decision["measured_offset_seconds"] == 0.42
+    assert decision["chosen_offset_seconds"] == 0.3
+
+
+def test_a_trim_at_an_unrecorded_position_links_to_no_shot(
+        tmp_path, monkeypatch):
+    """A finding naming a position the graph never recorded still
+    becomes a node - the link is absent, never a guessed clip."""
+    manifest = _editorial_manifest()
+    manifest["dead_section_trims"] = [
+        {"block_position": 99, "trim_edge": "head", "trim_seconds": 1.0},
+    ]
+    project = _editorial_project(tmp_path, monkeypatch, manifest)
+
+    graph = project_graph.build_graph(str(project))
+
+    trims = _finding_nodes(graph, "dead_section_trim")
+    assert len(trims) == 1
+    assert trims[0]["payload"]["record"]["trim_seconds"] == 1.0
+    assert project_graph.edges_from(graph, trims[0]["node_id"]) == []
+
+
+def test_reaction_cutaway_links_both_clips_and_the_reacting_person(
+        tmp_path, monkeypatch):
+    """The cutaway node covers the speech clip and the reaction clip
+    and reaches the reacting person over REACTS_TO - the spec's
+    'camera shows person B reacting'. On origin/main the cutaway the
+    compile selected is not in the graph."""
+    project = _editorial_project(
+        tmp_path, monkeypatch, _editorial_manifest())
+
+    graph = project_graph.build_graph(str(project))
+
+    cutaways = _finding_nodes(graph, "reaction_cutaway")
+    assert len(cutaways) == 1
+    covers = sorted(
+        e["to"] for e in project_graph.edges_from(graph, cutaways[0]["node_id"])
+        if e["type"] == project_graph.COVERS)
+    assert covers == ["shot:clip_001", "shot:clip_002"]
+    reacts = [e for e in project_graph.edges_from(graph, cutaways[0]["node_id"])
+              if e["type"] == project_graph.REACTS_TO]
+    assert len(reacts) == 1
+    person = project_graph.node(graph, reacts[0]["to"])
+    assert person["node_type"] == project_graph.PERSON
+
+
+def test_no_editorial_nodes_without_a_compile(tmp_path, monkeypatch):
+    """A project the compile never reached builds a graph with no
+    editorial nodes - absence is absence, never an empty finding."""
+    project = _editorial_project(tmp_path, monkeypatch, _editorial_manifest())
+    manifest_path = next(project.rglob("assembly_manifest.json"))
+    manifest_path.unlink()
+
+    graph = project_graph.build_graph(str(project))
+
+    assert [n for n in graph["nodes"]
+            if n["node_type"] == project_graph.EDITORIAL_FINDING] == []
+
+
+def test_the_cache_rebuilds_when_the_findings_change(
+        tmp_path, monkeypatch):
+    """Defect: the cache fingerprinted the catalog and the colour
+    output but not the manifest, so a recompile with new findings
+    kept serving the old graph. A changed manifest rebuilds; an
+    unchanged one reuses the cache."""
+    manifest = _editorial_manifest()
+    project = _editorial_project(tmp_path, monkeypatch, manifest)
+
+    first = project_graph.load_or_build(str(project))
+    assert len(_finding_nodes(first, "dead_section")) == 1
+
+    manifest["dead_sections"].append(
+        {"timeline_start": 24.0, "timeline_end": 25.0,
+         "duration_seconds": 1.0, "block_position": 3,
+         "clip_id": "clip_002", "reasons": ["no speech"]})
+    _write_manifest(project, manifest)
+
+    second = project_graph.load_or_build(str(project))
+    assert len(_finding_nodes(second, "dead_section")) == 2
+
+    third = project_graph.load_or_build(str(project))
+    assert third["node_count"] == second["node_count"]
+
+
+def test_the_cache_rebuilds_when_a_new_version_lands(
+        tmp_path, monkeypatch):
+    """Defect, same shape: the versions ledger was a graph input the
+    fingerprint never covered, so a new reel version never reached
+    the graph until some unrelated input changed."""
+    project = _editorial_project(
+        tmp_path, monkeypatch, _editorial_manifest())
+
+    review_dir = project / "pipeline_output" / "review"
+    review_dir.mkdir(parents=True, exist_ok=True)
+    ledger_path = review_dir / "reel_versions.json"
+
+    def _write_ledger(versions):
+        ledger_path.write_text(json.dumps({
+            "format": "reel_versions/1",
+            "reels": {"reel_001": versions},
+        }), encoding="utf-8")
+
+    _write_ledger([
+        {"version": 1, "kind": "build", "at": "2026-10-06T10:00:00+00:00",
+         "rows": {}, "rows_digest": "abc123"},
+    ])
+    first = project_graph.load_or_build(str(project))
+    assert len(project_graph.find_reel_versions(first, "reel_001")) == 1
+
+    _write_ledger([
+        {"version": 1, "kind": "build", "at": "2026-10-06T10:00:00+00:00",
+         "rows": {}, "rows_digest": "abc123"},
+        {"version": 2, "kind": "touch", "at": "2026-10-06T11:00:00+00:00",
+         "rows": {}, "rows_digest": "def456"},
+    ])
+    second = project_graph.load_or_build(str(project))
+    found = project_graph.find_reel_versions(second, "reel_001")
+    assert [r["version"] for r in found] == [1, 2]
+    assert found[1]["kind"] == "touch"
+
+
+# ── The new queries ───────────────────────────────────────────────
+
+
+def _version_graph():
+    graph = project_graph.new_graph()
+    for version, kind in ((1, "build"), (2, "touch")):
+        project_graph.add_node(graph, {
+            "node_id": f"version:reel_001:{version}",
+            "node_type": project_graph.VERSION,
+            "label": f"version {version} of reel_001",
+            "payload": {"final": "reel_001", "version": version,
+                        "kind": kind, "at": "2026-10-06T10:00:00+00:00",
+                        "rows_digest": "abc123"},
+        })
+    project_graph.add_node(graph, {
+        "node_id": "version:reel_002:1",
+        "node_type": project_graph.VERSION,
+        "label": "version 1 of reel_002",
+        "payload": {"final": "reel_002", "version": 1, "kind": "build",
+                    "at": "2026-10-06T10:00:00+00:00",
+                    "rows_digest": "zzz999"},
+    })
+    return graph
+
+
+def test_find_reel_versions_lists_every_version_and_filters_by_final():
+    graph = _version_graph()
+
+    assert [r["version"] for r in
+            project_graph.find_reel_versions(graph, "reel_001")] == [1, 2]
+    assert len(project_graph.find_reel_versions(graph)) == 3
+    assert project_graph.find_reel_versions(graph, "reel_999") == []
+
+
+def test_find_editorial_findings_filters_by_kind_and_clip():
+    graph = project_graph.new_graph()
+    project_graph.add_node(graph, _shot("clip_001"))
+    project_graph.add_node(graph, {
+        "node_id": "editorial:dead_section:0",
+        "node_type": project_graph.EDITORIAL_FINDING,
+        "label": "dead_section 0",
+        "payload": {"kind": "dead_section", "record": {
+            "timeline_start": 14.0, "timeline_end": 17.5,
+            "clip_id": "clip_001", "reasons": ["no speech"]}},
+    })
+    project_graph.add_node(graph, {
+        "node_id": "editorial:jl_decision:0",
+        "node_type": project_graph.EDITORIAL_FINDING,
+        "label": "jl_decision 0",
+        "payload": {"kind": "jl_decision", "record": {
+            "cut_point_position": 3, "status": "chosen"}},
+    })
+    project_graph.add_edge(graph, _edge(
+        "editorial:jl_decision:0", "shot:clip_001", project_graph.COVERS,
+        {"finding": "jl_decision"}))
+
+    assert len(project_graph.find_editorial_findings(graph)) == 2
+    assert [r["node_id"] for r in project_graph.find_editorial_findings(
+        graph, kind="dead_section")] == ["editorial:dead_section:0"]
+    # The clip filter reads the record's clip keys AND the COVERS
+    # edges, so a position-resolved J/L finding answers for its clip.
+    assert len(project_graph.find_editorial_findings(
+        graph, clip_id="clip_001")) == 2
+    assert project_graph.find_editorial_findings(
+        graph, kind="dead_section", clip_id="clip_999") == []
+    assert project_graph.find_editorial_findings(
+        graph, kind="no_such_kind") == []
+
+
+def test_find_vfx_detections_filters_by_clip():
+    graph = project_graph.new_graph()
+    for clip_id, effect in (("clip_001", "stabilization"),
+                            ("clip_002", "denoise")):
+        project_graph.add_node(graph, {
+            "node_id": f"vfx:edit:{clip_id}",
+            "node_type": project_graph.VFX_DETECTION,
+            "label": f"vfx on {clip_id}",
+            "payload": {"edit_node_id": f"edit:{clip_id}",
+                        "clip_id": clip_id, "position": 1,
+                        "effect": effect},
+        })
+
+    found = project_graph.find_vfx_detections(graph, "clip_001")
+    assert len(found) == 1
+    assert found[0]["effect"] == "stabilization"
+    assert len(project_graph.find_vfx_detections(graph)) == 2
+    assert project_graph.find_vfx_detections(graph, "clip_999") == []

@@ -1323,7 +1323,9 @@ def test_shot_colour_cli_reaches_the_index(tmp_path, monkeypatch):
                                    "clip_id": "clip_001",
                                    "timeline_start": None,
                                    "timeline_end": None,
-                                   "segment_id": None})]
+                                   "segment_id": None,
+                                   "final": None,
+                                   "kind": None})]
 
 
 def test_shot_colour_is_in_the_llm_tool_definitions():
@@ -1335,3 +1337,193 @@ def test_shot_colour_is_in_the_llm_tool_definitions():
     assert "find_shot_colour" in by_name
     params = by_name["find_shot_colour"]["parameters"]
     assert params["required"] == ["clip_id"]
+
+
+# --------------------------------------------------------------------------
+# Reel versions, editorial findings, VFX detections: the graph's newer
+# nodes, exposed to search
+#
+# The graph registers reel versions, the compile's report-only findings
+# and VFX detections, but the agent's route to the graph only answered
+# the five original queries. The defect: asking "which versions has
+# this reel held", "what dead sections did the compile find" or "what
+# VFX was detected on this clip" answered "unknown query".
+#
+
+def _versioned_project(tmp_path):
+    """A one-clip project with a two-version ledger."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    state = {"capability_outputs": {
+        "footage.catalog": {"clip_catalog": [
+            {"clip_id": "clip_001", "source_file": "/camA/take1.MXF",
+             "duration_seconds": 10.0},
+        ]},
+    }}
+    (root / "pipeline_data.json").write_text(
+        json.dumps(state), encoding="utf-8")
+    review_dir = root / "pipeline_output" / "review"
+    review_dir.mkdir(parents=True)
+    (review_dir / "reel_versions.json").write_text(json.dumps({
+        "format": "reel_versions/1",
+        "reels": {
+            "reel_001": [
+                {"version": 1, "kind": "build",
+                 "at": "2026-10-06T10:00:00+00:00",
+                 "rows": {}, "rows_digest": "abc123"},
+                {"version": 2, "kind": "touch",
+                 "at": "2026-10-06T11:00:00+00:00",
+                 "rows": {}, "rows_digest": "def456"},
+            ],
+        },
+    }), encoding="utf-8")
+    return root
+
+
+def test_reel_versions_query_lists_versions_for_a_final(tmp_path):
+    """The versions the ledger recorded answer through the search
+    route, oldest first. On origin/main the query name is unknown."""
+    root = _versioned_project(tmp_path)
+    idx = FootageIndex(str(root))
+
+    report = idx.project_graph("reel_versions", final="reel_001")
+
+    assert report["error"] is None
+    assert [r["version"] for r in report["results"]] == [1, 2]
+    assert report["results"][1]["kind"] == "touch"
+
+
+def test_reel_versions_query_reads_an_unversioned_final_as_empty(tmp_path):
+    root = _versioned_project(tmp_path)
+    idx = FootageIndex(str(root))
+
+    report = idx.project_graph("reel_versions", final="reel_999")
+
+    assert report["error"] is None
+    assert report["results"] == []
+
+
+def _findings_project(tmp_path):
+    """A one-clip project whose compile reported a dead section and a
+    VFX detection through the edit graph."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    state = {"capability_outputs": {
+        "footage.catalog": {"clip_catalog": [
+            {"clip_id": "clip_001", "source_file": "/camA/take1.MXF",
+             "duration_seconds": 30.0},
+        ]},
+        "vfx.resolve": {"enhancement_spec": [
+            {"position": 1, "clip_id": "clip_001",
+             "effect": "stabilization"},
+        ]},
+    }}
+    (root / "pipeline_data.json").write_text(
+        json.dumps(state), encoding="utf-8")
+    manifest_dir = (root / "pipeline_output" / "steps"
+                    / "5_04_compile_manifest")
+    manifest_dir.mkdir(parents=True)
+    (manifest_dir / "assembly_manifest.json").write_text(json.dumps({
+        "dead_sections": [
+            {"timeline_start": 14.0, "timeline_end": 17.5,
+             "duration_seconds": 3.5, "block_position": 2,
+             "clip_id": "clip_001",
+             "reasons": ["no speech", "static picture"]},
+        ],
+    }), encoding="utf-8")
+    return root
+
+
+def test_editorial_findings_query_returns_the_compile_findings(tmp_path):
+    """The compile's dead section answers through the search route
+    with its span and reasons. On origin/main the query name is
+    unknown."""
+    root = _findings_project(tmp_path)
+    idx = FootageIndex(str(root))
+
+    report = idx.project_graph("editorial_findings", kind="dead_section")
+
+    assert report["error"] is None
+    assert len(report["results"]) == 1
+    row = report["results"][0]
+    assert row["kind"] == "dead_section"
+    assert row["record"]["timeline_start"] == 14.0
+    assert row["record"]["reasons"] == ["no speech", "static picture"]
+
+
+def test_editorial_findings_query_refuses_an_unknown_kind(tmp_path):
+    root = _findings_project(tmp_path)
+    idx = FootageIndex(str(root))
+
+    report = idx.project_graph("editorial_findings", kind="no_such_kind")
+
+    assert report["results"] == []
+    assert "no_such_kind" in report["error"]
+
+
+def test_vfx_detections_query_returns_the_detection_for_a_clip(tmp_path):
+    """The edit graph's stabilization detection answers through the
+    search route. On origin/main the query name is unknown."""
+    root = _findings_project(tmp_path)
+    idx = FootageIndex(str(root))
+
+    report = idx.project_graph("vfx_detections", clip_id="clip_001")
+
+    assert report["error"] is None
+    assert len(report["results"]) == 1
+    assert report["results"][0]["effect"] == "stabilization"
+
+
+def test_vfx_detections_query_reads_a_clean_clip_as_empty(tmp_path):
+    root = _findings_project(tmp_path)
+    idx = FootageIndex(str(root))
+
+    report = idx.project_graph("vfx_detections", clip_id="clip_999")
+
+    assert report["error"] is None
+    assert report["results"] == []
+
+
+def test_new_graph_queries_are_cli_choices(tmp_path, monkeypatch):
+    """`ren search-index project-graph <query>` reaches each new query -
+    the query name must be a CLI choice, like shot_colour before it."""
+    root = _findings_project(tmp_path)
+    from library.tools.analysis import footage_query as fq
+
+    calls = []
+
+    def fake_project_graph(self, query, **kwargs):
+        calls.append((query, kwargs))
+        return {"query": query, "mode": "project_graph", "node_count": 0,
+                "edge_count": 0, "results": [], "error": None}
+
+    monkeypatch.setattr(FootageIndex, "project_graph", fake_project_graph)
+    assert fq.main(["project-graph", str(root), "editorial_findings",
+                    "--kind", "dead_section"]) == 0
+    assert fq.main(["project-graph", str(root), "reel_versions",
+                    "--final", "reel_001"]) == 0
+    assert fq.main(["project-graph", str(root), "vfx_detections",
+                    "--clip", "clip_001"]) == 0
+    assert [c[0] for c in calls] == ["editorial_findings", "reel_versions",
+                                     "vfx_detections"]
+    assert calls[0][1]["kind"] == "dead_section"
+    assert calls[1][1]["final"] == "reel_001"
+    assert calls[2][1]["clip_id"] == "clip_001"
+
+
+def test_new_graph_queries_are_in_the_llm_tool_definitions():
+    """The tool definitions carry the three new functions, and the
+    finding-kind enum stays the graph's own vocabulary - a kind the
+    graph stops recording disappears from the agent's options."""
+    from library.tools import project_graph
+    functions = FootageIndex.get_tool_definitions()
+    by_name = {t["function"]["name"]: t["function"] for t in functions}
+    for name in ("find_reel_versions", "find_editorial_findings",
+                 "find_vfx_detections"):
+        assert name in by_name
+    kind_param = by_name["find_editorial_findings"]["parameters"][
+        "properties"]["kind"]
+    assert kind_param["enum"] == list(project_graph.FINDING_KINDS)
+    assert by_name["find_editorial_findings"]["parameters"]["required"] == []
+    assert by_name["find_reel_versions"]["parameters"]["required"] == []
+    assert by_name["find_vfx_detections"]["parameters"]["required"] == []

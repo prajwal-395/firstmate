@@ -889,11 +889,17 @@ class FootageIndex:
         covering the same source), "coverage" (which shots cover a
         timeline span), "B-roll matching" (which shots match what is
         being said), "shot colour" (the colour track's registration for
-        one shot - its measurement, its grade, its camera match).
+        one shot - its measurement, its grade, its camera match),
+        "reel versions" (which versions each reel has held),
+        "editorial findings" (the compile's dead sections, trim
+        proposals, J/L placements and decisions, reaction cutaways)
+        and "VFX detections" (which effects the edit graph recorded
+        on which clips).
 
         The graph is DERIVED, never authored: it reads the project's
-        catalog, world models, person tracks, edit graph and intent
-        model. A state key the run has not produced is simply absent.
+        catalog, world models, person tracks, edit graph, intent
+        model, compile manifest and versions ledger. A state key the
+        run has not produced is simply absent.
         """
         from library.tools import project_graph
         graph = project_graph.load_or_build(self.project_folder)
@@ -944,11 +950,27 @@ class FootageIndex:
                 return report
             record = project_graph.find_shot_colour(graph, clip_id)
             report["results"] = [record] if record is not None else []
+        elif query == "reel_versions":
+            report["results"] = project_graph.find_reel_versions(
+                graph, kwargs.get("final"))
+        elif query == "editorial_findings":
+            kind = kwargs.get("kind")
+            if kind is not None and kind not in project_graph.FINDING_KINDS:
+                report["error"] = (
+                    f"unknown finding kind {kind!r}; known: "
+                    + ", ".join(project_graph.FINDING_KINDS))
+                return report
+            report["results"] = project_graph.find_editorial_findings(
+                graph, kind, kwargs.get("clip_id"))
+        elif query == "vfx_detections":
+            report["results"] = project_graph.find_vfx_detections(
+                graph, kwargs.get("clip_id"))
         else:
             report["error"] = (
                 f"unknown project graph query {query!r}; "
                 "known: reaction_shots, alternate_takes, coverage, "
-                "broll_matches, shot_colour")
+                "broll_matches, shot_colour, reel_versions, "
+                "editorial_findings, vfx_detections")
         return report
 
     @staticmethod
@@ -1321,12 +1343,14 @@ class FootageIndex:
 
     @staticmethod
     def get_tool_definitions() -> list:
-        """OpenAI-style tool definitions for the five query functions.
+        """OpenAI-style tool definitions for the footage and graph queries.
 
         Pass these to a model's `tools` parameter so a planning step can
         query the footage instead of being handed all of it.  Nothing in
         the pipeline does this today, by design.
         """
+        from library.tools import project_graph
+        finding_kinds = list(project_graph.FINDING_KINDS)
         facet_properties = {
             "kind": {
                 "type": "string",
@@ -1561,6 +1585,67 @@ class FootageIndex:
                             "clip_id": {"type": "string", "description": "The clip to read the colour registration for."},
                         },
                         "required": ["clip_id"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "find_reel_versions",
+                    "description": (
+                        "List the versions each reel has held: version number, kind "
+                        "(build, touch, undo, rollback, redo) and when it landed. "
+                        "Use to answer what changed between versions or which "
+                        "version is current before referencing one."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "final": {"type": "string", "description": "Restrict to one reel (e.g. 'reel_001'). Omit for every reel."},
+                        },
+                        "required": [],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "find_editorial_findings",
+                    "description": (
+                        "Read the compile's report-only findings: dead sections "
+                        "(timeline spans where nothing happens, with reasons), "
+                        "trim proposals, J/L placements with the plan's chosen "
+                        "offset or rejection, and selected reaction cutaways. "
+                        "Use to reference a finding by node instead of "
+                        "re-describing a timeline span."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "kind": {"type": "string", "enum": finding_kinds,
+                                     "description": "Restrict to one finding kind. Omit for every kind."},
+                            "clip_id": {"type": "string", "description": "Restrict to findings about one clip. Omit for every clip."},
+                        },
+                        "required": [],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "find_vfx_detections",
+                    "description": (
+                        "List the VFX detections the edit graph recorded: which "
+                        "effect was detected on which clip and where. Use to "
+                        "ask what was detected on a clip without re-reading "
+                        "the edit graph."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "clip_id": {"type": "string", "description": "Restrict to one clip. Omit for every detection."},
+                        },
+                        "required": [],
                     },
                 },
             },
@@ -1845,13 +1930,21 @@ def main(argv=None):
     p_pg.add_argument("project")
     p_pg.add_argument("query", choices=["reaction_shots", "alternate_takes",
                                           "coverage", "broll_matches",
-                                          "shot_colour"])
+                                          "shot_colour", "reel_versions",
+                                          "editorial_findings",
+                                          "vfx_detections"])
     p_pg.add_argument("--person", help="person id for reaction_shots")
     p_pg.add_argument("--t", type=float, help="time for reaction_shots")
-    p_pg.add_argument("--clip", help="clip id for alternate_takes and shot_colour")
+    p_pg.add_argument("--clip", help="clip id for alternate_takes, shot_colour, "
+                                     "editorial_findings and vfx_detections")
     p_pg.add_argument("--timeline-start", type=float, help="for coverage")
     p_pg.add_argument("--timeline-end", type=float, help="for coverage")
     p_pg.add_argument("--segment", help="transcript segment id for broll_matches")
+    p_pg.add_argument("--final", help="reel id for reel_versions")
+    p_pg.add_argument("--kind", help="finding kind for editorial_findings: "
+                                     "dead_section, dead_section_trim, "
+                                     "jl_placement, jl_decision, "
+                                     "reaction_cutaway")
     p_pg.add_argument("--index-dir")
 
     sub.add_parser("tools", help="Print LLM tool definitions as JSON")
@@ -1929,6 +2022,8 @@ def main(argv=None):
             timeline_start=args.timeline_start,
             timeline_end=args.timeline_end,
             segment_id=args.segment,
+            final=args.final,
+            kind=args.kind,
         )
         print(json.dumps(answer, indent=2))
         return 0
