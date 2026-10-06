@@ -454,3 +454,63 @@ def test_load_script_refuses_an_empty_script(tmp_path):
         load_script(path)
 
     assert excinfo.value.code == "SCRIPT_EMPTY"
+
+
+def test_an_ax_path_with_a_string_value_sets_instead_of_pressing(client: DriverClient):
+    """A numeric control (a Fairlight EQ frequency field) is settable
+    from a script: an ax_path anchor carrying a string value resolves
+    to set_value with the element ref and the exact string. Before
+    this, scripts could only press and click, so no deterministic
+    script could drive a numeric control at all."""
+    script = Script(
+        goal="set a field through its AX path",
+        steps=[
+            ScriptStep(
+                action="set_value",
+                anchors=[Anchor(via="ax_path", params={
+                    "path": ["Workspace", "Switch to Page", "Media"],
+                    "value": "80"})],
+            ),
+        ],
+    )
+    resolved = resolve_anchor(client, script.steps[0].anchors[0])
+    assert resolved is not None
+    method, params = resolved
+    assert method == "set_value"
+    assert params["value"] == "80"
+    result = run_script(client, script)
+    assert result.outcome == "done"
+    assert result.steps[0]["via"] == "ax_path"
+
+
+def test_an_ax_path_with_a_non_string_value_fails_fast(client: DriverClient):
+    """A set_value with a non-string value raises instead of skipping
+    to the next anchor - the script is malformed (numbers are
+    formatted at the recipe layer), and silently trying the next
+    anchor would set a different control or none."""
+    script = Script(
+        goal="set a field with an unformatted number",
+        steps=[
+            ScriptStep(
+                action="set_value",
+                anchors=[Anchor(via="ax_path", params={
+                    "path": ["Workspace", "Switch to Page", "Media"],
+                    "value": 80.0})],
+            ),
+        ],
+    )
+    try:
+        resolve_anchor(client, script.steps[0].anchors[0])
+        assert False, "should have raised ValueError"
+    except ValueError as exc:
+        assert "string" in str(exc)
+
+
+def test_an_ax_path_without_a_value_still_presses(client: DriverClient):
+    """The value-carrying ax_path changes nothing for plain presses: an
+    anchor without a value resolves to press exactly as before."""
+    resolved = resolve_anchor(client, Anchor(via="ax_path", params={
+        "path": ["Workspace", "Switch to Page", "Media"]}))
+    assert resolved is not None
+    method, _ = resolved
+    assert method == "press"

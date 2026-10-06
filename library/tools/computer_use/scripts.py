@@ -12,6 +12,10 @@ Anchors, in priority order:
 
     ax_path     a menu path - the most robust; background, lease-free for
                 reads, no pixels. Resolved by `find_element(path=...)`.
+                With a `value` param it SETS instead of pressing (a
+                numeric Fairlight control); the write takes the lease
+                like every other act. The value is a string the recipe
+                formatted - a non-string fails fast.
     ocr         a text label - resolved by `read_text`, matched on the
                 label's measured frame. Adapts to window size because the
                 frame is measured at run time in window points.
@@ -228,6 +232,19 @@ def resolve_anchor(client: DriverClient, anchor: Anchor) -> tuple[str, dict] | N
         elements = found.get("elements") or []
         if not elements:
             return None
+        if "value" in anchor.params:
+            # A numeric control (a Fairlight EQ frequency field): set
+            # instead of pressing. The value is a STRING, formatted by
+            # the recipe - the runner never formats numbers, so a
+            # non-string is a malformed script and fails fast rather
+            # than skipping to the next anchor.
+            value = anchor.params["value"]
+            if not isinstance(value, str):
+                raise ValueError(
+                    f"ax_path set_value needs a string value, got "
+                    f"{value!r} - format numbers at the recipe layer")
+            return ("set_value", {"element": elements[0]["ref"],
+                                  "value": value})
         return ("press", {"element": elements[0]["ref"]})
     if anchor.via == "ocr":
         text = anchor.params.get("text")
