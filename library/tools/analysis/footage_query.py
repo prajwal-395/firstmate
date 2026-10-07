@@ -410,6 +410,150 @@ def load_eg2_text_embedder():
     return encode, backend
 
 
+# Video chunks through the same checkpoint (unified-search lane): one
+# 8 s window at 1 fps is one (T,H,W,C) video input and one 256-d vector
+# in the SAME space as the text rows, so a text query embedding scores
+# directly against chunk vectors.  Picks from the slice-3 matrix: 8 s
+# windows (V2 beats single frames and shorter prefixes on top-1
+# correctness), MRL-256 (keeps every top-1 on text and chunks; 128
+# pushes absent peaks above the confident floor), fp32 (bf16 vectors
+# sit at cosine 0.56 to fp32 - a different geometry, not noise).
+EG2_VIDEO_BACKEND = "embeddinggemma-2-video"
+VIDEO_CHUNK_S = 8.0
+VIDEO_CHUNK_FPS = 1
+VIDEO_FRAME_WIDTH = 640
+CHUNK_EMBEDDINGS_FILE = "chunk_embeddings.npy"
+
+# PARALLEL-CUTTER NOTE (review bar 3): footage_segments.cut_chunks
+# (PR 2010, unmerged) cuts the same 8 s grid for the text chunk rows.
+# This branch cannot reach it, so the tiling rule is repeated here
+# DELIBERATELY IDENTICALLY - same windows, same short-tail rule - and
+# 2010's rebase unifies the two.  A Bauplan with two cutters and no
+# note would be an accident; this one is a rendezvous.
+VIDEO_CHUNK_S_SOURCE = "slice-3 V2 pick; grid identical to cut_chunks"
+
+
+def cut_video_windows(duration_s, window_s=VIDEO_CHUNK_S) -> list:
+    """Fixed windows tiling ``[0, duration_s)``, short tail allowed.
+
+    Identical grid to footage_segments.cut_chunks by construction (see
+    PARALLEL-CUTTER NOTE above): a missing or non-positive duration
+    cuts nothing.
+    """
+    try:
+        duration = float(duration_s)
+    except (TypeError, ValueError):
+        return []
+    if duration <= 0 or window_s <= 0:
+        return []
+    windows = []
+    start = 0.0
+    while start < duration:
+        windows.append((round(start, 3), round(min(start + window_s, duration), 3)))
+        start += window_s
+    return windows
+
+
+def extract_chunk_frames(source_file, start, end, fps=VIDEO_CHUNK_FPS,
+                         width=VIDEO_FRAME_WIDTH) -> list:
+    """1 fps stills for ``[start, end)`` of a media file, oldest first.
+
+    Raises RenRefusal when ffmpeg is missing or the file does not
+    exist; raises on an ffmpeg failure mid-extraction, because
+    silently embedding half a chunk would misalign the matrix from
+    the recorded windows.
+    """
+    import shutil
+    import subprocess
+    from PIL import Image
+
+    if shutil.which("ffmpeg") is None:
+        raise RenRefusal(
+            "ffmpeg is not on PATH",
+            "chunk stills are cut with ffmpeg",
+            "install ffmpeg and rebuild the index with --video-chunks")
+    if not source_file or not Path(source_file).is_file():
+        raise RenRefusal(
+            f"no media file at {source_file!r}",
+            "a chunk's frames come from its clip's media file",
+            "build the video chunks on a machine holding the media")
+    length = float(end) - float(start)
+    count = max(1, int(round(length * fps)))
+    import subprocess
+    import tempfile
+    tmpdir = tempfile.mkdtemp(prefix="ren-chunk-frames-")
+    try:
+        proc = subprocess.run(
+            ["ffmpeg", "-v", "error", "-ss", str(start), "-t", str(length),
+             "-i", str(source_file), "-vf", f"fps={fps},scale={width}:-1",
+             "-frames:v", str(count), str(Path(tmpdir) / "f%03d.png")],
+            capture_output=True)
+        if proc.returncode != 0:
+            raise RenRefusal(
+                f"ffmpeg cut no frames for {source_file}@{start}-{end}",
+                "the chunk cannot be embedded without its frames",
+                (proc.stderr or b"").decode("utf-8", "replace")[-300:])
+        frames = []
+        for path in sorted(Path(tmpdir).glob("f*.png")):
+            try:
+                frames.append(Image.open(path).convert("RGB"))
+            except Exception:  # noqa: BLE001 - a torn PNG is not a frame
+                continue
+        if not frames:
+            raise RenRefusal(
+                f"ffmpeg cut no frames for {source_file}@{start}-{end}",
+                "the chunk cannot be embedded without its frames",
+                "the media file may be shorter than the recorded window")
+        return frames
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def load_eg2_video_embedder():
+    """Return ``(encode_fn, backend_name)`` or ``(None, reason)``.
+
+    Video through the same `google/embeddinggemma-2` checkpoint the
+    text loader serves: one model, one space.  `encode` takes a list
+    of uint8 ``(T,H,W,C)`` frame stacks - one per chunk, one embed per
+    call (ST 6.1 refuses batches of multi-frame lists, and a bare
+    image list encodes as an image PAIR, not a video; both measured)
+    - and returns L2-normalised 256-d rows.  Media inputs take no
+    task prompt (model card).  Same refusal shape as the text loader.
+    """
+    try:
+        import sentence_transformers
+        from sentence_transformers import SentenceTransformer
+    except Exception as exc:  # noqa: BLE001 - absent dependency
+        return None, (f"no EmbeddingGemma video embedder: "
+                      f"sentence-transformers unavailable "
+                      f"({type(exc).__name__}: {exc})")
+    version = getattr(sentence_transformers, "__version__", "unknown")
+    if not _st_version_ok(version):
+        return None, (f"no EmbeddingGemma video embedder: "
+                      f"sentence-transformers {version} < 6.1.0")
+    try:
+        model = SentenceTransformer(EG2_TEXT_MODEL)
+    except Exception as exc:  # noqa: BLE001 - download or load failure
+        return None, (f"no EmbeddingGemma video embedder: could not load "
+                      f"{EG2_TEXT_MODEL} ({type(exc).__name__}: {exc})")
+
+    def encode(chunk_stacks):
+        vecs = []
+        for stack in chunk_stacks:
+            raw = model.encode([np.asarray(stack, dtype="uint8")],
+                               normalize_embeddings=False,
+                               truncate_dim=EG2_TEXT_DIM,
+                               show_progress_bar=False)
+            mat = np.asarray(raw, dtype="float32")[:, :EG2_TEXT_DIM]
+            norms = np.linalg.norm(mat, axis=1, keepdims=True)
+            norms[norms == 0] = 1.0
+            vecs.append((mat / norms).astype("float32")[0])
+        return np.array(vecs, dtype="float32") if vecs else np.zeros(
+            (0, EG2_TEXT_DIM), dtype="float32")
+
+    return encode, EG2_VIDEO_BACKEND
+
+
 # ─── Lexical scoring ──────────────────────────────────────────────
 
 
@@ -562,7 +706,7 @@ def ocr_texts_for_project(project_folder) -> tuple:
 
 
 def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=False,
-                embedder="minilm") -> dict:
+                embedder="minilm", video_chunks=False) -> dict:
     """Cut, embed and store the index.  Returns build statistics.
 
     Reads the project's ingest output; writes ONLY into `index_dir`,
@@ -570,6 +714,10 @@ def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=Fal
     the text encoder (`TEXT_EMBEDDERS`); the query path loads the same
     one back from the recorded model name, so an index built with
     EmbeddingGemma 2 is never queried with MiniLM vectors.
+    `video_chunks` additionally embeds one 8 s video vector per window
+    of each clip's media into the same EG2 space (`chunk_embeddings`
+    aligned to `video_chunks` descriptors); clips whose media is absent
+    are reported in `video_unembedded`, never silently dropped.
     """
     if embedder not in TEXT_EMBEDDER_MODELS:
         raise RenRefusal(
@@ -601,6 +749,54 @@ def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=Fal
         if embeddings_path.exists():
             embeddings_path.unlink()
 
+    video_rows, video_unembedded = [], []
+    video_backend, video_dimension = None, 0
+    video_seconds = 0.0
+    if video_chunks:
+        vencode, video_backend = load_eg2_video_embedder()
+        if vencode is not None:
+            catalog = load_catalog(project_folder)
+            t0 = time.perf_counter()
+            stacks, owners = [], []
+            for clip in catalog:
+                clip_id = clip.get("clip_id")
+                source = clip.get("source_file") or clip.get("path")
+                try:
+                    duration = float(clip.get("duration_seconds"))
+                except (TypeError, ValueError):
+                    duration = 0.0
+                windows = cut_video_windows(duration) if clip_id else []
+                if not windows:
+                    continue
+                try:
+                    for n, (start, end) in enumerate(windows):
+                        frames = extract_chunk_frames(source, start, end)
+                        stacks.append(np.stack(
+                            [np.asarray(f, dtype="uint8") for f in frames]))
+                        owners.append({
+                            "chunk_id": f"{clip_id}#vchunk#{n:03d}",
+                            "clip_id": clip_id,
+                            "filename": clip.get("filename", ""),
+                            "start": start, "end": end,
+                        })
+                except RenRefusal as exc:
+                    video_unembedded.append(
+                        {"clip_id": clip_id,
+                         "reason": f"{exc.what} ({exc.fix})"})
+            if stacks:
+                vmat = vencode(stacks)
+                video_dimension = int(vmat.shape[1])
+                np.save(target / CHUNK_EMBEDDINGS_FILE, vmat)
+                video_rows = owners
+            video_seconds = time.perf_counter() - t0
+        else:
+            video_unembedded.append({"clip_id": "*",
+                                     "reason": video_backend})
+        if not video_rows:
+            stale = target / CHUNK_EMBEDDINGS_FILE
+            if stale.exists():
+                stale.unlink()
+
     sound_events, sound_methods = sound_events_for_project(project_folder)
     audio_classification = audio_classification_for_project(project_folder)
     ocr_texts, ocr_methods = ocr_texts_for_project(project_folder)
@@ -628,6 +824,15 @@ def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=Fal
         # reachable from search.  Absent entirely when the step never ran.
         "ocr_texts": ocr_texts,
         "ocr_methods": ocr_methods,
+        # The video-chunk lane: one EG2 vector per 8 s media window, in
+        # the same space as EG2 text rows.  Rows align to video_chunks
+        # by position; clips without media are named in
+        # video_unembedded, never silently dropped.
+        "video_chunks": video_rows,
+        "video_embed_model": EG2_TEXT_MODEL if video_dimension else None,
+        "video_embed_backend": video_backend if video_dimension else None,
+        "video_embed_dimension": video_dimension,
+        "video_unembedded": video_unembedded,
     }
     index_path = target / SEGMENTS_FILE
     with open(index_path, "w", encoding="utf-8") as f:
@@ -639,8 +844,13 @@ def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=Fal
         "kinds": dict(Counter(s.kind for s in segments)),
         "embed_backend": backend,
         "embed_dimension": dimension,
+        "video_chunk_count": len(video_rows),
+        "video_embed_backend": video_backend,
+        "video_embed_dimension": video_dimension,
+        "video_unembedded": video_unembedded,
         "segment_seconds": round(segment_seconds, 3),
         "embed_seconds": round(embed_seconds, 3),
+        "video_seconds": round(video_seconds, 3),
         "total_seconds": round(time.perf_counter() - started, 3),
         "bytes_on_disk": sum(
             p.stat().st_size for p in target.iterdir() if p.is_file()
@@ -670,6 +880,9 @@ class FootageIndex:
         self._bm25 = None
         self._embedder = None
         self._embed_backend = None
+        self._chunk_matrix = None
+        self._chunk_embedder = None
+        self._chunk_embed_backend = None
 
     # ── lazy state ──
 
@@ -994,6 +1207,130 @@ class FootageIndex:
                     "text": self.segments[best]["text"][:160],
                     "clip_id": self.segments[best]["clip_id"],
                     "kind": self.segments[best]["kind"],
+                }
+        report["abstained"] = not report["results"]
+        return report
+
+    # ── video chunks (the unified-space visual lane) ───────────────
+
+    @property
+    def chunk_matrix(self):
+        """The per-window video matrix, or None when never built."""
+        if self._chunk_matrix is None:
+            path = self.index_dir / CHUNK_EMBEDDINGS_FILE
+            if not path.exists():
+                return None
+            self._chunk_matrix = np.load(path)
+        return self._chunk_matrix
+
+    @property
+    def video_chunks(self) -> list:
+        return self.payload.get("video_chunks") or []
+
+    def _encode_chunk_query(self, query: str):
+        """A text query in the chunks' own space (EG2 text, query side)."""
+        if self._chunk_embedder is None:
+            self._chunk_embedder, self._chunk_embed_backend = (
+                load_eg2_text_embedder())
+        if self._chunk_embedder is None:
+            return None
+        return self._chunk_embedder([query], is_query=True)[0]
+
+    def search_chunks(self, query: str, top_k: int = 5,
+                      floor: float | None = None,
+                      weak_k: int = WEAK_BAND_LIMIT) -> dict:
+        """Rank the index's 8 s video windows against a text query.
+
+        The same report shape as `search_report` (results, weak,
+        abstained, best_rejected) over chunk rows carrying clip_id and
+        source seconds.  Retention is judged on the raw cross-modal
+        cosine against the recording encoder's floors (`floors_for`);
+        an index with no chunk matrix, or one whose query encoder
+        cannot load, refuses in words rather than ranking nothing.
+        """
+        if floor is None:
+            mode_floor, weak_floor, floor_source = floors_for(
+                self.payload.get("video_embed_model"),
+                self.payload.get("video_embed_backend"))
+        else:
+            mode_floor, weak_floor = float(floor), DENSE_WEAK_FLOOR
+            floor_source = "explicit floor argument (--floor)"
+        report = {
+            "query": query,
+            "mode": "video_chunks",
+            "floor": mode_floor,
+            "weak_floor": weak_floor,
+            "floor_source": floor_source,
+            "chunk_count": len(self.video_chunks),
+            "video_embed_backend": self.payload.get("video_embed_backend"),
+            "results": [],
+            "weak": [],
+            "considered": 0,
+            "retained": 0,
+            "abstained": False,
+            "degraded": None,
+            "error": None,
+        }
+        if not self.video_chunks:
+            report["error"] = (
+                "This index holds no video chunks; build it with "
+                "--video-chunks on a machine holding the media.")
+            return report
+        matrix = self.chunk_matrix
+        if matrix is None or len(matrix) != len(self.video_chunks):
+            report["error"] = (
+                "The recorded chunk rows have no embedding matrix; "
+                "rebuild the index with --video-chunks.")
+            return report
+        vector = self._encode_chunk_query(query)
+        if vector is None:
+            report["error"] = (
+                "The EG2 text encoder could not load, so the text query "
+                "has no vector in the chunks' space; rebuild or retry "
+                "with the model available.")
+            return report
+        if vector.shape[-1] != matrix.shape[1]:
+            report["error"] = (
+                "The query vector does not fit the chunk matrix; "
+                "the text encoder and the video build disagree.")
+            return report
+        dense = matrix @ vector
+        report["considered"] = len(self.video_chunks)
+
+        def row(i, score):
+            chunk = self.video_chunks[int(i)]
+            return {
+                "chunk_id": chunk["chunk_id"],
+                "clip_id": chunk["clip_id"],
+                "filename": chunk.get("filename", ""),
+                "start": chunk["start"],
+                "end": chunk["end"],
+                "timecode": f"{self._timecode(chunk['start'])}-"
+                            f"{self._timecode(chunk['end'])}",
+                "dense_score": round(float(score), 4),
+            }
+
+        if mode_floor <= 0:
+            keep = np.ones(len(dense), dtype=bool)
+        else:
+            keep = dense >= mode_floor
+        order = np.flatnonzero(keep)[np.argsort(
+            -dense[keep], kind="stable")][:max(0, top_k)]
+        report["results"] = [row(i, dense[i]) for i in order]
+        report["retained"] = int(keep.sum())
+        if mode_floor > 0:
+            weak = ~keep & (dense >= weak_floor)
+            border = np.flatnonzero(weak)[np.argsort(
+                -dense[weak], kind="stable")][:max(0, weak_k)]
+            report["weak"] = [row(i, dense[i]) for i in border]
+            rejected = ~keep
+            if rejected.any():
+                best = int(np.flatnonzero(rejected)[np.argmax(dense[rejected])])
+                chunk = self.video_chunks[best]
+                report["best_rejected"] = {
+                    "dense_score": round(float(dense[best]), 4),
+                    "chunk_id": chunk["chunk_id"],
+                    "clip_id": chunk["clip_id"],
                 }
         report["abstained"] = not report["results"]
         return report
@@ -1969,6 +2306,36 @@ def _print_report(report):
         _print_hits(report["weak"])
 
 
+def _print_chunk_report(report):
+    """A video-chunk report as a person reads it, abstain included."""
+    bits = [f"query: {report['query']!r}", "mode=video_chunks",
+            f"floor={report['floor']:.2f}",
+            f"{report['considered']}/{report['chunk_count']} chunks considered"]
+    print("  ".join(bits))
+    if report.get("video_embed_backend"):
+        print(f"backend: {report['video_embed_backend']}")
+    if report.get("error"):
+        print(report["error"])
+        return
+    if report["results"]:
+        for i, hit in enumerate(report["results"]):
+            print(f"\n{i + 1}. {hit['clip_id']} ({hit['filename']}) "
+                  f"{hit['timecode']}  dense {hit['dense_score']:.3f}")
+        return
+    print("\nNOTHING in this footage cleared the floor - that is the answer, "
+          "not an empty result set.")
+    best = report.get("best_rejected")
+    if best:
+        print(f"  closest: {best['dense_score']:.3f} < {report['floor']:.2f}  "
+              f"{best['chunk_id']} {best['clip_id']}")
+    if report["weak"]:
+        print(f"\n  {len(report['weak'])} weak match(es) between "
+              f"{report['weak_floor']:.2f} and {report['floor']:.2f} - not confident:")
+        for hit in report["weak"]:
+            print(f"  {hit['clip_id']} {hit['timecode']}  "
+                  f"dense {hit['dense_score']:.3f}")
+
+
 def _print_frame_report(report):
     """A frame search report as a person reads it: ranges, never absence."""
     print(f"query: {report['query']!r}  scope={report['scope']}  "
@@ -2078,6 +2445,10 @@ def main(argv=None):
     p_build.add_argument("--frames", action="store_true",
                          help="Also sample the clips to stills and embed them with CLIP "
                               "(objects/people/scenes; writes beside the text index)")
+    p_build.add_argument("--video-chunks", action="store_true",
+                         help="Also embed one 8s video vector per media window "
+                              "with EmbeddingGemma 2 (needs the model; clips "
+                              "without media are named, never silently dropped)")
 
     p_search = sub.add_parser("search", help="Semantic + keyword search")
     p_search.add_argument("project")
@@ -2088,6 +2459,10 @@ def main(argv=None):
                           help="Search the sampled FRAMES with CLIP instead of the text "
                                "index: top time ranges per clip, every hit unverified, "
                                "absence never concluded")
+    p_search.add_argument("--chunks", action="store_true",
+                          help="Search the 8s VIDEO CHUNKS with EmbeddingGemma 2 "
+                               "instead of the text index: top windows per clip, "
+                               "with the recording encoder's floor and abstain")
     p_search.add_argument("--sound", action="store_true",
                           help="Search the PANNs SOUND-EVENT labels (the M5 sound lane) "
                                "instead of text: 'ren search --sound laughter' returns "
@@ -2238,7 +2613,8 @@ def main(argv=None):
 
     if args.command == "build":
         stats = build_index(args.project, index_dir=args.index_dir, kinds=tuple(args.kinds),
-                            embedder=args.embedder)
+                            embedder=args.embedder,
+                            video_chunks=args.video_chunks)
         print(json.dumps(stats, indent=2))
         if args.frames:
             from library.tools.analysis import footage_frames
@@ -2355,6 +2731,15 @@ def main(argv=None):
         return 0
 
     idx = FootageIndex(args.project, index_dir=args.index_dir)
+
+    if args.command == "search" and args.chunks:
+        started = time.perf_counter()
+        report = idx.search_chunks(args.query, top_k=args.top_k,
+                                   floor=args.floor)
+        elapsed = time.perf_counter() - started
+        _print_chunk_report(report)
+        print(f"\n{elapsed * 1000:.1f} ms")
+        return 0
 
     if args.command == "search":
         started = time.perf_counter()
