@@ -256,9 +256,13 @@ def _run_recipe(client: DriverClient, args) -> int:
         except ValueError as exc:
             print(f"ren: {exc}", file=sys.stderr)
             return 2
+    elif args.recipe == "window-delete":
+        from library.tools.computer_use import window_delete
+
+        return window_delete.run_recipe_verb(client, args)
     else:
-        print(f"ren: unknown recipe {args.recipe!r}: magic-mask-seed "
-              f"or magic-mask-track", file=sys.stderr)
+        print(f"ren: unknown recipe {args.recipe!r}: magic-mask-seed, "
+              f"magic-mask-track or window-delete", file=sys.stderr)
         return 2
 
     from library.tools.marker_feedback import connect_resolve
@@ -496,7 +500,8 @@ def main(argv=None) -> int:
         "file", nargs="?", default=None,
         help="the script JSON file to run (omit with --recipe)")
     script_parser.add_argument(
-        "--recipe", choices=("magic-mask-seed", "magic-mask-track"),
+        "--recipe", choices=("magic-mask-seed", "magic-mask-track",
+                             "window-delete"),
         default=None,
         help="run one named recipe instead of a file")
     script_parser.add_argument(
@@ -518,6 +523,16 @@ def main(argv=None) -> int:
         "--allow-foreground", action="store_true",
         help="post input at the HID tap and activate Resolve first; "
         "takes the captain's screen, so it is never the default")
+    script_parser.add_argument(
+        "--clip",
+        default=None,
+        help="window-delete: the clip's timeline unique id",
+    )
+    script_parser.add_argument(
+        "--node",
+        default=None,
+        help="window-delete: the node index the window is on",
+    )
     _target_flag(script_parser)
     script_parser.add_argument(
         "--model",
@@ -600,9 +615,12 @@ def main(argv=None) -> int:
                         or args.playhead_timecode is not None
                         or args.allow_foreground
                         or args.mode != "BI"
-                        or args.direction != "forward"):
+                        or args.direction != "forward"
+                        or args.clip is not None
+                        or args.node is not None):
                     print("ren: --seed/--timeline/--playhead-timecode/"
-                          "--mode/--direction/--allow-foreground need "
+                          "--mode/--direction/--allow-foreground/--clip/"
+                          "--node need "
                           "--recipe", file=sys.stderr)
                     return 2
                 require_executor(target)
