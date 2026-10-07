@@ -251,46 +251,61 @@ class CaptionFitter:
             return self.font.getlength(word)
         return len(word) * MEAN_ADVANCE_EM * self.font_size
 
-    def text_width(self, text: str) -> float:
+    def _emphasized_words(self, text: str, emphasis_words=None) -> set[str]:
+        selected = (identify_emphasis_words(text)
+                    if emphasis_words is None else emphasis_words)
+        return {_normalise_word(word) for word in selected}
+
+    def _word_advance(self, word: str, emphasized: set[str]) -> float:
+        scale = (EMPHASIS_SCALE
+                 if _normalise_word(word) in emphasized else 1.0)
+        gap = WORD_GAP_EM * self.font_size
+        return (self.word_width(word) + gap) * scale
+
+    def text_width(self, text: str, emphasis_words=None) -> float:
         """Rendered width of a whole caption laid out on ONE line.
 
-        Words are inline-blocks with a 0.24em right margin, so the gaps
-        are part of the measurement rather than a space glyph.
+        Each word is an inline-block with a 0.24em right margin. Emphasis
+        increases both the glyph and its margin, just as `AnimatedWord`
+        does in the composition.
         """
         words = text.split()
         if not words:
             return 0.0
-        gap = WORD_GAP_EM * self.font_size
-        return (sum(self.word_width(w) for w in words)
-                + gap * (len(words) - 1))
+        emphasized = self._emphasized_words(text, emphasis_words)
+        return sum(self._word_advance(word, emphasized) for word in words)
 
     def fits(self, text: str) -> bool:
         """Whether the caption fits the usable width on one line."""
         return self.text_width(text) <= self.usable_width
 
-    def line_count(self, text: str) -> int:
+    def line_count(self, text: str, emphasis_words=None) -> int:
         """How many lines the caption box wraps this text onto.
 
         Greedy, because that is what the flex container does: words are
         inline-blocks laid out left to right and the first one that does
-        not fit starts a new line.
+        not fit starts a new line. Emphasis is resolved the same way as
+        the rendered caption unless the caller supplies the exact list.
         """
         words = text.split()
         if not words:
             return 0
-        lines, current = 1, []
+        emphasized = self._emphasized_words(text, emphasis_words)
+        lines, current_width = 1, 0.0
         for word in words:
-            trial = current + [word]
-            if current and self.text_width(" ".join(trial)) > self.usable_width:
+            advance = self._word_advance(word, emphasized)
+            if current_width and current_width + advance > self.usable_width:
                 lines += 1
-                current = [word]
+                current_width = advance
             else:
-                current = trial
+                current_width += advance
         return lines
 
-    def fits_in_box(self, text: str, max_lines: int = MAX_CAPTION_LINES) -> bool:
+    def fits_in_box(self, text: str,
+                    max_lines: int = MAX_CAPTION_LINES,
+                    emphasis_words=None) -> bool:
         """Whether the caption fits the box within `max_lines` wrapped lines."""
-        return self.line_count(text) <= max_lines
+        return self.line_count(text, emphasis_words) <= max_lines
 
     def widest_word_width(self, text: str) -> float:
         """The widest single word, which is what cannot be wrapped away.
@@ -310,12 +325,11 @@ class CaptionFitter:
         card smaller; it does not change the style's font size, which is
         an open captain decision this step has no business making.
         """
-        widest = self.widest_word_width(text)
-        if emphasis_words:
-            emphasised = {_normalise_word(e) for e in emphasis_words}
-            for word in text.split():
-                if _normalise_word(word) in emphasised:
-                    widest = max(widest, self.word_width(word) * EMPHASIS_SCALE)
+        emphasized = self._emphasized_words(text, emphasis_words)
+        widest = max(
+            (self._word_advance(word, emphasized) for word in text.split()),
+            default=0.0,
+        )
         if widest <= 0 or widest <= self.usable_width:
             return 1.0
         return math.floor(self.usable_width / widest * 1000) / 1000.0
@@ -337,11 +351,14 @@ def build_caption_fitter(style: dict, safe_area, project_folder="") -> CaptionFi
         style.get("fontFile"),
         project_folder or None,
     )
+    caption_width = style.get("captionMaxWidth")
+    if caption_width is None:
+        caption_width = safe_area.centered_usable_width
     return CaptionFitter(
         font_path=font_path,
         font_size=style.get("fontSize", 160),
         font_weight=style.get("fontWeight", 800),
-        usable_width=safe_area.centered_usable_width,
+        usable_width=caption_width,
         outline_width=style.get("outlineWidth", 0),
     )
 

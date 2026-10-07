@@ -1070,6 +1070,7 @@ from library.steps.step_4_01_plan_subtitles.step import (  # noqa: E402
     MAX_CAPTION_LINES,
     build_caption_fitter,
     generate_subtitles,
+    identify_emphasis_words,
     split_into_groups,
 )
 from library.steps.step_4_05_render_subtitles.generate_remotion_props import (  # noqa: E402
@@ -1209,12 +1210,13 @@ def test_the_step_runs_the_fitter_on_a_real_invocation():
 
 # ── The regression: no card is emitted wider than the caption box ──
 
-def _wrapped_lines(fitter, text):
+def _wrapped_lines(fitter, text, emphasis_words=None):
     """The lines the caption box wraps `text` onto, greedily."""
     lines, current = [], []
     for word in text.split():
         if current and fitter.text_width(
-                " ".join(current + [word])) > fitter.usable_width:
+                " ".join(current + [word]), emphasis_words
+        ) > fitter.usable_width:
             lines.append(" ".join(current))
             current = [word]
         else:
@@ -1242,8 +1244,9 @@ def test_no_caption_line_or_card_overflows_the_caption_box():
     for entry in entries:
         scale = entry["fit_scale"]
         assert 0 < scale <= 1.0
-        for line in _wrapped_lines(fitter, entry["text"]):
-            ink = fitter.text_width(line) * scale + 2 * outline
+        emphasis_words = entry.get("emphasis_words")
+        for line in _wrapped_lines(fitter, entry["text"], emphasis_words):
+            ink = fitter.text_width(line, emphasis_words) * scale + 2 * outline
             assert ink <= safe_area.centered_usable_width, (
                 f"card {entry['id']} line {line!r} draws {ink:.0f}px of ink "
                 f"in a {safe_area.centered_usable_width}px usable width")
@@ -1260,9 +1263,11 @@ def test_no_caption_line_or_card_overflows_the_caption_box():
     # A card is a phrase, not a paragraph: the grouper fits the BOX, up to
     # MAX_CAPTION_LINES.
     for entry in entries:
-        assert fitter.line_count(entry["text"]) <= MAX_CAPTION_LINES, (
+        assert fitter.line_count(
+            entry["text"], entry.get("emphasis_words")) <= MAX_CAPTION_LINES, (
             f"card {entry['id']} {entry['text']!r} wraps onto "
-            f"{fitter.line_count(entry['text'])} lines")
+            f"{fitter.line_count(entry['text'], entry.get('emphasis_words'))} "
+            "lines")
 
     # An unbreakable word is shrunk rather than clipped: the card scales,
     # the style does not.
@@ -1312,7 +1317,8 @@ def test_long_passage_splits_at_two_lines_with_word_timing_intact():
         resolve_subtitle_style({}, {}), resolve_safe_area())
 
     assert len(entries) > 1
-    assert all(fitter.line_count(entry["text"]) <= 2 for entry in entries)
+    assert all(fitter.line_count(
+        entry["text"], entry.get("emphasis_words")) <= 2 for entry in entries)
     assert all(entry["timeline_end"] - entry["timeline_start"]
                >= MIN_DISPLAY_DURATION for entry in entries)
     planned_words = [word for entry in entries for word in entry["words"]]
@@ -1346,6 +1352,62 @@ def test_long_passage_splits_at_two_lines_with_word_timing_intact():
         for word in source_words]
 
 
+def test_emphasis_width_splits_a_three_line_card_without_losing_word_timing(
+        tmp_path):
+    """The rendered 1.14x keywords used to turn a planned two-line card
+    into three lines after Remotion applied their emphasis style."""
+    text = "a lot of different marketing directors."
+    words = []
+    for index, word in enumerate(text.split()):
+        start = round(index * 0.9, 3)
+        words.append({
+            "word": word,
+            "source_start": start,
+            "source_end": round(start + 0.6, 3),
+        })
+    spine = {"structure": [{
+        "position": 1,
+        "block_type": "speech",
+        "timeline_start": 0.0,
+        "timeline_end": words[-1]["source_end"],
+        "source_start": 0.0,
+        "source_end": words[-1]["source_end"],
+        "clip_id": "clip_caption_emphasis_regression",
+        "alignment_method": "whisperx",
+        "word_timestamps": words,
+        "content": {"text": text},
+    }]}
+    project = _with_pipeline(
+        tmp_path, "subtitle_typography:\n  size: 58\n")
+    plan = generate_subtitles(
+        spine, caption_case="as_written", brand_effect={}, brand_style={},
+        project_folder=project,
+    )["subtitle_plan"]
+    style = resolve_subtitle_style({}, {}, project)
+    style["outlineWidth"] = 4
+    fitter = build_caption_fitter(
+        style, resolve_safe_area(project), project)
+
+    emphasis = identify_emphasis_words(text)
+    assert fitter.line_count(text, emphasis_words=[]) == 2
+    assert fitter.line_count(text, emphasis_words=emphasis) == 3
+    assert len(plan["subtitle_entries"]) > 1
+    assert all(fitter.line_count(
+        entry["text"], entry["emphasis_words"]) <= MAX_CAPTION_LINES
+        for entry in plan["subtitle_entries"])
+    assert all(entry["timeline_end"] - entry["timeline_start"]
+               >= MIN_DISPLAY_DURATION
+               for entry in plan["subtitle_entries"])
+
+    planned_words = [
+        word for entry in plan["subtitle_entries"] for word in entry["words"]
+    ]
+    assert [word["word"] for word in planned_words] == [
+        word["word"] for word in words]
+    assert [(word["start"], word["end"]) for word in planned_words] == [
+        (word["source_start"], word["source_end"]) for word in words]
+
+
 # ── All four consumers read the one enumeration ──
 
 def test_the_style_and_the_grouper_read_the_one_safe_area():
@@ -1367,6 +1429,14 @@ def test_the_style_and_the_grouper_read_the_one_safe_area():
     fitter = build_caption_fitter(props, safe_area)
     assert fitter.usable_width == (
         safe_area.centered_usable_width - 2 * props["outlineWidth"])
+
+
+def test_the_grouper_uses_the_width_the_renderer_will_draw():
+    style = resolve_subtitle_style({}, {})
+    style["captionMaxWidth"] = 500
+    fitter = build_caption_fitter(style, resolve_safe_area())
+
+    assert fitter.usable_width == 500 - 2 * style["outlineWidth"]
 
 
 # ── The grouper does not leave runts ──

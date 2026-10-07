@@ -971,6 +971,52 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
             f"known: {list(CONTAINERS)}.")
     is_frames = container == "frames"
 
+    if project_folder:
+        expected_width, expected_height = resolve_delivery_format(
+            project_folder)
+        actual_size = (int(props["width"]), int(props["height"]))
+        expected_size = (expected_width, expected_height)
+        if actual_size != expected_size:
+            raise ValueError(
+                f"Subtitle props frame {actual_size[0]}x{actual_size[1]} "
+                f"does not match project delivery frame "
+                f"{expected_width}x{expected_height}; regenerate the props "
+                "from the project's delivery format before rendering.")
+
+        if props["subtitles"]:
+            from library.steps.step_4_01_plan_subtitles.step import (
+                MAX_CAPTION_LINES,
+                build_caption_fitter,
+            )
+            from library.tools.safe_area import resolve_safe_area
+            from library.tools.subtitle_style import resolve_subtitle_style
+
+            style = props["style"]
+            expected_style = resolve_subtitle_style(
+                {}, {}, project_folder, speaker=props.get("_speaker"),
+                reel_name=timeline_label or None)
+            stale_geometry = [
+                key for key in ("safeArea", "captionMaxWidth")
+                if style.get(key) != expected_style.get(key)
+            ]
+            if stale_geometry:
+                raise ValueError(
+                    f"Subtitle style geometry {stale_geometry} in "
+                    f"{timeline_label!r} does not match the project's "
+                    "delivery format; regenerate the style before rendering.")
+
+            fitter = build_caption_fitter(
+                style, resolve_safe_area(project_folder), project_folder)
+            for index, subtitle in enumerate(props["subtitles"]):
+                lines = fitter.line_count(
+                    subtitle["text"], subtitle.get("emphasisWords"))
+                if lines > MAX_CAPTION_LINES:
+                    raise ValueError(
+                        f"Subtitle {index} in {timeline_label!r} wraps to "
+                        f"{lines} lines at the rendered emphasis and width; "
+                        f"the caption plan must split it to at most "
+                        f"{MAX_CAPTION_LINES} lines before rendering.")
+
     block_pos = props.get("_block_position")
     tl_start = props.get("_timeline_start")
     tl_end = props.get("_timeline_end")

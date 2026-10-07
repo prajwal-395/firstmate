@@ -2030,9 +2030,13 @@ def reel_run(monkeypatch, tmp_path):
 
     class FakePlan:
         def run(self, spine, **kwargs):
+            from library.tools.subtitle_style import resolve_subtitle_style
+
             return {"subtitle_plan": {
                 "subtitle_entries": entries_holder["entries"],
-                "style": {"fontFamily": "Montserrat"},
+                "style": resolve_subtitle_style(
+                    {}, {}, str(tmp_path), speaker="SpeakerTwo",
+                    reel_name="Reel 01"),
             }}
 
     class FakeRender:
@@ -2986,6 +2990,78 @@ def _props_3(block=1, text="alpha"):
                                    "bottom": 320, "left": 90},
                       "captionMaxWidth": 840},
             "subtitles": [{"text": text}]}
+
+
+def test_render_refuses_props_from_a_non_delivery_frame(tmp_path):
+    project = _project_with_proposals(tmp_path, [])
+    props = _props_3()
+    props["width"], props["height"] = 720, 480
+    renderer = _Renderer_2()
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+
+    with pytest.raises(ValueError, match="does not match project delivery frame"):
+        r405_2.render_one_segment(
+            props, str(out_dir), "tl", renderer=renderer,
+            project_folder=project, overlay_geometry="full",
+            overlay_container="video")
+
+    assert renderer.calls == 0
+
+
+def test_render_refuses_subtitle_style_from_a_different_frame(tmp_path):
+    project = _project_with_proposals(tmp_path, [])
+    from library.tools.subtitle_style import resolve_subtitle_style
+
+    props = _props_3(text="short caption")
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    style = resolve_subtitle_style({}, {}, project)
+    style["fontSize"] = 58
+    style["outlineWidth"] = 4
+    style["safeArea"] = {
+        "top": 444, "right": 24, "bottom": 36, "left": 24,
+    }
+    style["captionMaxWidth"] = 656
+    props["style"] = style
+    renderer = _Renderer_2()
+
+    with pytest.raises(ValueError, match="style geometry.*does not match"):
+        r405_2.render_one_segment(
+            props, str(out_dir), "tl", renderer=renderer,
+            project_folder=project, overlay_geometry="full",
+            overlay_container="video")
+
+    assert renderer.calls == 0
+
+
+def test_render_refuses_a_caption_that_wraps_over_two_emphasized_lines(
+        tmp_path):
+    project = _project_with_proposals(tmp_path, [])
+    from library.tools.subtitle_style import resolve_subtitle_style
+
+    props = _props_3(text="a lot of different marketing directors.")
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    style = resolve_subtitle_style({}, {}, project)
+    style["fontSize"] = 58
+    style["outlineWidth"] = 4
+    props["style"] = style
+    props["subtitles"] = [{
+        "text": "a lot of different marketing directors.",
+        "emphasisWords": ["different", "marketing"],
+        "fitScale": 1.0,
+        "words": [],
+    }]
+    renderer = _Renderer_2()
+
+    with pytest.raises(ValueError, match="wraps to 3 lines"):
+        r405_2.render_one_segment(
+            props, str(out_dir), "tl", renderer=renderer,
+            project_folder=project, overlay_geometry="full",
+            overlay_container="video")
+
+    assert renderer.calls == 0
 
 
 def test_a_failed_render_is_REPORTED_not_dropped(tmp_path):
