@@ -337,6 +337,26 @@ def test_the_recovery_archive_export_writes_the_builds_destination(tmp_path):
     assert Path(result["path"]).stat().st_size > 0
 
 
+def test_custom_script_recovery_archives_keep_each_run(tmp_path):
+    """Each recorded writing run keeps its own pre-edit DRT backup."""
+    from library.tools.versions import store
+
+    folder = _bare_folder(tmp_path)
+    timeline = FakeTimeline("Reel 01 - topic")
+    first = store.export_timeline_recovery_archive(
+        _FakeResolve(), timeline, timeline.GetName(), str(folder),
+        archive_suffix="custom-run-1")
+    second = store.export_timeline_recovery_archive(
+        _FakeResolve(), timeline, timeline.GetName(), str(folder),
+        archive_suffix="custom-run-2")
+
+    assert first["archived"] is True
+    assert second["archived"] is True
+    assert first["path"] != second["path"]
+    assert Path(first["path"]).is_file()
+    assert Path(second["path"]).is_file()
+
+
 # ── The two orderings the review pinned ──────────────────────────────
 #
 # Export first, then delete: a staging whose `.drt` did not land is left

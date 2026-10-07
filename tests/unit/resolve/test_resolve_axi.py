@@ -1287,6 +1287,14 @@ def test_run_refuses_every_writer_without_its_flag(patched, run_opt_in,
          ["AssignToColorGroup"]),
         ("x = clip.AnalyzeForIntellisearch\nresult = {'a': True}", False,
          ["AnalyzeForIntellisearch"]),
+        ("getattr(timeline, 'SetName')('new name')", False,
+         ["SetName", "--unsafe"]),
+        ("getattr(timeline, method)()", False,
+         ["dynamic getattr", "--unsafe"]),
+        ("timeline.__getattribute__('SetName')('new name')", False,
+         ["dynamic getattribute", "--unsafe"]),
+        ("setattr(timeline, 'name', 'new name')", False,
+         ["dynamic setattr", "--unsafe"]),
         ("x = timeline.CopyGrades", True,
          ["CopyGrades", "--acknowledge-copy-grades"]),
     ]
@@ -1561,6 +1569,7 @@ def test_pool_bin_scopes_the_walk(pool_patched, capsys):
 
 def test_submit_returns_receipt_without_waiting(monkeypatch, capsys):
     from library.tools.resolved import client
+    from library.tools import resolve_lock
 
     captured = {}
 
@@ -1574,6 +1583,7 @@ def test_submit_returns_receipt_without_waiting(monkeypatch, capsys):
         client, "result",
         lambda *args, **kwargs: pytest.fail("submit mode must not wait"))
     monkeypatch.setattr(resolve_axi.os, "getcwd", lambda: "/work/project")
+    monkeypatch.setattr(resolve_lock, "default_owner", lambda: "test-agent")
 
     assert resolve_axi.main(["--submit", "pool", "Day 1"]) == 0
 
@@ -1581,7 +1591,8 @@ def test_submit_returns_receipt_without_waiting(monkeypatch, capsys):
         "id": "job-123", "coalesced": False}
     assert captured["kind"] == "resolve_axi"
     assert captured["params"] == {
-        "argv": ["pool", "Day 1"], "cwd": "/work/project"}
+        "argv": ["pool", "Day 1"], "cwd": "/work/project",
+        "caller": "test-agent"}
     assert captured["owner"]
 
 
@@ -1673,6 +1684,21 @@ def test_run_unsafe_runs_copygrades_once_named(patched, run_opt_in, capsys):
         unsafe=True, acknowledge_copy_grades=True)) == 0
     assert "unsafe: yes" in capsys.readouterr().out
     assert patched["timeline"].copied == []
+
+
+def test_recorded_dynamic_copygrades_needs_explicit_ack(monkeypatch, capsys):
+    from library.tools import resolve_axi
+
+    monkeypatch.delenv(resolve_axi.RUN_OPT_IN_ENV, raising=False)
+    args = resolve_axi.build_parser().parse_args([
+        "run", "--purpose", "inspect grades", "--unsafe", "--script",
+        "method = 'Copy' + 'Grades'\ngetattr(timeline, method)([])",
+    ])
+
+    assert resolve_axi.cmd_run(args) != 0
+    output = capsys.readouterr().out
+    assert "cannot rule out CopyGrades" in output
+    assert "--acknowledge-copy-grades" in output
 
 
 # ── The positional rule ──────────────────────────────────────────

@@ -21,8 +21,10 @@ shelf listed locally; DCTL/LUT writes wrapped with compile check,
 dry-run default), `launch` (idempotent app start, never opens a
 project), `project` (identity plus the delivery-relevant settings),
 `audio` (audio tracks with enable state and clip counts), `run`
-(the cheap escape hatch: a caller script with ready Resolve names
-in scope, its `result` rendered as TOON rows), and the write verbs:
+(a caller script with ready Resolve names in scope, its `result`
+rendered as TOON rows; `--purpose` records the run without a developer
+opt-in), `workflow` (review recurring scripts, promote one explicitly,
+and re-run it by name), and the write verbs:
 `edit place|trim|move|delete|title|speed` (reel items,
 cursor-asserted), `edit transition` (carriers reported; native
 `AddTransition` writes behind `--apply`, verified by the returned
@@ -64,9 +66,16 @@ Safety shape, stated once:
   (a prefix rule over mutator verbs, stated at `_RUN_WRITE_PREFIXES`).
   Reads must still never move the cursor, and the AST test still holds
   for everything that is not a declared write.
-- `run` is developer tooling behind `RESOLVE_AXI_ALLOW_RUN=1`: without
-  that opt-in the verb refuses before reading any script, so pipeline
-  steps and broker jobs (customer runtime) never run caller Python.
+- A recorded `run --purpose` carries a durable record in Ren's project
+  or user script store. A writing script also requires `--unsafe`, takes
+  the exclusive lease, saves a per-run `.drt` recovery archive and
+  compares the before/after timeline and project inventory. Project
+  switching is refused through the script scope and restored if a raw
+  API call switches anyway. Recurring scripts appear as workflow
+  candidates; promotion is explicit.
+- A run without `--purpose` keeps the developer-shell opt-in
+  (`RESOLVE_AXI_ALLOW_RUN=1`) for compatibility. The broker accepts
+  unopted runs only when they carry `--purpose`.
 - `run --unsafe` still refuses `CopyGrades` unless
   `--acknowledge-copy-grades` names it out loud: the call replaces
   the target's whole grade, reports success, and versions nothing
@@ -115,6 +124,7 @@ from __future__ import annotations
 import argparse
 import ast
 import contextlib
+import contextvars
 import csv
 import io
 import json
@@ -123,6 +133,7 @@ import sys
 import time as _time
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 VERSION = "0.7.0"
 
@@ -339,7 +350,8 @@ _LOCAL_COMMANDS = frozenset({
     "cmd_intellisearch_collect",
     "cmd_luts_list", "cmd_luts_update",
     "cmd_luts_delete", "cmd_luts_generate", "cmd_setup_hooks",
-    "cmd_update",
+    "cmd_update", "cmd_workflow_list", "cmd_workflow_candidates",
+    "cmd_workflow_promote",
 })
 
 _SHADOW_READ_COMMANDS = frozenset({
@@ -372,7 +384,10 @@ def _dispatch(func, args) -> int:
             and not getattr(args, "refresh_live", False)):
         return func(args)
     exclusive = bool(getattr(args, "unsafe", False)
-                     or getattr(args, "apply", False))
+                     or getattr(args, "apply", False)
+                     or (name == "cmd_run" and bool(
+                         getattr(args, "purpose", "")
+                         or getattr(args, "workflow_name", ""))))
     with _lease(exclusive=exclusive):
         return func(args)
 
@@ -2715,37 +2730,42 @@ def _run_open_project(manager, name: str):
 #: columns is not cheaper than the JSON it replaces.
 RUN_MAX_COLUMNS = 12
 
-#: `run` executes caller-supplied Python, so it is developer tooling,
-#: not customer runtime: normal Ren operation (pipeline steps, broker
-#: jobs) never reaches it. The gate is explicit opt-in - set
-#: `RESOLVE_AXI_ALLOW_RUN=1` in the developer's shell before invoking
-#: `resolve-axi run` (directly or through `ren-resolved`).
+#: Unrecorded `run` remains developer tooling behind this opt-in. A
+#: recorded `run --purpose` carries its own durable Ren run record and
+#: is admitted by the broker only with that stated purpose.
 RUN_OPT_IN_ENV = "RESOLVE_AXI_ALLOW_RUN"
+_RECORDED_RUN_CONTEXT = contextvars.ContextVar(
+    "resolve_axi_recorded_run", default=False)
+_RECORDED_CALLER = contextvars.ContextVar(
+    "resolve_axi_recorded_caller", default="")
 
 
 def run_script_enabled() -> bool:
-    """Whether the developer opted into the raw `run` script runner."""
-    return os.environ.get(RUN_OPT_IN_ENV) == "1"
+    """Whether this is a developer shell or a recorded broker run."""
+    return (os.environ.get(RUN_OPT_IN_ENV) == "1"
+            or _RECORDED_RUN_CONTEXT.get())
 
 
 def _run_opt_in_refusal() -> tuple:
     """The refusal `cmd_run` and the broker answer without opt-in."""
     return (
-        f"`run` is developer tooling and needs explicit opt-in "
-        f"({RUN_OPT_IN_ENV}=1) - normal Ren operation never runs "
-        f"caller-supplied Python.",
-        f"export {RUN_OPT_IN_ENV}=1 to declare this shell a "
-        f"developer shell, then re-run `{TOOL} run --help`",
+        f"`run` without `--purpose` is developer tooling and needs "
+        f"explicit opt-in ({RUN_OPT_IN_ENV}=1).",
+        f"pass `--purpose \"what this script does\"` for a recorded Ren "
+        f"run, or export {RUN_OPT_IN_ENV}=1 for an unrecorded developer "
+        f"run, then re-run `{TOOL} run --help`",
     )
 
 
 def _refused_resolve_writes(script: str) -> list:
-    """Mutator attribute names in a `run` script, in first-seen order.
+    """Mutator and opaque dynamic calls in a `run` script, in order.
 
     A `SyntaxError` is an `AxiError` (the script never runs); anything
     else returns the offending names, possibly empty. String literals
-    never match: only attribute calls (`timeline.AddMarker(...)`) do,
-    so a script that merely MENTIONS a writer in a comment still runs.
+    never match on their own: attribute access (`timeline.AddMarker`)
+    does. Literal `getattr` writer names are scanned too; opaque attribute
+    access or dynamic code execution needs `--unsafe` because static
+    analysis cannot prove it is read-only.
     """
     try:
         tree = ast.parse(script)
@@ -2759,6 +2779,29 @@ def _refused_resolve_writes(script: str) -> list:
             if name.startswith(_RUN_WRITE_PREFIXES):
                 if name not in hits:
                     hits.append(name)
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            if node.func.id == "getattr":
+                name = (node.args[1].value
+                        if len(node.args) > 1
+                        and isinstance(node.args[1], ast.Constant)
+                        and isinstance(node.args[1].value, str) else None)
+                if name and name.startswith(_RUN_WRITE_PREFIXES):
+                    if name not in hits:
+                        hits.append(name)
+                elif name is None and "dynamic getattr" not in hits:
+                    hits.append("dynamic getattr")
+            elif node.func.id in {"setattr", "delattr", "exec", "eval",
+                                  "compile", "vars"}:
+                label = f"dynamic {node.func.id}"
+                if label not in hits:
+                    hits.append(label)
+        elif (isinstance(node, ast.Call)
+              and isinstance(node.func, ast.Attribute)
+              and node.func.attr in {"__getattribute__", "__getattr__",
+                                     "methodcaller", "attrgetter"}):
+            label = f"dynamic {node.func.attr.removeprefix('__').removesuffix('__')}"
+            if label not in hits:
+                hits.append(label)
     return hits
 
 
@@ -2771,15 +2814,60 @@ def _refused_resolve_writes(script: str) -> list:
 _COPYGRADES_TRAP = "CopyGrades"
 
 
-def _names_copygrades(script: str) -> bool:
-    """Whether the script reaches for the grade-destroying call."""
+def _copygrades_access(script: str) -> str | None:
+    """Classify a named or statically opaque path to CopyGrades."""
     try:
         tree = ast.parse(script)
     except SyntaxError:
-        return False
-    return any(isinstance(node, ast.Attribute)
-               and node.attr == _COPYGRADES_TRAP
-               for node in ast.walk(tree))
+        return None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr == _COPYGRADES_TRAP:
+            return "named"
+        if not isinstance(node, ast.Call):
+            continue
+        if isinstance(node.func, ast.Name):
+            function = node.func.id
+            name_index = 1
+        elif isinstance(node.func, ast.Attribute):
+            function = node.func.attr
+            name_index = 0
+        else:
+            continue
+        if function in {"getattr", "__getattribute__", "__getattr__",
+                        "methodcaller", "attrgetter"}:
+            name = (node.args[name_index].value
+                    if len(node.args) > name_index
+                    and isinstance(node.args[name_index], ast.Constant)
+                    and isinstance(node.args[name_index].value, str) else None)
+            if name == _COPYGRADES_TRAP:
+                return "named"
+            if name is None:
+                return "opaque"
+        elif function in {"exec", "eval", "compile", "vars"}:
+            return "opaque"
+    return None
+
+
+def _names_copygrades(script: str) -> bool:
+    """Whether CopyGrades is named or hidden behind opaque Python access."""
+    return _copygrades_access(script) is not None
+
+
+def _copygrades_refusal(script: str, purpose: str = "") -> tuple[str, str]:
+    access = _copygrades_access(script)
+    if access == "opaque":
+        message = ("script uses dynamic Python access, so Ren cannot rule "
+                   f"out {_COPYGRADES_TRAP}, which replaces the target's "
+                   "whole grade, reports success, and versions nothing to "
+                   "go back to")
+    else:
+        message = (f"script calls {_COPYGRADES_TRAP}, which replaces the "
+                   "target's whole grade, reports success, and versions "
+                   "nothing to go back to")
+    fix = f"{TOOL} run --unsafe --acknowledge-copy-grades"
+    if purpose:
+        fix += f' --purpose "{purpose}"'
+    return message + " - --unsafe declares a write, not this one.", fix
 
 
 def _run_cell(value, full: bool) -> tuple:
@@ -2856,6 +2944,468 @@ def _run_parts(result, full: bool, as_json: bool) -> list:
              if cut and not full else "")]
 
 
+def _workflow_store_scope(args, project_root=None) -> str:
+    selected = getattr(args, "scope", "auto") or "auto"
+    if selected != "auto":
+        return selected
+    return "project" if project_root is not None else "user"
+
+
+def _workflow_project_root(args):
+    from library.tools import resolve_script_store
+
+    return resolve_script_store.project_root_from(
+        os.getcwd(), getattr(args, "project_dir", "") or "")
+
+
+def cmd_workflow_candidates(args) -> int:
+    from library.tools import resolve_script_store
+
+    try:
+        project_root = _workflow_project_root(args)
+        scope = _workflow_store_scope(args, project_root)
+        rows = resolve_script_store.candidates(scope, project_root)
+    except Exception as exc:
+        return fail(str(exc), f"{TOOL} workflow candidates --help")
+    emit([table("candidates", rows,
+                ["candidate_id", "matched_by", "occurrences",
+                 "script_variants", "purposes", "sample_run_id"]),
+          help_block([f"{TOOL} workflow promote --help"])])
+    return 0
+
+
+def cmd_workflow_list(args) -> int:
+    from library.tools import resolve_script_store
+
+    try:
+        project_root = _workflow_project_root(args)
+        scope = _workflow_store_scope(args, project_root)
+        rows = resolve_script_store.workflows(scope, project_root)
+    except Exception as exc:
+        return fail(str(exc), f"{TOOL} workflow list --help")
+    shaped = [{"name": row["name"], "scope": row["scope"],
+               "purpose": row["purpose"],
+               "promoted_from": row["promoted_from"]["run_id"]}
+              for row in rows]
+    emit([table("workflows", shaped,
+                ["name", "scope", "purpose", "promoted_from"]),
+          help_block([f"{TOOL} workflow run <name>"])])
+    return 0
+
+
+def cmd_workflow_promote(args) -> int:
+    from library.tools import resolve_script_store
+    from library.tools.resolve_lock import default_owner
+
+    try:
+        project_root = _workflow_project_root(args)
+        scope = _workflow_store_scope(args, project_root)
+        path, commit = resolve_script_store.promote(
+            scope, project_root, args.candidate_id, args.run_id,
+            args.name, default_owner())
+    except Exception as exc:
+        return fail(str(exc), f"{TOOL} workflow candidates")
+    emit([kv_block("workflow", {
+        "name": args.name, "scope": scope, "path": path,
+        "project_store_commit": commit.get("committed", False),
+        "commit_note": commit.get("reason", ""),
+    }), help_block([f"{TOOL} workflow run {args.name}"])])
+    return 0
+
+
+class _NoProjectSwitchManager:
+    """A script-facing manager view that refuses project lifecycle calls."""
+
+    _BLOCKED = frozenset({"LoadProject", "CreateProject", "DeleteProject",
+                          "CloseProject", "OpenProject"})
+
+    def __init__(self, manager):
+        self._manager = manager
+
+    def __getattr__(self, name):
+        if name in self._BLOCKED:
+            def refuse(*_args, **_kwargs):
+                raise AxiError(
+                    f"recorded scripts cannot call ProjectManager.{name}; "
+                    "Resolve's open project is restored and project switches "
+                    "are not part of this run.")
+            return refuse
+        return getattr(self._manager, name)
+
+
+class _NoProjectSwitchResolve:
+    """Pass through Resolve calls while guarding project-manager access."""
+
+    def __init__(self, resolve):
+        self._resolve = resolve
+
+    def __getattr__(self, name):
+        if name == "GetProjectManager":
+            return lambda: _NoProjectSwitchManager(
+                self._resolve.GetProjectManager())
+        if name in {"OpenProject", "CreateProject", "LoadProject"}:
+            def refuse(*_args, **_kwargs):
+                raise AxiError(
+                    f"recorded scripts cannot call Resolve.{name}; project "
+                    "switches are refused")
+            return refuse
+        return getattr(self._resolve, name)
+
+
+def _cmd_run_recorded(args) -> int:
+    """Execute a purpose-named script and durably file its exact run."""
+    import copy
+    from library.tools import resolve_script_store
+
+    workflow_name = getattr(args, "workflow_name", "") or ""
+    purpose = (getattr(args, "purpose", "") or "").strip()
+    selected_scope = getattr(args, "scope", "auto") or "auto"
+    try:
+        project_root = resolve_script_store.project_root_from(
+            os.getcwd(), getattr(args, "project_dir", "") or "")
+        workflow = None
+        scope = selected_scope
+        if workflow_name:
+            scopes = ([scope] if scope != "auto" else
+                      (["project", "user"] if project_root else ["user"]))
+            last_error = None
+            for candidate_scope in scopes:
+                try:
+                    workflow = resolve_script_store.load_workflow(
+                        candidate_scope, project_root, workflow_name)
+                    scope = candidate_scope
+                    break
+                except resolve_script_store.ScriptStoreError as exc:
+                    last_error = exc
+            if workflow is None:
+                raise last_error or resolve_script_store.ScriptStoreError(
+                    f"no workflow named {workflow_name!r}")
+            if purpose and purpose != workflow["purpose"]:
+                raise resolve_script_store.ScriptStoreError(
+                    "a saved workflow's purpose cannot be overridden")
+            purpose = workflow["purpose"]
+        if not purpose:
+            raise resolve_script_store.ScriptStoreError(
+                "a recorded Resolve script needs --purpose")
+        if len(purpose) > 200 or "\n" in purpose:
+            raise resolve_script_store.ScriptStoreError(
+                "--purpose needs one short line of at most 200 characters")
+        if scope == "auto":
+            scope = "project" if project_root else "user"
+        if scope == "project" and project_root is None:
+            raise resolve_script_store.ScriptStoreError(
+                "project scope needs a Ren project directory; pass "
+                "--project-dir or run from inside the project")
+        if getattr(args, "borrow", False):
+            raise resolve_script_store.ScriptStoreError(
+                "recorded scripts cannot use --borrow; they may not switch "
+                "Resolve projects")
+
+        if workflow is not None:
+            if (getattr(args, "script", "") or getattr(args, "file", "")
+                    or getattr(args, "script_pos", "")):
+                raise resolve_script_store.ScriptStoreError(
+                    "workflow run takes its script from the saved workflow")
+            script = workflow["script"]
+        elif getattr(args, "script", "") and getattr(args, "file", ""):
+            raise resolve_script_store.ScriptStoreError(
+                "pass --script or --file, not both")
+        elif getattr(args, "script_pos", "") and (
+                getattr(args, "script", "") or getattr(args, "file", "")):
+            raise resolve_script_store.ScriptStoreError(
+                "pass the script positionally or with --script/--file, not both")
+        elif getattr(args, "file", ""):
+            with open(args.file, encoding="utf-8") as handle:
+                script = handle.read()
+        elif getattr(args, "script", ""):
+            script = args.script
+        elif getattr(args, "script_pos", ""):
+            script = args.script_pos
+        else:
+            raise resolve_script_store.ScriptStoreError(
+                "run needs a script, --file, --script, or a named workflow")
+    except (OSError, resolve_script_store.ScriptStoreError) as exc:
+        return fail(str(exc), f"{TOOL} run --help")
+
+    try:
+        refused = _refused_resolve_writes(script)
+        tree = ast.parse(script)
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    except SyntaxError as exc:
+        return fail(f"script would not parse ({exc}).", f"{TOOL} run --help")
+    # `--unsafe` is the caller's declaration that a dynamic or indirect
+    # Resolve writer may run. Treat it as a write even when static analysis
+    # cannot name the mutator, so it still gets a recovery archive and diff.
+    write_mode = bool(refused or getattr(args, "unsafe", False))
+    if write_mode and not getattr(args, "unsafe", False):
+        return fail(
+            f"script calls Resolve writers ({', '.join(refused)}) - "
+            "run is read-only by default.",
+            f"{TOOL} run --unsafe --purpose \"{purpose}\" to declare the write")
+    if (getattr(args, "unsafe", False)
+            and not getattr(args, "acknowledge_copy_grades", False)
+            and _names_copygrades(script)):
+        message, fix = _copygrades_refusal(script, purpose)
+        return fail(message, fix)
+    switch_names = {"LoadProject", "CreateProject", "DeleteProject",
+                    "CloseProject", "OpenProject", "open_project"}
+    switch_calls = {node.attr for node in ast.walk(tree)
+                    if isinstance(node, ast.Attribute)
+                    and node.attr in switch_names}
+    switch_calls.update(node.id for node in ast.walk(tree)
+                        if isinstance(node, ast.Name)
+                        and node.id == "open_project")
+    switch_calls.update(
+        node.args[1].value for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        and node.func.id == "getattr" and len(node.args) > 1
+        and isinstance(node.args[1], ast.Constant)
+        and node.args[1].value in switch_names)
+    if switch_calls:
+        return fail("recorded scripts may not switch Resolve projects "
+                    f"(found {', '.join(sorted(switch_calls))}).",
+                    f"{TOOL} run --help")
+
+    try:
+        resolve = _connect()
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+
+    run_id = resolve_script_store.new_run_id()
+    started = datetime.now(timezone.utc).isoformat()
+    caller = (_RECORDED_CALLER.get()
+              or os.environ.get("REN_RESOLVED_CALLER", ""))
+    if not caller:
+        from library.tools.resolve_lock import default_owner
+        caller = default_owner()
+    script_hash = resolve_script_store.normalized_script_hash(script)
+    drt_path = ""
+    target_timeline_id = ""
+    project_before = None
+    timeline_before = None
+    timeline_after = None
+    timeline_changes = None
+    project_change = None
+    original_project = ""
+    original_timeline_id = None
+    original_timeline_name = None
+    original_page = None
+    project_name = ""
+    timeline_name = ""
+    note = ""
+    inner_out, inner_err = io.StringIO(), io.StringIO()
+    exit_code = 1
+    outcome_error = ""
+    switched = False
+    restore_error = ""
+
+    with _lease(exclusive=True):
+        project = _project(resolve, getattr(args, "project", ""))
+        try:
+            timeline, is_current, note = _target_timeline(
+                project, getattr(args, "timeline", ""), resolve)
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        project_name = project.GetName()
+        timeline_name = timeline.GetName()
+        try:
+            target_timeline_id = str(timeline.GetUniqueId() or "")
+        except Exception:
+            target_timeline_id = ""
+        try:
+            current = project.GetCurrentTimeline()
+            original_project = project_name
+            original_timeline_id = current.GetUniqueId() if current else None
+            original_timeline_name = current.GetName() if current else None
+            original_page = resolve.GetCurrentPage()
+        except Exception as exc:
+            return fail(f"could not capture Resolve project identity ({exc}).",
+                        f"{TOOL} cursor")
+
+        if write_mode:
+            if not is_current:
+                return fail("a recorded writing script must target the current "
+                            "timeline so its backup and inventory read the "
+                            "exact live picture.", f"{TOOL} cursor")
+            if project_root is None:
+                return fail("a recorded writing script needs a Ren project "
+                            "directory for its .drt backup; pass --project-dir.",
+                            f"{TOOL} run --help")
+            try:
+                from library.tools import reel_replace_guard, timeline_shadow
+                project_before = reel_replace_guard.timeline_inventory(project)
+                timeline_before = timeline_shadow.read_live(
+                    project, timeline, project_root)
+                from library.tools.versions import store as version_store
+                backup = version_store.export_timeline_recovery_archive(
+                    resolve, timeline, timeline_name, str(project_root),
+                    label=f"resolve-axi run {run_id}",
+                    archive_suffix=f"custom-{run_id}")
+                if not backup.get("archived"):
+                    return fail(f"no .drt backup ({backup.get('reason', '')}) - "
+                                "refusing before the script runs.",
+                                f"{TOOL} run --help")
+                drt_path = backup["path"]
+            except Exception as exc:
+                return fail(f"could not back up and inventory the target "
+                            f"timeline ({exc}).", f"{TOOL} run --help")
+
+        # The recorded path is exclusive even for read scripts, so an
+        # unexpected project switch can be restored before the broker yields.
+        core_args = copy.copy(args)
+        core_args.script = script
+        core_args.file = ""
+        core_args.script_pos = ""
+        core_args.workflow_name = ""
+        core_args.purpose = ""
+        core_args.borrow = False
+        core_args.unsafe = True
+        token = _RECORDED_RUN_CONTEXT.set(True)
+        try:
+            with contextlib.redirect_stdout(inner_out), contextlib.redirect_stderr(inner_err):
+                try:
+                    exit_code = cmd_run(core_args)
+                except SystemExit as exc:
+                    exit_code = exc.code if isinstance(exc.code, int) else 1
+                    outcome_error = (
+                        f"script runner exited via SystemExit({exc.code})")
+                    inner_err.write(outcome_error + "\n")
+                except Exception as exc:  # preserve the failure in the run record
+                    exit_code = 1
+                    outcome_error = (
+                        f"script runner raised {type(exc).__name__}: {exc}")
+                    inner_err.write(outcome_error + "\n")
+        finally:
+            _RECORDED_RUN_CONTEXT.reset(token)
+
+        try:
+            live_manager = resolve.GetProjectManager()
+            live_project = live_manager.GetCurrentProject()
+            live_name = live_project.GetName() if live_project else ""
+            original_id = ""
+            live_id = ""
+            try:
+                original_id = str(project.GetUniqueId() or "")
+            except Exception:
+                pass
+            try:
+                live_id = str(live_project.GetUniqueId() or "")
+            except Exception:
+                pass
+            switched = (live_project is None or live_name != original_project
+                        or bool(original_id and live_id
+                                and original_id != live_id))
+            if switched:
+                from library.tools.qualification_project import restore
+                restore(resolve, {"project": original_project,
+                                  "timeline_id": original_timeline_id,
+                                  "timeline": original_timeline_name,
+                                  "page": original_page})
+                outcome_error = (
+                    "script switched the Resolve project; Ren restored the "
+                    "original project and timeline")
+        except Exception as exc:
+            restore_error = f"project restore failed ({exc})"
+            outcome_error = restore_error
+
+        if write_mode and not restore_error:
+            try:
+                from library.tools import feedback_patch_apply, reel_replace_guard, timeline_shadow
+                live_project = resolve.GetProjectManager().GetCurrentProject()
+                target_after = None
+                for index in range(1, int(live_project.GetTimelineCount() or 0) + 1):
+                    item = live_project.GetTimelineByIndex(index)
+                    if item and str(item.GetUniqueId() or "") == target_timeline_id:
+                        target_after = item
+                        break
+                project_after = reel_replace_guard.timeline_inventory(live_project)
+                project_change = resolve_script_store.project_inventory_diff(
+                    project_before, project_after, timeline_name,
+                    target_timeline_id)
+                if target_after is not None:
+                    from library.tools.resolve_lock import cursor_excursion
+                    with cursor_excursion(live_project, target_after,
+                                          f"resolve-axi inventory {run_id}"):
+                        timeline_after = timeline_shadow.read_live(
+                            live_project, target_after, project_root)
+                    timeline_changes = feedback_patch_apply.inventory_changes(
+                        timeline_before, timeline_after)
+                if (not project_change["guard_passed"] or target_after is None):
+                    outcome_error = (outcome_error + "; " if outcome_error else "") + (
+                        "project inventory guard found a timeline added, "
+                        "removed, renamed, or changed outside the target")
+            except Exception as exc:
+                outcome_error = (outcome_error + "; " if outcome_error else "") + (
+                    f"inventory guard could not finish ({exc})")
+
+    if exit_code != 0:
+        outcome_error = (outcome_error + "; " if outcome_error else "") + (
+            inner_err.getvalue() or inner_out.getvalue() or
+            f"script exited {exit_code}")
+    record = {
+        "run_id": run_id,
+        "at": started,
+        "scope": scope,
+        "purpose": purpose,
+        "purpose_hash": resolve_script_store.purpose_hash(purpose),
+        "script_hash": script_hash,
+        "script": script,
+        "project": project_name,
+        "timeline": timeline_name,
+        "caller": caller,
+        "writing": write_mode,
+        "workflow": workflow_name or None,
+        "drt_backup": drt_path or None,
+        "project_switched": switched,
+        "project_restored": switched and not restore_error,
+        "inventory": ({
+            "timeline": {"before": timeline_before,
+                         "after": timeline_after,
+                         "changes": timeline_changes},
+            "project": project_change,
+        } if write_mode else None),
+        "result": inner_out.getvalue() if exit_code == 0 else None,
+        "error": outcome_error or None,
+    }
+    try:
+        record_path, project_commit = resolve_script_store.save_run(
+            scope, record, project_root,
+            (Path(drt_path),) if drt_path else ())
+        rows = resolve_script_store.candidates(
+            scope, project_root if scope == "project" else None)
+        candidate = next((row for row in rows if row["candidate_id"] in {
+            f"script-{script_hash[:16]}",
+            f"purpose-{resolve_script_store.purpose_hash(purpose)[:16]}",
+        }), None)
+    except Exception as exc:
+        outcome_error = (outcome_error + "; " if outcome_error else "") + (
+            f"run executed but durable recording failed ({exc})")
+        record_path, project_commit, candidate = "", {}, None
+
+    if inner_out.getvalue():
+        sys.stdout.write(inner_out.getvalue())
+    if inner_err.getvalue():
+        sys.stderr.write(inner_err.getvalue())
+    emit([kv_block("recorded", {
+        "run_id": run_id,
+        "scope": scope,
+        "project": project_name,
+        "timeline": timeline_name,
+        "caller": caller,
+        "path": record_path,
+        "project_store_commit": project_commit.get("committed", False),
+        "store_note": project_commit.get("reason", ""),
+        "drt_backup": drt_path,
+        "inventory_guard": (project_change.get("guard_passed", False)
+                            if project_change else "not-writing"),
+        "workflow_candidate": candidate["candidate_id"] if candidate else "no-repeat-yet",
+    })])
+    if outcome_error:
+        return fail(outcome_error, f"{TOOL} workflow candidates")
+    return exit_code
+
+
 def cmd_run(args) -> int:
     """Execute a caller script with ready Resolve names, render `result`.
 
@@ -2878,9 +3428,9 @@ def cmd_run(args) -> int:
     - `--unsafe` still refuses `CopyGrades` without
       `--acknowledge-copy-grades`: that call destroys the target's
       grade while reporting success.
-    - `run` itself needs developer opt-in (`RESOLVE_AXI_ALLOW_RUN=1`):
-      without it the verb refuses before reading any script file, so
-      customer runtime cannot reach caller-supplied Python.
+    - A recorded `run --purpose` is available in Ren runtime and saves
+      its run record. A run without `--purpose` still needs developer
+      opt-in (`RESOLVE_AXI_ALLOW_RUN=1`).
     - `--borrow` runs a project-switching one-off the way a lane must:
       the captain's project is saved and restored around the script
       (`qualification_project.borrowed`), so it needs `--unsafe` (the
@@ -2888,6 +3438,9 @@ def cmd_run(args) -> int:
       scope-provided `open_project(name)` - live-handle check, switch
       settle, readback - never a raw `manager.LoadProject`.
     """
+    if (getattr(args, "purpose", "")
+            or getattr(args, "workflow_name", "")):
+        return _cmd_run_recorded(args)
     if not run_script_enabled():
         message, fix = _run_opt_in_refusal()
         return fail(message, fix)
@@ -2940,13 +3493,10 @@ def cmd_run(args) -> int:
             and _names_copygrades(script)):
         timeline_flag = (f"--timeline \"{args.timeline}\" "
                          if args.timeline else "")
-        return fail(
-            f"script calls {_COPYGRADES_TRAP}, which replaces the "
-            f"target's whole grade, reports success, and versions "
-            f"nothing to go back to - `--unsafe` declares a write, "
-            f"not this one.",
-            f"{TOOL} run {timeline_flag}{unsafe_form} --unsafe "
-            f"--acknowledge-copy-grades to say you know what it does")
+        message, fix = _copygrades_refusal(script)
+        return fail(message, f"{TOOL} run {timeline_flag}{unsafe_form} "
+                    f"{fix.split(TOOL + ' run ', 1)[-1]} to say you know "
+                    "what it does")
     try:
         resolve = _connect()
     except AxiError as exc:
@@ -2971,9 +3521,16 @@ def cmd_run(args) -> int:
                 cursor_before = open_timeline.GetName()
             except Exception:
                 cursor_before = "(none open)"
+            recorded = _RECORDED_RUN_CONTEXT.get()
+            script_resolve = (_NoProjectSwitchResolve(resolve)
+                              if recorded else resolve)
+            script_manager = script_resolve.GetProjectManager()
+            def refuse_project_switch(_name):
+                raise AxiError(
+                    "recorded scripts cannot switch Resolve projects")
             scope = {
-                "resolve": resolve,
-                "manager": resolve.GetProjectManager(),
+                "resolve": script_resolve,
+                "manager": script_manager,
                 "project": project,
                 "project_name": project.GetName(),
                 "timeline": timeline,
@@ -2982,8 +3539,9 @@ def cmd_run(args) -> int:
                 "timeline_names": _timeline_names(project),
                 "by_index": project.GetTimelineByIndex,
                 "read_notes": marker_feedback.read_notes,
-                "open_project": lambda name: _run_open_project(
-                    resolve.GetProjectManager(), name),
+                "open_project": (refuse_project_switch if recorded else
+                                 lambda name: _run_open_project(
+                                     resolve.GetProjectManager(), name)),
             }
             sandbox = dict(scope)
             try:
@@ -7501,13 +8059,14 @@ def build_parser() -> Parser:
 
     p = subs.add_parser(
         "run",
-        help="developer-only: execute a caller script (needs "
-             "RESOLVE_AXI_ALLOW_RUN=1)",
+        help="run a custom script; --purpose records it in Ren",
         description=(
-            "The cheap escape hatch, and developer-only tooling: set "
-            "RESOLVE_AXI_ALLOW_RUN=1 in a developer shell first - "
-            "without it the verb refuses and normal Ren operation "
-            "never runs caller-supplied Python. The script runs with "
+            "Run a caller script with ready Resolve names in scope. "
+            "A short --purpose writes the exact script and outcome to "
+            "Ren's project or user record and makes recurring work "
+            "eligible for explicit workflow promotion. A script without "
+            "--purpose remains available in developer shells with "
+            "RESOLVE_AXI_ALLOW_RUN=1. The script runs with "
             "exactly these names in scope - resolve, manager, project, "
             "project_name, timeline, timeline_name, is_current, "
             "timeline_names, by_index, read_notes, open_project - and "
@@ -7516,9 +8075,10 @@ def build_parser() -> Parser:
             "truncation discipline as every other command. A list of "
             "dicts renders as a typed table; --full and --json escape "
             "the truncation. Without --unsafe the script is AST-scanned "
-            "for Resolve writers and refused when one appears; --unsafe "
-            "declares the write, holds the exclusive lease, and reports "
-            "the cursor before and after. --borrow (with --unsafe) saves "
+            "for Resolve writers and refused when one appears. Recorded "
+            "scripts take the exclusive lease; writes also require "
+            "--unsafe, a per-run .drt backup, and inventory comparison. "
+            "--borrow (with --unsafe) is only for the developer path and saves "
             "and restores the captain's project around a project-"
             "switching one-off; inside, switch with open_project(name), "
             "which settles and reads back. Submitted as a broker job "
@@ -7532,6 +8092,13 @@ def build_parser() -> Parser:
                    help="inline script; set `result = ...`")
     p.add_argument("--file", default="",
                    help="read the script from this file")
+    p.add_argument("--purpose", default="",
+                   help="short reason; records the script and its outcome")
+    p.add_argument("--scope", choices=("auto", "project", "user"),
+                   default="auto",
+                   help="project when a Ren project is found, otherwise user")
+    p.add_argument("--project-dir", default="",
+                   help="Ren project folder for records and write backups")
     p.add_argument("--full", action="store_true",
                    help="no per-cell truncation")
     p.add_argument("--json", action="store_true",
@@ -7549,6 +8116,42 @@ def build_parser() -> Parser:
                         "replaces the target's whole grade with no "
                         "version to go back to")
     p.set_defaults(func=cmd_run)
+
+    p = subs.add_parser("workflow", help="review and run saved custom scripts")
+    workflow_subs = p.add_subparsers(dest="workflow_command", required=True)
+    for command, handler, help_text in (
+            ("list", cmd_workflow_list, "list promoted named workflows"),
+            ("candidates", cmd_workflow_candidates,
+             "show recurring scripts that could become workflows")):
+        q = workflow_subs.add_parser(command, help=help_text)
+        q.add_argument("--scope", choices=("auto", "project", "user"),
+                       default="auto")
+        q.add_argument("--project-dir", default="")
+        q.set_defaults(func=handler)
+
+    q = workflow_subs.add_parser("promote",
+                                 help="promote one candidate run by choice")
+    q.add_argument("candidate_id")
+    q.add_argument("run_id")
+    q.add_argument("name")
+    q.add_argument("--scope", choices=("auto", "project", "user"),
+                   default="auto")
+    q.add_argument("--project-dir", default="")
+    q.set_defaults(func=cmd_workflow_promote)
+
+    q = workflow_subs.add_parser("run", help="execute a saved workflow by name")
+    q.add_argument("workflow_name")
+    _add_scope(q, "run")
+    q.add_argument("--scope", choices=("auto", "project", "user"),
+                   default="auto")
+    q.add_argument("--project-dir", default="")
+    q.add_argument("--full", action="store_true")
+    q.add_argument("--json", action="store_true")
+    q.add_argument("--unsafe", action="store_true",
+                   help="allow writes after creating a .drt backup")
+    q.add_argument("--acknowledge-copy-grades", action="store_true")
+    q.set_defaults(func=cmd_run, script_pos="", script="", file="",
+                   purpose="")
 
     p = subs.add_parser("setup", help="session integrations")
     ssubs = p.add_subparsers(dest="setup_command", required=True)
@@ -7614,7 +8217,8 @@ def _through_broker(client, argv: list) -> int:
     from library.tools.resolve_lock import default_owner
     try:
         submitted = client.submit(
-            "resolve_axi", {"argv": list(argv), "cwd": os.getcwd()},
+            "resolve_axi", {"argv": list(argv), "cwd": os.getcwd(),
+                            "caller": default_owner()},
             owner=default_owner())
         job = client.result(submitted["id"], wait=0.0)
         while job["state"] in ("queued", "running"):
@@ -7639,7 +8243,8 @@ def _submit_through_broker(client, argv: list) -> int:
         job_argv.pop(0)
     try:
         submitted = client.submit(
-            "resolve_axi", {"argv": job_argv, "cwd": os.getcwd()},
+            "resolve_axi", {"argv": job_argv, "cwd": os.getcwd(),
+                            "caller": default_owner()},
             owner=default_owner())
     except (ConnectionError, client.BrokerError) as exc:
         return fail(f"cannot submit to ren-resolved: {exc}",

@@ -207,7 +207,7 @@ Never create a timeline and use `ImportFusionComp` in one Python process: `libra
 
 **The broker is a STANDALONE service any client starts on demand, never a worker's child**: `library/tools/resolved/client.py`.
 
-**One-off scripts are broker jobs, never direct.**: `resolve-axi run --file [--unsafe] [--borrow]` or `ren resolved submit resolve_axi`: `library/tools/resolve_axi.py`.
+**One-off scripts are broker jobs, never direct.** Recorded path and safeguards: `docs/RESOLVE_AXI_CUSTOM_SCRIPTS.md` (`library/tools/resolve_axi.py`).
 
 ### Judge every Resolve call by what it returns
 

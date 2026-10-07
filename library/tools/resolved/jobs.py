@@ -28,11 +28,11 @@ Kinds
                        nothing and is REJECTED, its fields kept in the
                        receipt's result so the caller can rebase.
 `resolve_axi`          One `resolve-axi` command line, run inside the
-                        broker so its reads coalesce across agents. Reads
-                        only, and only the named allowlist
-                        (`_BROKER_ALLOWLIST`): a command not on it is
-                        refused before it is queued, so a new resolve-axi
-                        verb is not broker-eligible by default.
+                        broker so its reads coalesce across agents. Only
+                        the named allowlist (`_BROKER_ALLOWLIST`) is
+                        admitted. `run --purpose` is the recorded custom
+                        script path; an unrecorded run keeps the developer
+                        opt-in. Other writes stay typed or local.
 `fusion.registry_summary`
                        The installed OFX/ResolveFX effects and the
                        running Resolve version, read on the broker's own
@@ -101,8 +101,9 @@ KINDS = ("lease", "timeline.snapshot", "timeline.observe_current",
 #: lease. A new resolve-axi verb is refused until it is named here on
 #: purpose - the boundary is this set, not "whatever reaches Resolve".
 #:
-#: `cmd_run` is the one write-capable verb on the list, eligible only
-#: behind the developer opt-in on the broker process (checked below).
+#: `cmd_run` is the one caller-script verb on the list. The recorded
+#: path requires a purpose and keeps its own backup and inventory guard;
+#: unrecorded runs still need the developer opt-in (checked below).
 _BROKER_ALLOWLIST = frozenset({
     # reads that reach Resolve on every call
     "cmd_cursor", "cmd_project", "cmd_pool", "cmd_renders",
@@ -199,17 +200,19 @@ def _resolve_axi_shape(params: dict) -> dict:
             "goes through the typed timeline.apply_patch kind or runs "
             "locally under your own lease")
     if name == "cmd_run" and not resolve_axi.run_script_enabled():
-        # The broker is customer runtime: a queued `run` script would be
-        # caller-supplied Python on the shared Resolve connection. The
-        # developer opt-in lives on the broker process, and without it
-        # the job is refused before it is queued (cmd_run refuses again
-        # at execution, fail-closed on both sides).
-        raise JobRefused(
-            f"resolve-axi run is developer tooling and needs explicit "
-            f"opt-in ({resolve_axi.RUN_OPT_IN_ENV}=1 on the broker) - "
-            f"normal Ren operation never runs caller-supplied Python")
+        purpose = getattr(args, "purpose", "") or ""
+        workflow = getattr(args, "workflow_name", "") or ""
+        if not purpose and not workflow:
+            raise JobRefused(
+                "resolve-axi run needs a short --purpose to create a durable "
+                "Ren record or the developer-shell opt-in; developer shells "
+                "may keep using "
+                f"{resolve_axi.RUN_OPT_IN_ENV}=1")
     exclusive = bool(getattr(args, "unsafe", False)
-                     or getattr(args, "apply", False))
+                     or getattr(args, "apply", False)
+                     or (name == "cmd_run" and bool(
+                         getattr(args, "purpose", "")
+                         or getattr(args, "workflow_name", ""))))
     if name.startswith("cmd_render"):
         priority = "qa_render"
     else:
@@ -221,7 +224,7 @@ def _resolve_axi_shape(params: dict) -> dict:
         "timeline": getattr(args, "timeline", "") or "",
         "locality": ("timeline" if getattr(args, "timeline", "") else
                      "project" if getattr(args, "project", "") else "none"),
-        "coalesce_key": (None if exclusive else _coalesce_key(
+        "coalesce_key": (None if exclusive or name == "cmd_run" else _coalesce_key(
             "resolve_axi", argv, params.get("cwd", ""))),
     }
 
@@ -469,7 +472,8 @@ def run(job: dict, resolve) -> dict | None:
         with write_scope(
                 project=job.get("project"), timeline_name=job.get("timeline"),
                 run_id=job.get("id")):
-            return _run_resolve_axi(params)
+            return _run_resolve_axi(dict(
+                params, caller=(params.get("caller") or job.get("owner") or "")))
     if kind == "fusion.registry_summary":
         return _run_registry_summary(resolve)
     if kind == "timeline.apply_patch":
@@ -558,6 +562,8 @@ def _run_resolve_axi(params: dict) -> dict:
     cwd = params.get("cwd") or os.getcwd()
     previous = os.getcwd()
     os.chdir(cwd)
+    caller_token = resolve_axi._RECORDED_CALLER.set(
+        str(params.get("caller") or ""))
     try:
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             try:
@@ -565,7 +571,10 @@ def _run_resolve_axi(params: dict) -> dict:
             except SystemExit as exc:
                 code = exc.code if isinstance(exc.code, int) else 1
     finally:
-        os.chdir(previous)
+        try:
+            os.chdir(previous)
+        finally:
+            resolve_axi._RECORDED_CALLER.reset(caller_token)
     return {"exit_code": int(code or 0), "stdout": out.getvalue(),
             "stderr": err.getvalue()}
 

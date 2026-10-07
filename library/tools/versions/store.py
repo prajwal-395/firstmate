@@ -273,7 +273,8 @@ def _recovery_archive_stem(timeline_name: str) -> str:
 
 def export_timeline_recovery_archive(
         resolve, timeline, timeline_name: str,
-        project_folder: str, label: str = "") -> dict:
+        project_folder: str, label: str = "",
+        archive_suffix: str = "") -> dict:
     """Export one timeline to its `recovery_archives` `.drt`, atomically.
 
     The same destination and scratch-staged replace the build's per-reel
@@ -281,7 +282,8 @@ def export_timeline_recovery_archive(
     touch's staging - so the half-finished edit is recoverable rather
     than debris in the captain's project.  The export reads an existing
     timeline handle and writes a file; it does not create or switch
-    timelines.
+    timelines. `archive_suffix` gives a custom script run its own archive
+    without replacing the shared per-reel recovery file.
 
     Best effort by construction: the caller deletes the staging
     whatever happens, so a failed export is reported on the result,
@@ -306,7 +308,15 @@ def export_timeline_recovery_archive(
         result["reason"] = "Resolve does not expose EXPORT_DRT"
         return result
 
-    destination = archive_dir / f"{_recovery_archive_stem(timeline_name)}.drt"
+    stem = _recovery_archive_stem(timeline_name)
+    if archive_suffix:
+        suffix = "".join(char if char.isalnum() or char in "-_"
+                         else "_" for char in archive_suffix)
+        if not suffix:
+            result["reason"] = "archive suffix contains no safe characters"
+            return result
+        stem += "--" + suffix
+    destination = archive_dir / f"{stem}.drt"
     try:
         import tempfile
 

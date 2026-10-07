@@ -265,7 +265,8 @@ def test_run_scope_offers_the_settled_switch():
     from library.tools import resolve_axi
     assert "open_project" in resolve_axi.RUN_SCOPE
     source = Path(resolve_axi.__file__).read_text(encoding="utf-8")
-    assert '"open_project": lambda name: _run_open_project' in source
+    assert '"open_project": (refuse_project_switch if recorded else' in source
+    assert 'lambda name: _run_open_project' in source
     assert "open_project(name)" in source
 
 
@@ -408,14 +409,20 @@ def test_run_borrow_restores_even_when_the_script_raises(
 
 def test_run_script_job_submits_through_the_broker(monkeypatch):
     """The documented lane path prepares as a broker `resolve_axi`
-    job: refused without the broker-side opt-in (customer runtime
-    cannot queue caller Python), accepted with it."""
+    job: a purpose-recorded run is admitted without developer opt-in,
+    while an unrecorded run remains behind the developer-shell gate."""
     from library.tools.resolved import jobs
     from library.tools import resolve_axi
     argv = ["run", "--unsafe", "--borrow", "--file", "one-off.py"]
     monkeypatch.delenv(resolve_axi.RUN_OPT_IN_ENV, raising=False)
     with pytest.raises(jobs.JobRefused, match="opt-in"):
         jobs.prepare("resolve_axi", {"argv": argv})
+    recorded = jobs.prepare("resolve_axi", {"argv": [
+        "run", "--purpose", "inspect a named timeline", "--script",
+        "result = timeline.GetName()",
+    ]})
+    assert recorded["mode"] == "exclusive"
+    assert recorded["executed"]
     monkeypatch.setenv(resolve_axi.RUN_OPT_IN_ENV, "1")
     shape = jobs.prepare("resolve_axi", {"argv": argv})
     assert shape["mode"] == "exclusive"
