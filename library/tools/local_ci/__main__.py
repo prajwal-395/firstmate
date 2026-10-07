@@ -86,8 +86,11 @@ def cmd_status(args) -> int:
     from library.tools.local_ci import load, service
     plan = load.targets(load.measure())
     print(f"dispatch now: {load.describe(plan)}")
-    print(f"agent: {'installed' if service.installed() else 'not installed'}"
-          f" ({service.plist_path()})")
+    if service.installed():
+        agent_state = f"installed, {service.launchd_state()}"
+    else:
+        agent_state = "not installed"
+    print(f"agent: {agent_state} ({service.plist_path()})")
     return 0
 
 

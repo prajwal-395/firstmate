@@ -134,6 +134,17 @@ def installed() -> bool:
     return os.path.exists(plist_path())
 
 
+def launchd_state() -> str:
+    """Whether launchd loaded the agent, or whether its state is unknown."""
+    try:
+        result = subprocess.run(
+            ["launchctl", "print", f"gui/{os.getuid()}/{LABEL}"],
+            capture_output=True, encoding="utf-8", check=False, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+    return "loaded" if result.returncode == 0 else "not loaded"
+
+
 def _git(repo: str, *argv: str) -> str:
     result = subprocess.run(
         ["git", "-C", repo, *argv], capture_output=True,

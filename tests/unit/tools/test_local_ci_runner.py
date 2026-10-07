@@ -67,3 +67,37 @@ def test_run_gate_limits_the_full_suite_to_two_workers(monkeypatch,
 
     assert result["ok"] is True
     assert calls[0][0] == ["bash", "scripts/full_suite_gate.sh", "-n", "2"]
+
+
+def test_run_does_not_pass_conftest_files_as_pytest_paths(monkeypatch,
+                                                           tmp_path):
+    checkout = tmp_path / "checkout"
+    root_conftest = checkout / "tests" / "conftest.py"
+    nested_conftest = checkout / "tests" / "unit" / "reels" / "conftest.py"
+    test_file = checkout / "tests" / "unit" / "tools" / "test_example.py"
+    for path in (root_conftest, nested_conftest, test_file):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("", encoding="utf-8")
+
+    monkeypatch.setattr(runner.hygiene, "disk_ok", lambda _path: True)
+    monkeypatch.setattr(runner.hygiene, "gate_running", lambda: False)
+    monkeypatch.setattr(runner.hygiene, "broker_serving", lambda: False)
+    monkeypatch.setattr(runner, "_pytest_python", lambda: "python3")
+    monkeypatch.setattr(runner, "_read_summary", lambda _path: (1, 0, True))
+    commands = []
+
+    def run_logged(command, _cwd, _log_path, _timeout):
+        commands.append(command)
+        return {"exit": 0, "timed_out": False, "group_clean": True,
+                "elapsed": 0}
+
+    monkeypatch.setattr(
+        runner, "_run_logged", run_logged)
+
+    result = runner.run(
+        ["tests/conftest.py", "tests/unit/reels/conftest.py",
+         "tests/unit/tools/test_example.py"],
+        str(checkout), str(tmp_path / "pytest.log"))
+
+    assert result["ok"] is True
+    assert commands[0][3] == "tests/unit/tools/test_example.py"

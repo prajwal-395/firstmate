@@ -168,6 +168,21 @@ def _pytest_python() -> str:
     return "python3"
 
 
+def _pytest_paths(paths: list, checkout: str) -> list:
+    """Keep selected files that exist, but let pytest discover conftest files.
+
+    Passing a conftest.py as an explicit test path can import it under the
+    same module name as a nested conftest.py already loaded during collection.
+    Pytest loads conftest files from the test tree itself, so they are never
+    test arguments.
+    """
+    return [
+        path for path in paths
+        if os.path.basename(path) != "conftest.py"
+        and os.path.exists(os.path.join(checkout, path))
+    ]
+
+
 def run(paths: list, checkout: str, log_path: str,
         timeout: int = config.RUN_TIMEOUT_SECONDS,
         workers: int = 2) -> dict:
@@ -183,8 +198,7 @@ def run(paths: list, checkout: str, log_path: str,
     if hygiene.gate_running():
         raise hygiene.HygieneRefused(
             "a full-suite gate holds the machine - deferred, not skipped")
-    paths = [p for p in paths
-             if os.path.exists(os.path.join(checkout, p))]
+    paths = _pytest_paths(paths, checkout)
     if not paths:
         raise hygiene.HygieneRefused(
             "selection vanished against the checkout - every selected "

@@ -17,6 +17,7 @@ def test_status_lists_a_running_tier1_pr(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(load, "targets", lambda _measurement: plan)
     monkeypatch.setattr(load, "describe", lambda _plan: "jobs=1")
     monkeypatch.setattr(service, "installed", lambda: True)
+    monkeypatch.setattr(service, "launchd_state", lambda: "loaded")
     monkeypatch.setattr(service, "plist_path",
                         lambda: "/tmp/com.ren.ci.plist")
 
@@ -50,6 +51,7 @@ def test_status_ignores_unlocked_slot_metadata_for_a_live_pid(
     monkeypatch.setattr(load, "targets", lambda _measurement: plan)
     monkeypatch.setattr(load, "describe", lambda _plan: "jobs=1")
     monkeypatch.setattr(service, "installed", lambda: True)
+    monkeypatch.setattr(service, "launchd_state", lambda: "not loaded")
     monkeypatch.setattr(service, "plist_path",
                         lambda: "/tmp/com.ren.ci.plist")
 
@@ -58,6 +60,7 @@ def test_status_ignores_unlocked_slot_metadata_for_a_live_pid(
     output = capsys.readouterr().out
     assert "running jobs: none" in output
     assert "PR #42" not in output
+    assert "agent: installed, not loaded" in output
 
 
 def test_status_lists_the_testing_tier2_stack(monkeypatch, tmp_path, capsys):
@@ -74,6 +77,7 @@ def test_status_lists_the_testing_tier2_stack(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(load, "targets", lambda _measurement: plan)
     monkeypatch.setattr(load, "describe", lambda _plan: "jobs=1")
     monkeypatch.setattr(service, "installed", lambda: True)
+    monkeypatch.setattr(service, "launchd_state", lambda: "loaded")
     monkeypatch.setattr(service, "plist_path",
                         lambda: "/tmp/com.ren.ci.plist")
     monkeypatch.setattr(hygiene, "running_jobs", lambda _state: [])
@@ -86,3 +90,4 @@ def test_status_lists_the_testing_tier2_stack(monkeypatch, tmp_path, capsys):
 
     output = capsys.readouterr().out
     assert "Tier-2 full-suite gate for PRs #2083, #2084 91s pid 12345" in output
+    assert "agent: installed, loaded" in output

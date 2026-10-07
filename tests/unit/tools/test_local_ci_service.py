@@ -56,6 +56,45 @@ def test_agent_lives_in_the_user_domain_with_machine_state():
         "daemon state must not live inside any repo checkout")
 
 
+def test_launchd_state_checks_the_user_domain(monkeypatch):
+    import subprocess
+
+    calls = []
+
+    def run(argv, **kwargs):
+        calls.append((argv, kwargs))
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    monkeypatch.setattr(service.os, "getuid", lambda: 501)
+    monkeypatch.setattr(service.subprocess, "run", run)
+
+    assert service.launchd_state() == "loaded"
+    assert calls == [(
+        ["launchctl", "print", f"gui/501/{service.LABEL}"],
+        {"capture_output": True, "encoding": "utf-8",
+         "check": False, "timeout": 30})]
+
+
+def test_launchd_state_reports_a_missing_job(monkeypatch):
+    import subprocess
+
+    monkeypatch.setattr(
+        service.subprocess, "run",
+        lambda argv, **_kwargs: subprocess.CompletedProcess(argv, 113, "", ""))
+
+    assert service.launchd_state() == "not loaded"
+
+
+def test_launchd_state_reports_unknown_when_launchctl_is_unavailable(
+        monkeypatch):
+    def unavailable(*_args, **_kwargs):
+        raise FileNotFoundError("launchctl")
+
+    monkeypatch.setattr(service.subprocess, "run", unavailable)
+
+    assert service.launchd_state() == "unknown"
+
+
 def _git_repo(path, branch="main"):
     import subprocess
     subprocess.run(["git", "init", "-q", "-b", branch, path],
