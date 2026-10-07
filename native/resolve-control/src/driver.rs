@@ -88,7 +88,7 @@ pub enum TargetKind {
 
 pub fn target_kind(params: &Json) -> DriverResult<TargetKind> {
     match params.get("target").and_then(|v| v.as_str()) {
-        None => Ok(TargetKind::Resolve),
+        None | Some("resolve") => Ok(TargetKind::Resolve),
         Some("chrome") => Ok(TargetKind::Chrome),
         Some(other) => Err(DriverError::InvalidParams(format!(
             "unknown target {other:?} - the targets are: resolve (default), chrome"
@@ -1073,6 +1073,7 @@ mod tests {
     fn target_defaults_to_resolve_and_chrome_is_named() {
         use serde_json::json;
         assert_eq!(target_kind(&json!({})).unwrap(), TargetKind::Resolve);
+        assert_eq!(target_kind(&json!({"target": "resolve"})).unwrap(), TargetKind::Resolve);
         assert_eq!(target_kind(&json!({"target": "chrome"})).unwrap(), TargetKind::Chrome);
     }
 
