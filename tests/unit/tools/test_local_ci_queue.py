@@ -164,27 +164,36 @@ def test_a_moved_main_requeues_the_rest_unmerged():
     assert "outsider" in requeued[0]["reason"]
 
 
-def test_a_moved_head_requeues_only_itself():
+def test_a_moved_head_requeues_it_and_every_later_member():
     world = FakeWorld()
     first = queue._tested(_member(1), "base")
     stale = queue._tested(_member(2), "base")
     stale["head"] = "head-2-new"  # pushed after the test
-    merged, requeued = queue.merge_in_order(world, "base", [first, stale])
+    later = queue._tested(_member(3), "base")
+    merged, requeued = queue.merge_in_order(
+        world, "base", [first, stale, later])
     assert [m["pr"] for m in merged] == [1]
-    assert [m["pr"] for m in requeued] == [2]
+    assert [m["pr"] for m in requeued] == [2, 3]
+    assert "head moved" in requeued[0]["reason"]
+    assert "earlier batch member" in requeued[1]["reason"]
 
 
-def test_a_refused_merge_requeues_for_retest():
+def test_a_refused_merge_requeues_it_and_every_later_member():
     class Refusing(FakeWorld):
         def merge_pr(self, pr, head):
-            raise RuntimeError("409 head moved")
+            if pr == 1:
+                raise RuntimeError("409 head moved")
+            return super().merge_pr(pr, head)
 
     world = Refusing()
-    green = [queue._tested(_member(1), "base")]
+    green = [queue._tested(_member(1), "base"),
+             queue._tested(_member(2), "base")]
     merged, requeued = queue.merge_in_order(world, "base", green)
     assert merged == []
-    assert [m["pr"] for m in requeued] == [1]
+    assert [m["pr"] for m in requeued] == [1, 2]
     assert "409" in requeued[0]["reason"]
+    assert "earlier batch member" in requeued[1]["reason"]
+    assert world.merges == []
 
 
 def test_a_cluster_ripens_when_the_window_closes_not_before():

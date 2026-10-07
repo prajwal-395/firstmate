@@ -228,18 +228,23 @@ def merge_in_order(world: World, base: str, green: list) -> tuple:
     tested base before the first merge, the previous merge's landed SHA
     after it. Anything else means main moved under the batch, and this
     member plus the rest go back to queued - they re-test, they never
-    merge stale. The REST merge's own head-SHA pin (409 on a moved
-    head) is the same check through the server's eyes; a refusal
-    re-queues the member so the next pass re-tests it.
+    merge stale. A moved or refused member also requeues every later
+    member: their tested stack included the earlier member, so they
+    cannot safely skip ahead. The REST merge's own head-SHA pin (409 on
+    a moved head) is the same check through the server's eyes.
     """
     merged, requeued = [], []
     expected = base
     for index, member in enumerate(green):
         if member.get("tested_head") != member.get("head"):
-            member["status"] = state.ENTRY_QUEUED
-            member["reason"] = "head moved after the test - re-testing"
-            requeued.append(member)
-            continue
+            for offset, rest in enumerate(green[index:]):
+                rest["status"] = state.ENTRY_QUEUED
+                rest["reason"] = (
+                    "head moved after the test - re-testing" if offset == 0
+                    else "earlier batch member moved after the test - "
+                    "re-testing")
+                requeued.append(rest)
+            break
         if member.get("tested_base") != base:
             for rest in green[index:]:
                 rest["status"] = state.ENTRY_QUEUED
@@ -265,10 +270,13 @@ def merge_in_order(world: World, base: str, green: list) -> tuple:
         try:
             landed = world.merge_pr(member["pr"], member["head"])
         except (OSError, RuntimeError) as exc:
-            member["status"] = state.ENTRY_QUEUED
-            member["reason"] = f"merge refused ({exc}) - re-testing"
-            requeued.append(member)
-            continue
+            for offset, rest in enumerate(green[index:]):
+                rest["status"] = state.ENTRY_QUEUED
+                rest["reason"] = (
+                    f"merge refused ({exc}) - re-testing" if offset == 0
+                    else "earlier batch member did not merge - re-testing")
+                requeued.append(rest)
+            break
         member["status"] = state.ENTRY_MERGED
         member["reason"] = ""
         member["landed_as"] = landed
