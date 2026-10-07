@@ -20,12 +20,14 @@ built from a validated intent track (`audio_chain.validate_track_chain`
 - a set step carries the driver's own string (`actions.set_value`
   takes strings; the recipe formats, the runner never does).
 
-What this module does NOT do, on purpose: dynamics, limiter, gate,
-sends or bus routing (refused by name - the executor covers EQ, one
-control end to end, and an entry nothing here can apply is not
-shipped); Q defaults (an unmapped Q refuses rather than inventing
-one); the render or its measurement (the proof is slice 2b:
-render -> `audio_verify.verify_mix` spectral before/after).
+What this module does NOT do, on purpose: gate, sends and bus
+routing (refused by name - stranded or owned elsewhere, never
+silently dropped); EQ or dynamics on master and a limiter anywhere
+but master (each refused naming where it belongs); Q defaults and
+non-default knee/makeup without mapped controls (an unmapped control
+refuses rather than inventing one); the render or its measurement
+(the proof is render -> `audio_verify.verify_mix` spectral
+before/after, on a committed live run).
 
 Run it with the existing verb - no new entry point: emit the script
 JSON (`emit_script_file`) and run `ren computer-use script <file>`.
@@ -123,6 +125,56 @@ def _locator(name: str, spec) -> Anchor:
         f"the recipe guesses neither")
 
 
+#: The roles one chain script covers. Dialogue carries EQ and
+#: dynamics; the master carries the limiter and nothing else. Any
+#: other role is refused by name - its executor slice owns it.
+CHAIN_ROLES = ("dialogue", "master")
+
+#: Dynamics field -> the set action that writes it. Explicit, so a
+#: renamed field cannot silently mint a new action string.
+DYNAMICS_ACTIONS = {
+    "threshold_db": "set_dynamics_threshold",
+    "ratio": "set_dynamics_ratio",
+    "attack_ms": "set_dynamics_attack",
+    "release_ms": "set_dynamics_release",
+    "knee_db": "set_dynamics_knee",
+    "makeup_gain_db": "set_dynamics_makeup",
+}
+
+
+def _page_step() -> ScriptStep:
+    """The Fairlight page switch, shared by every chain script."""
+    return ScriptStep(
+        action="page_fairlight",
+        anchors=[Anchor(via="ax_path", params={
+            "path": ["Workspace", "Switch to Page", "Fairlight"],
+            "source": "plan",
+            "why": ("plan section 9 route; the page name is "
+                    "probe-measured, the full path unconfirmed"),
+        })],
+        expect=Expect(via="pixels_changed", params={"source": "plan"}),
+    )
+
+
+def _track_step(controls: dict, label: str, default_text: str) -> ScriptStep:
+    """Focus one bus by its recon locator, defaulting to the plan's
+    own words for the bus name."""
+    return ScriptStep(
+        action="locate_track",
+        anchors=[_locator(label, (controls.get("track") or {
+            "text": default_text}))],
+    )
+
+
+def _eq_open_step(controls: dict) -> ScriptStep:
+    """Open the track EQ panel."""
+    return ScriptStep(
+        action="open_eq",
+        anchors=[_locator("track EQ", controls.get("eq_open"))],
+        expect=Expect(via="pixels_changed", params={"source": "plan"}),
+    )
+
+
 def eq_script(track: dict, controls: dict) -> Script:
     """The UI steps that apply one dialogue EQ track in Fairlight.
 
@@ -163,27 +215,9 @@ def eq_script(track: dict, controls: dict) -> Script:
             f"{len(checked.eq)} intent band(s) - align them by index")
 
     steps = [
-        ScriptStep(
-            action="page_fairlight",
-            anchors=[Anchor(via="ax_path", params={
-                "path": ["Workspace", "Switch to Page", "Fairlight"],
-                "source": "plan",
-                "why": ("plan section 9 route; the page name is "
-                        "probe-measured, the full path unconfirmed"),
-            })],
-            expect=Expect(via="pixels_changed", params={"source": "plan"}),
-        ),
-        ScriptStep(
-            action="locate_track",
-            anchors=[_locator("dialogue track",
-                              (controls.get("track") or {
-                                  "text": "Dialogue"}))],
-        ),
-        ScriptStep(
-            action="open_eq",
-            anchors=[_locator("track EQ", controls.get("eq_open"))],
-            expect=Expect(via="pixels_changed", params={"source": "plan"}),
-        ),
+        _page_step(),
+        _track_step(controls, "dialogue track", "Dialogue"),
+        _eq_open_step(controls),
     ]
     for index, band in enumerate(checked.eq):
         spec = band_controls[index]
@@ -197,6 +231,170 @@ def eq_script(track: dict, controls: dict) -> Script:
               f"the Fairlight page"),
         steps=steps,
     )
+
+
+def chain_script(track: dict, controls: dict) -> Script:
+    """The UI steps that apply one chain track in Fairlight.
+
+    The executor's whole vocabulary beyond EQ: a dialogue track with
+    EQ bands and/or declared dynamics, a master track with a declared
+    limiter. Gate, sends, a limiter anywhere but master, and EQ or
+    dynamics on master are refused by name - stranded or owned
+    elsewhere, never silently dropped. Dynamics needs its four mapped
+    controls plus knee/makeup wherever the intent leaves the schema
+    default; the limiter needs ceiling and release mapped. The recon
+    map gains `dynamics_open`, `dynamics` and `limiter` beside the EQ
+    keys; everything unmapped refuses naming the gap, exactly like
+    the EQ half. Steps carry no expectations the route cannot keep:
+    acceptance is the check, the render measurement the proof.
+    """
+    checked = _chain.validate_track_chain(track)
+    if checked.role not in CHAIN_ROLES:
+        raise ValueError(
+            f"chain executor covers {list(CHAIN_ROLES)}, not "
+            f"{checked.role!r} - a {checked.role} chain reaches the "
+            f"executor slice that owns it")
+    for key in ("gate", "sends"):
+        if getattr(checked, key, None):
+            raise ValueError(
+                f"chain executor does not apply {key!r} - refused, "
+                f"never silently dropped")
+    if not isinstance(controls, dict):
+        raise ValueError("controls must be the recon map, not "
+                         f"{type(controls).__name__}")
+    if checked.role == "dialogue":
+        if checked.limiter is not None:
+            raise ValueError(
+                "chain executor does not apply a dialogue limiter - "
+                "the limiter lives on master, refused")
+        if not checked.eq and checked.dynamics is None:
+            raise ValueError(
+                "no EQ bands and no dynamics on this track - a script "
+                "that drives UI must do something")
+        steps = [
+            _page_step(),
+            _track_step(controls, "dialogue track", "Dialogue"),
+        ]
+        if checked.eq:
+            band_controls = controls.get("bands", [])
+            if len(band_controls) != len(checked.eq):
+                raise ValueError(
+                    f"controls map {len(band_controls)} band(s) for "
+                    f"{len(checked.eq)} intent band(s) - align them by "
+                    f"index")
+            steps.append(_eq_open_step(controls))
+            for index, band in enumerate(checked.eq):
+                spec = band_controls[index]
+                if not isinstance(spec, dict):
+                    raise ValueError(
+                        f"no controls mapped for band {index} "
+                        f"({band.type} {band.frequency_hz:g} Hz)")
+                steps.extend(_band_steps(index, band, spec))
+        if checked.dynamics is not None:
+            steps.append(_dynamics_open_step(controls))
+            steps.extend(_dynamics_steps(checked.dynamics,
+                                         controls.get("dynamics")))
+        parts = []
+        if checked.eq:
+            parts.append(f"{len(checked.eq)} EQ band(s)")
+        if checked.dynamics is not None:
+            parts.append("dynamics")
+        goal = (f"Apply the dialogue chain ({', '.join(parts)}) on "
+                f"the Fairlight page")
+    else:
+        for key in ("eq", "dynamics"):
+            if getattr(checked, key, None):
+                raise ValueError(
+                    f"chain executor does not apply master {key!r} - "
+                    f"refused, never silently dropped")
+        if checked.limiter is None:
+            raise ValueError(
+                "no limiter on this master track - a script that "
+                "drives UI must do something")
+        steps = [
+            _page_step(),
+            _track_step(controls, "master bus", "Master"),
+        ]
+        steps.extend(_limiter_steps(checked.limiter,
+                                    controls.get("limiter")))
+        goal = "Apply the master limiter on the Fairlight page"
+    return Script(goal=goal, steps=steps)
+
+
+def _dynamics_open_step(controls: dict) -> ScriptStep:
+    """Open the track Dynamics panel."""
+    return ScriptStep(
+        action="open_dynamics",
+        anchors=[_locator("track Dynamics", controls.get(
+            "dynamics_open"))],
+        expect=Expect(via="pixels_changed", params={"source": "plan"}),
+    )
+
+
+def _dynamics_steps(dynamics, spec) -> list:
+    """One set step per mapped dynamics control: threshold, ratio,
+    attack, release, then knee/makeup wherever the intent leaves the
+    schema default. An unmapped required control refuses the whole
+    script; an unmapped defaulted one is omitted (nothing to set).
+    Every value is the driver's own string."""
+    if not isinstance(spec, dict):
+        raise ValueError(
+            "no dynamics controls mapped - recon has not mapped the "
+            "Dynamics panel, refusing")
+    out = []
+    for field in ("threshold_db", "ratio", "attack_ms", "release_ms"):
+        control = spec.get(field)
+        if not isinstance(control, dict) or not control.get("path"):
+            raise ValueError(
+                f"no {field} control mapped - refusing compression "
+                f"that would land at an unknown setting")
+        out.append(ScriptStep(
+            action=DYNAMICS_ACTIONS[field],
+            anchors=[_value_locator(
+                f"compression {field}", control,
+                _format(getattr(dynamics, field)))],
+        ))
+    for field in ("knee_db", "makeup_gain_db"):
+        value = float(getattr(dynamics, field))
+        control = spec.get(field)
+        if value == 0.0 and not control:
+            continue
+        if not isinstance(control, dict) or not control.get("path"):
+            raise ValueError(
+                f"no {field} control mapped for a non-default "
+                f"{value:g} - refusing compression that would land at "
+                f"an unknown shape")
+        out.append(ScriptStep(
+            action=DYNAMICS_ACTIONS[field],
+            anchors=[_value_locator(
+                f"compression {field}", control, _format(value))],
+        ))
+    return out
+
+
+def _limiter_steps(limiter, spec) -> list:
+    """Ceiling and release writes on the master bus. Both mapped, or
+    the script refuses - a limiter at an unknown ceiling is not a
+    limiter."""
+    if not isinstance(spec, dict):
+        raise ValueError(
+            "no limiter controls mapped - recon has not mapped the "
+            "master limiter, refusing")
+    out = []
+    for field, label in (("ceiling_dbTP", "ceiling"),
+                        ("release_ms", "release")):
+        control = spec.get(label)
+        if not isinstance(control, dict) or not control.get("path"):
+            raise ValueError(
+                f"no limiter {label} control mapped - refusing a "
+                f"limiter that would land at an unknown {label}")
+        out.append(ScriptStep(
+            action=f"set_limiter_{label}",
+            anchors=[_value_locator(
+                f"limiter {label}", control,
+                _format(getattr(limiter, field)))],
+        ))
+    return out
 
 
 def _band_steps(index: int, band, spec: dict) -> list:
@@ -263,9 +461,11 @@ def emit_script_file(track: dict, controls: dict, path: str) -> str:
 
     `ren computer-use script <path>` reads exactly what
     `Script.from_dict` parses, so the file round-trips through the
-    verb's own gate before anything drives UI.
+    verb's own gate before anything drives UI. The whole chain
+    travels (EQ, dynamics, limiter); an EQ-only dialogue track emits
+    exactly what `eq_script` builds.
     """
-    script = eq_script(track, controls)
+    script = chain_script(track, controls)
     with open(path, "w", encoding="utf-8") as handle:
         json.dump(script.to_dict(), handle, indent=2)
         handle.write("\n")

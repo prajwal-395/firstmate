@@ -63,6 +63,52 @@ def _values(script):
             if step.action.startswith("set_band")]
 
 
+def _dynamics_track(**overrides):
+    track = _track()
+    track["dynamics"] = {
+        "threshold_db": -20.0, "ratio": 2.0,
+        "attack_ms": 10.0, "release_ms": 100.0,
+    }
+    track.update(overrides)
+    return track
+
+
+def _dynamics_controls(**overrides):
+    controls = _controls()
+    controls["dynamics_open"] = {"text": "Dynamics"}
+    controls["dynamics"] = {
+        "threshold_db": {"path": ["Fairlight", "Dynamics",
+                                  "Threshold"]},
+        "ratio": {"path": ["Fairlight", "Dynamics", "Ratio"]},
+        "attack_ms": {"path": ["Fairlight", "Dynamics", "Attack"]},
+        "release_ms": {"path": ["Fairlight", "Dynamics", "Release"]},
+    }
+    controls.update(overrides)
+    return controls
+
+
+def _master_track(**overrides):
+    track = {
+        "track": "master",
+        "role": "master",
+        "limiter": {"ceiling_dbTP": -1.0, "release_ms": 50.0},
+    }
+    track.update(overrides)
+    return track
+
+
+def _master_controls(**overrides):
+    controls = {
+        "track": {"text": "Master"},
+        "limiter": {
+            "ceiling": {"path": ["Fairlight", "Master", "Ceiling"]},
+            "release": {"path": ["Fairlight", "Master", "Release"]},
+        },
+    }
+    controls.update(overrides)
+    return controls
+
+
 # ── the compilation ──────────────────────────────────────────────────
 
 def test_hp_and_peaking_compile_to_page_track_eq_and_sets_in_order():
@@ -229,3 +275,136 @@ def test_an_unresolvable_route_fails_instead_of_reporting_ok(
     assert result.outcome == "failed"
     assert result.steps[0] == {"step": 0, "action": "page_fairlight",
                                "outcome": "failed", "via": "none"}
+
+
+# ── the chain ────────────────────────────────────────────────────────
+
+def test_chain_covers_eq_then_dynamics_in_order():
+    script = fairlight_eq.chain_script(_dynamics_track(),
+                                       _dynamics_controls())
+    assert [s.action for s in script.steps] == [
+        "page_fairlight", "locate_track", "open_eq",
+        "set_band_frequency",
+        "set_band_frequency", "set_band_gain", "set_band_q",
+        "open_dynamics",
+        "set_dynamics_threshold", "set_dynamics_ratio",
+        "set_dynamics_attack", "set_dynamics_release",
+    ]
+
+
+def test_chain_dynamics_values_are_the_drivers_own_strings():
+    script = fairlight_eq.chain_script(_dynamics_track(),
+                                       _dynamics_controls())
+    sets = [(s.action, s.anchors[0].params.get("value"))
+            for s in script.steps
+            if s.action.startswith("set_dynamics")]
+    assert sets == [
+        ("set_dynamics_threshold", "-20"),
+        ("set_dynamics_ratio", "2"),
+        ("set_dynamics_attack", "10"),
+        ("set_dynamics_release", "100"),
+    ]
+
+
+def test_chain_master_limiter_sets_ceiling_and_release():
+    script = fairlight_eq.chain_script(_master_track(),
+                                       _master_controls())
+    assert [s.action for s in script.steps] == [
+        "page_fairlight", "locate_track",
+        "set_limiter_ceiling", "set_limiter_release",
+    ]
+    assert script.steps[2].anchors[0].params["value"] == "-1"
+    assert script.steps[3].anchors[0].params["value"] == "50"
+
+
+def test_chain_every_anchor_names_its_provenance():
+    for script in (
+            fairlight_eq.chain_script(_dynamics_track(),
+                                      _dynamics_controls()),
+            fairlight_eq.chain_script(_master_track(),
+                                      _master_controls())):
+        for step in script.steps:
+            for anchor in step.anchors:
+                assert anchor.params.get("source") in ("probe", "plan",
+                                                       "ren"), (
+                    f"{step.action}: anchor with no provenance")
+
+
+def test_chain_refuses_a_dialogue_limiter_and_master_eq():
+    track = _dynamics_track()
+    track["limiter"] = {"ceiling_dbTP": -1.0, "release_ms": 50.0}
+    with pytest.raises(ValueError, match="lives on master"):
+        fairlight_eq.chain_script(track, _dynamics_controls())
+    master = _master_track()
+    master["eq"] = _track()["eq"]
+    with pytest.raises(ValueError, match="master 'eq'|master eq"):
+        fairlight_eq.chain_script(master, _master_controls())
+
+
+def test_chain_refuses_gate_sends_and_foreign_roles():
+    track = _dynamics_track()
+    track["gate"] = {"threshold_db": -40.0, "ratio": 0.5,
+                     "attack_ms": 1.0, "release_ms": 100.0,
+                     "hold_ms": 10.0, "range_db": 12.0}
+    with pytest.raises(ValueError, match="gate"):
+        fairlight_eq.chain_script(track, _dynamics_controls())
+    track = _dynamics_track(role="music", track="music")
+    with pytest.raises(ValueError, match="music"):
+        fairlight_eq.chain_script(track, _dynamics_controls())
+
+
+def test_chain_refuses_unmapped_dynamics_and_limiter_controls():
+    controls = _dynamics_controls()
+    del controls["dynamics"]["ratio"]
+    with pytest.raises(ValueError, match="ratio"):
+        fairlight_eq.chain_script(_dynamics_track(), controls)
+    controls = _master_controls()
+    del controls["limiter"]["release"]
+    with pytest.raises(ValueError, match="release"):
+        fairlight_eq.chain_script(_master_track(), controls)
+
+
+def test_chain_omits_defaulted_knee_and_makeup_but_not_a_set_one():
+    track = _dynamics_track()
+    track["dynamics"] = {**track["dynamics"], "knee_db": 0.0,
+                         "makeup_gain_db": 0.0}
+    script = fairlight_eq.chain_script(track, _dynamics_controls())
+    assert not [s for s in script.steps
+                if "knee" in s.action or "makeup" in s.action]
+    track["dynamics"]["knee_db"] = 6.0
+    with pytest.raises(ValueError, match="knee_db"):
+        fairlight_eq.chain_script(track, _dynamics_controls())
+    controls = _dynamics_controls()
+    controls["dynamics"]["knee_db"] = {"path": ["Fairlight",
+                                                "Dynamics", "Knee"]}
+    script = fairlight_eq.chain_script(track, controls)
+    assert [s.action for s in script.steps
+            if "knee" in s.action] == ["set_dynamics_knee"]
+    assert script.steps[-1].anchors[0].params["value"] == "6"
+
+
+def test_chain_dynamics_only_track_plans_no_eq_steps():
+    track = {"track": "dialogue", "role": "dialogue",
+             "dynamics": _dynamics_track()["dynamics"]}
+    script = fairlight_eq.chain_script(track, _dynamics_controls())
+    assert [s.action for s in script.steps] == [
+        "page_fairlight", "locate_track", "open_dynamics",
+        "set_dynamics_threshold", "set_dynamics_ratio",
+        "set_dynamics_attack", "set_dynamics_release",
+    ]
+
+
+def test_emit_chain_round_trips_and_matches_eq_only_output(tmp_path):
+    path = fairlight_eq.emit_script_file(
+        _dynamics_track(), _dynamics_controls(),
+        str(tmp_path / "chain.json"))
+    raw = json.loads(open(path, encoding="utf-8").read())
+    assert len(Script.from_dict(raw).steps) == 12
+    eq_only = fairlight_eq.emit_script_file(
+        _track(), _controls(), str(tmp_path / "eq.json"))
+    eq_raw = json.loads(open(eq_only, encoding="utf-8").read())
+    assert [s["action"] for s in eq_raw["steps"]] == [
+        "page_fairlight", "locate_track", "open_eq",
+        "set_band_frequency",
+        "set_band_frequency", "set_band_gain", "set_band_q",
+    ]
