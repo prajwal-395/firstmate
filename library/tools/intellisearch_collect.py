@@ -6,7 +6,8 @@ probe (slice 2) measured no scripting query verb, so rows are collected
 through the UI - and the menu/AX inventory (slice 3) measured zero
 IntelliSearch surface outside Qt. The collection therefore takes the
 Media page through its menu path (background AX) and the Qt search box
-through the announced foreground take (slice 3's `foreground` spec).
+through the announced foreground take (slice 3's `foreground` spec), in
+one qualification session on the serving broker.
 
 Two honesty rules shape this module, both measured:
 
@@ -142,8 +143,7 @@ def build_collection_spec(query: str, box: tuple, page_path=None,
                 "key": "return", "modifiers": []}},
             {"action": "wait", "for": {"seconds": RESULTS_WAIT_SECONDS}},
         ],
-        "verification": {"kind": "api_readback", "getter": "page",
-                         "equals": "media"},
+        "verification": {"kind": "read_text", "include_elements": True},
         "restoration": {"page": True, "timeline": True, "playhead": True},
     }
     return ui_transaction.validate_spec(spec)
@@ -191,16 +191,18 @@ def collect(project_folder: str, query: str, box: tuple,
             budget_seconds: float | None = None) -> dict:
     """Collect one IntelliSearch query into an `--external-hits` file.
 
-    Builds the spec, runs it as a `resolve.ui_transaction` job on the
-    serving broker, reads the result names off the pixels, intersects
-    them with the project catalog, and files the rows. Every boundary
-    refuses plainly: a blank query, a missing box, an empty catalog, no
-    serving broker, a failed job, a locked screen (the driver's own
-    refusal propagates - the take backs off, it is never retried here).
-    An honest empty - names on screen, none in the catalog - files zero
-    rows and says what was seen.
+    Builds the spec, runs it as one `resolve.qualification_session` job
+    on the serving broker, reads the query and result names from that
+    transaction's in-receipt OCR, intersects them with the project
+    catalog, and files the rows. The session borrows Resolve, reads back
+    `Ren Qualification` by name, and restores the open project before
+    releasing its exclusive lease. Every boundary refuses plainly: a
+    blank query, a missing box, an empty catalog, no serving broker, a
+    failed job, a locked screen (the driver's own refusal propagates -
+    the take backs off, it is never retried here). An honest empty -
+    names on screen, none in the catalog - files zero rows and says what
+    was seen.
     """
-    from library.tools.computer_use.client import DriverClient
     from library.tools.resolved import client
 
     if not str(query or "").strip():
@@ -218,13 +220,20 @@ def collect(project_folder: str, query: str, box: tuple,
     if not client.serving():
         raise RenRefusal(
             "no ren-resolved broker is serving",
-            "the collection runs as a resolve.ui_transaction job, and "
+            "the collection runs as a qualification-session broker job, and "
             "Ren never starts a broker itself",
             "start one with `ren resolved serve`")
     spec = build_collection_spec(str(query).strip(), box,
                                  budget_seconds=budget_seconds,
                                  timeline=timeline)
-    submitted = client.submit("resolve.ui_transaction", spec)
+    # Keep the borrowed wrapper: a plain ui_transaction refuses while
+    # the captain's project is open, and a qualification-marked job only
+    # runs when Ren Qualification was already open. This session saves,
+    # opens and reads Ren Qualification back by name, then restores.
+    submitted = client.submit("resolve.qualification_session", {
+        "project": QUALIFICATION_PROJECT,
+        "steps": [{"ui_transaction": spec}],
+    })
     job = client.result(submitted["id"], wait=0.0)
     while job["state"] in ("queued", "running"):
         job = client.result(submitted["id"], wait=60.0)
@@ -233,13 +242,28 @@ def collect(project_folder: str, query: str, box: tuple,
             f"the collection job ended {job['state']}",
             f"{job.get('error') or 'no error recorded'}",
             "read the receipt in the job result and re-run")
-    driver = DriverClient()
-    try:
-        ocr = driver.call("read_text", {})
-    finally:
-        driver.close()
-    elements = ocr.get("elements") or []
-    report = extract_rows(elements, names, str(query).strip())
+    session = job["result"]
+    transaction = session["steps"][0]["receipt"]
+    if transaction["observed_before"]["project"] != QUALIFICATION_PROJECT:
+        raise RenRefusal(
+            "the transaction did not read back the qualification project",
+            f"the transaction opened {transaction['observed_before']['project']!r}",
+            "re-run only through the qualification session broker job")
+    verification = transaction["verification"]
+    if verification["kind"] != "read_text":
+        raise RenRefusal(
+            "the transaction returned no in-lease screen observation",
+            f"verification kind was {verification['kind']!r}",
+            "re-run with the read_text transaction verification")
+    screen_text = verification["text"]
+    text = str(query).strip()
+    if text.casefold() not in screen_text.casefold():
+        raise RenRefusal(
+            f"IntelliSearch did not render {text!r} on screen",
+            f"the in-lease read_text receipt said: {screen_text!r}",
+            "inspect the receipt before making another foreground take")
+    elements = verification["elements"]
+    report = extract_rows(elements, names, text)
     out_path = Path(out) if out else default_hits_path(project_folder)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as handle:
@@ -247,6 +271,8 @@ def collect(project_folder: str, query: str, box: tuple,
     return {"rows": len(report["rows"]),
             "matched_clips": report["matched_clips"],
             "seen_strings": report["seen_strings"],
+            "screen_text": screen_text,
+            "matching_clip_names": [row["text"] for row in report["rows"]],
             "out": str(out_path), "job_id": submitted["id"]}
 
 

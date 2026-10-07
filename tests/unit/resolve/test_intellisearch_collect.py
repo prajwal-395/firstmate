@@ -70,9 +70,9 @@ def test_menu_path_excludes_the_element_title():
                                           page_path=["Media"])
 
 
-def test_spec_carries_the_take_and_the_media_route():
-    """Menu path reaches the page in the background; the take reason
-    names the query it was announced for."""
+def test_query_waits_for_the_result_receipt_instead_of_immediate_ocr():
+    """An immediate OCR expect can refuse before Qt repaints the field.
+    Let Enter and the result wait run, then judge the query in read_text."""
     spec = collect_mod.build_collection_spec("parking lot", BOX)
     assert spec["project"] == collect_mod.QUALIFICATION_PROJECT
     assert spec["foreground"]["reason"].startswith(
@@ -85,9 +85,10 @@ def test_spec_carries_the_take_and_the_media_route():
     assert kinds == ["press", "wait", "click", "type", "key", "wait"]
     typed = spec["actions"][3]
     assert typed["target"]["text"] == "parking lot"
+    assert "expect" not in typed
     assert spec["actions"][4]["target"]["key"] == "return"
-    assert spec["verification"] == {"kind": "api_readback",
-                                    "getter": "page", "equals": "media"}
+    assert spec["verification"] == {"kind": "read_text",
+                                    "include_elements": True}
 
 
 # ─── the name intersection ──────────────────────────────────────────
@@ -167,9 +168,11 @@ def test_collect_refuses_an_empty_catalog(tmp_path, monkeypatch):
     assert "search-index" in str(excinfo.value)
 
 
-def test_collect_writes_rows_and_returns_the_file(tmp_path, monkeypatch):
-    """End to end against fakes: broker job, pixel read, intersection,
-    file on disk in the merge's shape."""
+def test_collect_uses_borrowed_receipt_for_query_and_pool_rows(
+        tmp_path, monkeypatch):
+    """The old collector read pixels after the broker had restored the
+    captain's project. Keep query and pool OCR in the same borrowed
+    qualification-session receipt as the UI transaction."""
     from library.tools.resolved import client
 
     monkeypatch.setattr(client, "serving", lambda *a, **k: True)
@@ -181,25 +184,26 @@ def test_collect_writes_rows_and_returns_the_file(tmp_path, monkeypatch):
         return {"id": "job-1"}
 
     monkeypatch.setattr(client, "submit", fake_submit)
-    monkeypatch.setattr(client, "result",
-                        lambda job_id, wait=0.0: {
-                            "state": "done", "result": {}})
-
-    seen = {}
-
-    class _FakeDriver:
-        def call(self, method, params=None):
-            seen["method"] = method
-            return {"text": "take1 Media Pool",
-                    "elements": [{"text": "take1",
-                                  "frame": {"x": 1, "y": 2}}]}
-
-        def close(self):
-            seen["closed"] = True
+    receipt = {
+        "status": "committed",
+        "observed_before": {"project": "Ren Qualification"},
+        "verification": {
+            "kind": "read_text",
+            "text": "takes take1 Media Pool",
+            "elements": [{"text": "take1",
+                          "frame": {"x": 1, "y": 2}}],
+        },
+    }
+    monkeypatch.setattr(client, "result", lambda job_id, wait=0.0: {
+        "state": "done",
+        "result": {"steps": [{"runner": "ui_transaction",
+                               "receipt": receipt}]},
+    })
 
     import library.tools.computer_use.client as driver_client
     monkeypatch.setattr(driver_client, "DriverClient",
-                        lambda *a, **k: _FakeDriver())
+                        lambda *a, **k: pytest.fail(
+                            "OCR must come from the borrowed job receipt"))
     root = _project(tmp_path)
     assert collect_mod._catalog_names(str(root)) == {
         "take1.MOV": "clip_001", "take1": "clip_001"}
@@ -208,14 +212,49 @@ def test_collect_writes_rows_and_returns_the_file(tmp_path, monkeypatch):
     assert result["rows"] == 1
     assert result["out"] == str(out)
     assert result["job_id"] == "job-1"
-    assert submitted["kind"] == "resolve.ui_transaction"
-    assert submitted["params"]["foreground"]["reason"].startswith(
+    assert result["screen_text"] == "takes take1 Media Pool"
+    assert result["matching_clip_names"] == ["take1"]
+    assert submitted["kind"] == "resolve.qualification_session"
+    assert submitted["params"]["project"] == "Ren Qualification"
+    transaction = submitted["params"]["steps"][0]["ui_transaction"]
+    assert transaction["project"] == "Ren Qualification"
+    assert transaction["foreground"]["reason"].startswith(
         "IntelliSearch search for")
-    assert seen == {"method": "read_text", "closed": True}
     rows = json.loads(out.read_text(encoding="utf-8"))
     assert rows == [{"clip_id": "clip_001", "text": "take1",
                      "query": "takes",
                      "collected_by": "resolve_intellisearch_ui"}]
+
+
+def test_collect_refuses_a_receipt_that_did_not_render_the_query(
+        tmp_path, monkeypatch):
+    """The old path accepted post-restore OCR with no query in it; an
+    unrendered query must not be filed as IntelliSearch evidence."""
+    from library.tools.resolved import client
+
+    monkeypatch.setattr(client, "serving", lambda *a, **k: True)
+    monkeypatch.setattr(client, "submit", lambda *a, **k: {"id": "job-2"})
+    monkeypatch.setattr(client, "result", lambda *a, **k: {
+        "state": "done",
+        "result": {"steps": [{"runner": "ui_transaction",
+                               "receipt": {
+                                   "status": "committed",
+                                   "observed_before": {
+                                       "project": "Ren Qualification"},
+                                   "verification": {
+                                       "kind": "read_text",
+                                       "text": "Media Pool",
+                                       "elements": [],
+                                   },
+                               }}]},
+    })
+    root = _project(tmp_path)
+    out = tmp_path / "hits.json"
+    with pytest.raises(RenRefusal) as excinfo:
+        collect_mod.collect(str(root), "takes", BOX, out=str(out))
+    assert "did not render" in str(excinfo.value)
+    assert "Media Pool" in str(excinfo.value)
+    assert not out.exists()
 
 
 def test_collect_surfaces_a_failed_job(tmp_path, monkeypatch):

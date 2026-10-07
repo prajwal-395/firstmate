@@ -1942,14 +1942,12 @@ def cmd_intellisearch_collect(args) -> int:
     """Collect one IntelliSearch query into an `--external-hits` file.
 
     The query half the probe found missing: builds the foreground
-    collection spec, runs it as a `resolve.ui_transaction` job on the
-    serving broker, reads the result names off the pixels, intersects
-    them with the project catalog, and files the rows `ren search
-    --external-hits` merges. `--survey` runs the background-safe half
-    alone (menu/AX reach, anytime); `--dry-run` prints the validated
-    spec without spending a take. Submits the job itself, so it runs
-    locally like its sibling api verbs - the broker validates the spec
-    again on prepare.
+    collection spec, runs it inside a borrowed `resolve.qualification_session`
+    on the serving broker, reads the query and result names from the same
+    transaction receipt, intersects them with the project catalog, and
+    files the rows `ren search --external-hits` merges. `--survey` runs
+    the background-safe half alone (menu/AX reach, anytime); `--dry-run`
+    prints the validated spec without spending a take.
     """
     from library.tools import intellisearch_collect as collect_mod
     from library.tools.ren_refusal import RenRefusal
@@ -2003,8 +2001,13 @@ def cmd_intellisearch_collect(args) -> int:
                 "query": args.query,
                 "rows": result["rows"],
                 "seen_strings": result["seen_strings"],
+                "read_text": result["screen_text"],
                 "out": result["out"],
             }),
+          table("matching_clips", [
+                    {"name": name}
+                    for name in result["matching_clip_names"]],
+                ["name"]),
           help_block(
               [f"ren search '{args.project}' --external-hits "
                f"\"{result['out']}\""])])
