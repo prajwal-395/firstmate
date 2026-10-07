@@ -429,6 +429,27 @@ VIDEO_CHUNK_FPS = 1
 VIDEO_FRAME_WIDTH = 640
 CHUNK_EMBEDDINGS_FILE = "chunk_embeddings.npy"
 
+# Absent probes for build-time floor calibration: subjects vanishingly
+# rare in Ren footage, every one verified absent (silent at any floor)
+# on the corpora measured so far - the 14-doc text set (scout: cake
+# 0.664, motorcycle 0.696), the 6-chunk set, and the 124-chunk live
+# proof (motorcycle 0.627).  A probe that IS present in some stranger's
+# footage only raises that index's floor (the fail-closed direction),
+# and its best is recorded per probe, so the outlier is auditable.
+ABSENT_PROBES = (
+    "a birthday cake with candles",
+    "a motorcycle parked outdoors",
+    "a helicopter hovering overhead",
+    "an underwater coral reef",
+    "someone playing the piano on stage",
+)
+
+# Confident floor sits this far above the worst absent probe.  The
+# smallest round value covering both measured uplifts: the toy corpus
+# needed 0.696 -> 0.75 (0.054), the 124-chunk proof needs 0.627 ->
+# 0.68x (0.053).  Revisit with pooled data when more indexes calibrate.
+ABSENT_MARGIN = 0.06
+
 # PARALLEL-CUTTER NOTE (review bar 3): footage_segments.cut_chunks
 # (PR 2010, unmerged) cuts the same 8 s grid for the text chunk rows.
 # This branch cannot reach it, so the tiling rule is repeated here
@@ -512,6 +533,32 @@ def extract_chunk_frames(source_file, start, end, fps=VIDEO_CHUNK_FPS,
         return frames
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def calibrate_video_floors(chunk_matrix, encode_query):
+    """Floors from this index's own absent-probe distribution.
+
+    Runs ABSENT_PROBES (text, query side) against the built chunk
+    matrix and returns ``(confident, weak, source, probe_bests)``:
+    confident sits ABSENT_MARGIN above the worst absent best, weak IS
+    the worst absent best - the band between known-absent peak and
+    confident floor is exactly the near-miss interval.  Recorded into
+    the payload beside the matrix, so the floor travels with the data
+    it was measured on and names its source.  An empty matrix
+    calibrates nothing (0 rows have no distribution).
+    """
+    if chunk_matrix is None or len(chunk_matrix) == 0:
+        return None
+    bests = {}
+    for probe in ABSENT_PROBES:
+        vector = encode_query([probe], is_query=True)[0]
+        bests[probe] = round(float((chunk_matrix @ vector).max()), 4)
+    peak = max(bests.values())
+    confident = round(peak + ABSENT_MARGIN, 4)
+    source = (f"absent-probe calibration at build: worst absent best "
+              f"{peak:.4f} over {len(ABSENT_PROBES)} probes + "
+              f"{ABSENT_MARGIN} margin")
+    return confident, round(peak, 4), source, bests
 
 
 def load_eg2_video_embedder():
@@ -767,6 +814,7 @@ def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=Fal
     video_rows, video_unembedded = [], []
     video_backend, video_dimension = None, 0
     video_seconds = 0.0
+    video_floor, video_floor_note = None, None
     if video_chunks:
         vencode, video_backend = load_eg2_video_embedder()
         if vencode is not None:
@@ -804,6 +852,22 @@ def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=Fal
                 np.save(target / CHUNK_EMBEDDINGS_FILE, vmat)
                 video_rows = owners
             video_seconds = time.perf_counter() - t0
+            # Calibrate the video floors off this matrix's own absent
+            # distribution (needs the text loader for the probe query
+            # side - same checkpoint, second instance, transient at
+            # build time).  Without it the registry floors stand and
+            # the payload says why.
+            if video_rows:
+                tencode, _ = load_eg2_text_embedder()
+                if tencode is not None:
+                    video_floor = calibrate_video_floors(vmat, tencode)
+                    if video_floor is None:
+                        video_floor_note = (
+                            "calibration skipped: empty chunk matrix")
+                else:
+                    video_floor_note = (
+                        "calibration skipped: no EG2 text encoder at "
+                        "build; registry floors apply")
         else:
             video_unembedded.append({"clip_id": "*",
                                      "reason": video_backend})
@@ -848,6 +912,15 @@ def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=Fal
         "video_embed_backend": video_backend if video_dimension else None,
         "video_embed_dimension": video_dimension,
         "video_unembedded": video_unembedded,
+        # Floors calibrated off this matrix's own absent distribution
+        # (or the reason calibration was skipped).  The query path
+        # prefers these over the registry: a corpus-scale floor travels
+        # with the corpus it was measured on.
+        "video_floor_confident": video_floor[0] if video_floor else None,
+        "video_floor_weak": video_floor[1] if video_floor else None,
+        "video_floor_source": (video_floor[2] if video_floor
+                               else video_floor_note),
+        "video_floor_probes": video_floor[3] if video_floor else None,
     }
     index_path = target / SEGMENTS_FILE
     with open(index_path, "w", encoding="utf-8") as f:
@@ -862,6 +935,9 @@ def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=Fal
         "video_chunk_count": len(video_rows),
         "video_embed_backend": video_backend,
         "video_embed_dimension": video_dimension,
+        "video_floor_confident": video_floor[0] if video_floor else None,
+        "video_floor_source": (video_floor[2] if video_floor
+                               else video_floor_note),
         "video_unembedded": video_unembedded,
         "segment_seconds": round(segment_seconds, 3),
         "embed_seconds": round(embed_seconds, 3),
@@ -1501,9 +1577,17 @@ class FootageIndex:
         cannot load, refuses in words rather than ranking nothing.
         """
         if floor is None:
-            mode_floor, weak_floor, floor_source = floors_for(
-                self.payload.get("video_embed_model"),
-                self.payload.get("video_embed_backend"))
+            recorded = self.payload.get("video_floor_confident")
+            if recorded is not None:
+                mode_floor = float(recorded)
+                weak_floor = float(self.payload.get("video_floor_weak",
+                                                    DENSE_WEAK_FLOOR))
+                floor_source = self.payload.get("video_floor_source",
+                                                "recorded at build")
+            else:
+                mode_floor, weak_floor, floor_source = floors_for(
+                    self.payload.get("video_embed_model"),
+                    self.payload.get("video_embed_backend"))
         else:
             mode_floor, weak_floor = float(floor), DENSE_WEAK_FLOOR
             floor_source = "explicit floor argument (--floor)"
