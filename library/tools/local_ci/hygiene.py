@@ -179,7 +179,8 @@ def fetch_base(mirror: str, base: str) -> None:
     onto the PR as an error.
     """
     try:
-        _git(mirror, "fetch", "origin", base, timeout=300)
+        with _mirror_lock(mirror):
+            _git(mirror, "fetch", "origin", base, timeout=300)
     except RuntimeError as exc:
         raise HygieneRefused(
             f"base {base[:12]} not fetchable yet - main moved under "

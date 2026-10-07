@@ -156,6 +156,41 @@ def test_parallel_workers_serialize_fetches_into_the_shared_mirror(
     assert maximum == 1
 
 
+def test_parallel_workers_serialize_base_fetches_into_the_shared_mirror(
+        mirror, monkeypatch):
+    start_together = threading.Barrier(2)
+    guard = threading.Lock()
+    active = 0
+    maximum = 0
+    base = "a" * 40
+
+    def tracked_git(_repo, *argv, **_kwargs):
+        nonlocal active, maximum
+        if argv[0] == "fetch":
+            assert argv[1:] == ("origin", base)
+            with guard:
+                active += 1
+                maximum = max(maximum, active)
+            time.sleep(0.1)
+            with guard:
+                active -= 1
+            return ""
+        raise AssertionError(f"unexpected git call: {argv}")
+
+    monkeypatch.setattr(hygiene, "_git", tracked_git)
+
+    def fetch():
+        start_together.wait(timeout=10)
+        hygiene.fetch_base(mirror, base)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(fetch) for _ in range(2)]
+        for future in futures:
+            future.result(timeout=10)
+
+    assert maximum == 1
+
+
 def test_slots_report_the_live_job_and_clear_it_on_exit(tmp_path):
     state = str(tmp_path / "state")
     slots = hygiene.Slots(state, jobs=2)
