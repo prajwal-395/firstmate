@@ -408,3 +408,87 @@ def test_emit_chain_round_trips_and_matches_eq_only_output(tmp_path):
         "set_band_frequency",
         "set_band_frequency", "set_band_gain", "set_band_q",
     ]
+
+
+# ── the gate ─────────────────────────────────────────────────────────
+
+def _gate_track(**overrides):
+    track = {"track": "dialogue", "role": "dialogue",
+             "gate": {"threshold_db": -38.0, "ratio": 0.5,
+                      "attack_ms": 1.0, "release_ms": 100.0,
+                      "hold_ms": 200.0, "range_db": 24.0}}
+    track.update(overrides)
+    return track
+
+
+def _gate_controls(**overrides):
+    controls = {"track": {"text": "Dialogue"},
+                "dynamics_open": {"text": "Dynamics"},
+                "gate": {
+                    "threshold_db": {"path": ["Fairlight", "Gate",
+                                             "Threshold"]},
+                    "ratio": {"path": ["Fairlight", "Gate", "Ratio"]},
+                    "attack_ms": {"path": ["Fairlight", "Gate",
+                                           "Attack"]},
+                    "release_ms": {"path": ["Fairlight", "Gate",
+                                            "Release"]},
+                    "hold_ms": {"path": ["Fairlight", "Gate", "Hold"]},
+                    "range_db": {"path": ["Fairlight", "Gate",
+                                          "Range"]},
+                }}
+    controls.update(overrides)
+    return controls
+
+
+def test_chain_gate_sets_all_six_in_order():
+    script = fairlight_eq.chain_script(_gate_track(), _gate_controls())
+    assert [s.action for s in script.steps] == [
+        "page_fairlight", "locate_track", "open_dynamics",
+        "set_gate_threshold", "set_gate_ratio", "set_gate_attack",
+        "set_gate_release", "set_gate_hold", "set_gate_range",
+    ]
+    assert script.steps[3].anchors[0].params["value"] == "-38"
+    assert script.steps[4].anchors[0].params["value"] == "0.5"
+    assert script.steps[7].anchors[0].params["value"] == "200"
+    assert script.steps[8].anchors[0].params["value"] == "24"
+
+
+def test_chain_gate_anchors_name_provenance():
+    script = fairlight_eq.chain_script(_gate_track(), _gate_controls())
+    for step in script.steps:
+        for anchor in step.anchors:
+            assert anchor.params.get("source") in ("probe", "plan",
+                                                   "ren"), (
+                f"{step.action}: anchor with no provenance")
+
+
+def test_chain_gate_without_a_mapped_control_is_refused():
+    controls = _gate_controls()
+    del controls["gate"]["hold_ms"]
+    with pytest.raises(ValueError, match="hold_ms"):
+        fairlight_eq.chain_script(_gate_track(), controls)
+
+
+def test_chain_gate_on_master_is_refused():
+    track = {"track": "master", "role": "master",
+             "limiter": {"ceiling_dbTP": -1.0, "release_ms": 50.0},
+             "gate": _gate_track()["gate"]}
+    with pytest.raises(ValueError, match="master 'gate'|master gate"):
+        fairlight_eq.chain_script(track, _gate_controls())
+
+
+def test_chain_eq_dynamics_gate_combine():
+    track = _dynamics_track()
+    track["gate"] = _gate_track()["gate"]
+    controls = _dynamics_controls()
+    controls["gate"] = _gate_controls()["gate"]
+    script = fairlight_eq.chain_script(track, controls)
+    actions = [s.action for s in script.steps]
+    assert actions.index("open_dynamics") < actions.index(
+        "set_dynamics_threshold") < actions.index("set_gate_threshold")
+    assert len([a for a in actions if a.startswith("set_")]) == 4 + 4 + 6
+
+
+def test_eq_script_still_refuses_a_gate():
+    with pytest.raises(ValueError, match="gate"):
+        fairlight_eq.eq_script(_gate_track(), _gate_controls())

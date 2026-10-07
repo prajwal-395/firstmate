@@ -20,14 +20,14 @@ built from a validated intent track (`audio_chain.validate_track_chain`
 - a set step carries the driver's own string (`actions.set_value`
   takes strings; the recipe formats, the runner never does).
 
-What this module does NOT do, on purpose: gate, sends and bus
-routing (refused by name - stranded or owned elsewhere, never
-silently dropped); EQ or dynamics on master and a limiter anywhere
-but master (each refused naming where it belongs); Q defaults and
+What this module does NOT do, on purpose: sends and bus routing
+(refused by name - no bus architecture to route on, never silently
+dropped); EQ, dynamics or gate on master and a limiter anywhere but
+master (each refused naming where it belongs); Q defaults and
 non-default knee/makeup without mapped controls (an unmapped control
 refuses rather than inventing one); the render or its measurement
-(the proof is render -> `audio_verify.verify_mix` spectral
-before/after, on a committed live run).
+(the proof is render -> `audio_verify` findings on a committed live
+run, which promotes or fixes the plan-stated anchors).
 
 Run it with the existing verb - no new entry point: emit the script
 JSON (`emit_script_file`) and run `ren computer-use script <file>`.
@@ -237,16 +237,17 @@ def chain_script(track: dict, controls: dict) -> Script:
     """The UI steps that apply one chain track in Fairlight.
 
     The executor's whole vocabulary beyond EQ: a dialogue track with
-    EQ bands and/or declared dynamics, a master track with a declared
-    limiter. Gate, sends, a limiter anywhere but master, and EQ or
-    dynamics on master are refused by name - stranded or owned
+    EQ bands, declared dynamics and/or a declared gate, a master track
+    with a declared limiter. Sends, a limiter anywhere but master, EQ,
+    dynamics or gate on master are refused by name - stranded or owned
     elsewhere, never silently dropped. Dynamics needs its four mapped
     controls plus knee/makeup wherever the intent leaves the schema
-    default; the limiter needs ceiling and release mapped. The recon
-    map gains `dynamics_open`, `dynamics` and `limiter` beside the EQ
-    keys; everything unmapped refuses naming the gap, exactly like
-    the EQ half. Steps carry no expectations the route cannot keep:
-    acceptance is the check, the render measurement the proof.
+    default; the gate needs all six mapped; the limiter needs ceiling
+    and release mapped. The recon map gains `dynamics_open`,
+    `dynamics`, `gate` and `limiter` beside the EQ keys; everything
+    unmapped refuses naming the gap, exactly like the EQ half. Steps
+    carry no expectations the route cannot keep: acceptance is the
+    check, the render measurement the proof.
     """
     checked = _chain.validate_track_chain(track)
     if checked.role not in CHAIN_ROLES:
@@ -254,11 +255,10 @@ def chain_script(track: dict, controls: dict) -> Script:
             f"chain executor covers {list(CHAIN_ROLES)}, not "
             f"{checked.role!r} - a {checked.role} chain reaches the "
             f"executor slice that owns it")
-    for key in ("gate", "sends"):
-        if getattr(checked, key, None):
-            raise ValueError(
-                f"chain executor does not apply {key!r} - refused, "
-                f"never silently dropped")
+    if getattr(checked, "sends", None):
+        raise ValueError(
+            "chain executor does not apply 'sends' - refused, "
+            "never silently dropped")
     if not isinstance(controls, dict):
         raise ValueError("controls must be the recon map, not "
                          f"{type(controls).__name__}")
@@ -267,10 +267,11 @@ def chain_script(track: dict, controls: dict) -> Script:
             raise ValueError(
                 "chain executor does not apply a dialogue limiter - "
                 "the limiter lives on master, refused")
-        if not checked.eq and checked.dynamics is None:
+        if (not checked.eq and checked.dynamics is None
+                and checked.gate is None):
             raise ValueError(
-                "no EQ bands and no dynamics on this track - a script "
-                "that drives UI must do something")
+                "no EQ bands, no dynamics and no gate on this track - "
+                "a script that drives UI must do something")
         steps = [
             _page_step(),
             _track_step(controls, "dialogue track", "Dialogue"),
@@ -290,19 +291,25 @@ def chain_script(track: dict, controls: dict) -> Script:
                         f"no controls mapped for band {index} "
                         f"({band.type} {band.frequency_hz:g} Hz)")
                 steps.extend(_band_steps(index, band, spec))
-        if checked.dynamics is not None:
+        if checked.dynamics is not None or checked.gate is not None:
             steps.append(_dynamics_open_step(controls))
+        if checked.dynamics is not None:
             steps.extend(_dynamics_steps(checked.dynamics,
                                          controls.get("dynamics")))
+        if checked.gate is not None:
+            steps.extend(_gate_steps(checked.gate,
+                                     controls.get("gate")))
         parts = []
         if checked.eq:
             parts.append(f"{len(checked.eq)} EQ band(s)")
         if checked.dynamics is not None:
             parts.append("dynamics")
+        if checked.gate is not None:
+            parts.append("gate")
         goal = (f"Apply the dialogue chain ({', '.join(parts)}) on "
                 f"the Fairlight page")
     else:
-        for key in ("eq", "dynamics"):
+        for key in ("eq", "dynamics", "gate"):
             if getattr(checked, key, None):
                 raise ValueError(
                     f"chain executor does not apply master {key!r} - "
@@ -393,6 +400,43 @@ def _limiter_steps(limiter, spec) -> list:
             anchors=[_value_locator(
                 f"limiter {label}", control,
                 _format(getattr(limiter, field)))],
+        ))
+    return out
+
+
+#: Gate field -> the set action that writes it. Explicit, like the
+#: dynamics map, so a renamed field cannot silently mint an action.
+GATE_ACTIONS = {
+    "threshold_db": "set_gate_threshold",
+    "ratio": "set_gate_ratio",
+    "attack_ms": "set_gate_attack",
+    "release_ms": "set_gate_release",
+    "hold_ms": "set_gate_hold",
+    "range_db": "set_gate_range",
+}
+
+
+def _gate_steps(gate, spec) -> list:
+    """One set step per gate control, all six mapped or the script
+    refuses - a gate at an unknown threshold is not a gate. The
+    schema names no defaults, so unlike knee/makeup there is nothing
+    safe to omit."""
+    if not isinstance(spec, dict):
+        raise ValueError(
+            "no gate controls mapped - recon has not mapped the gate "
+            "panel, refusing")
+    out = []
+    for field, action in GATE_ACTIONS.items():
+        control = spec.get(field)
+        if not isinstance(control, dict) or not control.get("path"):
+            raise ValueError(
+                f"no gate {field} control mapped - refusing gating "
+                f"that would land at an unknown setting")
+        out.append(ScriptStep(
+            action=action,
+            anchors=[_value_locator(
+                f"gate {field}", control,
+                _format(getattr(gate, field)))],
         ))
     return out
 
