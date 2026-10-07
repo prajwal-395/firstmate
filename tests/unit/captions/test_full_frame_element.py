@@ -498,9 +498,17 @@ const remotionStub = {
   useCurrentFrame: () => 0,
 };
 const reactStub = { Fragment: Symbol("F"), createElement: () => null };
+// This harness executes the component's frame math, not its prop schema.
+// Let the top-level Zod declaration initialize without importing Zod.
+const schemaStub = new Proxy(function () {}, {
+  apply: () => schemaStub,
+  get: () => schemaStub,
+});
+const zodStub = new Proxy({}, { get: () => schemaStub });
 const stubOf = (id) => {
   if (id === "react") return reactStub;
   if (id === "remotion") return remotionStub;
+  if (id === "zod") return { z: zodStub };
   if (id.endsWith("fonts")) return { loadBundledFonts: () => {}, loadProjectFont: () => {} };
   if (id.endsWith("MotionGraphics"))
     return {
