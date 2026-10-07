@@ -65,6 +65,9 @@ class _Timeline:
     def GetName(self):
         return self._name
 
+    def GetUniqueId(self):
+        return "timeline-1"
+
     def GetTrackCount(self, _track):
         return 1
 
@@ -94,6 +97,9 @@ class _Project:
 
     def SetCurrentTimeline(self, _timeline):
         return True
+
+    def GetCurrentTimeline(self):
+        return self._timeline
 
 
 class _Manager:

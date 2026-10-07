@@ -122,7 +122,9 @@ def run_window_delete(client, resolve, params: dict) -> dict:
             "re-plan against the qualification project's clips",
             code="WINDOW_DELETE_NO_CLIP",
         )
-    project.SetCurrentTimeline(timeline)
+    from library.tools.resolve_lock import assert_current_timeline
+
+    assert_current_timeline(project, timeline)
     _establish_playhead(timeline, item, unique_id)
     if params.get("foreground"):
         client.call("activate_resolve", {"allow_foreground": True})
