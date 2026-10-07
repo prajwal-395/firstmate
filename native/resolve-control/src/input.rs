@@ -68,6 +68,8 @@ extern "C" {
     pub fn CGEventCreate(source: *const c_void) -> *mut c_void;
     pub fn CGEventSetType(event: *mut c_void, event_type: CGEventType);
     pub fn CFRelease(cf: *const c_void);
+    pub fn CGWarpMouseCursorPosition(point: CGPoint) -> i32;
+    pub fn CGAssociateMouseAndMouseCursorPosition(connected: u8) -> i32;
 }
 
 /// Where an event goes. `Background` delivers it to Resolve's process alone:
@@ -121,6 +123,15 @@ pub fn post_target(route: Route) -> PostTarget {
 const kCGMouseEventClickState: u32 = 1;
 const kCGMouseEventButtonNumber: u32 = 3;
 const kCGKeyboardEventKeycode: u32 = 9;
+
+// Foreground click gaps: the moved primer settles cursor-tracking
+// state, down/up spaces match the tracking loop, and the beat between
+// clicks keeps multi-clicks distinct. Values mirror the SkyLight
+// path's measured 12/28 plus cua-driver's 40 ms primer - the
+// reference the live drops were diffed against, not guesses.
+const FG_PRIMER_MS: u64 = 40;
+const FG_DOWN_MS: u64 = 12;
+const FG_UP_MS: u64 = 28;
 
 /// A SkyLight click: a leading mouse-moved at the point (canvas-class
 /// event loops only accept per-pid routes behind a leading `mouseMoved`,
@@ -212,12 +223,77 @@ fn skylight_click(
     Ok(())
 }
 
+/// One foreground click event from an explicit HID-system source.
+/// Factored so tests can read the source state back without posting:
+/// a NULL-sourced event and an HID-sourced one must differ here, and
+/// every event this path builds must match the HID reference.
+fn fg_click_event(
+    source: *const c_void,
+    event_type: CGEventType,
+    point: CGPoint,
+) -> *mut c_void {
+    unsafe { CGEventCreateMouseEvent(source, event_type, point, CGMouseButton::Left) }
+}
+
+/// A foreground click, cua-style: HIDSystemState source, real cursor
+/// warped to the point and re-coupled (AppKit hit-tests some clicks
+/// against the actual cursor), a moved primer settling tracking state,
+/// then down/up with tracking-loop gaps. The old path posted
+/// NULL-sourced down/up back-to-back with no move and no timing, which
+/// Qt drops while reporting success (measured live 2026-10-07:
+/// clicked:true, 0 pixels). Foreground takes the screen by definition,
+/// so the visible cursor jump is expected, never silent.
+fn foreground_click(x: f64, y: f64, clicks: u32) -> DriverResult<()> {
+    let source = skylight::event_source()
+        .ok_or_else(|| DriverError::Internal("no HIDSystemState event source".into()))?;
+    let point = CGPoint { x, y };
+    unsafe {
+        CGWarpMouseCursorPosition(point);
+        CGAssociateMouseAndMouseCursorPosition(1);
+        let moved = fg_click_event(source, CGEventType::MouseMoved, point);
+        if moved.is_null() {
+            return Err(DriverError::Internal("failed to create foreground move".into()));
+        }
+        CGEventPost(CGEventTapLocation::HID, moved);
+        CFRelease(moved as *const c_void);
+        std::thread::sleep(std::time::Duration::from_millis(FG_PRIMER_MS));
+        for click_num in 0..clicks {
+            let down = fg_click_event(source, CGEventType::LeftMouseDown, point);
+            if down.is_null() {
+                return Err(DriverError::Internal("failed to create foreground down".into()));
+            }
+            if click_num > 0 {
+                CGEventSetIntegerValueField(down, kCGMouseEventClickState, click_num as i64 + 1);
+            }
+            CGEventPost(CGEventTapLocation::HID, down);
+            CFRelease(down as *const c_void);
+            std::thread::sleep(std::time::Duration::from_millis(FG_DOWN_MS));
+
+            let up = fg_click_event(source, CGEventType::LeftMouseUp, point);
+            if up.is_null() {
+                return Err(DriverError::Internal("failed to create foreground up".into()));
+            }
+            if click_num > 0 {
+                CGEventSetIntegerValueField(up, kCGMouseEventClickState, click_num as i64 + 1);
+            }
+            CGEventPost(CGEventTapLocation::HID, up);
+            CFRelease(up as *const c_void);
+            std::thread::sleep(std::time::Duration::from_millis(FG_UP_MS));
+        }
+        CFRelease(source);
+    }
+    Ok(())
+}
+
 pub fn click(route: Route, x: f64, y: f64, window_frame: &Frame, clicks: u32) -> DriverResult<()> {
     if let Route::SkyLight { pid, window_id, chromium } = route {
         return skylight_click(pid, window_id, x, y, window_frame, clicks, chromium);
     }
     let sx = window_frame.x + x;
     let sy = window_frame.y + y;
+    if route == Route::Foreground {
+        return foreground_click(sx, sy, clicks);
+    }
     unsafe {
         for click_num in 0..clicks {
             let down = CGEventCreateMouseEvent(std::ptr::null(), CGEventType::LeftMouseDown, CGPoint { x: sx, y: sy }, CGMouseButton::Left);
@@ -395,6 +471,44 @@ mod tests {
             post_target(Route::SkyLight { pid: 11, window_id: 22, chromium: true }),
             PostTarget::SkyLightPid(11)
         );
+    }
+
+    #[test]
+    fn foreground_click_events_carry_the_hid_source() {
+        // From CGEventTypes.h (MacOSX SDK): the field that names an
+        // event's source state, and the HID-system value a hand click
+        // carries.
+        const kCGEventSourceStateID: u32 = 45;
+        const kCGEventSourceStateHIDSystemState: i64 = 1;
+        // The defect, measured live: the old path built events with a
+        // NULL source, Qt dropped them while reporting clicked:true,
+        // and nothing in the repo could tell. Every event the
+        // foreground path builds must read the same source state as an
+        // explicit HIDSystemState reference - and not the same as a
+        // NULL-sourced one. Builds only; nothing is posted.
+        unsafe {
+            let source = skylight::event_source()
+                .expect("HIDSystemState source must exist");
+            let point = CGPoint { x: 10.0, y: 20.0 };
+            let reference = CGEventCreateMouseEvent(
+                source, CGEventType::LeftMouseDown, point, CGMouseButton::Left,
+            );
+            assert!(!reference.is_null());
+            let ours = fg_click_event(source, CGEventType::LeftMouseDown, point);
+            assert!(!ours.is_null());
+            let nulled = CGEventCreateMouseEvent(
+                std::ptr::null(), CGEventType::LeftMouseDown, point, CGMouseButton::Left,
+            );
+            assert!(!nulled.is_null());
+            let field = |event| CGEventGetIntegerValueField(event, kCGEventSourceStateID);
+            assert_eq!(field(reference), kCGEventSourceStateHIDSystemState);
+            assert_eq!(field(ours), kCGEventSourceStateHIDSystemState);
+            assert_ne!(field(ours), field(nulled));
+            CFRelease(reference as *const c_void);
+            CFRelease(ours as *const c_void);
+            CFRelease(nulled as *const c_void);
+            CFRelease(source);
+        }
     }
 
     #[test]

@@ -33,6 +33,23 @@ fi
 cargo build --release -p resolve-control \
   --manifest-path "$REPO_ROOT/native/Cargo.toml" --locked
 
+# Pin a stable code identity. Cargo linker-signs ad-hoc with a
+# per-build identifier (resolve_control-<hash>), so every rebuild
+# looks like a new app to macOS privacy grants: Accessibility and
+# Screen Recording approvals do not carry across rebuilds, and
+# posted input starts dropping silently while AX keeps working on
+# whatever grant survived (measured 2026-10-07). Re-signing ad-hoc
+# under a fixed identifier keeps the prompts recognizable and
+# auditable; only Developer ID signing (the captain's Apple developer
+# membership) would carry grants across rebuilds for good. A failed
+# re-sign fails the build on macOS: an unstable identity is the bug
+# (other systems skip signing - no TCC there).
+if [ "$(uname)" = "Darwin" ]; then
+  codesign --force -s - --identifier com.ren.resolve-control \
+    "$REPO_ROOT/native/target/release/resolve-control"
+  echo "build_resolve_control: signed com.ren.resolve-control (ad-hoc, stable identifier)" >&2
+fi
+
 # Record what was built from, so Ren's native-refresh can tell a stale
 # binary from a fresh one without rebuilding. Never fails the build.
 python3 "$REPO_ROOT/library/tools/native_refresh.py" record resolve-control \
