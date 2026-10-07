@@ -135,9 +135,14 @@ def _git(cwd: str, *argv: str) -> tuple:
 
 def _stack_checkout(checkout: str, base: str, heads: list) -> dict:
     """Merge heads onto the base checkout in order. Conflict is a
-    RESULT (the stack cannot exist), not an exception."""
+    RESULT (the stack cannot exist), not an exception. Each merge is
+    committed locally so the next PR can merge onto the accumulated
+    tree; the disposable checkout is never pushed."""
     for head in heads:
-        code, _err = _git(checkout, "merge", "--no-commit", "--no-ff", head)
+        code, _err = _git(
+            checkout, "-c", "user.name=ren-ci", "-c",
+            "user.email=ren-ci@localhost", "merge", "--no-ff", "--no-edit",
+            head)
         if code != 0:
             _git(checkout, "merge", "--abort")
             return {"ok": False,

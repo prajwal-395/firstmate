@@ -6,9 +6,19 @@ culprit (or serialize on an interaction), never merge the red stack and
 never kick the innocent.
 """
 
+import subprocess
+
 import pytest
 
 from library.tools.local_ci import config, github, queue, state
+
+
+def _git(repo, *argv):
+    result = subprocess.run(["git", "-C", str(repo), *argv],
+                            capture_output=True, encoding="utf-8",
+                            check=False, timeout=60)
+    assert result.returncode == 0, result.stderr
+    return result.stdout.strip()
 
 
 def _member(pr, head=None):
@@ -82,6 +92,43 @@ def test_green_alone_red_together_serializes_instead_of_kicking():
     assert requeued == []
     assert [m["pr"] for m in green] == [1]
     assert world.tests == 3  # whole, then each half
+
+
+def test_real_cluster_stack_merges_each_head_before_the_next(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    _git(repo, "config", "user.email", "ren-ci@test")
+    _git(repo, "config", "user.name", "ren-ci")
+    (repo / "base.txt").write_text("base\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "base")
+    base = _git(repo, "rev-parse", "HEAD")
+
+    _git(repo, "switch", "-c", "pr-a")
+    (repo / "a.txt").write_text("A\n", encoding="utf-8")
+    _git(repo, "add", "a.txt")
+    _git(repo, "commit", "-qm", "PR A")
+    head_a = _git(repo, "rev-parse", "HEAD")
+
+    _git(repo, "switch", "--detach", base)
+    _git(repo, "switch", "-c", "pr-b")
+    (repo / "b.txt").write_text("B\n", encoding="utf-8")
+    _git(repo, "add", "b.txt")
+    _git(repo, "commit", "-qm", "PR B")
+    head_b = _git(repo, "rev-parse", "HEAD")
+
+    _git(repo, "switch", "--detach", base)
+    result = queue._stack_checkout(str(repo), base, [head_a, head_b])
+
+    assert result["ok"] is True, result["reason"]
+    assert (repo / "a.txt").is_file()
+    assert (repo / "b.txt").is_file()
+    stacked_head = _git(repo, "rev-parse", "HEAD")
+    assert _git(repo, "merge-base", "--is-ancestor", head_a,
+                stacked_head) == ""
+    assert _git(repo, "merge-base", "--is-ancestor", head_b,
+                stacked_head) == ""
 
 
 def test_merge_in_order_chains_freshness_and_counts_landed_shas():
