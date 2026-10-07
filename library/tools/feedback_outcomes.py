@@ -142,6 +142,22 @@ def read_events(project_folder) -> list[dict]:
         str(row.get("outcome_id") or "")))
 
 
+def pending_outcome_id(project_folder, note: Mapping) -> str:
+    """Return the newest recorded plan for this note, if one is open."""
+    timeline = str(note.get("timeline") or "")
+    identity = _identity(note, timeline)
+    pending = [event for event in read_events(project_folder)
+               if event.get("note_identity") == identity
+               and event.get("source") == "recorded"
+               and event.get("status") == "planned"]
+    if not pending:
+        return ""
+    latest = max(pending, key=lambda row: (
+        str(row.get("recorded_at") or ""),
+        str(row.get("outcome_id") or "")))
+    return str(latest.get("outcome_id") or "")
+
+
 def _note_text(note: Mapping) -> str:
     explicit = note.get("text")
     if explicit:

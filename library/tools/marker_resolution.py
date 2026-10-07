@@ -592,6 +592,12 @@ def record_resolution(project_folder, note: dict, status: str, action: str = "",
             f"status {status!r} is not a resolution status this module "
             f"records - inventing one would let a reader misread what "
             f"happened to the marker")
+    from library.tools import feedback_outcomes
+
+    outcome_id = (outcome_id
+                  or feedback_outcomes.pending_outcome_id(
+                      project_folder, note)
+                  or uuid.uuid4().hex)
     record = ResolutionRecord(
         note_id=note.get("note_id", ""),
         status=status,
@@ -605,14 +611,12 @@ def record_resolution(project_folder, note: dict, status: str, action: str = "",
         marker_still_present=bool(marker_still_present),
         removal=dict(removal or {}),
         resolved_at=datetime.now(timezone.utc).isoformat(),
-        outcome_id=outcome_id or uuid.uuid4().hex,
+        outcome_id=outcome_id,
         **_note_text_fields(note),
     )
     payload = asdict(record)
     resolution_path(project_folder, record.note_id).write_text(
         json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-    from library.tools import feedback_outcomes
-
     feedback_outcomes.record_resolution_outcome(
         project_folder, payload, outcome_id=record.outcome_id,
         details=outcome_details)
@@ -1019,7 +1023,11 @@ def resolve_note(project_folder, note: dict, action: str, rationale: str,
     """
     action = action or ""
     rationale = rationale or ""
-    outcome_id = outcome_id or uuid.uuid4().hex
+    if not outcome_id:
+        from library.tools import feedback_outcomes
+
+        outcome_id = (feedback_outcomes.pending_outcome_id(
+            project_folder, note) or uuid.uuid4().hex)
 
     def record(status, **kwargs):
         return record_resolution(

@@ -98,6 +98,27 @@ def test_rebuild_plan_and_blocked_outcome_keep_distinct_states(tmp_path):
     assert outcomes._infer_action_kind("blocked", "", "") == "blocked"
 
 
+def test_resolution_finishes_the_pending_rebuild_event(tmp_path):
+    note = _note()
+    planned = outcomes.record_plan(
+        str(tmp_path), note, action_kind="rebuild",
+        summary="The caption fix will be included in the next rebuild.",
+        outcome_id="planned-rebuild-1")
+
+    record = marker_resolution.record_resolution(
+        str(tmp_path), note, marker_resolution.STATUS_ADDRESSED_UNVERIFIED,
+        action="rebuild", rationale="The caption was corrected in the reel.")
+
+    events = outcomes.read_events(str(tmp_path))
+    assert record["outcome_id"] == planned["outcome_id"]
+    assert len(events) == 1
+    assert events[0]["outcome_id"] == "planned-rebuild-1"
+    assert events[0]["status"] == marker_resolution.STATUS_ADDRESSED_UNVERIFIED
+    assert events[0]["action"]["kind"] == "rebuild"
+    assert events[0]["action"]["summary"] == (
+        "The caption was corrected in the reel.")
+
+
 def test_legacy_verified_label_without_a_named_check_stays_planned(tmp_path):
     event = outcomes.resolution_event(
         str(tmp_path), {
