@@ -434,11 +434,24 @@ def apply_fusion_comps(manifest, project_folder,
     if not resolve:
         print("ERROR: Could not connect to Resolve.", file=sys.stderr)
         return False
-    return apply_fusion_comps_with_resolve(
-        resolve, manifest, project_folder,
-        expected_project=expected_project,
-        expected_timeline=expected_timeline,
-        step_id=step_id)
+    if expected_timeline is not None:
+        timeline_name = expected_timeline
+    else:
+        # The pass composites onto the current timeline; read its name
+        # the way the connected pass below does, so the declaration
+        # scopes to the reel being written. Nothing current means the
+        # pass below refuses before mutating, and the lease matches
+        # nothing and is released unused.
+        project = resolve.GetProjectManager().GetCurrentProject()
+        current = project.GetCurrentTimeline() if project else None
+        timeline_name = (current.GetName() if current is not None
+                         else "current-timeline")
+    with _pass_lease(manifest, timeline_name):
+        return apply_fusion_comps_with_resolve(
+            resolve, manifest, project_folder,
+            expected_project=expected_project,
+            expected_timeline=expected_timeline,
+            step_id=step_id)
 
 
 def apply_fusion_comps_with_resolve(resolve, manifest, project_folder,
@@ -1122,9 +1135,9 @@ def apply_fusion_comps_with_resolve(resolve, manifest, project_folder,
 
 
 def _pass_lease(manifest, timeline_name):
-    """One batch entry's compositions, declared before the pass writes.
+    """One pass's compositions, declared before the pass writes.
 
-    The refs are the comps this pass imports: the per-clip labels plus
+    The refs are the comps the pass imports: the per-clip labels plus
     the generator overlay names, each scoped by timeline - a bare
     label like `clip_0` exists on every reel, and an unscoped ref
     would serialise every reel's comps against each other. Two passes
@@ -1132,11 +1145,6 @@ def _pass_lease(manifest, timeline_name):
     same comp serialise - the spec's "two agents altering the same
     Fusion composition: probably serialize". WRITE plus EXCLUSIVE: an
     import replaces comp state.
-
-    The single-reel entry point takes no lease yet: without an
-    `expected_timeline` the timeline name is known only after the
-    destination guard connects, and a label-only ref is a declaration
-    nobody can match. That path is the follow-up, not this slice.
     """
     effects = (manifest.get("fusion_effects", {}) or {})
     labels = list((effects.get("per_clip", {}) or {}).keys())

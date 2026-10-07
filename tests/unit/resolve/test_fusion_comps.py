@@ -3,6 +3,8 @@
 History: docs/evidence/resolve_test_history.md#test_fusion_keyframe_range.
 """
 import re
+import threading
+import time
 import pytest
 from library.tools.fusion.comp_builder import build_effect_comp
 from library.tools.fusion.effects import _reset_counters, fx
@@ -1235,4 +1237,68 @@ def test_the_comp_pass_natively_locks_the_row_it_imports_onto(
     assert ("video", 1, False) in timeline.track_locks
     assert timeline.track_locks.index(("video", 1, False)) > \
         timeline.track_locks.index(("video", 1, True))
+# ── The single-reel pass declares the comps it imports ───────────────
+
+@pytest.fixture
+def _pass_lock_dir(tmp_path, monkeypatch):
+    directory = tmp_path / "locks"
+    directory.mkdir()
+    monkeypatch.setenv("PIPELINE_RESOLVE_LOCK_DIR", str(directory))
+    return directory
+
+
+def test_the_single_pass_imports_its_declared_comp(
+        _pass_lock_dir, monkeypatch, tmp_path):
+    """The wired path still imports: the comp reaches the timeline item.
+
+    Defect caught: a declaration that refuses its own pass turns the
+    single-reel entry point into a refusal, and the reel ships
+    comp-less.
+    """
+    from library.tools.resolve_lock import assume_sole_writer
+    imported = []
+    afc = _mock_resolve(monkeypatch, imported)
+    with assume_sole_writer("test: mock project has no instance"):
+        assert afc.apply_fusion_comps(_manifest(), str(tmp_path),
+                                      step_id="build_reels") is True
+    assert len(imported) == 1
+
+
+def test_the_single_pass_waits_for_a_pass_on_the_same_comp(
+        _pass_lock_dir, monkeypatch, tmp_path):
+    """Two passes, one composition: the single pass waits for the release.
+
+    Defect caught: with no declaration the single-reel entry point
+    imports onto a clip a batch pass is importing onto, and the clip
+    keeps whichever landed last. On origin/main the pass returns
+    before the holder releases.
+    """
+    from library.tools.resource_leases import (
+        LeaseDeclaration, ResourceRef, resource_lease)
+    from library.tools.resolve_lock import assume_sole_writer
+    imported = []
+    afc = _mock_resolve(monkeypatch, imported)
+    other_pass = LeaseDeclaration(
+        write=frozenset({ResourceRef("fusion_comp", "Reel 09:clip_0")}),
+        exclusive=frozenset({ResourceRef("fusion_comp", "Reel 09:clip_0")}),
+    )
+    released_at: list = []
+
+    def import_first():
+        with resource_lease(other_pass, "comp Reel 09 clip_0 first",
+                           heartbeat_interval=30.0):
+            time.sleep(2.0)
+        released_at.append(time.monotonic())
+
+    holder = threading.Thread(target=import_first)
+    holder.start()
+    time.sleep(0.3)  # let the first pass acquire first
+    with assume_sole_writer("test: mock project has no instance"):
+        assert afc.apply_fusion_comps(_manifest(), str(tmp_path),
+                                      step_id="build_reels") is True
+    returned_at = time.monotonic()
+    holder.join(30.0)
+    assert released_at, "the first pass never released"
+    assert returned_at >= released_at[0], \
+        "the pass returned mid-import"
     assert len(imported) == 1
