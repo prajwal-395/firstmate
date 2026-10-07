@@ -123,6 +123,18 @@ def enqueue(pr: int, head: str, state: str = "") -> dict:
     return entry
 
 
+def remove_active_queue_entries(pr: int, state: str = "") -> int:
+    """Drop queued membership when Tier-1 no longer admits this PR."""
+    entries = read_queue(state)
+    retained = [entry for entry in entries
+                if not (entry.get("pr") == pr and entry.get("status") in
+                        (ENTRY_QUEUED, ENTRY_TESTING, ENTRY_GREEN))]
+    removed = len(entries) - len(retained)
+    if removed:
+        write_queue(retained, state)
+    return removed
+
+
 def note_seen(pr: int, head: str, state: str = "") -> float:
     """First-seen timestamp of a PR head. First write wins: latency is
     measured from when the daemon first SAW the head, the closest local

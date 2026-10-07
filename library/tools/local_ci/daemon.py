@@ -131,9 +131,10 @@ def finish_tier1(world: queue.World, pr: dict, outcome: dict,
     print(line, flush=True)
     _publish_check_status(record, world.state_dir)
     record = state.read_checks(world.state_dir).get(outcome["head"], record)
-    if (not outcome["ok"]
-            and config.READY_LABEL in (pr.get("labels") or [])):
-        github.remove_label(outcome["pr"], config.READY_LABEL)
+    if not outcome["ok"]:
+        state.remove_active_queue_entries(outcome["pr"], world.state_dir)
+        if config.READY_LABEL in (pr.get("labels") or []):
+            github.remove_label(outcome["pr"], config.READY_LABEL)
     return record
 
 

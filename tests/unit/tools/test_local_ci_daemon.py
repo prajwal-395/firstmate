@@ -163,6 +163,25 @@ def test_green_ready_enters_the_queue_red_loses_its_label(
     assert ("unlabel", 2, config.READY_LABEL) in faked_github.posts
 
 
+def test_red_tier1_removes_stale_queue_membership(
+        monkeypatch, tmp_path, faked_github):
+    pr = _pr(8, head="new-head", labels=[config.READY_LABEL])
+    state.enqueue(pr["number"], "old-head", str(tmp_path))
+    faked_github.prs = [pr]
+    monkeypatch.setattr(daemon, "run_tier1",
+                        lambda world, current_pr, workers:
+                        _outcome(current_pr, ok=False))
+    world = queue.World(state_dir=str(tmp_path))
+
+    done = daemon.pass_once(world, plan={"tier1_jobs": 1, "pytest_n": 2,
+                                         "window": 0, "headroom": 0.0,
+                                         "heavy": []})
+
+    assert done["checked"] == [8]
+    assert state.read_queue(str(tmp_path)) == []
+    assert ("unlabel", 8, config.READY_LABEL) in faked_github.posts
+
+
 def test_known_heads_are_not_retested(monkeypatch, tmp_path, faked_github):
     pr = _pr(1)
     state.record_check({**_outcome(pr), "seen_at": 1.0, "done_at": 2.0,
