@@ -2017,3 +2017,90 @@ def test_audio_events_are_registered_from_world_models(
     assert len(found) == 1
     assert found[0]["start"] == 0.0
     assert found[0]["end"] == 4.0
+
+
+# ── Creative tag and branch nodes ────────────────────────────────
+
+
+def test_tag_nodes_name_the_commit_each_version_points_at(tmp_path,
+                                                           monkeypatch):
+    """Each recorded tag is a node naming its commit, so a lane
+    reading only the graph answers "what is v1" without re-reading
+    the tag store. The defect: version names invisible to the graph,
+    so "which commit did the captain call v1" has no graph answer."""
+    from library.tools import undo_journal as uj
+
+    project = _graph_project(tmp_path, monkeypatch)
+    commit = _record_commit(project, "Reel 1", "tighten opening",
+                            _move("clip_001"))
+    uj.record_tag(str(project), name="v1", commit=commit["id"],
+                  note="first good cut")
+
+    graph = project_graph.build_graph(str(project))
+    rows = project_graph.find_tags(graph)
+    assert [(r["name"], r["commit"]) for r in rows] == [
+        ("v1", commit["id"])]
+    assert rows[0]["note"] == "first good cut"
+
+
+def test_branch_nodes_name_each_line_and_its_base(tmp_path, monkeypatch):
+    """Each recorded branch is a node naming its base and timeline,
+    filterable to one timeline's lines. The defect: lines of
+    development invisible to the graph, so "what branches stand on
+    Reel 1" mixes in Reel 10's."""
+    from library.tools import undo_journal as uj
+
+    project = _graph_project(tmp_path, monkeypatch)
+    base = _record_commit(project, "Reel 1", "tighten opening",
+                          _move("clip_001"))
+    other = _record_commit(project, "Reel 10", "other reel work",
+                           _move("clip_009"))
+    uj.record_branch(str(project), name="alt-ending", base=base["id"],
+                     timeline="Reel 1", note="try outro")
+    uj.record_branch(str(project), name="alt-ten", base=other["id"],
+                     timeline="Reel 10")
+
+    graph = project_graph.build_graph(str(project))
+    rows = project_graph.find_branches(graph, "Reel 1")
+    assert [(r["name"], r["base"]) for r in rows] == [
+        ("alt-ending", base["id"])]
+    assert project_graph.find_branches(graph, "Reel 2") == []
+
+
+def test_no_pointers_means_no_pointer_nodes(tmp_path, monkeypatch):
+    """No tags or branches means no tag or branch nodes, not a
+    failed build. The defect: a graph build that refuses a project
+    with plain linear history, so an unbranched project has no
+    graph at all."""
+    project = _graph_project(tmp_path, monkeypatch)
+    _record_commit(project, "Reel 1", "tighten opening",
+                   _move("clip_001"))
+    graph = project_graph.build_graph(str(project))
+    assert [n for n in graph["nodes"]
+            if n["node_type"] == project_graph.TAG] == []
+    assert [n for n in graph["nodes"]
+            if n["node_type"] == project_graph.BRANCH] == []
+    assert project_graph.find_tags(graph) == []
+    assert project_graph.find_branches(graph) == []
+
+
+def test_the_graph_rebuilds_when_a_tag_moves(tmp_path, monkeypatch):
+    """A moved tag invalidates the cached graph. The defect: a
+    fingerprint that misses the tag store, so the cached graph keeps
+    answering "what is v1" with the commit it pointed at before the
+    move."""
+    from library.tools import undo_journal as uj
+
+    project = _graph_project(tmp_path, monkeypatch)
+    first = _record_commit(project, "Reel 1", "tighten opening",
+                           _move("clip_001"))
+    second = _record_commit(project, "Reel 1", "trim tail",
+                            _move("clip_002"), parent=first["id"])
+    uj.record_tag(str(project), name="v1", commit=first["id"])
+    before = project_graph.load_or_build(str(project))
+    assert project_graph.find_tags(before)[0]["commit"] == first["id"]
+
+    uj.record_tag(str(project), name="v1", commit=second["id"],
+                  move=True)
+    after = project_graph.load_or_build(str(project))
+    assert project_graph.find_tags(after)[0]["commit"] == second["id"]

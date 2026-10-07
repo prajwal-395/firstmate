@@ -130,6 +130,8 @@ COMMIT = "commit"
 OPERATION = "operation"
 PARTICIPANT = "participant"
 PROPOSAL = "proposal"
+TAG = "tag"
+BRANCH = "branch"
 
 NODE_TYPES = (
     PERSON,
@@ -152,6 +154,8 @@ NODE_TYPES = (
     OPERATION,
     PARTICIPANT,
     PROPOSAL,
+    TAG,
+    BRANCH,
 )
 
 
@@ -361,6 +365,11 @@ def _input_fingerprint(project_folder: str, root: Path | None = None) -> str:
         # run mid-write reads as whatever bytes are on disk.
         "event_log": _read_raw_bytes(
             _event_log_path(project_folder)),
+        # Version names and branches are graph inputs like the
+        # commits: a new or moved tag, or a new branch, changes the
+        # graph, so the cache must rebuild.
+        "creative_tags": _tag_records_digest(project_folder),
+        "creative_branches": _branch_records_digest(project_folder),
     }
     for clip in catalog:
         digest, _ = source_memory.digest_for_clip(project_folder, clip, recorded)
@@ -439,82 +448,101 @@ def _read_raw_bytes(path: Path | None) -> str | None:
         return None
 
 
-def _variant_explorations_digest(project_folder) -> str | None:
-    """One digest over the variant exploration records, or None.
+def _record_dir_digest(root, filename: str) -> str | None:
+    """One digest over `<name>/<filename>` records under root, or None.
 
-    Sorted record paths plus bytes, hashed together - the directory
-    form of `_read_raw_bytes`: the fingerprint asks whether the input
-    changed, never what it says. A project with no explorations reads
-    as None, and a new or changed exploration changes the digest, so
-    the cache rebuilds exactly when the variant set moves.
+    The shared directory form of `_read_raw_bytes`: sorted record
+    names plus bytes, hashed together. The fingerprint asks whether
+    the input changed, never what it says. A missing, unreadable or
+    empty directory reads as None, and a new or changed record changes
+    the digest, so the cache rebuilds exactly when the record set
+    moves.
     """
     import hashlib
 
+    if root is None:
+        return None
+    root = Path(root)
+    if not root.is_dir():
+        return None
+    try:
+        names = sorted(
+            entry.name for entry in root.iterdir()
+            if entry.is_dir() and (entry / filename).is_file())
+    except OSError:
+        return None
+    if not names:
+        return None
+    digest = hashlib.sha256()
+    for name in names:
+        try:
+            digest.update(name.encode("utf-8"))
+            digest.update((root / name / filename).read_bytes())
+        except OSError:
+            return None
+    return digest.hexdigest()
+
+
+def _variant_explorations_digest(project_folder) -> str | None:
+    """One digest over the variant exploration records, or None.
+
+    Sorted record paths plus bytes - see `_record_dir_digest`. A
+    project with no explorations reads as None, and a new or changed
+    exploration changes the digest, so the cache rebuilds exactly when
+    the variant set moves.
+    """
     try:
         from library.tools import variant_exploration
         root = Path(variant_exploration.exploration_root(project_folder))
     except (OSError, ValueError):
         return None
-    if not root.is_dir():
-        return None
-    try:
-        names = sorted(
-            entry.name for entry in root.iterdir()
-            if entry.is_dir() and (
-                entry / variant_exploration.EXPLORATION_FILENAME
-            ).is_file())
-    except OSError:
-        return None
-    if not names:
-        return None
-    digest = hashlib.sha256()
-    for name in names:
-        path = root / name / variant_exploration.EXPLORATION_FILENAME
-        try:
-            digest.update(name.encode("utf-8"))
-            digest.update(path.read_bytes())
-        except OSError:
-            return None
-    return digest.hexdigest()
+    return _record_dir_digest(
+        root, variant_exploration.EXPLORATION_FILENAME)
 
 
 def _commit_records_digest(project_folder) -> str | None:
     """One digest over the creative commit records, or None.
 
-    The commit-graph form of `_variant_explorations_digest`: sorted
-    commit ids plus `commit.json` bytes, hashed together. A project
-    with no commits reads as None, and a new commit - a touch, a
-    merge, a revert, a replay - changes the digest, so the cache
-    rebuilds exactly when the creative history moves.
+    Sorted commit ids plus `commit.json` bytes - see
+    `_record_dir_digest`. A project with no commits reads as None,
+    and a new commit - a touch, a merge, a revert, a replay - changes
+    the digest, so the cache rebuilds exactly when the creative
+    history moves.
     """
-    import hashlib
-
     try:
         from library.tools import undo_journal
         root = Path(undo_journal.commit_root(project_folder))
     except (OSError, ValueError):
         return None
-    if not root.is_dir():
-        return None
+    return _record_dir_digest(root, undo_journal.COMMIT_FILENAME)
+
+
+def _tag_records_digest(project_folder) -> str | None:
+    """One digest over the version-name records, or None.
+
+    See `_record_dir_digest`: a new or moved tag changes the digest,
+    so the cache rebuilds exactly when the named versions move.
+    """
     try:
-        names = sorted(
-            entry.name for entry in root.iterdir()
-            if entry.is_dir() and (
-                entry / undo_journal.COMMIT_FILENAME
-            ).is_file())
-    except OSError:
+        from library.tools import undo_journal
+        root = Path(undo_journal.tag_root(project_folder))
+    except (OSError, ValueError):
         return None
-    if not names:
+    return _record_dir_digest(root, undo_journal.TAG_FILENAME)
+
+
+def _branch_records_digest(project_folder) -> str | None:
+    """One digest over the branch records, or None.
+
+    See `_record_dir_digest`: a new branch changes the digest, so the
+    cache rebuilds exactly when the lines of development move.
+    """
+    try:
+        from library.tools import undo_journal
+        root = Path(undo_journal.branch_root(project_folder))
+    except (OSError, ValueError):
         return None
-    digest = hashlib.sha256()
-    for name in names:
-        path = root / name / undo_journal.COMMIT_FILENAME
-        try:
-            digest.update(name.encode("utf-8"))
-            digest.update(path.read_bytes())
-        except OSError:
-            return None
-    return digest.hexdigest()
+    return _record_dir_digest(root, undo_journal.BRANCH_FILENAME)
 
 
 def _read_identity(digest: str, root: Path | None) -> dict | None:
@@ -609,6 +637,8 @@ def build_graph(project_folder: str, root: Path | None = None) -> dict:
     _derive_event_nodes(graph, project_folder)
     _derive_participant_nodes(graph, project_folder)
     _derive_proposal_nodes(graph, project_folder)
+    _derive_tag_nodes(graph, project_folder)
+    _derive_branch_nodes(graph, project_folder)
 
     return graph
 
@@ -1412,6 +1442,72 @@ def _derive_commit_nodes(graph: dict, project_folder: str) -> None:
         })
 
 
+def _derive_tag_nodes(graph: dict, project_folder: str) -> None:
+    """Version-name nodes from the creative tag records.
+
+    Each tag is a node carrying the name, the commit it points at and
+    why it was kept, so any lane reading only the graph answers
+    "what is v1" without re-reading the tag store. Like the commit
+    nodes, these carry no edges: a tag is a pointer, and what it
+    points at is named, not linked. A project with no tags gains no
+    nodes.
+    """
+    try:
+        from library.tools import undo_journal
+        tags = undo_journal.list_tags(project_folder)
+    except (OSError, ValueError, RuntimeError):
+        return
+    for tag in tags:
+        name = tag.get("name") or ""
+        if not name:
+            continue
+        add_node(graph, {
+            "node_id": f"tag:{name}",
+            "node_type": TAG,
+            "label": f"tag {name} -> "
+                     f"{str(tag.get('commit') or '')[:12]}",
+            "payload": {
+                "name": name,
+                "commit": tag.get("commit"),
+                "note": tag.get("note") or "",
+                "at": tag.get("created_at"),
+            },
+        })
+
+
+def _derive_branch_nodes(graph: dict, project_folder: str) -> None:
+    """Branch nodes from the creative branch records.
+
+    Each branch is a node carrying the base commit it stands on, the
+    timeline it lives on and why it was cut, so any lane reading only
+    the graph answers "what lines of development exist" without
+    re-reading the branch store. Like the tag nodes, these carry no
+    edges. A project with no branches gains no nodes.
+    """
+    try:
+        from library.tools import undo_journal
+        branches = undo_journal.list_branches(project_folder)
+    except (OSError, ValueError, RuntimeError):
+        return
+    for branch in branches:
+        name = branch.get("name") or ""
+        if not name:
+            continue
+        add_node(graph, {
+            "node_id": f"branch:{name}",
+            "node_type": BRANCH,
+            "label": f"branch {name} -> "
+                     f"{str(branch.get('base') or '')[:12]}",
+            "payload": {
+                "name": name,
+                "base": branch.get("base"),
+                "timeline": branch.get("timeline"),
+                "note": branch.get("note") or "",
+                "at": branch.get("created_at"),
+            },
+        })
+
+
 # ── The query API ─────────────────────────────────────────────────
 
 
@@ -1762,6 +1858,55 @@ def find_commits(graph: dict, timeline: str | None = None) -> list:
             row["second_parent"] = payload.get("second_parent")
         rows.append(row)
     rows.sort(key=lambda r: (str(r["timeline"]), r["sequence"]))
+    return rows
+
+
+def find_tags(graph: dict) -> list:
+    """The version names the graph registered, by name.
+
+    Each row names the tag, the commit it points at and why it was
+    kept. A project with no tags reads as no rows.
+    """
+    rows = []
+    for candidate in graph["nodes"]:
+        if candidate["node_type"] != TAG:
+            continue
+        payload = candidate["payload"] or {}
+        rows.append({
+            "node_id": candidate["node_id"],
+            "name": payload.get("name"),
+            "commit": payload.get("commit"),
+            "note": payload.get("note") or "",
+            "at": payload.get("at"),
+        })
+    rows.sort(key=lambda r: str(r["name"]))
+    return rows
+
+
+def find_branches(graph: dict, timeline: str | None = None) -> list:
+    """The branches the graph registered, by name.
+
+    Each row names the branch, the base commit it stands on, the
+    timeline it lives on and why it was cut. Filtered to one
+    timeline's lines when asked; a timeline with no branches reads as
+    no rows.
+    """
+    rows = []
+    for candidate in graph["nodes"]:
+        if candidate["node_type"] != BRANCH:
+            continue
+        payload = candidate["payload"] or {}
+        if timeline is not None and payload.get("timeline") != timeline:
+            continue
+        rows.append({
+            "node_id": candidate["node_id"],
+            "name": payload.get("name"),
+            "base": payload.get("base"),
+            "timeline": payload.get("timeline"),
+            "note": payload.get("note") or "",
+            "at": payload.get("at"),
+        })
+    rows.sort(key=lambda r: str(r["name"]))
     return rows
 
 
