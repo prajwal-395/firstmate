@@ -332,10 +332,18 @@ def process_once(world: World, window: int = 90) -> dict:
         member["status"] = state.ENTRY_TESTING
         fresh.append(member)
     state.write_queue(entries, world.state_dir)
-    green, kicked, requeued_tier2 = resolve_batch(world, base, fresh)
+    try:
+        green, kicked, requeued_tier2 = resolve_batch(world, base, fresh)
+    except Exception as exc:  # noqa: BLE001 - interruption is not a verdict
+        green, kicked = [], []
+        requeued_tier2 = []
+        for member in fresh:
+            member["status"] = state.ENTRY_QUEUED
+            member["reason"] = (
+                f"Tier-2 runner interrupted ({type(exc).__name__}): {exc}")
+            requeued_tier2.append(member)
     for member in kicked:
-        world.report(member["pr"], member["head"],
-                     "", False, member.get("reason", ""))
+        _report(world, member, False)
         summary["kicked"].append(member["pr"])
     for member in requeued_tier2:
         summary["requeued"].append(member["pr"])
@@ -343,7 +351,7 @@ def process_once(world: World, window: int = 90) -> dict:
     now = time.time()
     for member in merged:
         member["merged_at"] = now
-        world.report(member["pr"], member["head"], "", True, "")
+        _report(world, member, True)
         summary["merged"].append(member["pr"])
     for member in requeued:
         summary["requeued"].append(member["pr"])
@@ -366,3 +374,17 @@ def process_once(world: World, window: int = 90) -> dict:
             member["status"] = state.ENTRY_QUEUED
     state.write_queue(entries, world.state_dir)
     return summary
+
+
+def _report(world: World, member: dict, ok: bool) -> None:
+    """Do not lose the queue verdict because GitHub reporting failed.
+
+    Queue state is committed after this call, and the delivery failure
+    remains visible in the daemon log.
+    """
+    try:
+        world.report(member["pr"], member["head"], "", ok,
+                     member.get("reason", ""))
+    except Exception as exc:  # noqa: BLE001 - preserve the test/merge result
+        print(f"ren-ci queue status delivery deferred for "
+              f"{member['pr']}: {exc}", flush=True)

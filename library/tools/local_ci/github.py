@@ -16,7 +16,7 @@ import base64
 import binascii
 import json
 import subprocess
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 from library.tools.local_ci import config
 
@@ -197,12 +197,15 @@ def post_status(head: str, state: str, description: str,
 
 def set_label(number: int, label: str) -> None:
     """Mark a PR (ready for the queue)."""
-    _run("pr", "edit", str(number), "--add-label", label)
+    _api(f"repos/{repo_path()}/issues/{number}/labels", method="POST",
+         fields={"labels[]": label})
 
 
 def remove_label(number: int, label: str) -> None:
     """Unmark a PR (kicked, merged, or superseded)."""
-    _run("pr", "edit", str(number), "--remove-label", label)
+    path = (f"repos/{repo_path()}/issues/{number}/labels/"
+            f"{quote(label, safe='')}")
+    _api(path, method="DELETE")
 
 
 def merge(number: int, head: str, message: str = "") -> str:

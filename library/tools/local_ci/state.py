@@ -26,7 +26,8 @@ QUEUE_FILENAME = "queue.json"
 SEEN_FILENAME = "seen.json"
 
 # Queue entry statuses. queued -> testing -> green -> merged is the
-# happy path; testing -> kicked (with reason) is the only other exit.
+# happy path; testing can also return to queued when a runner is
+# interrupted, or become kicked when the stack proves a PR is red.
 # A kick never blocks the entries behind it.
 ENTRY_QUEUED = "queued"
 ENTRY_TESTING = "testing"
@@ -100,6 +101,23 @@ def write_queue(entries: list, state: str = "") -> list:
     """Replace the queue wholesale. Returns what was written."""
     _write(QUEUE_FILENAME, {"entries": list(entries)}, state)
     return list(entries)
+
+
+def recover_interrupted_queue(state: str = "") -> int:
+    """Requeue members left testing by a daemon or process interruption.
+
+    The caller must first establish that no Tier-2 gate is still active.
+    """
+    entries = read_queue(state)
+    recovered = 0
+    for entry in entries:
+        if entry.get("status") == ENTRY_TESTING:
+            entry["status"] = ENTRY_QUEUED
+            entry["reason"] = "previous Tier-2 run interrupted - re-testing"
+            recovered += 1
+    if recovered:
+        write_queue(entries, state)
+    return recovered
 
 
 def enqueue(pr: int, head: str, state: str = "") -> dict:

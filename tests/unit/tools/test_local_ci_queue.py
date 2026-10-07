@@ -257,6 +257,43 @@ def test_process_once_waits_out_an_unripe_window(tmp_path):
     assert world.tests == 0  # the timebox exists to group: no run yet
 
 
+def test_process_once_persists_verdicts_when_reporting_fails(tmp_path):
+    class BrokenReporter(FakeWorld):
+        def report(self, pr, head, url, ok, reason):
+            raise RuntimeError("gh-axi has no repository context")
+
+    world = BrokenReporter(fail_when=lambda prs: 12 in prs)
+    world.state_dir = str(tmp_path)
+    state.write_queue([_member(11), _member(12)], str(tmp_path))
+
+    summary = queue.process_once(world, window=0)
+
+    assert summary["merged"] == [11]
+    assert summary["kicked"] == [12]
+    entries = {entry["pr"]: entry
+               for entry in state.read_queue(str(tmp_path))}
+    assert entries[11]["status"] == state.ENTRY_MERGED
+    assert entries[12]["status"] == state.ENTRY_KICKED
+
+
+def test_process_once_requeues_if_the_tier2_runner_raises(tmp_path):
+    class BrokenRunner(FakeWorld):
+        def test_stack(self, base, members):
+            raise RuntimeError("worktree gate could not start")
+
+    world = BrokenRunner()
+    world.state_dir = str(tmp_path)
+    state.write_queue([_member(11), _member(12)], str(tmp_path))
+
+    summary = queue.process_once(world, window=0)
+
+    assert summary["requeued"] == [11, 12]
+    assert summary["kicked"] == [] and summary["merged"] == []
+    entries = state.read_queue(str(tmp_path))
+    assert all(entry["status"] == state.ENTRY_QUEUED for entry in entries)
+    assert all("runner interrupted" in entry["reason"] for entry in entries)
+
+
 def test_enqueue_supersedes_a_moved_head_but_not_a_rerun(tmp_path):
     first = state.enqueue(7, "head-a", str(tmp_path))
     same = state.enqueue(7, "head-a", str(tmp_path))

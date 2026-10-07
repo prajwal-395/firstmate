@@ -424,14 +424,22 @@ class Tier1Scheduler:
             done["started"].append(pr["number"])
 
         entries = state.read_queue(self.world.state_dir)
+        running_jobs = hygiene.running_jobs(self.world.state_dir)
+        gate_running = hygiene.gate_running()
+        if (not self._futures and not running_jobs and not gate_running):
+            recovered = state.recover_interrupted_queue(self.world.state_dir)
+            if recovered:
+                print(f"ren-ci recovered {recovered} interrupted Tier-2 "
+                      "queue member(s); re-testing", flush=True)
+            entries = state.read_queue(self.world.state_dir)
         if (not self._futures
-                and not hygiene.running_jobs(self.world.state_dir)
+                and not running_jobs
                 and any(entry.get("status") in
                         (state.ENTRY_QUEUED, state.ENTRY_GREEN)
                         for entry in entries)
                 and not any(entry.get("status") == state.ENTRY_TESTING
                             for entry in entries)
-                and not hygiene.gate_running()):
+                and not gate_running):
             done["queue"] = queue.process_once(
                 self.world, window=plan["window"])
         return done

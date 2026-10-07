@@ -281,7 +281,7 @@ def run_gate(checkout: str, log_path: str,
     line, timeout, crash) is DID NOT RUN: requeue, never merge blind.
     """
     os.makedirs(os.path.dirname(log_path) or ".", exist_ok=True)
-    result = _run_logged(["bash", "scripts/full_suite_gate.sh"],
+    result = _run_logged(["bash", "scripts/full_suite_gate.sh", "-n", "2"],
                          checkout, log_path, timeout)
     timed_out = result["timed_out"]
     verdict = _read_verdict(log_path)

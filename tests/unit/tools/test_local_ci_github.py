@@ -119,6 +119,32 @@ def test_status_target_is_a_browser_link(monkeypatch):
                            str(Path.home() / ".ren-ci/run.log"))
 
 
+def test_label_changes_use_repo_scoped_rest_calls(monkeypatch):
+    calls = []
+    monkeypatch.setattr(github, "_api",
+                        lambda *args, **kwargs: calls.append((args, kwargs)))
+
+    github.set_label(2083, "ren-ci-ready")
+    github.remove_label(2083, "ren-ci-ready")
+
+    assert calls == [
+        (("repos/prajwal-395/video_editing_pilot/issues/2083/labels",),
+         {"method": "POST", "fields": {"labels[]": "ren-ci-ready"}}),
+        (("repos/prajwal-395/video_editing_pilot/issues/2083/labels/"
+          "ren-ci-ready",), {"method": "DELETE"}),
+    ]
+
+
+def test_label_removal_quotes_the_label_path_component(monkeypatch):
+    calls = []
+    monkeypatch.setattr(github, "_api",
+                        lambda *args, **kwargs: calls.append((args, kwargs)))
+
+    github.remove_label(2083, "ready / reviewed")
+
+    assert calls[0][0][0].endswith("/ready%20%2F%20reviewed")
+
+
 def test_pull_url_points_at_the_configured_repository():
     assert github.pull_url(42) == (
         "https://github.com/prajwal-395/video_editing_pilot/pull/42")

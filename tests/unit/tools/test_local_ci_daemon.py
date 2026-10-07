@@ -182,6 +182,28 @@ def test_red_tier1_removes_stale_queue_membership(
     assert ("unlabel", 8, config.READY_LABEL) in faked_github.posts
 
 
+def test_idle_daemon_recovers_interrupted_tier2_entries(
+        monkeypatch, tmp_path, faked_github):
+    faked_github.prs = []
+    monkeypatch.setattr(daemon.hygiene, "running_jobs", lambda _state: [])
+    monkeypatch.setattr(daemon.hygiene, "gate_running", lambda: False)
+    state.write_queue([{"pr": 41, "head": "head-41",
+                        "status": state.ENTRY_TESTING,
+                        "reason": "", "enqueued_at": 1.0}],
+                      str(tmp_path))
+    scheduler = daemon.Tier1Scheduler(queue.World(state_dir=str(tmp_path)))
+    try:
+        scheduler.poll_once({"tier1_jobs": 1, "pytest_n": 1,
+                             "window": 90, "headroom": 9.0,
+                             "heavy": []})
+    finally:
+        scheduler.shutdown(wait=True)
+
+    entry, = state.read_queue(str(tmp_path))
+    assert entry["status"] == state.ENTRY_QUEUED
+    assert "interrupted" in entry["reason"]
+
+
 def test_known_heads_are_not_retested(monkeypatch, tmp_path, faked_github):
     pr = _pr(1)
     state.record_check({**_outcome(pr), "seen_at": 1.0, "done_at": 2.0,

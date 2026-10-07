@@ -64,6 +64,13 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 cd "${REPO_ROOT}"
 
+# `bin/vep` runs with PYTHONSAFEPATH=1 and exports the installed engine
+# root in PYTHONPATH. A local CI gate runs from a disposable worktree,
+# so that installed root would otherwise make `python -m` inspect the
+# primary checkout while pytest runs against this worktree. Put the
+# checkout under test first for every Python process in the gate.
+export PYTHONPATH="${REPO_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
+
 # The gate is admitted by the machine's resource scheduler
 # (library/tools/resource_scheduler.py) as `full_suite_gate`: more than
 # half the cpu, so two gates never run at once, while a seconds-long
