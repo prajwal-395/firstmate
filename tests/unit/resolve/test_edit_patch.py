@@ -1621,11 +1621,12 @@ def test_mask_create_refuses_unknown_provider(world):
 def _seed_receipt(**overrides):
     """A MaskSeed receipt as `compute_seed` writes it - the api
     provider's required input."""
-    receipt = {"clip_id": "talk", "frame": 48, "seed_frame": 48,
+    receipt = {"clip_id": "talk", "frame": 24, "seed_frame": 24,
                "subject": "speaker",
                "source": {"x": 1132.0, "y": 449.0},
                "viewer": {"x": 1719.0, "y": 622.0},
-               "object_id": "obj_1", "sample_index": 2}
+               "object_id": "obj_1", "sample_index": 2,
+               "source_frame_range": {"start": 0, "end": 48}}
     receipt.update(overrides)
     return receipt
 
@@ -1669,6 +1670,37 @@ def test_mask_create_api_refuses_an_unseeded_call(world):
         "op": "mask.create", "provider": "resolve_magic_mask_api"}])
     assert receipt["status"] == "verification_failed"
     assert "needs 'seed'" in receipt["stopped"]["raised"]
+
+
+def test_mask_create_api_refuses_a_seed_without_an_explicit_range(world):
+    item = world[2]
+    seen = _mask_api(item)
+    receipt = _mask(world, "mask-create-api-no-range", [{
+        "op": "mask.create", "provider": "resolve_magic_mask_api",
+        "seed": _seed_receipt(source_frame_range=None)}])
+    assert receipt["status"] == "verification_failed"
+    assert "needs an explicit source_frame_range" in \
+        receipt["stopped"]["raised"]
+    assert seen == []
+
+
+def test_mask_api_refuses_a_too_long_item_before_calling_resolve():
+    from library.tools.edit_algebra import _call_create_magic_mask
+
+    class _LongItem:
+        def GetSourceStartFrame(self):
+            return 0
+
+        def GetSourceEndFrame(self):
+            return 120
+
+        def CreateMagicMask(self, _mode):
+            raise AssertionError("an overlong range reached Resolve")
+
+    with pytest.raises(ValueError, match="exceeds the 120-frame"):
+        _call_create_magic_mask(
+            {"mode": "BI", "source_frame_range": {"start": 0, "end": 120}},
+            _LongItem(), "mask.create", gain_required=False)
 
 
 def test_mask_create_api_refuses_a_seed_without_a_point(world):
@@ -1728,6 +1760,7 @@ def test_mask_track_api_claims_the_accepted_call(world):
     seen = _mask_api(item, ok=True, gain=False)
     receipt = _mask(world, "mask-track-api", [{
         "op": "mask.track", "provider": "resolve_magic_mask_api",
+        "source_frame_range": {"start": 0, "end": 48},
         "track": {"keyframes": []}}])
     assert receipt["status"] == "committed", receipt
     assert seen == ["BI"]
@@ -1738,6 +1771,7 @@ def test_mask_track_api_refuses_a_keyed_track(world):
     track names two engines at once, so it is refused by name."""
     receipt = _mask(world, "mask-track-api-keyed", [{
         "op": "mask.track", "provider": "resolve_magic_mask_api",
+        "source_frame_range": {"start": 0, "end": 48},
         "track": {"keyframes": TRACK}}])
     assert receipt["status"] == "verification_failed"
     assert "fusion_matte provider's vocabulary" in receipt["stopped"]["raised"]
@@ -1747,6 +1781,7 @@ def test_mask_track_api_refuses_false(world):
     _mask_api(world[2], ok=False)
     receipt = _mask(world, "mask-track-api-false", [{
         "op": "mask.track", "provider": "resolve_magic_mask_api",
+        "source_frame_range": {"start": 0, "end": 48},
         "track": {"keyframes": []}}])
     assert receipt["status"] == "verification_failed"
     assert "answered False" in receipt["stopped"]["raised"]

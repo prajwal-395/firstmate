@@ -16,6 +16,8 @@ from library.tools import magic_mask
 from library.tools.computer_use.scripts import Script
 from library.tools.mask_seed import MaskSeed, Point
 
+_FRAME_RANGE = magic_mask.SourceFrameRange(0, 119)
+
 
 def _seed() -> MaskSeed:
     # The plan's own geometry example as the measured input: source
@@ -30,7 +32,8 @@ def _seed() -> MaskSeed:
 
 
 def _script() -> Script:
-    return magic_mask.seed_script(_seed(), scale_factor=2.0)
+    return magic_mask.seed_script(
+        _seed(), scale_factor=2.0, source_frame_range=_FRAME_RANGE)
 
 
 def test_seed_script_is_page_library_search_palette_mode_click():
@@ -48,6 +51,7 @@ def test_seed_script_is_page_library_search_palette_mode_click():
     assert (palette.anchors[0].params["template"]
             == "magic-mask-toolbar")
     assert palette.anchors[1].params["clicks"] == 2
+    assert "source frames 0..119 inclusive" in script.goal
 
 
 def test_seed_script_presses_the_color_page_through_the_menu_bar():
@@ -143,12 +147,16 @@ def test_seed_script_refuses_a_scale_it_cannot_click_with():
     1.0 default: defaulting would silently double-click on Retina."""
     for bad in (0.0, -2.0):
         with pytest.raises(ValueError, match="bad backing scale"):
-            magic_mask.seed_script(_seed(), scale_factor=bad)
+            magic_mask.seed_script(
+                _seed(), scale_factor=bad,
+                source_frame_range=_FRAME_RANGE)
 
 
 def test_seed_script_refuses_a_mode_the_api_refuses():
     with pytest.raises(ValueError, match="bad Magic Mask mode"):
-        magic_mask.seed_script(_seed(), mode="SLOW", scale_factor=2.0)
+        magic_mask.seed_script(
+            _seed(), mode="SLOW", scale_factor=2.0,
+            source_frame_range=_FRAME_RANGE)
 
 
 def test_open_palette_seed_skips_reveal_apply_and_mode():
@@ -159,7 +167,8 @@ def test_open_palette_seed_skips_reveal_apply_and_mode():
     The seed expect doubles as the palette-open proof: a viewer click
     with no mask tool behind it paints nothing and fails here
     instead of seeding blind."""
-    script = magic_mask.seed_open_palette_script(_seed(), scale_factor=2.0)
+    script = magic_mask.seed_open_palette_script(
+        _seed(), scale_factor=2.0, source_frame_range=_FRAME_RANGE)
     assert isinstance(script, Script)
     assert [s.action for s in script.steps] == ["press", "click"]
     assert [s.anchors[0].via for s in script.steps] == [
@@ -174,19 +183,64 @@ def test_open_palette_seed_refuses_like_the_full_route():
     """The warm route carries the same contract: no safe scale
     default, no unroutable mode."""
     with pytest.raises(ValueError, match="bad backing scale"):
-        magic_mask.seed_open_palette_script(_seed(), scale_factor=0.0)
+        magic_mask.seed_open_palette_script(
+            _seed(), scale_factor=0.0,
+            source_frame_range=_FRAME_RANGE)
     with pytest.raises(ValueError, match="bad Magic Mask mode"):
         magic_mask.seed_open_palette_script(
-            _seed(), mode="SLOW", scale_factor=2.0)
+            _seed(), mode="SLOW", scale_factor=2.0,
+            source_frame_range=_FRAME_RANGE)
 
 
 def test_track_script_clicks_the_named_direction_only():
-    assert magic_mask.track_script("forward").steps[0].anchors[0].params[
+    assert magic_mask.track_script("forward", _FRAME_RANGE).steps[0].anchors[0].params[
         "text"] == "Track Forward"
-    assert magic_mask.track_script("backward").steps[0].anchors[0].params[
+    assert magic_mask.track_script("backward", _FRAME_RANGE).steps[0].anchors[0].params[
         "text"] == "Track Backward"
+    assert "source frames 0..119 inclusive" in magic_mask.track_script(
+        "forward", _FRAME_RANGE).goal
     with pytest.raises(ValueError, match="bad track direction"):
-        magic_mask.track_script("sideways")
+        magic_mask.track_script("sideways", _FRAME_RANGE)
+
+
+class _SourceItem:
+    def __init__(self, start=0, end=119):
+        self.start = start
+        self.end = end
+
+    def GetSourceStartFrame(self):
+        return self.start
+
+    def GetSourceEndFrame(self):
+        return self.end
+
+
+def test_track_range_defaults_to_a_short_measured_trim():
+    actual = magic_mask.source_frame_range_for_item(
+        _SourceItem(), seed_frame=48)
+    assert actual == _FRAME_RANGE
+
+
+def test_track_range_refuses_a_long_source_before_tracking():
+    with pytest.raises(ValueError, match="exceeds the 120-frame"):
+        magic_mask.source_frame_range_for_item(
+            _SourceItem(end=120), seed_frame=48)
+
+
+def test_explicit_range_must_match_the_trim_and_contain_the_seed():
+    with pytest.raises(ValueError, match="do not match the timeline item's"):
+        magic_mask.source_frame_range_for_item(
+            _SourceItem(), "1:119", seed_frame=48)
+    with pytest.raises(ValueError, match="falls outside source range"):
+        magic_mask.source_frame_range_for_item(
+            _SourceItem(), "0:119", seed_frame=120)
+
+
+def test_source_frame_range_parser_requires_inclusive_integer_bounds():
+    assert magic_mask.parse_source_frame_range("12:99") == \
+        magic_mask.SourceFrameRange(12, 99)
+    with pytest.raises(ValueError, match="START:END"):
+        magic_mask.parse_source_frame_range("12-")
 
 
 def test_foreground_posts_input_at_the_hid_tap_only(client, monkeypatch):

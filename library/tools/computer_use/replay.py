@@ -437,12 +437,15 @@ def recipe_registry() -> list[RecipeSpec]:
                         source=Point(x=320.0, y=180.0),
                         viewer=Point(x=80.0, y=40.0),
                         object_id="q1", sample_index=0, seed_frame=48)
-        return magic_mask.seed_script(seed, mode="BI", scale_factor=2.0)
+        return magic_mask.seed_script(
+            seed, mode="BI", scale_factor=2.0,
+            source_frame_range=magic_mask.SourceFrameRange(0, 119))
 
     def _mask_track() -> Script:
         from library.tools import magic_mask
 
-        return magic_mask.track_script("forward")
+        return magic_mask.track_script(
+            "forward", magic_mask.SourceFrameRange(0, 119))
 
     def _window_create() -> Script:
         from library.tools.computer_use import window_recipe
@@ -1052,10 +1055,14 @@ def _foreground_runner(spec: RecipeSpec, client, resolve, project,
                         source=Point(x=320.0, y=180.0),
                         viewer=Point(x=640.0, y=360.0),
                         object_id="q1", sample_index=0, seed_frame=0)
+        source_frame_range = magic_mask.source_frame_range_for_item(
+            item, seed_frame=seed.seed_frame)
         from library.tools.computer_use.__main__ import _main_window_scale
 
         scale = _main_window_scale(client)
-        script = magic_mask.seed_script(seed, scale_factor=scale or 2.0)
+        script = magic_mask.seed_script(
+            seed, scale_factor=scale or 2.0,
+            source_frame_range=source_frame_range)
         result = run_script(client, script, foreground=True)
         if result.outcome != "done":
             raise RuntimeError(f"seed script ended {result.outcome}")
@@ -1064,8 +1071,10 @@ def _foreground_runner(spec: RecipeSpec, client, resolve, project,
         from library.tools import magic_mask
         from library.tools.computer_use.scripts import run_script
 
-        result = run_script(client, magic_mask.track_script("forward"),
-                            foreground=True)
+        source_frame_range = magic_mask.source_frame_range_for_item(item)
+        result = run_script(
+            client, magic_mask.track_script("forward", source_frame_range),
+            foreground=True)
         if result.outcome != "done":
             raise RuntimeError(f"track script ended {result.outcome}")
         return {"op": "magic-mask-track", "steps": result.steps}

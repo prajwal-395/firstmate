@@ -6462,22 +6462,36 @@ def cmd_sense_mask(args) -> int:
         except AxiError as exc:
             return fail(str(exc), exc.fix)
         span = _item_span(item)
+        from library.tools import magic_mask
+        try:
+            source_frame_range = magic_mask.source_frame_range_for_item(
+                item, getattr(args, "source_frame_range", None))
+        except ValueError as exc:
+            return fail(f"Magic Mask range refused ({exc}).",
+                        f"{TOOL} edit trim --timeline "
+                        f"\"{timeline.GetName()}\" --track "
+                        f"{track_type}{track_index} --index {args.index}")
         if not args.apply:
             emit([kv_block("mask_plan", {
-                        "timeline": timeline.GetName() +
-                        (" (current)" if is_current else ""),
-                        "item": (f"{track_type}{track_index}"
-                                 f"[{args.index}] {span['name']}"),
-                        "mode": args.mode,
-                    }),
-                  note,
-                  f"dry run - pass --apply to mask under the "
-                  f"Resolve lease (cursor must sit on the reel)",
-                  help_block([f"{TOOL} sense mask --timeline "
-                              f"\"{timeline.GetName()}\" --track "
-                              f"{track_type}{track_index} --index "
-                              f"{args.index} --mode {args.mode} "
-                              f"--apply"])])
+                            "timeline": timeline.GetName() +
+                            (" (current)" if is_current else ""),
+                            "item": (f"{track_type}{track_index}"
+                                     f"[{args.index}] {span['name']}"),
+                            "mode": args.mode,
+                            "source_frame_range": (
+                                source_frame_range.label()),
+                        }),
+                      note,
+                      f"dry run - pass --apply to mask under the "
+                      f"Resolve lease (cursor must sit on the reel)",
+                      help_block([f"{TOOL} sense mask --timeline "
+                                  f"\"{timeline.GetName()}\" --track "
+                                  f"{track_type}{track_index} --index "
+                                  f"{args.index} --mode {args.mode} "
+                                  f"--source-frame-range "
+                                  f"{source_frame_range.start}:"
+                                  f"{source_frame_range.end} "
+                                  f"--apply"])])
             return 0
         try:
             _assert_cursor_on(resolve, timeline.GetName())
@@ -6492,7 +6506,8 @@ def cmd_sense_mask(args) -> int:
         with _journal_write(
                 args, timeline=timeline, project=project,
                 spec={"verb": "sense_mask", "timeline": timeline.GetName(),
-                      "name": span["name"], "mode": args.mode},
+                      "name": span["name"], "mode": args.mode,
+                      "source_frame_range": source_frame_range.to_receipt()},
                 gate_class="sense_mask") as (journal, journal_state):
             try:
                 masked = bool(item.CreateMagicMask(args.mode))
@@ -6526,6 +6541,7 @@ def cmd_sense_mask(args) -> int:
                     "timeline": timeline.GetName(),
                     "item": span["name"],
                     "mode": args.mode,
+                    "source_frame_range": source_frame_range.label(),
                     "nodes_before": nodes_before,
                     "nodes_after": nodes_after,
                     "verified": "yes (node gained)",
@@ -7448,6 +7464,10 @@ def build_parser() -> Parser:
     q.add_argument("--mode", default="F",
                    help="F|B|BI: forward, backward, bidirectional "
                         "(default F)")
+    q.add_argument("--source-frame-range", default=None,
+                   help="inclusive START:END source frames; defaults to "
+                        "the selected item's measured trim, capped at "
+                        "120 frames")
     q.set_defaults(func=cmd_sense_mask)
 
     q = ssubs.add_parser("switch", help="multicam Smart Switch one "

@@ -447,8 +447,9 @@ class _FakeScriptClient:
 
 
 class _FakeScriptTimeline:
-    def __init__(self):
+    def __init__(self, source_end=119):
         self.timecode = "00:00:00:00"
+        self.item = _FakeScriptItem(0, source_end)
 
     def GetName(self):
         return "Q Spine"
@@ -463,10 +464,28 @@ class _FakeScriptTimeline:
     def GetCurrentTimecode(self):
         return self.timecode
 
+    def GetTrackCount(self, kind):
+        return 1 if kind == "video" else 0
+
+    def GetItemListInTrack(self, kind, index):
+        return [self.item] if kind == "video" and index == 1 else []
+
+
+class _FakeScriptItem:
+    def __init__(self, source_start, source_end):
+        self.source_start = source_start
+        self.source_end = source_end
+
+    def GetSourceStartFrame(self):
+        return self.source_start
+
+    def GetSourceEndFrame(self):
+        return self.source_end
+
 
 class _FakeScriptProject:
-    def __init__(self):
-        self.current = _FakeScriptTimeline()
+    def __init__(self, source_end=119):
+        self.current = _FakeScriptTimeline(source_end=source_end)
 
     def GetName(self):
         return "Ren Qualification"
@@ -475,7 +494,7 @@ class _FakeScriptProject:
         return 1
 
     def GetTimelineByIndex(self, index):
-        return _FakeScriptTimeline()
+        return self.current
 
     def GetCurrentTimeline(self):
         return self.current
@@ -486,11 +505,12 @@ class _FakeScriptProject:
 
 
 class _FakeScriptManager:
-    def __init__(self):
-        self._project = _FakeScriptProject()
+    def __init__(self, source_end=119):
+        self.source_end = source_end
+        self._project = _FakeScriptProject(source_end=source_end)
 
     def LoadProject(self, name):
-        self._project = _FakeScriptProject()
+        self._project = _FakeScriptProject(source_end=self.source_end)
         return self._project
 
     def GetCurrentProject(self):
@@ -498,8 +518,11 @@ class _FakeScriptManager:
 
 
 class _FakeScriptResolve:
+    def __init__(self, source_end=119):
+        self.source_end = source_end
+
     def GetProjectManager(self):
-        return _FakeScriptManager()
+        return _FakeScriptManager(source_end=self.source_end)
 
 
 _SEED_JSON = (
@@ -509,7 +532,7 @@ _SEED_JSON = (
     '"object_id": "obj_1", "sample_index": 2, "seed_frame": 48}')
 
 
-def _stub_script(monkeypatch, outcome="done", scale=2.0):
+def _stub_script(monkeypatch, outcome="done", scale=2.0, source_end=119):
     from library.tools.computer_use.scripts import ScriptResult
 
     runs: list = []
@@ -519,7 +542,7 @@ def _stub_script(monkeypatch, outcome="done", scale=2.0):
     monkeypatch.setattr(main_module, "DriverClient", lambda: clients[0])
     monkeypatch.setattr(
         "library.tools.marker_feedback.connect_resolve",
-        lambda: _FakeScriptResolve())
+        lambda: _FakeScriptResolve(source_end=source_end))
 
     def fake_lease(purpose, **kwargs):
         leases.append((purpose, kwargs))
@@ -624,7 +647,7 @@ def test_script_track_selects_the_named_direction(monkeypatch, capsys):
     never reached the builder would track the wrong way."""
     runs, _, _ = _stub_script(monkeypatch)
     argv = ["script", "--recipe", "magic-mask-track", "--timeline", "Q Spine",
-            "--direction", "backward"]
+            "--seed", _SEED_JSON, "--direction", "backward"]
     assert main_module.main(argv) == 0
     script, _ = runs[0]
     assert script.steps[0].anchors[0].params["text"] == "Track Backward"
@@ -636,7 +659,8 @@ def test_script_foreground_activates_and_flags_input(monkeypatch, capsys):
     nothing while the run reports ok."""
     runs, clients, _ = _stub_script(monkeypatch)
     argv = ["script", "--recipe", "magic-mask-track", "--timeline", "Q Spine",
-            "--direction", "forward", "--allow-foreground"]
+            "--seed", _SEED_JSON, "--direction", "forward",
+            "--allow-foreground"]
     assert main_module.main(argv) == 0
     assert ("activate_resolve", {"allow_foreground": True}) in clients[0].calls
     _, kwargs = runs[0]
@@ -648,7 +672,8 @@ def test_script_failed_run_exits_nonzero(monkeypatch, capsys):
     """A recipe whose step does not verify exits 1: the report names
     the outcome instead of passing silently."""
     _stub_script(monkeypatch, outcome="failed")
-    argv = ["script", "--recipe", "magic-mask-track", "--timeline", "Q Spine"]
+    argv = ["script", "--recipe", "magic-mask-track", "--timeline", "Q Spine",
+            "--seed", _SEED_JSON]
     assert main_module.main(argv) == 1
     assert "outcome: failed" in capsys.readouterr().out
 
@@ -659,7 +684,8 @@ def test_script_takes_a_plain_lease_it_borrows_under(monkeypatch, capsys):
     broker interlock while the captain's project is open - nearly
     always (found live 2026-10-06, SkyLight lane PR 1933)."""
     runs, _, leases = _stub_script(monkeypatch)
-    argv = ["script", "--recipe", "magic-mask-track", "--timeline", "Q Spine"]
+    argv = ["script", "--recipe", "magic-mask-track", "--timeline", "Q Spine",
+            "--seed", _SEED_JSON]
     assert main_module.main(argv) == 0
     assert runs != []
     assert leases != []
@@ -746,14 +772,50 @@ def test_script_recipe_with_file_flags_is_refused(monkeypatch, capsys):
     assert runs == []
 
 
-def test_script_track_with_seed_is_refused(monkeypatch, capsys):
-    """A --seed on the track recipe is refused: the tracker reads no
-    seed, so one passed would be dropped in silence."""
+def test_script_track_uses_the_seed_to_bound_its_source_range(
+        monkeypatch, capsys):
+    """The tracker used to have no source range, so one click could
+    analyze the whole clip. A seed receipt names the frame that the
+    measured short trim must contain."""
     runs, _, _ = _stub_script(monkeypatch)
     argv = ["script", "--recipe", "magic-mask-track", "--timeline",
             "Q Spine", "--seed", _SEED_JSON]
+    assert main_module.main(argv) == 0
+    assert runs != []
+    assert "source frame range: 0..119 inclusive (120 frames)" in \
+        capsys.readouterr().out
+
+
+def test_script_track_refuses_without_a_seed_before_opening_resolve(
+        monkeypatch, capsys):
+    runs, clients, _ = _stub_script(monkeypatch)
+    argv = ["script", "--recipe", "magic-mask-track", "--timeline",
+            "Q Spine"]
     assert main_module.main(argv) == 2
     assert runs == []
+    assert clients[0].calls == []
+    assert "needs --seed" in capsys.readouterr().err
+
+
+def test_script_mask_recipe_refuses_a_full_clip_before_input(
+        monkeypatch, capsys):
+    runs, _, _ = _stub_script(monkeypatch, source_end=120)
+    argv = ["script", "--recipe", "magic-mask-seed-open",
+            "--timeline", "Q Spine", "--seed", _SEED_JSON]
+    assert main_module.main(argv) == 2
+    assert runs == []
+    assert "exceeds the 120-frame" in capsys.readouterr().err
+
+
+def test_script_mask_recipe_refuses_a_requested_range_that_is_not_trimmed(
+        monkeypatch, capsys):
+    runs, _, _ = _stub_script(monkeypatch)
+    argv = ["script", "--recipe", "magic-mask-seed-open",
+            "--timeline", "Q Spine", "--seed", _SEED_JSON,
+            "--source-frame-range", "1:119"]
+    assert main_module.main(argv) == 2
+    assert runs == []
+    assert "do not match the timeline item's" in capsys.readouterr().err
 
 
 def _record_lease_order(monkeypatch, order, resolve_obj=None):
@@ -887,7 +949,8 @@ def test_script_recipe_connects_inside_the_lease(monkeypatch, capsys):
     _stub_script(monkeypatch)
     order: list = []
     _record_lease_order(monkeypatch, order, resolve_obj=_FakeScriptResolve())
-    argv = ["script", "--recipe", "magic-mask-track", "--timeline", "Q Spine"]
+    argv = ["script", "--recipe", "magic-mask-track", "--timeline", "Q Spine",
+            "--seed", _SEED_JSON]
     assert main_module.main(argv) == 0
     assert order.index("lease") < order.index("connect")
 
@@ -899,7 +962,8 @@ def test_script_recipe_goes_through_one_take_with_its_deadline(monkeypatch, caps
     runs, _, _ = _stub_script(monkeypatch)
     takes: list = []
     _record_take(monkeypatch, takes, resolve_obj=_FakeScriptResolve())
-    argv = ["script", "--recipe", "magic-mask-track", "--timeline", "Q Spine"]
+    argv = ["script", "--recipe", "magic-mask-track", "--timeline", "Q Spine",
+            "--seed", _SEED_JSON]
     assert main_module.main(argv) == 0
     assert [purpose for purpose, _ in takes] == [
         "computer-use script recipe magic-mask-track"]

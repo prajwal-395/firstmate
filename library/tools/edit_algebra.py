@@ -1222,6 +1222,17 @@ def _call_create_magic_mask(op, item, label, *, gain_required):
     follows judges it.
     """
     mode = _magic_mask_mode(op, label)
+    from library.tools.magic_mask import source_frame_range_for_item
+
+    seed = op.get("seed") or {}
+    requested_range = (op.get("source_frame_range")
+                       or seed.get("source_frame_range"))
+    if requested_range is None:
+        raise RuntimeError(
+            f"{label}: provider 'resolve_magic_mask_api' needs an "
+            "explicit source_frame_range from the trimmed timeline item")
+    source_frame_range_for_item(
+        item, requested_range, seed_frame=seed.get("seed_frame"))
     before = _node_count(item)
     if gain_required and before is None:
         raise RuntimeError(

@@ -220,14 +220,21 @@ def _run_recipe(client: DriverClient, args) -> int:
     from library.tools.mask_seed import MaskSeed, Point
 
     scale: float | None = None
-    if args.recipe in ("magic-mask-seed", "magic-mask-seed-open"):
-        if not args.seed:
-            print(f"ren: {args.recipe} needs --seed, the MaskSeed "
-                  f"receipt as JSON", file=sys.stderr)
-            return 2
+    seed = None
+    is_mask_recipe = args.recipe in (
+        "magic-mask-seed", "magic-mask-seed-open", "magic-mask-track")
+    if args.source_frame_range is not None and not is_mask_recipe:
+        print("ren: --source-frame-range only applies to Magic Mask recipes",
+              file=sys.stderr)
+        return 2
+    if is_mask_recipe:
         if not args.timeline:
             print(f"ren: {args.recipe} needs --timeline, the Ren "
                   f"Qualification timeline by exact name", file=sys.stderr)
+            return 2
+        if not args.seed:
+            print(f"ren: {args.recipe} needs --seed, the MaskSeed "
+                  f"receipt as JSON", file=sys.stderr)
             return 2
         try:
             raw = json.loads(args.seed)
@@ -245,39 +252,17 @@ def _run_recipe(client: DriverClient, args) -> int:
             print(f"ren: --seed is a MaskSeed receipt as JSON: {exc}",
                   file=sys.stderr)
             return 2
-        try:
-            scale = _main_window_scale(client)
-        except (KeyError, TypeError, ValueError) as exc:
-            print(f"ren: the main window's backing scale did not read "
-                  f"back: {exc}", file=sys.stderr)
-            return 1
-        if scale is None:
-            print(f"ren: no main window reported a backing scale - "
-                  f"cannot place the seed click", file=sys.stderr)
-            return 1
-        try:
-            builder = (magic_mask.seed_script
-                       if args.recipe == "magic-mask-seed"
-                       else magic_mask.seed_open_palette_script)
-            script = builder(
-                seed, mode=args.mode, scale_factor=scale)
-        except ValueError as exc:
-            print(f"ren: {exc}", file=sys.stderr)
-            return 2
-    elif args.recipe == "magic-mask-track":
-        if not args.timeline:
-            print("ren: magic-mask-track needs --timeline, the Ren "
-                  "Qualification timeline by exact name", file=sys.stderr)
-            return 2
-        if args.seed is not None:
-            print("ren: magic-mask-track takes no --seed - a seed no "
-                  "builder reads would run the wrong route", file=sys.stderr)
-            return 2
-        try:
-            script = magic_mask.track_script(args.direction)
-        except ValueError as exc:
-            print(f"ren: {exc}", file=sys.stderr)
-            return 2
+        if args.recipe in ("magic-mask-seed", "magic-mask-seed-open"):
+            try:
+                scale = _main_window_scale(client)
+            except (KeyError, TypeError, ValueError) as exc:
+                print(f"ren: the main window's backing scale did not read "
+                      f"back: {exc}", file=sys.stderr)
+                return 1
+            if scale is None:
+                print("ren: no main window reported a backing scale - "
+                      "cannot place the seed click", file=sys.stderr)
+                return 1
     elif args.recipe == "window-delete":
         from library.tools.computer_use import window_delete
 
@@ -352,6 +337,26 @@ def _run_recipe(client: DriverClient, args) -> int:
             if (timeline.GetCurrentTimecode() or "") != args.playhead_timecode:
                 print(f"ren: the playhead did not read back as "
                       f"{args.playhead_timecode!r}", file=sys.stderr)
+        source_frame_range = None
+        if is_mask_recipe:
+            try:
+                source_frame_range = magic_mask.resolve_source_frame_range(
+                    timeline, args.source_frame_range,
+                    seed_frame=seed.seed_frame)
+                if args.recipe == "magic-mask-seed":
+                    script = magic_mask.seed_script(
+                        seed, mode=args.mode, scale_factor=scale,
+                        source_frame_range=source_frame_range)
+                elif args.recipe == "magic-mask-seed-open":
+                    script = magic_mask.seed_open_palette_script(
+                        seed, mode=args.mode, scale_factor=scale,
+                        source_frame_range=source_frame_range)
+                else:
+                    script = magic_mask.track_script(
+                        args.direction, source_frame_range)
+            except ValueError as exc:
+                print(f"ren: {exc}", file=sys.stderr)
+                return 2
         if args.allow_foreground:
             client.call("activate_resolve", {"allow_foreground": True})
         step_started = time.monotonic()
@@ -362,6 +367,8 @@ def _run_recipe(client: DriverClient, args) -> int:
     print(f"goal: {script.goal}")
     if scale is not None:
         print(f"backing scale: {scale}")
+    if source_frame_range is not None:
+        print(f"source frame range: {source_frame_range.label()}")
     for row in result.steps:
         print(f"  step {row['step']} {row['action']}: {row['outcome']} "
               f"via {row['via']}")
@@ -587,7 +594,11 @@ def main(argv=None) -> int:
         help="recipes: the Ren Qualification timeline, by exact name")
     script_parser.add_argument(
         "--seed", default=None,
-        help="magic-mask-seed(-open): the MaskSeed receipt as JSON")
+        help="magic-mask-seed(-open)/magic-mask-track: the MaskSeed receipt as JSON")
+    script_parser.add_argument(
+        "--source-frame-range", default=None,
+        help="magic-mask recipes: inclusive START:END source frames; "
+             "defaults to the measured trim on the one-clip timeline")
     script_parser.add_argument(
         "--mode", default="BI",
         help="magic-mask-seed(-open): the CreateMagicMask mode (F|B|BI)")
@@ -722,6 +733,7 @@ def main(argv=None) -> int:
                     return _run_recipe(client, args)
             if args.file:
                 if (args.seed is not None or args.timeline is not None
+                        or args.source_frame_range is not None
                         or args.playhead_timecode is not None
                         or args.allow_foreground
                         or args.mode != "BI"
@@ -731,7 +743,8 @@ def main(argv=None) -> int:
                         or args.shape is not None
                         or args.point is not None
                         or args.values is not None):
-                    print("ren: --seed/--timeline/--playhead-timecode/"
+                    print("ren: --seed/--timeline/--source-frame-range/"
+                          "--playhead-timecode/"
                           "--mode/--direction/--allow-foreground/--clip/"
                           "--node/--shape/--point/--values need "
                           "--recipe", file=sys.stderr)

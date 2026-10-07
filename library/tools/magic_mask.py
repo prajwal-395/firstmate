@@ -31,6 +31,10 @@ falsifiable half: a background click that silently changes nothing
 fails `pixels_changed` or the `text_visible` wait instead of
 reporting ok.
 
+Every seed and track take names the item's inclusive source-frame trim.
+The recipe defaults to that measured trim and refuses it above 120
+frames, so a proof cannot silently analyze a full-length source.
+
 What this module does NOT do, on purpose: park the playhead (the
 caller supplies the timecode - a frame number converts through the
 timeline's own frame rate, which this module never guesses), call
@@ -42,6 +46,8 @@ selection is a future recipe step, not a silent assumption here).
 """
 
 from __future__ import annotations
+
+from dataclasses import dataclass
 
 from library.tools.computer_use.scripts import Anchor, Expect, Script, ScriptStep
 from library.tools.computer_use.scripts import EFFECTS_PANEL_PATH
@@ -58,6 +64,152 @@ TRACK_DIRECTIONS = ("forward", "backward")
 #: Palette label -> the OCR string the recipe clicks. Plan-stated until
 #: a live run confirms each one; the recipe records that.
 TRACK_LABELS = {"forward": "Track Forward", "backward": "Track Backward"}
+
+# The live tracker measured 3 fps on the captain's clip (2026-10-07).
+# A 120-frame ceiling keeps a proof near 40 seconds at that measured
+# rate; callers use an already-trimmed clip, and never silently track a
+# full source. The captain asked that future proofs cover a few seconds
+# and occupy Resolve for no more than a minute or two.
+MAX_TRACK_RANGE_FRAMES = 120
+
+
+@dataclass(frozen=True)
+class SourceFrameRange:
+    """An inclusive source-frame range carried by a Magic Mask take."""
+
+    start: int
+    end: int
+
+    def __post_init__(self) -> None:
+        if (not isinstance(self.start, int) or isinstance(self.start, bool)
+                or not isinstance(self.end, int) or isinstance(self.end, bool)
+                or self.start < 0 or self.end < self.start):
+            raise ValueError(
+                f"bad source frame range {self.start!r}..{self.end!r}; "
+                "expected non-negative inclusive bounds")
+
+    @property
+    def frame_count(self) -> int:
+        return self.end - self.start + 1
+
+    def label(self) -> str:
+        return f"{self.start}..{self.end} inclusive ({self.frame_count} frames)"
+
+    def to_receipt(self) -> dict[str, int]:
+        return {"start": self.start, "end": self.end}
+
+
+def parse_source_frame_range(value) -> SourceFrameRange | None:
+    """Parse `START:END` or a receipt mapping; bounds are inclusive."""
+    if value is None:
+        return None
+    if isinstance(value, SourceFrameRange):
+        return value
+    if isinstance(value, str):
+        parts = value.split(":")
+        if len(parts) != 2:
+            raise ValueError(
+                "--source-frame-range is START:END (inclusive)")
+        try:
+            start, end = (int(part) for part in parts)
+        except ValueError as exc:
+            raise ValueError(
+                "--source-frame-range is START:END (inclusive integers)") from exc
+    elif isinstance(value, dict):
+        try:
+            start, end = value["start"], value["end"]
+            if (not isinstance(start, int) or isinstance(start, bool)
+                    or not isinstance(end, int) or isinstance(end, bool)):
+                raise TypeError
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(
+                f"bad source frame range receipt {value!r}") from exc
+    elif isinstance(value, (tuple, list)) and len(value) == 2:
+        start, end = value
+        if (not isinstance(start, int) or isinstance(start, bool)
+                or not isinstance(end, int) or isinstance(end, bool)):
+            raise ValueError(f"bad source frame range {value!r}")
+    else:
+        raise ValueError(f"bad source frame range {value!r}")
+    return SourceFrameRange(start, end)
+
+
+def source_frame_range_for_item(
+    item,
+    requested=None,
+    *,
+    seed_frame: int | None = None,
+) -> SourceFrameRange:
+    """Resolve a bounded take from one already-trimmed timeline item.
+
+    The default is the item's measured source in/out range. An explicit
+    range must match that trim exactly, so a request cannot claim a
+    shorter run while Resolve still tracks the full clip. Source out is
+    inclusive in `TimelineItem.GetSourceEndFrame()`.
+    """
+    try:
+        actual = SourceFrameRange(int(item.GetSourceStartFrame()),
+                                  int(item.GetSourceEndFrame()))
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise ValueError(
+            "the target clip did not read back source in/out frames") from exc
+    selected = parse_source_frame_range(requested) or actual
+    if selected != actual:
+        raise ValueError(
+            f"requested source frames {selected.label()} do not match the "
+            f"timeline item's trimmed range {actual.label()}; trim the "
+            "qualification clip to that exact range first")
+    if selected.frame_count > MAX_TRACK_RANGE_FRAMES:
+        raise ValueError(
+            f"source range {selected.label()} exceeds the "
+            f"{MAX_TRACK_RANGE_FRAMES}-frame Magic Mask take limit; trim "
+            "the qualification clip to a few seconds first")
+    if seed_frame is not None and not selected.start <= int(seed_frame) <= selected.end:
+        raise ValueError(
+            f"seed frame {seed_frame} falls outside source range "
+            f"{selected.label()}")
+    return selected
+
+
+def _mask_timeline_item(timeline):
+    """The one picture item a deterministic Magic Mask recipe can address."""
+    try:
+        track_count = int(timeline.GetTrackCount("video"))
+        items = [item
+                 for index in range(1, track_count + 1)
+                 for item in (timeline.GetItemListInTrack("video", index) or [])]
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise ValueError(
+            "the target timeline did not read its video items") from exc
+    if len(items) != 1:
+        raise ValueError(
+            f"Magic Mask recipes need one picture item on the timeline; "
+            f"read {len(items)}")
+    return items[0]
+
+
+def resolve_source_frame_range(timeline, requested=None, *, seed_frame=None):
+    """Resolve and bound the sole picture item's source frame range."""
+    item = _mask_timeline_item(timeline)
+    return source_frame_range_for_item(
+        item, requested, seed_frame=seed_frame)
+
+
+def _require_bounded_range(source_frame_range: SourceFrameRange,
+                           *, seed_frame: int | None = None
+                           ) -> SourceFrameRange:
+    if not isinstance(source_frame_range, SourceFrameRange):
+        raise ValueError("Magic Mask recipes need a measured source frame range")
+    if source_frame_range.frame_count > MAX_TRACK_RANGE_FRAMES:
+        raise ValueError(
+            f"source range {source_frame_range.label()} exceeds the "
+            f"{MAX_TRACK_RANGE_FRAMES}-frame Magic Mask take limit")
+    if (seed_frame is not None
+            and not source_frame_range.start <= seed_frame <= source_frame_range.end):
+        raise ValueError(
+            f"seed frame {seed_frame} falls outside source range "
+            f"{source_frame_range.label()}")
+    return source_frame_range
 
 
 def _color_page_step() -> ScriptStep:
@@ -120,6 +272,7 @@ def seed_script(
     *,
     mode: str = "BI",
     scale_factor: float,
+    source_frame_range: SourceFrameRange,
 ) -> Script:
     """The seven UI steps that seed a Magic Mask: page, library, search,
     type, palette, mode, click.
@@ -148,6 +301,8 @@ def seed_script(
     if mode not in MAGIC_MASK_MODES:
         raise ValueError(
             f"bad Magic Mask mode {mode!r}: one of {list(MAGIC_MASK_MODES)}")
+    source_frame_range = _require_bounded_range(
+        source_frame_range, seed_frame=seed.seed_frame)
     if not scale_factor or scale_factor <= 0:
         raise ValueError(
             f"bad backing scale {scale_factor!r}: the main window's "
@@ -157,6 +312,8 @@ def seed_script(
     return Script(
         goal=(f"Seed the Magic Mask on {seed.subject!r} in clip "
               f"{seed.clip_id} frame {seed.seed_frame} "
+              f"within source frames {source_frame_range.start}.."
+              f"{source_frame_range.end} inclusive "
               f"(object {seed.object_id}, mode {mode})"),
         steps=[
             _color_page_step(),
@@ -234,6 +391,7 @@ def seed_open_palette_script(
     *,
     mode: str = "BI",
     scale_factor: float,
+    source_frame_range: SourceFrameRange,
 ) -> Script:
     """Seed when the Magic Mask palette is already open with no mask.
 
@@ -253,6 +411,8 @@ def seed_open_palette_script(
     if mode not in MAGIC_MASK_MODES:
         raise ValueError(
             f"bad Magic Mask mode {mode!r}: one of {list(MAGIC_MASK_MODES)}")
+    source_frame_range = _require_bounded_range(
+        source_frame_range, seed_frame=seed.seed_frame)
     if not scale_factor or scale_factor <= 0:
         raise ValueError(
             f"bad backing scale {scale_factor!r}: the main window's "
@@ -262,6 +422,8 @@ def seed_open_palette_script(
     return Script(
         goal=(f"Seed the open Magic Mask on {seed.subject!r} in clip "
               f"{seed.clip_id} frame {seed.seed_frame} "
+              f"within source frames {source_frame_range.start}.."
+              f"{source_frame_range.end} inclusive "
               f"(object {seed.object_id}, mode {mode})"),
         steps=[
             _color_page_step(),
@@ -270,7 +432,7 @@ def seed_open_palette_script(
     )
 
 
-def track_script(direction: str) -> Script:
+def track_script(direction: str, source_frame_range: SourceFrameRange) -> Script:
     """The one UI step that drives the palette tracker when the API fails.
 
     The plan's section 8 fallback: `CreateMagicMask` answered False, so
@@ -283,9 +445,12 @@ def track_script(direction: str) -> Script:
         raise ValueError(
             f"bad track direction {direction!r}: "
             f"one of {list(TRACK_DIRECTIONS)}")
+    source_frame_range = _require_bounded_range(source_frame_range)
     label = TRACK_LABELS[direction]
     return Script(
-        goal=f"Track the Magic Mask {direction} from the seeded frame",
+        goal=(f"Track the Magic Mask {direction} from the seeded frame "
+              f"within source frames {source_frame_range.start}.."
+              f"{source_frame_range.end} inclusive"),
         steps=[
             ScriptStep(
                 action="click",
