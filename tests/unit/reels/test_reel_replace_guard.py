@@ -8,6 +8,7 @@ import subprocess
 import sys
 import textwrap
 import threading
+import time
 from contextlib import nullcontext
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -20,6 +21,15 @@ from tests.resolve_double import FakeProject
 
 REPO_ROOT = str(__import__("pathlib").Path(__file__).resolve().parents[3])
 
+# Fail-safe bounds, never verdicts: every rendezvous below is driven by an
+# event (an Event set, a future completing, a pipe line arriving or EOF).
+# The bounds only turn a wedged peer into a failure instead of a hang - no
+# passing or failing verdict depends on how fast the machine is. The old
+# shape waited 5s for the worker to reach its first read and peeked 0.5s
+# for the writer's entry, so a loaded machine failed a correct
+# implementation ("inventory never read the timeline count").
+_RENDEZVOUS_SECONDS = 120.0
+
 _EXCLUSIVE_HOLDER = textwrap.dedent("""
     import os, sys
     sys.path.insert(0, {repo!r})
@@ -27,11 +37,22 @@ _EXCLUSIVE_HOLDER = textwrap.dedent("""
     os.environ.pop(resolve_lock.INHERIT_ENV, None)
     os.environ.pop(resolve_lock.INHERIT_MODE_ENV, None)
     print("TRYING", flush=True)
-    with resolve_lock.resolve_lease(
-            "test: concurrent timeline creator", exclusive=True,
-            timeout=5.0):
-        print("HELD", flush=True)
-        sys.stdin.readline()
+    while True:
+        try:
+            with resolve_lock.resolve_lease(
+                    "test: concurrent timeline creator", exclusive=True,
+                    timeout=2.0):
+                print("HELD", flush=True)
+                sys.stdin.readline()
+                break
+        except resolve_lock.CaptainPresent:
+            raise
+        except resolve_lock.ResolveBusy:
+            # An attempt can only fail while someone holds the lease.
+            # The test has not released anything yet, so this line is
+            # the proof the writer queued behind the inventory's hold -
+            # whatever speed either side runs at.
+            print("BUSY", flush=True)
 """)
 
 
@@ -44,8 +65,11 @@ class _PausingProject(FakeProject):
     def GetTimelineCount(self):
         count = super().GetTimelineCount()
         self.count_read.set()
-        if not self.continue_read.wait(timeout=5):
-            raise TimeoutError("test did not release timeline inventory read")
+        # No timeout: the test releases this in a `finally`, so a bound
+        # here would only measure machine speed, while an unbounded wait
+        # ends exactly when the test releases it (or fails, which also
+        # releases it through the same `finally`).
+        self.continue_read.wait()
         return count
 
 
@@ -78,6 +102,46 @@ def _release_holder(holder):
         holder.communicate(timeout=5)
 
 
+def _wait_for_inventory_read(count_read, future):
+    """Block until the worker is parked inside GetTimelineCount.
+
+    Event-driven, not timed: returns exactly when `count_read` is set,
+    however long thread startup and the uncontended lease acquisition
+    take. A worker that finishes (or dies) without reading the count
+    surfaces its outcome instead of hanging the suite; the bound only
+    turns a worker wedged before its first read into a failure.
+    """
+    deadline = time.monotonic() + _RENDEZVOUS_SECONDS
+    while not count_read.is_set():
+        if future.done():
+            try:
+                result = future.result()
+            except Exception as exc:
+                pytest.fail(
+                    "inventory worker died before reading the timeline "
+                    f"count: {exc!r}")
+            pytest.fail(
+                "inventory worker returned without reading the timeline "
+                f"count: {result!r}")
+        if time.monotonic() >= deadline:
+            pytest.fail(
+                "inventory worker never read the timeline count within "
+                f"{_RENDEZVOUS_SECONDS:g}s - wedged before the first read")
+        count_read.wait(timeout=1.0)
+
+
+def _read_holder_line(holder, message):
+    """One stdout line from the writer child, or fail.
+
+    A blocking readline ends at EOF, so a dead child fails here instead
+    of hanging; the bound only caps a wedged-but-silent child.
+    """
+    ready, _, _ = select.select(
+        [holder.stdout], [], [], _RENDEZVOUS_SECONDS)
+    assert ready, message
+    return holder.stdout.readline().strip()
+
+
 def test_inventory_holds_shared_lease_while_count_and_indexes_are_read(
         tmp_path, monkeypatch):
     """An exclusive creator waits until a count/index inventory completes."""
@@ -99,36 +163,37 @@ def test_inventory_holds_shared_lease_while_count_and_indexes_are_read(
     future = executor.submit(reel_replace_guard.timeline_inventory, project)
     holder = None
     try:
-        assert count_read.wait(timeout=5), "inventory never read the timeline count"
+        # The worker is parked inside GetTimelineCount holding the shared
+        # inventory lease - an event, not a wait: no machine speed
+        # decides it.
+        _wait_for_inventory_read(count_read, future)
         holder = _start_exclusive_holder(lock_dir)
-        assert select.select([holder.stdout], [], [], 5)[0], (
-            "concurrent writer did not report its lease attempt")
-        line = holder.stdout.readline().strip()
-        assert line == "TRYING"
-        writer_entered_during_inventory = bool(
-            select.select([holder.stdout], [], [], 0.5)[0])
-        if writer_entered_during_inventory:
-            assert holder.stdout.readline().strip() == "HELD"
-            # This is the observed count-then-delete-then-index interleaving.
-            project.GetMediaPool().DeleteTimelines(
-                [project._timelines[-1]])
-            continue_read.set()
-            with pytest.raises(reel_replace_guard.ReplaceGuardUnreadable,
-                               match="timeline 2 returned no object"):
-                future.result(timeout=5)
+        assert _read_holder_line(
+            holder,
+            "concurrent writer did not report its lease attempt") == "TRYING"
+        # The writer's first attempt settles while the inventory still
+        # holds the shared lease - nothing has been released yet, so the
+        # ORDER decides, not a clock: BUSY proves it queued behind the
+        # hold, HELD proves it entered during the inventory, however
+        # slowly either side ran.
+        attempt = _read_holder_line(
+            holder, "concurrent writer settled neither queued nor entered")
+        if attempt == "HELD":
             pytest.fail(
-                "reproduced the concurrent timeline inventory race: an "
-                "exclusive timeline writer entered between count and index "
-                "reads")
+                "an exclusive timeline writer entered while the "
+                "count/index inventory still held the shared lease")
+        assert attempt == "BUSY", (
+            f"writer reported {attempt!r}, not its attempt outcome")
 
         # The writer is queued behind the shared inventory lease. Let the
         # indexed reads finish, then confirm the writer enters afterward.
         continue_read.set()
-        entries = future.result(timeout=5)
+        entries = future.result(timeout=_RENDEZVOUS_SECONDS)
         assert [entry["name"] for entry in entries] == ["Master", "Reel 01"]
-        assert select.select([holder.stdout], [], [], 5)[0], (
-            "writer did not proceed after the inventory released its lease")
-        assert holder.stdout.readline().strip() == "HELD"
+        assert _read_holder_line(
+            holder,
+            "writer did not proceed after the inventory released its "
+            "lease") == "HELD"
     finally:
         continue_read.set()
         _release_holder(holder)
