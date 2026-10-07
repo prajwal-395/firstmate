@@ -30,10 +30,13 @@
 #
 # PRIVACY. The workspace id lives in gitignored `config/opencode-second-org`
 # (docs/configuration.md owns the schema); no token, key, or workspace id
-# goes in tracked files, commit messages, or PR bodies. The pinned database
-# carries the account's own tokens and lives beside it at
-# `config/opencode-second.db`; both paths stay out of secondmate inheritance
-# because that contract is allowlisted.
+# goes in tracked files, commit messages, or PR bodies. The org id is
+# declared inherited local material, so secondmate homes converge it from
+# the primary and run the fourth rung too. The pinned database carries the
+# account's own tokens and lives beside it at `config/opencode-second.db`;
+# it is never inherited - each home builds its own from its own machine's
+# live console login on the first launch that needs it, then refreshes it
+# on every later pinned launch.
 #
 # FRESHNESS. The live login refreshes its token, so a pin copied once would
 # go stale: after a rotation the pinned copy diverges and a secondary
