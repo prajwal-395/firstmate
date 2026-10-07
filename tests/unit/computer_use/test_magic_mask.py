@@ -39,7 +39,13 @@ def test_seed_script_is_page_palette_mode_click_in_order():
     assert [s.action for s in script.steps] == [
         "press", "click", "click", "click"]
     assert [s.anchors[0].via for s in script.steps] == [
-        "ax_path", "ocr", "ocr", "position"]
+        "ax_path", "template", "ocr", "position"]
+    # The palette step tries the measured icon first and keeps the
+    # plan-stated OCR text as fallback: an unmeasured template resolves
+    # to nothing and the step behaves as before.
+    palette = script.steps[1]
+    assert [a.via for a in palette.anchors] == ["template", "ocr"]
+    assert palette.anchors[0].params["template"] == "magic-mask-toolbar"
 
 
 def test_seed_script_presses_the_color_page_through_the_menu_bar():

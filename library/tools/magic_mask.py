@@ -13,9 +13,12 @@ from `computer_use.scripts`' anchor vocabulary:
   the page switch goes through the AX menu bar
   (`Workspace > Switch to Page`, read back edit -> media 2026-10-05);
   the Magic Mask palette carries no AX node (Qt-drawn, zero matching
-  menu commands) but IS OCR-readable, so the palette, the mode and the
-  tracker are text anchors; background input reaches nothing Qt-drawn
-  (measured 0 pixels changed), so the click steps need the foreground;
+  menu commands) and its toolbar button is icon-only (OCR-blind on the
+  settled page, measured 2026-10-07 - the earlier OCR-readable claim
+  was refuted live), so the button is a template anchor and the mode
+  and the tracker are text anchors; background input reaches nothing
+  Qt-drawn (measured 0 pixels changed), so the click steps need the
+  foreground;
 - the captain's plan for the label strings ("Magic Mask", "Person",
   "Track Forward"/"Track Backward", modes F/B/BI).
 
@@ -102,10 +105,20 @@ def seed_script(
             ),
             ScriptStep(
                 action="click",
-                anchors=[Anchor(via="ocr", params={
-                    "text": "Magic Mask",
-                    "source": "plan",
-                })],
+                anchors=[
+                    Anchor(via="template", params={
+                        "template": "magic-mask-toolbar",
+                        "source": "ren",
+                        "why": ("icon-only toolbar button, OCR-blind "
+                                "on the settled page (measured "
+                                "2026-10-07); inert until its crop and "
+                                "threshold land in templates.py"),
+                    }),
+                    Anchor(via="ocr", params={
+                        "text": "Magic Mask",
+                        "source": "plan",
+                    }),
+                ],
                 expect=Expect(via="text_visible", params={
                     "text": "Person",
                     "source": "plan",

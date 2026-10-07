@@ -921,3 +921,118 @@ def test_region_outside_the_image_is_unchanged_and_malformed_raises():
         _region_changed(shot, shot, [10, 10, 0, 10])
     with pytest.raises(ValueError):
         _region_changed(shot, shot, [-1, 10, 10, 10])
+def test_the_measured_registry_template_resolves():
+    """The committed magic-mask crop matches itself pasted into a
+    capture at the registry threshold with no per-call threshold: the
+    recipe names the template, the registry carries the measurement."""
+    import base64
+    from io import BytesIO
+
+    import pytest
+
+    from PIL import Image
+
+    from library.tools.computer_use.scripts import _resolve_template
+    from library.tools.computer_use.templates import load_template
+
+    pixels, entry = load_template("magic-mask-toolbar")
+    h, w = pixels.shape[:2]
+    crop = Image.fromarray(pixels)
+    img = Image.new("RGB", (400, 300), (20, 20, 20))
+    img.paste(crop, (100, 80))
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+
+    class _Capture:
+        def call(self, method, params=None):
+            assert method == "capture_window"
+            return {"image": base64.b64encode(buf.getvalue()).decode("ascii"),
+                    "width": 400.0, "height": 300.0, "scale": 2.0}
+
+    resolved = _resolve_template(
+        _Capture(), Anchor(via="template",
+                           params={"template": "magic-mask-toolbar"}))
+    assert resolved is not None
+    method, params = resolved
+    assert method == "click"
+    assert params["x"] == pytest.approx((100 + w / 2) / 2.0)
+    assert params["y"] == pytest.approx((80 + h / 2) / 2.0)
+
+
+def test_a_missing_template_file_resolves_to_nothing_not_a_crash(tmp_path):
+    """A named file that is absent or unreadable resolves to nothing:
+    yesterday's crop moved or was never captured, and the run must
+    fall through, not traceback."""
+    from library.tools.computer_use.scripts import _resolve_template
+
+    class _Dead:
+        def call(self, method, params=None):
+            raise AssertionError("no driver call expected")
+
+    resolved = _resolve_template(
+        _Dead(), Anchor(via="template",
+                        params={"image": str(tmp_path / "gone.png"),
+                                "threshold": 0.5}))
+    assert resolved is None
+
+
+def test_a_threshold_outside_unit_range_fails_fast(tmp_path):
+    """A threshold at or above 1 (or at/below 0) is a malformed recipe,
+    not a layout that moved: it raises instead of matching nothing
+    forever."""
+    from PIL import Image
+
+    from library.tools.computer_use.scripts import _resolve_template
+
+    template_path = tmp_path / "template.png"
+    Image.new("RGB", (8, 8), (200, 200, 200)).save(template_path)
+
+    class _Dead:
+        def call(self, method, params=None):
+            raise AssertionError("no driver call expected")
+
+    with pytest.raises(ValueError):
+        _resolve_template(
+            _Dead(), Anchor(via="template",
+                            params={"image": str(template_path),
+                                    "threshold": 1.5}))
+
+
+def test_a_template_cut_at_another_scale_still_lands(monkeypatch, tmp_path):
+    """One crop serves every display: a template cut at backing scale
+    2x matches a 1x capture after the resolver rescales it to the
+    capture's own scale. Without the rescale the grids disagree and a
+    fixed threshold never clears."""
+    import base64
+    from io import BytesIO
+
+    from PIL import Image, ImageDraw
+
+    from library.tools.computer_use.scripts import _resolve_template
+
+    img = Image.new("RGB", (128, 64), (20, 20, 20))
+    draw = ImageDraw.Draw(img)
+    draw.rectangle([40, 20, 60, 40], fill=(200, 200, 200))
+    draw.rectangle([46, 26, 54, 34], fill=(10, 10, 10))
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+
+    class _Capture:
+        def call(self, method, params=None):
+            assert method == "capture_window"
+            return {"image": base64.b64encode(buf.getvalue()).decode("ascii"),
+                    "width": 128.0, "height": 64.0, "scale": 1.0}
+
+    box = (40, 20, 60, 40)
+    big = img.crop(box).resize((40, 40))
+    template_path = tmp_path / "template2x.png"
+    big.save(template_path)
+    resolved = _resolve_template(
+        _Capture(), Anchor(via="template",
+                           params={"image": str(template_path),
+                                   "threshold": 0.5, "scale": 2.0}))
+    assert resolved is not None
+    method, params = resolved
+    assert method == "click"
+    assert params["x"] == pytest.approx((box[0] + box[2]) / 2)
+    assert params["y"] == pytest.approx((box[1] + box[3]) / 2)

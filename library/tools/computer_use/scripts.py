@@ -376,33 +376,76 @@ def _resolve_wait(anchor: Anchor) -> tuple[str, dict] | None:
 
 def _resolve_template(client: DriverClient, anchor: Anchor) -> tuple[str, dict] | None:
     """Match an image template against a capture. For the Qt UI's icon
-    controls, which are neither AX-reachable nor OCR-readable."""
+    controls, which are neither AX-reachable nor OCR-readable.
+
+    The anchor names the template by registry (`template:` - provenance,
+    measured threshold and cut scale from `templates.py`) or by file
+    (`image:` - the legacy direct path). A template with no file, no
+    measured threshold, or no readable pixels resolves to nothing, so
+    the step falls through to its next anchor; a threshold outside
+    (0, 1) is a malformed recipe and fails fast. The crop is rescaled
+    to the live capture's backing scale before matching, so one crop
+    serves every display; without a recorded cut scale the crop is
+    matched as is.
+    """
     import cv2
     import numpy as np
 
-    image_path = anchor.params.get("image")
-    if not image_path:
-        return None
-    from PIL import Image
+    from library.tools.computer_use.templates import TemplateMissing
 
-    with Image.open(image_path) as template:
-        template_np = np.array(template.convert("RGB"))
+    threshold = anchor.params.get("threshold")
+    template_np = None
+    cut_scale = None
+    if anchor.params.get("template"):
+        from library.tools.computer_use.templates import load_template
+
+        try:
+            template_np, entry = load_template(anchor.params["template"])
+        except TemplateMissing:
+            return None
+        cut_scale = entry.cut_scale
+        if threshold is None:
+            threshold = entry.threshold
+    elif anchor.params.get("image"):
+        from PIL import Image
+
+        try:
+            with Image.open(anchor.params["image"]) as template:
+                template_np = np.array(template.convert("RGB"))
+        except (OSError, ValueError):
+            return None
+        cut_scale = anchor.params.get("scale")
+    else:
+        return None
+    if threshold is None:
+        return None
+    threshold = float(threshold)
+    if not 0.0 < threshold < 1.0:
+        raise ValueError(
+            f"template threshold {threshold!r} is outside (0, 1) - "
+            f"record the measured match score in templates.py, not a guess")
+    if anchor.params.get("scale") is not None:
+        cut_scale = float(anchor.params["scale"])
     capture = client.call("capture_window")
     from PIL import Image
 
     with Image.open(BytesIO(base64.b64decode(capture["image"]))) as img:
         capture_np = np.array(img.convert("RGB"))
-    result = cv2.matchTemplate(capture_np, template_np, cv2.TM_CCOEFF_NORMED)
-    _, max_val, _, max_loc = cv2.minMaxLoc(result)
-    threshold = float(anchor.params.get("threshold", 0.9))
-    if max_val < threshold:
-        return None
-    h, w = template_np.shape[:2]
     # Clicks take window points, but the capture (and the template cut
     # from it) is in backing pixels - measured live: an unscaled
     # template hit at 2x reads outside the window and the driver
     # refuses it OUTSIDE_RESOLVE. The capture carries its own scale.
     scale = float(capture.get("scale") or 1.0)
+    if cut_scale is not None and float(cut_scale) != scale:
+        factor = scale / float(cut_scale)
+        template_np = cv2.resize(
+            template_np, None, fx=factor, fy=factor,
+            interpolation=cv2.INTER_AREA if factor < 1.0 else cv2.INTER_LINEAR)
+    result = cv2.matchTemplate(capture_np, template_np, cv2.TM_CCOEFF_NORMED)
+    _, max_val, _, max_loc = cv2.minMaxLoc(result)
+    if max_val < threshold:
+        return None
+    h, w = template_np.shape[:2]
     x = (max_loc[0] + w / 2) / scale
     y = (max_loc[1] + h / 2) / scale
     return ("click", {"x": x, "y": y})
