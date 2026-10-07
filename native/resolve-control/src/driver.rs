@@ -643,8 +643,13 @@ impl Driver {
         self.ensure_permissions()?;
         let path = command_path(params)?;
         let pid = self.ensure_resolve()?;
-        let menus_closed = invoke_menu_path(pid, &path)?;
-        Ok(serde_json::json!({"pressed": true, "path": path, "menus_closed": menus_closed}))
+        let menu_close = invoke_menu_path(pid, &path)?;
+        Ok(serde_json::json!({
+            "pressed": true,
+            "path": path,
+            "menus_closed": menu_close.confirmed_closed(),
+            "menu_close": menu_close.to_json(),
+        }))
     }
 
     fn press(&mut self, params: &Json) -> DriverResult<Json> {
@@ -661,8 +666,12 @@ impl Driver {
         let chain = stored.menu_chain.clone();
         if menu && !chain.is_empty() {
             let pid = self.ensure_resolve()?;
-            let menus_closed = invoke_menu_path(pid, &chain)?;
-            return Ok(serde_json::json!({"pressed": true, "menus_closed": menus_closed}));
+            let menu_close = invoke_menu_path(pid, &chain)?;
+            return Ok(serde_json::json!({
+                "pressed": true,
+                "menus_closed": menu_close.confirmed_closed(),
+                "menu_close": menu_close.to_json(),
+            }));
         }
         let el = self.element_refs.get(&element_ref).ok_or(DriverError::ElementStale)?;
         el.el.press()?;
@@ -1005,7 +1014,7 @@ const MENU_HOP_SETTLE_MS: u64 = 80;
 /// Returns whether the menus are confirmed closed. A failed walk still
 /// closed best-effort through the same guard; the error carries what
 /// failed.
-fn invoke_menu_path(pid: u32, path: &[String]) -> DriverResult<bool> {
+fn invoke_menu_path(pid: u32, path: &[String]) -> DriverResult<MenuCloseReceipt> {
     pre_clean_stale_menu(pid, &path[0]);
     let mut closer = MenuCloser::new(pid, path[0].clone());
     let result = walk_menu_path(pid, path, &mut closer);
@@ -1022,6 +1031,29 @@ fn menus_closed(expanded: Option<bool>, cancels_ok: bool) -> bool {
     cancels_ok && expanded != Some(true)
 }
 
+/// The evidence behind the compatibility `menus_closed` boolean. Keeping
+/// both signals makes a conservative false actionable: callers can tell
+/// an expanded menu from a failed AXCancel or an unreadable AXExpanded.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct MenuCloseReceipt {
+    expanded: Option<bool>,
+    cancels_ok: bool,
+}
+
+impl MenuCloseReceipt {
+    fn confirmed_closed(self) -> bool {
+        menus_closed(self.expanded, self.cancels_ok)
+    }
+
+    fn to_json(self) -> Json {
+        serde_json::json!({
+            "confirmed": self.confirmed_closed(),
+            "expanded": self.expanded,
+            "cancels_ok": self.cancels_ok,
+        })
+    }
+}
+
 /// The closer: owns every menu this walk opened plus the top title to
 /// read back. `finish` closes once and reports; Drop covers every
 /// other exit (error returns, panics) - best-effort there, since Drop
@@ -1030,7 +1062,7 @@ struct MenuCloser {
     pid: u32,
     top: String,
     opened: Vec<AxElement>,
-    closed: Option<bool>,
+    closed: Option<MenuCloseReceipt>,
 }
 
 impl MenuCloser {
@@ -1038,7 +1070,7 @@ impl MenuCloser {
         MenuCloser { pid, top, opened: Vec::new(), closed: None }
     }
 
-    fn finish(&mut self) -> bool {
+    fn finish(&mut self) -> MenuCloseReceipt {
         if let Some(closed) = self.closed {
             return closed;
         }
@@ -1118,21 +1150,28 @@ fn pre_clean_stale_menu(pid: u32, top: &str) {
 /// first, then the top bar item's AXExpanded, with an Escape fallback
 /// gated on the target being frontmost (Escape anywhere else would
 /// land in the captain's app). Returns the verified verdict.
-fn close_opened_menus(pid: u32, top: &str, opened: &[AxElement]) -> bool {
+fn close_opened_menus(
+    pid: u32,
+    top: &str,
+    opened: &[AxElement],
+) -> MenuCloseReceipt {
     let mut cancels_ok = true;
     for el in opened.iter().rev() {
         cancels_ok &= cancel_element(el);
     }
     let expanded = top_expanded(pid, top);
     if expanded != Some(true) {
-        return menus_closed(expanded, cancels_ok);
+        return MenuCloseReceipt { expanded, cancels_ok };
     }
     if ax::frontmost_pid() == Some(pid) {
         use crate::input::Route;
         let _ = crate::input::key(Route::Foreground, "escape", &[]);
         std::thread::sleep(std::time::Duration::from_millis(MENU_HOP_SETTLE_MS));
     }
-    menus_closed(top_expanded(pid, top), cancels_ok)
+    MenuCloseReceipt {
+        expanded: top_expanded(pid, top),
+        cancels_ok,
+    }
 }
 
 fn walk_menu_path(pid: u32, path: &[String], closer: &mut MenuCloser) -> DriverResult<()> {
@@ -1270,6 +1309,23 @@ mod tests {
         assert!(!menus_closed(None, false));
         assert!(!menus_closed(Some(false), false));
         assert!(!menus_closed(Some(true), false));
+    }
+
+    #[test]
+    fn menu_close_receipt_exposes_why_confirmation_failed() {
+        let receipt = MenuCloseReceipt {
+            expanded: None,
+            cancels_ok: false,
+        };
+
+        assert_eq!(
+            receipt.to_json(),
+            serde_json::json!({
+                "confirmed": false,
+                "expanded": null,
+                "cancels_ok": false,
+            })
+        );
     }
 
     #[test]

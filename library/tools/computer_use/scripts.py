@@ -649,6 +649,19 @@ def run_script(
     return ScriptResult(outcome="done", steps=results)
 
 
+def _menu_close_fields(result: object) -> dict:
+    """Keep the native menu-close evidence in the visible step receipt.
+
+    The native driver has always returned `menus_closed`; the additive
+    `menu_close` detail explains a false result. Dropping either here
+    would make the script CLI unable to report what its action measured.
+    """
+    if not isinstance(result, dict):
+        return {}
+    return {key: result[key] for key in ("menus_closed", "menu_close")
+            if key in result}
+
+
 def _run_step(
     client: DriverClient,
     step: ScriptStep,
@@ -671,6 +684,7 @@ def _run_step(
     The replay suite fails a recipe with an unproved step; that is the
     defect test the captain's brief names.
     """
+    menu_close_fields: dict = {}
     for anchor in step.anchors:
         resolved = resolve_anchor(client, anchor)
         if resolved is None:
@@ -681,17 +695,22 @@ def _run_step(
         try:
             with resolve_lease("computer-use"):
                 before = build_observation(client, "", [], 0)
-                client.call(method, params)
+                action_result = client.call(method, params)
+                menu_close_fields = _menu_close_fields(action_result)
                 if verify_expect(client, step.expect, before=before):
-                    return {"step": index, "action": step.action,
-                            "outcome": "ok", "via": anchor.via,
-                            "proved": _step_proved(step, anchor)}
+                    receipt = {"step": index, "action": step.action,
+                               "outcome": "ok", "via": anchor.via,
+                               "proved": _step_proved(step, anchor)}
+                    receipt.update(menu_close_fields)
+                    return receipt
         except DriverError:
             continue
     if llm is not None:
         return _llm_fallback(client, step, index, llm, script)
-    return {"step": index, "action": step.action, "outcome": "failed",
-            "via": "none", "proved": False}
+    receipt = {"step": index, "action": step.action, "outcome": "failed",
+               "via": "none", "proved": False}
+    receipt.update(menu_close_fields)
+    return receipt
 
 
 def _step_proved(step: ScriptStep, anchor: Anchor) -> bool:

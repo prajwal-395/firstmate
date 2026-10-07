@@ -710,6 +710,30 @@ def test_the_panels_recipe_runs_to_done_against_the_mock(
     assert [step["via"] for step in result.steps] == ["menu"] * 3
 
 
+def test_menu_close_diagnostics_reach_the_script_step_receipt(
+    client: DriverClient, monkeypatch,
+):
+    """A menu action's native close result must reach the CLI step record;
+    discarding it would hide why a live menu-close check was uncertain."""
+    from library.tools.computer_use.scripts import effect_panels_script
+
+    original_call = client.call
+    detail = {"confirmed": False, "expanded": None, "cancels_ok": False}
+
+    def call_with_menu_close(method, params):
+        result = original_call(method, params)
+        if method == "run_command":
+            return {**result, "menus_closed": False, "menu_close": detail}
+        return result
+
+    monkeypatch.setattr(client, "call", call_with_menu_close)
+    result = run_script(client, effect_panels_script())
+
+    assert result.outcome == "done"
+    assert result.steps[0]["menus_closed"] is False
+    assert result.steps[0]["menu_close"] == detail
+
+
 def test_a_menu_anchor_resolves_a_remove_path(client: DriverClient):
     """The remove recipe's delete step resolves through the same menu
     anchor to its own whole path - the anchor carries any command,

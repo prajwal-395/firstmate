@@ -246,13 +246,18 @@ Qualification project, like every other action method.
 Parameters:
 - `path` (array of strings, required): full menu path, outermost first.
 
-Result: `{"pressed": true, "path": [...], "menus_closed": <bool>}`
+Result: `{"pressed": true, "path": [...], "menus_closed": <bool>, "menu_close": {"confirmed": <bool>, "expanded": <bool|null>, "cancels_ok": <bool>}}`
 
 `menus_closed` is the verified close: every menu the walk opened was
 cancelled and the top bar item no longer reads expanded (with an
 Escape fallback gated on the target being frontmost - never another
 app). A caller that reads `false` knows the app may be tracking a
-menu, where the next command reports success and does nothing.
+menu, where the next command reports success and does nothing. The
+additive `menu_close` receipt carries the two measurements behind that
+boolean: `expanded` is the top bar item's final AXExpanded value (null
+when unreadable), and `cancels_ok` records whether every AXCancel landed.
+This distinguishes an expanded menu from an uncertain close when the
+AX state or cancellation result is unavailable.
 
 Errors: `ELEMENT_NOT_FOUND` when no item matches the path,
 `AMBIGUOUS_COMMAND` when more than one does.
