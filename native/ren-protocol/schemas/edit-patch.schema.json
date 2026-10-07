@@ -1240,6 +1240,54 @@
           ]
         },
         {
+          "description": "Declared, NOT executable: the eyedropper pick is GUI-only.",
+          "type": "object",
+          "properties": {
+            "node_index": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "op": {
+              "type": "string",
+              "const": "color.qualifier.sample"
+            },
+            "point": true,
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "node_index",
+            "point"
+          ]
+        },
+        {
+          "description": "Declared, NOT executable: qualifier widths are Inspector-only.",
+          "type": "object",
+          "properties": {
+            "node_index": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "op": {
+              "type": "string",
+              "const": "color.qualifier.adjust"
+            },
+            "params": true,
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "node_index",
+            "params"
+          ]
+        },
+        {
           "description": "Place a matte; the Fusion comp list verifies.",
           "type": "object",
           "properties": {

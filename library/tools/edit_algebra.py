@@ -1083,6 +1083,25 @@ def _window_create_key(op):
     return ("clip", op["unique_id"], "window", int(op["node_index"]))
 
 
+def _qualifier_sample_key(op):
+    """What a qualifier sample writes, refusing an unclickable point.
+
+    The point is a normalized frame point - two finite numbers in
+    0..1, the contract the viewer-coordinate mapping (captain plan s7)
+    clicks through. Anything else names no frame pixel, so the recipe
+    would sample blind.
+    """
+    point = op.get("point")
+    if (not isinstance(point, (list, tuple)) or len(point) != 2
+            or not all(isinstance(v, (int, float))
+                       and not isinstance(v, bool) and 0.0 <= v <= 1.0
+                       for v in point)):
+        raise ValueError(
+            f"color.qualifier.sample: bad sample point {point!r}; two "
+            f"finite numbers in 0..1")
+    return ("clip", op["unique_id"], "qualifier", int(op["node_index"]))
+
+
 def _refuse_ui_provider(op, label, recipe):
     """Refuse a UI-provider op with the route that executes it."""
     raise RuntimeError(
@@ -1777,6 +1796,31 @@ ALGEBRA: dict[str, AlgebraOp] = {
         note="Declared, NOT executable: removing a window is the same "
              "GUI route as creating one. The pair exists so the undo "
              "chain terminates in the algebra."),
+    "color.qualifier.sample": AlgebraOp(
+        id="color.qualifier.sample", domain="color",
+        required=("unique_id", "node_index", "point"),
+        span=_item_span, item=True,
+        verify=lambda op, after: None,
+        key=_qualifier_sample_key,
+        merge="replace",
+        inverse=_self("the inverse carries the previous sampled range"),
+        note="Declared, NOT executable: the eyedropper pick is GUI-only "
+             "and its selected range reads back nowhere in the 21.1 API. "
+             "The point is the normalized frame point the recipe clicks; "
+             "the sampled range judgement lands with the qualifier "
+             "slice."),
+    "color.qualifier.adjust": AlgebraOp(
+        id="color.qualifier.adjust", domain="color",
+        required=("unique_id", "node_index", "params"),
+        span=_item_span, item=True,
+        verify=lambda op, after: None,
+        key=lambda op: ("clip", op["unique_id"], "qualifier",
+                        int(op["node_index"])),
+        merge="replace",
+        inverse=_self("the inverse carries the previous qualifier params"),
+        note="Declared, NOT executable: qualifier widths and softness are "
+             "Inspector controls the API does not reach. The params are "
+             "the recipe's input, opaque here."),
 
     # ── mask (domain: fusion) ──────────────────────────────────────
     "mask.create": AlgebraOp(

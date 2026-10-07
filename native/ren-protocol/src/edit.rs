@@ -285,6 +285,22 @@ pub enum EditOp {
         node_index: i64,
     },
 
+    // ── qualifiers (domain: color) ─────────────────────────────
+    /// Declared, NOT executable: the eyedropper pick is GUI-only.
+    #[serde(rename = "color.qualifier.sample")]
+    QualifierSample {
+        unique_id: ClipId,
+        node_index: i64,
+        point: Value,
+    },
+    /// Declared, NOT executable: qualifier widths are Inspector-only.
+    #[serde(rename = "color.qualifier.adjust")]
+    QualifierAdjust {
+        unique_id: ClipId,
+        node_index: i64,
+        params: Value,
+    },
+
     // ── mask (domain: fusion) ──────────────────────────────────────
     /// Place a matte; the Fusion comp list verifies.
     #[serde(rename = "mask.create")]
@@ -507,6 +523,8 @@ impl EditOp {
             EditOp::GradeNodeSet { .. } => "grade.node_set",
             EditOp::WindowCreate { .. } => "color.window.create",
             EditOp::WindowDelete { .. } => "color.window.delete",
+            EditOp::QualifierSample { .. } => "color.qualifier.sample",
+            EditOp::QualifierAdjust { .. } => "color.qualifier.adjust",
             EditOp::MaskCreate { .. } => "mask.create",
             EditOp::MaskDelete { .. } => "mask.delete",
             EditOp::MaskEdit { .. } => "mask.edit",
