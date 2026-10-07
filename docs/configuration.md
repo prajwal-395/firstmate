@@ -536,6 +536,8 @@ On every later launch that needs it the login rows are re-copied from the live d
 Before the launch rides the pin, the pinned config must resolve the `opencode` provider to the secondary workspace; anything else refuses the launch, so a mis-pinned session can never bill the wrong workspace.
 That launch carries `OPENCODE_DB` at the pinned database, so the vendor attributes the session to the second workspace even though the machine-wide active workspace is elsewhere; `opencode console switch` is never used because it would move every worker's next launch at once.
 The model id is unchanged on both Go rungs; the task record carries `opencode_workspace=secondary` for a pinned lane and nothing for the main workspace, and `bin/fm-control.sh relaunch --opencode-workspace <main|secondary>` moves the pin while a flagless relaunch preserves it.
+The org id is declared inherited local material, so secondmate homes converge it from the primary under the [`secondmate-provisioning`](../.agents/skills/secondmate-provisioning/SKILL.md) primary-authoritative contract and run the fourth rung too.
+Each home builds its own `config/opencode-second.db` from its own machine's live console login on the first launch that needs it; the database itself is never inherited, and a home whose login lacks the workspace refuses that launch rather than billing the wrong one.
 `bin/fm-opencode-second-lib.sh` owns the pin mechanics; `bin/fm-opencode-ladder-lib.sh` owns the rung policy.
 
 The resolver and bootstrap copy an environment-provided key into a non-exported private variable and unset `TYPESAFE_API_KEY` and `AI_GATEWAY_API_KEY` before launching child processes, so each secret is absent from child environments.
