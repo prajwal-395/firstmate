@@ -553,9 +553,9 @@ def test_script_seed_refuses_when_no_scale_is_measured(monkeypatch, capsys):
 
 def test_script_seed_open_builds_the_warm_route(monkeypatch, capsys):
     """`script magic-mask-seed-open` builds the short route (page,
-    mode, click) for a palette the take already read open - no
-    Library, search, type or apply steps that would re-apply the
-    effect onto shared footage."""
+    click) for a palette the take already read open - no Library,
+    search, type, apply or mode steps: re-applying would stack an
+    instance, and the open palette renders no Person control."""
     runs, _, _ = _stub_script(monkeypatch)
     argv = ["script", "--recipe", "magic-mask-seed-open",
             "--timeline", "Q Spine",
@@ -565,9 +565,9 @@ def test_script_seed_open_builds_the_warm_route(monkeypatch, capsys):
     script, kwargs = runs[0]
     assert kwargs["foreground"] is False
     assert [s.action for s in script.steps] == [
-        "press", "click", "click"]
+        "press", "click"]
     assert "open Magic Mask" in script.goal
-    params = script.steps[2].anchors[0].params
+    params = script.steps[1].anchors[0].params
     assert (params["x"], params["y"]) == (859.5, 311.0)
     out = capsys.readouterr().out
     assert "outcome: done" in out

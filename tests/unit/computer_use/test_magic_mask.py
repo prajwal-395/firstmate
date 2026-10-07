@@ -151,21 +151,20 @@ def test_seed_script_refuses_a_mode_the_api_refuses():
         magic_mask.seed_script(_seed(), mode="SLOW", scale_factor=2.0)
 
 
-def test_open_palette_seed_skips_reveal_and_apply():
+def test_open_palette_seed_skips_reveal_apply_and_mode():
     """When the palette is already open with no mask, the Library,
     search, type and apply steps would re-apply the effect (a second
-    instance on shared footage), so the warm route is page, mode,
-    click only. The mode expect is the palette-open proof: the Person
-    label exists nowhere else, so a closed palette fails here
+    instance on shared footage), and the open palette renders no
+    Person control to click - so the warm route is page, click only.
+    The seed expect doubles as the palette-open proof: a viewer click
+    with no mask tool behind it paints nothing and fails here
     instead of seeding blind."""
     script = magic_mask.seed_open_palette_script(_seed(), scale_factor=2.0)
     assert isinstance(script, Script)
-    assert [s.action for s in script.steps] == ["press", "click", "click"]
+    assert [s.action for s in script.steps] == ["press", "click"]
     assert [s.anchors[0].via for s in script.steps] == [
-        "ax_path", "ocr", "position"]
-    mode, seed = script.steps[1], script.steps[2]
-    assert mode.anchors[0].params["text"] == "Person"
-    assert mode.expect is not None and mode.expect.via == "text_visible"
+        "ax_path", "position"]
+    seed = script.steps[1]
     assert (seed.anchors[0].params["x"],
             seed.anchors[0].params["y"]) == (859.5, 311.0)
     assert seed.expect is not None and seed.expect.via == "pixels_changed"

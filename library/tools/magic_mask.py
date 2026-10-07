@@ -74,6 +74,26 @@ def _color_page_step() -> ScriptStep:
     )
 
 
+def _seed_click_step(seed: MaskSeed, click: dict) -> ScriptStep:
+    """The seed click itself: the Ren-measured interior point, judged
+    by pixels changing. A viewer click with no mask tool behind it
+    paints nothing, so the expect doubles as the palette-open proof
+    on the warm route."""
+    return ScriptStep(
+        action="click",
+        anchors=[Anchor(via="position", params={
+            "x": click["x"],
+            "y": click["y"],
+            "why": (f"ren seed {seed.object_id} "
+                    f"sample {seed.sample_index}"),
+            "source": "ren",
+        })],
+        expect=Expect(via="pixels_changed", params={
+            "source": "ren",
+        }),
+    )
+
+
 def _mode_and_seed_steps(seed: MaskSeed, mode: str, click: dict
                          ) -> list[ScriptStep]:
     """The Person mode select and the seed click shared by both seed
@@ -91,19 +111,7 @@ def _mode_and_seed_steps(seed: MaskSeed, mode: str, click: dict
                 "source": "plan",
             }),
         ),
-        ScriptStep(
-            action="click",
-            anchors=[Anchor(via="position", params={
-                "x": click["x"],
-                "y": click["y"],
-                "why": (f"ren seed {seed.object_id} "
-                        f"sample {seed.sample_index}"),
-                "source": "ren",
-            })],
-            expect=Expect(via="pixels_changed", params={
-                "source": "ren",
-            }),
-        ),
+        _seed_click_step(seed, click),
     ]
 
 
@@ -234,10 +242,13 @@ def seed_open_palette_script(
     full `seed_script`. A second builder, not a branch - the runner
     tries anchors, never conditions, so one recipe cannot serve two
     panel states. Running the full route here would re-apply the
-    effect (a second instance on shared qual footage); running this
-    route cold fails its mode expect instead of clicking on, because
-    the Person label only exists with the palette open. Same
-    validation contract as `seed_script`: no safe scale default.
+    effect (a second instance on shared qual footage). There is no
+    mode step: the open palette renders no Person control (measured
+    on the live render - the panel prompts a point draw instead), so
+    the route is page, click. Running this route cold fails the seed
+    expect instead of painting blind, because a viewer click with no
+    mask tool behind it changes nothing. Same validation contract
+    as `seed_script`: no safe scale default.
     """
     if mode not in MAGIC_MASK_MODES:
         raise ValueError(
@@ -254,7 +265,7 @@ def seed_open_palette_script(
               f"(object {seed.object_id}, mode {mode})"),
         steps=[
             _color_page_step(),
-            *_mode_and_seed_steps(seed, mode, click),
+            _seed_click_step(seed, click),
         ],
     )
 
