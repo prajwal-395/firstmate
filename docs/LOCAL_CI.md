@@ -28,6 +28,12 @@ That is the test-security half of the design; the speed half is that
 Tier-1 selections are small and parallel while the full suite runs
 once per cluster instead of once per PR.
 
+Before Tier-2 starts the full gate, it builds `ml-worker-client` and
+`ren-graphics-fframes` from that stacked checkout. Their Cargo cache is
+shared under `~/.ren-ci/native-target`; each disposable checkout binds
+that cache through its ignored `native/target` path, so Rust tests are
+measured without retaining checkout artifacts between runs.
+
 ## The contributor loop
 
 1. Push the PR against `main`.

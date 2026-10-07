@@ -138,6 +138,12 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+echo "=== full-suite gate: prepare native test tools ==="
+if ! "${REPO_ROOT}/scripts/prepare_local_ci_gate.sh"; then
+  echo "FULL-SUITE GATE: DID NOT RUN (native test tools could not be prepared)"
+  exit 1
+fi
+
 # A fresh worktree does not carry the ignored `node_modules` bind from the
 # checkout that populated the machine-wide cache. Rebind it before pytest so
 # capability-gated Remotion tests run in worker copies too. The installer is

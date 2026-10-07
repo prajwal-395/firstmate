@@ -44,6 +44,20 @@ def _verdict(result: subprocess.CompletedProcess) -> str:
     return verdicts[0]
 
 
+def test_native_gate_tools_are_prepared_after_lock_and_before_pytest():
+    source = LOCAL_GATE.read_text(encoding="utf-8")
+    lock = source.index(
+        "heavy_work_lock owns --profile full_suite_gate")
+    static = source.index(
+        'echo "=== full-suite gate: static source checks')
+    native = source.index(
+        'echo "=== full-suite gate: prepare native test tools')
+    pytest_pos = source.index("parallel lane - pytest -n ${WORKERS}")
+
+    assert lock < static < native < pytest_pos
+    assert "FULL-SUITE GATE: DID NOT RUN (native test tools could not be prepared)" in source
+
+
 def _report_shim(tmp_path: Path, xml: str, exit_code: int = 0) -> Path:
     script = (
         "#!/bin/sh\n"
