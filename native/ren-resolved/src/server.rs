@@ -24,6 +24,7 @@ use crate::watchdog::Watchdog;
 pub const SOCKET_NAME: &str = "ren-resolved.sock";
 /// The database name, as the Python daemon's `DB_NAME`.
 pub const DB_NAME: &str = "ren-resolved.sqlite3";
+pub const LEASE_NAME: &str = "resolve_instance.lease.json";
 
 /// The lock directory: `PIPELINE_RESOLVE_LOCK_DIR`, else the system temp -
 /// the same rule as `resolve_lock.lock_dir`.
@@ -73,10 +74,17 @@ impl Daemon {
     /// connection holds, if any.
     pub fn dispatch(&self, request: &Request, grant: &mut Option<String>) -> String {
         match request {
-            Request::Ping => protocol::wire(&PingReply {
-                ok: true,
-                pid: std::process::id() as i64,
-            }),
+            Request::Ping => {
+                let lease = active_lease();
+                protocol::wire(&PingReply {
+                    ok: true,
+                    pid: std::process::id() as i64,
+                    serving: true,
+                    responsive: true,
+                    busy: lease.is_some(),
+                    lease,
+                })
+            }
             Request::Submit { kind, params, owner, qualification, idempotency_key } => {
                 match self.broker.submit(kind, params.clone(), owner, *qualification,
                                         idempotency_key.as_deref()) {
@@ -199,6 +207,13 @@ impl Daemon {
             running: self.broker.running(),
         })
     }
+}
+
+/// Read the diagnostic lease record without entering the Resolve worker.
+fn active_lease() -> Option<protocol::LeaseStatus> {
+    let path = lock_dir().join(LEASE_NAME);
+    let body = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str(&body).ok()
 }
 
 /// Serve on the socket until `shutdown` or a signal.

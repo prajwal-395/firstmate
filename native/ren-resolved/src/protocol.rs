@@ -67,11 +67,30 @@ fn default_wait() -> f64 {
     900.0
 }
 
-/// `{"ok": true, "pid": N}`
+/// `{"ok": true, "pid": N, "serving": true, "responsive": true,
+///   "busy": false, "lease": null}`
 #[derive(serde::Serialize)]
 pub struct PingReply {
     pub ok: bool,
     pub pid: i64,
+    pub serving: bool,
+    pub responsive: bool,
+    pub busy: bool,
+    pub lease: Option<LeaseStatus>,
+}
+
+/// A diagnostic snapshot of the exclusive Resolve lease, when one is held.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct LeaseStatus {
+    pub owner: String,
+    pub purpose: String,
+    pub pid: i64,
+    pub host: String,
+    pub since: f64,
+    #[serde(default)]
+    pub wait_seconds: f64,
+    #[serde(default)]
+    pub waited_on: String,
 }
 
 /// `{"id": ..., "coalesced": bool}`

@@ -362,7 +362,18 @@ class _Handler(socketserver.StreamRequestHandler):
     def _dispatch(self, broker: Broker, request: dict, grant) -> dict:
         op = request.get("op")
         if op == "ping":
-            return {"ok": True, "pid": os.getpid()}
+            from dataclasses import asdict
+            from library.tools.resolve_lock import LEASE_FILENAME, holder
+            socket_path = Path(self.server.server_address)
+            lease = holder(socket_path.parent / LEASE_FILENAME)
+            return {
+                "ok": True,
+                "pid": os.getpid(),
+                "serving": True,
+                "responsive": True,
+                "busy": lease is not None,
+                "lease": asdict(lease) if lease is not None else None,
+            }
         if op == "submit":
             return broker.submit(request["kind"], request.get("params", {}),
                                  owner=request.get("owner", ""),

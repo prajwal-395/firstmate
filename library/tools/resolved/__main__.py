@@ -18,7 +18,7 @@ def main(argv=None) -> int:
     verbs.add_parser("serve", help="run the broker in the foreground")
     verbs.add_parser("ensure",
                      help="start the broker detached if none is serving")
-    verbs.add_parser("status", help="is a broker serving, and on which pid")
+    verbs.add_parser("status", help="is a broker serving, and what lease it holds")
     listing = verbs.add_parser("list", help="recent jobs and their receipts")
     listing.add_argument("--limit", type=int, default=20)
     verbs.add_parser("stop", help="ask the serving broker to exit")
@@ -55,13 +55,11 @@ def main(argv=None) -> int:
         return kpi_report.main(args.hours, args.json, args.since, args.until)
     if args.verb == "status":
         answer = client.ping()
-        print(json.dumps({"serving": answer is not None,
-                          "pid": answer and answer.get("pid")}))
+        print(json.dumps(_status(answer)))
         return 0 if answer is not None else 1
     if args.verb == "ensure":
         answer = client.ensure()
-        print(json.dumps({"serving": answer is not None,
-                          "pid": answer and answer.get("pid")}))
+        print(json.dumps(_status(answer)))
         return 0 if answer is not None else 1
     try:
         if args.verb == "list":
@@ -92,6 +90,20 @@ def main(argv=None) -> int:
         print(f"ren resolved: {exc}", file=sys.stderr)
         return 1
     return 0
+
+
+def _status(answer: dict | None) -> dict:
+    """The process status plus any lease holding Resolve right now."""
+    if answer is None:
+        return {"serving": False, "pid": None, "responsive": False,
+                "busy": False, "lease": None}
+    return {
+        "serving": answer.get("serving", True),
+        "pid": answer.get("pid"),
+        "responsive": answer.get("responsive", True),
+        "busy": bool(answer.get("busy", False)),
+        "lease": answer.get("lease"),
+    }
 
 
 if __name__ == "__main__":

@@ -22,6 +22,7 @@ import sys
 import threading
 import time
 from contextlib import contextmanager
+from dataclasses import asdict
 from pathlib import Path
 from typing import Optional
 
@@ -139,7 +140,13 @@ def call(request: dict, path=None, timeout: Optional[float] = 30.0) -> dict:
 
 
 def ping(path=None) -> Optional[dict]:
-    """The serving broker's answer, or None where none is serving."""
+    """The serving broker's answer, or None where none is serving.
+
+    A successful Unix-socket connection proves a broker is serving even
+    if its reply is slow. Keep that distinction for callers such as
+    `ensure` and `serving`: a busy or delayed broker must not prompt a
+    second broker to start on the same socket.
+    """
     sock = _open(path)
     if sock is None:
         return None
@@ -148,10 +155,21 @@ def ping(path=None) -> Optional[dict]:
             return _exchange(sock, stream, {"op": "ping"},
                              CONNECT_TIMEOUT_SECONDS)
     except (OSError, ValueError, BrokerError):
-        return None
+        target = _path(path)
+        from library.tools.resolve_lock import LEASE_FILENAME, holder
+        lease = holder(target.parent / LEASE_FILENAME)
+        return {
+            "ok": False,
+            "pid": None,
+            "serving": True,
+            "responsive": False,
+            "busy": lease is not None,
+            "lease": asdict(lease) if lease is not None else None,
+        }
 
 
 def serving(path=None) -> bool:
+    """Whether a broker accepts connections, including while Resolve is busy."""
     return not in_broker() and ping(path) is not None
 
 

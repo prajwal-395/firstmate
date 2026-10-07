@@ -10,8 +10,10 @@ The broker connects to Resolve LAZILY (only when a job runs), so these
 tests never touch Resolve: they start the broker, ping it, and stop it.
 """
 
+import json
 import os
 import shutil
+import socket
 import subprocess
 import tempfile
 import threading
@@ -249,6 +251,93 @@ def test_the_cli_ensure_verb_starts_and_reports(started):
     assert resolved_cli.main(["status"]) == 0
     assert resolved_cli.main(["stop"]) == 0
     assert resolved_cli.main(["status"]) == 1
+
+
+def test_ping_and_status_report_the_exclusive_lease_as_busy(
+        started, lock_dir, capsys, monkeypatch, unguarded):
+    """A live broker reports its lease without routing status through Resolve."""
+    original = started()
+    broker_serving = client.serving
+    # Model a cooperating writer outside this broker: it takes the same
+    # machine lease directly instead of asking the broker for a turn.
+    monkeypatch.setattr(client, "serving", lambda path=None: False)
+    with resolve_lock.resolve_lease("fake exclusive broker job", timeout=1):
+        monkeypatch.setattr(client, "serving", broker_serving)
+        answer = client.ping(lock_dir / SOCKET_NAME)
+        assert answer is not None
+        assert answer["serving"] is True
+        assert answer["responsive"] is True
+        assert answer["busy"] is True
+        assert answer["lease"]["purpose"] == "fake exclusive broker job"
+        assert answer["lease"]["since"] > 0
+        assert client.serving(lock_dir / SOCKET_NAME) is True
+        assert started()["pid"] == original["pid"]
+
+        assert resolved_cli.main(["status"]) == 0
+        status = json.loads(capsys.readouterr().out)
+        assert status["serving"] is True
+        assert status["busy"] is True
+        assert status["lease"]["purpose"] == "fake exclusive broker job"
+
+
+def test_a_slow_ping_on_a_connected_busy_broker_still_counts_as_serving(
+        lock_dir, monkeypatch, capsys, unguarded):
+    """A connected socket stays serving when its delayed ping misses timeout."""
+    path = lock_dir / SOCKET_NAME
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    listener.bind(str(path))
+    listener.listen()
+    accepted = threading.Event()
+    release = threading.Event()
+
+    def hold_ping_reply():
+        connection, _ = listener.accept()
+        with connection:
+            accepted.set()
+            release.wait(timeout=5)
+
+    server = threading.Thread(target=hold_ping_reply, daemon=True)
+    server.start()
+    monkeypatch.setattr(client, "CONNECT_TIMEOUT_SECONDS", 0.02)
+    broker_serving = client.serving
+    monkeypatch.setattr(client, "serving", lambda path=None: False)
+    try:
+        with resolve_lock.resolve_lease("fake slow exclusive job", timeout=1):
+            monkeypatch.setattr(client, "serving", broker_serving)
+            answer = client.ping(path)
+            assert accepted.wait(timeout=1)
+            assert answer is not None
+            assert answer["ok"] is False
+            assert answer["pid"] is None
+            assert answer["serving"] is True
+            assert answer["responsive"] is False
+            assert answer["busy"] is True
+            assert answer["lease"]["purpose"] == "fake slow exclusive job"
+            assert answer["lease"]["since"] > 0
+            assert client.serving(path) is True
+
+            assert resolved_cli.main(["status"]) == 0
+            status = json.loads(capsys.readouterr().out)
+            assert status["serving"] is True
+            assert status["responsive"] is False
+            assert status["busy"] is True
+            assert status["lease"]["purpose"] == "fake slow exclusive job"
+    finally:
+        release.set()
+        server.join(timeout=1)
+        listener.close()
+
+
+def test_the_cli_status_reports_an_absent_socket_as_not_serving(
+        lock_dir, capsys):
+    assert resolved_cli.main(["status"]) == 1
+    assert json.loads(capsys.readouterr().out) == {
+        "serving": False,
+        "pid": None,
+        "responsive": False,
+        "busy": False,
+        "lease": None,
+    }
 
 
 def test_the_cli_stop_reports_when_nothing_serves(lock_dir, capsys):

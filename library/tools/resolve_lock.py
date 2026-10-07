@@ -493,7 +493,7 @@ def _release_lease() -> None:
     hold["handle"].close()
 
 
-def holder() -> Optional[Lease]:
+def holder(path: Optional[Path] = None) -> Optional[Lease]:
     """The recorded holder, or None. A DIAGNOSTIC, never a decision.
 
     Read without the lock, so it can be stale by the time it is
@@ -503,7 +503,8 @@ def holder() -> Optional[Lease]:
     suite failing and the test suite wedging at 0% CPU.
     """
     try:
-        body = json.loads(lease_path().read_text(encoding="utf-8"))
+        target = Path(path) if path is not None else lease_path()
+        body = json.loads(target.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
     if not isinstance(body, dict):
