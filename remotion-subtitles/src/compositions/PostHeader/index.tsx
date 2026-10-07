@@ -16,6 +16,7 @@
  */
 import React from "react";
 import { AbsoluteFill, Img } from "remotion";
+import { z } from "zod";
 
 import { loadBundledFonts, loadProjectFont } from "../../fonts";
 
@@ -45,7 +46,29 @@ export type PostHeaderProps = {
   durationInFrames: number;
 };
 
-export const postHeaderSchema = {} as any;
+export const postHeaderSchema: z.ZodType<PostHeaderProps> = z.object({
+  avatarSrc: z.string(),
+  avatarShape: z.enum(["square", "round"]),
+  avatarBackground: z.string(),
+  displayName: z.string(),
+  handle: z.string(),
+  verified: z.boolean(),
+  hook: z.string(),
+  fontFamily: z.string(),
+  fontFile: z.string().optional(),
+  nameSize: z.number(),
+  handleSize: z.number(),
+  hookSize: z.number(),
+  box: z.object({
+    left: z.number(),
+    top: z.number(),
+    width: z.number(),
+  }),
+  fps: z.number(),
+  width: z.number(),
+  height: z.number(),
+  durationInFrames: z.number(),
+});
 
 /** The platform's verified badge: a scalloped seal with a check. */
 const VerifiedBadge: React.FC<{ size: number }> = ({ size }) => (

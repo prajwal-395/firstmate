@@ -25,6 +25,7 @@
  * this engine, not two.
  */
 import React from "react";
+import { z } from "zod";
 import {
   AbsoluteFill,
   Easing,
@@ -155,7 +156,41 @@ export type FullFrameCardProps = {
   holdFrames?: number;
 };
 
-export const fullFrameCardSchema = {} as any;
+export const fullFrameCardSchema: z.ZodType<FullFrameCardProps> = z.object({
+  runs: z.array(z.object({
+    text: z.string(),
+    type_role: z.string(),
+    colour: z.string(),
+    font_size: z.number().optional(),
+  })),
+  background: z.string(),
+  entrance: z.string(),
+  exit: z.string(),
+  fontFamily: z.string(),
+  fontFile: z.string().optional(),
+  fps: z.number(),
+  width: z.number(),
+  height: z.number(),
+  durationInFrames: z.number(),
+  safeArea: z.object({
+    top: z.number(),
+    right: z.number(),
+    bottom: z.number(),
+    left: z.number(),
+  }),
+  y: z.number().optional(),
+  image: z.string().optional(),
+  imageWidth: z.number().optional(),
+  wordCues: z.array(z.object({
+    word: z.string(),
+    start: z.number(),
+    end: z.number(),
+    chars: z.number(),
+    lead: z.number().optional(),
+  })).optional(),
+  emphasisColour: z.string().optional(),
+  holdFrames: z.number().optional(),
+});
 
 /** The pixel size of each typographic weight, when a run states none.
  *

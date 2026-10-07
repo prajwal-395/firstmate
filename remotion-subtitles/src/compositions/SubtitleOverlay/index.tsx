@@ -170,6 +170,9 @@ export const SubtitleOverlay: React.FC<SubtitleOverlayProps> = ({
               key={index}
               style={{
                 display: "flex",
+                // Step 4.01 partitions cards to at most two measured
+                // lines against this font and width. Keep wrapping here
+                // so the rendered card follows that word-timed partition.
                 flexWrap: "wrap",
                 justifyContent: "center",
                 alignItems: "center",

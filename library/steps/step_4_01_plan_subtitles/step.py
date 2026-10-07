@@ -181,17 +181,12 @@ WORD_GAP_EM = 0.24        # AnimatedWord.tsx: marginRight "0.24em"
 # 18` grouping was about seventeen characters, and one line at the 160px
 # style holds roughly eight.
 #
-# Three, not two, and the number is measured rather than chosen. At two,
-# project 001 still lands 11 of 52 cards under half a second - a two-line
-# card at 160px holds about 17 characters, and this speaker delivers 17
-# characters in well under half a second several times. At three it is 2
-# of 41, and both survivors are the block-final case no partition can
-# reach. A three-line card is 576px of a 1920-row frame sitting on a
-# 320px bottom inset, so it stays in the lower third and clear of the
-# speaker. Raising it further buys nothing: four lines removes one of the
-# two, and neither is a grouping fault.
+# The captain's 2026-10-07 direction caps every card at two lines. The
+# partition still uses measured word timings and the existing minimum
+# card duration; longer passages become more cards instead of smaller
+# type. The renderer wraps the words inside this same measured box.
 # See docs/RULE_EVIDENCE.md#the-caption-box-is-not-one-line.
-MAX_CAPTION_LINES = 3
+MAX_CAPTION_LINES = 2
 
 EMPHASIS_SCALE = 1.14     # AnimatedWord.tsx: EMPHASIS_SCALE
 

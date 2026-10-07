@@ -2407,6 +2407,12 @@ The worked example of a project-side declaration is `tests/fixtures/night_card_p
 
 ### the-caption-box-is-not-one-line
 
+Current direction, 2026-10-07: the captain caps every caption card at two
+lines. The three-line measurements below record the earlier compromise;
+they do not set today's ceiling. `split_into_groups` still partitions at
+measured word boundaries, with the existing minimum card duration, and the
+Remotion overlay wraps those words at the measured caption width.
+
 The measured caption fitter landed with `fits(text)` meaning "fits on ONE line", and grouping used it.
 `SubtitleOverlay/index.tsx` draws the words in a `flexWrap: "wrap"` box bounded by `captionMaxWidth`, so a card wider than one line becomes two and is drawn in full - `CaptionFitter.widest_word_width`'s own docstring says exactly that, and `fit_scale` exists only for the one word that cannot be wrapped.
 So grouping was stricter than the render.
@@ -2420,10 +2426,10 @@ Measured on project 001, 2026-08-26: **76 of 96 cards under 0.5s**, the shortest
 
 Two changes, and the second is the one that mattered:
 
-* Group against the BOX (`fits_in_box`, `MAX_CAPTION_LINES`), not one line. `MAX_CAPTION_LINES` is 3, and the number is measured: at 2 the same run still lands 11 of 52 cards under half a second, because a two-line card at 160px holds about 17 characters and this speaker delivers 17 characters in well under half a second several times. Three lines is 576px of a 1920-row frame on a 320px bottom inset, so a card stays in the lower third and clear of the speaker.
+* Group against the BOX (`fits_in_box`, `MAX_CAPTION_LINES`), not one line. In the earlier three-line design, the measured run still landed 11 of 52 cards under half a second at two lines, because a two-line card at 160px holds about 17 characters and this speaker delivers 17 characters in well under half a second several times. The captain's 2026-10-07 direction now sets `MAX_CAPTION_LINES` to 2; long passages split into more cards and keep their measured word timings and existing duration floor.
 * Split each block's words BALANCED rather than greedy. A greedy fill packs each card to the width limit and leaves the remainder as the next card, and the remainder is the card that flashes. `split_into_groups` now solves, per block, for the partition with the fewest cards below the floor - a small dynamic program over the words, ties broken towards the longest shortest card and then towards ending cards on punctuation. It models the real display duration, including the extension the per-block pass applies and the block end the last card is clamped to; optimising anything else optimises a number nobody renders.
 
-Result on 001: **96 cards to 41, and 76 flashing cards to 2.**
+Result on 001 under the earlier three-line design: **96 cards to 41, and 76 flashing cards to 2.**
 
 The two survivors are the one case grouping cannot reach, and P6 now reports them rather than failing:
 a card is on screen until the next card's first word, and the LAST card of a block has no next word - it leaves when the block does.
@@ -3770,20 +3776,20 @@ altogether, so declaring a framing per clip removed the only gate on geometry.
 
 ## the-caption-grouping-reconstruction-used-the-wrong-predicate
 
-**The rule:** AGENTS.md §10.2, "A card fits the BOX, not one line" - unchanged, and this is the
-evidence that it holds at HEAD.
+**The rule:** AGENTS.md §10.2, "A card fits the BOX, not one line" - unchanged. This records
+the earlier three-line cap; the current cap is two, per the captain's 2026-10-07 direction.
 
 Project 001 ships **45** caption cards. A reconstruction of the grouping at 160 px reported **100**,
 and reported that **40 of the 45 cards on screen do not fit the box**. Both figures are real and both
-came from calling `CaptionFitter.fits` - the ONE-LINE predicate - where the pipeline calls
-`fits_in_box`, which allows `MAX_CAPTION_LINES = 3` wrapped lines.
+came from calling `CaptionFitter.fits` - the ONE-LINE predicate - where the pipeline called
+`fits_in_box`, which allowed `MAX_CAPTION_LINES = 3` wrapped lines in that recorded round.
 
 Reconstructed on 001's real spine, with the real bundled `Montserrat-Variable.ttf`, an 840 px
 `captionMaxWidth` and a 12 px outline (816 px usable):
 
 | font size | predicate | cards |
 |---|---|---|
-| 160 | `fits_in_box` (3 lines) | **45** - what shipped |
+| 160 | `fits_in_box` (3 lines) | **45** - what shipped in that round |
 | 160 | `fits` (1 line) | **100** |
 | 85 | `fits_in_box` (3 lines) | 34 |
 | 85 | `fits` (1 line) | 56 |
@@ -6890,9 +6896,9 @@ in the code depends on it.
 
 Every caption's tight canvas is bottom-anchored with its lower edge at
 y=1636, so the Tilt it needs is `tilt(h) = -(676 - h/2) * 1920 / h`,
-which crosses 3840 at **h = 270.4px**. A tight canvas is the drawn ink
-plus 52px of pad, so only the single three-line card (h=300) cleared
-it; every one- and two-line card did not.
+which crosses 3840 at **h = 270.4px**. Under the prior three-line cap, a
+tight canvas was the drawn ink plus 52px of pad, so only the single
+three-line card (h=300) cleared it; every one- and two-line card did not.
 
 **That is why the first repair did not hold.** It gated at four times
 the timeline dimensions - 7680, twice the rail that was actually there

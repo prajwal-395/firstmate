@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React from "react";
-import { AbsoluteFill, useCurrentFrame, interpolate, spring, staticFile, useVideoConfig } from "remotion";
+import { AbsoluteFill, Img, useCurrentFrame, interpolate, spring, staticFile, useVideoConfig } from "remotion";
 import { loadBundledFonts } from "../../fonts";
 
 // Same reason as SubtitleOverlay: this composition sets
@@ -1396,7 +1396,7 @@ const DrawnElement: React.FC<{
   if (element.element === "channel_bug") {
     if (!element.asset) return null;
     return (
-      <img
+      <Img
         src={staticFile(element.asset)}
         alt=""
         style={{
@@ -2212,7 +2212,7 @@ const DrawnElement: React.FC<{
             {address}
           </div>
         )}
-        <img
+        <Img
           src={staticFile(element.asset)}
           alt=""
           style={{

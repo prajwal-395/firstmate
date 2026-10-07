@@ -1066,10 +1066,14 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from library.steps.step_4_01_plan_subtitles.step import (  # noqa: E402
+    MIN_DISPLAY_DURATION,
     MAX_CAPTION_LINES,
     build_caption_fitter,
     generate_subtitles,
     split_into_groups,
+)
+from library.steps.step_4_05_render_subtitles.generate_remotion_props import (  # noqa: E402
+    generate_subtitle_props_per_block,
 )
 from library.tools.safe_area import (  # noqa: E402
     SAFE_AREAS,
@@ -1271,6 +1275,75 @@ def test_no_caption_line_or_card_overflows_the_caption_box():
             <= fitter.usable_width)
     # The style is untouched - only this card is drawn smaller.
     assert style["fontSize"] == resolve_subtitle_style({}, {})["fontSize"]
+
+
+def test_long_passage_splits_at_two_lines_with_word_timing_intact():
+    """The old three-line card becomes shorter timed cards, not smaller type."""
+    text = (
+        "today I have a big announcement to make about the brand template "
+        "and it will change everything"
+    )
+    source_words = []
+    for index, word in enumerate(text.split()):
+        start = round(index * 0.7, 3)
+        source_words.append({
+            "word": word,
+            "source_start": start,
+            "source_end": round(start + 0.5, 3),
+        })
+    spine = {"max_words": len(source_words), "structure": [{
+        "position": 1,
+        "block_type": "speech",
+        "timeline_start": 0.0,
+        "timeline_end": source_words[-1]["source_end"],
+        "source_start": 0.0,
+        "source_end": source_words[-1]["source_end"],
+        "clip_id": "clip_caption_two_line_regression",
+        "alignment_method": "whisperx",
+        "word_timestamps": source_words,
+        "content": {"text": text},
+    }]}
+
+    plan = generate_subtitles(
+        spine, caption_case="as_written", brand_effect={}, brand_style={},
+    )["subtitle_plan"]
+    entries = plan["subtitle_entries"]
+    fitter = build_caption_fitter(
+        resolve_subtitle_style({}, {}), resolve_safe_area())
+
+    assert len(entries) > 1
+    assert all(fitter.line_count(entry["text"]) <= 2 for entry in entries)
+    assert all(entry["timeline_end"] - entry["timeline_start"]
+               >= MIN_DISPLAY_DURATION for entry in entries)
+    planned_words = [word for entry in entries for word in entry["words"]]
+    assert [word["word"] for word in planned_words] == [
+        word["word"] for word in source_words]
+    assert [(word["start"], word["end"]) for word in planned_words] == [
+        (word["source_start"], word["source_end"])
+        for word in source_words]
+
+    # Follow the words through the 4.05 render props as well. The segment
+    # metadata supplies the padded render origin, so the frame windows
+    # must decode to the same measured timeline intervals.
+    fps = 30
+    render_props = generate_subtitle_props_per_block(
+        plan, fps=fps, width=FRAME_W_2, height=FRAME_H_2, audio_spine=spine)
+    rendered_words = []
+    for segment in sorted(render_props, key=lambda item: item["_card_index"]):
+        render_start = (segment["_timeline_start"]
+                        - segment["_source_in_frame"] / fps)
+        card = segment["subtitles"][0]
+        rendered_words.extend(
+            (word["word"],
+             render_start + word["startFrame"] / fps,
+             render_start + word["endFrame"] / fps)
+            for word in card["words"]
+        )
+    assert [word[0] for word in rendered_words] == [
+        word["word"] for word in source_words]
+    assert [(word[1], word[2]) for word in rendered_words] == [
+        (word["source_start"], word["source_end"])
+        for word in source_words]
 
 
 # ── All four consumers read the one enumeration ──
