@@ -62,6 +62,11 @@ Kinds
                        Export one non-current timeline by UID to a DRT
                        recovery archive, for `Ren Qualification` only.
                        Typed and read-only with respect to Resolve state.
+`reel.copy_tv_ending`  Copy one verified TV-off freeze comp and the
+                       two-line logo onto a named geo-podcast reel. The
+                       target hold is rendered from its own final picture;
+                       one exclusive job archives, snapshots, edits and
+                       verifies one target reel.
 """
 
 from __future__ import annotations
@@ -83,7 +88,8 @@ KINDS = ("lease", "timeline.snapshot", "timeline.observe_current",
          "timeline.apply_patch",
           "resolve_axi", "fusion.registry_summary",
           "resolve.ui_transaction", "reel.promote_staged",
-          "resolve.qualification_session", "timeline.drt_export_probe")
+          "resolve.qualification_session", "timeline.drt_export_probe",
+          "reel.copy_tv_ending")
 
 
 #: The resolve-axi commands the broker will run, by name. The broker is
@@ -349,6 +355,9 @@ def prepare(kind: str, params: dict, qualification: bool = False) -> dict:
         from library.tools.resolved import reel_promotion
         shape = reel_promotion.prepare(params)
         qualification = True
+    elif kind == "reel.copy_tv_ending":
+        from library.tools.resolved import reel_ending_copy
+        shape = reel_ending_copy.prepare(params)
     else:
         shape = dict(_resolve_axi_shape(params), executed=True)
     requested = params.get("priority")
@@ -482,6 +491,9 @@ def run(job: dict, resolve) -> dict | None:
                          timeline_name=job.get("timeline"),
                          run_id=job.get("id")):
             return reel_promotion.run(job, resolve)
+    if kind == "reel.copy_tv_ending":
+        from library.tools.resolved import reel_ending_copy
+        return reel_ending_copy.run(job, resolve)
     project = _open_project(resolve, job["project"])
     if kind == "timeline.observe_current":
         from library.tools import reel_read, timeline_shadow

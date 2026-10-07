@@ -999,7 +999,32 @@ def _restore_swaps(resolve, project, pool, timeline, fps, plans, applied,
         got = next((entry for entry in applied
                     if entry.get("swap") == swap["label"]), None)
         if got is None and not swap.get("keep_still"):
-            continue
+            original = next((item for item in timeline.GetItemListInTrack(
+                "video", swap["track_index"]) or ()
+                if str(item.GetUniqueId()) == str(swap["item_uid"])), None)
+            if (original is not None
+                    and [int(original.GetStart()), int(original.GetEnd())]
+                    == list(swap["record"])
+                    and _path_identity(_pool_file(
+                        original.GetMediaPoolItem()) or "")
+                    == _path_identity(swap["file_path"])):
+                continue
+            partial = [item for item in timeline.GetItemListInTrack(
+                "video", swap["track_index"]) or ()
+                if int(item.GetStart()) == int(swap["record"][0])
+                and str(item.GetUniqueId()) != str(swap["item_uid"])]
+            if partial:
+                partial_uids = {str(item.GetUniqueId()) for item in partial}
+                removed = timeline.DeleteClips(partial, False)
+                remaining = {
+                    str(item.GetUniqueId())
+                    for item in timeline.GetItemListInTrack(
+                        "video", swap["track_index"]) or ()}
+                if not removed or partial_uids & remaining:
+                    raise StillOverlayError(
+                        f"{timeline_name}: restore could not remove the "
+                        f"partial Post Header replacement at "
+                        f"{swap['record'][0]}")
         still_path = ((got or {}).get("still_path")
                       or swap.get("file_path") or "")
         pooled = None
@@ -1098,7 +1123,8 @@ def _restore_swaps(resolve, project, pool, timeline, fps, plans, applied,
                 raise StillOverlayError(
                     f"{timeline_name}: restore lost note "
                     f"{marker.get('name')!r}")
-        if pooled is not None and not (got or {}).get("reused"):
+        if (got is not None and pooled is not None
+                and not got.get("reused")):
             if not _still_played_anywhere(project, timeline, still_path,
                                           swap):
                 pool.DeleteClips([pooled])

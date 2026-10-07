@@ -26,7 +26,9 @@ Two shapes of job, because Resolve's handles cannot cross a process:
   `resolve_axi`,
   `resolve.ui_transaction`, `reel.promote_staged` (typed and restricted
   to the already-open `Ren Qualification` project), and
-  `timeline.drt_export_probe` (typed, Qualification-only DRT export).
+  `timeline.drt_export_probe` (typed, Qualification-only DRT export),
+  and `reel.copy_tv_ending` (typed, exact-project reel ending copy with a
+  target-specific freeze, verified Fusion splines and two-line logo).
 * GRANT (`lease`) - an in-process critical section the CALLER runs.
   `resolve_lock.resolve_lease` asks the broker for its turn whenever a
   broker is serving, so every existing lease call site is scheduled

@@ -1830,6 +1830,11 @@ class FakeTimelineItem:
         self._speed = 100.0
         self._keyframes: dict = {}
         self._fusion_comps = list(fusion_comps)
+        # Imported authored comps keep their serialized read-back so tests
+        # can compare the actual node and spline content Resolve carries.
+        # A comp created only from test-side FakeComp data keeps the measured
+        # window/length export below.
+        self._fusion_comp_exports = [None] * len(self._fusion_comps)
         self.export_calls: list = []
         #: Colour-page node count (`GetNumNodes`; `CopyGrades` copies it).
         self.nodes = nodes
@@ -2025,6 +2030,7 @@ class FakeTimelineItem:
     @comps.setter
     def comps(self, comps):
         self._fusion_comps = list(comps)
+        self._fusion_comp_exports = [None] * len(self._fusion_comps)
 
     def GetFusionCompCount(self):
         return len(self._fusion_comps)
@@ -2076,6 +2082,7 @@ class FakeTimelineItem:
         index = names.index(name)
         if 0 <= index < len(self._fusion_comps):
             self._fusion_comps.pop(index)
+            self._fusion_comp_exports.pop(index)
             return True
         return False
 
@@ -2086,7 +2093,10 @@ class FakeTimelineItem:
             return False
         self.export_calls.append((path, index))
         comp = self._fusion_comps[index - 1]
-        if isinstance(comp, FakeComp):
+        exported = self._fusion_comp_exports[index - 1]
+        if exported is not None:
+            comp = exported
+        elif isinstance(comp, FakeComp):
             comp = json.dumps({"window": comp.media_in()._inputs,
                                "keys": self._duration})
         Path(path).parent.mkdir(parents=True, exist_ok=True)
@@ -2103,8 +2113,9 @@ class FakeTimelineItem:
         path writes - is ADDED beside it. Its Merge stands in for the
         authored drawing, so `comp_draws_something` reads True.
         """
+        text = Path(path).read_text(encoding="utf-8")
         try:
-            payload = json.loads(Path(path).read_text(encoding="utf-8"))
+            payload = json.loads(text)
         except ValueError:
             payload = None
         pool = self._pool_item
@@ -2123,8 +2134,8 @@ class FakeTimelineItem:
                 "Transform1": FakeTool("Transform", {"Size": 1.0,
                                                      "_keys": payload["keys"]}),
             })]
+            self._fusion_comp_exports = [text]
         else:
-            text = Path(path).read_text(encoding="utf-8")
             if "RectangleMask" in text:
                 comp = matte_comp_from_text(text, media_in)
             elif is_passthrough_text(text):
@@ -2141,12 +2152,14 @@ class FakeTimelineItem:
             current = self._current_comp()
             if current is None:
                 self._add_comp(comp)
+                index = len(self._fusion_comps) - 1
             else:
                 index = self._fusion_comps.index(current)
                 name = self.GetFusionCompNameList()[index]
                 self._fusion_comps[index] = comp
                 self._name_comp(comp, name)
                 self.__dict__["_current"] = comp
+            self._fusion_comp_exports[index] = text
         return True
 
     def AddFusionComp(self):
@@ -2155,6 +2168,7 @@ class FakeTimelineItem:
 
     def _add_comp(self, comp):
         self._fusion_comps.append(comp)
+        self._fusion_comp_exports.append(None)
         taken = set(self.GetFusionCompNameList())
         number = len(self._fusion_comps)
         while f"Composition {number}" in taken:
