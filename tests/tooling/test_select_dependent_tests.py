@@ -74,6 +74,11 @@ def test_a_binary_changed_file_contributes_no_stems_and_crashes_nothing(tmp_path
     assert select([str(png)]) == []
 
 
+def test_changed_test_file_is_selected_for_itself():
+    path = "tests/tooling/test_select_dependent_tests.py"
+    assert path in select([path])
+
+
 def test_selection_roots_at_ren_select_root(monkeypatch, tmp_path):
     """ren-ci selects against the PR checkout, not the tree the script
     lives in: with REN_SELECT_ROOT at a foreign tree, the index reads

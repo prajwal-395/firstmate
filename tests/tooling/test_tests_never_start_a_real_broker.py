@@ -365,6 +365,9 @@ def _broker_pids() -> set:
     return found
 
 
+@pytest.mark.serial(
+    reason="Runs nested broker and Resolve-lock suites; keep child startup "
+           "out of xdist saturation.")
 def test_broker_exercising_suites_leave_no_broker_and_never_touch_default(
         tmp_path):
     """The reproduction, run the way a worker runs it, in a subprocess.

@@ -8,6 +8,7 @@ GitHub is faked; the ledger is real (tmp state dir).
 
 import threading
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -137,8 +138,9 @@ def test_serve_polls_immediately_when_a_worker_finishes(
     monkeypatch.setattr(daemon, "Tier1Scheduler", lambda world: scheduler)
     monkeypatch.setattr(daemon.load, "measure", dict)
     monkeypatch.setattr(daemon.load, "targets", lambda snapshot: {})
-    monkeypatch.setattr(daemon.time, "monotonic", lambda: clock[0])
-    monkeypatch.setattr(daemon.time, "sleep", fake_sleep)
+    monkeypatch.setattr(
+        daemon, "time",
+        SimpleNamespace(monotonic=lambda: clock[0], sleep=fake_sleep))
 
     with pytest.raises(StopLoop):
         daemon.serve(str(tmp_path), poll=30)

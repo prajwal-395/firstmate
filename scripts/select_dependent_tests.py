@@ -152,6 +152,15 @@ def select(changed):
                     else os.path.join(REPO_ROOT, path))
         stem = os.path.splitext(os.path.basename(abs_path))[0]
 
+        # A changed test is itself part of the dependent selection. The
+        # import graph below finds tests that exercise changed modules,
+        # but a test module has no `test_<stem>.py` counterpart to find.
+        absolute = os.path.abspath(abs_path)
+        if (os.path.commonpath([absolute, TESTS]) == TESTS
+                and os.path.basename(absolute).startswith("test_")
+                and absolute.endswith(".py") and os.path.isfile(absolute)):
+            selected.add(os.path.relpath(absolute, REPO_ROOT))
+
         resolvers = set()
         if stem in CONTRACT_SETS:
             resolvers.add(stem)

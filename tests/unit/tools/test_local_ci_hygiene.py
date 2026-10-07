@@ -82,7 +82,6 @@ def test_parallel_checkouts_get_unique_paths_in_the_same_second(
             assert entered.wait(timeout=3), "both worktrees must be live together"
             return checkout
 
-    monkeypatch.setattr(hygiene.time, "time", lambda: 1_800_000_000.25)
     monkeypatch.setattr(hygiene, "_git", synchronized_git)
     with ThreadPoolExecutor(max_workers=2) as pool:
         futures = [pool.submit(hold_checkout) for _ in range(2)]
