@@ -610,6 +610,7 @@ def run_script(
     llm: Callable[[Observation, ScriptStep], dict] | None = None,
     *,
     foreground: bool = False,
+    skylight: bool = True,
     deadline: float | None = None,
 ) -> ScriptResult:
     """Run a script against the client.
@@ -621,11 +622,11 @@ def run_script(
     deterministic. If the LLM also fails, the script aborts with the
     failure named.
 
-    `foreground` posts the input-event calls at the HID tap (the real
-    cursor) instead of to Resolve's process alone. Background input
-    changes nothing on Qt-drawn controls (measured), so a recipe that
-    clicks one runs foreground - explicitly, never by default, because
-    it takes the captain's screen, cursor or keyboard.
+    `skylight` posts input-event calls to Resolve through SkyLight by
+    default. This targets the app without moving the shared cursor; the
+    driver refuses if SkyLight is unavailable. Set it false to use the
+    older process-targeted route. `foreground` overrides both and posts
+    at the HID tap, which takes the screen, cursor and keyboard.
 
     `deadline` is the take's monotonic bound: past it the run raises
     `TakeExpired` before the next step instead of running past the
@@ -641,8 +642,10 @@ def run_script(
                 "raise the bound or split the take, then retry",
                 code="TAKE_EXPIRED",
             )
+        step_started = time.monotonic()
         outcome = _run_step(client, step, index, llm, script,
-                            foreground=foreground)
+                            foreground=foreground, skylight=skylight)
+        outcome["seconds"] = time.monotonic() - step_started
         results.append(outcome)
         if outcome["outcome"] == "failed":
             return ScriptResult(outcome="failed", steps=results)
@@ -670,6 +673,7 @@ def _run_step(
     script: Script,
     *,
     foreground: bool = False,
+    skylight: bool = True,
 ) -> dict:
     """Run one step: try each anchor in order, then fall back to the LLM.
 
@@ -692,6 +696,8 @@ def _run_step(
         method, params = resolved
         if foreground and method in INPUT_CALLS:
             params = {**params, "allow_foreground": True}
+        elif skylight and method in INPUT_CALLS:
+            params = {**params, "allow_skylight": True}
         try:
             with resolve_lease("computer-use"):
                 before = build_observation(client, "", [], 0)
@@ -706,7 +712,8 @@ def _run_step(
         except DriverError:
             continue
     if llm is not None:
-        return _llm_fallback(client, step, index, llm, script)
+        return _llm_fallback(client, step, index, llm, script,
+                             foreground=foreground, skylight=skylight)
     receipt = {"step": index, "action": step.action, "outcome": "failed",
                "via": "none", "proved": False}
     receipt.update(menu_close_fields)
@@ -733,6 +740,9 @@ def _llm_fallback(
     index: int,
     llm: Callable[[Observation, ScriptStep], dict],
     script: Script,
+    *,
+    foreground: bool = False,
+    skylight: bool = True,
 ) -> dict:
     """Fall back to the LLM when no anchor resolves and verifies.
 
@@ -758,7 +768,7 @@ def _llm_fallback(
     try:
         with resolve_lease("computer-use"):
             before = build_observation(client, "", [], 0)
-            _drive(client, action)
+            _drive(client, action, foreground=foreground, skylight=skylight)
             if not verify_expect(client, step.expect, before=before):
                 return {"step": index, "action": step.action,
                         "outcome": "failed", "via": "llm", "proved": False}
@@ -770,7 +780,13 @@ def _llm_fallback(
             "via": "llm", "proved": step.expect is not None}
 
 
-def _drive(client: DriverClient, action) -> None:
+def _drive(
+    client: DriverClient,
+    action,
+    *,
+    foreground: bool = False,
+    skylight: bool = True,
+) -> None:
     """Drive an action's translation against the client, once.
 
     The translation is a generator: it yields a `(method, params)` call,
@@ -782,6 +798,11 @@ def _drive(client: DriverClient, action) -> None:
     try:
         method, params = next(gen)
         while True:
+            if method in INPUT_CALLS:
+                if foreground:
+                    params = {**params, "allow_foreground": True}
+                elif skylight:
+                    params = {**params, "allow_skylight": True}
             result = client.call(method, params)
             method, params = gen.send(result)
     except StopIteration:

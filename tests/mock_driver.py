@@ -334,7 +334,8 @@ def handle(request: dict) -> dict:
             return _refuse(request_id, "AMBIGUOUS_COMMAND",
                            f"{len(matches)} elements match the menu path "
                            f"{path}")
-        return reply({"pressed": True, "path": list(path)})
+        return reply({"pressed": True, "path": list(path),
+                      "menus_closed": True})
     if method in ("press", "set_value", "focus"):
         if _open_project() != QUALIFICATION_PROJECT:
             return _refuse(

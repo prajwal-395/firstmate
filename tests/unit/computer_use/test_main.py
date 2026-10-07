@@ -25,12 +25,18 @@ class _FakeClient:
         return False
 
 
+class _FakeResolveForTake:
+    def GetProjectManager(self):
+        return object()
+
+
 def _stub_resolve(monkeypatch, client=None):
     monkeypatch.setattr(
         main_module, "DriverClient", lambda: _FakeClient() if client is None else client
     )
     monkeypatch.setattr(
-        "library.tools.marker_feedback.connect_resolve", lambda: object()
+        "library.tools.marker_feedback.connect_resolve",
+        lambda: _FakeResolveForTake(),
     )
     monkeypatch.setattr(
         "library.tools.resolve_lock.resolve_lease",
@@ -43,6 +49,10 @@ def _stub_resolve(monkeypatch, client=None):
     monkeypatch.setattr(
         "library.tools.qualification_project.borrowed",
         lambda resolve: nullcontext(),
+    )
+    monkeypatch.setattr(
+        "library.tools.qualification_project.switch_project",
+        lambda manager, name: object(),
     )
 
 
@@ -217,6 +227,18 @@ def test_script_runs_the_file_with_no_model(monkeypatch, capsys, tmp_path):
     module is never touched. A script verb that planned would spend
     inference on a route already verified deterministic."""
     _stub_resolve(monkeypatch)
+    class _Resolve:
+        def GetProjectManager(self):
+            return object()
+
+    monkeypatch.setattr(
+        "library.tools.marker_feedback.connect_resolve", lambda: _Resolve()
+    )
+    switched: list[tuple[object, str]] = []
+    monkeypatch.setattr(
+        "library.tools.qualification_project.switch_project",
+        lambda manager, name: switched.append((manager, name)) or object(),
+    )
     path = tmp_path / "media.json"
     path.write_text(
         '{"goal": "switch pages", "steps": [{"action": "press", '
@@ -224,11 +246,13 @@ def test_script_runs_the_file_with_no_model(monkeypatch, capsys, tmp_path):
         encoding="utf-8",
     )
     seen: list = []
+    routes: list[bool] = []
 
     from library.tools.computer_use.scripts import ScriptResult
 
     def recording_run(client, script, llm=None, **kw):
         assert llm is None, "default stub model must not plan"
+        routes.append(kw["skylight"])
         seen.append(script.to_dict())
         return ScriptResult(outcome="done", steps=[
             {"step": 0, "action": "press", "outcome": "ok", "via": "ax_path"}])
@@ -236,7 +260,12 @@ def test_script_runs_the_file_with_no_model(monkeypatch, capsys, tmp_path):
     monkeypatch.setattr(main_module, "run_script", recording_run)
 
     assert main_module.main(["script", str(path)]) == 0
+    assert main_module.main(["script", str(path), "--no-skylight"]) == 0
     assert seen[0]["goal"] == "switch pages"
+    assert len(switched) == 2
+    # The first call uses the default SkyLight route; the explicit flag
+    # keeps the legacy process-targeted path available.
+    assert routes == [True, False]
     out = capsys.readouterr().out
     assert "outcome: done" in out
     assert "via ax_path" in out
@@ -845,7 +874,7 @@ def _record_lease_order(monkeypatch, order, resolve_obj=None):
 
     def recording_connect():
         order.append("connect")
-        return resolve_obj if resolve_obj is not None else object()
+        return resolve_obj if resolve_obj is not None else _FakeResolveForTake()
 
     monkeypatch.setattr(
         "library.tools.resolve_lock.resolve_lease", recording_lease)
@@ -900,7 +929,7 @@ def _record_take(monkeypatch, takes: list, deadline_value: float = 1234.0,
     def recording_take(purpose, **kw):
         takes.append((purpose, kw))
         yield SimpleNamespace(
-            resolve=resolve_obj if resolve_obj is not None else object(),
+            resolve=resolve_obj if resolve_obj is not None else _FakeResolveForTake(),
             deadline=deadline_value)
 
     monkeypatch.setattr(

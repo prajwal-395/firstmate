@@ -123,6 +123,7 @@ pub fn post_target(route: Route) -> PostTarget {
 const kCGMouseEventClickState: u32 = 1;
 const kCGMouseEventButtonNumber: u32 = 3;
 const kCGKeyboardEventKeycode: u32 = 9;
+const KEY_EVENT_GAP_MS: u64 = 8;
 
 // Foreground click gaps: the moved primer settles cursor-tracking
 // state, down/up spaces match the tracking loop, and the beat between
@@ -397,23 +398,30 @@ extern "C" {
     pub fn CGEventSetLocation(event: *mut c_void, location: *const c_void);
 }
 
-/// Types `text` as Unicode: each character is one key event carrying its
-/// string, so the result does not depend on the keyboard layout.
+/// Types `text` as Unicode: each character is one HIDSystemState-sourced
+/// key event carrying its string, so the result does not depend on the
+/// keyboard layout. Down/up and inter-character gaps match cua-driver's
+/// measured 8ms background keyboard sequence.
 pub fn type_text(route: Route, text: &str) -> DriverResult<usize> {
-    unsafe {
+    with_hid_event_source(|source| unsafe {
         for ch in text.chars() {
             let mut units = [0u16; 2];
             let units = ch.encode_utf16(&mut units);
             for key_down in [true, false] {
-                let event = CGEventCreateKeyboardEvent(std::ptr::null(), 0, key_down);
+                let event = CGEventCreateKeyboardEvent(source, 0, key_down);
                 if event.is_null() { return Err(DriverError::Internal("failed to create key event".into())); }
                 CGEventKeyboardSetUnicodeString(event, units.len() as u64, units.as_ptr());
-                post(route, event)?;
+                // HIDSystemState can inherit physically held modifiers;
+                // the Unicode string already carries the character.
+                CGEventSetFlags(event, 0);
+                let posted = post(route, event);
                 CFRelease(event as *const c_void);
+                posted?;
+                std::thread::sleep(std::time::Duration::from_millis(KEY_EVENT_GAP_MS));
             }
         }
-    }
-    Ok(text.chars().count())
+        Ok(text.chars().count())
+    })
 }
 
 /// Presses one named key with `modifiers`, as a shortcut: the virtual key
@@ -422,16 +430,34 @@ pub fn key(route: Route, key_name: &str, modifiers: &[String]) -> DriverResult<(
     let key_code = key_code_for(key_name)
         .ok_or_else(|| DriverError::InvalidParams(format!("unknown key: {}", key_name)))?;
     let flags = modifier_flags(modifiers);
-    unsafe {
-        for key_down in [true, false] {
-            let event = CGEventCreateKeyboardEvent(std::ptr::null(), key_code, key_down);
+    with_hid_event_source(|source| unsafe {
+        for (index, key_down) in [true, false].into_iter().enumerate() {
+            let event = CGEventCreateKeyboardEvent(source, key_code, key_down);
             if event.is_null() { return Err(DriverError::Internal("failed to create key event".into())); }
             CGEventSetFlags(event, flags.0);
-            post(route, event)?;
+            let posted = post(route, event);
             CFRelease(event as *const c_void);
+            posted?;
+            if index == 0 {
+                std::thread::sleep(std::time::Duration::from_millis(KEY_EVENT_GAP_MS));
+            }
         }
-    }
-    Ok(())
+        Ok(())
+    })
+}
+
+/// Keep one HIDSystemState source alive for a complete keyboard sequence.
+/// The source is explicit, matching the reference background path; a NULL
+/// source loses that state before the event reaches the target process.
+fn with_hid_event_source<T>(
+    send: impl FnOnce(*mut c_void) -> DriverResult<T>,
+) -> DriverResult<T> {
+    let source = skylight::event_source().ok_or_else(|| {
+        DriverError::SkyLightUnavailable("CGEventSourceCreate did not yield a HID source".into())
+    })?;
+    let result = send(source);
+    unsafe { CFRelease(source as *const c_void); }
+    result
 }
 
 fn key_code_for(name: &str) -> Option<u16> {
@@ -506,6 +532,28 @@ mod tests {
             post_target(Route::SkyLight { pid: 11, window_id: 22, chromium: true }),
             PostTarget::SkyLightPid(11)
         );
+    }
+
+    #[test]
+    fn background_unicode_keyboard_events_use_hid_source_and_clear_flags() {
+        // The defect this catches: text events were created with a NULL
+        // source and inherited the event source's modifier state. cua-driver
+        // creates its key events from HIDSystemState and clears flags.
+        const SOURCE_STATE_FIELD: u32 = 45;
+        const HID_SYSTEM_STATE: i64 = 1;
+        unsafe {
+            let source = skylight::event_source()
+                .expect("HIDSystemState source must exist");
+            let event = CGEventCreateKeyboardEvent(source, 0, true);
+            assert!(!event.is_null());
+            CGEventSetFlags(event, 0);
+            let source_state = CGEventGetIntegerValueField(event, SOURCE_STATE_FIELD);
+            let flags = CGEventGetFlags(event);
+            assert_eq!(source_state, HID_SYSTEM_STATE);
+            assert_eq!(flags, 0);
+            CFRelease(event as *const c_void);
+            CFRelease(source as *const c_void);
+        }
     }
 
     #[test]

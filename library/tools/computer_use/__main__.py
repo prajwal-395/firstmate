@@ -20,8 +20,10 @@ One verb, one module, extended as the layer grows:
                 script FILE the mapping runs wrote (anchors re-resolve
                 at run time; `--teach` writes LLM-taught anchors back
                 to the file), or one NAMED recipe (`--recipe`) whose
-                builder carries the measured route. `--allow-foreground`
-                posts input at the HID tap and activates Resolve.
+                builder carries the measured route. Resolve input uses
+                SkyLight by default. `--no-skylight` opts out;
+                `--allow-foreground` instead posts at the HID tap and
+                activates Resolve.
 
     recipe-save  name a verified script file as a recipe for later
                runs: `recipe-save NAME --script script.json
@@ -359,16 +361,26 @@ def _run_recipe(client: DriverClient, args) -> int:
                 return 2
         if args.allow_foreground:
             client.call("activate_resolve", {"allow_foreground": True})
+        frontmost_before = client.call("get_frontmost_app")
+        pointer_before = client.call("get_pointer_state")
         step_started = time.monotonic()
         result = run_script(client, script, foreground=args.allow_foreground,
+                            skylight=not args.no_skylight,
                             deadline=take.deadline)
         elapsed = time.monotonic() - step_started
+        frontmost_after = client.call("get_frontmost_app")
+        pointer_after = client.call("get_pointer_state")
     print(f"recipe: {args.recipe}")
     print(f"goal: {script.goal}")
     if scale is not None:
         print(f"backing scale: {scale}")
     if source_frame_range is not None:
         print(f"source frame range: {source_frame_range.label()}")
+    print(f"frontmost: {frontmost_before.get('name')} -> "
+          f"{frontmost_after.get('name')} "
+          f"(unchanged: {frontmost_before.get('bundle_id') == frontmost_after.get('bundle_id')})")
+    print(f"pointer: ({pointer_before.get('x')}, {pointer_before.get('y')}) -> "
+          f"({pointer_after.get('x')}, {pointer_after.get('y')})")
     _print_script_steps(result.steps)
     print(f"outcome: {result.outcome} in {elapsed:.1f}s "
           f"(+ {(time.monotonic() - started - elapsed):.1f}s establish)")
@@ -462,6 +474,8 @@ def _script(
     model_kind: str,
     max_cost_usd: float | None,
     teach: bool,
+    *,
+    skylight: bool = True,
 ) -> int:
     """Run a deterministic UI script from a JSON file.
 
@@ -475,9 +489,15 @@ def _script(
 
     Like `run`, the script runs inside one `ui_take`: the captain's
     project is saved and restored around the run, under a bounded
-    exclusive lease.
+    exclusive lease. UI writes happen only after the take switches to
+    Ren Qualification.
     """
     from library.tools.computer_use.take import ui_take
+    from library.tools.qualification_project import (
+        QualificationError,
+        switch_project,
+    )
+    from library.tools.resolved.jobs import QUALIFICATION_PROJECT
 
     script = load_script(path)
     before = _anchor_count(script)
@@ -504,7 +524,14 @@ def _script(
         llm = None
 
     with ui_take("computer-use script file") as take:
-        result = run_script(client, script, llm=llm,
+        try:
+            switch_project(take.resolve.GetProjectManager(),
+                           QUALIFICATION_PROJECT)
+        except QualificationError as exc:
+            print(f"ren: {QUALIFICATION_PROJECT!r} did not open for "
+                  f"the script: {exc}", file=sys.stderr)
+            return 1
+        result = run_script(client, script, llm=llm, skylight=skylight,
                             deadline=take.deadline)
     print(f"outcome: {result.outcome}")
     _print_script_steps(result.steps)
@@ -528,7 +555,7 @@ def _print_script_steps(steps: list[dict]) -> None:
     """
     for entry in steps:
         print(f"  step {entry['step']} {entry['action']}: {entry['outcome']} "
-              f"via {entry['via']}")
+              f"via {entry['via']} in {entry.get('seconds', 0.0):.2f}s")
         receipt = {key: entry[key] for key in ("menus_closed", "menu_close")
                    if key in entry}
         if receipt:
@@ -624,7 +651,11 @@ def main(argv=None) -> int:
     script_parser.add_argument(
         "--allow-foreground", action="store_true",
         help="post input at the HID tap and activate Resolve first; "
-        "takes the captain's screen, so it is never the default")
+             "takes the captain's screen, so it is never the default")
+    script_parser.add_argument(
+        "--no-skylight", action="store_true",
+        help="use the older process-targeted input route instead of "
+             "SkyLight (does not activate Resolve)")
     script_parser.add_argument(
         "--clip",
         default=None,
@@ -766,7 +797,7 @@ def main(argv=None) -> int:
                 with DriverClient() as client:
                     return _script(
                         client, args.file, args.model, args.max_cost_usd,
-                        args.teach)
+                        args.teach, skylight=not args.no_skylight)
             print("ren: pass a script file or --recipe",
                   file=sys.stderr)
             return 2

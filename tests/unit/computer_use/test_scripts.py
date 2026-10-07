@@ -53,6 +53,76 @@ def test_a_script_with_ax_path_and_ocr_anchors_completes(client: DriverClient):
     assert result.steps[1]["via"] == "ocr"
 
 
+def test_input_actions_use_skylight_but_menu_actions_keep_the_ax_route(
+    client: DriverClient, monkeypatch
+):
+    """The default background route reaches Qt controls without taking the
+    cursor, while menu actions stay server-side AX calls. A blanket route
+    flag on observations or menu commands would drive the wrong channel."""
+    from contextlib import nullcontext
+
+    calls: list[tuple[str, dict]] = []
+    original_call = client.call
+
+    def recording_call(method, params=None):
+        calls.append((method, dict(params or {})))
+        return original_call(method, params)
+
+    monkeypatch.setattr(client, "call", recording_call)
+    monkeypatch.setattr(
+        "library.tools.computer_use.scripts.resolve_lease",
+        lambda purpose: nullcontext(),
+    )
+    script = Script(
+        goal="type into a focused field and send its shortcut",
+        steps=[
+            ScriptStep(action="type", anchors=[
+                Anchor(via="type", params={"text": "Resolve"})]),
+            ScriptStep(action="key", anchors=[
+                Anchor(via="key", params={"key": "return"})]),
+        ],
+    )
+
+    result = run_script(client, script)
+
+    assert result.outcome == "done"
+    inputs = [(method, params) for method, params in calls
+              if method in {"type_text", "key"}]
+    assert [method for method, _ in inputs] == ["type_text", "key"]
+    assert all(params["allow_skylight"] is True for _, params in inputs)
+    assert all("allow_skylight" not in params for method, params in calls
+               if method not in {"type_text", "key"})
+
+
+def test_skylight_opt_out_uses_the_process_route(client: DriverClient,
+                                                monkeypatch):
+    """The explicit opt-out keeps compatibility with the legacy per-process
+    path; a caller that opts out must not silently receive SkyLight input."""
+    from contextlib import nullcontext
+
+    calls: list[tuple[str, dict]] = []
+    original_call = client.call
+
+    def recording_call(method, params=None):
+        calls.append((method, dict(params or {})))
+        return original_call(method, params)
+
+    monkeypatch.setattr(client, "call", recording_call)
+    monkeypatch.setattr(
+        "library.tools.computer_use.scripts.resolve_lease",
+        lambda purpose: nullcontext(),
+    )
+    script = Script(
+        goal="send a shortcut through the process route",
+        steps=[ScriptStep(action="key", anchors=[
+            Anchor(via="key", params={"key": "return"})])],
+    )
+
+    assert run_script(client, script, skylight=False).outcome == "done"
+    key_call = next(params for method, params in calls if method == "key")
+    assert "allow_skylight" not in key_call
+
+
 def test_the_script_resolves_at_two_different_window_sizes(
     client: DriverClient, monkeypatch
 ):
@@ -240,7 +310,8 @@ def test_the_llm_fallback_drives_the_action_exactly_once(
     assert result.outcome == "done"
     click_calls = [c for c in calls if c[0] == "click"]
     assert len(click_calls) == 1
-    assert click_calls[0][1] == {"x": 100.0, "y": 100.0}
+    assert click_calls[0][1] == {
+        "x": 100.0, "y": 100.0, "allow_skylight": True}
 
 
 def test_the_learned_anchor_records_the_llms_real_target(client: DriverClient):
@@ -708,6 +779,36 @@ def test_the_panels_recipe_runs_to_done_against_the_mock(
     result = run_script(client, effect_panels_script())
     assert result.outcome == "done", result.steps
     assert [step["via"] for step in result.steps] == ["menu"] * 3
+    assert [step["menus_closed"] for step in result.steps] == [True] * 3
+
+
+def test_a_menu_close_uncertainty_is_reported_in_the_step_receipt(
+    client: DriverClient, monkeypatch
+):
+    """A successful menu command with uncertain cleanup must not disappear
+    from the live report; the next action needs to know whether the menu
+    close was verified."""
+    from contextlib import nullcontext
+    from library.tools.computer_use.scripts import effect_panels_script
+
+    original_call = client.call
+
+    def uncertain_close(method, params=None):
+        result = original_call(method, params)
+        if method == "run_command":
+            result["menus_closed"] = False
+        return result
+
+    monkeypatch.setattr(client, "call", uncertain_close)
+    monkeypatch.setattr(
+        "library.tools.computer_use.scripts.resolve_lease",
+        lambda purpose: nullcontext(),
+    )
+
+    result = run_script(client, effect_panels_script())
+
+    assert result.outcome == "done", result.steps
+    assert [step["menus_closed"] for step in result.steps] == [False] * 3
 
 
 def test_menu_close_diagnostics_reach_the_script_step_receipt(

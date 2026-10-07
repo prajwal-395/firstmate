@@ -273,9 +273,13 @@ def test_an_unresolvable_route_fails_instead_of_reporting_ok(
     script = fairlight_eq.eq_script(_track(), _controls())
     result = run_script(client, script)
     assert result.outcome == "failed"
-    assert result.steps[0] == {"step": 0, "action": "page_fairlight",
-                               "outcome": "failed", "via": "none",
-                               "proved": False}
+    step = result.steps[0]
+    assert {key: step[key] for key in
+            ("step", "action", "outcome", "via", "proved")} == {
+                "step": 0, "action": "page_fairlight",
+                "outcome": "failed", "via": "none", "proved": False,
+            }
+    assert step["seconds"] >= 0
 
 
 # ── the chain ────────────────────────────────────────────────────────
