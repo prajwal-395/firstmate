@@ -138,6 +138,9 @@ def test_the_track_runner_refuses_an_unheld_clip(client: DriverClient):
         def LoadProject(self, _name):
             return _Project()
 
+        def GetCurrentProject(self):
+            return _Project()
+
     class _Resolve:
         def GetProjectManager(self):
             return _Manager()

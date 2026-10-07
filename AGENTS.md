@@ -205,7 +205,9 @@ Never create a timeline and use `ImportFusionComp` in one Python process: `libra
 
 **What runs in parallel is a TABLE**: `library/tools/concurrency_routing.py`; declarations contend per KEY: `library/tools/declaration_keys.py`.
 
-**The broker is a STANDALONE service any client starts on demand, never a worker's child**: `client.ensure` starts it detached; the lease path, `resolve-axi` and `client.call` ensure first. Starter lock = single instance; `ren resolved stop` stops clean. `library/tools/resolved/client.py`.
+**The broker is a STANDALONE service any client starts on demand, never a worker's child**: `library/tools/resolved/client.py`.
+
+**One-off scripts are broker jobs, never direct.**: `resolve-axi run --file [--unsafe] [--borrow]` or `ren resolved submit resolve_axi`: `library/tools/resolve_axi.py`.
 
 ### Judge every Resolve call by what it returns
 

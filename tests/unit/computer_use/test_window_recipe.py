@@ -154,6 +154,9 @@ class _Manager:
     def LoadProject(self, _name):
         return self._project
 
+    def GetCurrentProject(self):
+        return self._project
+
 
 class _Resolve:
     def __init__(self, project):

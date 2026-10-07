@@ -303,6 +303,10 @@ def _run_recipe(client: DriverClient, args) -> int:
         return 2
 
     from library.tools.computer_use.take import ui_take
+    from library.tools.qualification_project import (
+        QualificationError,
+        switch_project,
+    )
     from library.tools.resolve_lock import assert_current_timeline
     from library.tools.resolved.jobs import QUALIFICATION_PROJECT
 
@@ -316,10 +320,11 @@ def _run_recipe(client: DriverClient, args) -> int:
     with ui_take(f"computer-use script recipe {args.recipe}") as take:
         resolve = take.resolve
         manager = resolve.GetProjectManager()
-        project = manager.LoadProject(QUALIFICATION_PROJECT)
-        if project is None or project.GetName() != QUALIFICATION_PROJECT:
+        try:
+            project = switch_project(manager, QUALIFICATION_PROJECT)
+        except QualificationError as exc:
             print(f"ren: {QUALIFICATION_PROJECT!r} did not open for "
-                  f"the recipe", file=sys.stderr)
+                  f"the recipe: {exc}", file=sys.stderr)
             return 1
         timeline = _exact_timeline(project, args.timeline)
         if timeline is None:
@@ -335,7 +340,6 @@ def _run_recipe(client: DriverClient, args) -> int:
             if (timeline.GetCurrentTimecode() or "") != args.playhead_timecode:
                 print(f"ren: the playhead did not read back as "
                       f"{args.playhead_timecode!r}", file=sys.stderr)
-                return 1
         if args.allow_foreground:
             client.call("activate_resolve", {"allow_foreground": True})
         step_started = time.monotonic()

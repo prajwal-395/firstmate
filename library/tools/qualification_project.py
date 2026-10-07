@@ -157,6 +157,11 @@ def borrowed(resolve):
         raise QualificationError("borrowing Resolve needs the EXCLUSIVE "
                                  "instance lease")
     manager = resolve.GetProjectManager()
+    if manager is None:
+        raise QualificationError(
+            "refusing to borrow Resolve: GetProjectManager() returned None "
+            "- Resolve is mid-switch or not fully loaded; retry after it "
+            "settles instead of switching projects under it")
     project = manager.GetCurrentProject()
     if not project:
         raise QualificationError("Resolve has no project open to return to")
@@ -268,15 +273,65 @@ def _restore_page(resolve, found: dict) -> None:
                             f"reopen it by hand")
 
 
+def _require_live_manager(manager, where: str):
+    """Refuse on a dead project-manager handle instead of switching."""
+    if manager is None:
+        raise QualificationError(
+            f"refusing {where}: GetProjectManager() returned None - "
+            f"Resolve is mid-switch or not fully loaded; retry after it "
+            f"settles instead of issuing a LoadProject into the switch")
+
+
+def switch_project(manager, name: str, *, settle: float | None = None):
+    """The ONE in-repo LoadProject path: live-check, switch, settle.
+
+    Checks the manager handle is live before the switch, issues the
+    single `LoadProject`, sleeps the switch settle
+    (`resolve_switch_guard.SETTLE_SECONDS`), stamps the guard so the
+    broker/worker keep their connections through the window, then reads
+    the manager and the opened name back. A dead handle before or
+    after, or a name that does not read back, raises instead of
+    proceeding - on 2026-10-06 a dead handle (`GetProjectManager` ->
+    None) preceded the scripting-thread-shutdown crash by seconds.
+    """
+    from library.tools import resolve_switch_guard
+    _require_live_manager(manager, f"opening {name!r}")
+    project = manager.LoadProject(name)
+    resolve_switch_guard.note_project_switch()
+    time.sleep(resolve_switch_guard.SETTLE_SECONDS
+               if settle is None else settle)
+    live = None
+    try:
+        live = manager.GetCurrentProject()
+    except Exception:  # noqa: BLE001 - a handle Resolve invalidated
+        live = None
+    if live is None:
+        raise QualificationError(
+            f"refusing after opening {name!r}: the project manager reads "
+            f"dead after the switch - Resolve may still be loading; wait "
+            f"for it to settle and reopen {name!r} by hand")
+    if not project or (live.GetName() or "") != name:
+        raise QualificationError(
+            f"{name!r} did not read back after the switch "
+            f"(have {(live.GetName() or '')!r}); reopen it by hand")
+    return project
+
+
 def restore(resolve, found: dict) -> None:
     """Reopen the found project and timeline, and read both back."""
     from library.tools.resolve_lock import assert_current_timeline
     manager = resolve.GetProjectManager()
+    if manager is None:
+        raise RestoreFailed(
+            "GetProjectManager() returned None during restore - Resolve is "
+            "mid-switch or not fully loaded; "
+            f"reopen {found['project']!r} on timeline "
+            f"{found['timeline']!r} by hand after it settles")
     current = manager.GetCurrentProject()
     if current and current.GetName() == QUALIFICATION_PROJECT:
         manager.SaveProject()
     if not current or current.GetName() != found["project"]:
-        current = manager.LoadProject(found["project"])
+        current = switch_project(manager, found["project"])
     reopen = (f"reopen {found['project']!r} on timeline "
               f"{found['timeline']!r} by hand")
     if not current or current.GetName() != found["project"]:

@@ -131,14 +131,19 @@ def run_window_create(client, resolve, params: dict) -> dict:
     op = dict(params)
     script = build_window_create_script(op)
     manager = resolve.GetProjectManager()
-    project = manager.LoadProject(QUALIFICATION_PROJECT)
-    if project is None or project.GetName() != QUALIFICATION_PROJECT:
+    from library.tools.qualification_project import (
+        QualificationError,
+        switch_project,
+    )
+    try:
+        project = switch_project(manager, QUALIFICATION_PROJECT)
+    except QualificationError as exc:
         raise ScriptError(
-            f"window-create could not open {QUALIFICATION_PROJECT!r}",
+            f"window-create could not open {QUALIFICATION_PROJECT!r}: {exc}",
             "the recipe runs on the qualification project only",
             "open Ren Qualification by hand, then retry",
             code="WINDOW_CREATE_NO_PROJECT",
-        )
+        ) from exc
     timeline, item = _find_item(project, op["unique_id"],
                                   op.get("timeline"))
     if item is None:

@@ -104,14 +104,19 @@ def run_window_delete(client, resolve, params: dict) -> dict:
         ) from None
     script = build_window_delete_script()
     manager = resolve.GetProjectManager()
-    project = manager.LoadProject(QUALIFICATION_PROJECT)
-    if project is None or project.GetName() != QUALIFICATION_PROJECT:
+    from library.tools.qualification_project import (
+        QualificationError,
+        switch_project,
+    )
+    try:
+        project = switch_project(manager, QUALIFICATION_PROJECT)
+    except QualificationError as exc:
         raise ScriptError(
-            f"window-delete could not open {QUALIFICATION_PROJECT!r}",
+            f"window-delete could not open {QUALIFICATION_PROJECT!r}: {exc}",
             "the recipe runs on the qualification project only",
             "open Ren Qualification by hand, then retry",
             code="WINDOW_DELETE_NO_PROJECT",
-        )
+        ) from exc
     timeline, item = _find_item(project, unique_id, params.get("timeline"))
     if item is None:
         raise ScriptError(

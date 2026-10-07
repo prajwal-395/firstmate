@@ -286,11 +286,22 @@ class Broker:
             return "rejected", exc.result, str(exc)
         except Exception as exc:                              # noqa: BLE001
             # The job failed; the broker does not. A dead connection is
-            # reopened on the next job rather than trusted.
-            self._resolve = None
+            # reopened on the next job rather than trusted - EXCEPT inside
+            # a project-switch window, where dropping (and the reconnect
+            # that follows) races Resolve's scripting-thread shutdown
+            # (2026-10-06 EXC_GUARD): the handle is kept and the next job
+            # re-verifies it after the settle instead.
+            from library.tools import resolve_switch_guard
+            if resolve_switch_guard.connection_may_drop():
+                self._resolve = None
             return "failed", None, f"{type(exc).__name__}: {exc}"
 
     def _resolve_handle(self):
+        from library.tools import resolve_switch_guard
+        # Never handshake mid-switch: a fresh scripting client while
+        # Resolve is loading a project is the crash site. Wait out the
+        # settle first, then connect (or reuse the kept handle).
+        resolve_switch_guard.wait_for_settle()
         with self._resolve_lock:
             if self._resolve is None:
                 self._resolve = self._connect()

@@ -189,14 +189,19 @@ def run_qualifier_sample(client, resolve, params: dict) -> dict:
             code="QUALIFIER_SAMPLE_UNMAPPABLE",
         ) from None
     manager = resolve.GetProjectManager()
-    project = manager.LoadProject(QUALIFICATION_PROJECT)
-    if project is None or project.GetName() != QUALIFICATION_PROJECT:
+    from library.tools.qualification_project import (
+        QualificationError,
+        switch_project,
+    )
+    try:
+        project = switch_project(manager, QUALIFICATION_PROJECT)
+    except QualificationError as exc:
         raise ScriptError(
-            f"qualifier-sample could not open {QUALIFICATION_PROJECT!r}",
+            f"qualifier-sample could not open {QUALIFICATION_PROJECT!r}: {exc}",
             "the recipe runs on the qualification project only",
             "open Ren Qualification by hand, then retry",
             code="QUALIFIER_SAMPLE_NO_PROJECT",
-        )
+        ) from exc
     from library.tools.computer_use import window_delete
 
     timeline, item = window_delete._find_item(

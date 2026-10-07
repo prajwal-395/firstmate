@@ -92,6 +92,9 @@ _resolve_cache = None
 def _connect_cached():
     global _resolve_cache
     if _resolve_cache is None:
+        from library.tools import resolve_switch_guard
+        # Same crash site as the broker: never handshake mid-switch.
+        resolve_switch_guard.wait_for_settle()
         from library.tools.marker_feedback import connect_resolve
         _resolve_cache = connect_resolve()
     return _resolve_cache
@@ -138,8 +141,12 @@ def _execute_job(job: dict) -> dict:
                       result=exc.result)
     except Exception as exc:                              # noqa: BLE001
         # The job failed; the worker does not. A dead connection is
-        # dropped rather than trusted - the next job reconnects.
-        _drop_cached_connection()
+        # dropped rather than trusted - except inside a project-switch
+        # window, where dropping mid-switch races scripting-thread
+        # shutdown (2026-10-06): keep it for the post-settle retry.
+        from library.tools import resolve_switch_guard
+        if resolve_switch_guard.connection_may_drop():
+            _drop_cached_connection()
         return _reply(job["id"], False,
                       error=f"{type(exc).__name__}: {exc}")
 
@@ -155,6 +162,8 @@ def _execute_probe() -> dict:
     from library.tools.marker_feedback import connect_resolve
 
     try:
+        from library.tools import resolve_switch_guard
+        resolve_switch_guard.wait_for_settle()
         with resolve_lock.resolve_lease(
                 "resolve-watchdog probe", exclusive=False,
                 honor_captain=False,
@@ -185,6 +194,8 @@ def _execute_health() -> dict:
     from library.tools.marker_feedback import connect_resolve
 
     try:
+        from library.tools import resolve_switch_guard
+        resolve_switch_guard.wait_for_settle()
         with resolve_lock.resolve_lease(
                 "resolve-health probe", exclusive=False,
                 honor_captain=False,

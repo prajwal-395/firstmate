@@ -139,14 +139,19 @@ def run_window_modify(client, resolve, params: dict) -> dict:
     script = build_window_modify_script(values)
     labels = [PANEL_LABELS[k] for k in values]
     manager = resolve.GetProjectManager()
-    project = manager.LoadProject(QUALIFICATION_PROJECT)
-    if project is None or project.GetName() != QUALIFICATION_PROJECT:
+    from library.tools.qualification_project import (
+        QualificationError,
+        switch_project,
+    )
+    try:
+        project = switch_project(manager, QUALIFICATION_PROJECT)
+    except QualificationError as exc:
         raise ScriptError(
-            f"window-modify could not open {QUALIFICATION_PROJECT!r}",
+            f"window-modify could not open {QUALIFICATION_PROJECT!r}: {exc}",
             "the recipe runs on the qualification project only",
             "open Ren Qualification by hand, then retry",
             code="WINDOW_MODIFY_NO_PROJECT",
-        )
+        ) from exc
     from library.tools.computer_use import window_delete
 
     timeline, item = window_delete._find_item(

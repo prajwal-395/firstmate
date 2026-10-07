@@ -401,8 +401,13 @@ def _timeline_names(project) -> list:
     return names
 
 
-def _target_timeline(project, name):
+def _target_timeline(project, name, resolve=None):
     """The named timeline, or the open one when no name is given.
+
+    `resolve` is the caller's held connection: the unnamed case reads
+    the open timeline through it instead of opening a second scripting
+    client for one read (the multi-client shape behind the 2026-10-06
+    crash). Callers that do not pass one keep today's connect.
 
     Returns `(timeline, is_current, note)`. Exact names win; a prefix
     matching exactly ONE timeline resolves to it (with a `note` saying
@@ -422,7 +427,7 @@ def _target_timeline(project, name):
         timeline_named,
     )
     if not name:
-        timeline, _ = current_timeline()
+        timeline, _ = current_timeline(resolve)
         if timeline.GetName() not in _timeline_names(project):
             raise AxiError(
                 "the open timeline is not on the open project - "
@@ -2678,10 +2683,27 @@ _RUN_WRITE_PREFIXES = ("Set", "Add", "Create", "Delete", "Import",
 #: What a `run` script may assume in scope. This list is exact: the
 #: script is `exec`d with exactly these names (plus what Python puts
 #: there itself), so a script that is only the `result = ...` line
-#: needs no boilerplate at all.
+#: needs no boilerplate at all. `open_project` is the one sanctioned
+#: project switch: `qualification_project.switch_project` with the
+#: switch settle and the readback (a raw `manager.LoadProject` inside
+#: a script races the switch the way the 2026-10-06 lanes did).
 RUN_SCOPE = ("resolve", "manager", "project", "project_name",
              "timeline", "timeline_name", "is_current",
-             "timeline_names", "by_index", "read_notes")
+             "timeline_names", "by_index", "read_notes",
+             "open_project")
+
+
+def _run_open_project(manager, name: str):
+    """Open one project with switch discipline, for `run` scripts.
+
+    The scope-provided `open_project(name)`: live-handle check before
+    and after, the switch settle, the broker guard stamp, and the name
+    read back - refusing on a dead handle instead of scripting into a
+    project load. Scripts that switch projects call this, never a raw
+    `manager.LoadProject`.
+    """
+    from library.tools.qualification_project import switch_project
+    return switch_project(manager, name)
 
 #: Columns kept when a script returns wide dicts. Past this the table
 #: names the overflow and points at `--json`: a TOON table with fifty
@@ -2854,10 +2876,24 @@ def cmd_run(args) -> int:
     - `run` itself needs developer opt-in (`RESOLVE_AXI_ALLOW_RUN=1`):
       without it the verb refuses before reading any script file, so
       customer runtime cannot reach caller-supplied Python.
+    - `--borrow` runs a project-switching one-off the way a lane must:
+      the captain's project is saved and restored around the script
+      (`qualification_project.borrowed`), so it needs `--unsafe` (the
+      exclusive lease). Inside, scripts switch projects with the
+      scope-provided `open_project(name)` - live-handle check, switch
+      settle, readback - never a raw `manager.LoadProject`.
     """
     if not run_script_enabled():
         message, fix = _run_opt_in_refusal()
         return fail(message, fix)
+    use_borrow = bool(getattr(args, "borrow", False))
+    if use_borrow and not args.unsafe:
+        return fail(
+            "`--borrow` saves and restores the captain's project around "
+            "a project-switching script, so it needs the exclusive lease.",
+            f"{TOOL} run --file <script> --borrow --unsafe "
+            f"(omit --project/--timeline; the script opens what it needs "
+            f"with `open_project(name)`)")
     if args.script and args.file:
         return fail("pass --script or --file, not both.",
                     f"{TOOL} run --help")
@@ -2911,47 +2947,55 @@ def cmd_run(args) -> int:
     except AxiError as exc:
         return fail(str(exc), exc.fix)
     with _lease(exclusive=args.unsafe):
-        project = _project(resolve, args.project)
-        try:
-            timeline, is_current, note = _target_timeline(
-                project, args.timeline)
-        except AxiError as exc:
-            return fail(str(exc), exc.fix)
-        from library.tools import marker_feedback
-        from library.tools.marker_feedback import current_timeline
-        try:
-            open_timeline, _ = current_timeline(resolve)
-            cursor_before = open_timeline.GetName()
-        except Exception:
-            cursor_before = "(none open)"
-        scope = {
-            "resolve": resolve,
-            "manager": resolve.GetProjectManager(),
-            "project": project,
-            "project_name": project.GetName(),
-            "timeline": timeline,
-            "timeline_name": timeline.GetName(),
-            "is_current": is_current,
-            "timeline_names": _timeline_names(project),
-            "by_index": project.GetTimelineByIndex,
-            "read_notes": marker_feedback.read_notes,
-        }
-        sandbox = dict(scope)
-        try:
-            exec(compile(script, "<resolve-axi run>", "exec"), sandbox)  # noqa: S102
-        except Exception as exc:
-            return fail(f"script raised {type(exc).__name__}: {exc}.",
-                        f"{TOOL} run --help")
-        result = sandbox.get("result")
-        try:
-            open_after, _ = current_timeline(resolve)
-            cursor_after = open_after.GetName()
-        except Exception:
-            cursor_after = "(none open)"
-        try:
-            rendered = _run_parts(result, args.full, args.json)
-        except AxiError as exc:
-            return fail(str(exc), exc.fix)
+        if use_borrow:
+            from library.tools.qualification_project import borrowed as _borrowed
+            borrow_ctx = _borrowed(resolve)
+        else:
+            borrow_ctx = contextlib.nullcontext()
+        with borrow_ctx:
+            project = _project(resolve, args.project)
+            try:
+                timeline, is_current, note = _target_timeline(
+                    project, args.timeline, resolve)
+            except AxiError as exc:
+                return fail(str(exc), exc.fix)
+            from library.tools import marker_feedback
+            from library.tools.marker_feedback import current_timeline
+            try:
+                open_timeline, _ = current_timeline(resolve)
+                cursor_before = open_timeline.GetName()
+            except Exception:
+                cursor_before = "(none open)"
+            scope = {
+                "resolve": resolve,
+                "manager": resolve.GetProjectManager(),
+                "project": project,
+                "project_name": project.GetName(),
+                "timeline": timeline,
+                "timeline_name": timeline.GetName(),
+                "is_current": is_current,
+                "timeline_names": _timeline_names(project),
+                "by_index": project.GetTimelineByIndex,
+                "read_notes": marker_feedback.read_notes,
+                "open_project": lambda name: _run_open_project(
+                    resolve.GetProjectManager(), name),
+            }
+            sandbox = dict(scope)
+            try:
+                exec(compile(script, "<resolve-axi run>", "exec"), sandbox)  # noqa: S102
+            except Exception as exc:
+                return fail(f"script raised {type(exc).__name__}: {exc}.",
+                            f"{TOOL} run --help")
+            result = sandbox.get("result")
+            try:
+                open_after, _ = current_timeline(resolve)
+                cursor_after = open_after.GetName()
+            except Exception:
+                cursor_after = "(none open)"
+            try:
+                rendered = _run_parts(result, args.full, args.json)
+            except AxiError as exc:
+                return fail(str(exc), exc.fix)
     try:
         _meta_name = timeline.GetName()
     except Exception:
@@ -7203,14 +7247,21 @@ def build_parser() -> Parser:
             "never runs caller-supplied Python. The script runs with "
             "exactly these names in scope - resolve, manager, project, "
             "project_name, timeline, timeline_name, is_current, "
-            "timeline_names, by_index, read_notes - and whatever it "
+            "timeline_names, by_index, read_notes, open_project - and "
+            "whatever it "
             "leaves in `result` renders as TOON rows under the same "
             "truncation discipline as every other command. A list of "
             "dicts renders as a typed table; --full and --json escape "
             "the truncation. Without --unsafe the script is AST-scanned "
             "for Resolve writers and refused when one appears; --unsafe "
             "declares the write, holds the exclusive lease, and reports "
-            "the cursor before and after."))
+            "the cursor before and after. --borrow (with --unsafe) saves "
+            "and restores the captain's project around a project-"
+            "switching one-off; inside, switch with open_project(name), "
+            "which settles and reads back. Submitted as a broker job "
+            "(`ren resolved submit resolve_axi '{\"argv\": [\"run\", "
+            "...]}'`), the same script runs on the broker's connection "
+            "instead of opening a second scripting client."))
     _add_scope(p, "run")
     p.add_argument("script_pos", nargs="?", default="",
                    help="the script itself (positional); sets `result = ...`")
@@ -7225,6 +7276,11 @@ def build_parser() -> Parser:
     p.add_argument("--unsafe", action="store_true",
                    help="allow Resolve writers; holds the exclusive "
                         "lease and reports cursor before/after")
+    p.add_argument("--borrow", action="store_true",
+                   help="save and restore the captain's project around "
+                        "a project-switching one-off (needs --unsafe; "
+                        "omit --project/--timeline and switch inside "
+                        "with open_project(name))")
     p.add_argument("--acknowledge-copy-grades", action="store_true",
                    help="the script names CopyGrades out loud: it "
                         "replaces the target's whole grade with no "

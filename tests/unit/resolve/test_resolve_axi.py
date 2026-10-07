@@ -1495,7 +1495,8 @@ def test_run_after_report_survives_a_mid_run_project_switch(
 
     monkeypatch.setattr(axi, "_connect", lambda: resolve)
     monkeypatch.setattr(axi, "_target_timeline",
-                        lambda project, name: (_Stale(), True, ""))
+                        lambda project, name, resolve=None: (
+                            _Stale(), True, ""))
     assert cmd_run(_run_ns(
         script="manager.LoadProject('run scratch'); "
                "result = {'switched': True}",

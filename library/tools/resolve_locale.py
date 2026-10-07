@@ -40,6 +40,52 @@ in `tests/contracts/test_resolve_guard_wiring.py` pins the single raw call site.
 from __future__ import annotations
 
 import locale
+import os
+
+#: The lane signal: set when a firstmate crewmate drives this process.
+#: A lane must never open its own fusionscript scripting client - on
+#: 2026-10-06 three lanes each held their own scripting connection
+#: (intellisearch direct runner, power-windows ad-hoc /tmp script,
+#: computer-use borrow cycles) beside the broker's, plus 144 leaked
+#: test brokers, and Resolve died in scripting-thread shutdown
+#: (EXC_GUARD, fusionscript.so Fusion::Platform::WaitAllThreads).
+#: Lane scripting goes through the broker's single connection
+#: (`client.submit` / `client.grant` / `resolve-axi`), never `scriptapp`.
+#: `direct_connect_refused` is the lane half of the same boundary: a
+#: firstmate lane (`FIRSTMATE_TASK` set) outside the broker worker is
+#: refused with a broker-job redirect, so lanes share the broker's single
+#: fusionscript connection instead of opening their own.
+LANE_ENV = "FIRSTMATE_TASK"
+
+
+def direct_connect_refused() -> str | None:
+    """Why a direct scripting handshake is refused here, or None.
+
+    Refuses only a LANE process outside the broker worker: an operator
+    or test process (no `FIRSTMATE_TASK`) keeps today's behaviour, and
+    the broker worker itself (`client.in_broker()`, marked by
+    `mark_executor` in the executor thread and the stdio worker) always
+    connects. Everywhere else a lane is told, actionably, to submit a
+    broker job instead of opening a second fusionscript client.
+    """
+    lane = (os.environ.get(LANE_ENV) or "").strip()
+    if not lane:
+        return None
+    try:
+        from library.tools.resolved import client as _broker_client
+        if _broker_client.in_broker():
+            return None
+    except Exception:  # noqa: BLE001 - an uncheckable lane is not safe
+        pass
+    return (
+        f"refusing direct Resolve scripting from lane {lane!r}: live "
+        f"Resolve scripting is broker-only - the broker holds the single "
+        f"scripting connection and a second lane client crashed Resolve "
+        f"on 2026-10-06 (scripting-thread shutdown). Run a one-off as a "
+        f"broker job instead: `resolve-axi run --file <script> [--unsafe] "
+        f"[--borrow]` locally, or `ren resolved submit resolve_axi "
+        f"'{{\"argv\": [\"run\", ...]}}'` for shared scheduling - or run "
+        f"outside a lane without {LANE_ENV} set.")
 
 
 def _configured_script_paths():
@@ -138,6 +184,9 @@ def scriptapp_preserving_locale(dvr, name: str = "Resolve"):
         raise RuntimeError(
             "refusing Resolve scriptapp handshake outside the instance "
             "lease; take resolve_lease before connecting")
+    refused = direct_connect_refused()
+    if refused is not None:
+        raise RuntimeError(refused)
     try:
         before = locale.setlocale(locale.LC_CTYPE)
     except locale.Error:  # pragma: no cover - a locale we cannot read back

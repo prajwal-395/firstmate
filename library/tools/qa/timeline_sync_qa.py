@@ -88,10 +88,11 @@ def run_timeline_sync_qa(manifest: dict, project_name: str, timeline_name: str, 
         return {"passed": True, "reason": "resolve_not_available"}
         
     pm = resolve.GetProjectManager()
-    project = pm.GetCurrentProject()
-    
+    project = pm.GetCurrentProject() if pm is not None else None
+
     if project_name and (not project or project.GetName() != project_name):
-        project = pm.LoadProject(project_name)
+        from library.tools.qualification_project import switch_project
+        project = switch_project(pm, project_name)
         
     if not project:
         raise RuntimeError("Could not find Resolve project for sync QA check")

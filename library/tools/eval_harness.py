@@ -687,6 +687,7 @@ def resolve_bracket_start(scratch: str) -> dict:
         raise ValueError(f"scratch project must start with "
                          f"{SCRATCH_PREFIX!r}: {scratch!r}")
     from library.tools.marker_feedback import connect_resolve
+    from library.tools.qualification_project import switch_project
     from library.tools.resolve_lock import resolve_lease
 
     start_error = None
@@ -733,8 +734,13 @@ def resolve_bracket_start(scratch: str) -> dict:
         }
         listed = manager.GetProjectListInCurrentFolder() or []
         try:
-            project = (manager.LoadProject(scratch) if scratch in listed
-                       else manager.CreateProject(scratch))
+            if scratch in listed:
+                project = switch_project(manager, scratch)
+            else:
+                from library.tools import resolve_switch_guard
+                project = manager.CreateProject(scratch)
+                resolve_switch_guard.note_project_switch()
+                time.sleep(resolve_switch_guard.SETTLE_SECONDS)
             if not project:
                 raise RuntimeError(
                     f"eval: could not open scratch project {scratch}")
@@ -772,6 +778,7 @@ def resolve_bracket_end(scratch: str, state: dict) -> dict:
     if not scratch.startswith(SCRATCH_PREFIX):
         raise ValueError(f"refusing to delete non-scratch project: {scratch}")
     from library.tools.marker_feedback import connect_resolve
+    from library.tools.qualification_project import switch_project
     from library.tools.resolve_lock import cursor_fence, resolve_lease
 
     with resolve_lease(f"restore after eval scratch {scratch}"):
@@ -789,7 +796,7 @@ def resolve_bracket_end(scratch: str, state: dict) -> dict:
                 "eval: no saved captain project and timeline identity to "
                 "restore")
         back = (current if current and current.GetName() == project_name
-                else manager.LoadProject(project_name))
+                else switch_project(manager, project_name))
         project_restored = bool(
             back and back.GetName() == project_name)
         timeline_ok = False

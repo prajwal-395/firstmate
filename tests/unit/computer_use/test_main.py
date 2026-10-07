@@ -453,8 +453,15 @@ class _FakeScriptProject:
 
 
 class _FakeScriptManager:
+    def __init__(self):
+        self._project = _FakeScriptProject()
+
     def LoadProject(self, name):
-        return _FakeScriptProject()
+        self._project = _FakeScriptProject()
+        return self._project
+
+    def GetCurrentProject(self):
+        return self._project
 
 
 class _FakeScriptResolve:
