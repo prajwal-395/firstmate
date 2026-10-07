@@ -21,6 +21,7 @@ from library.tools.delivery_normalize import (
     DeliveryNormalizeRefused,
     normalize_items,
     normalize_options_for_spec,
+    peak_options_for_ceiling,
 )
 from library.tools.delivery_spec import DeliverySpec
 
@@ -127,3 +128,29 @@ def test_a_raising_call_is_refused():
             _Timeline(answers=RuntimeError("busy")), ["item-1"],
             {"normalizationMode": "Loudness Program",
              "targetLoudness": -14.0}, MODES)
+
+
+# ── the true-peak options ────────────────────────────────────────────
+
+def test_peak_options_carry_the_ceiling_as_target_level():
+    options = peak_options_for_ceiling(-1.0, "True Peak",
+                                      MODES + ["True Peak"])
+    assert options == {"normalizationMode": "True Peak",
+                       "targetLevel": -1.0}
+
+
+def test_peak_options_refuse_an_unanswered_mode():
+    with pytest.raises(DeliveryNormalizeRefused, match="not among"):
+        peak_options_for_ceiling(-1.0, "True Peak", MODES)
+
+
+def test_peak_options_refuse_a_non_numeric_ceiling():
+    with pytest.raises(DeliveryNormalizeRefused, match="not a number"):
+        peak_options_for_ceiling("ceiling", "True Peak",
+                                 MODES + ["True Peak"])
+
+
+def test_peak_options_refuse_a_non_finite_ceiling():
+    with pytest.raises(DeliveryNormalizeRefused, match="not finite"):
+        peak_options_for_ceiling(float("inf"), "True Peak",
+                                 MODES + ["True Peak"])

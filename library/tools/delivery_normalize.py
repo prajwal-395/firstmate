@@ -22,6 +22,8 @@ is the fake success rung 1 removed.
 
 from __future__ import annotations
 
+import math
+
 from library.tools.ren_refusal import RenRefusal
 
 
@@ -77,6 +79,51 @@ def normalize_options_for_spec(spec,
         ) from exc
     return {"normalizationMode": normalization_mode,
             "targetLoudness": target}
+
+
+def peak_options_for_ceiling(ceiling_dbtp: float,
+                             normalization_mode: str,
+                             known_modes) -> dict:
+    """The options that master true peak to `ceiling_dbtp`, validated.
+
+    Peak modes (`True Peak` and its kin) read `targetLevel` in dBFS,
+    not `targetLoudness` - one options key per measurement kind, and a
+    loudness key beside a peak mode would master to an unstated mix of
+    the two. The ceiling is the delivery spec's own
+    `true_peak_ceiling_dbtp`, passed in (never restated here); the mode
+    must be a member of the live list. True-peak conformance without a
+    limiter is what this proves: the finding passes when the render
+    measures at or under the ceiling, lossy overshoot included.
+    """
+    modes = list(known_modes or [])
+    if normalization_mode not in modes:
+        raise _refuse(
+            f"delivery normalization cannot be planned: mode "
+            f"{normalization_mode!r} is not among the modes this "
+            f"Resolve answers ({modes})",
+            "a mode name nothing answers falls back to a default the "
+            "plan did not state.",
+            "read GetNormalizeAudioModes() off the running Resolve "
+            "and plan one of its members.",
+        )
+    try:
+        ceiling = float(ceiling_dbtp)
+    except (TypeError, ValueError) as exc:
+        raise _refuse(
+            "delivery normalization cannot be planned: the true-peak "
+            f"ceiling is not a number ({exc})",
+            "a ceiling that is not a number masters to nothing.",
+            "pass the delivery spec's true_peak_ceiling_dbtp.",
+        ) from exc
+    if not math.isfinite(ceiling):
+        raise _refuse(
+            "delivery normalization cannot be planned: the true-peak "
+            f"ceiling {ceiling_dbtp!r} is not finite",
+            "an infinite ceiling masters to nothing.",
+            "pass a finite ceiling in dBTP.",
+        )
+    return {"normalizationMode": normalization_mode,
+            "targetLevel": ceiling}
 
 
 def normalize_items(timeline, items: list, options: dict,
