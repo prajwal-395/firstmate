@@ -60,6 +60,22 @@ def test_stub_model_returns_done_without_a_session(monkeypatch, capsys):
     assert "outcome: done" in capsys.readouterr().out
 
 
+def test_run_no_skylight_flag_reaches_the_loop(monkeypatch, capsys):
+    """The run verb's opt-out reaches the Resolve loop. A parsed but
+    ignored flag would still post background input through SkyLight."""
+    _stub_resolve(monkeypatch)
+    seen: list[dict] = []
+    monkeypatch.setattr(
+        main_module,
+        "run_loop",
+        lambda client, model, goal, **kw: seen.append(kw) or LoopResult(outcome="done"),
+    )
+
+    assert main_module.main(["run", "switch pages", "--no-skylight"]) == 0
+    assert seen[0]["skylight"] is False
+    assert "outcome: done" in capsys.readouterr().out
+
+
 def test_api_model_builds_a_session_with_the_cost_flag(monkeypatch, capsys):
     """`--model api --max-cost-usd 0.5` builds a `ModelSession` whose
     config carries the flag - a parsed-but-ignored flag would run the
@@ -120,6 +136,23 @@ def test_canva_run_skips_resolve_machinery(monkeypatch, capsys):
     assert main_module.main(["run", "edit this design", "--target", "canva"]) == 0
     assert seen == [{"target": "chrome", "pid": 4242}]
     assert "outcome: done" in capsys.readouterr().out
+
+
+def test_canva_run_refuses_the_resolve_skylight_opt_out(monkeypatch, capsys):
+    """Canva cannot use the process-targeted route because Chrome filters
+    it; the Resolve-only opt-out must not silently disable Chrome input."""
+    monkeypatch.setattr(main_module, "DriverClient", lambda: _FakeClient())
+    seen: list = []
+    monkeypatch.setattr(
+        main_module,
+        "run_loop",
+        lambda client, model, goal, **kw: seen.append(kw) or LoopResult(outcome="done"),
+    )
+    assert main_module.main([
+        "run", "edit this design", "--target", "canva", "--no-skylight"
+    ]) == 4
+    assert seen == []
+    assert "cannot be disabled for the Chrome target" in capsys.readouterr().err
 
 
 def test_canva_run_refuses_with_no_canva_window(monkeypatch, capsys):

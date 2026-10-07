@@ -31,6 +31,69 @@ def _press(path: list[str]) -> dict:
     return {"action": "press", "path": path}
 
 
+def test_resolve_input_uses_skylight_but_ax_actions_keep_their_route(
+    client: DriverClient, monkeypatch
+):
+    """Resolve mouse input uses the working background channel while
+    menu/AX actions keep their own driver path. A blanket event-route
+    flag on `find_element` or `press` would stop the fallback channel
+    from being reachable."""
+    calls: list[tuple[str, dict]] = []
+    original_call = client.call
+
+    def recording_call(method, params=None):
+        calls.append((method, dict(params or {})))
+        return original_call(method, params)
+
+    monkeypatch.setattr(client, "call", recording_call)
+    monkeypatch.setattr(
+        "library.tools.computer_use.loop.resolve_lease",
+        lambda purpose, **kw: _tracking_lease({}),
+    )
+    actions = [
+        {"action": "click", "x": 100.0, "y": 100.0},
+        _press(["Workspace"]),
+        {"action": "done"},
+    ]
+
+    result = run_loop(
+        client, lambda _obs: actions.pop(0), "click, then use the menu")
+
+    assert result.outcome == "done"
+    click = next(params for method, params in calls if method == "click")
+    assert click["allow_skylight"] is True
+    for method, params in calls:
+        if method in {"find_element", "press"}:
+            assert "allow_skylight" not in params
+
+
+def test_resolve_input_can_opt_out_of_skylight(client: DriverClient, monkeypatch):
+    """The loop setting preserves the legacy process route for a machine
+    or app configuration where SkyLight input is disabled."""
+    calls: list[tuple[str, dict]] = []
+    original_call = client.call
+
+    def recording_call(method, params=None):
+        calls.append((method, dict(params or {})))
+        return original_call(method, params)
+
+    monkeypatch.setattr(client, "call", recording_call)
+    monkeypatch.setattr(
+        "library.tools.computer_use.loop.resolve_lease",
+        lambda purpose, **kw: _tracking_lease({}),
+    )
+    actions = [{"action": "click", "x": 100.0, "y": 100.0},
+               {"action": "done"}]
+
+    result = run_loop(
+        client, lambda _obs: actions.pop(0), "click using process route",
+        skylight=False)
+
+    assert result.outcome == "done"
+    click = next(params for method, params in calls if method == "click")
+    assert "allow_skylight" not in click
+
+
 def test_a_three_step_menu_navigation_task_completes(
     client: DriverClient, monkeypatch
 ):
@@ -230,6 +293,51 @@ def test_a_retryable_refusal_is_retried_once_then_escalated(
     assert result.steps[0]["refusal"] == "OUTSIDE_RESOLVE"
     assert state["takes"] == 3
     assert len(calls) == 1
+
+
+def test_a_skylight_refusal_is_recorded_then_replanned_to_ax(
+    client: DriverClient, monkeypatch
+):
+    """When SkyLight refuses, the same event is not posted twice. The
+    refusal reaches the next model observation, where an AX menu action
+    can finish the task without switching to an unverified event route."""
+    from library.tools.computer_use.client import DriverError
+
+    calls: list[tuple[str, dict]] = []
+    original_call = client.call
+
+    def refuse_skylight(method, params=None):
+        recorded = dict(params or {})
+        calls.append((method, recorded))
+        if method == "click" and recorded.get("allow_skylight"):
+            raise DriverError("SKYLIGHT_UNAVAILABLE", "test refusal")
+        return original_call(method, params)
+
+    monkeypatch.setattr(client, "call", refuse_skylight)
+    monkeypatch.setattr(
+        "library.tools.computer_use.loop.resolve_lease",
+        lambda purpose, **kw: _tracking_lease({}),
+    )
+    observations = []
+
+    def model(obs):
+        observations.append(obs)
+        if len(observations) == 1:
+            return {"action": "click", "x": 100.0, "y": 100.0}
+        if len(observations) == 2:
+            assert observations[-1].history[0]["refusal"] == "SKYLIGHT_UNAVAILABLE"
+            assert "refusal: SKYLIGHT_UNAVAILABLE" in obs.render()
+            return _press(["Workspace"])
+        return {"action": "done"}
+
+    result = run_loop(client, model, "use the accessible menu if input is refused")
+
+    assert result.outcome == "done"
+    assert result.steps[0]["outcome"] == "failed"
+    assert result.steps[0]["refusal"] == "SKYLIGHT_UNAVAILABLE"
+    assert result.steps[1]["action"] == "press"
+    assert len([1 for method, params in calls
+                if method == "click" and params.get("allow_skylight")]) == 1
 
 
 def test_the_lease_is_held_for_post_action_verification(

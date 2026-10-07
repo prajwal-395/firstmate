@@ -220,3 +220,13 @@ def test_the_prompt_names_the_target_app():
     system = build_decide_messages(chrome_obs)[0]["content"]
     assert "Chrome" in system
     assert "DaVinci Resolve" not in system
+
+
+def test_the_prompt_switches_to_ax_after_a_skylight_refusal():
+    """The model must choose the accessible route after the driver refuses
+    SkyLight input; repeating the rejected event would burn steps without
+    reaching the menu/AX fallback."""
+    system = build_decide_messages(_obs())[0]["content"]
+    assert "SKYLIGHT_UNAVAILABLE" in system
+    assert "do not repeat the same click, key or text action" in system
+    assert "accessible AX or menu action" in system

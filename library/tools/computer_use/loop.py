@@ -11,17 +11,16 @@ for the whole run - observe, think, act, verify - because anything
 that runs between two steps against Resolve changes what the next
 step sees (measured: a lost seed, disagreeing pixels). Releasing during
 model inference so other agents interleave was the old rule; a UI take
-does not interleave. A refusal from the driver is propagated to the
-model as an observation, never worked around. The loop can do anything
-the driver allows and nothing the driver refuses.
+does not interleave. A SkyLight refusal is recorded and returned to the
+model for a fresh decision, so it can choose an accessible menu or AX
+action. Other non-retryable refusals stop the run.
 
 Verification is what makes the loop safe to run unattended: the loop
 never assumes an action worked because the driver returned `{"clicked":
 true}` - the driver's return is the event being posted, not the UI having
-changed (the probe measured `CGEventPostToPid` returning success while
-changing nothing). Each action is verified by diffing the observation
-before and after; an action that did not land is retried once, then
-escalated.
+changed (the old process route measured `CGEventPostToPid` returning
+success while changing nothing). Each action is verified by diffing the
+observation before and after; an action that did not land is retried once.
 """
 
 from __future__ import annotations
@@ -31,7 +30,7 @@ from collections.abc import Callable
 from contextlib import nullcontext
 from dataclasses import dataclass, field
 
-from library.tools.computer_use.actions import Action
+from library.tools.computer_use.actions import Action, INPUT_CALLS
 from library.tools.computer_use.client import DriverClient, DriverError
 from library.tools.computer_use.observe import Observation, build_observation
 from library.tools.resolve_lock import resolve_lease
@@ -52,6 +51,10 @@ RETRYABLE_REFUSALS = frozenset({
     "OCR_FAILED",
     "INTERNAL",
 })
+
+# A refused SkyLight route is not retried with the same input event. It
+# goes back to the model so it can select an AX/menu action instead.
+REPLAN_REFUSALS = frozenset({"SKYLIGHT_UNAVAILABLE"})
 
 
 @dataclass
@@ -79,6 +82,7 @@ def run_loop(
     pid: int | None = None,
     deadline: float | None = None,
     save_trace_as: str | None = None,
+    skylight: bool = True,
 ) -> LoopResult:
     """Run the observe-decide-act loop on a goal.
 
@@ -90,9 +94,9 @@ def run_loop(
     nothing to serialize against. `deadline` is the take's monotonic
     bound: past it the loop stops as `budget_exhausted` before asking
     the model again - time is a budget like steps and dollars.
-    `target` selects whose window is observed and acted on; a
-    non-resolve target routes every driven call through the SkyLight
-    channel.
+    `target` selects whose window is observed and acted on. Resolve
+    input calls use SkyLight unless `skylight=False`; Canva routes input
+    through SkyLight because Chrome filters the process route.
 
     Where `recipe` names a stored recipe (and `store` is its
     `RecipeStore`), the recipe executes FIRST - the plan's section 4,
@@ -147,12 +151,15 @@ def run_loop(
                     outcome=action.kind, steps=history, final_action=action.kind
                 )
 
-            outcome, refusal = _act_and_verify(client, action, obs, target, pid)
+            outcome, refusal = _act_and_verify(
+                client, action, obs, target, pid, skylight=skylight)
             entry = {"action": action.kind, "outcome": outcome,
                      "params": dict(action.params)}
             if refusal is not None:
                 entry["refusal"] = refusal
             history.append(entry)
+            if outcome == "failed" and refusal in REPLAN_REFUSALS:
+                continue
             if outcome == "failed":
                 return LoopResult(
                     outcome="failed", steps=history, final_action=action.kind
@@ -194,11 +201,18 @@ def _maybe_distill(history: list[dict], goal: str,
     })
 
 
-def _targeted(params: dict, target: str, pid: int | None = None) -> dict:
-    """Route one driven call at the target: resolve passes through
-    untouched; anything else rides the SkyLight channel explicitly, pinned
-    to the process the observation was built on."""
+def _targeted(
+    method: str,
+    params: dict,
+    target: str,
+    pid: int | None = None,
+    *,
+    skylight: bool = True,
+) -> dict:
+    """Route UI input at the chosen app, leaving AX/menu calls intact."""
     if target == "resolve":
+        if skylight and method in INPUT_CALLS:
+            return {**params, "allow_skylight": True}
         return params
     routed = {**params, "target": target, "allow_skylight": True}
     if pid is not None:
@@ -207,7 +221,12 @@ def _targeted(params: dict, target: str, pid: int | None = None) -> dict:
 
 
 def _drive(
-    client: DriverClient, action: Action, target: str = "resolve", pid: int | None = None
+    client: DriverClient,
+    action: Action,
+    target: str = "resolve",
+    pid: int | None = None,
+    *,
+    skylight: bool = True,
 ) -> None:
     """Drive an action's translation against the client.
 
@@ -221,7 +240,9 @@ def _drive(
     try:
         method, params = next(gen)
         while True:
-            result = client.call(method, _targeted(params, target, pid))
+            result = client.call(
+                method, _targeted(method, params, target, pid,
+                                  skylight=skylight))
             method, params = gen.send(result)
     except StopIteration:
         pass
@@ -233,6 +254,8 @@ def _act_and_verify(
     previous_obs: Observation,
     target: str = "resolve",
     pid: int | None = None,
+    *,
+    skylight: bool = True,
 ) -> tuple[str, str | None]:
     """Act with the lease taken, then verify the outcome.
 
@@ -240,8 +263,9 @@ def _act_and_verify(
     verification - the observation that confirms the action landed is
     itself a read that must see the state the action produced. The lease
     is released during model inference. A failing action - a driver
-    refusal, or no observable change - is retried once, then escalated.
-    A non-retryable refusal fails the step immediately without a retry.
+    refusal, or no observable change - is retried once. A SkyLight
+    refusal ends this action immediately and returns to the model for an
+    AX/menu replan. A non-retryable refusal fails the step immediately.
     Off Resolve the lease is skipped: no Resolve is touched, so there is
     nothing to serialize against.
 
@@ -253,13 +277,15 @@ def _act_and_verify(
         try:
             if target == "resolve":
                 with resolve_lease("computer-use"):
-                    _drive(client, action, target, pid)
+                    _drive(client, action, target, pid, skylight=skylight)
                     new_obs = build_observation(client, "", [], 0, target=target, pid=pid)
             else:
-                _drive(client, action, target, pid)
+                _drive(client, action, target, pid, skylight=skylight)
                 new_obs = build_observation(client, "", [], 0, target=target, pid=pid)
         except DriverError as exc:
             refusal = exc.driver_code
+            if refusal in REPLAN_REFUSALS:
+                return "failed", refusal
             if refusal not in RETRYABLE_REFUSALS:
                 return "failed", refusal
             continue

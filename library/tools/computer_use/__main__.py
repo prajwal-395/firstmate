@@ -11,28 +11,25 @@ One verb, one module, extended as the layer grows:
     run        the observe-decide-act loop on a task. Runs inside
                `qualification_project.borrowed()` once the broker is
                back; until then it is an offline tool against the mock
-               driver. `--recipe NAME` executes the stored recipe first
-               and plans only where no recipe runs.
+               driver. Resolve input uses SkyLight by default;
+               `--no-skylight` selects the legacy process route.
+               `--recipe NAME` executes the stored recipe first and
+               plans only where no recipe runs.
 
     script     run one deterministic route with no model: either a
                 script FILE the mapping runs wrote (anchors re-resolve
                 at run time; `--teach` writes LLM-taught anchors back
                 to the file), or one NAMED recipe (`--recipe`) whose
-                builder carries the measured route. Recipe steps that
-                must land on Qt-drawn controls need `--allow-foreground`:
-                background input changes nothing there (measured), so
-                the flag posts at the HID tap and activates Resolve
-                first - explicitly, never by default, because it takes
-                the captain's screen.
+                builder carries the measured route. `--allow-foreground`
+                posts input at the HID tap and activates Resolve.
 
     recipe-save  name a verified script file as a recipe for later
                runs: `recipe-save NAME --script script.json
                [--layout LAYOUT]`.
 
-`--target` selects the app (resolve today; canva reports its
-declaration and gate, and refuses `run` - no Chrome executor exists
-yet). The verb execs `python -m library.tools.computer_use` under the engine
-interpreter (`ren/commands.py`, the one registry).
+`--target` selects Resolve or Canva in Chrome. The verb execs
+`python -m library.tools.computer_use` under the engine interpreter
+(`ren/commands.py`, the one registry).
 """
 
 from __future__ import annotations
@@ -111,6 +108,7 @@ def _run(
     recipes_dir: str | None = None,
     layout: str | None = None,
     target_name: str = "resolve",
+    skylight: bool = True,
 ) -> int:
     """Run the observe-decide-act loop on a goal.
 
@@ -122,6 +120,8 @@ def _run(
     with token usage in the perf ledger and the dollar budget enforced.
     `$COMPUTER_USE_MODEL_NAME` selects the model;
     `--max-cost-usd` (or `$COMPUTER_USE_MAX_COST_USD`) caps the spend.
+    Resolve mouse/keyboard events use SkyLight by default;
+    `--no-skylight` restores the process-targeted input route.
 
     `--recipe NAME` executes the stored recipe first: a committed
     recipe ends the run without the model ever being asked, and an
@@ -145,6 +145,14 @@ def _run(
     """
     from library.tools.computer_use.observe import Observation
     from library.tools.computer_use.take import ui_take
+
+    if target_name != "resolve" and not skylight:
+        raise TargetError(
+            "SkyLight cannot be disabled for the Chrome target",
+            "the Chrome driver filters its process-targeted input route",
+            "omit --no-skylight when running with --target canva",
+            code="TARGET_SKYLIGHT_REQUIRED",
+        )
 
     if model_kind == "api":
         config = ModelConfig.from_env()
@@ -176,7 +184,7 @@ def _run(
             result = run_loop(client, model, goal, recipe=recipe,
                               store=store, layout=layout,
                               target=driver_target,
-                              deadline=take.deadline)
+                              deadline=take.deadline, skylight=skylight)
     else:
         if recipe is not None:
             raise TargetError(
@@ -556,6 +564,11 @@ def main(argv=None) -> int:
         default=None,
         help="cap the decide calls' spend (overrides $COMPUTER_USE_MAX_COST_USD)",
     )
+    run_parser.add_argument(
+        "--no-skylight",
+        action="store_true",
+        help="use the legacy process-targeted input route for Resolve",
+    )
     script_parser = sub.add_parser(
         "script", help="run one deterministic route, file or recipe (no model)")
     script_parser.add_argument(
@@ -683,7 +696,8 @@ def main(argv=None) -> int:
             with DriverClient() as client:
                 return _run(client, args.goal, args.model, args.max_cost_usd,
                             recipe=args.recipe, recipes_dir=args.recipes_dir,
-                            layout=args.layout, target_name=args.target)
+                            layout=args.layout, target_name=args.target,
+                            skylight=not args.no_skylight)
         if args.subcommand == "script":
             if target.name != "resolve":
                 raise TargetError(

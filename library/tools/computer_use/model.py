@@ -147,6 +147,9 @@ def build_decide_messages(obs: Observation) -> list[dict]:
         "coordinate (click, drag, scroll) is in those points. "
         "Prefer a menu `path` from the AX surface over coordinates - "
         "paths survive window moves, points do not.\n"
+        "If history shows SKYLIGHT_UNAVAILABLE, do not repeat the same "
+        "click, key or text action; choose an accessible AX or menu action "
+        "from this observation when one can complete the task.\n"
         "Decide from THIS observation only: the history names past "
         "actions, never coordinates to reuse."
     )

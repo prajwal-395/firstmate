@@ -83,7 +83,10 @@ class Observation:
         if self.history:
             lines.append("history:")
             for entry in self.history:
-                lines.append(f"  - {entry.get('action')}: {entry.get('outcome')}")
+                line = f"  - {entry.get('action')}: {entry.get('outcome')}"
+                if entry.get("refusal"):
+                    line += f" (refusal: {entry['refusal']})"
+                lines.append(line)
         else:
             lines.append("history: none")
         lines.append(f"window: {self.window_frame}")

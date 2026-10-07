@@ -41,6 +41,11 @@ from library.tools.computer_use.client import DriverClient, DriverError
 ACTION_KINDS = ("press", "choose", "set_value", "click", "double_click",
                 "key", "type", "drag", "scroll", "wait", "screenshot")
 
+# Driver methods that post mouse or keyboard events. `type` translates to
+# `type_text`, and `double_click` translates to `click`; AX actions do not
+# carry the background input route.
+INPUT_CALLS = frozenset({"click", "drag", "scroll", "key", "type_text"})
+
 #: Terminal signals - they end the loop and translate to no driver call.
 TERMINAL_KINDS = ("done", "need_input", "budget_exhausted")
 

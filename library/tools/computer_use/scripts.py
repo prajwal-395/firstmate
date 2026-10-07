@@ -47,6 +47,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Optional
 
+from library.tools.computer_use.actions import INPUT_CALLS
 from library.tools.computer_use.client import DriverClient, DriverError
 from library.tools.computer_use.observe import Observation, build_observation
 from library.tools.computer_use.take import TakeExpired
@@ -81,15 +82,6 @@ RECIPES_ROOT_ENV = "PIPELINE_RECIPES_DIR"
 #: A recipe name is a filename - lower-case slugs only, so a name can
 #: never escape the store directory.
 RECIPE_NAME_RE = re.compile(r"[a-z0-9][a-z0-9_-]*")
-
-#: Driver calls that post input events. In the background they go to
-#: Resolve's process alone - which the probe measured as changing
-#: nothing on Qt-drawn controls - so a recipe step that must land on
-#: one runs with `foreground=True` and the flag rides on exactly
-#: these calls. Anything else (find_element, captures, press) is
-#: unaffected: AX reaches the menu bar in the background.
-INPUT_CALLS = frozenset({"click", "drag", "scroll", "key", "type_text"})
-
 
 class ScriptError(RenRefusal):
     """A script file that could not be read or run - refused with the fix."""
