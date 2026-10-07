@@ -760,6 +760,42 @@ def test_the_node_add_recipe_runs_to_done_against_the_mock(
     assert [step["via"] for step in result.steps] == ["menu", "menu"]
 
 
+def test_a_menu_that_did_not_read_back_closed_stops_the_script():
+    """A driver receipt with menus_closed=false is a safety stop, not
+    an accepted menu action or a reason to try the next anchor."""
+    from library.tools.computer_use.replay import FakeDriver
+
+    class MenuLeftOpen(FakeDriver):
+        def call(self, method, params=None):
+            result = super().call(method, params)
+            if method == "run_command":
+                result["menus_closed"] = False
+            return result
+
+    script = Script(
+        goal="close every menu opened by the route",
+        steps=[ScriptStep(
+            action="menu",
+            anchors=[Anchor(
+                via="menu",
+                params={"path": ["Color", "Nodes", "Add Serial Node"]})]),
+            ScriptStep(
+                action="menu",
+                anchors=[Anchor(
+                    via="menu",
+                    params={"path": ["Color", "Nodes",
+                                   "Delete Current Node"]})]),
+        ],
+    )
+    driver = MenuLeftOpen()
+    result = run_script(driver, script)
+    assert result.outcome == "failed"
+    assert result.steps[0]["outcome"] == "failed"
+    assert "MenuClosureError" in result.steps[0]["error"]
+    assert result.steps[0]["menus_closed"] is False
+    assert sum(call["method"] == "run_command" for call in driver.calls) == 1
+
+
 def test_a_key_action_teaches_its_keystroke(client: DriverClient):
     """A key resolves to a driver call with no screen lookup, so it
     teaches a key anchor - the next run sends the same chord without
@@ -858,8 +894,10 @@ def test_a_menu_close_uncertainty_is_reported_in_the_step_receipt(
 
     result = run_script(client, effect_panels_script())
 
-    assert result.outcome == "done", result.steps
-    assert [step["menus_closed"] for step in result.steps] == [False] * 3
+    assert result.outcome == "failed", result.steps
+    assert len(result.steps) == 1
+    assert result.steps[0]["menus_closed"] is False
+    assert "MenuClosureError" in result.steps[0]["error"]
 
 
 def test_menu_close_diagnostics_reach_the_script_step_receipt(
@@ -881,9 +919,10 @@ def test_menu_close_diagnostics_reach_the_script_step_receipt(
     monkeypatch.setattr(client, "call", call_with_menu_close)
     result = run_script(client, effect_panels_script())
 
-    assert result.outcome == "done"
+    assert result.outcome == "failed"
     assert result.steps[0]["menus_closed"] is False
     assert result.steps[0]["menu_close"] == detail
+    assert "MenuClosureError" in result.steps[0]["error"]
 
 
 def test_a_menu_anchor_resolves_a_remove_path(client: DriverClient):

@@ -52,13 +52,17 @@ class TakeExpired(RenRefusal):
     """The take's wall-clock bound ran out - aborted and released."""
 
 
-@dataclass(frozen=True)
+@dataclass
 class TakeContext:
     """What a take body runs with: the connected Resolve and the take's
-    monotonic deadline, which loops and scripts check before each step."""
+    monotonic deadline, and the cursor record `borrowed()` will restore
+    and read back when this take exits."""
 
     resolve: Any
     deadline: float
+    borrowed_from: dict[str, Any]
+    restore_verified: bool = False
+    restore_error: str = ""
 
 
 def take_length_seconds() -> float:
@@ -101,5 +105,26 @@ def ui_take(purpose: str,
     with resolve_lease(f"{purpose} (take, {bound:.0f}s bound)",
                        exclusive=True):
         resolve = connect_resolve()
-        with borrowed(resolve):
-            yield TakeContext(resolve=resolve, deadline=deadline)
+        take = None
+        body_error = None
+        try:
+            with borrowed(resolve) as borrowed_from:
+                take = TakeContext(resolve=resolve, deadline=deadline,
+                                   borrowed_from=dict(borrowed_from))
+                try:
+                    yield take
+                except BaseException as exc:
+                    body_error = exc
+                    raise
+        except BaseException as exc:
+            if take is not None:
+                if body_error is exc:
+                    # borrowed() restored successfully before the body
+                    # exception propagated out of its context manager.
+                    take.restore_verified = True
+                else:
+                    take.restore_error = f"{type(exc).__name__}: {exc}"
+            raise
+        else:
+            if take is not None:
+                take.restore_verified = True

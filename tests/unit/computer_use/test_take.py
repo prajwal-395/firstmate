@@ -9,7 +9,7 @@ snapshot, reset or sibling job cannot run between two steps of a take.
 
 from __future__ import annotations
 
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 
 import pytest
 
@@ -21,6 +21,12 @@ from library.tools.computer_use.take import (
 
 
 def _stub_take(monkeypatch, entered: list, connected: list):
+    borrowed_from = {
+        "project": "Podcast (field test)",
+        "timeline_id": "timeline-11",
+        "timeline": "Reel 11",
+        "page": "edit",
+    }
     monkeypatch.setattr(
         "library.tools.resolve_lock.resolve_lease",
         lambda purpose, **kw: entered.append((purpose, kw)) or nullcontext(),
@@ -31,7 +37,7 @@ def _stub_take(monkeypatch, entered: list, connected: list):
     )
     monkeypatch.setattr(
         "library.tools.qualification_project.borrowed",
-        lambda resolve: nullcontext(),
+        lambda resolve: nullcontext(borrowed_from),
     )
 
 
@@ -60,10 +66,41 @@ def test_the_take_purpose_names_the_bound(monkeypatch):
     with ui_take("computer-use run", take_seconds=60) as take:
         assert take.resolve is not None
         assert take.deadline > 0
+        assert take.borrowed_from == {
+            "project": "Podcast (field test)",
+            "timeline_id": "timeline-11",
+            "timeline": "Reel 11",
+            "page": "edit",
+        }
+    assert take.restore_verified is True
     assert len(entered) == 1
     purpose, kwargs = entered[0]
     assert "take" in purpose and "60s" in purpose
     assert kwargs.get("exclusive") is True
+
+
+def test_a_restore_mismatch_survives_the_take_context(monkeypatch):
+    """The take exposes a failed borrowed() read-back so the live
+    replay can stop before opening another take on a mismatched cursor."""
+    entered: list = []
+    connected: list = []
+    _stub_take(monkeypatch, entered, connected)
+
+    @contextmanager
+    def mismatched_restore(_resolve):
+        yield {"project": "Podcast", "timeline_id": "timeline-11",
+               "timeline": "Reel 11", "page": "edit"}
+        raise RuntimeError("timeline id did not read back")
+
+    monkeypatch.setattr(
+        "library.tools.qualification_project.borrowed", mismatched_restore)
+    take = None
+    with pytest.raises(RuntimeError, match="timeline id"):
+        with ui_take("computer-use run", take_seconds=60) as take:
+            pass
+    assert take is not None
+    assert take.restore_verified is False
+    assert "timeline id did not read back" in take.restore_error
 
 
 def test_the_take_bound_defaults_and_overrides(monkeypatch):

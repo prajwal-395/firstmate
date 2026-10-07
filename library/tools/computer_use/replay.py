@@ -22,15 +22,15 @@ Three layers, smallest first:
    counts - so the suite runs anywhere. The fakes prove the SUITE's
    plumbing (snapshots, comparisons, verdicts); the live run proves
    the UI.
-3. Live replay (Ren Qualification only): background recipes run any
-   time through the broker borrow wrapper (a broker qualification
-   grant where one serves, else a local `ui_take` - both hold one
-   exclusive lease for the whole take and both restore with
-   read-back); foreground recipes run as ONE batched take and only
-   with the captain's window granted (`REN_REPLAY_CAPTAIN_WINDOW`
-   `=granted` plus `--allow-foreground`). Scratch timelines are built
-   per run and deleted after - nothing touches a timeline that was
-   already there, and never the captain's projects.
+3. Live replay (Ren Qualification only): each take enters `ui_take`
+   and `qualification_project.borrowed()`; `resolve_lease` obtains one
+   broker turn and holds the exclusive lease through action, readback,
+   scratch cleanup and restore. Background recipes run any time;
+   foreground recipes run as ONE batched take and only with the
+   captain's window granted (`REN_REPLAY_CAPTAIN_WINDOW` `=granted`
+   plus `--allow-foreground`). Scratch timelines are built per run and
+   deleted after - nothing touches a timeline that was already there,
+   and never the captain's projects.
 
 A step record carries `proved` (`scripts._run_step`): `ok` with
 `proved` False is done-means-accepted, and the recipe fails replay
@@ -50,6 +50,7 @@ import copy
 import json
 import os
 import time
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import Path
@@ -59,6 +60,7 @@ from library.tools.computer_use import anchors as anchor_audit
 from library.tools.computer_use.scripts import (
     Anchor,
     Expect,
+    MenuClosureError,
     Script,
     run_script,
 )
@@ -731,7 +733,9 @@ def replay_offline(spec: RecipeSpec, out_dir: Path) -> RecipeReport:
     world = {"resolve": fake_resolve, "driver": driver}
     before = {proof.name: proof.read(world) for proof in spec.proofs}
     try:
-        result = run_script(driver, script)
+        result = run_script(
+            driver, script,
+            lease_factory=lambda _purpose: nullcontext())
     except Exception as exc:  # noqa: BLE001 - the report names it
         report.verdict = "fail"
         report.reason = f"runner raised {type(exc).__name__}: {exc}"
@@ -868,6 +872,122 @@ def _live_node_count(item) -> int | None:
     return count if not isinstance(count, bool) else None
 
 
+#: Background recipes whose press acts on the Color page: the menu
+#: press is accepted on any page but moves no node anywhere else.
+#: Measured live 2026-10-07: the replay pressed
+#: `Color > Nodes > Add Serial Node + CPW` and `Delete Current Node`
+#: against the Edit page - `ok` via ax_path, nodes 1 -> 1. The
+#: established runners (`run_window_create`, `run_window_delete`,
+#: `run_window_track`) put the playhead on the clip, open the Color
+#: page and read its Scopes label back before pressing; the live
+#: runner below does the same, or it refuses with what read back.
+COLOR_PAGE_SPECS = ("window-create", "window-delete", "window-track")
+
+
+def _live_establish_color_page(resolve, timeline, item, client) -> str | None:
+    """Put the scratch clip on the Color page; None on success.
+
+    A reason string on any miss: the playhead did not land on the
+    clip, the Color page did not open, or no Scopes label read back
+    (the API switch alone does not repaint the page in background).
+    The caller fails the recipe with the reason instead of pressing
+    against the wrong page and claiming blind.
+    """
+    import time as _time
+
+    from library.tools.qualification_project import FPS
+
+    try:
+        uid = item.GetUniqueId()
+    except Exception:  # noqa: BLE001 - unreadable is a refusal
+        return "the scratch clip has no readable unique id"
+    try:
+        start = int(item.GetStart())
+        mid = start + int(item.GetDuration()) // 2
+        fps = int(FPS)
+        ff = mid % fps
+        ss = (mid // fps) % 60
+        mm = (mid // (fps * 60)) % 60
+        hh = mid // (fps * 3600)
+        timeline.SetCurrentTimecode(f"{hh:02d}:{mm:02d}:{ss:02d}:{ff:02d}")
+        current = timeline.GetCurrentVideoItem()
+        current_uid = current.GetUniqueId() if current else None
+    except Exception:  # noqa: BLE001 - unestablished is a refusal
+        return "the playhead did not land on the scratch clip"
+    if current_uid != uid:
+        return (f"the playhead reads current clip {current_uid!r}, "
+                f"not the scratch clip")
+    try:
+        opened = resolve.OpenPage("color")
+    except Exception:  # noqa: BLE001 - a dead call is a refusal
+        opened = False
+    if not opened:
+        return "the Color page did not open"
+    labels: set = set()
+    for _attempt in range(3):
+        _time.sleep(4)
+        try:
+            labels = {e.get("text", "") for e in
+                      client.call("read_text").get("elements", [])}
+        except Exception:  # noqa: BLE001 - retry covers it
+            labels = set()
+        if "Scopes" in labels:
+            break
+    if "Scopes" not in labels:
+        return ("reads no Color page (no Scopes label) - the menu "
+                "would press against the wrong page")
+    return None
+
+
+def _live_ensure_two_nodes(item, client) -> str | None:
+    """Grow the scratch clip to two nodes; None on success.
+
+    The delete menu removes the current node and no API reads which
+    that is - only deleting the last of two is deterministic, and
+    deleting the last node of one is refused upstream. A fresh
+    scratch holds one, so the replay adds the serial first and polls
+    for it, the way the established delete runner requires.
+    """
+    import time as _time
+
+    before = _live_node_count(item)
+    if before is None:
+        return "the scratch clip's node count did not read back"
+    if before >= 2:
+        return None
+    try:
+        receipt = client.call(
+            "run_command",
+            {"path": ["Color", "Nodes", "Add Serial Node"]})
+        if (isinstance(receipt, dict)
+                and receipt.get("menus_closed") is False):
+            raise MenuClosureError(
+                "delete setup serial left a menu open or unverified")
+    except Exception as exc:  # noqa: BLE001 - the reason names it
+        return f"the setup serial did not press: {type(exc).__name__}: {exc}"
+    after = _live_node_count(item)
+    for _poll in range(5):
+        if after is not None and after >= 2:
+            break
+        _time.sleep(3)
+        after = _live_node_count(item)
+    if after is None or after < 2:
+        return f"the setup serial read {before} -> {after}, not two nodes"
+    return None
+
+
+def _activate_resolve_for_live_take(client) -> None:
+    """Run the driver's NSWorkspace activation path and require its receipt.
+
+    Qt AX menu presses can be accepted without dispatching while
+    Resolve is inactive. Live takes activate once after borrowing the
+    qualification project and before any UI action.
+    """
+    receipt = client.call("activate_resolve", {"allow_foreground": True})
+    if not isinstance(receipt, dict) or receipt.get("activated") is not True:
+        raise RuntimeError(f"Resolve activation did not read back: {receipt!r}")
+
+
 def _live_run_background(spec: RecipeSpec, take, out: Path) -> RecipeReport:
     """Replay one background recipe live: establish, act, read back.
 
@@ -876,8 +996,6 @@ def _live_run_background(spec: RecipeSpec, take, out: Path) -> RecipeReport:
     result read after restore reads the captain's project, not
     the replay. Every miss is a refusal with what read back.
     """
-    import base64 as _b64
-
     from library.tools.computer_use.client import DriverClient
     from library.tools.computer_use.scripts import run_script
 
@@ -898,20 +1016,49 @@ def _live_run_background(spec: RecipeSpec, take, out: Path) -> RecipeReport:
         from library.tools.resolve_lock import assert_current_timeline
 
         assert_current_timeline(project, timeline)
-        before_nodes = _live_node_count(item)
-        before_page = resolve.GetCurrentPage()
         with DriverClient() as client:
-            result = run_script(client, script, deadline=take.deadline)
-            report.steps = result.steps
-            after_nodes = _live_node_count(item)
-            after_page = resolve.GetCurrentPage()
+            _activate_resolve_for_live_take(client)
+            if spec.name in COLOR_PAGE_SPECS:
+                reason = _live_establish_color_page(
+                    resolve, timeline, item, client)
+                if reason is not None:
+                    report.verdict = "fail"
+                    report.reason = f"{spec.name}: {reason}"
+                    return report
+            if spec.name == "window-delete":
+                reason = _live_ensure_two_nodes(item, client)
+                if reason is not None:
+                    report.verdict = "fail"
+                    report.reason = f"{spec.name}: {reason}"
+                    return report
+            before_nodes = _live_node_count(item)
+            before_page = resolve.GetCurrentPage()
             try:
-                shot = client.call("capture_window")
-                capture_path = out / f"{spec.name}-live.png"
-                capture_path.write_bytes(_b64.b64decode(shot["image"]))
-                report.captures = [str(capture_path)]
-            except Exception:  # noqa: BLE001 - captures never fail a run
-                pass
+                result = run_script(client, script, deadline=take.deadline)
+            except Exception:
+                # Preserve the screen before borrowed() restores the
+                # captain's project. In particular, an unverified menu
+                # close must leave evidence in the per-recipe report.
+                _capture_live(client, spec, out, report, "failed")
+                raise
+            report.steps = result.steps
+            unverified_menu = next(
+                (entry for entry in report.steps
+                 if entry.get("menus_closed") is False), None)
+            after_nodes = _live_node_count(item)
+            if spec.name in ("window-create", "window-delete"):
+                # Node creation lands asynchronously (measured: the
+                # count read back unchanged immediately after the
+                # press) - poll before refusing.
+                for _poll in range(5):
+                    if _live_nodes_ok(spec.name, before_nodes,
+                                      after_nodes):
+                        break
+                    time.sleep(3)
+                    after_nodes = _live_node_count(item)
+            after_page = resolve.GetCurrentPage()
+            _capture_live(client, spec, out, report,
+                          "failed" if result.outcome != "done" else "passed")
         report.proofs = [
             {"name": "nodes",
              "passed": _live_nodes_ok(spec.name, before_nodes, after_nodes),
@@ -922,7 +1069,11 @@ def _live_run_background(spec: RecipeSpec, take, out: Path) -> RecipeReport:
         unproved = [entry["step"] for entry in report.steps
                     if not entry.get("proved")
                     and not _covered(spec, entry["step"])]
-        if result.outcome != "done":
+        if unverified_menu is not None:
+            report.verdict = "fail"
+            report.reason = unverified_menu.get(
+                "error", "MenuClosureError: menu close was not verified")
+        elif result.outcome != "done":
             report.verdict = "fail"
             report.reason = f"runner ended {result.outcome}"
         elif unproved:
@@ -944,6 +1095,21 @@ def _live_run_background(spec: RecipeSpec, take, out: Path) -> RecipeReport:
     finally:
         _delete_scratch(pool, timeline)
     return report
+
+
+def _capture_live(client, spec: RecipeSpec, out: Path,
+                  report: RecipeReport, outcome: str) -> None:
+    """Save the screen evidence before take restoration, when available."""
+    import base64 as _b64
+
+    try:
+        shot = client.call("capture_window")
+        capture_path = out / f"{spec.name}-live-{outcome}.png"
+        capture_path.parent.mkdir(parents=True, exist_ok=True)
+        capture_path.write_bytes(_b64.b64decode(shot["image"]))
+        report.captures.append(str(capture_path))
+    except Exception:  # noqa: BLE001 - capture failure never hides the recipe verdict
+        pass
 
 
 def _live_nodes_ok(name: str, before, after) -> bool:
@@ -986,12 +1152,19 @@ def _live_run_foreground_batch(specs: list[RecipeSpec], take,
         assert_current_timeline(project, timeline)
         uid = item.GetUniqueId()
         with DriverClient() as client:
-            client.call("activate_resolve", {"allow_foreground": True})
-            for spec in specs:
+            activation_error = None
+            try:
+                _activate_resolve_for_live_take(client)
+            except Exception as exc:  # noqa: BLE001 - report each refused recipe
+                activation_error = f"{type(exc).__name__}: {exc}"
+            for index, spec in enumerate(specs):
                 audit, _ = audit_recipe(spec)
                 report = RecipeReport(name=spec.name, background=False,
                                       audit=audit)
+                menu_unverified = False
                 try:
+                    if activation_error is not None:
+                        raise RuntimeError(activation_error)
                     receipt = _foreground_runner(spec, client, resolve,
                                                  project, timeline, item,
                                                  uid)
@@ -1016,7 +1189,15 @@ def _live_run_foreground_batch(specs: list[RecipeSpec], take,
                 except Exception as exc:  # noqa: BLE001 - named in report
                     report.verdict = "fail"
                     report.reason = f"{type(exc).__name__}: {exc}"
+                    menu_unverified = isinstance(exc, MenuClosureError)
                 reports.append(report)
+                if menu_unverified:
+                    reports.extend(_not_run_live_report(
+                        remaining,
+                        "not run: foreground batch stopped because the "
+                        f"menu after {spec.name} was not verified closed")
+                                   for remaining in specs[index + 1:])
+                    break
     finally:
         _delete_scratch(pool, timeline)
     return reports
@@ -1128,6 +1309,53 @@ def write_report(report: dict, out_dir: Path) -> Path:
     return path
 
 
+def _record_take_restore(report: RecipeReport, take,
+                         error: Exception | None = None) -> bool:
+    """Record borrowed()'s read-back against this take's own snapshot.
+
+    A failed or never-entered borrow is a failed proof and stops later
+    live takes. The comparison itself belongs to `borrowed()`; this
+    records its outcome and the exact snapshot it promised to restore.
+    """
+    if take is not None and take.restore_verified:
+        detail = ("borrowed() restored and read back this take's start: "
+                  + json.dumps(take.borrowed_from, sort_keys=True,
+                               default=str))
+        passed = True
+    elif take is not None:
+        detail = ("borrowed() restore did not read back this take's start: "
+                  + (take.restore_error or "no restore receipt"))
+        passed = False
+    else:
+        detail = "borrowed() did not yield a take-start snapshot"
+        if error is not None:
+            detail += f" ({type(error).__name__}: {error})"
+        passed = False
+    report.proofs.append({"name": "restore", "passed": passed,
+                          "detail": detail})
+    if not passed:
+        report.verdict = "fail"
+        report.reason = "; ".join(
+            part for part in (report.reason, detail) if part)
+    return passed
+
+
+def _failed_live_report(spec: RecipeSpec, error: Exception) -> RecipeReport:
+    """Create a per-recipe failure when a take failed before returning."""
+    audit, _ = audit_recipe(spec)
+    return RecipeReport(
+        name=spec.name, background=spec.background, audit=audit,
+        verdict="fail",
+        reason=f"take raised {type(error).__name__}: {error}")
+
+
+def _not_run_live_report(spec: RecipeSpec, reason: str) -> RecipeReport:
+    """Keep an interrupted suite's per-recipe ledger complete."""
+    audit, _ = audit_recipe(spec)
+    return RecipeReport(name=spec.name, background=spec.background,
+                        audit=audit, verdict="fail", reason=reason)
+
+
 def main(argv=None) -> int:
     """`ren computer-use replay`: the one command.
 
@@ -1171,13 +1399,16 @@ def main(argv=None) -> int:
 def _main_live(args, out: Path, only: tuple) -> int:
     """Queue the live replay: background now, foreground batched.
 
-    A broker qualification grant schedules the take fleet-wide
-    where a broker serves; the runs themselves enter through
-    `ui_take` - the borrow wrapper: one exclusive lease for the
-    whole take, Ren Qualification only, restore with read-back.
+    Each take enters through `ui_take`; its `resolve_lease` obtains one
+    broker turn and holds one exclusive lease while `borrowed()` opens
+    Ren Qualification and restores the captain's project with read-back.
     """
     from library.tools.computer_use.take import ui_take
     from library.tools.resolved import client as broker
+
+    if not broker.serving():
+        print("live replay refuses: the Resolve broker is not serving")
+        return 2
 
     specs = [spec for spec in recipe_registry()
              if not only or spec.name in only]
@@ -1192,25 +1423,82 @@ def _main_live(args, out: Path, only: tuple) -> int:
             print(f"  {name}: {reason}")
     if not runnable:
         return 2
-    grant = None
-    if broker.serving():
-        grant = broker.grant(
-            {"purpose": "recipe replay: "
-                        f"{len(runnable)} recipes in Ren Qualification",
-             "project": "Ren Qualification"},
-            qualification=True, wait=60)
-        print(f"broker grant: {grant}")
     background = [spec for spec in runnable if spec.background]
     foreground = [spec for spec in runnable if not spec.background]
     reports: list[RecipeReport] = []
     out.mkdir(parents=True, exist_ok=True)
-    for spec in background:
-        with ui_take(f"recipe replay {spec.name}") as take:
-            reports.append(_live_run_background(spec, take, out))
+    stopped = False
+    for index, spec in enumerate(background):
+        purpose = f"recipe replay {spec.name}"
+        take = None
+        recipe_report = None
+        take_error = None
+        try:
+            with ui_take(purpose) as take:
+                recipe_report = _live_run_background(spec, take, out)
+        except Exception as exc:  # noqa: BLE001 - saved per recipe below
+            take_error = exc
+        if recipe_report is None:
+            recipe_report = _failed_live_report(
+                spec, take_error or RuntimeError("take returned no report"))
+        elif take_error is not None:
+            recipe_report.verdict = "fail"
+            recipe_report.reason = "; ".join(
+                part for part in (
+                    recipe_report.reason,
+                    f"take raised {type(take_error).__name__}: {take_error}")
+                if part)
+        restored = _record_take_restore(recipe_report, take, take_error)
+        reports.append(recipe_report)
+        menu_unverified = "MenuClosureError" in recipe_report.reason
+        activation_failed = (
+            "activation did not read back" in recipe_report.reason.lower())
+        if not restored or menu_unverified or activation_failed:
+            if not restored:
+                stop_detail = "the borrowed() cursor restore did not read back"
+            elif menu_unverified:
+                stop_detail = "a recipe menu did not read back closed"
+            else:
+                stop_detail = "Resolve activation did not read back"
+            stop_reason = (f"not run: live suite stopped because {stop_detail} "
+                           f"after {spec.name}")
+            reports.extend(_not_run_live_report(remaining, stop_reason)
+                           for remaining in background[index + 1:])
+            stopped = True
+            break
     if foreground:
-        with ui_take("recipe replay foreground batch") as take:
-            reports.extend(
-                _live_run_foreground_batch(foreground, take, out))
+        if stopped:
+            reports.extend(_not_run_live_report(
+                spec, "not run: live suite stopped after an earlier safety failure")
+                           for spec in foreground)
+        else:
+            purpose = "recipe replay foreground batch"
+            take = None
+            batch_reports = []
+            take_error = None
+            try:
+                with ui_take(purpose) as take:
+                    batch_reports = _live_run_foreground_batch(
+                        foreground, take, out)
+            except Exception as exc:  # noqa: BLE001 - saved per recipe below
+                take_error = exc
+            if not batch_reports:
+                if take_error is None:
+                    take_error = RuntimeError(
+                        "foreground batch returned no reports")
+                batch_reports = [_failed_live_report(spec, take_error)
+                                 for spec in foreground]
+            elif take_error is not None:
+                for recipe_report in batch_reports:
+                    recipe_report.verdict = "fail"
+                    recipe_report.reason = "; ".join(
+                        part for part in (
+                            recipe_report.reason,
+                            f"take raised {type(take_error).__name__}: "
+                            f"{take_error}") if part)
+            for recipe_report in batch_reports:
+                _record_take_restore(recipe_report, take, take_error)
+            reports.extend(batch_reports)
     report = _summarize(reports, mode="live", out=str(out))
     path = write_report(report, out)
     print(f"replay live: {len(report['passed'])} passed, "

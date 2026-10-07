@@ -16,6 +16,13 @@ from contextlib import contextmanager, nullcontext
 from library.tools.computer_use import __main__ as main_module
 from library.tools.computer_use.loop import LoopResult
 
+_BORROWED_FROM = {
+    "project": "Podcast (field test)",
+    "timeline_id": "timeline-11",
+    "timeline": "Reel 11",
+    "page": "edit",
+}
+
 
 class _FakeClient:
     def __enter__(self):
@@ -48,7 +55,7 @@ def _stub_resolve(monkeypatch, client=None):
     )
     monkeypatch.setattr(
         "library.tools.qualification_project.borrowed",
-        lambda resolve: nullcontext(),
+        lambda resolve: nullcontext(_BORROWED_FROM),
     )
     monkeypatch.setattr(
         "library.tools.qualification_project.switch_project",
@@ -206,7 +213,7 @@ def test_run_takes_a_plain_lease_then_borrows(monkeypatch, capsys):
 
     def recording_borrowed(resolve):
         borrowed_with.append(resolve)
-        return nullcontext()
+        return nullcontext(_BORROWED_FROM)
 
     monkeypatch.setattr(lock_module, "resolve_lease", recording_lease)
     monkeypatch.setattr(qual_module, "borrowed", recording_borrowed)
@@ -589,7 +596,7 @@ def _stub_script(monkeypatch, outcome="done", scale=2.0, source_end=119,
         "library.tools.resolve_lock.exclusive_held", lambda: True)
     monkeypatch.setattr(
         "library.tools.qualification_project.borrowed",
-        lambda resolve: nullcontext())
+        lambda resolve: nullcontext(_BORROWED_FROM))
 
     def fake_run_script(client, script, **kwargs):
         runs.append((script, kwargs))

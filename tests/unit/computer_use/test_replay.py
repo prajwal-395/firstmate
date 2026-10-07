@@ -10,10 +10,15 @@ and the live layer runs only in Ren Qualification.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from types import SimpleNamespace
+
 from library.tools.computer_use import replay as replay_mod
 from library.tools.computer_use.replay import (
     FakeDriver,
     FakeResolve,
+    RecipeAudit,
+    RecipeReport,
     RecipeSpec,
     audit_recipe,
     recipe_registry,
@@ -67,6 +72,39 @@ def test_every_registry_recipe_passes_offline(tmp_path):
     assert len(report["passed"]) == len(list(recipe_registry()))
     for recipe in report["recipes"]:
         assert recipe["captures"], recipe["name"]
+
+
+def test_offline_replay_never_requests_a_resolve_lease(tmp_path, monkeypatch):
+    """Offline fake replays do not wait on or occupy the live broker."""
+    from library.tools.computer_use import scripts as scripts_module
+
+    def refused_lease(*args, **kwargs):
+        raise AssertionError("offline replay requested a Resolve lease")
+
+    monkeypatch.setattr(scripts_module, "resolve_lease", refused_lease)
+    report = run_suite_offline(tmp_path)
+    assert report["failed"] == []
+
+
+def test_live_failure_capture_is_saved_before_take_restore(tmp_path):
+    """A refused live step leaves a screen capture in its recipe row."""
+    import base64
+
+    spec = recipe_registry()[0]
+    audit, _script = audit_recipe(spec)
+    report = RecipeReport(spec.name, spec.background, audit)
+
+    class CaptureClient:
+        def call(self, method, params=None):
+            assert method == "capture_window"
+            return {"image": base64.b64encode(b"screen evidence").decode()}
+
+    replay_mod._capture_live(CaptureClient(), spec, tmp_path,
+                             report, "failed")
+
+    capture = tmp_path / f"{spec.name}-live-failed.png"
+    assert report.captures == [str(capture)]
+    assert capture.read_bytes() == b"screen evidence"
 
 
 def test_a_step_with_no_expect_reports_done_unproved():
@@ -228,6 +266,25 @@ def test_foreground_live_refuses_without_grant_and_flag(monkeypatch):
     assert replay_mod._live_guard(background, False) is None
 
 
+def test_live_take_activation_requires_a_driver_receipt():
+    """Qt AX presses need Resolve's shipped NSWorkspace activation
+    path, and a missing activation receipt must refuse before a press."""
+    driver = FakeDriver()
+    replay_mod._activate_resolve_for_live_take(driver)
+    assert driver.activated is True
+
+    class NoReceipt:
+        def call(self, method, params=None):
+            assert method == "activate_resolve"
+            return {"activated": False}
+
+    try:
+        replay_mod._activate_resolve_for_live_take(NoReceipt())
+        assert False, "activation without receipt should refuse"
+    except RuntimeError as exc:
+        assert "did not read back" in str(exc)
+
+
 def test_fake_resolve_advances_only_on_known_menus():
     """The fake proves plumbing, not wishes: unknown presses record
     but change nothing, while the measured routes advance page,
@@ -241,3 +298,298 @@ def test_fake_resolve_advances_only_on_known_menus():
     assert "Effects" in fake.panels
     fake.press(["Color", "Tracker", "Forward"])
     assert fake.tracked is True
+
+
+def test_window_presses_establish_the_color_page():
+    """Defect, caught live 2026-10-07: the replay pressed the window
+    menus against the Edit page - `ok` via ax_path, nodes 1 -> 1.
+    Every recipe whose press acts on the Color page establishes it
+    (playhead, OpenPage, Scopes) before the runner presses."""
+    assert {"window-create", "window-delete",
+            "window-track"} <= set(replay_mod.COLOR_PAGE_SPECS)
+
+
+class _LiveItem:
+    """The scratch clip the live helpers read: nodes plus an id."""
+
+    def __init__(self, nodes: int, uid: str = "scratch-uid"):
+        self._nodes = nodes
+        self._uid = uid
+
+    def GetNumNodes(self):
+        return self._nodes
+
+    def GetUniqueId(self):
+        return self._uid
+
+    def GetStart(self):
+        return 0
+
+    def GetDuration(self):
+        return 72
+
+
+class _LiveTimeline:
+    """The scratch timeline: the playhead lands, the clip reads back."""
+
+    def __init__(self, item):
+        self._item = item
+
+    def SetCurrentTimecode(self, _timecode):
+        return True
+
+    def GetCurrentVideoItem(self):
+        return self._item
+
+
+class _LiveResolve:
+    """OpenPage answers color; the page reads back what it opened."""
+
+    def __init__(self):
+        self.page = "edit"
+
+    def OpenPage(self, page):
+        self.page = page
+        return True
+
+    def GetCurrentPage(self):
+        return self.page
+
+
+class _LiveClient:
+    """read_text names the labels given; run_command bumps the item."""
+
+    def __init__(self, item, labels=("Scopes",), menus_closed=True):
+        self._item = item
+        self._labels = labels
+        self._menus_closed = menus_closed
+        self.pressed = []
+
+    def call(self, method, params=None):
+        if method == "read_text":
+            return {"elements": [{"text": text}
+                                 for text in self._labels]}
+        if method == "run_command":
+            self.pressed.append((params or {}).get("path"))
+            self._item._nodes += 1
+            return {"pressed": True,
+                    "menus_closed": self._menus_closed}
+        raise AssertionError(f"unexpected call {method!r}")
+
+
+def test_establish_lands_the_playhead_and_reads_scopes():
+    """The Color-page establishment puts the playhead on the scratch
+    clip, opens color, and reads Scopes back - a press without it
+    proved nothing live."""
+    item = _LiveItem(1)
+    resolve = _LiveResolve()
+    client = _LiveClient(item)
+    reason = replay_mod._live_establish_color_page(
+        resolve, _LiveTimeline(item), item, client)
+    assert reason is None
+    assert resolve.page == "color"
+
+
+def test_establish_refuses_without_scopes():
+    """No Scopes label is a refusal naming the wrong page - the menu
+    would press against pixels it cannot see, and the suite fails
+    the recipe instead of claiming blind."""
+    item = _LiveItem(1)
+    client = _LiveClient(item, labels=("Master",))
+    reason = replay_mod._live_establish_color_page(
+        _LiveResolve(), _LiveTimeline(item), item, client)
+    assert reason is not None and "Scopes" in reason
+
+
+def test_delete_setup_grows_one_node_to_two():
+    """A fresh scratch holds one node and deleting it is refused
+    upstream - the replay adds the serial first, so the delete it
+    proves is the deterministic last-of-two."""
+    item = _LiveItem(1)
+    client = _LiveClient(item)
+    assert replay_mod._live_ensure_two_nodes(item, client) is None
+    assert item.GetNumNodes() == 2
+    assert client.pressed == [["Color", "Nodes", "Add Serial Node"]]
+
+
+def test_delete_setup_keeps_two_nodes():
+    """Two nodes need no setup press: the helper leaves the clip it
+    was given alone."""
+    item = _LiveItem(2)
+    client = _LiveClient(item)
+    assert replay_mod._live_ensure_two_nodes(item, client) is None
+    assert client.pressed == []
+
+
+def test_delete_setup_stops_when_its_menu_is_not_closed():
+    """The setup serial counts as an action too: it cannot continue
+    into the delete recipe when Resolve did not read the menu closed."""
+    item = _LiveItem(1)
+    client = _LiveClient(item, menus_closed=False)
+    reason = replay_mod._live_ensure_two_nodes(item, client)
+    assert reason is not None
+    assert "MenuClosureError" in reason
+
+
+def test_restore_proof_names_this_takes_own_start():
+    """Restore evidence is bound to the snapshot this take captured,
+    even when the previous take or watcher saw another timeline."""
+    start = {"project": "Podcast", "timeline_id": "timeline-04",
+             "timeline": "Reel 04", "page": "edit"}
+    take = SimpleNamespace(borrowed_from=start, restore_verified=True,
+                           restore_error="")
+    report = RecipeReport("grade-node-add", True,
+                          RecipeAudit("grade-node-add", 2),
+                          verdict="pass")
+
+    assert replay_mod._record_take_restore(report, take)
+    restore = next(proof for proof in report.proofs
+                   if proof["name"] == "restore")
+    assert restore["passed"] is True
+    assert "Reel 04" in restore["detail"]
+    assert "timeline-04" in restore["detail"]
+    assert "Reel 11" not in restore["detail"]
+
+
+def test_restore_mismatch_fails_recipe():
+    """A borrowed() mismatch cannot leave a live recipe green."""
+    take = SimpleNamespace(
+        borrowed_from={"project": "Podcast", "timeline_id": "timeline-04",
+                       "timeline": "Reel 04", "page": "edit"},
+        restore_verified=False,
+        restore_error="timeline id did not read back")
+    report = RecipeReport("grade-node-add", True,
+                          RecipeAudit("grade-node-add", 2),
+                          verdict="pass")
+
+    assert replay_mod._record_take_restore(report, take) is False
+    assert report.verdict == "fail"
+    assert "timeline id did not read back" in report.reason
+
+
+def test_live_replay_stops_after_restore_mismatch(tmp_path, monkeypatch):
+    """A failed cursor restore prevents the suite from starting its
+    next live take against a state no longer known to belong to it."""
+    specs = [spec for spec in recipe_registry()
+             if spec.name in ("grade-node-add", "grade-node-remove")]
+    started = []
+    written = []
+
+    @contextmanager
+    def mismatched_take(purpose):
+        started.append(purpose)
+        yield SimpleNamespace(
+            resolve=object(), deadline=1,
+            borrowed_from={"project": "Podcast", "timeline_id": "t04",
+                           "timeline": "Reel 04", "page": "edit"},
+            restore_verified=False, restore_error="timeline mismatch")
+
+    def successful_recipe(spec, _take, _out):
+        audit, _script = audit_recipe(spec)
+        return RecipeReport(spec.name, True, audit, verdict="pass")
+
+    monkeypatch.setattr(replay_mod, "recipe_registry", lambda: specs)
+    monkeypatch.setattr(replay_mod, "_live_run_background", successful_recipe)
+    monkeypatch.setattr(replay_mod, "write_report",
+                        lambda report, _out: written.append(report)
+                        or tmp_path / "report.json")
+    monkeypatch.setattr(
+        "library.tools.computer_use.take.ui_take", mismatched_take)
+    monkeypatch.setattr(
+        "library.tools.resolved.client.serving", lambda: True)
+
+    result = replay_mod._main_live(
+        SimpleNamespace(allow_foreground=False), tmp_path, ())
+
+    assert result == 1
+    assert started == ["recipe replay grade-node-add"]
+    assert written[0]["failed"] == ["grade-node-add", "grade-node-remove"]
+    assert "not run" in written[0]["recipes"][1]["reason"]
+    restore = next(proof for proof in written[0]["recipes"][0]["proofs"]
+                   if proof["name"] == "restore")
+    assert restore["passed"] is False
+
+
+def test_live_replay_stops_after_unverified_menu(tmp_path, monkeypatch):
+    """An unverified menu is reported with evidence and stops later takes."""
+    specs = [spec for spec in recipe_registry()
+             if spec.name in ("grade-node-add", "grade-node-remove")]
+    started = []
+    written = []
+
+    @contextmanager
+    def successful_restore(purpose):
+        started.append(purpose)
+        yield SimpleNamespace(
+            resolve=object(), deadline=1,
+            borrowed_from={"project": "Podcast", "timeline_id": "t04",
+                           "timeline": "Reel 04", "page": "edit"},
+            restore_verified=True, restore_error="")
+
+    def menu_failure(spec, _take, _out):
+        audit, _script = audit_recipe(spec)
+        return RecipeReport(
+            spec.name, True, audit, verdict="fail",
+            reason=("MenuClosureError: menu action returned "
+                    "menus_closed=false; close evidence={'expanded': True}"))
+
+    monkeypatch.setattr(replay_mod, "recipe_registry", lambda: specs)
+    monkeypatch.setattr(replay_mod, "_live_run_background", menu_failure)
+    monkeypatch.setattr(replay_mod, "write_report",
+                        lambda report, _out: written.append(report)
+                        or tmp_path / "report.json")
+    monkeypatch.setattr(
+        "library.tools.computer_use.take.ui_take", successful_restore)
+    monkeypatch.setattr(
+        "library.tools.resolved.client.serving", lambda: True)
+
+    result = replay_mod._main_live(
+        SimpleNamespace(allow_foreground=False), tmp_path, ())
+
+    assert result == 1
+    assert started == ["recipe replay grade-node-add"]
+    assert written[0]["failed"] == ["grade-node-add", "grade-node-remove"]
+    assert "MenuClosureError" in written[0]["recipes"][0]["reason"]
+    assert "not run" in written[0]["recipes"][1]["reason"]
+
+
+def test_live_replay_stops_after_activation_fails(tmp_path, monkeypatch):
+    """An activation miss fails before recipe input; the suite does not
+    spend later takes repeating the same frontmost-app failure."""
+    specs = [spec for spec in recipe_registry()
+             if spec.name in ("grade-node-add", "grade-node-remove")]
+    started = []
+    written = []
+
+    @contextmanager
+    def successful_restore(purpose):
+        started.append(purpose)
+        yield SimpleNamespace(
+            resolve=object(), deadline=1,
+            borrowed_from={"project": "Podcast", "timeline_id": "t04",
+                           "timeline": "Reel 04", "page": "edit"},
+            restore_verified=True, restore_error="")
+
+    def activation_failure(spec, _take, _out):
+        audit, _script = audit_recipe(spec)
+        return RecipeReport(
+            spec.name, True, audit, verdict="fail",
+            reason="RuntimeError: Resolve activation did not read back")
+
+    monkeypatch.setattr(replay_mod, "recipe_registry", lambda: specs)
+    monkeypatch.setattr(replay_mod, "_live_run_background", activation_failure)
+    monkeypatch.setattr(replay_mod, "write_report",
+                        lambda report, _out: written.append(report)
+                        or tmp_path / "report.json")
+    monkeypatch.setattr(
+        "library.tools.computer_use.take.ui_take", successful_restore)
+    monkeypatch.setattr(
+        "library.tools.resolved.client.serving", lambda: True)
+
+    result = replay_mod._main_live(
+        SimpleNamespace(allow_foreground=False), tmp_path, ())
+
+    assert result == 1
+    assert started == ["recipe replay grade-node-add"]
+    assert written[0]["failed"] == ["grade-node-add", "grade-node-remove"]
+    assert "not run" in written[0]["recipes"][1]["reason"]

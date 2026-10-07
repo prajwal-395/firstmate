@@ -45,7 +45,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from library.tools.computer_use.actions import INPUT_CALLS
 from library.tools.computer_use.client import DriverClient, DriverError
@@ -85,6 +85,10 @@ RECIPE_NAME_RE = re.compile(r"[a-z0-9][a-z0-9_-]*")
 
 class ScriptError(RenRefusal):
     """A script file that could not be read or run - refused with the fix."""
+
+
+class MenuClosureError(RuntimeError):
+    """The driver could not verify that the recipe closed its menu."""
 
 
 @dataclass
@@ -612,6 +616,7 @@ def run_script(
     foreground: bool = False,
     skylight: bool = True,
     deadline: float | None = None,
+    lease_factory: Callable[..., Any] | None = None,
 ) -> ScriptResult:
     """Run a script against the client.
 
@@ -632,7 +637,13 @@ def run_script(
     `TakeExpired` before the next step instead of running past the
     take's wall-clock budget. A refusal, not a step failure - the
     steps did not fail, the take ran out of time.
+
+    `lease_factory` defaults to the Resolve lease. Offline fakes pass a
+    no-op context so their replay never waits on or touches the live
+    broker.
     """
+    if lease_factory is None:
+        lease_factory = resolve_lease
     results: list[dict] = []
     for index, step in enumerate(script.steps):
         if deadline is not None and time.monotonic() >= deadline:
@@ -644,7 +655,8 @@ def run_script(
             )
         step_started = time.monotonic()
         outcome = _run_step(client, step, index, llm, script,
-                            foreground=foreground, skylight=skylight)
+                            foreground=foreground, skylight=skylight,
+                            lease_factory=lease_factory)
         outcome["seconds"] = time.monotonic() - step_started
         results.append(outcome)
         if outcome["outcome"] == "failed":
@@ -674,6 +686,7 @@ def _run_step(
     *,
     foreground: bool = False,
     skylight: bool = True,
+    lease_factory: Callable[..., Any] | None = None,
 ) -> dict:
     """Run one step: try each anchor in order, then fall back to the LLM.
 
@@ -690,6 +703,8 @@ def _run_step(
     receipt keeps whether each anchor was unresolved, refused by the
     driver, or resolved but failed its expectation.
     """
+    if lease_factory is None:
+        lease_factory = resolve_lease
     menu_close_fields: dict = {}
     anchor_attempts: list[dict] = []
     for anchor in step.anchors:
@@ -706,10 +721,29 @@ def _run_step(
         elif skylight and method in INPUT_CALLS:
             params = {**params, "allow_skylight": True}
         try:
-            with resolve_lease("computer-use"):
+            with lease_factory("computer-use"):
                 before = build_observation(client, "", [], 0)
                 action_result = client.call(method, params)
                 menu_close_fields = _menu_close_fields(action_result)
+                if (isinstance(action_result, dict)
+                        and action_result.get("menus_closed") is False):
+                    detail = action_result.get("menu_close")
+                    suffix = f"; close evidence={detail!r}" if detail is not None else ""
+                    failed_receipt = {
+                        "step": index,
+                        "action": step.action,
+                        "outcome": "failed",
+                        "via": anchor.via,
+                        "proved": False,
+                        "error": (
+                            "MenuClosureError: menu action returned "
+                            "menus_closed=false; the live take must stop"
+                            f"{suffix}"),
+                    }
+                    if anchor_attempts:
+                        failed_receipt["anchor_attempts"] = anchor_attempts
+                    failed_receipt.update(menu_close_fields)
+                    return failed_receipt
                 verified = verify_expect(client, step.expect, before=before)
         except DriverError as exc:
             anchor_attempts.append({
@@ -732,7 +766,8 @@ def _run_step(
         })
     if llm is not None:
         receipt = _llm_fallback(client, step, index, llm, script,
-                                foreground=foreground, skylight=skylight)
+                                foreground=foreground, skylight=skylight,
+                                lease_factory=lease_factory)
         if anchor_attempts:
             receipt["anchor_attempts"] = anchor_attempts
         return receipt
@@ -767,6 +802,7 @@ def _llm_fallback(
     *,
     foreground: bool = False,
     skylight: bool = True,
+    lease_factory: Callable[..., Any],
 ) -> dict:
     """Fall back to the LLM when no anchor resolves and verifies.
 
@@ -790,7 +826,7 @@ def _llm_fallback(
         return {"step": index, "action": step.action, "outcome": "failed",
                 "via": "llm", "proved": False}
     try:
-        with resolve_lease("computer-use"):
+        with lease_factory("computer-use"):
             before = build_observation(client, "", [], 0)
             _drive(client, action, foreground=foreground, skylight=skylight)
             if not verify_expect(client, step.expect, before=before):
