@@ -1083,3 +1083,115 @@ def test_a_template_cut_at_another_scale_still_lands(monkeypatch, tmp_path):
     assert method == "click"
     assert params["x"] == pytest.approx((box[0] + box[2]) / 2)
     assert params["y"] == pytest.approx((box[1] + box[3]) / 2)
+
+
+def test_template_settle_waits_for_a_late_paint(tmp_path):
+    """A palette that paints after the first capture: with a settle
+    budget the anchor re-captures and matches on the later round
+    instead of racing the paint. Measured live: icon unmatchable for
+    seconds after a page switch, present at 90 s."""
+    import base64
+    from io import BytesIO
+
+    from PIL import Image, ImageDraw
+
+    from library.tools.computer_use.scripts import _resolve_template
+
+    img = Image.new("RGB", (128, 64), (20, 20, 20))
+    draw = ImageDraw.Draw(img)
+    draw.rectangle([40, 20, 60, 40], fill=(200, 200, 200))
+    draw.rectangle([46, 26, 54, 34], fill=(10, 10, 10))
+    box = (40, 20, 60, 40)
+    template_path = tmp_path / "late.png"
+    img.crop(box).save(template_path)
+
+    def shot(with_icon):
+        canvas = Image.new("RGB", (128, 64), (20, 20, 20))
+        if with_icon:
+            canvas.paste(img.crop(box), (40, 20))
+        buf = BytesIO()
+        canvas.save(buf, format="PNG")
+        return {"image": base64.b64encode(buf.getvalue()).decode("ascii"),
+                "width": 128.0, "height": 64.0, "scale": 1.0}
+
+    calls: list = []
+
+    class _Painting:
+        def call(self, method, params=None):
+            assert method == "capture_window"
+            calls.append(True)
+            return shot(len(calls) >= 3)
+
+    resolved = _resolve_template(
+        _Painting(), Anchor(via="template",
+                            params={"image": str(template_path),
+                                    "threshold": 0.5,
+                                    "settle_seconds": 5.0,
+                                    "settle_interval": 0.01}))
+    assert resolved is not None
+    assert len(calls) >= 3
+
+
+def test_template_settle_exhaustion_returns_nothing_bounded(tmp_path):
+    """An icon that never paints: the settle budget expires and the
+    anchor resolves to nothing - bounded, never an open-ended wait."""
+    import base64
+    from io import BytesIO
+
+    from PIL import Image, ImageDraw
+
+    from library.tools.computer_use.scripts import _resolve_template
+
+    icon = Image.new("RGB", (12, 12), (200, 200, 200))
+    ImageDraw.Draw(icon).rectangle([3, 3, 8, 8], fill=(10, 10, 10))
+    template_path = tmp_path / "absent.png"
+    icon.save(template_path)
+    flat = BytesIO()
+    Image.new("RGB", (64, 64), (20, 20, 20)).save(flat, format="PNG")
+    still = {"image": base64.b64encode(flat.getvalue()).decode("ascii"),
+             "width": 64.0, "height": 64.0, "scale": 1.0}
+    calls: list = []
+
+    class _Flat:
+        def call(self, method, params=None):
+            calls.append(True)
+            return still
+
+    resolved = _resolve_template(
+        _Flat(), Anchor(via="template",
+                        params={"image": str(template_path),
+                                "threshold": 0.5,
+                                "settle_seconds": 0.05,
+                                "settle_interval": 0.01}))
+    assert resolved is None
+    assert len(calls) >= 2
+
+
+def test_template_settle_with_malformed_bounds_fails_fast(tmp_path):
+    """A negative budget or non-positive interval is a malformed
+    recipe, not a layout that moved."""
+    import pytest
+
+    from PIL import Image
+
+    from library.tools.computer_use.scripts import _resolve_template
+
+    template_path = tmp_path / "template.png"
+    Image.new("RGB", (8, 8), (200, 200, 200)).save(template_path)
+
+    class _Dead:
+        def call(self, method, params=None):
+            raise AssertionError("no driver call expected")
+
+    with pytest.raises(ValueError):
+        _resolve_template(
+            _Dead(), Anchor(via="template",
+                            params={"image": str(template_path),
+                                    "threshold": 0.5,
+                                    "settle_seconds": -1.0}))
+    with pytest.raises(ValueError):
+        _resolve_template(
+            _Dead(), Anchor(via="template",
+                            params={"image": str(template_path),
+                                    "threshold": 0.5,
+                                    "settle_interval": 0.0}))

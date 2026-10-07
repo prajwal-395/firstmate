@@ -395,6 +395,14 @@ def _resolve_template(client: DriverClient, anchor: Anchor) -> tuple[str, dict] 
     to the live capture's backing scale before matching, so one crop
     serves every display; without a recorded cut scale the crop is
     matched as is.
+
+    `settle_seconds` (default 0) re-captures and re-matches until the
+    budget runs out: freshly switched pages repaint asynchronously
+    (measured: palette icon unmatchable for seconds after the switch,
+    present at 90 s), so a step that acts right after a page switch
+    would otherwise race the paint. `settle_interval` (default 2 s)
+    spaces the rounds. Both are validated - negative budgets and
+    non-positive intervals are recipe bugs, not layouts that moved.
     """
     import cv2
     import numpy as np
@@ -434,7 +442,46 @@ def _resolve_template(client: DriverClient, anchor: Anchor) -> tuple[str, dict] 
             f"record the measured match score in templates.py, not a guess")
     if anchor.params.get("scale") is not None:
         cut_scale = float(anchor.params["scale"])
-    capture = client.call("capture_window")
+    budget, interval = _settle_params(anchor.params)
+    deadline = time.monotonic() + budget
+    while True:
+        capture = client.call("capture_window")
+        hit = _match_template(capture, template_np, cut_scale, threshold)
+        if hit is not None:
+            method, hit_params = hit
+            if anchor.params.get("clicks") is not None:
+                hit_params["clicks"] = anchor.params["clicks"]
+            return (method, hit_params)
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(interval)
+
+
+def _settle_params(params: dict) -> tuple[float, float]:
+    """The settle budget and round interval for a template anchor.
+
+    Both validated: a negative budget or a non-positive interval is a
+    malformed recipe, not a layout that moved.
+    """
+    try:
+        budget = float(params.get("settle_seconds", 0.0))
+        interval = float(params.get("settle_interval", 2.0))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"template settle_seconds/interval must be numbers: {exc}"
+        ) from exc
+    if budget < 0 or interval <= 0:
+        raise ValueError(
+            f"template settle needs settle_seconds >= 0 and "
+            f"settle_interval > 0, got {budget!r}/{interval!r}")
+    return budget, interval
+
+
+def _match_template(capture: dict, template_np, cut_scale,
+                    threshold: float) -> tuple[str, dict] | None:
+    """Match one crop against one capture: window-point click or None."""
+    import cv2
+    import numpy as np
     from PIL import Image
 
     with Image.open(BytesIO(base64.b64decode(capture["image"]))) as img:
@@ -454,12 +501,8 @@ def _resolve_template(client: DriverClient, anchor: Anchor) -> tuple[str, dict] 
     if max_val < threshold:
         return None
     h, w = template_np.shape[:2]
-    x = (max_loc[0] + w / 2) / scale
-    y = (max_loc[1] + h / 2) / scale
-    params: dict = {"x": x, "y": y}
-    if anchor.params.get("clicks") is not None:
-        params["clicks"] = anchor.params["clicks"]
-    return ("click", params)
+    return ("click", {"x": (max_loc[0] + w / 2) / scale,
+                      "y": (max_loc[1] + h / 2) / scale})
 
 
 def _resolve_offset(client: DriverClient, anchor: Anchor) -> tuple[str, dict] | None:

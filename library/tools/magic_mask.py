@@ -150,11 +150,16 @@ def seed_script(
                 anchors=[
                     Anchor(via="template", params={
                         "template": "magic-mask-toolbar",
+                        "settle_seconds": 90.0,
+                        "settle_interval": 2.0,
                         "source": "ren",
                         "why": ("icon-only toolbar button, OCR-blind "
                                 "on the settled page (measured "
-                                "2026-10-07); inert until its crop and "
-                                "threshold land in templates.py"),
+                                "2026-10-07); unmatchable for seconds "
+                                "after a page switch, present at 90 s "
+                                "(paint series) - the poll returns on "
+                                "first hit, the bound bites only on "
+                                "genuine absence"),
                     }),
                     Anchor(via="ocr", params={
                         "text": "Magic Mask",
