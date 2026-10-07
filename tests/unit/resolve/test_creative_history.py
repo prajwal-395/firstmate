@@ -306,8 +306,43 @@ def test_cherry_pick_proves_against_dest_tracks(tmp_path, capsys):
     assert "replayed" in capsys.readouterr().out
 
 
-def test_dest_tracks_belongs_to_cherry_pick_alone(tmp_path, capsys):
-    """`--dest-tracks` outside a replay is refused, not ignored.
+def test_revert_proves_against_dest_tracks(tmp_path, capsys):
+    """`ren revert --dest-tracks` proves the restore, not just the chain.
+
+    The defects: a stale destination restored because the chain was
+    clean - the timeline moved on outside the record; and a missing
+    proof file succeeding, so a typo proves against nothing.
+    """
+    from library.tools import timeline_diff
+
+    project = _project(tmp_path)
+    current = _proof_tracks("clip_001", 50, 150)
+    target = uj.record_commit(
+        project, parent=None, intent="tighten opening",
+        changes=timeline_diff.diff_timelines(
+            _proof_tracks("clip_001", 0, 100), current),
+        agent="reel_touchup", timeline="Reel 1")
+    uj.record_commit(
+        project, parent=target["id"], intent="other reel work",
+        changes=timeline_diff.diff_timelines(
+            _proof_tracks("clip_002", 0, 100),
+            _proof_tracks("clip_002", 20, 120)),
+        agent="reel_touchup", timeline="Reel 1")
+    assert ch.main(["revert", project, target["id"][:12],
+                    "--dest-tracks",
+                    str(Path(tmp_path) / "missing.json")]) == 2
+    assert ch.main(["revert", project, target["id"][:12],
+                    "--dest-tracks",
+                    _proof_file(tmp_path,
+                                _proof_tracks("clip_001", 70, 170))]) == 1
+    assert "clip_001" in capsys.readouterr().err
+    assert ch.main(["revert", project, target["id"][:12],
+                    "--dest-tracks", _proof_file(tmp_path, current)]) == 0
+    assert "reverted" in capsys.readouterr().out
+
+
+def test_dest_tracks_belongs_to_replay_modes_alone(tmp_path, capsys):
+    """`--dest-tracks` outside a replay or revert is refused, not ignored.
 
     The defect: silently dropping the proof flag on a read, so the
     captain believes the listing was proven against current reads

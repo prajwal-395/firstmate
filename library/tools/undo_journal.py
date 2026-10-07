@@ -505,7 +505,8 @@ def _intent_from_edits(edits: Sequence[Mapping], summary: Mapping) -> str:
     return "touch"
 
 
-def revert_commit(project_folder, commit_id: str, note: str = "") -> dict:
+def revert_commit(project_folder, commit_id: str, note: str = "",
+                  dest_tracks=None) -> dict:
     """Revert a commit: record its inverse as a new commit. Returns it.
 
     The inverse is `timeline_diff.invert_changes` of the target's
@@ -513,6 +514,14 @@ def revert_commit(project_folder, commit_id: str, note: str = "") -> dict:
     revert stands on the timeline's head, so history only moves
     forward: nothing is rewritten, and the reverted commit stays
     readable beside its revert.
+
+    When `dest_tracks` - the destination timeline's current track
+    reads - is supplied, every inverse change must still hold there
+    (`timeline_diff.changes_hold`): the inverse restores what the
+    target left, so a destination that moved on outside the record
+    is refused naming it, and a revert proven against a stale chain
+    cannot silently clobber a timeline that is no longer what the
+    target left.
 
     Three refusals, all `RevertRefused` and all by name. A target
     outside its timeline's line (it is not the head or an ancestor of
@@ -560,6 +569,17 @@ def revert_commit(project_folder, commit_id: str, note: str = "") -> dict:
         raise RevertRefused(
             f"commit {commit_id[:12]} changed nothing - an empty revert "
             f"would rewrite no history and only pollute it")
+    if dest_tracks is not None:
+        try:
+            problems = timeline_diff.changes_hold(inverse, dest_tracks)
+        except ValueError as unreadable:
+            raise RevertRefused(
+                f"commit {commit_id[:12]} cannot be proven against "
+                f"the destination reads ({unreadable})") from unreadable
+        if problems:
+            raise RevertRefused(
+                f"commit {commit_id[:12]} no longer applies to the "
+                f"destination reads: " + "; ".join(problems[:5]))
     intent = note or (f"revert {commit_id[:12]} "
                       f"({target.get('intent') or 'no intent'})")
     return record_commit(

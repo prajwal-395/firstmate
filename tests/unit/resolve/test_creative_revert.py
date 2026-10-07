@@ -303,3 +303,68 @@ def test_revert_verb_is_registered_in_both_front_doors():
     native = (REPO / "native" / "ren-cli" / "src" / "commands.rs").read_text(
         encoding="utf-8")
     assert 'name: "revert"' in native
+
+
+# ── Destination proof: the inverse must still apply ──────────────
+
+
+def test_proven_revert_records_when_the_destination_holds(tmp_path):
+    """A revert proven against current reads records.
+
+    The defect: a revert proven only against the recorded chain, so
+    a destination that moved on outside the record is silently
+    clobbered. The inverse restores what the target left, so the
+    proof is the destination reading as the target left it.
+    """
+    project = _project(tmp_path)
+    current = _tracks_with("clip_001", 50, 150)
+    target = _commit(project, "Reel 1", timeline_diff.diff_timelines(
+        _tracks_with("clip_001", 0, 100), current))
+    head = _commit(project, "Reel 1", timeline_diff.diff_timelines(
+        _tracks_with("clip_002", 0, 100),
+        _tracks_with("clip_002", 20, 120)), parent=target["id"])
+    reverted = uj.revert_commit(project, target["id"],
+                                dest_tracks=current)
+    assert reverted["parent"] == head["id"]
+    assert reverted["changes"][0]["after"]["start"] == 0
+
+
+def test_proven_revert_refuses_a_destination_that_moved_on(tmp_path):
+    """A destination that no longer reads as left blocks the revert.
+
+    The defect: restoring spans onto a timeline that moved on
+    outside the record - the chain is clean, but the destination is
+    not what the target left.
+    """
+    project = _project(tmp_path)
+    target = _commit(project, "Reel 1", timeline_diff.diff_timelines(
+        _tracks_with("clip_001", 0, 100),
+        _tracks_with("clip_001", 50, 150)))
+    _commit(project, "Reel 1", timeline_diff.diff_timelines(
+        _tracks_with("clip_002", 0, 100),
+        _tracks_with("clip_002", 20, 120)), parent=target["id"])
+    try:
+        uj.revert_commit(
+            project, target["id"],
+            dest_tracks=_tracks_with("clip_001", 70, 170))
+    except uj.RevertRefused as refused:
+        assert "clip_001" in str(refused)
+    else:
+        raise AssertionError("a stale-destination revert was recorded")
+
+
+def test_proof_refuses_tracks_that_do_not_read_as_rows(tmp_path):
+    """Malformed destination reads refuse instead of proving
+    against garbage. The defect: a proof run over the wrong shape
+    that holds vacuously, so any revert passes it."""
+    project = _project(tmp_path)
+    target = _commit(project, "Reel 1", timeline_diff.diff_timelines(
+        _tracks_with("clip_001", 0, 100),
+        _tracks_with("clip_001", 50, 150)))
+    try:
+        uj.revert_commit(project, target["id"],
+                         dest_tracks={"not": "tracks"})
+    except uj.RevertRefused as refused:
+        assert "destination" in str(refused)
+    else:
+        raise AssertionError("garbage destination reads proved a revert")

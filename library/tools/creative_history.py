@@ -350,8 +350,14 @@ def _cmd_revert(project: str, args) -> int:
         print(f"creative_history: {refused}", file=sys.stderr)
         return 2
     try:
+        dest_tracks = _read_dest_tracks(args.dest_tracks)
+    except HistoryRefused as refused:
+        print(f"creative_history: {refused}", file=sys.stderr)
+        return 2
+    try:
         reverted = uj.revert_commit(project, target.get("id"),
-                                    note=args.note or "")
+                                    note=args.note or "",
+                                    dest_tracks=dest_tracks)
     except uj.RevertRefused as refused:
         print(f"creative_history: {refused}", file=sys.stderr)
         return 1
@@ -394,10 +400,11 @@ def build_parser() -> argparse.ArgumentParser:
                              "cherry-pick: why it is replayed; "
                              "revert: why it is reverted")
     parser.add_argument("--dest-tracks", default=None,
-                        help="cherry-pick: JSON file with the destination "
-                             "timeline's current track reads (a tracks "
-                             "list, or an object with a tracks key) - "
-                             "every replayed change must still hold there")
+                        help="cherry-pick, revert: JSON file with the "
+                             "destination timeline's current track reads "
+                             "(a tracks list, or an object with a tracks "
+                             "key) - every replayed or restored change "
+                             "must still hold there")
     parser.add_argument("--move", action="store_true",
                         help="tag: move a name that already points somewhere")
     parser.add_argument("--json", action="store_true")
@@ -412,10 +419,12 @@ def main(argv=None) -> int:
     except HistoryRefused as refused:
         print(f"creative_history: {refused}", file=sys.stderr)
         return 2
-    if args.mode != "cherry-pick" and args.dest_tracks is not None:
-        print("creative_history: --dest-tracks proves a replay - "
-              "`ren cherry-pick <project> <commit> --dest-tracks <file>` "
-              "is the read that takes it",
+    if args.mode not in ("cherry-pick", "revert") \
+            and args.dest_tracks is not None:
+        print("creative_history: --dest-tracks proves a replay or a "
+              "revert - `ren cherry-pick <project> <commit> --dest-tracks "
+              "<file>` or `ren revert <project> <commit> --dest-tracks "
+              "<file>`",
               file=sys.stderr)
         return 2
     if args.mode == "commits":

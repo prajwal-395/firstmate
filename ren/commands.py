@@ -148,7 +148,7 @@ VERBS = (
     Verb("rounds", "Reels", "What changed between two feedback rounds", subcommand="round-diff"),
     Verb("revert", "Reels", "Revert a creative commit: record its inverse as a new commit",
          module_argv=("library.tools.creative_history", "revert"),
-         detail="`ren revert <project> <commit>` records the commit's inverse standing on the timeline's head, by id or unique prefix. Refuses a commit later commits also changed, one the record cannot invert, or one outside its timeline's line"),
+         detail="`ren revert <project> <commit>` records the commit's inverse standing on the timeline's head, by id or unique prefix. Refuses a commit later commits also changed, one the record cannot invert, or one outside its timeline's line; `--dest-tracks <file>` additionally proves every restored change against the destination's current track reads"),
     Verb("pr-body", "Reels", "Generate the PR-body enumeration for a ledger change (read only)", subcommand="pr-body"),
     Verb("notes", "Reels", "Show which timeline note went to which step", subcommand="notes"),
     Verb("take-pick", "Reels", "Print one reel's takes, freshness, snap deltas and boundary words in one read", subcommand="take-pick-preview"),
