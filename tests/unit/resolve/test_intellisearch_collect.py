@@ -55,6 +55,21 @@ def test_missing_box_names_the_unmeasured_point():
         collect_mod.build_collection_spec("parking lot", ("x", 1.0))
 
 
+def test_menu_path_excludes_the_element_title():
+    """The defect, measured live: the inclusive path matched zero
+    elements (try 1 refused) while the ancestors-only path matched
+    exactly one (retry committed) - the driver resolves 'path'
+    against ancestors, as ui_transaction's docstring shows."""
+    spec = collect_mod.build_collection_spec("parking lot", BOX)
+    press = spec["actions"][0]
+    assert press["target"] == {
+        "kind": "accessibility_element", "title": "Media",
+        "path": ["Workspace", "Switch to Page"]}
+    with pytest.raises(JobRefused):
+        collect_mod.build_collection_spec("parking lot", BOX,
+                                          page_path=["Media"])
+
+
 def test_spec_carries_the_take_and_the_media_route():
     """Menu path reaches the page in the background; the take reason
     names the query it was announced for."""
@@ -64,8 +79,8 @@ def test_spec_carries_the_take_and_the_media_route():
         "IntelliSearch search for 'parking lot'")
     press = spec["actions"][0]
     assert press["action"] == "press"
-    assert press["target"]["path"] == ["Workspace", "Switch to Page",
-                                       "Media"]
+    assert press["target"]["title"] == "Media"
+    assert press["target"]["path"] == ["Workspace", "Switch to Page"]
     kinds = [action["action"] for action in spec["actions"]]
     assert kinds == ["press", "wait", "click", "type", "key", "wait"]
     typed = spec["actions"][3]

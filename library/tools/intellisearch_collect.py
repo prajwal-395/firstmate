@@ -104,6 +104,17 @@ def build_collection_spec(query: str, box: tuple, page_path=None,
             "at an unmeasured point")
     x, y = float(box[0]), float(box[1])
     text = str(query).strip()
+    page = list(page_path or MEDIA_PAGE_PATH)
+    if len(page) < 2:
+        raise JobRefused(
+            "the page route needs a menu path above the page, not just "
+            "its title - the driver resolves 'path' against the element's "
+            "ancestors")
+    # The driver matches 'path' against ancestors EXCLUDING the element
+    # itself: measured live 2026-10-07, title Media with the inclusive
+    # path matched nothing (the take's try 1 refused), with the
+    # ancestors-only path exactly one element (the retry committed).
+    # This is also what ui_transaction's own docstring shows.
     foreground: dict = {
         "reason": f"IntelliSearch search for {text!r} - the box is Qt-drawn",
     }
@@ -118,8 +129,8 @@ def build_collection_spec(query: str, box: tuple, page_path=None,
         "actions": [
             {"action": "press", "target": {
                 "kind": "accessibility_element",
-                "title": (page_path or MEDIA_PAGE_PATH)[-1],
-                "path": list(page_path or MEDIA_PAGE_PATH)}},
+                "title": page[-1],
+                "path": page[:-1]}},
             {"action": "wait", "for": {"seconds": SETTLE_SECONDS}},
             {"action": "click", "target": {
                 "kind": "window_relative_coordinate", "x": x, "y": y}},
