@@ -75,12 +75,12 @@ def test_moved_non_target_item_refuses():
 
 
 class _FakePoolItem:
-    def __init__(self, path=None):
-        self._path = path
+    def __init__(self, path=None, kind="Video"):
+        self._path, self._kind = path, kind
 
     def GetClipProperty(self, key):
         assert key in ("Type", "File Path")
-        return "Video" if key == "Type" else self._path
+        return self._kind if key == "Type" else self._path
 
 
 class _FakeItem:
@@ -134,6 +134,30 @@ def test_planned_swap_judges_clean_after_keying(media):
     stills.key_swaps_for_judge(swaps, "video", 7, "Post Header")
     assert swaps[0]["row"] == key
     assert stills.judge_replacement(before, after, swaps) == []
+
+
+def test_reel01_header_and_frame_stills_trim_before_the_logo():
+    """Reel 01's recorded 0..1349 stills crossed the logo at frame 1277."""
+    logo_start, reel_end = 1277, 1349
+    for row_name, track_index in (("Post Header", 7), ("Frame", 6)):
+        path = f"/media/{row_name.lower().replace(' ', '_')}_still.png"
+        swaps, skipped, refused = stills.plan_swaps(
+            [(_FakeItem(0, reel_end),
+              _FakePoolItem(path, kind="Still"), path)],
+            row_name, track_index, 0, reel_end, 23.976,
+            picture_end=logo_start)
+
+        assert skipped == [] and refused == []
+        assert len(swaps) == 1
+        swap = swaps[0]
+        assert swap["keep_still"] is True
+        assert swap["record"] == [0, reel_end]
+        assert swap["want_end"] == logo_start
+        key = stills.inventory_row_key("video", track_index, row_name)
+        before = {key: [_row("overlay.png", 0, reel_end, path)]}
+        after = {key: [_row("overlay.png", 0, logo_start, path)]}
+        stills.key_swaps_for_judge(swaps, "video", track_index, row_name)
+        assert stills.judge_replacement(before, after, swaps) == []
 
 
 class _FakeTimeline:

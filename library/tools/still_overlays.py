@@ -6,9 +6,12 @@ still overlays that can cover whatever duration is needed - and that
 this holds for all 31 reels. This verb applies that fix reel by reel
 without rebuilding: for each overlay item whose media is a static
 video, it extracts a still from the approved file itself, replaces the
-item at identical transforms and duration (extended to the reel end
-only where the original was cut short), and carries clip markers onto
-the replacement.
+item at identical transforms and duration (extended only where the
+original was cut short), and carries clip markers onto the replacement.
+Post Header and Frame items stop at the declared tail clip's measured
+start, so neither carries under the closing logo. Existing stills that
+cross that boundary are resized in place with their transforms and
+clip markers preserved.
 
 What qualifies, and what never does:
 
@@ -57,6 +60,10 @@ OVERLAY_ROW_NAMES = frozenset({
     "Frame", "Post Header", "Semantic", "Motion Graphics", "Explainer",
     "Timed Text",
 })
+
+# These dress the picture and must stop before a declared tail card
+# replaces it. Other overlay roles keep their own timeline spans.
+PICTURE_OVERLAY_ROWS = frozenset({"Frame", "Post Header"})
 
 #: Overlay media the swap handles: one video file. Image sequences
 #: (captions), stills (already done) and anything else never qualify.
@@ -136,18 +143,76 @@ def _media_kind(pool_item) -> str:
         return ""
 
 
+def _path_identity(path: str) -> str:
+    expanded = os.path.expanduser(str(path or ""))
+    return os.path.normcase(os.path.realpath(expanded))
+
+
+def tail_card_start_frame(timeline, project_folder: str,
+                          timeline_end: int) -> int:
+    """The start of this reel's declared tail clip, or its end if none.
+
+    The ending asset is identified from the project's declaration and
+    matched to the actual timeline item. Its start is the measured
+    boundary; the asset's duration is never guessed.
+    """
+    from library.tools.full_frame_element import resolve_clip_asset
+    from library.tools.reel_build import declared_cards
+
+    try:
+        declarations = declared_cards(project_folder)
+        tail_paths = {
+            _path_identity(resolve_clip_asset(card["asset"], project_folder))
+            for card in declarations
+            if (card["element"] == "full_frame_clip"
+                and card["placement"] == "tail")
+        }
+    except Exception as exc:  # noqa: BLE001 - the boundary must be known
+        raise StillOverlayError(
+            f"cannot read the declared tail-card asset: {exc}") from exc
+    if not tail_paths:
+        return int(timeline_end)
+
+    starts_by_path = {path: [] for path in tail_paths}
+    for track_index in range(1, int(timeline.GetTrackCount("video") or 0) + 1):
+        for item in timeline.GetItemListInTrack("video", track_index) or ():
+            pool_item = item.GetMediaPoolItem()
+            if pool_item is None:
+                continue
+            try:
+                path = pool_item.GetClipProperty("File Path") or ""
+            except Exception:  # noqa: BLE001 - an unreadable item is no match
+                continue
+            identity = _path_identity(path)
+            if identity in starts_by_path:
+                starts_by_path[identity].append(int(item.GetStart()))
+    missing = sorted(path for path, starts in starts_by_path.items()
+                     if not starts)
+    if missing:
+        raise StillOverlayError(
+            "the project declares a tail full-frame clip, but this timeline "
+            f"has no matching item for {missing}")
+    # A declared source may also appear earlier on a timeline. Its last
+    # placement is the ending card; the first tail-card boundary is the
+    # earliest ending source start for this reel.
+    return min(max(starts) for starts in starts_by_path.values())
+
+
 def plan_swaps(items: list, row_name: str, track_index: int,
                timeline_start: int, timeline_end: int,
-               fps: float) -> tuple[list, list, list]:
+               fps: float, *, picture_end: int | None = None
+               ) -> tuple[list, list, list]:
     """Which overlay items swap, skip, or refuse - no Resolve writes.
 
     `items` are live timeline items with their pool items attached as
     `(item, pool_item, file_path)` triples. Returns `(swaps, skipped,
-    refused)`: a swap names the item, its span and whether it extends
-    to the reel end; a skip names an animated or already-still item; a
+    refused)`: a swap names the item and target span; a skip names an
+    animated or already-still item; a
     refusal names why (with the still-proof error for unreadable
-    media). Anything the plan cannot classify is a refusal, never a
-    silent skip.
+    media). For the Post Header and Frame rows, `picture_end` is the
+    ending card's start; cut-short head overlays extend only to it, and
+    overlays already crossing it are shortened. Anything the plan cannot
+    classify is a refusal, never a silent skip.
     """
     swaps, skipped, refused = [], [], []
     if row_name not in OVERLAY_ROW_NAMES:
@@ -161,8 +226,65 @@ def plan_swaps(items: list, row_name: str, track_index: int,
         if enabled is not True:
             skipped.append({"item": label, "why": "not enabled"})
             continue
-        if _media_kind(pool_item) == "Still":
-            skipped.append({"item": label, "why": "already a still"})
+        start, end = int(item.GetStart()), int(item.GetEnd())
+        spans = [it for (it, _p, _f) in items]
+        last_on_row = all(other.GetEnd() <= end for other in spans)
+        target_end = (int(picture_end)
+                      if picture_end is not None
+                      and row_name in PICTURE_OVERLAY_ROWS
+                      else int(timeline_end))
+        media_kind = _media_kind(pool_item)
+        if (picture_end is not None
+                and row_name in PICTURE_OVERLAY_ROWS
+                and start >= target_end):
+            refused.append({
+                "item": label,
+                "why": "starts at or after the declared tail card",
+            })
+            continue
+        trim_to_picture = (
+            picture_end is not None
+            and row_name in PICTURE_OVERLAY_ROWS
+            and start < target_end < end)
+        extend_to_picture = (
+            start == timeline_start and end < target_end and last_on_row)
+        if media_kind == "Still":
+            if trim_to_picture or extend_to_picture:
+                try:
+                    comps = item.GetFusionCompCount()
+                except Exception:  # noqa: BLE001
+                    comps = -1
+                if comps:
+                    refused.append({
+                        "item": label,
+                        "why": "carries Fusion comps - craft, not a "
+                               "mechanical resize",
+                    })
+                    continue
+                if not file_path or not str(file_path).lower().endswith(".png"):
+                    refused.append({
+                        "item": label,
+                        "why": "resizing an existing overlay requires a "
+                               "native PNG still",
+                    })
+                    continue
+                swaps.append({
+                    "label": label,
+                    "row": row_name,
+                    "track_index": track_index,
+                    "item_uid": item.GetUniqueId(),
+                    "record": [start, end],
+                    "source_in": int(item.GetLeftOffset()),
+                    "file_path": file_path,
+                    "props": dict(item.GetProperty() or {}),
+                    "markers": dict(item.GetMarkers() or {}),
+                    "extends": extend_to_picture,
+                    "keep_still": True,
+                    "want_end": target_end,
+                    "still_path": file_path,
+                })
+            else:
+                skipped.append({"item": label, "why": "already a still"})
             continue
         if not file_path or not os.path.isfile(file_path) or not str(
                 file_path).lower().endswith(VIDEO_EXTS):
@@ -193,7 +315,6 @@ def plan_swaps(items: list, row_name: str, track_index: int,
                             "why": f"holds {video} video streams - only "
                                    f"one silent video stream swaps"})
             continue
-        start, end = int(item.GetStart()), int(item.GetEnd())
         duration_s = (end - start) / float(fps) if fps > 0 else 0
         try:
             static = is_static_video(file_path, duration_s)
@@ -203,10 +324,11 @@ def plan_swaps(items: list, row_name: str, track_index: int,
         if not static:
             skipped.append({"item": label, "why": "animates"})
             continue
-        spans = [it for (it, _p, _f) in items]
-        last_on_row = all(other.GetEnd() <= end for other in spans)
-        extends = (start == timeline_start and end < timeline_end
+        extends = (start == timeline_start and end < target_end
                    and last_on_row)
+        trims = (picture_end is not None
+                 and row_name in PICTURE_OVERLAY_ROWS
+                 and start < target_end < end)
         swaps.append({
             "label": label,
             "row": row_name,
@@ -218,7 +340,8 @@ def plan_swaps(items: list, row_name: str, track_index: int,
             "props": dict(item.GetProperty() or {}),
             "markers": dict(item.GetMarkers() or {}),
             "extends": extends,
-            "want_end": timeline_end if extends else end,
+            "keep_still": False,
+            "want_end": target_end if extends or trims else end,
             "still_path": None,
         })
     return swaps, skipped, refused
@@ -230,9 +353,9 @@ def judge_replacement(before: dict, after: dict, swaps: list) -> list:
     `before` / `after` map row key -> list of `{name, record, src_off,
     mpi_path, enabled, props, markers}`. Items pair by record start:
     a swapped item must read as its still (the `still_path` the apply
-    phase filled in) at its span - extended to the reel end where the
-    swap says so - with its markers preserved; anything else must read
-    identical. Returns the unexplained differences (empty is clean).
+    phase filled in) at its planned span, with its markers preserved;
+    anything else must read identical. Returns unexplained differences
+    (empty is clean).
     """
     problems = []
     for key, old_items in before.items():
@@ -255,8 +378,7 @@ def judge_replacement(before: dict, after: dict, swaps: list) -> list:
                     f"found {len(Blues)}")
                 continue
             new_item = Blues[0]
-            want_end = (swap["want_end"] if swap.get("extends")
-                        else old_item["record"][1])
+            want_end = swap.get("want_end", old_item["record"][1])
             if new_item["record"] != [old_item["record"][0], want_end]:
                 problems.append(
                     f"{key}: {new_item['name']!r} spans "
@@ -471,6 +593,12 @@ def swap_reel_overlays(project, timeline_name: str, project_folder: str,
             return report
         start_frame = timeline.GetStartFrame()
         timeline_end = timeline.GetEndFrame()
+        try:
+            picture_end = tail_card_start_frame(
+                timeline, project_folder, timeline_end)
+        except StillOverlayError as exc:
+            report["refused"] = str(exc)
+            return report
         pool = project.GetMediaPool()
         plans, skipped, refused = [], [], []
         for index in range(1, (timeline.GetTrackCount("video") or 0)
@@ -491,7 +619,7 @@ def swap_reel_overlays(project, timeline_name: str, project_folder: str,
                     if mpi is not None else None))
             swaps, skipped_rows, refused_rows = plan_swaps(
                 triples, row_name, index, start_frame, timeline_end,
-                fps)
+                fps, picture_end=picture_end)
             key_swaps_for_judge(swaps, "video", index, row_name)
             plans.extend(swaps)
             skipped.extend({**entry, "row": row_name}
@@ -522,9 +650,14 @@ def swap_reel_overlays(project, timeline_name: str, project_folder: str,
         applied = []
         try:
             for swap in plans:
-                applied.append(_apply_swap(
-                    resolve, project, pool, timeline, fps, swap,
-                    project_folder, timeline_name, reuse))
+                if swap.get("keep_still"):
+                    applied.append(_resize_existing_still(
+                        resolve, project, pool, timeline, fps, swap,
+                        project_folder, timeline_name))
+                else:
+                    applied.append(_apply_swap(
+                        resolve, project, pool, timeline, fps, swap,
+                        project_folder, timeline_name, reuse))
             after = inventory_snapshot(timeline)
             for swap, got in zip(plans, applied):
                 swap["still_path"] = got["still_path"]
@@ -535,7 +668,7 @@ def swap_reel_overlays(project, timeline_name: str, project_folder: str,
             if before_marks != after_marks:
                 problems.append("timeline markers moved")
             if problems:
-                _restore_swaps(project, pool, timeline, fps, plans,
+                _restore_swaps(resolve, project, pool, timeline, fps, plans,
                                applied, project_folder, timeline_name)
                 report["restored"] = True
                 report["refused"] = "; ".join(problems)
@@ -546,11 +679,13 @@ def swap_reel_overlays(project, timeline_name: str, project_folder: str,
                 f"@{swap['record'][0]}..{swap['want_end']}"
                 f"{' (reused)' if got.get('reused') else ''}"
                 for swap, got in zip(plans, applied)]
-        except StillOverlayError as exc:
-            _restore_swaps(project, pool, timeline, fps, plans,
+        except Exception as exc:  # noqa: BLE001 - restore the recorded plan
+            _restore_swaps(resolve, project, pool, timeline, fps, plans,
                            applied, project_folder, timeline_name)
             report["restored"] = True
-            report["refused"] = str(exc)
+            report["refused"] = (
+                str(exc) if isinstance(exc, StillOverlayError)
+                else f"{type(exc).__name__}: {exc}")
             return report
         finally:
             current = project.GetCurrentTimeline()
@@ -614,6 +749,91 @@ def _items_with_path(items, path: str, record_start=None) -> list:
                 continue
         out.append(item)
     return out
+
+
+def _resize_existing_still(resolve, project, pool, timeline, fps: float,
+                           swap: dict, project_folder: str,
+                           timeline_name: str) -> dict:
+    """Change one existing native still's span without changing its media."""
+    from library.tools.still_placement import place_still_exact
+    from library.tools.transform_write_log import set_property
+
+    old = next((item for item in timeline.GetItemListInTrack(
+        "video", swap["track_index"]) or ()
+        if item.GetUniqueId() == swap["item_uid"]), None)
+    if old is None:
+        raise StillOverlayError(f"{swap['label']}: still item is gone")
+    pool_item = old.GetMediaPoolItem()
+    if pool_item is None or _media_kind(pool_item) != "Still":
+        raise StillOverlayError(
+            f"{swap['label']}: planned still is no longer a native still")
+    path = pool_item.GetClipProperty("File Path") or ""
+    if _path_identity(path) != _path_identity(swap["file_path"]):
+        raise StillOverlayError(
+            f"{swap['label']}: planned still media changed before resize")
+    if ([int(old.GetStart()), int(old.GetEnd())]
+            != list(swap["record"])):
+        raise StillOverlayError(
+            f"{swap['label']}: timeline span changed before resize")
+    from library.tools.resolve_lock import assert_current_timeline
+    assert_current_timeline(project, timeline)
+    if not timeline.DeleteClips([old], False):
+        raise StillOverlayError(
+            f"{swap['label']}: Resolve would not remove the old still span")
+
+    duration = int(swap["want_end"]) - int(swap["record"][0])
+    if duration <= 0:
+        raise StillOverlayError(
+            f"{swap['label']}: requested still span is empty")
+    place_still_exact(
+        resolve, project, pool, timeline, pool_item, duration,
+        int(swap["record"][0]), int(swap["track_index"]), fps,
+        timeline_name=timeline_name)
+    placed = _items_with_path(
+        timeline.GetItemListInTrack("video", swap["track_index"]),
+        path, int(swap["record"][0]))
+    if len(placed) != 1:
+        raise StillOverlayError(
+            f"{swap['label']}: found {len(placed)} stills after resize")
+    new = placed[0]
+    current_props = dict(new.GetProperty() or {})
+    for key, value in (swap["props"] or {}).items():
+        if key in current_props and current_props[key] == value:
+            continue
+        if not set_property(
+                new, key, value,
+                item_identity={
+                    "source_file": path,
+                    "track": f"V{swap['track_index']}",
+                    "record_frame": swap["record"][0],
+                },
+                project_folder=project_folder, project=None,
+                timeline_name=timeline_name + " (still resize)"):
+            raise StillOverlayError(
+                f"{swap['label']}: refused {key}={value} on the still")
+    try:
+        new_src_off = int(new.GetLeftOffset())
+    except Exception as exc:  # noqa: BLE001
+        raise StillOverlayError(
+            f"{swap['label']}: resized still has no source offset") from exc
+    for frame, marker in (swap["markers"] or {}).items():
+        if not isinstance(marker, dict):
+            continue
+        try:
+            record_frame = int(frame)
+        except (TypeError, ValueError):
+            continue
+        if not new.AddMarker(
+                new_src_off + (record_frame - swap["record"][0]),
+                marker.get("color") or "", marker.get("name") or "",
+                marker.get("note") or "",
+                int(marker.get("duration") or 1)):
+            raise StillOverlayError(
+                f"{swap['label']}: note {marker.get('name')!r} did not "
+                "carry onto the resized still")
+    return {"swap": swap["label"], "uid": new.GetUniqueId(),
+            "still_path": path, "reused": True,
+            "record": [int(new.GetStart()), int(new.GetEnd())]}
 
 
 def _apply_swap(resolve, project, pool, timeline, fps: float, swap: dict,
@@ -765,7 +985,7 @@ def _apply_swap(resolve, project, pool, timeline, fps: float, swap: dict,
                 "record": [back[0].GetStart(), back[0].GetEnd()]}
 
 
-def _restore_swaps(project, pool, timeline, fps, plans, applied,
+def _restore_swaps(resolve, project, pool, timeline, fps, plans, applied,
                    project_folder, timeline_name):
     """Reverse applied swaps: stills out, videos back with notes.
 
@@ -778,9 +998,10 @@ def _restore_swaps(project, pool, timeline, fps, plans, applied,
     for swap in reversed(plans):
         got = next((entry for entry in applied
                     if entry.get("swap") == swap["label"]), None)
-        if got is None:
+        if got is None and not swap.get("keep_still"):
             continue
-        still_path = got.get("still_path") or ""
+        still_path = ((got or {}).get("still_path")
+                      or swap.get("file_path") or "")
         pooled = None
         for folder_items in ([pool.GetRootFolder()],):
             stack = list(folder_items)
@@ -788,7 +1009,7 @@ def _restore_swaps(project, pool, timeline, fps, plans, applied,
                 folder = stack.pop()
                 for clip in folder.GetClipList() or ():
                     try:
-                        if (clip.GetClipProperty("File Path") or ""
+                        if ((clip.GetClipProperty("File Path") or "")
                                 == still_path):
                             pooled = clip
                             break
@@ -798,30 +1019,50 @@ def _restore_swaps(project, pool, timeline, fps, plans, applied,
         doomed = _items_with_path(
             timeline.GetItemListInTrack("video", swap["track_index"]),
             still_path, swap["record"][0])
+        if swap.get("keep_still") and got is None:
+            if (len(doomed) == 1
+                    and [int(doomed[0].GetStart()), int(doomed[0].GetEnd())]
+                    == list(swap["record"])):
+                continue
         if doomed and not timeline.DeleteClips(doomed, False):
             raise StillOverlayError(
                 f"{timeline_name}: restore would not delete "
                 f"{still_path!r}")
-        from library.tools.reel_build import pool_item_for
-        mov = pool_item_for(pool, swap["file_path"])
-        if mov is None:
-            raise StillOverlayError(
-                f"{timeline_name}: restore cannot find "
-                f"{swap['file_path']!r} pooled")
-        placed = pool.AppendToTimeline([{
-            "mediaPoolItem": mov,
-            "startFrame": swap["source_in"],
-            "endFrame": (swap["source_in"] + swap["record"][1]
-                         - swap["record"][0]),
-            "mediaType": 1,
-            "trackIndex": swap["track_index"],
-            "recordFrame": swap["record"][0],
-        }])
-        if not placed:
-            raise StillOverlayError(
-                f"{timeline_name}: restore would not place "
-                f"{swap['file_path']!r}")
-        new = placed[0]
+        if swap.get("keep_still"):
+            if pooled is None:
+                raise StillOverlayError(
+                    f"{timeline_name}: restore cannot find "
+                    f"{still_path!r} pooled")
+            from library.tools.still_placement import place_still_exact
+            placed = place_still_exact(
+                resolve, project, pool, timeline,
+                media_pool_item=pooled,
+                duration_frames=(swap["record"][1] - swap["record"][0]),
+                record_frame=swap["record"][0],
+                track_index=swap["track_index"], fps=fps,
+                timeline_name=timeline_name + " (still restore)")
+            new = placed["item"]
+        else:
+            from library.tools.reel_build import pool_item_for
+            mov = pool_item_for(pool, swap["file_path"])
+            if mov is None:
+                raise StillOverlayError(
+                    f"{timeline_name}: restore cannot find "
+                    f"{swap['file_path']!r} pooled")
+            placed = pool.AppendToTimeline([{
+                "mediaPoolItem": mov,
+                "startFrame": swap["source_in"],
+                "endFrame": (swap["source_in"] + swap["record"][1]
+                             - swap["record"][0]),
+                "mediaType": 1,
+                "trackIndex": swap["track_index"],
+                "recordFrame": swap["record"][0],
+            }])
+            if not placed:
+                raise StillOverlayError(
+                    f"{timeline_name}: restore would not place "
+                    f"{swap['file_path']!r}")
+            new = placed[0]
         current_props = dict(new.GetProperty() or {})
         for key, value in (swap["props"] or {}).items():
             if key in current_props and current_props[key] == value:
@@ -857,7 +1098,7 @@ def _restore_swaps(project, pool, timeline, fps, plans, applied,
                 raise StillOverlayError(
                     f"{timeline_name}: restore lost note "
                     f"{marker.get('name')!r}")
-        if pooled is not None and not got.get("reused"):
+        if pooled is not None and not (got or {}).get("reused"):
             if not _still_played_anywhere(project, timeline, still_path,
                                           swap):
                 pool.DeleteClips([pooled])

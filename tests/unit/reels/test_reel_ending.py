@@ -1829,6 +1829,25 @@ def test_no_declaration_adds_no_freeze_anywhere():
     assert reel_build._with_freeze([{"a": 1}], None, 24.0) == [{"a": 1}]
 
 
+def test_picture_overlays_end_at_reel01s_measured_logo_start():
+    """The recorded reel ended picture at 1277; its 72-frame logo ended at 1349."""
+    logo_start, reel_end = 1277, 1349
+    tail_logo = SimpleNamespace(placement="tail",
+                                reel_start_frame=logo_start)
+
+    runs = reel_ending.overlay_runs_before_tail_cards(
+        [(0, reel_end)], [tail_logo])
+
+    assert runs == [(0, logo_start)]
+    assert all(end <= logo_start for _start, end in runs)
+
+
+def test_picture_overlays_keep_their_runs_without_a_tail_card():
+    runs = reel_ending.overlay_runs_before_tail_cards(
+        [(0, 400), (500, 900)], [])
+    assert runs == [(0, 400), (500, 900)]
+
+
 # ── The hold is found by its FILE, not by being last on the row ─────
 
 class _FakeItem:

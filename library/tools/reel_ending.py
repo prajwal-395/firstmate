@@ -511,6 +511,31 @@ def ending_tail_frames(ending, look=None) -> int:
     return tail_room_frames(ending, look)
 
 
+def overlay_runs_before_tail_cards(
+        picture_runs, cards) -> list[tuple[int, int]]:
+    """Keep picture overlays on picture, before the reel's first tail card.
+
+    The post header and TV frame dress the picture. A tail card such as
+    the closing logo replaces it, so those overlays must stop at that
+    reel's planned card boundary rather than at a timeline-wide duration.
+    With no tail card, the picture runs pass through unchanged.
+    """
+    tail_starts = [int(card.reel_start_frame)
+                   for card in cards or ()
+                   if getattr(card, "placement", "") == "tail"]
+    if not tail_starts:
+        return [(int(start), int(end)) for start, end in picture_runs or ()
+                if int(end) > int(start)]
+
+    end_before_tail = min(tail_starts)
+    limited = []
+    for start, end in picture_runs or ():
+        start, end = int(start), min(int(end), end_before_tail)
+        if end > start:
+            limited.append((start, end))
+    return limited
+
+
 def tail_effects(ending, look=None) -> dict:
     """The per-clip Fusion keys the declared tail element contributes.
 

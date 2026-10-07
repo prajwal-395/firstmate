@@ -8338,6 +8338,7 @@ class ReelPlacementPlan:
     speech_row_by_angle: dict
     build_record: dict
     cards: list
+    picture_overlay_runs: list
     frame_segments: Optional[list]
 
 
@@ -8557,17 +8558,22 @@ def prepare_reel_timeline(moment, master_clips, subtitle_segments, fps,
         if s.get("timeline_end", 0) > s.get("timeline_start", 0)]
     # ── The social-post header (`library/tools/reel_post_header.py`) ──
     # Rendered BEFORE the plan, so its row exists exactly when a header
-    # goes on it. Carried over the picture runs, like the TV frame: the
-    # header sits over the reel's picture and nowhere a card replaces it.
+    # goes on it. Both it and the TV frame stop at the first planned tail
+    # card: the header sits over this reel's picture and nowhere the
+    # closing logo replaces it.
     from library.tools import reel_look as _look_runs
     from library.tools import reel_post_header as _rph
+    from library.tools import reel_ending as _ending_runs
+    picture_runs = _look_runs.frame_runs(placements_list, fps)
+    overlay_runs = _ending_runs.overlay_runs_before_tail_cards(
+        picture_runs, cards)
     _header_window = None
     if look is not None:
         from library.tools.tv_frame import screen_window_rect
         _header_window = screen_window_rect(look, width, height)
     post_header = _rph.plan_for_reel(
         name, getattr(moment, "number", None),
-        _look_runs.frame_runs(placements_list, fps), fps, width, height,
+        overlay_runs, fps, width, height,
         project_folder, picture_window=_header_window,
         draw_gain=draw_gain)
     material = reel_track_material(
@@ -8624,7 +8630,7 @@ def prepare_reel_timeline(moment, master_clips, subtitle_segments, fps,
         from library.tools.reel_placed_assets import promote_frame_overlays
         frame_segments = promote_frame_overlays(
             _look.frame_overlay_segments(
-                look, _look.frame_runs(placements_list, fps), fps, width,
+                look, overlay_runs, fps, width,
                 height, project_folder),
             project_folder)
     return ReelPlacementPlan(
@@ -8637,6 +8643,7 @@ def prepare_reel_timeline(moment, master_clips, subtitle_segments, fps,
         video_row_by_angle=video_row_by_angle,
         speech_row_by_angle=speech_row_by_angle,
         build_record=build_record,
+        picture_overlay_runs=overlay_runs,
         # Rendered into scratch as the renderer's own cache, so promoted
         # into the durable REEL_CARDS area before anything is imported: a
         # timeline that points under scratch/ points at files a cleaner
@@ -9316,7 +9323,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
 
     def _place_frame():
         """The TV frame, a rendered overlay over every picture run."""
-        runs = _look.frame_runs(placements_list, fps)
+        runs = prepared.picture_overlay_runs
         # The frame goes through the shared overlay placer. Pixel-static
         # frames land as native stills at each run's exact length; an
         # animated frame keeps the video path.
