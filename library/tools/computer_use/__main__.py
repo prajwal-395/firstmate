@@ -649,6 +649,22 @@ def main(argv=None) -> int:
                              help="the verified script JSON file")
     save_parser.add_argument("--layout", default=None,
                              help="the layout string the script was verified on")
+    replay_parser = sub.add_parser(
+        "replay", help="replay every stored recipe end to end")
+    replay_parser.add_argument(
+        "--live", action="store_true",
+        help="run live in Ren Qualification (default: fakes)")
+    replay_parser.add_argument(
+        "--allow-foreground", action="store_true",
+        help="take the captain's screen for the foreground batch "
+             "(needs the firstmate grant)")
+    replay_parser.add_argument(
+        "--only", default="",
+        help="comma-separated recipe names (default: all)")
+    replay_parser.add_argument(
+        "--out", default="",
+        help="report + captures dir (default: per-machine)")
+    _target_flag(replay_parser)
     args = parser.parse_args(argv)
 
     try:
@@ -711,6 +727,23 @@ def main(argv=None) -> int:
             return 2
         if args.subcommand == "recipe-save":
             return _recipe_save(args.name, args.script, args.layout)
+        if args.subcommand == "replay":
+            if target.name != "resolve":
+                raise TargetError(
+                    f"the replay suite drives Resolve recipes, not {target.name}",
+                    "deterministic anchors (AX paths, OCR frames) are resolved "
+                    "against Resolve's window; chrome anchors are unbuilt",
+                    "run with --target resolve",
+                    code="TARGET_SCRIPT_ONLY_RESOLVE",
+                )
+            from library.tools.computer_use import replay as replay_mod
+
+            return replay_mod.main([
+                *(["--live"] if args.live else []),
+                *(["--allow-foreground"] if args.allow_foreground else []),
+                *([f"--only={args.only}"] if args.only else []),
+                *([f"--out={args.out}"] if args.out else []),
+            ])
     except RenRefusal as exc:
         print(exc.render(), file=sys.stderr)
         return 4

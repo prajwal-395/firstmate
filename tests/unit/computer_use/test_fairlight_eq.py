@@ -274,7 +274,8 @@ def test_an_unresolvable_route_fails_instead_of_reporting_ok(
     result = run_script(client, script)
     assert result.outcome == "failed"
     assert result.steps[0] == {"step": 0, "action": "page_fairlight",
-                               "outcome": "failed", "via": "none"}
+                               "outcome": "failed", "via": "none",
+                               "proved": False}
 
 
 # ── the chain ────────────────────────────────────────────────────────

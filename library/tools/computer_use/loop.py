@@ -78,6 +78,7 @@ def run_loop(
     target: str = "resolve",
     pid: int | None = None,
     deadline: float | None = None,
+    save_trace_as: str | None = None,
 ) -> LoopResult:
     """Run the observe-decide-act loop on a goal.
 
@@ -101,6 +102,14 @@ def run_loop(
     commits ends the loop as done; an unknown name, a moved layout or
     a failed recipe falls through to the planner below, which
     discovers the route the recipe could not run.
+
+    Where `save_trace_as` names a recipe and the planner (not a
+    recipe) reaches done, the successful action trace is distilled
+    into a candidate script and replayed before it is trusted
+    (`distill.save_distilled`): a green replay saves it to `store`
+    with zero successes, a red one keeps it out with the reason on
+    the step history. Distillation never fails the task - the task
+    is done; only the saving can fail, and it says so.
     """
     if recipe is not None and store is not None:
         from library.tools.computer_use.scripts import run_recipe
@@ -131,12 +140,16 @@ def run_loop(
             action_dict = model(obs)
             action = Action.from_dict(action_dict)
             if action.is_terminal:
+                if action.kind == "done":
+                    _maybe_distill(history, goal, store, layout,
+                                   save_trace_as)
                 return LoopResult(
                     outcome=action.kind, steps=history, final_action=action.kind
                 )
 
             outcome, refusal = _act_and_verify(client, action, obs, target, pid)
-            entry = {"action": action.kind, "outcome": outcome}
+            entry = {"action": action.kind, "outcome": outcome,
+                     "params": dict(action.params)}
             if refusal is not None:
                 entry["refusal"] = refusal
             history.append(entry)
@@ -146,6 +159,39 @@ def run_loop(
                 )
 
     return LoopResult(outcome="budget_exhausted", steps=history)
+
+
+def _maybe_distill(history: list[dict], goal: str,
+                   store, layout: str | None,
+                   save_trace_as: str | None) -> None:
+    """Save the planner's route as a recipe, replay-gated.
+
+    Reaching terminal-done means the planner did the work (a recipe
+    that committed returns before the loop starts planning). A green
+    replay saves the trace under `save_trace_as`; a red one appends
+    the reason to the history and keeps the route out of the store.
+    Never raises past the loop - distillation is bookkeeping, not
+    the task.
+    """
+    if not save_trace_as or store is None:
+        return
+    try:
+        from library.tools.computer_use.distill import (
+            save_distilled, trace_to_script,
+        )
+
+        script = trace_to_script(goal, history)
+        distilled = save_distilled(store, save_trace_as, script, layout)
+    except Exception as exc:  # noqa: BLE001 - bookkeeping never fails a task
+        history.append({"action": "distill", "outcome": "failed",
+                        "reason": f"{type(exc).__name__}: {exc}"})
+        return
+    history.append({
+        "action": "distill",
+        "outcome": "ok" if distilled.passed else "failed",
+        "reason": distilled.reason,
+        "recipe": save_trace_as,
+    })
 
 
 def _targeted(params: dict, target: str, pid: int | None = None) -> dict:

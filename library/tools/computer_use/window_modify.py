@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from library.tools.computer_use.scripts import (
     Anchor,
+    Expect,
     Script,
     ScriptError,
     ScriptStep,
@@ -58,7 +59,14 @@ def _field_anchor(label: str) -> Anchor:
 
 
 def build_window_modify_script(values: dict) -> Script:
-    """Click, type and commit per named panel parameter."""
+    """Click, type and commit per named panel parameter.
+
+    Every step declares a whole-frame `pixels_changed` expect, so
+    `done` proves the panel moved - the take lease isolates the
+    signal. The typed VALUE is proved one level up, by
+    `run_window_modify` re-reading the panel by OCR after every set
+    and refusing a value the panel does not show back.
+    """
     unknown = sorted(k for k in values if k not in PANEL_LABELS)
     if unknown:
         raise ScriptError(
@@ -81,14 +89,17 @@ def build_window_modify_script(values: dict) -> Script:
             action="click",
             anchors=[Anchor(via="ocr", params={"text": label}),
                      _field_anchor(label)],
+            expect=Expect(via="pixels_changed", params={}),
         ))
         steps.append(ScriptStep(
             action="type",
             anchors=[Anchor(via="type", params={"text": value})],
+            expect=Expect(via="pixels_changed", params={}),
         ))
         steps.append(ScriptStep(
             action="key",
             anchors=[Anchor(via="key", params={"key": "return"})],
+            expect=Expect(via="pixels_changed", params={}),
         ))
     return Script(goal="set the window panel fields", steps=steps)
 

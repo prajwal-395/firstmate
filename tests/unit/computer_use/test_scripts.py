@@ -804,7 +804,8 @@ def test_the_settled_run_fails_a_step_nothing_resolves():
     result = run_settled_script(_Dead(), script)
     assert result.outcome == "failed"
     assert result.steps == [{"step": 0, "action": "menu",
-                             "outcome": "failed", "via": "none"}]
+                             "outcome": "failed", "via": "none",
+                             "proved": False}]
 
 
 def test_a_template_hit_returns_window_points(client: DriverClient,

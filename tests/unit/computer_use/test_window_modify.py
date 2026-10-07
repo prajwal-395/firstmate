@@ -208,16 +208,21 @@ def test_the_verb_refuses_an_unknown_recipe_name():
 
 
 def test_a_type_anchor_resolves_to_a_type_call(client: DriverClient):
-    """Defect, caught on the slice-8 branch: the builder emits type
-    steps but no resolver produced type calls - every modify would
-    focus fields and type nothing. The via resolves with no screen
-    anchor, carrying only the text, to the driver's `type_text`
-    method (the method the loop path already emits - a resolver
-    emitting anything else fails every take at the driver gate)."""
-    from library.tools.computer_use.scripts import Anchor, resolve_anchor
+    """Defect, caught twice independently: the builder emits type
+    steps but the resolver must emit the driver's `type_text`
+    method - every modify would focus fields and type nothing,
+    refused live as an unknown method. The via resolves with no
+    screen anchor, carrying only the text, to a method in
+    INPUT_CALLS (which also carries the foreground flag)."""
+    from library.tools.computer_use.scripts import (
+        INPUT_CALLS,
+        Anchor,
+        resolve_anchor,
+    )
 
     resolved = resolve_anchor(
         client, Anchor(via="type", params={"text": "75.00"}))
     assert resolved == ("type_text", {"text": "75.00"})
+    assert resolved[0] in INPUT_CALLS
     assert resolve_anchor(
         client, Anchor(via="type", params={"text": ""})) is None

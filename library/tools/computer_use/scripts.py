@@ -628,6 +628,13 @@ def _run_step(
     The lease is taken per step's act+verify, the same way the loop's
     `_act_and_verify` does - the script drives the UI, so it needs the
     same exclusion the loop has.
+
+    The step record carries `proved`: True only where a declared
+    expect verified (or a wait settled its declared seconds). A step
+    with no expect that the driver merely accepted reports `ok`
+    with `proved` False - done-means-accepted, never done-means-effect.
+    The replay suite fails a recipe with an unproved step; that is the
+    defect test the captain's brief names.
     """
     for anchor in step.anchors:
         resolved = resolve_anchor(client, anchor)
@@ -641,12 +648,29 @@ def _run_step(
                 before = build_observation(client, "", [], 0)
                 client.call(method, params)
                 if verify_expect(client, step.expect, before=before):
-                    return {"step": index, "action": step.action, "outcome": "ok", "via": anchor.via}
+                    return {"step": index, "action": step.action,
+                            "outcome": "ok", "via": anchor.via,
+                            "proved": _step_proved(step, anchor)}
         except DriverError:
             continue
     if llm is not None:
         return _llm_fallback(client, step, index, llm, script)
-    return {"step": index, "action": step.action, "outcome": "failed", "via": "none"}
+    return {"step": index, "action": step.action, "outcome": "failed",
+            "via": "none", "proved": False}
+
+
+def _step_proved(step: ScriptStep, anchor: Anchor) -> bool:
+    """Did this step prove its effect, not just its acceptance.
+
+    A declared expect that verified proves it. A wait step carries no
+    screen predicate by construction - its declared seconds ARE the
+    proof (the duration stays on the step, and the settled runner
+    records it). Anything else the driver merely accepted is
+    unproved.
+    """
+    if step.expect is not None:
+        return True
+    return step.action == "wait" and anchor.via == "wait"
 
 
 def _llm_fallback(
@@ -668,23 +692,28 @@ def _llm_fallback(
     obs = build_observation(client, script.goal, [], index)
     action_dict = llm(obs, step)
     if action_dict.get("action") in ("done", "need_input", "budget_exhausted"):
-        return {"step": index, "action": step.action, "outcome": "failed", "via": "llm"}
+        return {"step": index, "action": step.action, "outcome": "failed",
+                "via": "llm", "proved": False}
     try:
         from library.tools.computer_use.actions import Action
 
         action = Action.from_dict(action_dict)
     except (DriverError, ValueError):
-        return {"step": index, "action": step.action, "outcome": "failed", "via": "llm"}
+        return {"step": index, "action": step.action, "outcome": "failed",
+                "via": "llm", "proved": False}
     try:
         with resolve_lease("computer-use"):
             before = build_observation(client, "", [], 0)
             _drive(client, action)
             if not verify_expect(client, step.expect, before=before):
-                return {"step": index, "action": step.action, "outcome": "failed", "via": "llm"}
+                return {"step": index, "action": step.action,
+                        "outcome": "failed", "via": "llm", "proved": False}
     except DriverError:
-        return {"step": index, "action": step.action, "outcome": "failed", "via": "llm"}
+        return {"step": index, "action": step.action, "outcome": "failed",
+                "via": "llm", "proved": False}
     _record_learned_anchor(step, action)
-    return {"step": index, "action": step.action, "outcome": "ok", "via": "llm"}
+    return {"step": index, "action": step.action, "outcome": "ok",
+            "via": "llm", "proved": step.expect is not None}
 
 
 def _drive(client: DriverClient, action) -> None:
@@ -1185,7 +1214,13 @@ def run_settled_script(client: DriverClient, script: Script) -> ScriptResult:
 
 def _run_settled_step(client: DriverClient, step: ScriptStep,
                       index: int) -> dict:
-    """One settled step: menus call, waits sleep, anything else fails."""
+    """One settled step: menus call, waits sleep, anything else fails.
+
+    The record carries `proved` like the script runner's: a wait
+    proves its declared seconds; a menu the driver merely accepted
+    reports `ok` with `proved` False - the replay suite's read-back,
+    not this runner, proves a menu's effect.
+    """
     for anchor in step.anchors:
         if anchor.via == "wait":
             seconds = anchor.params.get("seconds")
@@ -1197,6 +1232,7 @@ def _run_settled_step(client: DriverClient, step: ScriptStep,
             _time.sleep(float(seconds))
             return {"step": index, "action": step.action,
                     "outcome": "ok", "via": "wait",
+                    "proved": True,
                     "seconds": float(seconds)}
         resolved = resolve_anchor(client, anchor)
         if resolved is None:
@@ -1207,6 +1243,7 @@ def _run_settled_step(client: DriverClient, step: ScriptStep,
         except DriverError:
             continue
         return {"step": index, "action": step.action,
-                "outcome": "ok", "via": anchor.via}
+                "outcome": "ok", "via": anchor.via,
+                "proved": step.expect is not None}
     return {"step": index, "action": step.action,
-            "outcome": "failed", "via": "none"}
+            "outcome": "failed", "via": "none", "proved": False}
