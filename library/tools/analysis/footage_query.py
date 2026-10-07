@@ -1045,6 +1045,7 @@ class FootageIndex:
         self._chunk_matrix = None
         self._chunk_embedder = None
         self._chunk_embed_backend = None
+        self._person_roster_cache = None
 
     # ── lazy state ──
 
@@ -1288,8 +1289,72 @@ class FootageIndex:
                 scores[i] = 1.0
         return scores
 
+    def _person_roster(self) -> list:
+        """The M3b roster, once per index instance, never raising.
+
+        Face/voice identity resolution reads the project's person
+        store; a project that never built one (or a store that does
+        not parse) is not an error at query time - it is an empty
+        roster, and the person lane stays out of the fusion exactly
+        like any other unmeasured lane.
+        """
+        if self._person_roster_cache is None:
+            try:
+                roster = person_entity.resolve_person_tracks(
+                    self.project_folder)
+                self._person_roster_cache = (roster or {}).get("persons") or []
+            except Exception:  # noqa: BLE001 - unbuilt/unreadable store
+                self._person_roster_cache = []
+        return self._person_roster_cache
+
+    def _person_scores(self, query: str):
+        """Per-segment person evidence: 1 where a named person's measured
+        spans overlap.
+
+        A query token matching a roster person_id or declared name
+        (same both-directions substring rule as the other tag lanes)
+        selects that person's union of face spans (seen) and voice
+        spans (heard); segments on the same clip overlapping those
+        spans score 1.  Binary like the object lane: a measured span
+        either covers the segment or it does not.
+        """
+        scores = np.zeros(len(self.segments), dtype="float32")
+        tokens = _tokenize(query)
+        if not tokens:
+            return scores
+        windows = []
+        for person in self._person_roster():
+            names = [person.get("person_id", "")]
+            if person.get("name"):
+                names.append(person["name"])
+            if not any(token and (token in (name or "").lower()
+                                  or (name or "").lower() in token)
+                       for token in tokens for name in names):
+                continue
+            for span in (person.get("face_spans") or []) + (
+                    person.get("voice_spans") or []):
+                try:
+                    windows.append((span["clip_id"], float(span["start"]),
+                                    float(span["end"])))
+                except (TypeError, ValueError, KeyError):
+                    continue
+        if not windows:
+            return scores
+        for i, segment in enumerate(self.segments):
+            try:
+                start = float(segment["start"])
+                end = float(segment["end"])
+            except (TypeError, ValueError):
+                continue
+            for clip_id, w_start, w_end in windows:
+                if clip_id == segment["clip_id"] and w_end > start \
+                        and w_start < end:
+                    scores[i] = 1.0
+                    break
+        return scores
+
     def _raw_scores(self, query: str, mode: str):
-        """``(combined, dense, lexical, sound, ocr, object)`` or why not.
+        """``(combined, dense, lexical, sound, ocr, object, person)`` or why not.
 
         `dense` is None when this index carries no embeddings or the
         embedder could not be loaded, and the caller decides whether that
@@ -1317,7 +1382,7 @@ class FootageIndex:
 
         if mode == "dense":
             if dense is None:
-                return None, None, None, None, None, None
+                return None, None, None, None, None, None, None
             combined = dense
         elif mode == "lexical":
             combined = lexical
@@ -1328,21 +1393,22 @@ class FootageIndex:
         sound = self._sound_scores(query)
         ocr = self._ocr_scores(query)
         obj = self._object_scores(query)
+        person = self._person_scores(query)
         if mode == "hybrid" and dense is not None:
             # A tag lane joins only where it has anything to say: an
             # all-zero extra half would still shift every rank by its
             # deep stable-order contribution, reordering indexes that
             # never measured that lane.
             halves = [dense, lexical]
-            for lane in (sound, ocr, obj):
+            for lane in (sound, ocr, obj, person):
                 if lane.any():
                     halves.append(lane)
             if len(halves) > 2:
                 combined = _rrf(*halves)
-        return combined, dense, lexical, sound, ocr, obj
+        return combined, dense, lexical, sound, ocr, obj, person
 
     @staticmethod
-    def _eligible(dense, lexical, sound, ocr, obj, floor: float):
+    def _eligible(dense, lexical, sound, ocr, obj, person, floor: float):
         """Which segments count as EVIDENCE, before any ranking.
 
         Judged on the raw signals, never on `combined`: the fused score
@@ -1357,9 +1423,11 @@ class FootageIndex:
         tag is evidence on its own: a laughter query over footage
         nobody transcribed has no words to match, and the PANNs label
         is the only thing that heard it; likewise a tracked on-screen
-        string or an object label the transcript never names.
+        string or an object label the transcript never names - or a
+        person the roster knows by name, whose face or voice the
+        segment overlaps.
         """
-        tags = (sound > 0) | (ocr > 0) | (obj > 0)
+        tags = (sound > 0) | (ocr > 0) | (obj > 0) | (person > 0)
         if dense is None:
             return (lexical > 0) | tags
         if floor <= 0:
@@ -1477,7 +1545,7 @@ class FootageIndex:
                 merge_external_evidence(report, external_hits)
             return report
 
-        combined, dense, lexical, sound, ocr, obj = self._raw_scores(
+        combined, dense, lexical, sound, ocr, obj, person = self._raw_scores(
             query, mode)
         if combined is None:
             report["error"] = "This index has no embeddings; use mode='lexical'."
@@ -1512,8 +1580,9 @@ class FootageIndex:
                 "keyword floor cannot tell 'absent' from 'phrased differently'"
             )
 
-        tags = {"sound": sound, "ocr": ocr, "object": obj}
-        keep = mask & self._eligible(dense, lexical, sound, ocr, obj,
+        tags = {"sound": sound, "ocr": ocr, "object": obj,
+                "person": person}
+        keep = mask & self._eligible(dense, lexical, sound, ocr, obj, person,
                                      mode_floor)
         report["retained"] = int(keep.sum())
         report["results"] = self._rank(query, combined, dense, lexical, tags,
