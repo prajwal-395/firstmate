@@ -1296,7 +1296,7 @@ def evaluate_batch(project_folder, entry_ids=None) -> list:
     return decided
 
 
-def merge_passing(project_folder, entry_ids=None) -> list:
+def merge_passing(project_folder, entry_ids=None, actor=None) -> list:
     """Merge the passing entries into the next version, in order.
 
     Each entry merges against the CURRENT head of its master timeline
@@ -1310,8 +1310,18 @@ def merge_passing(project_folder, entry_ids=None) -> list:
     entry with the clips named and the batch continues. A merge commit
     is the next version: both parents recorded, agent creative_merge.
     Entries that never passed evaluation refuse by name.
+
+    `actor` is the permissions lane's hook: who may merge into the
+    shared queue. A named actor must hold Merge on the project's
+    roster (`fabric_permissions`) before any entry merges; `None` is
+    the local operator and is never checked.
     """
     from library.tools import event_log
+
+    if actor is not None:
+        from library.tools import fabric_permissions as _permissions
+        _permissions.require(project_folder, actor, _permissions.MERGE,
+                             task="merge queue batch")
 
     if entry_ids is None:
         entries = list_queue_entries(
@@ -1361,7 +1371,8 @@ def merge_passing(project_folder, entry_ids=None) -> list:
             merge_commit = merge_commits(
                 project_folder, timeline=entry.get("master_timeline") or "",
                 left=head["id"], right=entry["candidate"],
-                note=f"merge {entry['branch']} ({entry['id'][:12]})")
+                note=f"merge {entry['branch']} ({entry['id'][:12]})",
+                actor=actor)
         except MergeConflict as conflict:
             # args[0] is the message; args[1] is the clip list where
             # the raise site names one. The reason a submitter is sent

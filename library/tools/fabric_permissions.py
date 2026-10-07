@@ -34,9 +34,9 @@ Reachability
 
 Proposals (the federation's negotiation) live here too, because every
 step of one is an authority check: recording and answering need
-Suggest, accepting needs Approve, and the accept runs the operation
-through the normal branch/merge path under the approver's own name -
-so the merge gate checks the approver like any other merger.
+Suggest, accepting needs Approve, and the accept submits the operation
+to the shared merge queue - so the batch executor merges it with the
+merger's gate checking who merges, like any other merge.
 
 `tests/unit/resolve/test_fabric_permissions.py`.
 """
@@ -304,38 +304,43 @@ def _proposal_events(project_folder) -> list:
 
 
 def _check_operation(operation: dict) -> dict:
-    """The operation as the apply path will run it, or refused.
+    """The operation as the queue submit will run it, or refused.
 
-    A merge names the timeline and both commits. Anything else -
-    unknown kind, missing side - is refused at record time: a proposal
-    that cannot be applied must never reach an approver.
+    A merge names the recorded branch, the master commit it is
+    evaluated against, and the candidate tip it proposes. Anything
+    else - unknown kind, missing side, unnamed branch - is refused at
+    record time: a proposal that cannot be submitted must never reach
+    an approver. The branch must already be recorded (branching is the
+    submit half, gated at `record_branch`); the accept only names it.
     """
     if not isinstance(operation, dict):
         raise ProposalRefused(
             "a proposal needs an operation dict, not "
             f"{type(operation).__name__}",
-            "the accept runs the operation through the branch/merge "
-            "path, and a path cannot run what is not described",
+            "the accept submits the operation to the shared merge "
+            "queue, and a queue entry cannot be built from what is "
+            "not described",
             "pass operation={'kind': 'merge', 'timeline': ..., "
-            "'left': ..., 'right': ...}")
+            "'branch': ..., 'left': ..., 'right': ...}")
     kind = operation.get("kind")
     if kind not in PROPOSAL_OPERATIONS:
         raise ProposalRefused(
             f"proposal operation {kind!r} is not applicable",
-            f"the operations an accept can run are "
-            f"{', '.join(PROPOSAL_OPERATIONS)} - nothing else has an "
-            f"apply path",
-            "propose a merge of a prepared branch tip, or leave the "
+            f"the operations an accept can submit are "
+            f"{', '.join(PROPOSAL_OPERATIONS)} - nothing else has a "
+            f"queue path",
+            "propose a merge of a recorded branch tip, or leave the "
             "change to a participant who can branch it")
-    missing = [key for key in ("timeline", "left", "right")
+    missing = [key for key in ("timeline", "branch", "left", "right")
                if not operation.get(key)]
     if missing:
         raise ProposalRefused(
             f"a merge proposal needs {', '.join(missing)}",
-            "the accept merges two commits on one timeline, and a "
-            "merge with an unnamed side cannot run",
+            "the accept queues a branch candidate against a master, "
+            "and a queue entry with an unnamed side cannot run",
             f"name {', '.join(missing)} in the operation")
     return {"kind": "merge", "timeline": str(operation["timeline"]),
+            "branch": str(operation["branch"]),
             "left": str(operation["left"]), "right": str(operation["right"]),
             "note": str(operation.get("note") or "")}
 
@@ -426,15 +431,17 @@ def answer_proposal(project_folder, proposal_id: str, author: str,
 
 
 def accept_proposal(project_folder, proposal_id: str, approver: str) -> dict:
-    """Accept a proposal: approve AND apply. Needs Approve.
+    """Accept a proposal: approve AND submit to the shared queue. Needs Approve.
 
-    The operation runs through the normal merge path under the
-    approver's own name (`merge_commits(actor=approver)`), so the
-    merge gate checks the approver like any other merger. The accept
-    event lands AFTER the merge succeeds and carries its id: a log
-    that claims "accepted" for a merge that never landed would be the
-    hole the event-sourcing exists to close. A merge the path refuses
-    (conflicting clips) propagates, and the proposal stays open.
+    The approved operation submits through the queue's own submit
+    path (`queue_merge`) under the author's name - the queue both
+    lanes use as one (captain 2026-10-06): variant exploration owns
+    the queue and the batch evaluation, and this lane owns the
+    authority around it (Suggest to record, Approve to submit, Merge
+    to land, the last enforced by the executor's actor hook). The
+    accept event lands with the queue entry's id. A submit the queue
+    refuses (unknown branch, candidate that cannot merge) propagates,
+    and the proposal stays open.
     """
     require(project_folder, approver, APPROVE,
             task=f"accept proposal {proposal_id}")
@@ -442,20 +449,21 @@ def accept_proposal(project_folder, proposal_id: str, approver: str) -> dict:
     if state["status"] != "recorded":
         raise ProposalRefused(
             f"proposal {proposal_id} is already {state['status']}",
-            "an accept applies the operation, and applying twice "
-            "would merge the same change a second time",
+            "an accept submits the operation to the queue, and "
+            "submitting twice would evaluate the same change twice",
             "record a new proposal against the current chain")
     operation = (state["recorded"].get("fields") or {}).get("operation") or {}
+    author = (state["recorded"].get("fields") or {}).get("author") or ""
     from library.tools import undo_journal as _journal
-    merged = _journal.merge_commits(
-        project_folder, timeline=operation["timeline"],
-        left=operation["left"], right=operation["right"],
-        note=operation.get("note") or f"proposal {proposal_id}",
-        actor=approver)
+    entry = _journal.queue_merge(
+        project_folder, branch=operation["branch"],
+        candidate=operation["right"], master=operation["left"],
+        submitted_by=author,
+        note=operation.get("note") or f"proposal {proposal_id}")
     return event_log.emit(
         project_folder, event_log.PROPOSAL_ACCEPTED, task=str(approver),
         proposal_id=proposal_id, approver=str(approver),
-        merge=merged["id"])
+        queue_entry=entry["id"])
 
 
 def _main(argv=None) -> int:

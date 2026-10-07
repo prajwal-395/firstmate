@@ -181,7 +181,8 @@ def test_a_refusal_is_an_event_in_the_log(lock_dir, project):
 
 # ── The merge gate ────────────────────────────────────────────────
 
-def _commit_chain(project):
+def _commit_tree(project):
+    """Root plus two non-conflicting children, for merge tests."""
     root = uj.record_commit(project, parent=None, intent="first",
                             changes=[], agent="reel_touchup",
                             timeline="Reel 01")
@@ -190,6 +191,11 @@ def _commit_chain(project):
     right = uj.record_commit(project, parent=root["id"], intent="right",
                              changes=[], agent="colourist",
                              timeline="Reel 01")
+    return root, left, right
+
+
+def _commit_chain(project):
+    _root, left, right = _commit_tree(project)
     return left, right
 
 
@@ -242,9 +248,18 @@ def test_a_refused_merge_is_an_event_in_the_log(project):
 
 # ── Proposals: federated negotiation ────────────────────────────────
 
-def _merge_operation(left_id, right_id):
-    return {"kind": "merge", "timeline": "Reel 01",
-            "left": left_id, "right": right_id,
+def _branched_operation(project, root, candidate, branch="alt"):
+    """A merge operation naming a recorded branch, ready to queue.
+
+    The branch is recorded actor-less: test scaffolding acts as the
+    local operator, and only the federated acts under test name an
+    actor. The master the candidate is evaluated against is the root;
+    the candidate is the branch's tip.
+    """
+    uj.record_branch(project, name=branch, base=root["id"],
+                     timeline="Reel 01", note="candidate line")
+    return {"kind": "merge", "timeline": "Reel 01", "branch": branch,
+            "left": root["id"], "right": candidate["id"],
             "note": "hold the reaction longer"}
 
 
@@ -275,10 +290,11 @@ def test_an_observer_cannot_record_a_proposal(project):
     an approver. On origin/main there is no proposal path at all.
     """
     permissions.grant(project, "viewer", permissions.OBSERVE)
-    left, right = _commit_chain(project)
+    root, _left, right = _commit_tree(project)
     with pytest.raises(permissions.PermissionRefused):
         permissions.record_proposal(
-            project, "viewer", _merge_operation(left["id"], right["id"]),
+            project, "viewer",
+            _branched_operation(project, root, right),
             "hold the reaction longer")
 
 
@@ -292,9 +308,10 @@ def test_a_client_records_and_an_editor_answers_conflict(project):
     """
     permissions.grant(project, "client", permissions.SUGGEST)
     permissions.grant(project, "editor", permissions.EXECUTE)
-    left, right = _commit_chain(project)
+    root, _left, right = _commit_tree(project)
     recorded = permissions.record_proposal(
-        project, "client", _merge_operation(left["id"], right["id"]),
+        project, "client",
+        _branched_operation(project, root, right),
         "hold the reaction shot longer")
     proposal_id = recorded["fields"]["proposal_id"]
     permissions.answer_proposal(project, proposal_id, "editor",
@@ -317,9 +334,10 @@ def test_an_accept_answer_from_a_non_approver_applies_nothing(project):
     """
     permissions.grant(project, "client", permissions.SUGGEST)
     permissions.grant(project, "editor", permissions.EXECUTE)
-    left, right = _commit_chain(project)
+    root, _left, right = _commit_tree(project)
     recorded = permissions.record_proposal(
-        project, "client", _merge_operation(left["id"], right["id"]),
+        project, "client",
+        _branched_operation(project, root, right),
         "hold the reaction shot longer")
     proposal_id = recorded["fields"]["proposal_id"]
     permissions.answer_proposal(project, proposal_id, "editor", "accept")
@@ -329,28 +347,37 @@ def test_an_accept_answer_from_a_non_approver_applies_nothing(project):
                for commit in uj.list_commits(project))
 
 
-def test_the_approver_accepts_through_the_normal_merge_path(project):
-    """Approval applies: the merge lands under the approver's name.
+def test_the_approver_accepts_onto_the_shared_queue(project):
+    """Approval submits into the queue both lanes use as one.
 
-    Defect caught: an accept that records approval but never runs the
-    operation leaves "accepted" proposals with no timeline effect -
-    the human approved and nothing happened. The accept runs
-    `merge_commits(actor=approver)`, so the merge gate checks the
-    approver exactly as it checks any merger.
+    Defect caught: an accept that merges directly - or that emits its
+    own private queue event - bypasses the shared queue: variant
+    exploration evaluates one batch while approved proposals land
+    beside it unmeasured. The accept submits through the queue's own
+    `queue_merge` under the author's name and lands the accept with
+    the queue entry's id; nothing merges here.
     """
     permissions.grant(project, "client", permissions.SUGGEST)
     permissions.grant(project, "director", permissions.APPROVE)
-    left, right = _commit_chain(project)
+    root, _left, right = _commit_tree(project)
     recorded = permissions.record_proposal(
-        project, "client", _merge_operation(left["id"], right["id"]),
+        project, "client",
+        _branched_operation(project, root, right),
         "hold the reaction shot longer")
     proposal_id = recorded["fields"]["proposal_id"]
     accepted = permissions.accept_proposal(project, proposal_id, "director")
     assert accepted["fields"]["approver"] == "director"
-    merged = uj.read_commit(project, accepted["fields"]["merge"])
-    assert merged["second_parent"] == right["id"]
+    entry = uj.read_queue_entry(
+        project, accepted["fields"]["queue_entry"])
+    assert entry["branch"] == "alt"
+    assert entry["candidate"] == right["id"]
+    assert entry["master"] == root["id"]
+    assert entry["submitted_by"] == "client"
+    assert entry["status"] == uj.ENTRY_QUEUED
     assert permissions.proposal_status(
         project, proposal_id)["status"] == "accepted"
+    assert all(commit.get("second_parent") is None
+               for commit in uj.list_commits(project))
 
 
 def test_a_second_accept_is_refused(project):
@@ -363,9 +390,10 @@ def test_a_second_accept_is_refused(project):
     """
     permissions.grant(project, "client", permissions.SUGGEST)
     permissions.grant(project, "director", permissions.APPROVE)
-    left, right = _commit_chain(project)
+    root, _left, right = _commit_tree(project)
     recorded = permissions.record_proposal(
-        project, "client", _merge_operation(left["id"], right["id"]),
+        project, "client",
+        _branched_operation(project, root, right),
         "hold the reaction shot longer")
     proposal_id = recorded["fields"]["proposal_id"]
     permissions.accept_proposal(project, proposal_id, "director")
@@ -374,34 +402,41 @@ def test_a_second_accept_is_refused(project):
     assert "already accepted" in str(refused.value)
 
 
-def test_a_refused_merge_leaves_the_proposal_open(project):
-    """The accept lands AFTER the merge: a refused merge applies nothing.
+def test_a_conflicting_proposal_fails_evaluation_with_the_reason(project):
+    """The shared evaluation - not the accept - meets the conflict.
 
-    Defect caught: an accept that emits "accepted" before running the
-    operation claims in the log what the merge path refused -
-    conflicting clips merged nowhere, yet approved on paper. Here both
-    sides move clip_001, the merge refuses by name, and the proposal
-    stays open for a revised one.
+    Defect caught: an accept that merges directly raises the conflict
+    at approval time, in the approver's face, with no verdict the
+    batch can split on. Here the branch and the master both move
+    clip_001: the accept queues cleanly, and the shared
+    `evaluate_batch` fails the entry with the clips named.
     """
     permissions.grant(project, "client", permissions.SUGGEST)
     permissions.grant(project, "director", permissions.APPROVE)
     root = uj.record_commit(project, parent=None, intent="first",
                             changes=[], agent="reel_touchup",
                             timeline="Reel 01")
-    left = uj.record_commit(project, parent=root["id"], intent="left",
-                            changes=_move_change("clip_001", 50),
-                            agent="editor", timeline="Reel 01")
-    right = uj.record_commit(project, parent=root["id"], intent="right",
-                             changes=_move_change("clip_001", 60),
-                             agent="colourist", timeline="Reel 01")
+    master = uj.record_commit(project, parent=root["id"], intent="master",
+                              changes=_move_change("clip_001", 50),
+                              agent="editor", timeline="Reel 01")
+    candidate = uj.record_commit(project, parent=root["id"],
+                                 intent="candidate",
+                                 changes=_move_change("clip_001", 60),
+                                 agent="colourist", timeline="Reel 01")
+    uj.record_branch(project, name="alt", base=root["id"],
+                     timeline="Reel 01", note="candidate line")
     recorded = permissions.record_proposal(
-        project, "client", _merge_operation(left["id"], right["id"]),
+        project, "client",
+        {"kind": "merge", "timeline": "Reel 01", "branch": "alt",
+         "left": master["id"], "right": candidate["id"],
+         "note": "hold the reaction shot longer"},
         "hold the reaction shot longer")
     proposal_id = recorded["fields"]["proposal_id"]
-    with pytest.raises(uj.MergeConflict):
-        permissions.accept_proposal(project, proposal_id, "director")
-    assert permissions.proposal_status(
-        project, proposal_id)["status"] == "recorded"
+    accepted = permissions.accept_proposal(project, proposal_id, "director")
+    decided = uj.evaluate_batch(project, [accepted["fields"]["queue_entry"]])
+    assert len(decided) == 1
+    assert decided[0]["status"] == uj.ENTRY_EVALUATED_FAIL
+    assert "clip_001" in (decided[0]["evaluation"] or {}).get("reason", "")
 
 
 def test_branch_creation_needs_branch_level(project):
@@ -430,17 +465,19 @@ def test_open_proposals_register_as_graph_nodes(project):
 
     Defect caught: a proposal store nothing reads is not shipped -
     the graph is the shared state other tracks feed, so an undecided
-    proposal must be a node in it, and an accepted one's outcome (its
-    merge commit) is what remains.
+    proposal must be a node in it, and a decided one leaves only its
+    queue entry behind.
     """
     permissions.grant(project, "client", permissions.SUGGEST)
     permissions.grant(project, "director", permissions.APPROVE)
-    left, right = _commit_chain(project)
+    root, _left, right = _commit_tree(project)
     first = permissions.record_proposal(
-        project, "client", _merge_operation(left["id"], right["id"]),
+        project, "client",
+        _branched_operation(project, root, right, branch="alt-one"),
         "hold the reaction shot longer")
     second = permissions.record_proposal(
-        project, "client", _merge_operation(left["id"], right["id"]),
+        project, "client",
+        _branched_operation(project, root, right, branch="alt-two"),
         "try the alt ending")
     permissions.accept_proposal(
         project, first["fields"]["proposal_id"], "director")
@@ -489,3 +526,90 @@ def test_participants_with_returns_only_those_granting_approve(project):
                  for entry in project_graph.participants_with(
                      graph, permissions.APPROVE)}
     assert approvers == {"director", "admin_ren"}
+
+
+# ── The shared queue: the permission lane's seam ────────────────
+
+def _propose_and_accept(project, author="client", approver="director",
+                        branch="alt"):
+    """Record a clean branched proposal and accept it. Returns the
+    shared queue's entry id. Grants are the caller's setup; this is
+    the federated acts alone. The master moves on once after the
+    branch, so the candidate is not its own head at merge time - the
+    branch tip and the master head are different commits, as in any
+    real submission."""
+    root, left, right = _commit_tree(project)
+    recorded = permissions.record_proposal(
+        project, author,
+        _branched_operation(project, root, right, branch=branch),
+        "hold the reaction shot longer")
+    uj.record_commit(project, parent=left["id"], intent="master moves on",
+                     changes=[], agent="editor", timeline="Reel 01")
+    accepted = permissions.accept_proposal(
+        project, recorded["fields"]["proposal_id"], approver)
+    return accepted["fields"]["queue_entry"]
+
+
+def test_a_passing_entry_merges_under_an_authorized_actor(project):
+    """The full federated path: propose, approve, evaluate, merge.
+
+    Defect caught: a seam where the accept submits but the executor
+    cannot land it - the approval evaporates between the lanes. A
+    clean candidate passes the shared evaluation and merges under a
+    Merge-holding actor, and the entry carries its merge commit.
+    """
+    permissions.grant(project, "client", permissions.SUGGEST)
+    permissions.grant(project, "director", permissions.APPROVE)
+    entry_id = _propose_and_accept(project)
+    decided = uj.evaluate_batch(project, [entry_id])
+    assert decided[0]["status"] == uj.ENTRY_EVALUATED_PASS
+    merged = uj.merge_passing(project, [entry_id], actor="director")
+    assert merged[0]["status"] == uj.ENTRY_MERGED
+    assert uj.read_commit(
+        project, merged[0]["merge_commit"])["second_parent"] is not None
+
+
+def test_queue_execution_needs_merge_level(project):
+    """The shared executor is still a merge: runners prove authority.
+
+    Defect caught: an execution path that skips the actor hook lets
+    any runner - including a participant who may only execute - merge
+    into the shared chain under cover of "the queue did it". The
+    refusal lands before anything merges, and the passed entry waits
+    for an authorized run.
+    """
+    permissions.grant(project, "client", permissions.SUGGEST)
+    permissions.grant(project, "director", permissions.APPROVE)
+    permissions.grant(project, "editor", permissions.EXECUTE)
+    entry_id = _propose_and_accept(project)
+    uj.evaluate_batch(project, [entry_id])
+    with pytest.raises(permissions.PermissionRefused):
+        uj.merge_passing(project, [entry_id], actor="editor")
+    assert uj.read_queue_entry(
+        project, entry_id)["status"] == uj.ENTRY_EVALUATED_PASS
+    assert all(commit.get("second_parent") is None
+               for commit in uj.list_commits(project))
+
+
+def test_an_accept_naming_an_unknown_branch_is_refused(project):
+    """The queue's refusal leaves the proposal open, not half-submitted.
+
+    Defect caught: an accept that swallows the queue's refusal - or
+    that lands "accepted" for an entry that never queued - claims in
+    the log what the queue declined. Here the operation names a branch
+    no record answers: the submit raises `BranchRefused` by name, and
+    the proposal stays recorded for a corrected one.
+    """
+    permissions.grant(project, "client", permissions.SUGGEST)
+    permissions.grant(project, "director", permissions.APPROVE)
+    root, _left, right = _commit_tree(project)
+    operation = {"kind": "merge", "timeline": "Reel 01", "branch": "ghost",
+                 "left": root["id"], "right": right["id"],
+                 "note": "hold the reaction shot longer"}
+    recorded = permissions.record_proposal(
+        project, "client", operation, "hold the reaction shot longer")
+    proposal_id = recorded["fields"]["proposal_id"]
+    with pytest.raises(uj.BranchRefused):
+        permissions.accept_proposal(project, proposal_id, "director")
+    assert permissions.proposal_status(
+        project, proposal_id)["status"] == "recorded"

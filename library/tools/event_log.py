@@ -116,9 +116,10 @@ PROPOSAL_ACCEPTED = "proposal_accepted"
 """The federation's proposal lifecycle, one event each. A participant
 with Suggest records a proposal (operation + rationale); another
 participant's Ren answers conflict/alternative/accept; a participant
-with Approve accepts, and only the accept applies - through the normal
-branch/merge path. `fabric_permissions` is the writer; the merge queue
-(variant exploration) coordinates through these same events."""
+with Approve accepts, which submits the operation to the shared merge
+queue. `fabric_permissions` is the writer; the queue's own transitions
+(queued, evaluated, stale, rejected, merged) are emitted by the queue
+itself, which variant exploration owns."""
 
 
 def log_path(project_folder) -> Path:
