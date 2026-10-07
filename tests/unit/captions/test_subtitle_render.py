@@ -1565,6 +1565,20 @@ class _NoPixelQA:
 
 # ── The default is the bundle-once renderer ───────────────────────────
 
+def _remotion_engine(monkeypatch):
+    """Select the Remotion graphics engine for a renderer-routing pin.
+
+    The FFrames flip made FFrames the default wherever its binary
+    resolves, and the selected engine draws whatever renderer_kind
+    says - so a test pinning the Remotion persistent/subprocess
+    routing must select Remotion, the way a project declares
+    pipeline.graphics_renderer (PIPELINE_GRAPHICS_RENDERER is the
+    user half of that seam). Without it these tests exercise the
+    FFrames path and pin nothing they describe.
+    """
+    monkeypatch.setenv("PIPELINE_GRAPHICS_RENDERER", "remotion")
+
+
 def test_the_default_renderer_is_now_the_persistent_one(monkeypatch,
                                                        tmp_path):
     """The captain's ruling, 2026-09-09: the persistent renderer is the
@@ -1574,6 +1588,7 @@ def test_the_default_renderer_is_now_the_persistent_one(monkeypatch,
     as the signature value and as the renderer actually built."""
     import inspect
     _NoPixelQA(monkeypatch)
+    _remotion_engine(monkeypatch)
     spine, plan = _spine_and_plan()
     params = inspect.signature(r405.render_subtitle_overlays).parameters
     assert params["renderer_kind"].default == "persistent"
@@ -1609,6 +1624,7 @@ def test_the_subprocess_path_stays_selectable(monkeypatch, tmp_path):
     """The old default is the explicit fallback: asking for it by name
     still builds exactly one per-card renderer."""
     _NoPixelQA(monkeypatch)
+    _remotion_engine(monkeypatch)
     spine, plan = _spine_and_plan()
     built = []
 
@@ -1788,6 +1804,7 @@ def test_a_renderer_that_cannot_start_falls_back_loudly(monkeypatch,
     the reason - a pass that silently ran the slow way while reporting
     success is exactly what the design refuses."""
     _NoPixelQA(monkeypatch)
+    _remotion_engine(monkeypatch)
     from library.tools.remotion_batch import RendererUnavailable
     spine, plan = _spine_and_plan()
 
@@ -1850,6 +1867,7 @@ def test_a_renderer_that_dies_mid_run_still_stops_the_pass(monkeypatch,
     REFUSES with one fault rather than degrading quietly onto the slow
     path for the remaining cards."""
     _NoPixelQA(monkeypatch)
+    _remotion_engine(monkeypatch)
     from library.tools.remotion_batch import RendererUnavailable
     spine, plan = _spine_and_plan()
 
@@ -3030,11 +3048,13 @@ def test_a_plain_run_re_renders_even_when_the_key_matches(tmp_path):
     assert engine.calls == 2
 
 
-def test_an_unavailable_renderer_fingerprint_refuses_reuse(tmp_path):
+def test_an_unavailable_renderer_fingerprint_refuses_reuse(tmp_path,
+                                                            monkeypatch):
     """MUTATION 12: treat "cannot hash" as "matches".
 
     Unavailable evidence must never read as matching evidence.
     """
+    _remotion_engine(monkeypatch)
     assert r405_2.renderer_fingerprint(str(tmp_path / "nothing-here")) == ""
     engine = _Renderer_2()
     for _ in range(2):
@@ -3209,6 +3229,7 @@ def test_a_renderer_we_BUILT_is_closed_even_when_the_pass_raises(
     nineteen reels a leak per pass is nineteen leaks. The default build
     is the persistent renderer, so the bomb is planted there.
     """
+    _remotion_engine(monkeypatch)
     spine, plan = _spine_and_plan_for_render()
     built = []
 

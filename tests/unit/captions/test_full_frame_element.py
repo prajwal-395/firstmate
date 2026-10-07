@@ -281,6 +281,19 @@ def test_a_card_that_rounds_to_no_frames_is_refused():
 # ── Rendering ────────────────────────────────────────────────────────
 
 
+def _remotion_engine(monkeypatch):
+    """Select the Remotion graphics engine for a render-route pin.
+
+    The FFrames flip made FFrames the default wherever its binary
+    resolves, and `render_reel_cards` draws with the selected engine
+    first - so a test pinning the shared Remotion batch route must
+    select Remotion, the way a project declares
+    pipeline.graphics_renderer. Without it these tests exercise the
+    FFrames path and pin nothing they describe.
+    """
+    monkeypatch.setenv("PIPELINE_GRAPHICS_RENDERER", "remotion")
+
+
 def _fake_batch_success(seen):
     """A stand-in for the shared batch renderer that draws every job."""
     def fake_batch(jobs, **kwargs):
@@ -309,6 +322,7 @@ def test_the_render_batches_opaque_through_the_shared_renderer(
     rather than relying on black showing through an alpha channel that
     nothing is beneath.
     """
+    _remotion_engine(monkeypatch)
     seen = {}
     monkeypatch.setattr(ffe, "render_batch", _fake_batch_success(seen))
     cards = ffe.plan_reel_cards(
@@ -330,6 +344,7 @@ def test_a_render_that_produces_no_file_raises(monkeypatch, tmp_path):
     def fake_batch(jobs, **kwargs):
         return [{"ok": True, "out": job.out_path} for job in jobs]
 
+    _remotion_engine(monkeypatch)
     monkeypatch.setattr(ffe, "render_batch", fake_batch)
     cards = ffe.plan_reel_cards(
         ffe.declared_elements(declare()), _facts(), 960, FPS, width=1080, height=1920)

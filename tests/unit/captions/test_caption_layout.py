@@ -1558,7 +1558,6 @@ def test_the_header_is_a_tight_canvas_placed_where_it_laid_out(tmp_path):
 def test_post_header_still_uses_hyperframes_when_selected(
         tmp_path, monkeypatch):
     from PIL import ImageDraw
-    from library.tools import graphics_renderer as engines
     from library.tools import hyperframes_render as hf
     from library.tools import reel_post_header as rph
 
@@ -1578,7 +1577,11 @@ def test_post_header_still_uses_hyperframes_when_selected(
     def no_remotion(*_args, **_kwargs):
         raise AssertionError("HyperFrames selection reached Remotion")
 
-    monkeypatch.setattr(engines, "is_hyperframes", lambda _folder=None: True)
+    # Select HyperFrames the way a project does
+    # (pipeline.graphics_renderer): the FFrames flip draws with FFrames
+    # first wherever its binary resolves, so the real selection - not a
+    # mock of one branch - must answer HyperFrames here.
+    monkeypatch.setenv("PIPELINE_GRAPHICS_RENDERER", "hyperframes")
     monkeypatch.setattr(hf, "render_one_card_frames", render_frames)
     monkeypatch.setattr(rph.subprocess, "run", no_remotion)
 

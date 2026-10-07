@@ -423,9 +423,15 @@ def _render_one_with(monkeypatch, tmp_path, *, carry):
     and the carry is the *carry* argument. The render is "done" by
     pre-creating the output file, which is exactly the state a
     successful Remotion run leaves behind.
+
+    Selects the Remotion engine: the FFrames flip draws with FFrames
+    first wherever its binary resolves, and that path reads the props
+    file this helper deliberately never writes - so without the
+    selection this pins the wrong route.
     """
     from library.tools import timed_text_render as render_mod
 
+    monkeypatch.setenv("PIPELINE_GRAPHICS_RENDERER", "remotion")
     out_path = str(tmp_path / "timed_text_000.mov")
     with open(out_path, "wb") as handle:
         handle.write(b"not a real mov, only os.path.exists matters here")

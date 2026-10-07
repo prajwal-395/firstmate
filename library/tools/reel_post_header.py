@@ -344,8 +344,9 @@ def render_still(props: dict, out_png: str,
                  project_folder: str = "") -> str:
     """One transparent still of ``PostHeader``, judged by its result.
 
-    The selected graphics renderer applies here too. HyperFrames writes
-    its ported still through the same premultiplied PNG carriage; Remotion
+    The selected graphics renderer applies here too, FFrames first
+    wherever its binary resolves. HyperFrames writes its ported still
+    through the same premultiplied PNG carriage; Remotion
     remains the personal renderer otherwise.
     """
     from library.tools import graphics_renderer as _engines

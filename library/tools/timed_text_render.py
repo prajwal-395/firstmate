@@ -123,12 +123,13 @@ def _render_one(name: str, out_path: str, props_path: str,
                 stream=sys.stderr) -> None:
     """One render of TimedTextOverlay, judged by its result.
 
-    Through HyperFrames where that engine is selected (the project
-    wins over the user - `library/tools/graphics_renderer.py`), which
-    stages the comp beside vendored GSAP and the brand files, renders
-    the PNG sequence, premultiplies into the overlay carriage and
-    stitches `qtrle` itself; through `npx remotion render` otherwise,
-    with the carriage transcode below.
+    Through FFrames where that engine is selected, through HyperFrames
+    where that engine is selected (the project wins over the user -
+    `library/tools/graphics_renderer.py`), which stages the comp beside
+    vendored GSAP and the brand files, renders the PNG sequence,
+    premultiplies into the overlay carriage and stitches `qtrle`
+    itself; through `npx remotion render` otherwise, with the carriage
+    transcode below.
     """
     from library.tools import graphics_renderer as _engines
     if _engines.is_fframes(project_folder or None):
