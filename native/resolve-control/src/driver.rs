@@ -422,12 +422,29 @@ impl Driver {
     fn activate_resolve(&mut self) -> DriverResult<Json> {
         self.ensure_permissions()?;
         let pid = self.ensure_resolve()?;
-        let activated = unsafe { ax::activate_app_with_pid(pid) };
-        if activated {
-            Ok(serde_json::json!({"activated": true, "pid": pid}))
-        } else {
-            Err(DriverError::ResolveNotRunning)
-        }
+        let via = ax::activate_verified(
+            pid,
+            ax::RESOLVE_BUNDLE_ID,
+            |p| unsafe {
+                ax::activate_app_with_pid(p);
+            },
+            ax::frontmost_pid,
+            |argv| {
+                std::process::Command::new(&argv[0])
+                    .args(&argv[1..])
+                    .status()
+                    .map(|status| status.success())
+                    .unwrap_or(false)
+            },
+            |ms| std::thread::sleep(std::time::Duration::from_millis(ms)),
+            ax::ACTIVATION_SETTLE_POLLS,
+        )
+        .map_err(DriverError::ActivationFailed)?;
+        let via_name = match via {
+            ax::Activation::ViaNsWorkspace => "nsworkspace",
+            ax::Activation::ViaOpen => "open",
+        };
+        Ok(serde_json::json!({"activated": true, "pid": pid, "via": via_name}))
     }
 
     fn get_windows(&mut self, params: &Json) -> DriverResult<Json> {

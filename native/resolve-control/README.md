@@ -96,7 +96,17 @@ caller passes `"allow_foreground": true`.
 Parameters:
 - `allow_foreground` (bool, required to be true)
 
-Result: `{"activated": true, "pid": <int>}`
+Result: `{"activated": true, "pid": <int>, "via": "nsworkspace"|"open"}`
+
+Success is verified, never trusted: the NSWorkspace request answers
+pid-found even when macOS ignores it (measured live 2026-10-07 - the
+call is inert from a faceless binary on macOS 26), so the driver reads
+frontmost back after the request and only then reports
+`"via": "nsworkspace"`. Otherwise it falls back to `open -b
+com.blackmagic-design.DaVinciResolve` (the route verified live the same
+night) with a 10 s settle poll, reporting `"via": "open"`. A pid that
+never comes forward is refused as `ACTIVATION_FAILED` naming both
+routes - the old build reported success here while focus never moved.
 
 ### get_windows
 

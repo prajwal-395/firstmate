@@ -402,6 +402,104 @@ mod tests {
         assert_eq!(commands[1].enabled, Some(false));
         assert_eq!(commands[2].enabled, None);
     }
+
+    #[test]
+    fn open_fallback_argv_is_open_dash_b_bundle() {
+        // Pins the route the hands lane verified live 2026-10-07: the
+        // driver must spawn exactly this, never a bare `open` (which
+        // reopens the bundle's default document instead of activating).
+        assert_eq!(
+            open_activate_argv("com.blackmagic-design.DaVinciResolve"),
+            vec!["open", "-b", "com.blackmagic-design.DaVinciResolve"]
+        );
+    }
+
+    #[test]
+    fn verified_activation_trusts_frontmost_not_the_request() {
+        // The defect: NSWorkspace answers pid-found while macOS 26
+        // ignores the request, and the old caller reported
+        // activated:true on that answer alone. A pid that never comes
+        // forward must be an error naming both routes, never success.
+        use std::cell::Cell;
+        let opened = Cell::new(false);
+        let sleeps = Cell::new(0u32);
+        let out = activate_verified(
+            1234,
+            RESOLVE_BUNDLE_ID,
+            |_| {},
+            || Some(4321),
+            |_| {
+                opened.set(true);
+                false
+            },
+            |_| {
+                sleeps.set(sleeps.get() + 1);
+            },
+            3,
+        );
+        assert!(opened.get());
+        let err = out.unwrap_err();
+        assert!(err.contains("1234") && err.contains("open -b"), "got: {err}");
+    }
+
+    #[test]
+    fn nsworkspace_path_wins_when_frontmost_already() {
+        // No fallback, no settle sleep: the request landed, the read-back
+        // says so, and nothing else runs.
+        use std::cell::Cell;
+        let opened = Cell::new(false);
+        let sleeps = Cell::new(0u32);
+        let out = activate_verified(
+            1234,
+            RESOLVE_BUNDLE_ID,
+            |_| {},
+            || Some(1234),
+            |_| {
+                opened.set(true);
+                true
+            },
+            |_| {
+                sleeps.set(sleeps.get() + 1);
+            },
+            3,
+        );
+        assert_eq!(out, Ok(Activation::ViaNsWorkspace));
+        assert!(!opened.get());
+        assert_eq!(sleeps.get(), 0);
+    }
+
+    #[test]
+    fn open_fallback_is_verified_after_settle() {
+        // The request alone did not move focus; `open -b` ran with the
+        // pinned argv and the pid came forward on the second poll.
+        use std::cell::Cell;
+        let polls = Cell::new(0u32);
+        let seen_argv = Cell::new(Vec::new());
+        let out = activate_verified(
+            1234,
+            RESOLVE_BUNDLE_ID,
+            |_| {},
+            || {
+                polls.set(polls.get() + 1);
+                if polls.get() >= 3 {
+                    Some(1234)
+                } else {
+                    Some(4321)
+                }
+            },
+            |argv: &[String]| {
+                seen_argv.set(argv.to_vec());
+                true
+            },
+            |_| {},
+            5,
+        );
+        assert_eq!(out, Ok(Activation::ViaOpen));
+        assert_eq!(
+            seen_argv.take(),
+            vec!["open", "-b", "com.blackmagic-design.DaVinciResolve"]
+        );
+    }
 }
 
 // Objective-C helpers via objc_msgSend.
@@ -460,7 +558,7 @@ extern "C" {
 }
 
 pub fn find_resolve_pid() -> Option<u32> {
-    find_pid("com.blackmagic-design.DaVinciResolve")
+    find_pid(RESOLVE_BUNDLE_ID)
 }
 
 pub fn find_pid(bundle_id: &str) -> Option<u32> {
@@ -478,6 +576,69 @@ pub fn find_pid(bundle_id: &str) -> Option<u32> {
 /// running. Measured on this Mac 2026-10-06: Resolve answers
 /// `com.blackmagic-design.DaVinciResolve`, Chrome `com.google.Chrome`
 /// (`defaults read ... CFBundleIdentifier`).
+
+/// Resolve's bundle id: `find_resolve_pid` matches it, and the
+/// `open -b` activation fallback targets it.
+pub const RESOLVE_BUNDLE_ID: &str = "com.blackmagic-design.DaVinciResolve";
+
+/// Settle polls after the `open -b` fallback: 20 x 500 ms = 10 s, the
+/// settle window the hands lane measured as needed live 2026-10-07
+/// (10 s activate polls; `open -b` verified inside that window).
+pub const ACTIVATION_SETTLE_POLLS: u32 = 20;
+pub const ACTIVATION_SETTLE_STEP_MS: u64 = 500;
+
+/// How one activation reached the foreground.
+#[derive(Debug, PartialEq)]
+pub enum Activation {
+    /// The NSWorkspace request landed: the pid was frontmost after it.
+    ViaNsWorkspace,
+    /// The `open -b` fallback brought it forward, verified by poll.
+    ViaOpen,
+}
+
+/// argv for the `open -b` activation fallback: exactly what the hands
+/// lane verified live 2026-10-07 after the NSWorkspace path proved
+/// inert. Pinned by test, consumed by the driver verbatim.
+pub fn open_activate_argv(bundle_id: &str) -> Vec<String> {
+    vec!["open".to_string(), "-b".to_string(), bundle_id.to_string()]
+}
+
+/// Activate `pid` and verify the foreground instead of trusting the
+/// request.
+///
+/// `nsworkspace_activate_pid` answers pid-found, not activated: on
+/// macOS 26 the `activateWithOptions:` call is inert from a faceless
+/// binary, so the old caller reported `{"activated": true}` while
+/// focus never moved (measured live 2026-10-07 - four refused takes).
+/// This asks, reads frontmost back, and only then falls back to
+/// `open -b` with a settle poll; a pid that never comes forward is an
+/// error naming both routes, never a success.
+pub fn activate_verified(
+    pid: u32,
+    bundle_id: &str,
+    request: impl Fn(u32),
+    frontmost: impl Fn() -> Option<u32>,
+    open: impl Fn(&[String]) -> bool,
+    sleep_ms: impl Fn(u64),
+    settle_polls: u32,
+) -> Result<Activation, String> {
+    request(pid);
+    if frontmost() == Some(pid) {
+        return Ok(Activation::ViaNsWorkspace);
+    }
+    let argv = open_activate_argv(bundle_id);
+    if open(&argv) {
+        for _ in 0..settle_polls {
+            sleep_ms(ACTIVATION_SETTLE_STEP_MS);
+            if frontmost() == Some(pid) {
+                return Ok(Activation::ViaOpen);
+            }
+        }
+    }
+    Err(format!(
+        "activation failed: pid {pid} never became frontmost - neither the NSWorkspace request nor `open -b {bundle_id}` brought it forward"
+    ))
+}
 
 pub unsafe fn activate_app_with_pid(pid: u32) -> bool {
     nsworkspace_activate_pid(pid as i64) != 0

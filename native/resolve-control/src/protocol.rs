@@ -70,7 +70,8 @@ pub fn err_code(e: &DriverError) -> &'static str {
         DriverError::ForegroundNotAllowed(_) => "FOREGROUND_NOT_ALLOWED",
         DriverError::TargetNotRunning(_) => "TARGET_NOT_RUNNING",
         DriverError::SkyLightUnavailable(_) => "SKYLIGHT_UNAVAILABLE",
-        DriverError::AmbiguousCommand(_, _) => "AMBIGUOUS_COMMAND",
+            DriverError::AmbiguousCommand(_, _) => "AMBIGUOUS_COMMAND",
+            DriverError::ActivationFailed(_) => "ACTIVATION_FAILED",
         DriverError::Internal(_) => "INTERNAL",
     }
 }
@@ -92,6 +93,7 @@ pub enum DriverError {
     TargetNotRunning(String),
     SkyLightUnavailable(String),
     AmbiguousCommand(Vec<String>, usize),
+    ActivationFailed(String),
     Internal(String),
 }
 
@@ -119,8 +121,9 @@ impl DriverError {
                 "the target app is not running: {}", t),
             DriverError::SkyLightUnavailable(m) => format!(
                 "SkyLight background input unavailable: {}; pass \"allow_skylight\": true only when the driver reports it available", m),
-            DriverError::AmbiguousCommand(path, n) => format!(
-                "{} elements match the menu path {:?}; refine the path until it names one item", n, path),
+        DriverError::AmbiguousCommand(path, n) => format!(
+            "{} elements match the menu path {:?}; refine the path until it names one item", n, path),
+        DriverError::ActivationFailed(m) => m.clone(),
             DriverError::Internal(m) => format!("internal error: {}", m),
         }
     }
