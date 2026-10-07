@@ -31,7 +31,8 @@ source clips; build verified by the pool listing, sync planned with
 `--apply` refused until a read-back is measured), `color lut|group`
 (node LUTs and color-group assignment, both verified by re-read),
 `audio isolate` (per-track voice isolation, verified by re-read),
-`ingest` (pool imports), `render queue|start|stop`,
+`ingest` (pool imports), `relink` (re-point moved media, verified by
+re-read), `render queue|start|stop`,
 `project set` (one setting), `timeline duplicate` (versioning), and
 `sense transcribe|cuts|classify|intellisearch|reframe|mask|switch`
 (Resolve's own AI beside Ren's - transcription with speakers, scene
@@ -44,6 +45,7 @@ Safety shape, stated once:
 - Every command here is READ-ONLY except the write verbs behind
   `--apply` (`markers restore`, `markers reply`, `edit *`,
   `multicam build`, `color lut|group`, `audio isolate`, `ingest`,
+  `relink`,
   `render queue|start|stop`, `project set`, `timeline duplicate`,
   `sense *`)
   and `run --unsafe`.
@@ -4466,6 +4468,225 @@ def cmd_ingest(args) -> int:
         return 0
 
 
+def _relink_candidates(pool, old_path: str, deadline: float | None) -> tuple:
+    """Pool items whose File Path is `old_path`, with their bins.
+
+    Returns `(candidates, scanned, unreadable)` where each candidate is
+    `(clip, name, bin, file)`. Every Resolve call runs under
+    `resolve_deadline.call_with_deadline` naming the exact call, so a
+    hang stops with the call named instead of waiting indefinitely.
+    Judged by what each call RETURNS, never by `hasattr` (AGENTS.md 5).
+    """
+    from library.tools.resolve_deadline import call_with_deadline
+    try:
+        root = call_with_deadline(
+            "media pool GetRootFolder", pool.GetRootFolder,
+            timeout_s=deadline)
+    except Exception as exc:
+        raise AxiError(
+            f"the media pool would not open its root folder ({exc}).",
+            f"{TOOL} cursor") from exc
+    candidates, scanned, unreadable = [], 0, 0
+    stack = [(root, "")]
+    while stack:
+        folder, bin_path = stack.pop()
+        try:
+            clips = call_with_deadline(
+                f"bin {bin_path or '/'} GetClipList",
+                folder.GetClipList, timeout_s=deadline) or []
+        except Exception:
+            unreadable += 1
+            clips = []
+        for clip in clips:
+            scanned += 1
+            try:
+                name = call_with_deadline(
+                    "clip GetName", clip.GetName,
+                    timeout_s=deadline)
+            except Exception:
+                unreadable += 1
+                continue
+            try:
+                props = call_with_deadline(
+                    f"clip {name!r} GetClipProperty",
+                    clip.GetClipProperty, timeout_s=deadline) or {}
+            except Exception:
+                unreadable += 1
+                continue
+            if not isinstance(props, dict):
+                unreadable += 1
+                continue
+            file_path = props.get("File Path") or ""
+            if file_path == old_path:
+                candidates.append((clip, name, bin_path or "/ (root)",
+                                   file_path))
+        try:
+            subs = call_with_deadline(
+                f"bin {bin_path or '/'} GetSubFolderList",
+                folder.GetSubFolderList, timeout_s=deadline) or []
+        except Exception:
+            continue
+        for sub in subs:
+            try:
+                sub_name = call_with_deadline(
+                    "bin GetName", sub.GetName,
+                    timeout_s=deadline)
+            except Exception:
+                unreadable += 1
+                continue
+            stack.append((sub, f"{bin_path}/{sub_name}" if bin_path
+                         else sub_name))
+    return candidates, scanned, unreadable
+
+
+def cmd_relink(args) -> int:
+    """Re-point pool clips at moved media, verified by re-read.
+
+    When ingested media moves on disk - or a proxy file is created the
+    pool should point at - `ReplaceClip` re-points each pool item whose
+    `File Path` is `--from`, and the verdict is the re-read `File Path`,
+    never the return alone. Dry-run by default; `--apply` writes under
+    the exclusive lease. Missing `--to` files refuse before any Resolve
+    contact, the way `ingest` refuses missing sources.
+    """
+    import os as _os
+    from library.tools.resolve_deadline import (
+        ResolveCallTimeout,
+        call_with_deadline,
+    )
+    old_path = getattr(args, "old_path", "") or ""
+    new_path = getattr(args, "new_path", "") or ""
+    if not old_path or not new_path:
+        return fail("relink needs --from <old-path> --to <new-path>.",
+                    f"{TOOL} relink --from <old> --to <new>")
+    if not _os.path.exists(new_path):
+        return fail(f"{new_path!r} is not on disk - nothing was relinked.",
+                    f"{TOOL} relink --from {old_path} --to <existing-path>")
+    deadline = getattr(args, "timeout", None) or None
+    try:
+        resolve = _connect()
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    try:
+        with _lease(exclusive=args.apply):
+            project = _project(resolve, args.project)
+            try:
+                pool = call_with_deadline(
+                    "project GetMediaPool", project.GetMediaPool,
+                    timeout_s=deadline)
+            except (AxiError, ResolveCallTimeout):
+                raise
+            except Exception as exc:
+                return fail(f"project {project.GetName()!r} would not open "
+                            f"its media pool ({exc}).",
+                            f"{TOOL} cursor")
+            try:
+                candidates, scanned, unreadable = _relink_candidates(
+                    pool, old_path, deadline)
+            except AxiError as exc:
+                return fail(str(exc), exc.fix)
+            except ResolveCallTimeout as exc:
+                return fail(f"Resolve stopped answering: {exc}",
+                            f"{TOOL} pool")
+            wanted_clip = getattr(args, "clip", "") or ""
+            if wanted_clip:
+                candidates = [c for c in candidates if c[1] == wanted_clip]
+            before = _cursor_name(resolve)
+            if not candidates:
+                emit([kv_block("relink_plan", {
+                          "project": project.GetName(),
+                          "from": old_path,
+                          "to": new_path,
+                          "scanned": scanned,
+                          "unreadable": unreadable,
+                          "matched": 0,
+                      }),
+                      f"no pool item points at {old_path!r} "
+                      f"({scanned} scanned) - nothing to relink.",
+                      help_block([f"{TOOL} pool"])])
+                return 1
+            if not args.apply:
+                emit([kv_block("relink_plan", {
+                          "project": project.GetName(),
+                          "from": old_path,
+                          "to": new_path,
+                          "scanned": scanned,
+                          "unreadable": unreadable,
+                          "matched": len(candidates),
+                      }),
+                      table("matched", [{
+                          "name": name, "bin": bin_path, "file": file_path,
+                      } for _, name, bin_path, file_path in candidates],
+                      ["name", "bin", "file"]),
+                      f"dry run - pass --apply to re-point under the "
+                      f"Resolve lease",
+                      help_block([f"{TOOL} relink --from {old_path} "
+                                  f"--to {new_path} --apply"])])
+                return 0
+            relinked, failed = [], []
+            for clip, name, bin_path, file_path in candidates:
+                try:
+                    ok = call_with_deadline(
+                        f"clip {name!r} ReplaceClip",
+                        clip.ReplaceClip, new_path,
+                        timeout_s=deadline)
+                except ResolveCallTimeout as exc:
+                    failed.append({"name": name, "bin": bin_path,
+                                   "reason": str(exc)})
+                    continue
+                except Exception as exc:
+                    failed.append({"name": name, "bin": bin_path,
+                                   "reason": f"ReplaceClip raised ({exc})"})
+                    continue
+                if not ok:
+                    failed.append({"name": name, "bin": bin_path,
+                                   "reason": "ReplaceClip returned false"})
+                    continue
+                try:
+                    back = call_with_deadline(
+                        f"clip {name!r} GetClipProperty File Path",
+                        clip.GetClipProperty, "File Path",
+                        timeout_s=deadline)
+                except ResolveCallTimeout as exc:
+                    failed.append({"name": name, "bin": bin_path,
+                                   "reason": f"re-read timed out: {exc}"})
+                    continue
+                except Exception as exc:
+                    failed.append({"name": name, "bin": bin_path,
+                                   "reason": f"re-read raised ({exc})"})
+                    continue
+                if back != new_path:
+                    failed.append({"name": name, "bin": bin_path,
+                                   "reason": f"reads back {back!r}, "
+                                             f"not {new_path!r}"})
+                    continue
+                relinked.append({"name": name, "bin": bin_path,
+                                 "file": back})
+            after = _cursor_name(resolve)
+            emit([kv_block("relinked", {
+                      "project": project.GetName(),
+                      "from": old_path,
+                      "to": new_path,
+                      "matched": len(candidates),
+                      "relinked": len(relinked),
+                      "failed": len(failed),
+                      "cursor_before": before,
+                      "cursor_after": after,
+                      "verified": "yes (File Path re-read per clip)",
+                  }),
+                  table("relinked", relinked,
+                        ["name", "bin", "file"]) if relinked else "",
+                  table("failed", failed,
+                        ["name", "bin", "reason"]) if failed else "",
+                  help_block([f"{TOOL} pool"])])
+            return 0 if not failed else 1
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    except ResolveCallTimeout as exc:
+        return fail(f"Resolve stopped answering: {exc}",
+                    f"{TOOL} pool")
+
+
 def _render_job_rows(project, ids=None) -> list:
     try:
         jobs = project.GetRenderJobList() or []
@@ -6521,6 +6742,7 @@ def build_parser() -> Parser:
   {TOOL} sense transcribe --clip a.mov
   {TOOL} sense cuts --timeline "Reel 29" --apply
   {TOOL} ingest /footage/a.mov
+  {TOOL} relink --from /old/a.mov --to /new/a.mov --apply
   {TOOL} render queue --timeline "Reel 29" --preset "H.265 Master"
   {TOOL} run --timeline "Reel 29" --script "result = timeline_names"
   {TOOL} run --timeline "Reel 29" "result = timeline_names\"""")
@@ -6685,6 +6907,24 @@ def build_parser() -> Parser:
                    help="import under the Resolve lease (default is a "
                         "dry-run plan)")
     p.set_defaults(func=cmd_ingest)
+
+    p = subs.add_parser("relink", help="re-point pool clips at moved "
+                                      "media; --apply writes")
+    p.add_argument("--project", default="",
+                   help="expect this Resolve project open")
+    p.add_argument("--from", dest="old_path", default="",
+                   help="the File Path the pool item points at now")
+    p.add_argument("--to", dest="new_path", default="",
+                   help="the on-disk file to re-point it at (must exist)")
+    p.add_argument("--clip", default="",
+                   help="only this pool clip name (exact; else every item "
+                        "at --from)")
+    p.add_argument("--timeout", default=None, type=float,
+                   help="deadline seconds per Resolve call (default 30)")
+    p.add_argument("--apply", action="store_true",
+                   help="re-point under the Resolve lease (default is a "
+                        "dry-run plan)")
+    p.set_defaults(func=cmd_relink)
 
     p = subs.add_parser("render", help="queue, start and stop render "
                                        "jobs; --apply writes")

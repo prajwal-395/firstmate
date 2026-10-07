@@ -807,7 +807,7 @@ def test_source_carries_no_cursor_moving_call_outside_writes():
                 "SetVoiceIsolationState", "TranscribeAudio",
                 "PerformAudioClassification", "AnalyzeForIntellisearch",
                 "DetectSceneCuts", "SmartReframe", "CreateMagicMask",
-                "PerformMulticamSmartSwitch"}
+                "PerformMulticamSmartSwitch", "ReplaceClip"}
     undeclared = []
     for node in ast.walk(tree):
         if (isinstance(node, ast.Attribute)
