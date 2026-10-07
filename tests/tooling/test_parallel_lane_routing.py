@@ -21,6 +21,7 @@ RESOLVE_DRIVING = {
     "tests/qualification/test_resolve_qualification.py",
     "tests/qualification/test_true_peak_normalize_live.py",
     "tests/qualification/test_window_delete_live.py",
+    "tests/qualification/test_window_modify_live.py",
     "tests/qualification/test_window_track_live.py",
 }
 

@@ -21,6 +21,7 @@ import pytest
 pytestmark = pytest.mark.resolve_live
 
 
+@pytest.mark.serial(reason="the eyedropper clicks hold the instance lease")
 def test_an_eyedropper_sample_moves_pixels(resolve_session, tmp_path):
     """The qualifier loop closed on pixels: sample mid qual_b and the
     sampled still differs from the baseline."""

@@ -34,6 +34,7 @@ def _pool_clip(pool, stem):
     return None
 
 
+@pytest.mark.serial(reason="the menu write holds the instance lease")
 def test_create_then_delete_reads_back_on_the_count(
         resolve_session, tmp_path):
     """The delete loop closed live: append a window node (+1), delete

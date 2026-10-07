@@ -34,6 +34,7 @@ def _pool_clip(pool, stem):
     return None
 
 
+@pytest.mark.serial(reason="the panel write holds the instance lease")
 def test_set_size_reads_back_on_the_panel(resolve_session, tmp_path):
     """The modify loop closed live: append a window node, set Size to
     75.00, and the panel reads 75.00 back."""

@@ -37,6 +37,7 @@ def _tc(fr, fps=24):
             f"{(fr // fps) % 60:02d}:{fr % fps:02d}")
 
 
+@pytest.mark.serial(reason="the tracker press holds the instance lease")
 def test_a_tracked_window_stays_covered_on_sampled_stills(
         resolve_session, tmp_path):
     """The track's loop closed on pixels: boost, track forward, sample
