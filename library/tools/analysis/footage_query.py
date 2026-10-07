@@ -125,15 +125,20 @@ TEXT_EMBEDDER_MODELS = {
     "embeddinggemma-2": EG2_TEXT_MODEL,
 }
 
-# Weight on the dense half of a hybrid score.  Both halves are normalised
-# to 0..1 over the candidate set first, so this is a straight blend.
-HYBRID_DENSE_WEIGHT = 0.6
+# Reciprocal-rank fusion over the two halves.  There is no blend
+# weight to set: each half contributes 1/(k + rank), best first, so a
+# row leading one half outranks a row middling in both and neither
+# half's score scale can dominate.  k=60 is the Cormack et al. 2009
+# constant, not a tuning on Ren data - it only sets how fast deep
+# ranks decay.  Retention (the floor) still reads the RAW signals
+# below; fusion only orders what the floor kept.
+RRF_K = 60
 
 # ─── The floor, and the abstain ───────────────────────────────────
 #
-# A ranking alone cannot say "not here".  The blended score is min-max
-# normalised over the candidate set, so its top row scores ~1.0 for every
-# query - including one whose subject appears nowhere in the footage.
+# A ranking alone cannot say "not here".  The fused score ranks the
+# candidate set, so its top row scores high for every query -
+# including one whose subject appears nowhere in the footage.
 # Asked to "find the shot with the cup" against 001, which has no cup,
 # the unfloored index answered with three confident wrong rows.
 #
@@ -602,13 +607,23 @@ class _BM25:
         return out
 
 
-def _normalize(scores: np.ndarray) -> np.ndarray:
-    if scores.size == 0:
-        return scores
-    lo, hi = float(scores.min()), float(scores.max())
-    if hi - lo < 1e-9:
-        return np.zeros_like(scores)
-    return (scores - lo) / (hi - lo)
+def _rrf(*halves: np.ndarray, k: int = RRF_K) -> np.ndarray:
+    """Fuse full rankings: each half contributes ``1/(k + rank)``.
+
+    Ranks are 1-based, best first, over the whole candidate set, so a
+    row scoreless in one half still contributes its deep rank there
+    rather than dropping out.  Equal scores share nothing: ties break
+    by segment order (stable sort), which is deterministic for a fixed
+    index.  An empty candidate set fuses to itself.
+    """
+    n = len(halves[0]) if halves else 0
+    fused = np.zeros(n, dtype="float64")
+    for scores in halves:
+        order = np.argsort(-np.asarray(scores, dtype="float64"), kind="stable")
+        ranks = np.empty(n, dtype="float64")
+        ranks[order] = np.arange(1, n + 1)
+        fused += 1.0 / (k + ranks)
+    return fused
 
 
 # ─── Building ─────────────────────────────────────────────────────
@@ -1037,20 +1052,17 @@ class FootageIndex:
         elif dense is None:
             combined = lexical  # honest degradation: hybrid without an embedder
         else:
-            combined = (
-                HYBRID_DENSE_WEIGHT * _normalize(dense)
-                + (1 - HYBRID_DENSE_WEIGHT) * _normalize(lexical)
-            )
+            combined = _rrf(dense, lexical)
         return combined, dense, lexical
 
     @staticmethod
     def _eligible(dense, lexical, floor: float):
         """Which segments count as EVIDENCE, before any ranking.
 
-        Judged on the raw signals, never on `combined`: the blend is
-        min-max normalised over the candidate set, so its top row is ~1.0
-        for every query ever asked, including one whose subject is not in
-        the footage at all.
+        Judged on the raw signals, never on `combined`: the fused score
+        ranks the candidate set, so its top row is high for every query
+        ever asked, including one whose subject is not in the footage
+        at all.
 
         A segment is evidence when its dense cosine clears `floor`, or -
         when there is no dense half to judge - when at least one query
@@ -1075,7 +1087,10 @@ class FootageIndex:
         if candidates.size == 0:
             return []
         signal = combined if rank_by is None else rank_by
-        order = candidates[np.argsort(-signal[candidates])][:max(0, top_k)]
+        # Stable: fused-score ties keep segment order instead of
+        # whatever quicksort feels like, so a ranking re-runs
+        # identically for a fixed index.
+        order = candidates[np.argsort(-signal[candidates], kind="stable")][:max(0, top_k)]
         results = []
         for rank in order:
             i = int(rank)
