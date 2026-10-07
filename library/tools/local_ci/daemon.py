@@ -207,7 +207,8 @@ def pass_once(world: queue.World, plan: dict | None = None) -> dict:
 
         def work(item):
             pr, seen_at = item
-            with slots.claim() as slot:
+            with slots.claim({"kind": "tier1", "pr": pr["number"],
+                              "head": pr["head"]}) as slot:
                 if slot is None:
                     return (pr, seen_at, None, None, "no free slot")
                 try:

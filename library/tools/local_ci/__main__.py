@@ -24,7 +24,7 @@ if REPO_ROOT not in sys.path:
 
 
 def cmd_status(args) -> int:
-    from library.tools.local_ci import config, state
+    from library.tools.local_ci import config, hygiene, state
     print(f"ren-ci state: {args.state or config.state_dir()}")
     entries = state.read_queue(args.state)
     if entries:
@@ -39,6 +39,18 @@ def cmd_status(args) -> int:
                   f"{entry['status']}{latency}{reason}")
     else:
         print("queue: empty")
+    running = hygiene.running_jobs(args.state)
+    if running:
+        print("running jobs:")
+        for job in running:
+            identity = f"PR #{job['pr']}" if job.get("pr") else "job"
+            if job.get("head"):
+                identity += f" {job['head'][:12]}"
+            print(f"  {job.get('kind', 'check')} {identity} "
+                  f"slot {job['slot']} {job['elapsed_seconds']:.0f}s "
+                  f"pid {job['pid']}")
+    else:
+        print("running jobs: none")
     checks = state.read_checks(args.state)
     if checks:
         print("last checks (seen->result latency):")
@@ -74,7 +86,7 @@ def cmd_check(args) -> int:
     world = queue.World(state_dir=args.state or "")
     plan = load.targets(load.measure())
     slots = hygiene.Slots(world.state_dir, jobs=plan["tier1_jobs"])
-    with slots.claim() as slot:
+    with slots.claim({"kind": "manual-check", "pr": args.pr}) as slot:
         if slot is None:
             print("ren-ci: no free slot - the check waits for the daemon")
             return 2

@@ -41,9 +41,10 @@ once per cluster instead of once per PR.
    the ready label - fix, push (a new head needs a fresh Tier-1), mark
    ready again.
 
-`ren ci status` shows the queue, the last Tier-1 results with
-seen->result latency, ready->merged latency for landed PRs, and what
-the machine would dispatch right now.
+`ren ci status` shows the queue, active Tier-1 jobs with their slot and
+elapsed time, the last Tier-1 results with seen->result latency,
+ready->merged latency for landed PRs, and what the machine would
+dispatch right now.
 
 ## Load policy (why it speeds up and slows down)
 

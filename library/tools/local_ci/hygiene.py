@@ -20,9 +20,11 @@ from __future__ import annotations
 
 import contextlib
 import fcntl
+import json
 import os
 import shutil
 import subprocess
+import threading
 import time
 
 from library.tools.local_ci import config
@@ -45,6 +47,46 @@ def disk_free(path: str) -> int:
 def checkouts_root(state: str = "") -> str:
     """Where disposable worktrees live, beside the ledger, never in a repo."""
     return os.path.join(state or config.state_dir(), "checkouts")
+
+
+def running_jobs(state: str = "") -> list[dict]:
+    """Return live slot owners with their PR metadata and elapsed time.
+
+    Slot metadata is written atomically while its file lock is held.
+    A dead daemon can leave that metadata behind, so PID liveness is
+    checked before presenting it as an active job.
+    """
+    slots_dir = os.path.join(state or config.state_dir(), "slots")
+    try:
+        names = os.listdir(slots_dir)
+    except FileNotFoundError:
+        return []
+    jobs = []
+    for name in names:
+        if not name.startswith("slot-") or not name.endswith(".json"):
+            continue
+        path = os.path.join(slots_dir, name)
+        try:
+            with open(path, encoding="utf-8") as handle:
+                job = json.load(handle)
+            if not isinstance(job, dict):
+                continue
+            pid = int(job["pid"])
+            slot = int(job["slot"])
+            started_at = float(job["started_at"])
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        if pid <= 0 or slot < 0:
+            continue
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            continue
+        except PermissionError:
+            pass
+        job["elapsed_seconds"] = max(0.0, time.time() - started_at)
+        jobs.append(job)
+    return sorted(jobs, key=lambda job: (job["started_at"], job["slot"]))
 
 
 def _git(repo: str, *argv: str, timeout: int = 300) -> str:
@@ -163,14 +205,13 @@ class Slots:
     """
 
     def __init__(self, state: str = "", jobs: int = 2) -> None:
-        import threading
         self._dir = os.path.join(state or config.state_dir(), "slots")
         os.makedirs(self._dir, exist_ok=True)
         self._jobs = max(1, jobs)
         self._guard = threading.Lock()
 
     @contextlib.contextmanager
-    def claim(self):
+    def claim(self, job: dict | None = None):
         """One slot for the enclosed block, or None when all are busy.
 
         A context manager (not acquire/release pairs) because Tier-1
@@ -180,6 +221,7 @@ class Slots:
         """
         handle = None
         index = None
+        metadata_path = ""
         with self._guard:
             for candidate in range(self._jobs):
                 attempt = open(  # noqa: SIM115 - keep the lock fd open to release
@@ -194,10 +236,27 @@ class Slots:
                 handle, index = attempt, candidate
                 break
         try:
+            if handle is not None:
+                metadata_path = os.path.join(
+                    self._dir, f"slot-{index}.json")
+                metadata_tmp = (
+                    f"{metadata_path}.tmp-{os.getpid()}-"
+                    f"{threading.get_ident()}")
+                record = dict(job or {})
+                record.update({"pid": os.getpid(), "slot": index,
+                               "started_at": time.time()})
+                with open(metadata_tmp, "w", encoding="utf-8") as output:
+                    json.dump(record, output, sort_keys=True)
+                    output.write("\n")
+                os.replace(metadata_tmp, metadata_path)
             yield index
         finally:
             if handle is not None:
                 with self._guard:
+                    try:
+                        os.unlink(metadata_path)
+                    except OSError:
+                        pass
                     try:
                         fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
                     except OSError:

@@ -122,6 +122,34 @@ def test_parallel_workers_serialize_fetches_into_the_shared_mirror(
     assert maximum == 1
 
 
+def test_slots_report_the_live_job_and_clear_it_on_exit(tmp_path):
+    state = str(tmp_path / "state")
+    slots = hygiene.Slots(state, jobs=2)
+    job = {"kind": "tier1", "pr": 42, "head": "a" * 40}
+
+    with slots.claim(job) as slot:
+        assert slot == 0
+        active = hygiene.running_jobs(state)
+        assert len(active) == 1
+        assert active[0]["kind"] == "tier1"
+        assert active[0]["pr"] == 42
+        assert active[0]["head"] == "a" * 40
+        assert active[0]["elapsed_seconds"] >= 0
+
+    assert hygiene.running_jobs(state) == []
+
+
+def test_running_jobs_ignores_metadata_from_a_dead_process(tmp_path):
+    slots_dir = tmp_path / "state" / "slots"
+    slots_dir.mkdir(parents=True)
+    (slots_dir / "slot-0.json").write_text(
+        '{"pid": 2147483647, "slot": 0, "started_at": 1, '
+        '"kind": "tier1", "pr": 42, "head": "' + "a" * 40 + '"}\n',
+        encoding="utf-8")
+
+    assert hygiene.running_jobs(str(tmp_path / "state")) == []
+
+
 def test_slots_exclude_the_third_acquirer(tmp_path):
     slots = hygiene.Slots(str(tmp_path), jobs=2)
     with slots.claim() as first:
