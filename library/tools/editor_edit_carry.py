@@ -186,6 +186,37 @@ def _file_items(edit: dict, items: list[dict]) -> list[dict]:
                                   edit["source_out_frame"])]
 
 
+def _basename_span_items(edit: dict, items: list[dict]) -> list[dict]:
+    """Staged items playing the edit's file NAME over its range on its row.
+
+    Last resort, and only for edits that record no file: edits recorded
+    before `source_file` was carried name a pool identity (`media:`), so
+    when pool churn deletes that item neither identity nor file matching
+    can reach them (measured 2026-10-06, Reel 13: the recorded `media:`
+    item is gone from a pool holding eight copies of the file, and the
+    rebuild binds whichever lists first). An edit that names its file
+    never reaches here - a staged item under the same name but another
+    file (a re-rendered touch target) must still refuse. A bare basename
+    would happily pair another reel's same-named file - so the row, the
+    exact source span AND uniqueness are all required: one staged item
+    on the row playing this basename over this span is the passage
+    (identical file-frame timings under another name do not happen);
+    two is ambiguity, zero is absent.
+    """
+    if _edit_source_file(edit):
+        return []
+    want_base = str(edit.get("name") or "").rsplit("/", 1)[-1]
+    if not want_base:
+        return []
+    want_span = (edit.get("source_in_frame"), edit.get("source_out_frame"))
+    if not all(isinstance(value, int) for value in want_span):
+        return []
+    return [item for item in items
+            if _row(item) == edit["row"]
+            and str(item.get("name") or "").rsplit("/", 1)[-1] == want_base
+            and _source(item) == want_span]
+
+
 def _landed_items(edit: dict, items: list[dict]) -> tuple[list, str | None]:
     """The staged items `edit` lands on, and why not when it has none.
 
@@ -206,6 +237,10 @@ def _landed_items(edit: dict, items: list[dict]) -> tuple[list, str | None]:
                     f"under source file {_edit_source_file(edit)!r} "
                     f"({names}), so the edit has no single item to land "
                     f"on{_touch_suffix(edit)}")
+    if not by_file:
+        by_base = _basename_span_items(edit, items)
+        if len(by_base) == 1:
+            return by_base, None
     return by_file, None
 
 

@@ -795,6 +795,36 @@ def test_a_fusion_comp_change_has_a_plain_language_carry_refusal():
     assert "record it in a Ren plan" in uncarried[0]["why"]
 
 
+def test_an_extend_lands_by_basename_and_span_when_its_pool_item_is_gone():
+    """Reel 13, 2026-10-06: the recorded `media:` pool item is gone
+    from a pool holding eight copies of LC4932.MXF, and the rebuild
+    binds whichever lists first - so neither identity nor file matching
+    (edits recorded before `source_file` was carried name no file) can
+    reach the staged passage, and the extend refuses as unmappable
+    although staging plays it. One staged item on the row playing this
+    basename over this span is the passage; two is still ambiguity."""
+    before = _item("Akshita", "LC4932.MXF", 47_563, 48_022, 1038, 1497)
+    before["source_identity"] = "media:pool-dead"
+    after = {**before, "source_out_frame": 48_028, "record_out": 1503,
+             "duration": 465}
+    record = _change_record([before], [after])
+    edits, uncarried = carry.derive_edits(record)
+    assert uncarried == []
+    (extension,) = [edit for edit in edits if edit["kind"] == "extend"]
+    assert extension.get("source_file") is None
+    staged = _pool_item("Akshita", "LC4932.MXF", "pool-other", 47_563,
+                        48_022, 1038, 1497)
+    staged["left_offset"] = 0
+    staged["right_offset"] = 1000
+    plan = carry.plan_application([extension], {"items": [staged]}, FINAL)
+    assert plan["trim"][0]["edit"]["kind"] == "extend"
+    twin = {**staged, "source_identity": "media:pool-third"}
+    with pytest.raises(carry.EditorEditCarryRefused,
+                       match="does not play that passage"):
+        carry.plan_application([extension],
+                               {"items": [staged, twin]}, FINAL)
+
+
 def test_a_tail_extension_carries_only_with_proven_source_headroom():
     original = _item("V1", "LC4932.MXF", 47_563, 48_022, 100, 559)
     following = _item("V1", "next.MXF", 100, 200, 559, 659)
