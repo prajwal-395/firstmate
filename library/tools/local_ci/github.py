@@ -38,18 +38,48 @@ def _run(*argv: str, input_text: str = "") -> str:
     return result.stdout
 
 
-def _api(path: str, method: str = "GET", fields: dict | None = None) -> object:
-    # -f key=value for scalars; --method for non-GET.
-    args = ["api", path]
-    if method != "GET":
-        args.extend(["--method", method])
-    for key, value in (fields or {}).items():
-        args.extend(["-f", f"{key}={value}"])
-    out = _run(*args)
+def _parse_response(out: str, path: str) -> object:
+    """gh-axi's envelope off, payload out.
+
+    gh-axi prints a one-line count tag (`[N]:`) plus the YAML payload
+    (or `api_response:` plus a `body:` scalar for --jq calls, which
+    this module never makes). Plain JSON passes through untouched.
+    """
+    text = out.strip()
+    if not text:
+        return {}
     try:
-        return json.loads(out) if out.strip() else {}
-    except ValueError as exc:
+        return json.loads(text)
+    except ValueError:
+        pass
+    import yaml
+    lines = text.splitlines()
+    payload = "\n".join(lines[1:]) if lines and lines[0].rstrip().endswith(":") else text
+    try:
+        data = yaml.safe_load(payload)
+    except Exception as exc:
         raise GitHubError(f"gh-axi api {path} returned non-JSON") from exc
+    if isinstance(data, dict) and set(data) == {"body"}:
+        body = data["body"]
+        try:
+            return json.loads(body) if isinstance(body, str) else body
+        except ValueError:
+            return body
+    return data if data is not None else {}
+
+
+def _api(path: str, method: str = "GET", fields: dict | None = None) -> object:
+    # gh-axi api [METHOD] <path> --field k=v --full. --full matters:
+    # without it long bodies truncate, and a truncated SHA is a
+    # freshness check against a lie.
+    args = ["api"]
+    if method != "GET":
+        args.append(method)
+    args.append(path)
+    for key, value in (fields or {}).items():
+        args.extend(["--field", f"{key}={value}"])
+    args.append("--full")
+    return _parse_response(_run(*args), path)
 
 
 def repo_path() -> str:
@@ -87,22 +117,10 @@ def list_open_prs() -> list:
 
 def get_pr(number: int) -> dict:
     """One PR's integration fields: number, head, base, labels, draft, url."""
-    out = _run("pr", "view", str(number), "--json",
-               "number,headRefOid,baseRefName,labels,isDraft,url,title")
-    try:
-        data = json.loads(out)
-    except ValueError as exc:
-        raise GitHubError(f"gh-axi pr view {number} returned non-JSON") from exc
-    labels = data.get("labels") or []
-    names = [label.get("name", "") if isinstance(label, dict) else str(label)
-             for label in labels]
-    return {"number": int(data.get("number", number)),
-            "head": str(data.get("headRefOid", "")),
-            "base": str(data.get("baseRefName", "")),
-            "labels": names,
-            "draft": bool(data.get("isDraft", False)),
-            "url": str(data.get("url", "")),
-            "title": str(data.get("title", ""))}
+    data = _api(f"repos/{repo_path()}/pulls/{number}")
+    if not isinstance(data, dict):
+        raise GitHubError(f"pulls/{number} returned a non-object")
+    return _shape_pull(data)
 
 
 def post_status(head: str, state: str, description: str,

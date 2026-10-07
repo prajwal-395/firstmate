@@ -26,9 +26,76 @@ def test_plist_points_at_the_repo_checkout_not_a_worktree():
     assert "daemon" in text
 
 
+def test_plist_carries_a_bootstrap_capable_path():
+    # launchd's default PATH finds macOS python 3.9, which cannot parse
+    # ren/__init__.py - the crash that met the first install. The plist
+    # must lead with a 3.10+ python dir.
+    import plistlib
+    text = service.render_plist("/repo/checkout")
+    assert "<key>PATH</key>" in text
+    parsed = plistlib.loads(text.encode("utf-8"))
+    path = parsed["EnvironmentVariables"]["PATH"]
+    first, _, _ = path.partition(":")
+    import subprocess
+    version = subprocess.run(
+        [f"{first}/python3", "-c", "import sys; print(sys.version_info[0])"],
+        capture_output=True, encoding="utf-8", check=False, timeout=30)
+    assert version.returncode == 0 and int(version.stdout.strip()) >= 3
+    minor = subprocess.run(
+        [f"{first}/python3", "-c",
+         "import sys; print(sys.version_info[1])"],
+        capture_output=True, encoding="utf-8", check=False, timeout=30)
+    assert int(minor.stdout.strip()) >= 10
+
+
 def test_agent_lives_in_the_user_domain_with_machine_state():
     assert service.plist_path().endswith(
         "Library/LaunchAgents/com.ren.ci.plist")
     assert config.state_dir().startswith("/"), "state must be absolute"
     assert "video-editing-pilot" not in config.state_dir(), (
         "daemon state must not live inside any repo checkout")
+
+
+def _git_repo(path, branch="main"):
+    import subprocess
+    subprocess.run(["git", "init", "-q", "-b", branch, path],
+                   check=True, timeout=30)
+    subprocess.run(["git", "-C", path, "config", "user.email", "t@t"],
+                   check=True, timeout=30)
+    subprocess.run(["git", "-C", path, "config", "user.name", "t"],
+                   check=True, timeout=30)
+    (path / "f.txt").write_text("x", encoding="utf-8")
+    subprocess.run(["git", "-C", path, "add", "."],
+                   check=True, timeout=30)
+    subprocess.run(["git", "-C", path, "commit", "-qm", "init"],
+                   check=True, timeout=30)
+    return path
+
+
+def test_install_guard_accepts_clean_main(tmp_path):
+    repo = str(_git_repo(tmp_path / "repo"))
+    service.check_install_repo(repo)  # raises nothing
+
+
+def test_install_guard_refuses_a_branch(tmp_path):
+    import subprocess
+    repo = str(_git_repo(tmp_path / "repo"))
+    subprocess.run(["git", "-C", repo, "checkout", "-qb", "feature"],
+                   check=True, timeout=30)
+    try:
+        service.check_install_repo(repo)
+    except RuntimeError as exc:
+        assert "install from main" in str(exc)
+    else:
+        raise AssertionError("branched checkout installed")
+
+
+def test_install_guard_refuses_dirt(tmp_path):
+    repo = str(_git_repo(tmp_path / "repo"))
+    (tmp_path / "repo" / "dirty.txt").write_text("x", encoding="utf-8")
+    try:
+        service.check_install_repo(repo)
+    except RuntimeError as exc:
+        assert "dirty" in str(exc)
+    else:
+        raise AssertionError("dirty checkout installed")
