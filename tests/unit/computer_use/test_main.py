@@ -686,3 +686,77 @@ def test_script_track_with_seed_is_refused(monkeypatch, capsys):
             "Q Spine", "--seed", _SEED_JSON]
     assert main_module.main(argv) == 2
     assert runs == []
+
+
+def _record_lease_order(monkeypatch, order, resolve_obj=None):
+    """Entry-recording lease and connect.
+
+    The verb under test must enter the lease before connecting:
+    resolve_locale refuses the Resolve handshake outside the lease, so
+    the reverse order crashes every live run before any UI touches
+    Resolve (found live 2026-10-07 - the shipped recipe verb died on
+    its first live invocation). A test asserting
+    `order.index("lease") < order.index("connect")` fails on that
+    defect and passes on the fix."""
+    from contextlib import contextmanager
+
+    @contextmanager
+    def recording_lease(purpose, **kw):
+        order.append("lease")
+        yield
+
+    def recording_connect():
+        order.append("connect")
+        return resolve_obj if resolve_obj is not None else object()
+
+    monkeypatch.setattr(
+        "library.tools.resolve_lock.resolve_lease", recording_lease)
+    monkeypatch.setattr(
+        "library.tools.marker_feedback.connect_resolve", recording_connect)
+
+
+def test_run_connects_inside_the_lease(monkeypatch, capsys):
+    """`run` connected before leasing: the live handshake refusal
+    crashed the verb before the loop ever observed."""
+    _stub_resolve(monkeypatch)
+    order: list = []
+    _record_lease_order(monkeypatch, order)
+    monkeypatch.setattr(
+        main_module, "run_loop",
+        lambda client, model, goal, **kw: LoopResult(outcome="done"),
+    )
+    assert main_module.main(["run", "switch pages"]) == 0
+    assert order.index("lease") < order.index("connect")
+
+
+def test_script_file_connects_inside_the_lease(monkeypatch, capsys, tmp_path):
+    """`script` on a file connected before leasing: same crash, same
+    gate - the deterministic run died before its first step."""
+    _stub_resolve(monkeypatch)
+    order: list = []
+    _record_lease_order(monkeypatch, order)
+    path = tmp_path / "media.json"
+    path.write_text(
+        '{"goal": "switch pages", "steps": [{"action": "press", '
+        '"anchors": [{"via": "ax_path", "path": ["Workspace"]}]}]}',
+        encoding="utf-8",
+    )
+    from library.tools.computer_use.scripts import ScriptResult
+
+    monkeypatch.setattr(
+        main_module, "run_script",
+        lambda client, script, llm=None: ScriptResult(outcome="done", steps=[]),
+    )
+    assert main_module.main(["script", str(path)]) == 0
+    assert order.index("lease") < order.index("connect")
+
+
+def test_script_recipe_connects_inside_the_lease(monkeypatch, capsys):
+    """`script --recipe` connected before leasing: the seed take's
+    verb crashed on its first live run before establishing anything."""
+    _stub_script(monkeypatch)
+    order: list = []
+    _record_lease_order(monkeypatch, order, resolve_obj=_FakeScriptResolve())
+    argv = ["script", "--recipe", "magic-mask-track", "--timeline", "Q Spine"]
+    assert main_module.main(argv) == 0
+    assert order.index("lease") < order.index("connect")

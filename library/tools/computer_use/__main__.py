@@ -173,11 +173,12 @@ def _run(
         root = Path(override).expanduser() if override else default_recipes_root()
         store = RecipeStore(root)
     if target_name == "resolve":
-        resolve = connect_resolve()
-        with resolve_lease("computer-use"), borrowed(resolve):
-            result = run_loop(client, model, goal, recipe=recipe,
-                              store=store, layout=layout,
-                              target=driver_target)
+        with resolve_lease("computer-use"):
+            resolve = connect_resolve()
+            with borrowed(resolve):
+                result = run_loop(client, model, goal, recipe=recipe,
+                                  store=store, layout=layout,
+                                  target=driver_target)
     else:
         if recipe is not None:
             raise TargetError(
@@ -301,7 +302,6 @@ def _run_recipe(client: DriverClient, args) -> int:
         assert_current_timeline, resolve_lease)
     from library.tools.resolved.jobs import QUALIFICATION_PROJECT
 
-    resolve = connect_resolve()
     started = time.monotonic()
     # A plain lease: this verb borrows Resolve and OPENS the
     # qualification project itself, so the broker interlock (which
@@ -309,33 +309,38 @@ def _run_recipe(client: DriverClient, args) -> int:
     # project is open - i.e. nearly always) would refuse before
     # borrowed() can switch. Found live 2026-10-06 (SkyLight lane,
     # PR 1933 follow-up); `run` carries the same shape.
-    with resolve_lease("computer-use script"), borrowed(resolve):
-        manager = resolve.GetProjectManager()
-        project = manager.LoadProject(QUALIFICATION_PROJECT)
-        if project is None or project.GetName() != QUALIFICATION_PROJECT:
-            print(f"ren: {QUALIFICATION_PROJECT!r} did not open for "
-                  f"the recipe", file=sys.stderr)
-            return 1
-        timeline = _exact_timeline(project, args.timeline)
-        if timeline is None:
-            print(f"ren: no timeline named exactly {args.timeline!r} "
-                  f"in {QUALIFICATION_PROJECT!r}", file=sys.stderr)
-            return 1
-        # The cursor move goes through the guarded setter: it sets
-        # and reads back by unique id, and refuses without the
-        # exclusive lease this verb holds.
-        assert_current_timeline(project, timeline)
-        if args.playhead_timecode:
-            timeline.SetCurrentTimecode(args.playhead_timecode)
-            if (timeline.GetCurrentTimecode() or "") != args.playhead_timecode:
-                print(f"ren: the playhead did not read back as "
-                      f"{args.playhead_timecode!r}", file=sys.stderr)
+    # The handshake happens INSIDE the lease: resolve_locale refuses
+    # connect_resolve() outside it, so connecting first crashes every
+    # live run before any UI (found live 2026-10-07).
+    with resolve_lease("computer-use script"):
+        resolve = connect_resolve()
+        with borrowed(resolve):
+            manager = resolve.GetProjectManager()
+            project = manager.LoadProject(QUALIFICATION_PROJECT)
+            if project is None or project.GetName() != QUALIFICATION_PROJECT:
+                print(f"ren: {QUALIFICATION_PROJECT!r} did not open for "
+                      f"the recipe", file=sys.stderr)
                 return 1
-        if args.allow_foreground:
-            client.call("activate_resolve", {"allow_foreground": True})
-        step_started = time.monotonic()
-        result = run_script(client, script, foreground=args.allow_foreground)
-        elapsed = time.monotonic() - step_started
+            timeline = _exact_timeline(project, args.timeline)
+            if timeline is None:
+                print(f"ren: no timeline named exactly {args.timeline!r} "
+                      f"in {QUALIFICATION_PROJECT!r}", file=sys.stderr)
+                return 1
+            # The cursor move goes through the guarded setter: it sets
+            # and reads back by unique id, and refuses without the
+            # exclusive lease this verb holds.
+            assert_current_timeline(project, timeline)
+            if args.playhead_timecode:
+                timeline.SetCurrentTimecode(args.playhead_timecode)
+                if (timeline.GetCurrentTimecode() or "") != args.playhead_timecode:
+                    print(f"ren: the playhead did not read back as "
+                          f"{args.playhead_timecode!r}", file=sys.stderr)
+                    return 1
+            if args.allow_foreground:
+                client.call("activate_resolve", {"allow_foreground": True})
+            step_started = time.monotonic()
+            result = run_script(client, script, foreground=args.allow_foreground)
+            elapsed = time.monotonic() - step_started
     print(f"recipe: {args.recipe}")
     print(f"goal: {script.goal}")
     if scale is not None:
@@ -478,9 +483,10 @@ def _script(
     else:
         llm = None
 
-    resolve = connect_resolve()
-    with resolve_lease("computer-use"), borrowed(resolve):
-        result = run_script(client, script, llm=llm)
+    with resolve_lease("computer-use"):
+        resolve = connect_resolve()
+        with borrowed(resolve):
+            result = run_script(client, script, llm=llm)
     print(f"outcome: {result.outcome}")
     for entry in result.steps:
         print(f"  step {entry['step']} {entry['action']}: {entry['outcome']} (via {entry['via']})")
