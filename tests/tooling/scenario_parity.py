@@ -53,11 +53,15 @@ for profile in ("release", "debug"):
 def start_python(lock_dir: Path) -> None:
     os.environ["PIPELINE_RESOLVE_LOCK_DIR"] = str(lock_dir)
     os.environ.pop("REN_RESOLVED_DAEMON", None)
+    # No shadow watcher: this broker is a throwaway parity probe (see
+    # crash_recovery.py for the measured incident).
+    os.environ["REN_SHADOW_WATCHER"] = "0"
     client.ensure(path=lock_dir / SOCKET_NAME, timeout=30)
 
 
 def start_rust(lock_dir: Path) -> None:
     os.environ["PIPELINE_RESOLVE_LOCK_DIR"] = str(lock_dir)
+    os.environ["REN_SHADOW_WATCHER"] = "0"
     env = dict(os.environ)
     env["PYTHONPATH"] = os.pathsep.join(
         p for p in (str(REPO), env.get("PYTHONPATH", "")) if p)

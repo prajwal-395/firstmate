@@ -50,6 +50,33 @@ START_TIMEOUT_SECONDS = 15.0
 LOG_NAME = "ren-resolved.log"
 STARTER_LOCK_NAME = "ren-resolved.starter.lock"
 
+#: Opt-in for starting a DETACHED broker from inside the test suite.
+#: `ensure` raises rather than spawning where pytest runs and this is
+#: not "1" - a stray call then fails its test instead of leaking a
+#: detached broker that outlives the session (measured 2026-10-06:
+#: 144 orphaned test brokers holding the live Resolve port). A test
+#: that means to spawn sets it (its lock-dir fixture does) and stops
+#: what it started at teardown. The production default socket is
+#: never spawned from tests, opt-in or not.
+TESTS_ALLOW_SPAWN_ENV = "REN_TESTS_ALLOW_BROKER_SPAWN"
+
+
+def _tests_allow_spawn() -> bool:
+    """Whether a test run explicitly opted into detached brokers."""
+    return os.environ.get(TESTS_ALLOW_SPAWN_ENV, "") == "1"
+
+
+class TestSpawnRefused(RenRefusal):
+    """`ensure` would have spawned a broker inside the test suite.
+
+    A subclass of its own (not a bare `RenRefusal`) so the lease path
+    can tell "no broker may be started here" from a production refusal
+    it must propagate: `resolve_lock._broker_turn` treats this as "no
+    broker serves" and yields None - the lease it grants is then the
+    instance lease only, which is what runner-direct tests (a fake
+    Resolve, no broker) need.
+    """
+
 
 class BrokerError(RuntimeError):
     """The broker answered with an error. `reply` is what it said."""
@@ -295,6 +322,14 @@ def _start_detached(path: Path) -> subprocess.Popen:
     if root is not None:
         env["PYTHONPATH"] = os.pathsep.join(
             p for p in (str(root), env.get("PYTHONPATH", "")) if p)
+    if _in_pytest():
+        # A broker a test starts is a detached process the session
+        # teardown stops; its shadow watcher must never read the live
+        # Resolve against the machine's shadow store (measured
+        # 2026-10-06: test brokers' watchers flooded the captain's
+        # Resolve with timeline.snapshot jobs). Forced here, not
+        # trusted to the test's environment.
+        env["REN_SHADOW_WATCHER"] = "0"
     if os.environ.get("REN_RESOLVED_DAEMON", "").strip().lower() == "rust":
         binary = _rust_daemon()
         if binary is None:
@@ -350,6 +385,27 @@ def ensure(path=None, timeout: float = START_TIMEOUT_SECONDS) -> Optional[dict]:
     answer = ping(target)
     if answer is not None:
         return answer
+    # Guard: never SPAWN a broker from inside the test suite unless
+    # the test explicitly opted in. Judged here, where nothing is
+    # serving and a spawn is what comes next - using a broker that is
+    # already serving still works. A stray call then fails its test
+    # (naming the fix) instead of leaking a detached process that
+    # outlives the session (measured 2026-10-06: 144 orphaned test
+    # brokers, each holding the live Resolve scripting port, respawned
+    # by a later ensure). The default socket above still returns None:
+    # every lease acquisition calls `ensure` there, and yielding "no
+    # broker" is that path's answer.
+    if _in_pytest() and not _tests_allow_spawn():
+        raise TestSpawnRefused(
+            what="not starting a test broker",
+            why="this client runs inside the test suite and "
+                f"{TESTS_ALLOW_SPAWN_ENV} is not '1' - a broker started "
+                "here is detached and outlives its test",
+            fix=f"set {TESTS_ALLOW_SPAWN_ENV}=1 in the test that means "
+                "to spawn (its lock-dir fixture does), run the broker "
+                "in-process instead (Broker/connect=..., as the "
+                "ui_transaction and resolve_lock suites do), or stop "
+                "calling ensure on this path")
     # Guard: a client from a linked worktree must not auto-start the
     # production broker either. The ping above means a broker already
     # serving is used; with none serving, starting one here would serve

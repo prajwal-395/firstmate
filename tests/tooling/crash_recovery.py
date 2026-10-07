@@ -35,11 +35,19 @@ for profile in ("release", "debug"):
 def start_python(lock_dir: Path) -> None:
     os.environ["PIPELINE_RESOLVE_LOCK_DIR"] = str(lock_dir)
     os.environ.pop("REN_RESOLVED_DAEMON", None)
+    # No shadow watcher: this broker is a throwaway parity probe, and a
+    # hosted watcher would read the LIVE Resolve project against the
+    # machine's shadow store (measured 2026-10-06: test brokers'
+    # watchers flooded the captain's Resolve with timeline.snapshot
+    # jobs). `client._start_detached` forces this under pytest; this
+    # script runs outside it, so it says so itself.
+    os.environ["REN_SHADOW_WATCHER"] = "0"
     client.ensure(path=lock_dir / SOCKET_NAME, timeout=30)
 
 
 def start_rust(lock_dir: Path) -> None:
     os.environ["PIPELINE_RESOLVE_LOCK_DIR"] = str(lock_dir)
+    os.environ["REN_SHADOW_WATCHER"] = "0"
     env = dict(os.environ)
     env["PYTHONPATH"] = os.pathsep.join(
         p for p in (str(REPO), env.get("PYTHONPATH", "")) if p)
@@ -93,16 +101,25 @@ def scenario(name: str, start) -> list:
     lock_dir.mkdir(parents=True, exist_ok=True)
     start(lock_dir)
     sock = lock_dir / SOCKET_NAME
-    # A lease job: it becomes a grant (running) the moment it is scheduled.
-    submitted = client.submit("lease", {"exclusive": True}, path=sock)
-    job = client.result(submitted["id"], wait=5, path=sock)
-    assert job["state"] == "running", f"the grant did not start: {job['state']}"
-    # Kill the daemon with no cleanup - the grant is orphaned.
-    kill(pid_on(lock_dir))
-    # The next daemon opens the same table and recovers.
-    start(lock_dir)
-    state = recovery_state(lock_dir)
-    client.call({"op": "shutdown"}, sock)
+    try:
+        # A lease job: it becomes a grant (running) the moment it is scheduled.
+        submitted = client.submit("lease", {"exclusive": True}, path=sock)
+        job = client.result(submitted["id"], wait=5, path=sock)
+        assert job["state"] == "running", f"the grant did not start: {job['state']}"
+        # Kill the daemon with no cleanup - the grant is orphaned.
+        kill(pid_on(lock_dir))
+        # The next daemon opens the same table and recovers.
+        start(lock_dir)
+        state = recovery_state(lock_dir)
+    finally:
+        # A failed assertion above must not leak the detached daemon.
+        try:
+            client.call({"op": "shutdown"}, sock)
+        except Exception:
+            pass
+        deadline = time.time() + 10
+        while client.ping(sock) is not None and time.time() < deadline:
+            time.sleep(0.05)
     return [f"{name}: job {job['id'][:8]}... state={state[job['id']]['state']} "
             f"error={state[job['id']]['error']!r}"]
 

@@ -719,9 +719,12 @@ def _ns(**kwargs):
 @pytest.fixture(autouse=True)
 def no_broker(monkeypatch):
     """`main()` routes through a serving `ren-resolved` broker to the live
-    Resolve; these tests drive the fakes, so the broker is never serving."""
+    Resolve; these tests drive the fakes, so the broker is never serving -
+    and `ensure` must not start one either (a detached broker outlives
+    its test; measured 2026-10-06)."""
     from library.tools.resolved import client
     monkeypatch.setattr(client, "serving", lambda *a, **k: False)
+    monkeypatch.setattr(client, "ensure", lambda *a, **k: None)
 
 
 @pytest.fixture()

@@ -14,12 +14,17 @@ Two lines of defence, both pinned here:
 1. `tests/conftest.py` points `PIPELINE_RESOLVE_LOCK_DIR` at a
    per-session temp dir (set with `os.environ`, never `monkeypatch`,
    so no `monkeypatch.undo()` inside a test can remove it), and stops
-   every broker a test starts at teardown.
+   every broker a test starts at teardown - including ones started by
+   hand with `subprocess.Popen`, which bypass `client._start_detached`.
 2. `library.tools.resolved.client.ensure` refuses the default
    production socket while running under pytest - judged by the
    TARGET, so an explicit default path or an unisolated child refuses
-   as well - and `client._start_detached` launches the broker with
-   Ren's venv interpreter rather than whatever Python ran the caller.
+   as well - refuses to SPAWN on any other socket unless the test
+   explicitly opts in (`REN_TESTS_ALLOW_BROKER_SPAWN=1`, which a
+   lock-dir fixture sets for the suite that IS the spawn path), and
+   `client._start_detached` launches the broker with Ren's venv
+   interpreter rather than whatever Python ran the caller, with the
+   shadow watcher forced off.
 
 The unit tests below pin the guard and the interpreter; the
 subprocess test replays the incident's shape - the broker-exercising
@@ -50,6 +55,64 @@ def _production_socket() -> Path:
 
 
 # ── 1. The guard, in process ──────────────────────────────────────────
+
+def test_ensure_refuses_to_spawn_without_an_explicit_opt_in(
+        tmp_path, monkeypatch):
+    """A stray spawn inside the suite fails its test instead of leaking.
+
+    Incident 2026-10-06: 144 orphaned test brokers, each holding the
+    live Resolve scripting port, respawned by a later `ensure`. Spawning
+    a detached broker is opt-in (`REN_TESTS_ALLOW_BROKER_SPAWN=1`,
+    which a lock-dir fixture sets for the suite that IS the spawn
+    path); without it `ensure` raises where nothing is serving. Using
+    a broker that is already serving still works - the guard only
+    closes the spawn.
+    """
+    from library.tools.ren_refusal import RenRefusal
+
+    directory = tmp_path / "locks"
+    directory.mkdir()
+    monkeypatch.setenv(resolve_lock.LOCK_DIR_ENV, str(directory))
+    monkeypatch.delenv(client.TESTS_ALLOW_SPAWN_ENV, raising=False)
+    started = []
+    monkeypatch.setattr(
+        client, "_start_detached",
+        lambda path: started.append(Path(path)))
+    monkeypatch.setattr(client, "ping", lambda path=None: None)
+    with pytest.raises(RenRefusal):
+        client.ensure(path=directory / SOCKET_NAME, timeout=2)
+    assert started == []
+
+
+def test_ensure_uses_a_broker_already_serving_without_opt_in(
+        tmp_path, monkeypatch):
+    """The opt-in closes the spawn, not the use of a serving broker."""
+    directory = tmp_path / "locks"
+    directory.mkdir()
+    monkeypatch.setenv(resolve_lock.LOCK_DIR_ENV, str(directory))
+    monkeypatch.delenv(client.TESTS_ALLOW_SPAWN_ENV, raising=False)
+    serving = {"ok": True, "pid": 4242}
+    wanted = str(directory / SOCKET_NAME)
+
+    def fake_ping(path=None):
+        # Only this test's socket answers: the session teardown pings
+        # its own socket while this mock is still up, and a mock that
+        # answers everywhere makes the teardown "stop" a broker that
+        # was never started.
+        try:
+            target = str(client._path(path))
+        except (OSError, ValueError):
+            return None
+        return serving if target == wanted else None
+
+    monkeypatch.setattr(client, "ping", fake_ping)
+    started = []
+    monkeypatch.setattr(
+        client, "_start_detached",
+        lambda path: started.append(Path(path)))
+    assert client.ensure(path=directory / SOCKET_NAME, timeout=2) is serving
+    assert started == []
+
 
 def test_ensure_refuses_an_explicit_default_socket_while_isolated(
         tmp_path, monkeypatch):
@@ -162,6 +225,7 @@ _BROKER_WATCH_PLUGIN = '''
 """Fails the report (not the run) where a test touches the default socket."""
 import json
 import os
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -188,6 +252,7 @@ def pytest_configure(config):
     orig_ping = client.ping
     orig_call = client.call
     orig_python = client._broker_python
+    orig_popen = subprocess.Popen
 
     def ensure(path=None, timeout=15.0):
         try:
@@ -205,10 +270,35 @@ def pytest_configure(config):
                    == "rust")
         spawn = {"path": str(path), "default": _is_default(Path(path)),
                  "python": None if is_rust else orig_python(),
-                 "rust": is_rust, "pid": None}
+                 "rust": is_rust, "pid": None, "via": "_start_detached"}
         events["spawns"].append(spawn)
         process = orig_start(path)
         spawn["pid"] = getattr(process, "pid", None)
+        return process
+
+    def popen(*args, **kwargs):
+        argv = args[0] if args else kwargs.get("args")
+        try:
+            parts = [str(a) for a in (argv or [])]
+        except TypeError:
+            parts = []
+        watched = (any("ren-resolved" in part for part in parts)
+                   and "serve" in parts)
+        spawn = None
+        if watched:
+            spawn = {"path": next((p for p in parts if p.endswith(".sock")),
+                                   "<no-sock-arg>"),
+                     "default": False, "python": None, "rust": True,
+                     "pid": None, "via": "Popen"}
+            events["spawns"].append(spawn)
+        process = orig_popen(*args, **kwargs)
+        if spawn is not None:
+            try:
+                spawn["path"] = str(spawn["path"])
+                spawn["default"] = _is_default(Path(spawn["path"]))
+            except (OSError, TypeError):
+                pass
+            spawn["pid"] = getattr(process, "pid", None)
         return process
 
     def ping(path=None):
@@ -232,6 +322,7 @@ def pytest_configure(config):
 
     client.ensure = ensure
     client._start_detached = start
+    subprocess.Popen = popen
     client.ping = ping
     client.call = call
 
@@ -274,9 +365,17 @@ def test_broker_exercising_suites_leave_no_broker_and_never_touch_default(
         tmp_path):
     """The reproduction, run the way a worker runs it, in a subprocess.
 
-    Runs the suites that exercise the broker client, then proves the
-    run left no broker process behind and never touched the default
-    socket. Never stops the production broker: it only ever reads it.
+    Runs the suites that exercise the broker client - the spawn path
+    itself (`test_ensure`), the in-process broker suites that must
+    never spawn (`test_ui_transaction`, `test_shadow_watcher`,
+    `test_resolve_lock`) - then proves the run left no broker process
+    behind and never touched the default socket. Never stops the
+    production broker: it only ever reads it.
+
+    A stray `ensure` without the spawn opt-in raises inside the inner
+    run (failing it, which fails this test with the inner output), so
+    a suite that spawns where its fixture did not opt in is caught
+    here rather than leaking.
     """
     default = _production_socket()
     before_pids = _broker_pids()
@@ -297,11 +396,13 @@ def test_broker_exercising_suites_leave_no_broker_and_never_touch_default(
     result = subprocess.run(
         [sys.executable, "-m", "pytest",
          "tests/unit/resolve/test_ensure.py",
+         "tests/unit/resolve/test_ui_transaction.py",
+         "tests/unit/resolve/test_shadow_watcher.py",
          "tests/unit/resolve/test_resolve_lock.py",
          "-q", "-p", "no:cacheprovider", "-o", "addopts=",
          "-p", "broker_watch"],
         cwd=str(REPO_ROOT), env=env, capture_output=True,
-        encoding="utf-8", timeout=900, check=False)
+        encoding="utf-8", timeout=1200, check=False)
     assert result.returncode == 0, (
         "the broker-exercising suites failed in the subprocess:\n"
         f"{result.stdout[-4000:]}\n{result.stderr[-4000:]}")

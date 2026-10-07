@@ -848,7 +848,19 @@ def _broker_turn(purpose: str, exclusive: bool, interactive: bool,
     and one started here is detached and outlives this process.
     """
     from library.tools.resolved import client
-    client.ensure()
+    try:
+        client.ensure()
+    except client.TestSpawnRefused:
+        # Inside the test suite without the spawn opt-in: no broker may
+        # be started here, so there is none to take a turn from. Yield
+        # None - the lease granted is the instance lease only - exactly
+        # as where no broker serves. Runner-direct tests (a fake
+        # Resolve, exercised with no broker) need that lease, not a
+        # detached broker on a temp socket (measured 2026-10-06: the
+        # ui_transaction suite spawned one per test that way). Any other
+        # refusal - notably the linked-worktree one - still propagates.
+        yield None
+        return
     if not client.serving():
         yield None
         return

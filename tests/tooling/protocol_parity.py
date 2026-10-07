@@ -36,11 +36,15 @@ for profile in ("release", "debug"):
 def start_python(lock_dir: Path) -> None:
     os.environ["PIPELINE_RESOLVE_LOCK_DIR"] = str(lock_dir)
     os.environ.pop("REN_RESOLVED_DAEMON", None)
+    # No shadow watcher: this broker is a throwaway parity probe (see
+    # crash_recovery.py for the measured incident).
+    os.environ["REN_SHADOW_WATCHER"] = "0"
     client.ensure(path=lock_dir / SOCKET_NAME, timeout=30)
 
 
 def start_rust(lock_dir: Path) -> None:
     os.environ["PIPELINE_RESOLVE_LOCK_DIR"] = str(lock_dir)
+    os.environ["REN_SHADOW_WATCHER"] = "0"
     env = dict(os.environ)
     env["PYTHONPATH"] = os.pathsep.join(
         p for p in (str(REPO), env.get("PYTHONPATH", "")) if p)
@@ -132,21 +136,8 @@ def request(op: dict, path: Path) -> dict:
         return exc.reply
 
 
-def main() -> int:
-    if RUST_BINARY is None:
-        print("no ren-resolved binary - build it first")
-        return 1
-    py_dir = Path("/tmp/ren-parity-py")
-    rust_dir = Path("/tmp/ren-parity-rust")
-    for directory in (py_dir, rust_dir):
-        directory.mkdir(parents=True, exist_ok=True)
-        for stale in directory.iterdir():
-            stale.unlink()
-
-    start_python(py_dir)
-    start_rust(rust_dir)
-    py, rust = py_dir / SOCKET_NAME, rust_dir / SOCKET_NAME
-
+def _compare_daemons(py: Path, rust: Path) -> int:
+    """Send every request type to both daemons; return the failure count."""
     # Every request type, with the same bytes to both daemons.
     cases = {
         "ping": {"op": "ping"},
@@ -217,14 +208,36 @@ def main() -> int:
                                  ".finished", ".wait_seconds",
                                  ".hold_seconds"))]
     print(f"{'list (after leases)':<28} {'ok':<10} {'ok':<10} "
-          f"{'identical' if not diffs else 'DIFF'}")
+           f"{'identical' if not diffs else 'DIFF'}")
     for diff in diffs:
         print(f"    {diff}")
     if diffs:
         failures += 1
+    return failures
 
-    stop(py_dir)
-    stop(rust_dir)
+
+def main() -> int:
+    if RUST_BINARY is None:
+        print("no ren-resolved binary - build it first")
+        return 1
+    py_dir = Path("/tmp/ren-parity-py")
+    rust_dir = Path("/tmp/ren-parity-rust")
+    for directory in (py_dir, rust_dir):
+        directory.mkdir(parents=True, exist_ok=True)
+        for stale in directory.iterdir():
+            stale.unlink()
+
+    start_python(py_dir)
+    start_rust(rust_dir)
+    py, rust = py_dir / SOCKET_NAME, rust_dir / SOCKET_NAME
+
+    try:
+        failures = _compare_daemons(py, rust)
+    finally:
+        # A DIFF above returns through here too: a failed comparison
+        # must not leak the detached daemons.
+        stop(py_dir)
+        stop(rust_dir)
     print("-" * 70)
     print(f"{'FAILURES':<28} {failures}")
     return 1 if failures else 0

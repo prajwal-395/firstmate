@@ -1,6 +1,7 @@
 import atexit
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -288,13 +289,35 @@ def _resolve_broker_is_the_tests_own():
         return real_start(path)
 
     _client._start_detached = _recording_start
+    # A broker started by hand - `subprocess.Popen([ren-resolved,
+    # "serve", sock], start_new_session=True)`, as the Rust-daemon tests
+    # do - bypasses `_start_detached` above, so the teardown below would
+    # never stop it. Record those sockets too, from the argv.
+    real_popen = subprocess.Popen
+    popen_started = []
+
+    def _recording_popen(*args, **kwargs):
+        argv = args[0] if args else kwargs.get("args")
+        try:
+            parts = [str(a) for a in (argv or [])]
+        except TypeError:
+            parts = []
+        if (any("ren-resolved" in part for part in parts)
+                and "serve" in parts):
+            for part in parts:
+                if part.endswith(".sock"):
+                    popen_started.append(Path(part))
+        return real_popen(*args, **kwargs)
+
+    subprocess.Popen = _recording_popen
     try:
         yield
     finally:
         _client._start_detached = real_start
+        subprocess.Popen = real_popen
         _restore_session_resolve_dir()
         seen = []
-        for sock in started + [Path(setup_dir) / _SOCKET_NAME]:
+        for sock in started + popen_started + [Path(setup_dir) / _SOCKET_NAME]:
             if sock not in seen:
                 seen.append(sock)
         for sock in seen:

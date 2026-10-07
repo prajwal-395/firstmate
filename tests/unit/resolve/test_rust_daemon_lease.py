@@ -31,6 +31,14 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.resolve_live
+"""These tests drive a REAL broker against the REAL Resolve: the
+watchdog probe connects (connected=True) and a job's worker connects
+under the instance lease. They never run in the default suite - the
+heavy commands exclude `resolve_live` - only inside a granted
+borrow-resolve window with Resolve running. An in-process fake could
+not evidence the Rust daemon's own worker processes."""
+
 REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO))
 
@@ -79,6 +87,25 @@ def start_rust(lock_dir: Path) -> None:
     raise RuntimeError("the Rust daemon did not start")
 
 
+def _stop(sock: Path, lock_dir: Path) -> None:
+    """Stop whatever serves on `sock` and remove the lock dir.
+
+    Runs in `finally`, so a failed assertion never leaks the detached
+    daemon: the shutdown is answered at once but the broker exits on
+    its next serve tick, so the rm happens only after the socket goes
+    quiet (a broker still shutting down when its directory is removed
+    is left holding a socket file that no longer exists).
+    """
+    try:
+        client.call({"op": "shutdown"}, sock)
+    except Exception:
+        pass
+    deadline = time.time() + 10.0
+    while client.ping(sock) is not None and time.time() < deadline:
+        time.sleep(0.05)
+    shutil.rmtree(lock_dir, ignore_errors=True)
+
+
 def wait_for_status(sock: Path, predicate, timeout: float = 70.0) -> dict:
     """Poll `watchdog_status` until `predicate` accepts it."""
     deadline = time.time() + timeout
@@ -103,9 +130,9 @@ def test_watchdog_probe_holds_a_shared_lease():
     the instance lease - and the broker does not mark degraded.
     """
     lock_dir = _short_lock_dir("watchdog")
-    start_rust(lock_dir)
     sock = lock_dir / SOCKET_NAME
     try:
+        start_rust(lock_dir)
         status = wait_for_status(
             sock, lambda s: s["connected"] is True, timeout=70)
         assert status["connected"] is True, (
@@ -114,11 +141,7 @@ def test_watchdog_probe_holds_a_shared_lease():
             f"the probe marked the broker degraded: {status['degraded_reason']}")
         assert status["responsive"] is True
     finally:
-        try:
-            client.call({"op": "shutdown"}, sock)
-        except Exception:
-            pass
-        shutil.rmtree(lock_dir, ignore_errors=True)
+        _stop(sock, lock_dir)
 
 
 def test_job_worker_holds_the_instance_lease():
@@ -136,9 +159,9 @@ def test_job_worker_holds_the_instance_lease():
     worker held it.
     """
     lock_dir = _short_lock_dir("job")
-    start_rust(lock_dir)
     sock = lock_dir / SOCKET_NAME
     try:
+        start_rust(lock_dir)
         # A read-only resolve_axi job: the worker connects to Resolve
         # under the instance lease.
         submitted = client.submit(
@@ -153,8 +176,4 @@ def test_job_worker_holds_the_instance_lease():
             f"the handshake refused - the worker did not hold the lease: "
             f"{job['error']}")
     finally:
-        try:
-            client.call({"op": "shutdown"}, sock)
-        except Exception:
-            pass
-        shutil.rmtree(lock_dir, ignore_errors=True)
+        _stop(sock, lock_dir)

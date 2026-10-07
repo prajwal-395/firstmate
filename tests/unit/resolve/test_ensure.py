@@ -34,9 +34,16 @@ def lock_dir(monkeypatch):
     Under /tmp and SHORT: a Unix socket path is bounded (104 bytes on
     macOS), and a pytest tmp_path is deep enough to overflow it - the
     broker would die on `AF_UNIX path long` before binding.
+
+    Opts into detached brokers (`REN_TESTS_ALLOW_BROKER_SPAWN`): this
+    suite IS the spawn path, so every test here means to spawn, and
+    the `started` fixture plus the session teardown stop what is
+    started. Any other suite spawning without opting in fails loudly
+    in `client.ensure` instead of leaking.
     """
     directory = Path(tempfile.mkdtemp(prefix="ren-ensure-", dir="/tmp"))
     monkeypatch.setenv(resolve_lock.LOCK_DIR_ENV, str(directory))
+    monkeypatch.setenv(client.TESTS_ALLOW_SPAWN_ENV, "1")
     yield directory
     shutil.rmtree(directory, ignore_errors=True)
 
