@@ -93,7 +93,7 @@
       "clip_id": "clip_003",
       "text": "the one thing i learned this week is simple",
       "source_start": 0.5,
-      "source_end": 3.15,
+      "source_end": 3.3,
       "serves_beats": ["beat:1"],
       "engagement": {
        "rank": 2,
@@ -115,7 +115,7 @@
       "clip_id": "clip_003",
       "text": "so write it down today",
       "source_start": 8.5,
-      "source_end": 9.95,
+      "source_end": 10.1,
       "serves_beats": ["beat:3"],
       "engagement": {
        "rank": 3,

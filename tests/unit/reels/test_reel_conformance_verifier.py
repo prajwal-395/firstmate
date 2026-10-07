@@ -555,12 +555,13 @@ class TestF6CaptionOverlap:
 # ── F7: Short caption cards ─────────────────────────────────────────
 
 class TestF7ShortCaptions:
-    """F7 - PLANNING: caption cards shorter than 0.5s minimum."""
+    """F7 - PLANNING: caption cards shorter than 0.4s minimum."""
 
     def test_detects_very_short_card(self):
         """Plant a 2-frame card - about 83ms at 23.976fps.
 
-        The audit found 29 cards under 0.5s, 7 under 3 frames.
+        The audit found 29 cards under the then-current 0.5s floor, 7
+        under 3 frames.
         """
         cards = [
             _caption_card(5.0, 5.083, "short"),  # ~2 frames
@@ -568,7 +569,12 @@ class TestF7ShortCaptions:
         findings = check_short_captions("Reel 03", cards, FPS)
         assert len(findings) == 1
         assert findings[0].finding_class == FindingClass.F7
-        assert findings[0].detail["duration_seconds"] < 0.5
+        assert findings[0].detail["duration_seconds"] < 0.4
+
+    def test_ten_frame_card_passes_the_current_floor(self):
+        findings = check_short_captions(
+            "Reel 03", [_placed_card(10)], FPS)
+        assert findings == []
 
 
 # ── F24: Speaker lower thirds ───────────────────────────────────────

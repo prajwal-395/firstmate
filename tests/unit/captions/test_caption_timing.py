@@ -500,7 +500,7 @@ def test_resolving_the_overlap_keeps_every_word_on_screen():
 
 
 def test_a_trim_that_would_flash_merges_into_the_next_card():
-    """An earlier card trimmed under the 0.5s flash floor (the number P6
+    """An earlier card trimmed under the 0.4s flash floor (the number P6
     fails a build on) joins the next card instead of flashing - with the
     next card's timing untouched, so no new overlap opens behind it."""
     entries = [
@@ -795,7 +795,7 @@ def test_a_genuinely_one_frame_short_segment_still_fails():
 # So the trichotomy from the filing - word, next card's start, or block
 # boundary - answers WORD on current main: no next-start or block-boundary
 # derivation exists in `generate_subtitles` (a card's end is its last word's
-# end, plus at most the 0.7s legibility floor; overlaps only ever shrink an
+# end, plus at most the shared display floor; overlaps only ever shrink an
 # end or carry the words along). These tests PIN that derivation and the
 # gate's refusal of this exact shape. They pass before AND after this diff -
 # there is deliberately no behaviour change here: the measurement refuted

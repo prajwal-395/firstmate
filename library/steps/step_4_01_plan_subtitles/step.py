@@ -31,21 +31,20 @@ from library.tools.caption_reading import (
 )
 from library.tools.render_fonts import measurable_font_path
 from library.tools.safe_area import resolve_safe_area
+from library.tools.manifest_validator import MIN_CAPTION_DISPLAY_SECONDS
 from library.tools.subtitle_segment_id import slug
 from library.tools.subtitle_style import resolve_subtitle_style
 
 # ── Minimum display duration (seconds) ──
-# Matches Palmier Pro's AppTheme.Caption.minDisplayDuration.
-# Subtitles shorter than this are extended. Any resulting overlap is
-# trimmed or merged later without shifting a card away from its first word.
+# Keep the planner's soft reading target. Only its hard flash floor moved;
+# grouping still prefers 0.7s when the measured word timings allow it.
 MIN_DISPLAY_DURATION = 0.7
 
-# The hard floor, below which a card flashes rather than reads. Same
-# number as `manifest_validator.MIN_CAPTION_DISPLAY_SECONDS` and
-# `render_qa`'s `subtitle_too_short`. After block clamping, the completed
+# Alias for the hard floor, below which a card flashes rather than reads.
+# After block clamping, the completed
 # plan holds a short card only through an uncaptioned gap, or merges it
 # with a compatible same-block neighbour. It never emits a card below it.
-MIN_CAPTION_FLASH_SECONDS = 0.5
+MIN_CAPTION_FLASH_SECONDS = MIN_CAPTION_DISPLAY_SECONDS
 DEFAULT_CAPTION_FPS = 24000 / 1001
 
 # A caption also has to stay on screen long enough for its text to be read
@@ -782,9 +781,29 @@ def split_into_groups(
                 card_start_for_display = round(card_start_for_display, 3)
                 card_end = max(card_start_for_display, card_end)
                 card_end = round(card_end, 3)
-                duration = card_end - card_start_for_display
-                cps = (len(text) / duration) if duration > 0 else float("inf")
-                too_short = duration < MIN_CAPTION_FLASH_SECONDS
+                # The next card begins at the next word boundary. A hold
+                # that extends across that boundary is trimmed in the
+                # overlap pass, so score the span that will actually be
+                # visible. Otherwise the optimizer can choose a nominally
+                # floor-sized card that is cut under the floor and merged
+                # back into a three-line caption.
+                effective_end = card_end
+                if j < n:
+                    effective_end = min(
+                        effective_end, round(float(words[j]["start"]), 3))
+                effective_end = max(card_start_for_display, effective_end)
+                duration = effective_end - card_start_for_display
+                # The plan-wide floor pass decides whether a final card can
+                # use the uncaptioned silence after its block. Score a tail
+                # at the hard floor so an interior runt does not win a tie
+                # and later merge into an overlong card.
+                recoverable_tail = j == n
+                scored_duration = max(duration, min_display) \
+                    if recoverable_tail else duration
+                cps = (len(text) / scored_duration
+                       if scored_duration > 0 else float("inf"))
+                too_short = (not recoverable_tail
+                             and duration < MIN_CAPTION_FLASH_SECONDS)
                 too_fast = cps > MAX_CHARACTERS_PER_SECOND
                 late = any(
                     card_start_for_display >= float(word["end"]) - 1e-9
@@ -794,7 +813,8 @@ def split_into_groups(
                     words[k]["start"] - words[k - 1]["end"] > max_gap
                     for k in range(i + 1, j)
                 )
-                under_target = duration < min_display
+                under_target = (not recoverable_tail
+                                and duration < min_display)
                 # A card that would only meet the rate after its final word
                 # has already been spoken is not a usable partition either.
                 violates_readability = too_short or too_fast or late
@@ -928,9 +948,9 @@ def _enforce_caption_duration_floor(entries: list, structure: list,
             index += 1
             continue
 
-        # The renderer rounds each card's duration to frames. At rates
-        # such as 25fps, a 0.5s card rounds below ceil(0.5 * fps), so
-        # raise the target to the first millisecond that reaches the gate.
+        # The renderer rounds each card's duration to frames. When that
+        # rounds below ceil(floor * fps), raise the target to the first
+        # millisecond that reaches the gate.
         target_duration = floor_frames / fps
         target_end = math.ceil(
             (start + target_duration) * 1000 - 1e-9) / 1000
@@ -1085,7 +1105,8 @@ def _readability_issues(entries: list) -> list:
         cps = len(text) / duration if duration > 0 else None
         reasons = []
         if duration < MIN_CAPTION_FLASH_SECONDS:
-            reasons.append("duration_below_0.5_seconds")
+            reasons.append(
+                f"duration_below_{MIN_CAPTION_FLASH_SECONDS:.1f}_seconds")
         if cps is None or cps > MAX_CHARACTERS_PER_SECOND:
             reasons.append("reading_speed_over_25_characters_per_second")
         words = entry["words"]
@@ -1354,6 +1375,97 @@ def identify_emphasis_words(text: str) -> list:
         if clean and len(clean) >= 4 and clean not in skip_words:
             emphasis.append(clean)
     return emphasis[:2]
+
+
+def _caption_fits_two_lines(fitter, text: str,
+                            emphasis_words=None) -> bool:
+    """Use the same measured box and emphasis the subtitle renderer draws."""
+    line_count = getattr(fitter, "line_count", None)
+    if callable(line_count):
+        return line_count(text, emphasis_words) <= MAX_CAPTION_LINES
+    # Lightweight planner test fitters expose only the same box predicate.
+    return bool(fitter.fits_in_box(text))
+
+
+def _split_overlong_entry(entry: dict, fitter, max_words: int,
+                          fps: float) -> list | None:
+    """Repartition a repaired card without moving or dropping word timings.
+
+    Earlier timing and reading-speed repairs can join a short fragment to a
+    neighboring card. Recheck that final text against the rendered box, then
+    find a word-boundary partition whose every card reaches the hard display
+    floor before the next card begins.
+    """
+    words = sorted(entry.get("words") or [],
+                   key=lambda word: (word["start"], word["end"]))
+    if len(words) < 2 or not math.isfinite(float(fps)) or fps <= 0:
+        return None
+
+    fps = float(fps)
+    floor_frames = math.ceil(MIN_CAPTION_FLASH_SECONDS * fps - 1e-9)
+    max_words = max(1, int(max_words))
+    entry_start = round(float(entry["timeline_start"]), 3)
+    entry_end = round(float(entry["timeline_end"]), 3)
+    memo = {}
+
+    def solve(index):
+        if index == len(words):
+            return []
+        if index in memo:
+            return memo[index]
+
+        start = (entry_start if index == 0
+                 else round(float(words[index]["start"]), 3))
+        best = None
+        limit = min(len(words), index + max_words)
+        for end_index in range(limit, index, -1):
+            card_words = words[index:end_index]
+            text = " ".join(word["word"].strip() for word in card_words)
+            emphasis = identify_emphasis_words(text)
+            if not _caption_fits_two_lines(fitter, text, emphasis):
+                continue
+            if any(_ends_sentence(word["word"])
+                   for word in card_words[:-1]):
+                continue
+
+            end = (round(float(words[end_index]["start"]), 3)
+                   if end_index < len(words) else entry_end)
+            if (end <= start
+                    or end - start < MIN_CAPTION_FLASH_SECONDS - 1e-9
+                    or round((end - start) * fps) < floor_frames):
+                continue
+            # Keep a timed word wholly inside the card that carries it.
+            if float(card_words[-1]["end"]) > end + 0.001:
+                continue
+            suffix = solve(end_index)
+            if suffix is None:
+                continue
+            candidate = [(index, end_index, start, end)] + suffix
+            if best is None or len(candidate) < len(best):
+                best = candidate
+        memo[index] = best
+        return best
+
+    partitions = solve(0)
+    if not partitions or len(partitions) < 2:
+        return None
+
+    split_entries = []
+    for part_index, (start_index, end_index, start, end) in enumerate(
+            partitions):
+        card_words = words[start_index:end_index]
+        text = " ".join(word["word"].strip() for word in card_words)
+        split_entry = dict(entry)
+        split_entry["timeline_start"] = start
+        split_entry["timeline_end"] = end
+        split_entry["text"] = text
+        split_entry["emphasis_words"] = identify_emphasis_words(text)
+        split_entry["word_count"] = len(card_words)
+        split_entry["words"] = card_words
+        if part_index:
+            split_entry["id"] = f"{entry['id']}_split_{part_index + 1}"
+        split_entries.append(split_entry)
+    return split_entries
 
 
 def _require_word_timestamps(block: dict) -> list:
@@ -2128,6 +2240,65 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
             file=sys.stderr,
         )
 
+    # Duration and reading-speed repairs can join a short card to its
+    # neighbor. Reflow those final cards at the same measured size and
+    # emphasis used by the renderer, keeping the original word onsets and
+    # ends. A passage with no word-boundary partition that meets the hard
+    # floor is reported here instead of reaching render_subtitles as 3+ lines.
+    split_blocks = set()
+    reflowed = 0
+    index = 0
+    while index < len(subtitle_entries):
+        entry = subtitle_entries[index]
+        entry_fitter = _for_speaker(entry.get("speaker"))[1]
+        emphasis_words = entry.get("emphasis_words")
+        if _caption_fits_two_lines(
+                entry_fitter, entry["text"], emphasis_words):
+            index += 1
+            continue
+
+        line_count = getattr(entry_fitter, "line_count", None)
+        lines = (line_count(entry["text"], emphasis_words)
+                 if callable(line_count) else MAX_CAPTION_LINES + 1)
+        split_entries = _split_overlong_entry(
+            entry, entry_fitter, max_words_per_card, fps)
+        if split_entries is None:
+            print(
+                f"WARNING: caption {entry.get('id', '?')} "
+                f"{entry['text']!r} remains at {lines} lines after timing "
+                f"repairs; no word-timed split fits within "
+                f"{MAX_CAPTION_LINES} lines and the "
+                f"{MIN_CAPTION_FLASH_SECONDS:.1f}s display floor. The "
+                "subtitle renderer will report this unfit passage.",
+                file=sys.stderr,
+            )
+            index += 1
+            continue
+
+        subtitle_entries[index:index + 1] = split_entries
+        split_blocks.add(entry["spine_block_position"])
+        reflowed += 1
+        index += len(split_entries)
+
+    # Segment placement groups by a block-local card index. Re-number only
+    # blocks whose card sequence grew, preserving every unaffected block's
+    # ids while ensuring the split cards receive distinct segment names.
+    for position in split_blocks:
+        block_entries = sorted(
+            (entry for entry in subtitle_entries
+             if entry["spine_block_position"] == position),
+            key=lambda entry: (entry["timeline_start"],
+                               entry["timeline_end"]))
+        token = slug(position, "noblock")
+        for card_index, entry in enumerate(block_entries):
+            entry["card_index"] = card_index
+            entry["id"] = f"sub_{token}_{card_index + 1:03d}"
+    if reflowed:
+        print(
+            f"NOTE: reflowed {reflowed} repaired caption card(s) into "
+            f"word-timed cards of at most {MAX_CAPTION_LINES} lines",
+            file=sys.stderr,
+        )
     readability_issues = _readability_issues(subtitle_entries)
     # An unsplittable or speech-overlapped card remains in the plan with its
     # measured issue. Subtitle QA owns the verdict; planning must not reject

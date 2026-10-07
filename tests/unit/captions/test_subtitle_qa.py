@@ -64,6 +64,20 @@ def test_uncaptioned_seconds_inside_a_speech_block_are_still_reported():
     assert result.value == [(0, 1, 8.0)]
 
 
+def test_a_caption_at_the_new_minimum_is_not_reported_as_too_short():
+    fps = 24000 / 1001
+    result = next(
+        row for row in verify_subtitle_timing([{
+            "timeline_start": 0.0,
+            "timeline_end": 11 / fps,
+            "text": "and whoever",
+        }])
+        if row.metric == "subtitle_too_short"
+    )
+    assert result.passed
+    assert result.threshold == pytest.approx(0.4)
+
+
 # --------------------------------------------------------------------------
 # From test_subtitle_coverage.py
 #

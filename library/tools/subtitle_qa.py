@@ -1,4 +1,5 @@
 from library.tools.render_qa import RenderQAResult
+from library.tools.manifest_validator import MIN_CAPTION_DISPLAY_SECONDS
 from library.tools.transition_carriers import block_reaches_v1
 from library.tools.bookends import block_bookend
 from typing import Any, Dict, List
@@ -9,8 +10,8 @@ from typing import Any, Dict, List
 # not to do: every result here carried its failing severity whether or not
 # it had failed, so a report saying "No overlapping subtitles" arrived
 # labelled `error`.  A reader cannot tell an advisory note from a real one
-# if a clean check shouts, so the severity moves with the verdict.  The
-# thresholds themselves are untouched.
+# if a clean check shouts, so the severity moves with the verdict. The
+# shared display floor is owned by `manifest_validator`.
 FAILING_SEVERITY = {
     "subtitle_overflow": "error",
     "subtitle_overlap": "error",
@@ -103,8 +104,8 @@ def verify_subtitle_timing(subtitle_data: List[Dict[str, Any]],
             if end > next_start + 0.05: # Add small tolerance
                 overlaps.append((i, i+1))
                 
-        # 2. Duration too short (< 0.5s, unreadable)
-        if dur > 0 and dur < 0.5:
+        # 2. Duration below the shared hard display floor.
+        if dur > 0 and dur < MIN_CAPTION_DISPLAY_SECONDS:
             too_short.append(i)
             
         # 3. Duration too long (> 5s for shortform, stale)
@@ -152,9 +153,11 @@ def verify_subtitle_timing(subtitle_data: List[Dict[str, Any]],
         metric="subtitle_too_short",
         passed=len(too_short) == 0,
         value=too_short,
-        threshold=0.5,
+        threshold=MIN_CAPTION_DISPLAY_SECONDS,
         severity=_severity("subtitle_too_short", len(too_short) == 0),
-        detail=f"Found {len(too_short)} subtitles shorter than 0.5s" if too_short else "No overly short subtitles"
+        detail=(f"Found {len(too_short)} subtitles shorter than "
+                f"{MIN_CAPTION_DISPLAY_SECONDS:g}s"
+                if too_short else "No overly short subtitles")
     ))
     
     results.append(RenderQAResult(
@@ -189,4 +192,3 @@ def verify_subtitle_timing(subtitle_data: List[Dict[str, Any]],
     ))
     
     return results
-

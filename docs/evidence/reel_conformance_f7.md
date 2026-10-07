@@ -25,9 +25,11 @@ author sub-second keeps), and on the placed path the viewer sees a flash
 either way. So F7 fails every placed item under the floor, whatever
 block it ends with.
 
-The floor is not chosen: it is `manifest_validator.
-MIN_CAPTION_DISPLAY_SECONDS` (0.5s) - the pipeline's own hard floor
-(AGENTS.md 10.4; `render_qa`'s `subtitle_too_short`; the manifest P6
-check). At 23.976fps that is 12 frames; the 2-3 frame flash cards sit
-an order of magnitude below it, so no correct reel is near the line.
+The floor is declared once at `manifest_validator.
+MIN_CAPTION_DISPLAY_SECONDS` and read by the planner, subtitle QA, and F7.
+It was 0.5s (12 frames at 23.976fps) when this evidence was first
+recorded. On 2026-10-07 the captain lowered it to 0.4s (10 frames) so
+measured subtitle passages could split into more cards while staying
+within two lines. The original 2-3 frame flash cards remain well below
+the current floor.
 ```

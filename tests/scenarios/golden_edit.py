@@ -86,11 +86,22 @@ class Monologue:
         if clip != self.clips[0].name:
             return []
         segments = []
-        for start, text in self.lines:
+        for line_index, (start, text) in enumerate(self.lines):
             cursor, words = start, []
-            for word in text.split():
+            tokens = text.split()
+            for word_index, word in enumerate(tokens):
+                # The terminal words in the first and last synthetic
+                # passages are measured at the 0.4s readability floor. This
+                # keeps the golden delivery case feasible without moving
+                # any spoken onset; the planner's separate unit case covers
+                # a dense tail that cannot be split at that floor.
+                duration = (
+                    0.4 if line_index in (0, len(self.lines) - 1)
+                    and word_index == len(tokens) - 1
+                    else golden.WORD_LENGTH
+                )
                 words.append({"word": word, "start": round(cursor, 3),
-                              "end": round(cursor + golden.WORD_LENGTH, 3)})
+                              "end": round(cursor + duration, 3)})
                 cursor += golden.WORD_SECONDS
             segments.append({"start": start, "end": words[-1]["end"],
                              "text": text, "words": words})

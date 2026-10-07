@@ -113,6 +113,8 @@ def test_pytest_runs_only_paths_the_checkout_has(monkeypatch, tmp_path):
     (tmp_path / "tests" / "contracts").mkdir()
     monkeypatch.setattr(hygiene, "broker_serving", _sequence([False, False]))
     monkeypatch.setattr(hygiene, "gate_running", lambda: False)
+    monkeypatch.setattr(runner.hygiene, "bind_renderer_dependencies",
+                        lambda _checkout: None)
     seen = []
 
     def fake_run_logged(command, cwd, log_path, timeout):

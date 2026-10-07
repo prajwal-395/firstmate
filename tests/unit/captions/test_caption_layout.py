@@ -1490,9 +1490,11 @@ def test_the_split_is_balanced_not_greedy():
         _fast_spine(FAST_LINE), caption_case="lowercase",
     )["subtitle_plan"]["subtitle_entries"]
     assert entries
+    from library.tools.manifest_validator import MIN_CAPTION_DISPLAY_SECONDS
     flashing = [(e["text"], d) for e, d in zip(entries, _durations(entries))
-                if d < 0.5]
-    assert not flashing, f"cards under 0.5s: {flashing}"
+                if d < MIN_CAPTION_DISPLAY_SECONDS]
+    assert not flashing, (
+        f"cards under {MIN_CAPTION_DISPLAY_SECONDS:g}s: {flashing}")
 
 
 def test_a_single_word_is_always_a_legal_card():

@@ -18,10 +18,11 @@ until it was split by subsystem; the wording is unchanged, so each rule
 is findable by its own words, and AGENTS.md 10.2 keeps the headline
 and points here.
 
-**`manifest_validator.py` checks the PLAN: no caption card under 0.5s,
+**`manifest_validator.py` checks the PLAN: no caption card under 0.4s,
 and no effect family covering 100% of eligible items with two or fewer
 parameter sets.**  Relocated from AGENTS.md 10.4 on 2026-09-12, where it
-restated the constants this file already declares (`MIN_DISPLAY_DURATION`
+restated the constants this file already declares
+(`MIN_CAPTION_DISPLAY_SECONDS`
 for the first, `MAX_UNIFORM_PARAMETER_SETS` for the second); §10.4 keeps
 the headline and points here.
 
@@ -67,12 +68,12 @@ NON_OVERLAPPING_TRACKS = ("V1", "V2", "V3", "V4", "A2")
 
 # ── P6: no caption card flashes ──
 #
-# A card below this reads as a flicker rather than as text. Nothing here
-# is invented: 0.5s is the threshold `render_qa`'s own
-# `subtitle_too_short` metric already uses, and 0.7s is
-# `step_4_01_plan_subtitles.MIN_DISPLAY_DURATION`, the pipeline's own
-# declared floor. The hard failure is at the lower one; cards between the
-# two are counted in the message so the softer floor stays visible.
+# A card below this reads as a flicker rather than as text. On 2026-10-07,
+# the captain lowered the hard floor to 0.4s so the subtitle planner can
+# split measured passages into more cards without exceeding two lines.
+# The planner, subtitle QA and reel conformance checks read this constant.
+# Cards from this hard floor to 0.7s remain counted against the soft
+# display threshold, so the slower-reading cases stay visible.
 #
 # Why the existing floor cannot catch this, which is the finding:
 # `enforce_min_duration` extends a short card only up to the next card's
@@ -109,7 +110,7 @@ NON_OVERLAPPING_TRACKS = ("V1", "V2", "V3", "V4", "A2")
 # the narrowest one that is provable from the manifest - it needs the card
 # to be last in its block AND to end at the block's end - because a floor
 # that exempts the general case is a gate that cannot fail.
-MIN_CAPTION_DISPLAY_SECONDS = 0.5
+MIN_CAPTION_DISPLAY_SECONDS = 0.4
 SOFT_CAPTION_DISPLAY_SECONDS = 0.7
 
 # How close a card's end must be to its block's end to count as ending

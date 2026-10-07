@@ -101,9 +101,17 @@ def test_run_does_not_pass_conftest_files_as_pytest_paths(monkeypatch,
     monkeypatch.setattr(runner, "_pytest_python", lambda: "python3")
     monkeypatch.setattr(runner, "_read_summary", lambda _path: (1, 0, True))
     commands = []
+    events = []
+
+    def bind_dependencies(path):
+        events.append(("bind", path))
+
+    monkeypatch.setattr(runner.hygiene, "bind_renderer_dependencies",
+                        bind_dependencies)
 
     def run_logged(command, _cwd, _log_path, _timeout):
         commands.append(command)
+        events.append(("pytest", command))
         return {"exit": 0, "timed_out": False, "group_clean": True,
                 "elapsed": 0}
 
@@ -117,3 +125,5 @@ def test_run_does_not_pass_conftest_files_as_pytest_paths(monkeypatch,
 
     assert result["ok"] is True
     assert commands[0][3] == "tests/unit/tools/test_example.py"
+    assert [event[0] for event in events] == ["bind", "pytest"]
+    assert events[0][1] == str(checkout)

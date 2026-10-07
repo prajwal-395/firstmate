@@ -129,6 +129,7 @@ class DriverClient:
     """
 
     def __init__(self, binary: Path | None = None):
+        self._refresh_native = binary is None and not os.environ.get(ENV_BIN)
         self._binary = binary if binary is not None else resolve_binary()
         self._process: subprocess.Popen | None = None
         self._refs: dict[str, dict] = {}
@@ -140,12 +141,13 @@ class DriverClient:
         # A session start is a safe point: refresh the driver build
         # first, while it is not running. Best-effort - a refresh
         # failure must not break the spawn it precedes.
-        try:
-            from library.tools import native_refresh
-            from ren.engine_root import require_engine_root
-            native_refresh.ensure_current(require_engine_root())
-        except Exception:  # noqa: BLE001 - refresh never breaks a spawn
-            pass
+        if self._refresh_native:
+            try:
+                from library.tools import native_refresh
+                from ren.engine_root import require_engine_root
+                native_refresh.ensure_current(require_engine_root())
+            except Exception:  # noqa: BLE001 - refresh never breaks a spawn
+                pass
         process = subprocess.Popen(
             [str(self._binary)],
             stdin=subprocess.PIPE,

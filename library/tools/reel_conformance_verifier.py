@@ -27,7 +27,7 @@ What it checks, ported from the audit's findings
 - **F6: Caption card overlap** - cards that cannot coexist on one track,
   measured on what the build placed.
 - **F7: Short placed items** - caption, video and audio items under
-  the 0.5s readability floor (`manifest_validator.
+  the 0.4s readability floor (`manifest_validator.
   MIN_CAPTION_DISPLAY_SECONDS`), measured on what the build placed.
 - **F9: Duplicate placements** - a placement loop that runs once per clip
   PER CLIP, producing N*N items at duplicate record positions.  This
@@ -115,7 +115,7 @@ class FindingClass:
     F4 = "F4"  # ENCODING: dropped clips (item count mismatch)
     F5 = "F5"  # PLANNING: uncaptioned speech (straddling segments)
     F6 = "F6"  # PLANNING: overlapping caption cards
-    F7 = "F7"  # PLANNING: placed items under the readability floor (<0.5s)
+    F7 = "F7"  # PLANNING: placed items under the readability floor (<0.4s)
     F8 = "F8"  # PLANNING: boundary cuts through unseen speech
 
     # 2026-09-06.  F2 paired planned cards to placed items BY LIST INDEX
@@ -2054,17 +2054,15 @@ def _hang_limit_seconds(word_count: int) -> float:
     The ONE expression of the hang bound, shared by the plan-side and
     the placed-side F15 rather than restated in each: a card of N words
     should not exceed ``N * max_gap`` seconds, and never less than the
-    legibility floor. ``max_gap`` (1.0 s) is the pipeline's silence
-    threshold - if two words were further apart they would never have
-    been grouped together - and 0.7 s is the minimum display duration
-    the grouping extends a short card to. Measured across 92 real cards:
+    shared hard display floor. ``max_gap`` (1.0 s) is the pipeline's
+    silence threshold - if two words were further apart they would never
+    have been grouped together. Measured across 92 real cards:
     0 false positives, highest observed per-word rate 0.960 s.
     """
     # max_gap: the pipeline's silence threshold (step_4_01 _feasible
     # rejects groups spanning a wider gap).
     MAX_GAP = 1.0
-    MIN_CAPTION_DISPLAY = 0.7
-    return max(MIN_CAPTION_DISPLAY, word_count * MAX_GAP)
+    return max(MIN_CAPTION_DISPLAY_SECONDS, word_count * MAX_GAP)
 
 
 def check_caption_hangs(reel_name: str,
@@ -2531,11 +2529,11 @@ def check_short_captions(reel_name: str,
                          ) -> List[Finding]:
     """F7: a placed caption item under the readability floor FAILS.
 
-    AGENTS.md 10.4 requires no caption card under 0.5s.  The floor is
+    AGENTS.md 10.4 requires no caption card under 0.4s.  The floor is
     NOT chosen here: it is `manifest_validator.
     MIN_CAPTION_DISPLAY_SECONDS`, the pipeline's own hard floor - the
     threshold `render_qa`'s `subtitle_too_short` already uses and the
-    one the manifest's P6 check enforces.  At 23.976fps it is 12
+    one the manifest's P6 check enforces.  At 23.976fps it is 10
     frames; the flash cards this exists to catch are 2-3.
 
     There is deliberately NO last-of-block exemption.  The exemption's
@@ -4700,7 +4698,7 @@ def format_table(report: VerificationReport) -> str:
         f" {'#':>2} {'reel':<48} {'plan_s':>7} {'expF':>7} {'actF':>6} "
         f"{'items e/a':>9} {'1f-holes':>8} {'big hole':>12} "
         f"{'caps e/a':>8} {'speech':>7} {'uncap':>6} {'%':>5} "
-        f"{'<0.5s':>5} {'edge':>4} {'cut':>4} {'mk':>4}")
+        f"{'<0.4s':>5} {'edge':>4} {'cut':>4} {'mk':>4}")
     sep = "-" * len(header)
 
     lines.append(header)

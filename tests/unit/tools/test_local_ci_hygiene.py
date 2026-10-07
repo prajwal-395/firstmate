@@ -58,6 +58,42 @@ def test_a_checkout_is_deleted_on_success(mirror, tmp_path):
     assert os.listdir(os.path.join(state, "checkouts")) == []
 
 
+def test_renderer_dependencies_are_bound_by_the_checkout_script(
+        tmp_path, monkeypatch):
+    checkout = tmp_path / "checkout"
+    scripts = checkout / "scripts"
+    scripts.mkdir(parents=True)
+    renderer = checkout / "remotion-subtitles"
+    renderer.mkdir()
+    script = scripts / "install_node_deps.sh"
+    script.write_text(
+        '#!/bin/bash\nprintf "%s\\n%s" "$PWD" "$1" > "$NODE_BIND_CWD"\n'
+        'echo "NODE DEPS: PASS"\n', encoding="utf-8")
+    bound_cwd = tmp_path / "bound-cwd.txt"
+    monkeypatch.setenv("NODE_BIND_CWD", str(bound_cwd))
+    monkeypatch.setenv(
+        "PIPELINE_REMOTION_DIR", str(tmp_path / "configured-renderer"))
+
+    hygiene.bind_renderer_dependencies(str(checkout))
+
+    assert bound_cwd.read_text(encoding="utf-8").splitlines() == [
+        str(checkout), str(renderer)]
+
+
+def test_renderer_dependency_binding_refuses_when_the_script_fails(
+        tmp_path):
+    checkout = tmp_path / "checkout"
+    scripts = checkout / "scripts"
+    scripts.mkdir(parents=True)
+    (scripts / "install_node_deps.sh").write_text(
+        '#!/bin/bash\necho "shared store missing" >&2\nexit 1\n',
+        encoding="utf-8")
+
+    with pytest.raises(hygiene.HygieneRefused,
+                       match="shared store missing"):
+        hygiene.bind_renderer_dependencies(str(checkout))
+
+
 def test_parallel_checkouts_get_unique_paths_in_the_same_second(
         mirror, tmp_path, monkeypatch):
     state = str(tmp_path / "state")
@@ -285,6 +321,11 @@ def _pytest_fake(log_text, code=0):
     return fake
 
 
+def _stub_renderer_binding(monkeypatch):
+    monkeypatch.setattr(runner.hygiene, "bind_renderer_dependencies",
+                        lambda _checkout: None)
+
+
 def test_pytest_terminal_summary_counts_the_real_test_run(tmp_path):
     log = tmp_path / "run.log"
     log.write_text(
@@ -298,6 +339,7 @@ def test_pytest_terminal_summary_counts_the_real_test_run(tmp_path):
 def test_a_new_broker_after_the_run_fails_the_check(monkeypatch, tmp_path):
     monkeypatch.setattr(hygiene, "broker_serving", _sequence([False, True]))
     monkeypatch.setattr(hygiene, "gate_running", lambda: False)
+    _stub_renderer_binding(monkeypatch)
     monkeypatch.setattr(runner, "_pytest_python", lambda: sys.executable)
     monkeypatch.setattr(
         "subprocess.Popen",
@@ -311,6 +353,7 @@ def test_a_new_broker_after_the_run_fails_the_check(monkeypatch, tmp_path):
 def test_no_new_broker_passes_a_green_run(monkeypatch, tmp_path):
     monkeypatch.setattr(hygiene, "broker_serving", _sequence([False, False]))
     monkeypatch.setattr(hygiene, "gate_running", lambda: False)
+    _stub_renderer_binding(monkeypatch)
     monkeypatch.setattr(runner, "_pytest_python", lambda: sys.executable)
     monkeypatch.setattr(
         "subprocess.Popen",
@@ -335,6 +378,7 @@ def test_a_zero_exit_without_executed_tests_fails_closed(
         monkeypatch, tmp_path, summary):
     monkeypatch.setattr(hygiene, "broker_serving", _sequence([False, False]))
     monkeypatch.setattr(hygiene, "gate_running", lambda: False)
+    _stub_renderer_binding(monkeypatch)
     monkeypatch.setattr(runner, "_pytest_python", lambda: sys.executable)
     monkeypatch.setattr("subprocess.Popen", _pytest_fake(summary))
 
@@ -350,6 +394,7 @@ def test_a_zero_exit_without_executed_tests_fails_closed(
 def test_a_run_that_never_prints_a_summary_fails_closed(monkeypatch, tmp_path):
     monkeypatch.setattr(hygiene, "broker_serving", _sequence([False, False]))
     monkeypatch.setattr(hygiene, "gate_running", lambda: False)
+    _stub_renderer_binding(monkeypatch)
     monkeypatch.setattr(runner, "_pytest_python", lambda: sys.executable)
     monkeypatch.setattr("subprocess.Popen",
                         _pytest_fake("ERROR collecting tests\n", code=2))
@@ -366,6 +411,7 @@ def test_a_hung_run_times_out_and_still_reports(monkeypatch, tmp_path):
 
     monkeypatch.setattr(hygiene, "broker_serving", _sequence([False, False]))
     monkeypatch.setattr(hygiene, "gate_running", lambda: False)
+    _stub_renderer_binding(monkeypatch)
     monkeypatch.setattr(runner, "_pytest_python", lambda: sys.executable)
     monkeypatch.setattr("subprocess.Popen", hanging)
     monkeypatch.setattr(runner, "_terminate_process_group", lambda process: True)

@@ -97,7 +97,7 @@ An eighth, a face cut by the frame edge, is measured on the render and gates thr
 **`subtitle_gaps` measures the uncaptioned seconds INSIDE a speech block, and it reads the spine to know which those are.**
 A caller with no spine gets the whole-timeline measurement and the result says which it made.
 
-`manifest_validator.py` checks the PLAN: no caption card under 0.5s, and no effect family covering 100% of eligible items with two or fewer parameter sets.
+`manifest_validator.py` checks the PLAN: no caption card under 0.4s, and no effect family covering 100% of eligible items with two or fewer parameter sets.
 - P6 exempts the last card in its block (ending where the block does) and reports it. [why](docs/RULE_EVIDENCE.md#the-caption-box-is-not-one-line)
 - P7 judges DRAWN effects only. `CUT_TYPES` draw nothing; denominator is the transitions the plan wrote, not `len(v1_clips) - 1`. [why](docs/RULE_EVIDENCE.md#hard-cuts-are-not-an-effect-on-everything)
 

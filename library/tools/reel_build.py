@@ -2286,7 +2286,7 @@ def subtract_interval_cuts(
 
 #: A kept remnant under this long, left behind by a strike's own edge,
 #: cannot be placed: the F7 readability floor refuses picture and audio
-#: items under 0.5s (12 frames), so building it is building a refusal.
+#: items under 0.4s, so building it is building a refusal.
 ABSORB_REMNANT_SECONDS = 0.5
 
 

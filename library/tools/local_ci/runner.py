@@ -205,6 +205,7 @@ def run(paths: list, checkout: str, log_path: str,
             "selection vanished against the checkout - every selected "
             "path is absent, so this checkout is anomalous; retrying "
             "next pass on a fresh fetch")
+    hygiene.bind_renderer_dependencies(checkout)
     broker_before = hygiene.broker_serving()
     result = _run_logged(
         [_pytest_python(), *pytest_argv(paths, workers)],

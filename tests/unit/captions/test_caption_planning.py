@@ -9,6 +9,7 @@ whole number >= 1, and is receipted on the plan as
 """
 from __future__ import annotations
 import copy
+import math
 import sys
 from pathlib import Path
 from library.steps.step_4_01_plan_subtitles.step import (
@@ -719,7 +720,7 @@ def test_plan_to_props_partitions_whole_cards():
 # purpose: ending cards on punctuation is only the FOURTH tiebreak in
 # `split_into_groups` (after flashing, under-floor and longest-shortest),
 # and splitting the run at "time." would leave a card on screen for the
-# gap to "like" - 0.21s, under the 0.5s flash floor the manifest
+# gap to "like" - 0.21s, under the 0.4s flash floor the manifest
 # validator fails a build on. The optimizer picks a straddled sentence
 # over a flashing card. That tradeoff is a planner decision, fleet-wide,
 # so this lane reports it rather than re-tuning the optimizer: the note
@@ -744,6 +745,9 @@ if PROJECT_ROOT not in sys.path:
 
 from library.steps.step_4_01_plan_subtitles.step import (
     CaptionFitter,
+    MAX_CAPTION_LINES,
+    MIN_DISPLAY_DURATION,
+    build_caption_fitter,
     resolve_caption_overlaps,
 )
 from library.tools.render_fonts import measurable_font_path
@@ -768,6 +772,141 @@ def _reel_fitter() -> CaptionFitter:
         usable_width=816.0 - 8,
         outline_width=4,
     )
+
+
+def test_reel03_short_floor_splits_three_line_card_without_retiming_words():
+    """Reel 03 card 18: the 0.4s floor keeps a short split readable.
+
+    This exact five-word cue wrapped to three lines in the saved V4 props.
+    Its word boundaries are frozen as offsets from the cue's first frame;
+    the planner must split it into cards that fit the measured box without
+    losing or moving a word.
+    """
+    from library.tools.safe_area import resolve_safe_area
+
+    fps = 24000 / 1001
+    frame_words = [
+        ("the", 12, 14),
+        ("question", 14, 23),
+        ("changed,", 23, 34),
+        ("and", 35, 37),
+        ("whoever", 37, 46),
+    ]
+    cue_frames = 46 - 12
+    duration = cue_frames / fps
+    source_start = 100.0
+    timeline_start = 10.0
+    spine = {"structure": [{
+        "block_type": "speech",
+        "position": 1,
+        "timeline_start": timeline_start,
+        "timeline_end": timeline_start + duration,
+        "source_start": source_start,
+        "source_end": source_start + duration,
+        "clip_id": "reel03-card18",
+        "alignment_method": "whisperx",
+        "speaker": "Akshita",
+        "word_timestamps": [
+            {
+                "word": word,
+                "source_start": source_start + (start - 12) / fps,
+                "source_end": source_start + (end - 12) / fps,
+            }
+            for word, start, end in frame_words
+        ],
+        "content": {"text": "the question changed, and whoever"},
+    }]}
+
+    plan = generate_subtitles(
+        spine,
+        caption_case="as_written",
+        brand_effect={"subtitle_style": "minimal"},
+        brand_style={"typography": {
+            "font": "Montserrat", "size": 58, "weight": 800,
+        }},
+        fps=fps,
+    )["subtitle_plan"]
+    fitter = build_caption_fitter(plan["style"], resolve_safe_area())
+    entries = plan["subtitle_entries"]
+
+    assert entries, "the cue produced no caption cards"
+    assert all(
+        fitter.line_count(entry["text"], entry["emphasis_words"])
+        <= MAX_CAPTION_LINES
+        for entry in entries
+    ), [entry["text"] for entry in entries]
+    assert all(
+        entry["timeline_end"] - entry["timeline_start"]
+        >= MIN_CAPTION_FLASH_SECONDS - 0.001
+        for entry in entries
+    )
+    assert all(
+        left["timeline_end"] <= right["timeline_start"] + 0.001
+        for left, right in zip(entries, entries[1:])
+    )
+
+    actual_words = [word for entry in entries for word in entry["words"]]
+    assert [word["word"] for word in actual_words] == [
+        word for word, _, _ in frame_words
+    ]
+    for actual, (_, start_frame, end_frame) in zip(
+            actual_words, frame_words):
+        assert actual["start"] == pytest.approx(
+            timeline_start + (start_frame - 12) / fps, abs=0.001)
+        assert actual["end"] == pytest.approx(
+            timeline_start + (end_frame - 12) / fps, abs=0.001)
+
+
+def test_planner_reports_a_card_that_cannot_fit_the_shorter_floor(capsys):
+    """A dense, contiguous boundary stays reported instead of going lower.
+
+    The golden monologue's ``week is simple`` tail has only 0.288s before
+    the next speech block. Splitting it would create a card below the
+    captain's 0.4s floor, so the planner names the passage before rendering
+    rather than sending a three-line card downstream.
+    """
+    spine = {"structure": [{
+        "block_type": "speech",
+        "position": 1,
+        "timeline_start": 0.0,
+        "timeline_end": 2.667,
+        "source_start": 0.5,
+        "source_end": 3.15,
+        "clip_id": "golden-monologue",
+        "alignment_method": "whisperx",
+        "word_timestamps": [
+            {"word": word, "source_start": start, "source_end": end}
+            for word, start, end in [
+                ("the", 0.5, 0.75),
+                ("one", 0.8, 1.05),
+                ("thing", 1.1, 1.35),
+                ("i", 1.37, 1.65),
+                ("learned", 1.672, 1.95),
+                ("this", 1.974, 2.25),
+                ("week", 2.3, 2.55),
+                ("is", 2.624, 2.85),
+                ("simple", 2.879, 3.15),
+            ]
+        ],
+        "content": {"text": "the one thing i learned this week is simple"},
+    }]}
+
+    result = generate_subtitles(
+        spine, caption_case="lowercase", brand_effect={},
+        brand_style={}, fps=24000 / 1001)
+    report = capsys.readouterr().err
+    assert "week is simple" in report
+    assert "0.4s display floor" in report
+    entries = result["subtitle_plan"]["subtitle_entries"]
+    words = [word for entry in entries for word in entry["words"]]
+    expected = spine["structure"][0]["word_timestamps"]
+    assert [word["word"] for word in words] == [
+        word["word"] for word in expected]
+    for actual, source in zip(words, expected):
+        assert actual["start"] == pytest.approx(
+            source["source_start"] - 0.5, abs=0.001)
+        assert actual["end"] == pytest.approx(
+            source["source_end"] - 0.5, abs=0.001)
 
 # seg284 tail + seg285 head, transcript seconds, reading-lowercased -
 # the exact run the Reel 17 card straddles.
@@ -911,9 +1050,9 @@ def test_sentence_final_runt_merges_backward():
 # card's end comes FROM THE WORD - the transcript times 'concise,' over
 # ~3.03s, and the planner renders that span faithfully:
 #
-# - a block ending 3s after a 0.4s word still plans a 0.7s card (the block
+# - a block ending 3s after a 0.4s word still plans a 0.4s card (the block
 #   boundary does not stretch it);
-# - a next card starting 2.6s later still leaves a 0.7s card (the next
+# - a next card starting 2.6s later still leaves a 0.4s card (the next
 #   card's start does not stretch it);
 # - only a ~3s word span itself produces a ~3s card.
 #
@@ -970,7 +1109,7 @@ def _cards(entries):
 
 
 def test_stretched_single_word_plans_a_floor_card_and_passes_f15(capsys):
-    """Reel 24's shape: one word timed over 3.03s plans a 0.7s card.
+    """Reel 24's shape: one word timed over 3.03s plans a floor card.
 
     Before the fix this planned a 3.03s card and F15 refused it - the
     refusal the rebuild held reel 24 for. After the fix the word keeps
@@ -984,7 +1123,7 @@ def test_stretched_single_word_plans_a_floor_card_and_passes_f15(capsys):
     assert len(entries) == 1
     assert entries[0]["text"] == "concise,"
     duration = entries[0]["timeline_end"] - entries[0]["timeline_start"]
-    assert duration == pytest.approx(0.7, abs=0.01)
+    assert duration >= MIN_DISPLAY_DURATION - 0.001
     assert entries[0]["timeline_start"] == pytest.approx(100.0 - 100.0 + 10.0)
 
     assert check_caption_hangs("Reel 24", _cards(entries), FPS) == []
@@ -1139,14 +1278,14 @@ def test_plan_extends_a_fast_card_without_changing_its_words():
     assert [word["word"] for word in entry["words"]] == [
         "this", "needs", "time."
     ]
-    assert duration >= 0.5
+    assert duration >= MIN_DISPLAY_DURATION
     assert len(entry["text"]) / duration <= 25
     assert plan["readability_issues"] == []
 
 
 def test_reel08_short_block_tail_uses_the_safe_gap_before_the_next_block():
     # Frozen from Reel 08's current staging plan. The 0.38s block contains
-    # only "mm-hmm."; block clamping used to undo its 0.7s minimum hold.
+    # only "mm-hmm."; block clamping used to undo its minimum hold.
     spine = {"structure": [
         {
             "position": 5,
@@ -1199,14 +1338,18 @@ def test_reel08_short_block_tail_uses_the_safe_gap_before_the_next_block():
     assert short["timeline_start"] == 26.03
     short_frames = round((short["timeline_end"] - short["timeline_start"])
                          * (24000 / 1001))
-    assert short_frames >= 12
+    minimum_frames = math.ceil(
+        MIN_CAPTION_FLASH_SECONDS * (24000 / 1001) - 1e-9)
+    assert short_frames >= minimum_frames
     assert short["timeline_end"] < 26.697
     assert [word["word"] for word in short["words"]] == ["mm-hmm."]
     assert all(
         round((entry["timeline_end"] - entry["timeline_start"])
-              * (24000 / 1001)) >= 12
+              * (24000 / 1001)) >= minimum_frames
         for entry in entries)
-    assert plan["readability_issues"] == []
+    assert [issue["text"] for issue in plan["readability_issues"]] == [
+        "ranking tells"
+    ]
 
 
 def test_reel13_one_frame_so_holds_backward_only_in_caption_free_silence():
@@ -1236,8 +1379,11 @@ def test_reel13_one_frame_so_holds_backward_only_in_caption_free_silence():
     assert result == {"extended": 1, "extended_backward": 1, "merged": 0}
     assert entries[0]["timeline_end"] == 75.30
     assert so["speaker"] == "Craig"
-    assert so["timeline_start"] == pytest.approx(75.45, abs=0.001)
-    assert round((so["timeline_end"] - so["timeline_start"]) * fps) >= 12
+    minimum_frames = math.ceil(MIN_CAPTION_FLASH_SECONDS * fps - 1e-9)
+    assert so["timeline_start"] == pytest.approx(
+        75.95 - minimum_frames / fps, abs=0.001)
+    assert round((so["timeline_end"] - so["timeline_start"]) * fps) \
+        >= minimum_frames
     assert so["timeline_end"] <= 75.95
     assert not any(
         other is not so
@@ -1251,19 +1397,19 @@ def test_short_tail_does_not_hold_backward_through_its_speech_block():
             "position": 14,
             "block_type": "speech",
             "timeline_start": 75.50,
-            "timeline_end": 75.95,
+            "timeline_end": 75.85,
             "source_start": 4000.0,
-            "source_end": 4000.45,
+            "source_end": 4000.35,
             "speaker": "Craig",
             "content": {"text": "So"},
             "word_timestamps": [{
-                "word": "So", "source_start": 4000.40,
-                "source_end": 4000.45,
+                "word": "So", "source_start": 4000.30,
+                "source_end": 4000.35,
             }],
         }],
     }
 
-    with pytest.raises(ValueError, match="under the 0.500s readability floor"):
+    with pytest.raises(ValueError, match="under the 0.400s readability floor"):
         generate_subtitles(
             spine, caption_case="as_written", brand_effect={},
             brand_style={}, fps=24000 / 1001,
@@ -1275,13 +1421,13 @@ def test_unfixable_sub_floor_block_refuses_instead_of_emitting_f7_card():
         {"word": "2026.", "source_start": 0.0, "source_end": 0.212},
     ], source_end=0.212, timeline_end=0.212)
 
-    with pytest.raises(ValueError, match="under the 0.500s readability floor"):
+    with pytest.raises(ValueError, match="under the 0.400s readability floor"):
         generate_subtitles(
             spine, caption_case="as_written", brand_effect={}, brand_style={}
         )
 
 
-def test_duration_floor_uses_frame_ceil_for_25fps_cards():
+def test_duration_floor_uses_frame_ceil_for_fractional_floor_frames():
     spine = {"structure": [
         {
             "position": 1,
@@ -1315,11 +1461,13 @@ def test_duration_floor_uses_frame_ceil_for_25fps_cards():
 
     entries = generate_subtitles(
         spine, caption_case="as_written", brand_effect={}, brand_style={},
-        fps=25,
+        fps=23,
     )["subtitle_plan"]["subtitle_entries"]
     short = next(entry for entry in entries if entry["text"] == "short")
 
-    assert round((short["timeline_end"] - short["timeline_start"]) * 25) >= 13
+    minimum_frames = math.ceil(MIN_CAPTION_FLASH_SECONDS * 23 - 1e-9)
+    assert round((short["timeline_end"] - short["timeline_start"]) * 23) \
+        >= minimum_frames
     assert short["timeline_end"] < 0.8
 
 
@@ -1361,7 +1509,7 @@ def test_short_tail_can_merge_across_long_pause_to_keep_date_readable():
     assert plan["readability_issues"] == []
 
 
-def test_block_tail_fragment_merges_with_next_speech_across_nonspeech_row():
+def test_block_tail_fragment_reflows_across_nonspeech_row():
     spine = {"structure": [
         {
             "position": 14,
@@ -1404,12 +1552,13 @@ def test_block_tail_fragment_merges_with_next_speech_across_nonspeech_row():
     )["subtitle_plan"]
     entries = plan["subtitle_entries"]
 
-    assert len(entries) == 1
-    assert entries[0]["text"] == "So and that's right."
-    assert [word["word"] for word in entries[0]["words"]] == [
-        "So", "and", "that's", "right."
+    assert [entry["text"] for entry in entries] == [
+        "So and that's", "right."
     ]
-    assert plan["readability_issues"] == []
+    assert [word["word"] for word in entries[0]["words"]] == [
+        "So", "and", "that's"
+    ]
+    assert [word["word"] for word in entries[1]["words"]] == ["right."]
 
 
 def test_cut_word_fragment_merges_with_previous_speech_across_nonspeech_row():

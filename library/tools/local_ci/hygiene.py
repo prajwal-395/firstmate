@@ -243,6 +243,26 @@ def disposable_checkout(mirror: str, rev: str, state: str = ""):
             pass
 
 
+def bind_renderer_dependencies(checkout: str) -> None:
+    """Bind the machine's shared Remotion dependencies into a checkout.
+
+    Git worktrees do not carry ignored ``node_modules`` links. Tier-1
+    selections include tests that render subtitles, so bind the existing
+    shared store before pytest starts. The installer owns the lockfile
+    key and the binding path; a failure is a refusal, not a test verdict.
+    """
+    result = subprocess.run(
+        ["bash", "scripts/install_node_deps.sh",
+         os.path.join(os.path.abspath(checkout), "remotion-subtitles")],
+        cwd=checkout,
+        capture_output=True, encoding="utf-8", check=False, timeout=600)
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip()
+        raise HygieneRefused(
+            "Remotion dependencies could not be bound in the disposable "
+            f"checkout: {detail[:2000]}")
+
+
 class Slots:
     """Test slots as file locks: cross-process, non-blocking.
 

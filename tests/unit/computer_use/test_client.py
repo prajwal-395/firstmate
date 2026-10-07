@@ -32,6 +32,21 @@ def test_press_reaches_the_driver_with_the_ref_find_element_issued(client):
     assert client.call("press", {"element": ref}) == {"pressed": True}
 
 
+def test_an_explicit_driver_binary_does_not_refresh_native_builds(
+        client, monkeypatch):
+    from library.tools import native_refresh
+
+    refreshes = []
+    monkeypatch.setattr(native_refresh, "ensure_current",
+                        lambda root: refreshes.append(root))
+
+    result = client.call("find_element", {"path": ["Workspace"],
+                                           "title": "Switch to Page"})
+
+    assert result["elements"]
+    assert refreshes == []
+
+
 def test_a_driver_refusal_becomes_a_ren_refusal_carrying_the_code(client, monkeypatch):
     """The qualification gate is the driver's; the client's job is to
     surface it as a RenRefusal with the driver's code and message, not

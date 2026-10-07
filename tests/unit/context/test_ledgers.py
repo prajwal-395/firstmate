@@ -1281,8 +1281,10 @@ def test_retime_is_durable_intent_on_the_keep_ranges():
 
 def test_retime_reports_what_it_cannot_honour():
     """A retime the reel cannot play is reported by name and leaves the
-    ranges alone; two retimes over one stretch of speech refuse."""
-    ranges = [(10.0, 15.0)]
+    ranges alone; two retimes over one stretch of speech refuse. The 0.35s
+    head remainder is below the new 0.4s hard caption floor and carries
+    "hello", so the retime cannot absorb it."""
+    ranges = [(10.05, 15.0)]
     rows = [_retime("words nobody ever spoke", 120),
             _retime("there ive", 120),
             _retime("and back", 90, segments=[{"percent": 90}])]
