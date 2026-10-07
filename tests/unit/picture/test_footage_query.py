@@ -1328,6 +1328,7 @@ def test_shot_colour_cli_reaches_the_index(tmp_path, monkeypatch):
     assert fq.main(["project-graph", str(root), "shot_colour",
                     "--clip", "clip_001"]) == 0
     assert calls == [("shot_colour", {"person_id": None, "around_t": None,
+                                   "at_time": None,
                                    "clip_id": "clip_001",
                                    "timeline_start": None,
                                    "timeline_end": None,
@@ -1336,7 +1337,10 @@ def test_shot_colour_cli_reaches_the_index(tmp_path, monkeypatch):
                                    "kind": None,
                                    "exploration": None,
                                    "timeline": None,
-                                   "label": None})]
+                                   "label": None,
+                                   "task": None,
+                                   "event_type": None,
+                                   "level": None})]
 
 
 def test_shot_colour_is_in_the_llm_tool_definitions():
@@ -1712,3 +1716,227 @@ def test_audio_events_query_reads_a_quiet_clip_as_empty(tmp_path, monkeypatch):
 
     assert report["error"] is None
     assert report["results"] == []
+
+
+# --------------------------------------------------------------------------
+# Commits, operations, decisions, participants, proposals: the newer
+# graph queries, exposed to search
+#
+# The graph registers creative commits, worker operations, decided
+# reaction cutaways, roster participants and open proposals, but the
+# agent's route answered none of them. The defect, five times over:
+# asking "what changed on Reel 1", "what did the workers do", "why
+# this cutaway", "who may approve" or "what awaits approval"
+# answered "unknown query".
+#
+
+def _governance_project(tmp_path, monkeypatch):
+    """A one-clip project with a commit, an operation, a roster, a
+    proposal and a decided reaction cutaway."""
+    from library.tools import event_log
+    from library.tools import fabric_permissions as permissions
+    from library.tools import undo_journal as uj
+
+    memory_root = tmp_path / "memory"
+    monkeypatch.setenv("PIPELINE_SOURCE_MEMORY_ROOT", str(memory_root))
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    digest = "a" * 64
+    (root / "pipeline_data.json").write_text(json.dumps({
+        "capability_outputs": {
+            "footage.catalog": {"clip_catalog": [
+                {"clip_id": "clip_001", "source_file": "/camA/take1.MXF",
+                 "duration_seconds": 30.0, "content_digest": digest},
+            ]},
+        },
+        "source_fingerprints": {
+            "clip_001": {"content_digest": digest},
+        },
+    }), encoding="utf-8")
+    model_dir = memory_root / digest
+    model_dir.mkdir(parents=True)
+    (model_dir / "world_model.json").write_text(json.dumps({
+        "timeline": [],
+        "entities": {"face_tracks": [], "voice_tracks": []},
+        "multicam": None,
+    }), encoding="utf-8")
+    (model_dir / "identity.json").write_text(json.dumps({
+        "faces": [], "voices": [], "speech_face_links": [],
+    }), encoding="utf-8")
+
+    uj.record_commit(
+        str(root), parent=None, intent="tighten opening", changes=[],
+        agent="reel_touchup", timeline="Reel 01 - lab")
+    event_log.emit(str(root), "lease_acquired", task="ren-04",
+                   resource="resolve")
+    permissions.grant(str(root), "client", permissions.SUGGEST)
+    permissions.grant(str(root), "director", permissions.APPROVE)
+    permissions.record_proposal(
+        str(root), "client",
+        {"kind": "merge", "timeline": "Reel 01 - lab",
+         "left": "commit-left", "right": "commit-right"},
+        "hold the reaction longer")
+
+    manifest_dir = (root / "pipeline_output" / "steps"
+                    / "5_04_compile_manifest")
+    manifest_dir.mkdir(parents=True)
+    (manifest_dir / "assembly_manifest.json").write_text(json.dumps({
+        "reaction_cutaways": [
+            {"speech_block_position": 1, "speech_clip_id": "clip_001",
+             "speaking_person_id": "person_001",
+             "speech_timeline_start": 2.0, "speech_timeline_end": 8.0,
+             "reaction_clip_id": "clip_001",
+             "reacting_person_id": "person_001",
+             "reaction_source_start": 1.0, "reaction_source_end": 4.0,
+             "timing": {"speech_moment": 8.0, "reaction_land": 8.0,
+                        "offset_seconds": 0.0},
+             "reason": "visible while speaking",
+             "decision": {
+                 "action": "Use clip_001 as reaction cutaway",
+                 "reason": "visible while speaking",
+                 "evidence": {},
+                 "constraints": {},
+                 "style_source": None,
+                 "confidence": 0.6,
+                 "confidence_source": "measured span overlap",
+             }},
+        ],
+    }), encoding="utf-8")
+    return root
+
+
+def test_commits_query_answers_what_changed_on_a_timeline(
+        tmp_path, monkeypatch):
+    """The recorded touch answers through the search route with its
+    intent. On origin/main the query name is unknown."""
+    root = _governance_project(tmp_path, monkeypatch)
+    idx = FootageIndex(str(root))
+
+    report = idx.project_graph("commits", timeline="Reel 01 - lab")
+
+    assert report["error"] is None
+    assert [r["intent"] for r in report["results"]] == ["tighten opening"]
+    assert idx.project_graph(
+        "commits", timeline="Reel 9")["results"] == []
+
+
+def test_project_events_query_answers_what_the_workers_did(
+        tmp_path, monkeypatch):
+    """The emitted lease answers with task and type. On origin/main
+    the query name is unknown."""
+    root = _governance_project(tmp_path, monkeypatch)
+    idx = FootageIndex(str(root))
+
+    report = idx.project_graph("project_events", task="ren-04")
+
+    assert report["error"] is None
+    assert len(report["results"]) == 1
+    assert report["results"][0]["type"] == "lease_acquired"
+
+
+def test_reaction_decisions_query_answers_why_this_cutaway(
+        tmp_path, monkeypatch):
+    """The recorded decision answers with its reason. On origin/main
+    the query name is unknown."""
+    root = _governance_project(tmp_path, monkeypatch)
+    idx = FootageIndex(str(root))
+
+    report = idx.project_graph("reaction_decisions", clip_id="clip_001")
+
+    assert report["error"] is None
+    assert len(report["results"]) == 1
+    assert report["results"][0]["decision"]["reason"] == (
+        "visible while speaking")
+
+
+def test_participants_query_answers_who_may_approve(
+        tmp_path, monkeypatch):
+    """Asking who may approve returns the director, never the
+    observe-and-suggest client. On origin/main the query name is
+    unknown."""
+    root = _governance_project(tmp_path, monkeypatch)
+    idx = FootageIndex(str(root))
+
+    report = idx.project_graph("participants", level="approve")
+
+    assert report["error"] is None
+    assert [r["participant"] for r in report["results"]] == ["director"]
+
+
+def test_participants_query_refuses_without_a_level(tmp_path, monkeypatch):
+    root = _governance_project(tmp_path, monkeypatch)
+    idx = FootageIndex(str(root))
+
+    report = idx.project_graph("participants")
+
+    assert report["results"] == []
+    assert "level" in report["error"]
+
+
+def test_participants_query_refuses_an_unknown_level(
+        tmp_path, monkeypatch):
+    """A level nothing grants is refused, not matched against
+    nothing."""
+    root = _governance_project(tmp_path, monkeypatch)
+    idx = FootageIndex(str(root))
+
+    report = idx.project_graph("participants", level="overlord")
+
+    assert report["results"] == []
+    assert "overlord" in report["error"]
+
+
+def test_proposals_query_answers_what_awaits_approval(
+        tmp_path, monkeypatch):
+    """The open proposal answers with its rationale. On origin/main
+    the query name is unknown."""
+    root = _governance_project(tmp_path, monkeypatch)
+    idx = FootageIndex(str(root))
+
+    report = idx.project_graph("proposals")
+
+    assert report["error"] is None
+    assert len(report["results"]) == 1
+    assert report["results"][0]["rationale"] == "hold the reaction longer"
+
+
+def test_newer_graph_queries_are_cli_choices(tmp_path, monkeypatch):
+    """Each new query name is a CLI choice carrying its flags."""
+    root = _governance_project(tmp_path, monkeypatch)
+    from library.tools.analysis import footage_query as fq
+
+    calls = []
+
+    def fake_project_graph(self, query, **kwargs):
+        calls.append((query, kwargs))
+        return {"query": query, "mode": "project_graph", "node_count": 0,
+                "edge_count": 0, "results": [], "error": None}
+
+    monkeypatch.setattr(FootageIndex, "project_graph", fake_project_graph)
+    assert fq.main(["project-graph", str(root), "commits",
+                    "--timeline-name", "Reel 01 - lab"]) == 0
+    assert fq.main(["project-graph", str(root), "project_events",
+                    "--task", "ren-04"]) == 0
+    assert fq.main(["project-graph", str(root), "reaction_decisions",
+                    "--clip", "clip_001", "--t", "5.0"]) == 0
+    assert fq.main(["project-graph", str(root), "participants",
+                    "--level", "approve"]) == 0
+    assert fq.main(["project-graph", str(root), "proposals"]) == 0
+    assert [c[0] for c in calls] == ["commits", "project_events",
+                                     "reaction_decisions", "participants",
+                                     "proposals"]
+
+
+def test_newer_graph_queries_are_in_the_llm_tool_definitions():
+    """The tool definitions carry each new function under the graph
+    function's own name - the contract the agent's call depends on."""
+    functions = FootageIndex.get_tool_definitions()
+    by_name = {t["function"]["name"]: t["function"] for t in functions}
+    for name in ("find_commits", "find_project_events",
+                 "find_reaction_decisions", "participants_with",
+                 "open_proposals"):
+        assert name in by_name
+    assert by_name["participants_with"]["parameters"]["required"] == [
+        "level"]
+    assert by_name["open_proposals"]["parameters"]["required"] == []

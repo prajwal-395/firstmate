@@ -1441,7 +1441,12 @@ class FootageIndex:
         on which clip and when - music changes, laughter) and
         "variant branches" (which branch each
         recorded variant owns, the base it forked and the direction
-        it tries).
+        it tries), "commits" (what changed on a reel timeline and
+        why), "project events" (what the workers did: leases,
+        checkpoints, sign-offs), "reaction decisions" (the
+        reaction-cutaway decisions the run recorded, with reasons),
+        "participants" (who holds at least a given authority level)
+        and "proposals" (what awaits approval).
 
         The graph is DERIVED, never authored: it reads the project's
         catalog, world models, person tracks, edit graph, intent
@@ -1518,13 +1523,36 @@ class FootageIndex:
         elif query == "audio_events":
             report["results"] = project_graph.find_audio_events(
                 graph, kwargs.get("clip_id"), kwargs.get("label"))
+        elif query == "commits":
+            report["results"] = project_graph.find_commits(
+                graph, kwargs.get("timeline"))
+        elif query == "project_events":
+            report["results"] = project_graph.find_project_events(
+                graph, kwargs.get("task"), kwargs.get("event_type"))
+        elif query == "reaction_decisions":
+            report["results"] = project_graph.find_reaction_decisions(
+                graph, kwargs.get("clip_id"), kwargs.get("at_time"))
+        elif query == "participants":
+            level = kwargs.get("level")
+            if not level:
+                report["error"] = "participants needs --level"
+                return report
+            try:
+                report["results"] = project_graph.participants_with(
+                    graph, level)
+            except ValueError as exc:
+                report["error"] = str(exc)
+                return report
+        elif query == "proposals":
+            report["results"] = project_graph.open_proposals(graph)
         else:
             report["error"] = (
                 f"unknown project graph query {query!r}; "
                 "known: reaction_shots, alternate_takes, coverage, "
                 "broll_matches, shot_colour, reel_versions, "
                 "editorial_findings, vfx_detections, variant_branches, "
-                "audio_events")
+                "audio_events, commits, project_events, "
+                "reaction_decisions, participants, proposals")
         return report
 
     @staticmethod
@@ -2246,6 +2274,100 @@ class FootageIndex:
                     },
                 },
             },
+            {
+                "type": "function",
+                "function": {
+                    "name": "find_commits",
+                    "description": (
+                        "List what changed on a reel timeline and why: each "
+                        "recorded touch, merge, revert and replay with its "
+                        "lineage, agent and intent. Use to answer what a "
+                        "reel's last change was without re-reading the "
+                        "commit store."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "timeline": {"type": "string", "description": "Restrict to one reel timeline. Omit for every timeline."},
+                        },
+                        "required": [],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "find_project_events",
+                    "description": (
+                        "List what the workers did: leases taken, checkpoints "
+                        "left, reels signed off, with task, time and fields. "
+                        "Use to answer what operations ran on a project."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "task": {"type": "string", "description": "Restrict to one worker task. Omit for every task."},
+                            "event_type": {"type": "string", "description": "Restrict to one event type. Omit for every type."},
+                        },
+                        "required": [],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "find_reaction_decisions",
+                    "description": (
+                        "Read the reaction-cutaway decisions the run "
+                        "recorded: what each did, why, what evidence it "
+                        "rests on and how confident it is. Use to ask why "
+                        "a cutaway was chosen."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "clip_id": {"type": "string", "description": "Restrict to decisions naming one clip, speech or reaction. Omit for every clip."},
+                            "at_time": {"type": "number", "description": "Restrict to the speech span reacting at this timeline time. Omit for every span."},
+                        },
+                        "required": [],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "participants_with",
+                    "description": (
+                        "List the rostered participants whose authority "
+                        "level grants a level: asking who may approve "
+                        "returns approvers and above, never observe-only "
+                        "watchers. Use to answer who may approve this."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "level": {"type": "string", "description": "The authority level to grant, e.g. approve."},
+                        },
+                        "required": ["level"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "open_proposals",
+                    "description": (
+                        "List the undecided proposals awaiting approval: "
+                        "author, operation and rationale, oldest first. "
+                        "Use to answer what awaits approval."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {},
+                        "required": [],
+                    },
+                },
+            },
         ]
 
 
@@ -2575,12 +2697,16 @@ def main(argv=None):
                                           "shot_colour", "reel_versions",
                                           "editorial_findings",
                                           "vfx_detections",
-                                          "variant_branches", "audio_events"])
+                                          "variant_branches", "audio_events",
+                                          "commits", "project_events",
+                                          "reaction_decisions",
+                                          "participants", "proposals"])
     p_pg.add_argument("--person", help="person id for reaction_shots")
-    p_pg.add_argument("--t", type=float, help="time for reaction_shots")
+    p_pg.add_argument("--t", type=float, help="time for reaction_shots "
+                                              "and reaction_decisions")
     p_pg.add_argument("--clip", help="clip id for alternate_takes, shot_colour, "
-                                     "editorial_findings, vfx_detections and "
-                                     "audio_events")
+                                     "editorial_findings, vfx_detections, "
+                                     "audio_events and reaction_decisions")
     p_pg.add_argument("--timeline-start", type=float, help="for coverage")
     p_pg.add_argument("--timeline-end", type=float, help="for coverage")
     p_pg.add_argument("--segment", help="transcript segment id for broll_matches")
@@ -2588,13 +2714,17 @@ def main(argv=None):
     p_pg.add_argument("--exploration",
                       help="exploration id for variant_branches")
     p_pg.add_argument("--timeline-name",
-                      help="timeline for variant_branches")
+                      help="timeline for variant_branches and commits")
     p_pg.add_argument("--kind", help="finding kind for editorial_findings: "
                                      "dead_section, dead_section_trim, "
                                      "jl_placement, jl_decision, "
                                      "reaction_cutaway")
     p_pg.add_argument("--label", help="audio event label for audio_events, "
                                       "e.g. music - matched case-insensitively")
+    p_pg.add_argument("--task", help="worker task for project_events")
+    p_pg.add_argument("--event-type", help="event type for project_events")
+    p_pg.add_argument("--level", help="authority level for participants, "
+                                      "e.g. approve - who holds at least this")
     p_pg.add_argument("--index-dir")
 
     sub.add_parser("tools", help="Print LLM tool definitions as JSON")
@@ -2670,6 +2800,7 @@ def main(argv=None):
             args.query,
             person_id=args.person,
             around_t=args.t,
+            at_time=args.t,
             clip_id=args.clip,
             timeline_start=args.timeline_start,
             timeline_end=args.timeline_end,
@@ -2679,6 +2810,9 @@ def main(argv=None):
             exploration=args.exploration,
             timeline=args.timeline_name,
             label=args.label,
+            task=args.task,
+            event_type=args.event_type,
+            level=args.level,
         )
         print(json.dumps(answer, indent=2))
         return 0
