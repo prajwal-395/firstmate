@@ -89,6 +89,10 @@ def test_seed_script_searches_through_the_registered_glass():
     entry = ICON_TEMPLATES["magic-mask-search"]
     assert 0.0 < entry.threshold < 1.0
     assert step.expect is not None and step.expect.via == "pixels_changed"
+    # Library contents paint asynchronously after the panel opens
+    # (measured live: same anchor hit once, missed minutes later), so
+    # the anchor settle-polls instead of racing the paint.
+    assert params["settle_seconds"] == 90.0
 
 
 def test_seed_script_types_the_query_only_after_focus():

@@ -166,7 +166,13 @@ def seed_script(
                 action="click",
                 anchors=[Anchor(via="template", params={
                     "template": "magic-mask-search",
+                    "settle_seconds": 90.0,
+                    "settle_interval": 2.0,
                     "source": "ren",
+                    "why": ("Library contents paint asynchronously "
+                            "after the panel opens (measured: hit once, "
+                            "miss minutes later on the same anchor) - "
+                            "the poll returns on first hit"),
                 })],
                 expect=Expect(via="pixels_changed", params={
                     "source": "ren",
