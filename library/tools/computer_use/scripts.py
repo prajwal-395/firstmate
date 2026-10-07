@@ -62,7 +62,7 @@ from library.tools.resolve_lock import resolve_lease
 #: resolves to the driver's own wait, so a UI-settle need is said in
 #: the script instead of slept around it.
 ANCHOR_VIAS = ("menu", "ax_path", "ocr", "template", "offset", "position",
-               "key", "wait")
+               "key", "type", "wait")
 
 #: The verification kinds. An unknown kind is refused at parse time, never
 #: silently passed at run time.
@@ -299,6 +299,8 @@ def resolve_anchor(client: DriverClient, anchor: Anchor) -> tuple[str, dict] | N
         return ("click", params)
     if anchor.via == "key":
         return _resolve_key(anchor)
+    if anchor.via == "type":
+        return _resolve_type(anchor)
     if anchor.via == "template":
         return _resolve_template(client, anchor)
     if anchor.via == "offset":
@@ -322,6 +324,24 @@ def _resolve_key(anchor: Anchor) -> tuple[str, dict] | None:
         return None
     key, modifiers = parse_key(str(combo))
     return ("key", {"key": key, "modifiers": modifiers})
+
+
+def _resolve_type(anchor: Anchor) -> tuple[str, dict] | None:
+    """Resolve a type anchor to a driver `type` call, or `None`.
+
+    Typing reaches the FOCUSED element, so like a keystroke it anchors
+    to nothing on screen and resolves without a driver call. An empty
+    text resolves to nothing. The caller focuses first (usually an
+    offset click into a field); this step only carries the text.
+    """
+    text = anchor.params.get("text")
+    if not text:
+        return None
+    if not isinstance(text, str):
+        raise ValueError(
+            f"type needs a string text, got {text!r} - format numbers "
+            f"at the recipe layer")
+    return ("type", {"text": text})
 
 
 def _resolve_wait(anchor: Anchor) -> tuple[str, dict] | None:

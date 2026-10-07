@@ -293,10 +293,14 @@ def _run_recipe(client: DriverClient, args) -> int:
         from library.tools.computer_use import qualifier_recipe
 
         return qualifier_recipe.run_recipe_verb(client, args)
+    elif args.recipe == "window-modify":
+        from library.tools.computer_use import window_modify
+
+        return window_modify.run_recipe_verb(client, args)
     else:
         print(f"ren: unknown recipe {args.recipe!r}: magic-mask-seed, "
               f"magic-mask-track, window-create, window-delete, "
-              f"effect-panels or qualifier-sample",
+              f"window-modify, effect-panels or qualifier-sample",
               file=sys.stderr)
         return 2
 
@@ -562,6 +566,7 @@ def main(argv=None) -> int:
     script_parser.add_argument(
         "--recipe", choices=("magic-mask-seed", "magic-mask-track",
                              "window-create", "window-delete",
+                             "window-modify",
                              "effect-panels", "qualifier-sample"),
         default=None,
         help="run one named recipe instead of a file")
@@ -603,6 +608,11 @@ def main(argv=None) -> int:
         "--point",
         default=None,
         help="qualifier-sample: the normalized sample point as JSON [x, y]",
+    )
+    script_parser.add_argument(
+        "--values",
+        default=None,
+        help="window-modify: the panel values as JSON {size, pan, ...}",
     )
     _target_flag(script_parser)
     script_parser.add_argument(
@@ -690,10 +700,11 @@ def main(argv=None) -> int:
                         or args.clip is not None
                         or args.node is not None
                         or args.shape is not None
-                        or args.point is not None):
+                        or args.point is not None
+                        or args.values is not None):
                     print("ren: --seed/--timeline/--playhead-timecode/"
                           "--mode/--direction/--allow-foreground/--clip/"
-                          "--node/--shape/--point need "
+                          "--node/--shape/--point/--values need "
                           "--recipe", file=sys.stderr)
                     return 2
                 require_executor(target)
