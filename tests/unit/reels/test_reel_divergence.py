@@ -25,11 +25,13 @@ from library.tools import reel_divergence as rd  # noqa: E402
 # ── Fakes: the two snapshot shapes the detectors accept ───────────
 
 class FakeClip:
-    def __init__(self, name, track_type="video", source_file=""):
+    def __init__(self, name, track_type="video", source_file="",
+                 native_hold=False):
         self.name = name
         self.track_type = track_type
         self.track_name = "V1"
         self.source_file = source_file
+        self.native_hold = native_hold
 
 
 class FakeSnapshot:
@@ -180,6 +182,29 @@ def test_a_reel_owed_a_freeze_and_without_one_reads_absent(tmp_path):
         == rd.CARRIED
 
 
+def test_a_native_zero_speed_hold_counts_in_live_and_serialized_snapshots(
+        tmp_path):
+    folder = project_declaring(tmp_path, "pipeline: {}\n")
+    endings = {"Reel 08": {"tail_hold": "freeze"},
+               "Reel 09": {"tail_hold": "freeze"}}
+    live = FakeSnapshot(FakeClip("body.mov", source_file="/media/body.mov",
+                                 native_hold=True))
+    serialized_hold = {
+        "metadata": {"name": "Reel 09"},
+        "tracks": [{"type": "video", "index": 1, "name": "V1",
+                    "clips": [{"name": "body.mov",
+                               "file_path": "/media/body.mov",
+                               "retime": {"speed_ratio": 0.0}}]}],
+    }
+    report = rd.survey(
+        folder, {"Reel 08": live, "Reel 09": serialized_hold},
+        endings=endings)
+    assert report["reels"]["Reel 08"][rd.KEY_FREEZE_ENDING]["verdict"] \
+        == rd.CARRIED
+    assert report["reels"]["Reel 09"][rd.KEY_FREEZE_ENDING]["verdict"] \
+        == rd.CARRIED
+
+
 # ── The claim gate: the reporting failure, mechanised ────────────
 
 def test_a_claim_the_artefacts_do_not_back_is_REFUSED(tmp_path):
@@ -257,5 +282,4 @@ def test_a_declared_file_replaced_on_disk_reads_absent(tmp_path):
     assert report["divergent"][rd.KEY_FULL_FRAME] == ["Reel 26"]
     with pytest.raises(rd.ClaimNotBackedByArtefacts):
         rd.assert_reaches(report, rd.KEY_FULL_FRAME)
-
 

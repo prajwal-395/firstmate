@@ -445,6 +445,8 @@ def key_swaps_for_judge(swaps: list, kind: str, track_index: int,
 
 def inventory_snapshot(timeline) -> dict:
     """The reel's rows, end and markers as plain data for the diff."""
+    from library.tools.reel_read import _speed_percent
+
     rows = {}
     for kind in ("video", "audio"):
         try:
@@ -473,6 +475,7 @@ def inventory_snapshot(timeline) -> dict:
                     "record": [item.GetStart(), item.GetEnd()],
                     "src_off": item.GetLeftOffset(),
                     "duration": item.GetDuration(),
+                    "speed_percentage": _speed_percent(item),
                     "enabled": item.GetClipEnabled(),
                     "props": dict(item.GetProperty() or {}),
                     "fusion_comps": comps,

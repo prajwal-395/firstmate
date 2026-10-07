@@ -196,3 +196,40 @@ fourth, and Reel 28's closer is CRAIG.
 Synthetic under `tmp_path` (AGENTS.md 8); nothing here reaches Resolve
 or a real project.
 ```
+
+## Native hold and reusable TV-off, 2026-10-07
+
+Reels 22 and 27 exposed why the old `reel_freeze_*.mov` convention was
+not a generalized ending. The broker helper read
+`GetSourceEndFrame() - 1`, then rendered that one frame into a per-ending
+movie. Resolve's source-end getter is inclusive here, so the baked holds
+used source frame 88302 when Reel 22's body ended on 88303, and frame
+104285 when Reel 27's body ended on 104286. The source movie was then a
+separate picture item carrying the TV-off composition.
+
+The installed Resolve 21.1 scripting reference is
+`/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting/DaVinciResolveScript.pyi`
+and its adjacent `README.md`. `TimelineItem.SetSpeed` accepts a
+`SpeedOptions` mapping whose `Percentage` can be `0.0` for a freeze frame;
+`GetSpeed` reads it back. The same item API offers `AddTransition` for a
+named transition type, category, edge, alignment, and duration. The 21.1
+stubs do not expose retime speed-point/keyframe editing, so there is no
+scripted way to add the UI's 100%-to-0% retime curve on one existing item.
+
+The builder therefore places a short segment from the same source,
+starting at the last source frame the picture placement plays, and sets
+that segment to `0.0%` with ripple disabled. The hold duration comes from
+the declared TV-off element. The existing reusable Fusion composition
+is applied to that native segment, and the logo begins at its exclusive
+end. This preserves the closing breath and the 2026-09-11 rule that the
+animation begins after the final word; audio does not extend. A source
+without enough frames to construct and verify the segment is refused.
+
+The old `reel_freeze_*` name stays readable for existing timelines, but
+new builds do not render or promote a held-frame movie. The typed broker
+job replaces only the selected Reel 22 or 27 legacy hold, compares its
+whole before/after inventory, and can recreate the prior baked item if
+the native replacement fails its checks. It requires exactly one
+verified TV-off Fusion comp on the legacy item so that inverse restore is
+complete, and it copies clip markers to the native segment with exact
+read-back before accepting the replacement.

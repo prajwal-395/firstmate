@@ -1,9 +1,10 @@
 """Typed, project-scoped copy of a reel's TV-off ending.
 
 The request names a live reference reel, the target reel's last picture
-item and the frame where its held picture begins. The broker renders that
-target's own last frame, copies only the reference freeze's TV-off Fusion
-composition, and places the two-line logo after the hold. A present logo
+item and the frame where its native held segment begins. The broker
+appends the target picture's own last played source frame, sets that
+segment to 0% speed, copies only the reference TV-off Fusion composition,
+and places the two-line logo after the hold. A present logo
 already at the body cut is re-placed after the hold with its source range,
 properties, enabled state, colour and clip markers carried across.
 
@@ -17,7 +18,6 @@ import json
 import math
 import os
 import tempfile
-from dataclasses import replace
 from pathlib import Path
 
 from library.tools.resolved.jobs import EXCLUSIVE, JobRefused
@@ -376,17 +376,56 @@ def _read_int(value, label: str) -> int:
     return number
 
 
-def _find_freeze(timeline, row: int, path: str, start: int, duration: int):
+def _source_frame_count(pool_item) -> int:
+    """Read Resolve's string-valued media frame count as an integer."""
+    value = pool_item.GetClipProperty("Frames")
+    if isinstance(value, bool):
+        raise JobRefused(f"{KIND} target source frame count is unreadable")
+    try:
+        count = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise JobRefused(
+            f"{KIND} target source frame count is unreadable") from exc
+    if not math.isfinite(count) or count <= 0 or not count.is_integer():
+        raise JobRefused(
+            f"{KIND} target source frame count is not an integer frame")
+    return int(count)
+
+
+def _find_legacy_freeze(timeline, row: int, start: int, duration: int):
+    from library.tools.reel_ending import is_freeze_path
+
     matches = []
     for item in timeline.GetItemListInTrack("video", row) or ():
-        if (_item_path(item) == path
+        if (is_freeze_path(_item_path(item))
                 and int(item.GetStart()) == start
                 and int(item.GetDuration()) == duration):
             matches.append(item)
     if len(matches) > 1:
         raise JobRefused(
-            f"{KIND} target freeze appears more than once at "
-            f"V{row} frame {start}")
+            f"{KIND} target has multiple legacy freezes at V{row} "
+            f"frame {start}")
+    return matches[0] if matches else None
+
+
+def _find_native_hold(timeline, row: int, path: str, source_start: int,
+                      start: int, duration: int):
+    from library.tools.reel_ending import is_native_hold
+
+    matches = []
+    wanted_path = os.path.normcase(os.path.normpath(path))
+    for item in timeline.GetItemListInTrack("video", row) or ():
+        if (os.path.normcase(os.path.normpath(_item_path(item)))
+                == wanted_path
+                and int(item.GetSourceStartFrame()) == source_start
+                and int(item.GetStart()) == start
+                and int(item.GetDuration()) == duration
+                and is_native_hold(item)):
+            matches.append(item)
+    if len(matches) > 1:
+        raise JobRefused(
+            f"{KIND} target has multiple native holds from frame "
+            f"{source_start} at V{row} frame {start}")
     return matches[0] if matches else None
 
 
@@ -459,6 +498,116 @@ def _logo_capture(item) -> dict:
     }
 
 
+def _legacy_freeze_capture(item, directory: Path) -> dict:
+    """Capture enough state to remove and inverse-restore one baked tail."""
+    from library.tools.reel_read import _speed_percent
+
+    enabled = item.GetClipEnabled()
+    if not isinstance(enabled, bool):
+        raise JobRefused(
+            f"{KIND} legacy freeze enabled state is unreadable; "
+            "cannot prove an inverse restore")
+    pool_item = item.GetMediaPoolItem()
+    if pool_item is None:
+        raise JobRefused(
+            f"{KIND} legacy freeze has no media pool item to restore")
+    speed = _speed_percent(item)
+    if speed is None or not math.isfinite(speed):
+        raise JobRefused(
+            f"{KIND} legacy freeze speed is unreadable; "
+            "cannot prove an inverse restore")
+    comp_count = _read_int(item.GetFusionCompCount(),
+                           "legacy freeze Fusion comp count")
+    tv_comp = _target_tv_comp(item, directory)
+    if comp_count != 1 or tv_comp is None or tv_comp[0] != 1:
+        raise JobRefused(
+            f"{KIND} legacy freeze must have one Fusion comp and it must be "
+            "the verified TV-off comp to permit an exact inverse restore")
+    return {
+        "uid": str(item.GetUniqueId() or ""),
+        "original_item": item,
+        "pool_item": pool_item,
+        "start": _read_int(item.GetStart(), "legacy freeze record start"),
+        "duration": _read_int(item.GetDuration(), "legacy freeze duration"),
+        "speed": speed,
+        "source_start": _read_int(item.GetSourceStartFrame(),
+                                   "legacy freeze source start"),
+        "properties": dict(item.GetProperty() or {}),
+        "enabled": enabled,
+        "color": item.GetClipColor(),
+        "markers": dict(item.GetMarkers() or {}),
+        "nodes": _read_int(item.GetNumNodes(), "legacy freeze node count"),
+        "tv_comp_content": tv_comp[1].read_text(encoding="utf-8"),
+        "tv_signature": tv_comp[2],
+    }
+
+
+def _restore_legacy_freeze(pool, timeline, row: int, capture: dict, *,
+                           project_folder: str, timeline_name: str,
+                           orphaned_items: list, directory: Path) -> dict:
+    """Recreate the prior baked tail if a native replacement is refused."""
+    landed_row, item = _append_item(
+        pool, timeline, media_pool_item=capture["pool_item"], row=row,
+        record_frame=capture["start"],
+        source_start=capture["source_start"],
+        duration=capture["duration"], label="inverse-restored legacy freeze",
+        orphaned_items=orphaned_items)
+    orphaned_items.append(item)
+    _verify_appended(
+        item, landed_row, media_pool_item=capture["pool_item"], row=row,
+        record_frame=capture["start"], duration=capture["duration"],
+        label="inverse-restored legacy freeze")
+    from library.tools.reel_read import _speed_percent
+    current_speed = _speed_percent(item)
+    if current_speed is None or not math.isclose(
+            current_speed, capture["speed"], abs_tol=0.001):
+        changed_speed = item.SetSpeed({
+            "Percentage": capture["speed"], "RippleTimeline": False})
+        actual_speed = _speed_percent(item)
+        if (not changed_speed or actual_speed is None
+                or not math.isclose(actual_speed, capture["speed"],
+                                    abs_tol=0.001)):
+            raise JobRefused(
+                f"{KIND} inverse restore could not restore legacy freeze speed")
+    _apply_properties(
+        item, capture["properties"], project_folder=project_folder,
+        timeline_name=timeline_name,
+        identity={"track": f"V{row}", "record_frame": capture["start"],
+                  "restored_legacy_freeze": True})
+    if not item.SetClipEnabled(capture["enabled"]):
+        if item.GetClipEnabled() != capture["enabled"]:
+            raise JobRefused(
+                f"{KIND} inverse restore could not restore legacy freeze enabled state")
+    if item.GetClipEnabled() != capture["enabled"]:
+        raise JobRefused(
+            f"{KIND} inverse restore lost legacy freeze enabled state")
+    if capture["color"]:
+        returned = item.SetClipColor(capture["color"])
+        if not returned and item.GetClipColor() != capture["color"]:
+            raise JobRefused(
+                f"{KIND} inverse restore lost legacy freeze clip colour")
+    _copy_clip_markers(capture["markers"], item)
+    if capture["nodes"] > 1:
+        original = capture["original_item"]
+        if (not original.CopyGrades([item])
+                or int(item.GetNumNodes() or 0) != capture["nodes"]):
+            raise JobRefused(
+                f"{KIND} inverse restore could not restore legacy freeze grade")
+    comp_path = directory / "inverse-legacy-tv-off.comp"
+    comp_path.write_text(capture["tv_comp_content"], encoding="utf-8")
+    comp_receipt = _copy_reference_comp(
+        item, 1, comp_path, capture["tv_signature"], directory)
+    if (int(item.GetStart()) != capture["start"]
+            or int(item.GetDuration()) != capture["duration"]
+            or int(item.GetSourceStartFrame()) != capture["source_start"]
+            or dict(item.GetProperty() or {}) != capture["properties"]
+            or dict(item.GetMarkers() or {}) != capture["markers"]):
+        raise JobRefused(
+            f"{KIND} inverse-restored legacy freeze did not read back exactly")
+    orphaned_items[:] = [other for other in orphaned_items if other is not item]
+    return {"item": item, "comp": comp_receipt}
+
+
 def _apply_properties(item, values: dict, *, project_folder: str,
                       timeline_name: str, identity: dict) -> None:
     from library.tools.transform_write_log import set_property
@@ -489,10 +638,10 @@ def _copy_clip_markers(markers: dict, target) -> None:
             marker.get("customData") or "")
         if not added:
             raise JobRefused(
-                f"{KIND} Resolve declined logo clip marker "
+                f"{KIND} Resolve declined clip marker "
                 f"{marker.get('name')!r}")
     if dict(target.GetMarkers() or {}) != dict(markers or {}):
-        raise JobRefused(f"{KIND} logo clip markers did not read back")
+        raise JobRefused(f"{KIND} clip markers did not read back")
 
 
 def _video_items(timeline):
@@ -713,6 +862,7 @@ def _verify_inventory(before: dict, after: dict, *,
 def _restore_target(pool, timeline, *, freeze_item, freeze_added: bool,
                     comp_added: bool, comp_names: list, logo_item,
                     logo_added: bool, old_logo, logo_moved: bool,
+                    old_freeze, old_freeze_removed: bool,
                     orphaned_items: list,
                     logo_row: int, header_plans: list,
                     header_applied: list, resolve, project, fps: float,
@@ -722,6 +872,7 @@ def _restore_target(pool, timeline, *, freeze_item, freeze_added: bool,
     details = {"freeze_removed": not freeze_added,
                "tv_comp_removed": not comp_added,
                "new_logo_removed": not logo_added,
+               "legacy_freeze_restored": not old_freeze_removed,
                "append_orphans_removed": False,
                "old_logo_restored": not logo_moved,
                "post_header_restored": False,
@@ -772,6 +923,26 @@ def _restore_target(pool, timeline, *, freeze_item, freeze_added: bool,
                 & set(freeze_item.GetFusionCompNameList() or []))
         elif comp_added and freeze_added:
             details["tv_comp_removed"] = details["freeze_removed"]
+        if old_freeze_removed:
+            if old_freeze is None:
+                raise JobRefused(
+                    f"{KIND} inverse restore has no legacy freeze capture")
+            with tempfile.TemporaryDirectory(
+                    prefix="ren-tv-ending-restore-") as tmp:
+                restored_freeze = _restore_legacy_freeze(
+                    pool, timeline, old_freeze["row"],
+                    old_freeze["capture"],
+                    project_folder=project_folder,
+                    timeline_name=timeline_name,
+                    orphaned_items=orphaned_items,
+                    directory=Path(tmp))
+            item = restored_freeze["item"]
+            details["legacy_freeze_restored"] = (
+                int(item.GetStart()) == old_freeze["capture"]["start"]
+                and int(item.GetDuration())
+                == old_freeze["capture"]["duration"]
+                and int(item.GetSourceStartFrame())
+                == old_freeze["capture"]["source_start"])
         if logo_moved and old_logo is not None:
             restored = _restore_logo(
                 pool, timeline, logo_row, old_logo,
@@ -830,19 +1001,30 @@ def _restore_target(pool, timeline, *, freeze_item, freeze_added: bool,
             details["append_orphans_removed"] = all(
                 str(item.GetUniqueId() or "") not in remaining
                 for item in orphaned_items)
+            if old_freeze_removed and old_freeze is not None:
+                details["legacy_freeze_restored"] = any(
+                    _item_path(item) == _item_path(
+                        old_freeze["capture"]["original_item"])
+                    and int(item.GetStart()) == old_freeze["capture"]["start"]
+                    and int(item.GetDuration())
+                    == old_freeze["capture"]["duration"]
+                    for row, item in _video_items(timeline)
+                    if row == old_freeze["row"])
         except Exception as cleanup_exc:  # noqa: BLE001
             details["errors"].append(
                 f"orphan cleanup: {type(cleanup_exc).__name__}: "
                 f"{cleanup_exc}")
     details["restored"] = (
         details["freeze_removed"] and details["tv_comp_removed"]
-        and details["new_logo_removed"] and details["append_orphans_removed"]
+        and details["new_logo_removed"]
+        and details["legacy_freeze_restored"]
+        and details["append_orphans_removed"]
         and details["old_logo_restored"]
         and details["post_header_restored"] and not details["errors"])
     return details
 
 
-def _source_frame_seconds(picture, timeline_fps: float) -> tuple[str, float]:
+def _source_frame_seconds(picture, timeline_fps: float) -> tuple[str, float, int]:
     from library.tools.reel_read import _speed_percent
 
     pool_item = picture.GetMediaPoolItem()
@@ -863,13 +1045,25 @@ def _source_frame_seconds(picture, timeline_fps: float) -> tuple[str, float]:
     if speed is None or not math.isclose(speed, 100.0, abs_tol=0.001):
         raise JobRefused(
             f"{KIND} target picture speed is {speed!r}%; the held-frame "
-            "renderer requires a verified 100% source clip")
-    source_end_frame = _read_int(
-        picture.GetSourceEndFrame(), "target picture source end")
-    held_seconds = (source_end_frame - 1) / source_fps
-    if not math.isfinite(held_seconds) or held_seconds < 0:
+            "native hold requires a verified 100% source clip")
+    source_start_frame = _read_int(
+        picture.GetSourceStartFrame(), "target picture source start")
+    record_frames = (_read_int(picture.GetEnd(), "target picture record end")
+                     - _read_int(picture.GetStart(),
+                                 "target picture record start"))
+    played_source_frames = int(round(
+        record_frames * source_fps / timeline_fps))
+    if source_start_frame < 0 or played_source_frames <= 0:
+        raise JobRefused(f"{KIND} target picture has an invalid played span")
+    # GetSourceEndFrame has been measured one frame off on real clips.
+    # The last frame rendered by a 100% item is its source start plus the
+    # played source-frame count, minus one - the same quantisation used by
+    # the builder's AppendToTimeline path.
+    held_source_frame = source_start_frame + played_source_frames - 1
+    held_seconds = held_source_frame / source_fps
+    if not math.isfinite(held_seconds) or held_source_frame < 0:
         raise JobRefused(f"{KIND} target final source frame is unreadable")
-    return path, held_seconds
+    return path, source_fps, held_source_frame
 
 
 def _copy_reference_comp(target_item, source_index: int,
@@ -947,9 +1141,7 @@ def _run(job: dict, resolve, project) -> dict:
     params = job["params"]
     prepare(params)
     from library.tools import project_registry, resolve_lock, still_overlays
-    from library.tools.project_layout import Area, ProjectLayout
-    from library.tools.reel_ending import FreezeTail, render_freeze
-    from library.tools.reel_placed_assets import promote_to_durable
+    from library.tools.reel_ending import FreezeTail
     from library.tools.versions.store import export_timeline_recovery_archive
 
     config = project_registry.get_project(PROJECT_SLUG)
@@ -1023,11 +1215,15 @@ def _run(job: dict, resolve, project) -> dict:
         timeline_fps = 0
     if not math.isfinite(timeline_fps) or timeline_fps <= 0:
         raise JobRefused(f"{KIND} target timeline frame rate is unreadable")
-    held_from, held_seconds = _source_frame_seconds(picture, timeline_fps)
+    held_from, source_fps, held_source_frame = _source_frame_seconds(
+        picture, timeline_fps)
+    held_seconds = held_source_frame / source_fps
     header_plans = _plan_post_header(target, record_frame, timeline_fps)
     freeze = FreezeTail(
         held_from=held_from,
         held_source_seconds=held_seconds,
+        source_fps=source_fps,
+        held_source_frame=held_source_frame,
         reel_start_frame=record_frame,
         duration_frames=source_duration,
         element="tv_power_tail",
@@ -1056,6 +1252,9 @@ def _run(job: dict, resolve, project) -> dict:
         before = still_overlays.inventory_snapshot(target)
         pool = project.GetMediaPool()
         target_freeze = None
+        target_legacy_freeze = None
+        legacy_freeze = None
+        legacy_freeze_removed = False
         new_freeze = None
         freeze_added = False
         comp_added = False
@@ -1071,22 +1270,32 @@ def _run(job: dict, resolve, project) -> dict:
                 temp_dir = Path(tmp)
                 source_comp_index, source_comp_path, signature = (
                     _reference_tv_comp(source_freeze, temp_dir))
-                layout = ProjectLayout(project_folder)
-                scratch = str(layout.read_dir(Area.SCRATCH)
-                              / "reel_ending" / "freeze")
-                freeze = render_freeze(freeze, scratch, timeline_fps)
-                freeze_path = promote_to_durable(
-                    freeze.rendered_path, project_folder, Area.REEL_CARDS)
-                freeze = replace(freeze, rendered_path=freeze_path)
-                target_freeze = _find_freeze(
-                    target, target_picture_row, freeze_path, record_frame,
-                    source_duration)
+                target_freeze = _find_native_hold(
+                    target, target_picture_row, held_from,
+                    held_source_frame, record_frame, source_duration)
+                target_legacy_freeze = _find_legacy_freeze(
+                    target, target_picture_row, record_frame, source_duration)
+                if target_freeze is not None and target_legacy_freeze is not None:
+                    raise JobRefused(
+                        f"{KIND} target has both a native hold and a legacy "
+                        "freeze at the requested ending span")
+                if target_legacy_freeze is not None:
+                    legacy_freeze = {
+                        "row": target_picture_row,
+                        "capture": _legacy_freeze_capture(
+                            target_legacy_freeze, temp_dir),
+                    }
+                    if legacy_freeze["capture"]["tv_signature"] != signature:
+                        raise JobRefused(
+                            f"{KIND} legacy freeze carries a different "
+                            "TV-off comp; refusing to replace it")
                 _assert_span_free(
                     target, target_picture_row, record_frame,
                     record_frame + source_duration,
-                    allowed_uids=([str(target_freeze.GetUniqueId() or "")]
-                                  if target_freeze is not None else ()),
-                    label="TV-off freeze")
+                    allowed_uids=[str(item.GetUniqueId() or "") for item in
+                                  (target_freeze, target_legacy_freeze)
+                                  if item is not None],
+                    label="native TV-off hold")
                 _assert_span_free(
                     target, target_logo_row, logo_record_frame,
                     logo_record_frame + logo_duration,
@@ -1120,50 +1329,104 @@ def _run(job: dict, resolve, project) -> dict:
                 header_applied = _apply_post_header(
                     resolve, project, pool, target, timeline_fps,
                     header_plans, project_folder, header_applied)
+                if target_legacy_freeze is not None:
+                    old_uid = str(target_legacy_freeze.GetUniqueId() or "")
+                    delete_error = None
+                    try:
+                        removed = target.DeleteClips(
+                            [target_legacy_freeze], False)
+                    except Exception as exc:  # Resolve may mutate before error.
+                        removed = False
+                        delete_error = exc
+                    remaining = {str(item.GetUniqueId() or "") for item in
+                                 target.GetItemListInTrack(
+                                     "video", target_picture_row) or ()}
+                    legacy_freeze_removed = old_uid not in remaining
+                    if (delete_error is not None or not removed
+                            or not legacy_freeze_removed):
+                        error = JobRefused(
+                            f"{KIND} DeleteClips returned {removed!r} for "
+                            f"the legacy freeze; it "
+                            f"{'was removed before refusal' if legacy_freeze_removed else 'still reads'}")
+                        if delete_error is not None:
+                            raise error from delete_error
+                        raise error
                 if target_freeze is None:
-                    from library.tools import reel_build
-                    freeze_pool_item = reel_build.import_pool_item(
-                        pool, freeze_path, project_folder,
-                        reel_build.overlay_import_bin(
-                            project_folder, target.GetName(), freeze_path))
-                    if freeze_pool_item is None:
+                    source_pool_item = picture.GetMediaPoolItem()
+                    source_frames = _source_frame_count(source_pool_item)
+                    if freeze.source_end_frame > source_frames:
                         raise JobRefused(
-                            f"{KIND} Resolve declined the target-specific "
-                            f"freeze asset {freeze_path!r}")
+                            f"{KIND} native hold needs source frames "
+                            f"[{held_source_frame}, {freeze.source_end_frame}) "
+                            f"but {picture_path!r} contains {source_frames}")
                     landed_row, new_freeze = _append_item(
-                        pool, target, media_pool_item=freeze_pool_item,
+                        pool, target, media_pool_item=source_pool_item,
                         row=target_picture_row, record_frame=record_frame,
-                        source_start=0, duration=source_duration,
-                        label="target freeze",
+                        source_start=held_source_frame,
+                        duration=source_duration,
+                        label="native hold",
                         orphaned_items=orphaned_items)
                     freeze_added = True
                     _verify_appended(
                         new_freeze, landed_row,
-                        media_pool_item=freeze_pool_item,
+                        media_pool_item=source_pool_item,
                         row=target_picture_row, record_frame=record_frame,
-                        duration=source_duration, label="target freeze")
-                    from library.tools.transform_write_log import set_property
+                        duration=source_duration, label="native hold")
+                    if int(new_freeze.GetSourceStartFrame()) != held_source_frame:
+                        raise JobRefused(
+                            f"{KIND} native hold starts at source frame "
+                            f"{new_freeze.GetSourceStartFrame()}, expected "
+                            f"{held_source_frame}")
+                    if legacy_freeze is not None:
+                        old_markers = legacy_freeze["capture"]["markers"]
+                        _copy_clip_markers(old_markers, new_freeze)
+                        if dict(new_freeze.GetMarkers() or {}) != old_markers:
+                            raise JobRefused(
+                                f"{KIND} native hold did not preserve the "
+                                "legacy clip markers")
+                    from library.tools import native_ops_apply
+                    speed_report = native_ops_apply.apply_native_speed_ops(
+                        target,
+                        [{"op_id": f"tv-off-hold@{record_frame}",
+                          "effect_type": "freeze_frame",
+                          "timeline_start": record_frame / timeline_fps,
+                          "timeline_end": (record_frame + source_duration)
+                                          / timeline_fps}],
+                        fps=timeline_fps, dialogue_tracks=None,
+                        video_tracks=(target_picture_row,))
+                    if speed_report["failed"]:
+                        raise JobRefused(
+                            f"{KIND} native hold was refused: "
+                            + "; ".join(row["what"]
+                                        for row in speed_report["failed"]))
+                    from library.tools.reel_ending import is_native_hold
+                    if not is_native_hold(new_freeze):
+                        raise JobRefused(
+                            f"{KIND} native hold did not read back at 0% speed")
+                    if (int(new_freeze.GetStart()) != record_frame
+                            or int(new_freeze.GetEnd())
+                            != record_frame + source_duration
+                            or int(new_freeze.GetSourceStartFrame())
+                            != held_source_frame):
+                        raise JobRefused(
+                            f"{KIND} SetSpeed changed the native hold's "
+                            "record span or held source frame")
                     wanted = dict(picture.GetProperty() or {})
                     for key in _POWER_TRANSFORM_KEYS:
                         if key not in wanted:
                             continue
-                        returned = set_property(
-                            new_freeze, key, wanted[key],
-                            item_identity={
-                                "source_file": freeze_path,
-                                "track": f"V{target_picture_row}",
-                                "record_frame": record_frame,
-                            },
+                        _apply_properties(
+                            new_freeze, {key: wanted[key]},
                             project_folder=project_folder,
-                            timeline_name=target.GetName())
+                            timeline_name=target.GetName(),
+                            identity={"source_file": held_from,
+                                "track": f"V{target_picture_row}",
+                                "record_frame": record_frame},
+                        )
                         actual = (new_freeze.GetProperty() or {}).get(key)
-                        if not returned and actual != wanted[key]:
-                            raise JobRefused(
-                                f"{KIND} Resolve refused freeze transform "
-                                f"{key}={wanted[key]!r}")
                         if actual != wanted[key]:
                             raise JobRefused(
-                                f"{KIND} freeze transform {key} reads "
+                                f"{KIND} native hold transform {key} reads "
                                 f"{actual!r}, wanted {wanted[key]!r}")
                     copied_grade = picture.CopyGrades([new_freeze])
                     if (not copied_grade
@@ -1261,6 +1524,8 @@ def _run(job: dict, resolve, project) -> dict:
                             for receipt in header_applied]
             if logo_moved:
                 remove_before.append(old_logo["uid"])
+            if legacy_freeze_removed and legacy_freeze is not None:
+                remove_before.append(legacy_freeze["capture"]["uid"])
             if freeze_added:
                 remove_after.append(str(new_freeze.GetUniqueId() or ""))
             if logo_added:
@@ -1285,7 +1550,9 @@ def _run(job: dict, resolve, project) -> dict:
                 freeze_added=freeze_added, comp_added=comp_added,
                 comp_names=comp_names, logo_item=new_logo,
                 logo_added=logo_added, old_logo=old_logo,
-                logo_moved=logo_moved, orphaned_items=orphaned_items,
+                logo_moved=logo_moved, old_freeze=legacy_freeze,
+                old_freeze_removed=legacy_freeze_removed,
+                orphaned_items=orphaned_items,
                 logo_row=target_logo_row,
                 header_plans=header_plans,
                 header_applied=header_applied,
@@ -1332,11 +1599,14 @@ def _run(job: dict, resolve, project) -> dict:
                 "name": new_freeze.GetName(),
                 "uid": str(new_freeze.GetUniqueId() or ""),
                 "record": [record_frame, record_frame + source_duration],
-                "source_file": freeze_path,
+                "source_file": held_from,
                 "held_from": held_from,
                 "held_source_seconds": held_seconds,
+                "held_source_frame": held_source_frame,
+                "speed_percentage": 0.0,
                 "comp": comp_receipt,
             },
+            "replaced_legacy_freeze": legacy_freeze_removed,
             "post_header": [
                 {"name": swap["label"], "record": receipt["record"],
                  "source_file": receipt["still_path"]}

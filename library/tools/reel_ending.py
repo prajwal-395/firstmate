@@ -56,10 +56,11 @@ HOLDS the ending shot's last frame for exactly as long as the element
 needs (`tail_room_frames`) and draws it over the held frames, so the
 animation begins after the last word.  The hold's length is the
 element's own, so a freeze always fits and `assert_tail_fits` says so.
-`plan_freeze`, `render_freeze` (a movie of one repeated frame at the
-SOURCE's resolution, named `FREEZE_PREFIX`, rendered once per source,
-frame and length) and `freeze_placement` build it.  The freeze is
-PICTURE ONLY: audio is not held.
+`plan_freeze` and `freeze_placement` reserve a native retime hold from
+the ending shot's own source. Resolve receives a short source segment
+starting on that frame, then `TimelineItem.SetSpeed(0)` holds it for the
+tail element. No per-reel frame movie is rendered. The hold is PICTURE
+ONLY: audio is not held.
 
 The freeze belongs to the CALL TO ACTION, not to a list of reels
 --------------------------------------------------------------
@@ -98,7 +99,6 @@ clipped "bio."): docs/evidence/reel_ending.md.
 
 from __future__ import annotations
 
-import dataclasses
 import json
 import math
 import os
@@ -111,10 +111,13 @@ ENDING_VERSION = 1
 #: The file basename, under the project's external-inputs area.
 ENDING_FILENAME = "reel_ending.json"
 
-#: What a rendered hold is CALLED. The owner names its own artefact, so
-#: a reader that must recognise one asks here rather than spelling the
-#: convention itself (`freeze_items` below is that reader).
+#: Legacy rendered-hold prefix. Readers keep recognizing existing reels;
+#: new builds use native retime holds and never create this file.
 FREEZE_PREFIX = "reel_freeze_"
+
+#: Resolve exposes no timeline-item rename. A verified 0% playback rate
+#: is the native signal used to recognize a held frame.
+NATIVE_HOLD_LABEL = "native ending hold"
 
 #: What may draw over a reel's tail. A NAME, never a magnitude - the
 #: timings live in `library/tools/tv_power.py` and in whatever the
@@ -570,18 +573,22 @@ def tail_hold(ending) -> str:
 
 @dataclass(frozen=True)
 class FreezeTail:
-    """The held frame a declared freeze appends to the ending shot.
+    """The native held-frame segment a declared ending appends.
 
-    `held_from` / `held_source_seconds` say WHICH frame of WHICH source
-    is held - the last one the reel plays - so the artefact can be
-    re-derived, and so a reader can check the freeze against the shot
-    rather than taking the builder's word for it.
+    `held_from` / `held_source_frame` say WHICH frame of WHICH source
+    is held - the last one the reel plays - so the native retime segment
+    can be checked against the shot rather than taking the builder's
+    word for it.
     """
 
     held_from: str
     """The source file the held frame comes from."""
     held_source_seconds: float
     """Where in that source the held frame sits, in seconds."""
+    source_fps: float
+    """Source clock used to make the Resolve append frame exact."""
+    held_source_frame: int
+    """File-relative frame Resolve's native hold will repeat."""
     reel_start_frame: int
     """The reel frame the hold begins on - the frame after the live tail."""
     duration_frames: int
@@ -599,9 +606,12 @@ class FreezeTail:
     instead of only through the timeline-adjacency copy at build
     time."""
     speaker: str = ""
-    label: str = "reel_freeze_tail"
-    rendered_path: str = ""
-    """Filled in by `render_freeze`; empty until the artefact exists."""
+    label: str = NATIVE_HOLD_LABEL
+
+    @property
+    def source_end_frame(self) -> int:
+        """Exclusive source edge reserved for the native hold segment."""
+        return self.held_source_frame + self.duration_frames
 
     @property
     def end_frame(self) -> int:
@@ -630,8 +640,9 @@ def _last_played_picture(picture_placements, fps: float):
     best = None
     best_end = None
     for place in picture_placements or ():
-        played = round((float(place["source_out"])
-                       - float(place["source_in"])) * fps)
+        played = int(place.get("record_frames") or round(
+            (float(place["source_out"])
+             - float(place["source_in"])) * fps))
         # `snapped_record` is where the placement lands on the reel; a
         # fixture that omits it has no position and reads as frame 0.
         end = round(place.get("snapped_record", 0)) + played
@@ -665,14 +676,33 @@ def plan_freeze(picture_placements, ending, fps: float,
         raise ReelEndingError(
             "a freeze was declared for a reel that places no picture: "
             "there is no last frame to hold.")
-    played = int(round((float(tail["source_out"])
-                        - float(tail["source_in"])) * fps))
+    played = int(tail.get("record_frames") or round(
+        (float(tail["source_out"])
+         - float(tail["source_in"])) * fps))
     start = int(tail["snapped_record"]) + played
-    # The LAST frame that plays, not the first one that does not: the
-    # placement's source_out is exclusive, the same reading every
-    # `endFrame` in this builder takes.
-    held_seconds = float(tail["source_out"]) - (1.0 / fps)
     clip = tail["clip"]
+    raw_source_fps = getattr(clip, "source_fps", None)
+    try:
+        source_fps = float(raw_source_fps or fps)
+    except (TypeError, ValueError):
+        source_fps = float(fps)
+    if not math.isfinite(source_fps) or source_fps <= 0:
+        source_fps = float(fps)
+    source_in = float(tail["source_in"])
+    source_out = float(tail["source_out"])
+    # Match the appender's frame quantisation: start on the first source
+    # frame at or after the requested in-point, then keep the measured
+    # played frame count. The final included source frame is the one the
+    # reel already showed. `source_out` itself is an exclusive edge.
+    source_start_frame = int(math.ceil(source_in * source_fps - 1e-9))
+    source_duration_frames = int(round(
+        (source_out - source_in) * source_fps))
+    if source_start_frame < 0 or source_duration_frames <= 0:
+        raise ReelEndingError(
+            f"the ending source span [{source_in:.9f}, {source_out:.9f}) "
+            f"cannot be mapped to {source_fps:g} fps")
+    held_source_frame = source_start_frame + source_duration_frames - 1
+    held_seconds = held_source_frame / source_fps
     try:
         held_master = tuple(tail.get("master") or (0.0, 0.0))
     except (AttributeError, TypeError, ValueError):
@@ -680,6 +710,8 @@ def plan_freeze(picture_placements, ending, fps: float,
     return FreezeTail(
         held_from=getattr(clip, "source_file", ""),
         held_source_seconds=held_seconds,
+        source_fps=source_fps,
+        held_source_frame=held_source_frame,
         reel_start_frame=start,
         duration_frames=frames,
         element=(ending or {}).get("tail_element", "none"),
@@ -688,65 +720,8 @@ def plan_freeze(picture_placements, ending, fps: float,
         speaker=str(getattr(clip, "speaker", "") or ""))
 
 
-def render_freeze(freeze: "FreezeTail", out_dir: str,
-                  fps: float) -> "FreezeTail":
-    """Render the held frame as a clip, and return the freeze carrying it.
-
-    A still cannot be placed for an arbitrary length through Resolve's
-    scripting API - `reel_look.frame_overlay_segments` measured that and
-    says why - so the hold is a MOVIE of one repeated frame, exactly as
-    the TV frame overlay is.
-
-    Rendered at the SOURCE's own resolution, never the delivery frame:
-    the held item then takes the same punch-in transform as the shot it
-    holds and lands on the same pixels. Rendered ONCE per (source,
-    frame, length) and re-used, keyed by a digest of those three.
-    """
-    import hashlib
-    import subprocess
-
-    os.makedirs(out_dir, exist_ok=True)
-    stamp = hashlib.sha1(
-        f"{freeze.held_from}|{freeze.held_source_seconds:.6f}|"
-        f"{freeze.duration_frames}|{fps:.6f}".encode("utf-8")
-    ).hexdigest()[:10]
-    path = os.path.join(out_dir, f"reel_freeze_{stamp}.mov")
-    if not os.path.isfile(path):
-        still = os.path.join(out_dir, f"reel_freeze_{stamp}.png")
-        grab = subprocess.run([
-            "ffmpeg", "-y", "-v", "error",
-            "-ss", f"{max(freeze.held_source_seconds, 0.0):.6f}",
-            "-i", freeze.held_from, "-frames:v", "1", still,
-        ], capture_output=True, encoding="utf-8", check=False)
-        if grab.returncode != 0 or not os.path.isfile(still):
-            raise ReelEndingError(
-                f"the frame to hold could not be read from "
-                f"{freeze.held_from!r} at "
-                f"{freeze.held_source_seconds:.3f}s: ffmpeg exited "
-                f"{grab.returncode}. "
-                f"{(grab.stderr or '').strip()[-400:]}")
-        # ProRes 422 HQ at the still's own size. No alpha: a held
-        # picture frame is opaque, and the switch-off that draws over
-        # it is a comp on this clip rather than a layer above it.
-        render = subprocess.run([
-            "ffmpeg", "-y", "-v", "error", "-loop", "1", "-i", still,
-            "-t", f"{freeze.duration_frames / fps:.6f}",
-            "-r", f"{fps:.6f}",
-            "-c:v", "prores_ks", "-profile:v", "3",
-            "-pix_fmt", "yuv422p10le", path,
-        ], capture_output=True, encoding="utf-8", check=False)
-        os.path.isfile(still) and os.remove(still)
-        if render.returncode != 0 or not os.path.isfile(path):
-            raise ReelEndingError(
-                f"the held frame could not be rendered to "
-                f"{freeze.duration_frames} frames: ffmpeg exited "
-                f"{render.returncode}. "
-                f"{(render.stderr or '').strip()[-400:]}")
-    return dataclasses.replace(freeze, rendered_path=path)
-
-
 def freeze_placement(freeze: "FreezeTail", fps: float) -> dict:
-    """The freeze as a picture PLACEMENT, for the Fusion manifest.
+    """The native hold segment as a picture PLACEMENT.
 
     The same shape `reel_build.placements()` emits, so the hold is the
     last picture clip of its row and `reel_look.power_effects` arms the
@@ -757,14 +732,14 @@ def freeze_placement(freeze: "FreezeTail", fps: float) -> dict:
 
     return {
         "clip": SimpleNamespace(
-            source_file=freeze.rendered_path,
+            source_file=freeze.held_from,
             track_index=freeze.track_index,
             speaker=freeze.speaker,
             track_type="video",
             timeline_start=0.0,
             timeline_end=freeze.duration_frames / fps),
-        "source_in": 0.0,
-        "source_out": freeze.duration_frames / fps,
+        "source_in": freeze.held_source_frame / freeze.source_fps,
+        "source_out": freeze.source_end_frame / freeze.source_fps,
         "record": freeze.reel_start_frame / fps,
         "snapped_record": freeze.reel_start_frame,
         "track_index": freeze.track_index,
@@ -781,11 +756,12 @@ def freeze_placement(freeze: "FreezeTail", fps: float) -> dict:
         "master": (0.0, 0.0),
         "held_master": tuple(freeze.held_master or (0.0, 0.0)),
         "freeze": True,
+        "native_hold": True,
     }
 
 
 def freeze_items(video_items) -> dict:
-    """`{id(item): name}` for every timeline item that is a held frame.
+    """`{id(item): name}` for legacy or native held-frame items.
 
     The same shape `reel_look.frame_overlay_items` takes, and for the
     same reason: a check over a reel's picture has to be able to tell
@@ -798,13 +774,15 @@ def freeze_items(video_items) -> dict:
     out = {}
     for item in video_items or ():
         source = str(getattr(item, "source_file", "") or "")
-        if is_freeze_path(source):
-            out[id(item)] = source.rsplit("/", 1)[-1]
+        if is_freeze_path(source) or is_native_hold(item):
+            out[id(item)] = (
+                source.rsplit("/", 1)[-1] if is_freeze_path(source)
+                else NATIVE_HOLD_LABEL)
     return out
 
 
 def is_freeze_path(source_file) -> bool:
-    """Whether this source path is a held frame this module rendered.
+    """Whether this source path is a legacy baked held frame.
 
     The one place the `FREEZE_PREFIX` convention is READ, so a caller
     holding a path rather than a `.source_file` object asks here
@@ -814,6 +792,18 @@ def is_freeze_path(source_file) -> bool:
     """
     name = str(source_file or "").rsplit("/", 1)[-1]
     return bool(name) and name.startswith(FREEZE_PREFIX)
+
+
+def is_native_hold(item) -> bool:
+    """Whether Resolve reports a native zero-speed picture hold."""
+    try:
+        speed = item.GetSpeed()
+        percentage = float((speed or {}).get("Percentage"))
+    except (AttributeError, TypeError, ValueError):
+        return False
+    except Exception:  # noqa: BLE001 - unreadable speed is not a hold
+        return False
+    return math.isfinite(percentage) and abs(percentage) <= 1e-9
 
 
 def assert_tail_fits(picture_placements, ending, fps: float,

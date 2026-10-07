@@ -6,9 +6,10 @@ caption inside a speech span with no link, two rows carrying what
 should be one row's role, a placed stream that is not the recorded
 program stream.
 
-One picture item is deliberately outside the link check: a rendered
-HOLD (`reel_ending.is_freeze_path`). It has no audio anywhere on the
-timeline, so it can never be linked and is not evidence of anything.
+One picture item is deliberately outside the link check: a legacy baked
+HOLD or a native zero-speed hold (`reel_ending`). It has no audio
+anywhere on the timeline, so it can never be linked and is not evidence
+of anything.
 
 Deterministic, and it can fail, so it is a real gate (AGENTS.md 10.4).
 Link and stream checks need the track plan (`library.tools.
@@ -102,7 +103,7 @@ def _items(timeline, media_type: str, index: int):
 
 
 def _is_held_frame(item) -> bool:
-    """Whether this picture item is a rendered HOLD, not footage.
+    """Whether this picture item is a native or legacy HOLD.
 
     `reel_ending` owns both the artefact and the question; this asks it
     with the path Resolve gives rather than restating the naming
@@ -110,7 +111,7 @@ def _is_held_frame(item) -> bool:
     hold - the caller's default is to treat it as picture, which is the
     safe way to be wrong.
     """
-    from library.tools.reel_ending import is_freeze_path
+    from library.tools.reel_ending import is_freeze_path, is_native_hold
     try:
         pool_item = item.GetMediaPoolItem()
     except Exception:  # noqa: BLE001 - an unreadable item is not a hold
@@ -118,7 +119,8 @@ def _is_held_frame(item) -> bool:
     if not pool_item:
         return False
     try:
-        return is_freeze_path(pool_item.GetClipProperty("File Path"))
+        return (is_freeze_path(pool_item.GetClipProperty("File Path"))
+                or is_native_hold(item))
     except Exception:  # noqa: BLE001 - same reading
         return False
 

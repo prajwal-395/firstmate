@@ -168,12 +168,16 @@ def picture_names(snapshot) -> List[str]:
     found: List[str] = []
     clips = getattr(snapshot, "clips", None)
     if clips is not None:                      # live snapshot
+        from library.tools.reel_ending import NATIVE_HOLD_LABEL
+
         for clip in clips:
             if getattr(clip, "track_type", "") != "video":
                 continue
             found.append(str(getattr(clip, "name", "") or ""))
             found.append(os.path.basename(
                 str(getattr(clip, "source_file", "") or "")))
+            if getattr(clip, "native_hold", False):
+                found.append(NATIVE_HOLD_LABEL)
         return [name.lower() for name in found if name]
     for track in (snapshot or {}).get("tracks") or ():   # serialized doc
         if (track or {}).get("type") != "video":
@@ -182,6 +186,14 @@ def picture_names(snapshot) -> List[str]:
             found.append(str((clip or {}).get("name") or ""))
             found.append(os.path.basename(
                 str((clip or {}).get("file_path") or "")))
+            try:
+                speed_ratio = float(((clip or {}).get("retime") or {}).get(
+                    "speed_ratio"))
+            except (TypeError, ValueError):
+                speed_ratio = None
+            if speed_ratio is not None and abs(speed_ratio) <= 1e-9:
+                from library.tools.reel_ending import NATIVE_HOLD_LABEL
+                found.append(NATIVE_HOLD_LABEL)
     return [name.lower() for name in found if name]
 
 
@@ -274,12 +286,12 @@ def _detect_full_frame_elements(snapshot, params: Mapping) -> Presence:
 def _detect_freeze_ending(snapshot, params: Mapping) -> Presence:
     """Does this reel hold its last frame under the declared tail?
 
-    `reel_ending.FREEZE_PREFIX` is the naming convention the build
-    places a freeze under, and `reel_ending.freeze_items` is the reader
-    of the same convention - so this counts the same artefact the
-    ending's owner does, rather than a second opinion about it.
+    `reel_ending.freeze_items` recognizes legacy baked holds and the
+    native 0%-speed segment. The serialized and live readers expose the
+    same native signal, so this counts the artefact the ending's owner
+    does rather than a second opinion about it.
     """
-    from library.tools.reel_ending import FREEZE_PREFIX
+    from library.tools.reel_ending import FREEZE_PREFIX, NATIVE_HOLD_LABEL
 
     if not (params or {}).get("expects_freeze"):
         return _undetermined(
@@ -288,7 +300,8 @@ def _detect_freeze_ending(snapshot, params: Mapping) -> Presence:
             "action correctly carries none",
             "reel_divergence._detect_freeze_ending")
     held = [name for name in picture_names(snapshot)
-            if name.startswith(FREEZE_PREFIX.lower())]
+            if (name.startswith(FREEZE_PREFIX.lower())
+                or name == NATIVE_HOLD_LABEL.lower())]
     if not held:
         return _absent(
             f"this reel's ending declares a freeze hold and no picture "
@@ -318,8 +331,8 @@ DETECTORS: Dict[str, Detector] = {
         what="the freeze hold a reel inherits from closing on a call to "
              "action, over which the switch-off draws",
         absent_looks_like="a reel whose resolved ending holds a freeze "
-                          "and whose picture track carries no "
-                          "reel_freeze_* item",
+                          "and whose picture track carries no legacy "
+                          "freeze or native 0%-speed hold",
         detect=_detect_freeze_ending,
     ),
     KEY_CAPTION_ROW: Detector(

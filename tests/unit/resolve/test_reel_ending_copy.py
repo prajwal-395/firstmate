@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -229,7 +228,7 @@ def test_reel_22_post_header_is_planned_to_stop_at_the_ending(
     assert plan[0]["want_end"] == 1013
 
 
-def test_run_archives_then_adds_the_target_freeze_comp_and_logo(
+def test_run_replaces_baked_freeze_with_native_hold_then_places_logo(
         monkeypatch, tmp_path):
     from library.tools.fusion.comp_builder import build_effect_comp
 
@@ -277,9 +276,15 @@ def test_run_archives_then_adds_the_target_freeze_comp_and_logo(
         "body.mov", None, start=0, duration=1013,
         pool_item=pool_item("body.mov", picture_path),
         uid="target-picture")
+    legacy_freeze = FakeTimelineItem(
+        "reel_freeze_legacy.mov", None, start=1013, duration=19,
+        pool_item=pool_item("reel_freeze_legacy.mov",
+                            reference_freeze_path, frames=19),
+        fusion_comps=[tail_comp], uid="legacy-freeze")
+    legacy_freeze.AddMarker(7, "Blue", "captain marker", "keep", 1, "")
     target = FakeTimeline(
         "Reel 27 - target",
-        video=[("Picture", [target_picture]), ("Video 2", []),
+        video=[("Picture", [target_picture, legacy_freeze]), ("Video 2", []),
                ("Video 3", []), ("Video 4", []), ("Video 5", []),
                ("Logo", [])],
     )
@@ -313,24 +318,6 @@ def test_run_archives_then_adds_the_target_freeze_comp_and_logo(
         finally:
             open_project.SetCurrentTimeline(previous)
 
-    def render_freeze(freeze, out_dir, _fps):
-        order.append("render")
-        output = Path(out_dir) / "reel_freeze_target.mov"
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_bytes(b"rendered target frame")
-        return replace(freeze, rendered_path=str(output))
-
-    def promote(_source, _project_root, _area):
-        output = root / "pipeline_output" / "reel_cards" / "reel_freeze_target.mov"
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_bytes(b"durable target frame")
-        return str(output)
-
-    def import_pool_item(pool, filepath, *_args):
-        item = pool_item(Path(filepath).name, filepath, frames=19)
-        pool.GetRootFolder().add_clip(item)
-        return item
-
     monkeypatch.setattr("library.tools.project_registry.get_project",
                         lambda _slug: config)
     monkeypatch.setattr(
@@ -340,33 +327,60 @@ def test_run_archives_then_adds_the_target_freeze_comp_and_logo(
                         cursor_excursion)
     monkeypatch.setattr("library.tools.still_overlays.inventory_snapshot",
                         snapshot)
-    monkeypatch.setattr("library.tools.reel_ending.render_freeze",
-                        render_freeze)
-    monkeypatch.setattr("library.tools.reel_placed_assets.promote_to_durable",
-                        promote)
-    monkeypatch.setattr("library.tools.reel_build.import_pool_item",
-                        import_pool_item)
-    monkeypatch.setattr("library.tools.reel_build.overlay_import_bin",
-                        lambda *_args: project.GetMediaPool().GetRootFolder())
 
     target_params = _params(
         target_timeline_id=target.GetUniqueId(),
         target_picture_uid=None,
         target_picture_track="Picture",
     )
+    before_failed_replacement = still_overlays.inventory_snapshot(target)
+    from library.tools import native_ops_apply
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            native_ops_apply, "apply_native_speed_ops",
+            lambda *_args, **_kwargs: {
+                "applied": [],
+                "failed": [{"what": "injected speed refusal"}],
+            })
+        with pytest.raises(JobRefused, match="inverse_restore="):
+            reel_ending_copy.run(
+                {"id": "test-ending-refused", "params": target_params},
+                resolve)
+    after_failed_replacement = still_overlays.inventory_snapshot(target)
+    assert reel_ending_copy._inventory_matches(
+        before_failed_replacement, after_failed_replacement)
+    assert project.GetCurrentTimeline() is target
+
     result = reel_ending_copy.run(
         {"id": "test-ending", "params": target_params}, resolve)
 
     assert result["changed"] is True
     assert result["drt_backup"] == str(archive_path)
     assert result["freeze"]["record"] == [1013, 1032]
+    assert result["freeze"]["held_source_frame"] == 1012
+    assert result["freeze"]["speed_percentage"] == 0.0
+    assert result["replaced_legacy_freeze"] is True
     assert result["logo"]["record"] == [1032, 1104]
     assert result["freeze"]["comp"]["signature"] == \
         reel_ending_copy._fusion_signature(tail_comp)
-    assert order[:3] == ["archive", "inventory", "render"]
+    assert order[1:3] == ["archive", "inventory"]
+    assert "render" not in order
     assert project.GetCurrentTimeline() is target
-    assert [item.GetName() for item in target.GetItemListInTrack(
-        "video", 1)] == ["body.mov", "reel_freeze_target.mov"]
+    picture_items = target.GetItemListInTrack("video", 1)
+    assert [item.GetName() for item in picture_items] == [
+        "body.mov", "body.mov"]
+    native_hold = picture_items[1]
+    assert native_hold.GetMediaPoolItem().GetClipProperty("File Path") \
+        == str(picture_path)
+    assert native_hold.GetSourceStartFrame() == 1012
+    assert native_hold.GetSpeed()["Percentage"] == 0
+    assert native_hold.GetMarkers() == {
+        7: {"color": "Blue", "name": "captain marker", "note": "keep",
+            "duration": 1, "customData": ""},
+    }
+    assert all(not item.GetMediaPoolItem().GetClipProperty("File Path")
+               .split("/")[-1].startswith("reel_freeze_")
+               for item in picture_items)
     assert [item.GetName() for item in target.GetItemListInTrack(
         "video", 6)] == ["logo_bulb_lines_safe_23976.mov"]
 

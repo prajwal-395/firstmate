@@ -224,10 +224,14 @@ def serialize_timeline_state(
                 }
 
                 # Retime (mocking/extracting if available)
+                speed_percent = detail["speed"]
                 clip_data["retime"] = {
                     "process": properties.get("RetimeProcess", ""),
                     "motion_estimation": properties.get("MotionEstimation", ""),
-                    "speed_ratio": properties.get("Speed", 1.0),
+                    "speed_ratio": (
+                        float(speed_percent) / 100.0
+                        if speed_percent is not None
+                        else properties.get("Speed", 1.0)),
                 }
 
                 # Audio

@@ -94,6 +94,7 @@ from __future__ import annotations
 from library.tools.resolve_lock import under_lease
 
 import json
+import math
 import os
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
@@ -177,6 +178,12 @@ class TimelineClip:
     Carried so `source_length_disagrees` below judges on the right
     clock. The default is the historical 23.976, so records built
     without a rate read exactly as before."""
+
+    source_fps: Optional[float] = None
+    """Frame rate reported for the media pool source, when Resolve says it."""
+
+    native_hold: bool = False
+    """True when Resolve reports this item at 0% playback speed."""
 
     @property
     def duration(self) -> float:
@@ -347,6 +354,15 @@ def _pool_frames(pool_item) -> Optional[int]:
         return None
 
 
+def _pool_fps(pool_item) -> Optional[float]:
+    """`FPS` off a media pool item, or None if it does not say."""
+    try:
+        value = float(pool_item.GetClipProperty("FPS"))
+    except (AttributeError, TypeError, ValueError):
+        return None
+    return value if math.isfinite(value) and value > 0 else None
+
+
 def _item_transform(item) -> dict:
     """`GetProperty()` off a timeline item, or `{}` if it does not say.
 
@@ -421,6 +437,7 @@ def snapshot_timeline(timeline, project_name: str,
                 source_file = pool_item.GetClipProperty("File Path") or ""
                 if not source_file:
                     continue
+                from library.tools.reel_ending import is_native_hold
                 # FRAMES, converted here - never GetSourceStartTime(),
                 # which is timecode-absolute and lands outside the file
                 # for any clip whose media has a non-zero start
@@ -441,6 +458,8 @@ def snapshot_timeline(timeline, project_name: str,
                     source_in_frame=int(item.GetSourceStartFrame()),
                     source_out_frame=int(item.GetSourceEndFrame()),
                     source_frames=_pool_frames(pool_item),
+                    source_fps=_pool_fps(pool_item),
+                    native_hold=is_native_hold(item),
                     timeline_start=item.GetStart() / fps,
                     timeline_end=item.GetEnd() / fps,
                     name=item.GetName() or "",

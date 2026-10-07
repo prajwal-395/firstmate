@@ -293,6 +293,7 @@ def test_a_freeze_holds_the_last_frame_for_the_elements_own_length():
     assert freeze.end_frame == 1599 + 310 + 19
     assert freeze.held_source_seconds == pytest.approx(
         50.0 + 310 / 24.0 - 1 / 24.0)
+    assert freeze.held_source_frame == 1509
     assert freeze.element == "tv_power_tail"
 
 
@@ -353,25 +354,75 @@ def test_the_freeze_placement_is_a_picture_clip_that_speaks_nothing():
     assert place["snapped_record"] == 1909
     assert place["track_index"] == _shots()[0].track_index
     assert place["clip"].track_type == "video"
-    assert place["source_out"] == pytest.approx(19 / 24.0)
+    assert place["clip"].source_file == freeze.held_from
+    assert place["source_in"] == pytest.approx(1509 / 24.0)
+    assert place["source_out"] == pytest.approx(1528 / 24.0)
     # An empty master span: a held frame speaks no words, so no
     # word-anchored pass may claim it as a shot - it inherits the
     # treatment of the shot it holds instead.
     assert place["master"] == (0.0, 0.0)
     assert place["freeze"] is True
+    assert place["native_hold"] is True
+
+
+def test_native_hold_and_logo_follow_the_closing_words_and_breath():
+    fps = 24.0
+    words = {"segments": [{"words": [
+        {"word": "our", "start": 5.0, "end": 5.2, "timed": True},
+        {"word": "bio", "start": 5.3, "end": 5.5, "timed": True},
+        {"word": "next", "start": 6.0, "end": 6.2, "timed": True},
+    ]}]}
+    shot = SimpleNamespace(
+        timeline_start=0.0, timeline_end=5.8, source_in=100.0,
+        source_fps=fps, track_index=1, speaker="SpeakerOne",
+        track_type="video", source_file="closing-shot.mxf")
+    ending = {
+        "reel": "Reel 99 - closer",
+        "ends_on": {"anchor_phrase": "our bio"},
+        "source": "call_to_action",
+        "tail_element": "tv_power_tail",
+        "tail_hold": "freeze",
+        "reason": "inherited CTA",
+    }
+    initial_ranges = [(0.0, 5.5)]
+    initial_pictures = reel_build.placements(initial_ranges, [shot], fps)
+    ranges, report = reel_ending.apply_ending(
+        initial_ranges, initial_pictures, words, ending, fps)
+    assert report["applied"][0]["breath_end"] == pytest.approx(5.8)
+
+    pictures = reel_build.placements(ranges, [shot], fps)
+    freeze = reel_ending.plan_freeze(pictures, ending, fps)
+    hold = reel_ending.freeze_placement(freeze, fps)
+    last_word_end_frame = round(5.5 * fps)
+    picture_end_frame = round(ranges[-1][1] * fps)
+    assert freeze.reel_start_frame == picture_end_frame
+    assert freeze.reel_start_frame > last_word_end_frame
+    assert hold["native_hold"] is True
+    # The production broker job places the logo at the end of the held
+    # segment; the hold reservation and the following logo abut exactly.
+    logo_start_frame = freeze.end_frame
+    assert logo_start_frame == freeze.reel_start_frame + freeze.duration_frames
 
 
 class _FreezeAppendItem:
-    def __init__(self, path, start, end):
+    def __init__(self, path, source_start, start, end, speed=100.0):
         self.path = path
+        self.source_start = source_start
         self.start = start
         self.end = end
+        self.speed = speed
 
     def GetStart(self):
         return self.start
 
     def GetEnd(self):
         return self.end
+
+    def GetSourceStartFrame(self):
+        return self.source_start
+
+    def GetSpeed(self):
+        return {"Percentage": self.speed}
 
     def GetMediaPoolItem(self):
         return self
@@ -406,6 +457,7 @@ class _FreezeAppendPool:
             spec = specs[0]
             item = _FreezeAppendItem(
                 spec["mediaPoolItem"].path,
+                spec["startFrame"],
                 spec["recordFrame"],
                 spec["recordFrame"] + spec["endFrame"]
                 - spec["startFrame"])
@@ -414,11 +466,12 @@ class _FreezeAppendPool:
         return []
 
 
-def _freeze_append_spec(path):
+def _freeze_append_spec(path, source_start=1509):
     from types import SimpleNamespace
 
     return {"mediaPoolItem": SimpleNamespace(path=path),
-            "startFrame": 0, "endFrame": 19, "mediaType": 1,
+            "startFrame": source_start,
+            "endFrame": source_start + 19, "mediaType": 1,
             "trackIndex": 1, "recordFrame": 1365}
 
 
@@ -426,9 +479,9 @@ def test_post_fusion_freeze_readback_records_a_later_loss():
     from types import SimpleNamespace
     from library.tools import reel_build
 
-    path = "/project/reel_freeze_test.mov"
+    path = "/project/body.mov"
     timeline = _FreezeAppendTimeline()
-    timeline.items.append(_FreezeAppendItem(path, 1365, 1384))
+    timeline.items.append(_FreezeAppendItem(path, 1509, 1365, 1384, speed=0))
     project = SimpleNamespace(
         GetTimelineCount=lambda: 1,
         GetTimelineByIndex=lambda index: timeline if index == 1 else None,
@@ -437,11 +490,12 @@ def test_post_fusion_freeze_readback_records_a_later_loss():
         "called": True,
         "landed": True,
         "append_verified": True,
-        "expected": {"track_index": 1, "start_frame": 1365,
+        "expected": {"source_start_frame": 1509,
+                     "track_index": 1, "start_frame": 1365,
                      "end_frame": 1384},
         "post_placement": {"readback_matches": 1, "verified": True},
     }
-    freeze = SimpleNamespace(rendered_path=path)
+    freeze = SimpleNamespace(held_from=path, held_source_frame=1509)
 
     assert reel_build._verify_freeze_tail_after_fusion(
         project, "Reel 10", freeze, trace)
@@ -466,13 +520,13 @@ def test_freeze_append_retries_only_after_empty_return_and_readback(
 
     monkeypatch.setattr(reel_build, "_assert_placing",
                         lambda project, timeline: None)
-    path = "/project/reel_freeze_test.mov"
+    path = "/project/body.mov"
     timeline = _FreezeAppendTimeline()
     pool = _FreezeAppendPool(timeline, ["declined", "placed"])
     trace = {}
 
     placed = reel_build._append_freeze_tail(
-        pool, object(), timeline, "Reel 10", path,
+        pool, object(), timeline, "Reel 10", path, 1509,
         _freeze_append_spec(path), trace=trace)
 
     assert pool.calls == 2
@@ -482,7 +536,8 @@ def test_freeze_append_retries_only_after_empty_return_and_readback(
     assert trace["landed"] is True
     assert trace["append_verified"] is True
     assert trace["expected"] == {
-        "asset": "reel_freeze_test.mov", "track_index": 1,
+        "source_file": path, "source_start_frame": 1509,
+        "track_index": 1,
         "start_frame": 1365, "end_frame": 1384,
     }
     assert trace["append_attempts"] == [
@@ -497,13 +552,13 @@ def test_freeze_append_does_not_retry_when_readback_proves_it_landed(
 
     monkeypatch.setattr(reel_build, "_assert_placing",
                         lambda project, timeline: None)
-    path = "/project/reel_freeze_test.mov"
+    path = "/project/body.mov"
     timeline = _FreezeAppendTimeline()
     pool = _FreezeAppendPool(timeline, ["placed-empty-return", "placed"])
     trace = {}
 
     placed = reel_build._append_freeze_tail(
-        pool, object(), timeline, "Reel 10", path,
+        pool, object(), timeline, "Reel 10", path, 1509,
         _freeze_append_spec(path), trace=trace)
 
     assert pool.calls == 1
@@ -522,7 +577,7 @@ def test_freeze_append_refuses_when_one_retry_leaves_the_tail_unplaced(
 
     monkeypatch.setattr(reel_build, "_assert_placing",
                         lambda project, timeline: None)
-    path = "/project/reel_freeze_test.mov"
+    path = "/project/body.mov"
     timeline = _FreezeAppendTimeline()
     pool = _FreezeAppendPool(timeline, ["declined", "declined"])
     trace = {}
@@ -530,7 +585,7 @@ def test_freeze_append_refuses_when_one_retry_leaves_the_tail_unplaced(
     with pytest.raises(reel_build.ReelBuildError,
                        match="frames 1365-1384 after one retry"):
         reel_build._append_freeze_tail(
-            pool, object(), timeline, "Reel 10", path,
+            pool, object(), timeline, "Reel 10", path, 1509,
             _freeze_append_spec(path), trace=trace)
 
     assert pool.calls == 2
@@ -1846,48 +1901,3 @@ def test_picture_overlays_keep_their_runs_without_a_tail_card():
     runs = reel_ending.overlay_runs_before_tail_cards(
         [(0, 400), (500, 900)], [])
     assert runs == [(0, 400), (500, 900)]
-
-
-# ── The hold is found by its FILE, not by being last on the row ─────
-
-class _FakeItem:
-    """Enough of a Resolve timeline item for the freeze lookup."""
-
-    def __init__(self, path, properties=None):
-        self._path = path
-        self._props = dict(properties or {})
-        self.copied_onto = []
-
-    def GetMediaPoolItem(self):
-        return self
-
-    def GetClipProperty(self, key):
-        return self._path if key == "File Path" else ""
-
-    def GetProperty(self, *args):
-        return dict(self._props)
-
-    def SetProperty(self, key, value):
-        self._props[key] = value
-        return True
-
-    def CopyGrades(self, targets):
-        self.copied_onto.extend(targets)
-        return True
-
-
-class _FakeTimeline:
-    def __init__(self, items):
-        self._items = list(items)
-
-    def GetItemListInTrack(self, media, index):
-        return list(self._items) if media == "video" and index == 1 else []
-
-
-class _FakeFreeze:
-    track_index = 1
-    held_from = 1255
-    duration_frames = 19
-
-    def __init__(self, path):
-        self.rendered_path = path

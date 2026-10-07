@@ -752,7 +752,7 @@ def _item_uid(item):
 
 
 def _is_held_frame(item) -> bool:
-    """Whether this timeline item is a rendered HOLD, not footage.
+    """Whether this timeline item is a native or legacy held frame.
 
     `reel_ending` owns both the artefact and the question - this asks
     it with the path Resolve gives, rather than restating the naming
@@ -760,7 +760,7 @@ def _is_held_frame(item) -> bool:
     will not answer for is NOT called a hold: the caller's default is
     to treat it as picture, which is the safe way to be wrong here.
     """
-    from library.tools.reel_ending import is_freeze_path
+    from library.tools.reel_ending import is_freeze_path, is_native_hold
     try:
         pool_item = item.GetMediaPoolItem()
     except Exception:  # noqa: BLE001 - an unreadable item is not a hold
@@ -768,7 +768,8 @@ def _is_held_frame(item) -> bool:
     if not pool_item:
         return False
     try:
-        return is_freeze_path(pool_item.GetClipProperty("File Path"))
+        return (is_freeze_path(pool_item.GetClipProperty("File Path"))
+                or is_native_hold(item))
     except Exception:  # noqa: BLE001 - same reading
         return False
 
@@ -989,7 +990,7 @@ def _link_offset_unions(timeline, plan, record, verified_groups,
     Automatic source-edge pairs do not make unrelated unmatched items
     strict; their warnings remain for the conformance gate.
 
-    The one thing the picture census EXCLUDES is a rendered HOLD
+    The one thing the picture census EXCLUDES is a native or legacy HOLD
     (`_is_held_frame`), because a held frame has no audio anywhere on
     the timeline and so cannot be linked to anything at all. That is
     the difference between "was not linked" and "could not be" - and a
@@ -6942,8 +6943,9 @@ def _with_freeze(placements_list, freeze, fps: float) -> list:
 
 
 def _freeze_tail_matches(timeline, row: int, start: int, end: int,
-                         path: str) -> list:
-    """Read back the one exact freeze item named by its row and span."""
+                         source_file: str, source_start_frame: int,
+                         *, require_hold: bool = False) -> list:
+    """Read back a native hold by row, record span and source frame."""
     import os
 
     items = timeline.GetItemListInTrack("video", row)
@@ -6951,7 +6953,7 @@ def _freeze_tail_matches(timeline, row: int, start: int, end: int,
         items = []
     if not isinstance(items, (list, tuple)):
         raise ReelBuildError(
-            f"freeze tail read-back on V{row} returned "
+            f"native hold read-back on V{row} returned "
             f"{type(items).__name__}, not an item list")
     matches = []
     for item in items:
@@ -6961,17 +6963,24 @@ def _freeze_tail_matches(timeline, row: int, start: int, end: int,
             pool_item = item.GetMediaPoolItem()
             item_path = (pool_item.GetClipProperty("File Path")
                          if pool_item else "")
+            item_source_start = int(item.GetSourceStartFrame())
         except Exception:
-            item_path = ""
-        if item_path and os.path.normcase(os.path.normpath(
-                item_path)) == os.path.normcase(os.path.normpath(path)):
-            matches.append(item)
+            continue
+        if (not item_path or os.path.normcase(os.path.normpath(item_path))
+                != os.path.normcase(os.path.normpath(source_file))
+                or item_source_start != int(source_start_frame)):
+            continue
+        if require_hold:
+            from library.tools.reel_ending import is_native_hold
+            if not is_native_hold(item):
+                continue
+        matches.append(item)
     return matches
 
 
 def _verify_freeze_tail_after_fusion(project, name: str, freeze,
                                     trace: dict) -> bool:
-    """Record the exact freeze read-back after Fusion has touched the reel."""
+    """Record the native hold read-back after Fusion has touched the reel."""
     timeline_matches = []
     item_matches = []
     error = None
@@ -6986,7 +6995,8 @@ def _verify_freeze_tail_after_fusion(project, name: str, freeze,
             item_matches = _freeze_tail_matches(
                 timeline_matches[0], int(expected["track_index"]),
                 int(expected["start_frame"]), int(expected["end_frame"]),
-                freeze.rendered_path)
+                freeze.held_from, int(expected["source_start_frame"]),
+                require_hold=True)
     except Exception as exc:
         error = str(exc)
 
@@ -7008,25 +7018,16 @@ def _verify_freeze_tail_after_fusion(project, name: str, freeze,
         if trace["verified"] else
         {"attempted": False, "status": "refused",
          "reason": ("post-Fusion loss refuses placement; a repair would "
-                    "need to re-prove the freeze's inherited treatment")}
+                    "need to re-prove the native hold and its treatment")}
     )
     return bool(trace["verified"])
 
 
-def _append_freeze_tail(pool, project, timeline, name: str, path: str,
+def _append_freeze_tail(pool, project, timeline, name: str,
+                        source_file: str, source_start_frame: int,
                         spec: dict, *, recording: bool = False,
                         trace: dict | None = None):
-    """Place the declared hold and prove it occupies its planned frames.
-
-    Reel 10's declared 19-frame close was present in the plan and the tail
-    card began after those 19 frames, but conformance found no picture on
-    any row in that interval. The ordinary picture loop ignored the return
-    from AppendToTimeline, so a declined hold could become a late generic
-    black hole. A missing return gets one retry only after an exact row read-back
-    proves that the first call left no hold behind. The recorded OTIO path
-    has no live row to read here; its compiler verifies every recorded span
-    after import.
-    """
+    """Append the held source segment and verify its planned record span."""
     import os
 
     start = int(spec["recordFrame"])
@@ -7039,7 +7040,8 @@ def _append_freeze_tail(pool, project, timeline, name: str, path: str,
             "landed": None,
             "append_verified": None,
             "expected": {
-                "asset": os.path.basename(path),
+                "source_file": source_file,
+                "source_start_frame": int(source_start_frame),
                 "track_index": row,
                 "start_frame": start,
                 "end_frame": end,
@@ -7065,7 +7067,8 @@ def _append_freeze_tail(pool, project, timeline, name: str, path: str,
         return placed_items
 
     def readback():
-        return _freeze_tail_matches(timeline, row, start, end, path)
+        return _freeze_tail_matches(
+            timeline, row, start, end, source_file, source_start_frame)
 
     def record_readback(matches, attempt_number: int):
         if trace is not None:
@@ -7083,9 +7086,9 @@ def _append_freeze_tail(pool, project, timeline, name: str, path: str,
             trace["verification_deferred"] = True
         if not placed:
             raise ReelBuildError(
-                f"{name}: OTIO recorder declined the freeze tail "
-                f"{os.path.basename(path)} at V{row} frames {start}-{end}; "
-                "the declared TV close cannot be compiled")
+                f"{name}: OTIO recorder declined the native hold from "
+                f"{os.path.basename(source_file)} at V{row} frames "
+                f"{start}-{end}; the declared TV close cannot be compiled")
         return placed
 
     matches = readback()
@@ -7094,18 +7097,16 @@ def _append_freeze_tail(pool, project, timeline, name: str, path: str,
         return placed
     if len(matches) > 1:
         raise ReelBuildError(
-            f"{name}: freeze tail {os.path.basename(path)} appears "
-            f"{len(matches)} times on V{row} at frames {start}-{end}; "
+            f"{name}: native hold from {os.path.basename(source_file)} "
+            f"appears {len(matches)} times on V{row} at frames {start}-{end}; "
             "the declared close is ambiguous")
     if placed:
         raise ReelBuildError(
-            f"{name}: AppendToTimeline returned an item for freeze tail "
-            f"{os.path.basename(path)}, but V{row} has no matching item "
-            f"at frames {start}-{end}; refusing an unverified TV close")
+            f"{name}: AppendToTimeline returned an item for the native "
+            f"hold from {os.path.basename(source_file)}, but V{row} has no "
+            f"matching item at frames {start}-{end}; refusing an "
+            "unverified TV close")
 
-    # Resolve returned no placed item, and the exact row read-back confirms
-    # it did not land. One guarded retry handles a transient refusal without
-    # duplicating a hold that actually made it onto the timeline.
     _assert_placing(project, timeline)
     retried = append(2)
     matches = readback()
@@ -7119,9 +7120,57 @@ def _append_freeze_tail(pool, project, timeline, name: str, path: str,
     else:
         detail = "Resolve returned no item"
     raise ReelBuildError(
-        f"{name}: the freeze tail {os.path.basename(path)} was not placed "
-        f"on V{row} at frames {start}-{end} after one retry ({detail}); "
-        "refusing to leave the declared TV close as black")
+        f"{name}: the native hold from {os.path.basename(source_file)} "
+        f"was not placed on V{row} at frames {start}-{end} after one retry "
+        f"({detail}); refusing to leave the declared TV close as black")
+
+
+def _apply_native_hold(name: str, timeline, freeze, row: int,
+                       fps: float, trace: dict | None = None) -> dict:
+    """Set and read back a zero-speed hold on the exact appended segment."""
+    start, end = freeze.reel_start_frame, freeze.end_frame
+    before = _freeze_tail_matches(
+        timeline, row, start, end, freeze.held_from,
+        freeze.held_source_frame)
+    if len(before) != 1:
+        raise ReelBuildError(
+            f"{name}: expected one native hold segment from "
+            f"{freeze.held_from!r} source frame {freeze.held_source_frame} "
+            f"on V{row} at [{start}, {end}); found {len(before)}")
+    item = before[0]
+    original_span = _timeline_span(item)
+    from library.tools import native_ops_apply
+
+    report = native_ops_apply.apply_native_speed_ops(
+        timeline,
+        [{"op_id": f"ending_hold@{start}",
+          "effect_type": "freeze_frame",
+          "timeline_start": start / fps,
+          "timeline_end": end / fps}],
+        fps=fps, dialogue_tracks=None, video_tracks=(row,))
+    if report["failed"]:
+        raise ReelBuildError(
+            f"{name}: Resolve refused the native ending hold: "
+            + "; ".join(failure["what"] for failure in report["failed"]))
+    held = _freeze_tail_matches(
+        timeline, row, start, end, freeze.held_from,
+        freeze.held_source_frame, require_hold=True)
+    if len(held) != 1 or _timeline_span(item) != original_span:
+        raise ReelBuildError(
+            f"{name}: native ending hold did not retain its exact record "
+            f"span [{start}, {end}) and 0% speed after Resolve read-back")
+    if trace is not None:
+        trace["native_retime"] = {
+            "applied": True,
+            "percentage": 0.0,
+            "record_span_preserved": True,
+            "source_frame": freeze.held_source_frame,
+            "readback": report["applied"],
+        }
+    return {"item": item.GetName(), "speed": 0.0,
+            "record": [start, end],
+            "source_frame": freeze.held_source_frame,
+            "verified": True}
 
 
 def _inherit_freeze_treatment(name: str, timeline, track_plan,
@@ -7155,8 +7204,8 @@ def _inherit_freeze_treatment(name: str, timeline, track_plan,
     seven reels current: Reel 01 refused outright, and Reels 13, 23, 30
     and 31 would have.  Reel 26 passed only because its closer is the
     OTHER speaker, so the card and the hold landed on different rows -
-    luck, not a rule.  The hold is found by the FILE this build
-    rendered.
+    luck, not a rule. The hold is found by its exact record span and
+    source frame, then verified as zero-speed.
     """
     import sys
 
@@ -7175,7 +7224,7 @@ def _inherit_freeze_treatment(name: str, timeline, track_plan,
             f"{name}: the freeze tail was placed on V{row} but that row "
             f"carries {len(items)} item(s) - there is no shot in front "
             f"of the hold to inherit from.")
-    # The freeze is found by the FILE THIS BUILD RENDERED, never by
+    # The native hold is found by its span and source frame, never by
     # being last on the row. Measured 2026-09-12 rebuilding Reel 01:
     # the project's declared closing card (`effect.full_frame_elements`)
     # is placed TAIL on `aroll_rows()[0]`, so on every reel whose ending
@@ -7187,11 +7236,20 @@ def _inherit_freeze_treatment(name: str, timeline, track_plan,
     held = shot = None
     held_index = None
     for index, item in enumerate(items):
+        if (_timeline_span(item) != (freeze.reel_start_frame,
+                                     freeze.end_frame)
+                or not _is_held_frame(item)):
+            continue
         source = item.GetMediaPoolItem()
         if source is None:
             continue
-        if (source.GetClipProperty("File Path") or "") \
-                != freeze.rendered_path:
+        try:
+            source_path = source.GetClipProperty("File Path") or ""
+            source_start = int(item.GetSourceStartFrame())
+        except Exception:
+            continue
+        if (source_path != freeze.held_from
+                or source_start != freeze.held_source_frame):
             continue
         if index == 0:
             break
@@ -7200,8 +7258,8 @@ def _inherit_freeze_treatment(name: str, timeline, track_plan,
     if held is None:
         raise ReelBuildError(
             f"{name}: no item on V{row} with a shot in front of it is "
-            f"the freeze tail this build rendered "
-            f"({freeze.rendered_path!r}), so nothing here knows which "
+            f"the native hold from {freeze.held_from!r} source frame "
+            f"{freeze.held_source_frame}, so nothing here knows which "
             f"item to give the shot's treatment to. The row carries "
             f"{len(items)} item(s). Refusing rather than grading the "
             f"wrong clip.")
@@ -7215,7 +7273,7 @@ def _inherit_freeze_treatment(name: str, timeline, track_plan,
             continue
         set_property(
             held, key, wanted[key],
-            item_identity={"source_file": freeze.rendered_path,
+            item_identity={"source_file": freeze.held_from,
                            "track": f"V{row}", "row_index": held_index},
             project_folder=project_folder or None,
             timeline_name=name)
@@ -8315,8 +8373,8 @@ class ReelPlacementPlan:
 
     The FREE half of `build_reel_timeline` (FREE -> RESOLVE -> FREE,
     the single-Resolve plan's item 2): the reel's shape, offsets, angle
-    plan, freeze tail, post header, track plan and the rendered,
-    promoted artefacts the placement imports. `prepare_reel_timeline`
+    plan, freeze tail, post header, track plan and durable artefacts
+    the placement imports. `prepare_reel_timeline`
     makes it with no hold, so a build holds the instance only for
     the placement itself; `build_reel_timeline(prepared=...)` places
     it. Computed exactly as the placement used to compute it inline,
@@ -8494,11 +8552,11 @@ def prepare_reel_timeline(moment, master_clips, subtitle_segments, fps,
     #
     # It joins `placements_list` HERE, before the track plan and
     # before anything places or measures the picture, so it is a
-    # picture clip to every pass that follows: the placer puts it on
+    # picture placement to every pass that follows: the placer puts it on
     # the same angle's row, `frame_runs` carries the TV frame over it,
     # and `reel_look.power_effects` arms the element on it because it
     # is the last picture clip of that row. Audio is NOT extended - a
-    # freeze is picture only, and the voice plays to its natural end.
+    # hold is picture only, and the voice plays to its natural end.
     freeze_tail = None
     if ending is not None:
         from library.tools import reel_ending as _ending_owner
@@ -8508,31 +8566,10 @@ def prepare_reel_timeline(moment, master_clips, subtitle_segments, fps,
              if getattr(p["clip"], "track_type", "video") == "video"],
             ending, fps, look=look)
     if freeze_tail is not None:
-        from library.tools.project_layout import Area, ProjectLayout
-        from library.tools.reel_placed_assets import (
-            assert_placeable as _assert_placeable,
-            promote_to_durable as _promote,
-        )
-
-        freeze_tail = _ending_owner.render_freeze(
-            freeze_tail,
-            os.path.join(str(ProjectLayout(project_folder).read_dir(
-                Area.SCRATCH)), "reel_ending", "freeze"),
-            fps)
-        # Promoted out of scratch before anything points at it, the
-        # rule every placed artefact follows: a timeline pointing under
-        # scratch/ points at files a cleaner may throw away.
-        import dataclasses as _dc
-
-        freeze_tail = _dc.replace(
-            freeze_tail,
-            rendered_path=_promote(freeze_tail.rendered_path,
-                                   project_folder, Area.REEL_CARDS))
-        _assert_placeable(freeze_tail.rendered_path, project_folder)
         placements_list.append(
             _ending_owner.freeze_placement(freeze_tail, fps))
-        print(f"  {timeline_name or moment.timeline_name}: freeze tail "
-              f"holds frame {freeze_tail.held_source_seconds:.3f}s of "
+        print(f"  {timeline_name or moment.timeline_name}: native hold "
+              f"repeats source frame {freeze_tail.held_source_frame} of "
               f"{os.path.basename(freeze_tail.held_from)} for "
               f"{freeze_tail.duration_frames}f at reel frame "
               f"{freeze_tail.reel_start_frame}, {freeze_tail.element} "
@@ -8843,23 +8880,6 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         profile["timeline_name"] = name
     recorded_plan_started = time.perf_counter() if recording else None
 
-    # The freeze tail's artefact goes into the pool BEFORE the picture
-    # loop asks for it: that loop finds media by path with
-    # `pool_item_for` and SKIPS what it cannot find, with one line on
-    # stderr - which is exactly the silent loss this owner exists to
-    # end. An import Resolve declines refuses the build instead.
-    if freeze_tail is not None:
-        if import_pool_item(
-                pool, freeze_tail.rendered_path,
-                overlay_import_bin(project_folder, name,
-                                   freeze_tail.rendered_path)) is None:
-            raise ReelBuildError(
-                f"{name}: Resolve would not import the freeze tail "
-                f"{freeze_tail.rendered_path!r}. The reel's declared "
-                f"ending holds a frame this build cannot place, so it "
-                f"refuses rather than ending on the live tail and "
-                f"calling that the declaration.")
-
     if recording:
         # Nothing exists until the import: the rows and their names are
         # the compiled document's, read back after it lands.
@@ -9095,7 +9115,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         if not pool_item:
             if is_freeze_tail:
                 raise ReelBuildError(
-                    f"{name}: the rendered freeze tail "
+                    f"{name}: the source for the native ending hold "
                     f"{c.source_file!r} is not in the media pool; "
                     "refusing a black ending")
             print(f"Source file {c.source_file} not in media pool", file=sys.stderr)
@@ -9112,6 +9132,21 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                             + _retimed_span(p, name)[1] / fps)
         source_start_frame, source_end_frame = _resolve_source_frame_span(
             p["source_in"], appended_out, pool_fps)
+        if is_freeze_tail:
+            source_start_frame = freeze_tail.held_source_frame
+            source_end_frame = freeze_tail.source_end_frame
+            try:
+                source_frames = int(pool_item.GetClipProperty("Frames") or 0)
+            except (TypeError, ValueError):
+                source_frames = 0
+            if (source_frames <= 0
+                    or source_end_frame > source_frames):
+                raise ReelBuildError(
+                    f"{name}: native ending hold needs source frames "
+                    f"[{source_start_frame}, {source_end_frame}) of "
+                    f"{c.source_file!r}, but the media pool reports "
+                    f"{source_frames or 'no frame count'}; refusing to "
+                    "read an unverified source handle")
 
         _assert_placing(project, timeline)
 
@@ -9132,7 +9167,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         }
         if is_freeze_tail:
             _append_freeze_tail(
-                pool, project, timeline, name, c.source_file, append_spec,
+                pool, project, timeline, name, c.source_file,
+                source_start_frame, append_spec,
                 recording=recording,
                 trace=build_record["freeze_placement"])
         elif recording:
@@ -9255,6 +9291,17 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             sorted(set(speech_row_by_angle.values())), name)
         if profile is not None:
             _otio.record_duration(profile, "ledger_retime_s", retime_started)
+
+        if freeze_tail is not None:
+            hold_row = video_row_by_angle.get(str(freeze_tail.track_index))
+            if hold_row is None:
+                raise ReelBuildError(
+                    f"{name}: native ending hold names master row "
+                    f"{freeze_tail.track_index}, which has no planned "
+                    "picture row")
+            build_record["native_hold"] = _apply_native_hold(
+                name, timeline, freeze_tail, hold_row, fps,
+                trace=build_record["freeze_placement"])
 
         # ── The declared CDL: the look's hue half, on the footage ──
         # Step 6.01 applies this on the master through TimelineItem.SetCDL
@@ -9946,7 +9993,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         found = _freeze_tail_matches(
             timeline, int(expected["track_index"]),
             int(expected["start_frame"]),
-            int(expected["end_frame"]), freeze_tail.rendered_path)
+            int(expected["end_frame"]), freeze_tail.held_from,
+            int(expected["source_start_frame"]), require_hold=True)
         freeze_trace["post_placement"] = {
             "readback_matches": len(found),
             "verified": len(found) == 1,
