@@ -425,9 +425,10 @@ mod tests {
         // The defect: NSWorkspace answers pid-found while macOS 26
         // ignores the request, and the old caller reported
         // activated:true on that answer alone. A pid that never comes
-        // forward must be an error naming both routes, never success.
+        // forward must be an error naming both routes, never success -
+        // and the `open -b` fallback fires once, not once per poll.
         use std::cell::Cell;
-        let opened = Cell::new(false);
+        let opens = Cell::new(0u32);
         let sleeps = Cell::new(0u32);
         let out = activate_verified(
             1234,
@@ -435,15 +436,15 @@ mod tests {
             |_| {},
             || Some(4321),
             |_| {
-                opened.set(true);
+                opens.set(opens.get() + 1);
                 false
             },
             |_| {
                 sleeps.set(sleeps.get() + 1);
             },
-            3,
         );
-        assert!(opened.get());
+        assert_eq!(opens.get(), 1);
+        assert_eq!(sleeps.get(), ACTIVATION_TOTAL_ROUNDS);
         let err = out.unwrap_err();
         assert!(err.contains("1234") && err.contains("open -b"), "got: {err}");
     }
@@ -467,7 +468,6 @@ mod tests {
             |_| {
                 sleeps.set(sleeps.get() + 1);
             },
-            3,
         );
         assert_eq!(out, Ok(Activation::ViaNsWorkspace));
         assert!(!opened.get());
@@ -475,11 +475,13 @@ mod tests {
     }
 
     #[test]
-    fn open_fallback_is_verified_after_settle() {
-        // The request alone did not move focus; `open -b` ran with the
-        // pinned argv and the pid came forward on the second poll.
+    fn open_fallback_fires_once_then_verifies() {
+        // The request alone did not move focus within its head start;
+        // `open -b` ran once with the pinned argv and the pid came
+        // forward during its settle - credit ViaOpen.
         use std::cell::Cell;
         let polls = Cell::new(0u32);
+        let opens = Cell::new(0u32);
         let seen_argv = Cell::new(Vec::new());
         let out = activate_verified(
             1234,
@@ -487,24 +489,60 @@ mod tests {
             |_| {},
             || {
                 polls.set(polls.get() + 1);
-                if polls.get() >= 3 {
+                if opens.get() > 0 && polls.get() >= ACTIVATION_NS_ROUNDS + 3 {
                     Some(1234)
                 } else {
                     Some(4321)
                 }
             },
             |argv: &[String]| {
+                opens.set(opens.get() + 1);
                 seen_argv.set(argv.to_vec());
                 true
             },
             |_| {},
-            5,
         );
         assert_eq!(out, Ok(Activation::ViaOpen));
+        assert_eq!(opens.get(), 1);
         assert_eq!(
             seen_argv.take(),
             vec!["open", "-b", "com.blackmagic-design.DaVinciResolve"]
         );
+    }
+
+    #[test]
+    fn a_late_nsworkspace_landing_credits_nsworkspace() {
+        // The request needed a beat but no fallback: frontmost flips
+        // inside the head start, `open -b` never runs, and a few
+        // settle sleeps happened - the racy arrival the old
+        // instant-check missed.
+        use std::cell::Cell;
+        let polls = Cell::new(0u32);
+        let opens = Cell::new(0u32);
+        let sleeps = Cell::new(0u32);
+        let out = activate_verified(
+            1234,
+            RESOLVE_BUNDLE_ID,
+            |_| {},
+            || {
+                polls.set(polls.get() + 1);
+                if polls.get() >= 4 {
+                    Some(1234)
+                } else {
+                    Some(4321)
+                }
+            },
+            |_: &[String]| {
+                opens.set(opens.get() + 1);
+                true
+            },
+            |_| {
+                sleeps.set(sleeps.get() + 1);
+            },
+        );
+        assert_eq!(out, Ok(Activation::ViaNsWorkspace));
+        assert_eq!(opens.get(), 0);
+        assert_eq!(sleeps.get(), 3);
     }
     #[test]
     fn menu_hop_prefers_openers_and_leaf_prefers_runners() {
@@ -632,11 +670,18 @@ pub fn find_pid(bundle_id: &str) -> Option<u32> {
 /// `open -b` activation fallback targets it.
 pub const RESOLVE_BUNDLE_ID: &str = "com.blackmagic-design.DaVinciResolve";
 
-/// Settle polls after the `open -b` fallback: 20 x 500 ms = 10 s, the
-/// settle window the hands lane measured as needed live 2026-10-07
-/// (10 s activate polls; `open -b` verified inside that window).
-pub const ACTIVATION_SETTLE_POLLS: u32 = 20;
-pub const ACTIVATION_SETTLE_STEP_MS: u64 = 500;
+/// Frontmost poll steps: 250 ms apart. Finer than the old 500 ms so a
+/// pid arriving just after a check is seen half as late.
+pub const ACTIVATION_POLL_STEP_MS: u64 = 250;
+/// NSWorkspace head start: 8 rounds (2 s) for the request to land
+/// before escalating. The racy arrival measured live comes forward
+/// seconds after the request, not minutes.
+pub const ACTIVATION_NS_ROUNDS: u32 = 8;
+/// Total poll budget: 40 rounds (10 s), the lane-measured settle
+/// window. `open -b` fires once when the head start expires and the
+/// same bound covers its settle - one bound for the whole attempt,
+/// never an unbounded wait for focus.
+pub const ACTIVATION_TOTAL_ROUNDS: u32 = 40;
 
 /// How one activation reached the foreground.
 #[derive(Debug, PartialEq)]
@@ -661,9 +706,10 @@ pub fn open_activate_argv(bundle_id: &str) -> Vec<String> {
 /// macOS 26 the `activateWithOptions:` call is inert from a faceless
 /// binary, so the old caller reported `{"activated": true}` while
 /// focus never moved (measured live 2026-10-07 - four refused takes).
-/// This asks, reads frontmost back, and only then falls back to
-/// `open -b` with a settle poll; a pid that never comes forward is an
-/// error naming both routes, never a success.
+/// This asks, polls frontmost (the request gets a head start, then
+/// `open -b` fires once and the same bound covers its settle), and a
+/// pid that never comes forward is an error naming both routes, never
+/// a success.
 pub fn activate_verified(
     pid: u32,
     bundle_id: &str,
@@ -671,20 +717,29 @@ pub fn activate_verified(
     frontmost: impl Fn() -> Option<u32>,
     open: impl Fn(&[String]) -> bool,
     sleep_ms: impl Fn(u64),
-    settle_polls: u32,
 ) -> Result<Activation, String> {
     request(pid);
-    if frontmost() == Some(pid) {
-        return Ok(Activation::ViaNsWorkspace);
-    }
-    let argv = open_activate_argv(bundle_id);
-    if open(&argv) {
-        for _ in 0..settle_polls {
-            sleep_ms(ACTIVATION_SETTLE_STEP_MS);
-            if frontmost() == Some(pid) {
-                return Ok(Activation::ViaOpen);
-            }
+    let mut opened = false;
+    for round in 0..ACTIVATION_TOTAL_ROUNDS {
+        if frontmost() == Some(pid) {
+            return Ok(if opened {
+                Activation::ViaOpen
+            } else {
+                Activation::ViaNsWorkspace
+            });
         }
+        if round == ACTIVATION_NS_ROUNDS {
+            let argv = open_activate_argv(bundle_id);
+            opened = open(&argv);
+        }
+        sleep_ms(ACTIVATION_POLL_STEP_MS);
+    }
+    if frontmost() == Some(pid) {
+        return Ok(if opened {
+            Activation::ViaOpen
+        } else {
+            Activation::ViaNsWorkspace
+        });
     }
     Err(format!(
         "activation failed: pid {pid} never became frontmost - neither the NSWorkspace request nor `open -b {bundle_id}` brought it forward"

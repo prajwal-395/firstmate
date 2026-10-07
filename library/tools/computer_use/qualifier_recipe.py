@@ -25,6 +25,7 @@ from PIL import Image
 
 from library.tools.computer_use.scripts import (
     Anchor,
+    Expect,
     Script,
     ScriptError,
     ScriptStep,
@@ -132,7 +133,17 @@ def viewer_point(rect, x, y) -> tuple:
 
 
 def build_qualifier_sample_script(template_path, point) -> Script:
-    """Two clicks: the eyedropper, then the mapped viewer point."""
+    """Two clicks: the eyedropper, then the mapped viewer point.
+
+    Both steps declare `pixels_changed` (whole frame): the toggle flips
+    the icon's pixels and the sample repaints the viewer and qualifier
+    UI, while a filtered click paints nothing - and under a whole-take
+    lease nothing but this take paints at all. A `done` without these
+    proved nothing (measured 2026-10-07: template matched, clicks
+    posted, effect unknown). The effect rect is not statically nameable
+    (the icon moves with layout, the sample repaints panels), so no
+    region is declared; a recipe that can name its rect does.
+    """
     x, y = point
     return Script(
         goal=f"sample the qualifier at viewer ({x:.0f}, {y:.0f})",
@@ -143,6 +154,7 @@ def build_qualifier_sample_script(template_path, point) -> Script:
                     via="template",
                     params={"image": template_path,
                             "threshold": 0.9})],
+                expect=Expect(via="pixels_changed", params={}),
             ),
             ScriptStep(
                 action="click",
@@ -151,6 +163,7 @@ def build_qualifier_sample_script(template_path, point) -> Script:
                     params={"x": x, "y": y,
                             "why": "mapped from the measured image rect; "
                                    "no anchor names a picture pixel"})],
+                expect=Expect(via="pixels_changed", params={}),
             ),
         ],
     )

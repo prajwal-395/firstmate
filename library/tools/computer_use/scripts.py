@@ -121,7 +121,13 @@ class Expect:
     """The step's expected outcome, verified after the action.
 
     A step that does not meet its expectation is refused: the runner
-    tries the next anchor, then falls back to the LLM.
+    tries the next anchor, then falls back to the LLM. `pixels_changed`
+    takes an optional `region` (`[x, y, w, h]` in window points) and
+    diffs that rect instead of the whole frame; without one the whole
+    screenshot (plus the AX and OCR surfaces) is the signal. A step
+    with no `expect` at all is verified by the driver accepting the
+    action - which proves nothing about the effect, so takes that must
+    prove an effect declare one.
     """
 
     via: str
@@ -459,12 +465,54 @@ def verify_expect(
         if before is None:
             return False
         after = build_observation(client, "", [], 0)
+        if expect.params.get("region") is not None:
+            return _region_changed(before.screenshot, after.screenshot,
+                                   expect.params["region"])
         return (
             before.screenshot != after.screenshot
             or before.ax_surface != after.ax_surface
             or before.ocr_labels != after.ocr_labels
         )
     return False
+
+
+def _region_changed(before_png: bytes, after_png: bytes,
+                    region) -> bool:
+    """Whether a window-point rect changed between two screenshots.
+
+    `region` is `[x, y, w, h]` in window points; the observation
+    screenshot is a point-size PNG, so points map 1:1 to its pixels.
+    A malformed rect (non-positive size, negative origin) is a recipe
+    bug and fails fast; a rect with no overlap with the image reads as
+    no observable area, hence unchanged. Under a whole-take lease
+    nothing but this take paints, so any change in the rect is this
+    step's effect.
+    """
+    from PIL import Image
+
+    try:
+        x, y, w, h = (float(v) for v in region)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"pixels_changed region {region!r} is not [x, y, w, h]: {exc}"
+        ) from exc
+    if w <= 0 or h <= 0 or x < 0 or y < 0:
+        raise ValueError(
+            f"pixels_changed region {region!r} needs a non-negative "
+            f"origin and positive size")
+    with Image.open(BytesIO(before_png)) as before_img:
+        before_rgb = before_img.convert("RGB")
+        width, height = before_rgb.size
+        box = (int(x), int(y), min(int(x + w), width), min(int(y + h), height))
+        if box[2] <= box[0] or box[3] <= box[1]:
+            return False
+        before_crop = before_rgb.crop(box)
+    with Image.open(BytesIO(after_png)) as after_img:
+        after_rgb = after_img.convert("RGB")
+        if after_rgb.size != (width, height):
+            return True
+        after_crop = after_rgb.crop(box)
+    return list(before_crop.getdata()) != list(after_crop.getdata())
 
 
 def run_script(

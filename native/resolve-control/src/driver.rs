@@ -448,7 +448,6 @@ impl Driver {
                     .unwrap_or(false)
             },
             |ms| std::thread::sleep(std::time::Duration::from_millis(ms)),
-            ax::ACTIVATION_SETTLE_POLLS,
         )
         .map_err(DriverError::ActivationFailed)?;
         let via_name = match via {

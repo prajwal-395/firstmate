@@ -85,6 +85,12 @@ def test_the_builder_clicks_eyedropper_then_point(tmp_path):
     assert second.anchors[0].via == "position"
     assert second.anchors[0].params["x"] == 455.0
     assert "why" in second.anchors[0].params
+    # Both clicks declare pixels_changed: a `done` without an expect
+    # proved nothing (measured 2026-10-07 - template matched, clicks
+    # posted, effect unknown). Whole-frame: the effect rect is not
+    # statically nameable, and the take lease isolates the signal.
+    assert first.expect is not None and first.expect.via == "pixels_changed"
+    assert second.expect is not None and second.expect.via == "pixels_changed"
 
 
 class _Item:

@@ -876,3 +876,48 @@ def test_a_past_deadline_raises_before_touching_the_driver():
         assert exc.code == "TAKE_EXPIRED"
     else:
         raise AssertionError("an expired take must refuse, not run")
+
+
+def test_region_changed_inside_and_outside():
+    """A rect that changed reads changed; a rect over identical pixels
+    reads unchanged - the named region, not the frame, is the signal."""
+    from PIL import Image
+
+    from library.tools.computer_use.scripts import _region_changed
+    from io import BytesIO
+
+    def png(color, box=None, fill=None):
+        img = Image.new("RGB", (64, 64), color)
+        if box:
+            from PIL import ImageDraw
+            ImageDraw.Draw(img).rectangle(box, fill=fill)
+        buf = BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue()
+
+    base = png((20, 20, 20))
+    marked = png((20, 20, 20), box=[10, 10, 20, 20], fill=(200, 200, 200))
+    assert _region_changed(base, marked, [0, 0, 64, 64]) is True
+    assert _region_changed(base, marked, [10, 10, 11, 11]) is True
+    assert _region_changed(base, marked, [40, 40, 10, 10]) is False
+    assert _region_changed(base, base, [0, 0, 64, 64]) is False
+
+
+def test_region_outside_the_image_is_unchanged_and_malformed_raises():
+    """A rect with no overlap reads unchanged (nothing observable);
+    a malformed rect is a recipe bug and fails fast."""
+    import pytest
+
+    from PIL import Image
+
+    from library.tools.computer_use.scripts import _region_changed
+    from io import BytesIO
+
+    buf = BytesIO()
+    Image.new("RGB", (64, 64), (20, 20, 20)).save(buf, format="PNG")
+    shot = buf.getvalue()
+    assert _region_changed(shot, shot, [100, 100, 10, 10]) is False
+    with pytest.raises(ValueError):
+        _region_changed(shot, shot, [10, 10, 0, 10])
+    with pytest.raises(ValueError):
+        _region_changed(shot, shot, [-1, 10, 10, 10])
