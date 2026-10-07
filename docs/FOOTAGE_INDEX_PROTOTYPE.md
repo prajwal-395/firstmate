@@ -479,3 +479,59 @@ refused to the pose/hand lane (mouth-cover 1/5, drinking 0/5 - measured at
 chance); every answer ranked top-k with scores, every hit unverified, and
 no abstention floor - none separates present from absent (absent max 0.191
 inside the present band; an all-miss query topped everything at 0.232).
+
+## Unified-search chunk measurements, 2026-10-06
+
+EmbeddingGemma 2 matrix the first scout did not run: chunks vs single
+frames, interleaved chunk embeddings, audio chunk lengths and query
+prompts, MRL dims, bf16. fp32 full checkpoint through
+sentence-transformers 6.1.0 on MPS (11-13 s load, 1.49 GB resident).
+Corpus, read-only: 6 8 s chunks from two real selfie clips (3 VERIFIED
+BY VIEWING - pointing, chin-on-hand, motion blur - plus 3 spread
+distractors) and 14 podcast transcript segments with their 16 kHz
+audio. 11 fixed queries (present + absent). Full tables in the
+unified-search lane PR; the picks:
+
+1. **Chunk unit: 8 s at 1 fps, one video embedding per chunk.** All
+   visual configs reach 3/3 recall@3, so margins decide: 8 s chunks
+   beat single-frame-max (V1) and 2 s/4 s prefixes on top-1
+   correctness. 8 s at 2 fps ranks best of all (all three top-1,
+   margins 0.023-0.033) at 2x frame cost - the opt-in for hard
+   queries, not the default. 2 s is too short (two wrong top-1s).
+2. **Interleave transcript+audio for speech-bearing chunks; skip
+   ambient audio on visual ones.** Frames+audio neither helps nor
+   hurts visual queries (same recall, slightly worse margins than
+   frames alone). But transcript+audio docs widen the
+   paraphrase-to-speech margin (0.59 to 0.66 over audio alone) with
+   correct speech/gap ordering both sides - the single-space hope
+   with actual support, though margins stay thin (~0.07).
+3. **MRL-256 for text AND chunks; 128 refused.** 256 keeps every
+   top-1 (and promotes the chin query to top-1 on chunks). 128 pushes
+   absent peaks to 0.78-0.81, above the 0.75 confident floor - it
+   would return confident wrong rows.
+4. **fp32 only; bf16 refused by measurement.** bf16 loads and runs
+   (2.1 s/chunk) but its vectors sit at cosine 0.56 to the fp32
+   ones - a different geometry, not quantisation noise. A quantised
+   build re-runs recall before it is trusted, not just latency.
+5. **Drop sub-10-char filler segments before embedding.** Removing
+   three fillers ("Okay.", "I get it.", "Mm-hmm.") lowered the text
+   absent max from the scout's 0.696 to 0.645 - they are the
+   inflation vector.
+6. **Text query prompts stay; visual query prompt stays OPEN.**
+   SearchQuery/Document confirmed as the checkpoint's own keys.
+   Unprompted visual queries ranked 3/3 top-1 here against
+   SearchQuery's 2/3 - a 3-query observation, not a pick; the
+   001-scale calibration decides.
+7. **Floors stand, with one boundary.** Visual absent peaks
+   0.53-0.64 sit below the 0.75 confident floor. But audio-by-text
+   needs its own calibration: a 4 s room-tone gap outranks speech
+   for a speech query at 0.65 - text floors must not govern audio.
+
+Call shapes that work (ST 6.1, measured by hitting them): a chunk is
+ONE `(T,H,W,C)` ndarray per encode call - batches of multi-frame
+lists are refused, and a 2-list encodes as an image PAIR, not a
+video; audio is `{"audio": {"array", "sampling_rate"}}` (HF datasets
+form); interleaved docs are `{"video", "audio"}` and
+`{"audio", "text"}` dicts. Costs: ~2.8 s per 8-frame chunk, ~0.4 s
+per frame, text 14 docs in 1.1 s, audio slower than realtime per
+slice (as the scout found).
