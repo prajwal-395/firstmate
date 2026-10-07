@@ -52,8 +52,14 @@ from library.tools.ren_refusal import RenRefusal
 from library.tools.resolve_lock import resolve_lease
 
 #: The anchor kinds, in priority order. A script lists its anchors in
-#: this order; the runner tries them in the order declared.
-ANCHOR_VIAS = ("ax_path", "ocr", "template", "offset", "position")
+#: this order; the runner tries them in the order declared. `menu` is
+#: a whole menu path executed server-side (`run_command`) - it needs
+#: no visible element and no focus, so it sits first: a step that CAN
+#: name its menu should. `key` is a keystroke, not a screen location -
+#: it resolves without touching the AX tree or the pixels, so it sits
+#: last: a step that CAN anchor to something visible should.
+ANCHOR_VIAS = ("menu", "ax_path", "ocr", "template", "offset", "position",
+               "key")
 
 #: The verification kinds. An unknown kind is refused at parse time, never
 #: silently passed at run time.
@@ -232,6 +238,11 @@ def resolve_anchor(client: DriverClient, anchor: Anchor) -> tuple[str, dict] | N
     The window may have moved or been resized between the mapping run and
     this run, so every anchor is resolved against the current state.
     """
+    if anchor.via == "menu":
+        path = anchor.params.get("path")
+        if not path:
+            return None
+        return ("run_command", {"path": list(path)})
     if anchor.via == "ax_path":
         path = anchor.params.get("path")
         if not path:
@@ -281,11 +292,31 @@ def resolve_anchor(client: DriverClient, anchor: Anchor) -> tuple[str, dict] | N
         if anchor.params.get("clicks") is not None:
             params["clicks"] = anchor.params["clicks"]
         return ("click", params)
+    if anchor.via == "key":
+        return _resolve_key(anchor)
     if anchor.via == "template":
         return _resolve_template(client, anchor)
     if anchor.via == "offset":
         return _resolve_offset(client, anchor)
     return None
+
+
+def _resolve_key(anchor: Anchor) -> tuple[str, dict] | None:
+    """Resolve a keystroke anchor to a driver `key` call, or `None`.
+
+    A keystroke anchors to nothing on screen, so it resolves without a
+    driver call - the combo is parsed here, through the model's own
+    `parse_key`, and a malformed combo RAISES (a recipe bug, not a
+    layout that moved). An empty combo resolves to nothing, like every
+    other anchor with no parameters.
+    """
+    from library.tools.computer_use.actions import parse_key
+
+    combo = anchor.params.get("key")
+    if not combo:
+        return None
+    key, modifiers = parse_key(str(combo))
+    return ("key", {"key": key, "modifiers": modifiers})
 
 
 def _resolve_template(client: DriverClient, anchor: Anchor) -> tuple[str, dict] | None:
@@ -509,16 +540,21 @@ def _record_learned_anchor(step: ScriptStep, action) -> None:
     """Record the anchor the LLM's action actually resolved.
 
     A `press` or `choose` teaches the AX path; a `click` teaches the
-    position, a `double_click` the position with both clicks. A
-    `set_value` teaches nothing - the anchor layer has no value write,
-    and teaching its path as an AX press would open the control instead
-    of setting it. An action with no deterministic anchor (key, type,
-    drag, scroll, wait) teaches nothing - recording a fake position
-    would make the next run click the screen origin.
+    position, a `double_click` the position with both clicks; a `key`
+    teaches the keystroke. A `set_value` teaches nothing - the anchor
+    layer has no value write, and teaching its path as an AX press
+    would open the control instead of setting it. An action with no
+    deterministic anchor (type, drag, scroll, wait) teaches nothing -
+    recording a fake position would make the next run click the
+    screen origin.
     """
     if action.kind in ("press", "choose"):
         step.anchors.append(
             Anchor(via="ax_path", params={"path": list(action.params["path"])})
+        )
+    elif action.kind == "key":
+        step.anchors.append(
+            Anchor(via="key", params={"key": str(action.params["key"])})
         )
     elif action.kind == "click":
         step.anchors.append(
@@ -680,3 +716,67 @@ def run_recipe(
         store.save(name, script, layout)
     store.record_result(name, result.outcome == "done")
     return result
+
+
+# ── Grade-node recipes: the Resolve Hands Color slice ────────────────
+#
+# The edit algebra says `grade.node_set` works and node_add/remove/
+# reorder do not, because the 21.1 Graph API exposes no topology
+# changes. UI control fixes it: the write is GUI-only, the
+# verification is API-readable (the captain's plan, section 11).
+# These constructors are the deterministic recipes the plan's
+# section 6 names - the route a mapping run would otherwise
+# rediscover each time, written down once it is measured.
+
+#: The Color page in the menu bar, outermost first. The page-switch
+#: shape is measured live: `list_commands` on the running Resolve
+#: answers the whole path, and `run_command` presses it
+#: server-side - the Switch to Page submenu's children are AX-lazy
+#: (absent until the menu opens), so `find_element` cannot resolve a
+#: page path but `run_command` executes it.
+GRADE_COLOR_PAGE_PATH = ["Workspace", "Switch to Page", "Color"]
+
+#: Add Serial Node in the Color page menu, outermost first. Measured
+#: live the same way: `Color > Nodes > Add Serial Node` is a pressable
+#: command, and pressing it grew `GetNumNodes` 1 -> 2 on the
+#: qualification timeline - all with another app frontmost, so the
+#: whole write route is background-capable.
+GRADE_NODE_ADD_PATH = ["Color", "Nodes", "Add Serial Node"]
+
+
+def grade_node_add_script() -> Script:
+    """The deterministic recipe for exactly one serial node.
+
+    Two menu commands, executed server-side: establish the Color page,
+    then press Add Serial Node. The recipe names NO viewer coordinate
+    and NO keystroke: keys land in whatever app is frontmost (measured
+    live - Shift+6 reached the browser, not Resolve), while the menu
+    route reached Resolve with another app frontmost.
+
+    Neither step declares a pixel or text expectation: a menu press
+    has no screen predicate, and the one run where the page press
+    answered pressed:true without switching still landed the node.
+    The write is judged OUTSIDE the script, by re-reading
+    `GetNumNodes` through the API - the count must grow by exactly
+    one (`edit_algebra._apply_grade_node_add`). A step that declares
+    no expectation is verified by the driver accepting the action.
+    """
+    return Script(
+        goal="add one serial node on the Color page (grade.node_add)",
+        steps=[
+            ScriptStep(
+                action="menu",
+                anchors=[Anchor(
+                    via="menu",
+                    params={"path": list(GRADE_COLOR_PAGE_PATH)},
+                )],
+            ),
+            ScriptStep(
+                action="menu",
+                anchors=[Anchor(
+                    via="menu",
+                    params={"path": list(GRADE_NODE_ADD_PATH)},
+                )],
+            ),
+        ],
+    )

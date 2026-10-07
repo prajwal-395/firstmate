@@ -51,6 +51,7 @@ behind it; `resolve-axi` verbs are projections, not a second algebra.
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -567,6 +568,129 @@ def _verify_grade_node_set(op, after):
         return (f"clip {op['unique_id']!r} node {op['node_index']} reads "
                 f"back: " + "; ".join(problems))
     return None
+
+
+def _default_ui_driver():
+    """The native resolve-control driver - the GUI-only applies' hands.
+
+    Built lazily so importing the algebra never spawns a process, and
+    a missing binary refuses here (naming the build) rather than
+    mid-apply. Tests point `ui_driver_factory` at a fake instead.
+    """
+    from library.tools.computer_use.client import DriverClient
+
+    return DriverClient()
+
+
+#: The UI driver source for the GUI-only applies (`grade.node_add`
+#: first). Production builds the native driver, which refuses when it
+#: is not built; the tests monkeypatch this to inject the fake - the
+#: fake lives in the tests and is never the default. Mirrors
+#: `resolved.ui_transaction.driver_factory`, the broker's half of the
+#: same seam.
+ui_driver_factory = _default_ui_driver
+
+
+def _read_node_count(item, label="grade.node_add") -> int:
+    """The node graph's count through the API, or a refusal.
+
+    The judgement half of every GUI-only grade write: the write is
+    GUI-only, the verification is API-readable. A graph that will not
+    open or count refuses BEFORE anything runs, so a topology op
+    never claims a node it cannot see.
+    """
+    try:
+        graph = item.GetNodeGraph()
+        count = graph.GetNumNodes()
+    except Exception as exc:  # noqa: BLE001 - raised, never half-written
+        raise RuntimeError(
+            f"{label} cannot open the node graph ({exc}) - "
+            f"nothing was written.") from exc
+    if isinstance(count, bool) or not isinstance(count, int):
+        raise RuntimeError(
+            f"{label} GetNumNodes answered {count!r}, not a count - "
+            f"nothing was written.")
+    return count
+
+
+def _apply_grade_node_add(op, timeline, item, _project=None):
+    """Add ONE serial node through the Color-page menu recipe, judged.
+
+    The Graph API exposes no AddNode (measured), so the write is
+    GUI-only: two menu commands executed server-side
+    (`computer_use.scripts.grade_node_add_script` - no viewer
+    coordinate and no keystroke anywhere in it; keys land in
+    whatever app is frontmost, measured live), then `GetNumNodes`
+    is re-read through the API. The count must grow by EXACTLY one:
+    no change means the command landed on the wrong clip, and more
+    than one means it double-fired - either way the op refuses and
+    nothing is claimed.
+
+    The menu acts on the current clip, so the playhead is parked
+    mid-clip first and the park is read back: a playhead that will
+    not park refuses rather than landing the node on whatever clip
+    happens to be current.
+    """
+    from library.tools.computer_use.scripts import (
+        grade_node_add_script, run_script,
+    )
+
+    _park_playhead_mid_clip(op, timeline, item)
+    before = _read_node_count(item, "grade.node_add")
+    client = ui_driver_factory()
+    try:
+        result = run_script(client, grade_node_add_script())
+    finally:
+        close = getattr(client, "close", None)
+        if callable(close):
+            with contextlib.suppress(Exception):
+                close()
+    failed = [step for step in result.steps
+              if step.get("outcome") != "ok"]
+    if result.outcome != "done" or failed:
+        raise RuntimeError(
+            f"grade.node_add UI recipe did not land ({result.outcome}; "
+            f"{len(failed)} failed step(s)) - nothing was claimed.")
+    after = _read_node_count(item, "grade.node_add")
+    if after != before + 1:
+        raise RuntimeError(
+            f"grade.node_add nodes {before} -> {after}: expected exactly "
+            f"one serial node - the command may have landed on the "
+            f"wrong clip or double-fired. Nothing was claimed.")
+    return True
+
+
+def _park_playhead_mid_clip(op, timeline, item) -> None:
+    """Park the playhead mid-clip and read the park back, or refuse.
+
+    One retry: the first set after a timeline switch can miss
+    (measured by the batch-5 lane). A playhead that will not park
+    refuses - the menu acts on the current clip, so an unparked run
+    would land the node wherever the playhead happens to be.
+    """
+    from library.tools.marker_feedback import frames_to_timecode
+
+    try:
+        start, end = int(item.GetStart()), int(item.GetEnd())
+        fps = float(timeline.GetSetting("timelineFrameRate") or 24)
+    except Exception as exc:  # noqa: BLE001 - raised, never half-written
+        raise RuntimeError(
+            f"grade.node_add cannot read clip {op.get('unique_id')!r}'s "
+            f"span ({exc}) - nothing was written.") from exc
+    wanted = frames_to_timecode((start + end) // 2, fps)
+    try:
+        timeline.SetCurrentTimecode(wanted)
+        if timeline.GetCurrentTimecode() != wanted:
+            timeline.SetCurrentTimecode(wanted)
+            if timeline.GetCurrentTimecode() != wanted:
+                raise RuntimeError(
+                    f"playhead reads "
+                    f"{timeline.GetCurrentTimecode()!r}, not {wanted!r}")
+    except Exception as exc:  # noqa: BLE001 - raised, never half-written
+        raise RuntimeError(
+            f"grade.node_add could not park the playhead on clip "
+            f"{op.get('unique_id')!r} ({exc}) - nothing was written."
+            ) from exc
 
 
 def _apply_set_property(op, _timeline, item, _project=None):
@@ -1574,15 +1698,18 @@ ALGEBRA: dict[str, AlgebraOp] = {
         id="grade.node_add", domain="color",
         required=("unique_id", "node_index"),
         span=_item_span, item=True,
+        apply=_apply_grade_node_add,
         verify=lambda op, after: None,
         key=lambda op: ("clip", op["unique_id"], "grade",
                         int(op["node_index"])),
         merge="exclusive",
         inverse=_pair("grade.node_remove"),
-        note="Declared, NOT executable: the Resolve 21.1 Graph API has "
-             "no AddNode (measured; `edit_ledger.py` refuses a LUT on a "
-             "node outside 1..count for the same reason). The node graph "
-             "topology is fixed by the grade (DRX) or created in the GUI."),
+        note="GUI-only write, API-read judgement: the Color-page menu "
+             "recipe presses Add Serial Node server-side, and "
+             "`GetNumNodes` must grow by exactly one. The Resolve 21.1 "
+             "Graph API has no AddNode (measured; `edit_ledger.py` "
+             "refuses a LUT on a node outside 1..count for the same "
+             "reason)."),
     "grade.node_remove": AlgebraOp(
         id="grade.node_remove", domain="color",
         required=("unique_id", "node_index"),

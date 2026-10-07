@@ -343,7 +343,7 @@ pub(crate) fn algebra() -> &'static [OpDeclaration] {
         id: "grade.node_add", domain: "color",
         required: &["unique_id", "node_index"],
         merge: MergeSemantics::Exclusive, temporal: TemporalEffect::Local,
-        item: true, has_apply: false,
+        item: true, has_apply: true,
         inverse: Inverse { op: Some(String::from("grade.node_remove")), self_inverse: false, reason: String::new() },
     },
     OpDeclaration {

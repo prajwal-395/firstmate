@@ -1591,11 +1591,15 @@ _REGISTRY: tuple[Operation, ...] = (
                             # keyframed picture parameters.
                             "retime.segments", "picture.keyframe",
                             # Grade node edits: SetCDL on a named node,
-                            # judged by GetCDL re-read. The Graph API has
-                            # no AddNode/RemoveNode, so only node_set is
-                            # executable; add/remove/reorder are declared
-                            # in the algebra but have no native apply.
-                            "grade.node_set",
+                            # judged by GetCDL re-read, and AddNode
+                            # through the Color-page menu recipe
+                            # (server-side menu commands, no clicks or
+                            # keys), judged by the GetNumNodes re-read
+                            # growing by exactly one. The Graph API has
+                            # no RemoveNode/ReorderNode, so
+                            # remove/reorder stay declared in the algebra
+                            # but have no native apply.
+                            "grade.node_set", "grade.node_add",
                             # Mask/track ops: place or remove a matte
                             # comp, set its geometry, key its track.
                             "mask.create", "mask.delete", "mask.edit",

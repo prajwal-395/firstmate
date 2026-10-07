@@ -76,6 +76,13 @@ AX_TREE = {
                                     "actions": ["AXPress"],
                                     "path": ["Workspace", "Switch to Page", "Media"],
                                 },
+                                {
+                                    "ref": "ax-item-color",
+                                    "role": "AXMenuItem",
+                                    "title": "Color",
+                                    "actions": ["AXPress"],
+                                    "path": ["Workspace", "Switch to Page", "Color"],
+                                },
                             ],
                         },
                     ],
@@ -92,6 +99,31 @@ AX_TREE = {
                             "title": None,
                             "value": "",
                             "actions": ["AXPress"],
+                        },
+                    ],
+                },
+                {
+                    "ref": "ax-menu-color",
+                    "role": "AXMenuBarItem",
+                    "title": "Color",
+                    "actions": ["AXPress"],
+                    "children": [
+                        {
+                            "ref": "ax-item-nodes",
+                            "role": "AXMenuItem",
+                            "title": "Nodes",
+                            "actions": ["AXPress"],
+                            "path": ["Color", "Nodes"],
+                            "children": [
+                                {
+                                    "ref": "ax-item-add-serial",
+                                    "role": "AXMenuItem",
+                                    "title": "Add Serial Node",
+                                    "actions": ["AXPress"],
+                                    "path": ["Color", "Nodes",
+                                             "Add Serial Node"],
+                                },
+                            ],
                         },
                     ],
                 },
@@ -165,6 +197,29 @@ def handle(request: dict) -> dict:
     if method == "find_element":
         matches = _find_by_path(params.get("path"), params.get("title"))
         return reply({"elements": matches})
+    if method == "run_command":
+        if _open_project() != QUALIFICATION_PROJECT:
+            return _refuse(
+                request_id,
+                "PROJECT_NOT_QUALIFICATION",
+                f"the open Resolve project is {_open_project()!r}",
+            )
+        path = params.get("path") or []
+        if not path or not all(path):
+            return _refuse(request_id, "INVALID_PARAMS",
+                           "run_command needs a path array of menu titles")
+        matches = [n for n in _find_by_path(path[:-1], path[-1])
+                   if n.get("role") == "AXMenuItem"
+                   and "AXPress" in (n.get("actions") or [])]
+        if not matches:
+            return _refuse(request_id, "ELEMENT_NOT_FOUND",
+                           f"no pressable element matches the menu path "
+                           f"{path}")
+        if len(matches) > 1:
+            return _refuse(request_id, "AMBIGUOUS_COMMAND",
+                           f"{len(matches)} elements match the menu path "
+                           f"{path}")
+        return reply({"pressed": True, "path": list(path)})
     if method in ("press", "set_value", "focus"):
         if _open_project() != QUALIFICATION_PROJECT:
             return _refuse(

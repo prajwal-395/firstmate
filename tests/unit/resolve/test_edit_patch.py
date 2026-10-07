@@ -1721,3 +1721,152 @@ def test_verify_routes_magic_mask_ops_around_the_ported_core(monkeypatch):
     fusion = {"op": "mask.create", "unique_id": "a", "matte": "logo-matte"}
     assert edit_algebra.verify(fusion, {}) == "rust-says"
     assert consulted == ["mask.create"]
+
+
+def test_mask_track_names_unimplemented_magic_mask_provider(world):
+    """The UI provider never runs in a patch: an op claiming it is
+    refused by name, naming the recipe verb that executes it instead.
+    (Main's mask lane moved the refusal text from 'not implemented'
+    to the recipe verb without updating this assertion; the intent -
+    refused by name, nothing placed - is unchanged.)"""
+    _mask(world, "mask-create-9b", [{"op": "mask.create"}])
+    receipt = _mask(world, "mask-track-unimplemented", [{
+        "op": "mask.track", "provider": "resolve_magic_mask_ui",
+        "track": {"keyframes": TRACK}}])
+    assert receipt["status"] == "verification_failed"
+    assert "recipe verb" in receipt["stopped"]["raised"]
+
+
+def _tiny_png() -> str:
+    """A decodable capture for the UI driver double - the recipe's
+    observation diffs captures, it never looks at them."""
+    import base64
+    from io import BytesIO
+
+    from PIL import Image
+
+    buf = BytesIO()
+    Image.new("RGB", (4, 2), (1, 2, 3)).save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+class _NodeAddDriver:
+    """A UI driver double for the grade.node_add apply: answers the
+    recipe's reads and executes menu commands server-side. On the Add
+    Serial path it grows the fake item's node count (`lands=False`
+    is the wrong-clip run - the command is accepted but the graph
+    never gains a node)."""
+
+    def __init__(self, item, lands=True):
+        self.item = item
+        self.lands = lands
+        self.commands = []
+
+    def call(self, method, params=None):
+        from library.tools.computer_use.scripts import GRADE_NODE_ADD_PATH
+
+        params = params or {}
+        if method == "run_command":
+            path = list(params.get("path") or [])
+            self.commands.append(path)
+            if not path:
+                raise AssertionError("run_command needs a path")
+            if path == GRADE_NODE_ADD_PATH and self.lands:
+                self.item.nodes += 1
+            return {"pressed": True, "path": path}
+        if method == "find_element":
+            return {"elements": []}
+        if method == "press":
+            return {"pressed": True}
+        if method == "key":
+            return {"sent": True, "key": params.get("key"),
+                    "modifiers": params.get("modifiers", [])}
+        if method == "capture_window":
+            return {"image": _tiny_png(), "width": 4.0, "height": 2.0,
+                    "scale": 2.0}
+        if method == "get_accessibility_tree":
+            return {"tree": {"role": "AXApplication", "title": "Resolve",
+                             "children": []}}
+        if method == "read_text":
+            return {"text": "", "elements": []}
+        if method == "get_windows":
+            return {"windows": []}
+        raise AssertionError(f"unexpected driver call {method}")
+
+    def close(self):
+        pass
+
+
+def test_grade_node_add_commits_when_the_recipe_grows_the_count(
+        world, monkeypatch):
+    """The Graph API has no AddNode, so node_add had no apply and no UI
+    route could commit it (origin/main: `_unapplied` refuses every
+    attempt). The Color-menu recipe - two server-side menu commands -
+    grows the re-read count by exactly one, and the patch commits on
+    that re-read. The playhead parks mid-clip first: the menu acts on
+    the current clip, so the run records where it parked."""
+    from library.tools import edit_algebra
+    from library.tools.computer_use.scripts import (
+        GRADE_COLOR_PAGE_PATH, GRADE_NODE_ADD_PATH)
+
+    project, timeline, item, store, base = world
+    item.nodes = 2
+    uid = item.GetUniqueId()
+    driver = _NodeAddDriver(item)
+    monkeypatch.setattr(edit_algebra, "ui_driver_factory",
+                        lambda: driver)
+    receipt = _apply(_patch("grade-node-add", base.generation,
+                            [{"op": "grade.node_add", "unique_id": uid,
+                              "node_index": 3}],
+                            ["color"], [[0, 48]]),
+                     project, timeline, store)
+    assert receipt["status"] == "committed", receipt
+    assert item.nodes == 3
+    assert driver.commands == [GRADE_COLOR_PAGE_PATH, GRADE_NODE_ADD_PATH]
+    assert timeline.timecode_calls, "the playhead parked before the recipe"
+
+
+def test_grade_node_add_refuses_when_the_command_changes_nothing(
+        world, monkeypatch):
+    """A command that landed on the wrong clip changes no count: the
+    op must refuse, not record a node the graph never gained. Without
+    the exact-plus-one judgement, a silently failed press would
+    commit a node_add that is not there."""
+    from library.tools import edit_algebra
+
+    project, timeline, item, store, base = world
+    item.nodes = 2
+    uid = item.GetUniqueId()
+    monkeypatch.setattr(edit_algebra, "ui_driver_factory",
+                        lambda: _NodeAddDriver(item, lands=False))
+    receipt = _apply(_patch("grade-node-add-miss", base.generation,
+                            [{"op": "grade.node_add", "unique_id": uid,
+                              "node_index": 3}],
+                            ["color"], [[0, 48]]),
+                     project, timeline, store)
+    assert receipt["status"] == "verification_failed", receipt
+    assert "nodes 2 -> 2" in receipt["stopped"]["raised"]
+    assert item.nodes == 2
+
+
+def test_grade_node_add_refuses_when_the_playhead_will_not_park(
+        world, monkeypatch):
+    """The menu acts on the current clip: a playhead that will not
+    park refuses BEFORE the recipe runs, rather than landing the node
+    on whatever clip happens to be current."""
+    from library.tools import edit_algebra
+
+    project, timeline, item, store, base = world
+    item.nodes = 2
+    uid = item.GetUniqueId()
+    timeline.stuck_playhead = True
+    monkeypatch.setattr(edit_algebra, "ui_driver_factory",
+                        lambda: _NodeAddDriver(item))
+    receipt = _apply(_patch("grade-node-add-stuck", base.generation,
+                            [{"op": "grade.node_add", "unique_id": uid,
+                              "node_index": 3}],
+                            ["color"], [[0, 48]]),
+                     project, timeline, store)
+    assert receipt["status"] == "verification_failed", receipt
+    assert "park" in receipt["stopped"]["raised"]
+    assert item.nodes == 2

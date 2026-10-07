@@ -538,3 +538,82 @@ def test_an_ax_path_without_a_value_still_presses(client: DriverClient):
     assert resolved is not None
     method, _ = resolved
     assert method == "press"
+
+
+def test_the_node_add_recipe_names_menu_routes_only():
+    """The grade.node_add recipe must reach Resolve server-side: both
+    steps name a whole menu path for `run_command` - no screen
+    coordinate, no keystroke. A viewer click would need the
+    foreground and a window-size-dependent point; a keystroke lands
+    in whatever app is frontmost (measured live: Shift+6 reached the
+    browser, not Resolve). The menu route reached Resolve with
+    another app frontmost."""
+    from library.tools.computer_use.scripts import (
+        GRADE_COLOR_PAGE_PATH,
+        GRADE_NODE_ADD_PATH,
+        grade_node_add_script,
+    )
+
+    script = grade_node_add_script()
+    assert len(script.steps) == 2
+    page, add = script.steps
+    assert page.anchors[0].via == "menu"
+    assert page.anchors[0].params["path"] == GRADE_COLOR_PAGE_PATH
+    assert add.anchors[0].via == "menu"
+    assert add.anchors[0].params["path"] == GRADE_NODE_ADD_PATH
+    for step in script.steps:
+        assert all(a.via == "menu" for a in step.anchors), step.action
+
+
+def test_a_menu_anchor_resolves_to_run_command(client: DriverClient):
+    """A menu anchor resolves to one `run_command` with the whole path -
+    no find_element round-trip, no screen lookup. A menu path resolved
+    through the AX tree would need its submenu visible; submenus are
+    AX-lazy until opened (measured live: Switch to Page exposed one
+    empty child), so the tree route cannot see the page it names."""
+    from library.tools.computer_use.scripts import grade_node_add_script
+
+    script = grade_node_add_script()
+    assert resolve_anchor(client, script.steps[1].anchors[0]) == (
+        "run_command", {"path": ["Color", "Nodes", "Add Serial Node"]})
+
+
+def test_the_node_add_recipe_runs_to_done_against_the_mock(
+    client: DriverClient,
+):
+    """Both menu paths execute against the mock driver: the whole
+    write route runs offline. A recipe naming a path the menu does
+    not carry fails here - before any live run spends the captain's
+    session on it."""
+    from library.tools.computer_use.scripts import grade_node_add_script
+
+    result = run_script(client, grade_node_add_script())
+    assert result.outcome == "done", result.steps
+    assert [step["via"] for step in result.steps] == ["menu", "menu"]
+
+
+def test_a_key_action_teaches_its_keystroke(client: DriverClient):
+    """A key resolves to a driver call with no screen lookup, so it
+    teaches a key anchor - the next run sends the same chord without
+    the LLM. A key that taught nothing would burn a model call on
+    every run of a deterministic route."""
+    script = Script(
+        goal="send a shortcut that is not in the script",
+        steps=[
+            ScriptStep(
+                action="key",
+                anchors=[Anchor(via="ocr", params={"text": "Not On Screen"})],
+            ),
+        ],
+    )
+
+    def llm(obs, step):
+        return {"action": "key", "key": "option+s"}
+
+    result = run_script(client, script, llm=llm)
+    assert result.outcome == "done"
+    assert len(script.steps[0].anchors) == 2
+    learned = script.steps[0].anchors[1]
+    assert learned.via == "key"
+    assert learned.params["key"] == "option+s"
+    assert run_script(client, script).outcome == "done"
