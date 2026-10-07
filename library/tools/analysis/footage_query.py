@@ -1087,8 +1087,53 @@ class FootageIndex:
 
     # ── scoring, shared by `search` and `search_report` ──
 
+    def _sound_scores(self, query: str):
+        """Per-segment sound-tag evidence: max matched PANNs confidence.
+
+        Joins the payload's M5 sound events to segments by clip and
+        time overlap; an event counts when its label matches a query
+        token (`_sound_label_matches`).  A matched event without a
+        recorded confidence scores 0 - an unweighted measurement cannot
+        rank, though `--sound` still lists it.  All zeros when the
+        index holds no sound events, which keeps the fusion a two-half
+        one (see `_raw_scores`).
+        """
+        scores = np.zeros(len(self.segments), dtype="float32")
+        events_by_clip = self.payload.get("sound_events") or {}
+        if not events_by_clip:
+            return scores
+        tokens = _tokenize(query)
+        if not tokens:
+            return scores
+        for i, segment in enumerate(self.segments):
+            events = events_by_clip.get(segment["clip_id"]) or []
+            try:
+                start = float(segment["start"])
+                end = float(segment["end"])
+            except (TypeError, ValueError):
+                continue
+            best = 0.0
+            for event in events:
+                if not self._sound_label_matches(
+                        tokens, event.get("label", "")):
+                    continue
+                try:
+                    e_start = float(event.get("start", start))
+                    e_end = float(event.get("end", end))
+                except (TypeError, ValueError):
+                    continue
+                if e_end <= start or e_start >= end:
+                    continue
+                confidence = event.get("confidence")
+                if isinstance(confidence, bool) or not isinstance(
+                        confidence, (int, float)):
+                    continue
+                best = max(best, float(confidence))
+            scores[i] = best
+        return scores
+
     def _raw_scores(self, query: str, mode: str):
-        """``(combined, dense, lexical)`` for one query, or a reason string.
+        """``(combined, dense, lexical, sound)`` or a reason string.
 
         `dense` is None when this index carries no embeddings or the
         embedder could not be loaded, and the caller decides whether that
@@ -1116,7 +1161,7 @@ class FootageIndex:
 
         if mode == "dense":
             if dense is None:
-                return None, None, None
+                return None, None, None, None
             combined = dense
         elif mode == "lexical":
             combined = lexical
@@ -1124,10 +1169,17 @@ class FootageIndex:
             combined = lexical  # honest degradation: hybrid without an embedder
         else:
             combined = _rrf(dense, lexical)
-        return combined, dense, lexical
+        sound = self._sound_scores(query)
+        if mode == "hybrid" and dense is not None and sound.any():
+            # The tag half joins only where it has anything to say: an
+            # all-zero third half would still shift every rank by its
+            # deep stable-order contribution, reordering indexes that
+            # never measured a sound.
+            combined = _rrf(dense, lexical, sound)
+        return combined, dense, lexical, sound
 
     @staticmethod
-    def _eligible(dense, lexical, floor: float):
+    def _eligible(dense, lexical, sound, floor: float):
         """Which segments count as EVIDENCE, before any ranking.
 
         Judged on the raw signals, never on `combined`: the fused score
@@ -1138,15 +1190,19 @@ class FootageIndex:
         A segment is evidence when its dense cosine clears `floor`, or -
         when there is no dense half to judge - when at least one query
         term actually appeared in its text.  A zero BM25 is never
-        evidence: no word of the query is in that segment.
+        evidence: no word of the query is in that segment.  A matched
+        sound tag is evidence on its own: a laughter query over footage
+        nobody transcribed has no words to match, and the PANNs label
+        is the only thing that heard it.
         """
         if dense is None:
-            return lexical > 0
+            return (lexical > 0) | (sound > 0)
         if floor <= 0:
             return np.ones(len(dense), dtype=bool)
-        return dense >= floor
+        return (dense >= floor) | (sound > 0)
 
-    def _rank(self, query, combined, dense, lexical, keep, top_k, rank_by=None):
+    def _rank(self, query, combined, dense, lexical, sound, keep, top_k,
+              rank_by=None):
         """The `keep` segments, best first, shaped into result rows.
 
         `rank_by` overrides the ranking signal.  The weak band uses it to
@@ -1169,6 +1225,8 @@ class FootageIndex:
             if dense is not None:
                 scores["dense_score"] = round(float(dense[i]), 4)
             scores["lexical_score"] = round(float(lexical[i]), 4)
+            if sound is not None and sound.any():
+                scores["sound_score"] = round(float(sound[i]), 4)
             hit = self._result(segments[i], scores)
             if segments[i]["kind"] == "speech":
                 words = self._word_hits(segments[i], query)
@@ -1253,7 +1311,7 @@ class FootageIndex:
                 merge_external_evidence(report, external_hits)
             return report
 
-        combined, dense, lexical = self._raw_scores(query, mode)
+        combined, dense, lexical, sound = self._raw_scores(query, mode)
         if combined is None:
             report["error"] = "This index has no embeddings; use mode='lexical'."
             if external_hits is not None:
@@ -1287,16 +1345,17 @@ class FootageIndex:
                 "keyword floor cannot tell 'absent' from 'phrased differently'"
             )
 
-        keep = mask & self._eligible(dense, lexical, mode_floor)
+        keep = mask & self._eligible(dense, lexical, sound, mode_floor)
         report["retained"] = int(keep.sum())
-        report["results"] = self._rank(query, combined, dense, lexical, keep, top_k)
+        report["results"] = self._rank(query, combined, dense, lexical, sound,
+                                       keep, top_k)
 
         # The weak band: what the floor turned away, and how close it came.
         # An abstain that cannot name its near miss reads as a broken search.
         if dense is not None and mode_floor > 0:
             weak = mask & ~keep & (dense >= weak_floor)
-            report["weak"] = self._rank(query, combined, dense, lexical, weak, weak_k,
-                                        rank_by=dense)
+            report["weak"] = self._rank(query, combined, dense, lexical, sound,
+                                          weak, weak_k, rank_by=dense)
             rejected = mask & ~keep
             if rejected.any():
                 best = int(np.flatnonzero(rejected)[np.argmax(dense[rejected])])
