@@ -197,3 +197,32 @@ def test_the_verb_refuses_an_unknown_recipe_name():
     with pytest.raises(SystemExit) as exc:
         main_module.main(["script", "--recipe", "no-such-recipe"])
     assert exc.value.code == 2
+
+
+def test_the_verb_goes_through_one_take(monkeypatch, capsys):
+    """window-delete enters one ui_take: same gate as window-create -
+    the take holds from establish through verify."""
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+
+    takes: list = []
+
+    @contextmanager
+    def recording_take(purpose, **kw):
+        takes.append(purpose)
+        yield SimpleNamespace(resolve=object(), deadline=1234.0)
+
+    monkeypatch.setattr(
+        "library.tools.computer_use.take.ui_take", recording_take)
+    seen: list = []
+    monkeypatch.setattr(
+        window_delete, "run_window_delete",
+        lambda client, resolve, op: seen.append(op) or {"op": "color.window.delete"},
+    )
+    args = SimpleNamespace(timeline="Q Spine", clip="uid-9", node=3,
+                           seed=None, mode="BI", direction="forward",
+                           playhead_timecode=None, shape=None,
+                           allow_foreground=False)
+    assert window_delete.run_recipe_verb(object(), args) == 0
+    assert takes == ["computer-use script recipe window-delete"]
+    assert seen[0]["unique_id"] == "uid-9"

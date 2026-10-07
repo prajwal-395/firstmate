@@ -40,6 +40,7 @@ import base64
 import json
 import os
 import re
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from io import BytesIO
@@ -48,6 +49,7 @@ from typing import Optional
 
 from library.tools.computer_use.client import DriverClient, DriverError
 from library.tools.computer_use.observe import Observation, build_observation
+from library.tools.computer_use.take import TakeExpired
 from library.tools.ren_refusal import RenRefusal
 from library.tools.resolve_lock import resolve_lease
 
@@ -471,6 +473,7 @@ def run_script(
     llm: Callable[[Observation, ScriptStep], dict] | None = None,
     *,
     foreground: bool = False,
+    deadline: float | None = None,
 ) -> ScriptResult:
     """Run a script against the client.
 
@@ -486,9 +489,21 @@ def run_script(
     changes nothing on Qt-drawn controls (measured), so a recipe that
     clicks one runs foreground - explicitly, never by default, because
     it takes the captain's screen, cursor or keyboard.
+
+    `deadline` is the take's monotonic bound: past it the run raises
+    `TakeExpired` before the next step instead of running past the
+    take's wall-clock budget. A refusal, not a step failure - the
+    steps did not fail, the take ran out of time.
     """
     results: list[dict] = []
     for index, step in enumerate(script.steps):
+        if deadline is not None and time.monotonic() >= deadline:
+            raise TakeExpired(
+                f"the take ran past its bound at step {index}",
+                "the steps did not fail - the take ran out of time",
+                "raise the bound or split the take, then retry",
+                code="TAKE_EXPIRED",
+            )
         outcome = _run_step(client, step, index, llm, script,
                             foreground=foreground)
         results.append(outcome)

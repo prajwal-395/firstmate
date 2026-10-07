@@ -6,12 +6,14 @@ against the driver, verifies the outcome, and repeats until the model
 says done or a budget is exhausted.
 
 Safety is inherited, not invented. The loop runs inside
-`qualification_project.borrowed()` and takes the resolve lease per action,
-releasing it during model inference so the captain's other agents
-interleave with LLM think time - the lease is a critical section, not a
-build. A refusal from the driver is propagated to the model as an
-observation, never worked around. The loop can do anything the driver
-allows and nothing the driver refuses.
+`qualification_project.borrowed()` and holds one exclusive take lease
+for the whole run - observe, think, act, verify - because anything
+that runs between two steps against Resolve changes what the next
+step sees (measured: a lost seed, disagreeing pixels). Releasing during
+model inference so other agents interleave was the old rule; a UI take
+does not interleave. A refusal from the driver is propagated to the
+model as an observation, never worked around. The loop can do anything
+the driver allows and nothing the driver refuses.
 
 Verification is what makes the loop safe to run unattended: the loop
 never assumes an action worked because the driver returned `{"clicked":
@@ -24,7 +26,9 @@ escalated.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 
 from library.tools.computer_use.actions import Action
@@ -73,18 +77,21 @@ def run_loop(
     layout: str | None = None,
     target: str = "resolve",
     pid: int | None = None,
+    deadline: float | None = None,
 ) -> LoopResult:
     """Run the observe-decide-act loop on a goal.
 
-    Per step: observe (read-only), decide (model inference, lease
-    released), act (lease taken), verify (lease taken). A failing action
-    is retried once, then escalated. The loop stops at a terminal signal,
-    a failed action, or the step budget. Driver refusals are recorded in
-    history so the model sees them; non-retryable refusals fail the step
-    immediately without a retry. `target` selects whose window is
-    observed and acted on; a non-resolve target routes every driven call
-    through the SkyLight channel, and takes no Resolve lease (no Resolve
-    is touched).
+    Per step: observe (read-only), decide (model inference), act,
+    verify. The whole run holds one exclusive take lease on Resolve -
+    think time included - so no snapshot, reset or sibling job runs
+    between two steps (a reentrant no-op inside a verb's `ui_take`).
+    Off Resolve no lease is taken: nothing is touched, so there is
+    nothing to serialize against. `deadline` is the take's monotonic
+    bound: past it the loop stops as `budget_exhausted` before asking
+    the model again - time is a budget like steps and dollars.
+    `target` selects whose window is observed and acted on; a
+    non-resolve target routes every driven call through the SkyLight
+    channel.
 
     Where `recipe` names a stored recipe (and `store` is its
     `RecipeStore`), the recipe executes FIRST - the plan's section 4,
@@ -108,24 +115,35 @@ def run_loop(
             )
     history: list[dict] = []
 
-    for step in range(max_steps):
-        obs = build_observation(client, goal, history, step, target=target, pid=pid)
-        action_dict = model(obs)
-        action = Action.from_dict(action_dict)
-        if action.is_terminal:
-            return LoopResult(
-                outcome=action.kind, steps=history, final_action=action.kind
-            )
+    # One exclusive lease for the whole run on Resolve - think time
+    # included. A reentrant no-op inside a verb's `ui_take`; the real
+    # fence for a direct caller. Off Resolve no lease is taken.
+    take = (resolve_lease("computer-use loop", exclusive=True)
+            if target == "resolve" else nullcontext())
+    with take:
+        for step in range(max_steps):
+            if deadline is not None and time.monotonic() >= deadline:
+                return LoopResult(
+                    outcome="budget_exhausted", steps=history,
+                    final_action="budget_exhausted",
+                )
+            obs = build_observation(client, goal, history, step, target=target, pid=pid)
+            action_dict = model(obs)
+            action = Action.from_dict(action_dict)
+            if action.is_terminal:
+                return LoopResult(
+                    outcome=action.kind, steps=history, final_action=action.kind
+                )
 
-        outcome, refusal = _act_and_verify(client, action, obs, target, pid)
-        entry = {"action": action.kind, "outcome": outcome}
-        if refusal is not None:
-            entry["refusal"] = refusal
-        history.append(entry)
-        if outcome == "failed":
-            return LoopResult(
-                outcome="failed", steps=history, final_action=action.kind
-            )
+            outcome, refusal = _act_and_verify(client, action, obs, target, pid)
+            entry = {"action": action.kind, "outcome": outcome}
+            if refusal is not None:
+                entry["refusal"] = refusal
+            history.append(entry)
+            if outcome == "failed":
+                return LoopResult(
+                    outcome="failed", steps=history, final_action=action.kind
+                )
 
     return LoopResult(outcome="budget_exhausted", steps=history)
 

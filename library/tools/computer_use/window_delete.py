@@ -246,13 +246,11 @@ def _establish_playhead(timeline, item, unique_id: str) -> None:
 
 def run_recipe_verb(client, args) -> int:
     """The `script --recipe window-delete` verb tail: flag-shaped op in,
-    printed receipt out."""
+    printed receipt out. Runs inside the verb's `ui_take`."""
     import json as _json
     import sys as _sys
 
-    from library.tools.marker_feedback import connect_resolve
-    from library.tools.qualification_project import borrowed
-    from library.tools.resolve_lock import resolve_lease
+    from library.tools.computer_use.take import ui_take
 
     if not args.timeline:
         print("ren: window-delete needs --timeline, the Ren "
@@ -278,13 +276,12 @@ def run_recipe_verb(client, args) -> int:
         "timeline": args.timeline,
         "foreground": bool(args.allow_foreground),
     }
-    with resolve_lease("computer-use script"):
-        resolve = connect_resolve()
-        with borrowed(resolve):
-            try:
-                receipt = run_window_delete(client, resolve, op)
-            except ScriptError as exc:
-                print(exc.render(), file=_sys.stderr)
-                return 1
+    with ui_take("computer-use script recipe window-delete") as take:
+        resolve = take.resolve
+        try:
+            receipt = run_window_delete(client, resolve, op)
+        except ScriptError as exc:
+            print(exc.render(), file=_sys.stderr)
+            return 1
     print(_json.dumps(receipt, indent=2, sort_keys=True))
     return 0

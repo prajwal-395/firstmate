@@ -271,3 +271,33 @@ def test_the_verb_refuses_an_unknown_recipe_name():
     with pytest.raises(SystemExit) as exc:
         main_module.main(["script", "--recipe", "no-such-recipe"])
     assert exc.value.code == 2
+
+
+def test_the_verb_goes_through_one_take(monkeypatch, capsys):
+    """window-create enters one ui_take: a hand-rolled lease releases
+    between establish and act, and a snapshot there moves the take's
+    ground."""
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+
+    takes: list = []
+
+    @contextmanager
+    def recording_take(purpose, **kw):
+        takes.append(purpose)
+        yield SimpleNamespace(resolve=object(), deadline=1234.0)
+
+    monkeypatch.setattr(
+        "library.tools.computer_use.take.ui_take", recording_take)
+    seen: list = []
+    monkeypatch.setattr(
+        window_recipe, "run_window_create",
+        lambda client, resolve, op: seen.append(op) or {"op": "color.window.create"},
+    )
+    args = SimpleNamespace(timeline="Q Seed", clip="uid-1", node=2,
+                           shape="circle", seed=None, mode="BI",
+                           direction="forward", playhead_timecode=None,
+                           allow_foreground=False)
+    assert window_recipe.run_recipe_verb(object(), args) == 0
+    assert takes == ["computer-use script recipe window-create"]
+    assert seen[0]["unique_id"] == "uid-1"

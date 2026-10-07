@@ -129,23 +129,22 @@ def _run(
     the planner. `--recipes-dir` overrides `$PIPELINE_RECIPES_DIR`;
     `--layout` is the opaque layout string the recipe was verified on.
 
-    On resolve the loop runs inside `qualification_project.borrowed()`:
-    the captain's project is saved, the qualification project is opened
-    for the driver's gates, and the captain's project is restored on
-    exit. The exclusive instance lease is taken for the duration - a
-    plain lease, not the broker's qualification interlock, which refuses
-    before `borrowed()` can open the project whenever the captain's
-    project is open (measured 2026-10-06: the interlock granted nothing
-    with 'Podcast (field test)' open). `borrowed()` is the guarantee.
+    On resolve the loop runs inside one `ui_take`: the captain's project
+    is saved, the qualification project is opened for the driver's
+    gates, one exclusive lease is held for the whole take - think time
+    included, under the take's wall-clock bound - and the captain's
+    project is restored on exit. A plain lease, not the broker's
+    qualification interlock, which refuses before `borrowed()` can open
+    the project whenever the captain's project is open (measured
+    2026-10-06: the interlock granted nothing with 'Podcast (field
+    test)' open). `borrowed()` is the guarantee.
     On canva there is no Resolve to borrow and no lease to take: the
     loop observes the Chrome window and every act goes through
     verify-or-escalate (clicks measured filtered - a click that changes
     nothing fails its step loudly).
     """
     from library.tools.computer_use.observe import Observation
-    from library.tools.marker_feedback import connect_resolve
-    from library.tools.qualification_project import borrowed
-    from library.tools.resolve_lock import resolve_lease
+    from library.tools.computer_use.take import ui_take
 
     if model_kind == "api":
         config = ModelConfig.from_env()
@@ -173,12 +172,11 @@ def _run(
         root = Path(override).expanduser() if override else default_recipes_root()
         store = RecipeStore(root)
     if target_name == "resolve":
-        with resolve_lease("computer-use"):
-            resolve = connect_resolve()
-            with borrowed(resolve):
-                result = run_loop(client, model, goal, recipe=recipe,
-                                  store=store, layout=layout,
-                                  target=driver_target)
+        with ui_take("computer-use run") as take:
+            result = run_loop(client, model, goal, recipe=recipe,
+                              store=store, layout=layout,
+                              target=driver_target,
+                              deadline=take.deadline)
     else:
         if recipe is not None:
             raise TargetError(
@@ -304,51 +302,46 @@ def _run_recipe(client: DriverClient, args) -> int:
               file=sys.stderr)
         return 2
 
-    from library.tools.marker_feedback import connect_resolve
-    from library.tools.qualification_project import borrowed
-    from library.tools.resolve_lock import (
-        assert_current_timeline, resolve_lease)
+    from library.tools.computer_use.take import ui_take
+    from library.tools.resolve_lock import assert_current_timeline
     from library.tools.resolved.jobs import QUALIFICATION_PROJECT
 
     started = time.monotonic()
-    # A plain lease: this verb borrows Resolve and OPENS the
+    # A plain take: this verb borrows Resolve and OPENS the
     # qualification project itself, so the broker interlock (which
     # refuses a qualification-marked lease while the captain's
     # project is open - i.e. nearly always) would refuse before
     # borrowed() can switch. Found live 2026-10-06 (SkyLight lane,
     # PR 1933 follow-up); `run` carries the same shape.
-    # The handshake happens INSIDE the lease: resolve_locale refuses
-    # connect_resolve() outside it, so connecting first crashes every
-    # live run before any UI (found live 2026-10-07).
-    with resolve_lease("computer-use script"):
-        resolve = connect_resolve()
-        with borrowed(resolve):
-            manager = resolve.GetProjectManager()
-            project = manager.LoadProject(QUALIFICATION_PROJECT)
-            if project is None or project.GetName() != QUALIFICATION_PROJECT:
-                print(f"ren: {QUALIFICATION_PROJECT!r} did not open for "
-                      f"the recipe", file=sys.stderr)
+    with ui_take(f"computer-use script recipe {args.recipe}") as take:
+        resolve = take.resolve
+        manager = resolve.GetProjectManager()
+        project = manager.LoadProject(QUALIFICATION_PROJECT)
+        if project is None or project.GetName() != QUALIFICATION_PROJECT:
+            print(f"ren: {QUALIFICATION_PROJECT!r} did not open for "
+                  f"the recipe", file=sys.stderr)
+            return 1
+        timeline = _exact_timeline(project, args.timeline)
+        if timeline is None:
+            print(f"ren: no timeline named exactly {args.timeline!r} "
+                  f"in {QUALIFICATION_PROJECT!r}", file=sys.stderr)
+            return 1
+        # The cursor move goes through the guarded setter: it sets
+        # and reads back by unique id, and refuses without the
+        # exclusive lease this verb holds.
+        assert_current_timeline(project, timeline)
+        if args.playhead_timecode:
+            timeline.SetCurrentTimecode(args.playhead_timecode)
+            if (timeline.GetCurrentTimecode() or "") != args.playhead_timecode:
+                print(f"ren: the playhead did not read back as "
+                      f"{args.playhead_timecode!r}", file=sys.stderr)
                 return 1
-            timeline = _exact_timeline(project, args.timeline)
-            if timeline is None:
-                print(f"ren: no timeline named exactly {args.timeline!r} "
-                      f"in {QUALIFICATION_PROJECT!r}", file=sys.stderr)
-                return 1
-            # The cursor move goes through the guarded setter: it sets
-            # and reads back by unique id, and refuses without the
-            # exclusive lease this verb holds.
-            assert_current_timeline(project, timeline)
-            if args.playhead_timecode:
-                timeline.SetCurrentTimecode(args.playhead_timecode)
-                if (timeline.GetCurrentTimecode() or "") != args.playhead_timecode:
-                    print(f"ren: the playhead did not read back as "
-                          f"{args.playhead_timecode!r}", file=sys.stderr)
-                    return 1
-            if args.allow_foreground:
-                client.call("activate_resolve", {"allow_foreground": True})
-            step_started = time.monotonic()
-            result = run_script(client, script, foreground=args.allow_foreground)
-            elapsed = time.monotonic() - step_started
+        if args.allow_foreground:
+            client.call("activate_resolve", {"allow_foreground": True})
+        step_started = time.monotonic()
+        result = run_script(client, script, foreground=args.allow_foreground,
+                            deadline=take.deadline)
+        elapsed = time.monotonic() - step_started
     print(f"recipe: {args.recipe}")
     print(f"goal: {script.goal}")
     if scale is not None:
@@ -459,13 +452,11 @@ def _script(
     otherwise the verb names how many were learned and the flag that
     would keep them.
 
-    Like `run`, the script runs inside
-    `qualification_project.borrowed()`: the captain's project is saved
-    and restored around the run.
+    Like `run`, the script runs inside one `ui_take`: the captain's
+    project is saved and restored around the run, under a bounded
+    exclusive lease.
     """
-    from library.tools.marker_feedback import connect_resolve
-    from library.tools.qualification_project import borrowed
-    from library.tools.resolve_lock import resolve_lease
+    from library.tools.computer_use.take import ui_take
 
     script = load_script(path)
     before = _anchor_count(script)
@@ -491,10 +482,9 @@ def _script(
     else:
         llm = None
 
-    with resolve_lease("computer-use"):
-        resolve = connect_resolve()
-        with borrowed(resolve):
-            result = run_script(client, script, llm=llm)
+    with ui_take("computer-use script file") as take:
+        result = run_script(client, script, llm=llm,
+                            deadline=take.deadline)
     print(f"outcome: {result.outcome}")
     for entry in result.steps:
         print(f"  step {entry['step']} {entry['action']}: {entry['outcome']} (via {entry['via']})")

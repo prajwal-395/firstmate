@@ -276,15 +276,13 @@ def run_window_create(client, resolve, params: dict) -> dict:
 
 def run_recipe_verb(client, args) -> int:
     """The `script --recipe window-create` verb tail: flag-shaped op in,
-    printed receipt out. Called from `_run_recipe`'s dispatch with the
-    lease already held and borrowed() open - the runner establishes the
-    rest itself (project, clip, page) and refuses each miss by name."""
+    printed receipt out. Called from `_run_recipe`'s dispatch inside the
+    verb's `ui_take` - the runner establishes the rest itself (project,
+    clip, page) and refuses each miss by name."""
     import json as _json
     import sys as _sys
 
-    from library.tools.marker_feedback import connect_resolve
-    from library.tools.qualification_project import borrowed
-    from library.tools.resolve_lock import resolve_lease
+    from library.tools.computer_use.take import ui_take
 
     if not args.timeline:
         print("ren: window-create needs --timeline, the Ren "
@@ -314,13 +312,12 @@ def run_recipe_verb(client, args) -> int:
         "timeline": args.timeline,
         "foreground": bool(args.allow_foreground),
     }
-    with resolve_lease("computer-use script"):
-        resolve = connect_resolve()
-        with borrowed(resolve):
-            try:
-                receipt = run_window_create(client, resolve, op)
-            except ScriptError as exc:
-                print(exc.render(), file=_sys.stderr)
-                return 1
+    with ui_take("computer-use script recipe window-create") as take:
+        resolve = take.resolve
+        try:
+            receipt = run_window_create(client, resolve, op)
+        except ScriptError as exc:
+            print(exc.render(), file=_sys.stderr)
+            return 1
     print(_json.dumps(receipt, indent=2, sort_keys=True))
     return 0

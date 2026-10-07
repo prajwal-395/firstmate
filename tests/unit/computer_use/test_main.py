@@ -172,7 +172,10 @@ def test_run_takes_a_plain_lease_then_borrows(monkeypatch, capsys):
     )
 
     assert main_module.main(["run", "switch pages"]) == 0
-    assert lease_kwargs == [("computer-use", {})]
+    assert len(lease_kwargs) == 1
+    purpose, kwargs = lease_kwargs[0]
+    assert purpose.startswith("computer-use run (take, ")
+    assert kwargs.get("exclusive") is True
     assert len(borrowed_with) == 1
 
 
@@ -191,7 +194,7 @@ def test_script_runs_the_file_with_no_model(monkeypatch, capsys, tmp_path):
 
     from library.tools.computer_use.scripts import ScriptResult
 
-    def recording_run(client, script, llm=None):
+    def recording_run(client, script, llm=None, **kw):
         assert llm is None, "default stub model must not plan"
         seen.append(script.to_dict())
         return ScriptResult(outcome="done", steps=[
@@ -515,7 +518,8 @@ def test_script_seed_runs_the_seed_recipe_offline(monkeypatch, capsys):
             "--playhead-timecode", "00:00:02:00"]
     assert main_module.main(argv) == 0
     script, kwargs = runs[0]
-    assert kwargs == {"foreground": False}
+    assert kwargs["foreground"] is False
+    assert kwargs["deadline"] > 0
     assert "obj_1" in script.goal
     assert [s.action for s in script.steps] == [
         "press", "click", "click", "click"]
@@ -574,7 +578,8 @@ def test_script_foreground_activates_and_flags_input(monkeypatch, capsys):
     assert main_module.main(argv) == 0
     assert ("activate_resolve", {"allow_foreground": True}) in clients[0].calls
     _, kwargs = runs[0]
-    assert kwargs == {"foreground": True}
+    assert kwargs["foreground"] is True
+    assert kwargs["deadline"] > 0
 
 
 def test_script_failed_run_exits_nonzero(monkeypatch, capsys):
@@ -610,7 +615,8 @@ def test_script_effect_panels_opens_both_panels_offline(monkeypatch, capsys):
     argv = ["script", "--recipe", "effect-panels", "--timeline", "Q Spine"]
     assert main_module.main(argv) == 0
     script, kwargs = runs[0]
-    assert kwargs == {"foreground": False}
+    assert kwargs["foreground"] is False
+    assert kwargs["deadline"] > 0
     assert [s.action for s in script.steps] == ["menu"] * 3
     assert "Inspector" in script.steps[2].anchors[0].params["path"]
     out = capsys.readouterr().out
@@ -745,10 +751,72 @@ def test_script_file_connects_inside_the_lease(monkeypatch, capsys, tmp_path):
 
     monkeypatch.setattr(
         main_module, "run_script",
-        lambda client, script, llm=None: ScriptResult(outcome="done", steps=[]),
+        lambda client, script, llm=None, **kw: ScriptResult(outcome="done", steps=[]),
     )
     assert main_module.main(["script", str(path)]) == 0
     assert order.index("lease") < order.index("connect")
+
+
+def _record_take(monkeypatch, takes: list, deadline_value: float = 1234.0,
+                 resolve_obj=None):
+    """A ui_take double that records entry and yields a fixed deadline.
+    A verb with a hand-rolled lease never calls it - the take it runs
+    releases between steps."""
+    from types import SimpleNamespace
+
+    @contextmanager
+    def recording_take(purpose, **kw):
+        takes.append((purpose, kw))
+        yield SimpleNamespace(
+            resolve=resolve_obj if resolve_obj is not None else object(),
+            deadline=deadline_value)
+
+    monkeypatch.setattr(
+        "library.tools.computer_use.take.ui_take", recording_take)
+
+
+def test_run_goes_through_one_take_with_its_deadline(monkeypatch, capsys):
+    """`run` enters one ui_take for the whole task and threads its
+    deadline to the loop: a verb with a hand-rolled lease releases
+    between steps, and a loop without the deadline runs past the
+    take's wall-clock bound."""
+    _stub_resolve(monkeypatch)
+    takes: list = []
+    _record_take(monkeypatch, takes)
+    seen: list = []
+    monkeypatch.setattr(
+        main_module, "run_loop",
+        lambda client, model, goal, **kw: seen.append(kw) or LoopResult(outcome="done"),
+    )
+    assert main_module.main(["run", "switch pages"]) == 0
+    assert [purpose for purpose, _ in takes] == ["computer-use run"]
+    assert seen[0]["deadline"] == 1234.0
+
+
+def test_script_file_goes_through_one_take_with_its_deadline(
+    monkeypatch, capsys, tmp_path
+):
+    """`script` on a file enters one ui_take and threads its deadline
+    to the runner: same gate as `run`, for the deterministic path."""
+    _stub_resolve(monkeypatch)
+    takes: list = []
+    _record_take(monkeypatch, takes)
+    path = tmp_path / "media.json"
+    path.write_text(
+        '{"goal": "switch pages", "steps": [{"action": "press", '
+        '"anchors": [{"via": "ax_path", "path": ["Workspace"]}]}]}',
+        encoding="utf-8",
+    )
+    from library.tools.computer_use.scripts import ScriptResult
+
+    seen: list = []
+    monkeypatch.setattr(
+        main_module, "run_script",
+        lambda client, script, **kw: seen.append(kw) or ScriptResult(outcome="done", steps=[]),
+    )
+    assert main_module.main(["script", str(path)]) == 0
+    assert [purpose for purpose, _ in takes] == ["computer-use script file"]
+    assert seen[0]["deadline"] == 1234.0
 
 
 def test_script_recipe_connects_inside_the_lease(monkeypatch, capsys):
@@ -760,3 +828,17 @@ def test_script_recipe_connects_inside_the_lease(monkeypatch, capsys):
     argv = ["script", "--recipe", "magic-mask-track", "--timeline", "Q Spine"]
     assert main_module.main(argv) == 0
     assert order.index("lease") < order.index("connect")
+
+
+def test_script_recipe_goes_through_one_take_with_its_deadline(monkeypatch, capsys):
+    """`script --recipe` enters one ui_take and threads its deadline:
+    the mask, tracker and panel arms share the block, so one test pins
+    them all."""
+    runs, _, _ = _stub_script(monkeypatch)
+    takes: list = []
+    _record_take(monkeypatch, takes, resolve_obj=_FakeScriptResolve())
+    argv = ["script", "--recipe", "magic-mask-track", "--timeline", "Q Spine"]
+    assert main_module.main(argv) == 0
+    assert [purpose for purpose, _ in takes] == [
+        "computer-use script recipe magic-mask-track"]
+    assert runs[0][1]["deadline"] == 1234.0

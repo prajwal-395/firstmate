@@ -1,10 +1,13 @@
 """The loop's contract, pinned against the mock driver and a mock model.
 
 Each test names the defect it catches: a behaviour that would be wrong if
-the loop regressed. The lease discipline - released during inference,
-re-taken per action - is the one a future change would break first,
-because it looks like a harmless optimisation to hold the lease for the
-whole loop.
+the loop regressed. The lease discipline is one exclusive take lease for
+the whole run, think time included: anything that runs between two steps
+against Resolve (a broker snapshot making its timeline current, a foreign
+reset) changes what the next step sees. Releasing during inference so
+other agents interleave was the old rule; takes corrupted by interleaving
+(measured 2026-10-06/07) ended it. The take's wall-clock bound, not
+release, is what keeps a take from wedging the fleet.
 """
 
 from __future__ import annotations
@@ -59,29 +62,50 @@ def test_a_three_step_menu_navigation_task_completes(
     assert [step["action"] for step in result.steps] == ["press", "press", "press"]
 
 
-def test_the_lease_is_released_during_inference_and_re_taken_per_action(
+def test_the_take_lease_spans_think_time(
     client: DriverClient, monkeypatch
 ):
-    """The lease is a critical section, not a build: it is taken per
-    action and released during model inference, so the captain's other
-    agents interleave with LLM think time. A loop that held the lease for
-    its whole run would wedge every other Resolve agent for the duration
-    of the task."""
+    """One exclusive take lease spans the whole run, model inference
+    included: no snapshot, reset or sibling job runs between two steps.
+    Releasing during think so other agents interleave corrupted takes
+    (a lost seed, disagreeing pixels, measured 2026-10-06/07) - the
+    take's wall-clock bound, not release, is what protects the fleet.
+    A loop that released between steps would show an exit before the
+    final model call."""
     state: dict = {"held": False, "takes": 0}
+    events: list = []
+
+    @contextmanager
+    def recording_lease(purpose, **kw):
+        # Depth-tracked like the real lease: a nested (reentrant) exit
+        # must not clear the outer take's hold.
+        state["depth"] = state.get("depth", 0) + 1
+        state["held"] = True
+        events.append(("enter", purpose))
+        state["takes"] = state.get("takes", 0) + 1
+        yield
+        state["depth"] -= 1
+        state["held"] = state["depth"] > 0
+        events.append(("exit", purpose))
+
     monkeypatch.setattr(
         "library.tools.computer_use.loop.resolve_lease",
-        lambda purpose, **kw: _tracking_lease(state),
+        recording_lease,
     )
     actions = [_press(["Workspace"]), _press(["Help"]), {"action": "done"}]
     inference_leases: list[bool] = []
 
     def model(obs):
         inference_leases.append(state["held"])
+        events.append(("model", len(inference_leases)))
         return actions[len(inference_leases) - 1]
 
     run_loop(client, model, "open two menus", max_steps=10)
-    assert inference_leases == [False, False, False]
-    assert state["takes"] == 2
+    assert inference_leases == [True, True, True]
+    loop_exits = [i for i, e in enumerate(events) if e == ("exit", "computer-use loop")]
+    model_at = [i for i, e in enumerate(events) if e[0] == "model"]
+    assert events[0] == ("enter", "computer-use loop")
+    assert len(loop_exits) == 1 and loop_exits[0] > model_at[-1]
 
 
 def test_a_failing_action_is_retried_once_then_escalated(
@@ -106,7 +130,7 @@ def test_a_failing_action_is_retried_once_then_escalated(
     assert result.final_action == "click"
     assert len(result.steps) == 1
     assert result.steps[0]["outcome"] == "failed"
-    assert state["takes"] == 2
+    assert state["takes"] == 3
     assert len(calls) == 1
 
 
@@ -149,7 +173,7 @@ def test_a_terminal_signal_ends_the_loop_without_acting(
     result = run_loop(client, model, "ask the captain", max_steps=10)
     assert result.outcome == "need_input"
     assert result.steps == []
-    assert state["takes"] == 0
+    assert state["takes"] == 1
     assert len(calls) == 1
 
 
@@ -177,7 +201,7 @@ def test_a_non_retryable_refusal_fails_immediately_without_retry(
     assert len(result.steps) == 1
     assert result.steps[0]["outcome"] == "failed"
     assert result.steps[0]["refusal"] == "PROJECT_NOT_QUALIFICATION"
-    assert state["takes"] == 1
+    assert state["takes"] == 2
     assert len(calls) == 1
 
 
@@ -204,7 +228,7 @@ def test_a_retryable_refusal_is_retried_once_then_escalated(
     assert len(result.steps) == 1
     assert result.steps[0]["outcome"] == "failed"
     assert result.steps[0]["refusal"] == "OUTSIDE_RESOLVE"
-    assert state["takes"] == 2
+    assert state["takes"] == 3
     assert len(calls) == 1
 
 
@@ -238,7 +262,7 @@ def test_the_lease_is_held_for_post_action_verification(
     monkeypatch.setattr(loop_module, "build_observation", tracking_build)
 
     run_loop(client, model, "press Workspace", max_steps=10)
-    assert observation_leases[0] is False
+    assert observation_leases[0] is True
     assert observation_leases[1] is True
 
 
@@ -282,3 +306,73 @@ def test_chrome_actions_ride_skylight_without_the_resolve_lease(
         params.get("target") == "chrome" and params.get("allow_skylight") is True
         for params in click_calls
     )
+
+
+def test_a_past_deadline_stops_before_asking_the_model(
+    client: DriverClient, monkeypatch
+):
+    """Time is a budget like steps and dollars: past the take's
+    deadline the loop stops as budget_exhausted without asking the
+    model again. A loop that decided past its bound would run the take
+    past its wall-clock budget."""
+    import time as _time
+
+    state: dict = {"held": False, "takes": 0}
+    monkeypatch.setattr(
+        "library.tools.computer_use.loop.resolve_lease",
+        lambda purpose, **kw: _tracking_lease(state),
+    )
+    calls: list = []
+
+    def model(obs):
+        calls.append(obs)
+        return _press(["Workspace"])
+
+    result = run_loop(client, model, "loop forever", max_steps=10,
+                      deadline=_time.monotonic() - 1.0)
+    assert result.outcome == "budget_exhausted"
+    assert result.steps == []
+    assert calls == []
+
+
+def test_a_snapshot_between_steps_sees_the_take_held(
+    client: DriverClient, monkeypatch
+):
+    """A broker snapshot job (exclusive, flock-serialized) that lands
+    between two steps of a take must observe the take lease held and
+    queue behind it - never a gap to slip a make-current through. The
+    take that released between steps handed snapshots the window that
+    moved the playhead mid-take (measured 2026-10-06)."""
+    from contextlib import contextmanager
+
+    events: list = []
+
+    @contextmanager
+    def recording_lease(purpose, **kw):
+        events.append(("enter", purpose))
+        yield
+        events.append(("exit", purpose))
+
+    monkeypatch.setattr(
+        "library.tools.computer_use.loop.resolve_lease",
+        recording_lease,
+    )
+    snapshots: list = []
+    calls: list = []
+
+    def model(obs):
+        calls.append(obs)
+        if len(calls) == 2:
+            # A snapshot job arriving between step 1 and step 2: the
+            # take lease must still be entered, never exited.
+            snapshots.append(
+                ("enter", "computer-use loop") in events
+                and ("exit", "computer-use loop") not in events
+            )
+        if len(calls) >= 3:
+            return {"action": "done"}
+        return _press(["Workspace"])
+
+    result = run_loop(client, model, "two presses", max_steps=10)
+    assert result.outcome == "done"
+    assert snapshots == [True]

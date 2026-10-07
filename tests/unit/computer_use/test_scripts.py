@@ -805,6 +805,8 @@ def test_the_settled_run_fails_a_step_nothing_resolves():
     assert result.outcome == "failed"
     assert result.steps == [{"step": 0, "action": "menu",
                              "outcome": "failed", "via": "none"}]
+
+
 def test_a_template_hit_returns_window_points(client: DriverClient,
                                               monkeypatch, tmp_path):
     """Defect, caught live: the match is in backing pixels but clicks
@@ -847,3 +849,30 @@ def test_a_template_hit_returns_window_points(client: DriverClient,
     assert method == "click"
     assert params["x"] == pytest.approx((box[0] + box[2]) / 2 / scale)
     assert params["y"] == pytest.approx((box[1] + box[3]) / 2 / scale)
+
+
+def test_a_past_deadline_raises_before_touching_the_driver():
+    """Past the take's bound the run raises TakeExpired before the first
+    step - a refusal, not a step failure. A runner that acted past its
+    bound would run the take past its wall-clock budget."""
+    import time as _time
+
+    from library.tools.computer_use.take import TakeExpired
+
+    class _Dead:
+        def call(self, method, params=None):
+            raise AssertionError("no driver call expected")
+
+    script = Script(
+        goal="switch pages",
+        steps=[ScriptStep(
+            action="press",
+            anchors=[Anchor(via="ax_path",
+                            params={"path": ["Workspace"]})])],
+    )
+    try:
+        run_script(_Dead(), script, deadline=_time.monotonic() - 1.0)
+    except TakeExpired as exc:
+        assert exc.code == "TAKE_EXPIRED"
+    else:
+        raise AssertionError("an expired take must refuse, not run")
