@@ -260,9 +260,22 @@ def _run_recipe(client: DriverClient, args) -> int:
         from library.tools.computer_use import window_delete
 
         return window_delete.run_recipe_verb(client, args)
+    elif args.recipe == "effect-panels":
+        if not args.timeline:
+            print("ren: effect-panels needs --timeline, the Ren "
+                  "Qualification timeline by exact name", file=sys.stderr)
+            return 2
+        if args.seed is not None:
+            print("ren: effect-panels takes no --seed - a seed no "
+                  "builder reads would run the wrong route", file=sys.stderr)
+            return 2
+        from library.tools.computer_use.scripts import (
+            effect_panels_script)
+        script = effect_panels_script()
     else:
         print(f"ren: unknown recipe {args.recipe!r}: magic-mask-seed, "
-              f"magic-mask-track or window-delete", file=sys.stderr)
+              f"magic-mask-track, window-delete or effect-panels",
+              file=sys.stderr)
         return 2
 
     from library.tools.marker_feedback import connect_resolve
@@ -501,7 +514,7 @@ def main(argv=None) -> int:
         help="the script JSON file to run (omit with --recipe)")
     script_parser.add_argument(
         "--recipe", choices=("magic-mask-seed", "magic-mask-track",
-                             "window-delete"),
+                             "window-delete", "effect-panels"),
         default=None,
         help="run one named recipe instead of a file")
     script_parser.add_argument(

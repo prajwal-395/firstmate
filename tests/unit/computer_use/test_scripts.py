@@ -617,3 +617,48 @@ def test_a_key_action_teaches_its_keystroke(client: DriverClient):
     assert learned.via == "key"
     assert learned.params["key"] == "option+s"
     assert run_script(client, script).outcome == "done"
+
+
+def test_the_panels_recipe_names_measured_menu_routes_only():
+    """The effect-panels recipe opens the two panels apply-by-search
+    stands on through the menu paths the live mapping pressed
+    (pressed:true, Ren Qualification, background, no focus). Every
+    step is a menu anchor: a coordinate would need foreground
+    pixels, and background captures hold pre-switch frames (mapped
+    2026-10-07), so nothing here may name one. A search or apply
+    step would type into whatever panel happened to be open - those
+    anchors wait for the foreground mapping run."""
+    from library.tools.computer_use.scripts import (
+        EFFECTS_EDIT_PAGE_PATH,
+        EFFECTS_PANEL_PATH,
+        INSPECTOR_PANEL_PATH,
+        effect_panels_script,
+    )
+
+    script = effect_panels_script()
+    assert len(script.steps) == 3
+    page, effects, inspector = script.steps
+    assert page.anchors[0].via == "menu"
+    assert page.anchors[0].params["path"] == EFFECTS_EDIT_PAGE_PATH
+    assert effects.anchors[0].via == "menu"
+    assert effects.anchors[0].params["path"] == EFFECTS_PANEL_PATH
+    assert inspector.anchors[0].via == "menu"
+    assert inspector.anchors[0].params["path"] == INSPECTOR_PANEL_PATH
+    coordinate_vias = {"position", "ocr", "template", "offset"}
+    for step in script.steps:
+        assert all(a.via not in coordinate_vias for a in step.anchors), \
+            step.action
+
+
+def test_the_panels_recipe_runs_to_done_against_the_mock(
+    client: DriverClient,
+):
+    """All three menu paths execute against the mock driver: the
+    panels route runs offline. A recipe naming a path the menu does
+    not carry fails here - before a live run spends the captain's
+    session pressing it."""
+    from library.tools.computer_use.scripts import effect_panels_script
+
+    result = run_script(client, effect_panels_script())
+    assert result.outcome == "done", result.steps
+    assert [step["via"] for step in result.steps] == ["menu"] * 3

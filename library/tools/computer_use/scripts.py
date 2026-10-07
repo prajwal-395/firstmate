@@ -780,3 +780,73 @@ def grade_node_add_script() -> Script:
             ),
         ],
     )
+
+
+# ── Effect-panels recipe: the Resolve Hands ResolveFX slice ──────────
+#
+# The captain's plan (section 13) applies an effect through the
+# Effects Library and sets its parameters in the Inspector. Both
+# panels open through menu commands, measured live 2026-10-07 in
+# Ren Qualification under borrowed(): `run_command` answered
+# pressed:true for each path on three consecutive borrows (all
+# restored and read back), with another app frontmost and the
+# display giving no image - the whole route is background-capable.
+# The same runs showed background captures hold pre-switch pixels
+# (an occluded Resolve does not repaint), so the search field, the
+# effect rows and the Inspector controls get NO anchor here: their
+# strings wait for a foreground mapping run, and a recipe that
+# typed into whatever panel happened to be open would dress the
+# wrong clip. This constructor is the panels half the apply route
+# stands on.
+
+#: The Edit page in the menu bar, outermost first. The Switch to
+#: Page shape is the grade route's measurement (`GRADE_COLOR_PAGE_PATH`).
+EFFECTS_EDIT_PAGE_PATH = ["Workspace", "Switch to Page", "Edit"]
+
+#: The Effects Library panel toggle. Measured live: pressed:true in
+#: Ren Qualification, background, no focus.
+EFFECTS_PANEL_PATH = ["Workspace", "Show Panel in Workspace", "Effects"]
+
+#: The Inspector panel toggle. Measured live the same way.
+INSPECTOR_PANEL_PATH = ["Workspace", "Show Panel in Workspace",
+                        "Inspector"]
+
+
+def effect_panels_script() -> Script:
+    """Open the Effects Library and Inspector panels on the Edit page.
+
+    Three menu commands, executed server-side: establish the Edit
+    page, then open each panel. The recipe names NO viewer coordinate
+    and NO keystroke, and declares NO pixel or text expectation - a
+    menu press has no screen predicate, and a step that declares
+    none is verified by the driver accepting the action (the grade
+    recipe's rule). What the panels SHOW once open - the search
+    field, the effect rows, the parameter controls - is a later
+    recipe step, mapped against foreground pixels, not here.
+    """
+    return Script(
+        goal="open the Effects Library and Inspector panels (resolvefx)",
+        steps=[
+            ScriptStep(
+                action="menu",
+                anchors=[Anchor(
+                    via="menu",
+                    params={"path": list(EFFECTS_EDIT_PAGE_PATH)},
+                )],
+            ),
+            ScriptStep(
+                action="menu",
+                anchors=[Anchor(
+                    via="menu",
+                    params={"path": list(EFFECTS_PANEL_PATH)},
+                )],
+            ),
+            ScriptStep(
+                action="menu",
+                anchors=[Anchor(
+                    via="menu",
+                    params={"path": list(INSPECTOR_PANEL_PATH)},
+                )],
+            ),
+        ],
+    )

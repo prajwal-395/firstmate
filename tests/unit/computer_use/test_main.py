@@ -577,6 +577,45 @@ def test_script_takes_a_plain_lease_it_borrows_under(monkeypatch, capsys):
                for _, kwargs in leases)
 
 
+def test_script_effect_panels_opens_both_panels_offline(monkeypatch, capsys):
+    """`script --recipe effect-panels` builds the three menu steps
+    (Edit page, Effects panel, Inspector panel) and runs them with
+    no model and no foreground flag - the mapping measured every
+    step backgrounded, so the offline default must not take the
+    captain's screen."""
+    runs, _, _ = _stub_script(monkeypatch)
+    argv = ["script", "--recipe", "effect-panels", "--timeline", "Q Spine"]
+    assert main_module.main(argv) == 0
+    script, kwargs = runs[0]
+    assert kwargs == {"foreground": False}
+    assert [s.action for s in script.steps] == ["menu"] * 3
+    assert "Inspector" in script.steps[2].anchors[0].params["path"]
+    out = capsys.readouterr().out
+    assert "outcome: done" in out
+
+
+def test_script_effect_panels_needs_a_timeline(monkeypatch, capsys):
+    """Without --timeline the verb establishes no cursor: the panels
+    would open over whatever timeline the captain left current."""
+    runs, _, _ = _stub_script(monkeypatch)
+    argv = ["script", "--recipe", "effect-panels"]
+    assert main_module.main(argv) == 2
+    assert runs == []
+    assert "--timeline" in capsys.readouterr().err
+
+
+def test_script_effect_panels_takes_no_seed(monkeypatch, capsys):
+    """A --seed on the panels recipe is refused: opening panels
+    reads no seed, and a seed nobody reads would run the wrong
+    route while looking deliberate."""
+    runs, _, _ = _stub_script(monkeypatch)
+    argv = ["script", "--recipe", "effect-panels", "--timeline", "Q Spine",
+            "--seed", "{}"]
+    assert main_module.main(argv) == 2
+    assert runs == []
+    assert "--seed" in capsys.readouterr().err
+
+
 def test_script_with_recipe_and_path_is_refused(monkeypatch, capsys):
     """A run takes a recipe or a file, never both - running both
     would act twice on the same Resolve."""
