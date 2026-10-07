@@ -2182,3 +2182,66 @@ def test_pause_markers_are_dropped_and_counted(offline_index):
     assert merged["dropped_pause_markers"] == 1
     assert len(merged["agreement"]) == 1
     assert all(f["kind"] != "resolve_only" for f in merged["findings"])
+
+
+def test_timecode_rows_refuse_without_rate_and_opening(offline_index):
+    """The defect: Resolve timecodes silently aligned against nothing -
+    every row orphaned on both sides, reading as mass disagreement. On
+    origin/main there is no normalization, so this fails there."""
+    idx, _ = offline_index
+    rows = [{"text": "we need to find a parking spot", "start": "01:00:01:00",
+             "end": "01:00:03:00"}]
+    with pytest.raises(RenRefusal):
+        idx.transcript_report("clip_001", resolve_segments=rows)
+    with pytest.raises(RenRefusal):
+        idx.transcript_report("clip_001", resolve_segments=rows,
+                              resolve_fps="25")
+    merged = idx.transcript_report(
+        "clip_001", resolve_segments=rows, resolve_fps="25",
+        resolve_start_tc="01:00:00:00")
+    assert len(merged["agreement"]) == 1
+    assert merged["agreement"][0]["ren"]["text"] == (
+        "we need to find a parking spot")
+    assert [f["kind"] for f in merged["findings"]] == ["ren_only"]
+
+
+def test_garbage_and_missing_times_are_refused(offline_index):
+    """A span that cannot be placed is refused by name, never left to
+    read as a finding."""
+    idx, _ = offline_index
+    with pytest.raises(RenRefusal):
+        idx.transcript_report("clip_001", resolve_segments=[
+            {"text": "hi", "start": "soon", "end": 3.0}])
+    with pytest.raises(RenRefusal):
+        idx.transcript_report("clip_001", resolve_segments=[
+            {"text": "hi", "end": 3.0}])
+    with pytest.raises(RenRefusal):
+        footage_query.merge_transcript_evidence([], "not-a-list")
+
+
+def test_parse_fps_reads_ratios_and_refuses_garbage():
+    assert footage_query.parse_fps("24000/1001") == pytest.approx(23.976,
+                                                                 abs=0.001)
+    assert footage_query.parse_fps("25") == 25.0
+    assert footage_query.parse_fps(29.97) == 29.97
+    for bad in ("fast", "0", "0/1", "", None):
+        with pytest.raises(RenRefusal):
+            footage_query.parse_fps(bad)
+
+
+def test_ren_transcript_converts_timecode_rows(offline_index, tmp_path,
+                                               capsys):
+    """The CLI takes the rate and opening Resolve timecodes count
+    from, end to end."""
+    idx, _ = offline_index
+    hits_path = tmp_path / "resolve_tc.json"
+    hits_path.write_text(json.dumps(
+        [{"text": "we need to find a parking spot", "start": "01:00:01:00",
+          "end": "01:00:03:00"}]), encoding="utf-8")
+    assert footage_query.main(
+        ["transcript", str(idx.project_folder), "clip_001",
+         "--index-dir", str(idx.index_dir),
+         "--resolve-transcript", str(hits_path),
+         "--resolve-fps", "25", "--resolve-start-tc", "01:00:00:00"]) == 0
+    out = capsys.readouterr().out
+    assert "1 in agreement" in out

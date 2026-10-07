@@ -1024,9 +1024,127 @@ TRANSCRIPT_SOURCE_RESOLVE = "resolve_transcription"
 #: score.
 _WORD_FOLD = re.compile(r"[^a-z0-9]+")
 
+#: A Resolve timecode, HH:MM:SS:FF as GetTranscription reports it.
+_TIMECODE = re.compile(r"^(\d+):(\d+):(\d+):(\d+)$")
+
 
 def _fold_text(text: str) -> str:
     return _WORD_FOLD.sub(" ", str(text or "").lower()).strip()
+
+
+def parse_fps(value) -> float:
+    """Frames per second from a float or an ffprobe `num/den` ratio.
+
+    Refused plainly rather than guessed: the wrong rate shifts every
+    converted frame by a growing error, so an unparseable rate stops
+    the merge instead of skewing it.
+    """
+    text = str(value or "").strip()
+    if "/" in text:
+        numerator, _, denominator = text.partition("/")
+        try:
+            rate = float(numerator) / float(denominator)
+            if rate > 0:
+                return rate
+        except (TypeError, ValueError, ZeroDivisionError):
+            pass
+    else:
+        try:
+            if float(text) > 0:
+                return float(text)
+        except (TypeError, ValueError):
+            pass
+    raise RenRefusal(
+        f"frame rate {value!r} parses as neither a number nor num/den",
+        "every converted frame scales by this rate",
+        "hand over ffprobe's r_frame_rate (e.g. 24000/1001)")
+
+
+def resolve_time_to_seconds(value, fps=None, start_tc=None) -> float:
+    """One Resolve time into clip seconds.
+
+    Plain numbers with no `start_tc` already are clip seconds and pass
+    through; with one they shift like everything else - absolute
+    seconds from an API that counts from the timeline behave exactly
+    like timecodes here. Either may itself be given as seconds or as
+    a timecode. Anything else is refused naming the fix, because an
+    unconvertible time silently becomes an orphan finding that reads
+    as a real disagreement.
+    """
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        number = None
+    if number is not None:
+        if start_tc is None:
+            return number
+        if (isinstance(start_tc, str)
+                and _TIMECODE.match(start_tc.strip())):
+            start_tc = resolve_time_to_seconds(start_tc, fps=fps,
+                                               start_tc=0)
+        return number - float(start_tc)
+    match = _TIMECODE.match(str(value or "").strip())
+    if match is None:
+        raise RenRefusal(
+            f"Resolve time {value!r} is neither clip seconds nor "
+            f"HH:MM:SS:FF",
+            "it cannot be placed on the clip",
+            "hand over seconds, or timecodes with --resolve-fps and "
+            "--resolve-start-tc")
+    if fps is None or start_tc is None:
+        raise RenRefusal(
+            f"Resolve time {value!r} is a timecode with no rate or "
+            f"opening to convert it by",
+            "frames do not mean seconds without both",
+            "hand over --resolve-fps and --resolve-start-tc")
+    rate = parse_fps(fps)
+    hours, minutes, seconds, frames = (int(part) for part in match.groups())
+    absolute = hours * 3600 + minutes * 60 + seconds + frames / rate
+    if isinstance(start_tc, str) and _TIMECODE.match(start_tc.strip()):
+        start_tc = resolve_time_to_seconds(start_tc, fps=fps, start_tc=0)
+    return absolute - float(start_tc)
+
+
+def normalize_resolve_segments(segments: list, fps=None,
+                               start_tc=None) -> list:
+    """Resolve segments with every time in clip seconds.
+
+    Numbers pass through; timecodes convert (needing `fps` and
+    `start_tc`); anything unconvertible or missing is refused by name.
+    The merge aligns on overlap, so one unplaced row would read as a
+    real disagreement - this refuses before that lie is told.
+    """
+    if not isinstance(segments, list):
+        raise RenRefusal(
+            "transcript evidence must be a list of Resolve segments",
+            f"{type(segments).__name__} cannot be merged with a "
+            f"transcript",
+            "hand over the JSON list Resolve's transcription wrote")
+    normalized = []
+    for position, segment in enumerate(segments):
+        if not isinstance(segment, dict):
+            raise RenRefusal(
+                f"Resolve segment {position} is not an object",
+                "it carries no time to place",
+                "hand over the JSON list Resolve's transcription wrote")
+        row = dict(segment)
+        for key in ("start", "end"):
+            if row.get(key) is None:
+                raise RenRefusal(
+                    f"Resolve segment {position} names no {key}",
+                    "a span without an edge cannot overlap",
+                    "hand over segments with start and end")
+            try:
+                row[key] = resolve_time_to_seconds(
+                    row[key], fps=fps, start_tc=start_tc)
+            except RenRefusal as exc:
+                raise RenRefusal(
+                    f"Resolve segment {position}: {exc}",
+                    "it cannot be placed on the clip",
+                    "hand over seconds, or timecodes with --resolve-fps "
+                    "and --resolve-start-tc") from exc
+        normalized.append(row)
+    return normalized
 
 
 def _spans_overlap(a_start, a_end, b_start, b_end) -> bool:
@@ -1047,6 +1165,7 @@ def _overlap_seconds(a_start, a_end, b_start, b_end) -> float:
 
 def merge_transcript_evidence(utterances: list, resolve_segments: list,
                               source: str = TRANSCRIPT_SOURCE_RESOLVE,
+                              fps=None, start_tc=None,
                               ) -> dict:
     """Resolve's transcript rows beside Ren's own, disagreements as findings.
 
@@ -1063,13 +1182,15 @@ def merge_transcript_evidence(utterances: list, resolve_segments: list,
     positive intersection, equality is the fold, and an empty Resolve
     side is stated (`resolve_empty`) rather than expanded into a
     finding per utterance - there is nothing to align against.
+
+    Times arrive normalized first: Resolve reports `HH:MM:SS:FF`
+    timecodes against the clip's opening timecode, which never
+    overlaps Ren's zero-based spans until shifted (`fps` plus
+    `start_tc`). Rows whose times cannot be placed are refused rather
+    than left to read as disagreements.
     """
-    if not isinstance(resolve_segments, list):
-        raise RenRefusal(
-            "transcript evidence must be a list of Resolve segments",
-            f"{type(resolve_segments).__name__} cannot be merged with a "
-            f"transcript",
-            "hand over the JSON list Resolve's transcription wrote")
+    resolve_segments = normalize_resolve_segments(
+        resolve_segments, fps=fps, start_tc=start_tc)
     ren_rows = [dict(u) for u in utterances or []]
     resolve_rows = []
     for segment in resolve_segments:
@@ -2401,19 +2522,24 @@ class FootageIndex:
         ]
 
     def transcript_report(self, clip_id: str,
-                         resolve_segments: list | None = None) -> dict:
+                         resolve_segments: list | None = None,
+                         resolve_fps=None,
+                         resolve_start_tc=None) -> dict:
         """`transcript`, plus Resolve's rows beside Ren's where given.
 
         `resolve_segments` carries Resolve's voiced segments for the
         clip (the JSON list its transcription wrote), merged through
-        `merge_transcript_evidence`: extra evidence with its provenance,
-        disagreements as findings, never a replacement for Ren's rows.
+        `merge_transcript_evidence`: extra evidence beside Ren's answer,
+        never a replacement for it. Times normalize through
+        `resolve_fps`/`resolve_start_tc` when Resolve reported
+        timecodes rather than clip seconds.
         """
         report = {"clip_id": clip_id,
                   "utterances": self.transcript(clip_id)}
         if resolve_segments is not None:
             report.update(merge_transcript_evidence(
-                report["utterances"], resolve_segments))
+                report["utterances"], resolve_segments,
+                fps=resolve_fps, start_tc=resolve_start_tc))
         return report
 
     def staleness(self) -> dict:
@@ -3317,6 +3443,14 @@ def main(argv=None):
                                    "this JSON list file as EXTRA evidence "
                                    "beside Ren's utterances, disagreements "
                                    "as findings; never replaces them")
+    p_transcript.add_argument("--resolve-fps", default=None,
+                              help="frames per second (number or num/den) "
+                                   "for Resolve HH:MM:SS:FF timecodes; "
+                                   "needed with --resolve-start-tc")
+    p_transcript.add_argument("--resolve-start-tc", default=None,
+                              help="the clip's opening timecode (or "
+                                   "seconds) that Resolve timecodes count "
+                                   "from")
     p_transcript.add_argument("--index-dir")
 
     p_summary = sub.add_parser("summary", help="What is in the index")
@@ -3566,7 +3700,9 @@ def main(argv=None):
         if args.resolve_transcript:
             report = idx.transcript_report(
                 args.clip_id,
-                _load_external_hits(args.resolve_transcript))
+                _load_external_hits(args.resolve_transcript),
+                resolve_fps=args.resolve_fps,
+                resolve_start_tc=args.resolve_start_tc)
             for line in report["utterances"]:
                 print(f"  {line['timecode']}  {line['text']}")
             _print_transcript_evidence(report)
