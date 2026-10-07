@@ -289,10 +289,14 @@ def _run_recipe(client: DriverClient, args) -> int:
         from library.tools.computer_use import window_recipe
 
         return window_recipe.run_recipe_verb(client, args)
+    elif args.recipe == "qualifier-sample":
+        from library.tools.computer_use import qualifier_recipe
+
+        return qualifier_recipe.run_recipe_verb(client, args)
     else:
         print(f"ren: unknown recipe {args.recipe!r}: magic-mask-seed, "
-              f"magic-mask-track, window-create, window-delete or "
-              f"effect-panels",
+              f"magic-mask-track, window-create, window-delete, "
+              f"effect-panels or qualifier-sample",
               file=sys.stderr)
         return 2
 
@@ -558,7 +562,7 @@ def main(argv=None) -> int:
     script_parser.add_argument(
         "--recipe", choices=("magic-mask-seed", "magic-mask-track",
                              "window-create", "window-delete",
-                             "effect-panels"),
+                             "effect-panels", "qualifier-sample"),
         default=None,
         help="run one named recipe instead of a file")
     script_parser.add_argument(
@@ -583,7 +587,7 @@ def main(argv=None) -> int:
     script_parser.add_argument(
         "--clip",
         default=None,
-        help="window recipes: the clip's timeline unique id",
+        help="window/qualifier recipes: the clip's timeline unique id",
     )
     script_parser.add_argument(
         "--node",
@@ -594,6 +598,11 @@ def main(argv=None) -> int:
         "--shape",
         default=None,
         help="window-create: circle, linear, polygon or powercurve",
+    )
+    script_parser.add_argument(
+        "--point",
+        default=None,
+        help="qualifier-sample: the normalized sample point as JSON [x, y]",
     )
     _target_flag(script_parser)
     script_parser.add_argument(
@@ -680,10 +689,11 @@ def main(argv=None) -> int:
                         or args.direction != "forward"
                         or args.clip is not None
                         or args.node is not None
-                        or args.shape is not None):
+                        or args.shape is not None
+                        or args.point is not None):
                     print("ren: --seed/--timeline/--playhead-timecode/"
                           "--mode/--direction/--allow-foreground/--clip/"
-                          "--node/--shape need "
+                          "--node/--shape/--point need "
                           "--recipe", file=sys.stderr)
                     return 2
                 require_executor(target)

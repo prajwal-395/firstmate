@@ -8,6 +8,8 @@ teaches the script - are the ones a future change would break first.
 
 from __future__ import annotations
 
+import pytest
+
 from library.tools.computer_use.client import DriverClient
 from library.tools.computer_use.scripts import (
     Anchor,
@@ -803,3 +805,45 @@ def test_the_settled_run_fails_a_step_nothing_resolves():
     assert result.outcome == "failed"
     assert result.steps == [{"step": 0, "action": "menu",
                              "outcome": "failed", "via": "none"}]
+def test_a_template_hit_returns_window_points(client: DriverClient,
+                                              monkeypatch, tmp_path):
+    """Defect, caught live: the match is in backing pixels but clicks
+    take window points - an unscaled hit at 2x reads outside the window
+    and the driver refuses it OUTSIDE_RESOLVE. The capture carries its
+    own scale and the resolver divides by it."""
+    import base64
+    from io import BytesIO
+
+    from PIL import Image, ImageDraw
+
+    from library.tools.computer_use.scripts import _resolve_template
+
+    real_call = client.call
+    # A synthetic capture with a known bright square - the mock's
+    # stills are near-flat, and normalized correlation on a flat
+    # crop reads 0 wherever it lands.
+    img = Image.new("RGB", (128, 64), (20, 20, 20))
+    draw = ImageDraw.Draw(img)
+    draw.rectangle([40, 20, 60, 40], fill=(200, 200, 200))
+    draw.rectangle([46, 26, 54, 34], fill=(10, 10, 10))
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    fixed = {"image": base64.b64encode(buf.getvalue()).decode("ascii"),
+             "width": 128.0, "height": 64.0, "scale": 2.0}
+    scale = float(fixed["scale"])
+    monkeypatch.setattr(
+        client, "call",
+        lambda method, params=None: (fixed if method == "capture_window"
+                                     else real_call(method, params)))
+    box = (40, 20, 60, 40)
+    template_path = tmp_path / "template.png"
+    img.crop(box).save(template_path)
+    resolved = _resolve_template(
+        client, Anchor(via="template",
+                       params={"image": str(template_path),
+                               "threshold": 0.5}))
+    assert resolved is not None
+    method, params = resolved
+    assert method == "click"
+    assert params["x"] == pytest.approx((box[0] + box[2]) / 2 / scale)
+    assert params["y"] == pytest.approx((box[1] + box[3]) / 2 / scale)

@@ -370,8 +370,13 @@ def _resolve_template(client: DriverClient, anchor: Anchor) -> tuple[str, dict] 
     if max_val < threshold:
         return None
     h, w = template_np.shape[:2]
-    x = max_loc[0] + w / 2
-    y = max_loc[1] + h / 2
+    # Clicks take window points, but the capture (and the template cut
+    # from it) is in backing pixels - measured live: an unscaled
+    # template hit at 2x reads outside the window and the driver
+    # refuses it OUTSIDE_RESOLVE. The capture carries its own scale.
+    scale = float(capture.get("scale") or 1.0)
+    x = (max_loc[0] + w / 2) / scale
+    y = (max_loc[1] + h / 2) / scale
     return ("click", {"x": x, "y": y})
 
 
