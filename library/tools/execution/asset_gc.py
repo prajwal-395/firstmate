@@ -52,6 +52,52 @@ def manifest_path_for(project_folder: str, when: str | None = None) -> str:
         JOURNAL_PREFIX, when, suffix="_manifest.md")
 
 
+def survey_holdout(project, project_folder: str) -> dict:
+    """Plan the collection off ONE read of the pool, holding out disputes.
+
+    Same two instruments as `prune_orphans.survey`, but a disagreement
+    holds out only the disputed paths instead of refusing the whole
+    run (captain 2026-10-07): anything EITHER instrument places counts
+    as used and is kept. An unreadable database still refuses outright
+    - a sweep that cannot find what it knows is there has not looked.
+    """
+    from library.tools.execution.organise_media_pool import read_pool
+    from library.tools.execution.prune_orphans import (
+        placed_paths_from_database,
+        project_database_path,
+    )
+    from library.tools import asset_gc as _gc
+    from library.tools.resolve_organization import is_generated
+
+    artefacts, _duplicates, _recorded, _root = read_pool(project)
+    live_placed = {a.file_path for a in artefacts
+                   if a.placed_by and a.file_path
+                   and is_generated(a.file_path, project_folder)}
+    db_path = project_database_path(project, project_folder)
+    probe = min(live_placed) if live_placed else None
+    saved_placed = placed_paths_from_database(db_path, must_find=probe)
+    saved_generated = {p for p in saved_placed
+                       if is_generated(p, project_folder)}
+
+    sizes = {}
+    for artefact in artefacts:
+        if artefact.file_path and artefact.file_path not in sizes:
+            try:
+                sizes[artefact.file_path] = os.path.getsize(artefact.file_path)
+            except OSError:
+                continue
+    plan, disputed, held = _gc.plan_gc_holdout(
+        artefacts, project_folder, live_placed, saved_generated, sizes)
+    return {
+        "artefacts": artefacts,
+        "plan": plan,
+        "disputed": disputed,
+        "held": held,
+        "referenced": live_placed | saved_placed,
+        "database_path": db_path,
+    }
+
+
 def collect_now(project, survey_result: dict, project_folder: str,
                 journal_path: str, trash_dir: str) -> dict:
     """Remove the pool items, verify the timelines, trash the files.
@@ -123,16 +169,16 @@ def report_after(project_folder: str) -> None:
             print("  gc dry-run skipped: no broker serving")
             return
         from library.tools.execution.organise_media_pool import open_project
-        from library.tools.execution.prune_orphans import survey
         from library.tools import asset_gc as _gc
         from library.tools.orphan_removal import summarise
 
         project, _master = open_project(project_folder)
-        result = survey(project, project_folder)
+        result = survey_holdout(project, project_folder)
         counts = summarise(result["plan"])
         print(_gc.render_gc_report(
             result["plan"], counts,
             _gc.trash_dir_for(project_folder,
-                              datetime.now(timezone.utc).isoformat())))
+                              datetime.now(timezone.utc).isoformat()),
+            result["disputed"]))
     except Exception as exc:  # noqa: BLE001 - a hook never fails its caller
         print(f"  gc dry-run skipped: {exc}")

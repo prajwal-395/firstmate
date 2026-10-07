@@ -104,8 +104,7 @@ def plan_gc(artefacts: list, project_root: str,
     `saved_placed_paths` is the database instrument's placed set; the
     live instrument's is read off `artefacts` (`placed_by`). A file is
     collected only when NEITHER instrument places it AND the path fact
-    says Ren wrote it. The returned list carries `_project_root`
-    alongside so `assert_gc_safe` can re-prove provenance at move time.
+    says Ren wrote it.
     """
     plan = plan_removal(artefacts, project_root, saved_placed_paths,
                         sizes)
@@ -115,8 +114,39 @@ def plan_gc(artefacts: list, project_root: str,
     return plan
 
 
+def plan_gc_holdout(artefacts: list, project_root: str,
+                    live_placed: set, saved_placed_paths: set,
+                    sizes: dict | None = None) -> tuple:
+    """Collect what BOTH instruments agree is unplaced; hold out disputes.
+
+    Captain 2026-10-07: anything on a timeline, disabled included,
+    counts as used and is kept - so the referenced set is the UNION of
+    both instruments, and a file either one places is kept. Where the
+    instruments disagree, only the DISPUTED paths are held out (kept,
+    and named in the report); the rest proceeds. A disputed path is
+    never collected on one instrument's word, and an agreed path is
+    never held by another path's dispute.
+    """
+    referenced = set(live_placed) | set(saved_placed_paths)
+    disputed = set(live_placed) ^ set(saved_placed_paths)
+    plan = plan_removal(artefacts, project_root, saved_placed_paths,
+                        sizes)
+    kept, held = [], []
+    for removal in plan:
+        # A disputed path is kept WHOLE - pool item and file. Removing
+        # the pool item while one instrument still places the file
+        # would take media off a timeline under that reading, so the
+        # dispute holds the entry, whatever its file state.
+        if removal.file_path in disputed:
+            held.append(removal)
+        else:
+            kept.append(removal)
+    assert_gc_safe(kept, referenced, project_root)
+    return kept, sorted(disputed), held
+
+
 def render_gc_report(plan: list, counts: dict,
-                     trash_dir: str) -> str:
+                     trash_dir: str, held_out: list | None = None) -> str:
     """The dry run: every path with its size, and where it would go."""
     gib = counts["bytes_freed"] / (1024 ** 3)
     lines = [
@@ -131,6 +161,8 @@ def render_gc_report(plan: list, counts: dict,
         "  Nothing was changed. Pass --apply to collect; files are "
         "moved, never deleted.",
     ]
+    for path in sorted(held_out or []):
+        lines.append(f"    HELD OUT (instruments disagree): {path}")
     for removal in sorted(plan, key=lambda r: r.file_path):
         if removal.file_state == "delete":
             mib = removal.size_bytes / (1024 ** 2)

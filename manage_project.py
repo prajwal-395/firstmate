@@ -2901,12 +2901,49 @@ def cmd_dedupe_stills(args):
                 f"run `ren propose {args.project}` first, or name reels "
                 f"the plan approves")
     failed = 0
+    scope = {}
+    for moment in approved:
+        census = _dedupe.collect_scope_report(
+            args.project, moment.timeline_name, project_folder)
+        if census.get("refused") is not None:
+            failed += 1
+            print(f"  {moment.timeline_name}: REFUSED "
+                  f"({census['refused']})")
+            continue
+        scope[moment.timeline_name] = census
+    if failed:
+        raise RenRefusal(
+            f"{failed} reel(s) refused the still census",
+            "each refusal names its reason above; nothing was changed",
+            "fix what each refusal names and re-run") from None
+    try:
+        project_plan = _dedupe.plan_project_repoints(
+            [item for census in scope.values()
+             for item in census["candidates"]])
+    except _dedupe.DedupeRefused as exc:
+        raise RenRefusal(
+            f"the project dedupe plan refused: {exc}",
+            "a merge the pixels do not support stops the whole run; "
+            "nothing was changed",
+            "re-run --dry-run to see the measured distances") from None
+    for group in project_plan["graphic_groups"]:
+        files = ", ".join(path.rsplit("/", 1)[-1]
+                          for path in group["files"])
+        print(f"  graphic {group['graphic']}: "
+              f"{group['members']} item(s) at worst distance "
+              f"{group['worst_distance']} -> "
+              f"{(group['canonical'] or '').rsplit('/', 1)[-1]} "
+              f"[{files}]")
+    for entry in project_plan["skipped"]:
+        print(f"  skipped {entry.get('file_path') or entry.get('graphic')}: "
+              f"{entry.get('why')}")
     for moment in approved:
         if wanted is not None and int(moment.number) not in wanted:
             continue
         report = _dedupe.dedupe_reel_stills(
             args.project, moment.timeline_name, project_folder,
-            dry_run=args.dry_run)
+            dry_run=args.dry_run,
+            scoped_repoints=project_plan["repoints"])
         repointed = len(report.get("repointed") or [])
         skipped = len(report.get("skipped") or [])
         if report.get("refused") is not None:
@@ -2921,6 +2958,14 @@ def cmd_dedupe_stills(args):
                   f"{' (dry run)' if args.dry_run else ''}")
             if args.dry_run:
                 print(f"    rows: {', '.join(report.get('rows') or ())}")
+                by_file: dict = {}
+                for item in report.get("stills_detail") or ():
+                    by_file.setdefault(item["file_path"], []).append(item)
+                for path in sorted(by_file):
+                    digests = {item.get("digest", "")[:12]
+                               for item in by_file[path]}
+                    print(f"    still file: {path} "
+                          f"(digest {','.join(sorted(digests)) or 'none'})")
             for entry in report.get("skipped") or ():
                 print(f"    skipped {entry.get('file_path')}: "
                       f"{entry.get('why')}")
@@ -2947,6 +2992,9 @@ def cmd_gc(args):
     the captain imported) leave the pool, and their files move to a
     trash folder inside the project with a manifest, never unlinked.
     Plans by default, with every path and size; `--apply` collects.
+    Anything EITHER instrument finds on a timeline - disabled items
+    included - counts as used and is kept; paths the instruments
+    disagree on are held out and named, and the rest proceeds.
     See library/tools/asset_gc.py for the never-referenced and
     never-footage rules.
     """
@@ -2954,7 +3002,6 @@ def cmd_gc(args):
 
     from library.tools.execution.organise_media_pool import open_project
     from library.tools.execution import asset_gc as _gc
-    from library.tools.execution.prune_orphans import survey
     from library.tools import asset_gc as _rules
     from library.tools.orphan_removal import summarise
 
@@ -2962,19 +3009,17 @@ def cmd_gc(args):
     project, _master = open_project(project_folder)
 
     if args.apply:
-        # Flush the live state before reading it: tonight's
-        # still-overlays pass never saved, so the saved database
-        # disagrees with the live project and the survey would
-        # refuse a reading it cannot trust. Saving persists what is
-        # there - it discards nothing - and the survey still proves
-        # both instruments agree afterwards.
+        # Flush the live state before reading it: a project saved long
+        # before the last edit reads stale in the database instrument.
+        # Saving persists what is there - it discards nothing - and the
+        # survey still holds out every path the instruments disagree on.
         from library.tools.execution.prune_orphans import save_project
         print("  Saving the project so the survey reads what is live...")
         save_project()
 
     from library.tools.orphan_removal import RemovalRefused
     try:
-        result = survey(project, project_folder)
+        result = _gc.survey_holdout(project, project_folder)
     except RemovalRefused as refused:
         print(f"gc: refused - {refused}", file=sys.stderr)
         sys.exit(REFUSAL_EXIT_CODE)
@@ -2989,9 +3034,15 @@ def cmd_gc(args):
             resolve_project=project.GetName(),
             project_folder=project_folder,
             planned_at=when,
-            counts=counts), encoding="utf-8")
-    print(_rules.render_gc_report(result["plan"], counts, trash_dir))
+            counts=counts,
+            trash_dir=trash_dir), encoding="utf-8")
+    print(_rules.render_gc_report(result["plan"], counts, trash_dir,
+                                  result["disputed"]))
     print(f"\n  Manifest (every path): {manifest}")
+    if result["disputed"]:
+        print(f"  {len(result['disputed'])} path(s) held out - the live "
+              f"project and the saved database disagree about them, so "
+              f"they stay until the disagreement clears.")
 
     if not args.apply:
         print("\nNothing was changed. Pass --apply to remove the pool "

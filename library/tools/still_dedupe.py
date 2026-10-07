@@ -33,6 +33,8 @@ them into trash, which is the recoverable half that owns deletion.
 
 from __future__ import annotations
 
+import os
+
 from library.tools import still_content
 from library.tools.resolve_organization import is_generated
 from library.tools.still_overlays import (
@@ -102,6 +104,11 @@ def collect_reel_stills(timeline, timeline_name: str,
                 markers = item.GetMarkers() or {}
             except Exception:  # noqa: BLE001
                 markers = {}
+            info = still_content.png_info(str(file_path)) or {}
+            try:
+                size = os.path.getsize(str(file_path))
+            except OSError:
+                size = 0
             items.append({
                 "timeline": timeline_name,
                 "row": inventory_row_key("video", index, row_name or ""),
@@ -112,6 +119,8 @@ def collect_reel_stills(timeline, timeline_name: str,
                 "pool_uid": mpi.GetUniqueId(),
                 "file_path": str(file_path),
                 "digest": digest,
+                "depth": info.get("depth") or 0,
+                "size": size,
                 "props": dict(item.GetProperty() or {}),
                 "markers": {str(k): dict(v) for k, v in markers.items()
                             if isinstance(v, dict)},
@@ -202,7 +211,7 @@ def _slim_rows(snapshot: dict) -> dict:
 
 
 def dedupe_reel_stills(project, timeline_name: str, project_folder: str,
-                       *, dry_run=False) -> dict:
+                       *, dry_run=False, scoped_repoints=None) -> dict:
     """Collapse one reel's duplicate stills onto their canonical items.
 
     Plan everything first (any refusal stops the reel before any
@@ -210,6 +219,12 @@ def dedupe_reel_stills(project, timeline_name: str, project_folder: str,
     after-state against the plan: anything unexplained triggers the
     inverse restore. Returns the per-reel report: repointed / skipped /
     refused (+restored).
+
+    `scoped_repoints` carries the PROJECT plan's repoints for a
+    cross-reel merge (the TV frame lives on many reels): only this
+    reel's entries apply here, matched back to its live candidates -
+    an entry whose source item is gone refuses as a stale plan.
+    Without it the reel plans from its own candidates alone.
     """
     from library.tools.resolve_lock import (
         assert_current_timeline, resolve_lease)
@@ -246,29 +261,52 @@ def dedupe_reel_stills(project, timeline_name: str, project_folder: str,
         candidates = collect_reel_stills(timeline, timeline_name,
                                          project_folder)
         report["stills"] = len(candidates)
+        report["stills_detail"] = [
+            {"file_path": item["file_path"], "record": item["record"],
+             "row": item["row"], "digest": item["digest"]}
+            for item in candidates]
         report["rows"] = _reel_row_names(timeline)
-        try:
-            plan = still_content.plan_dedupe(candidates)
-        except still_content.DedupeRefused as exc:
-            report["refused"] = str(exc)
-            return report
-        report["skipped"] = plan["skipped"]
         by_item = {(item["pool_uid"], item["record"][0]): item
                    for item in candidates}
-        repoints = []
-        for entry in plan["repoints"]:
-            source = by_item.get((entry["pool_uid"],
-                                  entry["record"][0]))
-            if source is None:
-                report["refused"] = (
-                    f"plan names {entry['file_path']!r}@"
-                    f"{entry['record']} the reel no longer holds - "
-                    f"refusing a stale plan")
+        if scoped_repoints is not None:
+            repoints = []
+            for entry in scoped_repoints:
+                if entry.get("timeline") != timeline_name:
+                    continue
+                source = by_item.get((entry["pool_uid"],
+                                      entry["record"][0]))
+                if source is None:
+                    report["refused"] = (
+                        f"plan names {entry['file_path']!r}@"
+                        f"{entry['record']} the reel no longer holds - "
+                        f"refusing a stale plan")
+                    return report
+                repoints.append({**entry,
+                                 "row": source["row"],
+                                 "track_index": source["track_index"],
+                                 "item_uid": source["item_uid"]})
+            report["skipped"] = []
+        else:
+            try:
+                plan = still_content.plan_dedupe(candidates)
+            except still_content.DedupeRefused as exc:
+                report["refused"] = str(exc)
                 return report
-            repoints.append({**entry,
-                             "row": source["row"],
-                             "track_index": source["track_index"],
-                             "item_uid": source["item_uid"]})
+            report["skipped"] = plan["skipped"]
+            repoints = []
+            for entry in plan["repoints"]:
+                source = by_item.get((entry["pool_uid"],
+                                      entry["record"][0]))
+                if source is None:
+                    report["refused"] = (
+                        f"plan names {entry['file_path']!r}@"
+                        f"{entry['record']} the reel no longer holds - "
+                        f"refusing a stale plan")
+                    return report
+                repoints.append({**entry,
+                                 "row": source["row"],
+                                 "track_index": source["track_index"],
+                                 "item_uid": source["item_uid"]})
         if dry_run:
             report["planned"] = [
                 f"{entry['timeline']} {entry['file_path']}@"
@@ -554,3 +592,109 @@ def _restore_repoints(project, pool, timeline, fps, repoints, applied,
                     timeline_name=timeline_name + " (still restore)"):
                 raise DedupeRefused(
                     f"{timeline_name}: restore refused {key}={value}")
+
+
+def plan_project_repoints(all_candidates: list) -> dict:
+    """One re-point list for the whole project, without touching Resolve.
+
+    Exact pixel groups and provenance-graphic groups are PARTITIONED:
+    an item with a provenance key goes only through its graphic group,
+    everything else only through exact pixel groups - so one item is
+    never re-pointed twice at two canonicals. Graphic files are
+    decoded once each (only groups with two or more distinct files
+    decode at all); an undecodable file is skipped with the reason,
+    never merged. Returns `{"repoints", "graphic_groups", "skipped"}`.
+    """
+    graphic = [item for item in all_candidates
+               if still_content.provenance_key(
+                   str(item.get("file_path") or "")) is not None]
+    plain = [item for item in all_candidates
+             if still_content.provenance_key(
+                 str(item.get("file_path") or "")) is None]
+    exact = still_content.plan_dedupe(plain)
+    repoints = list(exact["repoints"])
+    skipped = list(exact["skipped"])
+    graphic_groups = []
+    for key, members in sorted(
+            still_content.group_by_graphic(graphic).items()):
+        files = sorted({member.get("file_path") for member in members})
+        if len(files) < 2:
+            continue
+        hashes: dict = {}
+        for path in files:
+            try:
+                hashes[path] = still_content.phash_still(path)
+            except still_content.DedupeRefused:
+                hashes[path] = None
+        for member in members:
+            member["phash"] = hashes.get(member.get("file_path"))
+        try:
+            planned = still_content.plan_graphic_group(members)
+        except still_content.DedupeRefused as exc:
+            skipped.append({"graphic": key, "files": files,
+                            "why": str(exc)})
+            continue
+        graphic_groups.append({"graphic": key,
+                               "canonical": planned["groups"][0][
+                                   "canonical"] if planned["groups"]
+                               else None,
+                               "members": len(members),
+                               "worst_distance": planned["groups"][0][
+                                   "worst_distance"] if planned["groups"]
+                               else 0,
+                               "files": files})
+        repoints.extend(planned["repoints"])
+        skipped.extend(planned["skipped"])
+    return {"repoints": repoints, "graphic_groups": graphic_groups,
+            "skipped": skipped}
+
+
+def collect_scope_report(project, timeline_name: str,
+                         project_folder: str) -> dict:
+    """Read-only census of one reel's dedupe candidates.
+
+    Pass one of the project drive: opens the reel under the lease,
+    collects its stills with their pixel digests, and leaves without
+    writing anything - no backup, no edit. Returns `{"reel",
+    "candidates", "rows", "refused"}`.
+    """
+    from library.tools.resolve_lock import (
+        assert_current_timeline, resolve_lease)
+    from library.tools.marker_feedback import connect_resolve
+
+    report: dict = {"reel": timeline_name, "candidates": [], "rows": [],
+                    "refused": None}
+    with resolve_lease(f"dedupe-stills collect {timeline_name}",
+                       exclusive=True, timeout=600):
+        resolve = connect_resolve()
+        manager = resolve.GetProjectManager()
+        project = manager.GetCurrentProject()
+        entry = project.GetCurrentTimeline()
+        entry_id = (entry.GetUniqueId() if entry is not None else None)
+        timeline = None
+        for index in range(1, int(project.GetTimelineCount() or 0)
+                           + 1):
+            candidate = project.GetTimelineByIndex(index)
+            if candidate and candidate.GetName() == timeline_name:
+                timeline = candidate
+                break
+        if timeline is None:
+            report["refused"] = f"no timeline {timeline_name!r}"
+            return report
+        try:
+            assert_current_timeline(project, timeline)
+            report["candidates"] = collect_reel_stills(
+                timeline, timeline_name, project_folder)
+            report["rows"] = _reel_row_names(timeline)
+        finally:
+            current = project.GetCurrentTimeline()
+            if (entry_id is not None and current is not None
+                    and current.GetUniqueId() != entry_id):
+                for index in range(
+                        1, int(project.GetTimelineCount() or 0) + 1):
+                    candidate = project.GetTimelineByIndex(index)
+                    if (candidate is not None
+                            and candidate.GetUniqueId() == entry_id):
+                        assert_current_timeline(project, candidate)
+                        break
+    return report

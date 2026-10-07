@@ -74,6 +74,49 @@ def test_gate_refuses_a_referenced_plan(tmp_path):
         asset_gc.assert_gc_safe(plan, {live}, str(tmp_path))
 
 
+def test_holdout_collects_agreed_keeps_disputed(tmp_path):
+    """Captain 2026-10-07: a disagreement holds out only the disputed
+    paths and the rest proceeds. Fails on main, where `plan_gc_holdout`
+    does not exist."""
+    agreed = tmp_path / "replaced_a.mov"
+    agreed.write_bytes(b"a" * 100)
+    disputed_file = tmp_path / "mg_old.mov"
+    disputed_file.write_bytes(b"b" * 200)
+    live = tmp_path / "still_live.png"
+    live.write_bytes(b"c" * 50)
+    artefacts = [
+        _clip("1", "replaced_a.mov", str(agreed)),
+        _clip("2", "mg_old.mov", str(disputed_file)),
+        _clip("3", "still_live.png", str(live), placed=("Reel 17",)),
+    ]
+    sizes = {str(agreed): 100, str(disputed_file): 200, str(live): 50}
+    # The database still lists the disabled motion-graphics item; the
+    # live walk cannot resolve it. The live-placed still is absent
+    # from this saved reading.
+    saved = {str(disputed_file)}
+    live_placed = {str(live)}
+    kept, disputed, held = asset_gc.plan_gc_holdout(
+        artefacts, str(tmp_path), live_placed, saved, sizes)
+    assert [r.file_path for r in kept
+            if r.file_state == "delete"] == [str(agreed)]
+    assert str(disputed_file) in disputed
+    assert [r.file_path for r in held] == [str(disputed_file)]
+
+
+def test_holdout_never_collects_footage(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    outside = tmp_path / "footage" / "interview.mov"
+    outside.parent.mkdir()
+    outside.write_bytes(b"footage")
+    artefacts = [_clip("1", "interview.mov", str(outside))]
+    kept, disputed, held = asset_gc.plan_gc_holdout(
+        artefacts, str(project), set(), {str(outside)},
+        {str(outside): 7})
+    assert kept == [] and held == []
+    assert str(outside) in disputed
+
+
 def test_gate_refuses_a_footage_plan(tmp_path):
     outside = str(tmp_path / "footage" / "interview.mov")
     plan = [Removal(item_id="1", name="interview.mov", file_path=outside,
@@ -144,3 +187,20 @@ def test_the_gc_verb_is_registered_in_both_front_doors():
     native = (Path(__file__).resolve().parents[3] / "native" / "ren-cli"
               / "src" / "commands.rs").read_text(encoding="utf-8")
     assert 'name: "gc"' in native
+
+
+def test_gc_manifest_names_trash_and_every_path(tmp_path):
+    from library.tools.orphan_removal import Removal
+
+    plan = [Removal(item_id="1", name="replaced.mov",
+                    file_path=str(tmp_path / "replaced.mov"),
+                    folder_path=("Master",), file_state="delete",
+                    size_bytes=8)]
+    counts = {"items": 1, "delete_files": 1, "keep_shared": 0,
+              "already_gone": 0, "bytes_freed": 8,
+              "bytes_kept_shared": 0}
+    text = asset_gc.render_gc_manifest(
+        plan, resolve_project="Podcast (field test)",
+        project_folder=str(tmp_path), planned_at="2026-10-07T00",
+        counts=counts, trash_dir=str(tmp_path / "trash" / "x"))
+    assert "replaced.mov" in text and "trash" in text
