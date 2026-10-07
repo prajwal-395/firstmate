@@ -91,6 +91,32 @@ def test_parallel_checkouts_get_unique_paths_in_the_same_second(
     assert os.listdir(os.path.join(state, "checkouts")) == []
 
 
+def test_running_gate_jobs_returns_only_active_full_suite_grants(monkeypatch):
+    from library.tools import resource_scheduler
+
+    started_at = time.time() - 42
+
+    class Scheduler:
+        def __init__(self, _legacy_dir):
+            pass
+
+        def jobs(self):
+            return [
+                {"owner": "scripts/full_suite_gate.sh", "pid": 123,
+                 "state": "running", "started_at": started_at},
+                {"owner": "scripts/full_suite_gate.sh", "pid": 124,
+                 "state": "waiting", "started_at": None},
+                {"owner": "another job", "pid": 125,
+                 "state": "running", "started_at": started_at},
+            ]
+
+    monkeypatch.setattr(resource_scheduler, "Scheduler", Scheduler)
+    jobs = hygiene.running_gate_jobs()
+
+    assert [job["pid"] for job in jobs] == [123]
+    assert jobs[0]["elapsed_seconds"] >= 42
+
+
 def test_parallel_workers_share_one_safely_created_mirror(mirror, tmp_path,
                                                            monkeypatch):
     remote = str(tmp_path / "remote.git")

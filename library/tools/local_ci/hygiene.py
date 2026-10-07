@@ -23,6 +23,7 @@ import fcntl
 import json
 import os
 import shutil
+import sqlite3
 import subprocess
 import tempfile
 import threading
@@ -106,6 +107,32 @@ def running_jobs(state: str = "") -> list[dict]:
         job["elapsed_seconds"] = max(0.0, time.time() - started_at)
         jobs.append(job)
     return sorted(jobs, key=lambda job: (job["started_at"], job["slot"]))
+
+
+def running_gate_jobs() -> list[dict]:
+    """Return live full-suite grants, including Tier-2 queue evaluations.
+
+    Tier-2 runs outside the Tier-1 slot files, under the machine resource
+    scheduler. The status command reads its live rows so an active stack
+    is not reported as "running jobs: none".
+    """
+    from library.tools import heavy_work_lock, resource_scheduler
+
+    try:
+        rows = resource_scheduler.Scheduler(
+            heavy_work_lock.HEAVY_LOCK_DIR).jobs()
+    except (OSError, RuntimeError, sqlite3.Error):
+        return []
+    now = time.time()
+    jobs = []
+    for row in rows:
+        if (row["state"] != "running"
+                or "full_suite_gate" not in row["owner"]):
+            continue
+        job = dict(row)
+        job["elapsed_seconds"] = max(0.0, now - job["started_at"])
+        jobs.append(job)
+    return sorted(jobs, key=lambda job: (job["started_at"], job["pid"]))
 
 
 def _git(repo: str, *argv: str, timeout: int = 300) -> str:

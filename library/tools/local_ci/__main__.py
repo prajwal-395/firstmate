@@ -40,7 +40,8 @@ def cmd_status(args) -> int:
     else:
         print("queue: empty")
     running = hygiene.running_jobs(args.state)
-    if running:
+    gates = hygiene.running_gate_jobs()
+    if running or gates:
         print("running jobs:")
         for job in running:
             identity = f"PR #{job['pr']}" if job.get("pr") else "job"
@@ -48,6 +49,15 @@ def cmd_status(args) -> int:
                 identity += f" {job['head'][:12]}"
             print(f"  {job.get('kind', 'check')} {identity} "
                   f"slot {job['slot']} {job['elapsed_seconds']:.0f}s "
+                  f"pid {job['pid']}")
+        testing = [entry for entry in entries
+                   if entry.get("status") == state.ENTRY_TESTING]
+        members = ", ".join(f"#{entry['pr']}" for entry in testing)
+        for job in gates:
+            identity = "Tier-2 full-suite gate"
+            if members:
+                identity += f" for PRs {members}"
+            print(f"  {identity} {job['elapsed_seconds']:.0f}s "
                   f"pid {job['pid']}")
     else:
         print("running jobs: none")
