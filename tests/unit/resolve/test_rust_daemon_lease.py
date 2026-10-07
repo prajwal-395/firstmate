@@ -69,33 +69,64 @@ def _short_lock_dir(name: str) -> Path:
     return Path(tempfile.mkdtemp(prefix=f"ren-lease-{name}-", dir="/tmp"))
 
 
-def start_rust(lock_dir: Path) -> None:
+def start_rust(lock_dir: Path) -> int:
+    """Start the Rust daemon on `lock_dir`'s socket; return its exact pid.
+
+    The pid is the teardown's handle: a detached daemon outlives the
+    test that started it, so `_stop` shuts it down gracefully and then
+    signals this exact pid where the process lingers - never a pattern
+    kill, which could reach the production broker.
+    """
     os.environ["PIPELINE_RESOLVE_LOCK_DIR"] = str(lock_dir)
     env = dict(os.environ)
     env["PYTHONPATH"] = os.pathsep.join(
         p for p in (str(REPO), env.get("PYTHONPATH", "")) if p)
     log = open(lock_dir / "ren-resolved.log", "ab", buffering=0)
-    subprocess.Popen(
+    process = subprocess.Popen(
         [str(RUST_BINARY), "serve", str(lock_dir / SOCKET_NAME)],
         env=env, stdin=subprocess.DEVNULL, stdout=log,
         stderr=subprocess.STDOUT, start_new_session=True)
     deadline = time.time() + 30
     while time.time() < deadline:
         if client.ping(lock_dir / SOCKET_NAME) is not None:
-            return
+            return process.pid
+        if process.poll() is not None:
+            raise RuntimeError("the Rust daemon died on startup")
         time.sleep(0.1)
     raise RuntimeError("the Rust daemon did not start")
 
 
-def _stop(sock: Path, lock_dir: Path) -> None:
+def _pid_alive(pid: int) -> bool:
+    """Whether an exact pid is still running - a zombie reads as dead."""
+    try:
+        out = subprocess.run(
+            ["ps", "-o", "stat=", "-p", str(pid)],
+            capture_output=True, encoding="utf-8",
+            check=False).stdout.strip()
+        if out:
+            return not out.startswith("Z")
+    except OSError:
+        pass
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def _stop(sock: Path, lock_dir: Path, pid: int | None = None) -> None:
     """Stop whatever serves on `sock` and remove the lock dir.
 
     Runs in `finally`, so a failed assertion never leaks the detached
     daemon: the shutdown is answered at once but the broker exits on
     its next serve tick, so the rm happens only after the socket goes
     quiet (a broker still shutting down when its directory is removed
-    is left holding a socket file that no longer exists).
+    is left holding a socket file that no longer exists). Where the
+    process lingers past the shutdown, the exact starting pid - never
+    a pattern - is signalled.
     """
+    import signal as _signal
+
     try:
         client.call({"op": "shutdown"}, sock)
     except Exception:
@@ -103,6 +134,19 @@ def _stop(sock: Path, lock_dir: Path) -> None:
     deadline = time.time() + 10.0
     while client.ping(sock) is not None and time.time() < deadline:
         time.sleep(0.05)
+    if pid is not None and _pid_alive(pid):
+        try:
+            os.kill(pid, _signal.SIGTERM)
+        except OSError:
+            pass
+        deadline = time.time() + 5.0
+        while _pid_alive(pid) and time.time() < deadline:
+            time.sleep(0.05)
+        if _pid_alive(pid):
+            try:
+                os.kill(pid, _signal.SIGKILL)
+            except OSError:
+                pass
     shutil.rmtree(lock_dir, ignore_errors=True)
 
 
@@ -131,8 +175,9 @@ def test_watchdog_probe_holds_a_shared_lease():
     """
     lock_dir = _short_lock_dir("watchdog")
     sock = lock_dir / SOCKET_NAME
+    pid = None
     try:
-        start_rust(lock_dir)
+        pid = start_rust(lock_dir)
         status = wait_for_status(
             sock, lambda s: s["connected"] is True, timeout=70)
         assert status["connected"] is True, (
@@ -141,7 +186,7 @@ def test_watchdog_probe_holds_a_shared_lease():
             f"the probe marked the broker degraded: {status['degraded_reason']}")
         assert status["responsive"] is True
     finally:
-        _stop(sock, lock_dir)
+        _stop(sock, lock_dir, pid)
 
 
 def test_job_worker_holds_the_instance_lease():
@@ -160,8 +205,9 @@ def test_job_worker_holds_the_instance_lease():
     """
     lock_dir = _short_lock_dir("job")
     sock = lock_dir / SOCKET_NAME
+    pid = None
     try:
-        start_rust(lock_dir)
+        pid = start_rust(lock_dir)
         # A read-only resolve_axi job: the worker connects to Resolve
         # under the instance lease.
         submitted = client.submit(
@@ -176,4 +222,4 @@ def test_job_worker_holds_the_instance_lease():
             f"the handshake refused - the worker did not hold the lease: "
             f"{job['error']}")
     finally:
-        _stop(sock, lock_dir)
+        _stop(sock, lock_dir, pid)

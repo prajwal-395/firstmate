@@ -9,13 +9,15 @@ started last. They were started by test runs, not by Ren's real use -
 and they ran under the caller's homebrew Python rather than Ren's venv
 interpreter.
 
-Two lines of defence, both pinned here:
+Three lines of defence, all pinned here:
 
 1. `tests/conftest.py` points `PIPELINE_RESOLVE_LOCK_DIR` at a
    per-session temp dir (set with `os.environ`, never `monkeypatch`,
    so no `monkeypatch.undo()` inside a test can remove it), and stops
-   every broker a test starts at teardown - including ones started by
-   hand with `subprocess.Popen`, which bypass `client._start_detached`.
+   every broker a test starts at teardown - by exact pid, including
+   ones started by hand with `subprocess.Popen`, which bypass
+   `client._start_detached` - and fails the whole run at session end
+   where any broker the session started is still alive.
 2. `library.tools.resolved.client.ensure` refuses the default
    production socket while running under pytest - judged by the
    TARGET, so an explicit default path or an unisolated child refuses
@@ -25,11 +27,21 @@ Two lines of defence, both pinned here:
    `client._start_detached` launches the broker with Ren's venv
    interpreter rather than whatever Python ran the caller, with the
    shadow watcher forced off.
+3. A test's subprocess children inherit the isolation: the update
+   install test carries `PYTEST_CURRENT_TEST`,
+   `PIPELINE_RESOLVE_LOCK_DIR` and `REN_SHADOW_WATCHER=0` into the
+   `ren update` child (whose own doctor probe takes the lease), so the
+   chain runs brokerless instead of spawning a detached broker the
+   parent test could never record.
 
 The unit tests below pin the guard and the interpreter; the
-subprocess test replays the incident's shape - the broker-exercising
-suites, run as a worker would run them - and proves it leaves no
-broker process behind and never touches the default socket.
+subprocess tests replay the incidents' shapes - the broker-exercising
+suites, and a hand-started Python broker the teardown used to miss
+(2026-10-07: an orphaned `python -m library.tools.resolved serve`,
+parent pid 1, survived the test run because the Popen recorder only
+matched the Rust argv) - run as a worker would run them, and prove
+each leaves no broker process behind and never touches the default
+socket.
 """
 
 import json
@@ -437,3 +449,136 @@ def test_broker_exercising_suites_leave_no_broker_and_never_touch_default(
         f"the subprocess run left broker processes behind: {left} "
         f"(spawned {sorted(spawned)}, running before {sorted(before_pids)}). "
         "A detached broker outlives its test; stop what is started.")
+# ── 3. The 2026-10-07 leak, replayed in a subprocess ────────────────
+
+_DIRECT_POPEN_REPRO = '''
+"""A hand-started Python broker the teardown used to miss, then stops it."""
+import os
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+from library.tools.resolved import client
+from library.tools.resolved.server import SOCKET_NAME
+
+
+def test_hand_started_python_broker_is_stopped_at_teardown():
+    lock_dir = Path(tempfile.mkdtemp(prefix="ren-leak-repro-", dir="/tmp"))
+    env = dict(os.environ, PIPELINE_RESOLVE_LOCK_DIR=str(lock_dir),
+               REN_SHADOW_WATCHER="0")
+    # The `qualification_project._broker` shape: no `.sock` in the argv,
+    # the socket reached through the environment - the pattern the
+    # Popen recorder never matched, so the broker survived the test.
+    process = subprocess.Popen(
+        [sys.executable, "-m", "library.tools.resolved", "serve"],
+        env=env, stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
+        start_new_session=True)
+    sock = lock_dir / SOCKET_NAME
+    deadline = time.time() + 15
+    while client.ping(sock) is None and time.time() < deadline:
+        time.sleep(0.1)
+    assert client.ping(sock) is not None, "the repro broker never started"
+    print(f"REPRO_BROKER_PID={process.pid} SOCK={sock}")
+    # Deliberately no shutdown: the per-test teardown must stop the
+    # exact pid, and the session guard must see nothing left.
+'''
+
+
+def test_a_hand_started_python_broker_leaves_no_orphan(tmp_path):
+    """The reproduction: a direct-Popen broker is stopped, not orphaned.
+
+    Before the conftest fix the Popen recorder only matched the Rust
+    argv (`ren-resolved ... serve`), so this test's broker survived as
+    an orphan with parent pid 1. Now the teardown records both daemon
+    argv shapes - resolving the Python broker's socket from its
+    environment, where the argv carries none - shuts it down, and
+    signals the exact pid where it lingers.
+
+    The repro file is written under `tests/` (removed afterwards) so
+    the inner run loads the suite's own `tests/conftest.py` - a file
+    outside the suite would run without the fixture and prove nothing.
+    """
+    repro = TESTS_DIR / "test_direct_popen_repro_tmp.py"
+    repro.write_text(_DIRECT_POPEN_REPRO, encoding="utf-8")
+    before = _broker_pids()
+
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(
+        [str(REPO_ROOT), env.get("PYTHONPATH", "")])
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "pytest", str(repro),
+             "-q", "-s", "-p", "no:cacheprovider", "-o", "addopts="],
+            cwd=str(REPO_ROOT), env=env, capture_output=True,
+            encoding="utf-8", timeout=600, check=False)
+    finally:
+        repro.unlink(missing_ok=True)
+    assert result.returncode == 0, (
+        "the direct-Popen repro failed (teardown or session guard fired):\n"
+        f"{result.stdout[-4000:]}\n{result.stderr[-4000:]}")
+    assert "REPRO_BROKER_PID=" in result.stdout, (
+        "the repro never started its broker, so this check proved "
+        f"nothing:\n{result.stdout[-2000:]}\n{result.stderr[-2000:]}")
+
+    marker = next(line for line in result.stdout.splitlines()
+                  if "REPRO_BROKER_PID=" in line)
+    pid = int(marker.split("REPRO_BROKER_PID=")[1].split()[0])
+    assert pid not in before, (
+        f"the repro broker pid {pid} predates the run - the pid "
+        f"comparison proved nothing (running before {sorted(before)})")
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        pass
+    else:
+        pytest.fail(
+            f"the hand-started broker survived its test as pid {pid}: "
+            f"the teardown missed the Python Popen shape.")
+
+
+def test_the_session_guard_fails_where_a_tracked_broker_is_alive():
+    """The session-end guard names a tracked broker that is still alive.
+
+    A live pid (this process) stands in for a leaked broker; a dead
+    entry and an empty session change nothing. Only tracked entries
+    are read - the production broker is never touched.
+    """
+    import tests.conftest as conftest
+
+    kept = list(conftest._SESSION_BROKERS)
+    try:
+        conftest._SESSION_BROKERS.append(
+            {"pid": os.getpid(), "socket": None, "node": "guard-probe"})
+
+        class _Session:
+            exitstatus = 0
+
+        session = _Session()
+        conftest.pytest_sessionfinish(session, 0)
+        assert session.exitstatus != 0, (
+            "the session guard passed with a tracked broker still alive")
+    finally:
+        conftest._SESSION_BROKERS[:] = kept
+
+
+def test_the_session_guard_passes_where_nothing_tracked_is_alive():
+    """Dead tracked entries and an empty session are not failures."""
+    import tests.conftest as conftest
+
+    kept = list(conftest._SESSION_BROKERS)
+    try:
+        conftest._SESSION_BROKERS.append(
+            {"pid": 2 ** 30, "socket": None, "node": "guard-probe-dead"})
+
+        class _Session:
+            exitstatus = 0
+
+        session = _Session()
+        conftest.pytest_sessionfinish(session, 0)
+        assert session.exitstatus == 0, (
+            "the session guard failed with nothing alive")
+    finally:
+        conftest._SESSION_BROKERS[:] = kept

@@ -236,14 +236,23 @@ def test_update_url_moves_the_install_onto_the_artifact(tmp_path, monkeypatch):
     }
     # The child is the suite's doing: `ren update` verifies the
     # candidate by running its `doctor`, whose Resolve probe takes the
-    # instance lease - and the lease ensures the broker. Without this
-    # marker the child looks like production use and spawns a DETACHED
-    # broker on the default socket (measured 2026-10-07: an orphaned
-    # broker on /tmp/ren-resolved.sock from this very test). With it
-    # the default-socket guard refuses the spawn and the probe runs
-    # brokerless, as in every other test.
+    # instance lease - and the lease ensures the broker. Without
+    # isolation the child looks like production use and spawns a
+    # DETACHED broker on the default socket (measured 2026-10-07: an
+    # orphaned broker on /tmp/ren-resolved.sock from this very test -
+    # the stripped env also lost TMPDIR, so the "default" resolved to
+    # /tmp rather than the session's directory). The three markers
+    # below keep the whole chain brokerless: the pytest marker makes
+    # the spawn guards refuse, the lock dir keeps every path off the
+    # default socket, and the watcher flag keeps any broker that did
+    # start from reading the live Resolve. REN_TESTS_ALLOW_BROKER_SPAWN
+    # is deliberately absent, so the chain cannot opt into spawning.
     if os.environ.get("PYTEST_CURRENT_TEST"):
         env["PYTEST_CURRENT_TEST"] = os.environ["PYTEST_CURRENT_TEST"]
+    if os.environ.get("PIPELINE_RESOLVE_LOCK_DIR"):
+        env["PIPELINE_RESOLVE_LOCK_DIR"] = os.environ[
+            "PIPELINE_RESOLVE_LOCK_DIR"]
+    env["REN_SHADOW_WATCHER"] = "0"
     result = subprocess.run(
         [sys.executable, "-m", "ren.cli", "update", "--url", zip_path.as_uri()],
         capture_output=True, text=True, encoding="utf-8", env=env,

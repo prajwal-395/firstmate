@@ -1,6 +1,7 @@
 import atexit
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -262,17 +263,160 @@ def _remove_session_resolve_dir():
 atexit.register(_remove_session_resolve_dir)
 
 
+#: Every broker process this session started, in-process starts only.
+#: A detached broker outlives the test that started it; the per-test
+#: teardown below stops what each test started (by exact pid), and the
+#: session-end guard fails the run if any tracked broker is still alive.
+#: Entries are `{"pid": int, "socket": str | None, "node": str}`.
+#: Only tracked pids are ever signalled - never a pattern kill, never
+#: the production broker, which this session did not start.
+_SESSION_BROKERS = []
+
+
+def _pid_alive(pid) -> bool:
+    """Whether an exact pid is still running (no signal sent).
+
+    A zombie still answers `kill(pid, 0)` but holds nothing: it has
+    already exited and awaits its parent's `waitpid` (a test that
+    starts a broker by hand and never waits on the handle leaves one
+    behind). A zombie is dead, so it reads as not alive - checked
+    through `ps`, which the teardown's `Popen` recording never
+    patches (`subprocess.run`, not `Popen`).
+    """
+    try:
+        pid = int(pid)
+    except (ValueError, TypeError, OverflowError):
+        return False
+    try:
+        out = subprocess.run(
+            ["ps", "-o", "stat=", "-p", str(pid)],
+            capture_output=True, encoding="utf-8",
+            check=False).stdout.strip()
+        if out:
+            return not out.startswith("Z")
+    except OSError:
+        pass
+    try:
+        os.kill(pid, 0)
+    except (OSError, ValueError, OverflowError):
+        return False
+    return True
+
+
+def _terminate_exact_pid(pid, timeout=5.0) -> bool:
+    """Stop one exact pid: SIGTERM, then SIGKILL past the deadline.
+
+    Returns whether the pid is gone. Only ever the pid recorded when
+    this session started the process - never a pattern, never a lookup.
+    """
+    import time as _time
+
+    try:
+        pid = int(pid)
+    except (ValueError, TypeError, OverflowError):
+        return True
+    if not _pid_alive(pid):
+        return True
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        return not _pid_alive(pid)
+    deadline = _time.time() + max(0.0, timeout)
+    while _pid_alive(pid) and _time.time() < deadline:
+        _time.sleep(0.05)
+    if _pid_alive(pid):
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+        deadline = _time.time() + 5.0
+        while _pid_alive(pid) and _time.time() < deadline:
+            _time.sleep(0.05)
+    return not _pid_alive(pid)
+
+
+def _popen_spawns_broker(parts) -> bool:
+    """Whether an argv starts a broker process.
+
+    Both daemons: the Rust broker (`ren-resolved ... serve`, as the
+    Rust-daemon tests start by hand) and the Python broker (`python -m
+    library.tools.resolved serve`, as `qualification_project._broker`
+    does) - the second pattern is what the first leak's teardown
+    missed, so a hand-started Python broker survived the test.
+    """
+    if "serve" not in parts:
+        return False
+    return (any("ren-resolved" in part for part in parts)
+            or any("library.tools.resolved" in part for part in parts))
+
+
+def _popen_broker_socket(parts, env) -> Path | None:
+    """The socket a hand-started broker serves, or None where unknowable.
+
+    From the argv's `.sock` part first; the Python broker takes no
+    socket argument (it serves `PIPELINE_RESOLVE_LOCK_DIR` from its
+    environment), so fall back to that directory and the session socket
+    name there.
+    """
+    for part in parts:
+        if part.endswith(".sock"):
+            return Path(part)
+    lock_dir = (env or {}).get(_resolve_lock.LOCK_DIR_ENV) or os.environ.get(
+        _resolve_lock.LOCK_DIR_ENV)
+    if lock_dir:
+        from library.tools.resolved.server import SOCKET_NAME as _name
+        return Path(lock_dir) / _name
+    return None
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Fail the run where a broker this session started is still alive.
+
+    The backstop behind the per-test teardown: a detached broker
+    outlives the test that started it, and one the teardown never
+    recorded (or could not stop) would otherwise hold its socket
+    against the next run - measured 2026-10-07 as orphaned
+    `python -m library.tools.resolved serve` processes (parent pid 1)
+    after test runs. Only tracked pids and sockets are read; the
+    production broker is never touched.
+    """
+    from library.tools.resolved import client as _client
+
+    left = []
+    for entry in _SESSION_BROKERS:
+        pid, sock = entry.get("pid"), entry.get("socket")
+        alive = _pid_alive(pid) if pid is not None else False
+        serving = False
+        if sock:
+            try:
+                serving = (not _client._is_default_socket(Path(sock))
+                           and _client.ping(Path(sock)) is not None)
+            except (OSError, ValueError):
+                serving = False
+        if alive or serving:
+            left.append(f"pid {pid} on {sock} (from {entry.get('node')})")
+    if left:
+        session.exitstatus = 1
+        print("\nFAILED: brokers this session started are still alive:\n  "
+              + "\n  ".join(sorted(set(left)))
+              + "\nStop what is started: a detached broker outlives its "
+              "test (tests/conftest.py).")
+
+
 @pytest.fixture(autouse=True)
-def _resolve_broker_is_the_tests_own():
+def _resolve_broker_is_the_tests_own(request):
     """The broker a test starts is stopped when the test ends.
 
     Re-asserts the session lock dir without `monkeypatch` (an undo
     cannot remove what `monkeypatch` never set), records every broker
-    this test spawns, and shuts each one down at teardown: a detached
-    broker outlives the test that started it, and a leaked one holds
-    its socket against the next run. The production socket is never
-    touched - a recorded path resolving to it is skipped, and
-    `client.ensure` refuses to start one there in the first place.
+    this test spawns - by exact pid - and stops each one at teardown:
+    graceful shutdown first, then the exact pid where the process
+    lingers. A detached broker outlives the test that started it, and
+    a leaked one holds its socket against the next run. The production
+    socket is never sent anything - a recorded path resolving to it is
+    skipped for shutdown, though an exact tracked pid there is still
+    terminated - and `client.ensure` refuses to start one there in the
+    first place.
     """
     import time as _time
 
@@ -281,18 +425,34 @@ def _resolve_broker_is_the_tests_own():
 
     _restore_session_resolve_dir()
     setup_dir = _SESSION_RESOLVE_DIR
+    node = getattr(request.node, "nodeid", "<unknown>")
     real_start = _client._start_detached
     started = []
+    test_brokers = []
 
     def _recording_start(path):
+        process = real_start(path)
+        try:
+            pid = getattr(process, "pid", None)
+        except Exception:  # noqa: BLE001 - recording never breaks startup
+            pid = None
+        entry = {"pid": pid, "socket": str(Path(path)), "node": node}
         started.append(Path(path))
-        return real_start(path)
+        if pid is not None:
+            test_brokers.append(entry)
+            _SESSION_BROKERS.append(entry)
+        return process
 
     _client._start_detached = _recording_start
-    # A broker started by hand - `subprocess.Popen([ren-resolved,
-    # "serve", sock], start_new_session=True)`, as the Rust-daemon tests
-    # do - bypasses `_start_detached` above, so the teardown below would
-    # never stop it. Record those sockets too, from the argv.
+    # A broker started by hand bypasses `_start_detached` above, so the
+    # teardown below would never stop it. Both daemons are recorded
+    # here, from the argv: the Rust broker (`ren-resolved ... serve
+    # <sock>`, as the Rust-daemon tests do) and the Python broker
+    # (`python -m library.tools.resolved serve`, as
+    # `qualification_project._broker` does, with the socket only in
+    # its environment) - the second pattern is the one the teardown
+    # missed, measured 2026-10-07 as an orphaned serve process after
+    # the test run.
     real_popen = subprocess.Popen
     popen_started = []
 
@@ -302,12 +462,29 @@ def _resolve_broker_is_the_tests_own():
             parts = [str(a) for a in (argv or [])]
         except TypeError:
             parts = []
-        if (any("ren-resolved" in part for part in parts)
-                and "serve" in parts):
-            for part in parts:
-                if part.endswith(".sock"):
-                    popen_started.append(Path(part))
-        return real_popen(*args, **kwargs)
+        watched = _popen_spawns_broker(parts)
+        sock = None
+        if watched:
+            try:
+                sock = _popen_broker_socket(
+                    parts, kwargs.get("env", None))
+            except Exception:  # noqa: BLE001 - recording never breaks spawn
+                sock = None
+        process = real_popen(*args, **kwargs)
+        if watched:
+            try:
+                pid = getattr(process, "pid", None)
+            except Exception:  # noqa: BLE001 - recording never breaks spawn
+                pid = None
+            if sock is not None:
+                popen_started.append(sock)
+            if pid is not None:
+                entry = {"pid": pid,
+                         "socket": str(sock) if sock is not None else None,
+                         "node": node}
+                test_brokers.append(entry)
+                _SESSION_BROKERS.append(entry)
+        return process
 
     subprocess.Popen = _recording_popen
     try:
@@ -341,6 +518,16 @@ def _resolve_broker_is_the_tests_own():
                     f"a broker this test started is still serving on "
                     f"{sock}: a detached broker outlives its test, so "
                     f"stop what is started (tests/conftest.py)",
+                    pytrace=False)
+        for entry in test_brokers:
+            if _pid_alive(entry["pid"]):
+                _terminate_exact_pid(entry["pid"])
+            if _pid_alive(entry["pid"]):
+                pytest.fail(
+                    f"a broker this test started is still alive as pid "
+                    f"{entry['pid']} (socket {entry['socket']}): a "
+                    f"detached broker outlives its test, so stop what "
+                    f"is started (tests/conftest.py)",
                     pytrace=False)
 
 # ── No default test reaches the live Resolve ────────────────────────
