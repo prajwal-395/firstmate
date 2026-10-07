@@ -326,10 +326,15 @@ def _lease(exclusive: bool):
     return resolve_lease(f"resolve-axi ({TOOL})", exclusive=exclusive)
 
 
-# These verbs use the native MCP or local files only.
+# These verbs run locally, never wrapped by the broker's argv router:
+# the api/luts verbs use the native MCP or local files only, and
+# intellisearch-collect submits its own job kinds to the broker rather
+# than being parsed by it (the serving broker runs main and refuses
+# verbs it does not know yet).
 _LOCAL_COMMANDS = frozenset({
     "cmd_api_search", "cmd_api_stubs", "cmd_api_docs",
     "cmd_api_whats_new", "cmd_api_intellisearch_query",
+    "cmd_intellisearch_collect",
     "cmd_luts_list", "cmd_luts_update",
     "cmd_luts_delete", "cmd_luts_generate", "cmd_setup_hooks",
     "cmd_update",
@@ -1923,6 +1928,79 @@ def cmd_api_intellisearch_query(args) -> int:
             [f"{TOOL} sense intellisearch --help (index-only; querying "
              f"goes through the UI route)"]))
     emit(parts)
+    return 0
+
+
+def cmd_intellisearch_collect(args) -> int:
+    """Collect one IntelliSearch query into an `--external-hits` file.
+
+    The query half the probe found missing: builds the foreground
+    collection spec, runs it as a `resolve.ui_transaction` job on the
+    serving broker, reads the result names off the pixels, intersects
+    them with the project catalog, and files the rows `ren search
+    --external-hits` merges. `--survey` runs the background-safe half
+    alone (menu/AX reach, anytime); `--dry-run` prints the validated
+    spec without spending a take. Submits the job itself, so it runs
+    locally like its sibling api verbs - the broker validates the spec
+    again on prepare.
+    """
+    from library.tools import intellisearch_collect as collect_mod
+    from library.tools.ren_refusal import RenRefusal
+    from library.tools.resolved.jobs import JobRefused
+
+    if args.survey:
+        try:
+            report = collect_mod.survey()
+        except Exception as exc:                          # noqa: BLE001
+            return fail(f"the survey failed ({exc}).",
+                        f"{TOOL} intellisearch-collect --survey")
+        emit([kv_block("intellisearch_survey", {
+                    "menu_commands": report["menu_commands"],
+                    "intellisearch_menu": len(report["intellisearch_menu"]),
+                    "ax_text_fields": len(report["ax_text_fields"]),
+                }),
+              table("intellisearch_menu",
+                    [{"path": " > ".join(path)}
+                     for path in report["intellisearch_menu"]], ["path"])
+              if report["intellisearch_menu"]
+              else "no IntelliSearch menu entry - the box is Qt-only",
+              table("ax_text_fields", report["ax_text_fields"],
+                    ["title", "label"])])
+        return 0
+    box = None
+    if args.box:
+        try:
+            x, y = (float(bit) for bit in str(args.box).split(","))
+            box = (x, y)
+        except ValueError:
+            return fail(f"--box {args.box!r} is not x,y in window points.",
+                        f"{TOOL} intellisearch-collect --help")
+    try:
+        if args.dry_run:
+            spec = collect_mod.build_collection_spec(
+                args.query, box, timeline=args.timeline,
+                budget_seconds=args.budget)
+            emit([kv_block("intellisearch_collect_plan", {
+                        "query": args.query,
+                        "actions": len(spec["actions"]),
+                    }),
+                  json.dumps(spec, indent=2)])
+            return 0
+        result = collect_mod.collect(
+            args.project, args.query, box, out=args.out or None,
+            timeline=args.timeline, budget_seconds=args.budget)
+    except (JobRefused, RenRefusal) as exc:
+        return fail(str(exc),
+                    f"{TOOL} intellisearch-collect --help")
+    emit([kv_block("intellisearch_collect", {
+                "query": args.query,
+                "rows": result["rows"],
+                "seen_strings": result["seen_strings"],
+                "out": result["out"],
+            }),
+          help_block(
+              [f"ren search '{args.project}' --external-hits "
+               f"\"{result['out']}\""])])
     return 0
 
 
@@ -6760,6 +6838,33 @@ def build_parser() -> Parser:
     q.add_argument("--full", action="store_true",
                    help="all matching lines instead of the first 50")
     q.set_defaults(func=cmd_api_intellisearch_query)
+
+    p = subs.add_parser("intellisearch-collect", help="collect one "
+                                                     "IntelliSearch query "
+                                                     "into an "
+                                                     "--external-hits file "
+                                                     "for ren search")
+    p.add_argument("--project", default="",
+                   help="pipeline project folder: catalog to intersect, "
+                        "scratch to file rows in")
+    p.add_argument("--query", default="",
+                   help="what IntelliSearch is asked")
+    p.add_argument("--box", default="",
+                   help="search field center as x,y in window points "
+                        "(runtime-measured; refused if absent)")
+    p.add_argument("--out", default="",
+                   help="hits file to write (default <project>/"
+                        "pipeline_output/scratch/intellisearch_hits.json)")
+    p.add_argument("--timeline", default="",
+                   help="qualification timeline to hold (default current)")
+    p.add_argument("--budget", default=None, type=float,
+                   help="take budget in seconds (default the announced "
+                        "window)")
+    p.add_argument("--survey", action="store_true",
+                   help="background-safe menu/AX reach only, no take")
+    p.add_argument("--dry-run", action="store_true",
+                   help="print the validated spec without spending a take")
+    p.set_defaults(func=cmd_intellisearch_collect)
 
     p = subs.add_parser("luts", help="the shared LUT shelf: list "
                                      "locally, write wrapped with "
