@@ -71,6 +71,8 @@ def run_loop(
     recipe: str | None = None,
     store=None,
     layout: str | None = None,
+    target: str = "resolve",
+    pid: int | None = None,
 ) -> LoopResult:
     """Run the observe-decide-act loop on a goal.
 
@@ -79,7 +81,10 @@ def run_loop(
     is retried once, then escalated. The loop stops at a terminal signal,
     a failed action, or the step budget. Driver refusals are recorded in
     history so the model sees them; non-retryable refusals fail the step
-    immediately without a retry.
+    immediately without a retry. `target` selects whose window is
+    observed and acted on; a non-resolve target routes every driven call
+    through the SkyLight channel, and takes no Resolve lease (no Resolve
+    is touched).
 
     Where `recipe` names a stored recipe (and `store` is its
     `RecipeStore`), the recipe executes FIRST - the plan's section 4,
@@ -104,7 +109,7 @@ def run_loop(
     history: list[dict] = []
 
     for step in range(max_steps):
-        obs = build_observation(client, goal, history, step)
+        obs = build_observation(client, goal, history, step, target=target, pid=pid)
         action_dict = model(obs)
         action = Action.from_dict(action_dict)
         if action.is_terminal:
@@ -112,7 +117,7 @@ def run_loop(
                 outcome=action.kind, steps=history, final_action=action.kind
             )
 
-        outcome, refusal = _act_and_verify(client, action, obs)
+        outcome, refusal = _act_and_verify(client, action, obs, target, pid)
         entry = {"action": action.kind, "outcome": outcome}
         if refusal is not None:
             entry["refusal"] = refusal
@@ -125,7 +130,21 @@ def run_loop(
     return LoopResult(outcome="budget_exhausted", steps=history)
 
 
-def _drive(client: DriverClient, action: Action) -> None:
+def _targeted(params: dict, target: str, pid: int | None = None) -> dict:
+    """Route one driven call at the target: resolve passes through
+    untouched; anything else rides the SkyLight channel explicitly, pinned
+    to the process the observation was built on."""
+    if target == "resolve":
+        return params
+    routed = {**params, "target": target, "allow_skylight": True}
+    if pid is not None:
+        routed["pid"] = pid
+    return routed
+
+
+def _drive(
+    client: DriverClient, action: Action, target: str = "resolve", pid: int | None = None
+) -> None:
     """Drive an action's translation against the client.
 
     The translation is a generator: it yields a `(method, params)` call,
@@ -138,14 +157,18 @@ def _drive(client: DriverClient, action: Action) -> None:
     try:
         method, params = next(gen)
         while True:
-            result = client.call(method, params)
+            result = client.call(method, _targeted(params, target, pid))
             method, params = gen.send(result)
     except StopIteration:
         pass
 
 
 def _act_and_verify(
-    client: DriverClient, action: Action, previous_obs: Observation
+    client: DriverClient,
+    action: Action,
+    previous_obs: Observation,
+    target: str = "resolve",
+    pid: int | None = None,
 ) -> tuple[str, str | None]:
     """Act with the lease taken, then verify the outcome.
 
@@ -155,6 +178,8 @@ def _act_and_verify(
     is released during model inference. A failing action - a driver
     refusal, or no observable change - is retried once, then escalated.
     A non-retryable refusal fails the step immediately without a retry.
+    Off Resolve the lease is skipped: no Resolve is touched, so there is
+    nothing to serialize against.
 
     Returns `(outcome, refusal)` where `refusal` is the driver's error
     code if the step failed on a refusal, else `None`.
@@ -162,9 +187,13 @@ def _act_and_verify(
     refusal: str | None = None
     for _attempt in range(2):
         try:
-            with resolve_lease("computer-use"):
-                _drive(client, action)
-                new_obs = build_observation(client, "", [], 0)
+            if target == "resolve":
+                with resolve_lease("computer-use"):
+                    _drive(client, action, target, pid)
+                    new_obs = build_observation(client, "", [], 0, target=target, pid=pid)
+            else:
+                _drive(client, action, target, pid)
+                new_obs = build_observation(client, "", [], 0, target=target, pid=pid)
         except DriverError as exc:
             refusal = exc.driver_code
             if refusal not in RETRYABLE_REFUSALS:

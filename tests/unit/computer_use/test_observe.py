@@ -126,3 +126,24 @@ def test_render_names_the_actionable_surface_and_the_labels(
     assert "AXMenuItem 'Media'" in text
     assert "path=['Workspace', 'Switch to Page', 'Media']" in text
     assert "'Master'" in text
+
+
+def test_the_observation_names_its_target_in_every_call(client: DriverClient, monkeypatch):
+    """A chrome observation reaches the driver's chrome route on all
+    four calls - an observation that observed Resolve while the loop
+    acts on Chrome would decide from the wrong app."""
+    calls: list = []
+    original_call = client.call
+
+    def recording_call(method, params=None):
+        calls.append((method, dict(params or {})))
+        return original_call(method, params)
+
+    monkeypatch.setattr(client, "call", recording_call)
+    obs = build_observation(client, goal="look at canva", target="chrome")
+
+    assert obs.target == "chrome"
+    assert "target: chrome" in obs.render()
+    by_method = {method: params for method, params in calls}
+    for method in ("capture_window", "get_accessibility_tree", "read_text", "get_windows"):
+        assert by_method[method].get("target") == "chrome", method

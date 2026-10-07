@@ -231,7 +231,7 @@ def test_the_lease_is_held_for_post_action_verification(
     import library.tools.computer_use.loop as loop_module
     original_build = loop_module.build_observation
 
-    def tracking_build(client, goal, history, step):
+    def tracking_build(client, goal, history, step, **kw):
         observation_leases.append(state["held"])
         return original_build(client, goal, history, step)
 
@@ -240,3 +240,45 @@ def test_the_lease_is_held_for_post_action_verification(
     run_loop(client, model, "press Workspace", max_steps=10)
     assert observation_leases[0] is False
     assert observation_leases[1] is True
+
+
+def test_chrome_actions_ride_skylight_without_the_resolve_lease(
+    client: DriverClient, monkeypatch
+):
+    """Off Resolve every driven call carries the chrome target and the
+    SkyLight opt-in, and the resolve lease is never taken - no Resolve
+    is touched, so there is nothing to serialize against. A loop that
+    drove Chrome through the background Resolve route would act on the
+    wrong app; one that took the lease would wedge behind Resolve jobs."""
+    calls: list = []
+    original_call = client.call
+
+    def recording_call(method, params=None):
+        calls.append((method, dict(params or {})))
+        return original_call(method, params)
+
+    monkeypatch.setattr(client, "call", recording_call)
+    leases: list = []
+    monkeypatch.setattr(
+        "library.tools.computer_use.loop.resolve_lease",
+        lambda purpose, **kw: leases.append(purpose) or _tracking_lease({}),
+    )
+    model_calls: list = []
+
+    def model(obs):
+        model_calls.append(obs)
+        if len(model_calls) == 1:
+            return {"action": "click", "x": 100.0, "y": 100.0}
+        return {"action": "done"}
+
+    result = run_loop(client, model, "click in chrome", max_steps=10, target="chrome")
+
+    assert result.outcome == "done"
+    assert leases == []
+    assert model_calls[0].target == "chrome"
+    click_calls = [params for method, params in calls if method == "click"]
+    assert click_calls, "the model clicked but no click was driven"
+    assert all(
+        params.get("target") == "chrome" and params.get("allow_skylight") is True
+        for params in click_calls
+    )

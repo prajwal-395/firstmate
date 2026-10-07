@@ -243,14 +243,14 @@ pub fn get_window_list() -> Vec<(CGWindowID, String, String, Frame, f64)> {
 pub fn windows_for_pid(pid: u32) -> Vec<(CGWindowID, String, Frame)> {
     all_windows_with_pids()
         .into_iter()
-        .filter(|(p, _, _, _, _)| *p == pid)
-        .map(|(_, id, _, title, frame)| (id, title, frame))
+        .filter(|(p, _, _, _, _, _)| *p == pid)
+        .map(|(_, id, _, title, frame, _)| (id, title, frame))
         .collect()
 }
 
 /// Every window on the session: owner pid, id, owner name, title, frame.
 /// Chrome targeting filters this by owner name plus pid pin.
-pub fn all_windows_with_pids() -> Vec<(u32, CGWindowID, String, String, Frame)> {
+pub fn all_windows_with_pids() -> Vec<(u32, CGWindowID, String, String, Frame, f64)> {
     unsafe {
         let json_str = window_helper_list();
         if json_str.is_null() { return vec![]; }
@@ -281,6 +281,7 @@ pub fn all_windows_with_pids() -> Vec<(u32, CGWindowID, String, String, Frame)> 
                     item.get("owner").and_then(|v| v.as_str()).unwrap_or("").to_string(),
                     item.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string(),
                     frame,
+                    item.get("backing_scale").and_then(|v| v.as_f64()).unwrap_or(1.0),
                 ));
             }
         }

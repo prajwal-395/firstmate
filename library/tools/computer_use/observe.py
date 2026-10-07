@@ -61,6 +61,7 @@ class Observation:
     goal: str = ""
     history: list[dict] = field(default_factory=list)
     step: int = 0
+    target: str = "resolve"
     resolve_version: Optional[str] = None
     project: Optional[str] = None
     timeline: Optional[str] = None
@@ -78,7 +79,7 @@ class Observation:
         the screenshot, and the next observation is built fresh from the
         driver.
         """
-        lines = [f"goal: {self.goal}", f"step: {self.step}"]
+        lines = [f"goal: {self.goal}", f"step: {self.step}", f"target: {self.target}"]
         if self.history:
             lines.append("history:")
             for entry in self.history:
@@ -251,7 +252,9 @@ def read_api_session(resolve: Any, target_clip: Optional[dict] = None) -> dict:
     }
 
 
-def capture_at_point_size(client: DriverClient) -> tuple[bytes, tuple[int, int]]:
+def capture_at_point_size(
+    client: DriverClient, target: str = "resolve", pid: int | None = None
+) -> tuple[bytes, tuple[int, int]]:
     """Capture the window at point size for the model.
 
     The driver captures at backing resolution (`scale` is image pixels per
@@ -262,7 +265,10 @@ def capture_at_point_size(client: DriverClient) -> tuple[bytes, tuple[int, int]]
     """
     from PIL import Image
 
-    result = client.call("capture_window")
+    params: dict = {"target": target}
+    if pid is not None:
+        params["pid"] = pid
+    result = client.call("capture_window", params)
     image = base64.b64decode(result["image"])
     width = int(round(result["width"] / result["scale"]))
     height = int(round(result["height"] / result["scale"]))
@@ -279,6 +285,8 @@ def build_observation(
     history: list[dict] | None = None,
     step: int = 0,
     session: dict | None = None,
+    target: str = "resolve",
+    pid: int | None = None,
 ) -> Observation:
     """Build the model's observation from the driver.
 
@@ -287,12 +295,17 @@ def build_observation(
     the captain's own project - it changes nothing. `session` is the
     API-read half (`read_api_session`) where the caller has a resolve
     handle; without it the session fields stay None and the render says
-    `session: unknown` rather than inventing one.
+    `session: unknown` rather than inventing one. `target` selects whose
+    window is observed (the driver's default); the observation records
+    it so the model knows which app it sees.
     """
-    screenshot, points = capture_at_point_size(client)
-    tree = client.call("get_accessibility_tree", {"max_depth": 12})["tree"]
-    ocr = client.call("read_text")
-    windows = client.call("get_windows")["windows"]
+    extra = {"pid": pid} if pid is not None else {}
+    screenshot, points = capture_at_point_size(client, target, pid)
+    tree = client.call(
+        "get_accessibility_tree", {"max_depth": 12, "target": target, **extra}
+    )["tree"]
+    ocr = client.call("read_text", {"target": target, **extra})
+    windows = client.call("get_windows", {"target": target})["windows"]
     main = next((w for w in windows if w.get("is_main")), {})
     surface = project_ax_tree(tree)
     session = dict(session or {})
@@ -305,6 +318,7 @@ def build_observation(
         goal=goal,
         history=list(history or []),
         step=step,
+        target=target,
         resolve_version=session.get("resolve_version"),
         project=session.get("project"),
         timeline=session.get("timeline"),

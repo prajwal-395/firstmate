@@ -15,7 +15,6 @@ from library.tools.computer_use.targets import (
     TargetError,
     canva_target,
     check_canva_design,
-    require_executor,
     resolve_target,
     select_target,
 )
@@ -34,17 +33,19 @@ def test_resolve_target_names_the_measured_background_routes():
     assert target.has_executor is True
 
 
-def test_canva_target_claims_no_background_input_and_no_executor():
-    """Chrome background input is unmeasured (SkyLight PR 5 unbuilt),
-    so the target reports False with the reason and carries no
-    executor - a target defaulting either True would act on hope."""
+def test_canva_target_claims_no_background_input_with_an_executor():
+    """Chrome background input is measured filtered (probe doc), so the
+    target reports False with the measurement - but the loop observes
+    and focuses through the driver now, so it carries an executor. A
+    target claiming background input would act on hope; one with no
+    executor could not run at all."""
     target = canva_target()
 
     assert target.bundle_id == "com.google.Chrome"
     assert target.background_input is False
     assert target.background_routes == ()
-    assert "nothing measured" in target.background_why
-    assert target.has_executor is False
+    assert "measured filtered" in target.background_why
+    assert target.has_executor is True
 
 
 def test_a_non_scratch_design_is_refused(monkeypatch):
@@ -83,16 +84,6 @@ def test_a_scratch_design_passes_the_gate(monkeypatch):
         check_canva_design("https://www.canva.com/design/SCRATCH/edit")
         == "https://www.canva.com/design/SCRATCH/edit"
     )
-
-
-def test_a_task_on_an_executorless_target_is_refused():
-    """`run` on Canva refuses before any driver spawns, naming the
-    missing Chrome input route - never a blind drive."""
-    with pytest.raises(TargetError) as excinfo:
-        require_executor(canva_target())
-
-    assert "no executor" in excinfo.value.what
-    assert excinfo.value.code == "TARGET_NO_EXECUTOR"
 
 
 def test_an_unknown_target_is_refused_not_guessed():

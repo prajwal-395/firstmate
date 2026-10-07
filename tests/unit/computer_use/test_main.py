@@ -52,7 +52,7 @@ def test_stub_model_returns_done_without_a_session(monkeypatch, capsys):
     _stub_resolve(monkeypatch)
     seen: list = []
     monkeypatch.setattr(
-        main_module, "run_loop", lambda client, model, goal: seen.append(model) or LoopResult(outcome="done")
+        main_module, "run_loop", lambda client, model, goal, **kw: seen.append(model) or LoopResult(outcome="done")
     )
 
     assert main_module.main(["run", "switch pages"]) == 0
@@ -67,7 +67,7 @@ def test_api_model_builds_a_session_with_the_cost_flag(monkeypatch, capsys):
     _stub_resolve(monkeypatch)
     built: list = []
     monkeypatch.setattr(
-        main_module, "run_loop", lambda client, model, goal: LoopResult(outcome="done")
+        main_module, "run_loop", lambda client, model, goal, **kw: LoopResult(outcome="done")
     )
 
     def recording_session(config):
@@ -93,19 +93,55 @@ def test_canva_status_reports_the_declaration_without_a_driver(capsys):
     assert "scratch designs allowlisted" in out
 
 
-def test_canva_run_refuses_before_any_driver_spawns(monkeypatch, capsys):
-    """`run --target canva` refuses with the missing-executor fix and
-    never constructs a driver - spawning Resolve's driver for a Canva
-    task would act on the wrong app."""
+def test_canva_run_skips_resolve_machinery(monkeypatch, capsys):
+    """`run --target canva` drives the Chrome window without touching
+    Resolve: no lease, no borrow, no connect - a Canva run that borrowed
+    the captain's project would displace his work for a job that never
+    touches Resolve. The loop receives the chrome driver target, and the
+    process is pinned by the Canva window title - never guessed among
+    the captain's windows."""
     def _boom(*args, **kwargs):
-        raise AssertionError("no driver may spawn for a refused target")
+        raise AssertionError("Resolve machinery must not run for a canva task")
 
-    monkeypatch.setattr(main_module, "DriverClient", _boom)
+    monkeypatch.setattr(main_module, "DriverClient", lambda: _FakeClient())
+    monkeypatch.setattr("library.tools.marker_feedback.connect_resolve", _boom)
+    monkeypatch.setattr("library.tools.resolve_lock.resolve_lease", _boom)
+    monkeypatch.setattr("library.tools.qualification_project.borrowed", _boom)
+    seen: list = []
+    monkeypatch.setattr(
+        main_module,
+        "run_loop",
+        lambda client, model, goal, **kw: seen.append(kw) or LoopResult(outcome="done"),
+    )
+
+    import library.tools.computer_use.__main__ as main_mod
+    monkeypatch.setattr(main_mod, "_canva_window_pid", lambda client, name: 4242)
+
+    assert main_module.main(["run", "edit this design", "--target", "canva"]) == 0
+    assert seen == [{"target": "chrome", "pid": 4242}]
+    assert "outcome: done" in capsys.readouterr().out
+
+
+def test_canva_run_refuses_with_no_canva_window(monkeypatch, capsys):
+    """Without a Canva window open the run refuses naming what to open -
+    the loop never picks among the captain's windows, and an empty match
+    never defaults to one."""
+    monkeypatch.setattr(main_module, "DriverClient", lambda: _FakeClient())
+    import library.tools.computer_use.__main__ as main_mod
+    from library.tools.computer_use.targets import TargetError
+
+    def _nowhere(client, name):
+        raise TargetError("none", "none", "none", code="TARGET_NOT_OPEN")
+
+    monkeypatch.setattr(main_mod, "_canva_window_pid", _nowhere)
+    monkeypatch.setattr(
+        main_module,
+        "run_loop",
+        lambda client, model, goal, **kw: LoopResult(outcome="done"),
+    )
 
     assert main_module.main(["run", "edit this design", "--target", "canva"]) == 4
-    err = capsys.readouterr().err
-    assert "no executor" in err
-    assert "--target resolve" in err
+    assert "no executor" not in capsys.readouterr().err
 
 
 def test_run_takes_a_plain_lease_then_borrows(monkeypatch, capsys):
@@ -132,7 +168,7 @@ def test_run_takes_a_plain_lease_then_borrows(monkeypatch, capsys):
     monkeypatch.setattr(lock_module, "resolve_lease", recording_lease)
     monkeypatch.setattr(qual_module, "borrowed", recording_borrowed)
     monkeypatch.setattr(
-        main_module, "run_loop", lambda client, model, goal: LoopResult(outcome="done")
+        main_module, "run_loop", lambda client, model, goal, **kw: LoopResult(outcome="done")
     )
 
     assert main_module.main(["run", "switch pages"]) == 0
@@ -195,10 +231,43 @@ def test_script_with_a_malformed_file_is_refused(monkeypatch, capsys, tmp_path):
     assert "is not a script" in capsys.readouterr().err
 
 
+def test_canva_window_pid_picks_the_matching_window():
+    """Window selection matches the target's title substring and pins
+    the owning process - with the captain's windows in the list, only
+    the Canva one may be picked, largest wins among several."""
+    import pytest
+
+    from library.tools.computer_use.targets import TargetError
+
+    class _C:
+        def __init__(self, windows):
+            self._windows = windows
+
+        def call(self, method, params=None):
+            assert method == "get_windows"
+            assert params.get("target") == "chrome"
+            return {"windows": self._windows}
+
+    frame = {"x": 0, "y": 0, "width": 800, "height": 600}
+    big = dict(frame)
+    big.update({"width": 1200, "height": 900})
+    client = _C([
+        {"title": "Inbox", "owner_pid": 111, "frame": frame},
+        {"title": "small canva draft", "owner_pid": 222, "frame": frame},
+        {"title": "big Canva poster", "owner_pid": 333, "frame": big},
+    ])
+    assert main_module._canva_window_pid(client, "canva") == 333
+
+    with pytest.raises(TargetError) as excinfo:
+        main_module._canva_window_pid(_C([]), "canva")
+    assert excinfo.value.code == "TARGET_NOT_OPEN"
+
+
 def test_script_on_canva_refuses_before_any_driver_spawns(monkeypatch, capsys):
-    """`script --target canva` refuses like run does - there is no
-    Chrome executor, and spawning Resolve's driver for a Canva task
-    would act on the wrong app."""
+    """`script --target canva` refuses: deterministic anchors resolve
+    against Resolve's window, and chrome anchors are unbuilt - running
+    them against Chrome would act on unanchored coordinates. Spawning
+    Resolve's driver for a refused target would be doubly wrong."""
     def _boom(*args, **kwargs):
         raise AssertionError("no driver may spawn for a refused target")
 
@@ -206,7 +275,7 @@ def test_script_on_canva_refuses_before_any_driver_spawns(monkeypatch, capsys):
 
     assert main_module.main(
         ["script", "/no/such/script.json", "--target", "canva"]) == 4
-    assert "no executor" in capsys.readouterr().err
+    assert "drives Resolve anchors, not canva" in capsys.readouterr().err
 
 
 def _write_script(tmp_path, steps):

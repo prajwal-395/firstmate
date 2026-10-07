@@ -96,6 +96,27 @@ pub fn target_kind(params: &Json) -> DriverResult<TargetKind> {
     }
 }
 
+/// Chrome takes reads plus the two measured input methods. Reads are
+/// read-only; every other chrome method is refused naming that - a drag
+/// the channel never carried would read as success while changing
+/// nothing. Resolve-only methods (`activate_resolve`, foreground-only
+/// despite its read-only listing) take no target either.
+pub fn chrome_gate(method: &str) -> DriverResult<()> {
+    const CHROME_INPUT_METHODS: &[&str] = &["click", "skylight_focus"];
+    if FOREGROUND_ONLY_METHODS.contains(&method) {
+        return Err(DriverError::InvalidParams(format!(
+            "{method} is a Resolve method and takes no target"
+        )));
+    }
+    if !CHROME_INPUT_METHODS.contains(&method) && !READ_ONLY_METHODS.contains(&method) {
+        return Err(DriverError::ActionNotSupported(format!(
+            "{method} has no chrome route yet - the measured chrome methods are: {}",
+            CHROME_INPUT_METHODS.join(", ")
+        )));
+    }
+    Ok(())
+}
+
 /// Refuse `method` unless it only looks or the open project is the
 /// qualification project. `press_role` is the AX role of a `press` target:
 /// pressing a menu-bar item only opens its menu, so it is a read; pressing a
@@ -199,23 +220,10 @@ impl Driver {
         if PIXEL_METHODS.contains(&req.method.as_str()) && capture::screen_locked() {
             return Err(DriverError::ScreenLocked);
         }
-        // Measured first: click and focus. Every other method with a
-        // chrome target is refused naming that - a drag the channel never
-        // carried would read as success while changing nothing. Resolve
-        // methods take no target either.
-        const CHROME_METHODS: &[&str] = &["click", "skylight_focus"];
-        if target == TargetKind::Chrome && !CHROME_METHODS.contains(&req.method.as_str()) {
-            if FOREGROUND_ONLY_METHODS.contains(&req.method.as_str()) {
-                return Err(DriverError::InvalidParams(format!(
-                    "{} is a Resolve method and takes no target",
-                    req.method
-                )));
-            }
-            return Err(DriverError::ActionNotSupported(format!(
-                "{} has no chrome route yet - the measured chrome methods are: {}",
-                req.method,
-                CHROME_METHODS.join(", ")
-            )));
+        // Chrome takes reads plus the two measured input methods (see
+        // `chrome_gate`); Resolve-only methods take no target either.
+        if target == TargetKind::Chrome {
+            chrome_gate(&req.method)?;
         }
         if target == TargetKind::Resolve
             && (INPUT_EVENT_METHODS.contains(&req.method.as_str())
@@ -226,7 +234,7 @@ impl Driver {
         }
         match req.method.as_str() {
             "activate_resolve" => self.activate_resolve(),
-            "get_windows" => self.get_windows(),
+            "get_windows" => self.get_windows(&req.params),
             "get_accessibility_tree" => self.get_accessibility_tree(&req.params),
             "find_element" => self.find_element(&req.params),
             "list_commands" => self.list_commands(&req.params),
@@ -260,6 +268,19 @@ impl Driver {
         Ok(pid)
     }
 
+    /// The window the call observes or acts on: Resolve's main window,
+    /// or the pinned Chrome window. pid, window id, frame, scale.
+    fn target_window(&mut self, params: &Json) -> DriverResult<(u32, u32, Frame, f64)> {
+        match target_kind(params)? {
+            TargetKind::Chrome => self.chrome_window(params),
+            TargetKind::Resolve => {
+                let pid = self.ensure_resolve()?;
+                let (window_id, frame, scale) = self.main_window()?;
+                Ok((pid, window_id, frame, scale))
+            }
+        }
+    }
+
     fn route(&mut self, params: &Json) -> DriverResult<input::Route> {
         if allows_foreground(params) {
             if target_kind(params)? == TargetKind::Chrome {
@@ -276,13 +297,12 @@ impl Driver {
             }
             match target_kind(params)? {
                 TargetKind::Chrome => {
-                    let (pid, window_id, _) = self.chrome_window(params)?;
+                    let (pid, window_id, _, _) = self.target_window(params)?;
                     Ok(input::Route::SkyLight { pid: pid as i32, window_id, chromium: true })
                 }
                 TargetKind::Resolve => {
-                    let pid = self.ensure_resolve()? as i32;
-                    let (window_id, _, _) = self.main_window()?;
-                    Ok(input::Route::SkyLight { pid, window_id, chromium: false })
+                    let (pid, window_id, _, _) = self.target_window(params)?;
+                    Ok(input::Route::SkyLight { pid: pid as i32, window_id, chromium: false })
                 }
             }
         } else {
@@ -301,22 +321,15 @@ impl Driver {
     /// by `"pid"` (or the only Chrome process when `"pid"` is absent).
     /// Several Chromes and no pin is refused - with the captain's Chrome
     /// running, largest-wins across processes would post test input into
-    /// his window. No cache: tabs come and go. Pids come from
-    /// `capture::windows_for_pid`, which reads `owner_pid` off the
-    /// window list (not the owner name, which every Chrome shares).
-    /// Chrome's window for one pinned process: the largest window owned
-    /// by `"pid"` (or the only Chrome process when `"pid"` is absent).
-    /// Several Chromes and no pin is refused - with the captain's Chrome
-    /// running, largest-wins across processes would post test input into
     /// his window. No cache: tabs come and go.
-    fn chrome_window(&mut self, params: &Json) -> DriverResult<(u32, u32, Frame)> {
+    fn chrome_window(&mut self, params: &Json) -> DriverResult<(u32, u32, Frame, f64)> {
         let pinned = params.get("pid").and_then(|v| v.as_u64()).map(|p| p as u32);
-        let windows: Vec<(u32, u32, Frame)> = capture::all_windows_with_pids()
+        let windows: Vec<(u32, u32, Frame, f64)> = capture::all_windows_with_pids()
             .into_iter()
-            .filter(|(pid, _, owner, _, _)| {
+            .filter(|(pid, _, owner, _, _, _)| {
                 owner.contains("Chrome") && pinned.map(|p| *pid == p).unwrap_or(true)
             })
-            .map(|(pid, id, _, _, frame)| (pid, id, frame))
+            .map(|(pid, id, _, _, frame, scale)| (pid, id, frame, scale))
             .collect();
         if windows.is_empty() {
             return Err(DriverError::TargetNotRunning(match pinned {
@@ -325,7 +338,7 @@ impl Driver {
             }));
         }
         if pinned.is_none() {
-            let mut pids: Vec<u32> = windows.iter().map(|(pid, _, _)| *pid).collect();
+            let mut pids: Vec<u32> = windows.iter().map(|(pid, _, _, _)| *pid).collect();
             pids.sort_unstable();
             pids.dedup();
             if pids.len() != 1 {
@@ -337,8 +350,7 @@ impl Driver {
         }
         windows
             .into_iter()
-            .max_by_key(|(_, _, f)| (f.width * f.height) as i64)
-            .map(|(pid, id, frame)| (pid, id, frame))
+            .max_by_key(|(_, _, f, _)| (f.width * f.height) as i64)
             .ok_or_else(|| DriverError::TargetNotRunning("Chrome is running with no windows".into()))
     }
 
@@ -418,24 +430,41 @@ impl Driver {
         }
     }
 
-    fn get_windows(&mut self) -> DriverResult<Json> {
-        self.ensure_resolve()?;
-        let windows = capture::get_window_list();
-        let resolve_windows: Vec<_> = windows
-            .into_iter()
-            .filter(|(_, _, owner, _, _)| owner.contains("Resolve") || owner.contains("DaVinci"))
-            .collect();
-        let main_id = resolve_windows
+    fn get_windows(&mut self, params: &Json) -> DriverResult<Json> {
+        // The window list follows the target: Resolve's windows (and the
+        // main-window mark the project read-back uses), or Chrome's.
+        // Chrome listing needs no Resolve running. Every entry carries
+        // its owner pid so callers pin processes instead of guessing.
+        let want_chrome = target_kind(params)? == TargetKind::Chrome;
+        if !want_chrome {
+            self.ensure_resolve()?;
+        }
+        let shown: Vec<(u32, u32, String, String, Frame, f64)> =
+            capture::all_windows_with_pids()
+                .into_iter()
+                .filter(|(_, _, owner, _, _, _)| {
+                    if want_chrome {
+                        owner.contains("Chrome")
+                    } else {
+                        owner.contains("Resolve") || owner.contains("DaVinci")
+                    }
+                })
+                .map(|(pid, id, owner, title, frame, scale)| {
+                    (pid, id, owner, title, frame, scale)
+                })
+                .collect();
+        let main_id = shown
             .iter()
-            .max_by_key(|(_, _, _, f, _)| (f.width * f.height) as i64)
-            .map(|(id, _, _, _, _)| *id);
-        let list: Vec<Json> = resolve_windows
+            .max_by_key(|(_, _, _, _, f, _)| (f.width * f.height) as i64)
+            .map(|(_, id, _, _, _, _)| *id);
+        let list: Vec<Json> = shown
             .iter()
-            .map(|(id, name, owner, frame, scale)| {
+            .map(|(pid, id, name, owner, frame, scale)| {
                 serde_json::json!({
                     "id": id,
                     "title": name,
                     "owner": owner,
+                    "owner_pid": pid,
                     "frame": protocol::frame_to_json(frame),
                     "backing_scale": scale,
                     "is_main": Some(*id) == main_id,
@@ -447,7 +476,7 @@ impl Driver {
 
     fn get_accessibility_tree(&mut self, params: &Json) -> DriverResult<Json> {
         self.ensure_permissions()?;
-        let pid = self.ensure_resolve()?;
+        let pid = self.target_window(params)?.0;
         let max_depth = protocol::get_param_u64(params, "max_depth").unwrap_or(12) as usize;
         let app = AxElement::from_app(pid);
         let tree = self.dump_tree(&app, 0, max_depth)?;
@@ -481,7 +510,7 @@ impl Driver {
 
     fn find_element(&mut self, params: &Json) -> DriverResult<Json> {
         self.ensure_permissions()?;
-        let pid = self.ensure_resolve()?;
+        let pid = self.target_window(params)?.0;
         let role_filter = params.get("role").and_then(|v| v.as_str());
         let title_filter = params.get("title").and_then(|v| v.as_str());
         let title_contains = params.get("title_contains").and_then(|v| v.as_str());
@@ -628,10 +657,7 @@ impl Driver {
         let clicks = protocol::get_param_u64(params, "clicks").unwrap_or(1);
         // The containment frame follows the target: Resolve's main
         // window, or the pinned Chrome window a chrome click must land in.
-        let frame = match target_kind(params)? {
-            TargetKind::Chrome => self.chrome_window(params)?.2,
-            TargetKind::Resolve => self.main_window()?.1,
-        };
+        let (_, _, frame, _) = self.target_window(params)?;
         if !frame.contains_rel(x, y) { return Err(DriverError::OutsideResolve); }
         input::click(self.route(params)?, x, y, &frame, clicks as u32)?;
         Ok(serde_json::json!({"clicked": true}))
@@ -646,7 +672,7 @@ impl Driver {
         self.ensure_permissions()?;
         let (pid, window_id) = match target_kind(params)? {
             TargetKind::Chrome => {
-                let (pid, window_id, _) = self.chrome_window(params)?;
+                let (pid, window_id, _, _) = self.target_window(params)?;
                 (pid as i32, window_id)
             }
             TargetKind::Resolve => {
@@ -733,7 +759,7 @@ impl Driver {
         self.ensure_permissions()?;
         self.ensure_screen_recording()?;
         let source = capture_source(params)?;
-        let (window_id, frame, scale) = self.main_window()?;
+        let (window_id, frame, scale) = self.target_window(params).map(|(_, i, f, s)| (i, f, s))?;
         let img = capture::capture_window(window_id, &frame, scale, source)?;
         Ok(captured_to_json(&img))
     }
@@ -746,7 +772,7 @@ impl Driver {
         let w = protocol::get_param_f64(params, "width")?;
         let h = protocol::get_param_f64(params, "height")?;
         let source = capture_source(params)?;
-        let (window_id, frame, scale) = self.main_window()?;
+        let (window_id, frame, scale) = self.target_window(params).map(|(_, i, f, s)| (i, f, s))?;
         let region = Frame { x, y, width: w, height: h };
         if x < 0.0 || y < 0.0 || w <= 0.0 || h <= 0.0
             || x + w > frame.width || y + h > frame.height
@@ -766,7 +792,7 @@ impl Driver {
         let timeout_dur = Duration::from_secs_f64(timeout);
         let poll_dur = Duration::from_secs_f64(poll_interval);
         loop {
-            if self.check_predicate(predicate)? {
+            if self.check_predicate(predicate, params)? {
                 return Ok(serde_json::json!({"met": true, "elapsed": start.elapsed().as_secs_f64()}));
             }
             if start.elapsed() >= timeout_dur {
@@ -776,7 +802,7 @@ impl Driver {
         }
     }
 
-    fn check_predicate(&mut self, predicate: &Json) -> DriverResult<bool> {
+    fn check_predicate(&mut self, predicate: &Json, params: &Json) -> DriverResult<bool> {
         let pred_type = predicate.get("type").and_then(|v| v.as_str())
             .ok_or_else(|| DriverError::InvalidParams("predicate missing type".into()))?;
         match pred_type {
@@ -789,7 +815,7 @@ impl Driver {
                 let role = predicate.get("role").and_then(|v| v.as_str());
                 let title = predicate.get("title").and_then(|v| v.as_str());
                 let title_contains = predicate.get("title_contains").and_then(|v| v.as_str());
-                let pid = self.ensure_resolve()?;
+                let pid = self.target_window(params)?.0;
                 let app = AxElement::from_app(pid);
                 let mut found = false;
                 self.check_element_visible(&app, role, title, title_contains, &mut found)?;
@@ -799,7 +825,7 @@ impl Driver {
                 let text = predicate.get("text").and_then(|v| v.as_str())
                     .ok_or_else(|| DriverError::InvalidParams("text_visible predicate missing text".into()))?;
                 let source = capture_source(predicate)?;
-                let (window_id, frame, scale) = self.main_window()?;
+                let (window_id, frame, scale) = self.target_window(params).map(|(_, i, f, s)| (i, f, s))?;
                 let cg_image = capture::window_image(window_id, scale, source)?;
                 let (width, height) = unsafe { (capture::CGImageGetWidth(cg_image), capture::CGImageGetHeight(cg_image)) };
                 let region = predicate.get("region").and_then(parse_frame);
@@ -829,7 +855,7 @@ impl Driver {
         self.ensure_permissions()?;
         self.ensure_screen_recording()?;
         let source = capture_source(params)?;
-        let (window_id, frame, scale) = self.main_window()?;
+        let (window_id, frame, scale) = self.target_window(params).map(|(_, i, f, s)| (i, f, s))?;
         let region = params.get("region").and_then(parse_frame);
         let cg_image = capture::window_image(window_id, scale, source)?;
         let (width, height) = unsafe { (capture::CGImageGetWidth(cg_image), capture::CGImageGetHeight(cg_image)) };
@@ -1041,6 +1067,30 @@ mod tests {
             matches!(got, Err(DriverError::InvalidParams(_))),
             "an unknown target must refuse, never resolve to something"
         );
+    }
+
+    #[test]
+    fn chrome_takes_reads_click_and_focus_only() {
+        // Reads are read-only; drag would read as success while changing
+        // nothing on an uncarried channel; activate_resolve takes the
+        // screen despite its read-only listing.
+        assert!(chrome_gate("click").is_ok());
+        assert!(chrome_gate("skylight_focus").is_ok());
+        assert!(chrome_gate("capture_window").is_ok());
+        assert!(chrome_gate("read_text").is_ok());
+        assert!(chrome_gate("get_accessibility_tree").is_ok());
+        assert!(matches!(
+            chrome_gate("drag"),
+            Err(DriverError::ActionNotSupported(_))
+        ));
+        assert!(matches!(
+            chrome_gate("key"),
+            Err(DriverError::ActionNotSupported(_))
+        ));
+        assert!(matches!(
+            chrome_gate("activate_resolve"),
+            Err(DriverError::InvalidParams(_))
+        ));
     }
 
     #[test]

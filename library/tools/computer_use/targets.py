@@ -15,15 +15,14 @@ input"): AX press and AX set-value reach Resolve with the captain's
 cursor untouched; CGEventPostToPid clicks, drags, scrolls and keys
 changed 0 pixels. Nothing else is claimed.
 
-The Canva target is a declaration with a gate, not an executor. No
-Chrome executor exists in the repo - the Chrome input route is the
-unbuilt half of this slice, and the background click it would need
-depends on the unmeasured SkyLight experiment (architecture report
-PR 5). So the Canva target reports `background_input=False` with the
-reason, carries no executor, and the `run` verb refuses a Canva task
-naming what is missing instead of driving blind. What the Canva
-target DOES enforce is the scratch-design gate: the Resolve analog of
-the qualification project. `CANVA_SCRATCH_DESIGNS` names the design
+The Canva target is observed and focused through the loop and gated
+by design. Its executor is `run_loop` over the driver's chrome route:
+screenshots, AX and OCR of Chrome windows read fine and
+focus-without-raise lands with nothing stolen. Clicks are the honest
+limit - measured filtered on Chromium 154 (probe doc) - so every act
+goes through verify-or-escalate and a click that changes nothing fails
+its step loudly. What the Canva target enforces is the scratch-design
+gate: the Resolve analog of the qualification project. `CANVA_SCRATCH_DESIGNS` names the design
 edit URLs the loop may touch (comma-separated); any other design -
 and every design when the variable is empty - is refused. The match
 is exact: no Canva URL semantics are parsed or assumed.
@@ -97,7 +96,16 @@ def resolve_target() -> AppTarget:
 
 
 def canva_target() -> AppTarget:
-    """The Canva target: a gated declaration with no executor yet."""
+    """The Canva target: observed and focused through the loop, gated by design.
+
+    The executor is the observe-decide-act loop over the driver's chrome
+    route: screenshots, AX and OCR of Chrome windows read fine, and
+    focus-without-raise lands with nothing stolen. Clicks are the honest
+    limit - measured filtered on Chromium 154 (probe doc, four recipe
+    variants, tap-verified) - so every act goes through the loop's
+    verify-or-escalate and a click that changes nothing fails its step
+    loudly instead of reading as success. Nothing lands silently.
+    """
     return AppTarget(
         name="canva",
         bundle_id=CHROME_BUNDLE_ID,
@@ -105,11 +113,11 @@ def canva_target() -> AppTarget:
         background_input=False,
         background_routes=(),
         background_why=(
-            "nothing measured: background input to Chrome needs the "
-            "SkyLight experiment (architecture report PR 5), which is "
-            "unbuilt, so no route is claimed"
+            "measured filtered on Chromium 154 (docs/RESOLVE_CONTROL_PROBE.md, "
+            "Chrome SkyLight section): focus lands, clicks post clean and "
+            "the renderer drops them - so no input route is claimed"
         ),
-        has_executor=False,
+        has_executor=True,
         gate=f"${CANVA_SCRATCH_ENV} scratch-design allowlist",
     )
 
@@ -165,16 +173,14 @@ def check_canva_design(url: str) -> str:
 def require_executor(target: AppTarget) -> None:
     """Refuse a task on a target nothing can drive yet.
 
-    The `run` verb calls this before opening any driver: a Canva task
-    refuses naming the missing Chrome input route instead of spawning
-    the Resolve driver for a job it cannot do.
+    Both shipped targets currently have executors (Resolve through the
+    driver, Canva through the loop's chrome route), so this passes them
+    through; it stays as the gate a future executorless target trips.
     """
     if not target.has_executor:
         raise TargetError(
             f"the {target.name} target has no executor in the repo",
-            "no Chrome input route exists yet (architecture report PR 6's "
-            "second half); the background click it needs depends on the "
-            "unmeasured SkyLight experiment (PR 5)",
-            "run with --target resolve, or build the Chrome input route first",
+            "no input route reaches it backgrounded or announced",
+            "run with --target resolve",
             code="TARGET_NO_EXECUTOR",
         )

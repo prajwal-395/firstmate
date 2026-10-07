@@ -55,11 +55,17 @@ from library.tools.computer_use.scripts import (
 )
 from library.tools.computer_use.targets import (
     AppTarget,
+    TargetError,
     canva_scratch_designs,
     require_executor,
     select_target,
 )
 from library.tools.ren_refusal import RenRefusal
+
+#: App name to driver target: the loop observes and acts through the
+#: driver's window with this name. Resolve is itself; Canva is the
+#: Chrome window (a web app has no other handle).
+DRIVER_TARGETS = {"resolve": "resolve", "canva": "chrome"}
 
 
 def _status(client: DriverClient) -> int:
@@ -104,6 +110,7 @@ def _run(
     recipe: str | None = None,
     recipes_dir: str | None = None,
     layout: str | None = None,
+    target_name: str = "resolve",
 ) -> int:
     """Run the observe-decide-act loop on a goal.
 
@@ -122,14 +129,18 @@ def _run(
     the planner. `--recipes-dir` overrides `$PIPELINE_RECIPES_DIR`;
     `--layout` is the opaque layout string the recipe was verified on.
 
-    The loop runs inside `qualification_project.borrowed()`: the
-    captain's project is saved, the qualification project is opened for
-    the driver's gates, and the captain's project is restored on exit.
-    The exclusive instance lease is taken for the duration - a plain
-    lease, not the broker's qualification interlock, which refuses
+    On resolve the loop runs inside `qualification_project.borrowed()`:
+    the captain's project is saved, the qualification project is opened
+    for the driver's gates, and the captain's project is restored on
+    exit. The exclusive instance lease is taken for the duration - a
+    plain lease, not the broker's qualification interlock, which refuses
     before `borrowed()` can open the project whenever the captain's
     project is open (measured 2026-10-06: the interlock granted nothing
     with 'Podcast (field test)' open). `borrowed()` is the guarantee.
+    On canva there is no Resolve to borrow and no lease to take: the
+    loop observes the Chrome window and every act goes through
+    verify-or-escalate (clicks measured filtered - a click that changes
+    nothing fails its step loudly).
     """
     from library.tools.computer_use.observe import Observation
     from library.tools.marker_feedback import connect_resolve
@@ -146,7 +157,7 @@ def _run(
         def model(observation: Observation) -> dict:
             return {"action": "done"}
 
-    resolve = connect_resolve()
+    driver_target = DRIVER_TARGETS[target_name]
     store = None
     if recipe is not None:
         import os
@@ -161,12 +172,22 @@ def _run(
         override = recipes_dir or os.environ.get(RECIPES_ROOT_ENV, "")
         root = Path(override).expanduser() if override else default_recipes_root()
         store = RecipeStore(root)
-    with resolve_lease("computer-use"), borrowed(resolve):
-        if recipe is None:
-            result = run_loop(client, model, goal)
-        else:
+    if target_name == "resolve":
+        resolve = connect_resolve()
+        with resolve_lease("computer-use"), borrowed(resolve):
             result = run_loop(client, model, goal, recipe=recipe,
-                              store=store, layout=layout)
+                              store=store, layout=layout,
+                              target=driver_target)
+    else:
+        if recipe is not None:
+            raise TargetError(
+                "recipes drive Resolve anchors, not canva",
+                "a stored recipe's anchors resolve against Resolve's window",
+                "run with --target resolve, or drop --recipe and let the loop plan",
+                code="TARGET_RECIPE_ONLY_RESOLVE",
+            )
+        pid = _canva_window_pid(client, target_name)
+        result = run_loop(client, model, goal, target=driver_target, pid=pid)
     print(f"outcome: {result.outcome}")
     for step in result.steps:
         print(f"  {step['action']}: {step['outcome']}")
@@ -304,16 +325,40 @@ def _exact_timeline(project, name: str):
     return None
 
 
-def _canva_status(target: AppTarget) -> int:
-    """What the Canva target is and what it may touch - no driver claims.
+def _canva_window_pid(client: DriverClient, target_name: str) -> int:
+    """Pin the Chrome process the loop will drive: the window whose
+    title carries the target's `title_contains`, largest wins. No such
+    window is refused naming what to open - the loop never picks among
+    the captain's windows, and an empty match never defaults to one."""
+    from library.tools.computer_use.targets import select_target
 
-    There is no Chrome executor, so this reports the declaration: the
-    window match, the scratch-design gate state, and the background
-    capability with its reason. Read-only: no driver spawns.
+    target = select_target(target_name)
+    windows = client.call("get_windows", {"target": "chrome"})["windows"]
+    ours = [
+        w for w in windows
+        if target.title_contains.lower() in (w.get("title") or "").lower()
+    ]
+    if not ours:
+        raise TargetError(
+            f"no {target.title_contains!r} window is open in Chrome",
+            "the loop drives the window the target names, and none matches",
+            "open the page in Chrome and retry the run",
+            code="TARGET_NOT_OPEN",
+        )
+    best = max(ours, key=lambda w: w["frame"]["width"] * w["frame"]["height"])
+    return int(best["owner_pid"])
+
+
+def _canva_status(target: AppTarget) -> int:
+    """What the Canva target is and what it may touch.
+
+    Reports the declaration: the window match, the executor state, the
+    scratch-design gate, and the background capability with its reason.
+    Read-only: no driver input, only the window list.
     """
     designs = canva_scratch_designs()
     print(f"target: {target.name} ({target.bundle_id}, {target.title_contains!r} windows)")
-    print(f"executor: none - the Chrome input route is unbuilt")
+    print(f"executor: the observe-decide-act loop (observes + focuses; clicks measured filtered)")
     print(f"scratch designs allowlisted: {len(designs)}")
     print(f"background input: {'yes' if target.background_input else 'no'} - {target.background_why}")
     print(f"gate: {target.gate}")
@@ -524,12 +569,19 @@ def main(argv=None) -> int:
             with DriverClient() as client:
                 return _status(client)
         if args.subcommand == "run":
-            require_executor(target)
             with DriverClient() as client:
                 return _run(client, args.goal, args.model, args.max_cost_usd,
                             recipe=args.recipe, recipes_dir=args.recipes_dir,
-                            layout=args.layout)
+                            layout=args.layout, target_name=args.target)
         if args.subcommand == "script":
+            if target.name != "resolve":
+                raise TargetError(
+                    f"the script runner drives Resolve anchors, not {target.name}",
+                    "deterministic anchors (AX paths, OCR frames) are resolved "
+                    "against Resolve's window; chrome anchors are unbuilt",
+                    "run with --target resolve, or run the loop: ren computer-use run --target canva",
+                    code="TARGET_SCRIPT_ONLY_RESOLVE",
+                )
             if args.recipe and args.file:
                 print("ren: a run takes a recipe or a file, never both",
                       file=sys.stderr)

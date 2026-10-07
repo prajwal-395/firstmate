@@ -201,3 +201,22 @@ def test_the_prompt_carries_the_vocabulary_points_and_screenshot():
     url = user_image["image_url"]["url"]
     assert url.startswith("data:image/png;base64,")
     assert base64.b64decode(url.split(",", 1)[1]) == b"\x89PNG-fake"
+
+
+def test_the_prompt_names_the_target_app():
+    """The decide prompt says which app the model drives - a Chrome
+    observation under a Resolve prompt would aim Resolve vocabulary at
+    a web app."""
+    from library.tools.computer_use.observe import Observation
+
+    chrome_obs = Observation(
+        screenshot=b"\x89PNG-fake",
+        screenshot_points=(100, 200),
+        ax_surface=[],
+        ocr_labels=[],
+        window_frame={},
+        target="chrome",
+    )
+    system = build_decide_messages(chrome_obs)[0]["content"]
+    assert "Chrome" in system
+    assert "DaVinci Resolve" not in system

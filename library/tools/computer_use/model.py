@@ -136,8 +136,9 @@ def build_decide_messages(obs: Observation) -> list[dict]:
         if REQUIRED_PARAMS[kind]
     )
     width, height = obs.screenshot_points
+    app = "the Chrome window" if obs.target == "chrome" else "the DaVinci Resolve UI"
     system = (
-        "You drive the DaVinci Resolve UI. Reply with exactly one JSON "
+        f"You drive {app}. Reply with exactly one JSON "
         "object: one action or one terminal signal, no prose.\n"
         f"Actions: {actions}. Terminal signals: {terminals}.\n"
         f"{needs}. `screenshot` needs nothing. "
