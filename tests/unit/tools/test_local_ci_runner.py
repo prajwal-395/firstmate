@@ -58,15 +58,31 @@ def test_run_gate_limits_the_full_suite_to_two_workers(monkeypatch,
 
     def run_logged(command, cwd, log_path, timeout):
         calls.append((command, cwd, log_path, timeout))
+        with open(log_path, "w", encoding="utf-8") as log:
+            log.write("FULL-SUITE GATE: PASS  |  unit+scenario: 7 passed")
         return {"timed_out": False, "group_clean": True}
 
     monkeypatch.setattr(runner, "_run_logged", run_logged)
-    monkeypatch.setattr(runner, "_read_verdict", lambda _path: "PASS")
 
     result = runner.run_gate(str(tmp_path), str(tmp_path / "gate.log"))
 
     assert result["ok"] is True
     assert calls[0][0] == ["bash", "scripts/full_suite_gate.sh", "-n", "2"]
+
+
+def test_read_verdict_keeps_gate_outcomes_distinct(tmp_path):
+    log_path = tmp_path / "gate.log"
+    cases = [
+        ("FULL-SUITE GATE: NARROWED PASS - missing capability | detail",
+         "NARROWED PASS"),
+        ("FULL-SUITE GATE: DID NOT RUN (native tools missing)",
+         "DID NOT RUN"),
+        ("FULL-SUITE GATE: FAIL (static source checks)", "FAIL"),
+    ]
+
+    for line, expected in cases:
+        log_path.write_text(line + "\n", encoding="utf-8")
+        assert runner._read_verdict(str(log_path)) == expected
 
 
 def test_run_does_not_pass_conftest_files_as_pytest_paths(monkeypatch,

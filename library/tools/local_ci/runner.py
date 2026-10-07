@@ -30,6 +30,7 @@ from library.tools.local_ci import config, hygiene
 _SUMMARY_LINE = re.compile(r"^=+\s*(.*?)\s*=+$")
 _SUMMARY_COUNTS = re.compile(
     r"(\d+)\s+(passed|failed|errors?|skipped|xfailed|xpassed)\b")
+_GATE_VERDICT = re.compile(r"^(NARROWED PASS|DID NOT RUN|PASS|FAIL)\b")
 
 
 def format_report(url: str, head: str, passed: int, failed: int,
@@ -317,8 +318,7 @@ def run_gate(checkout: str, log_path: str,
 
 
 def _read_verdict(log_path: str) -> str:
-    """The gate's one verdict line (`FULL-SUITE GATE: <verdict>`), or
-    DID NOT RUN when the run never printed one."""
+    """Read the gate's status token, ignoring its optional summary columns."""
     try:
         with open(log_path, encoding="utf-8") as handle:
             text = handle.read()
@@ -326,7 +326,9 @@ def _read_verdict(log_path: str) -> str:
         return "DID NOT RUN"
     for line in text.splitlines():
         if line.startswith("FULL-SUITE GATE:"):
-            return line.split("FULL-SUITE GATE:", 1)[1].strip()
+            detail = line.split("FULL-SUITE GATE:", 1)[1].strip()
+            match = _GATE_VERDICT.match(detail)
+            return match.group(1) if match else detail.partition("|")[0].strip()
     return "DID NOT RUN"
 
 
