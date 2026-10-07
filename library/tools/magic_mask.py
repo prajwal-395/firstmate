@@ -44,6 +44,7 @@ selection is a future recipe step, not a silent assumption here).
 from __future__ import annotations
 
 from library.tools.computer_use.scripts import Anchor, Expect, Script, ScriptStep
+from library.tools.computer_use.scripts import EFFECTS_PANEL_PATH
 from library.tools.mask_seed import MaskSeed
 
 #: The API modes `TimelineItem.CreateMagicMask` takes - the same gate
@@ -65,7 +66,8 @@ def seed_script(
     mode: str = "BI",
     scale_factor: float,
 ) -> Script:
-    """The four UI steps that seed a Magic Mask: page, palette, mode, click.
+    """The seven UI steps that seed a Magic Mask: page, library, search,
+    type, palette, mode, click.
 
     `seed` is the Ren-determined seed - its viewer point is where the
     click lands, so a click anywhere else is a different subject. `mode`
@@ -78,6 +80,15 @@ def seed_script(
     safe default (1.0 silently double-clicks on Retina), and the
     caller measures it live off `get_windows`. Refuses a non-positive
     scale the same way it refuses a bad mode.
+
+    The library step opens the Effects Library through the shared
+    menu route the resolvefx lane measured (`EFFECTS_PANEL_PATH` -
+    background server-side press, no focus), because the palette row
+    the next step clicks only exists with the Library open. That
+    route was measured on the Edit page; its Color-page behavior is
+    proved by this recipe's own pixels_changed expect on the next
+    take, which fails the step instead of clicking on. Region-scoped
+    expects follow when the expects land their window-point regions.
     """
     if mode not in MAGIC_MASK_MODES:
         raise ValueError(
@@ -104,6 +115,37 @@ def seed_script(
                 }),
             ),
             ScriptStep(
+                action="menu",
+                anchors=[Anchor(via="menu", params={
+                    "path": list(EFFECTS_PANEL_PATH),
+                    "source": "probe",
+                })],
+                expect=Expect(via="pixels_changed", params={
+                    "source": "probe",
+                }),
+            ),
+            ScriptStep(
+                action="click",
+                anchors=[Anchor(via="template", params={
+                    "template": "magic-mask-search",
+                    "source": "ren",
+                })],
+                expect=Expect(via="pixels_changed", params={
+                    "source": "ren",
+                }),
+            ),
+            ScriptStep(
+                action="type",
+                anchors=[Anchor(via="type", params={
+                    "text": "Magic Mask",
+                    "source": "plan",
+                })],
+                expect=Expect(via="text_visible", params={
+                    "text": "Magic Mask",
+                    "source": "plan",
+                }),
+            ),
+            ScriptStep(
                 action="click",
                 anchors=[
                     Anchor(via="template", params={
@@ -117,6 +159,7 @@ def seed_script(
                     Anchor(via="ocr", params={
                         "text": "Magic Mask",
                         "source": "plan",
+                        "clicks": 2,
                     }),
                 ],
                 expect=Expect(via="text_visible", params={

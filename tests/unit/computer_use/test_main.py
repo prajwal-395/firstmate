@@ -529,10 +529,10 @@ def test_script_seed_runs_the_seed_recipe_offline(monkeypatch, capsys):
     assert kwargs["deadline"] > 0
     assert "obj_1" in script.goal
     assert [s.action for s in script.steps] == [
-        "press", "click", "click", "click"]
+        "press", "menu", "click", "type", "click", "click", "click"]
     # The receipt's device pixels ride the click as window points:
     # (1719, 622) at the measured 2x scale clicks (859.5, 311).
-    params = script.steps[3].anchors[0].params
+    params = script.steps[6].anchors[0].params
     assert (params["x"], params["y"]) == (859.5, 311.0)
     out = capsys.readouterr().out
     assert "outcome: done" in out

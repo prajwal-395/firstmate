@@ -851,6 +851,52 @@ def test_a_template_hit_returns_window_points(client: DriverClient,
     assert params["y"] == pytest.approx((box[1] + box[3]) / 2 / scale)
 
 
+def test_click_counts_ride_ocr_and_template_resolvers(client: DriverClient,
+                                                       monkeypatch, tmp_path):
+    """A Library row applies on double-click, so the resolvers carry
+    the anchor's click count onto the call - the same three lines the
+    position resolver already has. A count the resolver dropped would
+    select rows and apply nothing, failing every apply downstream."""
+    import base64
+    from io import BytesIO
+
+    from PIL import Image, ImageDraw
+
+    from library.tools.computer_use.scripts import resolve_anchor
+
+    resolved = resolve_anchor(
+        client, Anchor(via="ocr",
+                       params={"text": "Master", "clicks": 2}))
+    assert resolved is not None
+    method, params = resolved
+    assert method == "click"
+    assert params["clicks"] == 2
+
+    img = Image.new("RGB", (128, 64), (20, 20, 20))
+    draw = ImageDraw.Draw(img)
+    draw.rectangle([40, 20, 60, 40], fill=(200, 200, 200))
+    draw.rectangle([46, 26, 54, 34], fill=(10, 10, 10))
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    fixed = {"image": base64.b64encode(buf.getvalue()).decode("ascii"),
+             "width": 128.0, "height": 64.0, "scale": 1.0}
+    real_call = client.call
+    monkeypatch.setattr(
+        client, "call",
+        lambda method, params=None: (fixed if method == "capture_window"
+                                     else real_call(method, params)))
+    template_path = tmp_path / "template.png"
+    img.crop((40, 20, 60, 40)).save(template_path)
+    resolved = resolve_anchor(
+        client, Anchor(via="template",
+                       params={"image": str(template_path),
+                               "threshold": 0.5, "clicks": 2}))
+    assert resolved is not None
+    method, params = resolved
+    assert method == "click"
+    assert params["clicks"] == 2
+
+
 def test_a_past_deadline_raises_before_touching_the_driver():
     """Past the take's bound the run raises TakeExpired before the first
     step - a refusal, not a step failure. A runner that acted past its

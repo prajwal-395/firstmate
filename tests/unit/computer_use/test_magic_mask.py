@@ -33,19 +33,21 @@ def _script() -> Script:
     return magic_mask.seed_script(_seed(), scale_factor=2.0)
 
 
-def test_seed_script_is_page_palette_mode_click_in_order():
+def test_seed_script_is_page_library_search_palette_mode_click():
     script = _script()
     assert isinstance(script, Script)
     assert [s.action for s in script.steps] == [
-        "press", "click", "click", "click"]
+        "press", "menu", "click", "type", "click", "click", "click"]
     assert [s.anchors[0].via for s in script.steps] == [
-        "ax_path", "template", "ocr", "position"]
-    # The palette step tries the measured icon first and keeps the
-    # plan-stated OCR text as fallback: an unmeasured template resolves
-    # to nothing and the step behaves as before.
-    palette = script.steps[1]
+        "ax_path", "menu", "template", "type", "template", "ocr",
+        "position"]
+    # The palette step tries the measured toolbar icon first and keeps
+    # the revealed Library row (double-click applies) as fallback.
+    palette = script.steps[4]
     assert [a.via for a in palette.anchors] == ["template", "ocr"]
-    assert palette.anchors[0].params["template"] == "magic-mask-toolbar"
+    assert (palette.anchors[0].params["template"]
+            == "magic-mask-toolbar")
+    assert palette.anchors[1].params["clicks"] == 2
 
 
 def test_seed_script_presses_the_color_page_through_the_menu_bar():
@@ -58,13 +60,71 @@ def test_seed_script_presses_the_color_page_through_the_menu_bar():
     assert step.expect is not None and step.expect.via == "pixels_changed"
 
 
+def test_seed_script_opens_the_library_through_the_measured_route():
+    """The palette row the apply step double-clicks only exists with
+    the Effects Library open, so the library step opens it through the
+    shared menu route the resolvefx lane measured - the same constant,
+    never a copy. A Library that never opens fails pixels_changed
+    instead of clicking on (found live 2026-10-07: the row was absent
+    with the node editor showing)."""
+    from library.tools.computer_use.scripts import EFFECTS_PANEL_PATH
+
+    step = _script().steps[1]
+    assert step.anchors[0].params["path"] == list(EFFECTS_PANEL_PATH)
+    assert step.expect is not None and step.expect.via == "pixels_changed"
+
+
+def test_seed_script_searches_through_the_registered_glass():
+    """The Library search glass is Qt-drawn (no AX, no text), so the
+    search click rides the registered glass template - the vocabulary's
+    designed route for icon controls, named from the registry, never
+    a path. A glass that matches nothing fails the step, so typing
+    never runs blind (found live 2026-10-07: a mis-aimed glass click
+    typed the query into the void and moved the playhead)."""
+    from library.tools.computer_use.templates import ICON_TEMPLATES
+
+    step = _script().steps[2]
+    params = step.anchors[0].params
+    assert params["template"] == "magic-mask-search"
+    entry = ICON_TEMPLATES["magic-mask-search"]
+    assert 0.0 < entry.threshold < 1.0
+    assert step.expect is not None and step.expect.via == "pixels_changed"
+
+
+def test_seed_script_types_the_query_only_after_focus():
+    """Typing reaches the FOCUSED element, so the type step follows
+    the glass click and is verified by the query text appearing -
+    the filtered row. No text, no call (an empty query resolves to
+    nothing, like every other anchor with no parameters)."""
+    step = _script().steps[3]
+    assert step.action == "type"
+    assert step.anchors[0].params["text"] == "Magic Mask"
+    assert step.expect is not None and step.expect.via == "text_visible"
+    assert step.expect.params["text"] == "Magic Mask"
+
+
+def test_seed_script_applies_the_row_with_a_double_click():
+    """A single click on a Library row only selects it; the palette
+    opens when the effect is APPLIED, so the row fallback click
+    carries clicks=2 (the toolbar icon takes one). A row that applies
+    nothing shows no Person label and fails the step instead of
+    seeding unmasked footage."""
+    step = _script().steps[4]
+    assert [a.via for a in step.anchors] == ["template", "ocr"]
+    params = step.anchors[1].params
+    assert params["text"] == "Magic Mask"
+    assert params["clicks"] == 2
+    assert step.expect is not None and step.expect.via == "text_visible"
+    assert step.expect.params["text"] == "Person"
+
+
 def test_seed_script_clicks_window_points_not_device_pixels():
     """The seed's viewer point is device pixels (screenshot space) but
     a position anchor is an absolute window point, so the builder
     divides by the measured backing scale: (1719, 622) at 2x clicks
     (859.5, 311). Carrying the raw point double-clicks on Retina -
     found live 2026-10-07, when every seed-shaped click missed."""
-    step = _script().steps[3]
+    step = _script().steps[6]
     params = step.anchors[0].params
     assert (params["x"], params["y"]) == (859.5, 311.0)
     # A position anchor says why it is a bare coordinate: whose seed.

@@ -67,6 +67,20 @@ ICON_TEMPLATES: dict[str, IconTemplate] = {
                 "peak 0.5437 elsewhere; threshold sits in that gap"),
         crop=(1472, 1162, 40, 36),
     ),
+    "magic-mask-search": IconTemplate(
+        name="magic-mask-search",
+        filename="magic_mask_search.png",
+        threshold=0.8,
+        cut_scale=2.0,
+        source=("Color page Effects Library header, Ren Qualification, "
+                "capture 2026-10-07 (3024x1898 @2x, Library open): true "
+                "peak 1.0000 at its cut site (2875, 55), strongest false "
+                "peak 0.6360 elsewhere including Library-closed "
+                "captures; threshold sits in that gap. The true peak "
+                "is a self-match (cut from the same capture) - the "
+                "take's own match result is the held-out proof"),
+        crop=(2875, 55, 60, 60),
+    ),
 }
 
 

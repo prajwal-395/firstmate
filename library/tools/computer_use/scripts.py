@@ -295,7 +295,10 @@ def resolve_anchor(client: DriverClient, anchor: Anchor) -> tuple[str, dict] | N
                 frame = label.get("frame") or {}
                 x = frame.get("x", 0.0) + frame.get("width", 0.0) / 2
                 y = frame.get("y", 0.0) + frame.get("height", 0.0) / 2
-                return ("click", {"x": x, "y": y})
+                params = {"x": x, "y": y}
+                if anchor.params.get("clicks") is not None:
+                    params["clicks"] = anchor.params["clicks"]
+                return ("click", params)
         return None
     if anchor.via == "position":
         x, y = anchor.params.get("x"), anchor.params.get("y")
@@ -335,12 +338,17 @@ def _resolve_key(anchor: Anchor) -> tuple[str, dict] | None:
 
 
 def _resolve_type(anchor: Anchor) -> tuple[str, dict] | None:
-    """Resolve a type anchor to a driver `type` call, or `None`.
+    """Resolve a type anchor to a driver `type_text` call, or `None`.
 
     Typing reaches the FOCUSED element, so like a keystroke it anchors
     to nothing on screen and resolves without a driver call. An empty
     text resolves to nothing. The caller focuses first (usually an
-    offset click into a field); this step only carries the text.
+    offset click into a field); this step only carries the text. The
+    method is `type_text` - the driver's vocabulary, which is also
+    what carries the foreground flag onto the call. A resolver that
+    emitted anything else would fail every take at the driver gate
+    (found wiring the seed recipe's search field: `type` is refused
+    as an unknown method).
     """
     text = anchor.params.get("text")
     if not text:
@@ -349,7 +357,7 @@ def _resolve_type(anchor: Anchor) -> tuple[str, dict] | None:
         raise ValueError(
             f"type needs a string text, got {text!r} - format numbers "
             f"at the recipe layer")
-    return ("type", {"text": text})
+    return ("type_text", {"text": text})
 
 
 def _resolve_wait(anchor: Anchor) -> tuple[str, dict] | None:
@@ -448,7 +456,10 @@ def _resolve_template(client: DriverClient, anchor: Anchor) -> tuple[str, dict] 
     h, w = template_np.shape[:2]
     x = (max_loc[0] + w / 2) / scale
     y = (max_loc[1] + h / 2) / scale
-    return ("click", {"x": x, "y": y})
+    params: dict = {"x": x, "y": y}
+    if anchor.params.get("clicks") is not None:
+        params["clicks"] = anchor.params["clicks"]
+    return ("click", params)
 
 
 def _resolve_offset(client: DriverClient, anchor: Anchor) -> tuple[str, dict] | None:
