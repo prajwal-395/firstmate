@@ -1095,45 +1095,125 @@ class FootageIndex:
         token (`_sound_label_matches`).  A matched event without a
         recorded confidence scores 0 - an unweighted measurement cannot
         rank, though `--sound` still lists it.  All zeros when the
-        index holds no sound events, which keeps the fusion a two-half
-        one (see `_raw_scores`).
+        index holds no sound events, which keeps the fusion a
+        fewer-half one (see `_raw_scores`).  Shares `_map_lane_scores`
+        with the OCR lane: one join for every clip-keyed lane.
+        """
+        entries = self.payload.get("sound_events") or {}
+
+        def match(tokens, event):
+            return self._sound_label_matches(tokens, event.get("label", ""))
+
+        return self._map_lane_scores(query, entries, match)
+    @staticmethod
+    def _entry_spans(entry: dict, start: float, end: float) -> list:
+        """The ``[(start, end)]`` an entry overlaps against.
+
+        Detections carry `appearances` (a list of spans); sound-style
+        events carry scalar start/end.  Either shape may be malformed;
+        a span that does not parse is not a span.  Defaults cover a
+        scalar missing its pair: an event naming only its start is read
+        at that instant, not across the segment.
+        """
+        spans = []
+        appearances = entry.get("appearances")
+        if isinstance(appearances, list):
+            for span in appearances:
+                try:
+                    spans.append((float(span[0]), float(span[1])))
+                except (TypeError, ValueError, IndexError):
+                    continue
+            return spans
+        try:
+            e_start = float(entry.get("start", start))
+            e_end = float(entry.get("end", e_start))
+        except (TypeError, ValueError):
+            return []
+        return [(e_start, e_end)]
+
+    @staticmethod
+    def _confidence_of(entry: dict) -> float:
+        """A match's rank weight, or 0 when unrecorded.
+
+        An event without a recorded confidence cannot rank - 0 keeps it
+        out of the fusion while the lane's own search still lists it.
+        """
+        confidence = entry.get("confidence")
+        if isinstance(confidence, bool) or not isinstance(
+                confidence, (int, float)):
+            return 0.0
+        return float(confidence)
+
+    def _map_lane_scores(self, query: str, entries_by_clip: dict,
+                         match) -> np.ndarray:
+        """Per-segment max matched weight for a clip-keyed tag lane.
+
+        `match(tokens, entry)` decides; overlap is by `_entry_spans`
+        against the segment window; weight is `_confidence_of` - one
+        loop for every clip-keyed lane (sound and OCR share it).
         """
         scores = np.zeros(len(self.segments), dtype="float32")
-        events_by_clip = self.payload.get("sound_events") or {}
-        if not events_by_clip:
+        if not entries_by_clip:
+            return scores
             return scores
         tokens = _tokenize(query)
         if not tokens:
             return scores
         for i, segment in enumerate(self.segments):
-            events = events_by_clip.get(segment["clip_id"]) or []
+            entries = entries_by_clip.get(segment["clip_id"]) or []
             try:
                 start = float(segment["start"])
                 end = float(segment["end"])
             except (TypeError, ValueError):
                 continue
             best = 0.0
-            for event in events:
-                if not self._sound_label_matches(
-                        tokens, event.get("label", "")):
+            for entry in entries:
+                if not isinstance(entry, dict) or not match(tokens, entry):
                     continue
-                try:
-                    e_start = float(event.get("start", start))
-                    e_end = float(event.get("end", end))
-                except (TypeError, ValueError):
+                spans = self._entry_spans(entry, start, end)
+                if not any(s < end and e > start for s, e in spans):
                     continue
-                if e_end <= start or e_start >= end:
-                    continue
-                confidence = event.get("confidence")
-                if isinstance(confidence, bool) or not isinstance(
-                        confidence, (int, float)):
-                    continue
-                best = max(best, float(confidence))
+                best = max(best, self._confidence_of(entry))
             scores[i] = best
         return scores
 
+    def _ocr_scores(self, query: str):
+        """Per-segment on-screen-text evidence: max matched confidence.
+
+        Joins the payload's 1.07 tracked strings by clip and appearance
+        overlap on `_text_matches`.  All zeros when the index holds no
+        OCR, which keeps the fusion a fewer-half one.
+        """
+        entries = self.payload.get("ocr_texts") or {}
+
+        def match(tokens, detection):
+            return self._text_matches(tokens, detection.get("text", ""))
+
+        return self._map_lane_scores(query, entries, match)
+
+    def _object_scores(self, query: str):
+        """Per-segment object-label evidence: 1 where the label matches.
+
+        Reads only object-kind rows, and only the LABEL (the text
+        before the first stop) - the category/role/readable_text tail
+        is lexical evidence already, and re-matching it here would
+        double-count the same words.  Binary: a label either names what
+        was asked for or it does not.
+        """
+        scores = np.zeros(len(self.segments), dtype="float32")
+        tokens = _tokenize(query)
+        if not tokens:
+            return scores
+        for i, segment in enumerate(self.segments):
+            if segment.get("kind") != "object":
+                continue
+            label = (segment.get("text") or "").split(".")[0]
+            if self._sound_label_matches(tokens, label):
+                scores[i] = 1.0
+        return scores
+
     def _raw_scores(self, query: str, mode: str):
-        """``(combined, dense, lexical, sound)`` or a reason string.
+        """``(combined, dense, lexical, sound, ocr, object)`` or why not.
 
         `dense` is None when this index carries no embeddings or the
         embedder could not be loaded, and the caller decides whether that
@@ -1161,7 +1241,7 @@ class FootageIndex:
 
         if mode == "dense":
             if dense is None:
-                return None, None, None, None
+                return None, None, None, None, None, None
             combined = dense
         elif mode == "lexical":
             combined = lexical
@@ -1170,16 +1250,23 @@ class FootageIndex:
         else:
             combined = _rrf(dense, lexical)
         sound = self._sound_scores(query)
-        if mode == "hybrid" and dense is not None and sound.any():
-            # The tag half joins only where it has anything to say: an
-            # all-zero third half would still shift every rank by its
+        ocr = self._ocr_scores(query)
+        obj = self._object_scores(query)
+        if mode == "hybrid" and dense is not None:
+            # A tag lane joins only where it has anything to say: an
+            # all-zero extra half would still shift every rank by its
             # deep stable-order contribution, reordering indexes that
-            # never measured a sound.
-            combined = _rrf(dense, lexical, sound)
-        return combined, dense, lexical, sound
+            # never measured that lane.
+            halves = [dense, lexical]
+            for lane in (sound, ocr, obj):
+                if lane.any():
+                    halves.append(lane)
+            if len(halves) > 2:
+                combined = _rrf(*halves)
+        return combined, dense, lexical, sound, ocr, obj
 
     @staticmethod
-    def _eligible(dense, lexical, sound, floor: float):
+    def _eligible(dense, lexical, sound, ocr, obj, floor: float):
         """Which segments count as EVIDENCE, before any ranking.
 
         Judged on the raw signals, never on `combined`: the fused score
@@ -1191,17 +1278,19 @@ class FootageIndex:
         when there is no dense half to judge - when at least one query
         term actually appeared in its text.  A zero BM25 is never
         evidence: no word of the query is in that segment.  A matched
-        sound tag is evidence on its own: a laughter query over footage
+        tag is evidence on its own: a laughter query over footage
         nobody transcribed has no words to match, and the PANNs label
-        is the only thing that heard it.
+        is the only thing that heard it; likewise a tracked on-screen
+        string or an object label the transcript never names.
         """
+        tags = (sound > 0) | (ocr > 0) | (obj > 0)
         if dense is None:
-            return (lexical > 0) | (sound > 0)
+            return (lexical > 0) | tags
         if floor <= 0:
             return np.ones(len(dense), dtype=bool)
-        return (dense >= floor) | (sound > 0)
+        return (dense >= floor) | tags
 
-    def _rank(self, query, combined, dense, lexical, sound, keep, top_k,
+    def _rank(self, query, combined, dense, lexical, tags, keep, top_k,
               rank_by=None):
         """The `keep` segments, best first, shaped into result rows.
 
@@ -1225,8 +1314,9 @@ class FootageIndex:
             if dense is not None:
                 scores["dense_score"] = round(float(dense[i]), 4)
             scores["lexical_score"] = round(float(lexical[i]), 4)
-            if sound is not None and sound.any():
-                scores["sound_score"] = round(float(sound[i]), 4)
+            for lane, values in (tags or {}).items():
+                if values is not None and np.any(values):
+                    scores[f"{lane}_score"] = round(float(values[i]), 4)
             hit = self._result(segments[i], scores)
             if segments[i]["kind"] == "speech":
                 words = self._word_hits(segments[i], query)
@@ -1311,7 +1401,8 @@ class FootageIndex:
                 merge_external_evidence(report, external_hits)
             return report
 
-        combined, dense, lexical, sound = self._raw_scores(query, mode)
+        combined, dense, lexical, sound, ocr, obj = self._raw_scores(
+            query, mode)
         if combined is None:
             report["error"] = "This index has no embeddings; use mode='lexical'."
             if external_hits is not None:
@@ -1345,16 +1436,18 @@ class FootageIndex:
                 "keyword floor cannot tell 'absent' from 'phrased differently'"
             )
 
-        keep = mask & self._eligible(dense, lexical, sound, mode_floor)
+        tags = {"sound": sound, "ocr": ocr, "object": obj}
+        keep = mask & self._eligible(dense, lexical, sound, ocr, obj,
+                                     mode_floor)
         report["retained"] = int(keep.sum())
-        report["results"] = self._rank(query, combined, dense, lexical, sound,
+        report["results"] = self._rank(query, combined, dense, lexical, tags,
                                        keep, top_k)
 
         # The weak band: what the floor turned away, and how close it came.
         # An abstain that cannot name its near miss reads as a broken search.
         if dense is not None and mode_floor > 0:
             weak = mask & ~keep & (dense >= weak_floor)
-            report["weak"] = self._rank(query, combined, dense, lexical, sound,
+            report["weak"] = self._rank(query, combined, dense, lexical, tags,
                                           weak, weak_k, rank_by=dense)
             rejected = mask & ~keep
             if rejected.any():
