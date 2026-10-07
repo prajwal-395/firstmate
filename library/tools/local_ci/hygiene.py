@@ -49,12 +49,29 @@ def checkouts_root(state: str = "") -> str:
     return os.path.join(state or config.state_dir(), "checkouts")
 
 
+def _slot_lock_is_held(slots_dir: str, slot: int) -> bool:
+    """Whether a worker currently owns this slot's cross-process lock."""
+    path = os.path.join(slots_dir, f"slot-{slot}.lock")
+    try:
+        handle = open(path, encoding="utf-8")
+    except FileNotFoundError:
+        return False
+    with handle:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        return False
+
+
 def running_jobs(state: str = "") -> list[dict]:
     """Return live slot owners with their PR metadata and elapsed time.
 
     Slot metadata is written atomically while its file lock is held.
-    A dead daemon can leave that metadata behind, so PID liveness is
-    checked before presenting it as an active job.
+    A dead daemon can leave that metadata behind, and a PID can be
+    reused. Require both a live PID and a held slot lock before
+    presenting the record as an active job.
     """
     slots_dir = os.path.join(state or config.state_dir(), "slots")
     try:
@@ -76,7 +93,7 @@ def running_jobs(state: str = "") -> list[dict]:
             started_at = float(job["started_at"])
         except (OSError, ValueError, KeyError, TypeError):
             continue
-        if pid <= 0 or slot < 0:
+        if pid <= 0 or slot < 0 or name != f"slot-{slot}.json":
             continue
         try:
             os.kill(pid, 0)
@@ -84,6 +101,8 @@ def running_jobs(state: str = "") -> list[dict]:
             continue
         except PermissionError:
             pass
+        if not _slot_lock_is_held(slots_dir, slot):
+            continue
         job["elapsed_seconds"] = max(0.0, time.time() - started_at)
         jobs.append(job)
     return sorted(jobs, key=lambda job: (job["started_at"], job["slot"]))
