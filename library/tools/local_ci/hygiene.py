@@ -57,6 +57,24 @@ def _git(repo: str, *argv: str, timeout: int = 300) -> str:
     return result.stdout.strip()
 
 
+@contextlib.contextmanager
+def _mirror_lock(mirror: str):
+    """Serialize clone/fetch mutations to the shared local mirror.
+
+    Tier-1 workers deliberately run in parallel, but Git's clone and
+    fetch state belongs to the mirror as a whole. A sibling lock file
+    also exists before the mirror has been cloned, so first-use races
+    are covered across threads and daemon processes.
+    """
+    os.makedirs(os.path.dirname(os.path.abspath(mirror)), exist_ok=True)
+    with open(mirror + ".lock", "a", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
 def ensure_mirror(origin: str, state: str = "") -> str:
     """The daemon's origin mirror: one clone, worktrees per run.
 
@@ -66,25 +84,27 @@ def ensure_mirror(origin: str, state: str = "") -> str:
     """
     root = state or config.state_dir()
     mirror = os.path.join(root, "mirror")
-    if not os.path.isdir(os.path.join(mirror, ".git")):
-        if os.path.exists(mirror):
-            raise HygieneRefused(f"{mirror} exists but is not a git repo")
-        os.makedirs(root, exist_ok=True)
-        result = subprocess.run(
-            ["git", "clone", origin, mirror], capture_output=True,
-            encoding="utf-8", check=False, timeout=600)
-        if result.returncode != 0:
-            raise HygieneRefused(f"could not clone {origin}: "
-                                 f"{result.stderr.strip()}")
-    _git(mirror, "fetch", "origin", "--prune")
+    with _mirror_lock(mirror):
+        if not os.path.isdir(os.path.join(mirror, ".git")):
+            if os.path.exists(mirror):
+                raise HygieneRefused(f"{mirror} exists but is not a git repo")
+            os.makedirs(root, exist_ok=True)
+            result = subprocess.run(
+                ["git", "clone", origin, mirror], capture_output=True,
+                encoding="utf-8", check=False, timeout=600)
+            if result.returncode != 0:
+                raise HygieneRefused(f"could not clone {origin}: "
+                                     f"{result.stderr.strip()}")
+        _git(mirror, "fetch", "origin", "--prune")
     return mirror
 
 
 def fetch_pr(mirror: str, number: int) -> str:
     """Fetch a PR head into the mirror. Returns the head SHA."""
-    _git(mirror, "fetch", "origin", f"pull/{number}/head:refs/ren-ci/pr-{number}",
-         timeout=300)
-    return _git(mirror, "rev-parse", f"refs/ren-ci/pr-{number}")
+    with _mirror_lock(mirror):
+        _git(mirror, "fetch", "origin",
+             f"+pull/{number}/head:refs/ren-ci/pr-{number}", timeout=300)
+        return _git(mirror, "rev-parse", f"refs/ren-ci/pr-{number}")
 
 
 def fetch_base(mirror: str, base: str) -> None:
@@ -162,7 +182,7 @@ class Slots:
         index = None
         with self._guard:
             for candidate in range(self._jobs):
-                attempt = open(
+                attempt = open(  # noqa: SIM115 - keep the lock fd open to release
                     os.path.join(self._dir, f"slot-{candidate}.lock"),
                     "w", encoding="utf-8")
                 try:
@@ -214,5 +234,5 @@ def broker_serving() -> bool:
     from library.tools.resolved import client
     try:
         return client.ping() is not None
-    except Exception:
+    except Exception:  # noqa: BLE001 - any probe failure means not serving
         return False

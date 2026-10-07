@@ -8,6 +8,9 @@ stuttered the editor, the broker a test run left behind.
 import os
 import subprocess
 import sys
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
@@ -53,6 +56,70 @@ def test_a_checkout_is_deleted_on_success(mirror, tmp_path):
     with hygiene.disposable_checkout(mirror, rev, state):
         pass
     assert os.listdir(os.path.join(state, "checkouts")) == []
+
+
+def test_parallel_workers_share_one_safely_created_mirror(mirror, tmp_path,
+                                                           monkeypatch):
+    remote = str(tmp_path / "remote.git")
+    _git(str(tmp_path), "clone", "--bare", mirror, remote)
+    state = str(tmp_path / "state")
+    mirror_git_dir = os.path.join(state, "mirror", ".git")
+    original_isdir = os.path.isdir
+    both_observed_missing = threading.Barrier(2)
+
+    def observe_same_missing_path(path):
+        exists = original_isdir(path)
+        if os.fspath(path) == mirror_git_dir and not exists:
+            try:
+                both_observed_missing.wait(timeout=0.2)
+            except threading.BrokenBarrierError:
+                # The mirror lock lets only one worker inspect a missing
+                # path at a time; the second observes the completed clone.
+                pass
+        return exists
+
+    monkeypatch.setattr(hygiene.os.path, "isdir", observe_same_missing_path)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(hygiene.ensure_mirror, remote, state)
+                   for _ in range(2)]
+        errors = [future.exception(timeout=30) for future in futures]
+
+    assert errors == [None, None]
+
+
+def test_parallel_workers_serialize_fetches_into_the_shared_mirror(
+        mirror, monkeypatch):
+    start_together = threading.Barrier(2)
+    guard = threading.Lock()
+    active = 0
+    maximum = 0
+
+    def tracked_git(_repo, *argv, **_kwargs):
+        nonlocal active, maximum
+        if argv[0] == "fetch":
+            assert argv[2].startswith("+pull/")
+            with guard:
+                active += 1
+                maximum = max(maximum, active)
+            time.sleep(0.1)
+            with guard:
+                active -= 1
+            return ""
+        if argv[0] == "rev-parse":
+            return "a" * 40
+        raise AssertionError(f"unexpected git call: {argv}")
+
+    monkeypatch.setattr(hygiene, "_git", tracked_git)
+
+    def fetch(number):
+        start_together.wait(timeout=10)
+        return hygiene.fetch_pr(mirror, number)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        heads = list(pool.map(fetch, (1, 2)))
+
+    assert heads == ["a" * 40, "a" * 40]
+    assert maximum == 1
 
 
 def test_slots_exclude_the_third_acquirer(tmp_path):
