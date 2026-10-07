@@ -147,9 +147,10 @@ def _item_by_track_end(timeline, track_name: str, record_frame: int):
     matches = []
     for item in timeline.GetItemListInTrack("video", row) or ():
         pool_item = item.GetMediaPoolItem()
-        if (int(item.GetEnd()) == record_frame and pool_item is not None
-                and str(pool_item.GetClipProperty("Type") or "").lower()
-                == "video"):
+        media_type = (str(pool_item.GetClipProperty("Type") or "")
+                      .strip().lower() if pool_item is not None else "")
+        if (int(item.GetEnd()) == record_frame
+                and media_type.startswith("video")):
             matches.append(item)
     if len(matches) != 1:
         raise JobRefused(

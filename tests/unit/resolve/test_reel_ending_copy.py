@@ -84,8 +84,11 @@ def test_exact_timeline_id_disambiguates_duplicate_names():
         reel_ending_copy._exact_timeline(project, "Reel 22 - target")
 
 
-def test_picture_row_selector_finds_one_video_ending_at_requested_frame():
+@pytest.mark.parametrize("media_type", ["Video", "Video + Audio"])
+def test_picture_row_selector_finds_one_video_ending_at_requested_frame(
+        media_type):
     pool = FakeMediaPoolItem("body.mov", uid="body-pool")
+    pool.SetClipProperty("Type", media_type)
     picture = FakeTimelineItem(
         "body.mov", None, start=0, duration=1013,
         pool_item=pool, uid="body-item")
