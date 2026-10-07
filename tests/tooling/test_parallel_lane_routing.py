@@ -8,10 +8,20 @@ from library.tools.lane_routing import PARALLEL, SERIAL, classify_file, route_su
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RESOLVE_DRIVING = {
+    "tests/qualification/test_clip_voice_isolation_live.py",
+    "tests/qualification/test_deliverable_live.py",
+    "tests/qualification/test_delivery_normalize_live.py",
+    "tests/qualification/test_dialogue_leveler_live.py",
+    "tests/qualification/test_feedback_patch_apply_against_resolve.py",
+    "tests/qualification/test_feedback_patch_flow_against_resolve.py",
     "tests/qualification/test_golden_conversation_live.py",
     "tests/qualification/test_marker_capture_against_resolve.py",
     "tests/qualification/test_marker_feedback_against_resolve.py",
+    "tests/qualification/test_qualifier_sample_live.py",
     "tests/qualification/test_resolve_qualification.py",
+    "tests/qualification/test_true_peak_normalize_live.py",
+    "tests/qualification/test_window_delete_live.py",
+    "tests/qualification/test_window_track_live.py",
 }
 
 
