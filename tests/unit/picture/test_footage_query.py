@@ -2042,3 +2042,110 @@ def test_ren_search_merges_an_external_hits_file(offline_index, tmp_path, capsys
     out = capsys.readouterr().out
     assert "resolve_intellisearch" in out
     assert "NOT Ren-ranked" in out
+
+
+# ─── Transcript evidence (Resolve transcription) ─────────────────
+#
+# Same philosophy as footage search: Resolve's transcript arrives as
+# EXTRA evidence beside Ren's utterances, provenance-marked, never a
+# replacement - and disagreements surface as findings carrying both
+# sides. The Resolve-side read (sense transcribe) lands through the
+# broker wrapper; this pins the merge, offline.
+
+
+RESOLVE_TRANSCRIPT = [
+    {"text": "we need to find a parking spot", "start": 1.1, "end": 2.9,
+     "speaker": "SPEAKER_00"},
+    {"text": "the pollen is horrible today", "start": 6.0, "end": 7.5,
+     "speaker": "SPEAKER_00"},
+    {"text": "thanks for watching", "start": 15.0, "end": 17.0,
+     "speaker": "SPEAKER_00"},
+]
+
+
+def test_transcript_merge_leaves_ren_utterances_untouched(offline_index):
+    """A merge that rewrites Ren's rows is a replacement wearing extra
+    evidence clothes. On origin/main the kwarg does not exist."""
+    idx, _ = offline_index
+    plain = idx.transcript("clip_001")
+    merged = idx.transcript_report("clip_001",
+                                   resolve_segments=RESOLVE_TRANSCRIPT)
+    assert merged["utterances"] == plain
+    assert merged["resolve_source"] == "resolve_transcription"
+    assert all(row["provenance"] == "resolve_transcription"
+               for row in merged["resolve_segments"])
+
+
+def test_unmatched_speech_is_a_finding_not_silence(offline_index):
+    """Speech one side hears and the other has no span for is a
+    finding naming its span - silently dropping either side would read
+    as agreement."""
+    idx, _ = offline_index
+    merged = idx.transcript_report(
+        "clip_001",
+        resolve_segments=[row for row in RESOLVE_TRANSCRIPT
+                          if row["start"] >= 6.0])
+    kinds = [finding["kind"] for finding in merged["findings"]]
+    assert "ren_only" in kinds
+    assert "resolve_only" in kinds
+    ren_only = next(finding for finding in merged["findings"]
+                    if finding["kind"] == "ren_only")
+    assert ren_only["resolve"] is None
+    assert "parking" in ren_only["ren"]["text"]
+    resolve_only = next(finding for finding in merged["findings"]
+                        if finding["kind"] == "resolve_only")
+    assert resolve_only["ren"] is None
+    assert resolve_only["resolve"]["start"] == 15.0
+
+
+def test_equal_texts_agree_and_differences_carry_both_sides(
+        offline_index):
+    """Folded-equal words agree silently; anything else is a finding
+    with both texts and both spans for the reader to judge."""
+    idx, _ = offline_index
+    merged = idx.transcript_report("clip_001", resolve_segments=[
+        {"text": "We need to find a parking spot!", "start": 1.1,
+         "end": 2.9, "speaker": "SPEAKER_00"},
+        {"text": "the pollen is horrible today", "start": 6.0,
+         "end": 7.5, "speaker": "SPEAKER_00"},
+    ])
+    assert len(merged["agreement"]) == 1
+    assert len(merged["findings"]) == 1
+    finding = merged["findings"][0]
+    assert finding["kind"] == "text_differs"
+    assert finding["ren"]["text"] == "the pollen is terrible today"
+    assert finding["resolve"]["text"] == "the pollen is horrible today"
+    assert finding["resolve"]["speaker"] == "SPEAKER_00"
+
+
+def test_empty_resolve_side_is_stated_not_expanded(offline_index):
+    """Resolve transcribing nothing is an answer about Resolve, not a
+    finding per utterance - there is nothing to align against."""
+    idx, _ = offline_index
+    merged = idx.transcript_report("clip_001", resolve_segments=[])
+    assert merged["resolve_empty"] is True
+    assert merged["findings"] == []
+    assert len(merged["utterances"]) > 0
+
+
+def test_transcript_evidence_that_is_not_a_list_is_refused(offline_index):
+    idx, _ = offline_index
+    with pytest.raises(RenRefusal):
+        footage_query.merge_transcript_evidence([], {"text": "hi"})
+
+
+def test_ren_transcript_merges_a_resolve_transcript_file(
+        offline_index, tmp_path, capsys):
+    """`ren search transcript --resolve-transcript` is the caller:
+    Ren's rows print, then Resolve's extra evidence with findings."""
+    idx, _ = offline_index
+    hits_path = tmp_path / "resolve_transcript.json"
+    hits_path.write_text(json.dumps(RESOLVE_TRANSCRIPT), encoding="utf-8")
+    assert footage_query.main(
+        ["transcript", str(idx.project_folder), "clip_001",
+         "--index-dir", str(idx.index_dir),
+         "--resolve-transcript", str(hits_path)]) == 0
+    out = capsys.readouterr().out
+    assert "parking spot" in out
+    assert "resolve_transcription" in out
+    assert "text_differs" in out

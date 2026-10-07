@@ -1014,6 +1014,132 @@ def merge_external_evidence(report: dict, hits: list,
     return report
 
 
+#: Provenance stamped on every row that came from Resolve's own
+#: transcription rather than from Ren's speech index.
+TRANSCRIPT_SOURCE_RESOLVE = "resolve_transcription"
+
+#: What counts as the same words. Lowercase, punctuation stripped,
+#: whitespace collapsed - the smallest normalization under which two
+#: transcripts can be compared without inventing a similarity scale.
+#: Anything unequal under it is a finding carrying both texts, never a
+#: score.
+_WORD_FOLD = re.compile(r"[^a-z0-9]+")
+
+
+def _fold_text(text: str) -> str:
+    return _WORD_FOLD.sub(" ", str(text or "").lower()).strip()
+
+
+def _spans_overlap(a_start, a_end, b_start, b_end) -> bool:
+    try:
+        return max(float(a_start), float(b_start)) < min(float(a_end),
+                                                        float(b_end))
+    except (TypeError, ValueError):
+        return False
+
+
+def _overlap_seconds(a_start, a_end, b_start, b_end) -> float:
+    try:
+        return max(0.0, min(float(a_end), float(b_end))
+                   - max(float(a_start), float(b_start)))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def merge_transcript_evidence(utterances: list, resolve_segments: list,
+                              source: str = TRANSCRIPT_SOURCE_RESOLVE,
+                              ) -> dict:
+    """Resolve's transcript rows beside Ren's own, disagreements as findings.
+
+    `utterances` are Ren's `[{start, end, text}]` for one clip;
+    `resolve_segments` are Resolve's voiced `[{text, start, end,
+    speaker?}]` for the same clip, both in clip seconds. Returns the
+    Ren rows untouched, the Resolve rows stamped with their provenance,
+    the pairs aligned by best time overlap, and `findings` for every
+    disagreement: `ren_only` (Ren heard what Resolve has no span for),
+    `resolve_only` (Resolve heard what Ren has no span for - unmatched,
+    never "wrong", the direction is unknown), and `text_differs`
+    (same span, different folded words, carrying both texts for the
+    reader to judge). No scores, no thresholds: overlap is any
+    positive intersection, equality is the fold, and an empty Resolve
+    side is stated (`resolve_empty`) rather than expanded into a
+    finding per utterance - there is nothing to align against.
+    """
+    if not isinstance(resolve_segments, list):
+        raise RenRefusal(
+            "transcript evidence must be a list of Resolve segments",
+            f"{type(resolve_segments).__name__} cannot be merged with a "
+            f"transcript",
+            "hand over the JSON list Resolve's transcription wrote")
+    ren_rows = [dict(u) for u in utterances or []]
+    resolve_rows = []
+    for segment in resolve_segments:
+        if not isinstance(segment, dict):
+            continue
+        row = {"provenance": source}
+        for key in ("start", "end", "text", "speaker"):
+            if segment.get(key) is not None:
+                row[key] = segment[key]
+        resolve_rows.append(row)
+    report = {
+        "ren_utterances": ren_rows,
+        "resolve_segments": resolve_rows,
+        "resolve_source": source,
+        "resolve_empty": not resolve_rows,
+        "agreement": [],
+        "findings": [],
+    }
+    if not resolve_rows:
+        return report
+    claimed = set()
+    for utterance in ren_rows:
+        best, best_span = None, 0.0
+        for position, row in enumerate(resolve_rows):
+            if position in claimed:
+                continue
+            span = _overlap_seconds(utterance.get("start"),
+                                    utterance.get("end"),
+                                    row.get("start"), row.get("end"))
+            if span > best_span:
+                best, best_span = position, span
+        if best is None:
+            report["findings"].append({
+                "kind": "ren_only",
+                "ren": {"start": utterance.get("start"),
+                        "end": utterance.get("end"),
+                        "text": utterance.get("text")},
+                "resolve": None,
+            })
+            continue
+        claimed.add(best)
+        row = resolve_rows[best]
+        if _fold_text(utterance.get("text")) == _fold_text(row.get("text")):
+            report["agreement"].append({"ren": utterance, "resolve": row})
+        else:
+            report["findings"].append({
+                "kind": "text_differs",
+                "ren": {"start": utterance.get("start"),
+                        "end": utterance.get("end"),
+                        "text": utterance.get("text")},
+                "resolve": {"start": row.get("start"),
+                            "end": row.get("end"),
+                            "text": row.get("text"),
+                            "speaker": row.get("speaker")},
+            })
+    for position, row in enumerate(resolve_rows):
+        if position in claimed:
+            continue
+        report["findings"].append({
+            "kind": "resolve_only",
+            "ren": None,
+            "resolve": {"start": row.get("start"),
+                        "end": row.get("end"),
+                        "text": row.get("text"),
+                        "speaker": row.get("speaker")},
+        })
+    return report
+
+
 class FootageIndex:
     """Searchable index over one project's footage.
 
@@ -2252,6 +2378,22 @@ class FootageIndex:
             if s["clip_id"] == clip_id and s["kind"] == "speech"
         ]
 
+    def transcript_report(self, clip_id: str,
+                         resolve_segments: list | None = None) -> dict:
+        """`transcript`, plus Resolve's rows beside Ren's where given.
+
+        `resolve_segments` carries Resolve's voiced segments for the
+        clip (the JSON list its transcription wrote), merged through
+        `merge_transcript_evidence`: extra evidence with its provenance,
+        disagreements as findings, never a replacement for Ren's rows.
+        """
+        report = {"clip_id": clip_id,
+                  "utterances": self.transcript(clip_id)}
+        if resolve_segments is not None:
+            report.update(merge_transcript_evidence(
+                report["utterances"], resolve_segments))
+        return report
+
     def staleness(self) -> dict:
         """Whether the ingest has moved since this index was built.
 
@@ -2814,6 +2956,35 @@ def _print_external_evidence(report):
         print(f"  refused external row {item['position']}: {item['reason']}")
 
 
+def _print_transcript_evidence(report):
+    """Resolve transcription rows as a person reads them: extra, not Ren.
+
+    Agreements pass silently; every disagreement prints with both
+    sides and its spans, so a reader judges the words rather than a
+    verdict.
+    """
+    rows = report.get("resolve_segments") or []
+    if not rows and not report.get("resolve_empty"):
+        return
+    print(f"\nResolve {report.get('resolve_source')} heard "
+          f"{len(rows)} segment(s) - extra evidence, NOT Ren-ranked; "
+          f"Ren's utterances above stand as measured.")
+    if report.get("resolve_empty"):
+        print("  Resolve transcribed nothing on this clip - stated, "
+              "not expanded into findings.")
+        return
+    print(f"  {len(report['agreement'])} in agreement, "
+          f"{len(report['findings'])} finding(s):")
+    for finding in report["findings"]:
+        ren = finding.get("ren") or {}
+        resolve = finding.get("resolve") or {}
+        print(f"  {finding['kind']}: "
+              f"ren {ren.get('start')}-{ren.get('end')} "
+              f":: {ren.get('text')!r}  /  resolve "
+              f"{resolve.get('start')}-{resolve.get('end')} "
+              f":: {resolve.get('text')!r}")
+
+
 def _print_report(report):
     """A search report as a person reads it, abstain included."""
     bits = [f"query: {report['query']!r}", f"mode={report['mode']}",
@@ -3119,6 +3290,11 @@ def main(argv=None):
     p_transcript = sub.add_parser("transcript", help="Every utterance of one clip")
     p_transcript.add_argument("project")
     p_transcript.add_argument("clip_id")
+    p_transcript.add_argument("--resolve-transcript", metavar="JSON",
+                              help="merge Resolve transcription rows from "
+                                   "this JSON list file as EXTRA evidence "
+                                   "beside Ren's utterances, disagreements "
+                                   "as findings; never replaces them")
     p_transcript.add_argument("--index-dir")
 
     p_summary = sub.add_parser("summary", help="What is in the index")
@@ -3365,8 +3541,16 @@ def main(argv=None):
         print(json.dumps(idx.get_detail(args.segment_id), indent=2))
 
     elif args.command == "transcript":
-        for line in idx.transcript(args.clip_id):
-            print(f"  {line['timecode']}  {line['text']}")
+        if args.resolve_transcript:
+            report = idx.transcript_report(
+                args.clip_id,
+                _load_external_hits(args.resolve_transcript))
+            for line in report["utterances"]:
+                print(f"  {line['timecode']}  {line['text']}")
+            _print_transcript_evidence(report)
+        else:
+            for line in idx.transcript(args.clip_id):
+                print(f"  {line['timecode']}  {line['text']}")
 
     elif args.command == "summary":
         print(json.dumps(idx.summary(), indent=2))
