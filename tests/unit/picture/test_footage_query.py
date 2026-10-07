@@ -1941,3 +1941,104 @@ def test_newer_graph_queries_are_in_the_llm_tool_definitions():
     assert by_name["participants_with"]["parameters"]["required"] == [
         "level"]
     assert by_name["open_proposals"]["parameters"]["required"] == []
+# ─── External evidence (Resolve IntelliSearch) ───────────────────
+#
+# Ren search stays primary: Resolve rows arrive as EXTRA evidence beside
+# Ren's answer, never blended into it. These pin the merge - the offline
+# half of the lane. The Resolve-side collector needs live Resolve under
+# qualification_project.borrowed() and lands in a later slice.
+
+
+INTELLISEARCH_ROWS = [
+    {"clip_id": "clip_002", "start": 2.0, "end": 4.0,
+     "text": "empty street", "collected_by": "resolve_intellisearch_ui"},
+    {"clip_id": "clip_001", "start": 6.0, "end": 7.5,
+     "text": "pollen", "score": 0.99},
+]
+
+
+def test_external_evidence_leaves_the_ren_answer_untouched(offline_index):
+    """A naive merge interleaves Resolve rows with Ren's ranking; this one
+    must not move a single Ren field."""
+    idx, _ = offline_index
+    plain = idx.search_report("parking", top_k=5, floor=0)
+    merged = idx.search_report("parking", top_k=5, floor=0,
+                               external_hits=INTELLISEARCH_ROWS)
+    assert "external_evidence" not in plain
+    for key in ("results", "weak", "abstained", "considered", "retained"):
+        assert merged[key] == plain[key], (
+            f"external evidence moved Ren's {key!r}")
+    assert [r["clip_id"] for r in merged["external_evidence"]] == [
+        "clip_002", "clip_001"]
+
+
+def test_external_evidence_does_not_clear_a_ren_abstain(offline_index):
+    """Ren saying "not here" while Resolve points somewhere is two answers,
+    not one "here". A merge that folds external rows into results would
+    report Ren as finding what it did not."""
+    idx, _ = offline_index
+    # Rank every row, not the top five: the best DENSE score is a max
+    # over the whole candidate set, and a top-k cut can hide the row
+    # that holds it.
+    unfloored = idx.search_report("parking", top_k=len(idx.segments),
+                                  floor=0)
+    best = max(r["dense_score"] for r in unfloored["results"])
+    report = idx.search_report("parking", top_k=5, floor=best + 0.01,
+                               external_hits=INTELLISEARCH_ROWS)
+    assert report["results"] == []
+    assert report["abstained"] is True
+    assert len(report["external_evidence"]) == 2, (
+        "the abstain stands, and the extra evidence stands beside it")
+
+
+def test_an_external_row_with_no_clip_is_refused_by_name(offline_index):
+    """A row that names no clip cannot be placed on any source. It is
+    refused with its position and reason - silently dropping it would read
+    as "Resolve found one clip" when it returned two rows."""
+    idx, _ = offline_index
+    hits = [{"clip_id": "clip_001", "text": "pollen"},
+            {"text": "nowhere"},
+            "not-a-row"]
+    report = idx.search_report("parking", top_k=5, floor=0,
+                               external_hits=hits)
+    assert [r["clip_id"] for r in report["external_evidence"]] == ["clip_001"]
+    assert [r["position"] for r in report["external_rejected"]] == [1, 2]
+    assert all("clip_id" in r["reason"]
+               for r in report["external_rejected"])
+
+
+def test_no_ren_score_crosses_the_external_merge(offline_index):
+    """Every merged row carries its provenance and no Ren score key. A
+    reader that cannot tell which engine produced a row reports Resolve's
+    guess as Ren's measurement - and the second fixture row smuggling in
+    a 0.99 is exactly how that happens."""
+    idx, _ = offline_index
+    report = idx.search_report("parking", top_k=5, floor=0,
+                               external_hits=INTELLISEARCH_ROWS)
+    assert report["external_source"] == "resolve_intellisearch"
+    for row in report["external_evidence"]:
+        assert row["provenance"] == footage_query.EXTERNAL_SOURCE_INTELLISEARCH
+        assert not {"score", "dense_score", "lexical_score"} & set(row), (
+            "an uncalibrated number crossed the merge")
+
+
+def test_external_evidence_that_is_not_a_list_is_refused(offline_index):
+    idx, _ = offline_index
+    report = idx.search_report("parking", top_k=1, floor=0)
+    with pytest.raises(RenRefusal):
+        footage_query.merge_external_evidence(report, {"clip_id": "clip_001"})
+
+
+def test_ren_search_merges_an_external_hits_file(offline_index, tmp_path, capsys):
+    """`ren search --external-hits` is the caller that ships this slice:
+    the flag reaches the merge and the rows print after Ren's answer."""
+    idx, _ = offline_index
+    hits_path = tmp_path / "ext.json"
+    hits_path.write_text(json.dumps(INTELLISEARCH_ROWS), encoding="utf-8")
+    assert footage_query.main(
+        ["search", str(idx.project_folder), "parking",
+         "--index-dir", str(idx.index_dir),
+         "--external-hits", str(hits_path)]) == 0
+    out = capsys.readouterr().out
+    assert "resolve_intellisearch" in out
+    assert "NOT Ren-ranked" in out

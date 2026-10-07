@@ -880,6 +880,77 @@ def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=Fal
 # ─── Querying ─────────────────────────────────────────────────────
 
 
+# ─── External evidence (Resolve IntelliSearch) ───────────────────
+#
+# Ren search stays primary and persistent: an agent may open Resolve
+# IntelliSearch, query it, and merge the matching clips as ADDITIONAL
+# evidence. The scripting API exposes no IntelliSearch query verb - only
+# `MediaPoolItem.AnalyzeForIntellisearch`, which indexes a pool clip but
+# answers no question (`resolve-axi sense intellisearch`) - so the hits
+# arrive through the UI routes Ren already has and land here as rows.
+#
+# The merge keeps the two evidences apart on purpose. Ren has no
+# calibrated scale for Resolve's return order, so no score crosses this
+# merge and no weight blends the two lists: Ren's `results`, `weak` and
+# `abstained` are byte-identical with or without external rows, which sit
+# beside them under `external_evidence` in the order Resolve returned
+# them, each stamped with its provenance. A reader that cannot tell
+# which engine produced a row will report Resolve's guess as Ren's
+# measurement, so an unstamped row is the defect this refuses.
+
+#: Provenance stamped on every row that came from Resolve IntelliSearch
+#: rather than from Ren's own index.
+EXTERNAL_SOURCE_INTELLISEARCH = "resolve_intellisearch"
+
+#: Placement and display fields a Resolve-side collector may hand over
+#: per hit. Ren score keys are deliberately absent: there is no scale on
+#: which a Resolve ordering and a Ren cosine mean the same thing, so a
+#: score handed over is ignored rather than blended.
+_EXTERNAL_HIT_FIELDS = (
+    "clip_id", "filename", "start", "end", "timecode",
+    "text", "label", "query", "collected_by", "collected_at",
+)
+
+
+def merge_external_evidence(report: dict, hits: list,
+                             source: str = EXTERNAL_SOURCE_INTELLISEARCH) -> dict:
+    """Attach Resolve-side hits to a search report as extra evidence.
+
+    `report` is a `search_report` dict, `hits` the rows the Resolve-side
+    collector returned, in its order. Returns the same report carrying
+    `external_evidence` (accepted rows, each with `provenance`) and
+    `external_rejected` (rows that named no `clip_id`, each with its
+    position and reason - refused by name, never silently dropped).
+    `results`, `weak`, `abstained`, `retained` and `considered` are never
+    touched: external evidence never replaces Ren search, and it never
+    clears a Ren abstain.
+    """
+    if not isinstance(hits, list):
+        raise RenRefusal(
+            "external evidence must be a list of hit rows",
+            f"{type(hits).__name__} cannot be merged with a search report",
+            "hand over the JSON list the Resolve-side collector wrote")
+    accepted = []
+    rejected = []
+    for position, hit in enumerate(hits):
+        if not isinstance(hit, dict) or not hit.get("clip_id"):
+            rejected.append({
+                "position": position,
+                "reason": "no clip_id - cannot place on any source",
+                "row": hit,
+            })
+            continue
+        row = {"provenance": source}
+        for key in _EXTERNAL_HIT_FIELDS:
+            if hit.get(key) is not None:
+                row[key] = hit[key]
+        accepted.append(row)
+    report["external_source"] = source
+    report["external_evidence"] = accepted
+    report["external_rejected"] = rejected
+    return report
+
+
 class FootageIndex:
     """Searchable index over one project's footage.
 
@@ -1138,7 +1209,8 @@ class FootageIndex:
 
     def search_report(self, query: str, top_k: int = 5, mode: str = "hybrid",
                       floor: float | None = None, filters: dict | None = None,
-                      weak_k: int = WEAK_BAND_LIMIT) -> dict:
+                      weak_k: int = WEAK_BAND_LIMIT,
+                      external_hits: list | None = None) -> dict:
         """`search`, plus everything needed to explain an empty answer.
 
         Returns a dict carrying the results, the WEAK band beneath the
@@ -1146,6 +1218,11 @@ class FootageIndex:
         index abstained.  A caller that cannot distinguish "nothing here"
         from "the search is broken" will report the second when it means
         the first, so this hands it both.
+
+        `external_hits` carries Resolve IntelliSearch rows (the JSON list
+        the Resolve-side collector wrote) merged through
+        `merge_external_evidence`: extra evidence beside Ren's answer,
+        never a replacement for it.
         """
         if floor is None:
             mode_floor, weak_floor, floor_source = floors_for(
@@ -1172,11 +1249,15 @@ class FootageIndex:
         }
         if not self.segments:
             report["error"] = "This index has no segments; build it against a project with ingest output."
+            if external_hits is not None:
+                merge_external_evidence(report, external_hits)
             return report
 
         combined, dense, lexical = self._raw_scores(query, mode)
         if combined is None:
             report["error"] = "This index has no embeddings; use mode='lexical'."
+            if external_hits is not None:
+                merge_external_evidence(report, external_hits)
             return report
 
         # A filter left unset is not a filter.  Stripping the Nones here
@@ -1191,6 +1272,8 @@ class FootageIndex:
             if not allowed:
                 report["abstained"] = True
                 report["error_hint"] = "no segment passes the facet filters"
+                if external_hits is not None:
+                    merge_external_evidence(report, external_hits)
                 return report
 
         mask = np.ones(len(self.segments), dtype=bool)
@@ -1224,6 +1307,8 @@ class FootageIndex:
                     "kind": self.segments[best]["kind"],
                 }
         report["abstained"] = not report["results"]
+        if external_hits is not None:
+            merge_external_evidence(report, external_hits)
         return report
 
     # ── video chunks (the unified-space visual lane) ───────────────
@@ -2414,6 +2499,29 @@ def _print_hits(results):
             print(f"     word '{word['word']}' at {word['start']}-{word['end']}s")
 
 
+def _print_external_evidence(report):
+    """Resolve IntelliSearch rows as a person reads them: extra, not Ren.
+
+    Printed after Ren's own answer on every path - including the abstain -
+    so Resolve's guess can never be mistaken for Ren's measurement.
+    """
+    rows = report.get("external_evidence") or []
+    refused = report.get("external_rejected") or []
+    if not rows and not refused:
+        return
+    print(f"\nResolve {report.get('external_source')} matched "
+          f"{len(rows)} clip(s) - extra evidence, NOT Ren-ranked; "
+          f"Ren's answer above stands as measured.")
+    for i, row in enumerate(rows):
+        span = row.get("timecode")
+        if span is None and row.get("start") is not None:
+            span = f"{row.get('start')}-{row.get('end')}"
+        what = row.get("text") or row.get("label") or row.get("query") or ""
+        print(f"  E{i + 1}. {row['clip_id']}  {span or 'whole clip'}  :: {what}")
+    for item in refused:
+        print(f"  refused external row {item['position']}: {item['reason']}")
+
+
 def _print_report(report):
     """A search report as a person reads it, abstain included."""
     bits = [f"query: {report['query']!r}", f"mode={report['mode']}",
@@ -2426,9 +2534,11 @@ def _print_report(report):
         print(f"DEGRADED: {report['degraded']}")
     if report.get("error"):
         print(report["error"])
+        _print_external_evidence(report)
         return
     if report["results"]:
         _print_hits(report["results"])
+        _print_external_evidence(report)
         return
 
     print("\nNOTHING in this footage cleared the floor - that is the answer, "
@@ -2441,6 +2551,7 @@ def _print_report(report):
         print(f"\n  {len(report['weak'])} weak match(es) between "
               f"{report['weak_floor']:.2f} and {report['floor']:.2f} - not confident:")
         _print_hits(report["weak"])
+    _print_external_evidence(report)
 
 
 def _print_chunk_report(report):
@@ -2563,6 +2674,18 @@ def _print_ocr_report(report):
         print(f"  text this footage carries: {', '.join(report['available_texts'])}")
 
 
+def _load_external_hits(path):
+    """The Resolve-side collector's JSON list, or a refusal naming the file."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError) as exc:
+        raise RenRefusal(
+            f"cannot read external hits from {path}",
+            f"{type(exc).__name__}: {exc}",
+            "hand over the JSON list the Resolve-side collector wrote")
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="footage_query",
@@ -2638,6 +2761,11 @@ def main(argv=None):
                                "it verifies, each with its reason")
     p_search.add_argument("--json", action="store_true",
                           help="with --predicate: print the whole answer as JSON")
+    p_search.add_argument("--external-hits", metavar="JSON",
+                           help="merge Resolve IntelliSearch rows from this JSON "
+                                "list file as EXTRA evidence beside Ren's "
+                                "answer (what the Resolve-side collector "
+                                "wrote); never replaces Ren search")
     p_search.add_argument("--index-dir")
 
     p_filter = sub.add_parser("filter", help="Select by measurable properties")
@@ -2684,7 +2812,11 @@ def main(argv=None):
     p_hybrid.add_argument("--max-motion", type=float)
     p_hybrid.add_argument("--person",
                           help="restrict to one person's measured face/voice "
-                              "spans (person_id or declared name)")
+                               "spans (person_id or declared name)")
+    p_hybrid.add_argument("--external-hits", metavar="JSON",
+                           help="merge Resolve IntelliSearch rows from this JSON "
+                                "list file as EXTRA evidence beside Ren's "
+                                "answer; never replaces Ren search")
     p_hybrid.add_argument("--index-dir")
 
     p_detail = sub.add_parser("detail", help="Full record for one segment")
@@ -2894,7 +3026,9 @@ def main(argv=None):
         started = time.perf_counter()
         report = idx.search_report(args.query, top_k=args.top_k, mode=args.mode,
                                    floor=args.floor,
-                                   filters={"person": args.person})
+                                   filters={"person": args.person},
+                                   external_hits=_load_external_hits(args.external_hits)
+                                   if args.external_hits else None)
         elapsed = time.perf_counter() - started
         _print_report(report)
         print(f"\n{elapsed * 1000:.1f} ms")
@@ -2928,6 +3062,8 @@ def main(argv=None):
                      "max_face_presence": args.max_face_presence,
                      "max_motion": args.max_motion,
                      "person": args.person},
+            external_hits=_load_external_hits(args.external_hits)
+            if args.external_hits else None,
         )
         elapsed = time.perf_counter() - started
         _print_report(report)
