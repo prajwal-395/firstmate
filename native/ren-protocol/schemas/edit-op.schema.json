@@ -910,6 +910,56 @@
       ]
     },
     {
+      "description": "Declared, NOT executable: reshaping a window is the same GUI\nroute as creating one.",
+      "type": "object",
+      "properties": {
+        "geometry": true,
+        "node_index": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "op": {
+          "type": "string",
+          "const": "color.window.modify"
+        },
+        "unique_id": {
+          "$ref": "#/$defs/ClipId"
+        }
+      },
+      "required": [
+        "op",
+        "unique_id",
+        "node_index",
+        "geometry"
+      ]
+    },
+    {
+      "description": "Declared, NOT executable: the tracker buttons are GUI-only.",
+      "type": "object",
+      "properties": {
+        "direction": {
+          "type": "string"
+        },
+        "node_index": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "op": {
+          "type": "string",
+          "const": "color.window.track"
+        },
+        "unique_id": {
+          "$ref": "#/$defs/ClipId"
+        }
+      },
+      "required": [
+        "op",
+        "unique_id",
+        "node_index",
+        "direction"
+      ]
+    },
+    {
       "description": "Declared, NOT executable: the eyedropper pick is GUI-only.",
       "type": "object",
       "properties": {

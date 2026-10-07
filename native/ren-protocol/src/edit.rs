@@ -284,6 +284,21 @@ pub enum EditOp {
         unique_id: ClipId,
         node_index: i64,
     },
+    /// Declared, NOT executable: reshaping a window is the same GUI
+    /// route as creating one.
+    #[serde(rename = "color.window.modify")]
+    WindowModify {
+        unique_id: ClipId,
+        node_index: i64,
+        geometry: Value,
+    },
+    /// Declared, NOT executable: the tracker buttons are GUI-only.
+    #[serde(rename = "color.window.track")]
+    WindowTrack {
+        unique_id: ClipId,
+        node_index: i64,
+        direction: String,
+    },
 
     // ── qualifiers (domain: color) ─────────────────────────────
     /// Declared, NOT executable: the eyedropper pick is GUI-only.
@@ -523,6 +538,8 @@ impl EditOp {
             EditOp::GradeNodeSet { .. } => "grade.node_set",
             EditOp::WindowCreate { .. } => "color.window.create",
             EditOp::WindowDelete { .. } => "color.window.delete",
+            EditOp::WindowModify { .. } => "color.window.modify",
+            EditOp::WindowTrack { .. } => "color.window.track",
             EditOp::QualifierSample { .. } => "color.qualifier.sample",
             EditOp::QualifierAdjust { .. } => "color.qualifier.adjust",
             EditOp::MaskCreate { .. } => "mask.create",

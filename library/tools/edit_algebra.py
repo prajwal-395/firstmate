@@ -1083,6 +1083,22 @@ def _window_create_key(op):
     return ("clip", op["unique_id"], "window", int(op["node_index"]))
 
 
+#: The tracker directions the Color page offers beside a window: Track
+#: Forward, Track Reverse (measured: Color > Tracker > Forward/Reverse).
+#: A bidirectional track is two ops, not a third vocabulary item.
+WINDOW_TRACK_DIRECTIONS = ("forward", "reverse")
+
+
+def _window_track_key(op):
+    """What a window track writes, refusing an invented direction."""
+    direction = op.get("direction")
+    if direction not in WINDOW_TRACK_DIRECTIONS:
+        raise ValueError(
+            f"color.window.track: bad track direction {direction!r}; one "
+            f"of {list(WINDOW_TRACK_DIRECTIONS)}")
+    return ("clip", op["unique_id"], "window", int(op["node_index"]))
+
+
 def _qualifier_sample_key(op):
     """What a qualifier sample writes, refusing an unclickable point.
 
@@ -1803,6 +1819,31 @@ ALGEBRA: dict[str, AlgebraOp] = {
         note="Declared, NOT executable: removing a window is the same "
              "GUI route as creating one. The pair exists so the undo "
              "chain terminates in the algebra."),
+    "color.window.modify": AlgebraOp(
+        id="color.window.modify", domain="color",
+        required=("unique_id", "node_index", "geometry"),
+        span=_item_span, item=True,
+        verify=lambda op, after: None,
+        key=lambda op: ("clip", op["unique_id"], "window",
+                        int(op["node_index"])),
+        merge="replace",
+        inverse=_self("the inverse carries the previous geometry"),
+        note="Declared, NOT executable: reshaping a window is the same "
+             "GUI route as creating one. The geometry is the recipe's "
+             "input, opaque here; the read-back lands with the tracking "
+             "slice."),
+    "color.window.track": AlgebraOp(
+        id="color.window.track", domain="color",
+        required=("unique_id", "node_index", "direction"),
+        span=_item_span, item=True,
+        verify=lambda op, after: None,
+        key=_window_track_key,
+        merge="replace",
+        inverse=_self("the inverse carries the previous window track"),
+        note="Declared, NOT executable: the tracker buttons (Track "
+             "Forward / Track Reverse) are GUI-only, and the tracked "
+             "result reads back only on sampled render frames, which "
+             "land with the tracking slice."),
     "color.qualifier.sample": AlgebraOp(
         id="color.qualifier.sample", domain="color",
         required=("unique_id", "node_index", "point"),

@@ -382,6 +382,20 @@ pub(crate) fn algebra() -> &'static [OpDeclaration] {
         item: true, has_apply: false,
         inverse: Inverse { op: Some(String::from("color.window.create")), self_inverse: false, reason: String::from("create draws the window delete removed, with its shape and geometry") },
     },
+    OpDeclaration {
+        id: "color.window.modify", domain: "color",
+        required: &["unique_id", "node_index", "geometry"],
+        merge: MergeSemantics::Replace, temporal: TemporalEffect::Local,
+        item: true, has_apply: false,
+        inverse: Inverse { op: None, self_inverse: true, reason: String::from("the inverse carries the previous geometry") },
+    },
+    OpDeclaration {
+        id: "color.window.track", domain: "color",
+        required: &["unique_id", "node_index", "direction"],
+        merge: MergeSemantics::Replace, temporal: TemporalEffect::Local,
+        item: true, has_apply: false,
+        inverse: Inverse { op: None, self_inverse: true, reason: String::from("the inverse carries the previous window track") },
+    },
     // ── qualifiers (domain: color) ─────────────────────────────
     OpDeclaration {
         id: "color.qualifier.sample", domain: "color",
@@ -805,6 +819,8 @@ pub fn span(op: &EditOp, base: &Snapshot) -> Option<(i64, i64)> {
         // ── power windows ──────────────────────────────────────
         EditOp::WindowCreate { unique_id, .. } => item_span(base, &unique_id.0),
         EditOp::WindowDelete { unique_id, .. } => item_span(base, &unique_id.0),
+        EditOp::WindowModify { unique_id, .. } => item_span(base, &unique_id.0),
+        EditOp::WindowTrack { unique_id, .. } => item_span(base, &unique_id.0),
 
         // ── qualifiers ─────────────────────────────────────────
         EditOp::QualifierSample { unique_id, .. } => item_span(base, &unique_id.0),
@@ -1126,6 +1142,13 @@ pub fn key(op: &EditOp) -> Vec<KeyPart> {
             KeyPart::Text("window".to_string()),
             KeyPart::Num(*node_index),
         ],
+        EditOp::WindowModify { unique_id, node_index, .. }
+        | EditOp::WindowTrack { unique_id, node_index, .. } => vec![
+            KeyPart::Text("clip".to_string()),
+            KeyPart::Text(unique_id.0.clone()),
+            KeyPart::Text("window".to_string()),
+            KeyPart::Num(*node_index),
+        ],
 
         // ── qualifiers ─────────────────────────────────────────
         EditOp::QualifierSample { unique_id, node_index, .. }
@@ -1339,6 +1362,8 @@ pub fn op_unique_id(op: &EditOp) -> Option<String> {
         EditOp::GradeNodeSet { unique_id, .. } => Some(unique_id.0.clone()),
         EditOp::WindowCreate { unique_id, .. } => Some(unique_id.0.clone()),
         EditOp::WindowDelete { unique_id, .. } => Some(unique_id.0.clone()),
+        EditOp::WindowModify { unique_id, .. } => Some(unique_id.0.clone()),
+        EditOp::WindowTrack { unique_id, .. } => Some(unique_id.0.clone()),
         EditOp::QualifierSample { unique_id, .. } => Some(unique_id.0.clone()),
         EditOp::QualifierAdjust { unique_id, .. } => Some(unique_id.0.clone()),
         EditOp::MaskCreate { unique_id, .. } => Some(unique_id.0.clone()),
@@ -1422,6 +1447,8 @@ pub fn op_frame(op: &EditOp) -> Option<i64> {
         EditOp::GradeNodeSet { .. } => None,
         EditOp::WindowCreate { .. } => None,
         EditOp::WindowDelete { .. } => None,
+        EditOp::WindowModify { .. } => None,
+        EditOp::WindowTrack { .. } => None,
         EditOp::QualifierSample { .. } => None,
         EditOp::QualifierAdjust { .. } => None,
         EditOp::MaskCreate { .. } => None,
