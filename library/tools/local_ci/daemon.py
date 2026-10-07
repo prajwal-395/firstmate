@@ -19,22 +19,27 @@ groups, never gates Tier-1). GitHub offers no push channel to a Mac
 behind NAT without opening a port; a webhook receiver is the
 documented future upgrade.
 
-One loop pass:
+The daemon keeps Tier-1 workers in a persistent pool while it polls:
+completed outcomes are recorded on the daemon thread, and a newly free
+slot triggers an immediate detection pass. This lets a new head use a
+free slot while another head is still running.
+
+One synchronous/manual pass:
 1. Measure the machine -> dispatch plan (jobs, pytest -n, window).
 2. Read open PRs targeting main (skip drafts); note first-seen heads.
 3. Known heads: enqueue when green + ready. New heads: Tier-1 now,
    in threads, as many as the plan allows.
 4. Ripe ready-cluster with no batch in flight -> Tier-2 process_once.
 
-A pass never overlaps itself: Tier-1 threads join before Tier-2, and
-ledger writes happen on the main thread only, so two workers never
-record over each other.
+Tier-1 ledger writes stay on the daemon thread, so concurrent results
+cannot overwrite each other's records.
 """
 
 from __future__ import annotations
 
 import concurrent.futures
 import os
+import threading
 import time
 from urllib.parse import urlsplit
 
@@ -194,30 +199,7 @@ def pass_once(world: queue.World, plan: dict | None = None) -> dict:
     plan = plan or load.targets(load.measure())
     done: dict = {"plan": load.describe(plan), "checked": [],
                   "queued": [], "refused": [], "queue": {}}
-    try:
-        prs = github.list_open_prs()
-    except github.GitHubError as exc:
-        done["refused"].append(f"github unreachable: {exc}")
-        return done
-    checks = state.read_checks(world.state_dir)
-    due = []
-    for pr in sorted(prs, key=lambda p: p["number"]):
-        if pr.get("draft") or pr.get("base") != "main":
-            continue
-        seen_at = state.note_seen(pr["number"], pr["head"], world.state_dir)
-        known = checks.get(pr["head"])
-        if known and known.get("pr") == pr["number"]:
-            if not known.get("status_posted", False):
-                if not _publish_check_status(known, world.state_dir):
-                    done["refused"].append(
-                        f"PR #{pr['number']}: verdict ready; status delivery "
-                        "will retry next pass")
-                    continue
-                known = state.read_checks(world.state_dir).get(
-                    pr["head"], known)
-            _maybe_enqueue(world, pr, known, done)
-            continue
-        due.append((pr, seen_at))
+    due, checks = _discover_due(world, done)
     if due:
         slots = hygiene.Slots(world.state_dir, jobs=plan["tier1_jobs"])
 
@@ -284,7 +266,170 @@ def _maybe_enqueue(world: queue.World, pr: dict, record: dict, done: dict) -> No
     if config.READY_LABEL not in (pr.get("labels") or []):
         return
     state.enqueue(pr["number"], pr["head"], world.state_dir)
-    done["queued"].append(pr["number"])
+    if pr["number"] not in done["queued"]:
+        done["queued"].append(pr["number"])
+
+
+def _discover_due(world: queue.World, done: dict) -> tuple[list, dict]:
+    """Read open heads and return only new, non-draft main-bound heads."""
+    from library.tools.local_ci import github
+    try:
+        prs = github.list_open_prs()
+    except github.GitHubError as exc:
+        done["refused"].append(f"github unreachable: {exc}")
+        return [], state.read_checks(world.state_dir)
+
+    checks = state.read_checks(world.state_dir)
+    due = []
+    for pr in sorted(prs, key=lambda item: item["number"]):
+        if pr.get("draft") or pr.get("base") != "main":
+            continue
+        seen_at = state.note_seen(pr["number"], pr["head"], world.state_dir)
+        known = checks.get(pr["head"])
+        if known and known.get("pr") == pr["number"]:
+            if not known.get("status_posted", False):
+                if not _publish_check_status(known, world.state_dir):
+                    done["refused"].append(
+                        f"PR #{pr['number']}: verdict ready; status delivery "
+                        "will retry next pass")
+                    continue
+                known = state.read_checks(world.state_dir).get(
+                    pr["head"], known)
+            _maybe_enqueue(world, pr, known, done)
+            continue
+        due.append((pr, seen_at))
+    return due, checks
+
+
+class Tier1Scheduler:
+    """Dispatch Tier-1 asynchronously and serialize result bookkeeping."""
+
+    def __init__(self, world: queue.World,
+                 max_workers: int = load.TIER1_MAX) -> None:
+        self.world = world
+        self._pool = concurrent.futures.ThreadPoolExecutor(
+            max_workers=max(1, max_workers),
+            thread_name_prefix="ren-ci-tier1")
+        self._lock = threading.Lock()
+        self._inflight: set[str] = set()
+        self._futures: dict[concurrent.futures.Future, tuple] = {}
+
+    def has_completed(self) -> bool:
+        """Whether result bookkeeping should run before the next timer."""
+        with self._lock:
+            return any(future.done() for future in self._futures)
+
+    def _run(self, pr: dict, seen_at: float, workers: int,
+             slots_limit: int) -> dict:
+        slots = hygiene.Slots(self.world.state_dir, jobs=slots_limit)
+        with slots.claim({"kind": "tier1", "pr": pr["number"],
+                          "head": pr["head"]}) as slot:
+            if slot is None:
+                return {"slot": None, "problem": "no free slot"}
+            try:
+                outcome = run_tier1(self.world, pr, workers)
+            except hygiene.HygieneRefused as exc:
+                return {"slot": slot, "problem": str(exc)}
+            except Exception as exc:  # noqa: BLE001 - retry daemon crashes
+                return {"slot": slot, "crashed": str(exc)}
+            return {"slot": slot, "outcome": outcome}
+
+    def collect(self, done: dict) -> None:
+        """Record completed worker results on this caller thread."""
+        with self._lock:
+            completed = [(future, *self._futures[future])
+                         for future in self._futures if future.done()]
+        from library.tools.local_ci import github
+        for future, pr, seen_at in completed:
+            try:
+                try:
+                    result = future.result()
+                except Exception as exc:  # noqa: BLE001 - fail pending
+                    result = {"slot": None, "crashed": str(exc)}
+                slot = result.get("slot")
+                if "outcome" in result:
+                    outcome = result["outcome"]
+                    record = finish_tier1(
+                        self.world, pr, outcome, seen_at, slot)
+                    done["checked"].append(pr["number"])
+                    _maybe_enqueue(self.world, pr, record, done)
+                elif "crashed" in result:
+                    try:
+                        github.post_status(
+                            pr["head"], "pending",
+                            "ren-ci: internal error, retrying next pass",
+                            pr["url"])
+                    except github.GitHubError:
+                        pass
+                    done["refused"].append(
+                        f"PR #{pr['number']}: crashed: {result['crashed']}")
+                else:
+                    problem = result.get("problem", "check did not start")
+                    done["refused"].append(
+                        f"PR #{pr['number']}: {problem}")
+                    if problem != "no free slot":
+                        try:
+                            github.post_status(
+                                pr["head"], "pending",
+                                f"ren-ci deferred: {problem}"[:140],
+                                pr["url"])
+                        except github.GitHubError:
+                            pass
+            finally:
+                with self._lock:
+                    self._futures.pop(future, None)
+                    self._inflight.discard(pr["head"])
+
+    def poll_once(self, plan: dict | None = None) -> dict:
+        """Collect completed work, detect heads, and fill free slots."""
+        plan = plan or load.targets(load.measure())
+        done = {"plan": load.describe(plan), "checked": [], "started": [],
+                "queued": [], "refused": [], "queue": {}}
+        self.collect(done)
+        due, _ = _discover_due(self.world, done)
+
+        active_jobs = hygiene.running_jobs(self.world.state_dir)
+        active_heads = {job.get("head") for job in active_jobs}
+        active_slots = {job["slot"] for job in active_jobs}
+        with self._lock:
+            active_reserved = len(self._inflight - active_heads)
+            in_flight = set(self._inflight)
+        active_count = len(active_slots) + active_reserved
+        target = min(max(1, int(plan["tier1_jobs"])), load.TIER1_MAX)
+        capacity = max(0, target - active_count)
+        for pr, seen_at in sorted(due, key=lambda item: item[1]):
+            head = pr["head"]
+            if capacity <= 0:
+                break
+            if head in active_heads or head in in_flight:
+                continue
+            with self._lock:
+                if head in self._inflight:
+                    continue
+                self._inflight.add(head)
+                future = self._pool.submit(
+                    self._run, pr, seen_at, int(plan["pytest_n"]), target)
+                self._futures[future] = (pr, seen_at)
+            in_flight.add(head)
+            capacity -= 1
+            done["started"].append(pr["number"])
+
+        entries = state.read_queue(self.world.state_dir)
+        if (not self._futures
+                and not hygiene.running_jobs(self.world.state_dir)
+                and any(entry.get("status") in
+                        (state.ENTRY_QUEUED, state.ENTRY_GREEN)
+                        for entry in entries)
+                and not any(entry.get("status") == state.ENTRY_TESTING
+                            for entry in entries)
+                and not hygiene.gate_running()):
+            done["queue"] = queue.process_once(
+                self.world, window=plan["window"])
+        return done
+
+    def shutdown(self, wait: bool = True) -> None:
+        """Close test workers; used by deterministic scheduler tests."""
+        self._pool.shutdown(wait=wait)
 
 
 def check_pr(world: queue.World, pr: dict, slot: int,
@@ -296,18 +441,25 @@ def check_pr(world: queue.World, pr: dict, slot: int,
 
 
 def serve(state_dir: str = "", poll: int = config.POLL_SECONDS) -> int:
-    """The daemon: passes until killed. Returns never (0 on clean exit)."""
+    """Keep polling while Tier-1 checks run; return 0 only on clean exit."""
     world = queue.World(state_dir=state_dir or config.state_dir())
     os.makedirs(os.path.join(world.state_dir, "logs"), exist_ok=True)
     print(f"ren-ci serving {config.OWNER}/{config.REPO} "
           f"from {world.state_dir}", flush=True)
+    scheduler = Tier1Scheduler(world)
+    next_poll = 0.0
     while True:
-        try:
-            result = pass_once(world)
-            print(f"ren-ci pass [{result['plan']}]: "
-                  f"checked={result['checked']} queued={result['queued']} "
-                  f"refused={result['refused']} queue={result['queue']}",
-                  flush=True)
-        except Exception as exc:  # noqa: BLE001 - one pass must not stop polling
-            print(f"ren-ci pass failed: {exc}", flush=True)
-        time.sleep(poll)
+        now = time.monotonic()
+        if now >= next_poll or scheduler.has_completed():
+            try:
+                result = scheduler.poll_once(load.targets(load.measure()))
+                print(f"ren-ci pass [{result['plan']}]: "
+                      f"started={result['started']} "
+                      f"checked={result['checked']} queued={result['queued']} "
+                      f"refused={result['refused']} queue={result['queue']}",
+                      flush=True)
+            except Exception as exc:  # noqa: BLE001 - polling must continue
+                print(f"ren-ci pass failed: {exc}", flush=True)
+            next_poll = time.monotonic() + poll
+        wait = max(0.0, next_poll - time.monotonic())
+        time.sleep(min(1.0, wait))

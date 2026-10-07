@@ -6,6 +6,9 @@ keeps its queue label, and latency nobody recorded (untunable).
 GitHub is faked; the ledger is real (tmp state dir).
 """
 
+import threading
+import time
+
 import pytest
 
 from library.tools.local_ci import config, daemon, queue, state
@@ -57,6 +60,90 @@ def test_two_new_heads_both_get_checked(monkeypatch, tmp_path, faked_github):
     checks = state.read_checks(str(tmp_path))
     assert sorted(c["pr"] for c in checks.values()) == [1, 2]
     assert all(c["tier1_latency"] >= 0 for c in checks.values())
+
+
+def test_daemon_polls_and_dispatches_while_a_check_is_running(
+        monkeypatch, tmp_path, faked_github):
+    first, second = _pr(1), _pr(2)
+    faked_github.prs = [first]
+    first_started = threading.Event()
+    release_first = threading.Event()
+    second_started = threading.Event()
+
+    def run_tier1(world, pr, workers):
+        if pr["number"] == 1:
+            first_started.set()
+            assert release_first.wait(timeout=5)
+        else:
+            second_started.set()
+        return _outcome(pr)
+
+    monkeypatch.setattr(daemon, "run_tier1", run_tier1)
+    monkeypatch.setattr(daemon.hygiene, "gate_running", lambda: False)
+    scheduler = daemon.Tier1Scheduler(queue.World(state_dir=str(tmp_path)))
+    plan = {"tier1_jobs": 2, "pytest_n": 1, "window": 0,
+            "headroom": 9.0, "heavy": []}
+    try:
+        first_poll = scheduler.poll_once(plan)
+        assert first_poll["started"] == [1]
+        assert first_started.wait(timeout=2)
+
+        faked_github.prs = [first, second]
+        second_poll = scheduler.poll_once(plan)
+        assert second_poll["started"] == [2]
+        assert second_started.wait(timeout=2)
+
+        deadline = time.monotonic() + 2
+        while not scheduler.has_completed() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        completed = scheduler.poll_once(plan)
+        checks = state.read_checks(str(tmp_path))
+        assert completed["checked"] == [2]
+        assert "head-2" in checks
+        assert "head-1" not in checks
+        assert not release_first.is_set()
+    finally:
+        release_first.set()
+        scheduler.shutdown(wait=True)
+        cleanup = {"checked": [], "queued": [], "refused": [], "queue": {}}
+        scheduler.collect(cleanup)
+
+
+def test_serve_polls_immediately_when_a_worker_finishes(
+        monkeypatch, tmp_path):
+    class StopLoop(Exception):
+        pass
+
+    class FakeScheduler:
+        def __init__(self, world):
+            self.polls = 0
+
+        def has_completed(self):
+            return self.polls == 1
+
+        def poll_once(self, plan):
+            self.polls += 1
+            return {"plan": "test", "started": [], "checked": [],
+                    "queued": [], "refused": [], "queue": {}}
+
+    clock = [0.0]
+    scheduler = FakeScheduler(None)
+
+    def fake_sleep(seconds):
+        clock[0] += seconds
+        if scheduler.polls == 2:
+            raise StopLoop
+
+    monkeypatch.setattr(daemon, "Tier1Scheduler", lambda world: scheduler)
+    monkeypatch.setattr(daemon.load, "measure", dict)
+    monkeypatch.setattr(daemon.load, "targets", lambda snapshot: {})
+    monkeypatch.setattr(daemon.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(daemon.time, "sleep", fake_sleep)
+
+    with pytest.raises(StopLoop):
+        daemon.serve(str(tmp_path), poll=30)
+
+    assert scheduler.polls == 2
 
 
 def test_green_ready_enters_the_queue_red_loses_its_label(
