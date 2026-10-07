@@ -107,6 +107,21 @@ def _reply(*, calls):
     return run
 
 
+def _outcome_writer(*, calls):
+    from types import SimpleNamespace
+
+    def record_plan(*args, **kwargs):
+        calls.append("plan")
+        return {"status": "planned"}
+
+    def record_blocked(*args, **kwargs):
+        calls.append("blocked")
+        return {"status": "blocked"}
+
+    return SimpleNamespace(record_plan=record_plan,
+                           record_blocked=record_blocked)
+
+
 def _live():
     from types import SimpleNamespace
 
@@ -122,9 +137,11 @@ def test_rebuild_verdict_touches_nothing(calls, live_snapshot):
         operations=[], scope={}, idempotency_key="k",
         decide=lambda note: _decide_rebuild(note, calls=calls),
         apply_patch=_apply(calls=calls), record=_record(calls=calls),
-        write_reply=_reply(calls=calls))
+        write_reply=_reply(calls=calls),
+        record_outcome=_outcome_writer(calls=calls))
     assert out["action"] == flow.ACTION_REBUILD
-    assert calls == ["decide"]
+    assert out["outcome"]["status"] == "planned"
+    assert calls == ["decide", "plan"]
 
 
 def test_patch_records_then_replies_in_order(calls, live_snapshot):
@@ -155,8 +172,9 @@ def test_apply_refusal_records_nothing(calls, live_snapshot):
             project=project, timeline=timeline,
             decide=lambda note: _decide_patch(note, calls=calls),
             apply_patch=refuse, record=_record(calls=calls),
-            write_reply=_reply(calls=calls))
-    assert calls == ["decide", "apply"]
+            write_reply=_reply(calls=calls),
+            record_outcome=_outcome_writer(calls=calls))
+    assert calls == ["decide", "apply", "blocked"]
 
 
 def test_unverified_record_writes_no_reply(calls, live_snapshot):
@@ -180,8 +198,47 @@ def test_patch_without_live_handles_refuses(calls, live_snapshot):
             operations=[], scope={}, idempotency_key="k",
             decide=lambda note: _decide_patch(note, calls=calls),
             apply_patch=_apply(calls=calls), record=_record(calls=calls),
-            write_reply=_reply(calls=calls))
-    assert calls == ["decide"]
+            write_reply=_reply(calls=calls),
+            record_outcome=_outcome_writer(calls=calls))
+    assert calls == ["decide", "blocked"]
+
+
+def test_readback_failure_records_applied_patch_as_unverified(
+        calls, live_snapshot):
+    from types import SimpleNamespace
+
+    recorded = {}
+
+    def record_blocked(*args, **kwargs):
+        calls.append("blocked")
+        recorded.update(kwargs)
+        return {"status": "blocked"}
+
+    outcomes = SimpleNamespace(record_plan=lambda *args, **kwargs: {},
+                               record_blocked=record_blocked)
+
+    def fail_get_name():
+        raise RuntimeError("Resolve read-back unavailable")
+
+    project = SimpleNamespace(GetName=fail_get_name)
+    timeline = SimpleNamespace(GetName=lambda: "Q Markers")
+    with pytest.raises(RuntimeError, match="Resolve read-back unavailable"):
+        flow.handle_note(
+            routed_note=_note(), project_folder="/tmp/nowhere",
+            operations=[{"op": "marker.add", "frame": 713}],
+            scope={"clips": [], "marker_frames": [713], "clip_markers": []},
+            idempotency_key="k", project=project, timeline=timeline,
+            decide=lambda note: _decide_patch(note, calls=calls),
+            apply_patch=_apply(calls=calls), record=_record(calls=calls),
+            write_reply=_reply(calls=calls), record_outcome=outcomes)
+
+    assert calls == ["decide", "apply", "blocked"]
+    assert "patch applied" in recorded["reason"]
+    assert recorded["summary"] == (
+        "The patch was applied, but the timeline read-back failed; "
+        "completion is unverified.")
+    assert recorded["reel_versions"]["before"]["generation"] == 7
+    assert recorded["reel_versions"]["after"]["generation"] is None
 
 
 # ── The green reply sits beside the blue, never on it ───────────────

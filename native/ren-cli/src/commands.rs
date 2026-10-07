@@ -212,6 +212,7 @@ const VERBS: &[Verb] = &[
     Verb { name: "revert", group: "Reels", summary: "Revert a creative commit: record its inverse as a new commit" },
     Verb { name: "pr-body", group: "Reels", summary: "Generate the PR-body enumeration for a ledger change (read only)" },
     Verb { name: "notes", group: "Reels", summary: "Show which timeline note went to which step" },
+    Verb { name: "outcomes", group: "Reels", summary: "Show feedback notes and their recorded outcomes" },
     Verb { name: "take-pick", group: "Reels", summary: "Print one reel's takes, freshness, snap deltas and boundary words in one read" },
     Verb { name: "commits", group: "Reels", summary: "Show a project's creative commits: what each touch-up changed and why" },
     Verb { name: "branches", group: "Reels", summary: "Show a project's creative branches: what each branch stands on" },

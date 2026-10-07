@@ -510,6 +510,7 @@ class ResolutionRecord:
     removal: dict = field(default_factory=dict)
 
     resolved_at: str = ""
+    outcome_id: str = ""
     format: str = RESOLUTION_FORMAT
 
 
@@ -577,7 +578,8 @@ def record_resolution(project_folder, note: dict, status: str, action: str = "",
                       evidence=None, verifier: str = "",
                       marker_removed: bool = False,
                       marker_still_present: bool = True,
-                      removal=None) -> dict:
+                      removal=None, outcome_id: str = "",
+                      outcome_details=None) -> dict:
     """Write this note's resolution record. Returns the record dict.
 
     The captain's words go in first, unconditionally: whatever happens
@@ -603,11 +605,17 @@ def record_resolution(project_folder, note: dict, status: str, action: str = "",
         marker_still_present=bool(marker_still_present),
         removal=dict(removal or {}),
         resolved_at=datetime.now(timezone.utc).isoformat(),
+        outcome_id=outcome_id or uuid.uuid4().hex,
         **_note_text_fields(note),
     )
     payload = asdict(record)
     resolution_path(project_folder, record.note_id).write_text(
         json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    from library.tools import feedback_outcomes
+
+    feedback_outcomes.record_resolution_outcome(
+        project_folder, payload, outcome_id=record.outcome_id,
+        details=outcome_details)
     return payload
 
 
@@ -988,7 +996,8 @@ def _current_marker_key(note: dict, timeline=None, item=None):
 
 def resolve_note(project_folder, note: dict, action: str, rationale: str,
                  check: str = "", measured=None, verifier: str = "",
-                 timeline=None, item=None, resolve_project=None) -> dict:
+                 timeline=None, item=None, resolve_project=None,
+                 outcome_details=None, outcome_id: str = "") -> dict:
     """Answer one collected note, clearing its marker only from proof.
 
     * A decline (`is_decline(action)`) is recorded as `declined` and the
@@ -1010,24 +1019,30 @@ def resolve_note(project_folder, note: dict, action: str, rationale: str,
     """
     action = action or ""
     rationale = rationale or ""
+    outcome_id = outcome_id or uuid.uuid4().hex
+
+    def record(status, **kwargs):
+        return record_resolution(
+            project_folder, note, status, action, rationale,
+            outcome_id=outcome_id, outcome_details=outcome_details,
+            **kwargs)
 
     if is_decline(action):
-        record = record_resolution(
-            project_folder, note, STATUS_DECLINED, action, rationale,
+        record_doc = record(
+            STATUS_DECLINED,
             check=check or "", evidence={},
             verifier=verifier or "marker_resolution.is_decline",
             marker_removed=False, marker_still_present=True,
             removal={"marker_touched": False,
                      "reason": "a declined note is acknowledged, not "
                                "addressed - its marker stays"})
-        return {"record": record, "marker_touched": False}
+        return {"record": record_doc, "marker_touched": False}
 
     if not check:
         verifiable, why = verifiability_of(note)
         if verifiable:
-            record = record_resolution(
-                project_folder, note, STATUS_ADDRESSED_UNVERIFIED,
-                action, rationale, check="", evidence={},
+            record_doc = record(
+                STATUS_ADDRESSED_UNVERIFIED, check="", evidence={},
                 verifier=verifier or "marker_resolution.verifiability_of",
                 marker_removed=False, marker_still_present=True,
                 removal={"marker_touched": False,
@@ -1035,43 +1050,39 @@ def resolve_note(project_folder, note: dict, action: str, rationale: str,
                                    f"named to prove it ({why}); the marker "
                                    f"stays until one does"})
         else:
-            record = record_resolution(
-                project_folder, note, STATUS_UNVERIFIABLE,
-                action, rationale, check="", evidence={},
+            record_doc = record(
+                STATUS_UNVERIFIABLE, check="", evidence={},
                 verifier=verifier or "marker_resolution.verifiability_of",
                 marker_removed=False, marker_still_present=True,
                 removal={"marker_touched": False, "reason": why})
-        return {"record": record, "marker_touched": False}
+        return {"record": record_doc, "marker_touched": False}
 
     passed, evidence = verify(check, measured or {})
     if not passed:
-        record = record_resolution(
-            project_folder, note, STATUS_ADDRESSED_UNVERIFIED,
-            action, rationale, check=check, evidence=evidence,
+        record_doc = record(
+            STATUS_ADDRESSED_UNVERIFIED, check=check, evidence=evidence,
             verifier=verifier or f"marker_resolution.CHECKS[{check}]",
             marker_removed=False, marker_still_present=True,
             removal={"marker_touched": False,
                      "reason": "the named check did not pass on the "
                                "supplied measurement - the marker stays"})
-        return {"record": record, "marker_touched": False}
+        return {"record": record_doc, "marker_touched": False}
 
     # PASSED. The words go down first - before anything is deleted.
-    record = record_resolution(
-        project_folder, note, STATUS_RESOLVED_VERIFIED,
-        action, rationale, check=check, evidence=evidence,
+    record_doc = record(
+        STATUS_RESOLVED_VERIFIED, check=check, evidence=evidence,
         verifier=verifier or f"marker_resolution.CHECKS[{check}]",
         marker_removed=False, marker_still_present=True,
         removal={"marker_touched": False,
                  "reason": "check passed; removal pending"})
     key, refusal = _current_marker_key(note, timeline=timeline, item=item)
     if key is None:
-        record = record_resolution(
-            project_folder, note, STATUS_RESOLVED_VERIFIED,
-            action, rationale, check=check, evidence=evidence,
+        record_doc = record(
+            STATUS_RESOLVED_VERIFIED, check=check, evidence=evidence,
             verifier=verifier or f"marker_resolution.CHECKS[{check}]",
             marker_removed=False, marker_still_present=True,
             removal={"marker_touched": False, "reason": refusal})
-        return {"record": record, "marker_touched": False}
+        return {"record": record_doc, "marker_touched": False}
     source = (note or {}).get("source", "")
     expected_marker = {
         "name": (note or {}).get("name") or "",
@@ -1086,14 +1097,13 @@ def resolve_note(project_folder, note: dict, action: str, rationale: str,
         outcome = delete_clip_marker(
             resolve_project, timeline, item, key,
             expected_marker=expected_marker, idempotency_key=patch_id)
-    record = record_resolution(
-        project_folder, note, STATUS_RESOLVED_VERIFIED,
-        action, rationale, check=check, evidence=evidence,
+    record_doc = record(
+        STATUS_RESOLVED_VERIFIED, check=check, evidence=evidence,
         verifier=verifier or f"marker_resolution.CHECKS[{check}]",
         marker_removed=bool(outcome.get("removed")),
         marker_still_present=bool(outcome.get("still_present", True)),
         removal={**outcome, "marker_touched": True})
-    return {"record": record, "marker_touched": True}
+    return {"record": record_doc, "marker_touched": True}
 
 
 # ── CLI ───────────────────────────────────────────────────────────

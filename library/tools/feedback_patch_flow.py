@@ -34,6 +34,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import uuid
 from pathlib import Path
 
 _HERE = Path(__file__).resolve()
@@ -80,6 +81,36 @@ def _note_text(note: dict) -> str:
     return "\n\n".join(
         part for part in (str((note or {}).get("name") or ""),
                           str((note or {}).get("note") or "")) if part)
+
+
+def _change_summary(operations: list) -> str:
+    """Describe the supported patch operations in words a reviewer can scan."""
+    summaries = []
+    for operation in operations:
+        kind = str(operation.get("op") or "")
+        frame = operation.get("frame")
+        unique_id = str(operation.get("unique_id") or "")
+        if kind == "marker.add":
+            summaries.append(f"Added a timeline marker at frame {frame}.")
+        elif kind == "marker.delete":
+            summaries.append(f"Removed a timeline marker at frame {frame}.")
+        elif kind == "clip_marker.add":
+            summaries.append(
+                f"Added a marker at source frame {frame} on clip {unique_id}.")
+        elif kind == "clip_marker.delete":
+            summaries.append(
+                f"Removed a marker at source frame {frame} on clip {unique_id}.")
+        elif kind == "clip.set_property":
+            prop = str(operation.get("property") or "property")
+            summaries.append(
+                f"Set {prop} on clip {unique_id} to "
+                f"{operation.get('value')!r}.")
+        elif kind == "clip.set_enabled":
+            state = "enabled" if operation.get("enabled") else "disabled"
+            summaries.append(f"{state.capitalize()} clip {unique_id}.")
+        else:
+            summaries.append(f"Applied {kind or 'an edit'}.")
+    return " ".join(summaries) or "No patch operations were supplied."
 
 
 def default_reply_writer(*, project, timeline, routed_note: dict,
@@ -164,7 +195,7 @@ def handle_note(*, routed_note: dict, project_folder: str,
                 operations: list, scope: dict, idempotency_key: str,
                 project=None, timeline=None, decide=None,
                 apply_patch=None, record=None,
-                write_reply=None) -> dict:
+                write_reply=None, record_outcome=None) -> dict:
     """Patch this note in place, or hand it back for the rebuild.
 
     `operations`/`scope` are the fix the author computed; `project` and
@@ -172,39 +203,100 @@ def handle_note(*, routed_note: dict, project_folder: str,
     (required only when the verdict is a patch). Returns
     `{"action": "patched", ...}` or `{"action": "rebuild", ...}`.
     """
-    from library.tools import marker_resolution
+    from library.tools import marker_resolution, feedback_outcomes
 
     note = dict(routed_note or {})
-    verdict = (decide or _default_decide)(note)
+    outcome_id = uuid.uuid4().hex
+    outcome_writer = record_outcome or feedback_outcomes
+    try:
+        verdict = (decide or _default_decide)(note)
+    except Exception as exc:
+        outcome_writer.record_blocked(
+            project_folder, note, reason=f"could not classify the note: {exc}",
+            action_kind="blocked", outcome_id=outcome_id)
+        raise
+    if not isinstance(verdict, dict):
+        reason = "the classifier returned no usable decision"
+        outcome_writer.record_blocked(
+            project_folder, note, reason=reason, action_kind="blocked",
+            outcome_id=outcome_id)
+        raise FlowNotReady(reason)
     if verdict.get("verdict") != "patch":
-        return {"action": ACTION_REBUILD,
-                "reason": verdict.get("reason", "")}
+        reason = str(verdict.get("reason", ""))
+        outcome = outcome_writer.record_plan(
+            project_folder, note, action_kind="rebuild",
+            summary=reason or "The note will be handled in the next rebuild.",
+            outcome_id=outcome_id)
+        return {"action": ACTION_REBUILD, "reason": reason,
+                "outcome": outcome}
     if project is None or timeline is None:
-        raise FlowNotReady(
-            "a patch verdict needs the live Resolve handles - refusing "
-            "rather than recording a patch that never ran")
+        reason = ("a patch verdict needs the live Resolve handles; the "
+                  "patch did not run")
+        outcome_writer.record_blocked(
+            project_folder, note, reason=reason, action_kind="patch",
+            outcome_id=outcome_id)
+        raise FlowNotReady(reason)
     if not idempotency_key:
-        raise FlowNotReady("a patch needs a non-empty idempotency key")
-    receipt = (apply_patch or _default_apply)(
-        project=project, timeline=timeline, operations=operations,
-        scope=scope, idempotency_key=idempotency_key,
-        project_folder=project_folder)
+        reason = "a patch needs a non-empty idempotency key"
+        outcome_writer.record_blocked(
+            project_folder, note, reason=reason, action_kind="patch",
+            outcome_id=outcome_id)
+        raise FlowNotReady(reason)
+    try:
+        receipt = (apply_patch or _default_apply)(
+            project=project, timeline=timeline, operations=operations,
+            scope=scope, idempotency_key=idempotency_key,
+            project_folder=project_folder)
+    except Exception as exc:
+        outcome_writer.record_blocked(
+            project_folder, note, reason=f"patch did not complete: {exc}",
+            action_kind="patch", outcome_id=outcome_id)
+        raise
 
     from library.tools.timeline_shadow import snapshot_hash
     from library.tools import timeline_shadow as shadow
 
-    project_name = project.GetName()
-    _, timeline_id, _ = shadow.timeline_key(project, timeline)
-    post_hash = snapshot_hash(shadow.read_live(project, timeline))
+    patch_generation = receipt["patch"].get("generation")
+    version_refs = {
+        "before": {"generation": receipt["backup"].get("generation"),
+                   "snapshot_hash": receipt["backup"].get("hash")},
+        "after": {"generation": patch_generation},
+        "reason": ("timeline-shadow generations record this in-place patch; "
+                   "no promoted reel build was run"),
+    }
+    try:
+        project_name = project.GetName()
+        _, timeline_id, _ = shadow.timeline_key(project, timeline)
+        post_hash = snapshot_hash(shadow.read_live(project, timeline))
+    except Exception as exc:
+        outcome_writer.record_blocked(
+            project_folder, note,
+            reason=f"the patch applied but timeline read-back failed: {exc}",
+            action_kind="patch", outcome_id=outcome_id,
+            summary=("The patch was applied, but the timeline read-back "
+                     "failed; completion is unverified."),
+            reel_versions=version_refs)
+        raise
     measured = {"resolve_project": project_name,
                 "timeline_id": timeline_id,
                 "post_hash": post_hash, "head_hash": post_hash}
+    version_refs["after"] = {
+        "generation": patch_generation,
+        "snapshot_hash": post_hash,
+    }
+    outcome_details = {
+        "action_kind": "patch",
+        "change_summary": _change_summary(operations),
+        "verification_state": "timeline_readback",
+        "reel_versions": version_refs,
+    }
     record_out = (record or marker_resolution.resolve_note)(
         project_folder, note,
         action=f"patched in place ({receipt['patch'].get('status')})",
         rationale=str(verdict.get("reason", "")),
         check=marker_resolution.CHECK_FEEDBACK_PATCH, measured=measured,
-        verifier="feedback_patch_flow.handle_note")
+        verifier="feedback_patch_flow.handle_note",
+        outcome_details=outcome_details, outcome_id=outcome_id)
     record_doc = record_out.get("record", record_out)
     if record_doc.get("status") != "resolved_verified":
         raise FlowNotReady(
