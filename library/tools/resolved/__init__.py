@@ -25,7 +25,8 @@ Two shapes of job, because Resolve's handles cannot cross a process:
   `timeline.snapshot`, `timeline.observe_current`, `timeline.apply_patch`,
   `resolve_axi`,
   `resolve.ui_transaction`, `reel.promote_staged` (typed and restricted
-  to the already-open `Ren Qualification` project).
+  to the already-open `Ren Qualification` project), and
+  `timeline.drt_export_probe` (typed, Qualification-only DRT export).
 * GRANT (`lease`) - an in-process critical section the CALLER runs.
   `resolve_lock.resolve_lease` asks the broker for its turn whenever a
   broker is serving, so every existing lease call site is scheduled

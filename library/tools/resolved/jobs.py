@@ -58,6 +58,10 @@ Kinds
                        record, restricted to the open `Ren Qualification`
                        project and held for the whole take. Caller payload
                        is data, never Python.
+`timeline.drt_export_probe`
+                       Export one non-current timeline by UID to a DRT
+                       recovery archive, for `Ren Qualification` only.
+                       Typed and read-only with respect to Resolve state.
 """
 
 from __future__ import annotations
@@ -79,7 +83,7 @@ KINDS = ("lease", "timeline.snapshot", "timeline.observe_current",
          "timeline.apply_patch",
           "resolve_axi", "fusion.registry_summary",
           "resolve.ui_transaction", "reel.promote_staged",
-          "resolve.qualification_session")
+          "resolve.qualification_session", "timeline.drt_export_probe")
 
 
 #: The resolve-axi commands the broker will run, by name. The broker is
@@ -335,6 +339,12 @@ def prepare(kind: str, params: dict, qualification: bool = False) -> dict:
                  "project": project, "timeline": "",
                  "locality": "project",
                  "coalesce_key": None}
+    elif kind == "timeline.drt_export_probe":
+        from library.tools.resolved import drt_export_probe
+        shape = drt_export_probe.prepare(params)
+        # This is a qualification job even when the caller omits the
+        # generic qualification flag. It must never reach a user project.
+        qualification = True
     elif kind == "reel.promote_staged":
         from library.tools.resolved import reel_promotion
         shape = reel_promotion.prepare(params)
@@ -501,6 +511,9 @@ def run(job: dict, resolve) -> dict | None:
                          timeline_name=job.get("timeline"),
                          run_id=job.get("id")):
             return ui_transaction.run(job, resolve, project=project)
+    if kind == "timeline.drt_export_probe":
+        from library.tools.resolved import drt_export_probe
+        return drt_export_probe.run(job, resolve, project=project)
     timeline = _timeline(project, job["timeline"])
     if kind == "timeline.snapshot":
         from library.tools import timeline_shadow

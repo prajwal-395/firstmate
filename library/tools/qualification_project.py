@@ -114,6 +114,11 @@ def promotion_project_folder() -> Path:
     return media_dir() / "promotion_project"
 
 
+def drt_export_probe_project_folder() -> Path:
+    """The isolated file store for non-current DRT export qualification."""
+    return media_dir() / "drt_export_probe_project"
+
+
 def frames(clip: str) -> int:
     return next(seconds for name, seconds, _, _ in MEDIA
                 if name == clip) * FPS
