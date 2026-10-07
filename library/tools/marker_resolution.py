@@ -266,6 +266,7 @@ def check_declaration_reaches_reels(measured: dict) -> tuple:
 CHECK_DECLARATION_REACHES = "declared_element_reaches_reels"
 CHECK_CAPTION_SIZE = "caption_size_matches_declaration"
 CHECK_SOURCE_SPAN_ABSENT = "source_span_absent_from_edit"
+CHECK_FEEDBACK_PATCH = "feedback_patch_holds"
 
 
 def check_caption_size_matches_declaration(measured: dict) -> tuple:
@@ -339,12 +340,41 @@ def check_source_span_absent_from_edit(measured: dict) -> tuple:
     })
 
 
+def check_feedback_patch_holds(measured: dict) -> tuple:
+    """(passed, evidence). The timeline still carries the patched state.
+
+    The check behind patch-in-place feedback: `measured` carries the
+    snapshot hash the timeline read back right after the patch
+    (`post_hash`) and the head generation's hash now (`head_hash`). It
+    passes when the two agree - nothing has touched the timeline since
+    the patch. A later touch fails it with the two hashes named, and the
+    note re-opens for a human look rather than holding answered on a
+    timeline that moved. A measurement that never read either hash is
+    not a match, and is said so.
+    """
+    measured = measured or {}
+    for required in ("post_hash", "head_hash"):
+        if not measured.get(required):
+            return False, {"reason": f"no measurement supplied: "
+                                     f"`{required}` was never read"}
+    post, head = measured["post_hash"], measured["head_hash"]
+    return (post == head, {
+        "post_hash": post,
+        "head_hash": head,
+        "reason": ("the timeline still reads as the patch left it"
+                   if post == head else
+                   "the timeline moved since the patch was applied - "
+                   "the patched note re-opens for a human look"),
+    })
+
+
 CHECKS = {
     CHECK_A_ROLL_ROWS: check_a_roll_rows,
     CHECK_MOTION_GRAPHICS: check_motion_graphics_present,
     CHECK_DECLARATION_REACHES: check_declaration_reaches_reels,
     CHECK_CAPTION_SIZE: check_caption_size_matches_declaration,
     CHECK_SOURCE_SPAN_ABSENT: check_source_span_absent_from_edit,
+    CHECK_FEEDBACK_PATCH: check_feedback_patch_holds,
 }
 """The whole vocabulary of deterministic verification. A name outside it
 is refused by `verify` rather than treated as a pass."""
@@ -366,7 +396,7 @@ the worker still names the check and supplies the measurement."""
 UNVERIFIABLE_STEPS_REASON = (
     "no deterministic check is wired for this step's decisions yet - "
     "taste notes especially have no mechanical proof, and the honest "
-    "answer is that the marker stays until the captain says otherwise"
+    "    answer is that the marker stays until the captain says otherwise"
 )
 
 
@@ -670,9 +700,35 @@ def measure_source_span(project_folder, params: dict) -> dict:
     return {**params, "placements": placements}
 
 
+def measure_feedback_patch(project_folder, params: dict) -> dict:
+    """Re-read the patched timeline's head hash from the shadow store.
+
+    `params` carry the `resolve_project`, `timeline_id` and `post_hash`
+    the patch receipt recorded. The head generation's hash is read off
+    this machine's shadow store (`REN_SHADOW_DB`-overridable) - a second
+    machine re-measures after `sync_project` merges the mirror. No
+    recorded generation is not a match: the check fails and the note
+    re-opens, rather than holding answered on an unread timeline.
+    """
+    from library.tools.timeline_shadow import ShadowStore
+
+    params = dict(params or {})
+    head_hash = None
+    resolve_project = params.get("resolve_project") or ""
+    timeline_id = params.get("timeline_id") or ""
+    if resolve_project and timeline_id:
+        try:
+            head = ShadowStore().head(resolve_project, timeline_id)
+        except Exception:  # noqa: BLE001 - an unreadable store is no match
+            head = None
+        head_hash = head.hash if head else None
+    return {**params, "head_hash": head_hash}
+
+
 MEASURES = {
     CHECK_CAPTION_SIZE: measure_caption_size,
     CHECK_SOURCE_SPAN_ABSENT: measure_source_span,
+    CHECK_FEEDBACK_PATCH: measure_feedback_patch,
 }
 """The checks a project measures itself, off its own files. Only these
 can answer a note: the measurement is taken here, never supplied."""
