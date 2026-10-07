@@ -27,7 +27,8 @@ PROJECT_NAME = "Podcast (field test)"
 PROJECT_SLUG = "geo-podcast"
 _PARAMS = frozenset({
     "project", "project_slug", "source_timeline", "target_timeline",
-    "target_picture_uid", "record_frame",
+    "target_timeline_id", "target_picture_uid", "target_picture_track",
+    "record_frame",
 })
 _POWER_TRANSFORM_KEYS = (
     "ZoomX", "ZoomY", "Pan", "Tilt", "RotationAngle",
@@ -76,7 +77,19 @@ def prepare(params: dict) -> dict:
         raise JobRefused(
             f"{KIND} accepts Reel 10 or 26 as the exact reference and "
             "Reel 22 or 27 as the exact target")
-    _text(params, "target_picture_uid")
+    picture_uid = params.get("target_picture_uid")
+    picture_track = params.get("target_picture_track")
+    if bool(picture_uid) == bool(picture_track):
+        raise JobRefused(
+            f"{KIND} needs exactly one of target_picture_uid or "
+            "target_picture_track")
+    if picture_uid is not None:
+        _text(params, "target_picture_uid")
+    if picture_track is not None:
+        _text(params, "target_picture_track")
+    target_id = params.get("target_timeline_id")
+    if target_id is not None:
+        _text(params, "target_timeline_id")
     frame = params.get("record_frame")
     if (not isinstance(frame, int) or isinstance(frame, bool) or frame < 0):
         raise JobRefused(f"{KIND} record_frame must be a non-negative integer")
@@ -92,17 +105,20 @@ def prepare(params: dict) -> dict:
     }
 
 
-def _exact_timeline(project, name: str):
+def _exact_timeline(project, name: str, timeline_id: str | None = None):
     matches = []
     count = int(project.GetTimelineCount() or 0)
     for index in range(1, count + 1):
         timeline = project.GetTimelineByIndex(index)
-        if timeline and timeline.GetName() == name:
+        if (timeline and timeline.GetName() == name
+                and (timeline_id is None
+                     or str(timeline.GetUniqueId() or "") == timeline_id)):
             matches.append(timeline)
     if len(matches) != 1:
-        raise JobRefused(
-            f"{KIND} expected exactly one timeline named {name!r}; "
-            f"found {len(matches)}")
+        identity = (f"name {name!r} and ID {timeline_id!r}"
+                    if timeline_id else f"exact name {name!r}")
+        raise JobRefused(f"{KIND} expected one timeline with {identity}; "
+                         f"found {len(matches)}")
     return matches[0]
 
 
@@ -117,6 +133,29 @@ def _item_by_uid(timeline, uid: str):
             f"{KIND} expected exactly one target picture with UID {uid!r}; "
             f"found {len(matches)}")
     return matches[0]
+
+
+def _item_by_track_end(timeline, track_name: str, record_frame: int):
+    rows = [index for index in range(
+        1, int(timeline.GetTrackCount("video") or 0) + 1)
+        if timeline.GetTrackName("video", index) == track_name]
+    if len(rows) != 1:
+        raise JobRefused(
+            f"{KIND} expected one picture row named {track_name!r}; "
+            f"found {len(rows)}")
+    row = rows[0]
+    matches = []
+    for item in timeline.GetItemListInTrack("video", row) or ():
+        pool_item = item.GetMediaPoolItem()
+        if (int(item.GetEnd()) == record_frame and pool_item is not None
+                and str(pool_item.GetClipProperty("Type") or "").lower()
+                == "video"):
+            matches.append(item)
+    if len(matches) != 1:
+        raise JobRefused(
+            f"{KIND} expected one video picture ending at frame "
+            f"{record_frame} on row {track_name!r}; found {len(matches)}")
+    return row, matches[0]
 
 
 def _item_path(item) -> str:
@@ -921,12 +960,17 @@ def _run(job: dict, resolve, project) -> dict:
             f"{PROJECT_SLUG!r}/{PROJECT_NAME!r}")
     project_folder = str(config.project_root)
     source = _exact_timeline(project, params["source_timeline"])
-    target = _exact_timeline(project, params["target_timeline"])
+    target = _exact_timeline(
+        project, params["target_timeline"], params.get("target_timeline_id"))
     if source is target:
         raise JobRefused(f"{KIND} source and target timelines must differ")
-    target_picture_row, picture = _item_by_uid(
-        target, params["target_picture_uid"])
     record_frame = int(params["record_frame"])
+    if params.get("target_picture_uid"):
+        target_picture_row, picture = _item_by_uid(
+            target, params["target_picture_uid"])
+    else:
+        target_picture_row, picture = _item_by_track_end(
+            target, params["target_picture_track"], record_frame)
     if int(picture.GetEnd()) != record_frame:
         raise JobRefused(
             f"{KIND} target picture {picture.GetName()!r} ends at "
@@ -934,8 +978,8 @@ def _run(job: dict, resolve, project) -> dict:
     picture_path = _item_path(picture)
     if not picture_path or Path(picture_path).name.lower().startswith("logo_"):
         raise JobRefused(
-            f"{KIND} target picture UID {params['target_picture_uid']!r} "
-            "does not identify a source picture clip")
+            f"{KIND} target picture {picture.GetName()!r} does not identify "
+            "a source picture clip")
     (_source_freeze_row, _source_freeze_name, source_freeze), \
         (_source_logo_row, source_logo_name, source_logo) = _reference_items(source)
     source_duration = _read_int(source_freeze.GetDuration(),

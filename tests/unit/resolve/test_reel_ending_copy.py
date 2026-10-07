@@ -48,6 +48,16 @@ def test_prepare_is_a_closed_exclusive_mutation_for_named_reels():
     assert shape["coalesce_key"] is None
 
 
+def test_prepare_accepts_exact_timeline_id_and_picture_row_selector():
+    shape = jobs.prepare(reel_ending_copy.KIND, _params(
+        target_timeline_id="timeline-27",
+        target_picture_uid=None,
+        target_picture_track="Akshita",
+    ))
+
+    assert shape["timeline"] == "Reel 27 - target"
+
+
 @pytest.mark.parametrize("changes, message", [
     ({"project": "Other project"}, "may only touch"),
     ({"project_slug": "other"}, "may only use project slug"),
@@ -55,10 +65,37 @@ def test_prepare_is_a_closed_exclusive_mutation_for_named_reels():
     ({"target_timeline": "Reel 10 - reference"}, "accepts Reel 10 or 26"),
     ({"project_folder": "/tmp/project"}, "caller-supplied paths"),
     ({"record_frame": True}, "non-negative integer"),
+    ({"target_picture_uid": None}, "exactly one of"),
+    ({"target_picture_track": "Akshita"}, "exactly one of"),
 ])
 def test_prepare_refuses_out_of_scope_or_open_ended_requests(changes, message):
     with pytest.raises(JobRefused, match=message):
         jobs.prepare(reel_ending_copy.KIND, _params(**changes))
+
+
+def test_exact_timeline_id_disambiguates_duplicate_names():
+    first = FakeTimeline("Reel 22 - target", uid="old-reel-22")
+    second = FakeTimeline("Reel 22 - target", uid="live-reel-22")
+    project = FakeProject("Podcast (field test)", [first, second])
+
+    assert reel_ending_copy._exact_timeline(
+        project, "Reel 22 - target", "live-reel-22") is second
+    with pytest.raises(JobRefused, match="expected one timeline"):
+        reel_ending_copy._exact_timeline(project, "Reel 22 - target")
+
+
+def test_picture_row_selector_finds_one_video_ending_at_requested_frame():
+    pool = FakeMediaPoolItem("body.mov", uid="body-pool")
+    picture = FakeTimelineItem(
+        "body.mov", None, start=0, duration=1013,
+        pool_item=pool, uid="body-item")
+    target = FakeTimeline(
+        "Reel 22 - target", video=[("Akshita", [picture]), ("Frame", [])])
+
+    assert reel_ending_copy._item_by_track_end(
+        target, "Akshita", 1013) == (1, picture)
+    with pytest.raises(JobRefused, match="found 0"):
+        reel_ending_copy._item_by_track_end(target, "Akshita", 1012)
 
 
 def test_tv_signature_reads_the_three_animation_splines():
@@ -309,8 +346,13 @@ def test_run_archives_then_adds_the_target_freeze_comp_and_logo(
     monkeypatch.setattr("library.tools.reel_build.overlay_import_bin",
                         lambda *_args: project.GetMediaPool().GetRootFolder())
 
+    target_params = _params(
+        target_timeline_id=target.GetUniqueId(),
+        target_picture_uid=None,
+        target_picture_track="Picture",
+    )
     result = reel_ending_copy.run(
-        {"id": "test-ending", "params": _params()}, resolve)
+        {"id": "test-ending", "params": target_params}, resolve)
 
     assert result["changed"] is True
     assert result["drt_backup"] == str(archive_path)
@@ -327,7 +369,7 @@ def test_run_archives_then_adds_the_target_freeze_comp_and_logo(
 
     before_repeat = still_overlays.inventory_snapshot(target)
     repeated = reel_ending_copy.run(
-        {"id": "test-ending-repeat", "params": _params()}, resolve)
+        {"id": "test-ending-repeat", "params": target_params}, resolve)
     after_repeat = still_overlays.inventory_snapshot(target)
 
     assert repeated["changed"] is False
