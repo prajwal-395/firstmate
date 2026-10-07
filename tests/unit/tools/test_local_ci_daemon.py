@@ -147,6 +147,19 @@ def test_legacy_local_log_url_is_replaced_before_status_retry(
     assert stored["status_posted"] is True
 
 
+def test_zero_test_run_posts_an_explicit_failure(
+        tmp_path, faked_github):
+    pr = _pr(6)
+    outcome = {**_outcome(pr, ok=False), "passed": 0, "failed": 1,
+               "reason": "no tests executed"}
+
+    daemon.finish_tier1(queue.World(state_dir=str(tmp_path)), pr, outcome,
+                        seen_at=1.0, slot=0)
+
+    assert faked_github.posts[-1][1] == "failure"
+    assert faked_github.posts[-1][2] == "ren-ci: no tests executed"
+
+
 def test_a_crash_posts_pending_never_error(monkeypatch, tmp_path,
                                            faked_github):
     # PRs #2087-2089: the invalid-range crash posted error states that

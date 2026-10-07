@@ -24,12 +24,12 @@ import time
 
 from library.tools.local_ci import config, hygiene
 
-# `18 passed, 3 skipped` / `2 failed, 18 passed` - the tail pytest
-# prints. Parsed, never trusted for the verdict alone: the verdict is
-# the EXIT CODE (0 pass, anything else fail), and the counts decorate
-# it. A collection error prints no summary line at all, which reads as
-# 0/0 FAILED - fail-closed, never "no tests ran, ship it".
-_SUMMARY = re.compile(r"(?:(\d+) failed)?,?\s*(?:(\d+) passed)?")
+# Pytest's terminal summary is surrounded by `=` characters. Anchor the
+# parse to that line: an unanchored regex with optional groups matched the
+# empty string before the counts and turned a real run into 0/0.
+_SUMMARY_LINE = re.compile(r"^=+\s*(.*?)\s*=+$")
+_SUMMARY_COUNTS = re.compile(
+    r"(\d+)\s+(passed|failed|errors?|skipped|xfailed|xpassed)\b")
 
 
 def format_report(url: str, head: str, passed: int, failed: int,
@@ -195,12 +195,15 @@ def run(paths: list, checkout: str, log_path: str,
         [_pytest_python(), *pytest_argv(paths, workers)],
         checkout, log_path, timeout)
     timed_out = result["timed_out"]
-    passed, failed = _read_summary(log_path)
+    passed, failed, executed = _read_summary(log_path)
     timeout_diagnostic = _timeout_diagnostic(log_path) if timed_out else ""
-    # Exit code is the verdict; counts decorate it. A nonzero exit with
-    # an unreadable summary (collection error, timeout, crash) still
-    # fails: 0/0 is a failed run, never "no tests ran, ship it".
-    if result["exit"] != 0 or not result["group_clean"]:
+    no_tests_executed = executed == 0
+    reason = "no tests executed" if no_tests_executed else ""
+    # Exit code and execution count both matter. A zero exit without an
+    # executed test (including a missing summary or an all-skipped run)
+    # is not evidence of a green check.
+    if (result["exit"] != 0 or not result["group_clean"]
+            or no_tests_executed):
         ok = False
         if failed == 0 and passed == 0:
             failed = 1
@@ -214,7 +217,7 @@ def run(paths: list, checkout: str, log_path: str,
             "timed_out": timed_out,
             "timeout_diagnostic": timeout_diagnostic,
             "process_group_leaked": not result["group_clean"],
-            "broker_leaked": leaked, "log": log_path}
+            "broker_leaked": leaked, "reason": reason, "log": log_path}
 
 
 def run_static(checkout: str, changed: list) -> dict:
@@ -313,24 +316,35 @@ def _read_verdict(log_path: str) -> str:
     return "DID NOT RUN"
 
 
-def _read_summary(log_path: str) -> tuple:
-    """Passed/failed counts off pytest's tail line, or (0, 0) when the
-    run never got that far (collection error, timeout, crash)."""
+def _read_summary(log_path: str) -> tuple[int, int, int]:
+    """Return passed, failed, and executed counts from pytest's summary.
+
+    Errors count as failures; skipped and deselected tests do not count as
+    executed. Missing or unrecognized summaries return zeros, which the
+    caller treats as a failed run.
+    """
     try:
         with open(log_path, encoding="utf-8") as handle:
             tail = handle.read()[-4000:]
     except OSError:
-        return 0, 0
-    match = None
+        return 0, 0, 0
+    summary = None
     for line in tail.splitlines():
-        found = _SUMMARY.search(line)
-        if found and ("passed" in line or "failed" in line):
-            match = found
-    if match is None:
-        return 0, 0
-    failed = int(match.group(1) or 0)
-    passed = int(match.group(2) or 0)
-    return passed, failed
+        found = _SUMMARY_LINE.fullmatch(line.strip())
+        if found:
+            summary = found.group(1)
+    if summary is None or "no tests ran" in summary:
+        return 0, 0, 0
+
+    counts = {"passed": 0, "failed": 0, "errors": 0, "skipped": 0,
+              "xfailed": 0, "xpassed": 0}
+    for count, outcome in _SUMMARY_COUNTS.findall(summary):
+        key = "errors" if outcome in ("error", "errors") else outcome
+        counts[key] += int(count)
+    passed = counts["passed"]
+    failed = counts["failed"] + counts["errors"]
+    executed = (passed + failed + counts["xfailed"] + counts["xpassed"])
+    return passed, failed, executed
 
 
 def _timeout_diagnostic(log_path: str) -> str:

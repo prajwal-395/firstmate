@@ -118,7 +118,7 @@ def test_pytest_runs_only_paths_the_checkout_has(monkeypatch, tmp_path):
     def fake_run_logged(command, cwd, log_path, timeout):
         seen.extend(command)
         with open(log_path, "w", encoding="utf-8") as log:
-            log.write("1 passed in 1s\n")
+            log.write("================ 1 passed in 1s ================\n")
         return {"exit": 0, "timed_out": False, "group_clean": True,
                 "elapsed": 0.0}
 

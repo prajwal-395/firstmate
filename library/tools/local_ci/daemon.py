@@ -98,6 +98,7 @@ def run_tier1(world: queue.World, pr: dict, workers: int) -> dict:
                 "command": command,
                 "broker_leaked": result.get("broker_leaked", False),
                 "timed_out": result.get("timed_out", False),
+                "reason": result.get("reason", ""),
                 "timeout_diagnostic": result.get("timeout_diagnostic", ""),
                 "process_group_leaked": result.get(
                     "process_group_leaked", False)}
@@ -156,6 +157,8 @@ def _publish_check_status(record: dict, state_dir: str = "") -> bool:
             diagnostic = record.get("timeout_diagnostic", "")
             if diagnostic:
                 reason += f": {diagnostic}"
+        elif record.get("reason"):
+            reason = record["reason"]
         else:
             reason = f"{record.get('failed', 1)} failed"
         status, description = "failure", f"ren-ci: {reason}"
