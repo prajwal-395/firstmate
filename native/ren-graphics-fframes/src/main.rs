@@ -937,6 +937,131 @@ fn image_bytes(src: &str) -> Result<Vec<u8>, String> {
     fs::read(src).map_err(|e| format!("cannot read image {src}: {e}"))
 }
 
+/// Whether these decoded bytes are an SVG document, by leading markup.
+///
+/// The `image` crate decodes raster formats only, so an SVG asset must be
+/// rasterized before it enters the preloaded-image path below.
+fn is_svg_bytes(bytes: &[u8]) -> bool {
+    let mut start = bytes;
+    if start.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        start = &start[3..];
+    }
+    let indent = start.iter().take_while(|b| b.is_ascii_whitespace()).count();
+    let rest = &start[indent..];
+    rest.starts_with(b"<svg") || rest.starts_with(b"<?xml")
+}
+
+/// Whether the asset `src` names is SVG: an explicit signal (the data URI
+/// mime or the file extension) or the bytes' own leading markup.
+fn is_svg_src(src: &str, bytes: &[u8]) -> bool {
+    if let Some(rest) = src.strip_prefix("data:") {
+        if let Some((meta, _)) = rest.split_once(',') {
+            if meta.split(';').next() == Some("image/svg+xml") {
+                return true;
+            }
+        }
+        return is_svg_bytes(bytes);
+    }
+    let path = src.split('?').next().unwrap_or(src);
+    if path
+        .rsplit('.')
+        .next()
+        .map(|ext| ext.eq_ignore_ascii_case("svg"))
+        .unwrap_or(false)
+    {
+        return true;
+    }
+    is_svg_bytes(bytes)
+}
+
+/// tiny-skia holds premultiplied pixels; the preloaded-image path blends
+/// straight alpha itself, so divide the alpha back out first.
+fn unpremultiply(premultiplied: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(premultiplied.len());
+    for chunk in premultiplied.chunks_exact(4) {
+        let (r, g, b, a) = (chunk[0], chunk[1], chunk[2], chunk[3]);
+        if a == 0 {
+            out.extend_from_slice(&[0, 0, 0, 0]);
+        } else {
+            let f = 255.0 / a as f32;
+            out.push((r as f32 * f + 0.5).min(255.0) as u8);
+            out.push((g as f32 * f + 0.5).min(255.0) as u8);
+            out.push((b as f32 * f + 0.5).min(255.0) as u8);
+            out.push(a);
+        }
+    }
+    out
+}
+
+/// Rasterize an SVG asset at the size the layout asks for, the way the
+/// browser draws it: `contain` - fit into the box, centred, on a
+/// transparent ground. Returns the drawn size and straight-alpha RGBA at
+/// exactly that size, so the `<image href>` the tree carries (already
+/// `meet`) draws it 1:1. With no box asked, the SVG's own size.
+fn rasterize_svg(
+    bytes: &[u8],
+    size: Option<(f32, f32)>,
+    what: &str,
+) -> Result<(u32, u32, Vec<u8>), String> {
+    let mut opt = resvg::usvg::Options::default();
+    opt.fontdb_mut().load_system_fonts();
+    let tree = resvg::usvg::Tree::from_data(bytes, &opt)
+        .map_err(|e| format!("{what} is SVG but does not parse: {e}"))?;
+    let intrinsic = tree.size();
+    if intrinsic.width() <= 0.0 || intrinsic.height() <= 0.0 {
+        return Err(format!("{what} is SVG with no drawable size"));
+    }
+    let (w, h) = match size {
+        Some((w, h)) if w > 0.0 && h > 0.0 => (
+            w.ceil().clamp(1.0, 16384.0) as u32,
+            h.ceil().clamp(1.0, 16384.0) as u32,
+        ),
+        _ => (
+            intrinsic.width().ceil().clamp(1.0, 16384.0) as u32,
+            intrinsic.height().ceil().clamp(1.0, 16384.0) as u32,
+        ),
+    };
+    let scale = (w as f32 / intrinsic.width()).min(h as f32 / intrinsic.height());
+    let dx = (w as f32 - intrinsic.width() * scale) / 2.0;
+    let dy = (h as f32 - intrinsic.height() * scale) / 2.0;
+    let mut pixmap = resvg::tiny_skia::Pixmap::new(w, h)
+        .ok_or_else(|| format!("{what}: cannot rasterize SVG at {w}x{h}"))?;
+    resvg::render(
+        &tree,
+        resvg::tiny_skia::Transform::from_translate(dx, dy).pre_scale(scale, scale),
+        &mut pixmap.as_mut(),
+    );
+    Ok((w, h, unpremultiply(&pixmap.take())))
+}
+
+/// The preloaded pixels for one image or pattern node: raster formats
+/// decode as before; SVG assets rasterize at the size the layout asks
+/// for. One path - no parallel SVG module - so the PNG-sequence and raw
+/// RGBA consumers draw the same pixels.
+fn preload_image(
+    name: &str,
+    src: &str,
+    size: Option<(f32, f32)>,
+    what: &str,
+) -> Result<fframes::media::ImageData<'static>, String> {
+    let bytes = image_bytes(src)?;
+    if !is_svg_src(src, &bytes) {
+        let leaked: &'static [u8] = Box::leak(bytes.into_boxed_slice());
+        return fframes::media::ImageData::new_from_bytes(name, leaked)
+            .map_err(|e| format!("{what} does not decode: {:?}", e));
+    }
+    let (w, h, rgba) = rasterize_svg(&bytes, size, what)?;
+    let data = fframes::usvgr::PreloadedImageData::new(name.to_string(), w, h, &rgba);
+    Ok(fframes::media::ImageData::new_from_raw_data(
+        Arc::new(data),
+        name.to_string(),
+        fframes::media::ImageMetadata {
+            width: w,
+            height: h,
+        },
+    ))
+}
+
 fn escape_xml(text: &str) -> String {
     text.replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -1759,19 +1884,31 @@ fn scene_media(scene: &Scene) -> Result<(DynamicMediaProvider<'static>, HashMap<
     let mut names = HashMap::new();
     for node in &scene.nodes {
         if let Some(image) = &node.image {
-            let bytes: &'static [u8] = Box::leak(image_bytes(&image.src)?.into_boxed_slice());
             let name = format!("ren-image-{}", names.len());
-            let data = fframes::media::ImageData::new_from_bytes(&name, bytes)
-                .map_err(|e| format!("image of node {} does not decode: {:?}", node.id, e))?;
+            let size = node.bounds.map(|b| (b.width, b.height));
+            let data = preload_image(
+                &name,
+                &image.src,
+                size,
+                &format!("image of node {}", node.id),
+            )?;
             images.insert(name.clone(), data);
             names.insert(node.id.clone(), name);
         }
         if let Some(shape) = &node.shape {
             if let Some(pattern) = &shape.pattern {
-                let bytes: &'static [u8] = Box::leak(image_bytes(&pattern.src)?.into_boxed_slice());
                 let name = format!("ren-pattern-{}", names.len());
-                let data = fframes::media::ImageData::new_from_bytes(&name, bytes)
-                    .map_err(|e| format!("pattern of node {} does not decode: {:?}", node.id, e))?;
+                // The ground's grain tile: its own tile size, else the box.
+                let size = match (pattern.tile_width, pattern.tile_height) {
+                    (Some(tw), Some(th)) => Some((tw, th)),
+                    _ => node.bounds.map(|b| (b.width, b.height)),
+                };
+                let data = preload_image(
+                    &name,
+                    &pattern.src,
+                    size,
+                    &format!("pattern of node {}", node.id),
+                )?;
                 images.insert(name.clone(), data);
                 names.insert(node.id.clone(), name);
             }

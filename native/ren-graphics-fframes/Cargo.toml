@@ -12,6 +12,9 @@ path = "src/main.rs"
 [dependencies]
 fframes = { version = "1.2.0", features = ["cpu_renderer", "compile-time-svgtree"] }
 fframes_skia_renderer = { version = "1.2.0", features = ["metal"] }
+# SVG image assets (brand logos) rasterize through resvg at the size the
+# layout asks for, then enter the same preloaded-image path as PNGs.
+resvg = "0.48"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 fontdb = "0.16"
