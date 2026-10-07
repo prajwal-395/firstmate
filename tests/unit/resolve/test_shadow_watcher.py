@@ -532,3 +532,126 @@ def test_doctor_names_an_unmapped_project(reel, monkeypatch):
     assert not check.ok
     assert "Unknown Project" in check.detail
     assert "not a Ren project" in check.detail
+
+
+# ── stand-down: borrowed qualification sessions ───────────────────
+#
+# The defect, measured live: the watcher kept submitting
+# timeline.snapshot jobs while a borrowed qualification session held
+# Resolve, so its snapshots read the wrong project (rejected) and the
+# jobs' cursor excursions broke borrowed observations. The watcher
+# stands down while a session marker names a live borrower; the first
+# tick after resume compares across the blackout, so detection is
+# delayed, never lost.
+
+
+def _counting_broker(monkeypatch, project, timeline, store):
+    """_mock_broker that counts submissions."""
+    submitted = []
+
+    def fake_submit(kind, params, owner=""):
+        submitted.append((kind, params))
+        return {"id": f"job-{len(submitted)}"}
+
+    def fake_result(job_id, wait=0.0):
+        generation = shadow.observe(project, timeline, store)
+        return {"id": job_id, "state": "done",
+                "result": generation.summary()}
+
+    monkeypatch.setattr("library.tools.resolved.client.submit",
+                        fake_submit)
+    monkeypatch.setattr("library.tools.resolved.client.result",
+                        fake_result)
+    return submitted
+
+
+def test_tick_submits_nothing_while_a_session_is_borrowed(
+        reel, monkeypatch):
+    """Stood down is an idle pass, not a failure: no submits, no raise,
+    no heartbeat. On origin/main the marker is ignored and the submit
+    goes out."""
+    from library.tools import qualification_project as qp
+
+    project, timeline, store, project_folder = reel
+    submitted = _counting_broker(monkeypatch, project, timeline, store)
+    qp.begin_qualification_session("Podcast (field test)")
+    try:
+        watcher = shadow_watcher.ShadowWatcher(store=store)
+        assert watcher.tick("Podcast", project_folder) == []
+        assert submitted == []
+    finally:
+        qp.end_qualification_session()
+
+
+def test_stale_marker_reads_as_no_session(reel, monkeypatch):
+    """A borrower that died without restoring must not silence detection
+    forever: a marker naming no live process is ignored."""
+    from library.tools import qualification_project as qp
+
+    project, timeline, store, project_folder = reel
+    submitted = _counting_broker(monkeypatch, project, timeline, store)
+    qp._session_marker_path().write_text(
+        json.dumps({"pid": -1, "since": 0.0, "project": "Podcast"}),
+        encoding="utf-8")
+    try:
+        watcher = shadow_watcher.ShadowWatcher(store=store)
+        assert watcher.tick("Podcast", project_folder) == []
+        assert len(submitted) == 1
+    finally:
+        qp.end_qualification_session()
+
+
+def test_detection_spans_the_blackout(reel, monkeypatch):
+    """A hand edit made while the watcher stood down is filed by the
+    first tick after resume - the store heads persist, so the compare
+    reaches across the session."""
+    from library.tools import qualification_project as qp
+
+    project, timeline, store, project_folder = reel
+    submitted = _counting_broker(monkeypatch, project, timeline, store)
+    watcher = shadow_watcher.ShadowWatcher(store=store)
+    assert watcher.tick("Podcast", project_folder) == []
+    qp.begin_qualification_session("Podcast (field test)")
+    try:
+        timeline.AddMarker(20, "Red", "hand edit during blackout", "", 1)
+        assert watcher.tick("Podcast", project_folder) == []
+        blackout_submits = len(submitted)
+    finally:
+        qp.end_qualification_session()
+    detected = watcher.tick("Podcast", project_folder)
+    assert len(detected) == 1
+    assert detected[0].generation == 2
+    assert shadow_watcher.captain_may_be_editing()
+    assert len(submitted) > blackout_submits
+
+
+def test_run_stays_quiet_until_the_session_ends(reel, monkeypatch):
+    """The hosted loop writes no heartbeat while stood down and resumes
+    observing once the marker lifts."""
+    from library.tools import qualification_project as qp
+
+    project, timeline, store, project_folder = reel
+    submitted = _counting_broker(monkeypatch, project, timeline, store)
+    qp.begin_qualification_session("Podcast (field test)")
+    watcher = shadow_watcher.ShadowWatcher(store=store,
+                                           cadence_seconds=0.01)
+    try:
+        watcher.start(lambda: "Podcast", lambda name: project_folder)
+        time.sleep(0.1)
+        assert submitted == []
+        assert not shadow_watcher.heartbeat_path().exists()
+    finally:
+        qp.end_qualification_session()
+        watcher.stop()
+    deadline = time.time() + 2.0
+    watcher2 = shadow_watcher.ShadowWatcher(store=store,
+                                            cadence_seconds=0.01)
+    try:
+        watcher2.start(lambda: "Podcast", lambda name: project_folder)
+        while (not shadow_watcher.heartbeat_path().exists()
+               and time.time() < deadline):
+            time.sleep(0.01)
+        assert shadow_watcher.heartbeat_path().exists(), (
+            "no heartbeat after the session ended")
+    finally:
+        watcher2.stop()

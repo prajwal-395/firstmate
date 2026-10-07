@@ -225,3 +225,40 @@ def test_qualify_passes_end_to_end_against_the_resolve_double(
     back = manager.GetCurrentProject()
     assert back is captain
     assert back.GetCurrentTimeline().GetUniqueId() == "c2"
+
+
+@pytest.fixture
+def lock_dir(tmp_path, monkeypatch):
+    """A lease dir of our own, never the machine's - the session
+    marker lives beside the lock, so it needs the same isolation."""
+    from library.tools import resolve_lock
+
+    directory = tmp_path / "locks"
+    directory.mkdir()
+    monkeypatch.setenv(resolve_lock.LOCK_DIR_ENV, str(directory))
+    return directory
+
+
+def test_borrow_marks_the_session_and_clears_it(lock_dir):
+    """The watcher stands down off this marker: it names the live
+    borrower while borrowed() holds Resolve, and is gone on restore."""
+    import os
+
+    resolve, _ = _captain()
+    with qp.borrowed(resolve):
+        session = qp.qualification_session_active()
+        assert session is not None
+        assert session["project"] == "Podcast (field test)"
+        assert session["pid"] == os.getpid()
+    assert qp.qualification_session_active() is None
+
+
+def test_session_marker_cleared_when_restore_fails(lock_dir):
+    """A restore that raises must not leave the watcher stood down: the
+    marker clears in the finally behind the restore."""
+    resolve, podcast = _captain()
+    with pytest.raises(qp.RestoreFailed):
+        with qp.borrowed(resolve):
+            resolve.LoadProject(qp.QUALIFICATION_PROJECT)
+            podcast.timelines.pop()
+    assert qp.qualification_session_active() is None

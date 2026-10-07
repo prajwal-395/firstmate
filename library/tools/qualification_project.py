@@ -172,10 +172,84 @@ def borrowed(resolve):
              "page": resolve.GetCurrentPage()}
     if not manager.SaveProject():
         raise QualificationError(f"could not save {name!r}; not borrowing")
+    begin_qualification_session(name)
     try:
         yield found
     finally:
-        restore(resolve, found)
+        try:
+            restore(resolve, found)
+        finally:
+            end_qualification_session()
+
+
+#: The borrowed-session marker: a qualification session is open while
+#: this file names a live borrower. The shadow watcher stands down
+#: while it does - submitting `timeline.snapshot` jobs then would read
+#: the wrong project and break borrowed observations, and the jobs'
+#: cursor excursions would move a session they know nothing about.
+#: A stale file (borrower dead) reads as no session, so a killed lane
+#: never silences detection forever.
+SESSION_MARKER_NAME = "ren_qualification_session.json"
+
+
+def _session_marker_path() -> Path:
+    from library.tools.resolve_lock import lock_dir
+    return lock_dir() / SESSION_MARKER_NAME
+
+
+def begin_qualification_session(project: str) -> None:
+    """Mark a borrowed session open. Called by `borrowed()` only."""
+    path = _session_marker_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"pid": os.getpid(),
+                                "since": time.time(),
+                                "project": project}), encoding="utf-8")
+
+
+def end_qualification_session() -> None:
+    """Mark the borrowed session closed. Never raises."""
+    try:
+        _session_marker_path().unlink()
+    except OSError:
+        pass
+
+
+def _borrower_alive(pid) -> bool:
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def qualification_session_active():
+    """The live borrowed session, or None.
+
+    Returns `{"pid", "since", "project"}` while the marker names a
+    living borrower; None when unmarked, unreadable, or stale. Stale
+    is a decision, not an error: the borrower died without restoring,
+    and detection resumes rather than standing down forever.
+    """
+    try:
+        record = json.loads(
+            _session_marker_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(record, dict):
+        return None
+    if not _borrower_alive(record.get("pid")):
+        return None
+    return {"pid": int(record["pid"]),
+            "since": float(record.get("since", 0) or 0),
+            "project": str(record.get("project", ""))}
 
 
 def _restore_page(resolve, found: dict) -> None:

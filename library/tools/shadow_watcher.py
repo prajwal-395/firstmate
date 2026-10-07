@@ -192,6 +192,29 @@ class WatcherTickFailed(RuntimeError):
     """A tick observed nothing: a snapshot job failed or never finished."""
 
 
+def should_stand_down() -> Optional[str]:
+    """Why the watcher must not submit now, or None.
+
+    A borrowed qualification session has Resolve: submitting
+    `timeline.snapshot` jobs then reads the wrong project, and the
+    jobs' cursor excursions move a session they know nothing about -
+    the collision a live IntelliSearch run measured (its observations
+    disagreed with the scripting reads while snapshots ran). Stand-down
+    is not failure: no jobs, no heartbeat, just a note in the log.
+    Detection is delayed, never lost - heads persist in the store, so
+    the first tick after resume compares across the blackout and files
+    any hand edit made while away, before the next build reads the
+    flag.
+    """
+    from library.tools import qualification_project
+
+    session = qualification_project.qualification_session_active()
+    if session is None:
+        return None
+    return (f"qualification session on {session['project']!r} "
+            f"(pid {session['pid']})")
+
+
 class ShadowWatcher:
     """Observe every reel in the open project on a schedule.
 
@@ -237,9 +260,16 @@ class ShadowWatcher:
         not stop every other being watched. A job that fails or does not
         finish, or a tick where every reel was rejected (another project is
         open), raises `WatcherTickFailed`, so the loop writes no heartbeat.
+
+        A borrowed qualification session stands the tick down first: it
+        returns [] having submitted nothing, which is an idle pass, not a
+        failure - so no heartbeat either, and the loop stays quiet.
         """
         from library.tools.resolved import client
 
+        reason = should_stand_down()
+        if reason is not None:
+            return []
         submit = self._submit or client.submit
         result_of = self._result or client.result
         heads = self.store.heads(project_name)
@@ -326,9 +356,11 @@ class ShadowWatcher:
             self._thread = None
 
     def _run(self, project_name_factory, project_folder_factory) -> None:
+        stood_down = False
         while not self._stopping.is_set():
             project_name = project_name_factory()
-            if project_name:
+            reason = should_stand_down() if project_name else None
+            if project_name and reason is None:
                 try:
                     project_folder = project_folder_factory(project_name)
                     self.tick(project_name, project_folder)
@@ -341,6 +373,12 @@ class ShadowWatcher:
                     print(f"shadow watcher: tick on {project_name!r} "
                           f"failed: {type(exc).__name__}: {exc}",
                           file=sys.stderr, flush=True)
+                stood_down = False
+            else:
+                if reason is not None and not stood_down:
+                    print(f"shadow watcher: standing down - {reason}",
+                          file=sys.stderr, flush=True)
+                stood_down = reason is not None
             self._stopping.wait(self.cadence_seconds)
 
 
