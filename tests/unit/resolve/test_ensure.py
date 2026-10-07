@@ -347,12 +347,17 @@ def test_ensure_starts_the_default_socket_outside_a_worktree(
     assert len(started) == 1
 
 
-def test_ensure_allows_a_worktree_when_ren_engine_root_is_set(
-        tmp_path, monkeypatch):
-    """`$REN_ENGINE_ROOT` is an explicit engine choice and overrides the guard."""
+def test_ensure_refuses_worktree_when_bin_ren_sets_engine_root(
+        monkeypatch):
+    """The `bin/ren` wrapper sets REN_ENGINE_ROOT to this worktree.
+
+    That value names the code currently executing, not an installed
+    engine. It must not bypass the guard and start a detached broker
+    whose lifetime outlasts this disposable checkout.
+    """
     monkeypatch.setattr(client, "_in_pytest", lambda: False)
     monkeypatch.setattr(client, "_is_linked_worktree", lambda root: True)
-    monkeypatch.setenv("REN_ENGINE_ROOT", str(tmp_path))
+    monkeypatch.setenv("REN_ENGINE_ROOT", str(client._engine_root()))
     monkeypatch.setattr(client, "ping", lambda path=None: None)
     started = []
 
@@ -361,8 +366,10 @@ def test_ensure_allows_a_worktree_when_ren_engine_root_is_set(
         return _DeadProcess()
 
     monkeypatch.setattr(client, "_start_detached", fake_start)
-    assert client.ensure(path=_production_socket(), timeout=2) is None
-    assert len(started) == 1
+    with pytest.raises(RenRefusal) as exc_info:
+        client.ensure(path=_production_socket(), timeout=2)
+    assert started == []
+    assert "linked worktree" in exc_info.value.why
 
 
 def test_is_linked_worktree_detects_a_real_worktree(tmp_path):

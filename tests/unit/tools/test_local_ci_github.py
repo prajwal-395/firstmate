@@ -7,6 +7,8 @@ gh-style `--method`/`-f` flags gh-axi does not have (its api usage is
 GitHub call as unreachable. No network here: the shapes are captured.
 """
 
+from pathlib import Path
+
 import pytest
 
 from library.tools.local_ci import github
@@ -57,7 +59,7 @@ def test_status_target_is_a_browser_link(monkeypatch):
     assert calls[0][1]["fields"]["target_url"] == target
     with pytest.raises(ValueError, match=r"HTTP\(S\)"):
         github.post_status("abc123", "failure", "ren-ci: timed out",
-                           "/Users/me/.ren-ci/run.log")
+                           str(Path.home() / ".ren-ci/run.log"))
 
 
 def test_pull_url_points_at_the_configured_repository():

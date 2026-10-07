@@ -410,10 +410,9 @@ def ensure(path=None, timeout: float = START_TIMEOUT_SECONDS) -> Optional[dict]:
     # production broker either. The ping above means a broker already
     # serving is used; with none serving, starting one here would serve
     # production Resolve calls on unmerged code from a directory a
-    # worktree tool may reclaim. `$REN_ENGINE_ROOT` is an explicit
-    # engine choice and overrides the worktree signal.
+    # worktree tool may reclaim. `bin/ren` sets `REN_ENGINE_ROOT` to the
+    # current checkout, so that variable cannot override this signal.
     if (_is_default_socket(target)
-            and not os.environ.get("REN_ENGINE_ROOT")
             and _is_linked_worktree(_engine_root())):
         root = _engine_root()
         raise RenRefusal(
@@ -422,8 +421,8 @@ def ensure(path=None, timeout: float = START_TIMEOUT_SECONDS) -> Optional[dict]:
                 "the installed engine - a broker started here would serve "
                 "production Resolve calls on unmerged code from a "
                 "directory a worktree tool may reclaim",
-            fix="run from the installed engine checkout, or set "
-                "REN_ENGINE_ROOT to the installed engine root")
+            fix="run from the installed engine checkout; a linked "
+                "worktree cannot start the production broker")
     try:
         import fcntl
     except ImportError:  # pragma: no cover - not POSIX
