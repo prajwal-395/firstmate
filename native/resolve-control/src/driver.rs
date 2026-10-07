@@ -151,6 +151,25 @@ struct ElementRef {
     menu_chain: Vec<String>,
 }
 
+/// Whether the spawning parent is still alive: a live parent means a
+/// live session, a reparent-to-init (ppid 1) means whoever drove us is
+/// gone and no one will read our answers. Pure and unit-tested; the
+/// run loop feeds it the real getppid.
+fn is_orphaned(parent_pid: u32) -> bool {
+    parent_pid <= 1
+}
+
+extern "C" {
+    fn getppid() -> i32;
+}
+
+/// True while the session has a driver: stdin EOF ends the loop
+/// normally, and a dead (reparented) parent ends it here instead of
+/// polling forever.
+fn parent_alive() -> bool {
+    !is_orphaned(unsafe { getppid() } as u32)
+}
+
 pub struct Driver {
     resolve_pid: Option<u32>,
     element_refs: HashMap<String, ElementRef>,
@@ -183,6 +202,12 @@ impl Driver {
         let mut stdout_lock = stdout.lock();
 
         for line in stdin.lock().lines() {
+            // A parent that died without closing our stdin leaves us
+            // reparented and polling forever: hours-old orphans with
+            // ppid broker (measured). Exit instead of serving no one.
+            if !parent_alive() {
+                break;
+            }
             let line = line?;
             let trimmed = line.trim();
             if trimmed.is_empty() { continue; }
@@ -618,8 +643,8 @@ impl Driver {
         self.ensure_permissions()?;
         let path = command_path(params)?;
         let pid = self.ensure_resolve()?;
-        invoke_menu_path(pid, &path)?;
-        Ok(serde_json::json!({"pressed": true, "path": path}))
+        let menus_closed = invoke_menu_path(pid, &path)?;
+        Ok(serde_json::json!({"pressed": true, "path": path, "menus_closed": menus_closed}))
     }
 
     fn press(&mut self, params: &Json) -> DriverResult<Json> {
@@ -636,8 +661,8 @@ impl Driver {
         let chain = stored.menu_chain.clone();
         if menu && !chain.is_empty() {
             let pid = self.ensure_resolve()?;
-            invoke_menu_path(pid, &chain)?;
-            return Ok(serde_json::json!({"pressed": true}));
+            let menus_closed = invoke_menu_path(pid, &chain)?;
+            return Ok(serde_json::json!({"pressed": true, "menus_closed": menus_closed}));
         }
         let el = self.element_refs.get(&element_ref).ok_or(DriverError::ElementStale)?;
         el.el.press()?;
@@ -966,12 +991,151 @@ const MENU_HOP_SETTLE_MS: u64 = 80;
 /// (`ax::choose_menu_action`). AXPress on a closed menu's leaf is
 /// accepted and dropped, so pressing the leaf cold reports success and
 /// changes nothing - every hop resolves fresh because opening a menu
-/// can replace AX objects. On failure after a hop opened a menu, the
-/// opened menus are cancelled best-effort: without that the app is left
-/// tracking a menu, where the next command reports success and does
-/// nothing (cua-driver's measured failure mode - and our live symptom).
-fn invoke_menu_path(pid: u32, path: &[String]) -> DriverResult<()> {
-    let mut opened: Vec<AxElement> = Vec::new();
+/// can replace AX objects.
+///
+/// Every menu this walk opened is closed on EVERY exit - success,
+/// error, or panic unwind - through a Drop guard: an app left tracking
+/// a menu makes the next command report success and do nothing
+/// (measured live: a stuck pane-switch menu). Closing is VERIFIED by
+/// reading the top bar item's AXExpanded back, with an Escape fallback
+/// gated on the target being frontmost (never the captain's app), and
+/// the verdict rides in the response - a caller that reads
+/// `menus_closed:false` knows not to trust the next command blind.
+///
+/// Returns whether the menus are confirmed closed. A failed walk still
+/// closed best-effort through the same guard; the error carries what
+/// failed.
+fn invoke_menu_path(pid: u32, path: &[String]) -> DriverResult<bool> {
+    pre_clean_stale_menu(pid, &path[0]);
+    let mut closer = MenuCloser::new(pid, path[0].clone());
+    let result = walk_menu_path(pid, path, &mut closer);
+    let closed = closer.finish();
+    result.map(|()| closed)
+}
+
+/// Whether menus are confirmed closed: every AXCancel landed and the
+/// top bar item does not read expanded. Absence of the attribute is
+/// unknown, never closed-by-default - but a fully clean cancel run
+/// with no expansion signal still counts, or nothing could ever verify
+/// on apps that do not report it.
+fn menus_closed(expanded: Option<bool>, cancels_ok: bool) -> bool {
+    cancels_ok && expanded != Some(true)
+}
+
+/// The closer: owns every menu this walk opened plus the top title to
+/// read back. `finish` closes once and reports; Drop covers every
+/// other exit (error returns, panics) - best-effort there, since Drop
+/// cannot return the verdict.
+struct MenuCloser {
+    pid: u32,
+    top: String,
+    opened: Vec<AxElement>,
+    closed: Option<bool>,
+}
+
+impl MenuCloser {
+    fn new(pid: u32, top: String) -> Self {
+        MenuCloser { pid, top, opened: Vec::new(), closed: None }
+    }
+
+    fn finish(&mut self) -> bool {
+        if let Some(closed) = self.closed {
+            return closed;
+        }
+        let closed = close_opened_menus(self.pid, &self.top, &self.opened);
+        self.closed = Some(closed);
+        closed
+    }
+}
+
+impl Drop for MenuCloser {
+    fn drop(&mut self) {
+        if self.closed.is_none() {
+            // Best effort only: no verdict leaves a Drop. Every call
+            // below swallows its error - panicking in Drop aborts.
+            let _ = self.finish();
+        }
+    }
+}
+
+/// Cancel one element's open menus: AXCancel on each AXMenu child.
+/// True when every cancel landed (or there was nothing to cancel).
+fn cancel_element(el: &AxElement) -> bool {
+    let mut ok = true;
+    for child in el.children() {
+        if child.role().as_deref() == Some("AXMenu") {
+            ok &= child.act("AXCancel").is_ok();
+        }
+    }
+    ok
+}
+
+/// The top bar item's expansion state, or None where it does not
+/// resolve or the app reports no AXExpanded.
+fn top_expanded(pid: u32, top: &str) -> Option<bool> {
+    let app = AxElement::from_app(pid);
+    let filter = Filter {
+        role: None,
+        title: Some(top),
+        title_contains: None,
+        label: None,
+        value: None,
+        path: Some(&[]),
+    };
+    let mut results: Vec<(AxElement, Vec<String>)> = Vec::new();
+    find_in_tree(&app, &filter, &mut Vec::new(), &mut results);
+    if results.len() != 1 {
+        return None;
+    }
+    results.remove(0).0.expanded()
+}
+
+/// A dead session can leave the app tracking a menu (measured: the
+/// stuck pane-switch menu). If the top bar item reads expanded before
+/// the walk, cancel first - best effort, result ignored, the walk's
+/// own verified close is the verdict that counts.
+fn pre_clean_stale_menu(pid: u32, top: &str) {
+    if top_expanded(pid, top) != Some(true) {
+        return;
+    }
+    let app = AxElement::from_app(pid);
+    let filter = Filter {
+        role: None,
+        title: Some(top),
+        title_contains: None,
+        label: None,
+        value: None,
+        path: Some(&[]),
+    };
+    let mut results: Vec<(AxElement, Vec<String>)> = Vec::new();
+    find_in_tree(&app, &filter, &mut Vec::new(), &mut results);
+    if let Some((el, _)) = results.into_iter().next() {
+        let _ = cancel_element(&el);
+    }
+}
+
+/// Close what the walk opened and read it back: AXCancel deepest
+/// first, then the top bar item's AXExpanded, with an Escape fallback
+/// gated on the target being frontmost (Escape anywhere else would
+/// land in the captain's app). Returns the verified verdict.
+fn close_opened_menus(pid: u32, top: &str, opened: &[AxElement]) -> bool {
+    let mut cancels_ok = true;
+    for el in opened.iter().rev() {
+        cancels_ok &= cancel_element(el);
+    }
+    let expanded = top_expanded(pid, top);
+    if expanded != Some(true) {
+        return menus_closed(expanded, cancels_ok);
+    }
+    if ax::frontmost_pid() == Some(pid) {
+        use crate::input::Route;
+        let _ = crate::input::key(Route::Foreground, "escape", &[]);
+        std::thread::sleep(std::time::Duration::from_millis(MENU_HOP_SETTLE_MS));
+    }
+    menus_closed(top_expanded(pid, top), cancels_ok)
+}
+
+fn walk_menu_path(pid: u32, path: &[String], closer: &mut MenuCloser) -> DriverResult<()> {
     for (depth, segment) in path.iter().enumerate() {
         let final_hop = depth + 1 == path.len();
         let app = AxElement::from_app(pid);
@@ -986,16 +1150,13 @@ fn invoke_menu_path(pid: u32, path: &[String]) -> DriverResult<()> {
         let mut results: Vec<(AxElement, Vec<String>)> = Vec::new();
         find_in_tree(&app, &filter, &mut Vec::new(), &mut results);
         if results.is_empty() {
-            cancel_menus(&opened);
             return Err(DriverError::ElementNotFound);
         }
         if results.len() > 1 {
-            cancel_menus(&opened);
             return Err(DriverError::AmbiguousCommand(path.to_vec(), results.len()));
         }
         let (el, _) = results.remove(0);
         if el.enabled() == Some(false) {
-            cancel_menus(&opened);
             return Err(DriverError::ActionNotSupported(format!(
                 "menu item {segment:?} is disabled"
             )));
@@ -1005,32 +1166,13 @@ fn invoke_menu_path(pid: u32, path: &[String]) -> DriverResult<()> {
                 "menu item {segment:?} has no usable native menu action"
             ))
         })?;
-        if let Err(err) = el.act(action) {
-            cancel_menus(&opened);
-            return Err(err);
-        }
+        el.act(action)?;
         if !final_hop {
-            opened.push(el);
+            closer.opened.push(el);
             std::thread::sleep(std::time::Duration::from_millis(MENU_HOP_SETTLE_MS));
         }
     }
     Ok(())
-}
-
-/// Best-effort close of menus a failed walk opened: AXCancel on each
-/// opened item's AXMenu child, deepest first, results ignored. No
-/// window-list read-back (cua verifies via the window server; the
-/// driver has no menu-window enumeration yet) - so the caller still
-/// reports the original error, and a stuck menu remains possible but
-/// no longer the certain outcome.
-fn cancel_menus(opened: &[AxElement]) {
-    for el in opened.iter().rev() {
-        for child in el.children() {
-            if child.role().as_deref() == Some("AXMenu") {
-                let _ = child.act("AXCancel");
-            }
-        }
-    }
 }
 
 /// The full menu path `run_command` takes: non-empty titles only.
@@ -1115,6 +1257,31 @@ mod tests {
     use super::*;
 
     const ACTIONS: &[&str] = &["set_value", "focus", "type_text", "key", "click", "drag", "scroll"];
+
+    #[test]
+    fn menus_closed_needs_clean_cancels_and_no_expansion_signal() {
+        // The verified-close verdict: an unread AXExpanded is unknown,
+        // never closed-by-default, but a fully clean cancel run with no
+        // expansion signal still counts or nothing could ever verify on
+        // apps that do not report it.
+        assert!(menus_closed(None, true));
+        assert!(menus_closed(Some(false), true));
+        assert!(!menus_closed(Some(true), true));
+        assert!(!menus_closed(None, false));
+        assert!(!menus_closed(Some(false), false));
+        assert!(!menus_closed(Some(true), false));
+    }
+
+    #[test]
+    fn orphaned_means_reparented_to_init() {
+        // Hours-old driver processes with ppid broker: the parent died
+        // without closing stdin. A live parent (any real pid) keeps
+        // serving; reparent-to-init (1) or no parent (0) exits.
+        assert!(!is_orphaned(98439));
+        assert!(!is_orphaned(2));
+        assert!(is_orphaned(1));
+        assert!(is_orphaned(0));
+    }
 
     #[test]
     fn every_action_refuses_in_the_captains_project() {

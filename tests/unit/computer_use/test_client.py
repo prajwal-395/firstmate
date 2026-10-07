@@ -118,3 +118,87 @@ def test_the_verb_is_registered_in_the_one_registry():
     row = next((verb for verb in VERBS if verb.name == "computer-use"), None)
     assert row is not None, "the computer-use verb is missing from ren.commands.VERBS"
     assert row.module_argv == ("library.tools.computer_use",)
+
+
+class _FakePipe:
+    def close(self):
+        pass
+
+
+class _FakePopen:
+    """A driver stand-in with explicit liveness: already dead (exits
+    on EOF), dying on terminate, dying on kill, or never dying. The
+    calls list records the reaping sequence."""
+
+    def __init__(self, died=False, dies_on_terminate=False):
+        self.died = died
+        self.dies_on_terminate = dies_on_terminate
+        self.calls: list = []
+        self.stdin = _FakePipe()
+        self.stdout = _FakePipe()
+
+    def wait(self, timeout=None):
+        import subprocess
+
+        self.calls.append("wait")
+        if self.died:
+            return 0
+        raise subprocess.TimeoutExpired(cmd="driver", timeout=timeout)
+
+    def terminate(self):
+        self.calls.append("terminate")
+        if self.dies_on_terminate:
+            self.died = True
+
+    def kill(self):
+        self.calls.append("kill")
+        self.died = True
+
+
+def _client_with(fake) -> DriverClient:
+    from pathlib import Path
+
+    client = DriverClient(binary=Path("/nonexistent-resolve-control"))
+    client._process = fake
+    return client
+
+
+def test_close_reaps_a_driver_that_exits_on_eof():
+    """The healthy path: stdin EOF ends the driver, one bounded wait
+    reaps it, nothing is signalled. A close that only drops pipes
+    leaves the dead process a zombie."""
+    fake = _FakePopen(died=True)
+    client = _client_with(fake)
+    client.close()
+    assert fake.calls == ["wait"]
+    assert client._process is None
+
+
+def test_close_terminates_a_driver_stuck_mid_call():
+    """A driver wedged mid-call (hours-old orphans, ppid broker) never
+    reads EOF: the bounded wait times out and terminate ends it. A
+    close without escalation abandons it."""
+    fake = _FakePopen(dies_on_terminate=True)
+    client = _client_with(fake)
+    client.close()
+    assert fake.calls == ["wait", "terminate", "wait"]
+    assert client._process is None
+
+
+def test_close_kills_a_driver_that_ignores_terminate():
+    """Terminate refused: SIGKILL is the last resort, still bounded,
+    still reaped. Every stage records, so a hung close reads as a
+    sequence instead of a mystery."""
+    fake = _FakePopen()
+    client = _client_with(fake)
+    client.close()
+    assert fake.calls == ["wait", "terminate", "wait", "kill", "wait"]
+    assert client._process is None
+
+
+def test_close_with_no_process_clears_refs_quietly():
+    """Closing an unspawned client is a no-op that still drops refs."""
+    client = _client_with(None)
+    client._refs["ref-1"] = {}
+    client.close()
+    assert client._refs == {}

@@ -177,6 +177,10 @@ impl AxElement {
     pub fn frame(&self) -> Option<Frame> { get_attr_frame(self.inner) }
     pub fn actions(&self) -> Vec<String> { get_attr_actions(self.inner) }
     pub fn enabled(&self) -> Option<bool> { get_attr_bool(self.inner, "AXEnabled") }
+    /// Whether this menu-bar item's menu is open. Absent where the
+    /// element is not a menu-bar item or the app does not report it -
+    /// callers treat absence as unknown, never as closed.
+    pub fn expanded(&self) -> Option<bool> { get_attr_bool(self.inner, "AXExpanded") }
     pub fn focused(&self) -> Option<bool> { get_attr_bool(self.inner, "AXFocused") }
     pub fn children(&self) -> Vec<AxElement> {
         let value = match get_attr(self.inner, "AXChildren") { Some(v) => v, None => return vec![] };

@@ -246,7 +246,13 @@ Qualification project, like every other action method.
 Parameters:
 - `path` (array of strings, required): full menu path, outermost first.
 
-Result: `{"pressed": true, "path": [...]}`
+Result: `{"pressed": true, "path": [...], "menus_closed": <bool>}`
+
+`menus_closed` is the verified close: every menu the walk opened was
+cancelled and the top bar item no longer reads expanded (with an
+Escape fallback gated on the target being frontmost - never another
+app). A caller that reads `false` knows the app may be tracking a
+menu, where the next command reports success and does nothing.
 
 Errors: `ELEMENT_NOT_FOUND` when no item matches the path,
 `AMBIGUOUS_COMMAND` when more than one does.
@@ -256,7 +262,8 @@ Errors: `ELEMENT_NOT_FOUND` when no item matches the path,
 Invokes the default AX action on an element (e.g. AXPress for buttons).
 A menu-bar/menu item replays its recorded menu chain hop by hop (see
 `run_command`): a cold leaf press is accepted and dropped, so `press`
-opens each menu first. Anything else presses directly.
+opens each menu first. Menu walks carry the same verified
+`menus_closed` verdict; direct presses report `{"pressed": true}`.
 
 Parameters:
 - `element` (string): element ref from find_element

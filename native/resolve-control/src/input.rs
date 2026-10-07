@@ -235,6 +235,37 @@ fn fg_click_event(
     unsafe { CGEventCreateMouseEvent(source, event_type, point, CGMouseButton::Left) }
 }
 
+/// Re-associate the real cursor after foreground input. Idempotent
+/// and side-effect free when already coupled (the common case), so it
+/// is safe to call unconditionally - and unsafe to skip, because a
+/// warp that outlives its take leaves the captain's cursor decoupled
+/// from the mouse.
+pub fn recouple_cursor() {
+    unsafe {
+        CGAssociateMouseAndMouseCursorPosition(1);
+    }
+}
+
+/// Runs a cleanup on every exit - normal return, error return, or
+/// panic unwind. Foreground input holds one around its whole sequence
+/// so the cursor is recoupled however the sequence ends; a signal
+/// handler does the same for kills (see main).
+pub struct CleanupGuard<F: Fn()> {
+    cleanup: F,
+}
+
+impl<F: Fn()> CleanupGuard<F> {
+    pub fn new(cleanup: F) -> Self {
+        CleanupGuard { cleanup }
+    }
+}
+
+impl<F: Fn()> Drop for CleanupGuard<F> {
+    fn drop(&mut self) {
+        (self.cleanup)();
+    }
+}
+
 /// A foreground click, cua-style: HIDSystemState source, real cursor
 /// warped to the point and re-coupled (AppKit hit-tests some clicks
 /// against the actual cursor), a moved primer settling tracking state,
@@ -247,6 +278,10 @@ fn foreground_click(x: f64, y: f64, clicks: u32) -> DriverResult<()> {
     let source = skylight::event_source()
         .ok_or_else(|| DriverError::Internal("no HIDSystemState event source".into()))?;
     let point = CGPoint { x, y };
+    // However this sequence ends - posted, refused, or panicked - the
+    // cursor is recoupled: a warp that outlives its take decouples the
+    // captain's mouse from the cursor with no visible cause.
+    let _recoupled = CleanupGuard::new(recouple_cursor);
     unsafe {
         CGWarpMouseCursorPosition(point);
         CGAssociateMouseAndMouseCursorPosition(1);
@@ -509,6 +544,40 @@ mod tests {
             CFRelease(nulled as *const c_void);
             CFRelease(source);
         }
+    }
+
+    #[test]
+    fn cleanup_guard_runs_on_panic_unwind() {
+        // The guarantee behind the cursor recouple: the cleanup runs
+        // however the scope ends. A flag records it; catch_unwind
+        // proves the panic still propagates after cleanup ran.
+        use std::cell::Cell;
+        use std::panic::{catch_unwind, AssertUnwindSafe};
+        let cleaned = Cell::new(false);
+        let caught = catch_unwind(AssertUnwindSafe(|| {
+            let _guard = CleanupGuard::new(|| cleaned.set(true));
+            panic!("simulated mid-sequence failure");
+        }));
+        assert!(caught.is_err());
+        assert!(cleaned.get());
+    }
+
+    #[test]
+    fn cleanup_guard_runs_on_normal_exit() {
+        use std::cell::Cell;
+        let cleaned = Cell::new(false);
+        {
+            let _guard = CleanupGuard::new(|| cleaned.set(true));
+        }
+        assert!(cleaned.get());
+    }
+
+    #[test]
+    fn recouple_cursor_is_safe_to_call_headless() {
+        // Re-associating an already-coupled cursor is specified
+        // side-effect free: calling it proves the symbol resolves
+        // without moving anything (no display attached in tests).
+        recouple_cursor();
     }
 
     #[test]

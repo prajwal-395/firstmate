@@ -163,21 +163,67 @@ class DriverClient:
         return self._process
 
     def _close_pipe(self) -> None:
-        if self._process is None:
+        proc, self._process = self._process, None
+        if proc is None:
             return
         try:
-            self._process.stdin.close()  # type: ignore[union-attr]
+            proc.stdin.close()  # type: ignore[union-attr]
         except (OSError, ValueError):
             pass
         try:
-            self._process.stdout.close()  # type: ignore[union-attr]
+            proc.stdout.close()  # type: ignore[union-attr]
         except (OSError, ValueError):
             pass
-        self._process = None
+        # Reap: a dead-but-unwaited driver is a zombie the broker's
+        # process table carries. Bounded like close().
+        try:
+            proc.wait(timeout=self.CLOSE_WAIT_SECONDS)
+        except Exception:  # noqa: BLE001 - TimeoutExpired or a dead handle
+            pass
+
+    #: How long a closing driver gets to exit on stdin EOF before it is
+    #: terminated, and how long a terminated one gets before SIGKILL. A
+    #: healthy driver exits on EOF promptly (observed instant in tests);
+    #: the bounds cover a winding-down system call, and a close that
+    #: only drops pipes leaves zombies (dead, unwaited) or orphans
+    #: (stuck mid-call, reparented - measured hours-old with ppid
+    #: broker). Operational bounds, recorded here.
+    CLOSE_WAIT_SECONDS = 5.0
 
     def close(self) -> None:
-        """End the session. The driver holds no state past its process."""
-        self._close_pipe()
+        """End the session and reap the driver process.
+
+        stdin EOF ends a healthy driver; then wait bounded, terminate,
+        wait, kill - every stage reaped, nothing left for the broker to
+        trip over. The driver holds no state past its process.
+        """
+        proc, self._process = self._process, None
+        if proc is None:
+            self._refs.clear()
+            return
+        try:
+            proc.stdin.close()  # type: ignore[union-attr]
+        except (OSError, ValueError):
+            pass
+        try:
+            proc.stdout.close()  # type: ignore[union-attr]
+        except (OSError, ValueError):
+            pass
+        try:
+            proc.wait(timeout=self.CLOSE_WAIT_SECONDS)
+            self._refs.clear()
+            return
+        except Exception:  # noqa: BLE001 - TimeoutExpired or a dead handle
+            pass
+        try:
+            proc.terminate()
+            proc.wait(timeout=self.CLOSE_WAIT_SECONDS)
+        except Exception:  # noqa: BLE001 - already gone, or still stuck
+            try:
+                proc.kill()
+                proc.wait(timeout=self.CLOSE_WAIT_SECONDS)
+            except Exception:  # noqa: BLE001 - nothing more to do
+                pass
         self._refs.clear()
 
     def __enter__(self) -> Self:
