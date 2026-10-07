@@ -1005,14 +1005,16 @@ const MENU_HOP_SETTLE_MS: u64 = 80;
 /// Every menu this walk opened is closed on EVERY exit - success,
 /// error, or panic unwind - through a Drop guard: an app left tracking
 /// a menu makes the next command report success and do nothing
-/// (measured live: a stuck pane-switch menu). Closing is VERIFIED by
-/// reading the top bar item's AXExpanded back, with an Escape fallback
-/// gated on the target being frontmost (never the captain's app), and
-/// the verdict rides in the response - a caller that reads
+/// (measured live: a stuck pane-switch menu). Closing is attempted with
+/// AXCancel; AXExpanded is retained as diagnostic evidence because
+/// Resolve can leave it latched after the menu disappears. Escape is a
+/// fallback only when a cancel failed, gated on the target being
+/// frontmost (never the captain's app), and the verdict rides in the
+/// response - a caller that reads
 /// `menus_closed:false` knows not to trust the next command blind.
 ///
-/// Returns whether the menus are confirmed closed. A failed walk still
-/// closed best-effort through the same guard; the error carries what
+/// Returns whether the close actions were accepted. A failed walk still
+/// attempts closure through the same guard; the error carries what
 /// failed.
 fn invoke_menu_path(pid: u32, path: &[String]) -> DriverResult<MenuCloseReceipt> {
     pre_clean_stale_menu(pid, &path[0]);
@@ -1022,18 +1024,21 @@ fn invoke_menu_path(pid: u32, path: &[String]) -> DriverResult<MenuCloseReceipt>
     result.map(|()| closed)
 }
 
-/// Whether menus are confirmed closed: every AXCancel landed and the
-/// top bar item does not read expanded. Absence of the attribute is
-/// unknown, never closed-by-default - but a fully clean cancel run
-/// with no expansion signal still counts, or nothing could ever verify
-/// on apps that do not report it.
-fn menus_closed(expanded: Option<bool>, cancels_ok: bool) -> bool {
-    cancels_ok && expanded != Some(true)
+/// Whether the close action was accepted for every open menu.
+///
+/// Resolve can leave `AXExpanded` latched true after `AXCancel` has
+/// visibly dismissed the menu (measured live 2026-10-07: successful
+/// cancels, no menu in the saved or post-restore capture). Treat the
+/// attribute as diagnostic only; using it as a veto also sent a
+/// redundant Escape into the frontmost app after the menu was already
+/// gone.
+fn menus_closed(_expanded: Option<bool>, cancels_ok: bool) -> bool {
+    cancels_ok
 }
 
 /// The evidence behind the compatibility `menus_closed` boolean. Keeping
-/// both signals makes a conservative false actionable: callers can tell
-/// an expanded menu from a failed AXCancel or an unreadable AXExpanded.
+/// both signals lets callers distinguish a rejected AXCancel from the
+/// stale AXExpanded signal Resolve may retain after a menu has closed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct MenuCloseReceipt {
     expanded: Option<bool>,
@@ -1146,10 +1151,11 @@ fn pre_clean_stale_menu(pid: u32, top: &str) {
     }
 }
 
-/// Close what the walk opened and read it back: AXCancel deepest
-/// first, then the top bar item's AXExpanded, with an Escape fallback
-/// gated on the target being frontmost (Escape anywhere else would
-/// land in the captain's app). Returns the verified verdict.
+/// Close what the walk opened: AXCancel deepest first, then read the top
+/// bar item's AXExpanded for diagnostics. Escape is only a fallback
+/// when AXCancel failed and the menu still reads expanded, and is gated
+/// on the target being frontmost (Escape anywhere else would land in
+/// the captain's app).
 fn close_opened_menus(
     pid: u32,
     top: &str,
@@ -1160,7 +1166,7 @@ fn close_opened_menus(
         cancels_ok &= cancel_element(el);
     }
     let expanded = top_expanded(pid, top);
-    if expanded != Some(true) {
+    if expanded != Some(true) || cancels_ok {
         return MenuCloseReceipt { expanded, cancels_ok };
     }
     if ax::frontmost_pid() == Some(pid) {
@@ -1298,17 +1304,33 @@ mod tests {
     const ACTIONS: &[&str] = &["set_value", "focus", "type_text", "key", "click", "drag", "scroll"];
 
     #[test]
-    fn menus_closed_needs_clean_cancels_and_no_expansion_signal() {
-        // The verified-close verdict: an unread AXExpanded is unknown,
-        // never closed-by-default, but a fully clean cancel run with no
-        // expansion signal still counts or nothing could ever verify on
-        // apps that do not report it.
+    fn successful_cancel_overrides_stale_expanded_state() {
+        // Resolve can leave AXExpanded=true after AXCancel visibly
+        // dismisses the menu. The accepted cancel is the close verdict;
+        // AXExpanded remains in the receipt as diagnostic evidence.
         assert!(menus_closed(None, true));
         assert!(menus_closed(Some(false), true));
-        assert!(!menus_closed(Some(true), true));
+        assert!(menus_closed(Some(true), true));
         assert!(!menus_closed(None, false));
         assert!(!menus_closed(Some(false), false));
         assert!(!menus_closed(Some(true), false));
+    }
+
+    #[test]
+    fn menu_close_receipt_keeps_stale_expansion_as_diagnostic() {
+        let receipt = MenuCloseReceipt {
+            expanded: Some(true),
+            cancels_ok: true,
+        };
+
+        assert_eq!(
+            receipt.to_json(),
+            serde_json::json!({
+                "confirmed": true,
+                "expanded": true,
+                "cancels_ok": true,
+            })
+        );
     }
 
     #[test]
