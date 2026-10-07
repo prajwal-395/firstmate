@@ -188,6 +188,57 @@ def test_a_step_with_no_anchors_and_no_llm_fails(client: DriverClient):
     assert result.steps[0]["outcome"] == "failed"
 
 
+def test_failed_step_receipt_distinguishes_unresolved_from_unverified(
+    client: DriverClient, monkeypatch
+):
+    """A toolbar template may either miss or click without opening its
+    palette. Collapsing both into `via: none` made the live failure
+    impossible to diagnose, so keep the resolution and expectation
+    outcomes per anchor in the failed receipt."""
+    from contextlib import nullcontext
+    from library.tools.computer_use.scripts import _run_step
+
+    calls: list = []
+
+    def resolve(_client, anchor):
+        if anchor.via == "template":
+            return ("click", {"x": 42.0, "y": 18.0})
+        return None
+
+    monkeypatch.setattr("library.tools.computer_use.scripts.resolve_anchor",
+                        resolve)
+    monkeypatch.setattr("library.tools.computer_use.scripts.verify_expect",
+                        lambda *args, **kwargs: False)
+    monkeypatch.setattr("library.tools.computer_use.scripts.build_observation",
+                        lambda *args, **kwargs: object())
+    monkeypatch.setattr("library.tools.computer_use.scripts.resolve_lease",
+                        lambda purpose: nullcontext())
+    monkeypatch.setattr(
+        client, "call",
+        lambda method, params=None: calls.append((method, params)) or
+        {"clicked": True},
+    )
+    step = ScriptStep(
+        action="click",
+        anchors=[
+            Anchor(via="template", params={"template": "magic-mask-toolbar"}),
+            Anchor(via="ocr", params={"text": "Magic Mask"}),
+        ],
+        expect=Expect(via="text_visible", params={"text": "Person"}),
+    )
+    script = Script(goal="open Magic Mask palette", steps=[step])
+
+    receipt = _run_step(client, step, 0, None, script)
+
+    assert calls == [("click", {"x": 42.0, "y": 18.0,
+                                 "allow_skylight": True})]
+    assert receipt["outcome"] == "failed"
+    assert receipt["anchor_attempts"] == [
+        {"via": "template", "outcome": "expectation_not_met"},
+        {"via": "ocr", "outcome": "unresolved"},
+    ]
+
+
 def test_an_ax_path_that_matches_nothing_is_skipped(client: DriverClient):
     """An AX path that matches nothing is skipped, and the runner tries
     the next anchor. A runner that refused the step on the first anchor

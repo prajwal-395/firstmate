@@ -686,12 +686,19 @@ def _run_step(
     with no expect that the driver merely accepted reports `ok`
     with `proved` False - done-means-accepted, never done-means-effect.
     The replay suite fails a recipe with an unproved step; that is the
-    defect test the captain's brief names.
+    defect test the captain's brief names. If every anchor fails, the
+    receipt keeps whether each anchor was unresolved, refused by the
+    driver, or resolved but failed its expectation.
     """
     menu_close_fields: dict = {}
+    anchor_attempts: list[dict] = []
     for anchor in step.anchors:
         resolved = resolve_anchor(client, anchor)
         if resolved is None:
+            anchor_attempts.append({
+                "via": anchor.via,
+                "outcome": "unresolved",
+            })
             continue
         method, params = resolved
         if foreground and method in INPUT_CALLS:
@@ -703,19 +710,36 @@ def _run_step(
                 before = build_observation(client, "", [], 0)
                 action_result = client.call(method, params)
                 menu_close_fields = _menu_close_fields(action_result)
-                if verify_expect(client, step.expect, before=before):
-                    receipt = {"step": index, "action": step.action,
-                               "outcome": "ok", "via": anchor.via,
-                               "proved": _step_proved(step, anchor)}
-                    receipt.update(menu_close_fields)
-                    return receipt
-        except DriverError:
+                verified = verify_expect(client, step.expect, before=before)
+        except DriverError as exc:
+            anchor_attempts.append({
+                "via": anchor.via,
+                "outcome": "execution_refused",
+                "driver_code": exc.driver_code,
+            })
             continue
+        if verified:
+            receipt = {"step": index, "action": step.action,
+                       "outcome": "ok", "via": anchor.via,
+                       "proved": _step_proved(step, anchor)}
+            if anchor_attempts:
+                receipt["anchor_attempts"] = anchor_attempts
+            receipt.update(menu_close_fields)
+            return receipt
+        anchor_attempts.append({
+            "via": anchor.via,
+            "outcome": "expectation_not_met",
+        })
     if llm is not None:
-        return _llm_fallback(client, step, index, llm, script,
-                             foreground=foreground, skylight=skylight)
+        receipt = _llm_fallback(client, step, index, llm, script,
+                                foreground=foreground, skylight=skylight)
+        if anchor_attempts:
+            receipt["anchor_attempts"] = anchor_attempts
+        return receipt
     receipt = {"step": index, "action": step.action, "outcome": "failed",
                "via": "none", "proved": False}
+    if anchor_attempts:
+        receipt["anchor_attempts"] = anchor_attempts
     receipt.update(menu_close_fields)
     return receipt
 
