@@ -353,14 +353,6 @@ def _broker_pids() -> set:
     return found
 
 
-def _socket_stat(path: Path):
-    try:
-        stat = path.stat()
-    except OSError:
-        return None
-    return (stat.st_mtime_ns, stat.st_ino)
-
-
 def test_broker_exercising_suites_leave_no_broker_and_never_touch_default(
         tmp_path):
     """The reproduction, run the way a worker runs it, in a subprocess.
@@ -369,18 +361,19 @@ def test_broker_exercising_suites_leave_no_broker_and_never_touch_default(
     itself (`test_ensure`), the in-process broker suites that must
     never spawn (`test_ui_transaction`, `test_shadow_watcher`,
     `test_resolve_lock`) - then proves the run left no broker process
-    behind and never touched the default socket. Never stops the
-    production broker: it only ever reads it.
+    behind and never touched the default socket. It never connects to or
+    stops the production broker.
 
     A stray `ensure` without the spawn opt-in raises inside the inner
     run (failing it, which fails this test with the inner output), so
     a suite that spawns where its fixture did not opt in is caught
     here rather than leaking.
     """
-    default = _production_socket()
+    # The child plugin watches every broker-client ensure, ping and call,
+    # plus broker subprocess starts. Do not ping the shared default before
+    # and after this long run: Firstmate owns its lifecycle, and a normal
+    # supervisor restart must not fail an otherwise isolated test.
     before_pids = _broker_pids()
-    before_serving = client.ping(default)
-    before_stat = _socket_stat(default)
 
     plugin_dir = tmp_path / "plugin"
     plugin_dir.mkdir()
@@ -444,14 +437,3 @@ def test_broker_exercising_suites_leave_no_broker_and_never_touch_default(
         f"the subprocess run left broker processes behind: {left} "
         f"(spawned {sorted(spawned)}, running before {sorted(before_pids)}). "
         "A detached broker outlives its test; stop what is started.")
-
-    if before_serving is not None:
-        after_serving = client.ping(default)
-        assert (after_serving is not None
-                and after_serving.get("pid") == before_serving.get("pid")), (
-            f"the production broker changed under the run: before "
-            f"{before_serving} after {after_serving} - something "
-            f"re-bound the default socket.")
-        assert _socket_stat(default) == before_stat, (
-            "the default socket file changed under the run - something "
-            "re-bound it.")

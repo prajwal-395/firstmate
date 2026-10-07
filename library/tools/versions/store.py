@@ -883,7 +883,8 @@ def write_build_record(project_folder: str, timeline_name: str,
 
 @under_lease("record promoted reel versions", exclusive=False)
 def record_reel_promotion(project_folder: str, resolve_project_name: str,
-                          final_names, message: str | None = None) -> dict:
+                          final_names, message: str | None = None, *,
+                          resolve=None) -> dict:
     """Record each promoted reel, archive its `.drt`, and commit.
 
     The reels flow (step 7.01/7.02) never called the 6.01 hook
@@ -944,13 +945,14 @@ def record_reel_promotion(project_folder: str, resolve_project_name: str,
         repo = Path(__file__).resolve().parents[2]
         if str(repo) not in sys.path:
             sys.path.insert(0, str(repo))
-        from library.tools.resolve_locale import (
-            scriptapp_preserving_locale)
-        from library.tools.resolve_locale import load_resolve_script
-        dvr = load_resolve_script()
-        resolve = scriptapp_preserving_locale(dvr, "Resolve")
-        if not resolve:
-            raise RuntimeError("Resolve is not running")
+        if resolve is None:
+            from library.tools.resolve_locale import (
+                scriptapp_preserving_locale)
+            from library.tools.resolve_locale import load_resolve_script
+            dvr = load_resolve_script()
+            resolve = scriptapp_preserving_locale(dvr, "Resolve")
+            if not resolve:
+                raise RuntimeError("Resolve is not running")
         project = resolve.GetProjectManager().GetCurrentProject()
         if not project or project.GetName() != resolve_project_name:
             raise RuntimeError(

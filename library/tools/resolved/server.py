@@ -122,7 +122,7 @@ class Broker:
                 "mode": shape["mode"], "executed": int(shape["executed"]),
                 "params": params, "project": shape["project"],
                 "timeline": shape["timeline"],
-                "qualification": int(qualification),
+                "qualification": int(shape["qualification"]),
                 "coalesce_key": key, "owner": owner, "state": "queued",
                 "submitted": now}
             if idempotency is None:
@@ -142,7 +142,7 @@ class Broker:
                 id=job_id, priority=shape["priority"], mode=shape["mode"],
                 submitted=now, project=shape["project"],
                 timeline=shape["timeline"], executed=shape["executed"],
-                qualification=qualification,
+                qualification=shape["qualification"],
                 locality=shape["locality"])
             if key:
                 self._coalesce[key] = job_id
@@ -272,8 +272,15 @@ class Broker:
         try:
             with resolve_lease(f"ren-resolved {job['kind']} {job['id']}",
                                exclusive=job["mode"] == "exclusive"):
+                resolve = (self._resolve_handle()
+                           if job["qualification"] or job["executed"]
+                           else None)
+                if job["kind"] == "reel.promote_staged":
+                    from library.tools.resolve_deadline import deadline_proxy
+                    resolve = deadline_proxy(
+                        resolve, label=f"{job['kind']} {job['id']}")
                 if job["qualification"]:
-                    found = job_kinds.open_project_name(self._resolve_handle())
+                    found = job_kinds.open_project_name(resolve)
                     if found != job_kinds.QUALIFICATION_PROJECT:
                         raise job_kinds.JobRefused(
                             f"a qualification job needs "
@@ -281,7 +288,7 @@ class Broker:
                             f"Resolve has {found or 'no project'!r}")
                 if not job["executed"]:
                     return "granted", None, ""
-                return "done", job_kinds.run(job, self._resolve_handle()), ""
+                return "done", job_kinds.run(job, resolve), ""
         except job_kinds.JobRefused as exc:
             return "rejected", exc.result, str(exc)
         except Exception as exc:                              # noqa: BLE001

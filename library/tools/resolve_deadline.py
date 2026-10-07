@@ -36,6 +36,7 @@ exit either way.
 from __future__ import annotations
 
 import threading
+from collections.abc import Mapping
 from typing import Any, Callable
 
 
@@ -60,6 +61,97 @@ class ResolveCallTimeout(RuntimeError):
 
 class ResolutionNotApplied(RuntimeError):
     """The resolution writes returned but the read-back disagrees."""
+
+
+class DeadlineProxy:
+    """A Resolve object whose API methods all run behind a deadline.
+
+    Resolve returns handles at each level (project, timeline, clip,
+    media-pool item). This proxy follows those handles and wraps method
+    results nested in lists, tuples and mappings, so a caller cannot
+    accidentally leave one API call unbounded while walking a graph.
+    The proxy itself stays on the caller's thread; only each native API
+    method call runs in the deadline worker, matching
+    :func:`call_with_deadline`'s existing contract.
+    """
+
+    __slots__ = ("_target", "_label", "_cache", "_timeout_s")
+
+    def __init__(self, target: Any, label: str = "Resolve",
+                 cache: dict[int, "DeadlineProxy"] | None = None,
+                 timeout_s: float | None = None) -> None:
+        object.__setattr__(self, "_target", target)
+        object.__setattr__(self, "_label", label)
+        object.__setattr__(self, "_cache", cache if cache is not None else {})
+        object.__setattr__(self, "_timeout_s", timeout_s)
+        self._cache.setdefault(id(target), self)
+
+    @classmethod
+    def wrap(cls, value: Any, label: str, cache: dict[int, "DeadlineProxy"],
+             timeout_s: float | None) -> Any:
+        if value is None or isinstance(value, (str, bytes, int, float, bool)):
+            return value
+        if isinstance(value, list):
+            return [cls.wrap(item, f"{label}[{index}]", cache, timeout_s)
+                    for index, item in enumerate(value)]
+        if isinstance(value, tuple):
+            return tuple(cls.wrap(item, f"{label}[{index}]", cache, timeout_s)
+                         for index, item in enumerate(value))
+        if isinstance(value, Mapping):
+            return {key: cls.wrap(item, f"{label}[{key!r}]", cache, timeout_s)
+                    for key, item in value.items()}
+        found = cache.get(id(value))
+        if found is not None:
+            return found
+        return cls(value, label=label, cache=cache, timeout_s=timeout_s)
+
+    @classmethod
+    def unwrap(cls, value: Any) -> Any:
+        """Pass native handles, never proxy facades, back into Resolve."""
+        if isinstance(value, cls):
+            return object.__getattribute__(value, "_target")
+        if isinstance(value, list):
+            return [cls.unwrap(item) for item in value]
+        if isinstance(value, tuple):
+            return tuple(cls.unwrap(item) for item in value)
+        if isinstance(value, Mapping):
+            return {key: cls.unwrap(item) for key, item in value.items()}
+        return value
+
+    def __getattr__(self, name: str) -> Any:
+        target = object.__getattribute__(self, "_target")
+        label = f"{object.__getattribute__(self, '_label')}.{name}"
+        value = getattr(target, name)
+        if not callable(value):
+            return self.wrap(
+                value, label, object.__getattribute__(self, "_cache"),
+                object.__getattribute__(self, "_timeout_s"))
+
+        def invoke(*args, **kwargs):
+            result = call_with_deadline(
+                label, value,
+                *(self.unwrap(arg) for arg in args),
+                timeout_s=object.__getattribute__(self, "_timeout_s"),
+                **{key: self.unwrap(item)
+                   for key, item in kwargs.items()})
+            return self.wrap(
+                result, label, object.__getattribute__(self, "_cache"),
+                object.__getattribute__(self, "_timeout_s"))
+
+        return invoke
+
+    def __bool__(self) -> bool:
+        return bool(object.__getattribute__(self, "_target"))
+
+    def __repr__(self) -> str:
+        target = object.__getattribute__(self, "_target")
+        return f"DeadlineProxy({target!r})"
+
+
+def deadline_proxy(resolve: Any, label: str = "Resolve",
+                    timeout_s: float | None = None) -> DeadlineProxy:
+    """Wrap a Resolve handle and every object it returns."""
+    return DeadlineProxy(resolve, label=label, timeout_s=timeout_s)
 
 
 def call_with_deadline(label: str, func: Callable[..., Any], *args,

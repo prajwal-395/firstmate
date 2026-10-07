@@ -138,6 +138,46 @@ def test_borrowing_from_the_qualification_project_is_refused():
             pytest.fail("borrowed with the captain's project unknown")
 
 
+def test_qualification_only_borrow_keeps_the_existing_cursor(monkeypatch):
+    resolve, _ = _captain()
+    resolve.LoadProject(qp.QUALIFICATION_PROJECT)
+    project = resolve.GetCurrentProject()
+    timeline = project.GetCurrentTimeline()
+    events = []
+    monkeypatch.setattr(resolve_lock, "exclusive_held", lambda: True)
+    monkeypatch.setattr(
+        qp, "begin_qualification_session",
+        lambda name: events.append(("begin", name)))
+    monkeypatch.setattr(
+        qp, "end_qualification_session", lambda: events.append(("end",)))
+
+    with qp.borrowed(resolve, qualification_only=True) as found:
+        assert found["qualification_only"] is True
+        assert resolve.GetCurrentProject() is project
+        assert project.GetCurrentTimeline() is timeline
+
+    assert resolve.GetCurrentProject() is project
+    assert project.GetCurrentTimeline() is timeline
+    assert resolve.saved == []
+    assert resolve.opened_pages == ["edit"]
+    assert events == [("begin", qp.QUALIFICATION_PROJECT), ("end",)]
+
+
+def test_qualification_only_borrow_refuses_without_switching(monkeypatch):
+    resolve, podcast = _captain()
+    timeline = podcast.GetCurrentTimeline()
+    monkeypatch.setattr(resolve_lock, "exclusive_held", lambda: True)
+
+    with pytest.raises(qp.QualificationError,
+                       match="needs 'Ren Qualification' open"):
+        with qp.borrowed(resolve, qualification_only=True):
+            pytest.fail("wrong project reached the qualification body")
+
+    assert resolve.GetCurrentProject() is podcast
+    assert podcast.GetCurrentTimeline() is timeline
+    assert resolve.saved == []
+
+
 @pytest.mark.skipif(shutil.which("ffprobe") is None, reason="no ffprobe")
 def test_the_synthetic_clips_have_the_declared_frame_counts(
         tmp_path, monkeypatch):

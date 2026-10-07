@@ -50,6 +50,10 @@ Kinds
                        and files a receipt into the edit history. The
                        sandbox is enforced in the runner, not by
                        convention. Detail: `resolved/ui_transaction.py`.
+`reel.promote_staged`  One typed staged-reel promotion plus its version
+                       record, restricted to the open `Ren Qualification`
+                       project and held for the whole take. Caller payload
+                       is data, never Python.
 """
 
 from __future__ import annotations
@@ -70,7 +74,8 @@ QUALIFICATION_PROJECT = "Ren Qualification"
 
 KINDS = ("lease", "timeline.snapshot", "timeline.apply_patch",
           "resolve_axi", "fusion.registry_summary",
-          "resolve.ui_transaction", "resolve.qualification_session")
+          "resolve.ui_transaction", "reel.promote_staged",
+          "resolve.qualification_session")
 
 
 #: The resolve-axi commands the broker will run, by name. The broker is
@@ -318,6 +323,10 @@ def prepare(kind: str, params: dict, qualification: bool = False) -> dict:
                  "project": project, "timeline": "",
                  "locality": "project",
                  "coalesce_key": None}
+    elif kind == "reel.promote_staged":
+        from library.tools.resolved import reel_promotion
+        shape = reel_promotion.prepare(params)
+        qualification = True
     else:
         shape = dict(_resolve_axi_shape(params), executed=True)
     requested = params.get("priority")
@@ -443,6 +452,12 @@ def run(job: dict, resolve) -> Optional[dict]:
         from library.tools import qualification_project
         return qualification_project.run_qualification_session(job, resolve)
     project = _open_project(resolve, job["project"])
+    if kind == "reel.promote_staged":
+        from library.tools.resolved import reel_promotion
+        with write_scope(project=QUALIFICATION_PROJECT,
+                         timeline_name=job.get("timeline"),
+                         run_id=job.get("id")):
+            return reel_promotion.run(job, resolve, project)
     if kind == "resolve.ui_transaction":
         # The transaction establishes the timeline itself - the cursor
         # moves to it - so it is NOT required to be current here, and

@@ -5,6 +5,7 @@ import threading
 import pytest
 
 from library.tools.resolve_deadline import (
+    deadline_proxy,
     ResolveCallTimeout,
     apply_timeline_resolution,
 )
@@ -82,6 +83,67 @@ def test_a_blocked_readback_is_reported_by_key():
         with pytest.raises(ResolveCallTimeout,
                            match="timeline GetSetting timelineResolutionWidth"):
             apply_timeline_resolution(timeline, 1920, 1080, timeout_s=0.01)
+    finally:
+        release.set()
+        assert finished.wait(1)
+
+
+def test_deadline_proxy_wraps_nested_resolve_handles(monkeypatch):
+    from library.tools import resolve_deadline
+
+    child = type("Child", (), {"GetName": lambda self: "Q Reel"})()
+
+    class Root:
+        def __init__(self):
+            self.child = None
+
+        def GetChildren(self):
+            return {"video": [child]}
+
+        def SetChild(self, value):
+            self.child = value
+            return True
+
+    calls = []
+
+    def immediate(label, function, *args, timeout_s=None, **kwargs):
+        calls.append((label, timeout_s))
+        return function(*args, **kwargs)
+
+    monkeypatch.setattr(resolve_deadline, "call_with_deadline", immediate)
+    raw_root = Root()
+    root = deadline_proxy(raw_root, label="qualification", timeout_s=7)
+
+    assert root.GetChildren()["video"][0].GetName() == "Q Reel"
+    wrapped_child = root.GetChildren()["video"][0]
+    assert root.SetChild(wrapped_child) is True
+    assert raw_root.child is child
+    assert calls == [
+        ("qualification.GetChildren", 7),
+        ("qualification.GetChildren['video'][0].GetName", 7),
+        ("qualification.GetChildren", 7),
+        ("qualification.SetChild", 7),
+    ]
+
+
+def test_deadline_proxy_names_a_blocked_api_method():
+    release = threading.Event()
+    finished = threading.Event()
+
+    class Root:
+        def GetProjectManager(self):
+            try:
+                release.wait()
+                return object()
+            finally:
+                finished.set()
+
+    wrapped = deadline_proxy(Root(), label="reel.promote_staged",
+                              timeout_s=0.01)
+    try:
+        with pytest.raises(ResolveCallTimeout,
+                           match="reel.promote_staged.GetProjectManager"):
+            wrapped.GetProjectManager()
     finally:
         release.set()
         assert finished.wait(1)

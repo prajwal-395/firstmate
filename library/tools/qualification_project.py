@@ -34,6 +34,12 @@ current, and READS BACK both. A restore that does not read back raises
 under the exclusive instance lease; nothing writes the captain's project
 beyond the save.
 
+A typed qualification broker job may instead call `borrowed` with
+`qualification_only=True`. That path requires the exact Qualification
+project to already be open, marks the session for the watcher, and yields
+without saving, switching projects, or moving/restoring the timeline
+cursor. It refuses every other open project by name.
+
 `tests/unit/resolve/test_qualification_project.py`.
 """
 
@@ -97,6 +103,16 @@ def media_dir() -> Path:
     return Path(root) / recipe_key()
 
 
+def promotion_project_folder() -> Path:
+    """The isolated file store for the typed live promotion qualification.
+
+    This is deliberately beside, not inside, the engine checkout or a
+    captain's project. The broker job addresses it only after Resolve
+    reports the exact ``Ren Qualification`` project name.
+    """
+    return media_dir() / "promotion_project"
+
+
 def frames(clip: str) -> int:
     return next(seconds for name, seconds, _, _ in MEDIA
                 if name == clip) * FPS
@@ -150,8 +166,14 @@ def _timeline_by_name(project, name: str):
 
 
 @contextmanager
-def borrowed(resolve):
-    """Save the captain's project, lend Resolve, put it all back."""
+def borrowed(resolve, *, qualification_only: bool = False):
+    """Use Qualification without moving the cursor, or borrow and restore.
+
+    The broker's typed promotion job uses `qualification_only=True`: it
+    must act on the already-open Qualification project and must not
+    switch or restore any project or timeline. All other callers retain
+    the original save/borrow/restore behaviour.
+    """
     from library.tools.resolve_lock import exclusive_held
     if not exclusive_held():
         raise QualificationError("borrowing Resolve needs the EXCLUSIVE "
@@ -166,6 +188,23 @@ def borrowed(resolve):
     if not project:
         raise QualificationError("Resolve has no project open to return to")
     name = project.GetName()
+    if qualification_only:
+        if name != QUALIFICATION_PROJECT:
+            raise QualificationError(
+                f"qualification-only borrowing needs "
+                f"{QUALIFICATION_PROJECT!r} open; refusing {name!r}")
+        timeline = project.GetCurrentTimeline()
+        found = {"project": name,
+                 "timeline_id": timeline.GetUniqueId() if timeline else None,
+                 "timeline": timeline.GetName() if timeline else None,
+                 "page": resolve.GetCurrentPage(),
+                 "qualification_only": True}
+        begin_qualification_session(name)
+        try:
+            yield found
+        finally:
+            end_qualification_session()
+        return
     if name == QUALIFICATION_PROJECT:
         raise QualificationError(
             f"Resolve is already on {QUALIFICATION_PROJECT!r}, so the "

@@ -10526,7 +10526,9 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
                          track_plans: dict | None = None,
                          accept_editor_changes=None,
                          timeline_inventory_before=None,
-                         staged_timeline_ids=None) -> dict:
+                         staged_timeline_ids=None,
+                         resolve=None,
+                         allow_cursor_excursion: bool = True) -> dict:
     """Move passing stagings onto their final timeline names.
 
     The ONLY place an approved timeline is deleted. Reachable only
@@ -10668,7 +10670,14 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     finals = list(staged_to_final.keys())
     backups = {final: backup_name(final) for final in finals}
 
-    project = _connect_resolve_project(resolve_project_name)
+    if resolve is None:
+        project = _connect_resolve_project(resolve_project_name)
+    else:
+        # Broker jobs pass their already-owned, deadline-wrapped handle.
+        # Keep exact-name resolution at this boundary; never connect a
+        # second scripting client or infer a project by prefix.
+        project = resolve_project_exactly(
+            resolve.GetProjectManager(), resolve_project_name)
     pool = project.GetMediaPool()
     from library.tools import reel_replace_guard as _guard
     from library.tools import plan_provenance as _provenance
@@ -10963,6 +10972,11 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             # preview has a state to write.
             from contextlib import nullcontext
             from library.tools.resolve_lock import cursor_excursion
+            if disabled_preview["carried"] and not allow_cursor_excursion:
+                raise ReelBuildError(
+                    f"REFUSING to promote {final!r}: carrying disabled "
+                    f"clip state onto {staging!r} requires moving Resolve's "
+                    "current timeline cursor, which this caller forbids.")
             with (cursor_excursion(project, staged_found[staging],
                                    f"carry disabled state onto {staging}")
                   if disabled_preview["carried"] else nullcontext()):
