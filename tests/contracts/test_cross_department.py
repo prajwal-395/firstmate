@@ -372,7 +372,9 @@ def test_broll_nodes_are_emitted_from_the_bare_list_step_3_02_emits():
 # ── The wire: compile_manifest acts on the conflict ────────────────
 
 
-def test_compile_manifest_downgrades_a_transition_an_interjection_covers():
+def test_compile_manifest_downgrades_a_transition_an_interjection_covers(
+    monkeypatch,
+):
     """The defect: compile_manifest places a drawn transition on V1
     without any view of whether a B-roll interjection covers the cut, so
     the effect draws through a boundary the viewer never sees - and the
@@ -389,6 +391,10 @@ def test_compile_manifest_downgrades_a_transition_an_interjection_covers():
     )
 
     with tempfile.TemporaryDirectory() as project_root:
+        monkeypatch.setenv(
+            "PIPELINE_SFX_LIBRARY",
+            os.path.join(project_root, "sfx-library"),
+        )
         pipeline_data = _state(
             **_transitions(_drawn(2, 5.0)),
             **{"broll.resolve": {
