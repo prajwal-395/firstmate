@@ -654,6 +654,15 @@ def run_deferred(timeline, recorder: PlacementRecorder, *,
     from library.tools.reel_build import _timeline_span
     from library.tools.transform_write_log import set_property
 
+    if project_folder:
+        # The replayed writes are logged against the project, and the
+        # log resolves its home off this folder - which a recorded
+        # build never created (recording writes nothing). Without it
+        # the folder lookup refuses every logged write and the replay
+        # holds zeros: a wrong-but-stored position that reads back
+        # cleanly. The append path always has it (its earlier writes
+        # created it); make the replay's home before it writes.
+        os.makedirs(project_folder, exist_ok=True)
     started = time.perf_counter()
     for spec in recorder.specs:
         if not spec.properties:
