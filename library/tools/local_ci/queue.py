@@ -96,6 +96,11 @@ class World:
         """Evaluate main+members stacked: Tier-2 runs the FULL suite once
         on the exact tree the ordered merges would produce."""
         from library.tools.local_ci import hygiene
+        # The daemon keeps one mirror across queue passes. Main can move
+        # after the mirror's last refresh, so fetch this exact base SHA
+        # before creating a checkout. A missing/racing base must requeue,
+        # never silently test an older tree or blame a PR for the failure.
+        hygiene.fetch_base(self.mirror, base)
         with hygiene.disposable_checkout(self.mirror, base, self.state_dir) as checkout:
             stack = _stack_checkout(checkout, base, [m["head"] for m in members])
             if not stack["ok"]:

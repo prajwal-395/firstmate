@@ -7,10 +7,11 @@ never kick the innocent.
 """
 
 import subprocess
+from contextlib import contextmanager
 
 import pytest
 
-from library.tools.local_ci import config, github, queue, state
+from library.tools.local_ci import config, github, hygiene, queue, runner, state
 
 
 def _git(repo, *argv):
@@ -68,6 +69,43 @@ def test_report_links_to_the_pr_when_queue_event_has_no_url(monkeypatch, ok):
     queue.World().report(42, "head", "", ok, "stack red")
 
     assert statuses[0][3] == github.pull_url(42)
+
+
+def test_tier2_fetches_the_exact_base_before_creating_its_checkout(
+        monkeypatch, tmp_path):
+    events = []
+
+    def fetch_base(mirror, base):
+        events.append(("fetch", mirror, base))
+
+    @contextmanager
+    def disposable_checkout(mirror, base, state_dir):
+        events.append(("checkout", mirror, base, state_dir))
+        yield "checkout"
+
+    def stack_checkout(checkout, base, heads):
+        events.append(("stack", checkout, base, heads))
+        return {"ok": True, "reason": ""}
+
+    def run_gate(checkout, log):
+        events.append(("gate", checkout))
+        return {"ok": True, "reason": "", "requeue": False}
+
+    monkeypatch.setattr(hygiene, "fetch_base", fetch_base)
+    monkeypatch.setattr(hygiene, "disposable_checkout", disposable_checkout)
+    monkeypatch.setattr(queue, "_stack_checkout", stack_checkout)
+    monkeypatch.setattr(runner, "run_gate", run_gate)
+
+    world = queue.World(mirror="mirror", state_dir=str(tmp_path))
+    verdict = world.test_stack("current-main-sha", [_member(1)])
+
+    assert verdict.ok is True
+    assert events == [
+        ("fetch", "mirror", "current-main-sha"),
+        ("checkout", "mirror", "current-main-sha", str(tmp_path)),
+        ("stack", "checkout", "current-main-sha", ["head-1"]),
+        ("gate", "checkout"),
+    ]
 
 
 def test_a_red_stack_bisects_to_the_culprit_and_merges_the_rest():
