@@ -48,7 +48,8 @@ def _probe_duration(path: str) -> Optional[float]:
     ]
     try:
         res = subprocess.run(cmd, capture_output=True, text=True,
-                             encoding="utf-8", errors="replace", timeout=30)
+                             encoding="utf-8", errors="replace", timeout=30,
+                             check=False)
     except (OSError, subprocess.SubprocessError):
         return None
     try:

@@ -295,15 +295,15 @@ def _render_engine_fframes(bookend: dict, composition: str,
     try:
         _ff.render_one_card(
             composition, props, out_path,
-            _os.path.dirname(_os.path.abspath(out_path)),
+            os.path.dirname(os.path.abspath(out_path)),
             project_folder or "",
-            _os.path.dirname(_os.path.abspath(remotion_dir)))
+            os.path.dirname(os.path.abspath(remotion_dir)))
     except (_ff.FFramesUnavailable,
             _ff.FFramesRenderError) as exc:
         raise BookendRenderError(
             f"bookend '{bookend['slot']}' ({composition}) FFrames "
             f"render failed: {exc}") from exc
-    if not _os.path.exists(out_path):
+    if not os.path.exists(out_path):
         raise BookendRenderError(
             f"bookend '{bookend['slot']}' ({composition}) reported "
             f"success but wrote no file at {out_path}")

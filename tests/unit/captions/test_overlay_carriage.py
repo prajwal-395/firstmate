@@ -56,8 +56,7 @@ def _has_ffmpeg() -> bool:
 
 needs_ffmpeg = pytest.mark.skipif(
     not _has_ffmpeg(),
-    reason="ffmpeg/ffprobe not on PATH; CI installs them "
-           "(.github/workflows/ci.yml) and so does a dev machine per "
+    reason="ffmpeg/ffprobe not on PATH; a dev machine carries them per "
            "AGENTS.md 9, so this runs everywhere the repo is set up")
 
 

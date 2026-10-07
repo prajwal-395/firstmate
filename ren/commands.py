@@ -75,6 +75,9 @@ VERBS = (
     Verb("init", "Setup", "Create the projects root folder", subcommand="init-root"),
     Verb("setup-hooks", "Setup", "Install the marker-feedback hook for a host (plan by default)",
          subcommand="setup-hooks"),
+    Verb("ci", "Setup", "This Mac's local CI service and PR merge queue: status, check, ready, install",
+         module_argv=("library.tools.local_ci",),
+         detail="`ren ci status` shows the queue and last results; `ren ci check <pr>` runs one PR's check; `ren ci ready <pr>` marks it for the queue; `ren ci install` installs the launchd agent (only after the delivering PR merges). SOP: docs/LOCAL_CI.md."),
 
     Verb("new", "Projects", "Create a project", subcommand="new"),
     Verb("projects", "Projects", "List projects", subcommand="list"),

@@ -161,7 +161,7 @@ def test_remotion_conforms_to_the_scene_ir(tmp_path):
     done = subprocess.run(
         command, cwd=str(_pilot_root() / "remotion-subtitles"),
         capture_output=True, text=True, encoding="utf-8", errors="replace",
-        timeout=300,
+        timeout=300, check=False,
     )
     assert done.returncode == 0, f"Remotion render failed: {done.stderr[-600:]}"
     frames = sorted(output_dir.glob("*.png"))

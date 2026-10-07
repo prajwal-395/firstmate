@@ -63,7 +63,6 @@ if PROJECT_ROOT not in sys.path:
 
 from library.tools import build_sweep
 from library.tools import caption_asset_gc as gc
-import pytest
 
 
 @pytest.fixture(autouse=True)

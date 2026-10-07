@@ -133,7 +133,7 @@ def test_the_render_reads_the_transform_the_manifest_carries():
 
 # ── Precedence: project override > template > default ─────────────────
 
-def test_project_override_beats_the_template_which_beats_the_default(
+def test_delivery_project_override_beats_the_template_which_beats_the_default(
         tmp_path):
     templates = tmp_path / "templates"
     templates.mkdir()
@@ -150,7 +150,7 @@ def test_project_override_beats_the_template_which_beats_the_default(
     assert resolve_delivery_format(folder, templates_dir=str(templates)) == [1080, 1080]
 
 
-def test_an_unknown_project_or_template_declaration_raises(tmp_path):
+def test_delivery_unknown_project_or_template_declaration_raises(tmp_path):
     folder = _project(tmp_path, {"delivery_format": "portrait"})
     with pytest.raises(ValueError):
         resolve_delivery_format(folder)

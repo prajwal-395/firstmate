@@ -570,7 +570,7 @@ def _decode_frame_rgb(frame_path: str):
          "-show_entries", "stream=width,height", "-of",
          "csv=p=0:s=x", frame_path],
         capture_output=True, encoding="utf-8", errors="replace",
-        timeout=60)
+        timeout=60, check=False)
     size = probe.stdout.strip()
     if "x" not in size:
         raise RuntimeError(f"could not read the frame size of {frame_path}")
@@ -578,7 +578,7 @@ def _decode_frame_rgb(frame_path: str):
     res = subprocess.run(
         ["ffmpeg", "-nostdin", "-v", "error", "-i", frame_path,
          "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
-        capture_output=True, timeout=120)
+        capture_output=True, timeout=120, check=False)
     if res.returncode != 0 or not res.stdout:
         raise RuntimeError(
             f"could not decode {frame_path}: {res.stderr.decode('utf-8', 'replace')[:200]}")

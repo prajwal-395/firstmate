@@ -1,5 +1,16 @@
 # The three layers, and what each one uniquely catches
 
+> 2026-10-07: layer 2 (clean room) is RETIRED with `.github/workflows/
+> ci.yml` - the account's 2,000 hosted minutes are now zero by
+> construction (`tests/contracts/test_no_hosted_actions.py`). PR
+> checks (Tier-1 selections) and integration (Tier-2 full-gate
+> clusters) run on the captain's Mac under ren-ci instead:
+> docs/LOCAL_CI.md. What the clean room uniquely caught (undeclared
+> dependencies, absent system tools, platform assumptions) has no
+> local replacement yet; a declared-manifest install check is the
+> documented future upgrade. The arithmetic below is the history that
+> motivated the move, kept for the record.
+
 Adopted by the captain on 2026-09-05 from the scout's measurement of 1,063 GitHub job
 records (2026-08-10 to 2026-09-05) and one local full-suite run. This file is the
 "why"; `.github/workflows/ci.yml` is the "what", and its header points here.

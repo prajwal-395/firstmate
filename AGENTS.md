@@ -350,21 +350,20 @@ Detail: `tests/tooling/test_tests_never_reach_real_projects.py`.
 
 **The build has one gate that CAN fail and one report that cannot, and the two run under DIFFERENT ruff configs.**
 `ruff-ci-gate.toml` at the repository root is the enforcing half - what is enforced, what is deferred and the count of each are written down in it.
-`.github/workflows/ci.yml` runs it with NO `|| true`; the unfiltered run beside it keeps `|| true` and annotates everything.
+`ren ci check` runs it with NO `|| true` before any test; the unfiltered run beside it keeps `|| true` and annotates everything.
 [why](docs/RULE_EVIDENCE.md#the-build-that-declined-to-look)
 
 - **A deferral is per FILE with its count, and that is weaker than it reads**: a listed file is wholly exempt, so a NEW violation in one still passes. Fixing a file means DELETING its line - a line no longer needed is a lie about what is still owed.
-- **The runner installs ffmpeg**, because 27 library files shell out to it and every audio/video measurement path skipped without it. The suite skipped HONESTLY, which is what made it invisible.
+- **ffmpeg must be on PATH**, because 27 library files shell out to it and every audio/video measurement path skipped without it. The suite skipped HONESTLY, which is what made it invisible.
 - **pytest runs with `-rs`.** `131 skipped` names nothing; a build that declines to measure something must say what.
-- `tests/tooling/test_gate_smoke.py` checks the workflow and proves a false gate PASS is refused.
+- `tests/tooling/test_gate_smoke.py` checks the local gate and proves a false gate PASS is refused.
 
-**CI is THREE LAYERS, and only the last is on GitHub.**
-Detail: `docs/CI_LAYERS.md`. No push/dispatch/PR fires anything: one
-clean-room gate per BATCH on the `run-tests` label proving install from declared
-manifests. The full-suite gate is LOCAL, free - firstmate runs
-`scripts/full_suite_gate.sh` (4m54s) per batch, parallel by default; control: `--no-parallel`.
+**CI is LOCAL: ren-ci Tier-1 per PR, Tier-2 full-gate clusters to merge.**
+Detail: `docs/LOCAL_CI.md`. No workflow fires anything: `tests/contracts/test_no_hosted_actions.py`
+fails an automatic trigger or a hosted runner. The full-suite gate is LOCAL, free - ren-ci runs
+`scripts/full_suite_gate.sh` per Tier-2 cluster, parallel by default; control: `--no-parallel`.
 
-- **Run the tests of everything that depends on your change, in both directions** - the modules it uses AND every module that uses it - and expect no CI verdict on your PR.
+- **Run the tests of everything that depends on your change, in both directions** - the modules it uses AND every module that uses it - and expect a ren-ci verdict on your PR as a commit status.
   Captain's rule, 2026-09-03: *"is there a reason why we run all these test locally
   and fry the CPU?"* - so compute the selection with `scripts/select_dependent_tests.py <changed-file>` instead of judging it;
   `--loop` gives the changed subsystem's `unit/` plus `contracts/`.

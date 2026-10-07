@@ -63,3 +63,34 @@ def test_a_producer_change_selects_the_resolver_contract_set():
     selected = select(["library/tools/speaker_identity.py"])
     for contract in MG_CONTRACT:
         assert contract in selected, contract
+
+
+def test_a_binary_changed_file_contributes_no_stems_and_crashes_nothing(tmp_path):
+    """ren-ci shells the selector per PR, and PRs carry images: a PNG
+    in the diff must select by stem only (nothing), never UnicodeDecode
+    the run. Found on PR #1897's 394-file diff."""
+    png = tmp_path / "still.png"
+    png.write_bytes(bytes([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]))
+    assert select([str(png)]) == []
+
+
+def test_selection_roots_at_ren_select_root(monkeypatch, tmp_path):
+    """ren-ci selects against the PR checkout, not the tree the script
+    lives in: with REN_SELECT_ROOT at a foreign tree, the index reads
+    that tree. Otherwise a PR predating a test file selects paths its
+    own checkout does not have, and pytest errors on the missing."""
+    import os
+    root = tmp_path / "foreign"
+    (root / "library").mkdir(parents=True)
+    (root / "tests").mkdir()
+    (root / "library" / "only_here.py").write_text(
+        "VALUE = 1\n", encoding="utf-8")
+    (root / "tests" / "test_only_here.py").write_text(
+        "import only_here\n\n\ndef test_it():\n    assert only_here.VALUE\n",
+        encoding="utf-8")
+    monkeypatch.setenv("REN_SELECT_ROOT", str(root))
+    module = _load_selector()
+    assert module.REPO_ROOT == str(root)
+    assert module.select(["library/only_here.py"]) == [
+        "tests/test_only_here.py"]
+    assert os.environ.get("REN_SELECT_ROOT") == str(root)

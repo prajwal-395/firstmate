@@ -316,48 +316,14 @@ def test_missing_xdist_does_not_report_a_pass(tmp_path):
     assert result.returncode != 0
 
 
-def test_workflow_uses_label_gates_and_keeps_its_failing_checks_fail_closed():
-    yaml = pytest.importorskip("yaml", reason="workflow validation uses PyYAML")
-    workflow = yaml.safe_load(
-        (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(
-            encoding="utf-8",
-        ),
-    )
-    triggers = workflow.get("on", workflow.get(True))
-    assert "push" not in triggers
-    assert triggers["pull_request"]["types"] == ["labeled"]
-
-    jobs = workflow["jobs"]
-    expected_labels = {
-        "clean-room-gate": "run-tests",
-        "heavy-ml-suite": "run-heavy-ml",
-    }
-    assert set(jobs) == set(expected_labels)
-    for name, label in expected_labels.items():
-        assert f"github.event.label.name == '{label}'" in jobs[name].get("if", "")
-
-    clean_room = jobs["clean-room-gate"]
-    steps = clean_room["steps"]
-    ruff_gate = next(
-        step for step in steps
-        if "ruff" in step.get("name", "").lower()
-        and "FAILS THE BUILD" in step.get("name", "")
-    )
-    assert "|| true" not in ruff_gate["run"]
-    assert "ruff-ci-gate.toml" in ruff_gate["run"]
-    pytest_step = next(step for step in steps if "Run Pytest" in step.get("name", ""))
-    assert "-rs" in pytest_step["run"]
-    assert "|| true" not in pytest_step["run"]
-    ffmpeg_step = next(i for i, step in enumerate(steps) if "ffmpeg" in step.get("name", "").lower())
-    pytest_step_index = steps.index(pytest_step)
-    assert ffmpeg_step < pytest_step_index
-    report_only = next(
-        step for step in steps
-        if "report only" in step.get("name", "").lower()
-    )
-    assert "|| true" in report_only["run"]
-    assert "--config" not in report_only["run"]
-    assert "--statistics" in report_only["run"]
+def test_the_local_gate_contract_without_hosted_ci():
+    # 2026-10-07: ci.yml is deleted (PR CI is ren-ci now -
+    # tests/contracts/test_no_hosted_actions.py owns that rule), so the
+    # workflow-shape assertions this test used to carry live there.
+    # What stays here is the LOCAL half it has always guarded: the
+    # enforcing ruff config, the pytest markers and testpaths, and the
+    # full-suite gate's own load-bearing strings.
+    assert not (REPO_ROOT / ".github" / "workflows" / "ci.yml").exists()
 
     config = tomllib.loads((REPO_ROOT / "ruff-ci-gate.toml").read_text(encoding="utf-8"))
     enforced = config["lint"]["select"]
@@ -381,7 +347,3 @@ def test_workflow_uses_label_gates_and_keeps_its_failing_checks_fail_closed():
     assert 'if [ "${VERDICT}" = "PASS" ]' in gate
     assert 'scripts/pytest_timing.py" update' in gate
     assert ' -m real_model -rs --tb=short' in gate
-    real_model_steps = jobs["heavy-ml-suite"]["steps"]
-    assert any(
-        "-m real_model" in step.get("run", "") for step in real_model_steps
-    )

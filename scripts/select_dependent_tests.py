@@ -27,6 +27,11 @@ import os
 import sys
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# ren-ci selects against the PR CHECKOUT, not the tree this script file
+# lives in: REN_SELECT_ROOT points the index at the tree under test.
+# Without it a PR predating a test file would select paths its own tree
+# does not have, and pytest would error on the missing files.
+REPO_ROOT = os.environ.get("REN_SELECT_ROOT", REPO_ROOT)
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
@@ -74,7 +79,10 @@ def _parse(path: str) -> ast.Module | None:
     try:
         with open(path, encoding="utf-8") as handle:
             return ast.parse(handle.read())
-    except (OSError, SyntaxError):
+    except (OSError, SyntaxError, UnicodeDecodeError):
+        # A changed PNG (or any binary a PR carries) is not a module:
+        # it contributes no stems, it never crashes the selection.
+        # ren-ci shells this script per PR, and PRs carry images.
         return None
 
 

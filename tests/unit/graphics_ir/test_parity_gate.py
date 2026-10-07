@@ -88,6 +88,7 @@ def _remotion_available() -> bool:
             [npx, "--no-install", "remotion", "versions"],
             capture_output=True, text=True, timeout=60,
             cwd=str(_PILOT_ROOT / "remotion-subtitles"),
+            check=False,
         )
         return done.returncode == 0
     except (OSError, subprocess.TimeoutExpired):
@@ -177,6 +178,6 @@ def _render_remotion(tmp_path: Path, output_dir: str) -> None:
     done = subprocess.run(
         command, cwd=str(remotion_root),
         capture_output=True, text=True, encoding="utf-8", errors="replace",
-        timeout=300,
+        timeout=300, check=False,
     )
     assert done.returncode == 0, f"Remotion render failed: {done.stderr[-600:]}"

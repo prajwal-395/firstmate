@@ -164,6 +164,7 @@ def test_a_crashing_worker_is_a_typed_error_not_a_hang(tmp_path):
         encoding="utf-8",
         timeout=30,
         env=env,
+        check=False,
     )
     elapsed = time.monotonic() - start
 

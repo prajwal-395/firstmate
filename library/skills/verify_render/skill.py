@@ -48,8 +48,6 @@ SKILL_NAME = "verify_render"
 
 def _measured_project_fps(project_folder: str) -> Optional[float]:
     """The frame rate the catalog measured off the footage, or None."""
-    import os
-
     from library.tools import capability_outputs
     from library.tools.project_layout import PIPELINE_DATA_FILE
     path = os.path.join(project_folder or "", PIPELINE_DATA_FILE)
@@ -81,7 +79,6 @@ def run(video_path: str,
     """
     from library.tools import pipeline_skills, render_qa
 
-    import os
     if not video_path or not os.path.exists(video_path):
         verdict: Dict[str, Any] = {
             "skill": SKILL_NAME,
@@ -222,7 +219,6 @@ def _locate_plan(project_folder: str, timeline=None, transcript=None):
     be read - a scoped re-check then NAMES the check rather than guessing.
     """
     import glob
-    import os
 
     if timeline is None and project_folder:
         from library.tools.project_layout import Area, ProjectLayout

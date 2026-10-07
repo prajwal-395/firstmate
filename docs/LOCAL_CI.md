@@ -1,0 +1,118 @@
+# Local CI and merge queue (ren-ci): the contributor SOP
+
+Just push and mark ready. The Mac does the rest, for free.
+
+## What runs, and when
+
+Two tiers. Tier-1 is the fast signal; Tier-2 is the merge verdict.
+
+- **Tier-1, per PR, immediate and parallel.** Every new head (push)
+  runs the static gate (enforcing ruff config, compile sweep, AGENTS.md
+  size gate) plus its dependent selection for the changed files plus
+  the always-run cross-cutting set (`tests/contracts/`, the parallel
+  lane routing, composer, ren-core parity, resolve guard wiring). As
+  many PRs at once as the machine can take right now - a quiet machine
+  runs three jobs, a loaded one serialises to one. Tier-1 green is the
+  GATE into the queue, not a merge verdict.
+- **Tier-2, integration in a timebox.** Ready PRs cluster within an
+  adaptive window (short on a quiet machine, long on a busy one) and
+  the FULL suite (`scripts/full_suite_gate.sh`) runs once on the exact
+  stacked tree that would land (main + cluster in queue order). Green
+  merges the whole cluster in order with a freshness re-check chained
+  on each merge's landed SHA; red bisects to the culprit, kicks only
+  it with the reason, and merges the rest. A narrowed/crashed gate is
+  not red: the cluster requeues and re-tests.
+
+No PR merges without a full-suite pass on the exact tree that lands.
+That is the test-security half of the design; the speed half is that
+Tier-1 selections are small and parallel while the full suite runs
+once per cluster instead of once per PR.
+
+## The contributor loop
+
+1. Push the PR against `main`.
+2. Watch the `ren-ci/pr-checks` commit status on the head (pending ->
+   success/failure with the selection in the description).
+3. When Tier-1 is green, mark ready: add the `ren-ci-ready` label, or
+   `ren ci ready <pr>`.
+4. The cluster runs Tier-2 when its window closes; merges land in
+   queue order. A kick names its reason on the head's status and drops
+   the ready label - fix, push (a new head needs a fresh Tier-1), mark
+   ready again.
+
+`ren ci status` shows the queue, the last Tier-1 results with
+seen->result latency, ready->merged latency for landed PRs, and what
+the machine would dispatch right now.
+
+## Load policy (why it speeds up and slows down)
+
+Before each dispatch the daemon measures 1-minute load vs cores, free
+memory, free disk, and heavy foreground processes (Resolve, renders, a
+batch gate). Quiet: up to 3 Tier-1 jobs at pytest `-n 1` with a 90s
+window (small clusters, low latency). Loaded: 1 job at `-n 2` with a
+600s window (bigger clusters, fewer full-gate runs). A batch
+full-suite gate in flight defers everything; a run that would breach
+the 10GB disk floor refuses and says so. The policy is pure and pinned
+by `tests/unit/tools/test_local_ci_load.py` - tune the matrix, not the
+daemon.
+
+## Hygiene (the four scratch-script failures, retired)
+
+Disposable worktree checkouts, deleted on exit even when the run fails
+or is killed. No leaked Resolve brokers (a NEW broker after a run
+fails the check; the captain's serving broker is left alone). Nothing
+runs `real_model` or `resolve_live` markers, and the three
+Resolve-driving qualification files are ignored by name. State lives
+in `~/.ren-ci` (machine, never a repo); logs in
+`~/Library/Logs/ren-ci/`.
+
+## Install (only after the delivering PR merges)
+
+The launchd plist points at the checkout it was installed from, so
+install from `main`, never from a worktree or branch:
+
+```
+ren ci install   # user agent com.ren.ci: KeepAlive, logs to ~/Library/Logs/ren-ci/
+ren ci uninstall # stops and removes the agent; state and logs survive
+```
+
+## End-to-end proof (post-merge, on throwaway PRs)
+
+1. Open a trivial PR, watch Tier-1 post pending->success, `ren ci
+   ready`, watch the cluster run Tier-2 and merge. Close nothing - a
+   merged PR closes itself.
+2. Open a deliberately failing PR (one red test), mark ready, watch it
+   kicked with the reason while the rest of its cluster merges. Close
+   the throwaway branch after.
+3. Report each check as: `PR <url> head <full sha> - <N> passed,
+   <M> failed, selection <command and paths>`.
+
+## Deliberate tradeoffs
+
+- **No GitHub Actions for automation** (`tests/contracts/
+  test_no_hosted_actions.py` fails any automatic workflow or hosted
+  runner): zero minutes, enforced. The one exception is tag-triggered
+  releases, a deliberate human act a handful of times a year whose
+  artifacts `ren update` fetches.
+- **No self-hosted Actions runner** (costed and rejected in
+  docs/CI_LAYERS.md: competes for cores, queues when the Mac sleeps,
+  destroys the clean room). The daemon IS the runner, with its own
+  load policy instead of the Actions scheduler.
+- **The clean-room gate is retired with `ci.yml`.** A fresh Linux
+  install from declared manifests caught undeclared dependencies - and
+  cost hosted minutes per run. The replacement is the disposable
+  checkout (clean tree, declared interpreter ladder); a
+  declared-manifest install check is the documented future upgrade.
+- **Why not extend the variant merge queue (PR 1924).** That queue
+  merges recorded timeline commits inside one video project, judged by
+  `timeline_diff` previews where per-candidate verdicts ARE the split
+  (no bisect possible or needed). This queue merges git branches judged
+  by test suites, where green-alone-red-together is the core defect and
+  bisect is the core mechanic. Different domain, different verdict,
+  different clock: only the pattern (one evaluation pass, ordered
+  merges, freshness first, kick only the culprit) carried over.
+- **Detection polls; scheduling does not wait.** New heads are found
+  by a 30s REST poll (zero minutes; no push channel exists to a Mac
+  behind NAT). Everything after detection is event-driven: slots,
+  windows, and queue state decide, never a timer. A webhook receiver
+  is the future upgrade if the poll ever matters.

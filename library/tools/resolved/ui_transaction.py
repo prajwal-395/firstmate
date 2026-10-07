@@ -199,7 +199,7 @@ def announce_take(reason: str, budget_seconds: float) -> str:
         subprocess.run(
             ["osascript", "-e",
              f'display notification "{safe}" with title "Ren"'],
-            capture_output=True, encoding="utf-8", timeout=5)
+            capture_output=True, encoding="utf-8", timeout=5, check=False)
     except Exception:                                   # noqa: BLE001
         pass
     return text

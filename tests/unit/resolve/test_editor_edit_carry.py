@@ -14,16 +14,6 @@ import time
 
 @pytest.fixture(autouse=True)
 def _leases_off_machine(tmp_path, monkeypatch):
-    """Composed edits declare their staging now: leases stay in tmp."""
-    directory = tmp_path / "locks"
-    directory.mkdir()
-    monkeypatch.setenv("PIPELINE_RESOLVE_LOCK_DIR", str(directory))
-import threading
-import time
-
-
-@pytest.fixture(autouse=True)
-def _leases_off_machine(tmp_path, monkeypatch):
     """Carried edits declare their staging now: leases stay in tmp."""
     directory = tmp_path / "locks"
     directory.mkdir()

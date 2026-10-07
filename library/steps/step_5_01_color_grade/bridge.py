@@ -71,6 +71,7 @@ from library.tools.series_look import (
     resolve_look,
 )
 from library.tools.shot_colour import (
+    CHROMA_FRAMES,
     CHROMA_SAMPLE_SECONDS,
     CONTRAST_P_HI,
     CONTRAST_P_LO,

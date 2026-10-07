@@ -39,6 +39,10 @@ import os
 import re
 import statistics
 import subprocess
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import numpy as np
 
 # ── Cut-detection sensitivity ────────────────────────────────────────
 #
@@ -78,7 +82,7 @@ def _run_ffmpeg_stats(video_path: str) -> str:
         ["ffmpeg", "-i", video_path, "-vf", "signalstats,metadata=print",
          "-f", "null", "-"],
         capture_output=True, text=True, encoding="utf-8", errors="replace",
-        timeout=600,
+        timeout=600, check=False,
     )
     return result.stderr
 
@@ -89,7 +93,7 @@ def _probe_duration(video_path: str) -> float:
         ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
          "-of", "default=noprint_wrappers=1:nokey=1", video_path],
         capture_output=True, text=True, encoding="utf-8", errors="replace",
-        timeout=60,
+        timeout=60, check=False,
     )
     try:
         return float(result.stdout.strip())
@@ -312,7 +316,7 @@ def _video_fps(video_path: str) -> float:
          "-show_entries", "stream=r_frame_rate",
          "-of", "default=noprint_wrappers=1:nokey=1", video_path],
         capture_output=True, text=True, encoding="utf-8", errors="replace",
-        timeout=60,
+        timeout=60, check=False,
     )
     try:
         num, _, den = result.stdout.strip().partition("/")
@@ -617,7 +621,7 @@ def _extract_reference_audio(video_path: str):
         ["ffmpeg", "-y", "-v", "error", "-i", video_path, "-vn",
          "-ac", "1", "-ar", "22050", out_path],
         capture_output=True, text=True, encoding="utf-8",
-        errors="replace", timeout=300)
+        errors="replace", timeout=300, check=False)
     if os.path.isfile(out_path) and os.path.getsize(out_path) > 0:
         return out_path
     import shutil
@@ -954,7 +958,7 @@ def _extract_frames(video_path: str, times: list) -> list:
             ["ffmpeg", "-y", "-v", "error", "-ss", str(moment), "-i",
              video_path, "-vframes", "1", "-q:v", "3", out_path],
             capture_output=True, text=True, encoding="utf-8",
-            errors="replace", timeout=120)
+            errors="replace", timeout=120, check=False)
         if os.path.isfile(out_path) and os.path.getsize(out_path) > 0:
             frames.append(out_path)
     return frames

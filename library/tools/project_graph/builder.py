@@ -1,5 +1,8 @@
 """Project-graph builder: derive the whole graph from project state."""
 from __future__ import annotations
+
+from pathlib import Path
+
 try:
     from library.tools import (
         source_memory,

@@ -492,7 +492,6 @@ def extract_chunk_frames(source_file, start, end, fps=VIDEO_CHUNK_FPS,
             "build the video chunks on a machine holding the media")
     length = float(end) - float(start)
     count = max(1, int(round(length * fps)))
-    import subprocess
     import tempfile
     tmpdir = tempfile.mkdtemp(prefix="ren-chunk-frames-")
     try:
@@ -500,7 +499,7 @@ def extract_chunk_frames(source_file, start, end, fps=VIDEO_CHUNK_FPS,
             ["ffmpeg", "-v", "error", "-ss", str(start), "-t", str(length),
              "-i", str(source_file), "-vf", f"fps={fps},scale={width}:-1",
              "-frames:v", str(count), str(Path(tmpdir) / "f%03d.png")],
-            capture_output=True)
+            capture_output=True, check=False)
         if proc.returncode != 0:
             raise RenRefusal(
                 f"ffmpeg cut no frames for {source_file}@{start}-{end}",

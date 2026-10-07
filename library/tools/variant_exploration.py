@@ -43,6 +43,7 @@ import hashlib
 import json
 import os
 import time
+from collections.abc import Mapping
 
 from library.tools.ren_refusal import RenRefusal
 

@@ -1,5 +1,8 @@
 """Project-graph footage family: persons, shots, world models, scenes, transcript."""
 from __future__ import annotations
+
+from pathlib import Path
+
 try:
     from library.tools import (
         person_entity,

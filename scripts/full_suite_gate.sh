@@ -2,7 +2,8 @@
 #
 # LAYER 1 of the three-layer CI design: the full test suite, run LOCALLY,
 # once, on the integrated branch, before a batch merges.  See
-# `docs/CI_LAYERS.md` and the header of `.github/workflows/ci.yml`.
+# `docs/CI_LAYERS.md` and `docs/LOCAL_CI.md` (ren-ci runs this script
+# once per Tier-2 cluster, on the exact stacked tree that would land).
 #
 #     scripts/full_suite_gate.sh                  # the gate (parallel lanes)
 #     scripts/full_suite_gate.sh --no-parallel    # serial control, same commit

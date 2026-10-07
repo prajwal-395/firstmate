@@ -120,7 +120,7 @@ def _crop_face(source_path: str, timestamp: float, box: List[float],
     ]
     try:
         result = subprocess.run(cmd, capture_output=True, timeout=10,
-                                encoding="utf-8")
+                                encoding="utf-8", check=False)
         if result.returncode == 0 and result.stdout:
             return result.stdout.encode("latin-1")
     except (subprocess.TimeoutExpired, OSError):

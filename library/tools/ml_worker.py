@@ -138,7 +138,7 @@ def _handle_request(request: dict, embedder: _Embedder, state: dict) -> list:
             "request_id": request_id,
             "phase": "load_model",
             "fraction": 0.1,
-            "message": "loading embedding model",
+            "detail": "loading embedding model",
         }
     )
 
@@ -164,7 +164,7 @@ def _handle_request(request: dict, embedder: _Embedder, state: dict) -> list:
             "request_id": request_id,
             "phase": "encode",
             "fraction": 0.5,
-            "message": f"encoding {len(texts)} texts",
+            "detail": f"encoding {len(texts)} texts",
         }
     )
 
@@ -191,7 +191,7 @@ def _handle_request(request: dict, embedder: _Embedder, state: dict) -> list:
             "request_id": request_id,
             "phase": "done",
             "fraction": 1.0,
-            "message": f"encoded {len(texts)} texts",
+            "detail": f"encoded {len(texts)} texts",
         }
     )
     messages.append(
