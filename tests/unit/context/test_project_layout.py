@@ -320,7 +320,9 @@ def test_the_runner_backs_up_once_per_run(tmp_path, monkeypatch):
 
 # ── Read-side audit: no consumer crashes on a bare project ──────────
 
-def test_read_paths_survive_a_project_with_no_directories(tmp_path):
+def test_read_paths_survive_a_project_with_no_directories(
+    tmp_path, monkeypatch,
+):
     """The lazy ensure() creates only containers.  Every consumer that
     calls read_dir() must handle the case where the returned path does
     not exist.  This test exercises those code paths against a project
@@ -357,12 +359,15 @@ def test_read_paths_survive_a_project_with_no_directories(tmp_path):
 
     # 3. music_selection_contract: sources include paths but no crash.
     from library.tools.music_selection_contract import catalogue_sources
+    from library.tools import paths
+    test_music_library = tmp_path / "shared-music"
+    monkeypatch.setattr(paths, "MUSIC_LIBRARY", test_music_library)
     sources = catalogue_sources(str(tmp_path))
+    assert sources["library"] == (str(test_music_library),)
     for dirs in sources.values():
         for d in dirs:
             # The path may not exist, but the caller is expected to
             # check os.path.isdir() before listing.
-            import os
             if os.path.isdir(d):
                 os.listdir(d)  # would crash if wrongly assumed to exist
 
