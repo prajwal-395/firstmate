@@ -1775,7 +1775,8 @@ def _governance_project(tmp_path, monkeypatch):
     permissions.record_proposal(
         str(root), "client",
         {"kind": "merge", "timeline": "Reel 01 - lab",
-         "left": "commit-left", "right": "commit-right"},
+         "branch": "branch-1", "left": "commit-left",
+         "right": "commit-right"},
         "hold the reaction longer")
 
     manifest_dir = (root / "pipeline_output" / "steps"
