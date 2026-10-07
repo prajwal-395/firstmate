@@ -178,6 +178,30 @@ def test_known_heads_are_not_retested(monkeypatch, tmp_path, faked_github):
     assert done["checked"] == [] and calls == []
 
 
+def test_zero_count_cached_success_is_retested(
+        monkeypatch, tmp_path, faked_github):
+    pr = _pr(7)
+    stale = {**_outcome(pr), "ok": True, "passed": 0, "failed": 0,
+             "status_posted": True, "seen_at": 1.0, "done_at": 2.0}
+    state.record_check(stale, str(tmp_path))
+    faked_github.prs = [pr]
+    calls = []
+
+    def run_once(world, current_pr, workers):
+        calls.append(current_pr["head"])
+        return _outcome(current_pr)
+
+    monkeypatch.setattr(daemon, "run_tier1", run_once)
+    world = queue.World(state_dir=str(tmp_path))
+    done = daemon.pass_once(world, plan={"tier1_jobs": 1, "pytest_n": 2,
+                                         "window": 0, "headroom": 0.0,
+                                         "heavy": []})
+
+    assert done["checked"] == [7]
+    assert calls == [pr["head"]]
+    assert state.read_checks(str(tmp_path))[pr["head"]]["passed"] == 5
+
+
 def test_failed_status_delivery_retries_without_rerunning_tests(
         monkeypatch, tmp_path, faked_github):
     from library.tools.local_ci import github

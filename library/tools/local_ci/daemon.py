@@ -287,6 +287,14 @@ def _discover_due(world: queue.World, done: dict) -> tuple[list, dict]:
         seen_at = state.note_seen(pr["number"], pr["head"], world.state_dir)
         known = checks.get(pr["head"])
         if known and known.get("pr") == pr["number"]:
+            # Older daemon versions could mark an unparsed or empty
+            # pytest summary green. Tier-1 always selects cross-cutting
+            # tests, so a zero/zero success is not reusable evidence.
+            if (known.get("ok") is True
+                    and known.get("passed", 0) == 0
+                    and known.get("failed", 0) == 0):
+                due.append((pr, seen_at))
+                continue
             if not known.get("status_posted", False):
                 if not _publish_check_status(known, world.state_dir):
                     done["refused"].append(
