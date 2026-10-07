@@ -98,6 +98,12 @@ ren ci install   # user agent com.ren.ci: KeepAlive, logs to ~/Library/Logs/ren-
 ren ci uninstall # stops and removes the agent; state and logs survive
 ```
 
+The plist carries its own PATH (leading with a Python 3.10+): `bin/vep`
+probes the engine with a bare `python3`, and launchd's default PATH
+finds only macOS's 3.9, which cannot parse the engine. Discovered on
+the first install; pinned by
+`tests/unit/tools/test_local_ci_service.py`.
+
 ## End-to-end proof (post-merge, on throwaway PRs)
 
 1. Open a trivial PR, watch Tier-1 post pending->success, `ren ci
