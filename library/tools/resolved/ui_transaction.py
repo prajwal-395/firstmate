@@ -106,8 +106,12 @@ DEFAULT_RESTORATION = {"page": True, "timeline": True, "playhead": True}
 
 #: The verification kinds the runner executes. An unknown kind is refused
 #: rather than skipped - a verification that cannot run is not a
-#: verification.
-VERIFICATION_KINDS = frozenset({"text_visible", "api_readback"})
+#: verification. `text_visible` asserts; `read_text` observes - it
+#: returns what the screen says (for callers that must read a result
+#: the plan could not name in advance) and always matches. It is not
+#: an expects system: the replay-suite lane owns per-step expects once
+#: merged, and this composes with it rather than duplicating it.
+VERIFICATION_KINDS = frozenset({"text_visible", "read_text", "api_readback"})
 
 #: The announced foreground window in seconds. Source: the firstmate
 #: decision on the IntelliSearch lane, 2026-10-06 ("announced ~60s
@@ -278,6 +282,17 @@ def _validate_verification(verification) -> None:
             f"{sorted(VERIFICATION_KINDS)}")
     if kind == "text_visible" and not verification.get("text"):
         raise JobRefused("a text_visible verification needs 'text'")
+    if kind == "read_text":
+        region = verification.get("region")
+        if region is not None and not isinstance(region, dict):
+            raise JobRefused(
+                "a read_text verification's 'region' is an object "
+                "with x/y/width/height, or omitted for the full window")
+        include = verification.get("include_elements", False)
+        if not isinstance(include, bool):
+            raise JobRefused(
+                "a read_text verification's 'include_elements' is true "
+                "or false")
     if kind == "api_readback":
         if verification.get("getter") not in _API_READBACKS:
             raise JobRefused(
@@ -683,6 +698,17 @@ def _run_verification(resolve, driver, verification: Optional[dict]) -> dict:
         text = str(verification["text"])
         found = text in driver.call("read_text").get("text", "")
         return {"kind": kind, "text": text, "matched": found}
+    if kind == "read_text":
+        params = {}
+        if isinstance(verification.get("region"), dict):
+            params["region"] = dict(verification["region"])
+        observed = driver.call("read_text", params)
+        out = {"kind": kind,
+               "text": str(observed.get("text", "")),
+               "matched": True}
+        if verification.get("include_elements", False):
+            out["elements"] = observed.get("elements") or []
+        return out
     if kind == "api_readback":
         getter = verification["getter"]
         actual = _api_readback(resolve, driver, getter)

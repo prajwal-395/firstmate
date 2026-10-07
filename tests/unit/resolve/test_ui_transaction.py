@@ -1307,3 +1307,83 @@ def test_locked_screen_backs_off_after_one_attempt(
             ].count("activate_resolve") == 1
     assert not [method for method, _ in driver.calls
                 if method in ("click", "type_text", "key")]
+
+
+# ─── read_text verification: observation, not assertion ──────────
+#
+# A transaction whose result the plan could not name in advance (which
+# pool clips IntelliSearch matched) must read the screen back into its
+# receipt. text_visible asserts a known string; read_text returns
+# whatever is there. Not an expects system - that is the replay-suite
+# lane's mechanism, and this composes with it.
+
+
+def test_prepare_accepts_read_text_without_text(backend):
+    """The read names nothing up front - requiring 'text' would copy
+    the assert-kind's contract onto the observe-kind. On origin/main
+    the kind itself is unknown, so this fails there."""
+    shape = job_kinds.prepare("resolve.ui_transaction", {
+        "project": "Scratch", "timeline": "Reel 07",
+            "actions": [{"action": "wait", "for": {"text_visible": "Color"}}],
+            "verification": {"kind": "read_text"},
+    })
+    assert shape["executed"] is True
+    with pytest.raises(job_kinds.JobRefused):
+        job_kinds.prepare("resolve.ui_transaction", {
+            "project": "Scratch", "timeline": "Reel 07",
+            "actions": [{"action": "wait", "for": {"text_visible": "Color"}}],
+            "verification": {"kind": "read_text",
+                             "region": "somewhere"}})
+    with pytest.raises(job_kinds.JobRefused):
+        job_kinds.prepare("resolve.ui_transaction", {
+            "project": "Scratch", "timeline": "Reel 07",
+            "actions": [{"action": "wait", "for": {"text_visible": "Color"}}],
+            "verification": {"kind": "read_text",
+                             "include_elements": "yes"}})
+
+
+def test_run_returns_the_read_text(lock_dir, unguarded, backend):
+    """The receipt carries what the screen said: text always, frames
+    only on request."""
+    receipt = ui_transaction.run(
+        {"id": "read-1", "params": {
+            "project": "Scratch", "timeline": "Reel 07",
+            "actions": [{"action": "wait",
+                        "for": {"text_visible": "Color"}}],
+            "verification": {"kind": "read_text",
+                             "include_elements": True}}},
+        backend, factory=_fake_driver_factory)
+    assert receipt["status"] == "committed", receipt["result"]
+    found = receipt["verification"]
+    assert found["kind"] == "read_text"
+    assert found["matched"] is True
+    assert "Color" in found["text"]
+    by_text = {e["text"]: e["frame"] for e in found["elements"]}
+    assert {"Color", "Magic Mask"} <= set(by_text)
+    assert all(set(frame) >= {"x", "y", "width", "height"}
+               for frame in by_text.values())
+    plain = ui_transaction.run(
+        {"id": "read-2", "params": {
+            "project": "Scratch", "timeline": "Reel 07",
+            "actions": [{"action": "wait",
+                        "for": {"text_visible": "Color"}}],
+            "verification": {"kind": "read_text"}}},
+        backend, factory=_fake_driver_factory)
+    assert "elements" not in plain["verification"]
+
+
+def test_run_forwards_the_region(lock_dir, unguarded, backend):
+    """A region narrows the read at the driver, not in the runner."""
+    driver = RecordingDriver(backend)
+    ui_transaction.run(
+        {"id": "read-3", "params": {
+            "project": "Scratch", "timeline": "Reel 07",
+            "actions": [{"action": "wait",
+                        "for": {"text_visible": "Color"}}],
+            "verification": {"kind": "read_text",
+                             "region": {"x": 1, "y": 2, "width": 3,
+                                        "height": 4}}}},
+        backend, factory=lambda _backend: driver)
+    reads = [params for method, params in driver.calls
+             if method == "read_text"]
+    assert reads == [{"region": {"x": 1, "y": 2, "width": 3, "height": 4}}]
