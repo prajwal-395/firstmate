@@ -225,9 +225,20 @@ What that means, measured, is in `docs/RESOLVE_CONTROL_PROBE.md`.
 
 ### run_command
 
-Presses the one menu item named by a full menu path, in a single call. The
+Runs the one menu item named by a full menu path, in a single call. The
 path is exactly what `list_commands` returned; it is also the `path` (all but
 the last title) plus `title` (the last one) pair `find_element` takes.
+
+The path runs hop by hop from the live menu bar, not as one cold press on
+the leaf: each intermediate menu is opened first (AXPress, then AXPICK,
+then AXShowMenu/AXOpen - the order cua-driver measures), the leaf runs
+(AXPress, then AXPICK, then AXConfirm), with an 80 ms settle between hops,
+and every hop re-resolves from the live root because opening a menu can
+replace AX objects. A cold leaf press is accepted by macOS and dropped, so
+anything less reports success and changes nothing (measured live
+2026-10-07). A hop that resolves to nothing, to several items, to a
+disabled item, or to an item with no usable action fails with the opened
+menus cancelled best-effort.
 
 This is an action: it runs only while the open project reads back as the Ren
 Qualification project, like every other action method.
@@ -243,6 +254,9 @@ Errors: `ELEMENT_NOT_FOUND` when no item matches the path,
 ### press
 
 Invokes the default AX action on an element (e.g. AXPress for buttons).
+A menu-bar/menu item replays its recorded menu chain hop by hop (see
+`run_command`): a cold leaf press is accepted and dropped, so `press`
+opens each menu first. Anything else presses directly.
 
 Parameters:
 - `element` (string): element ref from find_element

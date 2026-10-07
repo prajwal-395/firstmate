@@ -195,13 +195,19 @@ impl AxElement {
         }
     }
     pub fn press(&self) -> DriverResult<()> {
+        self.act("AXPress")
+    }
+    /// Perform one named native action. `press` is this with AXPress;
+    /// menu invocation picks per hop (openers for hops, a runner for
+    /// the leaf) via `choose_menu_action`.
+    pub fn act(&self, action: &str) -> DriverResult<()> {
         unsafe {
-            let action = cfstr("AXPress");
-            let err = AXUIElementPerformAction(self.inner, action);
-            CFRelease(action);
+            let act = cfstr(action);
+            let err = AXUIElementPerformAction(self.inner, act);
+            CFRelease(act);
             if err == kAXErrorSuccess { Ok(()) }
-            else if err == kAXErrorActionUnsupported { Err(DriverError::ActionNotSupported("AXPress".to_string())) }
-            else { Err(DriverError::Internal(format!("AXPress failed: AXError({})", err.0))) }
+            else if err == kAXErrorActionUnsupported { Err(DriverError::ActionNotSupported(action.to_string())) }
+            else { Err(DriverError::Internal(format!("{action} failed: AXError({})", err.0))) }
         }
     }
     pub fn set_value(&self, value: &str) -> DriverResult<()> {
@@ -500,6 +506,51 @@ mod tests {
             vec!["open", "-b", "com.blackmagic-design.DaVinciResolve"]
         );
     }
+    #[test]
+    fn menu_hop_prefers_openers_and_leaf_prefers_runners() {
+        // The action table the hop-walk runs: intermediates open
+        // (AXPress, then AXPICK, then an opener), the leaf runs
+        // (AXPress, then AXPICK, then AXConfirm). Priority follows
+        // cua-driver's invoke_menu - the order the reference measures
+        // as working. A leaf offering only AXPress still presses.
+        let acts = |names: &[&str]| {
+            names.iter().map(|s| s.to_string()).collect::<Vec<_>>()
+        };
+        assert_eq!(
+            choose_menu_action(&acts(&["AXPress", "AXShowMenu"]), false),
+            Some("AXPress")
+        );
+        assert_eq!(
+            choose_menu_action(&acts(&["AXShowMenu", "AXOpen"]), false),
+            Some("AXShowMenu")
+        );
+        assert_eq!(
+            choose_menu_action(&acts(&["AXPress"]), true),
+            Some("AXPress")
+        );
+        assert_eq!(
+            choose_menu_action(&acts(&["AXPick", "AXConfirm"]), true),
+            Some("AXPick")
+        );
+        assert_eq!(
+            choose_menu_action(&acts(&["AXConfirm"]), true),
+            Some("AXConfirm")
+        );
+    }
+
+    #[test]
+    fn menu_hop_with_no_usable_action_is_none() {
+        // Neither hop nor leaf invents an action: an element offering
+        // only AXCancel (or nothing) refuses as ActionNotSupported
+        // instead of pressing blindly.
+        let acts = |names: &[&str]| {
+            names.iter().map(|s| s.to_string()).collect::<Vec<_>>()
+        };
+        assert_eq!(choose_menu_action(&acts(&["AXCancel"]), false), None);
+        assert_eq!(choose_menu_action(&[], true), None);
+        // AXConfirm runs a leaf but never opens a hop.
+        assert_eq!(choose_menu_action(&acts(&["AXConfirm"]), false), None);
+    }
 }
 
 // Objective-C helpers via objc_msgSend.
@@ -642,6 +693,19 @@ pub fn activate_verified(
 
 pub unsafe fn activate_app_with_pid(pid: u32) -> bool {
     nsworkspace_activate_pid(pid as i64) != 0
+}
+
+/// One native menu action for a hop: intermediates open, the leaf runs.
+/// Priority follows cua-driver's invoke_menu - the order the reference
+/// measures as working, not a guess.
+pub fn choose_menu_action(actions: &[String], final_hop: bool) -> Option<&'static str> {
+    const OPENERS: &[&str] = &["AXPress", "AXPick", "AXShowMenu", "AXOpen"];
+    const RUNNERS: &[&str] = &["AXPress", "AXPick", "AXConfirm"];
+    let order = if final_hop { RUNNERS } else { OPENERS };
+    order
+        .iter()
+        .copied()
+        .find(|action| actions.iter().any(|have| have == action))
 }
 
 /// The frontmost application's pid.

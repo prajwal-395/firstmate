@@ -140,9 +140,20 @@ fn action_gate(
     }
 }
 
+/// One issued element reference: the element plus the menu-title chain
+/// to it (ancestors plus its own title, recorded at find time).
+/// `find_in_tree` only accumulates through menu-bar/menu items, so for
+/// a menu match the chain is the walk `press` replays hop by hop -
+/// AXPress on a closed menu's leaf is accepted and dropped, so the leaf
+/// is only pressed after its menus are open.
+struct ElementRef {
+    el: AxElement,
+    menu_chain: Vec<String>,
+}
+
 pub struct Driver {
     resolve_pid: Option<u32>,
-    element_refs: HashMap<String, AxElement>,
+    element_refs: HashMap<String, ElementRef>,
     ref_counter: u64,
     main_window_id: Option<u32>,
     main_window_frame: Option<Frame>,
@@ -207,7 +218,7 @@ impl Driver {
             protocol::get_param_str(&req.params, "element")
                 .ok()
                 .and_then(|r| self.element_refs.get(&r))
-                .and_then(|el| el.role())
+                .and_then(|stored| stored.el.role())
         } else {
             None
         };
@@ -554,6 +565,14 @@ impl Driver {
                 let title = el.title();
                 let frame = el.frame();
                 let actions = el.actions();
+                // The full menu-title chain to this element: ancestors
+                // plus its own title. `find_in_tree` only accumulates
+                // through menu-bar/menu items, so for a menu match this
+                // is the walk `press` replays hop by hop.
+                let mut menu_chain = path.clone();
+                if let Some(t) = title.clone() {
+                    menu_chain.push(t);
+                }
                 let entry = serde_json::json!({
                     "ref": ref_id,
                     "role": role,
@@ -562,7 +581,7 @@ impl Driver {
                     "actions": actions,
                     "path": path,
                 });
-                self.element_refs.insert(ref_id, el);
+                self.element_refs.insert(ref_id, ElementRef { el, menu_chain });
                 entry
             })
             .collect();
@@ -599,35 +618,30 @@ impl Driver {
     fn run_command(&mut self, params: &Json) -> DriverResult<Json> {
         self.ensure_permissions()?;
         let path = command_path(params)?;
-        let (leaf, ancestors) = path.split_last().unwrap();
         let pid = self.ensure_resolve()?;
-        let app = AxElement::from_app(pid);
-        let filter = Filter {
-            role: Some("AXMenuItem"),
-            title: Some(leaf),
-            title_contains: None,
-            label: None,
-            value: None,
-            path: Some(ancestors),
-        };
-        let mut results: Vec<(AxElement, Vec<String>)> = Vec::new();
-        find_in_tree(&app, &filter, &mut Vec::new(), &mut results);
-        match results.len() {
-            0 => Err(DriverError::ElementNotFound),
-            1 => {
-                let (el, _) = results.remove(0);
-                el.press()?;
-                Ok(serde_json::json!({"pressed": true, "path": path}))
-            }
-            n => Err(DriverError::AmbiguousCommand(path, n)),
-        }
+        invoke_menu_path(pid, &path)?;
+        Ok(serde_json::json!({"pressed": true, "path": path}))
     }
 
     fn press(&mut self, params: &Json) -> DriverResult<Json> {
         self.ensure_permissions()?;
         let element_ref = protocol::get_param_str(params, "element")?;
+        let stored = self.element_refs.get(&element_ref).ok_or(DriverError::ElementStale)?;
+        // A menu item is never pressed cold: AXPress on a closed menu's
+        // leaf is accepted and dropped (measured live 2026-10-07 -
+        // pressed:true, byte-identical captures). Re-walk its recorded
+        // menu chain hop by hop so each menu is open before the next
+        // hop runs. Anything else keeps the direct press.
+        let role = stored.el.role();
+        let menu = matches!(role.as_deref(), Some("AXMenuItem") | Some("AXMenuBarItem"));
+        let chain = stored.menu_chain.clone();
+        if menu && !chain.is_empty() {
+            let pid = self.ensure_resolve()?;
+            invoke_menu_path(pid, &chain)?;
+            return Ok(serde_json::json!({"pressed": true}));
+        }
         let el = self.element_refs.get(&element_ref).ok_or(DriverError::ElementStale)?;
-        el.press()?;
+        el.el.press()?;
         Ok(serde_json::json!({"pressed": true}))
     }
 
@@ -636,7 +650,7 @@ impl Driver {
         let element_ref = protocol::get_param_str(params, "element")?;
         let value = protocol::get_param_str(params, "value")?;
         let el = self.element_refs.get(&element_ref).ok_or(DriverError::ElementStale)?;
-        el.set_value(&value)?;
+        el.el.set_value(&value)?;
         Ok(serde_json::json!({"set": true}))
     }
 
@@ -644,7 +658,7 @@ impl Driver {
         self.ensure_permissions()?;
         let element_ref = protocol::get_param_str(params, "element")?;
         let el = self.element_refs.get(&element_ref).ok_or(DriverError::ElementStale)?;
-        el.set_focused()?;
+        el.el.set_focused()?;
         Ok(serde_json::json!({"focused": true}))
     }
 
@@ -943,9 +957,85 @@ fn parse_frame(r: &Json) -> Option<Frame> {
     })
 }
 
+/// Settle between menu hops: 80 ms, the hop settle cua-driver's
+/// invoke_menu uses (a press that reports an error can still open its
+/// menu a moment later; the same window covers AX replacement churn).
+const MENU_HOP_SETTLE_MS: u64 = 80;
+
+/// Walk a menu path hop by hop from the live app root, performing each
+/// hop's native action: openers for hops, a runner for the leaf
+/// (`ax::choose_menu_action`). AXPress on a closed menu's leaf is
+/// accepted and dropped, so pressing the leaf cold reports success and
+/// changes nothing - every hop resolves fresh because opening a menu
+/// can replace AX objects. On failure after a hop opened a menu, the
+/// opened menus are cancelled best-effort: without that the app is left
+/// tracking a menu, where the next command reports success and does
+/// nothing (cua-driver's measured failure mode - and our live symptom).
+fn invoke_menu_path(pid: u32, path: &[String]) -> DriverResult<()> {
+    let mut opened: Vec<AxElement> = Vec::new();
+    for (depth, segment) in path.iter().enumerate() {
+        let final_hop = depth + 1 == path.len();
+        let app = AxElement::from_app(pid);
+        let filter = Filter {
+            role: None,
+            title: Some(segment.as_str()),
+            title_contains: None,
+            label: None,
+            value: None,
+            path: Some(&path[..depth]),
+        };
+        let mut results: Vec<(AxElement, Vec<String>)> = Vec::new();
+        find_in_tree(&app, &filter, &mut Vec::new(), &mut results);
+        if results.is_empty() {
+            cancel_menus(&opened);
+            return Err(DriverError::ElementNotFound);
+        }
+        if results.len() > 1 {
+            cancel_menus(&opened);
+            return Err(DriverError::AmbiguousCommand(path.to_vec(), results.len()));
+        }
+        let (el, _) = results.remove(0);
+        if el.enabled() == Some(false) {
+            cancel_menus(&opened);
+            return Err(DriverError::ActionNotSupported(format!(
+                "menu item {segment:?} is disabled"
+            )));
+        }
+        let action = ax::choose_menu_action(&el.actions(), final_hop).ok_or_else(|| {
+            DriverError::ActionNotSupported(format!(
+                "menu item {segment:?} has no usable native menu action"
+            ))
+        })?;
+        if let Err(err) = el.act(action) {
+            cancel_menus(&opened);
+            return Err(err);
+        }
+        if !final_hop {
+            opened.push(el);
+            std::thread::sleep(std::time::Duration::from_millis(MENU_HOP_SETTLE_MS));
+        }
+    }
+    Ok(())
+}
+
+/// Best-effort close of menus a failed walk opened: AXCancel on each
+/// opened item's AXMenu child, deepest first, results ignored. No
+/// window-list read-back (cua verifies via the window server; the
+/// driver has no menu-window enumeration yet) - so the caller still
+/// reports the original error, and a stuck menu remains possible but
+/// no longer the certain outcome.
+fn cancel_menus(opened: &[AxElement]) {
+    for el in opened.iter().rev() {
+        for child in el.children() {
+            if child.role().as_deref() == Some("AXMenu") {
+                let _ = child.act("AXCancel");
+            }
+        }
+    }
+}
+
 /// The full menu path `run_command` takes: non-empty titles only.
-fn command_path(params: &Json) -> DriverResult<Vec<String>> {
-    let path: Vec<String> = params
+fn command_path(params: &Json) -> DriverResult<Vec<String>> {    let path: Vec<String> = params
         .get("path")
         .and_then(|v| v.as_array())
         .ok_or_else(|| DriverError::InvalidParams("run_command needs a path array of menu titles".into()))?
