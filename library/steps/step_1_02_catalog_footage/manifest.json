@@ -75,6 +75,13 @@
         "description": "State output: audio_catalog - voiceover and music files in audio_001 numbering with duration, audio streams and the program-stream decision. No picture keys by contract. Empty on video-only projects, which is the normal case.",
         "may_be_empty": true,
         "required": false
+      },
+      {
+        "name": "duplicate_groups",
+        "type": "array",
+        "description": "State output: duplicate_groups - groups of clip_ids whose content fingerprints match (identical bytes under different names), so the vision analysis is paid once and the picture plan treats each group as one take. Empty when no duplicates exist, which is the normal case.",
+        "may_be_empty": true,
+        "required": false
       }
     ]
   },

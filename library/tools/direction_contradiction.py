@@ -144,6 +144,7 @@ MEASURED_OUTPUTS = {
     "semantic_analysis_documents": "1.03 - the vision pass's per-window scene, camera, action and assessment measurements (MIXED with VLM prose - see VISION_PROSE_PATHS)",
     "temporal_event_indices": "1.04 - the same index, per clip, as the event view",
     "audio_catalog": "1.02 - measured duration and audio streams per audio-only file (voiceover / music)",
+    "duplicate_groups": "1.02 - content-fingerprint duplicate groups: takes recorded as identical bytes under different names, so the vision pass is paid once",
     "audio_indices": "1.04 - the same sound index, per audio file, as the speech/energy view",
     "prosody_analysis": "1.05 - parselmouth pitch contour, speaking rate, voice quality and intensity",
     "object_segmentation": "1.06 - SAM 2 subject masks, matte-triggered (subject grades, behind_subject plans)",

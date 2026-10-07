@@ -100,6 +100,11 @@ UNCAPABLE_LOCK_SITES: dict = {
     "library.tools.span_verification:verify_spans":
         "`ren search` span verification - a ren verb rather than a "
         "registered capability",
+    "library.tools.native_refresh:ensure_current":
+        "native-part safe points (pipeline-run start, the broker "
+        "starter, a driver session starting) - process infrastructure "
+        "that takes the lock only to rebuild a stale or missing part, "
+        "never a registered capability's execution",
 }
 
 @dataclass(frozen=True)

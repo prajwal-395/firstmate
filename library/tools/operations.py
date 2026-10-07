@@ -1206,6 +1206,7 @@ _REGISTRY: tuple[Operation, ...] = (
             "audio_catalog",
             "skipped_files",
             "total_clips",
+            "duplicate_groups",
         ),
         consumes=("raw_footage_files",),
     ),
