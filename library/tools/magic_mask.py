@@ -60,17 +60,31 @@ def seed_script(
     seed: MaskSeed,
     *,
     mode: str = "BI",
+    scale_factor: float,
 ) -> Script:
     """The four UI steps that seed a Magic Mask: page, palette, mode, click.
 
     `seed` is the Ren-determined seed - its viewer point is where the
     click lands, so a click anywhere else is a different subject. `mode`
     is carried for the caller's API call, and validated here so a
-    recipe never names a mode the API refuses.
+    recipe never names a mode the API refuses. `scale_factor` is the
+    main window's measured backing scale (device pixels per point):
+    `seed.viewer` is in device pixels - the space a screenshot is
+    measured in - while a `position` anchor is an absolute window
+    point, so the builder divides. The scale is REQUIRED: there is no
+    safe default (1.0 silently double-clicks on Retina), and the
+    caller measures it live off `get_windows`. Refuses a non-positive
+    scale the same way it refuses a bad mode.
     """
     if mode not in MAGIC_MASK_MODES:
         raise ValueError(
             f"bad Magic Mask mode {mode!r}: one of {list(MAGIC_MASK_MODES)}")
+    if not scale_factor or scale_factor <= 0:
+        raise ValueError(
+            f"bad backing scale {scale_factor!r}: the main window's "
+            f"measured backing_scale, positive")
+    click = {"x": seed.viewer.x / scale_factor,
+             "y": seed.viewer.y / scale_factor}
     return Script(
         goal=(f"Seed the Magic Mask on {seed.subject!r} in clip "
               f"{seed.clip_id} frame {seed.seed_frame} "
@@ -111,8 +125,8 @@ def seed_script(
             ScriptStep(
                 action="click",
                 anchors=[Anchor(via="position", params={
-                    "x": seed.viewer.x,
-                    "y": seed.viewer.y,
+                    "x": click["x"],
+                    "y": click["y"],
                     "why": (f"ren seed {seed.object_id} "
                             f"sample {seed.sample_index}"),
                     "source": "ren",

@@ -390,8 +390,9 @@ def test_learned_anchors_evaporate_without_teach(client, monkeypatch, tmp_path, 
 
 
 class _FakeScriptClient:
-    def __init__(self):
+    def __init__(self, scale=2.0):
         self.calls: list = []
+        self.scale = scale
 
     def __enter__(self):
         return self
@@ -401,6 +402,11 @@ class _FakeScriptClient:
 
     def call(self, method, params=None):
         self.calls.append((method, dict(params or {})))
+        if method == "get_windows":
+            return {"windows": [
+                {"title": "other", "backing_scale": 1.0},
+                {"title": "DaVinci Resolve", "is_main": True,
+                 "backing_scale": self.scale}]}
         return {}
 
 
@@ -460,13 +466,13 @@ _SEED_JSON = (
     '"object_id": "obj_1", "sample_index": 2, "seed_frame": 48}')
 
 
-def _stub_script(monkeypatch, outcome="done"):
+def _stub_script(monkeypatch, outcome="done", scale=2.0):
     from library.tools.computer_use.scripts import ScriptResult
 
     runs: list = []
     leases: list = []
     clients: list = []
-    clients.append(_FakeScriptClient())
+    clients.append(_FakeScriptClient(scale=scale))
     monkeypatch.setattr(main_module, "DriverClient", lambda: clients[0])
     monkeypatch.setattr(
         "library.tools.marker_feedback.connect_resolve",
@@ -513,8 +519,25 @@ def test_script_seed_runs_the_seed_recipe_offline(monkeypatch, capsys):
     assert "obj_1" in script.goal
     assert [s.action for s in script.steps] == [
         "press", "click", "click", "click"]
+    # The receipt's device pixels ride the click as window points:
+    # (1719, 622) at the measured 2x scale clicks (859.5, 311).
+    params = script.steps[3].anchors[0].params
+    assert (params["x"], params["y"]) == (859.5, 311.0)
     out = capsys.readouterr().out
     assert "outcome: done" in out
+    assert "backing scale: 2.0" in out
+
+
+def test_script_seed_refuses_when_no_scale_is_measured(monkeypatch, capsys):
+    """A run whose window reports no backing scale exits 1 before the
+    script is built: a seed click with nowhere to convert to would
+    land double on Retina."""
+    runs, _, _ = _stub_script(monkeypatch, scale=None)
+    argv = ["script", "--recipe", "magic-mask-seed", "--timeline", "Q Spine",
+            "--seed", _SEED_JSON]
+    assert main_module.main(argv) == 1
+    assert runs == []
+    assert "backing scale" in capsys.readouterr().err
 
 
 def test_script_seed_refuses_a_seed_it_cannot_parse(monkeypatch, capsys):

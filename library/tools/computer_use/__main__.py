@@ -212,6 +212,7 @@ def _run_recipe(client: DriverClient, args) -> int:
     from library.tools import magic_mask
     from library.tools.mask_seed import MaskSeed, Point
 
+    scale: float | None = None
     if args.recipe == "magic-mask-seed":
         if not args.seed:
             print("ren: magic-mask-seed needs --seed, the MaskSeed "
@@ -238,7 +239,18 @@ def _run_recipe(client: DriverClient, args) -> int:
                   file=sys.stderr)
             return 2
         try:
-            script = magic_mask.seed_script(seed, mode=args.mode)
+            scale = _main_window_scale(client)
+        except (KeyError, TypeError, ValueError) as exc:
+            print(f"ren: the main window's backing scale did not read "
+                  f"back: {exc}", file=sys.stderr)
+            return 1
+        if scale is None:
+            print(f"ren: no main window reported a backing scale - "
+                  f"cannot place the seed click", file=sys.stderr)
+            return 1
+        try:
+            script = magic_mask.seed_script(
+                seed, mode=args.mode, scale_factor=scale)
         except ValueError as exc:
             print(f"ren: {exc}", file=sys.stderr)
             return 2
@@ -326,12 +338,32 @@ def _run_recipe(client: DriverClient, args) -> int:
         elapsed = time.monotonic() - step_started
     print(f"recipe: {args.recipe}")
     print(f"goal: {script.goal}")
+    if scale is not None:
+        print(f"backing scale: {scale}")
     for row in result.steps:
         print(f"  step {row['step']} {row['action']}: {row['outcome']} "
               f"via {row['via']}")
     print(f"outcome: {result.outcome} in {elapsed:.1f}s "
           f"(+ {(time.monotonic() - started - elapsed):.1f}s establish)")
     return 0 if result.outcome == "done" else 1
+
+
+def _main_window_scale(client) -> float | None:
+    """The main window's measured backing scale, or None when no main
+    window reports one.
+
+    A background-safe driver read (no pixels, no focus): the same
+    `is_main` row `observe` reads the window frame off. The seed
+    recipe needs it to turn the seed's device pixels into the window
+    points the click takes - a stored number would go stale the
+    moment the window moves displays.
+    """
+    windows = client.call("get_windows").get("windows") or []
+    main = next((w for w in windows if w.get("is_main")), {})
+    scale = main.get("backing_scale")
+    if scale is None:
+        return None
+    return float(scale)
 
 
 def _exact_timeline(project, name: str):

@@ -21,15 +21,20 @@ def _seed() -> MaskSeed:
     # The plan's own geometry example as the measured input: source
     # 1920x1080 in a 1440x900 viewer draws 1440x810 with a 45 px
     # letterbox, so source (1132, 449) lands on viewer (1719, 622) -
-    # the builder carries the viewer point, it never recomputes it.
+    # device pixels at backing scale 2. The builder carries the
+    # geometry and converts the units; it never recomputes the point.
     return MaskSeed(
         clip_id="talk", frame=48, subject="speaker",
         source=Point(1132.0, 449.0), viewer=Point(1719.0, 622.0),
         object_id="obj_1", sample_index=2, seed_frame=48)
 
 
+def _script() -> Script:
+    return magic_mask.seed_script(_seed(), scale_factor=2.0)
+
+
 def test_seed_script_is_page_palette_mode_click_in_order():
-    script = magic_mask.seed_script(_seed())
+    script = _script()
     assert isinstance(script, Script)
     assert [s.action for s in script.steps] == [
         "press", "click", "click", "click"]
@@ -38,7 +43,7 @@ def test_seed_script_is_page_palette_mode_click_in_order():
 
 
 def test_seed_script_presses_the_color_page_through_the_menu_bar():
-    step = magic_mask.seed_script(_seed()).steps[0]
+    step = _script().steps[0]
     assert step.anchors[0].params["path"] == [
         "Workspace", "Switch to Page", "Color"]
     # The page switch is judged by the pixels changing, not by the
@@ -47,10 +52,15 @@ def test_seed_script_presses_the_color_page_through_the_menu_bar():
     assert step.expect is not None and step.expect.via == "pixels_changed"
 
 
-def test_seed_script_clicks_the_ren_measured_point_unchanged():
-    step = magic_mask.seed_script(_seed()).steps[3]
+def test_seed_script_clicks_window_points_not_device_pixels():
+    """The seed's viewer point is device pixels (screenshot space) but
+    a position anchor is an absolute window point, so the builder
+    divides by the measured backing scale: (1719, 622) at 2x clicks
+    (859.5, 311). Carrying the raw point double-clicks on Retina -
+    found live 2026-10-07, when every seed-shaped click missed."""
+    step = _script().steps[3]
     params = step.anchors[0].params
-    assert (params["x"], params["y"]) == (1719.0, 622.0)
+    assert (params["x"], params["y"]) == (859.5, 311.0)
     # A position anchor says why it is a bare coordinate: whose seed.
     assert "obj_1" in params["why"]
     # The seed stroke must draw: a background click that silently
@@ -58,9 +68,17 @@ def test_seed_script_clicks_the_ren_measured_point_unchanged():
     assert step.expect is not None and step.expect.via == "pixels_changed"
 
 
+def test_seed_script_refuses_a_scale_it_cannot_click_with():
+    """A missing or non-positive backing scale is a caller bug, not a
+    1.0 default: defaulting would silently double-click on Retina."""
+    for bad in (0.0, -2.0):
+        with pytest.raises(ValueError, match="bad backing scale"):
+            magic_mask.seed_script(_seed(), scale_factor=bad)
+
+
 def test_seed_script_refuses_a_mode_the_api_refuses():
     with pytest.raises(ValueError, match="bad Magic Mask mode"):
-        magic_mask.seed_script(_seed(), mode="SLOW")
+        magic_mask.seed_script(_seed(), mode="SLOW", scale_factor=2.0)
 
 
 def test_track_script_clicks_the_named_direction_only():
