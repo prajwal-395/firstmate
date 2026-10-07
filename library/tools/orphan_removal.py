@@ -145,14 +145,18 @@ def assert_instruments_agree(live_placed_paths: set[str],
     only_live = sorted(live_placed_paths - saved_placed_paths)
     only_saved = sorted(saved_placed_paths - live_placed_paths)
     if only_live or only_saved:
+        shown = (only_live + only_saved)[:10]
+        more = (f" (+{len(only_live) + len(only_saved) - len(shown)} "
+                f"more)" if len(only_live) + len(only_saved) > len(shown)
+                else "")
         raise RemovalRefused(
             f"the live project and the saved Project.db disagree about "
             f"what is placed: {len(only_live)} path(s) placed only in the "
             f"live project, {len(only_saved)} only in the saved database. "
-            f"First disagreement: "
-            f"{(only_live + only_saved)[0]!r}. Save the project in Resolve "
-            f"and take a fresh copy of Project.db, then plan again. "
-            f"Nothing was removed.")
+            f"Disagreements: "
+            f"{', '.join(repr(path) for path in shown)}{more}. Save the "
+            f"project in Resolve and take a fresh copy of Project.db, "
+            f"then plan again. Nothing was removed.")
 
 
 def plan_removal(artefacts: Sequence[Artefact],

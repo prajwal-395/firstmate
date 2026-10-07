@@ -2145,7 +2145,10 @@ def cmd_build_reels(args):
             "needs")
     from library.processes.reels import run_reels
 
-    code = run_reels.run(_reel_project_folder(args.project), args)
+    project_folder = _reel_project_folder(args.project)
+    code = run_reels.run(project_folder, args)
+    from library.tools.execution.asset_gc import report_after as _gc_report
+    _gc_report(project_folder)
     if code:
         sys.exit(code)
 
@@ -2841,6 +2844,8 @@ def cmd_still_overlays(args):
                       f"{entry.get('item')}: {entry.get('why')}")
             for label in report.get("planned") or ():
                 print(f"    would swap {label}")
+    from library.tools.execution.asset_gc import report_after as _gc_report
+    _gc_report(project_folder)
     if failed:
         raise RenRefusal(
             f"{failed} reel(s) refused the still swap",
@@ -2848,6 +2853,164 @@ def cmd_still_overlays(args):
             "unchanged (refusals restore)",
             "fix what each refusal names and re-run those reels with "
             "--only-reel") from None
+
+
+def cmd_dedupe_stills(args):
+    """Point identical stills at one pool item, reel by reel, in place.
+
+    Tonight's `still-overlays` pass extracted its own still per overlay
+    item, so the TV frame - the same graphic on every reel - exists as
+    many separate stills instead of one reused one. This verb collapses
+    those duplicates without rebuilding: see
+    `library/tools/still_dedupe.py` for what qualifies, the per-reel
+    guards, and the refuse-and-restore rule. One reel's refusal never
+    stops the rest; the exit code is nonzero when any reel refused. The
+    superseded duplicate pool items stay pooled - `ren gc` collects
+    them into trash afterwards, and its dry-run report runs here too
+    so leftovers never accumulate silently.
+    """
+    from library.tools import run_control as _hold
+    from library.tools import still_dedupe as _dedupe
+    from library.tools.reel_proposal import proposal_path, read_proposal
+
+    project_folder = _reel_project_folder(args.project)
+    hold = _hold.hold_requested(project_folder)
+    if hold is not None:
+        raise RenRefusal(
+            f"the handbrake is engaged on this project "
+            f"({hold.get('requested_by', 'unknown')}: "
+            f"{hold.get('reason', '')})",
+            "a still dedupe under a held project could fight the holder",
+            "delete pipeline.hold at the project root (it records who "
+            "asked for it - check with them), then re-run") \
+            from None
+    moments = read_proposal(str(proposal_path(project_folder)))
+    approved = [moment for moment in moments
+                if str(getattr(moment.approval, "value", moment.approval))
+                == "approved"]
+    wanted = None
+    if args.only_reel:
+        wanted = set(args.only_reel)
+        missing = wanted - {int(moment.number) for moment in approved}
+        if missing:
+            raise RenRefusal(
+                f"asked for reel(s) {sorted(missing)}, and the plan "
+                f"has no APPROVED moment with those numbers",
+                "a run that quietly skipped them would report success "
+                "having completed nothing for this request",
+                f"run `ren propose {args.project}` first, or name reels "
+                f"the plan approves")
+    failed = 0
+    for moment in approved:
+        if wanted is not None and int(moment.number) not in wanted:
+            continue
+        report = _dedupe.dedupe_reel_stills(
+            args.project, moment.timeline_name, project_folder,
+            dry_run=args.dry_run)
+        repointed = len(report.get("repointed") or [])
+        skipped = len(report.get("skipped") or [])
+        if report.get("refused") is not None:
+            failed += 1
+            print(f"  {moment.timeline_name}: REFUSED "
+                  f"({report['refused']})"
+                  f"{' - restored' if report.get('restored') else ''}")
+        else:
+            print(f"  {moment.timeline_name}: {report.get('stills', 0)} "
+                  f"still(s), repointed {repointed}, "
+                  f"skipped {skipped}"
+                  f"{' (dry run)' if args.dry_run else ''}")
+            if args.dry_run:
+                print(f"    rows: {', '.join(report.get('rows') or ())}")
+            for entry in report.get("skipped") or ():
+                print(f"    skipped {entry.get('file_path')}: "
+                      f"{entry.get('why')}")
+            for label in report.get("planned") or ():
+                print(f"    would repoint {label}")
+    from library.tools.execution.asset_gc import report_after as _gc_report
+    _gc_report(project_folder)
+    if failed:
+        raise RenRefusal(
+            f"{failed} reel(s) refused the still dedupe",
+            "each refusal names its reason above; the reels are "
+            "unchanged (refusals restore)",
+            "fix what each refusal names and re-run those reels with "
+            "--only-reel") from None
+
+
+@under_lease("collect Ren-generated orphans")
+def cmd_gc(args):
+    """Move Ren-generated pool orphans to trash, and list them first.
+
+    The recoverable garbage collection: pool items no timeline in the
+    project uses AND that Ren itself generated (provenance is a path
+    fact - inside the project directory - never footage or anything
+    the captain imported) leave the pool, and their files move to a
+    trash folder inside the project with a manifest, never unlinked.
+    Plans by default, with every path and size; `--apply` collects.
+    See library/tools/asset_gc.py for the never-referenced and
+    never-footage rules.
+    """
+    from datetime import datetime, timezone
+
+    from library.tools.execution.organise_media_pool import open_project
+    from library.tools.execution import asset_gc as _gc
+    from library.tools.execution.prune_orphans import survey
+    from library.tools import asset_gc as _rules
+    from library.tools.orphan_removal import summarise
+
+    project_folder = _reel_project_folder(args.project)
+    project, _master = open_project(project_folder)
+
+    if args.apply:
+        # Flush the live state before reading it: tonight's
+        # still-overlays pass never saved, so the saved database
+        # disagrees with the live project and the survey would
+        # refuse a reading it cannot trust. Saving persists what is
+        # there - it discards nothing - and the survey still proves
+        # both instruments agree afterwards.
+        from library.tools.execution.prune_orphans import save_project
+        print("  Saving the project so the survey reads what is live...")
+        save_project()
+
+    from library.tools.orphan_removal import RemovalRefused
+    try:
+        result = survey(project, project_folder)
+    except RemovalRefused as refused:
+        print(f"gc: refused - {refused}", file=sys.stderr)
+        sys.exit(REFUSAL_EXIT_CODE)
+    counts = summarise(result["plan"])
+    when = datetime.now(timezone.utc).isoformat()
+    manifest = _gc.manifest_path_for(project_folder, when)
+    trash_dir = _rules.trash_dir_for(project_folder, when)
+    Path(manifest).parent.mkdir(parents=True, exist_ok=True)
+    Path(manifest).write_text(
+        _rules.render_gc_manifest(
+            result["plan"],
+            resolve_project=project.GetName(),
+            project_folder=project_folder,
+            planned_at=when,
+            counts=counts), encoding="utf-8")
+    print(_rules.render_gc_report(result["plan"], counts, trash_dir))
+    print(f"\n  Manifest (every path): {manifest}")
+
+    if not args.apply:
+        print("\nNothing was changed. Pass --apply to remove the pool "
+              "items and move their files to trash; files are moved, "
+              "never deleted.")
+        return
+
+    outcome = _gc.collect_now(
+        project, result, project_folder,
+        _gc.journal_path_for(project_folder, when), trash_dir)
+    gib = outcome["counts"]["bytes_trashed"] / (1024 ** 3)
+    print(f"\n  Removed {len(outcome['journal']['removed'])} pool item(s). "
+          f"No file on disk was deleted.")
+    print(f"  Journal: {outcome['journal'].get('journal_path')}")
+    print(f"  Trashed {len(outcome['trash']['moved'])} file(s) "
+          f"({gib:.2f} GiB) under {trash_dir}")
+    if outcome["trash"]["already_gone"]:
+        print(f"  {len(outcome['trash']['already_gone'])} file(s) had "
+              f"already gone between the plan and the move.")
 
 
 def cmd_touch_reel(args):
@@ -2914,6 +3077,9 @@ def cmd_touch_reel(args):
                       f"{entry.get('refused')}")
         print(f"touched {summary.get('landed', 0)}/"
               f"{len(summary.get('reels') or ())} reel(s)")
+        from library.tools.execution.asset_gc import (
+            report_after as _gc_report_all)
+        _gc_report_all(project_folder)
         sys.exit(0 if summary.get("ok") else 1)
 
     if args.reel is None:
@@ -2979,6 +3145,8 @@ def cmd_touch_reel(args):
           f"and the conformance verifier)")
     if receipt.get("retirement"):
         print(f"  {receipt['retirement']}")
+    from library.tools.execution.asset_gc import report_after as _gc_report
+    _gc_report(project_folder)
 
 
 def cmd_touch_master(args):
@@ -3687,6 +3855,21 @@ def main():
              "no .drt backup, no timeline edit")
     still_overlays_parser.set_defaults(func=cmd_still_overlays)
 
+    dedupe_stills_parser = _add_command(sub, "dedupe-stills")
+    dedupe_stills_parser.add_argument(
+        "project", help="Project slug, or an absolute path "
+                        "to the project directory")
+    dedupe_stills_parser.add_argument(
+        "--only-reel", dest="only_reel", type=int, action="append",
+        default=[],
+        help="Only this reel number; repeatable. Default: every APPROVED "
+             "moment in the plan")
+    dedupe_stills_parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Plan the re-points and report them without writing "
+             "anything - no .drt backup, no timeline edit")
+    dedupe_stills_parser.set_defaults(func=cmd_dedupe_stills)
+
     touch_master_parser = _add_command(sub, "touch-master")
     touch_master_parser.add_argument(
         "project", help="Project slug, or an absolute path "
@@ -3882,6 +4065,16 @@ def main():
                               "alone this is the second, separate consent; "
                               "given with --apply it follows it directly")
     p_prune.set_defaults(func=cmd_resolve_prune)
+
+    # asset-gc
+    p_gc = _add_command(sub, "asset-gc")
+    p_gc.add_argument("project", help="Project slug, or an absolute path "
+                                     "to the project directory")
+    p_gc.add_argument("--apply", action="store_true",
+                      help="Remove the pool items and move their files to "
+                           "trash (default: plan only). Files are moved, "
+                           "never deleted")
+    p_gc.set_defaults(func=cmd_gc)
 
     # resolve-mark-master
     p_mark = _add_command(sub, "resolve-mark-master")

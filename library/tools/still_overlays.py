@@ -30,6 +30,14 @@ Guards per reel: a `.drt` backup first (the standard recovery
 archive), inventory before and after, and an inverse restore when the
 after-state differs anywhere but the swapped items. Hand edits,
 captions and markers are compared, never assumed.
+
+One pool item per distinct image: the extracted frame is hashed by
+pixels (`still_content.hash_pixels`) and the reel's
+`still_digest_index` is consulted before importing - the second
+identical overlay reuses the first one's pool item at its own span,
+and a fresh still lands under a content-addressed name
+(`still_<hash>.png`) so it is found next time. A restore never
+deletes a reused pool item other swaps still play.
 """
 
 from __future__ import annotations
@@ -39,6 +47,9 @@ import os
 import shutil
 import subprocess
 import tempfile
+
+from library.tools import still_content
+from library.tools.resolve_organization import is_generated
 
 #: Video rows that carry graphic overlays (never footage, transitions,
 #: captions or guides - see module docstring).
@@ -355,6 +366,54 @@ def inventory_snapshot(timeline) -> dict:
             "timeline_markers": timeline.GetMarkers() or {}}
 
 
+def _pool_file(pool_item):
+    try:
+        return pool_item.GetClipProperty("File Path")
+    except Exception:  # noqa: BLE001 - unreadable is not a path
+        return None
+
+
+def still_digest_index(pool, project_folder: str) -> dict:
+    """One pool item per distinct still image, keyed by pixel hash.
+
+    Built once per reel before any swap lands: every pooled Still on a
+    Ren-generated `.png` is hashed once (`still_content.hash_pixels`,
+    which hashes decoded pixels, not file bytes, so two exports of the
+    same frame merge). Captain-imported stills are never indexed - a
+    swap re-points onto pool media, and his media is not ours to
+    re-point onto. `_apply_swap` consults this before importing, so
+    the second identical overlay reuses the first one's pool item
+    instead of importing another.
+    """
+    index: dict = {}
+    hashed: dict = {}
+    stack = [pool.GetRootFolder()]
+    while stack:
+        folder = stack.pop()
+        try:
+            clips = folder.GetClipList() or ()
+            subs = folder.GetSubFolderList() or ()
+        except Exception:  # noqa: BLE001 - unreadable is not indexed
+            continue
+        for clip in clips:
+            if _media_kind(clip) != "Still":
+                continue
+            path = _pool_file(clip) or ""
+            if (not path.lower().endswith(".png")
+                    or not is_generated(path, project_folder)):
+                continue
+            if path in hashed:
+                digest = hashed[path]
+            else:
+                try:
+                    digest = still_content.hash_pixels(path)
+                except still_content.DedupeRefused:
+                    continue
+                hashed[path] = digest
+            index.setdefault(digest, clip)
+    return index
+
+
 def _find_folder(pool, folder, path):
     for clip in folder.GetClipList() or ():
         try:
@@ -459,12 +518,13 @@ def swap_reel_overlays(project, timeline_name: str, project_folder: str,
                 f"refusing before any write")
             return report
         report["drt_backup"] = archive.get("path")
+        reuse = still_digest_index(pool, project_folder)
         applied = []
         try:
             for swap in plans:
                 applied.append(_apply_swap(
                     resolve, project, pool, timeline, fps, swap,
-                    project_folder, timeline_name))
+                    project_folder, timeline_name, reuse))
             after = inventory_snapshot(timeline)
             for swap, got in zip(plans, applied):
                 swap["still_path"] = got["still_path"]
@@ -484,7 +544,8 @@ def swap_reel_overlays(project, timeline_name: str, project_folder: str,
                 f"{swap['label']} -> "
                 f"{swap['still_path'].rsplit('/', 1)[-1]}"
                 f"@{swap['record'][0]}..{swap['want_end']}"
-                for swap in plans]
+                f"{' (reused)' if got.get('reused') else ''}"
+                for swap, got in zip(plans, applied)]
         except StillOverlayError as exc:
             _restore_swaps(project, pool, timeline, fps, plans,
                            applied, project_folder, timeline_name)
@@ -556,11 +617,19 @@ def _items_with_path(items, path: str, record_start=None) -> list:
 
 
 def _apply_swap(resolve, project, pool, timeline, fps: float, swap: dict,
-                project_folder: str, timeline_name: str) -> dict:
-    """Replace one overlay item with its frozen still. Returns a receipt."""
+                project_folder: str, timeline_name: str,
+                reuse: dict | None = None) -> dict:
+    """Replace one overlay item with its frozen still. Returns a receipt.
+
+    `reuse` is the reel's `still_digest_index`: when the extracted
+    frame's pixels already have a pool item - the TV frame on an
+    earlier reel, or an earlier swap on this one - the swap re-points
+    at that item instead of importing another still.
+    """
     from library.tools.still_placement import place_still_exact
     from library.tools.transform_write_log import set_property
 
+    reuse = reuse if reuse is not None else {}
     duration_s = ((swap["record"][1] - swap["record"][0]) / float(fps)
                   if fps > 0 else 0)
     with tempfile.TemporaryDirectory(prefix="still-swap-") as scratch:
@@ -569,31 +638,61 @@ def _apply_swap(resolve, project, pool, timeline, fps: float, swap: dict,
             os.path.basename(swap["file_path"]).rsplit(".", 1)[0]
             + "_still.png")
         _grab_frame(swap["file_path"], max(0.0, duration_s / 2.0), still)
-        home = _find_folder(pool, pool.GetRootFolder(), swap["file_path"])
-        if home is None:
-            raise StillOverlayError(
-                f"{swap['label']}: pool folder not found - refusing")
-        previous = pool.GetCurrentFolder()
         try:
-            pool.SetCurrentFolder(home)
-            imported = pool.ImportMedia([still])
-        finally:
-            if previous is not None:
-                pool.SetCurrentFolder(previous)
-        if not imported:
+            digest = still_content.hash_pixels(still)
+        except still_content.DedupeRefused as exc:
             raise StillOverlayError(
-                f"{swap['label']}: Resolve would not import the still")
-        still_item = imported[0]
-        if _media_kind(still_item) != "Still":
-            raise StillOverlayError(
-                f"{swap['label']}: imported file is not a Still")
-        final_path = os.path.join(
-            os.path.dirname(swap["file_path"]), os.path.basename(still))
-        shutil.copyfile(still, final_path)
-        if not still_item.ReplaceClip(final_path):
-            raise StillOverlayError(
-                f"{swap['label']}: still would not re-point beside its "
-                f"source")
+                f"{swap['label']}: cannot hash the frozen still - "
+                f"{exc}") from exc
+        hit = reuse.get(digest)
+        if (hit is not None and _media_kind(hit) == "Still"
+                and os.path.isfile(_pool_file(hit) or "")):
+            still_item = hit
+            final_path = _pool_file(hit) or ""
+            reused = True
+        else:
+            home = _find_folder(pool, pool.GetRootFolder(),
+                                swap["file_path"])
+            if home is None:
+                raise StillOverlayError(
+                    f"{swap['label']}: pool folder not found - refusing")
+            previous = pool.GetCurrentFolder()
+            try:
+                pool.SetCurrentFolder(home)
+                imported = pool.ImportMedia([still])
+            finally:
+                if previous is not None:
+                    pool.SetCurrentFolder(previous)
+            if not imported:
+                raise StillOverlayError(
+                    f"{swap['label']}: Resolve would not import the still")
+            still_item = imported[0]
+            if _media_kind(still_item) != "Still":
+                raise StillOverlayError(
+                    f"{swap['label']}: imported file is not a Still")
+            final_path = os.path.join(
+                os.path.dirname(swap["file_path"]),
+                still_content.content_still_filename(digest))
+            if os.path.isfile(final_path):
+                try:
+                    parked = still_content.hash_pixels(final_path)
+                except still_content.DedupeRefused as exc:
+                    raise StillOverlayError(
+                        f"{swap['label']}: {final_path!r} is already here "
+                        f"and unreadable - refusing to overwrite it: "
+                        f"{exc}") from exc
+                if parked != digest:
+                    raise StillOverlayError(
+                        f"{swap['label']}: {final_path!r} is already here "
+                        f"with different pixels - refusing to overwrite it")
+            else:
+                shutil.copyfile(still, final_path)
+            if not still_item.ReplaceClip(final_path):
+                raise StillOverlayError(
+                    f"{swap['label']}: still would not re-point beside "
+                    f"its source")
+            reuse[digest] = still_item
+            reused = False
         old = None
         for item in timeline.GetItemListInTrack(
                 "video", swap["track_index"]) or ():
@@ -662,7 +761,7 @@ def _apply_swap(resolve, project, pool, timeline, fps: float, swap: dict,
             raise StillOverlayError(
                 f"{swap['label']}: still unreadable after transforms")
         return {"swap": swap["label"], "uid": back[0].GetUniqueId(),
-                "still_path": final_path,
+                "still_path": final_path, "reused": reused,
                 "record": [back[0].GetStart(), back[0].GetEnd()]}
 
 
@@ -758,5 +857,47 @@ def _restore_swaps(project, pool, timeline, fps, plans, applied,
                 raise StillOverlayError(
                     f"{timeline_name}: restore lost note "
                     f"{marker.get('name')!r}")
-        if pooled is not None:
-            pool.DeleteClips([pooled])
+        if pooled is not None and not got.get("reused"):
+            if not _still_played_anywhere(project, timeline, still_path,
+                                          swap):
+                pool.DeleteClips([pooled])
+
+
+def _still_played_anywhere(project, timeline, still_path: str,
+                           exempt: dict) -> bool:
+    """True when any item outside the exempt swap's span plays the still.
+
+    A reused still is one pool item several swaps share, so the
+    restore of one swap must not delete the pool item the others
+    still play. The exempt swap's own item is already deleted by the
+    time this runs; any other hit keeps the pool item pooled (it is
+    unreferenced pool debris `ren gc` owns, not this restore).
+    """
+    try:
+        tracks = timeline.GetTrackCount("video") or 0
+    except Exception:  # noqa: BLE001
+        return True
+    for index in range(1, tracks + 1):
+        try:
+            items = timeline.GetItemListInTrack("video", index) or ()
+        except Exception:  # noqa: BLE001
+            continue
+        for item in items:
+            try:
+                mpi = item.GetMediaPoolItem()
+                hit = (mpi is not None
+                       and (mpi.GetClipProperty("File Path") or "")
+                       == still_path)
+            except Exception:  # noqa: BLE001
+                continue
+            if not hit:
+                continue
+            try:
+                start = item.GetStart()
+            except Exception:  # noqa: BLE001
+                return True
+            if (index == exempt.get("track_index")
+                    and start == (exempt.get("record") or [None])[0]):
+                continue
+            return True
+    return False
