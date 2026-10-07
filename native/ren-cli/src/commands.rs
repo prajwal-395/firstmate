@@ -183,6 +183,7 @@ const VERBS: &[Verb] = &[
     Verb { name: "build", group: "Reels", summary: "Build approved reels in Resolve" },
     Verb { name: "adopt", group: "Reels", summary: "Adopt existing reel timelines as Ren-built by exact Resolve id" },
     Verb { name: "touch", group: "Reels", summary: "Apply a small change to a built reel (a touch-up, not a rebuild)" },
+    Verb { name: "still-overlays", group: "Reels", summary: "Freeze static overlay videos into stills, in place (no rebuild)" },
     Verb { name: "touch-master", group: "Reels", summary: "Apply a small change to the master timeline (a touch-up, not a rebuild)" },
     Verb { name: "replay-ledger", group: "Reels", summary: "Apply a recorded edit ledger to a timeline directly, without a build" },
     Verb { name: "undo", group: "Reels", summary: "Undo a touch-up (in place) or rebuild (by version)" },

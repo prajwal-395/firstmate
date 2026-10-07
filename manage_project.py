@@ -2776,6 +2776,80 @@ def cmd_hear_reel(args):
         sys.exit(1)
 
 
+def cmd_still_overlays(args):
+    """Freeze static overlay videos into stills, reel by reel, in place.
+
+    Captain 2026-10-06: static graphics (post headers, TV frames) ship
+    as rendered videos of a hardcoded length instead of still overlays
+    that can cover whatever duration is needed. This verb applies that
+    fix without rebuilding: see `library/tools/still_overlays.py` for
+    what qualifies, the per-reel guards, and the refuse-and-restore
+    rule. One reel's refusal never stops the rest; the exit code is
+    nonzero when any reel refused.
+    """
+    from library.tools import run_control as _hold
+    from library.tools import still_overlays as _stills
+    from library.tools.reel_proposal import proposal_path, read_proposal
+
+    project_folder = _reel_project_folder(args.project)
+    hold = _hold.hold_requested(project_folder)
+    if hold is not None:
+        raise RenRefusal(
+            f"the handbrake is engaged on this project "
+            f"({hold.get('requested_by', 'unknown')}: "
+            f"{hold.get('reason', '')})",
+            "a still swap under a held project could fight the holder",
+            "delete pipeline.hold at the project root (it records who "
+            "asked for it - check with them), then re-run") \
+            from None
+    moments = read_proposal(str(proposal_path(project_folder)))
+    approved = [moment for moment in moments
+                if str(getattr(moment.approval, "value", moment.approval))
+                == "approved"]
+    wanted = None
+    if args.only_reel:
+        wanted = set(args.only_reel)
+        missing = wanted - {int(moment.number) for moment in approved}
+        if missing:
+            raise RenRefusal(
+                f"asked for reel(s) {sorted(missing)}, and the plan "
+                f"has no APPROVED moment with those numbers",
+                "a run that quietly skipped them would report success "
+                "having completed nothing for this request",
+                f"run `ren propose {args.project}` first, or name reels "
+                f"the plan approves")
+    failed = 0
+    for moment in approved:
+        if wanted is not None and int(moment.number) not in wanted:
+            continue
+        report = _stills.swap_reel_overlays(
+            args.project, moment.timeline_name, project_folder,
+            dry_run=args.dry_run)
+        swapped = len(report.get("swapped") or [])
+        skipped = len(report.get("skipped") or [])
+        if report.get("refused") is not None:
+            failed += 1
+            print(f"  {moment.timeline_name}: REFUSED "
+                  f"({report['refused']})"
+                  f"{' - restored' if report.get('restored') else ''}")
+        else:
+            print(f"  {moment.timeline_name}: swapped {swapped}, "
+                  f"skipped {skipped}"
+                  f"{' (dry run)' if args.dry_run else ''}")
+            for entry in report.get("skipped") or ():
+                print(f"    skipped {entry.get('row')} "
+                      f"{entry.get('item')}: {entry.get('why')}")
+            for label in report.get("planned") or ():
+                print(f"    would swap {label}")
+    if failed:
+        raise RenRefusal(
+            f"{failed} reel(s) refused the still swap",
+            "each refusal names its reason above; the reels are "
+            "unchanged (refusals restore)",
+            "fix what each refusal names and re-run those reels with "
+            "--only-reel") from None
+
+
 def cmd_touch_reel(args):
     """Apply a structured change to a built reel's existing timeline.
 
@@ -3597,6 +3671,21 @@ def main():
         help="With --all-reels: narrow the clip search to this row "
              "(default: search every video row)")
     touch_reel_parser.set_defaults(func=cmd_touch_reel)
+
+    still_overlays_parser = _add_command(sub, "still-overlays")
+    still_overlays_parser.add_argument(
+        "project", help="Project slug, or an absolute path "
+                        "to the project directory")
+    still_overlays_parser.add_argument(
+        "--only-reel", dest="only_reel", type=int, action="append",
+        default=[],
+        help="Only this reel number; repeatable. Default: every APPROVED "
+             "moment in the plan")
+    still_overlays_parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Plan the swaps and report them without writing anything - "
+             "no .drt backup, no timeline edit")
+    still_overlays_parser.set_defaults(func=cmd_still_overlays)
 
     touch_master_parser = _add_command(sub, "touch-master")
     touch_master_parser.add_argument(
