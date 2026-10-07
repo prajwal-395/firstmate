@@ -126,6 +126,31 @@ def test_deadline_proxy_wraps_nested_resolve_handles(monkeypatch):
     ]
 
 
+def test_deadline_proxy_handles_api_objects_with_spoofed_class(monkeypatch):
+    from library.tools import resolve_deadline
+
+    class ApiHandle:
+        @property
+        def __class__(self):
+            return None
+
+        def GetName(self):
+            return "Ren Qualification"
+
+    class Root:
+        def GetProjectManager(self):
+            return ApiHandle()
+
+    def immediate(_label, function, *args, timeout_s=None, **kwargs):
+        return function(*args, **kwargs)
+
+    monkeypatch.setattr(resolve_deadline, "call_with_deadline", immediate)
+    wrapped = deadline_proxy(Root(), label="reel.promote_staged")
+
+    assert (wrapped.GetProjectManager().GetName()
+            == "Ren Qualification")
+
+
 def test_deadline_proxy_names_a_blocked_api_method():
     release = threading.Event()
     finished = threading.Event()

@@ -89,15 +89,17 @@ class DeadlineProxy:
     @classmethod
     def wrap(cls, value: Any, label: str, cache: dict[int, "DeadlineProxy"],
              timeout_s: float | None) -> Any:
-        if value is None or isinstance(value, (str, bytes, int, float, bool)):
+        value_type = type(value)
+        if value is None or issubclass(
+                value_type, (str, bytes, int, float, bool)):
             return value
-        if isinstance(value, list):
+        if issubclass(value_type, list):
             return [cls.wrap(item, f"{label}[{index}]", cache, timeout_s)
                     for index, item in enumerate(value)]
-        if isinstance(value, tuple):
+        if issubclass(value_type, tuple):
             return tuple(cls.wrap(item, f"{label}[{index}]", cache, timeout_s)
                          for index, item in enumerate(value))
-        if isinstance(value, Mapping):
+        if issubclass(value_type, Mapping):
             return {key: cls.wrap(item, f"{label}[{key!r}]", cache, timeout_s)
                     for key, item in value.items()}
         found = cache.get(id(value))
@@ -108,13 +110,14 @@ class DeadlineProxy:
     @classmethod
     def unwrap(cls, value: Any) -> Any:
         """Pass native handles, never proxy facades, back into Resolve."""
-        if isinstance(value, cls):
+        value_type = type(value)
+        if issubclass(value_type, cls):
             return object.__getattribute__(value, "_target")
-        if isinstance(value, list):
+        if issubclass(value_type, list):
             return [cls.unwrap(item) for item in value]
-        if isinstance(value, tuple):
+        if issubclass(value_type, tuple):
             return tuple(cls.unwrap(item) for item in value)
-        if isinstance(value, Mapping):
+        if issubclass(value_type, Mapping):
             return {key: cls.unwrap(item) for key, item in value.items()}
         return value
 
