@@ -74,6 +74,17 @@ def test_cut_video_windows_tiles_like_the_text_grid():
     assert cut_video_windows(None) == []
 
 
+def test_video_grid_is_the_text_grid():
+    """One cutter, one grid: the video windows delegate to cut_chunks,
+    so an 8 s window means the same span in both lanes.  A second
+    implementation drifting apart is the defect this pins.
+    """
+    from library.tools.analysis.footage_segments import CHUNK_S, cut_chunks
+    assert VIDEO_CHUNK_S == CHUNK_S
+    for duration in (0.0, 3.0, 8.0, 20.0, 533.927, None, -5):
+        assert cut_video_windows(duration) == cut_chunks(duration)
+
+
 def test_extract_chunk_frames_cuts_one_fps(media_project):
     frames = extract_chunk_frames(
         str(media_project / "raw" / "A.mp4"), 0.0, 8.0)

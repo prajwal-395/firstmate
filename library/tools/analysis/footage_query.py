@@ -87,6 +87,7 @@ from library.tools.analysis.footage_segments import (
     SEGMENT_KINDS,
     build_segments,
     coverage_report,
+    cut_chunks,
     ingest_fingerprint,
     load_catalog,
 )
@@ -450,34 +451,20 @@ ABSENT_PROBES = (
 # 0.68x (0.053).  Revisit with pooled data when more indexes calibrate.
 ABSENT_MARGIN = 0.06
 
-# PARALLEL-CUTTER NOTE (review bar 3): footage_segments.cut_chunks
-# (PR 2010, unmerged) cuts the same 8 s grid for the text chunk rows.
-# This branch cannot reach it, so the tiling rule is repeated here
-# DELIBERATELY IDENTICALLY - same windows, same short-tail rule - and
-# 2010's rebase unifies the two.  A Bauplan with two cutters and no
-# note would be an accident; this one is a rendezvous.
-VIDEO_CHUNK_S_SOURCE = "slice-3 V2 pick; grid identical to cut_chunks"
+# One grid for both chunk lanes: the video windows here and the text
+# chunk rows in footage_segments share cut_chunks, so an 8 s window
+# means the same span wherever it is cut from.  VIDEO_CHUNK_S names
+# the lane's window beside its fps/width companions; it must equal
+# footage_segments.CHUNK_S (pinned in test).
+VIDEO_CHUNK_S = 8.0
 
 
 def cut_video_windows(duration_s, window_s=VIDEO_CHUNK_S) -> list:
     """Fixed windows tiling ``[0, duration_s)``, short tail allowed.
 
-    Identical grid to footage_segments.cut_chunks by construction (see
-    PARALLEL-CUTTER NOTE above): a missing or non-positive duration
-    cuts nothing.
+    Delegates to footage_segments.cut_chunks: one cutter, one grid.
     """
-    try:
-        duration = float(duration_s)
-    except (TypeError, ValueError):
-        return []
-    if duration <= 0 or window_s <= 0:
-        return []
-    windows = []
-    start = 0.0
-    while start < duration:
-        windows.append((round(start, 3), round(min(start + window_s, duration), 3)))
-        start += window_s
-    return windows
+    return cut_chunks(duration_s, chunk_s=window_s)
 
 
 def extract_chunk_frames(source_file, start, end, fps=VIDEO_CHUNK_FPS,
