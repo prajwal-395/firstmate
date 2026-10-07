@@ -128,6 +128,25 @@ def test_failed_status_delivery_retries_without_rerunning_tests(
     assert posts[1][0][3] == pr["url"]
 
 
+def test_legacy_local_log_url_is_replaced_before_status_retry(
+        tmp_path, faked_github):
+    from library.tools.local_ci import github
+
+    pr = _pr(5)
+    record = {**_outcome(pr),
+              "url": "/Users/prajwal/.ren-ci/logs/pr-5-head.log",
+              "status_posted": False, "status_error": ""}
+    state.record_check(record, str(tmp_path))
+
+    assert daemon._publish_check_status(record, str(tmp_path)) is True
+
+    canonical_url = github.pull_url(pr["number"])
+    stored = state.read_checks(str(tmp_path))[pr["head"]]
+    assert faked_github.posts[-1][3] == canonical_url
+    assert stored["url"] == canonical_url
+    assert stored["status_posted"] is True
+
+
 def test_a_crash_posts_pending_never_error(monkeypatch, tmp_path,
                                            faked_github):
     # PRs #2087-2089: the invalid-range crash posted error states that

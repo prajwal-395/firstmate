@@ -36,6 +36,7 @@ from __future__ import annotations
 import concurrent.futures
 import os
 import time
+from urllib.parse import urlsplit
 
 from library.tools.local_ci import (
     config,
@@ -158,17 +159,29 @@ def _publish_check_status(record: dict, state_dir: str = "") -> bool:
         else:
             reason = f"{record.get('failed', 1)} failed"
         status, description = "failure", f"ren-ci: {reason}"
-    target_url = record.get("url") or github.pull_url(record["pr"])
+    target_url = record.get("url")
+    try:
+        parsed_target = urlsplit(target_url) if isinstance(
+            target_url, str) else None
+    except ValueError:
+        parsed_target = None
+    if (parsed_target is None
+            or parsed_target.scheme not in ("http", "https")
+            or not parsed_target.netloc):
+        # Older ledgers stored the local run log as `url`. Keep retries
+        # deliverable after an upgrade by replacing it with the PR page.
+        target_url = github.pull_url(record["pr"])
     try:
         github.post_status(head, status, description[:140], target_url)
     except github.GitHubError as exc:
         state.update_check(head, {"status_posted": False,
-                                  "status_error": str(exc)}, state_dir)
+                                  "status_error": str(exc),
+                                  "url": target_url}, state_dir)
         print(f"ren-ci status delivery deferred for {head[:12]}: {exc}",
               flush=True)
         return False
-    state.update_check(head, {"status_posted": True, "status_error": ""},
-                       state_dir)
+    state.update_check(head, {"status_posted": True, "status_error": "",
+                              "url": target_url}, state_dir)
     return True
 
 
