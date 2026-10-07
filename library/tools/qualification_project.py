@@ -257,6 +257,60 @@ def qualification_session_active():
             "project": str(record.get("project", ""))}
 
 
+def run_qualification_session(job: dict, resolve) -> dict:
+    """Run a submitted step list inside `borrowed()`, and return a receipt.
+
+    The broker worker calls this with its persistent scripting
+    connection - no step opens a handshake of its own, which is what
+    the 2026-10-06 scripting-thread-shutdown crash forbids. Steps run in
+    order inside one borrowed session: `resolve_axi` argv through the
+    same runner broker `resolve_axi` jobs use, `ui_transaction` specs
+    through the transaction runner with the native driver. The first
+    failing step stops the run; the borrowed `finally` still restores
+    (with read-back) before the refusal propagates, so a failed
+    collection never strands Resolve in qualification.
+    """
+    from library.tools.resolved import jobs as broker_jobs
+    from library.tools.resolved import ui_transaction
+    from library.tools.resolved.jobs import JobRefused
+
+    params = job["params"]
+    receipts = []
+    with borrowed(resolve) as found:
+        manager = resolve.GetProjectManager()
+        switch_project(manager, QUALIFICATION_PROJECT)
+        for index, step in enumerate(params["steps"]):
+            if "resolve_axi" in step:
+                receipt = broker_jobs._run_resolve_axi(
+                    {"argv": step["resolve_axi"],
+                     "cwd": params.get("cwd") or os.getcwd()})
+                receipts.append({"runner": "resolve_axi",
+                                 "argv": step["resolve_axi"],
+                                 "exit_code": receipt["exit_code"],
+                                 "stdout": receipt["stdout"],
+                                 "stderr": receipt["stderr"]})
+                if receipt["exit_code"] != 0:
+                    raise JobRefused(
+                        f"step {index} exited "
+                        f"{receipt['exit_code']}: "
+                        f"{(receipt['stderr'] or receipt['stdout'])[-500:]}")
+            else:
+                subjob = {"id": f"{job['id']}-step-{index}",
+                          "params": step["ui_transaction"]}
+                receipt = ui_transaction.run(subjob, resolve)
+                receipts.append({"runner": "ui_transaction",
+                                 "receipt": broker_jobs._jsonable(receipt)})
+                if receipt["status"] != "committed":
+                    raise JobRefused(
+                        f"step {index}: ui_transaction "
+                        f"{receipt['status']}: {receipt['result']}")
+    return {"steps": receipts,
+            "borrowed_from": found,
+            "restored": {"project": found["project"],
+                         "timeline": found["timeline"],
+                         "page": found["page"]}}
+
+
 def _restore_page(resolve, found: dict) -> None:
     """Put the captain's project back on the page it was on.
 

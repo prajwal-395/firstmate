@@ -70,7 +70,7 @@ QUALIFICATION_PROJECT = "Ren Qualification"
 
 KINDS = ("lease", "timeline.snapshot", "timeline.apply_patch",
           "resolve_axi", "fusion.registry_summary",
-          "resolve.ui_transaction")
+          "resolve.ui_transaction", "resolve.qualification_session")
 
 
 #: The resolve-axi commands the broker will run, by name. The broker is
@@ -301,6 +301,23 @@ def prepare(kind: str, params: dict, qualification: bool = False) -> dict:
                  "project": project, "timeline": timeline,
                  "locality": "timeline" if timeline else "project",
                  "coalesce_key": None}
+    elif kind == "resolve.qualification_session":
+        project = _required(params, "project", kind)
+        steps = params.get("steps")
+        if not isinstance(steps, list) or not steps:
+            raise JobRefused(
+                "resolve.qualification_session needs 'steps', a non-empty "
+                "list")
+        for index, step in enumerate(steps):
+            _validate_session_step(step, index)
+        # EXCLUSIVE for the whole session: it switches projects, runs
+        # the steps, and restores - the take, held by one job. Never
+        # coalesced: a borrowed session is not a repeatable read.
+        shape = {"mode": EXCLUSIVE,
+                 "priority": "mutation", "executed": True,
+                 "project": project, "timeline": "",
+                 "locality": "project",
+                 "coalesce_key": None}
     else:
         shape = dict(_resolve_axi_shape(params), executed=True)
     requested = params.get("priority")
@@ -328,6 +345,51 @@ def refuse_qualification(project: str) -> None:
             f"a qualification job may only target {QUALIFICATION_PROJECT!r}"
             f", not {project or 'an unnamed project'!r}: live tests never "
             f"touch a production or user project")
+
+
+def _validate_session_step(step, index: int) -> None:
+    """One borrowed-session step: resolve_axi argv or a ui_transaction spec.
+
+    Steps run inside `borrowed()` on the broker's own connection, so no
+    step opens a scripting handshake of its own. The argv is checked to
+    PARSE only - not broker-allowlisted: the session is EXCLUSIVE and
+    qualification-scoped, the two properties the allowlist protects,
+    and writes land in the open (qualification) project or the command
+    refuses them itself. `cmd_run` stays gated by the broker opt-in at
+    execution, fail-closed on both sides.
+    """
+    if not isinstance(step, dict) or len(step) != 1:
+        raise JobRefused(
+            f"step {index} must name exactly one runner: 'resolve_axi' "
+            f"argv or a 'ui_transaction' spec")
+    if "resolve_axi" in step:
+        argv = step["resolve_axi"]
+        if (not isinstance(argv, list) or not argv or not all(
+                isinstance(token, str) for token in argv)):
+            raise JobRefused(
+                f"step {index}: resolve_axi needs 'argv', a non-empty "
+                f"list of strings")
+        from library.tools import resolve_axi
+        try:
+            with contextlib.redirect_stdout(io.StringIO()), \
+                    contextlib.redirect_stderr(io.StringIO()):
+                resolve_axi.build_parser().parse_args(
+                    resolve_axi._normalize(list(argv)))
+        except SystemExit as exc:
+            raise JobRefused(
+                f"step {index}: resolve-axi does not accept "
+                f"{argv!r}") from exc
+        return
+    if "ui_transaction" in step:
+        from library.tools.resolved import ui_transaction
+        try:
+            ui_transaction.validate_spec(step["ui_transaction"])
+        except JobRefused as exc:
+            raise JobRefused(f"step {index}: {exc}") from exc
+        return
+    raise JobRefused(
+        f"step {index}: unknown runner {sorted(step)!r}; one of "
+        f"['resolve_axi', 'ui_transaction']")
 
 
 # ── Execution, on the broker's connection ───────────────────────────
@@ -375,6 +437,11 @@ def run(job: dict, resolve) -> Optional[dict]:
         # mode decides - log in production (a hard refusal on the live
         # edit path needs live evidence first), refuse in tests/dev.
         protocol_conformance.validate(params["patch"], "edit-patch")
+    if kind == "resolve.qualification_session":
+        # The broker never switches - except through borrowed(), which
+        # saves the open project first and reads the restore back.
+        from library.tools import qualification_project
+        return qualification_project.run_qualification_session(job, resolve)
     project = _open_project(resolve, job["project"])
     if kind == "resolve.ui_transaction":
         # The transaction establishes the timeline itself - the cursor
