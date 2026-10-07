@@ -31,8 +31,8 @@ import socketserver
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, Optional
 
 from library.tools.resolved import jobs as job_kinds
 from library.tools.resolved import scheduler
@@ -70,8 +70,8 @@ class Broker:
     """
 
     def __init__(self, store: JobStore,
-                 connect: Optional[Callable[[], object]] = None,
-                 watchdog: Optional[object] = None):
+                 connect: Callable[[], object] | None = None,
+                 watchdog: object | None = None):
         self.store = store
         self._connect = connect or _default_connect
         self._resolve = None
@@ -155,7 +155,7 @@ class Broker:
         event = self._started.get(job_id)
         return bool(event and event.wait(timeout))
 
-    def result(self, job_id: str, wait: float = 0.0) -> Optional[dict]:
+    def result(self, job_id: str, wait: float = 0.0) -> dict | None:
         deadline = time.time() + max(0.0, wait)
         with self._cond:
             while True:
@@ -167,7 +167,7 @@ class Broker:
                     return job
                 self._cond.wait(min(remaining, 1.0))
 
-    def cancel(self, job_id: str, reason: str = "cancelled") -> Optional[dict]:
+    def cancel(self, job_id: str, reason: str = "cancelled") -> dict | None:
         with self._cond:
             if job_id in self._queued:
                 del self._queued[job_id]
@@ -272,6 +272,11 @@ class Broker:
         try:
             with resolve_lease(f"ren-resolved {job['kind']} {job['id']}",
                                exclusive=job["mode"] == "exclusive"):
+                if (job["qualification"]
+                        and job["kind"] == "reel.promote_staged"):
+                    # The payload target is fixed to Qualification. Its
+                    # runner borrows the current project before opening it.
+                    job_kinds.refuse_qualification(job.get("project", ""))
                 resolve = (self._resolve_handle()
                            if job["qualification"] or job["executed"]
                            else None)
@@ -279,7 +284,8 @@ class Broker:
                     from library.tools.resolve_deadline import deadline_proxy
                     resolve = deadline_proxy(
                         resolve, label=f"{job['kind']} {job['id']}")
-                if job["qualification"]:
+                if (job["qualification"]
+                        and job["kind"] != "reel.promote_staged"):
                     found = job_kinds.open_project_name(resolve)
                     if found != job_kinds.QUALIFICATION_PROJECT:
                         raise job_kinds.JobRefused(
@@ -414,7 +420,7 @@ class _Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
     daemon_threads = True
 
 
-def serve(path: Optional[Path] = None, connect=None) -> None:
+def serve(path: Path | None = None, connect=None) -> None:
     """Run the broker in the foreground until `shutdown` or a signal.
 
     The ping-check and the bind are atomic under a bind lock, so a
@@ -462,7 +468,7 @@ def serve(path: Optional[Path] = None, connect=None) -> None:
                                        exclusive=False, honor_captain=False,
                                        timeout=10.0):
                         return broker_jobs.open_project_name(broker._resolve_handle())
-                except Exception:
+                except Exception:  # noqa: BLE001 - watcher fails closed to unknown
                     return None
 
             def project_folder(name):
@@ -470,8 +476,10 @@ def serve(path: Optional[Path] = None, connect=None) -> None:
                     return ""
                 # The project's absolute root - where its project.yaml was found -
                 # because the watcher files hand edits under it.
-                from library.tools.project_registry import (load_project_config,
-                                                        project_config_paths)
+                from library.tools.project_registry import (
+                    load_project_config,
+                    project_config_paths,
+                )
                 for yaml_path in project_config_paths():
                     try:
                         config = load_project_config(yaml_path, migrate_format=False)

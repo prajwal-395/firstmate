@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from library.tools.resolved.jobs import JobRefused, QUALIFICATION_PROJECT
+from library.tools.resolved.jobs import QUALIFICATION_PROJECT, JobRefused
 
 KIND = "reel.promote_staged"
 STAGING_SUFFIX = " (rebuild staging)"
@@ -188,8 +188,8 @@ def _verified_record_evidence(project_folder: Path, review_dir: Path,
     return evidence
 
 
-def run(job: dict, resolve, project) -> dict:
-    """Promote one staged Q reel and record it on the broker connection."""
+def run(job: dict, resolve) -> dict:
+    """Borrow Resolve, promote one staged Q reel, and restore the captain."""
     params = job["params"]
     from library.tools.resolve_deadline import DeadlineProxy, deadline_proxy
 
@@ -197,15 +197,32 @@ def run(job: dict, resolve, project) -> dict:
         resolve = deadline_proxy(
             resolve, label=f"{KIND} {job.get('id', '')}")
     from library.tools import qualification_project
-    with qualification_project.borrowed(
-            resolve, qualification_only=True):
-        project = resolve.GetProjectManager().GetCurrentProject()
-        return _promote_and_record(job, params, resolve, project)
+    with qualification_project.borrowed(resolve) as borrowed_from:
+        manager = resolve.GetProjectManager()
+        qualification_project.switch_project(
+            manager, QUALIFICATION_PROJECT)
+        project = manager.GetCurrentProject()
+        opened_name = (project.GetName() or "") if project else ""
+        if opened_name != QUALIFICATION_PROJECT:
+            raise JobRefused(
+                f"{KIND} opened {opened_name or 'no project'!r}, not "
+                f"{QUALIFICATION_PROJECT!r}")
+        result = _promote_and_record(job, params, resolve, project)
+
+    # borrowed() has now restored and read back the exact project/timeline.
+    result["borrowed_from"] = {
+        "project": borrowed_from["project"],
+        "timeline": borrowed_from["timeline"],
+        "timeline_id": borrowed_from["timeline_id"],
+        "page": borrowed_from["page"],
+    }
+    result["restored"] = dict(result["borrowed_from"])
+    return result
 
 
 def _promote_and_record(job: dict, params: dict, resolve, project) -> dict:
-    from library.tools.resolve_deadline import DeadlineProxy
     from library.tools import qualification_project
+    from library.tools.resolve_deadline import DeadlineProxy
 
     if not isinstance(resolve, DeadlineProxy):
         raise JobRefused(f"{KIND} requires a deadline-wrapped broker handle")

@@ -63,7 +63,6 @@ import hashlib
 import io
 import json
 import os
-from typing import Optional
 
 from library.tools import protocol_conformance
 from library.tools.resolved.scheduler import EXCLUSIVE, PRIORITIES, SHARED
@@ -110,7 +109,7 @@ class JobRefused(ValueError):
     refusal carries something the caller acts on (a stale patch's head
     generation)."""
 
-    def __init__(self, message: str, result: Optional[dict] = None):
+    def __init__(self, message: str, result: dict | None = None):
         super().__init__(message)
         self.result = result
 
@@ -428,7 +427,7 @@ def _timeline(project, name: str):
                      f"{project.GetName()!r}")
 
 
-def run(job: dict, resolve) -> Optional[dict]:
+def run(job: dict, resolve) -> dict | None:
     """Run one EXECUTED job; returns its JSON-serialisable result."""
     from library.tools import resolve_lock
     from library.tools.transform_write_log import write_scope
@@ -451,13 +450,16 @@ def run(job: dict, resolve) -> Optional[dict]:
         # saves the open project first and reads the restore back.
         from library.tools import qualification_project
         return qualification_project.run_qualification_session(job, resolve)
-    project = _open_project(resolve, job["project"])
     if kind == "reel.promote_staged":
+        # The target is fixed to Ren Qualification by prepare(). The typed
+        # runner borrows the current project and opens Qualification under
+        # the same exclusive lease before it touches a timeline.
         from library.tools.resolved import reel_promotion
         with write_scope(project=QUALIFICATION_PROJECT,
                          timeline_name=job.get("timeline"),
                          run_id=job.get("id")):
-            return reel_promotion.run(job, resolve, project)
+            return reel_promotion.run(job, resolve)
+    project = _open_project(resolve, job["project"])
     if kind == "resolve.ui_transaction":
         # The transaction establishes the timeline itself - the cursor
         # moves to it - so it is NOT required to be current here, and
@@ -478,13 +480,13 @@ def run(job: dict, resolve) -> Optional[dict]:
         # captain's cursor back after; `apply_patch` fences the write.
         try:
             patch = params["patch"]
-            with write_scope(project=patch["project"],
-                             timeline_name=patch["timeline"],
-                             run_id=job.get("id")):
-                with resolve_lock.cursor_excursion(project, timeline, purpose):
-                    return _jsonable(edit_patch.apply_patch(
-                        patch, resolve=resolve, project=project,
-                        timeline=timeline))
+            with (write_scope(project=patch["project"],
+                              timeline_name=patch["timeline"],
+                              run_id=job.get("id")),
+                  resolve_lock.cursor_excursion(project, timeline, purpose)):
+                return _jsonable(edit_patch.apply_patch(
+                    patch, resolve=resolve, project=project,
+                    timeline=timeline))
         except edit_patch.PatchRefused as refused:
             fields = {key: value for key, value in vars(refused).items()
                       if not key.startswith("_")}

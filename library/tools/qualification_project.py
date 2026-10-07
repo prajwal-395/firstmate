@@ -34,11 +34,12 @@ current, and READS BACK both. A restore that does not read back raises
 under the exclusive instance lease; nothing writes the captain's project
 beyond the save.
 
-A typed qualification broker job may instead call `borrowed` with
-`qualification_only=True`. That path requires the exact Qualification
-project to already be open, marks the session for the watcher, and yields
-without saving, switching projects, or moving/restoring the timeline
-cursor. It refuses every other open project by name.
+A typed qualification broker job can call `borrowed()` under the same
+exclusive lease. It records and saves the captain's current project,
+marks the session for the watcher, switches to Qualification, and
+restores the exact project and timeline by unique ID with read-back.
+`qualification_only=True` remains available to jobs that require the
+Qualification project to already be open and must not switch projects.
 
 `tests/unit/resolve/test_qualification_project.py`.
 """
@@ -130,8 +131,8 @@ def ensure_media() -> dict:
             command = [
                 "ffmpeg", "-v", "error", "-y",
                 "-f", "lavfi", "-i",
-                f"{source}{':' if '=' in source else '='}size={WIDTH}x"
-                f"{HEIGHT}:rate={FPS}:duration={seconds}",
+                (f"{source}{':' if '=' in source else '='}size={WIDTH}x"
+                 f"{HEIGHT}:rate={FPS}:duration={seconds}"),
                 "-f", "lavfi", "-i",
                 f"sine=frequency={tone}:sample_rate=48000:duration={seconds}",
                 "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(FPS),
@@ -167,12 +168,12 @@ def _timeline_by_name(project, name: str):
 
 @contextmanager
 def borrowed(resolve, *, qualification_only: bool = False):
-    """Use Qualification without moving the cursor, or borrow and restore.
+    """Use an open Qualification project, or borrow and restore the captain.
 
-    The broker's typed promotion job uses `qualification_only=True`: it
-    must act on the already-open Qualification project and must not
-    switch or restore any project or timeline. All other callers retain
-    the original save/borrow/restore behaviour.
+    The typed reel promotion job uses the ordinary borrow path, then
+    switches to the exact Qualification project inside this context.
+    `qualification_only=True` is for jobs that require Qualification to
+    be open already and must not switch or restore a project or timeline.
     """
     from library.tools.resolve_lock import exclusive_held
     if not exclusive_held():
@@ -474,11 +475,11 @@ def rebuild(resolve, media: dict):
     """
     from library.tools.resolve_lock import assert_current_timeline
     manager = resolve.GetProjectManager()
-    if QUALIFICATION_PROJECT in (manager.GetProjectListInCurrentFolder()
-                                 or []):
-        if not manager.DeleteProject(QUALIFICATION_PROJECT):
-            raise QualificationError(
-                f"could not delete the old {QUALIFICATION_PROJECT!r}")
+    if (QUALIFICATION_PROJECT in (manager.GetProjectListInCurrentFolder()
+                                  or [])
+            and not manager.DeleteProject(QUALIFICATION_PROJECT)):
+        raise QualificationError(
+            f"could not delete the old {QUALIFICATION_PROJECT!r}")
     project = manager.CreateProject(QUALIFICATION_PROJECT)
     if not project:
         raise QualificationError(f"could not create {QUALIFICATION_PROJECT!r}")

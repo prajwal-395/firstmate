@@ -3,9 +3,8 @@
 import pytest
 
 from library.tools.resolved import jobs, reel_promotion
-from library.tools.resolved.jobs import JobRefused, QUALIFICATION_PROJECT
+from library.tools.resolved.jobs import QUALIFICATION_PROJECT, JobRefused
 from tests.resolve_double import FakeProject, FakeResolve, FakeTimeline
-
 
 FINAL = "Q Promo Live"
 STAGING = FINAL + reel_promotion.STAGING_SUFFIX
@@ -22,6 +21,57 @@ def _params(**overrides):
         "track_plan": TRACK_PLAN,
         **overrides,
     }
+
+
+class _BorrowableProjectManager:
+    def __init__(self, captain, qualification):
+        self.projects = {captain.GetName(): captain,
+                         qualification.GetName(): qualification}
+        self.current = captain
+        self.saved = []
+        self.loaded = []
+
+    def GetCurrentProject(self):
+        return self.current
+
+    def SaveProject(self):
+        self.saved.append(self.current.GetName())
+        return True
+
+    def LoadProject(self, name):
+        self.loaded.append(name)
+        self.current = self.projects.get(name)
+        if self.current and self.current.GetTimelineCount():
+            self.current._current = self.current.GetTimelineByIndex(1)
+        return self.current
+
+
+def _borrowable_resolve(*, final_is_current=False):
+    captain_timeline = FakeTimeline("Reel 07", uid="captain-timeline")
+    captain = FakeProject("Podcast (field test)", [captain_timeline],
+                          current=captain_timeline)
+    master = FakeTimeline(MASTER, uid="master-id")
+    retiring = FakeTimeline(FINAL, uid="final-id")
+    staged = FakeTimeline(STAGING, uid="staging-id")
+    timelines = ([retiring, master, staged] if final_is_current else
+                 [master, retiring, staged])
+    qualification = FakeProject(
+        QUALIFICATION_PROJECT, timelines,
+        current=retiring if final_is_current else master)
+    resolve = FakeResolve(captain)
+    manager = _BorrowableProjectManager(captain, qualification)
+    resolve._manager = manager
+    return resolve, manager, captain, qualification, master, retiring, staged
+
+
+@pytest.fixture
+def lock_dir(tmp_path, monkeypatch):
+    from library.tools import resolve_lock
+
+    directory = tmp_path / "resolve-lock"
+    directory.mkdir()
+    monkeypatch.setenv(resolve_lock.LOCK_DIR_ENV, str(directory))
+    return directory
 
 
 def test_prepare_is_exactly_one_qualification_reel_and_exclusive():
@@ -74,28 +124,114 @@ def test_prepare_refuses_wrong_scope_and_unsafe_options(params, message):
         jobs.prepare(reel_promotion.KIND, params)
 
 
-def test_run_refuses_unexpected_open_project_before_promotion(monkeypatch):
-    resolve = FakeResolve(FakeProject("Podcast", [FINAL, STAGING, MASTER]))
+def test_broker_worker_allows_borrowed_promotion_from_captains_project(
+        monkeypatch, lock_dir):
+    (resolve, manager, captain, _project, _master, _retiring,
+     _staged) = _borrowable_resolve()
+    from library.tools import resolve_switch_guard
+    from library.tools.resolved import server
+
+    monkeypatch.setattr(resolve_switch_guard, "SETTLE_SECONDS", 0)
+    monkeypatch.setattr(resolve_switch_guard, "note_project_switch",
+                        lambda: None)
     monkeypatch.setattr(
-        reel_promotion, "run",
-        lambda *_args: pytest.fail("the wrong project reached the runner"))
-    job = {"id": "wrong-project", "kind": reel_promotion.KIND,
-           "project": QUALIFICATION_PROJECT, "timeline": STAGING,
-           "params": _params()}
-
-    with pytest.raises(JobRefused, match="not 'Ren Qualification'"):
-        jobs.run(job, resolve)
-
-
-def test_run_executes_promotion_and_record_on_same_deadline_handle(
-        tmp_path, monkeypatch):
-    retiring = FakeTimeline(FINAL)
-    staged = FakeTimeline(STAGING)
-    project = FakeProject(QUALIFICATION_PROJECT,
-                          [FakeTimeline(MASTER), retiring, staged])
-    resolve = FakeResolve(project)
+        "library.tools.qualification_project.begin_qualification_session",
+        lambda _name: None)
     monkeypatch.setattr(
-        "library.tools.resolve_lock.exclusive_held", lambda: True)
+        "library.tools.qualification_project.end_qualification_session",
+        lambda: None)
+
+    def refuse_after_open(job, params, handle, project):
+        from library.tools.resolve_deadline import DeadlineProxy
+
+        assert job["kind"] == reel_promotion.KIND
+        assert params["project"] == QUALIFICATION_PROJECT
+        assert isinstance(handle, DeadlineProxy)
+        assert project.GetName() == QUALIFICATION_PROJECT
+        raise JobRefused("stopped after exact Qualification read-back")
+
+    monkeypatch.setattr(reel_promotion, "_promote_and_record",
+                        refuse_after_open)
+    broker = object.__new__(server.Broker)
+    broker._resolve_handle = lambda: resolve
+    job = {"id": "borrow-from-captain", "kind": reel_promotion.KIND,
+           "mode": "exclusive", "qualification": True,
+           "executed": True, "project": QUALIFICATION_PROJECT,
+           "timeline": STAGING, "params": _params()}
+
+    state, result, error = server.Broker._run(broker, job)
+
+    assert state == "rejected"
+    assert result is None
+    assert error == "stopped after exact Qualification read-back"
+    assert manager.loaded == [QUALIFICATION_PROJECT, "Podcast (field test)"]
+    assert manager.saved == ["Podcast (field test)", QUALIFICATION_PROJECT]
+    assert manager.GetCurrentProject() is captain
+    assert captain.GetCurrentTimeline().GetUniqueId() == "captain-timeline"
+
+
+def test_other_qualification_jobs_still_require_qualification_open(
+        monkeypatch):
+    from contextlib import nullcontext
+
+    from library.tools import resolve_lock
+    from library.tools.resolved import server
+
+    resolve = FakeResolve(FakeProject("Podcast (field test)", ["Reel 07"]))
+    broker = object.__new__(server.Broker)
+    broker._resolve_handle = lambda: resolve
+    monkeypatch.setattr(resolve_lock, "resolve_lease",
+                        lambda *_args, **_kwargs: nullcontext())
+    monkeypatch.setattr(jobs, "run", lambda *_args: pytest.fail(
+        "the non-promotion qualification job must be refused first"))
+    job = {"id": "qualification-session", "kind": "resolve.qualification_session",
+           "mode": "exclusive", "qualification": True,
+           "executed": True, "project": QUALIFICATION_PROJECT,
+           "timeline": "", "params": {}}
+
+    state, result, error = server.Broker._run(broker, job)
+
+    assert state == "rejected"
+    assert result is None
+    assert "Resolve has 'Podcast (field test)'" in error
+
+
+def test_broker_worker_refuses_a_nonqualification_promotion_target(
+        monkeypatch):
+    from contextlib import nullcontext
+
+    from library.tools import resolve_lock
+    from library.tools.resolved import server
+
+    resolve = FakeResolve(FakeProject("Podcast (field test)", ["Reel 07"]))
+    broker = object.__new__(server.Broker)
+    broker._resolve_handle = lambda: pytest.fail(
+        "a non-Qualification target must refuse before connecting")
+    monkeypatch.setattr(resolve_lock, "resolve_lease",
+                        lambda *_args, **_kwargs: nullcontext())
+    job = {"id": "wrong-target", "kind": reel_promotion.KIND,
+           "mode": "exclusive", "qualification": True,
+           "executed": True, "project": "Podcast (field test)",
+           "timeline": STAGING, "params": _params()}
+
+    state, result, error = server.Broker._run(broker, job)
+
+    assert state == "rejected"
+    assert result is None
+    assert "may only target 'Ren Qualification'" in error
+    assert resolve.GetProjectManager().GetCurrentProject().GetName() == (
+        "Podcast (field test)")
+
+
+def test_run_borrows_qualification_and_restores_captains_timeline(
+        tmp_path, monkeypatch, lock_dir):
+    (resolve, manager, captain, _project, _master, retiring,
+     staged) = _borrowable_resolve()
+    from library.tools import resolve_switch_guard
+
+    monkeypatch.setattr(resolve_switch_guard, "SETTLE_SECONDS", 0)
+    monkeypatch.setattr(resolve_switch_guard, "note_project_switch",
+                        lambda: None)
     monkeypatch.setattr(
         "library.tools.qualification_project.begin_qualification_session",
         lambda _name: None)
@@ -124,6 +260,7 @@ def test_run_executes_promotion_and_record_on_same_deadline_handle(
     def promote(folder, project_name, master_name, mapping, **kwargs):
         calls.append(("promote", kwargs["resolve"]))
         assert isinstance(kwargs["resolve"], DeadlineProxy)
+        assert manager.GetCurrentProject().GetName() == QUALIFICATION_PROJECT
         assert folder == str(root)
         assert project_name == QUALIFICATION_PROJECT
         assert master_name == MASTER
@@ -142,6 +279,7 @@ def test_run_executes_promotion_and_record_on_same_deadline_handle(
     def record(folder, project_name, names, *, resolve):
         calls.append(("record", resolve))
         assert isinstance(resolve, DeadlineProxy)
+        assert manager.GetCurrentProject().GetName() == QUALIFICATION_PROJECT
         assert folder == str(root)
         assert project_name == QUALIFICATION_PROJECT
         assert names == [FINAL]
@@ -161,8 +299,8 @@ def test_run_executes_promotion_and_record_on_same_deadline_handle(
             "snapshot_supersession": {FINAL: {
                 "snapshot": snapshot.name,
                 "superseded_now": [
-                    f"{reel_promotion._safe_filename(FINAL)}"
-                    ".before-job-123.timeline.json"],
+                    (f"{reel_promotion._safe_filename(FINAL)}"
+                     ".before-job-123.timeline.json")],
             }},
         }
 
@@ -174,7 +312,9 @@ def test_run_executes_promotion_and_record_on_same_deadline_handle(
            "project": QUALIFICATION_PROJECT, "timeline": STAGING,
            "params": _params()}
 
-    result = jobs.run(job, resolve)
+    from library.tools import resolve_lock
+    with resolve_lock.resolve_lease("test typed reel promotion"):
+        result = jobs.run(job, resolve)
 
     assert [name for name, _handle in calls] == ["promote", "record"]
     assert calls[0][1] is calls[1][1]
@@ -183,10 +323,18 @@ def test_run_executes_promotion_and_record_on_same_deadline_handle(
     assert result["evidence"]["snapshot_files"] == [
         "pipeline_output/review/Q_Promo_Live.timeline.json"]
     assert result["evidence"]["fusion_comp_files"] == [
-        "pipeline_output/steps/7_01_build_reels/fusion_comps/"
-        "Q_Promo_Live__transform.comp"]
+        ("pipeline_output/steps/7_01_build_reels/fusion_comps/"
+         "Q_Promo_Live__transform.comp")]
     assert isinstance(result["promotion"]["markers"][FINAL][
         "clip_carried"], list)
+    assert manager.loaded == [QUALIFICATION_PROJECT, "Podcast (field test)"]
+    assert manager.saved == ["Podcast (field test)", QUALIFICATION_PROJECT]
+    assert manager.GetCurrentProject() is captain
+    assert captain.GetCurrentTimeline().GetUniqueId() == "captain-timeline"
+    assert result["borrowed_from"] == {
+        "project": "Podcast (field test)", "timeline": "Reel 07",
+        "timeline_id": "captain-timeline", "page": "edit"}
+    assert result["restored"] == result["borrowed_from"]
 
 
 @pytest.mark.parametrize("missing, expected", [
@@ -234,14 +382,15 @@ def test_record_verification_fails_closed_on_missing_evidence(
             root, review, FINAL, baseline, record)
 
 
-def test_run_refuses_to_delete_the_current_approved_timeline(monkeypatch):
-    retiring = FakeTimeline(FINAL)
-    project = FakeProject(QUALIFICATION_PROJECT,
-                          [FakeTimeline(MASTER), retiring,
-                           FakeTimeline(STAGING)], current=retiring)
-    resolve = FakeResolve(project)
-    monkeypatch.setattr(
-        "library.tools.resolve_lock.exclusive_held", lambda: True)
+def test_run_refuses_to_delete_current_approved_timeline_and_restores(
+        monkeypatch, lock_dir):
+    (resolve, manager, captain, _project, _master, _retiring,
+     _staged) = _borrowable_resolve(final_is_current=True)
+    from library.tools import resolve_switch_guard
+
+    monkeypatch.setattr(resolve_switch_guard, "SETTLE_SECONDS", 0)
+    monkeypatch.setattr(resolve_switch_guard, "note_project_switch",
+                        lambda: None)
     monkeypatch.setattr(
         "library.tools.qualification_project.begin_qualification_session",
         lambda _name: None)
@@ -256,5 +405,10 @@ def test_run_refuses_to_delete_the_current_approved_timeline(monkeypatch):
            "project": QUALIFICATION_PROJECT, "timeline": STAGING,
            "params": _params()}
 
-    with pytest.raises(JobRefused, match="is current"):
+    from library.tools import resolve_lock
+    with (resolve_lock.resolve_lease("test refusal restores cursor"),
+          pytest.raises(JobRefused, match="is current")):
         jobs.run(job, resolve)
+    assert manager.GetCurrentProject() is captain
+    assert captain.GetCurrentTimeline().GetUniqueId() == "captain-timeline"
+    assert manager.loaded == [QUALIFICATION_PROJECT, "Podcast (field test)"]
