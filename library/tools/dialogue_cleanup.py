@@ -44,6 +44,13 @@ What this module owns (one enumeration, like every vocabulary here):
 - `apply_voice_isolation`: the track call with Get read-back, the same
   discipline as the `audio isolate` resolve-axi verb.  The per-clip
   variant stays out: the probe ranks the track call first.
+- `apply_clip_voice_isolation`: per-clip isolation through
+  `TimelineItem.SetProperties` (`AudioVoiceIsolationEnabled/Amount`),
+  judged by `GetProperties` re-read.  Not the item method the probe
+  ranked against the track call (`TimelineItem.
+  SetVoiceIsolationState`, which stays out) - the properties route the
+  installed stub answers.  Applied directly, never a cleanup-plan
+  tool.
 - `rewrite_clip_media_to_stem`: the OTIO half of a stem - the clip's
   media reference becomes the stem file, which IS the played range, so
   the source start resets to zero.  Pure function.
@@ -1293,6 +1300,111 @@ def apply_voice_isolation(timeline, track: int, amount: int) -> dict:
             "build, or re-plan with deepfilternet.",
         )
     return {"track": track, "amount": amount, "verified": "re-reads equal"}
+
+
+# ── Per-clip Voice Isolation application ─────────────────────────────
+
+#: The TimelineItemProperties keys per-clip Voice Isolation answers,
+#: read off the installed scripting stub. The track call
+#: (`apply_voice_isolation`) isolates the whole track; this isolates
+#: one clip through `SetProperties`, judged by `GetProperties`
+#: re-read. Like the leveler, applied directly, never a cleanup-plan
+#: tool.
+CLIP_VI_PROPERTY_KEYS = (
+    "AudioVoiceIsolationEnabled",
+    "AudioVoiceIsolationAmount",
+)
+
+
+def apply_clip_voice_isolation(timeline_item, amount: int) -> dict:
+    """Set Voice Isolation on one timeline clip, judged by re-read.
+
+    The amount is Resolve's own 0..100 scale, passed through
+    (`VOICE_ISOLATION_MIN`/`MAX`); the write is claimed only when
+    `GetProperties` re-reads enabled True at the requested amount. A
+    True that isolated nothing fails naming both. An older Resolve
+    whose properties lack the keys refuses by name.
+    `timeline_item` is duck-typed so fakes judge the discipline in
+    tests.
+    """
+    try:
+        amount = int(amount)
+    except (TypeError, ValueError):
+        raise _refuse(
+            f"dialogue cleanup cannot be applied: amount {amount!r} is "
+            f"not a number",
+            "the amount reaches SetProperties, which takes 0..100.",
+            "re-plan the amount as an integer 0..100.",
+        ) from None
+    if not VOICE_ISOLATION_MIN <= amount <= VOICE_ISOLATION_MAX:
+        raise _refuse(
+            f"dialogue cleanup cannot be applied: amount {amount} is "
+            f"outside Resolve's 0..100",
+            "the amount is Resolve's own scale, passed through.",
+            "re-plan the amount inside 0..100.",
+        )
+    try:
+        current = timeline_item.GetProperties() or {}
+    except Exception as exc:
+        raise _refuse(
+            "dialogue cleanup cannot be applied: the clip would not "
+            f"report its properties ({exc})",
+            "without a property read the build cannot say the clip "
+            "can carry isolation.",
+            "verify the timeline clip in Resolve and re-run the build.",
+        ) from exc
+    absent = [key for key in CLIP_VI_PROPERTY_KEYS if key not in current]
+    if absent:
+        raise _refuse(
+            f"dialogue cleanup cannot be applied: this Resolve reports "
+            f"no {absent}",
+            "a clip without isolation properties is an older Resolve - "
+            "claiming the set would be the fake success rung 1 removed.",
+            "re-plan with deepfilternet, or run a Resolve whose "
+            "scripting exposes per-clip isolation.",
+        )
+    state = {"AudioVoiceIsolationEnabled": True,
+             "AudioVoiceIsolationAmount": amount}
+    try:
+        wrote = bool(timeline_item.SetProperties(dict(state)))
+    except Exception as exc:
+        raise _refuse(
+            "dialogue cleanup cannot be applied: SetProperties raised "
+            f"({exc})",
+            "the call declined instead of answering True.",
+            "verify Voice Isolation in Resolve Studio (scripting is "
+            "Studio-only since 21.1) and re-run the build.",
+        ) from exc
+    if not wrote:
+        raise _refuse(
+            "dialogue cleanup cannot be applied: SetProperties "
+            "answered False",
+            "False is Resolve declining the write - claiming it would "
+            "be the fake success rung 1 removed.",
+            "verify Voice Isolation in Resolve Studio and re-run the "
+            "build, or re-plan with deepfilternet.",
+        )
+    try:
+        back = timeline_item.GetProperties() or {}
+    except Exception as exc:
+        raise _refuse(
+            "dialogue cleanup cannot be applied: the isolation re-read "
+            f"raised ({exc})",
+            "a write without a read-back is an unjudged placement.",
+            "verify by hand in Resolve and re-run the build.",
+        ) from exc
+    enabled = back.get("AudioVoiceIsolationEnabled")
+    if (not isinstance(enabled, (bool, int)) or not bool(enabled)
+            or back.get("AudioVoiceIsolationAmount") != amount):
+        raise _refuse(
+            f"dialogue cleanup cannot be applied: SetProperties "
+            f"reports True and re-reads {back!r} for {state!r}",
+            "True that isolated nothing is the defect this read-back "
+            "exists to catch.",
+            "verify Voice Isolation in Resolve Studio and re-run the "
+            "build, or re-plan with deepfilternet.",
+        )
+    return {"amount": amount, "verified": "re-reads equal"}
 
 
 # ── Dialogue Leveler application ─────────────────────────────────────
