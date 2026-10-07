@@ -7,6 +7,8 @@ gh-style `--method`/`-f` flags gh-axi does not have (its api usage is
 GitHub call as unreachable. No network here: the shapes are captured.
 """
 
+import base64
+import json
 from pathlib import Path
 
 import pytest
@@ -44,6 +46,61 @@ def test_pull_shapes_to_the_integration_fields():
 def test_plain_json_passes_through():
     assert _parse_response('{"merged": true, "sha": "deadbee"}', "merge") == {
         "merged": True, "sha": "deadbee"}
+
+
+def _projected_pull(number, label):
+    return {"number": number, "head": {"sha": f"head-{number}"},
+            "base": {"ref": "main"}, "labels": [label],
+            "draft": False,
+            "html_url": f"https://github.com/o/r/pull/{number}",
+            "title": f"change {number}"}
+
+
+def _jq_response(records):
+    encoded = [base64.b64encode(json.dumps(record).encode()).decode()
+               for record in records]
+    body = "\n".join(encoded)
+    return ("api_response:\n"
+            f"  body: {json.dumps(body)}\n"
+            "  truncated: false\n")
+
+
+def test_jq_envelope_unwraps_the_full_body():
+    assert _parse_response(
+        'api_response:\n  body: "{\\"ok\\":true}"\n  truncated: false',
+        "pulls") == {"ok": True}
+
+
+def test_list_open_prs_preserves_labels_from_gh_axi(monkeypatch):
+    records = [_projected_pull(2083, "ren-ci-ready"),
+               _projected_pull(2084, "reviewed")]
+    calls = []
+
+    def fake_run(*args):
+        calls.append(args)
+        return _jq_response(records)
+
+    monkeypatch.setattr(github, "_run", fake_run)
+    prs = github.list_open_prs()
+
+    assert [pr["labels"] for pr in prs] == [["ren-ci-ready"], ["reviewed"]]
+    assert [pr["number"] for pr in prs] == [2083, 2084]
+    assert "--jq" in calls[0] and "@base64" in calls[0][calls[0].index("--jq") + 1]
+
+
+def test_get_pr_preserves_ready_label_from_gh_axi(monkeypatch):
+    record = _projected_pull(2083, "ren-ci-ready")
+    monkeypatch.setattr(github, "_run", lambda *args: _jq_response([record]))
+
+    pr = github.get_pr(2083)
+
+    assert pr["head"] == "head-2083"
+    assert pr["labels"] == ["ren-ci-ready"]
+
+
+def test_jq_envelope_rejects_truncated_data():
+    with pytest.raises(github.GitHubError, match="was truncated"):
+        _parse_response("api_response:\n  body: abc\n  truncated: true", "pulls")
 
 
 def test_empty_is_an_empty_object():

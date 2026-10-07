@@ -12,6 +12,8 @@ shape. All subprocess calls capture text with encoding="utf-8"
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import subprocess
 from urllib.parse import urlparse
@@ -42,9 +44,9 @@ def _run(*argv: str, input_text: str = "") -> str:
 def _parse_response(out: str, path: str) -> object:
     """gh-axi's envelope off, payload out.
 
-    gh-axi prints a one-line count tag (`[N]:`) plus the YAML payload
-    (or `api_response:` plus a `body:` scalar for --jq calls, which
-    this module never makes). Plain JSON passes through untouched.
+    gh-axi prints a one-line count tag (`[N]:`) plus the YAML payload.
+    Its `--jq` responses use an `api_response: {body, truncated}`
+    envelope. Plain JSON passes through untouched.
     """
     text = out.strip()
     if not text:
@@ -55,12 +57,17 @@ def _parse_response(out: str, path: str) -> object:
         pass
     import yaml
     lines = text.splitlines()
+    jq_envelope = bool(lines and lines[0].strip() == "api_response:")
     payload = "\n".join(lines[1:]) if lines and lines[0].rstrip().endswith(":") else text
     try:
         data = yaml.safe_load(payload)
     except Exception as exc:
         raise GitHubError(f"gh-axi api {path} returned non-JSON") from exc
-    if isinstance(data, dict) and set(data) == {"body"}:
+    body_envelope = jq_envelope or (
+        isinstance(data, dict) and set(data) == {"body"})
+    if body_envelope and isinstance(data, dict) and "body" in data:
+        if data.get("truncated") is True:
+            raise GitHubError(f"gh-axi api {path} jq response was truncated")
         body = data["body"]
         try:
             return json.loads(body) if isinstance(body, str) else body
@@ -69,7 +76,8 @@ def _parse_response(out: str, path: str) -> object:
     return data if data is not None else {}
 
 
-def _api(path: str, method: str = "GET", fields: dict | None = None) -> object:
+def _api(path: str, method: str = "GET", fields: dict | None = None,
+         jq: str = "") -> object:
     # gh-axi api [METHOD] <path> --field k=v --full. --full matters:
     # without it long bodies truncate, and a truncated SHA is a
     # freshness check against a lie.
@@ -79,6 +87,8 @@ def _api(path: str, method: str = "GET", fields: dict | None = None) -> object:
     args.append(path)
     for key, value in (fields or {}).items():
         args.extend(["--field", f"{key}={value}"])
+    if jq:
+        args.extend(["--jq", jq])
     args.append("--full")
     return _parse_response(_run(*args), path)
 
@@ -101,10 +111,43 @@ def _shape_pull(data: dict) -> dict:
             "head": str(head.get("sha", "")),
             "base": str(base.get("ref", "")),
             "labels": [str(label.get("name", ""))
-                       for label in labels if isinstance(label, dict)],
+                       if isinstance(label, dict) else str(label)
+                       for label in labels],
             "draft": bool(data.get("draft", False)),
             "url": str(data.get("html_url", "")),
             "title": str(data.get("title", ""))}
+
+
+_PULL_FIELDS_JQ = (
+    "{number, head: {sha: .head.sha}, base: {ref: .base.ref}, "
+    "labels: [.labels[].name], draft, html_url, title}"
+)
+
+
+def _decode_jq_objects(payload: object, path: str) -> list[dict]:
+    """Decode gh-axi's newline-delimited jq base64 projection.
+
+    gh-axi formats ordinary API arrays as a human table. Nested arrays
+    such as `labels` become pseudo-keys (`labels[1]{...}`), which are
+    not the JSON shape this integration needs. `--jq ... | @base64`
+    keeps each projected record lossless while still using gh-axi.
+    """
+    if not isinstance(payload, str):
+        raise GitHubError(f"gh-axi api {path} returned non-text jq output")
+    records = []
+    for line in payload.splitlines():
+        if not line:
+            continue
+        try:
+            decoded = base64.b64decode(line, validate=True)
+            record = json.loads(decoded.decode("utf-8"))
+        except (binascii.Error, UnicodeDecodeError, ValueError) as exc:
+            raise GitHubError(
+                f"gh-axi api {path} returned invalid base64 JSON") from exc
+        if not isinstance(record, dict):
+            raise GitHubError(f"gh-axi api {path} returned a non-object row")
+        records.append(record)
+    return records
 
 
 def list_open_prs() -> list:
@@ -114,19 +157,21 @@ def list_open_prs() -> list:
     verdict worth posting. Reads the REST pulls endpoint (stable JSON),
     never the human CLI table.
     """
-    data = _api(f"repos/{repo_path()}/pulls?state=open&base=main&per_page=100")
-    if not isinstance(data, list):
-        raise GitHubError("pulls endpoint returned a non-list")
+    path = f"repos/{repo_path()}/pulls?state=open&base=main&per_page=100"
+    payload = _api(path, jq=f".[] | {_PULL_FIELDS_JQ} | @base64")
+    data = _decode_jq_objects(payload, path)
     return [_shape_pull(item) for item in data
             if isinstance(item, dict)]
 
 
 def get_pr(number: int) -> dict:
     """One PR's integration fields: number, head, base, labels, draft, url."""
-    data = _api(f"repos/{repo_path()}/pulls/{number}")
-    if not isinstance(data, dict):
+    path = f"repos/{repo_path()}/pulls/{number}"
+    payload = _api(path, jq=f"{_PULL_FIELDS_JQ} | @base64")
+    records = _decode_jq_objects(payload, path)
+    if len(records) != 1:
         raise GitHubError(f"pulls/{number} returned a non-object")
-    return _shape_pull(data)
+    return _shape_pull(records[0])
 
 
 def post_status(head: str, state: str, description: str,

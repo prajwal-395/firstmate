@@ -264,7 +264,7 @@ def test_legacy_local_log_url_is_replaced_before_status_retry(
 
     pr = _pr(5)
     record = {**_outcome(pr),
-              "url": "/Users/prajwal/.ren-ci/logs/pr-5-head.log",
+              "url": str(tmp_path / "pr-5-head.log"),
               "status_posted": False, "status_error": ""}
     state.record_check(record, str(tmp_path))
 
