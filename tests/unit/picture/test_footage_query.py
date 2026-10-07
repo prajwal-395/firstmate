@@ -2149,3 +2149,36 @@ def test_ren_transcript_merges_a_resolve_transcript_file(
     assert "parking spot" in out
     assert "resolve_transcription" in out
     assert "text_differs" in out
+
+
+def test_best_overlap_wins_regardless_of_order(offline_index):
+    """A short utterance barely touching a long segment must not claim
+    it ahead of the utterance the segment mostly covers. Measured live
+    on clip_004: Ren's opener (1s overlap) stole Resolve's segment from
+    the passage holding 10s of it, turning one agreement into a differs
+    plus an orphan. Best overlap pairs first, whatever the order."""
+    idx, _ = offline_index
+    merged = idx.transcript_report("clip_001", resolve_segments=[
+        {"text": "the pollen is terrible today", "start": 2.5,
+         "end": 10.0},
+    ])
+    assert len(merged["agreement"]) == 1
+    assert merged["agreement"][0]["ren"]["text"] == (
+        "the pollen is terrible today")
+    assert [f["kind"] for f in merged["findings"]] == ["ren_only"]
+    assert "parking" in merged["findings"][0]["ren"]["text"]
+
+
+def test_pause_markers_are_dropped_and_counted(offline_index):
+    """Resolve's literal (...) pause segments carry timing without
+    words: aligning them manufactures differs findings against
+    punctuation, so they are dropped with the count stated."""
+    idx, _ = offline_index
+    merged = idx.transcript_report("clip_001", resolve_segments=[
+        {"text": "we need to find a parking spot", "start": 1.0,
+         "end": 3.0},
+        {"text": "(...)", "start": 4.0, "end": 5.0},
+    ])
+    assert merged["dropped_pause_markers"] == 1
+    assert len(merged["agreement"]) == 1
+    assert all(f["kind"] != "resolve_only" for f in merged["findings"])

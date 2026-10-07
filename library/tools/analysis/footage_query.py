@@ -1091,18 +1091,42 @@ def merge_transcript_evidence(utterances: list, resolve_segments: list,
     }
     if not resolve_rows:
         return report
-    claimed = set()
-    for utterance in ren_rows:
-        best, best_span = None, 0.0
+    # Resolve marks pauses with literal "(...)" segments carrying no
+    # words. They are timing without text: aligning them against Ren's
+    # utterances can only manufacture text_differs findings against
+    # punctuation, so they are dropped and counted, never aligned.
+    kept = []
+    for row in resolve_rows:
+        if _fold_text(row.get("text")):
+            kept.append(row)
+    report["dropped_pause_markers"] = len(resolve_rows) - len(kept)
+    resolve_rows = kept
+    if not resolve_rows:
+        return report
+    # Best overlap first, not utterance order: a short utterance that
+    # barely touches a long segment must not claim it ahead of the
+    # utterance the segment mostly covers. Measured live: Ren's opener
+    # (1s overlap) stole Resolve's segment from the passage holding
+    # 10s of it, turning one agreement into a differs plus an orphan.
+    candidates = []
+    for u_index, utterance in enumerate(ren_rows):
         for position, row in enumerate(resolve_rows):
-            if position in claimed:
-                continue
             span = _overlap_seconds(utterance.get("start"),
                                     utterance.get("end"),
                                     row.get("start"), row.get("end"))
-            if span > best_span:
-                best, best_span = position, span
-        if best is None:
+            if span > 0:
+                candidates.append((span, u_index, position))
+    candidates.sort(key=lambda triple: -triple[0])
+    claimed_ren, claimed_resolve = set(), set()
+    pairs = {}
+    for _, u_index, position in candidates:
+        if u_index in claimed_ren or position in claimed_resolve:
+            continue
+        claimed_ren.add(u_index)
+        claimed_resolve.add(position)
+        pairs[u_index] = position
+    for u_index, utterance in enumerate(ren_rows):
+        if u_index not in pairs:
             report["findings"].append({
                 "kind": "ren_only",
                 "ren": {"start": utterance.get("start"),
@@ -1111,8 +1135,7 @@ def merge_transcript_evidence(utterances: list, resolve_segments: list,
                 "resolve": None,
             })
             continue
-        claimed.add(best)
-        row = resolve_rows[best]
+        row = resolve_rows[pairs[u_index]]
         if _fold_text(utterance.get("text")) == _fold_text(row.get("text")):
             report["agreement"].append({"ren": utterance, "resolve": row})
         else:
@@ -1127,7 +1150,7 @@ def merge_transcript_evidence(utterances: list, resolve_segments: list,
                             "speaker": row.get("speaker")},
             })
     for position, row in enumerate(resolve_rows):
-        if position in claimed:
+        if position in claimed_resolve:
             continue
         report["findings"].append({
             "kind": "resolve_only",
