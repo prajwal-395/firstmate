@@ -1505,8 +1505,12 @@ def test_load_or_build_refuses_the_engine_checkout(tmp_path, monkeypatch):
     this test fails there by leaving the stray file behind."""
     from library.tools.ren_refusal import RenRefusal
 
-    repo_root = Path(project_graph.__file__).resolve().parents[2]
-    assert (repo_root / "library" / "tools" / "project_graph.py").is_file()
+    repo_root = next(
+        parent for parent in Path(project_graph.__file__).resolve().parents
+        if (parent / "library" / "tools").is_dir())
+    assert ((repo_root / "library" / "tools" / "project_graph.py").is_file()
+            or (repo_root / "library" / "tools" / "project_graph"
+                / "__init__.py").is_file())
 
     monkeypatch.chdir(tmp_path)
     with pytest.raises(RenRefusal):
