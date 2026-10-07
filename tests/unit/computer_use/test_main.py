@@ -551,6 +551,28 @@ def test_script_seed_refuses_when_no_scale_is_measured(monkeypatch, capsys):
     assert "backing scale" in capsys.readouterr().err
 
 
+def test_script_seed_open_builds_the_warm_route(monkeypatch, capsys):
+    """`script magic-mask-seed-open` builds the short route (page,
+    mode, click) for a palette the take already read open - no
+    Library, search, type or apply steps that would re-apply the
+    effect onto shared footage."""
+    runs, _, _ = _stub_script(monkeypatch)
+    argv = ["script", "--recipe", "magic-mask-seed-open",
+            "--timeline", "Q Spine",
+            "--seed", _SEED_JSON,
+            "--playhead-timecode", "00:00:05:00"]
+    assert main_module.main(argv) == 0
+    script, kwargs = runs[0]
+    assert kwargs["foreground"] is False
+    assert [s.action for s in script.steps] == [
+        "press", "click", "click"]
+    assert "open Magic Mask" in script.goal
+    params = script.steps[2].anchors[0].params
+    assert (params["x"], params["y"]) == (859.5, 311.0)
+    out = capsys.readouterr().out
+    assert "outcome: done" in out
+
+
 def test_script_seed_refuses_a_seed_it_cannot_parse(monkeypatch, capsys):
     """A `--seed` that is not a MaskSeed receipt exits 2 before Resolve
     is touched: no borrow, no timeline, no driver call can follow a

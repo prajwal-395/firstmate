@@ -60,6 +60,53 @@ TRACK_DIRECTIONS = ("forward", "backward")
 TRACK_LABELS = {"forward": "Track Forward", "backward": "Track Backward"}
 
 
+def _color_page_step() -> ScriptStep:
+    """The Color page switch shared by both seed routes."""
+    return ScriptStep(
+        action="press",
+        anchors=[Anchor(via="ax_path", params={
+            "path": ["Workspace", "Switch to Page", "Color"],
+            "source": "probe",
+        })],
+        expect=Expect(via="pixels_changed", params={
+            "source": "probe",
+        }),
+    )
+
+
+def _mode_and_seed_steps(seed: MaskSeed, mode: str, click: dict
+                         ) -> list[ScriptStep]:
+    """The Person mode select and the seed click shared by both seed
+    routes - the mode expect (the Person label) is also the
+    palette-open proof the warm route runs on."""
+    return [
+        ScriptStep(
+            action="click",
+            anchors=[Anchor(via="ocr", params={
+                "text": "Person",
+                "source": "plan",
+            })],
+            expect=Expect(via="text_visible", params={
+                "text": "Person",
+                "source": "plan",
+            }),
+        ),
+        ScriptStep(
+            action="click",
+            anchors=[Anchor(via="position", params={
+                "x": click["x"],
+                "y": click["y"],
+                "why": (f"ren seed {seed.object_id} "
+                        f"sample {seed.sample_index}"),
+                "source": "ren",
+            })],
+            expect=Expect(via="pixels_changed", params={
+                "source": "ren",
+            }),
+        ),
+    ]
+
+
 def seed_script(
     seed: MaskSeed,
     *,
@@ -104,16 +151,7 @@ def seed_script(
               f"{seed.clip_id} frame {seed.seed_frame} "
               f"(object {seed.object_id}, mode {mode})"),
         steps=[
-            ScriptStep(
-                action="press",
-                anchors=[Anchor(via="ax_path", params={
-                    "path": ["Workspace", "Switch to Page", "Color"],
-                    "source": "probe",
-                })],
-                expect=Expect(via="pixels_changed", params={
-                    "source": "probe",
-                }),
-            ),
+            _color_page_step(),
             ScriptStep(
                 action="menu",
                 anchors=[Anchor(via="menu", params={
@@ -172,30 +210,45 @@ def seed_script(
                     "source": "plan",
                 }),
             ),
-            ScriptStep(
-                action="click",
-                anchors=[Anchor(via="ocr", params={
-                    "text": "Person",
-                    "source": "plan",
-                })],
-                expect=Expect(via="text_visible", params={
-                    "text": "Person",
-                    "source": "plan",
-                }),
-            ),
-            ScriptStep(
-                action="click",
-                anchors=[Anchor(via="position", params={
-                    "x": click["x"],
-                    "y": click["y"],
-                    "why": (f"ren seed {seed.object_id} "
-                            f"sample {seed.sample_index}"),
-                    "source": "ren",
-                })],
-                expect=Expect(via="pixels_changed", params={
-                    "source": "ren",
-                }),
-            ),
+            *_mode_and_seed_steps(seed, mode, click),
+        ],
+    )
+
+
+def seed_open_palette_script(
+    seed: MaskSeed,
+    *,
+    mode: str = "BI",
+    scale_factor: float,
+) -> Script:
+    """Seed when the Magic Mask palette is already open with no mask.
+
+    The take reads the palette state first (the `No Mask` panel with
+    its draw prompt): open means this route, anything else means the
+    full `seed_script`. A second builder, not a branch - the runner
+    tries anchors, never conditions, so one recipe cannot serve two
+    panel states. Running the full route here would re-apply the
+    effect (a second instance on shared qual footage); running this
+    route cold fails its mode expect instead of clicking on, because
+    the Person label only exists with the palette open. Same
+    validation contract as `seed_script`: no safe scale default.
+    """
+    if mode not in MAGIC_MASK_MODES:
+        raise ValueError(
+            f"bad Magic Mask mode {mode!r}: one of {list(MAGIC_MASK_MODES)}")
+    if not scale_factor or scale_factor <= 0:
+        raise ValueError(
+            f"bad backing scale {scale_factor!r}: the main window's "
+            f"measured backing_scale, positive")
+    click = {"x": seed.viewer.x / scale_factor,
+             "y": seed.viewer.y / scale_factor}
+    return Script(
+        goal=(f"Seed the open Magic Mask on {seed.subject!r} in clip "
+              f"{seed.clip_id} frame {seed.seed_frame} "
+              f"(object {seed.object_id}, mode {mode})"),
+        steps=[
+            _color_page_step(),
+            *_mode_and_seed_steps(seed, mode, click),
         ],
     )
 

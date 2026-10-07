@@ -147,6 +147,36 @@ def test_seed_script_refuses_a_mode_the_api_refuses():
         magic_mask.seed_script(_seed(), mode="SLOW", scale_factor=2.0)
 
 
+def test_open_palette_seed_skips_reveal_and_apply():
+    """When the palette is already open with no mask, the Library,
+    search, type and apply steps would re-apply the effect (a second
+    instance on shared footage), so the warm route is page, mode,
+    click only. The mode expect is the palette-open proof: the Person
+    label exists nowhere else, so a closed palette fails here
+    instead of seeding blind."""
+    script = magic_mask.seed_open_palette_script(_seed(), scale_factor=2.0)
+    assert isinstance(script, Script)
+    assert [s.action for s in script.steps] == ["press", "click", "click"]
+    assert [s.anchors[0].via for s in script.steps] == [
+        "ax_path", "ocr", "position"]
+    mode, seed = script.steps[1], script.steps[2]
+    assert mode.anchors[0].params["text"] == "Person"
+    assert mode.expect is not None and mode.expect.via == "text_visible"
+    assert (seed.anchors[0].params["x"],
+            seed.anchors[0].params["y"]) == (859.5, 311.0)
+    assert seed.expect is not None and seed.expect.via == "pixels_changed"
+
+
+def test_open_palette_seed_refuses_like_the_full_route():
+    """The warm route carries the same contract: no safe scale
+    default, no unroutable mode."""
+    with pytest.raises(ValueError, match="bad backing scale"):
+        magic_mask.seed_open_palette_script(_seed(), scale_factor=0.0)
+    with pytest.raises(ValueError, match="bad Magic Mask mode"):
+        magic_mask.seed_open_palette_script(
+            _seed(), mode="SLOW", scale_factor=2.0)
+
+
 def test_track_script_clicks_the_named_direction_only():
     assert magic_mask.track_script("forward").steps[0].anchors[0].params[
         "text"] == "Track Forward"

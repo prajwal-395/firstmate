@@ -212,14 +212,14 @@ def _run_recipe(client: DriverClient, args) -> int:
     from library.tools.mask_seed import MaskSeed, Point
 
     scale: float | None = None
-    if args.recipe == "magic-mask-seed":
+    if args.recipe in ("magic-mask-seed", "magic-mask-seed-open"):
         if not args.seed:
-            print("ren: magic-mask-seed needs --seed, the MaskSeed "
-                  "receipt as JSON", file=sys.stderr)
+            print(f"ren: {args.recipe} needs --seed, the MaskSeed "
+                  f"receipt as JSON", file=sys.stderr)
             return 2
         if not args.timeline:
-            print("ren: magic-mask-seed needs --timeline, the Ren "
-                  "Qualification timeline by exact name", file=sys.stderr)
+            print(f"ren: {args.recipe} needs --timeline, the Ren "
+                  f"Qualification timeline by exact name", file=sys.stderr)
             return 2
         try:
             raw = json.loads(args.seed)
@@ -248,7 +248,10 @@ def _run_recipe(client: DriverClient, args) -> int:
                   f"cannot place the seed click", file=sys.stderr)
             return 1
         try:
-            script = magic_mask.seed_script(
+            builder = (magic_mask.seed_script
+                       if args.recipe == "magic-mask-seed"
+                       else magic_mask.seed_open_palette_script)
+            script = builder(
                 seed, mode=args.mode, scale_factor=scale)
         except ValueError as exc:
             print(f"ren: {exc}", file=sys.stderr)
@@ -297,8 +300,9 @@ def _run_recipe(client: DriverClient, args) -> int:
         return window_modify.run_recipe_verb(client, args)
     else:
         print(f"ren: unknown recipe {args.recipe!r}: magic-mask-seed, "
-              f"magic-mask-track, window-create, window-delete, "
-              f"window-modify, effect-panels or qualifier-sample",
+              f"magic-mask-seed-open, magic-mask-track, window-create, "
+              f"window-delete, window-modify, effect-panels or "
+              f"qualifier-sample",
               file=sys.stderr)
         return 2
 
@@ -558,7 +562,8 @@ def main(argv=None) -> int:
         "file", nargs="?", default=None,
         help="the script JSON file to run (omit with --recipe)")
     script_parser.add_argument(
-        "--recipe", choices=("magic-mask-seed", "magic-mask-track",
+        "--recipe", choices=("magic-mask-seed", "magic-mask-seed-open",
+                             "magic-mask-track",
                              "window-create", "window-delete",
                              "window-modify",
                              "effect-panels", "qualifier-sample"),
@@ -569,10 +574,10 @@ def main(argv=None) -> int:
         help="recipes: the Ren Qualification timeline, by exact name")
     script_parser.add_argument(
         "--seed", default=None,
-        help="magic-mask-seed: the MaskSeed receipt as JSON")
+        help="magic-mask-seed(-open): the MaskSeed receipt as JSON")
     script_parser.add_argument(
         "--mode", default="BI",
-        help="magic-mask-seed: the CreateMagicMask mode (F|B|BI)")
+        help="magic-mask-seed(-open): the CreateMagicMask mode (F|B|BI)")
     script_parser.add_argument(
         "--direction", default="forward",
         help="magic-mask-track: forward or backward")
