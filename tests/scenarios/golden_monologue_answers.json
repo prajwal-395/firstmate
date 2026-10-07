@@ -197,11 +197,20 @@
    "release_ms": 300,
    "why": "a steady tone bed under one voice: pull it down a little more between words so the gaps do not fill"
   },
-  "audio_delivery_plan": {
-   "dialogue_target_lufs": null,
-   "true_peak_ceiling_dbtp": null,
-   "why": "nothing in the brief names a delivery target, so the platform defaults apply"
-  },
+   "audio_delivery_plan": {
+    "dialogue_target_lufs": null,
+    "true_peak_ceiling_dbtp": null,
+    "why": "nothing in the brief names a delivery target, so the platform defaults apply"
+   },
+   "dynamics_plan": {
+    "dialogue_compression": null,
+    "master_limiter_release_ms": null,
+    "why": "the voice measures a steady -22 LUFS across the mix windows with no block-to-block swing, so no source earns compression; no limiter processing beside the default true-peak ceiling"
+   },
+   "gate_plan": {
+    "dialogue_gate": null,
+    "why": "one close voice over a steady tone bed: the gaps carry bed, not room, so no measured floor earns a gate"
+   },
   "value_decisions": [
    {
     "slot": "mix.speech_above_bed_db",
