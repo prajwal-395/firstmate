@@ -257,6 +257,39 @@ def qualification_session_active():
             "project": str(record.get("project", ""))}
 
 
+def _run_session_step(job: dict, step: dict, index: int,
+                      params: dict, resolve) -> dict:
+    """Run one borrowed-session step; return its receipt, or raise."""
+    from library.tools.resolved import jobs as broker_jobs
+    from library.tools.resolved import ui_transaction
+    from library.tools.resolved.jobs import JobRefused
+
+    if "resolve_axi" in step:
+        receipt = broker_jobs._run_resolve_axi(
+            {"argv": step["resolve_axi"],
+             "cwd": params.get("cwd") or os.getcwd()})
+        shaped = {"runner": "resolve_axi",
+                  "argv": step["resolve_axi"],
+                  "exit_code": receipt["exit_code"],
+                  "stdout": receipt["stdout"],
+                  "stderr": receipt["stderr"]}
+        if receipt["exit_code"] != 0:
+            raise JobRefused(
+                f"step {index} exited {receipt['exit_code']}: "
+                f"{(receipt['stderr'] or receipt['stdout'])[-500:]}")
+        return shaped
+    subjob = {"id": f"{job['id']}-step-{index}",
+              "params": step["ui_transaction"]}
+    receipt = ui_transaction.run(subjob, resolve)
+    shaped = {"runner": "ui_transaction",
+              "receipt": broker_jobs._jsonable(receipt)}
+    if receipt["status"] != "committed":
+        raise JobRefused(
+            f"step {index}: ui_transaction {receipt['status']}: "
+            f"{receipt['result']}")
+    return shaped
+
+
 def run_qualification_session(job: dict, resolve) -> dict:
     """Run a submitted step list inside `borrowed()`, and return a receipt.
 
@@ -270,8 +303,6 @@ def run_qualification_session(job: dict, resolve) -> dict:
     (with read-back) before the refusal propagates, so a failed
     collection never strands Resolve in qualification.
     """
-    from library.tools.resolved import jobs as broker_jobs
-    from library.tools.resolved import ui_transaction
     from library.tools.resolved.jobs import JobRefused
 
     params = job["params"]
@@ -280,30 +311,19 @@ def run_qualification_session(job: dict, resolve) -> dict:
         manager = resolve.GetProjectManager()
         switch_project(manager, QUALIFICATION_PROJECT)
         for index, step in enumerate(params["steps"]):
-            if "resolve_axi" in step:
-                receipt = broker_jobs._run_resolve_axi(
-                    {"argv": step["resolve_axi"],
-                     "cwd": params.get("cwd") or os.getcwd()})
-                receipts.append({"runner": "resolve_axi",
-                                 "argv": step["resolve_axi"],
-                                 "exit_code": receipt["exit_code"],
-                                 "stdout": receipt["stdout"],
-                                 "stderr": receipt["stderr"]})
-                if receipt["exit_code"] != 0:
-                    raise JobRefused(
-                        f"step {index} exited "
-                        f"{receipt['exit_code']}: "
-                        f"{(receipt['stderr'] or receipt['stdout'])[-500:]}")
-            else:
-                subjob = {"id": f"{job['id']}-step-{index}",
-                          "params": step["ui_transaction"]}
-                receipt = ui_transaction.run(subjob, resolve)
-                receipts.append({"runner": "ui_transaction",
-                                 "receipt": broker_jobs._jsonable(receipt)})
-                if receipt["status"] != "committed":
-                    raise JobRefused(
-                        f"step {index}: ui_transaction "
-                        f"{receipt['status']}: {receipt['result']}")
+            try:
+                receipts.append(_run_session_step(
+                    job, step, index, params, resolve))
+            except JobRefused as exc:
+                # The steps that did run are evidence, not trivia: a
+                # refused collection still needs its pool inventory to
+                # diagnose. The worker records refusal results on the
+                # job, so the receipt survives the raise - and the
+                # borrowed finally still restores first.
+                raise JobRefused(str(exc), result={
+                    "steps": receipts,
+                    "failed_step": index,
+                    "borrowed_from": found}) from exc
     return {"steps": receipts,
             "borrowed_from": found,
             "restored": {"project": found["project"],

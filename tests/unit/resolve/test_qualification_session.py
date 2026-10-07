@@ -224,6 +224,11 @@ def test_failing_step_stops_the_run_and_still_restores(
         jobs.run(job, resolve)
     assert "step 1" in str(excinfo.value)
     assert len(calls) == 2
+    partial = excinfo.value.result
+    assert partial["failed_step"] == 1
+    assert len(partial["steps"]) == 1
+    assert partial["steps"][0]["exit_code"] == 0
+    assert partial["borrowed_from"]["project"] == "Podcast (field test)"
     assert resolve.GetCurrentProject().GetName() == "Podcast (field test)"
     assert qp.qualification_session_active() is None
 
@@ -244,4 +249,6 @@ def test_failed_transaction_step_refuses_by_status(
     with pytest.raises(JobRefused) as excinfo:
         jobs.run(job, resolve)
     assert "failed" in str(excinfo.value)
+    assert excinfo.value.result["failed_step"] == 0
+    assert excinfo.value.result["steps"] == []
     assert resolve.GetCurrentProject().GetName() == "Podcast (field test)"
