@@ -130,3 +130,79 @@ def test_the_loop_plans_where_no_recipe_runs(tmp_path, client: DriverClient):
                       recipe="never-saved", store=store, layout="abc123")
     assert result.outcome == "done"
     assert seen, "the planner was never asked"
+
+
+def _stale_press() -> Script:
+    return Script(
+        goal="press a menu that moved",
+        steps=[
+            ScriptStep(
+                action="press",
+                anchors=[Anchor(via="ax_path",
+                                params={"path": ["No", "Such", "Menu"]})],
+            ),
+        ],
+    )
+
+
+def test_a_rescued_run_saves_the_taught_anchors(tmp_path, client: DriverClient):
+    """A committed run that the LLM rescued writes the enriched script
+    back under the name - the plan's section 6, a verified route
+    recorded as a recipe. A rescue that lived in memory only would ask
+    the model again on every run of the same stale route."""
+    store = RecipeStore(tmp_path / "recipes")
+    store.save("moved-menu", _stale_press(), layout="abc123")
+
+    def llm(obs, step):
+        return {"action": "press",
+                "path": ["Workspace", "Switch to Page", "Media"]}
+
+    result = run_recipe(client, store, "moved-menu", layout="abc123", llm=llm)
+    assert result.outcome == "done"
+    script, record = store.load("moved-menu")
+    assert len(script.steps[0].anchors) == 2
+    assert script.steps[0].anchors[1].via == "ax_path"
+    assert record["successes"] == 1
+
+
+def test_a_failed_run_leaves_the_stored_route_alone(tmp_path,
+                                                    client: DriverClient):
+    """A run that did not commit never overwrites the stored route -
+    taught anchors from a failed run are guesses, and saving them
+    would poison the recipe the next run executes first."""
+    store = RecipeStore(tmp_path / "recipes")
+    store.save("moved-menu", _stale_press(), layout="abc123")
+
+    def llm(obs, step):
+        return {"action": "teleport", "x": 1.0}
+
+    result = run_recipe(client, store, "moved-menu", layout="abc123", llm=llm)
+    assert result.outcome == "failed"
+    script, record = store.load("moved-menu")
+    assert len(script.steps[0].anchors) == 1
+    assert record["successes"] == 0
+
+
+def test_the_loop_rescues_a_stale_recipe_through_the_model(
+        tmp_path, client: DriverClient):
+    """The model backs the recipe's own fallback: a stale anchor is
+    rescued and taught inside the recipe run, and the loop commits
+    without ever entering full planning. A loop that bounced stale
+    recipes straight to planning would spend a whole plan on one
+    moved menu."""
+    store = RecipeStore(tmp_path / "recipes")
+    store.save("moved-menu", _stale_press(), layout="abc123")
+    seen = []
+
+    def model(obs):
+        seen.append(obs)
+        return {"action": "press",
+                "path": ["Workspace", "Switch to Page", "Media"]}
+
+    result = run_loop(client, model, "press the moved menu",
+                      recipe="moved-menu", store=store, layout="abc123")
+    assert result.outcome == "done"
+    assert result.final_action == "recipe:moved-menu"
+    assert seen, "the model was never asked to rescue the stale anchor"
+    script, _ = store.load("moved-menu")
+    assert len(script.steps[0].anchors) == 2

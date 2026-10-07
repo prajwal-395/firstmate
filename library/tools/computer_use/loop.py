@@ -83,15 +83,18 @@ def run_loop(
 
     Where `recipe` names a stored recipe (and `store` is its
     `RecipeStore`), the recipe executes FIRST - the plan's section 4,
-    known recipe before computer-use planning. A recipe that commits
-    ends the loop as done; an unknown name, a moved layout or a failed
-    recipe falls through to the planner below, which discovers the
-    route the recipe could not run.
+    known recipe before computer-use planning. The model backs the
+    recipe's own LLM fallback, so a step whose anchors went stale is
+    rescued and taught, not bounced to full planning. A recipe that
+    commits ends the loop as done; an unknown name, a moved layout or
+    a failed recipe falls through to the planner below, which
+    discovers the route the recipe could not run.
     """
     if recipe is not None and store is not None:
         from library.tools.computer_use.scripts import run_recipe
 
-        ran = run_recipe(client, store, recipe, layout)
+        ran = run_recipe(client, store, recipe, layout,
+                         llm=lambda obs, step: model(obs))
         if ran is not None and ran.outcome == "done":
             return LoopResult(
                 outcome="done",

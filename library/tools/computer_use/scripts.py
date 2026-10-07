@@ -650,13 +650,20 @@ def run_recipe(
     store: RecipeStore,
     name: str,
     layout: Optional[str] = None,
+    llm: Callable[[Observation, ScriptStep], dict] | None = None,
 ) -> Optional[ScriptResult]:
     """Execute the named recipe BEFORE any computer-use planning.
 
     Unknown name, unreadable record or a layout the recipe was not
     verified on returns None - the caller plans instead. A recipe
     that runs records its own result toward promotion, so the store
-    learns which routes hold without the planner watching.
+    learns which routes hold without the planner watching. Where
+    `llm` is given, a step no anchor resolves falls back to it, and a
+    committed run that learned new anchors saves the enriched script
+    back under the name - the plan's section 6, a verified
+    computer-use route recorded as a recipe. A run that taught
+    nothing, or one that did not commit, leaves the stored route
+    alone.
     """
     loaded = store.load(name)
     if loaded is None:
@@ -664,6 +671,12 @@ def run_recipe(
     script, record = loaded
     if record.get("layout") != layout:
         return None
-    result = run_script(client, script)
+    taught = sum(len(step.anchors) for step in script.steps)
+    result = run_script(client, script, llm=llm)
+    if (
+        result.outcome == "done"
+        and sum(len(step.anchors) for step in script.steps) > taught
+    ):
+        store.save(name, script, layout)
     store.record_result(name, result.outcome == "done")
     return result
