@@ -532,7 +532,8 @@ _SEED_JSON = (
     '"object_id": "obj_1", "sample_index": 2, "seed_frame": 48}')
 
 
-def _stub_script(monkeypatch, outcome="done", scale=2.0, source_end=119):
+def _stub_script(monkeypatch, outcome="done", scale=2.0, source_end=119,
+                 menu_close=None):
     from library.tools.computer_use.scripts import ScriptResult
 
     runs: list = []
@@ -563,9 +564,10 @@ def _stub_script(monkeypatch, outcome="done", scale=2.0, source_end=119):
 
     def fake_run_script(client, script, **kwargs):
         runs.append((script, kwargs))
-        return ScriptResult(outcome=outcome, steps=[
-            {"step": 0, "action": "press", "outcome": "ok",
-             "via": "ax_path"}])
+        step = {"step": 0, "action": "press", "outcome": "ok",
+                "via": "ax_path"}
+        step.update(menu_close or {})
+        return ScriptResult(outcome=outcome, steps=[step])
 
     monkeypatch.setattr(main_module, "run_script", fake_run_script)
     return runs, clients, leases
@@ -699,7 +701,11 @@ def test_script_effect_panels_opens_both_panels_offline(monkeypatch, capsys):
     no model and no foreground flag - the mapping measured every
     step backgrounded, so the offline default must not take the
     captain's screen."""
-    runs, _, _ = _stub_script(monkeypatch)
+    runs, _, _ = _stub_script(monkeypatch, menu_close={
+        "menus_closed": False,
+        "menu_close": {"confirmed": False, "expanded": True,
+                       "cancels_ok": False},
+    })
     argv = ["script", "--recipe", "effect-panels", "--timeline", "Q Spine"]
     assert main_module.main(argv) == 0
     script, kwargs = runs[0]
@@ -709,6 +715,8 @@ def test_script_effect_panels_opens_both_panels_offline(monkeypatch, capsys):
     assert "Inspector" in script.steps[2].anchors[0].params["path"]
     out = capsys.readouterr().out
     assert "outcome: done" in out
+    assert ('menu close: {"menu_close": {"cancels_ok": false, '
+            '"confirmed": false, "expanded": true}, "menus_closed": false}') in out
 
 
 def test_script_effect_panels_needs_a_timeline(monkeypatch, capsys):

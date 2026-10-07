@@ -369,9 +369,7 @@ def _run_recipe(client: DriverClient, args) -> int:
         print(f"backing scale: {scale}")
     if source_frame_range is not None:
         print(f"source frame range: {source_frame_range.label()}")
-    for row in result.steps:
-        print(f"  step {row['step']} {row['action']}: {row['outcome']} "
-              f"via {row['via']}")
+    _print_script_steps(result.steps)
     print(f"outcome: {result.outcome} in {elapsed:.1f}s "
           f"(+ {(time.monotonic() - started - elapsed):.1f}s establish)")
     return 0 if result.outcome == "done" else 1
@@ -509,8 +507,7 @@ def _script(
         result = run_script(client, script, llm=llm,
                             deadline=take.deadline)
     print(f"outcome: {result.outcome}")
-    for entry in result.steps:
-        print(f"  step {entry['step']} {entry['action']}: {entry['outcome']} (via {entry['via']})")
+    _print_script_steps(result.steps)
     learned = _anchor_count(script) - before
     if learned and teach:
         Path(path).write_text(
@@ -520,6 +517,22 @@ def _script(
     elif learned:
         print(f"{learned} anchor(s) learned - pass --teach to save them to {path}")
     return 0 if result.outcome == "done" else 1
+
+
+def _print_script_steps(steps: list[dict]) -> None:
+    """Print each step and any native menu-close evidence it carries.
+
+    The detailed receipt explains a false `menus_closed` result. Keep it
+    visible in both named-recipe and saved-script runs, where operators
+    inspect these steps after a live take.
+    """
+    for entry in steps:
+        print(f"  step {entry['step']} {entry['action']}: {entry['outcome']} "
+              f"via {entry['via']}")
+        receipt = {key: entry[key] for key in ("menus_closed", "menu_close")
+                   if key in entry}
+        if receipt:
+            print(f"    menu close: {json.dumps(receipt, sort_keys=True)}")
 
 
 def _anchor_count(script: Script) -> int:
