@@ -152,6 +152,24 @@ name nothing. In `dynamics_plan`:
 A value outside the deliverable ranges refuses the step so you re-plan;
 an unknown key refuses the same way.
 
+## Dialogue gate (a fourth, separate decision)
+
+Read the per-source `floor.level_dbfs` in `cleanup_context.sources`.
+Where the room sits loud enough to hear between words, name the gate
+that closes on it; where the room already rests quiet, name nothing.
+In `gate_plan`:
+
+- `dialogue_gate` - `threshold_db`, `ratio`, `attack_ms`,
+  `release_ms`, `hold_ms`, `range_db`, `why` (all required).
+  Threshold in dBFS opening above the measured room, ratio 0..1,
+  attack/release/hold in ms, range in dB. Or null: no source earns
+  gating. There is no default gate - null plans none, and the mix
+  ships without gating.
+- `why` - REQUIRED: the floor numbers the threshold opens above.
+
+A value outside the deliverable ranges refuses the step so you re-plan;
+an unknown key refuses the same way.
+
 ## What is not yours here
 
 The three other words are not levels and are not asked for.

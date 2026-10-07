@@ -95,6 +95,12 @@
         "type": "object",
         "required": true,
         "description": "Dialogue compression and limiter release. Return exactly dialogue_compression (object or null), master_limiter_release_ms (number or null), why (string). dialogue_compression is threshold_db, ratio, attack_ms, release_ms, why (all required) plus optional knee_db and makeup_gain_db (default 0.0): mild compression the measured speech earns, or null when no source earns any - there is no default compressor. master_limiter_release_ms sets the master limiter release in ms beside the delivery true-peak ceiling, or null for no limiter processing. Read the per-block speech_lufs in mix_windows and the per-source floor in cleanup_context.sources; cite the measured numbers behind each value in why."
+      },
+      {
+        "name": "gate_plan",
+        "type": "object",
+        "required": true,
+        "description": "Dialogue gate. Return exactly dialogue_gate (object or null), why (string). dialogue_gate is threshold_db, ratio, attack_ms, release_ms, hold_ms, range_db, why (all required): the gate the measured room earns, or null when no source earns one - there is no default gate. Read the per-source floor.level_dbfs in cleanup_context.sources; the threshold opens above the room, and why cites the floor numbers behind it."
       }
     ]
   },

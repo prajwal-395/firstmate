@@ -44,6 +44,7 @@ from library.tools import music_over_speech
 from library.tools.audio_chain import (
     AudioChainError,
     validate_dynamics,
+    validate_gate,
     validate_intent,
     validate_limiter,
 )
@@ -87,6 +88,13 @@ DIALOGUE_COMPRESSION_KEYS = frozenset({
 })
 DIALOGUE_COMPRESSION_REQUIRED_KEYS = frozenset({
     "threshold_db", "ratio", "attack_ms", "release_ms", "why",
+})
+GATE_PLAN_KEYS = frozenset({
+    "dialogue_gate", "why",
+})
+DIALOGUE_GATE_KEYS = frozenset({
+    "threshold_db", "ratio", "attack_ms", "release_ms",
+    "hold_ms", "range_db", "why",
 })
 
 
@@ -260,13 +268,15 @@ def resolve_audio_mix(data: dict) -> dict:
             "delivery_true_peak_ceiling_dbtp"],
         dynamics=resolve_dynamics_plan(
             data, true_peak_ceiling=result["audio_mix_spec"][
-                "delivery_true_peak_ceiling_dbtp"]))
+                "delivery_true_peak_ceiling_dbtp"]),
+        gate=resolve_gate_plan(data))
     return result
 
 
 def resolve_fairlight_chain(data: dict, dialogue_lufs_target: float,
                              true_peak_ceiling: float,
-                             dynamics: dict | None = None) -> dict:
+                             dynamics: dict | None = None,
+                             gate: dict | None = None) -> dict:
     """The dialogue-bus chain this run earned, as intent.
 
     The EQ half is derived: each played dialogue source's speech and
@@ -274,9 +284,10 @@ def resolve_fairlight_chain(data: dict, dialogue_lufs_target: float,
     planner's own read; the cleanup_context record carries levels, not
     spectra, and spectra stay out of the prompt tables), bus-averaged
     (`plan_dialogue_eq` - duration-weighted across the sources that
-    answered). The dynamics half is DECLARED: `resolve_dynamics_plan`
-    validated the model's answer through the intent schema, so the
-    threshold, ratio and limiter release already read in Resolve's
+    answered). The dynamics and gate halves are DECLARED:
+    `resolve_dynamics_plan` and `resolve_gate_plan` validated the
+    model's answers through the intent schema, so the threshold,
+    ratio, limiter release and gate hold already read in Resolve's
     units. The whole intent validates through
     `audio_chain.validate_intent`. The targets are the delivery
     numbers this step already resolved (the program loudness target
@@ -284,13 +295,14 @@ def resolve_fairlight_chain(data: dict, dialogue_lufs_target: float,
     restated here.
 
     A dialogue track ships when the run earned EQ bands, declared
-    compression, or both; a master track ships when the run declared
-    a limiter release, carrying the delivery ceiling with it. A source
-    that cannot be measured (no floor, no played speech, an unreadable
-    file) plans nothing and is named in `unplanned`; one bad source
-    never sinks the bus chain. The plan applies nothing -
-    compile_manifest carries `audio_mix_spec` (this key with it) onto
-    the assembly manifest, where the Fairlight UI executor reads it.
+    compression, declared a gate, or any combination; a master track
+    ships when the run declared a limiter release, carrying the
+    delivery ceiling with it. A source that cannot be measured (no
+    floor, no played speech, an unreadable file) plans nothing and is
+    named in `unplanned`; one bad source never sinks the bus chain.
+    The plan applies nothing - compile_manifest carries
+    `audio_mix_spec` (this key with it) onto the assembly manifest,
+    where the Fairlight UI executor reads it.
     """
     sources = (data.get("cleanup_context") or {}).get("sources", []) or []
     structure = (data.get("audio_spine") or {}).get("structure", []) or []
@@ -339,6 +351,7 @@ def resolve_fairlight_chain(data: dict, dialogue_lufs_target: float,
     dynamics = dynamics or {}
     compression = dynamics.get("dialogue_compression")
     limiter_release = dynamics.get("master_limiter_release_ms")
+    gate = (gate or {}).get("dialogue_gate")
     tracks: list = []
     dialogue: dict = {
         "track": "dialogue",
@@ -351,6 +364,10 @@ def resolve_fairlight_chain(data: dict, dialogue_lufs_target: float,
                                 ("threshold_db", "ratio", "attack_ms",
                                  "release_ms", "knee_db",
                                  "makeup_gain_db")}
+    if gate is not None:
+        dialogue["gate"] = {key: gate[key] for key in
+                            ("threshold_db", "ratio", "attack_ms",
+                             "release_ms", "hold_ms", "range_db")}
     if len(dialogue) > 2:
         tracks.append(dialogue)
     if limiter_release is not None:
@@ -389,6 +406,9 @@ def resolve_fairlight_chain(data: dict, dialogue_lufs_target: float,
             described.append(
                 f"compression {compression['threshold_db']:.1f} dB @ "
                 f"{compression['ratio']:.1f}:1")
+        if gate is not None:
+            described.append(
+                f"gate {gate['threshold_db']:.1f} dBFS")
         if limiter_release is not None:
             described.append("master limiter")
         print(f"  Fairlight chain: dialogue {' + '.join(described)} "
@@ -397,7 +417,7 @@ def resolve_fairlight_chain(data: dict, dialogue_lufs_target: float,
     else:
         print(f"  Fairlight chain: nothing earned - "
               f"{plan.get('why_empty', 'no EQ bands survived')} and no "
-              f"dynamics declared "
+              f"dynamics or gate declared "
               f"({len(unplanned)} source(s) unplanned)",
               file=sys.stderr)
     return {"intent": intent,
@@ -629,6 +649,108 @@ def _resolve_dialogue_compression(entry: dict) -> dict:
             "release_ms": checked.release_ms,
             "knee_db": checked.knee_db,
             "makeup_gain_db": checked.makeup_gain_db,
+            "why": why.strip()}
+
+
+def resolve_gate_plan(data: dict) -> dict:
+    """Validate the prompt's dialogue gate, or its absence.
+
+    Opt-in like cleanup and dynamics: a missing plan, or a null gate,
+    means no gating - there is no default gate, because a default
+    threshold, ratio or hold would be taste the engine invented. The
+    gate reads the measured room (the per-source floor in
+    `cleanup_context.sources` is what the model judges the threshold
+    against), and every number validates through the intent schema
+    (`audio_chain.validate_gate`), so an out-of-range value refuses
+    through the post-bridge retry path and the model re-plans.
+    """
+    plan = data.get("gate_plan")
+    if plan is None:
+        return {"dialogue_gate": None,
+                "why": "No gate plan was declared; the mix ships "
+                       "without gating."}
+    if not isinstance(plan, dict):
+        raise RenRefusal(
+            what="the gate plan is not an object",
+            why="the Fairlight executor cannot read a gate from this "
+                "answer.",
+            fix="return dialogue_gate and why in one object",
+        )
+    refuse_unknown_keys([plan], GATE_PLAN_KEYS, step="audio_mix",
+                         plan="gate_plan")
+    if set(plan) != GATE_PLAN_KEYS:
+        missing = sorted(GATE_PLAN_KEYS - set(plan))
+        raise RenRefusal(
+            what="the gate plan is incomplete",
+            why=f"the answer omitted {', '.join(missing)}.",
+            fix="return both gate_plan keys",
+        )
+    why = plan["why"]
+    if not isinstance(why, str) or not why.strip():
+        raise RenRefusal(
+            what="the gate plan has no reason",
+            why="the gate has no stated basis in the measured room.",
+            fix="state what in the measured floors earns the gate",
+        )
+    gate = plan["dialogue_gate"]
+    if gate is not None:
+        gate = _resolve_dialogue_gate(gate)
+    return {"dialogue_gate": gate, "why": why.strip()}
+
+
+def _resolve_dialogue_gate(entry: dict) -> dict:
+    """One validated gate entry, or a refusal naming the field."""
+    if not isinstance(entry, dict):
+        raise RenRefusal(
+            what="the dialogue gate is not an object",
+            why="threshold, ratio, attack, release, hold, range and "
+                "why cannot be read from this answer.",
+            fix="return the seven required gate keys as an object",
+        )
+    refuse_unknown_keys([entry], DIALOGUE_GATE_KEYS,
+                         step="audio_mix", plan="gate_plan")
+    missing = sorted(DIALOGUE_GATE_KEYS - set(entry))
+    if missing:
+        raise RenRefusal(
+            what="the dialogue gate is incomplete",
+            why=f"the answer omitted {', '.join(missing)}.",
+            fix="return all seven gate keys",
+        )
+    why = entry["why"]
+    if not isinstance(why, str) or not why.strip():
+        raise RenRefusal(
+            what="the dialogue gate has no reason",
+            why="the threshold has no stated basis in the measured "
+                "room.",
+            fix="state what in the measured floors earns the gate",
+        )
+    raw = {}
+    for key in ("threshold_db", "ratio", "attack_ms", "release_ms",
+                "hold_ms", "range_db"):
+        value = entry.get(key)
+        if value is None or isinstance(value, bool) or not isinstance(
+                value, (int, float)):
+            raise RenRefusal(
+                what=f"the gate {key} is not a number",
+                why="the Fairlight executor reads JSON numbers, not "
+                    "text or nulls.",
+                fix=f"re-plan {key} as a finite numeric value",
+            )
+        raw[key] = value
+    try:
+        checked = validate_gate(raw)
+    except AudioChainError as exc:
+        raise RenRefusal(
+            what="the dialogue gate cannot be delivered",
+            why=str(exc),
+            fix="re-plan the gate inside the intent scale",
+        ) from exc
+    return {"threshold_db": checked.threshold_db,
+            "ratio": checked.ratio,
+            "attack_ms": checked.attack_ms,
+            "release_ms": checked.release_ms,
+            "hold_ms": checked.hold_ms,
+            "range_db": checked.range_db,
             "why": why.strip()}
 
 
