@@ -57,9 +57,12 @@ from library.tools.resolve_lock import resolve_lease
 #: no visible element and no focus, so it sits first: a step that CAN
 #: name its menu should. `key` is a keystroke, not a screen location -
 #: it resolves without touching the AX tree or the pixels, so it sits
-#: last: a step that CAN anchor to something visible should.
+#: last among the locators: a step that CAN anchor to something
+#: visible should. `wait` is a settle, not a screen location - it
+#: resolves to the driver's own wait, so a UI-settle need is said in
+#: the script instead of slept around it.
 ANCHOR_VIAS = ("menu", "ax_path", "ocr", "template", "offset", "position",
-               "key")
+               "key", "wait")
 
 #: The verification kinds. An unknown kind is refused at parse time, never
 #: silently passed at run time.
@@ -243,6 +246,8 @@ def resolve_anchor(client: DriverClient, anchor: Anchor) -> tuple[str, dict] | N
         if not path:
             return None
         return ("run_command", {"path": list(path)})
+    if anchor.via == "wait":
+        return _resolve_wait(anchor)
     if anchor.via == "ax_path":
         path = anchor.params.get("path")
         if not path:
@@ -317,6 +322,28 @@ def _resolve_key(anchor: Anchor) -> tuple[str, dict] | None:
         return None
     key, modifiers = parse_key(str(combo))
     return ("key", {"key": key, "modifiers": modifiers})
+
+
+def _resolve_wait(anchor: Anchor) -> tuple[str, dict] | None:
+    """Resolve a settle anchor to a driver `wait_for` call, or `None`.
+
+    A settle is a measured need, not a guess: some UI writes land
+    asynchronously (a stepped node selection the delete must follow),
+    and a script that sleeps around the runner hides that need where
+    no log records it. An absent duration resolves to nothing, like
+    every other anchor with no parameters; a malformed one RAISES -
+    a recipe bug, not a layout that moved.
+    """
+    seconds = anchor.params.get("seconds")
+    if seconds is None:
+        return None
+    if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) \
+            or seconds < 0:
+        raise ValueError(
+            f"a wait anchor needs a non-negative seconds number, got "
+            f"{seconds!r}")
+    return ("wait_for", {"predicate": {"type": "seconds",
+                                       "duration": float(seconds)}})
 
 
 def _resolve_template(client: DriverClient, anchor: Anchor) -> tuple[str, dict] | None:
@@ -850,3 +877,194 @@ def effect_panels_script() -> Script:
             ),
         ],
     )
+#: The node-stepping commands in the Color page menu, outermost
+#: first. Live measurement: Previous/Next step one node per settled
+#: press and WRAP around the ends (ten settled Previous presses on
+#: four nodes deleted node 2, not node 1 - there is no saturation),
+#: so stepping needs a KNOWN start. A press without settle silently
+#: no-ops - the selection the delete must follow lands
+#: asynchronously - so every press is followed by a settle step.
+#: What the selection survives is also measured: page presses,
+#: OpenPage cycles, timeline and clip switches all PRESERVE it, and
+#: a delete leaves current at the same POSITION (the next node
+#: shifts into it). The only known start is a just-added node, so
+#: the remove recipe adds a marker serial first.
+GRADE_NODE_PREV_PATH = ["Color", "Nodes", "Previous Node"]
+GRADE_NODE_NEXT_PATH = ["Color", "Nodes", "Next Node"]
+GRADE_NODE_DELETE_PATH = ["Color", "Nodes", "Delete Current Node"]
+
+#: The settle between UI presses, in seconds. Measured live: a
+#: delete immediately after its step removed nothing (3 -> 3
+#: twice), while the same sequence with 3 s between presses
+#: removed the stepped-to node. The source is that trial, on the
+#: qualification timeline.
+GRADE_STEP_SETTLE_SECONDS = 3.0
+
+
+def _menu_step(path: list) -> ScriptStep:
+    return ScriptStep(
+        action="menu",
+        anchors=[Anchor(via="menu", params={"path": list(path)})],
+    )
+
+
+def _settle_step(seconds: float = GRADE_STEP_SETTLE_SECONDS) -> ScriptStep:
+    return ScriptStep(
+        action="wait",
+        anchors=[Anchor(via="wait", params={"seconds": seconds})],
+    )
+
+def _marker_add_script(
+        settle_seconds: float = GRADE_STEP_SETTLE_SECONDS) -> Script:
+    """Stage one: establish the page and add the marker serial.
+
+    A just-added node is selected - the one known start stepping
+    has. The apply verifies the count grew before stepping anywhere.
+    """
+    return Script(
+        goal="add the marker serial (grade.node_remove stage one)",
+        steps=[_menu_step(GRADE_COLOR_PAGE_PATH),
+               _settle_step(settle_seconds),
+               _menu_step(GRADE_NODE_ADD_PATH),
+               _settle_step(settle_seconds)],
+    )
+
+
+def _remove_target_script(node_index: int, node_count: int,
+                          settle_seconds: float = GRADE_STEP_SETTLE_SECONDS,
+                          ) -> Script:
+    """Stage two: step from the marker to the target, delete it.
+
+    From marker position count + 1, Previous x (count + 1 - index)
+    lands exactly on the target with no wrap encountered. The apply
+    verifies the count and the target label before touching the
+    marker.
+    """
+    steps = []
+    for _ in range(node_count + 1 - node_index):
+        steps += [_menu_step(GRADE_NODE_PREV_PATH),
+                  _settle_step(settle_seconds)]
+    steps += [_menu_step(GRADE_NODE_DELETE_PATH),
+              _settle_step(settle_seconds)]
+    return Script(
+        goal=f"remove node {node_index} of {node_count}: take it",
+        steps=steps,
+    )
+
+
+def _remove_marker_script(node_index: int, node_count: int,
+                          settle_seconds: float = GRADE_STEP_SETTLE_SECONDS,
+                          ) -> Script:
+    """Stage three: step from the target's old position to the marker,
+    delete it.
+
+    The delete leaves current at the same position with the marker
+    last, so Next x (count - index) reaches it with no wrap
+    encountered. The apply verifies the count and the labels before
+    restoring the originals.
+    """
+    steps = []
+    for _ in range(node_count - node_index):
+        steps += [_menu_step(GRADE_NODE_NEXT_PATH),
+                  _settle_step(settle_seconds)]
+    steps += [_menu_step(GRADE_NODE_DELETE_PATH),
+              _settle_step(settle_seconds)]
+    return Script(
+        goal=f"remove node {node_index} of {node_count}: clear the marker",
+        steps=steps,
+    )
+
+
+def grade_node_remove_script(node_index: int, node_count: int,
+                             settle_seconds: float = GRADE_STEP_SETTLE_SECONDS,
+                             ) -> Script:
+    """The deterministic recipe for removing node `node_index`.
+
+    All three stages as one script (the apply runs and verifies them
+    separately): add a marker serial (the known start), step to the
+    target, delete it, step to the marker, delete it. Every press
+    carries its settle: the recipe says the measured need instead of
+    sleeping around the runner. The recipe names NO viewer
+    coordinate and NO keystroke - the whole route is server-side
+    menu commands, background-capable with another app frontmost.
+
+    No step declares a pixel or text expectation: a menu press has
+    no screen predicate. The write is judged OUTSIDE the script, by
+    re-reading the graph through the API - each stage's count must
+    move by exactly one AND each removed position's label must be
+    gone (`edit_algebra._apply_grade_node_remove`).
+    """
+    _check_remove_args(node_index, node_count)
+    first = _marker_add_script(settle_seconds)
+    second = _remove_target_script(node_index, node_count, settle_seconds)
+    third = _remove_marker_script(node_index, node_count, settle_seconds)
+    return Script(
+        goal=f"remove node {node_index} of {node_count} on the Color "
+             f"page (grade.node_remove)",
+        steps=first.steps + second.steps + third.steps,
+    )
+
+
+def _check_remove_args(node_index: int, node_count: int) -> None:
+    if (isinstance(node_index, bool) or not isinstance(node_index, int)
+            or isinstance(node_count, bool)
+            or not isinstance(node_count, int)):
+        raise ValueError(
+            f"a node_remove recipe needs integer index and count, got "
+            f"{node_index!r} of {node_count!r}")
+    if not 1 <= node_index <= node_count:
+        raise ValueError(
+            f"node {node_index} is outside 1..{node_count} - a recipe "
+            f"for a node that is not there would delete whatever the "
+            f"stepping lands on")
+
+
+def run_settled_script(client: DriverClient, script: Script) -> ScriptResult:
+    """Run a menu+wait script where waits sleep in-process.
+
+    The driver's own waits need an unlocked screen (measured live:
+    `wait_for` answers SCREEN_LOCKED while menu commands execute
+    fine), so a wait step sleeps here instead of asking the driver -
+    the duration stays declared on the step, and the step record
+    carries it. Menu steps resolve and call exactly like the script
+    runner's; anything else (or a refused resolve) fails the step,
+    and a failed step fails the     run. One lease around the whole
+    run: the caller already holds the exclusive instance lease, and
+    the lease is reentrant.
+    """
+    results: list[dict] = []
+    with resolve_lease("computer-use settled script"):
+        for index, step in enumerate(script.steps):
+            results.append(_run_settled_step(client, step, index))
+            if results[-1]["outcome"] == "failed":
+                return ScriptResult(outcome="failed", steps=results)
+    return ScriptResult(outcome="done", steps=results)
+
+
+def _run_settled_step(client: DriverClient, step: ScriptStep,
+                      index: int) -> dict:
+    """One settled step: menus call, waits sleep, anything else fails."""
+    for anchor in step.anchors:
+        if anchor.via == "wait":
+            seconds = anchor.params.get("seconds")
+            if not isinstance(seconds, (int, float)) \
+                    or isinstance(seconds, bool) or seconds < 0:
+                continue
+            import time as _time
+
+            _time.sleep(float(seconds))
+            return {"step": index, "action": step.action,
+                    "outcome": "ok", "via": "wait",
+                    "seconds": float(seconds)}
+        resolved = resolve_anchor(client, anchor)
+        if resolved is None:
+            continue
+        method, params = resolved
+        try:
+            client.call(method, params)
+        except DriverError:
+            continue
+        return {"step": index, "action": step.action,
+                "outcome": "ok", "via": anchor.via}
+    return {"step": index, "action": step.action,
+            "outcome": "failed", "via": "none"}

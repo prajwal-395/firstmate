@@ -660,13 +660,15 @@ def _apply_grade_node_add(op, timeline, item, _project=None):
     return True
 
 
-def _park_playhead_mid_clip(op, timeline, item) -> None:
+def _park_playhead_mid_clip(op, timeline, item,
+                         label="grade.node_add") -> None:
     """Park the playhead mid-clip and read the park back, or refuse.
 
-    One retry: the first set after a timeline switch can miss
-    (measured by the batch-5 lane). A playhead that will not park
-    refuses - the menu acts on the current clip, so an unparked run
-    would land the node wherever the playhead happens to be.
+    The menus act on the current clip, so the playhead is parked on
+    the op's clip first. One retry: the first set after a timeline
+    switch can miss (measured by the batch-5 lane). A playhead that
+    will not park refuses rather than landing the write on whatever
+    clip happens to be current.
     """
     from library.tools.marker_feedback import frames_to_timecode
 
@@ -675,7 +677,7 @@ def _park_playhead_mid_clip(op, timeline, item) -> None:
         fps = float(timeline.GetSetting("timelineFrameRate") or 24)
     except Exception as exc:  # noqa: BLE001 - raised, never half-written
         raise RuntimeError(
-            f"grade.node_add cannot read clip {op.get('unique_id')!r}'s "
+            f"{label} cannot read clip {op.get('unique_id')!r}'s "
             f"span ({exc}) - nothing was written.") from exc
     wanted = frames_to_timecode((start + end) // 2, fps)
     try:
@@ -688,9 +690,188 @@ def _park_playhead_mid_clip(op, timeline, item) -> None:
                     f"{timeline.GetCurrentTimecode()!r}, not {wanted!r}")
     except Exception as exc:  # noqa: BLE001 - raised, never half-written
         raise RuntimeError(
-            f"grade.node_add could not park the playhead on clip "
+            f"{label} could not park the playhead on clip "
             f"{op.get('unique_id')!r} ({exc}) - nothing was written."
             ) from exc
+
+
+#: The node cache modes writable through the API, measured live: 0
+#: and 1 write and read back, 2 is refused, -1 is the default. The
+#: labels a topology apply writes to tell its nodes apart - and
+#: restores afterwards, so the graph the run leaves matches the one
+#: it found except for the topology change itself.
+CACHE_LABEL_MODES = (0, 1, -1)
+
+
+def _read_cache_modes(item, count, label) -> list:
+    """Every node's cache mode through the API, or a refusal."""
+    try:
+        graph = item.GetNodeGraph()
+        return [graph.GetNodeCacheMode(index)
+                for index in range(1, count + 1)]
+    except Exception as exc:  # noqa: BLE001 - raised, never half-written
+        raise RuntimeError(
+            f"{label} cannot read the node cache modes ({exc}) - "
+            f"nothing was written.") from exc
+
+
+def _write_cache_modes(item, modes, label) -> None:
+    """Write one cache mode per node and read the write back."""
+    try:
+        graph = item.GetNodeGraph()
+        for position, mode in enumerate(modes):
+            if not graph.SetNodeCacheMode(position + 1, mode):
+                raise RuntimeError(
+                    f"SetNodeCacheMode({position + 1}, {mode}) "
+                    f"answered False")
+        back = [graph.GetNodeCacheMode(position + 1)
+                for position in range(len(modes))]
+    except Exception as exc:  # noqa: BLE001 - raised, never half-written
+        raise RuntimeError(
+            f"{label} cannot write the node cache modes ({exc}) - "
+            f"nothing was claimed.") from exc
+    if back != list(modes):
+        raise RuntimeError(
+            f"{label} cache modes read back {back}, not {list(modes)} - "
+            f"nothing was claimed.")
+
+
+def _apply_grade_node_remove(op, timeline, item, _project=None):
+    """Remove ONE node through the Color-page menu recipe, judged.
+
+    The Graph API exposes no RemoveNode (measured), so the write is
+    GUI-only. Stepping wraps around the ends with no selection
+    readout (both measured live), so the recipe adds a marker serial
+    first - a just-added node is selected, the one known start -
+    steps to the target, deletes it, steps to the marker, deletes
+    that too (`computer_use.scripts` stage builders - server-side
+    menu commands with settles, no viewer coordinate, no keystroke).
+    Each stage is judged separately through the API: the count must
+    move by exactly one AND the removed position's label must be
+    gone. The apply labels the graph with cache modes first and
+    restores the originals (minus the target) after, so a delete
+    that landed on the wrong node refuses instead of claiming the
+    target.
+    """
+    from library.tools.computer_use.scripts import (
+        _marker_add_script, _remove_marker_script, _remove_target_script,
+        run_settled_script,
+    )
+
+    label = "grade.node_remove"
+    try:
+        node_index = int(op["node_index"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RuntimeError(
+            f"{label} needs an integer node_index ({exc}) - nothing "
+            f"was written.") from exc
+    before = _read_node_count(item, label)
+    if not 1 <= node_index <= before:
+        raise RuntimeError(
+            f"{label} names node {node_index}, outside 1..{before} - "
+            f"nothing was written.")
+    _park_playhead_mid_clip(op, timeline, item, label)
+    original_modes = _read_cache_modes(item, before, label)
+    client = ui_driver_factory()
+    try:
+        # Stage one: the marker. A just-added node is selected - the
+        # one known start stepping has.
+        _run_remove_stage(client, _marker_add_script(), "add the marker")
+        marked = _read_node_count(item, label)
+        if marked != before + 1:
+            raise RuntimeError(
+                f"the marker add left {marked} nodes, not "
+                f"{before + 1} - nothing was deleted.")
+        # The marker is unlabeled stock: the originals plus its default.
+        with_marker = original_modes + [-1]
+        stratified = [CACHE_LABEL_MODES[(position - 1)
+                                        % len(CACHE_LABEL_MODES)]
+                      for position in range(1, marked + 1)]
+        _write_cache_modes(item, stratified, label)
+        # Stage two: the target.
+        _run_remove_stage(client, _remove_target_script(
+            node_index, before), "take the target")
+        mid = _read_node_count(item, label)
+        try:
+            survivors = _read_cache_modes(item, mid, label)
+        except RuntimeError:
+            survivors = None
+        expected = stratified[:node_index - 1] + stratified[node_index:]
+        if mid != before or survivors != expected:
+            _restore_labels_by_survivors(item, stratified, with_marker,
+                                         survivors, label)
+            raise RuntimeError(
+                f"{label} nodes {before} -> {marked} -> {mid}, "
+                f"survivors {survivors} (expected {expected}) - the "
+                f"target delete did not land as planned. Re-plan "
+                f"against the live graph.")
+        # Stage three: the marker. Current sits at the target's old
+        # position with the marker last.
+        stage_two_labels = expected
+        stage_two_originals = with_marker[:node_index - 1] \
+            + with_marker[node_index:]
+        _run_remove_stage(client, _remove_marker_script(
+            node_index, before), "clear the marker")
+        after = _read_node_count(item, label)
+        try:
+            final = _read_cache_modes(item, after, label)
+        except RuntimeError:
+            final = None
+        if after != before - 1 or final != stage_two_labels[:-1]:
+            _restore_labels_by_survivors(item, stage_two_labels,
+                                         stage_two_originals, final, label)
+            raise RuntimeError(
+                f"{label} nodes {before} -> {marked} -> {mid} -> "
+                f"{after}, survivors {final} (expected "
+                f"{stage_two_labels[:-1]}) - the marker delete did "
+                f"not land as planned. Re-plan against the live graph.")
+        _write_cache_modes(item,
+                           [m for position, m in enumerate(original_modes, 1)
+                            if position != node_index], label)
+    finally:
+        close = getattr(client, "close", None)
+        if callable(close):
+            with contextlib.suppress(Exception):
+                close()
+    return True
+
+
+def _run_remove_stage(client, script, stage) -> None:
+    """Run one remove stage; a step that does not land refuses."""
+    from library.tools.computer_use.scripts import run_settled_script
+
+    result = run_settled_script(client, script)
+    failed = [step for step in result.steps
+              if step.get("outcome") != "ok"]
+    if result.outcome != "done" or failed:
+        raise RuntimeError(
+            f"grade.node_remove UI recipe did not land to {stage} "
+            f"({result.outcome}; {len(failed)} failed step(s)) - "
+            f"nothing was claimed.")
+
+
+def _restore_labels_by_survivors(item, labeled, originals, survivors,
+                                 label) -> bool:
+    """Restore labels by identifying which position died.
+
+    `labeled` is what the graph carried (len L), `originals` what
+    those positions held before (len L), `survivors` what the graph
+    carries now. Where the survivors equal the labels minus exactly
+    one position, that position's originals go back onto the rest.
+    Returns whether a position matched - no match leaves the labels
+    alone, because a wrong restore would be a second unmeasured
+    write.
+    """
+    if survivors is None or len(survivors) != len(labeled) - 1:
+        return False
+    for died in range(1, len(labeled) + 1):
+        if survivors == labeled[:died - 1] + labeled[died:]:
+            with contextlib.suppress(Exception):
+                _write_cache_modes(item,
+                                   originals[:died - 1]
+                                   + originals[died:], label)
+            return True
+    return False
 
 
 def _apply_set_property(op, _timeline, item, _project=None):
@@ -1749,14 +1930,19 @@ ALGEBRA: dict[str, AlgebraOp] = {
         id="grade.node_remove", domain="color",
         required=("unique_id", "node_index"),
         span=_item_span, item=True,
+        apply=_apply_grade_node_remove,
         verify=lambda op, after: None,
         key=lambda op: ("clip", op["unique_id"], "grade",
                         int(op["node_index"])),
         merge="exclusive",
         inverse=_pair("grade.node_add"),
-        note="Declared, NOT executable: the Graph API has no RemoveNode. "
-             "SetNodeEnabled(False) bypasses a node but does not remove "
-             "it from the graph."),
+        note="GUI-only write, API-read judgement: the Color-page menu "
+             "recipe steps to the target node and presses Delete Current "
+             "Node; `GetNumNodes` must shrink by exactly one AND the "
+             "removed index's cache-mode label must be gone (labels "
+             "restored after). The Resolve 21.1 Graph API has no "
+             "RemoveNode - SetNodeEnabled(False) bypasses a node but "
+             "does not remove it from the graph."),
     "grade.node_reorder": AlgebraOp(
         id="grade.node_reorder", domain="color",
         required=("unique_id", "from_index", "to_index"),

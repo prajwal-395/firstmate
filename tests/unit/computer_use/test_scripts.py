@@ -565,6 +565,50 @@ def test_the_node_add_recipe_names_menu_routes_only():
         assert all(a.via == "menu" for a in step.anchors), step.action
 
 
+def test_the_node_remove_recipe_steps_to_the_target(client: DriverClient):
+    """The grade.node_remove recipe adds a marker (the known start -
+    stepping wraps with no selection readout, measured live), steps
+    to the target, deletes it, steps to the marker, deletes that -
+    all server-side menu commands with settles. A recipe that
+    clicked viewer points would need the foreground; one without
+    settles silently no-ops (measured live: rapid presses removed
+    nothing).
+    """
+    from library.tools.computer_use.scripts import (
+        GRADE_COLOR_PAGE_PATH,
+        GRADE_NODE_ADD_PATH,
+        GRADE_NODE_DELETE_PATH,
+        GRADE_NODE_NEXT_PATH,
+        GRADE_NODE_PREV_PATH,
+        grade_node_remove_script,
+    )
+
+    script = grade_node_remove_script(2, 3)
+    menus = [step.anchors[0].params["path"] for step in script.steps
+             if step.action == "menu"]
+    assert menus == ([GRADE_COLOR_PAGE_PATH, GRADE_NODE_ADD_PATH]
+                     + [GRADE_NODE_PREV_PATH] * 2
+                     + [GRADE_NODE_DELETE_PATH]
+                     + [GRADE_NODE_NEXT_PATH]
+                     + [GRADE_NODE_DELETE_PATH])
+    for step in script.steps:
+        assert all(a.via in ("menu", "wait") for a in step.anchors)
+
+
+def test_the_node_remove_recipe_refuses_an_absent_node():
+    """A recipe for a node outside 1..count refuses at build time - a
+    recipe that stepped anyway would delete whatever the stepping
+    lands on, the wrong node by construction."""
+    from library.tools.computer_use.scripts import grade_node_remove_script
+
+    for bad in ((0, 3), (4, 3), (1, 0)):
+        try:
+            grade_node_remove_script(*bad)
+            assert False, f"should have raised for {bad}"
+        except ValueError as exc:
+            assert "outside" in str(exc)
+
+
 def test_a_menu_anchor_resolves_to_run_command(client: DriverClient):
     """A menu anchor resolves to one `run_command` with the whole path -
     no find_element round-trip, no screen lookup. A menu path resolved
@@ -662,3 +706,100 @@ def test_the_panels_recipe_runs_to_done_against_the_mock(
     result = run_script(client, effect_panels_script())
     assert result.outcome == "done", result.steps
     assert [step["via"] for step in result.steps] == ["menu"] * 3
+
+
+def test_a_menu_anchor_resolves_a_remove_path(client: DriverClient):
+    """The remove recipe's delete step resolves through the same menu
+    anchor to its own whole path - the anchor carries any command,
+    not just the add route."""
+    from library.tools.computer_use.scripts import (
+        GRADE_NODE_DELETE_PATH, grade_node_remove_script)
+
+    script = grade_node_remove_script(1, 1)
+    assert resolve_anchor(client, script.steps[-2].anchors[0]) == (
+        "run_command", {"path": GRADE_NODE_DELETE_PATH})
+
+
+def test_the_node_remove_recipe_runs_to_done_against_the_mock(
+    client: DriverClient,
+):
+    """Every menu path in the remove recipe executes against the mock
+    driver: the whole write route runs offline. A recipe naming a
+    path the menu does not carry fails here - before any live run
+    spends the captain's session on it."""
+    from library.tools.computer_use.scripts import grade_node_remove_script
+
+    result = run_script(client, grade_node_remove_script(2, 3))
+    assert result.outcome == "done", result.steps
+    assert {step["via"] for step in result.steps} == {"menu", "wait"}
+
+
+def test_a_wait_anchor_resolves_to_the_driver_wait(client: DriverClient):
+    """A wait anchor resolves to the driver's own seconds wait, so a
+    UI-settle need is said in the script instead of slept around it.
+    A settle the runner cannot see would hide in wall-clock gaps no
+    log records."""
+    assert resolve_anchor(
+        client, Anchor(via="wait", params={"seconds": 3.0})) == (
+        "wait_for", {"predicate": {"type": "seconds", "duration": 3.0}})
+
+
+def test_a_malformed_wait_anchor_fails_fast():
+    """A wait anchor with a malformed duration raises instead of
+    resolving to a zero wait - a negative settle would silently run
+    the un-settled sequence the wait was added to prevent."""
+    try:
+        resolve_anchor(None, Anchor(via="wait", params={"seconds": -1}))
+        assert False, "should have raised ValueError"
+    except ValueError as exc:
+        assert "seconds" in str(exc)
+
+
+def test_the_settled_run_sleeps_waits_in_process(client: DriverClient,
+                                                 monkeypatch):
+    """Waits sleep in-process instead of asking the driver: the
+    driver's own waits need an unlocked screen (measured live:
+    `wait_for` answers SCREEN_LOCKED while menu commands execute),
+    so a settled run on a locked machine would fail every wait step.
+    The durations stay declared on the steps."""
+    import time
+
+    from library.tools.computer_use.scripts import (
+        grade_node_remove_script, run_settled_script)
+
+    slept: list = []
+    monkeypatch.setattr(time, "sleep", slept.append)
+    script = grade_node_remove_script(2, 3, settle_seconds=0.5)
+    result = run_settled_script(client, script)
+    assert result.outcome == "done", result.steps
+    assert slept == [0.5] * 7
+    assert [step["via"] for step in result.steps] == (
+        ["menu", "wait"] * 7)
+    assert all(step["outcome"] == "ok" for step in result.steps)
+
+
+def test_the_settled_run_fails_a_step_nothing_resolves():
+    """A settled step no anchor resolves fails the run instead of
+    skipping on - silently skipping a step would run the rest of the
+    route against a UI state the skipped step was meant to establish.
+    """
+    from library.tools.computer_use.scripts import (
+        Script, ScriptStep, run_settled_script)
+
+    class _Dead:
+        def call(self, method, params=None):
+            raise AssertionError("no driver call expected")
+
+        def close(self):
+            pass
+
+    script = Script(
+        goal="press a menu that is not there",
+        steps=[ScriptStep(
+            action="menu",
+            anchors=[Anchor(via="menu", params={"path": []})])],
+    )
+    result = run_settled_script(_Dead(), script)
+    assert result.outcome == "failed"
+    assert result.steps == [{"step": 0, "action": "menu",
+                             "outcome": "failed", "via": "none"}]

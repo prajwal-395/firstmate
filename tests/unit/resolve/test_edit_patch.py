@@ -55,6 +55,97 @@ def _apply(patch, project, timeline, store):
                                   project_folder=store.path.parent)
 
 
+def _node_modes(item):
+    graph = item.GetNodeGraph()
+    return [graph.GetNodeCacheMode(index)
+            for index in range(1, graph.GetNumNodes() + 1)]
+
+
+class _NodeRemoveDriver:
+    """A UI driver double for the grade.node_remove apply: answers the
+    recipe's reads and executes menu commands with the measured
+    semantics - stepping wraps around the ends, a delete leaves
+    current at the same position (the next node shifts into it), an
+    added serial selects the newest node, modes travel with their
+    nodes. `miss` accepts deletes but changes nothing; `wrong`
+    deletes the neighbor instead."""
+
+    def __init__(self, item, miss=False, wrong=False):
+        self.item = item
+        self.miss = miss
+        self.wrong = wrong
+        self.current: int | None = None
+        self.commands: list = []
+
+    def call(self, method, params=None):
+        from library.tools.computer_use.scripts import (
+            GRADE_NODE_ADD_PATH, GRADE_NODE_DELETE_PATH,
+            GRADE_NODE_NEXT_PATH, GRADE_NODE_PREV_PATH)
+
+        params = params or {}
+        if method == "run_command":
+            path = list(params.get("path") or [])
+            self.commands.append(path)
+            graph = self.item.GetNodeGraph()
+            count = graph.GetNumNodes()
+            if self.current is None:
+                self.current = count
+            if path == GRADE_NODE_ADD_PATH:
+                self.item.nodes = count + 1
+                self.current = count + 1
+            elif path == GRADE_NODE_PREV_PATH:
+                self.current = (self.current - 2) % count + 1
+            elif path == GRADE_NODE_NEXT_PATH:
+                self.current = self.current % count + 1
+            elif path == GRADE_NODE_DELETE_PATH:
+                self._delete(graph, count)
+            return {"pressed": True, "path": path}
+        if method == "capture_window":
+            return {"image": _tiny_png(), "width": 4.0, "height": 2.0,
+                    "scale": 2.0}
+        if method == "get_accessibility_tree":
+            return {"tree": {"role": "AXApplication", "title": "Resolve",
+                             "children": []}}
+        if method == "read_text":
+            return {"text": "", "elements": []}
+        if method == "get_windows":
+            return {"windows": []}
+        raise AssertionError(f"unexpected driver call {method}")
+
+    def _delete(self, graph, count):
+        if self.miss or count < 1:
+            return
+        victim = self.current
+        if self.wrong:
+            victim = victim - 1 if victim > 1 else victim + 1
+            if not 1 <= victim <= count:
+                return
+        modes = [graph.GetNodeCacheMode(index)
+                 for index in range(1, count + 1)]
+        kept = [mode for position, mode in enumerate(modes, 1)
+                if position != victim]
+        self.item.nodes = count - 1
+        for position, mode in enumerate(kept, 1):
+            graph.SetNodeCacheMode(position, mode)
+        self.current = min(victim, max(count - 1, 1))
+
+    def close(self):
+        pass
+
+
+def _tiny_png() -> str:
+    """A decodable capture for the UI driver double - the recipe's
+    observation diffs captures, it never looks at them."""
+    import base64
+    from io import BytesIO
+
+    from PIL import Image
+
+    buf = BytesIO()
+    Image.new("RGB", (4, 2), (1, 2, 3)).save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
 def test_a_patch_commits_and_becomes_the_next_generation(world):
     project, timeline, item, store, base = world
     patch = _patch("p1", base.generation, [
@@ -1867,6 +1958,118 @@ def test_grade_node_add_refuses_when_the_playhead_will_not_park(
                               "node_index": 3}],
                             ["color"], [[0, 48]]),
                      project, timeline, store)
+    assert receipt["status"] == "verification_failed", receipt
+    assert "park" in receipt["stopped"]["raised"]
+    assert item.nodes == 2
+
+
+def _remove(world, monkeypatch, pid, ops, driver):
+    import time
+
+    from library.tools import edit_algebra
+
+    project, timeline, item, store, base = world
+    monkeypatch.setattr(edit_algebra, "ui_driver_factory",
+                        lambda: driver)
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
+    return edit_algebra, _apply(_patch(
+        pid, base.generation, ops, ["color"], [[0, 48]]),
+        project, timeline, store)
+
+
+def test_grade_node_remove_commits_and_restores_the_labels(
+        world, monkeypatch):
+    """The Graph API has no RemoveNode, so node_remove had no apply
+    (origin/main: `_unapplied` refuses every attempt). The recipe
+    adds a marker (the known start), steps to the target, deletes
+    it, steps to the marker, deletes that - and the patch commits on
+    each stage's count moving by one with the removed position's
+    label gone. The cache-mode labels go back to the originals: the
+    graph the run leaves matches the one it found except for the
+    removed node."""
+    from library.tools.computer_use.scripts import (
+        GRADE_COLOR_PAGE_PATH, GRADE_NODE_ADD_PATH,
+        GRADE_NODE_DELETE_PATH, GRADE_NODE_NEXT_PATH,
+        GRADE_NODE_PREV_PATH)
+
+    project, timeline, item, store, base = world
+    item.nodes = 3
+    uid = item.GetUniqueId()
+    driver = _NodeRemoveDriver(item)
+    _, receipt = _remove(world, monkeypatch, "grade-node-remove", [
+        {"op": "grade.node_remove", "unique_id": uid, "node_index": 2}],
+        driver)
+    assert receipt["status"] == "committed", receipt
+    assert item.nodes == 2
+    assert _node_modes(item) == [-1, -1]
+    assert driver.commands == (
+        [GRADE_COLOR_PAGE_PATH, GRADE_NODE_ADD_PATH]
+        + [GRADE_NODE_PREV_PATH] * 2 + [GRADE_NODE_DELETE_PATH]
+        + [GRADE_NODE_NEXT_PATH] + [GRADE_NODE_DELETE_PATH])
+    assert timeline.timecode_calls, "the playhead parked before the recipe"
+
+
+def test_grade_node_remove_refuses_when_nothing_changes(
+        world, monkeypatch):
+    """A delete that changed no count refuses: without the
+    exact-minus-one judgement, a silently failed press would commit
+    a node_remove the graph never lost."""
+    project, timeline, item, store, base = world
+    item.nodes = 3
+    uid = item.GetUniqueId()
+    _, receipt = _remove(world, monkeypatch, "grade-node-remove-miss", [
+        {"op": "grade.node_remove", "unique_id": uid, "node_index": 2}],
+        _NodeRemoveDriver(item, miss=True))
+    assert receipt["status"] == "verification_failed", receipt
+    assert "3 -> 4 -> 4" in receipt["stopped"]["raised"]
+    assert item.nodes == 4
+
+
+def test_grade_node_remove_refuses_a_delete_on_the_wrong_node(
+        world, monkeypatch):
+    """The count alone cannot tell WHICH node died: the removed
+    position's label must be gone too. A delete that landed on the
+    neighbor refuses and puts the original labels back (the marker
+    it added stays - re-plan against the live graph)."""
+    project, timeline, item, store, base = world
+    item.nodes = 3
+    uid = item.GetUniqueId()
+    _, receipt = _remove(world, monkeypatch, "grade-node-remove-wrong", [
+        {"op": "grade.node_remove", "unique_id": uid, "node_index": 2}],
+        _NodeRemoveDriver(item, wrong=True))
+    assert receipt["status"] == "verification_failed", receipt
+    assert "survivors" in receipt["stopped"]["raised"]
+    assert item.nodes == 3
+    assert _node_modes(item) == [-1, -1, -1]
+
+
+def test_grade_node_remove_refuses_an_absent_node(world, monkeypatch):
+    """An index outside 1..count refuses before anything runs - a
+    recipe stepped for a node that is not there would delete
+    whatever the stepping lands on."""
+    project, timeline, item, store, base = world
+    item.nodes = 2
+    uid = item.GetUniqueId()
+    _, receipt = _remove(world, monkeypatch, "grade-node-remove-absent", [
+        {"op": "grade.node_remove", "unique_id": uid, "node_index": 5}],
+        _NodeRemoveDriver(item))
+    assert receipt["status"] == "verification_failed", receipt
+    assert "outside" in receipt["stopped"]["raised"]
+    assert item.nodes == 2
+
+
+def test_grade_node_remove_refuses_when_the_playhead_will_not_park(
+        world, monkeypatch):
+    """The menus act on the current clip: a playhead that will not
+    park refuses BEFORE the recipe runs, rather than deleting a node
+    on whatever clip happens to be current."""
+    project, timeline, item, store, base = world
+    item.nodes = 2
+    uid = item.GetUniqueId()
+    timeline.stuck_playhead = True
+    _, receipt = _remove(world, monkeypatch, "grade-node-remove-stuck", [
+        {"op": "grade.node_remove", "unique_id": uid, "node_index": 1}],
+        _NodeRemoveDriver(item))
     assert receipt["status"] == "verification_failed", receipt
     assert "park" in receipt["stopped"]["raised"]
     assert item.nodes == 2

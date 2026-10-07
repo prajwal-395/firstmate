@@ -1753,6 +1753,16 @@ class _FakeNodeGraph:
         self._item._node_luts[int(node_index)] = lut
         return True
 
+    def GetNodeCacheMode(self, node_index):
+        return getattr(self._item, "_node_cache_modes", {}).get(
+            int(node_index), -1)
+
+    def SetNodeCacheMode(self, node_index, mode):
+        if not hasattr(self._item, "_node_cache_modes"):
+            self._item._node_cache_modes = {}
+        self._item._node_cache_modes[int(node_index)] = mode
+        return True
+
 
 class FakeTimelineItem:
     _next_id = 0

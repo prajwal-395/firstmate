@@ -188,6 +188,22 @@ AX_TREE = {
                                              "Add Serial Node + PCW"],
                                 },
                                 {
+                                    "ref": "ax-item-prev-node",
+                                    "role": "AXMenuItem",
+                                    "title": "Previous Node",
+                                    "actions": ["AXPress"],
+                                    "path": ["Color", "Nodes",
+                                             "Previous Node"],
+                                },
+                                {
+                                    "ref": "ax-item-next-node",
+                                    "role": "AXMenuItem",
+                                    "title": "Next Node",
+                                    "actions": ["AXPress"],
+                                    "path": ["Color", "Nodes",
+                                             "Next Node"],
+                                },
+                                {
                                     "ref": "ax-item-node-delete",
                                     "role": "AXMenuItem",
                                     "title": "Delete Current Node",
@@ -295,6 +311,8 @@ def handle(request: dict) -> dict:
         matches = _find_by_path(params.get("path"), params.get("title"))
         return reply({"elements": matches})
     if method == "run_command":
+        # Mirrors the real filter (leaf + ancestors, exactly one):
+        # the whole path names the command, not an ancestor chain.
         if _open_project() != QUALIFICATION_PROJECT:
             return _refuse(
                 request_id,
