@@ -58,6 +58,40 @@ def test_a_checkout_is_deleted_on_success(mirror, tmp_path):
     assert os.listdir(os.path.join(state, "checkouts")) == []
 
 
+def test_parallel_checkouts_get_unique_paths_in_the_same_second(
+        mirror, tmp_path, monkeypatch):
+    state = str(tmp_path / "state")
+    rev = _git(mirror, "rev-parse", "HEAD")
+    add_barrier = threading.Barrier(2)
+    entered = threading.Event()
+    entered_paths = []
+    entered_lock = threading.Lock()
+    original_git = hygiene._git
+
+    def synchronized_git(repo, *argv, **kwargs):
+        if argv[:2] == ("worktree", "add"):
+            add_barrier.wait(timeout=10)
+        return original_git(repo, *argv, **kwargs)
+
+    def hold_checkout():
+        with hygiene.disposable_checkout(mirror, rev, state) as checkout:
+            with entered_lock:
+                entered_paths.append(checkout)
+                if len(entered_paths) == 2:
+                    entered.set()
+            assert entered.wait(timeout=3), "both worktrees must be live together"
+            return checkout
+
+    monkeypatch.setattr(hygiene.time, "time", lambda: 1_800_000_000.25)
+    monkeypatch.setattr(hygiene, "_git", synchronized_git)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(hold_checkout) for _ in range(2)]
+        paths = [future.result(timeout=10) for future in futures]
+
+    assert len(set(paths)) == 2
+    assert os.listdir(os.path.join(state, "checkouts")) == []
+
+
 def test_parallel_workers_share_one_safely_created_mirror(mirror, tmp_path,
                                                            monkeypatch):
     remote = str(tmp_path / "remote.git")

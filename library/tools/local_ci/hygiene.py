@@ -24,6 +24,7 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 
@@ -53,15 +54,14 @@ def _slot_lock_is_held(slots_dir: str, slot: int) -> bool:
     """Whether a worker currently owns this slot's cross-process lock."""
     path = os.path.join(slots_dir, f"slot-{slot}.lock")
     try:
-        handle = open(path, encoding="utf-8")
+        with open(path, encoding="utf-8") as handle:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return True
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            return False
     except FileNotFoundError:
-        return False
-    with handle:
-        try:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            return True
-        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
         return False
 
 
@@ -197,9 +197,12 @@ def disposable_checkout(mirror: str, rev: str, state: str = ""):
     """
     root = checkouts_root(state)
     os.makedirs(root, exist_ok=True)
-    path = os.path.join(root, f"run-{os.getpid()}-{int(time.time())}")
-    _git(mirror, "worktree", "add", "--detach", path, rev)
+    # A daemon's Tier-1 slots can start in the same process and second.
+    # Reserve a unique directory atomically instead of deriving the name
+    # from the PID and wall clock.
+    path = tempfile.mkdtemp(prefix=f"run-{os.getpid()}-", dir=root)
     try:
+        _git(mirror, "worktree", "add", "--detach", path, rev)
         yield path
     finally:
         try:
