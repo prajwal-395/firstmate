@@ -87,6 +87,24 @@ def fetch_pr(mirror: str, number: int) -> str:
     return _git(mirror, "rev-parse", f"refs/ren-ci/pr-{number}")
 
 
+def fetch_base(mirror: str, base: str) -> None:
+    """Fetch the base SHA the batch loop may have just landed.
+
+    main moves UNDER the daemon (the mirror fetch and the main_sha
+    read are not atomic): a base the mirror lacks makes every later
+    diff fail with "invalid revision range". Fetch it by SHA - GitHub
+    serves reachable SHAs - and DEFER (HygieneRefused, retried next
+    pass) when it is not fetchable yet, instead of crashing the check
+    onto the PR as an error.
+    """
+    try:
+        _git(mirror, "fetch", "origin", base, timeout=300)
+    except RuntimeError as exc:
+        raise HygieneRefused(
+            f"base {base[:12]} not fetchable yet - main moved under "
+            f"the fetch, retrying next pass ({exc})") from exc
+
+
 @contextlib.contextmanager
 def disposable_checkout(mirror: str, rev: str, state: str = ""):
     """A detached worktree at rev, deleted on exit no matter what.

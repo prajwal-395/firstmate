@@ -48,9 +48,17 @@ def cmd_status(args) -> int:
             verdict = "PASS" if record.get("ok") else "FAIL"
             latency = record.get("tier1_latency")
             latency_s = f" {latency:.0f}s" if latency is not None else ""
+            delivery = ("status posted" if record.get("status_posted")
+                        else "status pending")
             print(f"  PR #{record.get('pr')} {head[:12]} {verdict} "
                   f"{record.get('passed', 0)} passed, "
-                  f"{record.get('failed', 0)} failed{latency_s}")
+                  f"{record.get('failed', 0)} failed{latency_s} "
+                  f"{delivery}")
+            if record.get("url") or record.get("log"):
+                print(f"    {record.get('url', '')}"
+                      f"{(' | log ' + record['log']) if record.get('log') else ''}")
+            if record.get("status_error"):
+                print(f"    status delivery error: {record['status_error']}")
     else:
         print("checks: none recorded")
     from library.tools.local_ci import load, service

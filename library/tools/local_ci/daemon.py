@@ -37,7 +37,15 @@ import concurrent.futures
 import os
 import time
 
-from library.tools.local_ci import config, hygiene, load, queue, runner, selection, state
+from library.tools.local_ci import (
+    config,
+    hygiene,
+    load,
+    queue,
+    runner,
+    selection,
+    state,
+)
 
 
 def run_tier1(world: queue.World, pr: dict, workers: int) -> dict:
@@ -50,18 +58,24 @@ def run_tier1(world: queue.World, pr: dict, workers: int) -> dict:
     """
     from library.tools.local_ci import github
     number, head, url = pr["number"], pr["head"], pr["url"]
-    github.post_status(head, "pending", "ren-ci: selecting tests")
+    github.post_status(head, "pending", "ren-ci: selecting tests", url)
     mirror = world.mirror or hygiene.ensure_mirror(
         f"https://github.com/{config.OWNER}/{config.REPO}.git", world.state_dir)
     world.mirror = mirror
     base = github.main_sha()
+    hygiene.fetch_base(mirror, base)
     local_head = hygiene.fetch_pr(mirror, number)
     if local_head != head:
         raise hygiene.HygieneRefused(
             f"PR #{number} moved during fetch ({head[:12]} -> "
             f"{local_head[:12]}): next pass tests the new head")
     with hygiene.disposable_checkout(mirror, head, world.state_dir) as checkout:
-        files = selection.changed_files(checkout, base, head)
+        try:
+            files = selection.changed_files(checkout, base, head)
+        except RuntimeError as exc:
+            raise hygiene.HygieneRefused(
+                f"PR #{number} diff unreadable ({exc}): next pass retries "
+                "on a fresh fetch") from exc
         paths = selection.selection_for(files, checkout)
         command = (selection.selection_command(files) + " + always-run(" +
                    ", ".join(config.ALWAYS_RUN) + ")")
@@ -74,7 +88,7 @@ def run_tier1(world: queue.World, pr: dict, workers: int) -> dict:
         log = os.path.join(world.state_dir, "logs",
                            f"pr-{number}-{head[:12]}.log")
         github.post_status(head, "pending",
-                           f"ren-ci: running {len(paths)} selections")
+                           f"ren-ci: running {len(paths)} selections", url)
         result = runner.run(paths, checkout, log, workers=workers)
         return {"pr": number, "head": head, "url": url,
                 "ok": result["ok"], "passed": result["passed"],
@@ -82,7 +96,10 @@ def run_tier1(world: queue.World, pr: dict, workers: int) -> dict:
                 "log": result["log"], "selection": paths,
                 "command": command,
                 "broker_leaked": result.get("broker_leaked", False),
-                "timed_out": result.get("timed_out", False)}
+                "timed_out": result.get("timed_out", False),
+                "timeout_diagnostic": result.get("timeout_diagnostic", ""),
+                "process_group_leaked": result.get(
+                    "process_group_leaked", False)}
 
 
 def finish_tier1(world: queue.World, pr: dict, outcome: dict,
@@ -97,38 +114,62 @@ def finish_tier1(world: queue.World, pr: dict, outcome: dict,
     done_at = time.time()
     record = state.record_check(
         {**outcome, "seen_at": seen_at, "done_at": done_at,
-         "tier1_latency": round(done_at - seen_at, 1), "slot": slot},
+         "tier1_latency": round(done_at - seen_at, 1), "slot": slot,
+         "status_posted": False, "status_error": ""},
         world.state_dir)
-    if "static_failed" in outcome:
-        reason = outcome["static_failed"]
-        first = reason.splitlines()[0] if reason else "failed"
-        line = (f"PR {outcome['url']} head {outcome['head']} - 0 passed, "
-                f"1 failed, static gate: {first}")
-        record["report"] = line
-        print(line, flush=True)
-        github.post_status(outcome["head"], "failure",
-                           f"ren-ci static gate: {first}"[:140])
-        if config.READY_LABEL in (pr.get("labels") or []):
-            github.remove_label(outcome["pr"], config.READY_LABEL)
-        return record
-    line = runner.format_report(outcome["url"], outcome["head"],
-                                outcome["passed"], outcome["failed"],
-                                outcome["command"])
+    line = runner.format_report(
+        outcome["url"], outcome["head"], outcome["passed"],
+        outcome["failed"], outcome["command"])
     record["report"] = line
     print(line, flush=True)
-    if outcome["ok"]:
-        github.post_status(
-            outcome["head"], "success",
-            f"ren-ci: {outcome['passed']} passed"[:140], outcome["log"])
-    else:
-        reason = "broker leaked" if outcome.get("broker_leaked") else (
-            "timed out" if outcome.get("timed_out")
-            else f"{outcome['failed']} failed")
-        github.post_status(outcome["head"], "failure",
-                           f"ren-ci: {reason}"[:140], outcome["log"])
-        if config.READY_LABEL in (pr.get("labels") or []):
-            github.remove_label(outcome["pr"], config.READY_LABEL)
+    _publish_check_status(record, world.state_dir)
+    record = state.read_checks(world.state_dir).get(outcome["head"], record)
+    if (not outcome["ok"]
+            and config.READY_LABEL in (pr.get("labels") or [])):
+        github.remove_label(outcome["pr"], config.READY_LABEL)
     return record
+
+
+def _publish_check_status(record: dict, state_dir: str = "") -> bool:
+    """Publish a cached verdict; retry it without re-running pytest.
+
+    A status API failure is not a test verdict. The ledger keeps the
+    result and the next pass retries delivery, so GitHub cannot remain
+    pending forever after a completed local run.
+    """
+    from library.tools.local_ci import github
+    head = record["head"]
+    if record.get("static_failed"):
+        first = record["static_failed"].splitlines()[0] or "failed"
+        status, description = "failure", f"ren-ci static gate: {first}"
+    elif record.get("ok"):
+        status = "success"
+        description = f"ren-ci: {record.get('passed', 0)} passed"
+    else:
+        if record.get("process_group_leaked"):
+            reason = "pytest process group did not exit"
+        elif record.get("broker_leaked"):
+            reason = "broker leaked"
+        elif record.get("timed_out"):
+            reason = "timed out"
+            diagnostic = record.get("timeout_diagnostic", "")
+            if diagnostic:
+                reason += f": {diagnostic}"
+        else:
+            reason = f"{record.get('failed', 1)} failed"
+        status, description = "failure", f"ren-ci: {reason}"
+    target_url = record.get("url") or github.pull_url(record["pr"])
+    try:
+        github.post_status(head, status, description[:140], target_url)
+    except github.GitHubError as exc:
+        state.update_check(head, {"status_posted": False,
+                                  "status_error": str(exc)}, state_dir)
+        print(f"ren-ci status delivery deferred for {head[:12]}: {exc}",
+              flush=True)
+        return False
+    state.update_check(head, {"status_posted": True, "status_error": ""},
+                       state_dir)
+    return True
 
 
 def pass_once(world: queue.World, plan: dict | None = None) -> dict:
@@ -150,12 +191,19 @@ def pass_once(world: queue.World, plan: dict | None = None) -> dict:
         seen_at = state.note_seen(pr["number"], pr["head"], world.state_dir)
         known = checks.get(pr["head"])
         if known and known.get("pr") == pr["number"]:
+            if not known.get("status_posted", False):
+                if not _publish_check_status(known, world.state_dir):
+                    done["refused"].append(
+                        f"PR #{pr['number']}: verdict ready; status delivery "
+                        "will retry next pass")
+                    continue
+                known = state.read_checks(world.state_dir).get(
+                    pr["head"], known)
             _maybe_enqueue(world, pr, known, done)
             continue
         due.append((pr, seen_at))
     if due:
         slots = hygiene.Slots(world.state_dir, jobs=plan["tier1_jobs"])
-        outcomes: dict = {}
 
         def work(item):
             pr, seen_at = item
@@ -166,7 +214,7 @@ def pass_once(world: queue.World, plan: dict | None = None) -> dict:
                     outcome = run_tier1(world, pr, plan["pytest_n"])
                 except hygiene.HygieneRefused as exc:
                     return (pr, seen_at, slot, None, str(exc))
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001 - keep daemon crashes pending
                     return (pr, seen_at, slot, {"crashed": str(exc)}, None)
                 return (pr, seen_at, slot, outcome, None)
 
@@ -179,15 +227,22 @@ def pass_once(world: queue.World, plan: dict | None = None) -> dict:
                         try:
                             github.post_status(
                                 pr["head"], "pending",
-                                f"ren-ci deferred: {problem}"[:140])
+                                f"ren-ci deferred: {problem}"[:140],
+                                pr["url"])
                         except github.GitHubError:
                             pass
                     continue
                 if "crashed" in outcome:
+                    # A crash is the DAEMON's failure, never the PR's
+                    # verdict: pending (retry next pass), never error.
+                    # An error state blocks merges and cries wolf on a
+                    # PR that was never judged; the refused list in the
+                    # pass log is where the crash stays visible.
                     try:
-                        github.post_status(pr["head"], "error",
-                                           f"ren-ci crashed: "
-                                           f"{outcome['crashed']}"[:140])
+                        github.post_status(pr["head"], "pending",
+                                           "ren-ci: internal error, "
+                                           "retrying next pass"[:140],
+                                           pr["url"])
                     except github.GitHubError:
                         pass
                     done["refused"].append(
@@ -198,15 +253,16 @@ def pass_once(world: queue.World, plan: dict | None = None) -> dict:
                 done["checked"].append(pr["number"])
                 _maybe_enqueue(world, pr, record, done)
     entries = state.read_queue(world.state_dir)
-    if any(e.get("status") in (state.ENTRY_QUEUED, state.ENTRY_GREEN)
-           for e in entries):
-        if not any(e.get("status") == state.ENTRY_TESTING for e in entries):
-            done["queue"] = queue.process_once(world, window=plan["window"])
+    if (any(e.get("status") in (state.ENTRY_QUEUED, state.ENTRY_GREEN)
+            for e in entries)
+            and not any(e.get("status") == state.ENTRY_TESTING
+                        for e in entries)):
+        done["queue"] = queue.process_once(world, window=plan["window"])
     return done
 
 
 def _maybe_enqueue(world: queue.World, pr: dict, record: dict, done: dict) -> None:
-    if not record.get("ok"):
+    if not record.get("ok") or not record.get("status_posted"):
         return
     if config.READY_LABEL not in (pr.get("labels") or []):
         return
@@ -235,6 +291,6 @@ def serve(state_dir: str = "", poll: int = config.POLL_SECONDS) -> int:
                   f"checked={result['checked']} queued={result['queued']} "
                   f"refused={result['refused']} queue={result['queue']}",
                   flush=True)
-        except Exception as exc:  # the loop outlives any single pass
+        except Exception as exc:  # noqa: BLE001 - one pass must not stop polling
             print(f"ren-ci pass failed: {exc}", flush=True)
         time.sleep(poll)

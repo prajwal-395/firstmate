@@ -77,6 +77,18 @@ def record_check(entry: dict, state: str = "") -> dict:
     return record
 
 
+def update_check(head: str, fields: dict, state: str = "") -> dict | None:
+    """Update delivery metadata without changing the check's verdict time."""
+    checks = read_checks(state)
+    record = checks.get(head)
+    if not isinstance(record, dict):
+        return None
+    record.update(fields)
+    checks[head] = record
+    _write(CHECKS_FILENAME, checks, state)
+    return dict(record)
+
+
 def read_queue(state: str = "") -> list:
     """The merge queue, oldest first."""
     data = _read(QUEUE_FILENAME, state)

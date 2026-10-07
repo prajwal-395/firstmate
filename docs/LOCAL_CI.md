@@ -32,7 +32,8 @@ once per cluster instead of once per PR.
 
 1. Push the PR against `main`.
 2. Watch the `ren-ci/pr-checks` commit status on the head (pending ->
-   success/failure with the selection in the description).
+   success/failure, linked to the PR). `ren ci status` prints the
+   selection, check latency, and local log path.
 3. When Tier-1 is green, mark ready: add the `ren-ci-ready` label, or
    `ren ci ready <pr>`.
 4. The cluster runs Tier-2 when its window closes; merges land in
@@ -65,6 +66,20 @@ runs `real_model` or `resolve_live` markers, and the three
 Resolve-driving qualification files are ignored by name. State lives
 in `~/.ren-ci` (machine, never a repo); logs in
 `~/Library/Logs/ren-ci/`.
+
+Tier-1 pytest has a 30-minute hard timeout and runs in its own process
+group so the timeout also stops xdist workers. A stuck test gets
+faulthandler traces in the log every five minutes; timeout is a failed
+verdict. GitHub status delivery failures keep the cached result and
+retry on the next pass without running the tests again.
+
+Two races are designed out, not retried blindly: the base is fetched
+by SHA after the `main_sha` read (main moves under the daemon while
+the batch loop merges - a missing base defers to the next pass), and
+only files present in the checkout compile or test (a stale-base diff
+names files the PR's tree never had). A crash posts `pending`, never
+`error`: a red X must mean the PR was judged, not that the daemon
+tripped.
 
 ## Install (only after the delivering PR merges)
 

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from urllib.parse import urlparse
 
 from library.tools.local_ci import config
 
@@ -87,6 +88,11 @@ def repo_path() -> str:
     return f"{config.OWNER}/{config.REPO}"
 
 
+def pull_url(number: int) -> str:
+    """A browser link for a PR's status, never a machine-local log path."""
+    return f"https://github.com/{repo_path()}/pull/{number}"
+
+
 def _shape_pull(data: dict) -> dict:
     head = data.get("head", {}) or {}
     base = data.get("base", {}) or {}
@@ -127,12 +133,16 @@ def post_status(head: str, state: str, description: str,
                 target_url: str = "") -> None:
     """Post the check verdict for a head SHA.
 
-    state is pending | success | failure | error. The description is
-    the one-line verdict; the log travels via target_url (a file:// or
-    gist path the status command prints - statuses carry no log body).
+    state is pending | success | failure | error. `target_url` must be
+    a browser-accessible HTTP(S) page. Run logs stay local and are
+    printed by `ren ci status`; a filesystem path is not a GitHub link.
     """
     if state not in ("pending", "success", "failure", "error"):
         raise ValueError(f"commit status state {state!r} is not a status")
+    if target_url:
+        parsed = urlparse(target_url)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            raise ValueError("commit status target_url must be HTTP(S)")
     fields = {"state": state, "context": config.STATUS_CONTEXT,
               "description": description[:140]}
     if target_url:

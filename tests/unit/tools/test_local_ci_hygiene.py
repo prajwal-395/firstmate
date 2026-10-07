@@ -7,6 +7,7 @@ stuttered the editor, the broker a test run left behind.
 
 import os
 import subprocess
+import sys
 
 import pytest
 
@@ -36,10 +37,10 @@ def mirror(tmp_path):
 def test_a_checkout_is_deleted_when_the_body_fails(mirror, tmp_path):
     state = str(tmp_path / "state")
     rev = _git(mirror, "rev-parse", "HEAD")
-    with pytest.raises(RuntimeError):
-        with hygiene.disposable_checkout(mirror, rev, state) as checkout:
-            assert os.path.isfile(os.path.join(checkout, "file.txt"))
-            raise RuntimeError("the tests failed")
+    with pytest.raises(RuntimeError), hygiene.disposable_checkout(
+            mirror, rev, state) as checkout:
+        assert os.path.isfile(os.path.join(checkout, "file.txt"))
+        raise RuntimeError("the tests failed")
     leftovers = os.listdir(os.path.join(state, "checkouts"))
     assert leftovers == [], f"checkout debris: {leftovers}"
     # The mirror forgot it too: no phantom worktree entries accumulate.
@@ -75,8 +76,15 @@ def test_disk_floor_refuses_and_names_the_shortfall(monkeypatch, tmp_path):
 
 
 class _Proc:
-    def __init__(self, code=0):
+    def __init__(self, code=0, timeout=False):
         self.returncode = code
+        self.pid = 2_000_000_000
+        self.timeout = timeout
+
+    def wait(self, timeout=None):
+        if self.timeout:
+            raise subprocess.TimeoutExpired("pytest", timeout)
+        return self.returncode
 
 
 def _pytest_fake(log_text, code=0):
@@ -84,8 +92,6 @@ def _pytest_fake(log_text, code=0):
         out = kwargs.get("stdout")
         if hasattr(out, "write"):
             out.write(log_text)
-        if kwargs.get("capture_output"):
-            return subprocess.CompletedProcess(cmd, code, stdout="", stderr="")
         return _Proc(code)
     return fake
 
@@ -93,8 +99,9 @@ def _pytest_fake(log_text, code=0):
 def test_a_new_broker_after_the_run_fails_the_check(monkeypatch, tmp_path):
     monkeypatch.setattr(hygiene, "broker_serving", _sequence([False, True]))
     monkeypatch.setattr(hygiene, "gate_running", lambda: False)
-    monkeypatch.setattr("subprocess.run", _pytest_fake("3 passed in 1s\n"))
-    result = runner.run(["tests/contracts"], str(tmp_path),
+    monkeypatch.setattr(runner, "_pytest_python", lambda: sys.executable)
+    monkeypatch.setattr("subprocess.Popen", _pytest_fake("3 passed in 1s\n"))
+    result = runner.run(["tests/contracts"], _checkout_with(tmp_path),
                         str(tmp_path / "run.log"))
     assert result["broker_leaked"] is True
     assert result["ok"] is False
@@ -103,20 +110,24 @@ def test_a_new_broker_after_the_run_fails_the_check(monkeypatch, tmp_path):
 def test_no_new_broker_passes_a_green_run(monkeypatch, tmp_path):
     monkeypatch.setattr(hygiene, "broker_serving", _sequence([False, False]))
     monkeypatch.setattr(hygiene, "gate_running", lambda: False)
-    monkeypatch.setattr("subprocess.run", _pytest_fake("3 passed in 1s\n"))
-    result = runner.run(["tests/contracts"], str(tmp_path),
+    monkeypatch.setattr(runner, "_pytest_python", lambda: sys.executable)
+    monkeypatch.setattr("subprocess.Popen", _pytest_fake("3 passed in 1s\n"))
+    result = runner.run(["tests/contracts"], _checkout_with(tmp_path),
                         str(tmp_path / "run.log"))
     assert result == {"passed": 3, "failed": 0, "ok": True, "exit": 0,
                       "elapsed": result["elapsed"], "timed_out": False,
+                      "timeout_diagnostic": "",
+                      "process_group_leaked": False,
                       "broker_leaked": False, "log": result["log"]}
 
 
 def test_a_run_that_never_prints_a_summary_fails_closed(monkeypatch, tmp_path):
     monkeypatch.setattr(hygiene, "broker_serving", _sequence([False, False]))
     monkeypatch.setattr(hygiene, "gate_running", lambda: False)
-    monkeypatch.setattr("subprocess.run",
+    monkeypatch.setattr(runner, "_pytest_python", lambda: sys.executable)
+    monkeypatch.setattr("subprocess.Popen",
                         _pytest_fake("ERROR collecting tests\n", code=2))
-    result = runner.run(["tests/contracts"], str(tmp_path),
+    result = runner.run(["tests/contracts"], _checkout_with(tmp_path),
                         str(tmp_path / "run.log"))
     assert result["ok"] is False
     assert result["failed"] == 1  # 0/0 is a failed run, never a pass
@@ -124,15 +135,57 @@ def test_a_run_that_never_prints_a_summary_fails_closed(monkeypatch, tmp_path):
 
 def test_a_hung_run_times_out_and_still_reports(monkeypatch, tmp_path):
     def hanging(cmd, **kwargs):
-        raise subprocess.TimeoutExpired(cmd, 1)
+        kwargs["stdout"].write("tests/example.py::test_waiting\n")
+        return _Proc(code=None, timeout=True)
 
     monkeypatch.setattr(hygiene, "broker_serving", _sequence([False, False]))
     monkeypatch.setattr(hygiene, "gate_running", lambda: False)
-    monkeypatch.setattr("subprocess.run", hanging)
-    result = runner.run(["tests/contracts"], str(tmp_path),
+    monkeypatch.setattr(runner, "_pytest_python", lambda: sys.executable)
+    monkeypatch.setattr("subprocess.Popen", hanging)
+    monkeypatch.setattr(runner, "_terminate_process_group", lambda process: True)
+    result = runner.run(["tests/contracts"], _checkout_with(tmp_path),
                         str(tmp_path / "run.log"), timeout=1)
     assert result["timed_out"] is True
     assert result["ok"] is False
+    assert "REN-CI TIMEOUT" in (tmp_path / "run.log").read_text()
+
+
+def test_timeout_terminates_the_isolated_pytest_process_group(tmp_path):
+    child_pid = tmp_path / "child.pid"
+    child_stopped = tmp_path / "child.stopped"
+    child_code = (
+        "import signal, sys, time; "
+        f"signal.signal(signal.SIGTERM, lambda *_: (open({str(child_stopped)!r}, 'w').close(), sys.exit(0))); "
+        "time.sleep(30)"
+    )
+    parent_code = (
+        "import subprocess, sys, time; "
+        f"child = subprocess.Popen([sys.executable, '-c', {child_code!r}]); "
+        f"open({str(child_pid)!r}, 'w').write(str(child.pid)); "
+        "time.sleep(30)"
+    )
+    result = runner._run_logged(
+        [sys.executable, "-c", parent_code], str(tmp_path),
+        str(tmp_path / "run.log"), timeout=0.5)
+    assert result["timed_out"] is True
+    assert result["group_clean"] is True
+    assert child_stopped.exists()
+
+
+def test_pytest_logs_test_names_and_dumps_hung_test_stacks():
+    argv = runner.pytest_argv(["tests/contracts"], workers=1)
+    assert "-v" in argv
+    assert argv[argv.index("-o") + 1] == "faulthandler_timeout=300"
+
+
+def test_timeout_diagnostic_keeps_the_blocked_test_frame(tmp_path):
+    log = tmp_path / "run.log"
+    log.write_text(
+        'File "tests/unit/tools/test_local_ci_hygiene.py", line 155, '
+        "in test_timeout\n", encoding="utf-8")
+    assert runner._timeout_diagnostic(str(log)) == (
+        'File "tests/unit/tools/test_local_ci_hygiene.py", line 155, '
+        "in test_timeout")
 
 
 def test_gate_deference_refuses_instead_of_fighting(monkeypatch, tmp_path):
@@ -142,6 +195,24 @@ def test_gate_deference_refuses_instead_of_fighting(monkeypatch, tmp_path):
                    str(tmp_path / "run.log"))
 
 
+def test_an_unfetchable_base_defers_instead_of_crashing(tmp_path):
+    # PR #2087's crash: main moved between the mirror fetch and the
+    # main_sha read, so the base object was missing and the diff died
+    # with "invalid revision range" - posted onto the PR as an error.
+    # A missing base is a STALE MIRROR, retried next pass, never a
+    # verdict on the PR.
+    mirror = str(tmp_path / "mirror")
+    os.makedirs(mirror)
+    subprocess.run(["git", "init", "-q", mirror], check=True, timeout=30)
+    with pytest.raises(hygiene.HygieneRefused, match="not fetchable"):
+        hygiene.fetch_base(mirror, "a27441728ddca71b9f4af928da4b28881484996f")
+
+
 def _sequence(values):
     iterator = iter(values)
     return lambda: next(iterator)
+
+
+def _checkout_with(tmp_path):
+    (tmp_path / "tests" / "contracts").mkdir(parents=True)
+    return str(tmp_path)

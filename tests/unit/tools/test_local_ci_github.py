@@ -7,8 +7,10 @@ gh-style `--method`/`-f` flags gh-axi does not have (its api usage is
 GitHub call as unreachable. No network here: the shapes are captured.
 """
 
-from library.tools.local_ci.github import _parse_response, _shape_pull
+import pytest
 
+from library.tools.local_ci import github
+from library.tools.local_ci.github import _parse_response, _shape_pull
 
 PULLS_ENVELOPE = """[2]:
   - number: 2082
@@ -44,3 +46,20 @@ def test_plain_json_passes_through():
 
 def test_empty_is_an_empty_object():
     assert _parse_response("   \n", "x") == {}
+
+
+def test_status_target_is_a_browser_link(monkeypatch):
+    calls = []
+    monkeypatch.setattr(github, "_api",
+                        lambda *args, **kwargs: calls.append((args, kwargs)))
+    target = "https://github.com/o/r/pull/42"
+    github.post_status("abc123", "failure", "ren-ci: timed out", target)
+    assert calls[0][1]["fields"]["target_url"] == target
+    with pytest.raises(ValueError, match=r"HTTP\(S\)"):
+        github.post_status("abc123", "failure", "ren-ci: timed out",
+                           "/Users/me/.ren-ci/run.log")
+
+
+def test_pull_url_points_at_the_configured_repository():
+    assert github.pull_url(42) == (
+        "https://github.com/prajwal-395/video_editing_pilot/pull/42")

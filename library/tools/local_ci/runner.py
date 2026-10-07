@@ -18,10 +18,11 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import signal
 import subprocess
 import time
 
-from library.tools.local_ci import config, hygiene, selection
+from library.tools.local_ci import config, hygiene
 
 # `18 passed, 3 skipped` / `2 failed, 18 passed` - the tail pytest
 # prints. Parsed, never trusted for the verdict alone: the verdict is
@@ -46,10 +47,111 @@ def pytest_argv(paths: list, workers: int = 2) -> list:
     bound stands - the parallelism the refinement adds is ACROSS PRs).
     """
     argv = ["-m", "pytest", *paths, "-m", config.PYTEST_MARKERS,
-            "-q", "--tb=short", "-n", str(max(1, min(2, workers)))]
+            "-v", "--tb=short", "-o", "faulthandler_timeout=300",
+            "-n", str(max(1, min(2, workers)))]
     for driven in config.RESOLVE_DRIVING:
         argv.extend(["--ignore", driven])
     return argv
+
+
+def _process_group_exists(pgid: int) -> bool:
+    """Whether a run's isolated process group still has members."""
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _terminate_process_group(process: subprocess.Popen,
+                             grace_seconds: float = 5.0) -> bool:
+    """Stop the pytest process and every child it spawned, boundedly.
+
+    `subprocess.run(timeout=...)` only guarantees termination of its
+    direct child. pytest-xdist workers share this run's process group,
+    so SIGTERM/SIGKILL the group and verify the group is gone before a
+    slot can be reused. The group id is the exact pid this runner
+    started; it is not a name or pattern match.
+    """
+    pgid = process.pid
+    if not _process_group_exists(pgid):
+        return True
+    try:
+        os.killpg(pgid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    except OSError:
+        return False
+
+    try:
+        process.wait(timeout=grace_seconds)
+    except subprocess.TimeoutExpired:
+        pass
+
+    deadline = time.monotonic() + grace_seconds
+    while _process_group_exists(pgid) and time.monotonic() < deadline:
+        time.sleep(0.05)
+
+    if _process_group_exists(pgid):
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except OSError:
+            return False
+
+    try:
+        process.wait(timeout=grace_seconds)
+    except subprocess.TimeoutExpired:
+        return False
+    deadline = time.monotonic() + grace_seconds
+    while _process_group_exists(pgid) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    return not _process_group_exists(pgid)
+
+
+def _run_logged(command: list, cwd: str, log_path: str,
+                timeout: int) -> dict:
+    """Run a command in a new session with a hard timeout and log file.
+
+    A timed-out pytest must end in a failure result, not leave xdist
+    workers holding a slot or turn the status back into pending. The
+    separate session gives cleanup an exact process-group id.
+    """
+    os.makedirs(os.path.dirname(log_path) or ".", exist_ok=True)
+    started = time.monotonic()
+    try:
+        with open(log_path, "w", encoding="utf-8") as log:
+            try:
+                process = subprocess.Popen(
+                    command, cwd=cwd, stdout=log, stderr=subprocess.STDOUT,
+                    encoding="utf-8", start_new_session=True)
+            except OSError as exc:
+                log.write(f"ren-ci could not start command: {exc}\n")
+                return {"exit": 127, "timed_out": False,
+                        "group_clean": True,
+                        "elapsed": time.monotonic() - started}
+
+            try:
+                exit_code = process.wait(timeout=timeout)
+                timed_out = False
+                group_clean = _terminate_process_group(process)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                group_clean = _terminate_process_group(process)
+                exit_code = process.returncode
+                log.write(
+                    f"\nREN-CI TIMEOUT after {timeout}s; "
+                    f"process_group_clean={group_clean}\n")
+    except OSError as exc:
+        return {"exit": 127, "timed_out": False, "group_clean": True,
+                "elapsed": time.monotonic() - started,
+                "error": str(exc)}
+    return {"exit": exit_code if exit_code is not None else -1,
+            "timed_out": timed_out, "group_clean": group_clean,
+            "elapsed": time.monotonic() - started}
 
 
 def _pytest_python() -> str:
@@ -61,7 +163,7 @@ def _pytest_python() -> str:
         python, _ = python_interpreter(os.getcwd())
         if python and os.path.exists(python):
             return python
-    except Exception:
+    except (ImportError, OSError, RuntimeError):
         pass
     return "python3"
 
@@ -81,25 +183,24 @@ def run(paths: list, checkout: str, log_path: str,
     if hygiene.gate_running():
         raise hygiene.HygieneRefused(
             "a full-suite gate holds the machine - deferred, not skipped")
+    paths = [p for p in paths
+             if os.path.exists(os.path.join(checkout, p))]
+    if not paths:
+        raise hygiene.HygieneRefused(
+            "selection vanished against the checkout - every selected "
+            "path is absent, so this checkout is anomalous; retrying "
+            "next pass on a fresh fetch")
     broker_before = hygiene.broker_serving()
-    started = time.time()
-    os.makedirs(os.path.dirname(log_path) or ".", exist_ok=True)
-    try:
-        with open(log_path, "w", encoding="utf-8") as log:
-            proc = subprocess.run(
-                [_pytest_python(), *pytest_argv(paths, workers)],
-                cwd=checkout, stdout=log, stderr=subprocess.STDOUT,
-                encoding="utf-8", check=False, timeout=timeout)
-        timed_out = False
-    except subprocess.TimeoutExpired:
-        proc = None
-        timed_out = True
-    elapsed = time.time() - started
+    result = _run_logged(
+        [_pytest_python(), *pytest_argv(paths, workers)],
+        checkout, log_path, timeout)
+    timed_out = result["timed_out"]
     passed, failed = _read_summary(log_path)
+    timeout_diagnostic = _timeout_diagnostic(log_path) if timed_out else ""
     # Exit code is the verdict; counts decorate it. A nonzero exit with
     # an unreadable summary (collection error, timeout, crash) still
     # fails: 0/0 is a failed run, never "no tests ran, ship it".
-    if proc is None or proc.returncode != 0:
+    if result["exit"] != 0 or not result["group_clean"]:
         ok = False
         if failed == 0 and passed == 0:
             failed = 1
@@ -108,8 +209,11 @@ def run(paths: list, checkout: str, log_path: str,
     broker_after = hygiene.broker_serving()
     leaked = broker_after and not broker_before
     return {"passed": passed, "failed": 0 if ok else max(failed, 1),
-            "ok": ok and not leaked, "exit": -1 if proc is None else proc.returncode,
-            "elapsed": elapsed, "timed_out": timed_out,
+            "ok": ok and not leaked and result["group_clean"],
+            "exit": result["exit"], "elapsed": result["elapsed"],
+            "timed_out": timed_out,
+            "timeout_diagnostic": timeout_diagnostic,
+            "process_group_leaked": not result["group_clean"],
             "broker_leaked": leaked, "log": log_path}
 
 
@@ -123,6 +227,11 @@ def run_static(checkout: str, changed: list) -> dict:
     ruff missing is a FAILED check, not a skip: the gate config is the
     build's one enforcing gate (AGENTS.md 9), and an unmeasured gate
     that reports green is worse than no gate. Remedy names itself.
+
+    Only files PRESENT in the checkout compile: a stale-base diff
+    names files the PR's tree never had (added on main after the
+    branch), and py_compile on a missing path fails the PR for
+    somebody else's file.
     """
     if shutil.which("ruff") is None:
         return {"ok": False,
@@ -135,7 +244,8 @@ def run_static(checkout: str, changed: list) -> dict:
     if gate.returncode != 0:
         return {"ok": False,
                 "reason": f"ruff gate failed:\n{gate.stdout.strip()[:2000]}"}
-    py_files = [p for p in changed if p.endswith(".py")]
+    py_files = [p for p in changed if p.endswith(".py")
+                and os.path.isfile(os.path.join(checkout, p))]
     if py_files:
         compiled = subprocess.run(
             ["python3", "-m", "py_compile", *py_files],
@@ -168,24 +278,20 @@ def run_gate(checkout: str, log_path: str,
     line, timeout, crash) is DID NOT RUN: requeue, never merge blind.
     """
     os.makedirs(os.path.dirname(log_path) or ".", exist_ok=True)
-    try:
-        with open(log_path, "w", encoding="utf-8") as log:
-            proc = subprocess.run(
-                ["bash", "scripts/full_suite_gate.sh"],
-                cwd=checkout, stdout=log, stderr=subprocess.STDOUT,
-                encoding="utf-8", check=False, timeout=timeout)
-        timed_out = False
-    except subprocess.TimeoutExpired:
-        proc = None
-        timed_out = True
+    result = _run_logged(["bash", "scripts/full_suite_gate.sh"],
+                         checkout, log_path, timeout)
+    timed_out = result["timed_out"]
     verdict = _read_verdict(log_path)
-    if verdict == "PASS":
+    if verdict == "PASS" and result["group_clean"]:
         return {"ok": True, "requeue": False, "verdict": verdict,
                 "reason": "", "timed_out": False, "log": log_path}
-    if verdict in ("NARROWED PASS", "DID NOT RUN") or timed_out:
+    if (verdict in ("NARROWED PASS", "DID NOT RUN") or timed_out
+            or not result["group_clean"]):
         return {"ok": False, "requeue": True, "verdict": verdict,
                 "reason": f"full gate {verdict.lower()}"
                           + (" (timed out)" if timed_out else "")
+                          + (" (process group did not exit)"
+                             if not result["group_clean"] else "")
                           + f", log {log_path}",
                 "timed_out": timed_out, "log": log_path}
     return {"ok": False, "requeue": False, "verdict": verdict,
@@ -225,3 +331,27 @@ def _read_summary(log_path: str) -> tuple:
     failed = int(match.group(1) or 0)
     passed = int(match.group(2) or 0)
     return passed, failed
+
+
+def _timeout_diagnostic(log_path: str) -> str:
+    """Best available breadcrumb for the test that held the run open.
+
+    `faulthandler_timeout` writes Python frames for a stuck test; verbose
+    pytest output also names completed/current items. Keep the last
+    relevant line in the ledger/status description so a timeout can be
+    diagnosed without attaching to the next run.
+    """
+    try:
+        with open(log_path, encoding="utf-8") as handle:
+            lines = handle.read()[-32_000:].splitlines()
+    except OSError:
+        return ""
+    for line in reversed(lines):
+        stripped = line.strip()
+        if stripped.startswith("File \"tests/") and ", in " in stripped:
+            return stripped[:220]
+    for line in reversed(lines):
+        stripped = line.strip()
+        if stripped.startswith("tests/") and "::" in stripped:
+            return stripped[:220]
+    return ""

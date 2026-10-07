@@ -20,7 +20,7 @@ def _pr(number, head=None, labels=(), draft=False):
 
 @pytest.fixture
 def faked_github(monkeypatch):
-    import library.tools.local_ci.github as github
+    from library.tools.local_ci import github
     posts = []
     monkeypatch.setattr(github, "list_open_prs", lambda: faked_github.prs)
     monkeypatch.setattr(github, "post_status",
@@ -89,3 +89,65 @@ def test_known_heads_are_not_retested(monkeypatch, tmp_path, faked_github):
                                          "window": 0, "headroom": 0.0,
                                          "heavy": []})
     assert done["checked"] == [] and calls == []
+
+
+def test_failed_status_delivery_retries_without_rerunning_tests(
+        monkeypatch, tmp_path, faked_github):
+    from library.tools.local_ci import github
+    pr = _pr(4)
+    faked_github.prs = [pr]
+    runs = []
+    posts = []
+
+    def run_once(world, current_pr, workers):
+        runs.append(current_pr["head"])
+        return _outcome(current_pr)
+
+    def post_status(*args, **kwargs):
+        posts.append((args, kwargs))
+        if len(posts) == 1:
+            raise github.GitHubError("temporary API refusal")
+
+    monkeypatch.setattr(daemon, "run_tier1", run_once)
+    monkeypatch.setattr(github, "post_status", post_status)
+    world = queue.World(state_dir=str(tmp_path))
+    plan = {"tier1_jobs": 1, "pytest_n": 2, "window": 0,
+            "headroom": 0.0, "heavy": []}
+
+    first = daemon.pass_once(world, plan=plan)
+    record = state.read_checks(str(tmp_path))[pr["head"]]
+    assert first["checked"] == [4]
+    assert record["ok"] is True and record["status_posted"] is False
+    assert "temporary API refusal" in record["status_error"]
+
+    second = daemon.pass_once(world, plan=plan)
+    record = state.read_checks(str(tmp_path))[pr["head"]]
+    assert second["checked"] == []
+    assert runs == [pr["head"]]
+    assert record["status_posted"] is True
+    assert posts[1][0][3] == pr["url"]
+
+
+def test_a_crash_posts_pending_never_error(monkeypatch, tmp_path,
+                                           faked_github):
+    # PRs #2087-2089: the invalid-range crash posted error states that
+    # block merges, on PRs never judged. A crash is the daemon's
+    # failure: pending (retry), with the crash visible in the refused
+    # list, never an error verdict on the PR.
+    faked_github.prs = [_pr(9)]
+
+    def boom(world, pr, workers):
+        raise RuntimeError("git diff deadbee..f00 failed: invalid range")
+
+    monkeypatch.setattr(daemon, "run_tier1", boom)
+    world = queue.World(state_dir=str(tmp_path))
+    done = daemon.pass_once(world, plan={"tier1_jobs": 1, "pytest_n": 2,
+                                         "window": 0, "headroom": 0.0,
+                                         "heavy": []})
+    assert done["checked"] == []
+    assert any("crashed" in line for line in done["refused"])
+    pending = [call for call in faked_github.posts
+               if len(call) >= 2 and call[1] == "pending"]
+    assert pending, faked_github.posts
+    assert not any(len(call) >= 2 and call[1] == "error"
+                   for call in faked_github.posts)

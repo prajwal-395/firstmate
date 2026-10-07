@@ -113,12 +113,15 @@ class World:
 
     def report(self, pr: int, head: str, url: str, ok: bool, reason: str) -> None:
         from library.tools.local_ci import github
+        target_url = url or github.pull_url(pr)
         if ok:
-            github.post_status(head, "success", "ren-ci merge queue: merged")
+            github.post_status(head, "success", "ren-ci merge queue: merged",
+                               target_url)
             github.remove_label(pr, config.READY_LABEL)
         else:
             github.post_status(head, "failure",
-                               f"ren-ci merge queue: kicked - {reason}")
+                               f"ren-ci merge queue: kicked - {reason}",
+                               target_url)
             github.remove_label(pr, config.READY_LABEL)
 
 
@@ -134,7 +137,7 @@ def _stack_checkout(checkout: str, base: str, heads: list) -> dict:
     """Merge heads onto the base checkout in order. Conflict is a
     RESULT (the stack cannot exist), not an exception."""
     for head in heads:
-        code, err = _git(checkout, "merge", "--no-commit", "--no-ff", head)
+        code, _err = _git(checkout, "merge", "--no-commit", "--no-ff", head)
         if code != 0:
             _git(checkout, "merge", "--abort")
             return {"ok": False,
@@ -240,7 +243,7 @@ def merge_in_order(world: World, base: str, green: list) -> tuple:
             break
         try:
             current = world.main_sha()
-        except Exception as exc:
+        except (OSError, RuntimeError) as exc:
             for rest in green[index:]:
                 rest["status"] = state.ENTRY_QUEUED
                 rest["reason"] = f"could not read main: {exc} - re-testing"
@@ -256,7 +259,7 @@ def merge_in_order(world: World, base: str, green: list) -> tuple:
             break
         try:
             landed = world.merge_pr(member["pr"], member["head"])
-        except Exception as exc:
+        except (OSError, RuntimeError) as exc:
             member["status"] = state.ENTRY_QUEUED
             member["reason"] = f"merge refused ({exc}) - re-testing"
             requeued.append(member)
@@ -302,7 +305,7 @@ def process_once(world: World, window: int = 90) -> dict:
     for member in cluster:
         try:
             head = world.pr_head(member["pr"])
-        except Exception as exc:
+        except (OSError, RuntimeError) as exc:
             member["status"] = state.ENTRY_QUEUED
             member["reason"] = f"could not read PR head: {exc}"
             summary["requeued"].append(member["pr"])

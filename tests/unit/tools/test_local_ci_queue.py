@@ -8,7 +8,7 @@ never kick the innocent.
 
 import pytest
 
-from library.tools.local_ci import config, queue, state
+from library.tools.local_ci import config, github, queue, state
 
 
 def _member(pr, head=None):
@@ -46,6 +46,18 @@ class FakeWorld(queue.World):
 
     def report(self, pr, head, url, ok, reason):
         self.reports.append((pr, ok, reason))
+
+
+@pytest.mark.parametrize("ok", [True, False])
+def test_report_links_to_the_pr_when_queue_event_has_no_url(monkeypatch, ok):
+    statuses = []
+    monkeypatch.setattr(github, "post_status",
+                        lambda *args: statuses.append(args))
+    monkeypatch.setattr(github, "remove_label", lambda *args: None)
+
+    queue.World().report(42, "head", "", ok, "stack red")
+
+    assert statuses[0][3] == github.pull_url(42)
 
 
 def test_a_red_stack_bisects_to_the_culprit_and_merges_the_rest():
