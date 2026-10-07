@@ -232,6 +232,49 @@ def snapshot_hash(snapshot: dict) -> str:
     return hashlib.sha256(canonical(snapshot).encode("utf-8")).hexdigest()
 
 
+_LIGHT_CLIP_KEYS = (
+    "unique_id", "name", "record_in", "record_out", "duration",
+    "source_in_frame", "source_out_frame", "left_offset", "right_offset",
+    "source_file", "media_pool_item_id", "enabled", "clip_color", "flags",
+    "speed", "transform", "markers",
+)
+
+
+def light_state_of_snapshot(snapshot: dict) -> dict:
+    """The structural slice the watcher fingerprints before a full read."""
+    return {
+        "timeline": snapshot["timeline"],
+        "start_frame": snapshot["start_frame"],
+        "end_frame": snapshot["end_frame"],
+        "tracks": [
+            {
+                "type": track["type"],
+                "index": track["index"],
+                "name": track["name"],
+                "clips": [
+                    {
+                        **{key: clip[key] for key in _LIGHT_CLIP_KEYS
+                           if key != "markers"},
+                        "markers": sorted(
+                            clip["markers"],
+                            key=lambda marker: int(marker["frame"])),
+                    }
+                    for clip in track["clips"]
+                ],
+            }
+            for track in snapshot["tracks"]
+        ],
+        "markers": sorted(
+            snapshot["markers"]["timeline"],
+            key=lambda marker: int(marker["frame"])),
+    }
+
+
+def light_fingerprint(state: dict) -> str:
+    """Hash the light timeline read or its projection from a stored snapshot."""
+    return snapshot_hash(state)
+
+
 @dataclass(frozen=True)
 class Generation:
     project: str

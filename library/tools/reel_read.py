@@ -746,6 +746,89 @@ def read_tracks(timeline,
     return tracks
 
 
+def read_light_state(timeline) -> dict:
+    """Read the timeline's edit fingerprint without its full reel detail.
+
+    The watcher uses this slice on each cadence. It reads track names,
+    item identity and spans, source trims, media identity, speed, enabled
+    state, clip color, flags, transform properties, and timeline/clip markers.
+    It does not read Fusion, color grading, or other full-snapshot detail. The
+    cursor is never moved.
+    """
+    def marker_rows(markers):
+        return [
+            {
+                "frame": int(frame),
+                "color": (marker.get("color") or ""),
+                "name": (marker.get("name") or ""),
+                "note": (marker.get("note") or ""),
+                "duration": marker.get("duration", 0),
+                "custom_data": (marker.get("customData") or ""),
+            }
+            for frame, marker in sorted(
+                (markers or {}).items(), key=lambda pair: int(pair[0]))
+        ]
+
+    tracks = []
+    try:
+        for row in live_items(timeline):
+            clips = []
+            for item in row["items"]:
+                try:
+                    pool_item = _call(item, "GetMediaPoolItem", None)
+                    source_file = (
+                        _call(pool_item, "GetClipProperty", "", "File Path")
+                        or _call(pool_item, "GetClipProperty", "", "Clip Path"))
+                    clips.append({
+                        "unique_id": _call(item, "GetUniqueId", ""),
+                        "name": item.GetName() or "",
+                        "record_in": item.GetStart(),
+                        "record_out": item.GetEnd(),
+                        "duration": item.GetDuration(),
+                        "source_in_frame": _call(
+                            item, "GetSourceStartFrame", None),
+                        "source_out_frame": _call(
+                            item, "GetSourceEndFrame", None),
+                        "left_offset": _call(item, "GetLeftOffset", None),
+                        "right_offset": _call(item, "GetRightOffset", None),
+                        "source_file": source_file,
+                        "media_pool_item_id": _call(
+                            pool_item, "GetMediaId", ""),
+                        "enabled": _call(item, "GetClipEnabled", None),
+                        "clip_color": _call(item, "GetClipColor", ""),
+                        "flags": list(_call(item, "GetFlagList", []) or []),
+                        "speed": _speed_percent(item),
+                        "transform": _item_transform(item),
+                        "markers": marker_rows(
+                            _call(item, "GetMarkers", {}) or {}),
+                    })
+                except Exception as unreadable:
+                    raise ReelReadError(
+                        f"a timeline item on {row['type']}{row['index']} "
+                        f"could not be fingerprinted ({unreadable})") \
+                        from unreadable
+            tracks.append({
+                "type": row["type"],
+                "index": row["index"],
+                "name": row["name"],
+                "clips": clips,
+            })
+        timeline_markers = marker_rows(timeline.GetMarkers() or {})
+        return {
+            "timeline": timeline.GetName(),
+            "start_frame": timeline.GetStartFrame(),
+            "end_frame": timeline.GetEndFrame(),
+            "tracks": tracks,
+            "markers": timeline_markers,
+        }
+    except ReelReadError:
+        raise
+    except Exception as unreadable:
+        raise ReelReadError(
+            f"timeline {_call(timeline, 'GetName', '?')!r} could not be "
+            f"fingerprinted ({unreadable})") from unreadable
+
+
 # ── The one read ─────────────────────────────────────────────────────
 
 

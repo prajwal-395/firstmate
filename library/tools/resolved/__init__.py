@@ -22,7 +22,8 @@ Unix-socket daemon that owns the QUEUE in front of that engine:
 Two shapes of job, because Resolve's handles cannot cross a process:
 
 * EXECUTED - the broker runs it on its own Resolve connection:
-  `timeline.snapshot`, `timeline.apply_patch`, `resolve_axi`,
+  `timeline.snapshot`, `timeline.observe_current`, `timeline.apply_patch`,
+  `resolve_axi`,
   `resolve.ui_transaction`, `reel.promote_staged` (typed and restricted
   to the already-open `Ren Qualification` project).
 * GRANT (`lease`) - an in-process critical section the CALLER runs.

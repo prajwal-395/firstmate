@@ -14,6 +14,10 @@ Kinds
                        generation summary. Exclusive (the timeline must
                        be current to read true); identical snapshots
                        coalesce.
+`timeline.observe_current`
+                       Fingerprint Resolve's current timeline and refresh
+                       its full shadow only when the light read changes.
+                       Never moves the cursor.
 `timeline.apply_patch` Commit one prepared EditPatch. Exclusive. The
                        patch format and its applier belong to
                        `library.tools.edit_patch.apply_patch`; the broker
@@ -71,7 +75,8 @@ from library.tools.resolved.scheduler import EXCLUSIVE, PRIORITIES, SHARED
 #: tests used to run against whatever project was open - the captain's.
 QUALIFICATION_PROJECT = "Ren Qualification"
 
-KINDS = ("lease", "timeline.snapshot", "timeline.apply_patch",
+KINDS = ("lease", "timeline.snapshot", "timeline.observe_current",
+         "timeline.apply_patch",
           "resolve_axi", "fusion.registry_summary",
           "resolve.ui_transaction", "reel.promote_staged",
           "resolve.qualification_session")
@@ -241,6 +246,14 @@ def prepare(kind: str, params: dict, qualification: bool = False) -> dict:
                  "project": project, "timeline": timeline,
                  "locality": "timeline",
                  "coalesce_key": _coalesce_key(kind, project, timeline)}
+    elif kind == "timeline.observe_current":
+        project = _required(params, "project", kind)
+        # The current timeline is resolved at execution time. A cursor move
+        # while this job waits must change what it reads, never what Resolve
+        # displays, so this job does not single-flight against a stale target.
+        shape = {"mode": EXCLUSIVE, "priority": "read", "executed": True,
+                 "project": project, "timeline": "", "locality": "project",
+                 "coalesce_key": None}
     elif kind == "timeline.apply_patch":
         patch = params.get("patch")
         if not isinstance(patch, dict):
@@ -460,6 +473,25 @@ def run(job: dict, resolve) -> dict | None:
                          run_id=job.get("id")):
             return reel_promotion.run(job, resolve)
     project = _open_project(resolve, job["project"])
+    if kind == "timeline.observe_current":
+        from library.tools import reel_read, timeline_shadow
+        timeline = project.GetCurrentTimeline()
+        if timeline is None:
+            raise JobRefused(
+                f"no current timeline in {project.GetName()!r}; "
+                "the broker will not select one for a background snapshot")
+        store = timeline_shadow.ShadowStore()
+        project_name, timeline_id, _timeline_name = timeline_shadow.timeline_key(
+            project, timeline)
+        head = store.head(project_name, timeline_id)
+        fingerprint = timeline_shadow.light_fingerprint(
+            reel_read.read_light_state(timeline))
+        if head is not None:
+            recorded = store.snapshot(head)
+            if fingerprint == timeline_shadow.light_fingerprint(
+                    timeline_shadow.light_state_of_snapshot(recorded)):
+                return head.summary()
+        return timeline_shadow.observe(project, timeline, store).summary()
     if kind == "resolve.ui_transaction":
         # The transaction establishes the timeline itself - the cursor
         # moves to it - so it is NOT required to be current here, and

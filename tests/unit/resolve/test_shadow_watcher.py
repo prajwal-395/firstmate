@@ -22,7 +22,9 @@ import pytest
 
 from library.tools import reel_edit_history, shadow_watcher, timeline_shadow as shadow
 from library.tools.resolve_lock import assume_sole_writer
-from tests.resolve_double import FakeTimeline, make_pool_clip, make_project, place_clip
+from tests.resolve_double import (
+    FakeResolve, FakeTimeline, make_pool_clip, make_project, place_clip,
+)
 
 
 @pytest.fixture
@@ -235,6 +237,96 @@ def test_watcher_jobs_use_the_brokers_lowest_priority(reel, monkeypatch):
     assert shadow_watcher.BROKER_PRIORITY == "export"
 
 
+def test_current_snapshot_does_not_move_resolves_timeline(reel, monkeypatch):
+    """A background snapshot reads the current timeline in place: the
+    previous named-timeline job selected another timeline, then restored
+    this one, which made Resolve visibly flicker."""
+    from library.tools.resolved import jobs
+
+    project, timeline, store, _project_folder = reel
+    other = project.adopt(FakeTimeline("Reel 10", project=project))
+    place_clip(other, make_pool_clip("other.mov"), 0, 47)
+    project.SetCurrentTimeline(timeline)
+    project.set_calls.clear()
+    monkeypatch.setenv(shadow.DB_ENV, str(store.path))
+
+    params = {"project": "Podcast", "priority": shadow_watcher.BROKER_PRIORITY}
+    observations = []
+    observe = shadow.observe
+
+    def tracked_observe(*args, **kwargs):
+        observations.append((args, kwargs))
+        return observe(*args, **kwargs)
+
+    monkeypatch.setattr(shadow, "observe", tracked_observe)
+    shape = jobs.prepare("timeline.observe_current", params)
+    assert shape["mode"] == jobs.EXCLUSIVE
+    assert shape["priority"] == shadow_watcher.BROKER_PRIORITY
+    assert shape["locality"] == "project"
+    assert shape["coalesce_key"] is None
+    job = {
+        **shape,
+        "id": "offline-current-snapshot",
+        "kind": "timeline.observe_current",
+        "params": params,
+    }
+    with assume_sole_writer("shadow watcher fake Resolve test"):
+        result = jobs.run(job, FakeResolve(project))
+
+    assert result["timeline"] == timeline.GetName()
+    assert project.GetCurrentTimeline() is timeline
+    assert project.set_calls == []
+    assert observations == []
+
+    timeline.AddMarker(24, "Red", "hand edit", "", 1)
+    job["id"] = "offline-changed-current-snapshot"
+    with assume_sole_writer("shadow watcher fake Resolve test"):
+        changed = jobs.run(job, FakeResolve(project))
+    assert changed["generation"] == result["generation"] + 1
+    assert len(observations) == 1
+    assert project.GetCurrentTimeline() is timeline
+    assert project.set_calls == []
+
+
+def test_watcher_restart_does_not_resweep_old_shadow_heads(reel, monkeypatch):
+    """The first tick after a broker restart observes only Resolve's
+    current timeline, even when the store has heads for several reels."""
+    project, timeline, store, project_folder = reel
+    other = project.adopt(FakeTimeline("Reel 10 (rebuild staging)",
+                                       project=project))
+    place_clip(other, make_pool_clip("staging.mov"), 0, 47)
+    project.SetCurrentTimeline(other)
+    with assume_sole_writer("shadow watcher fake Resolve test"):
+        shadow.observe(project, other, store)
+    project.SetCurrentTimeline(timeline)
+
+    submitted = []
+
+    def submit(kind, params, owner=""):
+        submitted.append((kind, params, owner))
+        return {"id": "current-snapshot"}
+
+    def result(job_id, wait=0.0):
+        with assume_sole_writer("shadow watcher fake Resolve test"):
+            summary = shadow.observe(
+                project, project.GetCurrentTimeline(), store).summary()
+        return {"id": job_id, "state": "done", "result": summary}
+
+    monkeypatch.setattr("library.tools.resolved.client.submit", submit)
+    monkeypatch.setattr("library.tools.resolved.client.result", result)
+
+    # A newly constructed watcher is the broker's first post-restart tick.
+    watcher = shadow_watcher.ShadowWatcher(store=store)
+    assert watcher.tick("Podcast", project_folder) == []
+
+    assert len(submitted) == 1
+    kind, params, owner = submitted[0]
+    assert kind == "timeline.observe_current"
+    assert params == {"project": "Podcast",
+                      "priority": shadow_watcher.BROKER_PRIORITY}
+    assert owner == "shadow_watcher"
+
+
 def test_watcher_writes_a_heartbeat_so_a_dead_watcher_is_visible(
         reel, monkeypatch):
     """Defect: the watcher died silently - no heartbeat, no log, no
@@ -381,14 +473,11 @@ def test_a_snapshot_job_that_fails_fails_the_tick(reel, monkeypatch):
         watcher.stop()
 
 
-def test_a_reel_resolve_no_longer_has_does_not_stop_the_others(
+def test_a_stale_shadow_head_does_not_block_the_current_timeline(
         reel, monkeypatch):
-    """Defect, seen live: the store keeps a head for every timeline ever
-    observed, including promoted staging timelines Resolve has deleted.
-    The broker rejects those snapshots, and the first one failed the
-    whole tick - so on a real project the watcher never recorded at all.
-    A gone reel is skipped; a tick where every reel is rejected (another
-    project is open) still fails."""
+    """The store keeps heads for timelines Resolve has deleted, such as
+    promoted staging timelines. The watcher never submits those names; a
+    rejected current-timeline snapshot still fails the tick."""
     project, timeline, store, project_folder = reel
     gone = project.adopt(FakeTimeline("Reel 08 (rebuild staging)",
                                       project=project))
@@ -398,15 +487,16 @@ def test_a_reel_resolve_no_longer_has_does_not_stop_the_others(
         shadow.observe(project, gone, store)
     project.SetCurrentTimeline(timeline)
 
+    submitted = []
+
     def submit(kind, params, owner=""):
-        return {"id": params["timeline"]}
+        submitted.append((kind, params))
+        return {"id": "current"}
 
     def result(job_id, wait=0.0):
-        if job_id == "Reel 08 (rebuild staging)":
-            return {"id": job_id, "state": "rejected",
-                    "error": f"no timeline named exactly {job_id!r}"}
         with assume_sole_writer("shadow watcher test"):
-            summary = shadow.observe(project, timeline, store).summary()
+            summary = shadow.observe(
+                project, project.GetCurrentTimeline(), store).summary()
         return {"id": job_id, "state": "done", "result": summary}
 
     monkeypatch.setattr("library.tools.resolved.client.submit", submit)
@@ -416,6 +506,10 @@ def test_a_reel_resolve_no_longer_has_does_not_stop_the_others(
     watcher = shadow_watcher.ShadowWatcher(store=store)
     detected = watcher.tick("Podcast", project_folder)
     assert [g.timeline_name for g in detected] == ["Reel 09"]
+    assert submitted == [(
+        "timeline.observe_current",
+        {"project": "Podcast", "priority": shadow_watcher.BROKER_PRIORITY},
+    )]
 
     monkeypatch.setattr(
         "library.tools.resolved.client.result",
@@ -536,10 +630,9 @@ def test_doctor_names_an_unmapped_project(reel, monkeypatch):
 
 # ── stand-down: borrowed qualification sessions ───────────────────
 #
-# The defect, measured live: the watcher kept submitting
-# timeline.snapshot jobs while a borrowed qualification session held
-# Resolve, so its snapshots read the wrong project (rejected) and the
-# jobs' cursor excursions broke borrowed observations. The watcher
+# The defect, measured live: the watcher kept submitting snapshot jobs
+# while a borrowed qualification session held Resolve, so its reads used
+# the wrong project and raced the borrower's observations. The watcher
 # stands down while a session marker names a live borrower; the first
 # tick after resume compares across the blackout, so detection is
 # delayed, never lost.

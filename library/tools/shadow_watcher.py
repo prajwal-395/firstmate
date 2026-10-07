@@ -14,10 +14,10 @@ follows the open project; `ren shadow-watch` is the standalone form. Its
 snapshot jobs use the broker's lowest priority so they never delay the captain
 or a build.
 
-Read-only against Resolve: the watcher submits `timeline.snapshot` jobs to the
-broker (which takes whatever lease the read needs) and never takes a lease
-itself. It writes only the shadow store (via the job), the edit history, and
-the soft flag.
+Read-only against Resolve: the watcher submits `timeline.observe_current`
+jobs to the broker, which holds the exclusive lease for the read and never
+moves the timeline cursor. The watcher writes only the shadow store (via the
+job), the edit history, and the soft flag.
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ from typing import Callable, Optional
 from library.tools import timeline_shadow
 from library.tools.resolve_lock import lock_dir
 
-#: How often the watcher observes every reel in the open project.
+#: How often the watcher observes Resolve's current timeline.
 CADENCE_SECONDS = 30.0
 
 #: The watcher's own sleep reference, patchable in tests without
@@ -195,12 +195,11 @@ class WatcherTickFailed(RuntimeError):
 def should_stand_down() -> Optional[str]:
     """Why the watcher must not submit now, or None.
 
-    A borrowed qualification session has Resolve: submitting
-    `timeline.snapshot` jobs then reads the wrong project, and the
-    jobs' cursor excursions move a session they know nothing about -
-    the collision a live IntelliSearch run measured (its observations
-    disagreed with the scripting reads while snapshots ran). Stand-down
-    is not failure: no jobs, no heartbeat, just a note in the log.
+    A borrowed qualification session has Resolve: submitting a background
+    observation then reads the temporary project and can race the borrower's
+    timeline work - the collision a live IntelliSearch run measured (its
+    observations disagreed with the scripting reads while snapshots ran).
+    Stand-down is not failure: no jobs, no heartbeat, just a note in the log.
     Detection is delayed, never lost - heads persist in the store, so
     the first tick after resume compares across the blackout and files
     any hand edit made while away, before the next build reads the
@@ -216,14 +215,16 @@ def should_stand_down() -> Optional[str]:
 
 
 class ShadowWatcher:
-    """Observe every reel in the open project on a schedule.
+    """Observe Resolve's current timeline on a schedule.
 
-    The watcher is a thin scheduling loop: it submits `timeline.snapshot`
-    jobs to the broker and reads the results. It never takes a Resolve lease
-    itself - the broker's job takes whatever the read needs (a shared
-    RESOLVE_READ for the read, a brief cursor excursion to make the timeline
-    current). The watcher writes only the shadow store (via the job), the
-    edit history, and the soft flag.
+    The watcher is a thin scheduling loop: it submits
+    `timeline.observe_current` jobs to the broker and reads the results.
+    The broker fingerprints the timeline already current when the job runs,
+    without moving Resolve's cursor, and refreshes the full shadow only when
+    that fingerprint changes. Old shadow heads are not swept: a broker restart
+    therefore observes only the timeline the captain already has open.
+    The watcher writes only the shadow store (via the job), the edit history,
+    and the soft flag.
 
     The broker hosts it (`resolved/server.serve`), so it runs whenever the
     broker does; `ren shadow-watch` is the standalone foreground form.
@@ -248,18 +249,15 @@ class ShadowWatcher:
         self._thread: Optional[threading.Thread] = None
 
     def tick(self, project_name: str, project_folder: str = "") -> list:
-        """Observe every reel in the project once; return new observed generations.
+        """Observe the current timeline once; return new observed generations.
 
-        A reel whose live timeline changed since the last recorded generation
-        gets a `manual_edit` entry filed and the soft flag set. A reel whose
-        digest is unchanged is a no-op.
+        A current timeline whose live state changed since its last recorded
+        generation gets a `manual_edit` entry filed and the soft flag set. An
+        unchanged timeline is a no-op. Old heads are not queried, including
+        names of staging timelines Resolve no longer has.
 
-        The store keeps a head for every timeline ever observed, so some name
-        reels Resolve no longer has (a promoted staging timeline). The broker
-        REJECTS those snapshots, and the reel is skipped: one gone reel must
-        not stop every other being watched. A job that fails or does not
-        finish, or a tick where every reel was rejected (another project is
-        open), raises `WatcherTickFailed`, so the loop writes no heartbeat.
+        A job that fails, is rejected, or does not finish raises
+        `WatcherTickFailed`, so the loop writes no heartbeat.
 
         A borrowed qualification session stands the tick down first: it
         returns [] having submitted nothing, which is an idle pass, not a
@@ -272,37 +270,32 @@ class ShadowWatcher:
             return []
         submit = self._submit or client.submit
         result_of = self._result or client.result
-        heads = self.store.heads(project_name)
+        previous_heads = {
+            head.timeline_id: head for head in self.store.heads(project_name)
+        }
         detected = []
-        rejected = []
-        for head in heads:
-            job = submit("timeline.snapshot", {
-                "project": project_name,
-                "timeline": head.timeline_name,
-                "priority": BROKER_PRIORITY,
-            }, owner="shadow_watcher")
-            finished = result_of(job["id"], wait=60.0)
-            if finished is not None and finished.get("state") == "rejected":
-                rejected.append(f"{head.timeline_name!r}: "
-                                f"{finished.get('error') or 'rejected'}")
-                continue
-            if finished is None or finished.get("state") != "done":
-                raise WatcherTickFailed(
-                    f"timeline.snapshot of {head.timeline_name!r} did not "
-                    f"finish: {(finished or {}).get('state', 'missing')} "
-                    f"{(finished or {}).get('error') or ''}".rstrip())
-            result = finished.get("result") or {}
-            returned_generation = int(result.get("generation", 0) or 0)
-            if (returned_generation > head.generation
-                    and result.get("source") == timeline_shadow.OBSERVED):
-                generation = self.store.head(project_name, head.timeline_id)
-                if generation is not None:
-                    self._file_manual_edit(project_folder, head.timeline_name,
-                                           generation)
-                    detected.append(generation)
-        if heads and len(rejected) == len(heads):
+        job = submit("timeline.observe_current", {
+            "project": project_name,
+            "priority": BROKER_PRIORITY,
+        }, owner="shadow_watcher")
+        finished = result_of(job["id"], wait=60.0)
+        if finished is None or finished.get("state") != "done":
             raise WatcherTickFailed(
-                f"every reel's snapshot was rejected, e.g. {rejected[0]}")
+                f"timeline.observe_current did not finish: "
+                f"{(finished or {}).get('state', 'missing')} "
+                f"{(finished or {}).get('error') or ''}".rstrip())
+        result = finished.get("result") or {}
+        timeline_id = result["timeline_id"]
+        returned_generation = int(result["generation"])
+        previous = previous_heads.get(timeline_id)
+        if (previous is not None
+                and returned_generation > previous.generation
+                and result["source"] == timeline_shadow.OBSERVED):
+            generation = self.store.head(project_name, timeline_id)
+            if generation is not None:
+                self._file_manual_edit(project_folder,
+                                       generation.timeline_name, generation)
+                detected.append(generation)
         return detected
 
     def _file_manual_edit(self, project_folder: str, timeline_name: str,
@@ -385,7 +378,7 @@ class ShadowWatcher:
 def main(argv=None) -> int:
     """`ren shadow-watch <project_folder>`: start the watcher on a project.
 
-    The watcher observes the open project's reels at the
+    The watcher observes Resolve's current timeline in the open project at the
     configured cadence, using the broker's lowest priority so it never
     delays the captain or a build.
 
@@ -397,7 +390,7 @@ def main(argv=None) -> int:
 
     parser = argparse.ArgumentParser(
         prog="ren shadow-watch",
-        description="Watch a project's reels for hand edits on a schedule.")
+        description="Watch Resolve's current timeline for hand edits on a schedule.")
     parser.add_argument("project_folder",
                         help="the project folder to watch")
     parser.add_argument("--cadence", type=float, default=CADENCE_SECONDS,
@@ -424,7 +417,8 @@ def main(argv=None) -> int:
     watcher = ShadowWatcher(cadence_seconds=args.cadence)
     watcher.start(lambda: name, lambda name: project_folder)
     print(f"shadow watcher started on {project_folder} ({name!r}) - "
-          f"observing every reel at {args.cadence}s cadence", file=sys.stderr)
+          f"observing the current timeline at {args.cadence}s cadence",
+          file=sys.stderr)
     try:
         while True:
             _sleep(1.0)
