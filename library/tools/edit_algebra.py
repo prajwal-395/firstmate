@@ -1750,8 +1750,15 @@ ALGEBRA: dict[str, AlgebraOp] = {
                         int(op["from_index"])),
         merge="exclusive",
         inverse=_self("the inverse swaps the nodes back"),
-        note="Declared, NOT executable: the Graph API has no ReorderNode. "
-             "Node order is fixed by the grade (DRX) or created in the GUI."),
+        note="Declared, NOT executable, BY DECISION (2026-10-07): no "
+             "menu or API route moves a node - the Color menu's 160 "
+             "commands (live `list_commands`) hold no move, swap, "
+             "reorder, copy or paste, and the Resolve 21 manual "
+             "(Ch.143) documents drag-only routes (Command-drag swaps "
+             "contents; move is double-click plus E-extract plus drag "
+             "to a connection line), all viewer-coordinate and "
+             "foreground. A drag-based slice stays unbuilt until one "
+             "is authorized; no producer emits this op today."),
     "grade.node_set": AlgebraOp(
         id="grade.node_set", domain="color",
         required=("unique_id", "node_index", "params"),
