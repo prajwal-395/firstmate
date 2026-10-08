@@ -195,6 +195,27 @@ fn span(op: &Bound<'_, PyAny>, base: &Bound<'_, PyAny>) -> PyResult<Option<(i64,
     Ok(op_from_value(&op_value).and_then(|op| op_span(&op, &base)))
 }
 
+/// The spans for a batch of ops over one snapshot. Conversion is paid
+/// once for the shared snapshot, and the Rust loop runs without the GIL.
+#[pyfunction]
+fn span_many(
+    ops: &Bound<'_, PyAny>,
+    base: &Bound<'_, PyAny>,
+    py: Python<'_>,
+) -> PyResult<Vec<Option<(i64, i64)>>> {
+    let ops_value = py_to_json(ops)?;
+    let ops = ops_value
+        .as_array()
+        .ok_or_else(|| PyValueError::new_err("ops must be a list"))?
+        .clone();
+    let base = snapshot_from_value(&py_to_json(base)?)?;
+    Ok(py.detach(|| {
+        ops.iter()
+            .map(|value| op_from_value(value).and_then(|op| op_span(&op, &base)))
+            .collect()
+    }))
+}
+
 /// The write key of one op, as string parts (numbers rendered as
 /// decimal strings).
 #[pyfunction]
@@ -214,6 +235,26 @@ fn verify(op: &Bound<'_, PyAny>, after: &Bound<'_, PyAny>) -> PyResult<Option<St
     let op_value = py_to_json(op)?;
     let after = snapshot_from_value(&py_to_json(after)?)?;
     Ok(op_from_value(&op_value).and_then(|op| op_verify(&op, &after)))
+}
+
+/// Read-back judgements for a batch of ops against one snapshot.
+#[pyfunction]
+fn verify_many(
+    ops: &Bound<'_, PyAny>,
+    after: &Bound<'_, PyAny>,
+    py: Python<'_>,
+) -> PyResult<Vec<Option<String>>> {
+    let ops_value = py_to_json(ops)?;
+    let ops = ops_value
+        .as_array()
+        .ok_or_else(|| PyValueError::new_err("ops must be a list"))?
+        .clone();
+    let after = snapshot_from_value(&py_to_json(after)?)?;
+    Ok(py.detach(|| {
+        ops.iter()
+            .map(|value| op_from_value(value).and_then(|op| op_verify(&op, &after)))
+            .collect()
+    }))
 }
 
 /// Judge conditions on a snapshot: each failure as `"{kind}: {failure}"`.
@@ -386,8 +427,10 @@ fn ren_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(source_fingerprint, m)?)?;
     m.add_function(wrap_pyfunction!(declaration, m)?)?;
     m.add_function(wrap_pyfunction!(span, m)?)?;
+    m.add_function(wrap_pyfunction!(span_many, m)?)?;
     m.add_function(wrap_pyfunction!(key, m)?)?;
     m.add_function(wrap_pyfunction!(verify, m)?)?;
+    m.add_function(wrap_pyfunction!(verify_many, m)?)?;
     m.add_function(wrap_pyfunction!(judge_conditions, m)?)?;
     m.add_function(wrap_pyfunction!(validate_patch, m)?)?;
     m.add_function(wrap_pyfunction!(compose, m)?)?;

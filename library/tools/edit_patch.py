@@ -596,24 +596,39 @@ def apply_live_patch(*, project, timeline, capability: str,
             project, timeline, f"prepare EditPatch {patch_id}"):
         base = shadow.observe(project, timeline, store)
         snapshot = store.snapshot(base)
-        spans = []
+        spans_by_index = {}
         insert_spans: dict = {}
-        for operation in operations:
+        pending_span_indices = []
+        pending_span_ops = []
+        for index, operation in enumerate(operations):
             spec = OPERATIONS.get(operation.get("op"))
             if spec is None:
-                _refuse(EditPatch(
-                    patch_id, project_name, timeline_name, base.generation,
-                    capability, (), conflict_domains, operations),
-                    f"names unknown operation {operation.get('op')!r}",
-                    "only measured, read-back-judged writes are operations",
-                    f"use one of {sorted(OPERATIONS)}")
+                continue
             if operation.get("op") == "clip.insert":
                 span = edit_algebra.span(operation, snapshot)
                 insert_spans[operation["unique_id"]] = span
             elif (operation.get("unique_id") in insert_spans):
                 span = insert_spans[operation["unique_id"]]
             else:
-                span = edit_algebra.span(operation, snapshot)
+                pending_span_indices.append(index)
+                pending_span_ops.append(operation)
+                continue
+            spans_by_index[index] = span
+
+        if pending_span_ops:
+            spans_by_index.update(zip(
+                pending_span_indices,
+                edit_algebra.spans(pending_span_ops, snapshot)))
+        spans = []
+        for index, operation in enumerate(operations):
+            if OPERATIONS.get(operation.get("op")) is None:
+                _refuse(EditPatch(
+                    patch_id, project_name, timeline_name, base.generation,
+                    capability, (), conflict_domains, operations),
+                    f"names unknown operation {operation.get('op')!r}",
+                    "only measured, read-back-judged writes are operations",
+                    f"use one of {sorted(OPERATIONS)}")
+            span = spans_by_index[index]
             if span is None:
                 _refuse(EditPatch(
                     patch_id, project_name, timeline_name, base.generation,
@@ -798,15 +813,19 @@ def apply_patch(patch, *, resolve, project, timeline,
                 write_kind="SmartReframe")
     hold_seconds = time.monotonic() - started
 
-    judged = []
+    verify_ops = []
+    verify_rows = []
     for r in ran:
         op = patch.operations[r["index"]]
         verify_op = op
         if r["op"] != "clip.insert" and op.get("unique_id") in id_map:
             verify_op = {**op, "unique_id": id_map[op["unique_id"]]}
-        judged.append({"index": r["index"], "op": r["op"],
-                       "returned": r["returned"],
-                       "failure": edit_algebra.verify(verify_op, after)})
+        verify_rows.append((r, verify_op))
+        verify_ops.append(verify_op)
+    failures = edit_algebra.verifies(verify_ops, after)
+    judged = [{"index": r["index"], "op": r["op"],
+               "returned": r["returned"], "failure": failure}
+              for (r, _), failure in zip(verify_rows, failures)]
     post_failures = _judge(patch.postconditions, after, base)
     ok = (stopped is None and not post_failures
           and not any(j["failure"] for j in judged))

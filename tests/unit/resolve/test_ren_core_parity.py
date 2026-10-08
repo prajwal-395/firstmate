@@ -40,7 +40,8 @@ from pathlib import Path
 
 import pytest
 
-from library.tools import capabilities, edit_algebra, edit_patch, patch_algebra
+from library.tools import (capabilities, edit_algebra, edit_backend,
+                            edit_patch, patch_algebra)
 from library.tools import timeline_shadow as shadow
 
 
@@ -681,6 +682,14 @@ def test_span_parity():
     assert not mismatches, mismatches
 
 
+def test_span_many_parity():
+    """The batched boundary returns the same spans as individual calls."""
+    base = _base_snapshot()
+    operations = [op for _label, op, _after in _op_cases()]
+    expected = [ren_native.span(op, base) for op in operations]
+    assert ren_native.span_many(operations, base) == expected
+
+
 def test_key_parity():
     """What an op writes, as a key (numbers rendered as decimal
     strings on both sides)."""
@@ -714,6 +723,31 @@ def test_verify_parity():
     assert not mismatches, mismatches
     print(f"verify parity: {counts['landed']} landed, "
           f"{counts['failed']} failed, verdicts agree")
+
+
+def test_verify_many_parity():
+    """The batched boundary preserves every individual verify verdict."""
+    cases = _op_cases()
+    # Each corpus case has its own after-snapshot, so exercise the shared
+    # snapshot path in batches grouped by snapshot equality.
+    groups = {}
+    for _label, op, after in cases:
+        key = repr(after)
+        groups.setdefault(key, (after, []))[1].append(op)
+    for after, ops in groups.values():
+        assert ren_native.verify_many(ops, after) == [
+            ren_native.verify(op, after) for op in ops]
+
+
+def test_production_batch_wrappers_match_individual_calls(monkeypatch):
+    """The production edit-algebra entry points route through batch APIs."""
+    monkeypatch.setenv(edit_backend.BACKEND_ENV, edit_backend.RUST)
+    base = _base_snapshot()
+    operations = [op for _label, op, _after in _op_cases()]
+    assert edit_algebra.spans(operations, base) == ren_native.span_many(
+        operations, base)
+    assert edit_algebra.verifies(operations, base) == [
+        edit_algebra.verify(op, base) for op in operations]
 
 
 # ── Conflicts: meet, strictest, compose, carry ──────────────────────────

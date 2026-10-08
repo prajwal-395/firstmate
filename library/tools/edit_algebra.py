@@ -2777,6 +2777,14 @@ def span(op, base):
     return spec.span(op, base)
 
 
+def spans(operations, base):
+    """The spans for operations sharing one base snapshot."""
+    rust = edit_backend.rust()
+    if rust is not None:
+        return rust.span_many(operations, base)
+    return [span(op, base) for op in operations]
+
+
 def key(op):
     """What an op writes, as a key, on the active backend."""
     rust = edit_backend.rust()
@@ -2815,3 +2823,13 @@ def verify(op, after):
     if spec is None:
         return None
     return spec.verify(op, after)
+
+
+def verifies(operations, after):
+    """Read-back judgements for operations sharing one snapshot."""
+    if any(_beyond_ported_core(op) for op in operations):
+        return [verify(op, after) for op in operations]
+    rust = edit_backend.rust()
+    if rust is not None:
+        return rust.verify_many(operations, after)
+    return [verify(op, after) for op in operations]
