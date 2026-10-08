@@ -43,7 +43,7 @@ def _same_marker(entry: dict, expected: dict) -> bool:
                    for key in ("source_file", "source_frame"))
 
 
-def _probe(timeline, manager) -> dict:
+def _probe(timeline, manager, job_id: str = "") -> dict:
     from library.tools import marker_carry, marker_gate
     from library.tools.resource_leases import (
         LeaseDeclaration, ResourceRef, resource_lease)
@@ -74,9 +74,12 @@ def _probe(timeline, manager) -> dict:
         name, timeline_markers, clip_markers)
     deletion_succeeded = False
     gate_message = ""
+    from library.tools.resolved import cancellation
     with resource_lease(
             LeaseDeclaration(write=frozenset({ResourceRef("timeline", name)})),
             purpose=f"qualification marker-loss probe on {name}"):
+        if job_id:
+            cancellation.checkpoint(job_id)
         try:
             deleted = item.DeleteMarkerAtFrame(source_frame)
             live_markers = item.GetMarkers() or {}
@@ -121,6 +124,11 @@ def _probe(timeline, manager) -> dict:
                     raise JobRefused(
                         f"{KIND} restored the marker but could not save "
                         f"{QUALIFICATION_PROJECT!r}")
+        # The marker is back and saved before Stop can take effect. A
+        # cancellation requested during the deliberate deletion therefore
+        # leaves the timeline in its exact pre-probe state.
+        if job_id:
+            cancellation.checkpoint(job_id)
     restored_markers = marker_carry.read_clip_markers(timeline, name)
     if not any(_same_marker(entry, marker) for entry in restored_markers):
         raise JobRefused(
@@ -146,7 +154,8 @@ def run(job: dict, resolve) -> dict:
             raise JobRefused(
                 f"{KIND} opened {opened or 'no project'!r}, not "
                 f"{QUALIFICATION_PROJECT!r}")
-        result = _probe(_exact_timeline(project, FINAL), manager)
+        result = _probe(_exact_timeline(project, FINAL), manager,
+                        job_id=job.get("id", ""))
     result["borrowed_from"] = {
         "project": borrowed_from["project"],
         "timeline": borrowed_from["timeline"],

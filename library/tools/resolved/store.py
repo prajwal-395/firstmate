@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     timeline TEXT NOT NULL DEFAULT '',
     qualification INTEGER NOT NULL DEFAULT 0,
     coalesce_key TEXT,
+    interrupt_policy TEXT NOT NULL DEFAULT '',
     owner TEXT NOT NULL DEFAULT '',
     state TEXT NOT NULL,
     subscribers INTEGER NOT NULL DEFAULT 1,
@@ -65,6 +66,12 @@ class JobStore:
         self._db.row_factory = sqlite3.Row
         self._db.execute("PRAGMA journal_mode=WAL")
         self._db.executescript(_SCHEMA)
+        columns = {row[1] for row in self._db.execute(
+            "PRAGMA table_info(jobs)").fetchall()}
+        if "interrupt_policy" not in columns:
+            self._db.execute(
+                "ALTER TABLE jobs ADD COLUMN interrupt_policy TEXT NOT NULL "
+                "DEFAULT ''")
         self._db.execute(
             "UPDATE jobs SET state='failed', finished=?, "
             "error='the broker that held this job exited' "
@@ -140,6 +147,13 @@ class JobStore:
                 "UPDATE jobs SET subscribers = subscribers + 1 WHERE id=?",
                 (job_id,))
 
+    def interrupt_policy(self, job_id: str) -> str:
+        with self._lock:
+            row = self._db.execute(
+                "SELECT interrupt_policy FROM jobs WHERE id=?",
+                (job_id,)).fetchone()
+        return row[0] if row else ""
+
     def get(self, job_id: str) -> Optional[dict]:
         with self._lock:
             row = self._db.execute("SELECT * FROM jobs WHERE id=?",
@@ -166,6 +180,9 @@ def receipt(row) -> dict:
     measurement is never zero.
     """
     job = dict(row)
+    # Internal broker admission metadata; it is durable across daemon
+    # handoffs but is not part of the public receipt protocol.
+    job.pop("interrupt_policy", None)
     job["params"] = json.loads(job["params"])
     job["result"] = json.loads(job["result"]) if job["result"] else None
     job["executed"] = bool(job["executed"])

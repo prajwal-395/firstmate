@@ -121,9 +121,16 @@ def _execute_job(job: dict) -> dict:
     kind = job["kind"]
     purpose = f"ren-resolved {kind} {job['id']}"
     exclusive = job["mode"] == "exclusive"
+    cancellation.begin(job["id"])
     try:
         with resolve_lock.resolve_lease(purpose, exclusive=exclusive):
             resolve = _connect_cached()
+            if job["executed"]:
+                from library.tools.resolve_deadline import (
+                    DeadlineProxy, deadline_proxy)
+                if not isinstance(resolve, DeadlineProxy):
+                    resolve = deadline_proxy(
+                        resolve, label=f"{kind} {job['id']}")
             if job["qualification"]:
                 found = job_kinds.open_project_name(resolve)
                 if found != job_kinds.QUALIFICATION_PROJECT:
@@ -139,6 +146,7 @@ def _execute_job(job: dict) -> dict:
             return _reply(job["id"], True, result=result)
     except cancellation.CancelRequested as exc:
         return _reply(job["id"], False, error=str(exc),
+                      result=exc.result,
                       extra={"cancelled": True})
     except job_kinds.JobRefused as exc:
         return _reply(job["id"], False, error=str(exc), refused=True,
@@ -155,6 +163,7 @@ def _execute_job(job: dict) -> dict:
                       error=f"{type(exc).__name__}: {exc}")
     finally:
         cancellation.clear(job["id"])
+        cancellation.end(job["id"])
 
 
 # ── probe / health / post-restart check ──────────────────────────────

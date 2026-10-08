@@ -151,6 +151,16 @@ def test_deadline_proxy_handles_api_objects_with_spoofed_class(monkeypatch):
             == "Ren Qualification")
 
 
+def test_deadline_proxy_forwards_method_keyword_named_label():
+    class Root:
+        def SetInput(self, key, value, label=None):
+            return key, value, label
+
+    wrapped = deadline_proxy(Root(), label="Resolve")
+    assert wrapped.SetInput("Gain", 1.0, label="highlight") == (
+        "Gain", 1.0, "highlight")
+
+
 def test_deadline_proxy_names_a_blocked_api_method():
     release = threading.Event()
     finished = threading.Event()

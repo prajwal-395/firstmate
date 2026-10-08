@@ -104,6 +104,37 @@ BORROWING_QUALIFICATION_KINDS = frozenset({
     "reel.probe_qualification_marker_loss",
 })
 
+# A job may opt into running Stop only with a named safe boundary. A
+# `commit:` boundary returns the complete receipt before honoring Stop;
+# an `inverse:` boundary restores before honoring it; a `backup:` boundary
+# names both the durable backup and the verified inverse restore.
+INTERRUPT_POLICIES = {
+    "resolve.activity_probe": "checkpoint:borrowed-context-restored",
+    "resolve_axi": "commit:successful-recorded-run",
+    "timeline.apply_patch": "commit:verified-editpatch-generation",
+    "resolve.ui_transaction": "commit:verified-ui-transaction",
+    "resolve.qualification_session": "commit:all-steps-completed",
+    "reel.promote_staged": "commit:promotion-record-verified",
+    "reel.prepare_qualification_fixture": "commit:fixture-saved",
+    "reel.probe_qualification_marker_loss": "inverse:marker-restored-and-saved",
+    "reel.copy_tv_ending": "backup:drt+inverse:inventory-verified",
+}
+MUTATING_KINDS = frozenset(INTERRUPT_POLICIES)
+MUTATING_KINDS = MUTATING_KINDS - {"resolve.activity_probe"}
+RUNNING_CANCELLATION_KINDS = frozenset(INTERRUPT_POLICIES)
+
+
+def _commit_checkpoint(job: dict, result):
+    """Honor deferred Stop only after the runner's committed receipt exists."""
+    from library.tools.resolved import cancellation
+    cancellation.checkpoint(job["id"], result=result)
+    return result
+
+
+def _start_checkpoint(job: dict) -> None:
+    from library.tools.resolved import cancellation
+    cancellation.checkpoint(job["id"])
+
 
 #: The resolve-axi commands the broker will run, by name. The broker is
 #: customer runtime: a queued command runs on the shared Resolve
@@ -417,6 +448,11 @@ def prepare(kind: str, params: dict, qualification: bool = False) -> dict:
     # queued. The mode decides - log in production (a hard refusal here
     # needs live evidence first), refuse in tests/dev.
     protocol_conformance.validate(shape, "job-shape")
+    # This private broker capability is returned to Rust after the public
+    # schedulable shape has passed the generated wire contract. Stop is
+    # admitted by the runner's declared checkpoint policy, not a second
+    # hard-coded list in the native daemon.
+    shape["interrupt_policy"] = INTERRUPT_POLICIES.get(kind, "")
     return shape
 
 
@@ -526,11 +562,15 @@ def run(job: dict, resolve) -> dict | None:
         return {"elapsed": float(params.get("seconds", 10)),
                 "timeline_edits": 0, "restored": before}
     if kind == "resolve_axi":
+        _start_checkpoint(job)
         with write_scope(
                 project=job.get("project"), timeline_name=job.get("timeline"),
                 run_id=job.get("id")):
-            return _run_resolve_axi(dict(
+            result = _run_resolve_axi(dict(
                 params, caller=(params.get("caller") or job.get("owner") or "")))
+        if result["exit_code"] == 0:
+            return _commit_checkpoint(job, result)
+        return result
     if kind == "fusion.registry_summary":
         return _run_registry_summary(resolve)
     if kind == "timeline.apply_patch":
@@ -542,31 +582,37 @@ def run(job: dict, resolve) -> dict | None:
         # The broker never switches - except through borrowed(), which
         # saves the open project first and reads the restore back.
         from library.tools import qualification_project
-        return qualification_project.run_qualification_session(job, resolve)
+        _start_checkpoint(job)
+        return _commit_checkpoint(
+            job, qualification_project.run_qualification_session(job, resolve))
     if kind == "reel.promote_staged":
         # The target is fixed to Ren Qualification by prepare(). The typed
         # runner borrows the current project and opens Qualification under
         # the same exclusive lease before it touches a timeline.
         from library.tools.resolved import reel_promotion
+        _start_checkpoint(job)
         with write_scope(project=QUALIFICATION_PROJECT,
                          timeline_name=job.get("timeline"),
                          run_id=job.get("id")):
-            return reel_promotion.run(job, resolve)
+            return _commit_checkpoint(job, reel_promotion.run(job, resolve))
     if kind == "reel.prepare_qualification_fixture":
         from library.tools.resolved import reel_promotion_fixture
+        _start_checkpoint(job)
         with write_scope(project=QUALIFICATION_PROJECT,
                          timeline_name=reel_promotion_fixture.FINAL,
                          run_id=job.get("id")):
-            return reel_promotion_fixture.run(job, resolve)
+            return _commit_checkpoint(
+                job, reel_promotion_fixture.run(job, resolve))
     if kind == "reel.probe_qualification_marker_loss":
         from library.tools.resolved import marker_loss_probe
+        _start_checkpoint(job)
         with write_scope(project=QUALIFICATION_PROJECT,
                          timeline_name=marker_loss_probe.FINAL,
                          run_id=job.get("id")):
             return marker_loss_probe.run(job, resolve)
     if kind == "reel.copy_tv_ending":
         from library.tools.resolved import reel_ending_copy
-        return reel_ending_copy.run(job, resolve)
+        return _commit_checkpoint(job, reel_ending_copy.run(job, resolve))
     project = _open_project(resolve, job["project"])
     if kind == "timeline.observe_current":
         from library.tools import reel_read, timeline_shadow
@@ -592,10 +638,14 @@ def run(job: dict, resolve) -> dict | None:
         # moves to it - so it is NOT required to be current here, and
         # the runner does the establishing under the exclusive lease.
         from library.tools.resolved import ui_transaction
+        _start_checkpoint(job)
         with write_scope(project=job.get("project"),
                          timeline_name=job.get("timeline"),
                          run_id=job.get("id")):
-            return ui_transaction.run(job, resolve, project=project)
+            receipt = ui_transaction.run(job, resolve, project=project)
+            if receipt.get("status") == "committed":
+                return _commit_checkpoint(job, receipt)
+            return receipt
     if kind == "timeline.drt_export_probe":
         from library.tools.resolved import drt_export_probe
         return drt_export_probe.run(job, resolve, project=project)
@@ -609,14 +659,19 @@ def run(job: dict, resolve) -> dict | None:
         # The excursion makes the patch's timeline current and puts the
         # captain's cursor back after; `apply_patch` fences the write.
         try:
+            from library.tools.resolved import cancellation
+            cancellation.checkpoint(job["id"])
             patch = params["patch"]
             with (write_scope(project=patch["project"],
                               timeline_name=patch["timeline"],
                               run_id=job.get("id")),
                   resolve_lock.cursor_excursion(project, timeline, purpose)):
-                return _jsonable(edit_patch.apply_patch(
+                receipt = _jsonable(edit_patch.apply_patch(
                     patch, resolve=resolve, project=project,
                     timeline=timeline))
+            if receipt.get("status") == "committed":
+                return _commit_checkpoint(job, receipt)
+            return receipt
         except edit_patch.PatchRefused as refused:
             fields = {key: value for key, value in vars(refused).items()
                       if not key.startswith("_")}

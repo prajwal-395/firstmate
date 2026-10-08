@@ -62,6 +62,10 @@ def test_running_probe_stop_writes_marker(monkeypatch, tmp_path):
             return {"id": job_id, "kind": "resolve.activity_probe",
                     "state": "running"}
 
+        @staticmethod
+        def interrupt_policy(_job_id):
+            return jobs.INTERRUPT_POLICIES["resolve.activity_probe"]
+
     broker = object.__new__(Broker)
     import threading
     broker._cond = threading.Condition()
@@ -74,7 +78,7 @@ def test_running_probe_stop_writes_marker(monkeypatch, tmp_path):
     assert cancellation.requested("probe-2")
 
 
-def test_running_edit_job_refuses_stop_without_inverse(monkeypatch, tmp_path):
+def test_running_edit_job_defers_stop_until_patch_commit(monkeypatch, tmp_path):
     monkeypatch.setattr(cancellation, "marker_path",
                         lambda job_id: tmp_path / "cancel" / job_id)
 
@@ -84,6 +88,10 @@ def test_running_edit_job_refuses_stop_without_inverse(monkeypatch, tmp_path):
             return {"id": job_id, "kind": "timeline.apply_patch",
                     "state": "running"}
 
+        @staticmethod
+        def interrupt_policy(_job_id):
+            return jobs.INTERRUPT_POLICIES["timeline.apply_patch"]
+
     broker = object.__new__(Broker)
     import threading
     broker._cond = threading.Condition()
@@ -91,9 +99,44 @@ def test_running_edit_job_refuses_stop_without_inverse(monkeypatch, tmp_path):
     broker._running = {"edit-1": object()}
     broker.store = Store()
 
-    with pytest.raises(jobs.JobRefused, match="no safe running cancellation"):
-        broker.request_cancel("edit-1")
-    assert not cancellation.requested("edit-1")
+    assert broker.request_cancel("edit-1")["state"] == "running"
+    assert cancellation.requested("edit-1")
+
+
+@pytest.mark.parametrize("kind", [
+    "resolve.activity_probe",
+    "resolve_axi",
+    "timeline.apply_patch",
+    "resolve.ui_transaction",
+    "resolve.qualification_session",
+    "reel.promote_staged",
+    "reel.prepare_qualification_fixture",
+    "reel.probe_qualification_marker_loss",
+    "reel.copy_tv_ending",
+])
+def test_running_transactional_job_accepts_stop_request(
+        kind, monkeypatch, tmp_path):
+    monkeypatch.setattr(cancellation, "marker_path",
+                        lambda job_id: tmp_path / "cancel" / job_id)
+
+    class Store:
+        @staticmethod
+        def get(job_id):
+            return {"id": job_id, "kind": kind, "state": "running"}
+
+        @staticmethod
+        def interrupt_policy(_job_id):
+            return jobs.INTERRUPT_POLICIES.get(kind, "")
+
+    broker = object.__new__(Broker)
+    import threading
+    broker._cond = threading.Condition()
+    broker._queued = {}
+    broker._running = {"job-1": object()}
+    broker.store = Store()
+
+    assert broker.request_cancel("job-1")["state"] == "running"
+    assert cancellation.requested("job-1")
 
 
 def test_cancel_checkpoint_is_cooperative_and_clears_by_runner(tmp_path,
@@ -105,6 +148,66 @@ def test_cancel_checkpoint_is_cooperative_and_clears_by_runner(tmp_path,
         cancellation.checkpoint("probe-3")
     cancellation.clear("probe-3")
     assert not cancellation.requested("probe-3")
+
+
+def test_commit_checkpoint_keeps_committed_receipt_on_stop(tmp_path, monkeypatch):
+    monkeypatch.setattr(cancellation, "marker_path",
+                        lambda job_id: tmp_path / "cancel" / job_id)
+    cancellation.request("patch-1")
+    receipt = {"status": "committed", "generation": 12}
+
+    with pytest.raises(cancellation.CancelRequested) as stopped:
+        jobs._commit_checkpoint({"id": "patch-1"}, receipt)
+
+    assert stopped.value.result == receipt
+
+
+def test_interrupt_policy_survives_store_reopen_without_receipt_leak(tmp_path):
+    from library.tools.resolved.store import JobStore
+
+    database = tmp_path / "jobs.sqlite3"
+    job = {
+        "id": "persist-policy", "kind": "timeline.apply_patch",
+        "priority": "mutation", "mode": "exclusive", "executed": 1,
+        "params": {"patch": {"id": "persist-policy"}},
+        "project": "P", "timeline": "T", "qualification": 0,
+        "coalesce_key": None,
+        "interrupt_policy": jobs.INTERRUPT_POLICIES[
+            "timeline.apply_patch"],
+        "owner": "test", "state": "running", "submitted": 1.0,
+    }
+    store = JobStore(database)
+    store.insert(job)
+    store.close()
+
+    reopened = JobStore(database)
+    try:
+        assert reopened.interrupt_policy("persist-policy") == \
+            jobs.INTERRUPT_POLICIES["timeline.apply_patch"]
+        assert "interrupt_policy" not in reopened.get("persist-policy")
+    finally:
+        reopened.close()
+
+
+def test_sleep_wake_gap_stops_at_checkpoint_and_keeps_commit(tmp_path,
+                                                            monkeypatch):
+    wall, suspend_clock = [100.0], [50.0]
+    monkeypatch.setattr(cancellation.time, "time", lambda: wall[0])
+    monkeypatch.setattr(cancellation, "_suspend_clock",
+                        lambda: suspend_clock[0])
+    monkeypatch.setattr(cancellation, "marker_path",
+                        lambda job_id: tmp_path / "cancel" / job_id)
+    cancellation.begin("sleep-1")
+    wall[0] += 20.0
+    suspend_clock[0] += 1.0
+    receipt = {"status": "committed", "generation": 13}
+
+    with pytest.raises(cancellation.CancelRequested,
+                       match="machine sleep") as stopped:
+        cancellation.checkpoint("sleep-1", result=receipt)
+
+    assert stopped.value.result == receipt
+    cancellation.end("sleep-1")
 
 
 def test_native_overlay_is_nonactivating_and_shields_resolve_only():

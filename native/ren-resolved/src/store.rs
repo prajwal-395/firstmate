@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     timeline TEXT NOT NULL DEFAULT '',
     qualification INTEGER NOT NULL DEFAULT 0,
     coalesce_key TEXT,
+    interrupt_policy TEXT NOT NULL DEFAULT '',
     owner TEXT NOT NULL DEFAULT '',
     state TEXT NOT NULL,
     subscribers INTEGER NOT NULL DEFAULT 1,
@@ -107,6 +108,7 @@ pub struct JobRecord {
     pub timeline: String,
     pub qualification: bool,
     pub coalesce_key: Option<String>,
+    pub interrupt_policy: String,
     pub owner: String,
     pub state: String,
     pub subscribers: i64,
@@ -118,6 +120,20 @@ impl JobStore {
         let conn = Connection::open(path)?;
         conn.execute_batch("PRAGMA journal_mode=WAL")?;
         conn.execute_batch(SCHEMA)?;
+        let has_interrupt_policy = {
+            let mut statement = conn.prepare("PRAGMA table_info(jobs)")?;
+            let columns = statement.query_map([], |row| row.get::<_, String>(1))?;
+            let has = columns
+                .filter_map(Result::ok)
+                .any(|name| name == "interrupt_policy");
+            has
+        };
+        if !has_interrupt_policy {
+            conn.execute(
+                "ALTER TABLE jobs ADD COLUMN interrupt_policy TEXT NOT NULL DEFAULT ''",
+                [],
+            )?;
+        }
         // A job left queued or running by a daemon that died is closed as
         // failed: its client lost its connection with that daemon, so
         // nobody is waiting on it any more.
@@ -133,9 +149,9 @@ impl JobStore {
     fn insert_job(&self, job: &JobRecord) -> rusqlite::Result<()> {
         self.conn.lock().unwrap().execute(
             "INSERT INTO jobs (id, kind, priority, mode, executed, params, \
-             project, timeline, qualification, coalesce_key, owner, state, \
-             subscribers, submitted) VALUES \
-             (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+             project, timeline, qualification, coalesce_key, interrupt_policy, \
+             owner, state, subscribers, submitted) VALUES \
+             (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             params![
                 job.id,
                 job.kind,
@@ -147,6 +163,7 @@ impl JobStore {
                 job.timeline,
                 job.qualification as i64,
                 job.coalesce_key,
+                job.interrupt_policy,
                 job.owner,
                 job.state,
                 job.subscribers,
@@ -224,9 +241,9 @@ impl JobStore {
     ) -> rusqlite::Result<()> {
         tx.execute(
             "INSERT INTO jobs (id, kind, priority, mode, executed, params, \
-             project, timeline, qualification, coalesce_key, owner, state, \
-             subscribers, submitted) VALUES \
-             (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+             project, timeline, qualification, coalesce_key, interrupt_policy, \
+             owner, state, subscribers, submitted) VALUES \
+             (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             params![
                 job.id,
                 job.kind,
@@ -238,6 +255,7 @@ impl JobStore {
                 job.timeline,
                 job.qualification as i64,
                 job.coalesce_key,
+                job.interrupt_policy,
                 job.owner,
                 job.state,
                 job.subscribers,
@@ -289,6 +307,14 @@ impl JobStore {
             .optional()
             .ok()
             .flatten()
+    }
+
+    pub fn interrupt_policy(&self, job_id: &str) -> Option<String> {
+        self.conn.lock().unwrap().query_row(
+            "SELECT interrupt_policy FROM jobs WHERE id=?1",
+            params![job_id],
+            |row| row.get(0),
+        ).optional().ok().flatten()
     }
 
     pub fn recent(&self, limit: i64) -> Vec<Receipt> {

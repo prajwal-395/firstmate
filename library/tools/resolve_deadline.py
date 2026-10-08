@@ -157,7 +157,7 @@ def deadline_proxy(resolve: Any, label: str = "Resolve",
     return DeadlineProxy(resolve, label=label, timeout_s=timeout_s)
 
 
-def call_with_deadline(label: str, func: Callable[..., Any], *args,
+def call_with_deadline(call_label: str, func: Callable[..., Any], *args,
                        timeout_s: float | None = None, **kwargs) -> Any:
     """Run `func(*args, **kwargs)` and return its value, with a deadline.
 
@@ -179,13 +179,13 @@ def call_with_deadline(label: str, func: Callable[..., Any], *args,
             box["error"] = exc
 
     worker = threading.Thread(target=_run,
-                              name=f"resolve-deadline:{label}",
+                              name=f"resolve-deadline:{call_label}",
                               daemon=True)
     worker.start()
     worker.join(timeout)
     if worker.is_alive():
         raise ResolveCallTimeout(
-            f"{label} did not return within {timeout:g}s - Resolve is "
+            f"{call_label} did not return within {timeout:g}s - Resolve is "
             f"not answering scripting calls, so this refuses rather "
             f"than waiting indefinitely for the call (the 2026-10-02 Fusion "
             f"render-lock race hung this same write until SIGTERM).")

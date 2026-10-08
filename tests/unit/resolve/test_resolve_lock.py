@@ -1476,6 +1476,48 @@ def test_a_stale_patch_is_rejected_with_what_a_rebase_needs(
     assert resolve.project.GetCurrentTimeline().GetName() == "Master"
 
 
+def test_conflicting_submissions_serialize_and_reject_the_stale_writer(
+        serving, unguarded_2, monkeypatch):
+    from library.tools import edit_patch
+
+    broker, _resolve = serving
+    first_started, release_first = threading.Event(), threading.Event()
+    applied = []
+
+    def apply_patch(patch, *, resolve, project, timeline):
+        assert project.GetCurrentTimeline() is timeline
+        applied.append(patch["id"])
+        if patch["id"] == "conflict-first":
+            first_started.set()
+            assert release_first.wait(5)
+            return {"status": "committed", "generation": 105}
+        raise edit_patch.StalePatch(
+            types.SimpleNamespace(**patch), 105, observed=False,
+            rebase_possible=False, reason="the first conflicting patch won")
+
+    monkeypatch.setattr(edit_patch, "apply_patch", apply_patch)
+    base = {"capability": "reel.touchup", "project": "Podcast",
+            "timeline": "Reel 01", "base_generation": 104,
+            "affected_spans": [[0, 48]], "conflict_domains": ["markers"],
+            "operations": [{"op": "marker.add", "frame": 10,
+                            "color": "Blue", "name": "c"}]}
+    first = client.submit("timeline.apply_patch", {
+        "patch": {**base, "id": "conflict-first"}})
+    assert first_started.wait(5)
+    second = client.submit("timeline.apply_patch", {
+        "patch": {**base, "id": "conflict-second"}})
+    release_first.set()
+
+    first_result = client.result(first["id"], wait=5)
+    second_result = client.result(second["id"], wait=5)
+
+    assert first_result["state"] == "done"
+    assert first_result["result"]["status"] == "committed"
+    assert second_result["state"] == "rejected"
+    assert second_result["result"]["refusal"] == "StalePatch"
+    assert applied == ["conflict-first", "conflict-second"]
+
+
 def test_the_broker_connects_to_resolve_only_inside_the_lease(
         lock_dir_2, unguarded_2, monkeypatch):
     """Measured live 2026-10-02: the executor's handshake ran outside any

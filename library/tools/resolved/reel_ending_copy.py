@@ -1248,6 +1248,12 @@ def _run(job: dict, resolve, project) -> dict:
             f"{archive.get('reason')}")
 
     purpose = f"{KIND} {target.GetName()}"
+    from library.tools.resolved import cancellation
+
+    def safe_checkpoint():
+        """A Stop is honored inside the inverse-restore transaction."""
+        cancellation.checkpoint(job.get("id", ""))
+
     with resolve_lock.cursor_excursion(project, target, purpose):
         before = still_overlays.inventory_snapshot(target)
         pool = project.GetMediaPool()
@@ -1266,6 +1272,7 @@ def _run(job: dict, resolve, project) -> dict:
         header_applied = []
         comp_receipt = None
         try:
+            safe_checkpoint()
             with tempfile.TemporaryDirectory(prefix="ren-tv-ending-") as tmp:
                 temp_dir = Path(tmp)
                 source_comp_index, source_comp_path, signature = (
@@ -1329,6 +1336,7 @@ def _run(job: dict, resolve, project) -> dict:
                 header_applied = _apply_post_header(
                     resolve, project, pool, target, timeline_fps,
                     header_plans, project_folder, header_applied)
+                safe_checkpoint()
                 if target_legacy_freeze is not None:
                     old_uid = str(target_legacy_freeze.GetUniqueId() or "")
                     delete_error = None
@@ -1367,6 +1375,7 @@ def _run(job: dict, resolve, project) -> dict:
                         label="native hold",
                         orphaned_items=orphaned_items)
                     freeze_added = True
+                    safe_checkpoint()
                     _verify_appended(
                         new_freeze, landed_row,
                         media_pool_item=source_pool_item,
@@ -1438,6 +1447,7 @@ def _run(job: dict, resolve, project) -> dict:
                 else:
                     new_freeze = target_freeze
 
+                safe_checkpoint()
                 existing_comp = _target_tv_comp(new_freeze, temp_dir)
                 if existing_comp is None:
                     comp_receipt = _copy_reference_comp(
@@ -1458,6 +1468,7 @@ def _run(job: dict, resolve, project) -> dict:
                     }
 
             if old_logo is None:
+                safe_checkpoint()
                 source_pool = source_logo.GetMediaPoolItem()
                 if source_pool is None:
                     raise JobRefused(
@@ -1518,6 +1529,7 @@ def _run(job: dict, resolve, project) -> dict:
                 new_logo = existing_logo
 
             after = still_overlays.inventory_snapshot(target)
+            safe_checkpoint()
             remove_before = [str(swap["item_uid"])
                              for swap in header_plans]
             remove_after = [str(receipt["uid"])
@@ -1545,6 +1557,8 @@ def _run(job: dict, resolve, project) -> dict:
                     f"{KIND} after-inventory check failed: "
                     + "; ".join(problems))
         except Exception as exc:
+            from library.tools.resolved.cancellation import CancelRequested
+
             restored = _restore_target(
                 pool, target, freeze_item=new_freeze,
                 freeze_added=freeze_added, comp_added=comp_added,
@@ -1573,6 +1587,18 @@ def _run(job: dict, resolve, project) -> dict:
                 restored["errors"].append(
                     f"post-restore inventory read failed: {read_exc}")
                 restored["restored"] = False
+            if isinstance(exc, CancelRequested):
+                if restored.get("restored") and restored.get(
+                        "inventory_matches_before"):
+                    raise
+                raise JobRefused(
+                    f"{KIND} cancellation could not prove inverse restore; "
+                    f"drt_backup={archive.get('path')}; "
+                    f"inverse_restore={restored}",
+                    result={"drt_backup": archive.get("path"),
+                            "before": before,
+                            "after_restore": after_restore,
+                            "inverse_restore": restored}) from exc
             raise JobRefused(
                 f"{KIND} refused after mutation: {type(exc).__name__}: {exc}; "
                 f"inverse_restore={restored}; "

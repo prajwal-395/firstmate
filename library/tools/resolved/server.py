@@ -38,6 +38,7 @@ from pathlib import Path
 from library.tools.resolved import jobs as job_kinds
 from library.tools.resolved import scheduler
 from library.tools.resolved.cancellation import CancelRequested, clear
+from library.tools.resolved import cancellation
 from library.tools.resolved.store import (
     TERMINAL,
     IdempotencyConflict,
@@ -126,6 +127,7 @@ class Broker:
                 "timeline": shape["timeline"],
                 "qualification": int(shape["qualification"]),
                 "coalesce_key": key, "owner": owner, "state": "queued",
+                "interrupt_policy": shape.get("interrupt_policy", ""),
                 "submitted": now}
             if idempotency is None:
                 self.store.insert(record)
@@ -190,7 +192,7 @@ class Broker:
             job = self.store.get(job_id)
             if job is None:
                 return None
-            if job["kind"] != "resolve.activity_probe":
+            if not self.store.interrupt_policy(job_id):
                 raise job_kinds.JobRefused(
                     f"{job['kind']} has no safe running cancellation path; "
                     "Resolve remains shielded until it finishes")
@@ -290,6 +292,7 @@ class Broker:
         client nobody scheduled.
         """
         from library.tools.resolve_lock import resolve_lease
+        cancellation.begin(job["id"])
         try:
             with resolve_lease(f"ren-resolved {job['kind']} {job['id']}",
                                exclusive=job["mode"] == "exclusive"):
@@ -303,10 +306,12 @@ class Broker:
                 resolve = (self._resolve_handle()
                            if job["qualification"] or job["executed"]
                            else None)
-                if job["kind"] == "reel.promote_staged":
-                    from library.tools.resolve_deadline import deadline_proxy
-                    resolve = deadline_proxy(
-                        resolve, label=f"{job['kind']} {job['id']}")
+                if job["executed"] and resolve is not None:
+                    from library.tools.resolve_deadline import (
+                        DeadlineProxy, deadline_proxy)
+                    if not isinstance(resolve, DeadlineProxy):
+                        resolve = deadline_proxy(
+                            resolve, label=f"{job['kind']} {job['id']}")
                 if (job["qualification"]
                         and job["kind"] not in
                         job_kinds.BORROWING_QUALIFICATION_KINDS):
@@ -321,7 +326,7 @@ class Broker:
                 return "done", job_kinds.run(job, resolve), ""
         except CancelRequested as exc:
             clear(job["id"])
-            return "cancelled", None, str(exc)
+            return "cancelled", exc.result, str(exc)
         except job_kinds.JobRefused as exc:
             return "rejected", exc.result, str(exc)
         except Exception as exc:                              # noqa: BLE001
@@ -333,6 +338,9 @@ class Broker:
             if resolve_switch_guard.connection_may_drop():
                 self._resolve = None
             return "failed", None, f"{type(exc).__name__}: {exc}"
+        finally:
+            clear(job["id"])
+            cancellation.end(job["id"])
 
     def _resolve_handle(self):
         from library.tools import resolve_switch_guard

@@ -334,6 +334,28 @@ def test_run_replaces_baked_freeze_with_native_hold_then_places_logo(
         target_picture_track="Picture",
     )
     before_failed_replacement = still_overlays.inventory_snapshot(target)
+    from library.tools.resolved import cancellation
+
+    checkpoints = 0
+
+    def cancel_after_inserted_hold(job_id):
+        nonlocal checkpoints
+        checkpoints += 1
+        if checkpoints == 3:
+            assert job_id == "test-ending-cancelled"
+            raise cancellation.CancelRequested("injected Stop")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(cancellation, "checkpoint", cancel_after_inserted_hold)
+        with pytest.raises(cancellation.CancelRequested,
+                           match="injected Stop"):
+            reel_ending_copy.run(
+                {"id": "test-ending-cancelled", "params": target_params},
+                resolve)
+    after_cancelled_replacement = still_overlays.inventory_snapshot(target)
+    assert reel_ending_copy._inventory_matches(
+        before_failed_replacement, after_cancelled_replacement)
+
     from library.tools import native_ops_apply
     with monkeypatch.context() as patch:
         patch.setattr(

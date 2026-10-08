@@ -479,6 +479,12 @@ def test_watchdog_probe_without_lease_does_not_mark_degraded(unguarded):
         while "held" not in seen and time.time() < deadline:
             time.sleep(0.01)
         assert seen.get("held") is True
+        # `connect` runs on the deadline worker. It sets `seen` before
+        # returning to the watchdog thread, which publishes `_resolve`
+        # only after the deadline wrapper joins it. Wait for that
+        # handoff rather than racing the status read against it.
+        while not watchdog.status()["connected"] and time.time() < deadline:
+            time.sleep(0.01)
         assert not watchdog.is_degraded()
         status = watchdog.status()
         assert status["connected"] is True

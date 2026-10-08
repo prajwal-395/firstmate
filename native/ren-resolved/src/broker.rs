@@ -143,6 +143,7 @@ impl Broker {
             timeline: shape.timeline.clone(),
             qualification,
             coalesce_key: shape.coalesce_key.clone(),
+            interrupt_policy: shape.interrupt_policy.clone(),
             owner: owner.to_string(),
             state: "queued".to_string(),
             subscribers: 1,
@@ -228,6 +229,8 @@ impl Broker {
                 .unwrap_or("none").to_string(),
             coalesce_key: result.get("coalesce_key")
                 .and_then(|v| v.as_str()).map(String::from),
+            interrupt_policy: result.get("interrupt_policy")
+                .and_then(|v| v.as_str()).unwrap_or("").to_string(),
         })
     }
 
@@ -302,8 +305,8 @@ impl Broker {
         self.store.get(job_id)
     }
 
-    /// Stop queued work, or request a cooperative stop from the one live
-    /// qualification probe whose runner has no Resolve side effects.
+    /// Stop queued work, or request Stop at the runner's declared safe
+    /// checkpoint. The policy is persisted with the job at submission.
     pub fn request_cancel(&self, job_id: &str) -> Result<Option<Receipt>, String> {
         let (lock, _) = &*self.state;
         let state = lock.lock().unwrap();
@@ -316,7 +319,7 @@ impl Broker {
         }
         let job = self.store.get(job_id);
         let Some(job) = job else { return Ok(None) };
-        if job.kind != "resolve.activity_probe" {
+        if self.store.interrupt_policy(job_id).unwrap_or_default().is_empty() {
             return Err(format!(
                 "{} has no safe running cancellation path; Resolve remains shielded until it finishes",
                 job.kind));
@@ -414,6 +417,7 @@ struct PreparedShape {
     timeline: String,
     locality: String,
     coalesce_key: Option<String>,
+    interrupt_policy: String,
 }
 
 fn schedule_loop(state: Arc<(Mutex<State>, Condvar)>, store: Arc<JobStore>) {
@@ -678,7 +682,7 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
-    fn running_stop_is_only_accepted_for_a_no_edit_probe() {
+    fn running_stop_uses_the_persisted_runner_policy() {
         let scratch = std::env::temp_dir().join(format!(
             "ren-resolved-cancel-test-{}-{}",
             std::process::id(), crate::store::now().to_bits()));
@@ -688,14 +692,20 @@ mod tests {
         let store = Arc::new(JobStore::open(&db).unwrap());
         let broker = Broker::new(Arc::clone(&store));
 
-        for (id, kind) in [("probe", "resolve.activity_probe"),
-                           ("edit", "timeline.apply_patch")] {
+        for (id, kind, policy) in [
+            ("probe", "resolve.activity_probe",
+             "checkpoint:borrowed-context-restored"),
+            ("edit", "timeline.apply_patch",
+             "commit:verified-editpatch-generation"),
+            ("unsafe", "resolve.ui_transaction", ""),
+        ] {
             store.insert(&JobRecord {
                 id: id.to_string(), kind: kind.to_string(),
                 priority: "interactive".to_string(), mode: "exclusive".to_string(),
                 executed: true, params: json!({}), project: "Ren Qualification".to_string(),
                 timeline: String::new(), qualification: true,
                 coalesce_key: None, owner: "test".to_string(),
+                interrupt_policy: policy.to_string(),
                 state: "running".to_string(), subscribers: 1,
                 submitted: crate::store::now(),
             }).unwrap();
@@ -709,8 +719,10 @@ mod tests {
 
         assert_eq!(broker.request_cancel("probe").unwrap().unwrap().state, "running");
         assert!(scratch.join("ren-resolved-cancel/probe").is_file());
-        assert!(broker.request_cancel("edit").unwrap_err().contains("no safe running cancellation"));
-        assert!(!scratch.join("ren-resolved-cancel/edit").exists());
+        assert_eq!(broker.request_cancel("edit").unwrap().unwrap().state, "running");
+        assert!(scratch.join("ren-resolved-cancel/edit").is_file());
+        assert!(broker.request_cancel("unsafe").unwrap_err().contains("no safe running cancellation"));
+        assert!(!scratch.join("ren-resolved-cancel/unsafe").exists());
 
         drop(broker);
         drop(store);

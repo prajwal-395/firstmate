@@ -333,6 +333,46 @@ def test_marker_loss_probe_catches_named_loss_and_restores_fixture_marker():
     assert item.GetMarkers()[24] == marker
 
 
+def test_marker_loss_probe_cancel_restores_marker_before_stopping(
+        tmp_path, monkeypatch):
+    from library.tools.resolved import cancellation
+    from library.tools.resolved import marker_loss_probe as probe
+    from tests.resolve_double import FakeMediaPoolItem, FakeTimelineItem
+
+    timeline = FakeTimeline(probe.FINAL, uid="cancel-marker-probe-timeline")
+    pool_item = FakeMediaPoolItem("qual_b")
+    pool_item.SetClipProperty("File Path", "/qualification/qual_b.mp4")
+    marker = {
+        "color": "Blue", "name": "Ren live promotion anchor",
+        "note": "Keep this clip anchored note on qual_b.",
+        "duration": 1, "customData": "ren-qualification-promotion-proof",
+    }
+    item = FakeTimelineItem("qual_b", timeline, duration=72,
+                            pool_item=pool_item, markers={24: marker})
+    timeline.add_item("video", 1, item)
+    timeline.SetTrackName("video", 1, "A-Roll")
+
+    class Manager:
+        def SaveProject(self):
+            return True
+
+    job_id = "marker-probe-cancel"
+    monkeypatch.setattr(cancellation, "marker_path",
+                        lambda _job_id: tmp_path / "cancel" / job_id)
+    delete = item.DeleteMarkerAtFrame
+
+    def delete_then_request_cancel(frame):
+        removed = delete(frame)
+        cancellation.request(job_id)
+        return removed
+
+    item.DeleteMarkerAtFrame = delete_then_request_cancel
+    with pytest.raises(cancellation.CancelRequested):
+        probe._probe(timeline, Manager(), job_id=job_id)
+
+    assert item.GetMarkers()[24] == marker
+
+
 def test_marker_loss_probe_is_closed_and_qualification_only():
     from library.tools.resolved import marker_loss_probe as probe
 
