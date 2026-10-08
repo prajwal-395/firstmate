@@ -15,9 +15,9 @@ from library.tools.resolved.jobs import QUALIFICATION_PROJECT, JobRefused
 
 KIND = "reel.prepare_qualification_fixture"
 MASTER = "Q Spine"
-FINAL = "Q Promotion Proof R3"
+FINAL = "Q Promotion Proof R4"
 STAGING = FINAL + " (rebuild staging)"
-AMBIGUOUS_FINAL = "Q Promotion Proof Ambiguous R3"
+AMBIGUOUS_FINAL = "Q Promotion Proof Ambiguous R4"
 AMBIGUOUS_STAGING = AMBIGUOUS_FINAL + " (rebuild staging)"
 MARKER_NAME = "Ren live promotion anchor"
 MARKER_NOTE = "Keep this clip anchored note on qual_b."
@@ -57,8 +57,9 @@ def _create_timeline(project, pool, media, name: str, copies: int):
     # append behavior may advance the source in a second placement, which
     # would make the duplicate-source marker case a miss instead of an
     # ambiguity.
-    left = int(media.GetLeftOffset() or 0)
-    end = left + int(media.GetDuration() or 0) - 1
+    from library.tools.qualification_project import frames
+    left = 0
+    end = frames("qual_b") - 1
     placed = pool.AppendToTimeline([
         {"mediaPoolItem": media, "mediaType": 1,
          "startFrame": left, "endFrame": end}
@@ -197,8 +198,13 @@ def _build(project, manager) -> dict:
     marker = _add_clip_marker(original_items[0])
     staging, staged_items = _create_timeline(
         project, pool, media, STAGING, 1)
-    final_comp = _add_exportable_fusion_comp(original_items[0], FINAL)
-    staging_comp = _add_exportable_fusion_comp(staged_items[0], STAGING)
+    from library.tools.resolve_lock import cursor_excursion
+    with cursor_excursion(project, final, "seed promotion proof final comp"):
+        final_comp = _add_exportable_fusion_comp(original_items[0], FINAL)
+    with cursor_excursion(project, staging,
+                          "seed promotion proof staging comp"):
+        staging_comp = _add_exportable_fusion_comp(
+            staged_items[0], STAGING)
     ambiguous_final, ambiguous_original_items = _create_timeline(
         project, pool, media, AMBIGUOUS_FINAL, 1)
     ambiguous_marker = _add_clip_marker(ambiguous_original_items[0])

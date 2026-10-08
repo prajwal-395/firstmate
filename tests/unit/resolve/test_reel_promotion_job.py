@@ -106,13 +106,6 @@ def test_qualification_fixture_job_is_closed_and_qualification_only():
 def test_fixture_duplicate_placements_use_the_same_source_range():
     from library.tools.resolved import reel_promotion_fixture as fixture
 
-    class Media:
-        def GetLeftOffset(self):
-            return 5
-
-        def GetDuration(self):
-            return 72
-
     class Timeline:
         def __init__(self):
             self.items = []
@@ -143,12 +136,12 @@ def test_fixture_duplicate_placements_use_the_same_source_range():
 
     pool = Pool()
     timeline, items = fixture._create_timeline(
-        object(), pool, Media(), fixture.AMBIGUOUS_STAGING, 2)
+        object(), pool, object(), fixture.AMBIGUOUS_STAGING, 2)
 
     assert timeline is pool.timeline
     assert len(items) == 2
     assert [(spec["startFrame"], spec["endFrame"])
-            for spec in pool.specs] == [(5, 76), (5, 76)]
+            for spec in pool.specs] == [(0, 71), (0, 71)]
 
 
 def test_qualification_fixture_seeds_a_comp_the_promotion_can_export(
@@ -288,9 +281,9 @@ def test_qualification_fixture_seeds_a_comp_the_promotion_can_export(
     assert original_comp_handle.effect.values == comp_handle.effect.values
     assert [index for _path, index in export_calls] == [1, 1, 1]
     assert [path.rsplit("/", 1)[-1] for path in report["files"]] == [
-        "Q_Promotion_Proof_R3__V01_item000_c1.comp"]
+        "Q_Promotion_Proof_R4__V01_item000_c1.comp"]
     assert (tmp_path / "pipeline_output" / "steps" / "7_01_build_reels"
-            / "fusion_comps" / "Q_Promotion_Proof_R3__V01_item000_c1.comp"
+            / "fusion_comps" / "Q_Promotion_Proof_R4__V01_item000_c1.comp"
             ).is_file()
 
 
