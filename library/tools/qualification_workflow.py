@@ -467,7 +467,7 @@ def _run_broker_job(job: dict, resolve, current: dict,
             output_dir=params["output_dir"],
             output_name=params["output_name"], fmt="mp4", codec="H264",
             timeout_seconds=params["timeout_seconds"],
-            resolve_override=resolve)
+            resolve=resolve)
         stages.append({"name": "Resolve render", "status": "passed",
                        "evidence": render})
         duration_frames = int(timeline.GetEndFrame() - timeline.GetStartFrame())

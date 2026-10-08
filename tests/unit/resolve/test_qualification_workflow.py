@@ -278,3 +278,22 @@ class TestProbeSourceFrames:
         with pytest.raises(qw.WorkflowQualificationError,
                            match="no usable rate"):
             qw._probe_source_frames(tmp_path / "copy.MXF")
+
+
+class TestExportSeamBinding:
+    """The broker calls the render seam exactly as it declares."""
+
+    def test_render_seam_accepts_the_broker_resolve_handle(self, monkeypatch):
+        """Defect: the job passed resolve_override= to a seam taking
+        resolve=, so every export died before rendering."""
+        from library.tools import resolve_lock
+        from library.tools.execution import resolve_render
+
+        monkeypatch.setattr(resolve_lock, "exclusive_held", lambda: False)
+        with pytest.raises(resolve_render.RenderError,
+                           match="exclusive Resolve lease"):
+            resolve_render.render_timeline_under_existing_lease(
+                timeline_name="Q Workflow Test",
+                output_dir="exports",
+                output_name="Q_Workflow_Test",
+                resolve=object())
