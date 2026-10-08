@@ -25,10 +25,13 @@ both ways matched on every item field and every still
 What the import does not carry:
 
 - the timeline's custom resolution (measured: dropped). The importer
-  inherits the project's resolution. A new imported timeline is sized
-  to the reel while it is still noncurrent, with the deadline and readback
-  used by the append path; sizing a current timeline is refused because
-  Resolve can deadlock while syncing project settings;
+  inherits the project's resolution. A wrong-sized import cannot be
+  repaired: measured live 2026-10-08, the import makes the new timeline
+  current, and changing these settings on a current timeline is the
+  measured settings-sync deadlock - so `auto` falls back to append
+  unless the project default already matches the reel, and the size
+  check after import is a read-back that makes no write when it
+  already matches;
 - the bin each render belongs in - the import files every new pool item
   into the CURRENT folder, so the timeline is imported with its own bin
   current and each render is then moved to `overlay_import_bin`;
@@ -91,6 +94,16 @@ def record_elapsed(profile: dict, name: str, seconds: float, *,
         pass
 
 
+def project_timeline_resolution(project) -> tuple[int, int] | None:
+    """Read the project default used by timeline imports, or None."""
+    try:
+        width = int(project.GetSetting("timelineResolutionWidth"))
+        height = int(project.GetSetting("timelineResolutionHeight"))
+    except Exception:  # noqa: BLE001 - unknown resolution selects append
+        return None
+    return (width, height) if width > 0 and height > 0 else None
+
+
 def project_timeline_resolution_for_timeline(
         timeline) -> tuple[int, int] | None:
     """Read an imported timeline's size without changing it."""
@@ -117,12 +130,20 @@ def verify_imported_resolution(name: str, timeline, width: int,
 
 def size_imported_timeline_before_current(project, name: str, timeline,
                                           width: int, height: int) -> None:
-    """Size an imported, noncurrent timeline before taking the cursor.
+    """Size an imported timeline to the reel, or prove it needs no sizing.
 
-    Resolve can deadlock while synchronizing project settings for the
-    current timeline. The cursor check is a precondition, not an attempt
-    to recover from a write after the fact.
+    Measured live 2026-10-08: Resolve makes the imported timeline current
+    during the import, so the noncurrent sizing this was written for does
+    not happen - and changing these settings on a current timeline is the
+    measured settings-sync deadlock. When the import already reads back
+    the reel size (the project default matches), no write is made and the
+    read-back is the verdict. A wrong-sized CURRENT timeline refuses:
+    falling back to append is `select_placement`'s call, made BEFORE the
+    import, never here after it has landed and stolen the cursor.
     """
+    expected = (int(width), int(height))
+    if project_timeline_resolution_for_timeline(timeline) == expected:
+        return
     current = project.GetCurrentTimeline()
     if current is not None:
         try:
@@ -145,14 +166,17 @@ def size_imported_timeline_before_current(project, name: str, timeline,
 
 
 def otio_incompatibilities(
-        prepared, overlay_placements=None, *, target_resolution=None
-        ) -> tuple[str, ...]:
+        prepared, overlay_placements=None, *, target_resolution=None,
+        import_resolution=None) -> tuple[str, ...]:
     """Describe the known shapes this OTIO importer cannot represent.
 
     This reads the FREE placement plan plus the project's resolution
     captured before placement. Keep it beside the recorder's refusal
     seams so `auto` can choose append before the build touches its target
-    timeline.
+    timeline. The resolution gate is load-bearing: measured live
+    2026-10-08, the import makes the new timeline current, so a
+    wrong-sized import cannot be repaired after it lands - it must never
+    be attempted.
     """
     reasons = []
     if overlay_placements:
@@ -188,20 +212,33 @@ def otio_incompatibilities(
             len(tuple(target_resolution)) != 2
             or any(int(value) <= 0 for value in target_resolution)):
         reasons.append("the reel timeline resolution is invalid")
+    elif target_resolution is not None:
+        if import_resolution is None:
+            reasons.append(
+                "the Resolve project timeline resolution could not be "
+                "read before import")
+        elif tuple(import_resolution) != tuple(target_resolution):
+            reasons.append(
+                f"the Resolve project timeline resolution is "
+                f"{import_resolution[0]}x{import_resolution[1]}, but this "
+                f"reel needs {target_resolution[0]}x{target_resolution[1]}; "
+                "OTIO cannot set resolution after importing items")
     return tuple(reasons)
 
 
 def select_placement(requested: str, prepared,
-                     overlay_placements=None, *, target_resolution=None
+                     overlay_placements=None, *, target_resolution=None,
+                     import_resolution=None
                      ) -> tuple[str, tuple[str, ...]]:
-    """Resolve `auto` from the free plan and requested frame size."""
+    """Resolve `auto` from the free plan and captured project settings."""
     if requested not in ("append", "otio", "auto"):
         raise ValueError(f"unknown reel placement mode {requested!r}")
     if requested == "append":
         return requested, ()
     reasons = otio_incompatibilities(
         prepared, overlay_placements,
-        target_resolution=target_resolution)
+        target_resolution=target_resolution,
+        import_resolution=import_resolution)
     if requested == "otio":
         return requested, reasons
     return ("append" if reasons else "otio"), reasons

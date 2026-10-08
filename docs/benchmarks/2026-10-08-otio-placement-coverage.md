@@ -1,5 +1,12 @@
 # OTIO placement coverage (resolution mismatch + probe out of lease) - 2026-10-08
 
+> SUPERSEDED in one place by `2026-10-08-otio-placement-live.md`: the
+> sizing-before-current path never happens on a live Resolve - the import
+> makes the new timeline current during the import (measured live), so a
+> mismatched import is never attempted and `auto` falls back to append
+> pre-import. The marker-restoration and probe-out-of-lease halves below
+> stand as written; the live doc carries the corrected numbers.
+
 ## Provenance
 
 - Machine: Darwin 25.3.0 arm64 (Mac.attlocal.net), Apple Silicon.

@@ -153,10 +153,11 @@ reads as a false difference). Every pair: max channel difference 0.
 caption, a transition element or a program channel other than 1, so
 the shapes OTIO refuses stay unmeasured; `auto` places those with
 append. On the captain's project the project default is 3840x2160. The
-importer inherits that resolution; the placement path now sizes the
-imported, noncurrent timeline to the reel before taking the cursor. If
-Resolve already made it current, the builder refuses instead of risking
-the measured settings-sync deadlock.
+importer inherits that resolution, and measured live 2026-10-08 the
+import makes the new timeline current - so a wrong-sized import could
+not be repaired after it lands, and `auto` keeps falling back to append
+there. Where the project default already matches the reel the import
+reads back correctly sized and the post-import check makes no write.
 
 **Hold, warm (subject probes cached), Reel 09:** OTIO place hold
 14.27 s, of which pool organisation 6.83 s, unattributed 1.55 s,
@@ -202,9 +203,12 @@ C.
 
 The original B restore pass showed three `SetSetting` calls for timeline
 resolution after the imported timeline became current. That ordering is
-unsafe. The current path makes those writes and their read-backs while the
-imported timeline is still noncurrent, under the existing per-call deadline.
-One finding reaches beyond this path. Re-importing Resolve's own export
+unsafe. The current path sizes a still-noncurrent import with those
+writes and their read-backs under the existing per-call deadline, makes
+no write at all where the import already reads back the reel size (the
+matching-default case, which is also what the live import produces -
+it becomes current during the import), and refuses a wrong-sized
+current timeline before it could be repaired. One finding reaches beyond this path. Re-importing Resolve's own export
 moved source frames by one where the compiled file moved none. Step
 6.01's `deliver_audio_mix` re-imports exactly such an export, so it is
 exposed to the same drift. That path itself was not measured here.
@@ -214,6 +218,15 @@ timeline resolution was changed after the imported timeline became current.
 The OTIO restore now applies the three timeline settings before making it
 current, through `resolve_deadline.apply_timeline_resolution`; a timeout or
 failed read-back refuses the build.
+
+**Live import behaviour, 2026-10-08.** The import makes the new timeline
+current during the import, so the noncurrent sizing above does not
+happen on a live Resolve - and a wrong-sized import must never be
+attempted, because repairing it after it lands would be exactly the
+deadlocking write. `auto` therefore falls back to append unless the
+project default already matches the reel; where it matches, the
+post-import check reads the size back and writes nothing. Full run in
+`docs/benchmarks/2026-10-08-otio-placement-live.md`.
 
 ## The laws the compiler rests on
 

@@ -8912,9 +8912,13 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                 f"'otio', not 'auto'")
         incompatibilities = ()
     else:
+        import_resolution = (
+            _otio.project_timeline_resolution(project)
+            if placement_mode in ("auto", "otio") else None)
         placement_mode, incompatibilities = _otio.select_placement(
             placement_mode, prepared, overlay_placements,
-            target_resolution=(int(width), int(height)))
+            target_resolution=(int(width), int(height)),
+            import_resolution=import_resolution)
     if requested_placement == "otio" and incompatibilities:
         raise _otio.OtioPlacementRefused(
             f"{name}: OTIO cannot place this reel: "
@@ -12541,6 +12545,11 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         resolve = _connect_resolve()
         project = resolve_project_exactly(
             resolve.GetProjectManager(), resolve_name)
+        project_default_resolution = None
+        if placement_mode in ("auto", "otio"):
+            from library.tools.reel_otio_placement import (
+                project_timeline_resolution as _read_default_resolution)
+            project_default_resolution = _read_default_resolution(project)
     from library.tools import reel_replace_guard as _inventory_guard
     from library.tools import plan_provenance as _inventory_provenance
     build_inventory_before = _inventory_guard.timeline_inventory(project)
@@ -14144,7 +14153,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 _otio.select_placement(
                     placement_mode, prepared,
                     _reel_inputs["overlay_placements"],
-                    target_resolution=(reel_width, reel_height)))
+                    target_resolution=(reel_width, reel_height),
+                    import_resolution=project_default_resolution))
             if placement_mode == "otio" and placement_incompatibilities:
                 raise _otio.OtioPlacementRefused(
                     f"{name}: OTIO cannot place this reel: "

@@ -148,14 +148,18 @@ def test_the_recorded_build_lands_the_default_builds_timeline(media,
     monkeypatch.setattr(FakeTimeline, "SetSetting", refuse_if_current)
 
     default_project, default_pool, _ = _build(
-        media, "append", tmp_path / "a", project_size=(3840, 2160))
+        media, "append", tmp_path / "a", project_size=(1080, 1920))
     project, pool, record = _build(
-        media, "otio", tmp_path / "b", project_size=(3840, 2160))
+        media, "otio", tmp_path / "b", project_size=(1080, 1920))
 
     expected_resolution = [("useCustomSettings", "1"),
                            ("timelineResolutionWidth", "1080"),
                            ("timelineResolutionHeight", "1920")]
-    assert len(writes) == 2, "both paths size before making the timeline current"
+    # Only the append path writes the size: the import inherits the
+    # matching project default, so the post-import check makes no write.
+    # Measured live 2026-10-08, the import makes the new timeline
+    # current - sizing it then would risk the settings-sync deadlock.
+    assert len(writes) == 1, "only append sizes its empty timeline"
     assert all(calls == expected_resolution for calls in writes.values())
     assert pool.append_calls == [], "a recorded build appends nothing"
     assert default_pool.append_calls, "the default build appends"
@@ -202,8 +206,11 @@ def test_completed_phase_is_written_to_kpi_ledger(monkeypatch):
          "reel": "Reel 09 - scratch", "placement": "otio"})]
 
 
-def test_resolution_mismatch_sizes_otio_before_making_it_current(media,
-                                                                  tmp_path):
+def test_resolution_mismatch_refuses_otio_before_import(media, tmp_path):
+    # Measured live 2026-10-08: the import makes the new timeline
+    # current, so a wrong-sized import could not be repaired after it
+    # lands - it must never be attempted. An explicit `otio` refuses
+    # before the pool is touched; `auto` builds the append path.
     project = make_project(width=1920, height=1080, frame_rate=FPS)
     pool = project.GetMediaPool()
     pool.next_timeline = FakeTimeline()
@@ -218,16 +225,24 @@ def test_resolution_mismatch_sizes_otio_before_making_it_current(media,
         _clip(media, "audio", 2, "SpeakerTwo CH1", "SpeakerTwo", "speakertwo", 10, 20),
     ]
 
+    with pytest.raises(OtioPlacementRefused,
+                       match="project timeline resolution is 1920x1080"):
+        build_reel_timeline(
+            project, _Moment(), clips, [], FPS, 1080, 1920,
+            str(tmp_path / "project"), {"segments": []},
+            program_channels={"1": 1, "2": 1}, placement_mode="otio")
+
+    assert project.GetTimelineCount() == 0
+    assert project.GetCurrentTimeline() is None
+    assert pool.append_calls == [], "a refused build appends nothing"
+
     build_reel_timeline(
         project, _Moment(), clips, [], FPS, 1080, 1920,
         str(tmp_path / "project"), {"segments": []},
-        program_channels={"1": 1, "2": 1}, placement_mode="otio")
+        program_channels={"1": 1, "2": 1}, placement_mode="auto")
 
-    imported = project.GetCurrentTimeline()
-    assert imported is not None
-    assert imported.GetSetting("useCustomSettings") == "1"
-    assert imported.GetSetting("timelineResolutionWidth") == "1080"
-    assert imported.GetSetting("timelineResolutionHeight") == "1920"
+    assert project.GetTimelineCount() == 1
+    assert pool.append_calls, "auto falls back to the append path"
 
 
 def test_what_the_import_cannot_carry_refuses_by_name(media, tmp_path):

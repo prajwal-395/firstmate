@@ -34,19 +34,33 @@ def _plan(*, subtitle_segments=(), resolved_channels=None,
 def test_auto_selects_otio_for_a_fully_representable_plan():
     mode, reasons = select_placement(
         "auto", _plan(resolved_channels={"1": 1, "2": 1}),
-        target_resolution=(1080, 1920))
+        target_resolution=(1080, 1920),
+        import_resolution=(1080, 1920))
 
     assert mode == "otio"
     assert reasons == ()
 
 
-def test_auto_uses_safe_import_sizing_for_any_project_default():
+@pytest.mark.parametrize(
+    ("import_resolution", "reason"),
+    [
+        ((3840, 2160), "project timeline resolution is 3840x2160"),
+        (None, "project timeline resolution could not be read"),
+    ],
+    ids=("mismatched-resolution", "unknown-resolution"),
+)
+def test_auto_falls_back_before_placement_when_import_resolution_is_unsafe(
+        import_resolution, reason):
+    # Measured live 2026-10-08: the import makes the new timeline
+    # current, so a wrong-sized import could not be repaired after it
+    # lands - it must never be attempted.
     mode, reasons = select_placement(
         "auto", _plan(resolved_channels={"1": 1}),
-        target_resolution=(1080, 1920))
+        target_resolution=(1080, 1920),
+        import_resolution=import_resolution)
 
-    assert mode == "otio"
-    assert reasons == ()
+    assert mode == "append"
+    assert any(reason in item for item in reasons)
 
 
 @pytest.mark.parametrize(
@@ -93,6 +107,10 @@ def test_an_explicit_otio_refusal_precedes_media_pool_access():
     from library.tools.reel_build import build_reel_timeline
 
     class Project:
+        def GetSetting(self, key):
+            return {"timelineResolutionWidth": "1080",
+                    "timelineResolutionHeight": "1920"}[key]
+
         def GetMediaPool(self):
             pytest.fail("compatibility must be checked before pool access")
 
@@ -107,7 +125,7 @@ def test_an_explicit_otio_refusal_precedes_media_pool_access():
     ("project_size", "expected"),
     [
         ((1080, 1920), "selected otio"),
-        ((3840, 2160), "selected otio"),
+        ((3840, 2160), "selected append before placement"),
     ],
     ids=("matching-resolution", "mismatched-resolution"),
 )
@@ -182,12 +200,17 @@ def test_imported_resolution_is_verified_without_setting_timeline_values():
     assert [event[1] for event in events if event[0] == "write"] == [
         "useCustomSettings", "timelineResolutionWidth",
         "timelineResolutionHeight"]
-    assert events.index(("write", "timelineResolutionHeight", "1920")) \
-        < events.index(("read", "timelineResolutionWidth"))
+    # The size check reads first (and skips the writes when the import
+    # already matches); the writes land in deadline order after it.
+    assert events[0] == ("read", "timelineResolutionWidth")
+    assert events[1] == ("read", "timelineResolutionHeight")
+    first_write = events.index(
+        ("write", "useCustomSettings", "1"))
+    assert first_write == 2
 
     with pytest.raises(OtioPlacementRefused, match="made the OTIO timeline current"):
         size_imported_timeline_before_current(
-            Project(imported), "Reel 09", imported, 1080, 1920)
+            Project(Timeline([])), "Reel 09", Timeline([]), 1080, 1920)
 
     with pytest.raises(OtioPlacementRefused,
                        match=r"expected \(1920, 1080\)"):
@@ -196,3 +219,29 @@ def test_imported_resolution_is_verified_without_setting_timeline_values():
                 "timelineResolutionWidth": "1080",
                 "timelineResolutionHeight": "1920"}[key]),
             1920, 1080)
+
+
+def test_matching_import_needs_no_write_even_when_current():
+    # Measured live 2026-10-08: the import makes the new timeline
+    # current. Where the project default matches, the import already
+    # reads back the reel size, so no setting is written - and the
+    # settings-sync deadlock is never risked.
+    reads = []
+
+    class Timeline:
+        def GetSetting(self, key):
+            reads.append(key)
+            return {"timelineResolutionWidth": "1080",
+                    "timelineResolutionHeight": "1920"}[key]
+
+        def SetSetting(self, *_args):
+            pytest.fail("a matching import must not write timeline values")
+
+    class Project:
+        def GetCurrentTimeline(self):
+            return Timeline()
+
+    size_imported_timeline_before_current(
+        Project(), "Reel 09", Timeline(), 1080, 1920)
+    assert reads == ["timelineResolutionWidth",
+                     "timelineResolutionHeight"]
