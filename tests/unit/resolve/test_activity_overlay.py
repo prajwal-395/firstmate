@@ -118,6 +118,8 @@ def test_native_overlay_is_nonactivating_and_shields_resolve_only():
     assert '"op": "status"' in source
     assert '"op": "cancel"' in source
     assert "Elapsed %02d:%02d" in source
+    assert "messageLabel.frame = NSRect(x: 14, y: 12, width: 250, height: 16)" in source
+    assert "takeover.frame = NSRect(x: 278, y: 12, width: 118, height: 24)" in source
 
 
 def test_native_overlay_builder_is_macos_appkit_only():

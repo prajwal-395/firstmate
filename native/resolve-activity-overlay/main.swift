@@ -69,7 +69,9 @@ private final class CatchView: NSView {
         titleLabel.frame = NSRect(x: 14, y: 68, width: 250, height: 18)
         detailLabel.frame = NSRect(x: 14, y: 49, width: 260, height: 16)
         elapsedLabel.frame = NSRect(x: 278, y: 68, width: 118, height: 18)
-        messageLabel.frame = NSRect(x: 14, y: 12, width: 388, height: 16)
+        // Keep the status message in its own column. The takeover button starts
+        // at x=278, so a full-card label would draw underneath it.
+        messageLabel.frame = NSRect(x: 14, y: 12, width: 250, height: 16)
 
         stop.bezelStyle = .rounded
         stop.font = .systemFont(ofSize: 11, weight: .semibold)
