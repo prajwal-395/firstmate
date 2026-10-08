@@ -271,6 +271,21 @@ def _recovery_archive_stem(timeline_name: str) -> str:
     return f"{safe}--{digest}"
 
 
+def recovery_archive_import_name(timeline_name: str) -> str:
+    """The timeline name Resolve assigns when this reel's `.drt` is re-imported.
+
+    Measured 2026-10-07 on Resolve Studio 21.1: `ImportTimelineFromFile`
+    on a `.drt` ignores the requested `timelineName` and names the new
+    timeline after the FILE STEM instead. A donor import that asserts the
+    requested name and exits before its `DeleteTimelines` therefore strands
+    a file-stem-named duplicate (Reel 22: `Reel_22_-_a-score-is-not-a-fix`
+    `--8654518b4a`). Callers importing a recovery archive must locate the
+    donor by this predicted name (or by handle) and delete it in a
+    `finally`, never by asserting the requested name alone.
+    """
+    return _recovery_archive_stem(timeline_name)
+
+
 def export_timeline_recovery_archive(
         resolve, timeline, timeline_name: str,
         project_folder: str, label: str = "",

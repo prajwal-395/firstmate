@@ -357,6 +357,25 @@ def test_custom_script_recovery_archives_keep_each_run(tmp_path):
     assert Path(second["path"]).is_file()
 
 
+def test_recovery_archive_import_name_predicts_the_stranded_duplicate():
+    """Re-importing a `.drt` names the timeline after the file stem.
+
+    Measured 2026-10-07 on Resolve Studio 21.1: a donor import asking for
+    `timelineName="__fm_restore_reel22_20261007"` landed as
+    `Reel_22_-_a-score-is-not-a-fix--8654518b4a` instead, and the script's
+    name assertion exited before its `DeleteTimelines`, stranding the
+    duplicate. The helper predicts that stranded name so callers can find
+    and delete by it rather than asserting the requested name alone.
+    """
+    from library.tools.versions import store
+
+    assert (store.recovery_archive_import_name(
+        "Reel 22 - a-score-is-not-a-fix")
+        == "Reel_22_-_a-score-is-not-a-fix--8654518b4a")
+    assert (store.recovery_archive_import_name("Reel 01 - topic")
+            == store._recovery_archive_stem("Reel 01 - topic"))
+
+
 # ── The two orderings the review pinned ──────────────────────────────
 #
 # Export first, then delete: a staging whose `.drt` did not land is left
