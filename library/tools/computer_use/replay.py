@@ -76,6 +76,11 @@ CAPTAIN_WINDOW_GRANTED = "granted"
 REPLAY_OUT_ENV = "PIPELINE_REPLAY_DIR"
 
 
+def _replay_sleep(seconds: float) -> None:
+    """Wait in the live replay loop through a testable module-level seam."""
+    time.sleep(seconds)
+
+
 def default_replay_root() -> Path:
     """The per-machine replay output directory."""
     explicit = os.environ.get(REPLAY_OUT_ENV, "")
@@ -894,8 +899,6 @@ def _live_establish_color_page(resolve, timeline, item, client) -> str | None:
     The caller fails the recipe with the reason instead of pressing
     against the wrong page and claiming blind.
     """
-    import time as _time
-
     from library.tools.qualification_project import FPS
 
     try:
@@ -926,7 +929,7 @@ def _live_establish_color_page(resolve, timeline, item, client) -> str | None:
         return "the Color page did not open"
     labels: set = set()
     for _attempt in range(3):
-        _time.sleep(4)
+        _replay_sleep(4)
         try:
             labels = {e.get("text", "") for e in
                       client.call("read_text").get("elements", [])}
@@ -951,8 +954,6 @@ def _live_ensure_node_count(item, client, target: int,
     one at a time, verifies each menu closure and node-count read-back,
     and refuses an unexpected starting count or overshoot.
     """
-    import time as _time
-
     before = _live_node_count(item)
     if before is None:
         return "the scratch clip's node count did not read back"
@@ -980,7 +981,7 @@ def _live_ensure_node_count(item, client, target: int,
                 break
             if after is None or after > before + 1:
                 break
-            _time.sleep(3)
+            _replay_sleep(3)
             after = _live_node_count(item)
         if after != before + 1:
             return (f"the {recipe_name} setup serial read "
@@ -1082,7 +1083,7 @@ def _live_run_background(spec: RecipeSpec, take, out: Path) -> RecipeReport:
                     if _live_nodes_ok(spec.name, before_nodes,
                                       after_nodes):
                         break
-                    time.sleep(3)
+                    _replay_sleep(3)
                     after_nodes = _live_node_count(item)
             after_page = resolve.GetCurrentPage()
             report.proofs = [

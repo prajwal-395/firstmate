@@ -540,7 +540,7 @@ def test_live_grade_node_remove_reads_the_recipe_result_before_cleanup(
                         lambda _pool, _timeline: order.append(("cleanup",)))
     monkeypatch.setattr(resolve_lock, "assert_current_timeline",
                         lambda _project, _timeline: None)
-    monkeypatch.setattr(replay_mod.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(replay_mod, "_replay_sleep", lambda _seconds: None)
 
     def establish_color(_resolve, _timeline, _item, _client):
         resolve.page = "color"
