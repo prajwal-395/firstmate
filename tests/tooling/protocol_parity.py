@@ -35,7 +35,9 @@ for profile in ("release", "debug"):
 
 def start_python(lock_dir: Path) -> None:
     os.environ["PIPELINE_RESOLVE_LOCK_DIR"] = str(lock_dir)
-    os.environ.pop("REN_RESOLVED_DAEMON", None)
+    # The Rust daemon is the default now; the Python side of the
+    # comparison must ask for it explicitly.
+    os.environ["REN_RESOLVED_DAEMON"] = "python"
     # No shadow watcher: this broker is a throwaway parity probe (see
     # crash_recovery.py for the measured incident).
     os.environ["REN_SHADOW_WATCHER"] = "0"

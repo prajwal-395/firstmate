@@ -173,3 +173,45 @@ def test_native_rebuild_exclusion_waits_for_an_active_render(tmp_path):
         with open(lock_path, "a+b") as handle:
             with pytest.raises(BlockingIOError):
                 fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def test_rebuild_profile_matches_the_scheduler_registry(tmp_path, monkeypatch):
+    """The heavy-work profile a rebuild asks for must be one the
+    resource scheduler declares. A dash/underscore mismatch made every
+    stale part report 'refresh skipped (unknown profile)' and no
+    rebuild ever fired (measured 2026-10-08).
+    """
+    from contextlib import contextmanager
+
+    from library.tools import heavy_work_lock, resource_scheduler
+
+    seen = {}
+
+    @contextmanager
+    def fake_lock(owner, profile=heavy_work_lock.MACHINE, **kwargs):
+        seen["owner"] = owner
+        seen["profile"] = profile
+        yield
+
+    monkeypatch.setattr(heavy_work_lock, "heavy_work_lock", fake_lock)
+    src = tmp_path / "native" / "demo" / "src"
+    src.mkdir(parents=True, exist_ok=True)
+    (src / "main.rs").write_text("v1", encoding="utf-8")
+    for name, want in (("ren-resolved", "native_refresh:ren-resolved"),
+                       ("ren_native", "native_refresh:ren-native")):
+        seen.clear()
+
+        def runner(argv, _name=name):
+            binary = tmp_path / "native" / "target" / "release" / _name
+            binary.parent.mkdir(parents=True, exist_ok=True)
+            binary.write_bytes(b"fake-binary")
+            return 0
+
+        parts = {name: {"scope": ("native/demo/src",),
+                        "binary": ("native", "target", "release", name),
+                        "script": ("scripts", "build_demo.sh"), "args": ()}}
+        report = native_refresh.ensure_current(
+            tmp_path, parts=parts, runner=runner)
+        assert report == {name: "rebuilt"}
+        assert seen["profile"] == want, seen
+        resource_scheduler.demand_for(seen["profile"])

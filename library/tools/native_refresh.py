@@ -276,9 +276,8 @@ def ensure_current(root: str | Path, *, parts: dict | None = None,
             report[name] = "fresh"
             continue
         try:
-            profile = (f"native_refresh:{name}"
+            profile = (f"native_refresh:{name.replace('_', '-')}"
                        if name in PARTS else heavy_work_lock.MACHINE)
-            profile = profile.replace("_", "-")
             with heavy_work_lock.heavy_work_lock(
                     owner, profile, timeout=lock_timeout):
                 try:

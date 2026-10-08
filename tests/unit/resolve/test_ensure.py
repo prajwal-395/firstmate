@@ -501,3 +501,150 @@ def test_a_second_broker_refuses_to_bind_a_serving_socket(started, lock_dir):
     with pytest.raises(SystemExit):
         serve(path=socket_path)
     assert client.ping(socket_path)["pid"] == first["pid"]
+
+
+# ── Idle rebuild-and-swap ────────────────────────────────────────────
+# A serving broker otherwise serves its stale build until someone
+# restarts it by hand (measured 2026-10-08: an hour stale, heavy-work
+# queue empty, broker idle). ensure refreshes opportunistically around
+# an idle production broker and swaps onto a just-rebuilt binary.
+
+
+def _fake_target_ping(monkeypatch, answers, test_target):
+    """Fake ping only for the test target; the session teardown guard
+    pings its own socket with the real client, so a global fake would
+    read as a leaked broker (measured 2026-10-08). Anything else
+    delegates to the real ping.
+    """
+    real_ping = client.ping
+    script = list(answers)
+
+    def fake(target):
+        if str(target) != str(test_target):
+            return real_ping(target)
+        if script:
+            return script.pop(0)
+        return None
+
+    monkeypatch.setattr(client, "ping", fake)
+
+
+def _fake_target_call(monkeypatch, calls, test_target):
+    """Record requests to the test target; delegate everything else."""
+    real_call = client.call
+
+    def fake(request, target=None, **kwargs):
+        if str(target) != str(test_target):
+            return real_call(request, target, **kwargs)
+        calls.append(request)
+        return {"ok": True}
+
+    monkeypatch.setattr(client, "call", fake)
+
+
+IDLE_ANSWER = {"pid": 4242, "serving": True, "responsive": True,
+               "busy": False, "lease": None}
+
+
+def _as_production(monkeypatch):
+    """Pretend this starter may run the production broker.
+
+    The pre-ping guard refuses the default socket inside pytest, so the
+    first `_is_default_socket` probe answers False (reach the serving
+    path); every later probe answers True (take the production path).
+    """
+    probes = []
+
+    def fake_default(target):
+        probes.append(1)
+        return len(probes) > 1
+
+    monkeypatch.setattr(client, "_is_default_socket", fake_default)
+    monkeypatch.setattr(client, "_is_linked_worktree", lambda root: False)
+    monkeypatch.delenv("REN_RESOLVED_DAEMON", raising=False)
+
+
+def test_idle_production_broker_swaps_onto_a_rebuild(
+        lock_dir, monkeypatch):
+    """Rebuilt binary + idle broker -> shutdown, fresh broker, same path."""
+    from library.tools import native_refresh
+
+    target = lock_dir / SOCKET_NAME
+    _as_production(monkeypatch)
+    new_answer = dict(IDLE_ANSWER, pid=4243)
+    _fake_target_ping(
+        monkeypatch, [dict(IDLE_ANSWER), dict(IDLE_ANSWER), None, None,
+                      dict(new_answer)], target)
+    calls = []
+    _fake_target_call(monkeypatch, calls, target)
+    monkeypatch.setattr(
+        native_refresh, "ensure_current",
+        lambda root, **kwargs: {"ren-resolved": "rebuilt"})
+    started = []
+
+    class _Process:
+        def poll(self):
+            return None
+
+    monkeypatch.setattr(
+        client, "_start_detached",
+        lambda path: started.append(path) or _Process())
+    assert client.ensure(path=target, timeout=30) == new_answer
+    assert calls == [{"op": "shutdown"}]
+    assert started == [target]
+
+
+def test_idle_production_broker_keeps_serving_when_busy_or_fresh(
+        lock_dir, monkeypatch):
+    """A busy broker is never restarted, and a fresh tree never rebuilds
+    into a restart: no shutdown, no start."""
+    from library.tools import native_refresh
+
+    target = lock_dir / SOCKET_NAME
+    _as_production(monkeypatch)
+    busy = dict(IDLE_ANSWER, busy=True, lease={"holder": "someone"})
+    _fake_target_ping(monkeypatch, [dict(busy)], target)
+    calls = []
+    _fake_target_call(monkeypatch, calls, target)
+    monkeypatch.setattr(
+        native_refresh, "ensure_current",
+        lambda root, **kwargs: {"ren-resolved": "rebuilt"})
+    started = []
+    monkeypatch.setattr(
+        client, "_start_detached",
+        lambda path: started.append(path))
+    assert client.ensure(path=target, timeout=30) == busy
+    assert calls == []
+    assert started == []
+
+    _as_production(monkeypatch)  # fresh probe count for the second ensure
+    _fake_target_ping(
+        monkeypatch, [dict(IDLE_ANSWER), dict(IDLE_ANSWER)], target)
+    monkeypatch.setattr(
+        native_refresh, "ensure_current",
+        lambda root, **kwargs: {"ren-resolved": "fresh"})
+    assert client.ensure(path=target, timeout=30) == IDLE_ANSWER
+    assert calls == []
+    assert started == []
+
+
+def test_idle_production_broker_keeps_serving_where_it_will_not_stop(
+        lock_dir, monkeypatch):
+    """A shutdown the broker ignores is not followed by a second broker."""
+    from library.tools import native_refresh
+
+    target = lock_dir / SOCKET_NAME
+    _as_production(monkeypatch)
+    _fake_target_ping(monkeypatch, [dict(IDLE_ANSWER)] * 30, target)
+    calls = []
+    _fake_target_call(monkeypatch, calls, target)
+    monkeypatch.setattr(
+        native_refresh, "ensure_current",
+        lambda root, **kwargs: {"ren-resolved": "rebuilt"})
+    started = []
+    monkeypatch.setattr(
+        client, "_start_detached",
+        lambda path: started.append(path))
+    assert client.ensure(path=target, timeout=1) == IDLE_ANSWER
+    assert calls == [{"op": "shutdown"}]
+    assert started == []

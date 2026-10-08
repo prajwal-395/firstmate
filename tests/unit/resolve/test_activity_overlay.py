@@ -5,8 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from library.tools import qualification_project
+from library.tools import qualification_project, resolve_lock
 from library.tools.resolved import cancellation, jobs
+from library.tools.resolved import worker as broker_worker
 from library.tools.resolved.server import Broker
 
 
@@ -50,6 +51,97 @@ def test_activity_probe_cancel_restores_borrowed_context(monkeypatch):
                   "params": {"seconds": 2}}, resolve=Resolve())
     assert states == ["entered", ("switch", "manager",
                                   jobs.QUALIFICATION_PROJECT), "restored"]
+
+
+def test_worker_borrowing_probe_runs_while_captain_project_open(monkeypatch):
+    """Parity with the Python broker (#2154): a borrowing qualification
+    job enters from the captain's open project, so the worker's
+    open-project gate must not refuse it - the runner borrows and
+    restores instead.
+    """
+    states = []
+
+    @contextmanager
+    def borrowed(_resolve):
+        states.append("entered")
+        try:
+            yield {"project": "Podcast (field test)", "timeline": "Reel 09",
+                   "timeline_id": "tid-9", "page": "edit"}
+        finally:
+            states.append("restored")
+
+    monkeypatch.setattr(qualification_project, "borrowed", borrowed)
+    monkeypatch.setattr(
+        qualification_project, "switch_project",
+        lambda manager, name: states.append(("switch", name)))
+
+    class Manager:
+        @staticmethod
+        def GetCurrentProject():
+            class Project:
+                @staticmethod
+                def GetName():
+                    return "Podcast (field test)"
+            return Project()
+
+    class Resolve:
+        @staticmethod
+        def GetProjectManager():
+            return Manager()
+
+    monkeypatch.setattr(broker_worker, "_connect_cached", lambda: Resolve())
+
+    @contextmanager
+    def no_lease(*args, **kwargs):
+        yield
+
+    monkeypatch.setattr(resolve_lock, "resolve_lease", no_lease)
+    job = {"id": "probe-w1", "kind": "resolve.activity_probe",
+           "mode": "exclusive", "qualification": True, "executed": True,
+           "project": jobs.QUALIFICATION_PROJECT,
+           "params": {"seconds": 0.1}}
+    reply = broker_worker._execute_job(job)
+    assert reply["ok"] is True, reply
+    assert reply["result"]["timeline_edits"] == 0
+    assert ("switch", jobs.QUALIFICATION_PROJECT) in states
+    assert states[0] == "entered" and states[-1] == "restored"
+
+
+def test_worker_non_borrowing_qualification_job_still_needs_it_open(
+        monkeypatch):
+    """The exemption is narrow: a plain qualification read while the
+    captain's project is open is still refused before it runs.
+    """
+    class Manager:
+        @staticmethod
+        def GetCurrentProject():
+            class Project:
+                @staticmethod
+                def GetName():
+                    return "Podcast (field test)"
+            return Project()
+
+    class Resolve:
+        @staticmethod
+        def GetProjectManager():
+            return Manager()
+
+    monkeypatch.setattr(broker_worker, "_connect_cached", lambda: Resolve())
+
+    @contextmanager
+    def no_lease(*args, **kwargs):
+        yield
+
+    monkeypatch.setattr(resolve_lock, "resolve_lease", no_lease)
+    job = {"id": "snap-w1", "kind": "timeline.snapshot",
+           "mode": "exclusive", "qualification": True, "executed": True,
+           "project": jobs.QUALIFICATION_PROJECT,
+           "params": {"project": jobs.QUALIFICATION_PROJECT,
+                      "timeline": "Q Spine"}}
+    reply = broker_worker._execute_job(job)
+    assert reply["ok"] is False, reply
+    assert reply.get("refused") is True
+    assert "needs 'Ren Qualification' open" in reply["error"]
 
 
 def test_running_probe_stop_writes_marker(monkeypatch, tmp_path):
