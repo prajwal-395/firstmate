@@ -97,6 +97,7 @@ from library.tools.render_cache import (
     content_key as _content_key,
     detach as _detach_link,
     drawing_digest as _drawing_digest_of,
+    invalidate_index as _invalidate_render_cache_index,
     renderer_fingerprint as _renderer_fingerprint,
 )
 from library.tools.resolve_transform import FALLBACK_DRAW_GAIN
@@ -1457,6 +1458,7 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
                 for stale in (props_path, key_path):
                     if os.path.isfile(stale):
                         os.remove(stale)
+                _invalidate_render_cache_index(out_dir)
             except OSError:
                 pass
             tight = None
@@ -1582,6 +1584,7 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
     if key:
         try:
             Path(key_path).write_text(key, encoding="utf-8")
+            _invalidate_render_cache_index(out_dir)
         except OSError as exc:
             print(f"    note: could not record the reuse key for "
                   f"{segment_name} ({exc}); it will re-render next time",

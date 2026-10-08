@@ -569,6 +569,50 @@ def test_the_same_pixels_under_another_stem_render_once(tmp_path):
     assert os.path.samefile(first["overlay_path"], second["overlay_path"])
 
 
+def test_new_reuse_key_is_visible_when_directory_mtime_does_not_advance(
+        tmp_path, monkeypatch):
+    """A cached negative lookup must not hide a just-written key.
+
+    Some filesystems do not advance directory mtime_ns for two writes
+    within one timestamp tick. Pinning that value makes the timing window
+    deterministic: without explicit index invalidation, the second render
+    misses the first file and writes a duplicate.
+    """
+    out_dir = tmp_path / "captions"
+    out_dir.mkdir()
+    remotion = _remotion_tree(tmp_path)
+    real_stat = os.stat
+    fixed_mtime_ns = real_stat(out_dir).st_mtime_ns
+
+    class _StableDirectoryStat:
+        def __init__(self, result):
+            self._result = result
+
+        def __getattr__(self, name):
+            return getattr(self._result, name)
+
+        @property
+        def st_mtime_ns(self):
+            return fixed_mtime_ns
+
+    def stat_with_coarse_directory_mtime(path, *args, **kwargs):
+        result = real_stat(path, *args, **kwargs)
+        if os.fspath(path) == str(out_dir):
+            return _StableDirectoryStat(result)
+        return result
+
+    monkeypatch.setattr(_render_cache.os, "stat",
+                        stat_with_coarse_directory_mtime)
+    first = _render_caption(_caption_props(), out_dir, VARIANTS[0],
+                            remotion, _StubRenderer())
+    shifted = _caption_props()
+    shifted["_source_start"] = 10.004
+    second = _render_caption(shifted, out_dir, VARIANTS[1],
+                             remotion, _StubRenderer())
+
+    assert os.path.samefile(first["overlay_path"], second["overlay_path"])
+
+
 def test_rerendering_an_adopted_name_never_writes_through_its_twin(
         tmp_path):
     """An adopted file is a hard link. A render truncates its output, so

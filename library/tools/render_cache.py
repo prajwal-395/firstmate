@@ -328,6 +328,16 @@ REUSE_KEY_SUFFIX = "_reuse_key.txt"
 _key_index: dict[str, tuple[int, dict[str, str]]] = {}
 
 
+def invalidate_index(directory: str) -> None:
+    """Forget a directory index after changing one of its key sidecars.
+
+    Directory mtimes are a useful fast path, but their timestamp
+    granularity is filesystem-dependent. A sidecar created within one
+    timestamp tick must still be visible to the next content lookup.
+    """
+    _key_index.pop(directory, None)
+
+
 def _index(directory: str) -> dict[str, str]:
     """`{full key: stem}` for every recorded key in `directory`.
 
@@ -433,6 +443,7 @@ def adopt(directory: str, key: str, stem: str, artefact_suffix: str,
     for stale in (own_key, own_artefact):
         if os.path.lexists(stale):
             os.unlink(stale)
+    invalidate_index(directory)
     source_artefact = os.path.join(directory, source + artefact_suffix)
     try:
         os.link(source_artefact, own_artefact)
@@ -443,4 +454,5 @@ def adopt(directory: str, key: str, stem: str, artefact_suffix: str,
         if os.path.isfile(sidecar):
             shutil.copyfile(sidecar, os.path.join(directory, stem + suffix))
     Path(own_key).write_text(key, encoding="utf-8")
+    invalidate_index(directory)
     return source
