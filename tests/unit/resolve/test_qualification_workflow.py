@@ -228,6 +228,31 @@ class TestTimelineShape:
                            match="refused custom settings"):
             qw._apply_timeline_shape(timeline, fps=24.0)
 
+    def test_shape_writes_come_after_the_timeline_is_current(self):
+        """Defect: custom shape writes on a not-current timeline are
+        refused while the timeline keeps the project rate; the render
+        path asserts current first."""
+        import ast
+        from pathlib import Path
+
+        tree = ast.parse(Path(qw.__file__).read_text(encoding="utf-8"))
+        body = next(node for node in tree.body
+                    if isinstance(node, ast.FunctionDef)
+                    and node.name == "_run_broker_job")
+        ordered = sorted(
+            (node for node in ast.walk(body)
+             if isinstance(node, ast.Call)
+             and isinstance(node.func, (ast.Attribute, ast.Name))),
+            key=lambda node: (node.lineno, node.col_offset))
+        calls = [node.func.attr if isinstance(node.func, ast.Attribute)
+                 else node.func.id for node in ordered]
+        first = {}
+        for position, name in enumerate(calls):
+            first.setdefault(name, position)
+        for write in ("_apply_timeline_shape", "AddTrack", "SetTrackName"):
+            assert first["assert_current_timeline"] < first[write], (
+                f"{write} runs before the timeline is current")
+
     def test_timeline_refusing_custom_settings_fails(self):
         """Defect: a timeline that refused custom settings kept project
         settings and failed later at render QA."""

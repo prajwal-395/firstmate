@@ -357,6 +357,10 @@ def _run_broker_job(job: dict, resolve, current: dict,
         timeline = pool.CreateEmptyTimeline(params["timeline"])
         if not timeline:
             raise WorkflowQualificationError("Resolve could not create timeline")
+        from library.tools.resolve_lock import assert_current_timeline
+        assert_current_timeline(project, timeline)
+        if project.GetCurrentTimeline().GetName() != params["timeline"]:
+            raise WorkflowQualificationError("qualification timeline did not read back")
         current["name"] = "edit construction: timeline shape"
         _apply_timeline_shape(timeline, fps=fps)
         timeline_shape = {key: timeline.GetSetting(key)
@@ -365,10 +369,6 @@ def _run_broker_job(job: dict, resolve, current: dict,
                                       "timelineResolutionHeight")}
         if timeline.GetTrackCount("audio") == 0 and not timeline.AddTrack("audio"):
             raise WorkflowQualificationError("Resolve could not create A1")
-        from library.tools.resolve_lock import assert_current_timeline
-        assert_current_timeline(project, timeline)
-        if project.GetCurrentTimeline().GetName() != params["timeline"]:
-            raise WorkflowQualificationError("qualification timeline did not read back")
         for media_type, name in (("video", "A-Roll"), ("audio", "Production Audio")):
             if not timeline.SetTrackName(media_type, 1, name):
                 raise WorkflowQualificationError(
