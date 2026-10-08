@@ -401,6 +401,69 @@ def _acquire_in_thread(scheduler, owner, profile):
     return admitted, box
 
 
+def test_dead_legacy_owner_is_reclaimed_before_admission(scheduler):
+    import json
+    import socket
+
+    scheduler.legacy_dir.mkdir(parents=True)
+    (scheduler.legacy_dir / resource_scheduler.OWNER_FILE).write_text(
+        json.dumps({"owner": "orphan", "pid": 2**30,
+                    "host": socket.gethostname()}), encoding="utf-8")
+    token = scheduler.acquire("replacement", {"cpu": 1},
+                              announce=lambda line: None, timeout=1)
+    scheduler.release(token)
+    assert not scheduler.legacy_dir.exists()
+
+
+def test_dead_job_reaps_after_network_hostname_changes(scheduler, monkeypatch):
+    import json
+    import sqlite3
+    import time
+
+    stable_id = "mac-test-machine"
+    monkeypatch.setattr(resource_scheduler, "_machine_id", lambda: stable_id)
+    old_host = "Mac.attlocal.net"
+    monkeypatch.setattr(resource_scheduler.socket, "gethostname",
+                        lambda: old_host)
+    with scheduler._connect() as conn:
+        conn.execute(
+            "INSERT INTO jobs (token, owner, pid, host, machine_id, state,"
+            " demand, enqueued_at) VALUES (?, ?, ?, ?, ?, 'waiting', ?, ?)",
+            ("dead-waiter", "native refresh", 2**30, old_host, stable_id,
+             json.dumps({"cpu": 1}), time.time()))
+    monkeypatch.setattr(resource_scheduler.socket, "gethostname",
+                        lambda: "MacBook-Pro-3.local")
+    assert scheduler.jobs() == []
+
+
+def test_scheduler_wait_timeout_removes_its_waiting_row(scheduler):
+    held = scheduler.acquire("holder", resource_scheduler.demand_for("machine"))
+    with pytest.raises(resource_scheduler.Cancelled, match="timed out"):
+        scheduler.acquire("bounded waiter", {"cpu": 1},
+                          announce=lambda line: None, timeout=0.01)
+    assert [job["owner"] for job in scheduler.jobs()] == ["holder"]
+    scheduler.release(held)
+
+
+def test_scheduler_marks_no_cpu_progress_as_stalled_without_killing(
+        scheduler, monkeypatch):
+    import sqlite3
+    import subprocess
+    import time
+
+    token = scheduler.acquire("frozen-holder", {"cpu": 1},
+                              announce=lambda line: None)
+    with sqlite3.connect(scheduler.db_path) as conn:
+        conn.execute("UPDATE jobs SET last_cpu=1, last_cpu_at=?, stalled=0",
+                     (time.time() - resource_scheduler.STALL_SECONDS - 1,))
+    monkeypatch.setattr(resource_scheduler.subprocess, "run", lambda *a, **k:
+                        subprocess.CompletedProcess(a[0], 0, "00:00:01"))
+    rows = scheduler.jobs()
+    assert rows[0]["stalled"] is True
+    assert resource_scheduler._alive(os.getpid())
+    scheduler.release(token)
+
+
 def test_placement_runs_beside_a_gate_and_a_second_gate_waits(scheduler):
     """Catches: the global mutex queueing a seconds-long Resolve placement
     behind a minutes-long gate, and two full-suite gates running at once."""

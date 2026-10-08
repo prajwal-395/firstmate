@@ -19,9 +19,12 @@ already did. Renders hold that same lock while they draw, so a rebuild
 never lands mid-render.
 
 Safe points that call `ensure_current`: a pipeline run starting
-(`run_pipeline.main`), the broker starter (`resolved.client.ensure`
-where it starts a broker), and a driver session starting
-(`computer_use.client` where it spawns). `ren setup` builds at install;
+(`run_pipeline.main`), the broker starter (`resolved.client.ensure`,
+with a short wait bound so a serving broker can start on its current
+binary), an idle broker refresh (`resolved.client.ensure`), and a driver
+session starting (`computer_use.client` where it spawns). A deferred
+broker refresh is retried by a later safe point; an idle broker is
+restarted after its Rust binary is rebuilt. `ren setup` builds at install;
 `ren upgrade` rebuilds `ren_native` post-switch as before. `ren doctor`
 reports each part's freshness.
 
@@ -231,7 +234,8 @@ def _script_argv(root: str | Path, part: str, parts: dict | None = None) -> list
 
 
 def ensure_current(root: str | Path, *, parts: dict | None = None,
-                   runner=None, owner: str = "native-refresh") -> dict:
+                   runner=None, owner: str = "native-refresh",
+                   lock_timeout: float | None = None) -> dict:
     """Rebuild every stale or missing part; report what happened.
 
     `runner` runs a script argv and returns its exit code (default:
@@ -255,7 +259,11 @@ def ensure_current(root: str | Path, *, parts: dict | None = None,
             report[name] = "fresh"
             continue
         try:
-            with heavy_work_lock.heavy_work_lock(owner):
+            profile = (f"native_refresh:{name}"
+                       if name in PARTS else heavy_work_lock.MACHINE)
+            profile = profile.replace("_", "-")
+            with heavy_work_lock.heavy_work_lock(
+                    owner, profile, timeout=lock_timeout):
                 try:
                     state, detail = status(root, name, specs)
                 except OSError as exc:
@@ -267,14 +275,16 @@ def ensure_current(root: str | Path, *, parts: dict | None = None,
                 print(f"native: {name} is {state} ({detail}) - rebuilding",
                       file=sys.stderr, flush=True)
                 try:
-                    if runner is None:
-                        done = subprocess.run(
-                            _script_argv(root, name, specs),
-                            capture_output=True, encoding="utf-8",
-                            timeout=1800, check=False)
-                        code = done.returncode
-                    else:
-                        code = runner(_script_argv(root, name, specs))
+                    from library.tools.native_part_lock import native_part_lock
+                    with native_part_lock(root, name, shared=False):
+                        if runner is None:
+                            done = subprocess.run(
+                                _script_argv(root, name, specs),
+                                capture_output=True, encoding="utf-8",
+                                timeout=1800, check=False)
+                            code = done.returncode
+                        else:
+                            code = runner(_script_argv(root, name, specs))
                 except (OSError, subprocess.SubprocessError) as exc:
                     report[name] = (
                         f"build could not start ({exc}); kept the previous build")
@@ -296,7 +306,10 @@ def ensure_current(root: str | Path, *, parts: dict | None = None,
                     print(f"native: {name} {report[name]}",
                           file=sys.stderr, flush=True)
         except Exception as exc:  # noqa: BLE001 - refresh never breaks startup
-            report[name] = f"refresh skipped ({exc}); left alone"
+            if isinstance(exc, heavy_work_lock.resource_scheduler.Cancelled):
+                report[name] = "rebuild pending (heavy-work slot busy)"
+            else:
+                report[name] = f"refresh skipped ({exc}); left alone"
     return report
 
 

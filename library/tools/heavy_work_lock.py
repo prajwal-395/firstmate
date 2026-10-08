@@ -72,7 +72,8 @@ def owns(profile: str = MACHINE) -> bool:
 
 
 def take_heavy_lock(owner: str, profile: str = MACHINE,
-                    cancelled: Callable[[], bool] | None = None) -> None:
+                    cancelled: Callable[[], bool] | None = None,
+                    timeout: float | None = None) -> None:
     """Acquire `profile`'s resources, re-entering a grant that covers them.
 
     `cancelled` ends a wait early (`resource_scheduler.Cancelled`)."""
@@ -116,7 +117,7 @@ def take_heavy_lock(owner: str, profile: str = MACHINE,
         try:
             token = _scheduler().acquire(
                 owner, demand, announce=lambda line: print(line, flush=True),
-                cancelled=cancelled)
+                cancelled=cancelled, timeout=timeout)
         except BaseException:
             sampler.stop()
             raise
@@ -229,10 +230,11 @@ def release_heavy_lock() -> None:
 
 @contextmanager
 def heavy_work_lock(owner: str, profile: str = MACHINE,
-                    cancelled: Callable[[], bool] | None = None
+                    cancelled: Callable[[], bool] | None = None,
+                    timeout: float | None = None
                     ) -> Iterator[None]:
     """Context manager for one heavy-work section."""
-    take_heavy_lock(owner, profile, cancelled)
+    take_heavy_lock(owner, profile, cancelled, timeout)
     try:
         yield
     finally:
@@ -380,7 +382,8 @@ def main(argv: list[str] | None = None) -> int:
     if args == ["jobs"]:
         for job in _scheduler().jobs():
             print(f"{job['state']:8} pid {job['pid']:>6}  "
-                  f"{job['owner']}  {job['demand']}")
+                  f"{job['owner']}  {job['demand']}"
+                  f"{'  STALLED (no CPU progress)' if job['stalled'] else ''}")
         return 0
     if args[:1] == ["history"]:
         print(_history(float(_option(args, "--days", "30"))))

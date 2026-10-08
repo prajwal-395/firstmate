@@ -779,6 +779,31 @@ def native_freshness_checks() -> list:
     except Exception:  # noqa: BLE001 - doctor must finish
         return []
     checks = []
+    try:
+        broker_state, broker_detail = native_refresh.status(root, "ren-resolved")
+        broker_binary = root / "native" / "target" / "release" / "ren-resolved"
+        serving_fallback = os.environ.get("REN_RESOLVED_DAEMON", "").lower() == "python"
+        from library.tools.resolved.client import ping
+        serving = ping()
+        serving_binary = "no broker serving"
+        if serving is not None:
+            command = subprocess.run(
+                ["ps", "-p", str(serving["pid"]), "-o", "command="],
+                capture_output=True, encoding="utf-8", timeout=3,
+                check=False).stdout.strip()
+            serving_binary = command or "broker process no longer listed"
+        if broker_state == "fresh":
+            detail = f"{serving_binary}; Rust broker is built from this tree"
+        elif broker_binary.is_file() or serving_fallback:
+            detail = (f"{serving_binary}; rebuild pending ({broker_state}: "
+                      f"{broker_detail}); current binary remains in service")
+        else:
+            detail = (f"{serving_binary}; Rust broker missing ({broker_detail}); "
+                      "Python fallback is available until a safe point builds it")
+        checks.append(Check("native ren-resolved", True, detail))
+    except Exception as exc:  # noqa: BLE001 - doctor must finish
+        checks.append(Check("native ren-resolved", True,
+                            f"freshness unavailable ({exc})"))
     for part, need in (("ren-graphics-fframes", "renderer.fframes"),
                        ("resolve-control", "resolve.control")):
         try:

@@ -349,26 +349,17 @@ def _start_detached(path: Path) -> subprocess.Popen:
         env["REN_SHADOW_WATCHER"] = "0"
     daemon = os.environ.get("REN_RESOLVED_DAEMON", "").strip().lower()
     if daemon != "python":
-        if daemon != "rust" and root is not None:
-            from library.tools import native_refresh
-            state, detail = native_refresh.status(root, "ren-resolved")
-            if state != "fresh":
-                raise RuntimeError(
-                    "the default Rust broker is unavailable or stale "
-                    f"({detail}); run scripts/build_ren_resolved.sh")
         binary = _rust_daemon()
-        if binary is None:
+        if binary is None and daemon == "rust":
             target = (root / "native" / "target" if root is not None
                       else "the engine's native/target directory")
-            if daemon == "rust":
-                raise RuntimeError(
-                    "REN_RESOLVED_DAEMON=rust but the ren-resolved binary is "
-                    f"not built under {target} - "
-                    "run scripts/build_ren_resolved.sh")
             raise RuntimeError(
-                "the default Rust broker is unavailable: ren-resolved was "
-                f"not built under {target}")
-        argv = [str(binary), "serve"]
+                "REN_RESOLVED_DAEMON=rust but ren-resolved is missing under "
+                f"{target} - run scripts/build_ren_resolved.sh")
+        if binary is None:
+            argv = [_broker_python(), "-m", "library.tools.resolved", "serve"]
+        else:
+            argv = [str(binary), "serve"]
     else:
         argv = [_broker_python(), "-m", "library.tools.resolved", "serve"]
     log = open(path.parent / LOG_NAME, "ab", buffering=0)
@@ -414,7 +405,9 @@ def ensure(path=None, timeout: float = START_TIMEOUT_SECONDS) -> Optional[dict]:
     if _in_pytest() and _is_default_socket(target):
         return None
     answer = ping(target)
-    if answer is not None:
+    if answer is not None and (
+            answer.get("busy") or not _is_default_socket(target)
+            or _is_linked_worktree(_engine_root())):
         return answer
     # Guard: never SPAWN a broker from inside the test suite unless
     # the test explicitly opted in. Judged here, where nothing is
@@ -466,14 +459,47 @@ def ensure(path=None, timeout: float = START_TIMEOUT_SECONDS) -> Optional[dict]:
         try:
             answer = ping(target)
             if answer is not None:
-                return answer
-            # Starting a broker is a safe point: no render is in flight
-            # from this starter. A missing or stale native part rebuilds
-            # first, under the heavy-work lock, or the broker would
-            # serve on a build that predates this tree.
+                if answer.get("busy"):
+                    return answer
+                if (not _is_default_socket(target)
+                        or _is_linked_worktree(_engine_root())):
+                    return answer
+                # Refresh opportunistically while the old broker is idle.
+                # If this produces a new Rust binary, retire this idle
+                # process and start the fresh one below.
+                try:
+                    from library.tools import native_refresh
+                    refreshed = native_refresh.ensure_current(
+                        _engine_root(), owner="ren-resolved-idle-refresh",
+                        lock_timeout=0.25)
+                except Exception:  # noqa: BLE001 - a serving broker wins
+                    refreshed = {}
+                if (os.environ.get("REN_RESOLVED_DAEMON", "").lower()
+                        != "python"
+                        and refreshed.get("ren-resolved") == "rebuilt"):
+                    try:
+                        call({"op": "shutdown"}, target)
+                    except Exception:  # noqa: BLE001 - verify by ping below
+                        pass
+                    deadline = time.time() + min(timeout, 5.0)
+                    while ping(target) is not None and time.time() < deadline:
+                        time.sleep(0.05)
+                    if ping(target) is not None:
+                        return answer
+                else:
+                    return answer
+            # Startup gets only a short chance at the heavy-work slot.
+            # If it is occupied, a present Rust binary (or Python fallback)
+            # starts now; a later idle safe point retries the refresh.
             try:
                 from library.tools import native_refresh
-                native_refresh.ensure_current(_engine_root())
+                refresh = native_refresh.ensure_current(
+                    _engine_root(), owner="ren-resolved-start",
+                    lock_timeout=0.25)
+                pending = [name for name, result in refresh.items()
+                           if "pending" in result]
+                if pending:
+                    os.environ["REN_RESOLVED_REBUILD_PENDING"] = ",".join(pending)
             except Exception:  # noqa: BLE001 - refresh never breaks ensure
                 pass
             process = _start_detached(target)

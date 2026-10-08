@@ -116,3 +116,44 @@ def test_refresh_progress_does_not_pollute_stdout(tmp_path, capsys):
     assert output.out == ""
     assert "native: demo is missing" in output.err
     assert "native: demo rebuilt from this tree" in output.err
+
+
+def test_busy_heavy_work_slot_defers_rebuild(tmp_path, monkeypatch):
+    _write_source(tmp_path)
+    from library.tools import heavy_work_lock
+
+    def busy(*args, **kwargs):
+        raise heavy_work_lock.resource_scheduler.Cancelled("busy")
+
+    monkeypatch.setattr(heavy_work_lock, "heavy_work_lock", busy)
+    runner = _Runner(tmp_path)
+    report = native_refresh.ensure_current(
+        tmp_path, parts=_parts(tmp_path), runner=runner, lock_timeout=0.01)
+    assert report == {"demo": "rebuild pending (heavy-work slot busy)"}
+    assert runner.calls == []
+
+
+def test_native_build_demand_is_bounded_and_per_binary():
+    from library.tools import resource_scheduler
+
+    demand = resource_scheduler.demand_for(
+        "native_refresh:ren-graphics-fframes")
+    assert demand == {
+        "cpu": 2,
+        "ram_gb": 4,
+        "disk": 1,
+        "native_ren_graphics_fframes": 1,
+    }
+
+
+def test_native_rebuild_exclusion_waits_for_an_active_render(tmp_path):
+    import fcntl
+
+    from library.tools.native_part_lock import native_part_lock
+
+    lock_path = (tmp_path / "native" / "target" / ".ren-locks"
+                 / "ren-graphics-fframes")
+    with native_part_lock(tmp_path, "ren-graphics-fframes", shared=True):
+        with open(lock_path, "a+b") as handle:
+            with pytest.raises(BlockingIOError):
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)

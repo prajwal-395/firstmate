@@ -183,12 +183,15 @@ def render_png_sequence(scene_json: str,
     os.makedirs(frames_dir, exist_ok=True)
     command = [binary, "render", scene_json, frames_dir]
     try:
-        done = _perf_ledger().run(
-            "fframes_render",
-            command, capture_output=True, check=False,
-            text=True, encoding="utf-8", errors="replace",
-            timeout=timeout,
-        )
+        from library.tools.native_part_lock import native_part_lock
+        with native_part_lock(_PILOT_ROOT,
+                              "ren-graphics-fframes", shared=True):
+            done = _perf_ledger().run(
+                "fframes_render",
+                command, capture_output=True, check=False,
+                text=True, encoding="utf-8", errors="replace",
+                timeout=timeout,
+            )
     except OSError as exc:
         raise FFramesRenderError(
             f"FFrames renderer could not start: {exc}") from exc
@@ -298,9 +301,9 @@ def _encode_overlay(frames: list, out_path: str, fps: float,
     return out_path
 
 
-def _encode_raw(scene_path: str, out_path: str, fps: float, timeout: int,
-                stream, codec_args, *, background: str | None = None,
-                premultiply: bool = False, expected: int = 0) -> str:
+def _encode_raw_unlocked(scene_path: str, out_path: str, fps: float, timeout: int,
+                         stream, codec_args, *, background: str | None = None,
+                         premultiply: bool = False, expected: int = 0) -> str:
     """Pipe adapted native RGBA frames directly into ffmpeg."""
     def read_exact(pipe, size: int) -> bytes:
         result = bytearray()
@@ -405,6 +408,20 @@ def _encode_raw(scene_path: str, out_path: str, fps: float, timeout: int,
         print(f"  FFrames: rendered {frames_written} frame(s), props "
               f"declare {expected}; encoding what rendered", file=stream)
     return out_path
+
+
+def _encode_raw(scene_path: str, out_path: str, fps: float, timeout: int,
+                stream, codec_args, *, background: str | None = None,
+                premultiply: bool = False, expected: int = 0) -> str:
+    """Run a raw native render while excluding a rebuild of its binary."""
+    binary = fframes_binary()
+    from library.tools.native_part_lock import native_part_lock
+    with native_part_lock(_PILOT_ROOT,
+                          "ren-graphics-fframes", shared=True):
+        return _encode_raw_unlocked(
+            scene_path, out_path, fps, timeout, stream, codec_args,
+            background=background, premultiply=premultiply,
+            expected=expected)
 
 
 def _encode_opaque(scene_path: str, out_path: str, fps: float,

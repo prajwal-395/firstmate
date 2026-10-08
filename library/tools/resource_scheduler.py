@@ -40,9 +40,12 @@ one `BEGIN IMMEDIATE` transaction, so admission is atomic across
 processes. A job is a row: `waiting` until admitted, then `running`.
 Admission is FIFO with backfill: a job runs when it fits beside every
 running job AND every job that queued before it, so a stream of small
-jobs cannot starve a large one. A row whose process is gone is reaped by
-the next transaction; a reused pid only keeps a row alive longer, which
-errs toward exclusion, never toward double admission.
+jobs cannot starve a large one. A row whose local process is gone is
+reaped by the next transaction. New rows carry a stable machine
+identity, so a network hostname change cannot strand a dead grant;
+legacy rows with an old hostname are also reaped when their pid is gone.
+A reused pid only keeps a row alive longer, which errs toward exclusion,
+never toward double admission.
 
 What a grant really used
 ------------------------
@@ -81,7 +84,11 @@ from pathlib import Path
 from typing import Callable, Dict, Optional
 
 RESOURCES = ("resolve_cursor", "resolve_render", "cpu", "gpu", "ram_gb",
-             "disk")
+             "disk", *("native_" + name.replace("-", "_") for name in (
+                 "ren-graphics-fframes", "resolve-control", "ren-resolved",
+                 "resolve-activity-overlay", "ren_native")))
+NATIVE_PARTS = tuple(resource.removeprefix("native_")
+                     for resource in RESOURCES if resource.startswith("native_"))
 RAM_RESERVE_GB = 8
 DISK_CAPACITY = 4
 # Resolve's own process, by executable name (`TreeSampler`).
@@ -90,6 +97,7 @@ DB_FILENAME = "resource-scheduler.sqlite3"
 OWNER_FILE = "owner"
 POLL_SECONDS = 0.5
 BUSY_TIMEOUT_MS = 30_000
+STALL_SECONDS = 600
 
 
 class Cancelled(Exception):
@@ -113,6 +121,7 @@ def capacity() -> Dict[str, int]:
         "gpu": 1,
         "ram_gb": max(1, _physical_ram_gb() - RAM_RESERVE_GB),
         "disk": DISK_CAPACITY,
+        **{"native_" + part: 1 for part in NATIVE_PARTS},
     }
 
 
@@ -139,6 +148,13 @@ def profiles() -> Dict[str, Dict[str, int]]:
             "disk": 2,
         },
     }
+    for part in NATIVE_PARTS:
+        declared[f"native_refresh:{part.replace('_', '-')}" ] = {
+            "cpu": min(2, cap["cpu"]),
+            "ram_gb": min(4, cap["ram_gb"]),
+            "disk": 1,
+            "native_" + part: 1,
+        }
     for capability_id, execution in capabilities.executions():
         for phase in execution.phases:
             demand = _capability_demand(phase, cap)
@@ -179,6 +195,11 @@ def _alive(pid: int) -> bool:
     return True
 
 
+def _machine_id() -> str:
+    """A stable local identity that does not change with network naming."""
+    return f"mac-{uuid.getnode():012x}"
+
+
 class Scheduler:
     """One machine's job table, plus the bridge to the old lock dir."""
 
@@ -200,10 +221,20 @@ class Scheduler:
             " owner TEXT NOT NULL,"
             " pid INTEGER NOT NULL,"
             " host TEXT NOT NULL,"
+            " machine_id TEXT NOT NULL DEFAULT '',"
             " state TEXT NOT NULL CHECK (state IN ('waiting', 'running')),"
             " demand TEXT NOT NULL,"
             " enqueued_at REAL NOT NULL,"
-            " started_at REAL)")
+            " started_at REAL, last_cpu REAL, last_cpu_at REAL,"
+            " stalled INTEGER NOT NULL DEFAULT 0)")
+        have_jobs = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
+        if "machine_id" not in have_jobs:
+            conn.execute("ALTER TABLE jobs ADD COLUMN machine_id TEXT NOT NULL"
+                         " DEFAULT ''")
+        for column, kind in (("last_cpu", "REAL"), ("last_cpu_at", "REAL"),
+                             ("stalled", "INTEGER NOT NULL DEFAULT 0")):
+            if column not in have_jobs:
+                conn.execute(f"ALTER TABLE jobs ADD COLUMN {column} {kind}")
         # What each finished grant really used, for checking `profiles()`.
         conn.execute(
             "CREATE TABLE IF NOT EXISTS grants ("
@@ -239,9 +270,17 @@ class Scheduler:
     @staticmethod
     def _reap(conn: sqlite3.Connection) -> None:
         host = socket.gethostname()
-        for row_id, pid, row_host in conn.execute(
-                "SELECT id, pid, host FROM jobs").fetchall():
-            if row_host == host and not _alive(pid):
+        machine_id = _machine_id()
+        for row_id, pid, row_host, row_machine in conn.execute(
+                "SELECT id, pid, host, machine_id FROM jobs").fetchall():
+            same_machine = row_machine == machine_id or (
+                not row_machine and row_host == host)
+            # Rows predating machine_id may have this machine's former
+            # network hostname. The scheduler database is machine-local;
+            # a dead pid is safe to reclaim even when that legacy label
+            # no longer matches.
+            legacy_dead = not row_machine and not _alive(pid)
+            if (same_machine or legacy_dead) and not _alive(pid):
                 conn.execute("DELETE FROM jobs WHERE id = ?", (row_id,))
 
     # ── the old lock directory ──
@@ -255,6 +294,22 @@ class Scheduler:
         except (OSError, ValueError):
             # Ownerless or unreadable: an old-code owner mid-publish.
             return {"owner": "unknown owner (owner file missing)"}
+        if (isinstance(record, dict)
+                and (record.get("machine_id") == _machine_id()
+                     or not record.get("machine_id"))
+                and isinstance(record.get("pid"), int)
+                and not _alive(record["pid"])):
+            # The pre-scheduler mkdir lock has no lease to expire. Reclaim
+            # it only when its complete contents are the owner record, so
+            # a dead owner can never make us erase unrelated files.
+            try:
+                entries = list(self.legacy_dir.iterdir())
+                if len(entries) == 1 and entries[0].name == OWNER_FILE:
+                    entries[0].unlink()
+                    self.legacy_dir.rmdir()
+                    return None
+            except OSError:
+                pass
         if isinstance(record, dict) and record.get("scheduler"):
             return None
         return record if isinstance(record, dict) else {"owner": str(record)}
@@ -276,6 +331,7 @@ class Scheduler:
             "token": tag,
             "pid": os.getpid(),
             "host": socket.gethostname(),
+            "machine_id": _machine_id(),
         }) + "\n", encoding="utf-8")
         os.replace(temp, self.legacy_dir / OWNER_FILE)
         return True
@@ -294,7 +350,8 @@ class Scheduler:
     # ── jobs ──
     def acquire(self, owner: str, demand: Dict[str, int],
                 announce: Callable[[str], None] = print,
-                cancelled: Optional[Callable[[], bool]] = None) -> str:
+                cancelled: Optional[Callable[[], bool]] = None,
+                timeout: Optional[float] = None) -> str:
         """Block until `demand` is admitted; return the job's token.
 
         `cancelled` is polled between attempts; once it answers True the
@@ -309,11 +366,12 @@ class Scheduler:
                              f"{demand}, beyond this machine's {cap}")
         token = uuid.uuid4().hex
         self._transaction(lambda conn: conn.execute(
-            "INSERT INTO jobs (token, owner, pid, host, state, demand,"
-            " enqueued_at) VALUES (?, ?, ?, ?, 'waiting', ?, ?)",
-            (token, owner, os.getpid(), socket.gethostname(),
+            "INSERT INTO jobs (token, owner, pid, host, machine_id, state, demand,"
+            " enqueued_at) VALUES (?, ?, ?, ?, ?, 'waiting', ?, ?)",
+            (token, owner, os.getpid(), socket.gethostname(), _machine_id(),
              json.dumps(demand, sort_keys=True), time.time())))
         announced = False
+        deadline = None if timeout is None else time.monotonic() + max(0, timeout)
         try:
             while True:
                 blockers = self._transaction(
@@ -323,6 +381,8 @@ class Scheduler:
                 if cancelled is not None and cancelled():
                     raise Cancelled(f"resource scheduler: {owner!r} stopped "
                                     "waiting")
+                if deadline is not None and time.monotonic() >= deadline:
+                    raise Cancelled(f"resource scheduler: {owner!r} timed out waiting")
                 if not announced:
                     announce("heavy-work: waiting for " + "; ".join(blockers))
                     announced = True
@@ -401,12 +461,42 @@ class Scheduler:
         """Every live row, oldest first, as dicts."""
         def body(conn):
             self._reap(conn)
+            self._observe_cpu_progress(conn)
             return conn.execute(
                 "SELECT owner, pid, state, demand, enqueued_at, started_at"
-                " FROM jobs ORDER BY id").fetchall()
+                ", stalled FROM jobs ORDER BY id").fetchall()
         return [{"owner": o, "pid": p, "state": s, "demand": json.loads(d),
-                 "enqueued_at": e, "started_at": st}
-                for o, p, s, d, e, st in self._transaction(body)]
+                 "enqueued_at": e, "started_at": st, "stalled": bool(x)}
+                for o, p, s, d, e, st, x in self._transaction(body)]
+
+    @staticmethod
+    def _observe_cpu_progress(conn: sqlite3.Connection) -> None:
+        """Flag a live holder without CPU growth for a long bound.
+
+        Diagnostic only: the scheduler reports stalled holders but never
+        kills or signals them.
+        """
+        now = time.time()
+        for row_id, pid, row_host, previous, checked in conn.execute(
+                "SELECT id, pid, host, last_cpu, last_cpu_at FROM jobs"
+                " WHERE state = 'running'").fetchall():
+            if row_host != socket.gethostname():
+                continue
+            try:
+                raw = subprocess.run(
+                    ["ps", "-p", str(pid), "-o", "time="],
+                    capture_output=True, encoding="utf-8", timeout=3,
+                    check=False).stdout.strip()
+                cpu = _cpu_seconds(raw)
+            except (OSError, ValueError, subprocess.SubprocessError):
+                continue
+            if previous is None or cpu > previous:
+                conn.execute("UPDATE jobs SET last_cpu = ?, last_cpu_at = ?,"
+                             " stalled = 0 WHERE id = ?",
+                             (cpu, now, row_id))
+            elif checked is not None and now - checked >= STALL_SECONDS:
+                conn.execute("UPDATE jobs SET stalled = 1 WHERE id = ?",
+                             (row_id,))
 
 
 class TreeSampler:

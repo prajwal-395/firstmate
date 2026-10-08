@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 
@@ -94,16 +95,41 @@ def main(argv=None) -> int:
 
 def _status(answer: dict | None) -> dict:
     """The process status plus any lease holding Resolve right now."""
-    if answer is None:
-        return {"serving": False, "pid": None, "responsive": False,
-                "busy": False, "lease": None}
-    return {
+    result = ({"serving": False, "pid": None, "responsive": False,
+               "busy": False, "lease": None} if answer is None else {
         "serving": answer.get("serving", True),
         "pid": answer.get("pid"),
         "responsive": answer.get("responsive", True),
         "busy": bool(answer.get("busy", False)),
         "lease": answer.get("lease"),
-    }
+    })
+    if answer is None:
+        result["binary"] = "none"
+        result["rebuild"] = "not applicable"
+        return result
+    pid = result.get("pid")
+    if pid:
+        try:
+            command = __import__("subprocess").run(
+                ["ps", "-p", str(pid), "-o", "command="],
+                capture_output=True, encoding="utf-8", timeout=2,
+                check=False).stdout.strip()
+            result["binary"] = command or "unknown (process exited)"
+        except Exception as exc:  # noqa: BLE001 - status remains readable
+            result["binary"] = f"unknown ({exc})"
+    else:
+        result["binary"] = "none"
+    try:
+        from library.tools import native_refresh
+        from library.tools.resolved.client import _engine_root
+        root = _engine_root()
+        if root is not None:
+            state, detail = native_refresh.status(root, "ren-resolved")
+            result["rebuild"] = ("pending" if state != "fresh" else "none")
+            result["native"] = f"{state}: {detail}"
+    except Exception as exc:  # status remains useful without native metadata
+        result["native"] = f"unavailable: {exc}"
+    return result
 
 
 if __name__ == "__main__":
