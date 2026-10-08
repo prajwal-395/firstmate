@@ -363,6 +363,20 @@ def for_project(project_folder, node_id, *, state=None, now=None):
                     explicit=True,
                 )
             )
+    # References are project-scoped declarations. Their measured facts remain
+    # attributable to the named source, and only dimensions the creator
+    # explicitly selected (or selected with the collection's use-all shortcut)
+    # enter the prompt view.
+    from library.tools.reference_collection import declarations as reference_declarations
+
+    for row in reference_declarations(
+        state.get("reference_collection"), project_id=str(root)
+    ):
+        declarations.append(declaration(
+            row["key"], row["value"], source=row["source"], scope=row["scope"],
+            provenance=row["provenance"], confidence=row["confidence"],
+            explicit=row["explicit"],
+        ))
     return resolve(declarations, project_id=str(root), now=now)
 
 
