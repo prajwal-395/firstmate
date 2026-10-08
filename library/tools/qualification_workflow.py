@@ -173,6 +173,38 @@ def _apply_timeline_shape(timeline, *, fps: float,
     return applied
 
 
+def _probe_source_frames(source: Path) -> tuple:
+    """Media rate and total frames from the local copy, never from the
+    pool item: Resolve's scripting methods differ by media type (the MXF
+    essence item exposes no GetLeftOffset), while ffprobe reads the file
+    the SHA-256 already covers."""
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries",
+         "format=duration:stream=avg_frame_rate,codec_type", "-of", "json",
+         str(source)],
+        capture_output=True, text=True, encoding="utf-8", timeout=60,
+        check=False)
+    if probe.returncode != 0:
+        raise WorkflowQualificationError(
+            f"ffprobe could not read the qualification copy: {source.name}")
+    try:
+        measured = json.loads(probe.stdout)
+        duration = float(measured["format"]["duration"])
+        rate_text = next(row["avg_frame_rate"]
+                         for row in measured.get("streams", [])
+                         if row.get("codec_type") == "video")
+        numerator, _, denominator = rate_text.partition("/")
+        fps = float(numerator) / float(denominator or 1)
+    except (KeyError, TypeError, ValueError, StopIteration,
+            json.JSONDecodeError) as exc:
+        raise WorkflowQualificationError(
+            f"ffprobe gave no usable rate/duration for {source.name}") from exc
+    if not 0 < duration or not fps > 0:
+        raise WorkflowQualificationError(
+            f"ffprobe gave no usable rate/duration for {source.name}")
+    return fps, max(1, round(duration * fps))
+
+
 def _broker_call(kind: str, params: dict, *, idempotency_key: str,
                  wait_seconds: int) -> dict:
     from library.tools.resolved import client
@@ -296,14 +328,10 @@ def _run_broker_job(job: dict, resolve, current: dict,
                     f"Resolve imported {len(imported_items)} source items")
             media_item = imported_items[0]
             imported = True
-        media_props = media_item.GetClipProperty() or {}
-        fps_text = str(media_props.get("FPS") or "23.976")
-        try:
-            fps = float(fps_text)
-        except ValueError:
-            fps = 24000 / 1001
-        left = int(media_item.GetLeftOffset() or 0)
-        total_frames = int(media_item.GetDuration() or 0)
+        fps, total_frames = _probe_source_frames(source)
+        # Pool clips start at their own zero; the offset is a timeline
+        # notion, and some essence items expose no offset method at all.
+        left = 0
         source_in = left + round(float(params["source_start"]) * fps)
         source_count = max(1, round(
             (float(params["source_end"]) - float(params["source_start"])) * fps))

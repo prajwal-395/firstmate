@@ -225,3 +225,51 @@ class TestTimelineShape:
         with pytest.raises(qw.WorkflowQualificationError,
                            match="timelineFrameRate"):
             qw._apply_timeline_shape(timeline, fps=24000 / 1001)
+
+
+class TestProbeSourceFrames:
+    """Frame math comes from ffprobe on the hashed copy, never from the
+    pool item's scripting methods."""
+
+    def _run(self, monkeypatch, stdout, returncode=0):
+        from types import SimpleNamespace
+
+        monkeypatch.setattr(
+            qw.subprocess, "run",
+            lambda *args, **kwargs: SimpleNamespace(
+                returncode=returncode, stdout=stdout, stderr=""))
+
+    def test_fractional_rate_and_total_frames(self, tmp_path, monkeypatch):
+        """Defect: the MXF essence item exposes no GetLeftOffset, so the
+        broker job died calling it; ffprobe reads the same file."""
+        self._run(monkeypatch, json.dumps({
+            "format": {"duration": "214.547667"},
+            "streams": [{"codec_type": "video",
+                         "avg_frame_rate": "24000/1001"},
+                        {"codec_type": "audio",
+                         "avg_frame_rate": "0/0"}]}))
+
+        fps, total = qw._probe_source_frames(tmp_path / "copy.MXF")
+
+        assert abs(fps - 24000 / 1001) < 1e-9
+        assert total == round(214.547667 * 24000 / 1001)
+
+    def test_failed_probe_refuses(self, tmp_path, monkeypatch):
+        """Defect: an unreadable copy proceeded with a guessed rate."""
+        self._run(monkeypatch, "", returncode=1)
+
+        with pytest.raises(qw.WorkflowQualificationError,
+                           match="ffprobe could not read"):
+            qw._probe_source_frames(tmp_path / "copy.MXF")
+
+    def test_probe_without_a_video_stream_refuses(self, tmp_path, monkeypatch):
+        """Defect: an audio-only probe produced a zero rate and an
+        empty source span."""
+        self._run(monkeypatch, json.dumps({
+            "format": {"duration": "10"},
+            "streams": [{"codec_type": "audio",
+                         "avg_frame_rate": "0/0"}]}))
+
+        with pytest.raises(qw.WorkflowQualificationError,
+                           match="no usable rate"):
+            qw._probe_source_frames(tmp_path / "copy.MXF")
