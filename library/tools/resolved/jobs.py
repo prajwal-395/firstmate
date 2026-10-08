@@ -86,8 +86,9 @@ QUALIFICATION_PROJECT = "Ren Qualification"
 
 KINDS = ("lease", "timeline.snapshot", "timeline.observe_current",
          "timeline.apply_patch",
-          "resolve_axi", "fusion.registry_summary",
-          "resolve.ui_transaction", "reel.promote_staged",
+         "resolve_axi", "fusion.registry_summary",
+         "resolve.ui_transaction", "reel.promote_staged",
+          "reel.prepare_qualification_fixture",
           "resolve.qualification_session", "timeline.drt_export_probe",
           "reel.copy_tv_ending")
 
@@ -358,6 +359,10 @@ def prepare(kind: str, params: dict, qualification: bool = False) -> dict:
         from library.tools.resolved import reel_promotion
         shape = reel_promotion.prepare(params)
         qualification = True
+    elif kind == "reel.prepare_qualification_fixture":
+        from library.tools.resolved import reel_promotion_fixture
+        shape = reel_promotion_fixture.prepare(params)
+        qualification = True
     elif kind == "reel.copy_tv_ending":
         from library.tools.resolved import reel_ending_copy
         shape = reel_ending_copy.prepare(params)
@@ -495,6 +500,12 @@ def run(job: dict, resolve) -> dict | None:
                          timeline_name=job.get("timeline"),
                          run_id=job.get("id")):
             return reel_promotion.run(job, resolve)
+    if kind == "reel.prepare_qualification_fixture":
+        from library.tools.resolved import reel_promotion_fixture
+        with write_scope(project=QUALIFICATION_PROJECT,
+                         timeline_name="Q Promotion Proof",
+                         run_id=job.get("id")):
+            return reel_promotion_fixture.run(job, resolve)
     if kind == "reel.copy_tv_ending":
         from library.tools.resolved import reel_ending_copy
         return reel_ending_copy.run(job, resolve)

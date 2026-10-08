@@ -48,6 +48,10 @@ cannot be read raises `MarkerCarryUnreadable`.
 
 Clip-plane markers have their own pass (`read_clip_markers`,
 `plan_clip_carry`, `report_clip`, `place_clip_markers`).
+When a clip marker's source file and frame resolve to more than one
+replacement item, the planner labels the ambiguity and promotion refuses
+that reel without renaming either timeline. The saved capture preserves the
+marker's words and source anchor for review.
 
 A reply is paired by IDENTITY, never by position
 ------------------------------------------------
@@ -980,7 +984,8 @@ def plan_clip_carry(clip_markers, replacement,
                 f"{len(candidates)} different clips play source frame "
                 f"{anchor['source_frame']} of {anchor['source_file']} "
                 f"({named}) - refusing to guess which one the note is "
-                f"about")})
+                f"about"),
+                "refusal": "ambiguous_source_frame"})
         else:
             _item, candidate = candidates[0]
             carried.append({

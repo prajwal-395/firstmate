@@ -11070,6 +11070,32 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
                     final, {"carried": [], "uncarried": []})
                 marker_entry["clip_carried"] = clip_keep
                 marker_entry["clip_uncarried"] = clip_lost
+                ambiguous = [marker for marker in clip_lost
+                             if marker.get("refusal")
+                             == "ambiguous_source_frame"]
+                if ambiguous:
+                    named = "; ".join(
+                        f"{marker['color'] or '?'} "
+                        f"{marker['name'] or '(unnamed)'} at source "
+                        f"{marker['source_frame']} of "
+                        f"{marker['anchor']['source_file']}: "
+                        f"{marker['why']}; the captain wrote: "
+                        f"{marker['note']!r}"
+                        for marker in ambiguous)
+                    refused[final] = (
+                        f"REFUSING to promote {final!r}: an ambiguous clip "
+                        f"marker anchor does not resolve uniquely: {named}. "
+                        f"Nothing was renamed; the approved timeline remains "
+                        f"in the project and the staging remains available "
+                        f"for review.")
+                    capture = _gate.assemble_capture(
+                        final, notes, clip_notes)
+                    gate_captures[final] = {
+                        "capture": capture,
+                        "path": _gate.write_capture(
+                            project_folder, final, capture),
+                    }
+                    continue
                 marker_entry["clip_declined"] = (
                     _markers.place_clip_markers(
                         staged_found[staging], clip_keep))

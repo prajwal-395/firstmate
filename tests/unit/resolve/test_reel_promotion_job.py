@@ -87,6 +87,22 @@ def test_prepare_is_exactly_one_qualification_reel_and_exclusive():
     assert shape["coalesce_key"] is None
 
 
+def test_qualification_fixture_job_is_closed_and_qualification_only():
+    from library.tools.resolved import reel_promotion_fixture as fixture
+
+    shape = jobs.prepare(
+        fixture.KIND, {"project": QUALIFICATION_PROJECT})
+
+    assert shape["mode"] == "exclusive"
+    assert shape["qualification"] is True
+    assert shape["project"] == QUALIFICATION_PROJECT
+    assert shape["timeline"] == fixture.FINAL
+    with pytest.raises(JobRefused, match="accepts only"):
+        jobs.prepare(fixture.KIND, {
+            "project": QUALIFICATION_PROJECT,
+            "timeline": "Podcast (field test)"})
+
+
 def test_broker_submit_persists_the_shape_qualification_fence(
         tmp_path, monkeypatch):
     from library.tools.resolved.server import Broker

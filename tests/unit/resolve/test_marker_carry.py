@@ -520,6 +520,7 @@ def test_two_placements_of_one_file_refuse_rather_than_guess(capsys):
     assert not carried and len(uncarried) == 1
     assert uncarried[0]["note"] == CTA_NOTE
     assert "refusing to guess" in uncarried[0]["why"]
+    assert uncarried[0]["refusal"] == "ambiguous_source_frame"
     marker_carry.report_clip("Reel 09", carried, uncarried)
     err = capsys.readouterr().err
     assert "CLIP MARKER NOT CARRIED" in err
@@ -673,20 +674,31 @@ def _reel_b():
 
 
 @pytest.mark.usefixtures("fake_preservation_snapshots")
-def test_promotion_carries_the_unique_clip_note_and_reports_the_other(
+def test_promotion_carries_the_unique_clip_note_and_refuses_the_ambiguous_other(
         project_dir, capsys):
     retired_a, staging_a = _reel_a()
     retired_b, staging_b = _reel_b()
     project = FakeProject([FakeTimeline(MASTER), retired_a, staging_a,
                            retired_b, staging_b])
 
-    promoted = _promote(project, project_dir,
-                        {FINAL_A: staging_a.GetName(),
-                         FINAL_B: staging_b.GetName()})
+    with pytest.raises(ReelBuildError) as refused:
+        _promote(project, project_dir,
+                 {FINAL_A: staging_a.GetName(),
+                  FINAL_B: staging_b.GetName()})
 
-    assert sorted(promoted["promoted"]) == [FINAL_A, FINAL_B]
+    # The unique reel can finish; the ambiguous one must stay exactly as
+    # approved and staged, with the source frame and marker named.
+    assert f"Promoted 1 reel(s): ['{FINAL_A}']" in str(refused.value)
+    assert FINAL_B in str(refused.value)
+    assert "ambiguous clip marker anchor" in str(refused.value)
+    assert "this card flashes" in str(refused.value)
+    assert "source 20" in str(refused.value)
+    assert "mg_doubled.mov" in str(refused.value)
+    assert staging_a.GetName() == FINAL_A
+    assert FINAL_B in project.names()
+    assert staging_b.GetName() == FINAL_B + " (rebuild staging)"
 
-    markers_a = promoted["markers"][FINAL_A]
+    markers_a = refused.value.markers[FINAL_A]
     assert [m["note"] for m in markers_a["clip_carried"]] == [CTA_NOTE]
     assert markers_a["clip_carried"][0]["target"]["source_file"] == \
         "/f/mg_cta.mov"
@@ -698,13 +710,16 @@ def test_promotion_carries_the_unique_clip_note_and_reports_the_other(
     assert back[0]["anchor"]["source_file"] == "/f/mg_cta.mov"
     assert back[0]["source_frame"] == 12
 
-    markers_b = promoted["markers"][FINAL_B]
+    markers_b = refused.value.markers[FINAL_B]
     assert markers_b.get("clip_carried", []) == []
     assert [m["note"] for m in markers_b["clip_uncarried"]] == \
         ["this card flashes"]
     assert "refusing to guess" in \
         markers_b["clip_uncarried"][0]["why"]
-    # Reported, never placed: no item on the replacement carries it.
+    # The refusal leaves both generations untouched. The marker remains
+    # on the approved original and was never placed on the staging.
+    assert [m["note"] for m in marker_carry.read_clip_markers(
+        retired_b, FINAL_B)] == ["this card flashes"]
     back_b = marker_carry.read_clip_markers(staging_b, FINAL_B)
     assert [m["note"] for m in back_b] == []
     err = capsys.readouterr().err
@@ -1474,9 +1489,9 @@ def test_a_promotion_that_carries_everything_passes_silently(project_dir_2):
 
 
 @pytest.mark.usefixtures("fake_preservation_snapshots")
-def test_a_reported_loss_is_owned_not_failed(project_dir_2):
-    """The ambiguous clip anchor is reported by the carry, so the gate
-    that re-reads the same live timeline must not fail it again."""
+def test_ambiguous_clip_anchor_refuses_and_keeps_the_marker_capture(
+        project_dir_2):
+    """An ambiguous source frame refuses before either timeline is renamed."""
     retired = _timeline(
         FINAL_2,
         video=[
@@ -1519,12 +1534,26 @@ def test_a_reported_loss_is_owned_not_failed(project_dir_2):
     )
     project = FakeProject([_timeline(MASTER), retired, staging])
 
-    promoted = _promote_2(project, project_dir_2, {FINAL_2: staging.GetName()})
+    with pytest.raises(ReelBuildError) as refused:
+        _promote_2(project, project_dir_2, {FINAL_2: staging.GetName()})
 
-    assert promoted["promoted"] == [FINAL_2]
-    assert [m["note"] for m in promoted["markers"][FINAL_2]["clip_uncarried"]] == [
-        "this card flashes"
-    ]
+    message = str(refused.value)
+    assert FINAL_2 in message
+    assert "ambiguous clip marker anchor" in message
+    assert "this card flashes" in message
+    assert "source 20" in message
+    assert "mg_doubled.mov" in message
+    assert retired.GetName() == FINAL_2
+    assert staging.GetName() == FINAL_2 + " (rebuild staging)"
+    assert project.names() == [MASTER, FINAL_2,
+                               FINAL_2 + " (rebuild staging)"]
+    assert [m["note"] for m in marker_carry.read_clip_markers(
+        retired, FINAL_2)] == ["this card flashes"]
+    assert marker_carry.read_clip_markers(staging, FINAL_2) == []
+    captures = _captures(project_dir_2)
+    assert len(captures) == 1
+    capture = marker_gate.read_capture(str(captures[0]))
+    assert [m["note"] for m in capture["clip"]] == ["this card flashes"]
 
 
 @pytest.mark.usefixtures("fake_preservation_snapshots")
