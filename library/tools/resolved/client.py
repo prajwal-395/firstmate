@@ -136,7 +136,11 @@ def call(request: dict, path=None, timeout: Optional[float] = 30.0) -> dict:
     if sock is None:
         raise ConnectionError(f"ren-resolved is not serving on {_path(path)}")
     with sock, sock.makefile("r", encoding="utf-8") as stream:
-        return _exchange(sock, stream, request, timeout)
+        from library.tools import perf_ledger
+        perf_ledger.count_call("broker_requests", op=request.get("op"))
+        with perf_ledger.span("broker_request", backend="ren-resolved",
+                              calls=1, external_engine="resolve_broker"):
+            return _exchange(sock, stream, request, timeout)
 
 
 def ping(path=None) -> Optional[dict]:

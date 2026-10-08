@@ -41,6 +41,13 @@ persist must never take down a real run - the profile is then missing a
 row, which reads as unattributed time, never as a wrong number. Nothing
 here changes what any capability produces.
 
+`profile()` also reports Ren own-code wall and explicitly classified
+external-engine wall, both per capability and in total. The external
+classification is deliberately allowlisted in `EXTERNAL_LAYERS`; an unknown
+layer is not assumed to be an engine. Call families are append-only count
+rows. A `null` count means that family has no instrumentation on this path,
+not that the measured count was zero.
+
     python3 -m library.tools.perf_ledger <project> [--run <run_id>] [--json]
 """
 from __future__ import annotations
@@ -65,6 +72,27 @@ BACKENDS_ENV = "REN_PERF_BACKENDS"
 
 CAPABILITY = "capability"
 SPAN = "span"
+COUNT = "count"
+
+# Counters are deliberately explicit: call sites that can measure a request
+# use ``count_call``; the report returns zero for an uninstrumented family
+# instead of implying that it was measured.
+COUNT_FAMILIES = ("broker_requests", "edit_core_calls", "graphics_renders",
+                  "probes", "hashes", "subprocess_spawns", "cli_starts")
+
+# Time spent waiting for or executing a separately scheduled engine. All
+# other span and capability remainder time belongs to Ren. This list is kept
+# explicit so a newly added layer is not silently called external.
+EXTERNAL_LAYERS = {
+    "gemma_inference": "model_inference", "mfa_align": "model_inference",
+    "resolve_render": "resolve_api", "resolve_wait": "resolve_lease_wait",
+    "resolve_hold": "resolve_api", "ffmpeg_encode": "ffmpeg",
+    "broker_request": "resolve_broker",
+    "transcribe": "model_inference", "language_id": "model_inference",
+    "remotion_render": "graphics_engine",
+    "hyperframes_render": "graphics_engine",
+    "graphics_render": "graphics_engine", "model_task": "model_inference",
+}
 
 # The Resolve lease's two layers (`resolve_lock.resolve_lease`): the
 # seconds a capability waited for its turn, and the seconds it held it.
@@ -328,6 +356,21 @@ def record(layer: str, wall_s: float, started_at: Optional[float] = None,
     _append(path, row)
 
 
+def count_call(family: str, amount: int = 1, **fields: Any) -> None:
+    """Record a measurable per-run call count without adding wall time."""
+    if family not in COUNT_FAMILIES or amount < 0:
+        return
+    path = os.environ.get(LEDGER_ENV)
+    if not path:
+        return
+    row = {**fields, "kind": COUNT, "family": family, "count": int(amount),
+           "run_id": os.environ.get(RUN_ENV),
+           "capability": os.environ.get(CAPABILITY_ENV),
+           "started_at": round(time.time(), 3)}
+    _attach_backends(row)
+    _append(path, row)
+
+
 def run(layer: str, *args: Any, fields: Optional[Dict[str, Any]] = None,
         **kwargs: Any):
     """`subprocess.run`, charged to `layer` - for a tool whose whole cost
@@ -335,6 +378,7 @@ def run(layer: str, *args: Any, fields: Optional[Dict[str, Any]] = None,
     import subprocess
     check = kwargs.pop("check", False)
     with span(layer, subprocesses=1, **(fields or {})):
+        count_call("subprocess_spawns")
         return subprocess.run(*args, check=check, **kwargs)
 
 
@@ -406,6 +450,15 @@ def profile(rows: List[Dict[str, Any]], run_id: str) -> Dict[str, Any]:
             and r.get("kind") == CAPABILITY]
     spans = [r for r in rows if r.get("run_id") == run_id
              and r.get("kind") == SPAN]
+    # None means this checkout did not instrument that family yet; zero
+    # means it was measured and no calls occurred.
+    counts = {name: None for name in COUNT_FAMILIES}
+    for r in rows:
+        if r.get("run_id") == run_id and r.get("kind") == COUNT:
+            family = r.get("family")
+            if isinstance(family, str) and family in counts:
+                counts[family] = (counts[family] or 0) + int(
+                    r.get("count") or 0)
     total = sum(float(r.get("wall_s") or 0.0) for r in caps)
     buckets: Dict[str, Dict[str, Any]] = {}
 
@@ -423,6 +476,7 @@ def profile(rows: List[Dict[str, Any]], run_id: str) -> Dict[str, Any]:
 
     by_cap_layer: Dict[tuple, List[tuple]] = {}
     by_cap: Dict[str, List[tuple]] = {}
+    by_cap_external: Dict[str, Dict[str, List[tuple]]] = {}
     for s in spans:
         layer, cap = str(s.get("layer")), str(s.get("capability"))
         b = bucket(layer)
@@ -431,6 +485,10 @@ def profile(rows: List[Dict[str, Any]], run_id: str) -> Dict[str, Any]:
             b[key] += int(s.get(key) or 0)
         by_cap_layer.setdefault((cap, layer), []).extend(intervals_of(s))
         by_cap.setdefault(cap, []).extend(intervals_of(s))
+        external = s.get("external_engine") or EXTERNAL_LAYERS.get(layer)
+        if external:
+            by_cap_external.setdefault(cap, {}).setdefault(
+                str(external), []).extend(intervals_of(s))
     layer_sum = 0.0
     for (_cap, layer), intervals in by_cap_layer.items():
         covered = union_s(intervals)
@@ -439,6 +497,8 @@ def profile(rows: List[Dict[str, Any]], run_id: str) -> Dict[str, Any]:
 
     per_capability = []
     inside = 0.0
+    external_totals: Dict[str, float] = {}
+    own_code_s = 0.0
     cap_names = set()
     for c in caps:
         cap = str(c.get("capability"))
@@ -446,10 +506,28 @@ def profile(rows: List[Dict[str, Any]], run_id: str) -> Dict[str, Any]:
         wall = float(c.get("wall_s") or 0.0)
         covered = min(wall, union_s(by_cap.get(cap, [])))
         inside += covered
+        external_by_kind = by_cap_external.get(cap, {})
+        external_union = min(wall, union_s([
+            interval for values in external_by_kind.values()
+            for interval in values]))
+        own = max(0.0, wall - external_union)
+        own_code_s += own
+        # Keep the historical span/remainder rows additive for existing
+        # profile consumers. The explicit run-level split above is computed
+        # independently from external intervals.
         bucket(f"{cap} (other)")["wall_s"] += max(0.0, wall - covered)
-        per_capability.append({k: c.get(k) for k in (
+        for name, intervals in external_by_kind.items():
+            external_totals[name] = external_totals.get(name, 0.0) + min(
+                wall, union_s(intervals))
+        cap_row = {k: c.get(k) for k in (
             "capability", "node", "status", "wall_s", "cpu_s",
-            "children_peak_rss_mb", "self_peak_rss_mb", "bytes_written")})
+            "children_peak_rss_mb", "self_peak_rss_mb", "bytes_written")}
+        cap_row.update({"own_code_s": round(own, 3),
+                        "external_s": round(external_union, 3),
+                        "external_by_engine_s": {
+                            k: round(min(wall, union_s(v)), 3)
+                            for k, v in sorted(external_by_kind.items())}})
+        per_capability.append(cap_row)
 
     lines = []
     for name, b in sorted(buckets.items(), key=lambda kv: -kv[1]["wall_s"]):
@@ -459,7 +537,17 @@ def profile(rows: List[Dict[str, Any]], run_id: str) -> Dict[str, Any]:
         lines.append({"name": name, "pct": round(pct, 1),
                       **{k: (round(v, 3) if isinstance(v, float) else v)
                          for k, v in b.items()}})
+    external_s = max(0.0, total - own_code_s)
     return {"run_id": run_id, "total_wall_s": round(total, 3),
+            "own_code_s": round(own_code_s, 3),
+            "own_code_pct": (round(100 * own_code_s / total, 1)
+                             if total else None),
+            "external_s": round(external_s, 3),
+            "external_pct": (round(100 * external_s / total, 1)
+                             if total else None),
+            "external_by_engine_s": {
+                k: round(v, 3) for k, v in sorted(external_totals.items())},
+            "call_counts": counts,
             "overlap_s": round(max(0.0, layer_sum - inside), 3),
             "lines": lines, "capabilities": per_capability,
             "resolve": resolve_kpis(spans, total, caps),
@@ -551,6 +639,15 @@ def render(report: Dict[str, Any]) -> str:
     total = report["total_wall_s"]
     out = [f"Run {report['run_id']}: {total:.1f}s across "
            f"{len(report['capabilities'])} capability row(s)"]
+    own_pct = report.get("own_code_pct")
+    external_pct = report.get("external_pct")
+    if own_pct is not None and external_pct is not None:
+        out.append(f"Ren own code {report['own_code_s']:.1f}s ({own_pct:.1f}%), "
+                   f"external engines {report['external_s']:.1f}s "
+                   f"({external_pct:.1f}%)")
+    out.append("Calls: " + ", ".join(
+        f"{name}={count if count is not None else 'unmeasured'}"
+        for name, count in report["call_counts"].items()))
     shown, folded = [], 0.0
     for line in report["lines"]:
         if line["pct"] < FOLD_BELOW_PCT:

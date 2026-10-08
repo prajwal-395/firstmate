@@ -201,6 +201,8 @@ STEP_IMPLEMENTATION_DEPS = {
         # machine's measured core count. (Its capabilities read is
         # exempt plumbing.)
         "library/tools/resource_scheduler.py",
+        # Imported by the catalog handoff to persist assignment artifacts.
+        "library/tools/assignment_artifacts.py",
     ),
     "step_1_03_semantic_analysis": (
         # The executed measurement (D1: the usable-ranges gate lives here).

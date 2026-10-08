@@ -98,9 +98,9 @@ VERBS = (
     Verb("trace", "Projects", "Regenerate the run traceback and artifact index", subcommand="trace"),
     Verb("profile", "Projects", "Show where a run spent its time, layer by layer (read only)",
          module_argv=("library.tools.perf_ledger",),
-         detail="Read a run back from pipeline_output/logs/perf_ledger.jsonl: each named layer's share "
-                "of the run's wall (Gemma, MFA, Resolve render, Remotion, a host model), then what each "
-                "capability spent outside them. Changes nothing"),
+         detail="Read a run back from pipeline_output/logs/perf_ledger.jsonl: Ren own-code versus "
+                "external-engine wall time, per-capability split, measured call counts, and named "
+                "layers. Changes nothing"),
     Verb("progress", "Projects", "Read plain-language progress and currently available capabilities",
          module_argv=("library.tools.progress",),
          detail="One read-only status call for a host: completed and active steps, a history-backed time estimate when available, partial capabilities ready now, and the Resolve broker's current state."),
