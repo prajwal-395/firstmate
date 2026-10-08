@@ -879,9 +879,10 @@ def _live_node_count(item) -> int | None:
 #: against the Edit page - `ok` via ax_path, nodes 1 -> 1. The
 #: established runners (`run_window_create`, `run_window_delete`,
 #: `run_window_track`) put the playhead on the clip, open the Color
-#: page and read its Scopes label back before pressing; the live
-#: runner below does the same, or it refuses with what read back.
-COLOR_PAGE_SPECS = ("window-create", "window-delete", "window-track")
+#: page and read its Scopes label back before pressing; the live runner
+#: below does the same, or it refuses with what read back.
+COLOR_PAGE_SPECS = ("grade-node-remove", "window-create",
+                    "window-delete", "window-track")
 
 
 def _live_establish_color_page(resolve, timeline, item, client) -> str | None:
@@ -939,41 +940,59 @@ def _live_establish_color_page(resolve, timeline, item, client) -> str | None:
     return None
 
 
-def _live_ensure_two_nodes(item, client) -> str | None:
-    """Grow the scratch clip to two nodes; None on success.
+def _live_ensure_node_count(item, client, target: int,
+                            recipe_name: str) -> str | None:
+    """Grow a scratch clip to exactly ``target`` nodes; None on success.
 
     The delete menu removes the current node and no API reads which
-    that is - only deleting the last of two is deterministic, and
-    deleting the last node of one is refused upstream. A fresh
-    scratch holds one, so the replay adds the serial first and polls
-    for it, the way the established delete runner requires.
+    that is - only the recipe's declared starting count is
+    deterministic, and deleting the last node of one is refused
+    upstream. A fresh scratch holds one, so the replay adds serials
+    one at a time, verifies each menu closure and node-count read-back,
+    and refuses an unexpected starting count or overshoot.
     """
     import time as _time
 
     before = _live_node_count(item)
     if before is None:
         return "the scratch clip's node count did not read back"
-    if before >= 2:
+    if before > target:
+        return (f"the scratch clip has {before} nodes, above the "
+                f"{target}-node setup for {recipe_name}")
+    if before == target:
         return None
-    try:
-        receipt = client.call(
-            "run_command",
-            {"path": ["Color", "Nodes", "Add Serial Node"]})
-        if (isinstance(receipt, dict)
-                and receipt.get("menus_closed") is False):
-            raise MenuClosureError(
-                "delete setup serial left a menu open or unverified")
-    except Exception as exc:  # noqa: BLE001 - the reason names it
-        return f"the setup serial did not press: {type(exc).__name__}: {exc}"
-    after = _live_node_count(item)
-    for _poll in range(5):
-        if after is not None and after >= 2:
-            break
-        _time.sleep(3)
+    while before < target:
+        try:
+            receipt = client.call(
+                "run_command",
+                {"path": ["Color", "Nodes", "Add Serial Node"]})
+            if (not isinstance(receipt, dict)
+                    or receipt.get("menus_closed") is not True):
+                raise MenuClosureError(
+                    f"{recipe_name} setup serial menu closure was not "
+                    f"verified: {receipt!r}")
+        except Exception as exc:  # noqa: BLE001 - the reason names it
+            return (f"the {recipe_name} setup serial did not press: "
+                    f"{type(exc).__name__}: {exc}")
         after = _live_node_count(item)
-    if after is None or after < 2:
-        return f"the setup serial read {before} -> {after}, not two nodes"
+        for _poll in range(5):
+            if after == before + 1:
+                break
+            if after is None or after > before + 1:
+                break
+            _time.sleep(3)
+            after = _live_node_count(item)
+        if after != before + 1:
+            return (f"the {recipe_name} setup serial read "
+                    f"{before} -> {after}, expected exactly "
+                    f"{before + 1} nodes")
+        before = after
     return None
+
+
+def _live_ensure_two_nodes(item, client) -> str | None:
+    """Compatibility wrapper for the delete recipe's two-node setup."""
+    return _live_ensure_node_count(item, client, 2, "window-delete")
 
 
 def _activate_resolve_for_live_take(client) -> None:
@@ -1017,19 +1036,28 @@ def _live_run_background(spec: RecipeSpec, take, out: Path) -> RecipeReport:
 
         assert_current_timeline(project, timeline)
         with DriverClient() as client:
-            _activate_resolve_for_live_take(client)
             if spec.name in COLOR_PAGE_SPECS:
                 reason = _live_establish_color_page(
                     resolve, timeline, item, client)
                 if reason is not None:
                     report.verdict = "fail"
                     report.reason = f"{spec.name}: {reason}"
+                    _capture_live(client, spec, out, report, "failed")
                     return report
             if spec.name == "window-delete":
                 reason = _live_ensure_two_nodes(item, client)
                 if reason is not None:
                     report.verdict = "fail"
                     report.reason = f"{spec.name}: {reason}"
+                    _capture_live(client, spec, out, report, "failed")
+                    return report
+            elif spec.name == "grade-node-remove":
+                reason = _live_ensure_node_count(item, client, 3,
+                                                 spec.name)
+                if reason is not None:
+                    report.verdict = "fail"
+                    report.reason = f"{spec.name}: {reason}"
+                    _capture_live(client, spec, out, report, "failed")
                     return report
             before_nodes = _live_node_count(item)
             before_page = resolve.GetCurrentPage()
@@ -1046,10 +1074,10 @@ def _live_run_background(spec: RecipeSpec, take, out: Path) -> RecipeReport:
                 (entry for entry in report.steps
                  if entry.get("menus_closed") is False), None)
             after_nodes = _live_node_count(item)
-            if spec.name in ("window-create", "window-delete"):
-                # Node creation lands asynchronously (measured: the
-                # count read back unchanged immediately after the
-                # press) - poll before refusing.
+            if spec.name in ("grade-node-remove", "window-create",
+                             "window-delete"):
+                # Graph edits can land asynchronously; poll before
+                # refusing an unchanged immediate read-back.
                 for _poll in range(5):
                     if _live_nodes_ok(spec.name, before_nodes,
                                       after_nodes):
@@ -1057,38 +1085,41 @@ def _live_run_background(spec: RecipeSpec, take, out: Path) -> RecipeReport:
                     time.sleep(3)
                     after_nodes = _live_node_count(item)
             after_page = resolve.GetCurrentPage()
+            report.proofs = [
+                {"name": "nodes",
+                 "passed": _live_nodes_ok(spec.name, before_nodes,
+                                          after_nodes),
+                 "detail": f"nodes {before_nodes} -> {after_nodes}"},
+                {"name": "page",
+                 "passed": (spec.name not in COLOR_PAGE_SPECS
+                            or after_page == "color"),
+                 "detail": f"page {before_page} -> {after_page}"},
+            ]
+            unproved = [entry["step"] for entry in report.steps
+                        if not entry.get("proved")
+                        and not _covered(spec, entry["step"])]
+            if unverified_menu is not None:
+                report.verdict = "fail"
+                report.reason = unverified_menu.get(
+                    "error", "MenuClosureError: menu close was not verified")
+            elif result.outcome != "done":
+                report.verdict = "fail"
+                report.reason = f"runner ended {result.outcome}"
+            elif unproved:
+                report.verdict = "fail"
+                report.reason = (f"steps {unproved} report done without "
+                                 f"proving their effect")
+            elif any(not proof["passed"] for proof in report.proofs):
+                report.verdict = "fail"
+                report.reason = "; ".join(
+                    proof["detail"] for proof in report.proofs
+                    if not proof["passed"])
+            else:
+                report.verdict = "pass"
+                report.reason = (f"{len(report.steps)} steps proved live, "
+                                 f"read back before restore")
             _capture_live(client, spec, out, report,
-                          "failed" if result.outcome != "done" else "passed")
-        report.proofs = [
-            {"name": "nodes",
-             "passed": _live_nodes_ok(spec.name, before_nodes, after_nodes),
-             "detail": f"nodes {before_nodes} -> {after_nodes}"},
-            {"name": "page", "passed": True,
-             "detail": f"page {before_page} -> {after_page}"},
-        ]
-        unproved = [entry["step"] for entry in report.steps
-                    if not entry.get("proved")
-                    and not _covered(spec, entry["step"])]
-        if unverified_menu is not None:
-            report.verdict = "fail"
-            report.reason = unverified_menu.get(
-                "error", "MenuClosureError: menu close was not verified")
-        elif result.outcome != "done":
-            report.verdict = "fail"
-            report.reason = f"runner ended {result.outcome}"
-        elif unproved:
-            report.verdict = "fail"
-            report.reason = (f"steps {unproved} report done without "
-                             f"proving their effect")
-        elif any(not proof["passed"] for proof in report.proofs):
-            report.verdict = "fail"
-            report.reason = "; ".join(
-                proof["detail"] for proof in report.proofs
-                if not proof["passed"])
-        else:
-            report.verdict = "pass"
-            report.reason = (f"{len(report.steps)} steps proved live, "
-                             f"read back before restore")
+                          "passed" if report.verdict == "pass" else "failed")
     except Exception as exc:  # noqa: BLE001 - the report names it
         report.verdict = "fail"
         report.reason = f"{type(exc).__name__}: {exc}"
@@ -1120,6 +1151,8 @@ def _live_nodes_ok(name: str, before, after) -> bool:
     if name == "window-delete":
         return (before is not None and after is not None
                 and after == before - 1)
+    if name == "grade-node-remove":
+        return before == 3 and after == 2
     return True
 
 

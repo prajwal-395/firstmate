@@ -13,6 +13,8 @@ from __future__ import annotations
 from contextlib import contextmanager
 from types import SimpleNamespace
 
+import pytest
+
 from library.tools.computer_use import replay as replay_mod
 from library.tools.computer_use.replay import (
     FakeDriver,
@@ -305,7 +307,7 @@ def test_window_presses_establish_the_color_page():
     menus against the Edit page - `ok` via ax_path, nodes 1 -> 1.
     Every recipe whose press acts on the Color page establishes it
     (playhead, OpenPage, Scopes) before the runner presses."""
-    assert {"window-create", "window-delete",
+    assert {"grade-node-remove", "window-create", "window-delete",
             "window-track"} <= set(replay_mod.COLOR_PAGE_SPECS)
 
 
@@ -429,6 +431,135 @@ def test_delete_setup_stops_when_its_menu_is_not_closed():
     reason = replay_mod._live_ensure_two_nodes(item, client)
     assert reason is not None
     assert "MenuClosureError" in reason
+
+
+def test_grade_node_remove_setup_grows_a_fresh_clip_to_three_nodes():
+    """The remove recipe is authored for node 2 of 3. Its setup must
+    build that exact graph before the recipe starts, with each serial
+    addition closed and read back."""
+    item = _LiveItem(1)
+    client = _LiveClient(item)
+
+    assert replay_mod._live_ensure_node_count(
+        item, client, 3, "grade-node-remove") is None
+    assert item.GetNumNodes() == 3
+    assert client.pressed == [
+        ["Color", "Nodes", "Add Serial Node"],
+        ["Color", "Nodes", "Add Serial Node"],
+    ]
+
+
+def test_grade_node_remove_setup_refuses_an_oversized_graph():
+    """A setup with more nodes than the recipe expects cannot silently
+    target a different node."""
+    item = _LiveItem(4)
+    client = _LiveClient(item)
+
+    reason = replay_mod._live_ensure_node_count(
+        item, client, 3, "grade-node-remove")
+
+    assert reason is not None and "above the 3-node setup" in reason
+    assert client.pressed == []
+
+
+def test_grade_node_remove_setup_requires_explicit_menu_closure():
+    """An accepted press without a positive close receipt cannot be
+    followed by another setup press or by the remove recipe."""
+    item = _LiveItem(1)
+    client = _LiveClient(item, menus_closed=None)
+
+    reason = replay_mod._live_ensure_node_count(
+        item, client, 3, "grade-node-remove")
+
+    assert reason is not None and "MenuClosureError" in reason
+    assert len(client.pressed) == 1
+
+
+def test_grade_node_remove_proof_requires_the_declared_three_to_two_change():
+    """The earlier live report passed 1 -> 0. That is not proof of
+    removing node 2 from the declared three-node start."""
+    assert replay_mod._live_nodes_ok("grade-node-remove", 3, 2)
+    assert not replay_mod._live_nodes_ok("grade-node-remove", 1, 0)
+    assert not replay_mod._live_nodes_ok("grade-node-remove", 3, 1)
+
+
+@pytest.mark.parametrize(
+    ("result_nodes", "expected_verdict", "capture_suffix"),
+    [(2, "pass", "passed"), (1, "fail", "failed")],
+)
+def test_live_grade_node_remove_reads_the_recipe_result_before_cleanup(
+        tmp_path, monkeypatch, result_nodes, expected_verdict, capture_suffix):
+    """The live route builds node 2 of 3 before acting, then records
+    the exact removal before deleting the scratch timeline."""
+    import base64
+
+    from library.tools.computer_use import client as client_module
+    from library.tools.computer_use import scripts as scripts_module
+    from library.tools import qualification_project, resolve_lock
+
+    spec = next(spec for spec in recipe_registry()
+                if spec.name == "grade-node-remove")
+    item = _LiveItem(1)
+    resolve = _LiveResolve()
+    resolve.GetProjectManager = lambda: object()
+    project = SimpleNamespace(GetMediaPool=lambda: object())
+    order = []
+
+    class Client:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def call(self, method, params=None):
+            if method == "run_command":
+                item._nodes += 1
+                return {"pressed": True, "menus_closed": True}
+            if method == "capture_window":
+                return {"image": base64.b64encode(b"capture").decode()}
+            raise AssertionError(f"unexpected client call {method!r}")
+
+    def run_recipe(_client, _script, deadline):
+        assert deadline == 123
+        assert item.GetNumNodes() == 3
+        order.append(("act", item.GetNumNodes()))
+        item._nodes = result_nodes
+        return SimpleNamespace(steps=[], outcome="done")
+
+    monkeypatch.setattr(client_module, "DriverClient", Client)
+    monkeypatch.setattr(scripts_module, "run_script", run_recipe)
+    monkeypatch.setattr(
+        qualification_project, "switch_project",
+        lambda manager, name: project if name == "Ren Qualification"
+        else None)
+    monkeypatch.setattr(
+        replay_mod, "_scratch_timeline",
+        lambda _project, _pool, _name: (object(), item))
+    monkeypatch.setattr(replay_mod, "_delete_scratch",
+                        lambda _pool, _timeline: order.append(("cleanup",)))
+    monkeypatch.setattr(resolve_lock, "assert_current_timeline",
+                        lambda _project, _timeline: None)
+    monkeypatch.setattr(replay_mod.time, "sleep", lambda _seconds: None)
+
+    def establish_color(_resolve, _timeline, _item, _client):
+        resolve.page = "color"
+        return None
+
+    monkeypatch.setattr(replay_mod, "_live_establish_color_page",
+                        establish_color)
+    take = SimpleNamespace(resolve=resolve, deadline=123)
+
+    report = replay_mod._live_run_background(spec, take, tmp_path)
+
+    assert report.verdict == expected_verdict
+    assert {proof["name"]: proof["passed"] for proof in report.proofs} == {
+        "nodes": result_nodes == 2, "page": True}
+    assert next(proof["detail"] for proof in report.proofs
+                if proof["name"] == "nodes") == f"nodes 3 -> {result_nodes}"
+    assert order == [("act", 3), ("cleanup",)]
+    assert report.captures[0].endswith(
+        f"grade-node-remove-live-{capture_suffix}.png")
 
 
 def test_restore_proof_names_this_takes_own_start():
