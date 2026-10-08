@@ -152,10 +152,11 @@ reads as a false difference). Every pair: max channel difference 0.
 **What was not covered.** None of the four carried an image-sequence
 caption, a transition element or a program channel other than 1, so
 the shapes OTIO refuses stay unmeasured; `auto` places those with
-append. On the captain's project the project default is 3840x2160,
-so `auto` selects append for every reel there until that default
-matches the reel: the importer inherits the project resolution and the
-build never writes resolution after items land.
+append. On the captain's project the project default is 3840x2160. The
+importer inherits that resolution; the placement path now sizes the
+imported, noncurrent timeline to the reel before taking the cursor. If
+Resolve already made it current, the builder refuses instead of risking
+the measured settings-sync deadlock.
 
 **Hold, warm (subject probes cached), Reel 09:** OTIO place hold
 14.27 s, of which pool organisation 6.83 s, unattributed 1.55 s,
@@ -200,9 +201,9 @@ C.
 - The build writes no clip colour and no marker during placement.
 
 The original B restore pass showed three `SetSetting` calls for timeline
-resolution, but that repair is unsafe after an import has placed items and
-is no longer used. The project default must match for OTIO; otherwise the
-builder uses append, which sets the size while the new timeline is empty.
+resolution after the imported timeline became current. That ordering is
+unsafe. The current path makes those writes and their read-backs while the
+imported timeline is still noncurrent, under the existing per-call deadline.
 One finding reaches beyond this path. Re-importing Resolve's own export
 moved source frames by one where the compiled file moved none. Step
 6.01's `deliver_audio_mix` re-imports exactly such an export, so it is

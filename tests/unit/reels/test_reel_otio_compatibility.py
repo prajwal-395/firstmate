@@ -5,6 +5,7 @@ import pytest
 from library.tools.reel_otio_placement import (
     OtioPlacementRefused,
     select_placement,
+    size_imported_timeline_before_current,
     verify_imported_resolution,
 )
 
@@ -33,30 +34,19 @@ def _plan(*, subtitle_segments=(), resolved_channels=None,
 def test_auto_selects_otio_for_a_fully_representable_plan():
     mode, reasons = select_placement(
         "auto", _plan(resolved_channels={"1": 1, "2": 1}),
-        target_resolution=(1080, 1920),
-        import_resolution=(1080, 1920))
+        target_resolution=(1080, 1920))
 
     assert mode == "otio"
     assert reasons == ()
 
 
-@pytest.mark.parametrize(
-    ("import_resolution", "reason"),
-    [
-        ((3840, 2160), "project timeline resolution is 3840x2160"),
-        (None, "project timeline resolution could not be read"),
-    ],
-    ids=("mismatched-resolution", "unknown-resolution"),
-)
-def test_auto_falls_back_before_placement_when_import_resolution_is_unsafe(
-        import_resolution, reason):
+def test_auto_uses_safe_import_sizing_for_any_project_default():
     mode, reasons = select_placement(
         "auto", _plan(resolved_channels={"1": 1}),
-        target_resolution=(1080, 1920),
-        import_resolution=import_resolution)
+        target_resolution=(1080, 1920))
 
-    assert mode == "append"
-    assert any(reason in item for item in reasons)
+    assert mode == "otio"
+    assert reasons == ()
 
 
 @pytest.mark.parametrize(
@@ -117,7 +107,7 @@ def test_an_explicit_otio_refusal_precedes_media_pool_access():
     ("project_size", "expected"),
     [
         ((1080, 1920), "selected otio"),
-        ((3840, 2160), "selected append before placement"),
+        ((3840, 2160), "selected otio"),
     ],
     ids=("matching-resolution", "mismatched-resolution"),
 )
@@ -148,15 +138,61 @@ def test_build_auto_selects_before_media_pool_access(
 
 def test_imported_resolution_is_verified_without_setting_timeline_values():
     class Timeline:
+        def __init__(self, events):
+            self.events = events
+            self.unique_id = "imported"
+            self.settings = {
+                "useCustomSettings": "0",
+                "timelineResolutionWidth": "3840",
+                "timelineResolutionHeight": "2160",
+            }
+
         def GetSetting(self, key):
-            return {"timelineResolutionWidth": "1080",
-                    "timelineResolutionHeight": "1920"}[key]
+            self.events.append(("read", key))
+            return self.settings[key]
 
-        def SetSetting(self, *_args):
-            pytest.fail("an imported timeline's resolution must not change")
+        def GetUniqueId(self):
+            return self.unique_id
 
-    verify_imported_resolution("Reel 09", Timeline(), 1080, 1920)
+        def SetSetting(self, key, value):
+            self.events.append(("write", key, value))
+            self.settings[key] = value
+            return True
+
+    class Project:
+        def __init__(self, current):
+            self.current = current
+
+        def GetCurrentTimeline(self):
+            return self.current
+
+    class OtherTimeline:
+        def GetUniqueId(self):
+            return "other"
+
+    events = []
+    imported = Timeline(events)
+    size_imported_timeline_before_current(
+        Project(OtherTimeline()), "Reel 09", imported, 1080, 1920)
+    assert imported.settings == {
+        "useCustomSettings": "1",
+        "timelineResolutionWidth": "1080",
+        "timelineResolutionHeight": "1920",
+    }
+    assert [event[1] for event in events if event[0] == "write"] == [
+        "useCustomSettings", "timelineResolutionWidth",
+        "timelineResolutionHeight"]
+    assert events.index(("write", "timelineResolutionHeight", "1920")) \
+        < events.index(("read", "timelineResolutionWidth"))
+
+    with pytest.raises(OtioPlacementRefused, match="made the OTIO timeline current"):
+        size_imported_timeline_before_current(
+            Project(imported), "Reel 09", imported, 1080, 1920)
 
     with pytest.raises(OtioPlacementRefused,
                        match=r"expected \(1920, 1080\)"):
-        verify_imported_resolution("Reel 09", Timeline(), 1920, 1080)
+        verify_imported_resolution(
+            "Reel 09", SimpleNamespace(GetSetting=lambda key: {
+                "timelineResolutionWidth": "1080",
+                "timelineResolutionHeight": "1920"}[key]),
+            1920, 1080)

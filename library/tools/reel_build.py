@@ -6763,6 +6763,47 @@ def _recorded_first_measure(project_folder: str):
     return _measure
 
 
+def _prepare_subject_measurements(placements, project_folder: str):
+    """Measure punch-in subjects during FREE preparation, before the lease.
+
+    The returned callable preserves `aim_picture_row`'s interface while
+    making its measurement lookup cheap. Probe failures are cached too and
+    raised by the caller at the same shot-specific refusal boundary.
+    """
+    from library.tools.subject_framing import SubjectProbeUnavailable
+
+    measure = _recorded_first_measure(project_folder)
+    values = {}
+    for place in placements:
+        clip = place["clip"]
+        if getattr(clip, "track_type", "video") != "video":
+            continue
+        source_file = clip.source_file
+        source_in, source_out = place["source_in"], place["source_out"]
+        key = (os.path.realpath(source_file), float(source_in),
+               float(source_out))
+        if key in values:
+            continue
+        try:
+            subject = measure(source_file, source_in, source_out)
+            values[key] = (subject, getattr(measure, "last_provenance", None), None)
+        except SubjectProbeUnavailable as exc:
+            values[key] = (None, getattr(measure, "last_provenance", None), exc)
+
+    def prepared_measure(source_file, source_in, source_out):
+        key = (os.path.realpath(source_file), float(source_in),
+               float(source_out))
+        subject, provenance, error = values[key]
+        prepared_measure.last_provenance = provenance
+        if error is not None:
+            raise error
+        return subject
+
+    prepared_measure.last_provenance = None
+    prepared_measure.count = len(values)
+    return prepared_measure
+
+
 def aim_picture_row(name: str, look: dict, screen_window,
                     frame_width: int, frame_height: int,
                     row_items, row_places,
@@ -8398,6 +8439,7 @@ class ReelPlacementPlan:
     cards: list
     picture_overlay_runs: list
     frame_segments: Optional[list]
+    subject_measure: object = None
 
 
 def prepare_reel_timeline(moment, master_clips, subtitle_segments, fps,
@@ -8421,7 +8463,7 @@ def prepare_reel_timeline(moment, master_clips, subtitle_segments, fps,
     read by the caller under its own hold; without it the master is
     read here, which the caller must then hold for.
     """
-    import sys, os
+    import sys, os, time
 
     name = timeline_name or moment.timeline_name
 
@@ -8670,6 +8712,20 @@ def prepare_reel_timeline(moment, master_clips, subtitle_segments, fps,
                 look, overlay_runs, fps, width,
                 height, project_folder),
             project_folder)
+    subject_measure = None
+    subject_measurement_started = time.perf_counter()
+    if look is not None and look.get("punch_in"):
+        subject_placements = [
+            p for p in placements_list
+            if (getattr(p["clip"], "track_type", "video") == "video"
+                and video_row_by_angle.get(_angle_key(p["clip"]))
+                is not None)]
+        subject_measure = _prepare_subject_measurements(
+            subject_placements, project_folder)
+    build_record["subject_measurement_preparation_s"] = round(
+        time.perf_counter() - subject_measurement_started, 3)
+    build_record["subject_measurement_count"] = (
+        subject_measure.count if subject_measure is not None else 0)
     return ReelPlacementPlan(
         name=name, ledger_rows=ledger_rows, suppressions=suppressions,
         suppressed_ids=suppressed_ids,
@@ -8686,7 +8742,8 @@ def prepare_reel_timeline(moment, master_clips, subtitle_segments, fps,
         # timeline that points under scratch/ points at files a cleaner
         # may throw away (library/tools/reel_placed_assets.py).
         cards=promote_cards(cards, project_folder),
-        frame_segments=frame_segments)
+        frame_segments=frame_segments,
+        subject_measure=subject_measure)
 
 
 def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", cards=None, overlay_placements=None, explainer_segments=None, semantic_segments=None, look=None, motion=None, master_timeline=None, program_channels=None, extra_cuts: Sequence[tuple] = (), j_cut: dict = None, cutaway: dict = None, grade_cdl=None, power_grade=None, overlay_intent: dict = None, ranges=None, ending=None, lower_third_segments=None, card_row_role=None, do_not_draw: list = None,
@@ -8851,13 +8908,9 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                 f"'otio', not 'auto'")
         incompatibilities = ()
     else:
-        import_resolution = (
-            _otio.project_timeline_resolution(project)
-            if placement_mode in ("auto", "otio") else None)
         placement_mode, incompatibilities = _otio.select_placement(
             placement_mode, prepared, overlay_placements,
-            target_resolution=(int(width), int(height)),
-            import_resolution=import_resolution)
+            target_resolution=(int(width), int(height)))
     if requested_placement == "otio" and incompatibilities:
         raise _otio.OtioPlacementRefused(
             f"{name}: OTIO cannot place this reel: "
@@ -9364,6 +9417,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             aimed += aim_picture_row(
                 name, look, screen_window, width, height,
                 row_items, row_places, project_folder=project_folder,
+                measure=prepared.subject_measure,
                 draw_gain=draw_gain, timeline=timeline,
                 resolve_project=project)
         return aimed
@@ -12483,11 +12537,6 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         resolve = _connect_resolve()
         project = resolve_project_exactly(
             resolve.GetProjectManager(), resolve_name)
-        project_default_resolution = None
-        if placement_mode in ("auto", "otio"):
-            from library.tools.reel_otio_placement import (
-                project_timeline_resolution as _read_default_resolution)
-            project_default_resolution = _read_default_resolution(project)
     from library.tools import reel_replace_guard as _inventory_guard
     from library.tools import plan_provenance as _inventory_provenance
     build_inventory_before = _inventory_guard.timeline_inventory(project)
@@ -14091,8 +14140,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 _otio.select_placement(
                     placement_mode, prepared,
                     _reel_inputs["overlay_placements"],
-                    target_resolution=(reel_width, reel_height),
-                    import_resolution=project_default_resolution))
+                    target_resolution=(reel_width, reel_height)))
             if placement_mode == "otio" and placement_incompatibilities:
                 raise _otio.OtioPlacementRefused(
                     f"{name}: OTIO cannot place this reel: "

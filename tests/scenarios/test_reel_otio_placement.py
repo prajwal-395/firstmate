@@ -72,14 +72,18 @@ class _Moment:
     call_to_action = None
 
 
-def _build(media, mode, tmp_path):
-    project = make_project(width=1080, height=1920, frame_rate=FPS)
+def _build(media, mode, tmp_path, *, project_size=(1080, 1920)):
+    project = make_project(width=project_size[0], height=project_size[1],
+                           frame_rate=FPS)
     pool = project.GetMediaPool()
     pool.next_timeline = FakeTimeline()
     footage = [media["speakerone"], media["speakertwo"]]
     pool.media_properties = {p: {"FPS": "23.976", "Resolution": "32x32"}
                              for p in footage}
-    pool.ImportMedia(footage)          # the master's footage is pooled
+    pooled = pool.ImportMedia(footage)  # the master's footage is pooled
+    pooled[0].AddMarker(2400, "Blue", "review", "source note", 12,
+                        '{"source":"captain"}')
+    pooled[1].AddMarker(2401, "Green", "keep", "another note", 1, "")
     clips = [
         _clip(media, "video", 1, "SpeakerOne", "SpeakerOne", "speakerone", 0, 10),
         _clip(media, "video", 2, "SpeakerTwo", "SpeakerTwo", "speakertwo", 10, 20),
@@ -119,10 +123,11 @@ def _timeline_state(project):
                                    "Scaling")},
                     "channel": (json.loads(mapping)["track_mapping"]["1"]
                                 ["channel_idx"] if mapping else None),
+                    "markers": item.GetMarkers(),
                 })
             rows.append((kind, index, timeline.GetTrackName(kind, index),
                          items))
-    return rows
+    return {"rows": rows, "timeline_markers": timeline.GetMarkers()}
 
 
 def test_the_recorded_build_lands_the_default_builds_timeline(media,
@@ -143,19 +148,21 @@ def test_the_recorded_build_lands_the_default_builds_timeline(media,
     monkeypatch.setattr(FakeTimeline, "SetSetting", refuse_if_current)
 
     default_project, default_pool, _ = _build(
-        media, "append", tmp_path / "a")
-    project, pool, record = _build(media, "otio", tmp_path / "b")
+        media, "append", tmp_path / "a", project_size=(3840, 2160))
+    project, pool, record = _build(
+        media, "otio", tmp_path / "b", project_size=(3840, 2160))
 
     expected_resolution = [("useCustomSettings", "1"),
                            ("timelineResolutionWidth", "1080"),
                            ("timelineResolutionHeight", "1920")]
-    assert len(writes) == 1, "only append sizes its empty timeline"
+    assert len(writes) == 2, "both paths size before making the timeline current"
     assert all(calls == expected_resolution for calls in writes.values())
     assert pool.append_calls == [], "a recorded build appends nothing"
     assert default_pool.append_calls, "the default build appends"
     assert _timeline_state(project) == _timeline_state(default_project)
     assert record["stream_enforcement"]["checked"] == 2
     assert record["stream_enforcement"]["unverified"] == []
+    assert record["placement_profile"]["source_markers_restored"] == 4
     profile = record["placement_profile"]
     assert profile["counts"] == {
         "recorded_items": 6,
@@ -195,7 +202,8 @@ def test_completed_phase_is_written_to_kpi_ledger(monkeypatch):
          "reel": "Reel 09 - scratch", "placement": "otio"})]
 
 
-def test_resolution_mismatch_refuses_otio_before_import(media, tmp_path):
+def test_resolution_mismatch_sizes_otio_before_making_it_current(media,
+                                                                  tmp_path):
     project = make_project(width=1920, height=1080, frame_rate=FPS)
     pool = project.GetMediaPool()
     pool.next_timeline = FakeTimeline()
@@ -210,15 +218,16 @@ def test_resolution_mismatch_refuses_otio_before_import(media, tmp_path):
         _clip(media, "audio", 2, "SpeakerTwo CH1", "SpeakerTwo", "speakertwo", 10, 20),
     ]
 
-    with pytest.raises(OtioPlacementRefused,
-                       match="project timeline resolution is 1920x1080"):
-        build_reel_timeline(
-            project, _Moment(), clips, [], FPS, 1080, 1920,
-            str(tmp_path / "project"), {"segments": []},
-            program_channels={"1": 1, "2": 1}, placement_mode="otio")
+    build_reel_timeline(
+        project, _Moment(), clips, [], FPS, 1080, 1920,
+        str(tmp_path / "project"), {"segments": []},
+        program_channels={"1": 1, "2": 1}, placement_mode="otio")
 
-    assert project.GetTimelineCount() == 0
-    assert project.GetCurrentTimeline() is None
+    imported = project.GetCurrentTimeline()
+    assert imported is not None
+    assert imported.GetSetting("useCustomSettings") == "1"
+    assert imported.GetSetting("timelineResolutionWidth") == "1080"
+    assert imported.GetSetting("timelineResolutionHeight") == "1920"
 
 
 def test_what_the_import_cannot_carry_refuses_by_name(media, tmp_path):

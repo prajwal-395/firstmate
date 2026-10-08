@@ -25,14 +25,18 @@ both ways matched on every item field and every still
 What the import does not carry:
 
 - the timeline's custom resolution (measured: dropped). The importer
-  inherits the project's resolution, so the free compatibility check
-  falls back to append unless it already matches the reel. The imported
-  dimensions are read back and never changed after items land;
+  inherits the project's resolution. A new imported timeline is sized
+  to the reel while it is still noncurrent, with the deadline and readback
+  used by the append path; sizing a current timeline is refused because
+  Resolve can deadlock while syncing project settings;
 - the bin each render belongs in - the import files every new pool item
   into the CURRENT folder, so the timeline is imported with its own bin
   current and each render is then moved to `overlay_import_bin`;
 - the clip attributes an alpha render needs (`overlay_carriage`), which
   `import_pool_item` sets on every return and an import never sets.
+- source markers on pooled media, which `AppendToTimeline` inherits;
+  the import path reapplies and reads them back after import, including
+  `customData`.
 
 What it refuses, because no OTIO spelling for it was measured: an
 image-sequence caption, a transition element (it may carry audio, and
@@ -87,16 +91,6 @@ def record_elapsed(profile: dict, name: str, seconds: float, *,
         pass
 
 
-def project_timeline_resolution(project) -> tuple[int, int] | None:
-    """Read the project default used by timeline imports, or None."""
-    try:
-        width = int(project.GetSetting("timelineResolutionWidth"))
-        height = int(project.GetSetting("timelineResolutionHeight"))
-    except Exception:  # noqa: BLE001 - unknown resolution selects append
-        return None
-    return (width, height) if width > 0 and height > 0 else None
-
-
 def project_timeline_resolution_for_timeline(
         timeline) -> tuple[int, int] | None:
     """Read an imported timeline's size without changing it."""
@@ -117,13 +111,42 @@ def verify_imported_resolution(name: str, timeline, width: int,
         raise OtioPlacementRefused(
             f"{name}: OTIO imported resolution {actual!r}, "
             f"expected {expected!r}. The resolution cannot be repaired "
-            "after the import; rebuild with append placement or set the "
-            "Resolve project default before importing timeline items.")
+            "after the timeline becomes current; rebuild with append "
+            "placement or use a project whose default matches the reel.")
+
+
+def size_imported_timeline_before_current(project, name: str, timeline,
+                                          width: int, height: int) -> None:
+    """Size an imported, noncurrent timeline before taking the cursor.
+
+    Resolve can deadlock while synchronizing project settings for the
+    current timeline. The cursor check is a precondition, not an attempt
+    to recover from a write after the fact.
+    """
+    current = project.GetCurrentTimeline()
+    if current is not None:
+        try:
+            same_timeline = (
+                current is timeline
+                or current.GetUniqueId() == timeline.GetUniqueId())
+        except Exception as exc:  # noqa: BLE001 - cannot prove safety
+            raise OtioPlacementRefused(
+                f"{name}: Resolve did not expose timeline identity before "
+                "resolution setup; refusing an unproven settings write") from exc
+        if same_timeline:
+            raise OtioPlacementRefused(
+                f"{name}: Resolve made the OTIO timeline current during "
+                "import; refusing to change its resolution in place. "
+                "Rebuild with append placement or use a project whose "
+                "default matches the reel.")
+    from library.tools.resolve_deadline import apply_timeline_resolution
+    apply_timeline_resolution(timeline, width, height)
+    verify_imported_resolution(name, timeline, width, height)
 
 
 def otio_incompatibilities(
-        prepared, overlay_placements=None, *, target_resolution=None,
-        import_resolution=None) -> tuple[str, ...]:
+        prepared, overlay_placements=None, *, target_resolution=None
+        ) -> tuple[str, ...]:
     """Describe the known shapes this OTIO importer cannot represent.
 
     This reads the FREE placement plan plus the project's resolution
@@ -161,33 +184,24 @@ def otio_incompatibilities(
                 f"program channel {channel!r} for angle {angle!r} has no "
                 "measured OTIO spelling (only channel 1 is measured)")
 
-    if target_resolution is not None:
-        if import_resolution is None:
-            reasons.append(
-                "the Resolve project timeline resolution could not be "
-                "read before import")
-        elif tuple(import_resolution) != tuple(target_resolution):
-            reasons.append(
-                f"the Resolve project timeline resolution is "
-                f"{import_resolution[0]}x{import_resolution[1]}, but this "
-                f"reel needs {target_resolution[0]}x{target_resolution[1]}; "
-                "OTIO cannot set resolution after importing items")
+    if target_resolution is not None and (
+            len(tuple(target_resolution)) != 2
+            or any(int(value) <= 0 for value in target_resolution)):
+        reasons.append("the reel timeline resolution is invalid")
     return tuple(reasons)
 
 
 def select_placement(requested: str, prepared,
-                     overlay_placements=None, *, target_resolution=None,
-                     import_resolution=None
+                     overlay_placements=None, *, target_resolution=None
                      ) -> tuple[str, tuple[str, ...]]:
-    """Resolve `auto` from the free plan and captured project settings."""
+    """Resolve `auto` from the free plan and requested frame size."""
     if requested not in ("append", "otio", "auto"):
         raise ValueError(f"unknown reel placement mode {requested!r}")
     if requested == "append":
         return requested, ()
     reasons = otio_incompatibilities(
         prepared, overlay_placements,
-        target_resolution=target_resolution,
-        import_resolution=import_resolution)
+        target_resolution=target_resolution)
     if requested == "otio":
         return requested, reasons
     return ("append" if reasons else "otio"), reasons
@@ -229,6 +243,7 @@ class _Spec:
     record: int
     properties: dict = field(default_factory=dict)
     channel: int | None = None
+    markers: dict = field(default_factory=dict)
 
 
 class RecordingTimeline:
@@ -253,6 +268,7 @@ class PlacementRecorder:
         self.specs: list = []
         self.bins: dict = {}                  # path -> overlay_import_bin
         self._footage: dict = {}
+        self._source_markers: dict = {}
         self.profile: dict = {}
 
     # The media-pool surface the placers call.
@@ -263,12 +279,18 @@ class PlacementRecorder:
                 raise OtioPlacementRefused(
                     "an append without mediaType places video AND audio, "
                     "which has no measured OTIO spelling")
-            spec = _Spec(path=info["mediaPoolItem"].path,
+            media_item = info["mediaPoolItem"]
+            path = media_item.path
+            real_item = media_item._real
+            if real_item is not None and path not in self._source_markers:
+                self._source_markers[path] = real_item.GetMarkers() or {}
+            spec = _Spec(path=path,
                          track=int(info["trackIndex"]),
                          media_type=int(info["mediaType"]),
                          source_in=int(info["startFrame"]),
                          source_out=int(info["endFrame"]),
-                         record=int(info["recordFrame"]))
+                         record=int(info["recordFrame"]),
+                         markers=dict(self._source_markers.get(path, {})))
             self.specs.append(spec)
             placed.append(_Placed(spec))
         return placed
@@ -460,6 +482,52 @@ def relink_imported_items(pool, timeline, recorder: PlacementRecorder,
     return repaired
 
 
+def restore_pool_markers(timeline, recorder: PlacementRecorder,
+                         name: str) -> int:
+    """Carry the source markers AppendToTimeline inherits onto OTIO items."""
+    from library.tools.reel_build import _timeline_span
+
+    restored = 0
+    for spec in recorder.specs:
+        if not spec.markers:
+            continue
+        kind = "video" if spec.media_type == 1 else "audio"
+        expected_span = (spec.record,
+                         spec.record + spec.source_out - spec.source_in)
+        items = [item for item in
+                 timeline.GetItemListInTrack(kind, spec.track) or ()
+                 if _timeline_span(item) == expected_span]
+        if len(items) != 1:
+            raise OtioPlacementRefused(
+                f"{name}: cannot identify the {kind} item at "
+                f"{kind[0].upper()}{spec.track}@{spec.record} to restore "
+                "source markers")
+        item = items[0]
+        for frame, marker in spec.markers.items():
+            values = {
+                "color": marker["color"],
+                "name": marker["name"],
+                "note": marker["note"],
+                "duration": int(marker["duration"]),
+                "customData": marker["customData"],
+            }
+            if not item.AddMarker(
+                    int(frame), values["color"], values["name"],
+                    values["note"], values["duration"],
+                    values["customData"]):
+                raise OtioPlacementRefused(
+                    f"{name}: Resolve refused source marker at frame "
+                    f"{frame} on {os.path.basename(spec.path)}")
+            actual = (item.GetMarkers() or {}).get(int(frame))
+            if actual is None or any(actual[key] != value
+                                     for key, value in values.items()):
+                raise OtioPlacementRefused(
+                    f"{name}: source marker at frame {frame} on "
+                    f"{os.path.basename(spec.path)} did not read back")
+            restored += 1
+    return restored
+
+
 def import_recorded(project, recorder: PlacementRecorder, name: str,
                     track_plan, fps: float, width: int, height: int,
                     timeline_bin: tuple):
@@ -528,16 +596,21 @@ def import_recorded(project, recorder: PlacementRecorder, name: str,
         raise OtioPlacementRefused(
             f"{name}: ImportTimelineFromFile returned None for the "
             f"compiled timeline (every referenced file was on disk)")
-    # The import uses the project's resolution. The free compatibility
-    # check requires it to match and this read confirms what landed. Never
-    # write resolution after the import has placed items: that project
-    # settings sync has deadlocked Resolve.
+    # The import initially inherits the project's resolution. Size the
+    # not-yet-current timeline before taking the cursor; changing these
+    # settings after it becomes current has deadlocked Resolve.
     started = time.perf_counter()
-    verify_imported_resolution(name, timeline, width, height)
+    size_imported_timeline_before_current(
+        project, name, timeline, width, height)
     record_duration(recorder.profile, "imported_resolution_verify_s", started)
     started = time.perf_counter()
     assert_current_timeline(project, timeline)
     record_duration(recorder.profile, "timeline_cursor_check_s", started)
+
+    started = time.perf_counter()
+    marker_count = restore_pool_markers(timeline, recorder, name)
+    record_duration(recorder.profile, "source_markers_restore_s", started)
+    recorder.profile["source_markers_restored"] = marker_count
 
     # Every planned row, under its planned name, and every recorded item
     # where it was recorded - judged by the read-back, never the return.
