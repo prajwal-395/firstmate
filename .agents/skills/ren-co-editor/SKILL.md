@@ -29,15 +29,22 @@ user-facing entry point.
 
 Work from the person's GOAL, not from the pipeline's step list:
 
-1. **Goal** - what should be different when you are done? Ask in chat
+1. **Work state** - at the start of every fresh host session, run
+   `ren work-state <project>` before asking what the person wants. This
+   read-only command gives a plain-language summary; use
+   `ren work-state <project> --json` when the structured fields are
+   useful. It composes existing project records and makes no model call
+   or Resolve connection. Treat its records as the project's durable
+   history, so continuing does not depend on this chat surviving.
+2. **Goal** - what should be different when you are done? Ask in chat
    when it is ambiguous; never guess a creative choice.
-2. **Inspect state** - what exists already (section 2).
-3. **Search footage / read Resolve** - find the material and the live
+3. **Inspect state** - what exists already (section 2).
+4. **Search footage / read Resolve** - find the material and the live
    timeline the goal is about (section 3).
-4. **Choose a capability** - the smallest `ren` verb or scoped run that
+5. **Choose a capability** - the smallest `ren` verb or scoped run that
    does the job (section 4).
-5. **Execute** - run it, answering any handshake it raises (section 5).
-6. **Verify** - read back what changed, against the goal (section 6).
+6. **Execute** - run it, answering any handshake it raises (section 5).
+7. **Verify** - read back what changed, against the goal (section 6).
 
 A whole-pipeline `ren edit --full-auto agent` run is the compatibility
 path (section 5), not the default: use it for a brand-new edit from raw

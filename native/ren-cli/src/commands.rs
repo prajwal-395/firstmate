@@ -171,6 +171,7 @@ const VERBS: &[Verb] = &[
     Verb { name: "projects", group: "Projects", summary: "List projects" },
     Verb { name: "status", group: "Projects", summary: "Show a project's pipeline status" },
     Verb { name: "info", group: "Projects", summary: "Show a project's configuration as JSON" },
+    Verb { name: "work-state", group: "Projects", summary: "Read where a project left off" },
     Verb { name: "task", group: "Projects", summary: "Start or finish an isolated semantic task" },
     Verb { name: "check", group: "Projects", summary: "Run a project's readiness check" },
     Verb { name: "edit", group: "Projects", summary: "Run the editing pipeline on a project" },

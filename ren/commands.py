@@ -83,6 +83,9 @@ VERBS = (
     Verb("projects", "Projects", "List projects", subcommand="list"),
     Verb("status", "Projects", "Show a project's pipeline status", subcommand="status"),
     Verb("info", "Projects", "Show a project's configuration as JSON", subcommand="info"),
+    Verb("work-state", "Projects", "Read where a project left off",
+         module_argv=("library.tools.project_work_state",),
+         detail="Read a short summary of settled decisions, latest changes, approvals and open work. No model call or Resolve access."),
     Verb("task", "Projects", "Start or finish an isolated semantic task",
          subcommand="task",
          detail="`ren task <project> start <task>` allocates a ren/<task> "
