@@ -141,7 +141,8 @@ from library.tools import reel_clock as _reel_clock
 from library.tools import resolve_bin_layout as bins
 from library.tools.ren_refusal import RenRefusal
 from library.tools.resolve_lock import (
-    assert_current_timeline, resolve_lease, under_lease)
+    assert_current_timeline, report_activity_progress, resolve_lease,
+    under_lease)
 from library.tools import shadow_watcher
 from library.tools.timeline_ingest import resolve_project_exactly
 from library.tools.timeline_layout import (
@@ -12273,7 +12274,9 @@ def _file_reel_summary(project_folder: str, *, number: int, name: str,
         pass
 
 
-@under_lease("build reels", exclusive=True)
+@under_lease(
+    "build reels", exclusive=True,
+    description="Building approved reels from the project plan")
 def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                               verify: bool = True, only=None,
                               name_suffix: str = "",
@@ -13376,7 +13379,9 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     _batch_comp_entries: list = []
     _pending_freeze_verifies: list = []
     try:
-        for moment in building:
+        for build_index, moment in enumerate(building, start=1):
+            report_activity_progress(
+                f"Working {build_index}/{len(building)}")
             final = built_name(moment, name_suffix)
             name = staged_to_final[final]
             current_staging = name
@@ -14340,6 +14345,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 # name off this list and the except below removes whatever
                 # half-built container may exist under it.
                 built_reel_names.append(name)
+                report_activity_progress(
+                    f"{len(built_reel_names)}/{len(building)} done")
                 try:
                     _phase_log.log_event(
                         project_folder, moment.number, name,

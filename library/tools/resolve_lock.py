@@ -94,6 +94,7 @@ import sys
 import tempfile
 import threading
 import time
+from contextvars import ContextVar
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -101,6 +102,9 @@ from pathlib import Path
 from library.tools import event_log, perf_ledger
 from library.tools.ren_refusal import RenRefusal
 from typing import Optional
+
+_activity_job_id: ContextVar[str | None] = ContextVar(
+    "resolve_activity_job_id", default=None)
 
 PLACEMENT_REQUIRES_CURRENT = (
     "MediaPool.AppendToTimeline appends to the project's CURRENT "
@@ -663,7 +667,8 @@ def resolve_lease(purpose: str, exclusive: bool = True,
                   honor_captain: bool = True,
                   qualification_project: str = "",
                   capability: str = "", phase: str = "",
-                  project: str = "", timeline: str = ""):
+                  project: str = "", timeline: str = "",
+                  description: str = "", progress: str = ""):
     """Hold the Resolve instance for one critical section.
 
     Exclusive by default: a cursor operation is a write even when it
@@ -757,7 +762,7 @@ def resolve_lease(purpose: str, exclusive: bool = True,
         with _broker_turn(purpose, exclusive, not honor_captain,
                           resolved_timeout, owner or default_owner(),
                           qualification_project, locality, project,
-                          timeline) as broker_job:
+                          timeline, description or purpose, progress) as broker_job:
             deadline = time.time() + resolved_timeout
             lock_dir().mkdir(parents=True, exist_ok=True)
             handle = open(lock_path(), "a+", encoding="utf-8")
@@ -849,7 +854,8 @@ def resolve_lease(purpose: str, exclusive: bool = True,
 def _broker_turn(purpose: str, exclusive: bool, interactive: bool,
                  timeout: float, owner: str, qualification_project: str,
                  locality: str = "none", project: str = "",
-                 timeline: str = ""):
+                 timeline: str = "", description: str = "",
+                 progress: str = ""):
     """The broker's grant for one lease, or nothing where none serves.
 
     `ensure` first: the broker is a standalone service that any client
@@ -877,6 +883,8 @@ def _broker_turn(purpose: str, exclusive: bool, interactive: bool,
     granted = False
     try:
         with client.grant({"purpose": purpose, "exclusive": exclusive,
+                           "description": description or purpose,
+                           "progress": progress,
                            "interactive": interactive,
                            "project": project or qualification_project,
                            "timeline": timeline, "locality": locality},
@@ -884,7 +892,13 @@ def _broker_turn(purpose: str, exclusive: bool, interactive: bool,
                           qualification=bool(qualification_project),
                           wait=timeout) as job_id:
             granted = True
-            yield job_id
+            progress_token = _activity_job_id.set(job_id)
+            try:
+                if not exclusive:
+                    _start_activity_overlay()
+                yield job_id
+            finally:
+                _activity_job_id.reset(progress_token)
     except client.BrokerError as refused:
         if granted:
             raise
@@ -895,8 +909,22 @@ def _broker_turn(purpose: str, exclusive: bool, interactive: bool,
             "the refusal names, then re-run the same command") from refused
 
 
+def report_activity_progress(progress: str) -> bool:
+    """Report known progress for the current broker-held Resolve job."""
+    job_id = _activity_job_id.get()
+    if job_id is None:
+        return False
+    from library.tools.resolved import client
+    try:
+        client.report_progress(job_id, progress)
+    except (ConnectionError, client.BrokerError):
+        return False
+    return True
+
+
 @contextmanager
-def prefer_lease(purpose: str, timeout: float = 2.0):
+def prefer_lease(purpose: str, timeout: float = 2.0,
+                 description: str = ""):
     """Take the lease if it is free; otherwise proceed and SAY SO.
 
     For the captain's own surfaces - the capture button, the panel -
@@ -919,7 +947,8 @@ def prefer_lease(purpose: str, timeout: float = 2.0):
     """
     try:
         with resolve_lease(purpose, exclusive=True, timeout=timeout,
-                           honor_captain=False) as lease:
+                           honor_captain=False,
+                           description=description or purpose) as lease:
             yield lease
         return
     except ResolveBusy:
@@ -938,7 +967,7 @@ def prefer_lease(purpose: str, timeout: float = 2.0):
 
 def under_lease(purpose: str, exclusive: bool | None = None,
                 prefer: bool = False, capability: str = "",
-                phase: str = ""):
+                phase: str = "", description: str = ""):
     """Decorator form, for an entry point that IS the critical section.
 
     `prefer=True` is the human-initiated case: take the instance if it
@@ -998,12 +1027,13 @@ def under_lease(purpose: str, exclusive: bool | None = None,
                     timeline = ((manifest.get("project") or {}).get("name")
                                 or "")
             if prefer:
-                with prefer_lease(purpose):
+                with prefer_lease(purpose, description=description):
                     return function(*args, **kwargs)
             with resolve_lease(
                     purpose, exclusive=effective_exclusive,
                     capability=capability, phase=phase,
-                    project=project, timeline=timeline):
+                    project=project, timeline=timeline,
+                    description=description or purpose):
                 return function(*args, **kwargs)
         guarded.__resolve_lease__ = (purpose, effective_exclusive, prefer)
         guarded.__resolve_execution__ = (capability, phase)
@@ -1081,6 +1111,8 @@ def _start_activity_overlay() -> None:
     binary = _activity_overlay_binary()
     if not binary.is_file() or not os.access(binary, os.X_OK):
         return
+    if _activity_overlay_is_running():
+        return
     import subprocess
     try:
         subprocess.Popen(
@@ -1091,6 +1123,24 @@ def _start_activity_overlay() -> None:
         # Acquisition already succeeded; the app's lock remains the hard
         # exclusion mechanism if the optional presentation cannot launch.
         pass
+
+
+def _activity_overlay_is_running() -> bool:
+    """Probe the overlay's singleton flock without disturbing its owner."""
+    import fcntl
+
+    lock_file = lock_dir() / "resolve-activity-overlay.lock"
+    lock_file.parent.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(lock_file, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        return False
+    finally:
+        os.close(descriptor)
 
 
 def _emit_instance_event(event_type: str, purpose: str,

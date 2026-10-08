@@ -535,6 +535,11 @@ def submit(kind: str, params: dict, owner: str = "",
     return call(request, path)
 
 
+def report_progress(job_id: str, progress: str, path=None) -> dict:
+    """Update the one-line progress shown for a running Resolve job."""
+    return call({"op": "progress", "id": job_id, "progress": progress}, path)
+
+
 def result(job_id: str, wait: float = 0.0, path=None) -> dict:
     reply = call({"op": "result", "id": job_id, "wait": wait}, path,
                  timeout=wait + 30.0)

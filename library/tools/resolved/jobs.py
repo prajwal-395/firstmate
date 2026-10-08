@@ -221,6 +221,49 @@ def _required(params: dict, key: str, kind: str) -> str:
     return value
 
 
+def activity_description(kind: str, params: dict) -> str:
+    """The short, user-facing action for a broker job receipt."""
+    def one_line(value: str) -> str:
+        return " ".join(value.splitlines())[:80]
+
+    description = params.get("description")
+    if description:
+        return description
+    purpose = params.get("purpose")
+    if isinstance(purpose, str) and purpose:
+        return one_line(purpose)
+    if kind == "timeline.snapshot":
+        return one_line(f"Reading {params['timeline']} in {params['project']}")
+    if kind == "timeline.apply_patch":
+        patch = params["patch"]
+        return one_line(f"Applying edits to {patch['timeline']}")
+    if kind == "resolve_axi":
+        argv = params.get("argv") or ["Resolve"]
+        if argv[0] == "run":
+            purpose = ""
+            for index, token in enumerate(argv):
+                if token == "--purpose" and index + 1 < len(argv):
+                    purpose = argv[index + 1]
+                    break
+                if token.startswith("--purpose="):
+                    purpose = token.partition("=")[2]
+                    break
+            if purpose:
+                return one_line(f"Running Resolve task: {purpose}")
+        return one_line(f"Running Resolve command: {argv[0]}")
+    return one_line({
+        "timeline.observe_current": "Checking the current Resolve timeline",
+        "fusion.registry_summary": "Checking installed Resolve effects",
+        "resolve.ui_transaction": "Completing a verified Resolve task",
+        "resolve.qualification_session": "Running the Resolve qualification",
+        "qualification.workflow": "Running a qualification workflow",
+        "timeline.drt_export_probe": "Exporting a timeline recovery archive",
+        "reel.promote_staged": "Promoting staged reels",
+        "reel.copy_tv_ending": "Copying approved reel endings",
+        "lease": "Using DaVinci Resolve",
+    }.get(kind, kind.replace(".", " ").replace("_", " ").capitalize()))
+
+
 def _resolve_axi_shape(params: dict) -> dict:
     from library.tools import resolve_axi
     argv = params.get("argv")
@@ -282,6 +325,23 @@ def prepare(kind: str, params: dict, qualification: bool = False) -> dict:
         raise JobRefused(f"unknown job kind {kind!r}; one of {KINDS}")
     if not isinstance(params, dict):
         raise JobRefused("params must be a JSON object")
+    description = params.get("description")
+    if description is not None and (
+            not isinstance(description, str) or not description.strip()
+            or len(description) > 80 or "\n" in description
+            or "\r" in description):
+        raise JobRefused(
+            "description must be one non-empty line of at most 80 characters")
+    progress = params.get("progress")
+    if progress is not None and (
+            not isinstance(progress, str) or len(progress) > 20
+            or "\n" in progress or "\r" in progress):
+        raise JobRefused(
+            "progress must be one line of at most 20 characters")
+    if (description is not None and progress
+            and len(description) + len(progress) + 3 > 80):
+        raise JobRefused(
+            "description and progress must fit in 80 characters")
     if kind == "lease":
         exclusive = bool(params.get("exclusive", True))
         priority = ("interactive" if params.get("interactive")

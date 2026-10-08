@@ -34,6 +34,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     coalesce_key TEXT,
     interrupt_policy TEXT NOT NULL DEFAULT '',
     owner TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
+    progress TEXT NOT NULL DEFAULT '',
     state TEXT NOT NULL,
     subscribers INTEGER NOT NULL DEFAULT 1,
     submitted REAL NOT NULL,
@@ -71,6 +73,14 @@ class JobStore:
         if "interrupt_policy" not in columns:
             self._db.execute(
                 "ALTER TABLE jobs ADD COLUMN interrupt_policy TEXT NOT NULL "
+                "DEFAULT ''")
+        if "description" not in columns:
+            self._db.execute(
+                "ALTER TABLE jobs ADD COLUMN description TEXT NOT NULL "
+                "DEFAULT ''")
+        if "progress" not in columns:
+            self._db.execute(
+                "ALTER TABLE jobs ADD COLUMN progress TEXT NOT NULL "
                 "DEFAULT ''")
         self._db.execute(
             "UPDATE jobs SET state='failed', finished=?, "

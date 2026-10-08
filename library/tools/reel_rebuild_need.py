@@ -77,6 +77,7 @@ from library.tools.stable_json import dumps_stable
 
 ENGINE_CODE_TREES = (
     "library/tools",
+    "library/skills/verify_render",
     "library/dashboard",
     "library/schemas",
     "library/graphics_ir",

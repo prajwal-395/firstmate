@@ -127,6 +127,8 @@ class Broker:
                 "timeline": shape["timeline"],
                 "qualification": int(shape["qualification"]),
                 "coalesce_key": key, "owner": owner, "state": "queued",
+                "description": job_kinds.activity_description(kind, params),
+                "progress": str(params.get("progress") or ""),
                 "interrupt_policy": shape.get("interrupt_policy", ""),
                 "submitted": now}
             if idempotency is None:
@@ -214,6 +216,40 @@ class Broker:
         with self._cond:
             return [dict(vars(p)) for p in self._running.values()]
 
+    def activity(self) -> dict:
+        """Compact display records for the native activity overlay."""
+        with self._cond:
+            records = [self.store.get(job.id)
+                       for job in self._running.values()]
+        active = [job for job in records if job is not None]
+        return {
+            "count": len(active),
+            "jobs": [{
+                "id": job["id"], "kind": job["kind"], "mode": job["mode"],
+                "description": job["description"], "progress": job["progress"],
+                "owner": job["owner"][:40], "params": {
+                    "purpose": str(job["params"].get("purpose", ""))[:80]},
+                "state": job["state"], "started": job["started"],
+                "submitted": job["submitted"],
+            } for job in active[:4]],
+        }
+
+    def report_progress(self, job_id: str, progress: str) -> dict:
+        if (not isinstance(progress, str) or len(progress) > 20
+                or "\n" in progress or "\r" in progress):
+            raise job_kinds.JobRefused(
+                "progress must be one line of at most 20 characters")
+        with self._cond:
+            if job_id not in self._running:
+                raise job_kinds.JobRefused(
+                    "progress can only be reported for a running job")
+            job = self.store.get(job_id)
+            if len(job["description"]) + len(progress) + 3 > 80:
+                raise job_kinds.JobRefused(
+                    "description and progress must fit in 80 characters")
+            self.store.update(job_id, progress=progress)
+            return self.store.get(job_id)
+
     def stop(self) -> None:
         with self._cond:
             self._stopping = True
@@ -247,6 +283,10 @@ class Broker:
                 if job is None:
                     # Re-evaluated on every submit and finish, and at
                     # least every second for aging.
+                    if self._running:
+                        from library.tools.resolve_lock import (
+                            _start_activity_overlay)
+                        _start_activity_overlay()
                     self._cond.wait(1.0)
                     continue
                 del self._queued[job.id]
@@ -291,11 +331,16 @@ class Broker:
         (`resolve_locale`), and a connection opened between leases is a
         client nobody scheduled.
         """
-        from library.tools.resolve_lock import resolve_lease
+        from library.tools import resolve_lock
         cancellation.begin(job["id"])
+        activity_token = resolve_lock._activity_job_id.set(job["id"])
         try:
-            with resolve_lease(f"ren-resolved {job['kind']} {job['id']}",
-                               exclusive=job["mode"] == "exclusive"):
+            with resolve_lock.resolve_lease(
+                    f"ren-resolved {job['kind']} {job['id']}",
+                    exclusive=job["mode"] == "exclusive"):
+                if job["mode"] == "shared":
+                    from library.tools.resolve_lock import _start_activity_overlay
+                    _start_activity_overlay()
                 if (job["qualification"]
                         and job["kind"] in
                         job_kinds.BORROWING_QUALIFICATION_KINDS):
@@ -339,6 +384,7 @@ class Broker:
                 self._resolve = None
             return "failed", None, f"{type(exc).__name__}: {exc}"
         finally:
+            resolve_lock._activity_job_id.reset(activity_token)
             clear(job["id"])
             cancellation.end(job["id"])
 
@@ -418,6 +464,11 @@ class _Handler(socketserver.StreamRequestHandler):
         if op in ("status", "result"):
             wait = float(request.get("wait", 0)) if op == "result" else 0.0
             return {"job": broker.result(request["id"], wait)}
+        if op == "activity":
+            return broker.activity()
+        if op == "progress":
+            return {"job": broker.report_progress(
+                request["id"], request.get("progress", ""))}
         if op == "cancel":
             return {"job": broker.request_cancel(request["id"])}
         if op == "list":

@@ -22,6 +22,9 @@ def test_activity_probe_is_qualification_only_and_bounded():
     with pytest.raises(jobs.JobRefused, match="between 0.1 and 30"):
         jobs.prepare("resolve.activity_probe", {"seconds": 31},
                      qualification=True)
+    with pytest.raises(jobs.JobRefused, match="one non-empty line"):
+        jobs.prepare("fusion.registry_summary", {
+            "description": "read Resolve\nthen edit"})
 
 
 def test_activity_probe_cancel_restores_borrowed_context(monkeypatch):
@@ -308,13 +311,141 @@ def test_native_overlay_is_nonactivating_and_shields_resolve_only():
     assert ".nonactivatingPanel" in source
     assert "panel?.order(.above, relativeTo:" in source
     assert "override func hitTest(_ point: NSPoint)" in source
+    assert "if shieldEnabled {" in source
     assert "return self" in source
+    assert "return nil" in source
     assert "frontmost:" in source
     assert '"op": "status"' in source
     assert '"op": "cancel"' in source
     assert "Elapsed %02d:%02d" in source
-    assert "messageLabel.frame = NSRect(x: 14, y: 12, width: 250, height: 16)" in source
-    assert "takeover.frame = NSRect(x: 278, y: 12, width: 118, height: 24)" in source
+    assert "let panelFrame = shieldEnabled" in source
+    assert "takeoverJobID != activity.jobID" in source
+    assert "takeOver()" in source
+    assert "The lease file is the authority for an active exclusive holder." in source
+    assert "transient socket/read failure must not make the shield exit" in source
+    assert "processIsAlive(lease.pid)" in source
+    assert "timeIntervalSince(unavailableSince) >= 5" in source
+    assert "keyEventTapCallback" in source
+    assert "CGEventType.leftMouseDown.rawValue" in source
+    assert "CGEventType.scrollWheel.rawValue" in source
+    assert "controller.isOverlayControlEvent(event)" in source
+    assert "AX calls are a separate" in source
+    assert "frontmostApplication?.bundleIdentifier" in source
+    assert 'brokerRequest(["op": "activity"])' in source
+    assert "message = \"Read-only Ren job. Resolve input remains available.\"" in source
+    assert "screenTop - y - height" in source
+    broker_source = (root / "library/tools/resolved/server.py").read_text()
+    assert "if self._running:" in broker_source
+    assert "_start_activity_overlay()" in broker_source
+
+
+def test_activity_description_and_progress_survive_store_receipt(tmp_path):
+    import threading
+
+    from library.tools.resolved.store import JobStore
+
+    store = JobStore(tmp_path / "jobs.sqlite3")
+    broker = object.__new__(Broker)
+    broker._watchdog = None
+    broker.store = store
+    broker._cond = threading.Condition()
+    broker._coalesce = {}
+    broker._queued = {}
+    broker._running = {}
+    broker._cursor = ("", "")
+    submitted = broker.submit("fusion.registry_summary", {
+        "description": "Rendering 31 reels to Downloads",
+        "progress": "6 of 31 done",
+    }, owner="test")
+    try:
+        job = store.get(submitted["id"])
+        assert job["description"] == "Rendering 31 reels to Downloads"
+        assert job["progress"] == "6 of 31 done"
+        store.update(job["id"], state="running", started=2.0)
+        from types import SimpleNamespace
+        broker._running[job["id"]] = SimpleNamespace(
+            id=job["id"], mode="shared")
+        updated = broker.report_progress(job["id"], "6 of 31 done")
+        assert updated["progress"] == "6 of 31 done"
+        activity = broker.activity()
+        activity = activity["jobs"][0]
+        assert activity["description"] == job["description"]
+        assert activity["progress"] == job["progress"]
+        assert activity["mode"] == "shared"
+    finally:
+        store.close()
+
+
+def test_resolve_axi_script_purpose_is_the_activity_description():
+    assert jobs.activity_description("resolve_axi", {
+        "argv": ["run", "--purpose", "Rendering 31 reels to Downloads"]
+    }) == "Running Resolve task: Rendering 31 reels to Downloads"
+    assert jobs.activity_description("resolve_axi", {
+        "argv": ["run", "--purpose=Rendering 31 reels"]
+    }) == "Running Resolve task: Rendering 31 reels"
+
+
+def test_broker_job_id_reaches_nested_activity_progress(monkeypatch):
+    from contextlib import nullcontext
+
+    from library.tools import resolve_deadline, resolve_lock
+    from library.tools.resolved import cancellation
+
+    class FakeDeadlineProxy:
+        pass
+
+    resolve = FakeDeadlineProxy()
+    monkeypatch.setattr(resolve_lock, "resolve_lease",
+                        lambda *args, **kwargs: nullcontext())
+    monkeypatch.setattr(resolve_deadline, "DeadlineProxy", FakeDeadlineProxy)
+    monkeypatch.setattr(resolve_deadline, "deadline_proxy",
+                        lambda value, **kwargs: value)
+    monkeypatch.setattr(cancellation, "begin", lambda _job_id: None)
+    monkeypatch.setattr(cancellation, "clear", lambda _job_id: None)
+    monkeypatch.setattr(cancellation, "end", lambda _job_id: None)
+    observed = []
+    monkeypatch.setattr(jobs, "run", lambda _job, _resolve: observed.append(
+        resolve_lock._activity_job_id.get()))
+    broker = object.__new__(Broker)
+    broker._resolve_handle = lambda: resolve
+
+    state, _result, error = broker._run({
+        "id": "resolve-axi-job", "kind": "resolve_axi", "mode": "exclusive",
+        "qualification": 0, "executed": 1,
+    })
+
+    assert state == "done"
+    assert error == ""
+    assert observed == ["resolve-axi-job"]
+
+
+def test_resolve_lease_progress_reaches_its_broker_job(monkeypatch):
+    from library.tools import resolve_lock
+    from library.tools.resolved import client
+
+    seen = []
+    monkeypatch.setattr(client, "report_progress",
+                        lambda job_id, progress: seen.append((job_id, progress)))
+    token = resolve_lock._activity_job_id.set("progress-job")
+    try:
+        assert resolve_lock.report_activity_progress("6 of 31 done")
+    finally:
+        resolve_lock._activity_job_id.reset(token)
+    assert seen == [("progress-job", "6 of 31 done")]
+
+
+def test_overlay_singleton_flock_reports_live_process(tmp_path, monkeypatch):
+    import fcntl
+
+    from library.tools import resolve_lock
+
+    monkeypatch.setattr(resolve_lock, "lock_dir", lambda: tmp_path)
+    lock_path = tmp_path / "resolve-activity-overlay.lock"
+    with lock_path.open("w") as lock_file:
+        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        assert resolve_lock._activity_overlay_is_running()
+        fcntl.flock(lock_file, fcntl.LOCK_UN)
+    assert not resolve_lock._activity_overlay_is_running()
 
 
 def test_native_overlay_builder_is_macos_appkit_only():
