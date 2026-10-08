@@ -12,19 +12,10 @@ hosted minute WITHOUT a human deliberately asking:
 2. No workflow fires automatically: `pull_request` and branch `push`
    triggers are banned in every file. Automation nobody asked for is
    how the account burned 1,801 of 2,000 minutes by 5 September.
-3. No AUTOMATIC job runs on a hosted runner: a job whose workflow can
-   start itself must not name ubuntu/macos/windows runners. The one
-   deliberate exception is tag-triggered releases (`.github/workflows/
-   release.yml` on `v*` only): a human cuts a tag a handful of times a
-   year, and the artifacts it builds are what `ren update` fetches -
-   with no local replacement in scope, deleting it would break updates
-   to save pennies. If release.yml ever gains an automatic trigger,
-   rule 2 fails it.
-
-`self-hosted` runners are not the answer either (docs/CI_LAYERS.md:
-rejected - they compete with the fleet for cores, queue silently when
-the Mac sleeps, and destroy the clean room), so no trigger set may
-reach any runner at all except the deliberate tag release.
+3. No job names a GitHub-hosted runner. The deliberate tag-triggered
+   release (`.github/workflows/release.yml` on `v*`) uses the
+   self-hosted macOS runner; it builds the artifacts `ren update`
+   fetches. PR checks stay on the local ren-ci path.
 """
 
 from __future__ import annotations
@@ -105,6 +96,15 @@ def test_no_automatic_job_can_reach_a_hosted_runner():
                     "no automatic job may spend hosted minutes")
 
 
+def test_no_job_targets_a_github_hosted_runner():
+    for name, workflow in _workflows().items():
+        for job_name, job in (workflow.get("jobs") or {}).items():
+            for runner in _runs_on(job or {}):
+                assert not any(tag in runner for tag in HOSTED), (
+                    f"{name}/{job_name} names GitHub-hosted runner {runner!r}; "
+                    "release and CI jobs must use the local self-hosted path")
+
+
 def test_tag_releases_stay_deliberate():
     release = WORKFLOWS / "release.yml"
     if not release.exists():
@@ -112,6 +112,5 @@ def test_tag_releases_stay_deliberate():
     workflow = yaml.safe_load(release.read_text(encoding="utf-8"))
     triggers = _triggers(workflow)
     assert not _is_automatic(triggers), (
-        "release.yml gained an automatic trigger: tag releases are the "
-        "one deliberate hosted exception - automate them and the "
-        "exception mechanic fails open")
+        "release.yml gained an automatic trigger: releases are deliberate "
+        "tag builds; automate them and the release boundary changes")

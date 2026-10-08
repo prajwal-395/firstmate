@@ -11,7 +11,7 @@ permissions:
 jobs:
   release-gate:
     name: Release gate (automated contract tests)
-    runs-on: macos-14
+    runs-on: [self-hosted, macOS, ARM64]
     steps:
       - name: Check out tagged source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -67,7 +67,7 @@ jobs:
 
   release:
     name: Build and draft Ren release
-    runs-on: macos-14
+    runs-on: [self-hosted, macOS, ARM64]
     needs: release-gate
     steps:
       - name: Check out tagged source
@@ -92,12 +92,16 @@ jobs:
           fi
 
           mkdir -p dist
-          python -m ren.package_engine \
+          env -u REN_EDITION python -m ren.package_engine \
             --src "$GITHUB_WORKSPACE" \
             --dest "$GITHUB_WORKSPACE/dist/ren-engine" \
             --channel stable \
+            --edition public \
             --sha "$RELEASE_SHA" \
             --built-at "$(date -u +%Y-%m-%d)"
+          python .github/scripts/verify_public_engine.py \
+            --source "$GITHUB_WORKSPACE" \
+            --engine dist/ren-engine
           python .github/scripts/package_engine_archive.py \
             --engine dist/ren-engine \
             --archive "dist/ren-engine-${RELEASE_TAG}.zip"
