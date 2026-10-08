@@ -516,6 +516,9 @@ def run(job: dict, resolve) -> dict | None:
         from library.tools import qualification_project
         from library.tools.resolved import cancellation
         with qualification_project.borrowed(resolve) as before:
+            manager = resolve.GetProjectManager()
+            qualification_project.switch_project(
+                manager, QUALIFICATION_PROJECT)
             deadline = time.monotonic() + float(params.get("seconds", 10))
             while time.monotonic() < deadline:
                 cancellation.checkpoint(job["id"])

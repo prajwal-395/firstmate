@@ -35,12 +35,21 @@ def test_activity_probe_cancel_restores_borrowed_context(monkeypatch):
             states.append("restored")
 
     monkeypatch.setattr(qualification_project, "borrowed", borrowed)
+    class Resolve:
+        @staticmethod
+        def GetProjectManager():
+            return "manager"
+
+    monkeypatch.setattr(
+        qualification_project, "switch_project",
+        lambda manager, name: states.append(("switch", manager, name)))
     monkeypatch.setattr(cancellation, "checkpoint", lambda _job_id: (
         (_ for _ in ()).throw(cancellation.CancelRequested("stop"))))
     with pytest.raises(cancellation.CancelRequested, match="stop"):
         jobs.run({"id": "probe-1", "kind": "resolve.activity_probe",
-                  "params": {"seconds": 2}}, resolve=object())
-    assert states == ["entered", "restored"]
+                  "params": {"seconds": 2}}, resolve=Resolve())
+    assert states == ["entered", ("switch", "manager",
+                                  jobs.QUALIFICATION_PROJECT), "restored"]
 
 
 def test_running_probe_stop_writes_marker(monkeypatch, tmp_path):
