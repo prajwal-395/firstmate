@@ -88,7 +88,8 @@ KINDS = ("lease", "timeline.snapshot", "timeline.observe_current",
          "timeline.apply_patch",
          "resolve_axi", "fusion.registry_summary",
          "resolve.ui_transaction", "reel.promote_staged",
-          "reel.prepare_qualification_fixture",
+         "reel.prepare_qualification_fixture",
+         "reel.probe_qualification_marker_loss",
           "resolve.qualification_session", "timeline.drt_export_probe",
           "reel.copy_tv_ending")
 
@@ -98,6 +99,7 @@ KINDS = ("lease", "timeline.snapshot", "timeline.observe_current",
 BORROWING_QUALIFICATION_KINDS = frozenset({
     "reel.promote_staged",
     "reel.prepare_qualification_fixture",
+    "reel.probe_qualification_marker_loss",
 })
 
 
@@ -371,6 +373,10 @@ def prepare(kind: str, params: dict, qualification: bool = False) -> dict:
         from library.tools.resolved import reel_promotion_fixture
         shape = reel_promotion_fixture.prepare(params)
         qualification = True
+    elif kind == "reel.probe_qualification_marker_loss":
+        from library.tools.resolved import marker_loss_probe
+        shape = marker_loss_probe.prepare(params)
+        qualification = True
     elif kind == "reel.copy_tv_ending":
         from library.tools.resolved import reel_ending_copy
         shape = reel_ending_copy.prepare(params)
@@ -511,9 +517,15 @@ def run(job: dict, resolve) -> dict | None:
     if kind == "reel.prepare_qualification_fixture":
         from library.tools.resolved import reel_promotion_fixture
         with write_scope(project=QUALIFICATION_PROJECT,
-                         timeline_name="Q Promotion Proof",
+                         timeline_name=reel_promotion_fixture.FINAL,
                          run_id=job.get("id")):
             return reel_promotion_fixture.run(job, resolve)
+    if kind == "reel.probe_qualification_marker_loss":
+        from library.tools.resolved import marker_loss_probe
+        with write_scope(project=QUALIFICATION_PROJECT,
+                         timeline_name=marker_loss_probe.FINAL,
+                         run_id=job.get("id")):
+            return marker_loss_probe.run(job, resolve)
     if kind == "reel.copy_tv_ending":
         from library.tools.resolved import reel_ending_copy
         return reel_ending_copy.run(job, resolve)

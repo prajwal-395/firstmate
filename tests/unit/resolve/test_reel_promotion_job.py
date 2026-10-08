@@ -190,6 +190,25 @@ def test_qualification_fixture_seeds_a_comp_the_promotion_can_export(
                         lambda _items: {"video_tracks": [],
                                         "audio_tracks": [],
                                         "material": {}})
+    monkeypatch.setattr(
+        "library.tools.qualification_project.promotion_project_folder",
+        lambda: tmp_path / "promotion_project")
+    inventories = iter(([{"name": "before"}], [{"name": "after"}]))
+    monkeypatch.setattr("library.tools.reel_replace_guard.timeline_inventory",
+                        lambda _project: next(inventories))
+    seeded = {}
+
+    def begin_inventory(_review_dir, _operation, _before, **kwargs):
+        seeded.update(kwargs)
+        return "fixture-operation"
+
+    completed = []
+    monkeypatch.setattr("library.tools.plan_provenance.begin_timeline_inventory",
+                        begin_inventory)
+    monkeypatch.setattr(
+        "library.tools.plan_provenance.finish_timeline_inventory",
+        lambda _review_dir, operation, after: completed.append(
+            (operation, after)))
     monkeypatch.setattr("library.tools.resolve_lock.assert_current_timeline",
                         lambda _project, _timeline: None)
 
@@ -201,6 +220,13 @@ def test_qualification_fixture_seeds_a_comp_the_promotion_can_export(
         "name": "Composition 1", "index": 1, "count": 1,
         "tool": "BrightnessContrast", "neutral": True,
         "preflight_exported": True}
+    assert seeded["ren_created_names"] == {
+        fixture.FINAL, fixture.STAGING, fixture.AMBIGUOUS_FINAL,
+        fixture.AMBIGUOUS_STAGING}
+    assert set(seeded["ren_created_ids"]) == {
+        timeline.GetUniqueId() for timeline in
+        (final, staging, ambiguous_final, ambiguous_staging)}
+    assert completed == [("fixture-operation", [{"name": "after"}])]
     assert comp_handle.effect.values == {
         "Gain": 1.0, "Gamma": 1.0, "Lift": 0.0, "Contrast": 1.0,
         "Saturation": 1.0}
@@ -208,10 +234,56 @@ def test_qualification_fixture_seeds_a_comp_the_promotion_can_export(
     assert report["errors"] == []
     assert [index for _path, index in export_calls] == [1, 1]
     assert [path.rsplit("/", 1)[-1] for path in report["files"]] == [
-        "Q_Promotion_Proof__V01_item000_c1.comp"]
+        "Q_Promotion_Proof_R2__V01_item000_c1.comp"]
     assert (tmp_path / "pipeline_output" / "steps" / "7_01_build_reels"
-            / "fusion_comps" / "Q_Promotion_Proof__V01_item000_c1.comp"
+            / "fusion_comps" / "Q_Promotion_Proof_R2__V01_item000_c1.comp"
             ).is_file()
+
+
+def test_marker_loss_probe_catches_named_loss_and_restores_fixture_marker():
+    from library.tools.resolved import marker_loss_probe as probe
+    from tests.resolve_double import FakeMediaPoolItem, FakeTimelineItem
+
+    timeline = FakeTimeline(probe.FINAL, uid="marker-probe-timeline")
+    pool_item = FakeMediaPoolItem("qual_b")
+    pool_item.SetClipProperty("File Path", "/qualification/qual_b.mp4")
+    marker = {
+        "color": "Blue", "name": "Ren live promotion anchor",
+        "note": "Keep this clip anchored note on qual_b.",
+        "duration": 1, "customData": "ren-qualification-promotion-proof",
+    }
+    item = FakeTimelineItem("qual_b", timeline, duration=72,
+                            pool_item=pool_item, markers={24: marker})
+    timeline.add_item("video", 1, item)
+    timeline.SetTrackName("video", 1, "A-Roll")
+
+    class Manager:
+        def SaveProject(self):
+            return True
+
+    result = probe._probe(timeline, Manager())
+
+    assert result["gate_caught"] is True
+    assert "MARKER GATE LOST" in result["gate_message"]
+    assert marker["name"] in result["gate_message"]
+    assert marker["note"] in result["gate_message"]
+    assert result["marker_restored"] is True
+    assert item.GetMarkers()[24] == marker
+
+
+def test_marker_loss_probe_is_closed_and_qualification_only():
+    from library.tools.resolved import marker_loss_probe as probe
+
+    shape = jobs.prepare(probe.KIND, {"project": QUALIFICATION_PROJECT})
+
+    assert shape["qualification"] is True
+    assert shape["project"] == QUALIFICATION_PROJECT
+    assert shape["timeline"] == probe.FINAL
+    with pytest.raises(JobRefused, match="accepts only"):
+        jobs.prepare(probe.KIND, {"project": "Podcast (field test)"})
+    with pytest.raises(JobRefused, match="accepts only"):
+        jobs.prepare(probe.KIND, {
+            "project": QUALIFICATION_PROJECT, "timeline": "other"})
 
 
 def test_broker_submit_persists_the_shape_qualification_fence(

@@ -15,9 +15,9 @@ from library.tools.resolved.jobs import QUALIFICATION_PROJECT, JobRefused
 
 KIND = "reel.prepare_qualification_fixture"
 MASTER = "Q Spine"
-FINAL = "Q Promotion Proof"
+FINAL = "Q Promotion Proof R2"
 STAGING = FINAL + " (rebuild staging)"
-AMBIGUOUS_FINAL = "Q Promotion Proof Ambiguous"
+AMBIGUOUS_FINAL = "Q Promotion Proof Ambiguous R2"
 AMBIGUOUS_STAGING = AMBIGUOUS_FINAL + " (rebuild staging)"
 MARKER_NAME = "Ren live promotion anchor"
 MARKER_NOTE = "Keep this clip anchored note on qual_b."
@@ -197,6 +197,22 @@ def _build(project, manager) -> dict:
         project, pool, media, AMBIGUOUS_STAGING, 2)
     if not ambiguous_staging or len(ambiguous_items) != 2:
         raise JobRefused(f"{KIND} could not create duplicate-source case")
+    from library.tools import plan_provenance, reel_replace_guard
+    from library.tools.project_layout import Area, ProjectLayout
+    from library.tools.qualification_project import promotion_project_folder
+
+    review_dir = ProjectLayout(promotion_project_folder()).write_dir(
+        Area.REVIEW)
+    fixture_ids = {
+        timeline.GetName(): timeline.GetUniqueId()
+        for timeline in (final, staging, ambiguous_final, ambiguous_staging)
+    }
+    inventory = reel_replace_guard.timeline_inventory(project)
+    operation = plan_provenance.begin_timeline_inventory(
+        review_dir, "qualification promotion fixture", inventory,
+        ren_created_names=names, ren_created_ids=fixture_ids.values())
+    plan_provenance.finish_timeline_inventory(
+        review_dir, operation, reel_replace_guard.timeline_inventory(project))
     from library.tools.resolve_lock import assert_current_timeline
     assert_current_timeline(project, _exact_timeline(project, MASTER))
     current = project.GetCurrentTimeline()
@@ -216,6 +232,7 @@ def _build(project, manager) -> dict:
         "ambiguous_staging_timeline_name": AMBIGUOUS_STAGING,
         "ambiguous_track_plan": _track_plan(ambiguous_items),
         "ambiguous_marker": ambiguous_marker,
+        "fixture_timeline_ids": fixture_ids,
         "timelines_created": [final.GetName(), staging.GetName(),
                                ambiguous_final.GetName(),
                                ambiguous_staging.GetName()],
