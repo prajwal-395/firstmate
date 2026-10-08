@@ -29,6 +29,7 @@ extern "C" {
     // Accessibility
     static kCFBooleanTrue: CFTypeRef;
     pub fn AXUIElementCreateApplication(pid: u32) -> AXUIElementRef;
+    pub fn AXUIElementSetMessagingTimeout(element: AXUIElementRef, timeout: f32) -> AXError;
     pub fn AXUIElementCopyAttributeValue(element: AXUIElementRef, attribute: CFStringRef, value: *mut CFTypeRef) -> AXError;
     pub fn AXUIElementCopyActionNames(element: AXUIElementRef, names: *mut CFArrayRef) -> AXError;
     pub fn AXUIElementPerformAction(element: AXUIElementRef, action: CFStringRef) -> AXError;
@@ -166,6 +167,15 @@ impl AxElement {
         AxElement { inner: unsafe { AXUIElementCreateApplication(pid) } }
     }
 
+    /// AX requests can block on a complex Qt accessibility tree. Set the
+    /// per-application timeout explicitly instead of relying on the short
+    /// system default.
+    pub fn set_messaging_timeout(&self, seconds: f32) -> DriverResult<()> {
+        let err = unsafe { AXUIElementSetMessagingTimeout(self.inner, seconds) };
+        if err == kAXErrorSuccess { Ok(()) }
+        else { Err(DriverError::Internal(format!("setting AX messaging timeout failed: AXError({})", err.0))) }
+    }
+
     pub fn owned(&self) -> AxElement {
         unsafe { CFRetain(self.inner as CFTypeRef) };
         AxElement { inner: self.inner }
@@ -197,6 +207,13 @@ impl AxElement {
             CFRelease(value);
             owned.into_iter().map(|inner| AxElement { inner }).collect()
         }
+    }
+    pub fn main_window(&self) -> Option<AxElement> {
+        let value = get_attr(self.inner, "AXMainWindow")?;
+        let window = AxElement { inner: value as AXUIElementRef };
+        let _ = window.set_messaging_timeout(5.0);
+        matches!(window.role().as_deref(), Some("AXWindow") | Some("AXStandardWindow"))
+            .then_some(window)
     }
     pub fn press(&self) -> DriverResult<()> {
         self.act("AXPress")

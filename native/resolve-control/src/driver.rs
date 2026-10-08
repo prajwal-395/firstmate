@@ -400,6 +400,12 @@ impl Driver {
         Ok(())
     }
 
+    fn app_ax(&self, pid: u32) -> DriverResult<AxElement> {
+        let app = AxElement::from_app(pid);
+        app.set_messaging_timeout(5.0)?;
+        Ok(app)
+    }
+
     /// Window pixels and window titles (the project read-back) both need it.
     fn ensure_screen_recording(&self) -> DriverResult<()> {
         if !capture::screen_recording_granted() {
@@ -530,7 +536,7 @@ impl Driver {
         self.ensure_permissions()?;
         let pid = self.target_window(params)?.0;
         let max_depth = protocol::get_param_u64(params, "max_depth").unwrap_or(12) as usize;
-        let app = AxElement::from_app(pid);
+        let app = self.app_ax(pid)?;
         let tree = self.dump_tree(&app, 0, max_depth)?;
         Ok(serde_json::json!({"tree": tree}))
     }
@@ -548,7 +554,7 @@ impl Driver {
         if let Some(focused) = el.focused() { if focused { node["focused"] = serde_json::json!(true); } }
 
         if depth < max_depth {
-            let children = el.children();
+            let children = ax_tree_children(el);
             if !children.is_empty() {
                 let mut child_json = Vec::new();
                 for child in &children {
@@ -576,7 +582,7 @@ impl Driver {
             label: label_filter, value: value_filter, path: path_filter.as_deref(),
         };
 
-        let app = AxElement::from_app(pid);
+        let app = self.app_ax(pid)?;
         let mut results: Vec<(AxElement, Vec<String>)> = Vec::new();
         find_in_tree(&app, &filter, &mut Vec::new(), &mut results);
 
@@ -617,7 +623,7 @@ impl Driver {
         self.ensure_permissions()?;
         let pid = self.ensure_resolve()?;
         let menu = params.get("menu").and_then(|v| v.as_str());
-        let app = AxElement::from_app(pid);
+        let app = self.app_ax(pid)?;
         let root = ax::AxNode::from_element(&app);
         let mut path = Vec::new();
         let mut commands = Vec::new();
@@ -908,7 +914,7 @@ impl Driver {
             && (title.is_none() || el.title().as_deref() == title)
             && (title_contains.is_none() || el.title().map(|t| t.contains(title_contains.unwrap())).unwrap_or(false));
         if matches { *found = true; return Ok(()); }
-        for child in el.children() {
+        for child in ax_tree_children(el) {
             self.check_element_visible(&child, role, title, title_contains, found)?;
             if *found { return Ok(()); }
         }
@@ -1280,12 +1286,24 @@ fn find_in_tree(el: &AxElement, filter: &Filter, ancestors: &mut Vec<String>, re
     if titled {
         ancestors.push(el.title().unwrap_or_default());
     }
-    for child in el.children() {
+    for child in ax_tree_children(el) {
         find_in_tree(&child, filter, ancestors, results);
     }
     if titled {
         ancestors.pop();
     }
+}
+
+/// AXApplication exposes its menu bar through AXChildren and its main
+/// window through AXMainWindow. Include both so find and dump see one tree.
+fn ax_tree_children(el: &AxElement) -> Vec<AxElement> {
+    let mut children = el.children();
+    if el.role().as_deref() == Some("AXApplication") {
+        if let Some(window) = el.main_window() {
+            children.push(window);
+        }
+    }
+    children
 }
 
 fn captured_to_json(img: &CapturedImage) -> Json {
