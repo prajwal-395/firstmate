@@ -101,6 +101,9 @@ VERBS = (
          detail="Read a run back from pipeline_output/logs/perf_ledger.jsonl: each named layer's share "
                 "of the run's wall (Gemma, MFA, Resolve render, Remotion, a host model), then what each "
                 "capability spent outside them. Changes nothing"),
+    Verb("progress", "Projects", "Read plain-language progress and currently available capabilities",
+         module_argv=("library.tools.progress",),
+         detail="One read-only status call for a host: completed and active steps, a history-backed time estimate when available, partial capabilities ready now, and the Resolve broker's current state."),
     Verb("organize", "Projects", "Bring a project folder onto the standard layout", subcommand="organize"),
     Verb("archive", "Projects", "Archive a finished project", subcommand="archive"),
     Verb("spec", "Projects", "Translate, clarify and record a natural-language edit spec",

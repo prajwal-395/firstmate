@@ -25,6 +25,14 @@ so `ren <verb> --help` prints that verb's own options. `ren --help` lists
 every verb. Use `ren`, not `manage_project.py`, which is no longer the
 user-facing entry point.
 
+When a pipeline run is active, poll its host-facing progress with
+`ren progress <project>` through `bin/vep`. Relay the returned `message`,
+completed work, current work, any history-backed estimate, and
+`available_capabilities` in plain language. Poll at meaningful intervals
+while the run is active; stop polling when it ends. The call reads run
+state, the performance ledger, the footage-index file and the broker ping.
+Do not infer an estimate when the report omits one.
+
 ## 0. The loop
 
 Work from the person's GOAL, not from the pipeline's step list:
