@@ -144,13 +144,27 @@ def _check_project_standard(project) -> dict:
             "timelineResolutionHeight": height}
 
 
+def _timeline_rate_string(fps: float) -> str:
+    """The timeline menu label for a measured rate: Resolve holds a fixed
+    menu (23.976, 29.97, 59.94, integer rates), and a full-precision
+    float string is refused while the timeline keeps the project rate."""
+    value = float(fps)
+    for exact, label in ((24000 / 1001, "23.976"),
+                         (30000 / 1001, "29.97"),
+                         (60000 / 1001, "59.94")):
+        if abs(value - exact) <= 0.0001:
+            return label
+    return str(int(value)) if value.is_integer() else str(round(value, 3))
+
+
 def _apply_timeline_shape(timeline, *, fps: float,
                           width: int = 1920, height: int = 1080) -> dict:
     """Per-timeline custom settings with readback, following the render
     path: SetSetting returning True is a claim, GetSetting is the
     evidence, and it is the evidence that decides."""
-    rate = str(int(fps)) if float(fps).is_integer() else str(fps)
-    if not timeline.SetSetting("useCustomSettings", "1"):
+    rate = _timeline_rate_string(fps)
+    if (not timeline.SetSetting("useCustomSettings", "1")
+            or str(timeline.GetSetting("useCustomSettings")) != "1"):
         raise WorkflowQualificationError(
             "timeline refused custom settings")
     applied = {}

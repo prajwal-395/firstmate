@@ -199,13 +199,34 @@ class TestTimelineShape:
     def test_timeline_shape_is_custom_with_readback(self):
         """Defect: the timeline inherited the project rate instead of
         carrying the media rate it was cut at."""
-        timeline = _ShapeTimeline({"timelineFrameRate": "24"})
+        timeline = _ShapeTimeline({"timelineFrameRate": "24",
+                                   "useCustomSettings": "0"})
 
         applied = qw._apply_timeline_shape(timeline, fps=24000 / 1001)
 
         assert abs(float(applied["timelineFrameRate"]) - 24000 / 1001) <= 0.0001
         assert applied["timelineResolutionWidth"] == "1920"
         assert timeline.settings["useCustomSettings"] == "1"
+
+    def test_ntsc_rate_is_sent_as_the_menu_label(self):
+        """Defect: the full-precision float string is refused and the
+        timeline keeps the project rate; Resolve holds a fixed menu."""
+        timeline = _ShapeTimeline({"useCustomSettings": "0"})
+
+        qw._apply_timeline_shape(timeline, fps=24000 / 1001)
+
+        writes = dict(timeline.set_calls)
+        assert writes["timelineFrameRate"] == "23.976"
+
+    def test_custom_settings_flag_is_read_back(self):
+        """Defect: SetSetting claiming custom mode was trusted, and the
+        shape writes that went nowhere failed later with the wrong name."""
+        timeline = _ShapeTimeline({"useCustomSettings": "0"},
+                                  freeze=("useCustomSettings",))
+
+        with pytest.raises(qw.WorkflowQualificationError,
+                           match="refused custom settings"):
+            qw._apply_timeline_shape(timeline, fps=24.0)
 
     def test_timeline_refusing_custom_settings_fails(self):
         """Defect: a timeline that refused custom settings kept project
