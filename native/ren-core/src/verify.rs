@@ -107,14 +107,15 @@ fn verify_smart_reframe(op: &EditOp, after: &Snapshot) -> Option<String> {
             "clip {unique_id:?} disappeared during Smart Reframe"
         ));
     };
+    // Python's dict.get treats a missing key and an explicit None alike.
+    // Snapshots omit unreadable transform properties, while the caller's
+    // `before` map serializes those values as JSON null. Normalize both
+    // sides so a no-op SmartReframe cannot look like a changed transform.
+    let null = Value::Null;
     let unchanged = keys.iter().all(|key| {
-        let want = before.get(key.as_str());
-        let got = clip.transform.get(key.as_str());
-        match (want, got) {
-            (Some(w), Some(g)) => same_value(g, w),
-            (None, None) => true,
-            _ => false,
-        }
+        let want = before.get(key.as_str()).unwrap_or(&null);
+        let got = clip.transform.get(key.as_str()).unwrap_or(&null);
+        same_value(got, want)
     });
     if unchanged {
         return Some(format!(

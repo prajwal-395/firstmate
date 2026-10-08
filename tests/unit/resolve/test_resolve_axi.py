@@ -2848,6 +2848,28 @@ def test_edit_trim_apply_journals(edit_patched, tmp_path, capsys):
     assert entries[0]["final"] == "Reel 29 - salvage"
 
 
+def test_edit_trim_preserves_source_when_replacement_does_not_read_back(
+        edit_patched, monkeypatch, capsys):
+    """A returned AppendToTimeline handle is not proof the replacement
+    landed on the target timeline. Keep the source until the new item and
+    its requested spans read back from that timeline."""
+    env = edit_patched
+    original, neighbor = _items(env)
+    returned_but_unplaced = _Item(
+        "LC0001.MXF", 10, 50, pool=original.GetMediaPoolItem(),
+        track_type="video", track_index=1, uid="uid-unplaced")
+    monkeypatch.setattr(
+        env["project"].GetMediaPool(), "AppendToTimeline",
+        lambda _payload: [returned_but_unplaced])
+
+    result = cmd_edit_trim(_at(source_in=1010, source_out=1049, apply=True))
+
+    assert result == 1
+    assert _items(env) == [original, neighbor]
+    assert env["timeline"].deleted == []
+    assert "did not verify" in capsys.readouterr().out
+
+
 def test_edit_speed_apply_journals(edit_patched, tmp_path, capsys):
     """A speed change journals through the undo journal."""
     project_folder = tmp_path / "speed-project"

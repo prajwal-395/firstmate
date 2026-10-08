@@ -338,6 +338,11 @@ def _op_cases():
                "keys": ["Pan", "Tilt", "ZoomX", "ZoomY"],
                "before": {"Pan": 0.0, "Tilt": 0.0, "ZoomX": 1.0,
                           "ZoomY": 1.0}}
+    reframe_missing = {**reframe,
+                       "before": {key: None for key in reframe["keys"]}}
+    no_transform = copy.deepcopy(base)
+    next(clip for clip in _clips_of(no_transform)
+         if clip["unique_id"] == "a")["transform"] = {}
     set_property = {"op": "clip.set_property", "unique_id": "a",
                     "key": "ZoomX", "value": 1.4}
     retime = {"op": "retime", "unique_id": "a", "percent": 50.0,
@@ -454,6 +459,8 @@ def _op_cases():
         # ── clip properties ─────────────────────────────────────
         ("clip.smart_reframe", reframe, _with_transform(base, "a", Pan=1.5)),
         ("clip.smart_reframe-unchanged", reframe, base),
+        ("clip.smart_reframe-null-unchanged", reframe_missing,
+         no_transform),
         ("clip.set_property", set_property,
          _with_transform(base, "a", ZoomX=1.4)),
         ("clip.set_property-wrong", set_property, base),

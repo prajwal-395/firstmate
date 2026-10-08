@@ -4071,7 +4071,23 @@ def _replace_item(timeline, pool, orig, source_in: int,
     if not new_items:
         return None, ("the re-place returned nothing - the original "
                       "is untouched.")
-    return new_items[0], ""
+    replacement = new_items[0]
+    readback = _item_span(replacement)
+    try:
+        verified = (
+            bool(readback["uid"])
+            and int(readback["record_in"]) == int(record_frame)
+            and int(readback["record_out"]) > int(readback["record_in"])
+            and int(readback["source_in"]) == int(source_in)
+            and int(readback["source_out"]) == int(source_out)
+            and _presence(timeline, readback["uid"]))
+    except (TypeError, ValueError):
+        verified = False
+    if not verified:
+        return None, ("the re-place returned an item that did not verify "
+                      "at the requested source range and record frame - "
+                      "the original is untouched.")
+    return replacement, ""
 
 
 def _drop_original(project, timeline, uid: str):
