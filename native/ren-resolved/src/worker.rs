@@ -26,12 +26,16 @@ pub struct WorkerResponse {
     pub result: Option<Value>,
     pub error: String,
     pub refused: bool,
+    pub cancelled: bool,
 }
 
 impl WorkerResponse {
     /// The observation as a job outcome: `ok` carries the result, a refusal
     /// carries the refusal's fields, a failure carries only the error.
     pub fn into_job_outcome(self) -> (String, Option<Value>, String) {
+        if self.cancelled {
+            return ("cancelled".to_string(), self.result, self.error);
+        }
         if self.ok {
             return ("done".to_string(), self.result, String::new());
         }
@@ -136,6 +140,10 @@ impl Worker {
                         .to_string(),
                     refused: response
                         .get("refused")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false),
+                    cancelled: response
+                        .get("cancelled")
                         .and_then(|v| v.as_bool())
                         .unwrap_or(false),
                 })

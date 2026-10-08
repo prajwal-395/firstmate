@@ -115,6 +115,7 @@ def _execute_job(job: dict) -> dict:
     flock lives in Python.
     """
     from library.tools import resolve_lock
+    from library.tools.resolved import cancellation
     from library.tools.resolved import jobs as job_kinds
 
     kind = job["kind"]
@@ -136,6 +137,9 @@ def _execute_job(job: dict) -> dict:
                 return _reply(job["id"], True)
             result = job_kinds.run(job, resolve)
             return _reply(job["id"], True, result=result)
+    except cancellation.CancelRequested as exc:
+        return _reply(job["id"], False, error=str(exc),
+                      extra={"cancelled": True})
     except job_kinds.JobRefused as exc:
         return _reply(job["id"], False, error=str(exc), refused=True,
                       result=exc.result)
@@ -149,6 +153,8 @@ def _execute_job(job: dict) -> dict:
             _drop_cached_connection()
         return _reply(job["id"], False,
                       error=f"{type(exc).__name__}: {exc}")
+    finally:
+        cancellation.clear(job["id"])
 
 
 # ── probe / health / post-restart check ──────────────────────────────

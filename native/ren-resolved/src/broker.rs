@@ -302,6 +302,34 @@ impl Broker {
         self.store.get(job_id)
     }
 
+    /// Stop queued work, or request a cooperative stop from the one live
+    /// qualification probe whose runner has no Resolve side effects.
+    pub fn request_cancel(&self, job_id: &str) -> Result<Option<Receipt>, String> {
+        let (lock, _) = &*self.state;
+        let state = lock.lock().unwrap();
+        if state.queued.contains_key(job_id) {
+            drop(state);
+            return Ok(self.cancel(job_id, "cancelled"));
+        }
+        if !state.running.contains_key(job_id) {
+            return Ok(self.store.get(job_id));
+        }
+        let job = self.store.get(job_id);
+        let Some(job) = job else { return Ok(None) };
+        if job.kind != "resolve.activity_probe" {
+            return Err(format!(
+                "{} has no safe running cancellation path; Resolve remains shielded until it finishes",
+                job.kind));
+        }
+        let marker = crate::server::lock_dir()
+            .join("ren-resolved-cancel").join(job_id);
+        std::fs::create_dir_all(marker.parent().unwrap())
+            .map_err(|exc| format!("could not prepare safe Stop request: {exc}"))?;
+        std::fs::write(marker, b"requested\n")
+            .map_err(|exc| format!("could not send safe Stop request: {exc}"))?;
+        Ok(Some(job))
+    }
+
     /// End a grant (or cancel it, if it was never started).
     pub fn release(&self, job_id: &str, state: &str, error: &str) {
         let (lock, cond) = &*self.state;
@@ -641,4 +669,52 @@ fn sha256(bytes: &[u8]) -> String {
         out.push_str(&format!("{:08x}", word));
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::path::PathBuf;
+
+    #[test]
+    fn running_stop_is_only_accepted_for_a_no_edit_probe() {
+        let scratch = std::env::temp_dir().join(format!(
+            "ren-resolved-cancel-test-{}-{}",
+            std::process::id(), crate::store::now().to_bits()));
+        std::fs::create_dir_all(&scratch).unwrap();
+        std::env::set_var("PIPELINE_RESOLVE_LOCK_DIR", &scratch);
+        let db = scratch.join("jobs.sqlite3");
+        let store = Arc::new(JobStore::open(&db).unwrap());
+        let broker = Broker::new(Arc::clone(&store));
+
+        for (id, kind) in [("probe", "resolve.activity_probe"),
+                           ("edit", "timeline.apply_patch")] {
+            store.insert(&JobRecord {
+                id: id.to_string(), kind: kind.to_string(),
+                priority: "interactive".to_string(), mode: "exclusive".to_string(),
+                executed: true, params: json!({}), project: "Ren Qualification".to_string(),
+                timeline: String::new(), qualification: true,
+                coalesce_key: None, owner: "test".to_string(),
+                state: "running".to_string(), subscribers: 1,
+                submitted: crate::store::now(),
+            }).unwrap();
+            broker.state.0.lock().unwrap().running.insert(id.to_string(), Pending {
+                id: id.to_string(), priority: "interactive".to_string(),
+                mode: "exclusive".to_string(), submitted: crate::store::now(),
+                project: "Ren Qualification".to_string(), timeline: String::new(),
+                executed: true, qualification: true, locality: "project".to_string(),
+            });
+        }
+
+        assert_eq!(broker.request_cancel("probe").unwrap().unwrap().state, "running");
+        assert!(scratch.join("ren-resolved-cancel/probe").is_file());
+        assert!(broker.request_cancel("edit").unwrap_err().contains("no safe running cancellation"));
+        assert!(!scratch.join("ren-resolved-cancel/edit").exists());
+
+        drop(broker);
+        drop(store);
+        std::env::remove_var("PIPELINE_RESOLVE_LOCK_DIR");
+        std::fs::remove_dir_all(PathBuf::from(scratch)).unwrap();
+    }
 }

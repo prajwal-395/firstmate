@@ -848,6 +848,7 @@ def _broker_turn(purpose: str, exclusive: bool, interactive: bool,
     starts on demand, so a worker never has to be the one running it -
     and one started here is detached and outlives this process.
     """
+    _ensure_activity_overlay()
     from library.tools.resolved import client
     try:
         client.ensure()
@@ -1031,7 +1032,50 @@ def _write_lease(lease: Lease) -> None:
     try:
         lease_path().write_text(
             json.dumps(asdict(lease), indent=2) + "\n", encoding="utf-8")
+        _start_activity_overlay()
     except OSError:  # pragma: no cover - diagnostic only, never a decision
+        pass
+
+
+def _activity_overlay_binary() -> Path:
+    return (Path(__file__).resolve().parents[2] / "native" / "target"
+            / "release" / "resolve-activity-overlay")
+
+
+def _ensure_activity_overlay() -> None:
+    """Build the macOS shield before a broker turn can acquire Resolve."""
+    if sys.platform != "darwin" or "PYTEST_CURRENT_TEST" in os.environ:
+        return
+    binary = _activity_overlay_binary()
+    if binary.is_file() and os.access(binary, os.X_OK):
+        return
+    root = Path(__file__).resolve().parents[2]
+    from library.tools import native_refresh
+    native_refresh.ensure_current(
+        root, parts={"resolve-activity-overlay":
+                     native_refresh.PARTS["resolve-activity-overlay"]})
+    if not binary.is_file() or not os.access(binary, os.X_OK):
+        raise RuntimeError(
+            "Resolve activity overlay is unavailable; refusing to acquire "
+            "the Resolve lease without its input shield")
+
+
+def _start_activity_overlay() -> None:
+    """Start the one non-activating HUD; it exits when the lease is gone."""
+    if sys.platform != "darwin" or "PYTEST_CURRENT_TEST" in os.environ:
+        return
+    binary = _activity_overlay_binary()
+    if not binary.is_file() or not os.access(binary, os.X_OK):
+        return
+    import subprocess
+    try:
+        subprocess.Popen(
+            [str(binary), str(lock_dir())], stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True, close_fds=True)
+    except OSError:
+        # Acquisition already succeeded; the app's lock remains the hard
+        # exclusion mechanism if the optional presentation cannot launch.
         pass
 
 

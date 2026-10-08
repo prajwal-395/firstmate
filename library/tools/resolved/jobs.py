@@ -90,13 +90,15 @@ KINDS = ("lease", "timeline.snapshot", "timeline.observe_current",
          "resolve.ui_transaction", "reel.promote_staged",
          "reel.prepare_qualification_fixture",
          "reel.probe_qualification_marker_loss",
-          "resolve.qualification_session", "timeline.drt_export_probe",
+          "resolve.qualification_session", "resolve.activity_probe",
+          "timeline.drt_export_probe",
           "reel.copy_tv_ending")
 
 # These qualification-only writes deliberately enter from the currently
 # open captain project, preserve it, and restore it around their fixed Q
 # operation. The server still validates their project field before borrow.
 BORROWING_QUALIFICATION_KINDS = frozenset({
+    "resolve.activity_probe",
     "reel.promote_staged",
     "reel.prepare_qualification_fixture",
     "reel.probe_qualification_marker_loss",
@@ -326,6 +328,24 @@ def prepare(kind: str, params: dict, qualification: bool = False) -> dict:
                  "project": "", "timeline": "",
                  "locality": "none",
                  "coalesce_key": _coalesce_key(kind)}
+    elif kind == "resolve.activity_probe":
+        # A no-edit job used to verify the lease activity overlay and its
+        # cooperative Stop path on a live Resolve instance. It holds the
+        # same broker lease as every other job but makes no project edits.
+        if not qualification:
+            raise JobRefused(
+                "resolve.activity_probe is restricted to qualification runs")
+        requested_project = params.get("project", "") or ""
+        refuse_qualification(requested_project or QUALIFICATION_PROJECT)
+        seconds = params.get("seconds", 10)
+        if (not isinstance(seconds, (int, float)) or isinstance(seconds, bool)
+                or not 0.1 <= seconds <= 30):
+            raise JobRefused(
+                "resolve.activity_probe seconds must be between 0.1 and 30")
+        project = QUALIFICATION_PROJECT
+        shape = {"mode": EXCLUSIVE, "priority": "interactive",
+                 "executed": True, "project": project, "timeline": "",
+                 "locality": "project", "coalesce_key": None}
     elif kind == "resolve.ui_transaction":
         project = _required(params, "project", kind)
         timeline = params.get("timeline", "") or ""
@@ -487,6 +507,21 @@ def run(job: dict, resolve) -> dict | None:
     from library.tools.transform_write_log import write_scope
     kind, params = job["kind"], job["params"]
     purpose = f"ren-resolved {kind} {job['id']}"
+    if kind == "resolve.activity_probe":
+        # Test and qualification hook: the only work is a timed wait, so
+        # Stop can be honored between short sleeps; borrowed() restores the
+        # captain's exact project, timeline and page before the lease ends.
+        import time
+
+        from library.tools import qualification_project
+        from library.tools.resolved import cancellation
+        with qualification_project.borrowed(resolve) as before:
+            deadline = time.monotonic() + float(params.get("seconds", 10))
+            while time.monotonic() < deadline:
+                cancellation.checkpoint(job["id"])
+                time.sleep(min(0.05, deadline - time.monotonic()))
+        return {"elapsed": float(params.get("seconds", 10)),
+                "timeline_edits": 0, "restored": before}
     if kind == "resolve_axi":
         with write_scope(
                 project=job.get("project"), timeline_name=job.get("timeline"),

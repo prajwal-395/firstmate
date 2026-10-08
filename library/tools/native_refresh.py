@@ -76,6 +76,15 @@ PARTS = {
         "script": ("scripts", "build_resolve_control.sh"),
         "args": (),
     },
+    "resolve-activity-overlay": {
+        "scope": (
+            "native/resolve-activity-overlay/main.swift",
+            "scripts/build_resolve_activity_overlay.sh",
+        ),
+        "binary": ("native", "target", "release", "resolve-activity-overlay"),
+        "script": ("scripts", "build_resolve_activity_overlay.sh"),
+        "args": (),
+    },
     "ren_native": {
         "scope": (),
         "binary": None,

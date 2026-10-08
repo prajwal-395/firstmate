@@ -10,7 +10,8 @@ per request.
     {"op": "result", "id": ID, "wait": SECONDS}
                                         -> {"job": <receipt>} once terminal,
                                            or as it stands at the deadline
-    {"op": "cancel", "id": ID}          -> {"job": <receipt>} (queued only)
+    {"op": "cancel", "id": ID}          -> {"job": <receipt>}; running
+                                            jobs must declare safe Stop support
     {"op": "list", "limit": N}          -> {"jobs": [...], "running": [...]}
     {"op": "acquire", "params": {...}, "owner": O, "qualification": false,
      "wait": SECONDS}                   -> {"granted": ID} | {"error": ...}
@@ -36,6 +37,7 @@ from pathlib import Path
 
 from library.tools.resolved import jobs as job_kinds
 from library.tools.resolved import scheduler
+from library.tools.resolved.cancellation import CancelRequested, clear
 from library.tools.resolved.store import (
     TERMINAL,
     IdempotencyConflict,
@@ -178,6 +180,25 @@ class Broker:
                 self._cond.notify_all()
         return self.store.get(job_id)
 
+    def request_cancel(self, job_id: str) -> dict | None:
+        """Cancel queued work, or request a declared safe running stop."""
+        with self._cond:
+            if job_id in self._queued:
+                return self.cancel(job_id)
+            if job_id not in self._running:
+                return self.store.get(job_id)
+            job = self.store.get(job_id)
+            if job is None:
+                return None
+            if job["kind"] != "resolve.activity_probe":
+                raise job_kinds.JobRefused(
+                    f"{job['kind']} has no safe running cancellation path; "
+                    "Resolve remains shielded until it finishes")
+            from library.tools.resolved import cancellation
+            cancellation.request(job_id)
+            self._cond.notify_all()
+            return job
+
     def release(self, job_id: str, state: str = "done",
                 error: str = "") -> None:
         """End a grant (or cancel it, if it was never started)."""
@@ -298,15 +319,16 @@ class Broker:
                 if not job["executed"]:
                     return "granted", None, ""
                 return "done", job_kinds.run(job, resolve), ""
+        except CancelRequested as exc:
+            clear(job["id"])
+            return "cancelled", None, str(exc)
         except job_kinds.JobRefused as exc:
             return "rejected", exc.result, str(exc)
         except Exception as exc:                              # noqa: BLE001
             # The job failed; the broker does not. A dead connection is
             # reopened on the next job rather than trusted - EXCEPT inside
-            # a project-switch window, where dropping (and the reconnect
-            # that follows) races Resolve's scripting-thread shutdown
-            # (2026-10-06 EXC_GUARD): the handle is kept and the next job
-            # re-verifies it after the settle instead.
+            # a project-switch window, where dropping and reconnecting
+            # races Resolve's scripting-thread shutdown.
             from library.tools import resolve_switch_guard
             if resolve_switch_guard.connection_may_drop():
                 self._resolve = None
@@ -366,6 +388,7 @@ class _Handler(socketserver.StreamRequestHandler):
         op = request.get("op")
         if op == "ping":
             from dataclasses import asdict
+
             from library.tools.resolve_lock import LEASE_FILENAME, holder
             socket_path = Path(self.server.server_address)
             lease = holder(socket_path.parent / LEASE_FILENAME)
@@ -388,7 +411,7 @@ class _Handler(socketserver.StreamRequestHandler):
             wait = float(request.get("wait", 0)) if op == "result" else 0.0
             return {"job": broker.result(request["id"], wait)}
         if op == "cancel":
-            return {"job": broker.cancel(request["id"])}
+            return {"job": broker.request_cancel(request["id"])}
         if op == "list":
             return {"jobs": broker.store.recent(int(request.get("limit", 20))),
                     "running": broker.running()}

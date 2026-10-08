@@ -107,8 +107,10 @@ impl Daemon {
                 protocol::wire(&JobReply { job })
             }
             Request::Cancel { id } => {
-                let job = self.broker.cancel(id, "cancelled");
-                protocol::wire(&JobReply { job })
+                match self.broker.request_cancel(id) {
+                    Ok(job) => protocol::wire(&JobReply { job }),
+                    Err(error) => protocol::wire(&ErrorReply { error }),
+                }
             }
             Request::List { limit } => {
                 let jobs = self.broker.store.recent(*limit);
